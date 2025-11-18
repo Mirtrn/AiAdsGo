@@ -364,3 +364,201 @@ export async function listGoogleAdsCampaigns(params: {
   const results = await customer.query(query)
   return results
 }
+
+/**
+ * 创建Google Ads Ad Group
+ */
+export async function createGoogleAdsAdGroup(params: {
+  customerId: string
+  refreshToken: string
+  campaignId: string
+  adGroupName: string
+  cpcBidMicros?: number
+  status: 'ENABLED' | 'PAUSED'
+  accountId?: number
+  userId?: number
+}): Promise<{ adGroupId: string; resourceName: string }> {
+  const customer = await getCustomer(
+    params.customerId,
+    params.refreshToken,
+    params.accountId,
+    params.userId
+  )
+
+  const adGroup = {
+    name: params.adGroupName,
+    campaign: `customers/${params.customerId}/campaigns/${params.campaignId}`,
+    status: enums.AdGroupStatus[params.status],
+    type: enums.AdGroupType.SEARCH_STANDARD,
+  }
+
+  // 如果提供了CPC出价，设置手动CPC
+  if (params.cpcBidMicros) {
+    ;(adGroup as any).cpc_bid_micros = params.cpcBidMicros
+  }
+
+  const response = await customer.adGroups.create([adGroup])
+
+  if (!response || response.length === 0) {
+    throw new Error('创建Ad Group失败：无响应')
+  }
+
+  const result = response[0]
+  const adGroupId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+
+  return {
+    adGroupId,
+    resourceName: result.results?.[0]?.resource_name || '',
+  }
+}
+
+/**
+ * 创建Google Ads Keyword
+ */
+export async function createGoogleAdsKeyword(params: {
+  customerId: string
+  refreshToken: string
+  adGroupId: string
+  keywordText: string
+  matchType: 'BROAD' | 'PHRASE' | 'EXACT'
+  status: 'ENABLED' | 'PAUSED'
+  finalUrl?: string
+  isNegative?: boolean
+  accountId?: number
+  userId?: number
+}): Promise<{ keywordId: string; resourceName: string }> {
+  const customer = await getCustomer(
+    params.customerId,
+    params.refreshToken,
+    params.accountId,
+    params.userId
+  )
+
+  if (params.isNegative) {
+    // 创建否定关键词
+    const negativeKeyword = {
+      ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
+      keyword: {
+        text: params.keywordText,
+        match_type: enums.KeywordMatchType[params.matchType],
+      },
+    }
+
+    const response = await customer.adGroupCriteria.create([
+      {
+        ...negativeKeyword,
+        negative: true,
+      },
+    ])
+
+    if (!response || response.length === 0) {
+      throw new Error('创建否定关键词失败')
+    }
+
+    const result = response[0]
+    const keywordId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+
+    return {
+      keywordId,
+      resourceName: result.results?.[0]?.resource_name || '',
+    }
+  } else {
+    // 创建普通关键词
+    const keyword = {
+      ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
+      status: enums.AdGroupCriterionStatus[params.status],
+      keyword: {
+        text: params.keywordText,
+        match_type: enums.KeywordMatchType[params.matchType],
+      },
+    }
+
+    // 如果提供了final URL，添加到关键词配置
+    if (params.finalUrl) {
+      ;(keyword as any).final_urls = [params.finalUrl]
+    }
+
+    const response = await customer.adGroupCriteria.create([keyword])
+
+    if (!response || response.length === 0) {
+      throw new Error('创建关键词失败')
+    }
+
+    const result = response[0]
+    const keywordId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+
+    return {
+      keywordId,
+      resourceName: result.results?.[0]?.resource_name || '',
+    }
+  }
+}
+
+/**
+ * 批量创建Google Ads Keywords
+ */
+export async function createGoogleAdsKeywordsBatch(params: {
+  customerId: string
+  refreshToken: string
+  adGroupId: string
+  keywords: Array<{
+    keywordText: string
+    matchType: 'BROAD' | 'PHRASE' | 'EXACT'
+    status: 'ENABLED' | 'PAUSED'
+    finalUrl?: string
+    isNegative?: boolean
+  }>
+  accountId?: number
+  userId?: number
+}): Promise<Array<{ keywordId: string; resourceName: string; keywordText: string }>> {
+  const customer = await getCustomer(
+    params.customerId,
+    params.refreshToken,
+    params.accountId,
+    params.userId
+  )
+
+  const results: Array<{ keywordId: string; resourceName: string; keywordText: string }> = []
+
+  // 分批处理（每批最多100个）
+  const batchSize = 100
+  for (let i = 0; i < params.keywords.length; i += batchSize) {
+    const batch = params.keywords.slice(i, i + batchSize)
+
+    const keywordOperations = batch.map(kw => {
+      const operation = {
+        ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
+        keyword: {
+          text: kw.keywordText,
+          match_type: enums.KeywordMatchType[kw.matchType],
+        },
+      }
+
+      if (kw.isNegative) {
+        ;(operation as any).negative = true
+      } else {
+        ;(operation as any).status = enums.AdGroupCriterionStatus[kw.status]
+        if (kw.finalUrl) {
+          ;(operation as any).final_urls = [kw.finalUrl]
+        }
+      }
+
+      return operation
+    })
+
+    const response = await customer.adGroupCriteria.create(keywordOperations)
+
+    if (response && response.length > 0) {
+      response.forEach((result, index) => {
+        const keywordId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+        results.push({
+          keywordId,
+          resourceName: result.results?.[0]?.resource_name || '',
+          keywordText: batch[index].keywordText,
+        })
+      })
+    }
+  }
+
+  return results
+}
