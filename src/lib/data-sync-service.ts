@@ -420,11 +420,11 @@ export class DataSyncService {
   }
 
   /**
-   * 计算下次同步时间（5分钟后）
+   * 计算下次同步时间（6小时后）
    */
   private calculateNextSyncTime(): string {
     const nextSync = new Date()
-    nextSync.setMinutes(nextSync.getMinutes() + 5)
+    nextSync.setHours(nextSync.getHours() + 6)
     return nextSync.toISOString()
   }
 }

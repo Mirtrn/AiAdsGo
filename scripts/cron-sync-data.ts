@@ -3,8 +3,8 @@
  * 用于系统cron调度，自动同步Google Ads性能数据
  *
  * 使用方法：
- * 1. 添加到系统crontab：
- *    */5 * * * * cd /path/to/project && npx tsx scripts/cron-sync-data.ts >> logs/sync.log 2>&1
+ * 1. 添加到系统crontab（每6小时执行一次）：
+ *    0 */6 * * * cd /path/to/project && npx tsx scripts/cron-sync-data.ts >> logs/sync.log 2>&1
  *
  * 2. 或使用PM2/Forever等进程管理器
  */
