@@ -78,11 +78,7 @@ export default function BatchUploadOffersPage() {
     setResults(null)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       // 读取CSV文件
       const text = await file.text()
@@ -93,8 +89,7 @@ export default function BatchUploadOffersPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({ offers }),
       })
 

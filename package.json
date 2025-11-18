@@ -17,10 +17,12 @@
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^9.2.2",
     "cheerio": "^1.1.2",
+    "dotenv": "^17.2.3",
     "google-ads-api": "^21.0.1",
     "google-auth-library": "^10.3.1",
     "https-proxy-agent": "^7.0.6",
     "idb": "^8.0.0",
+    "jose": "^6.1.0",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.544.0",
@@ -31,6 +33,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.1",
     "@types/bcrypt": "^5.0.2",
     "@types/better-sqlite3": "^7.6.8",
     "@types/jsonwebtoken": "^9.0.5",

@@ -64,17 +64,14 @@ export default function ChangePasswordModal({ isOpen, onClose, onSuccess }: Chan
     setLoading(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        throw new Error('未登录')
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch('/api/user/password', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include', // 确保发送cookie
         body: JSON.stringify({
           oldPassword: formData.oldPassword,
           newPassword: formData.newPassword,
@@ -89,8 +86,11 @@ export default function ChangePasswordModal({ isOpen, onClose, onSuccess }: Chan
 
       alert('密码修改成功！请重新登录')
 
-      // 清除token，强制重新登录
-      localStorage.removeItem('auth_token')
+      // 清除HttpOnly Cookie，强制重新登录
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      })
 
       onSuccess()
     } catch (err: any) {

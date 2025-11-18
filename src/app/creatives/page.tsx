@@ -76,17 +76,12 @@ export default function CreativesPage() {
 
   const fetchOfferAndCreatives = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       // 获取Offer信息
       const offerRes = await fetch(`/api/offers/${offerId}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!offerRes.ok) {
@@ -99,8 +94,7 @@ export default function CreativesPage() {
       // 获取创意列表
       const creativesRes = await fetch(`/api/creatives?offerId=${offerId}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!creativesRes.ok) {
@@ -116,8 +110,7 @@ export default function CreativesPage() {
           `/api/ad-groups?campaignId=${offerData.offer.campaignId}`,
           {
             headers: {
-              Authorization: `Bearer ${token}`,
-            },
+},
           }
         )
 
@@ -138,18 +131,13 @@ export default function CreativesPage() {
     setError('')
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/offers/${offerId}/generate-creatives`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({ count: 3 }),
       })
 
@@ -170,18 +158,13 @@ export default function CreativesPage() {
 
   const handleApprove = async (creativeId: number, isApproved: boolean) => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const method = isApproved ? 'DELETE' : 'POST'
       const response = await fetch(`/api/creatives/${creativeId}/approve`, {
         method,
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!response.ok) {
@@ -200,17 +183,12 @@ export default function CreativesPage() {
     }
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/creatives/${creativeId}`, {
         method: 'DELETE',
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!response.ok) {
@@ -247,18 +225,13 @@ export default function CreativesPage() {
 
   const saveEdit = async (creativeId: number) => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/creatives/${creativeId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify(editForm),
       })
 
@@ -280,18 +253,13 @@ export default function CreativesPage() {
     }
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/creatives/${creativeId}/assign-adgroup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({ adGroupId: selectedAdGroupId }),
       })
 
@@ -317,17 +285,12 @@ export default function CreativesPage() {
     setSyncingId(creativeId)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/creatives/${creativeId}/sync`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       const data = await response.json()

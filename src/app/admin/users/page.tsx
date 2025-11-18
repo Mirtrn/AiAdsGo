@@ -37,11 +37,7 @@ export default function AdminUsersPage() {
   const loadUsers = async () => {
     try {
       setLoading(true)
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const queryParams = new URLSearchParams({
         page: page.toString(),
@@ -82,13 +78,13 @@ export default function AdminUsersPage() {
     }
 
     try {
-      const token = localStorage.getItem('auth_token')
+      // HttpOnly Cookie自动携带，无需手动操作
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include', // 确保发送cookie
         body: JSON.stringify({
           isActive: !currentStatus,
         }),
@@ -114,13 +110,13 @@ export default function AdminUsersPage() {
     }
 
     try {
-      const token = localStorage.getItem('auth_token')
+      // HttpOnly Cookie自动携带，无需手动操作
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include', // 确保发送cookie
         body: JSON.stringify({
           resetPassword: true,
         }),
@@ -145,12 +141,10 @@ export default function AdminUsersPage() {
     }
 
     try {
-      const token = localStorage.getItem('auth_token')
+      // HttpOnly Cookie自动携带，无需手动操作
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        credentials: 'include', // 确保发送cookie
       })
 
       const data = await response.json()

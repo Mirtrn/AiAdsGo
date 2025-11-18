@@ -77,6 +77,7 @@ ${pageData.text}
 
 /**
  * 生成广告创意（支持从历史创意学习）
+ * 增强版：支持广告导向（brand/product/promo）和更丰富的广告元素
  */
 export async function generateAdCreatives(
   productInfo: {
@@ -87,14 +88,27 @@ export async function generateAdCreatives(
     targetAudience: string
     targetCountry: string
   },
-  userId?: number
+  options?: {
+    userId?: number
+    orientation?: 'brand' | 'product' | 'promo'
+  }
 ): Promise<{
   headlines: string[]
   descriptions: string[]
+  callouts: string[]
+  sitelinks: Array<{ title: string; description?: string }>
   usedLearning: boolean
 }> {
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+    // 根据orientation调整生成策略
+    const orientationGuidance = {
+      brand: '重点突出品牌知名度、品牌价值和信任度',
+      product: '重点突出产品功能、特性和差异化优势',
+      promo: '重点突出优惠、折扣和限时促销信息'
+    }
+    const guidance = orientationGuidance[options?.orientation || 'brand']
 
     let basePrompt = `你是一个专业的Google Ads广告文案撰写专家。请根据以下产品信息，生成高质量的Google搜索广告文案。
 
@@ -104,8 +118,9 @@ export async function generateAdCreatives(
 产品亮点: ${productInfo.productHighlights}
 目标受众: ${productInfo.targetAudience}
 目标国家: ${productInfo.targetCountry}
+广告导向: ${guidance}
 
-请以JSON格式返回广告创意：
+请以JSON格式返回完整的广告创意元素：
 {
   "headlines": [
     "标题1（最多30个字符）",
@@ -115,24 +130,39 @@ export async function generateAdCreatives(
   "descriptions": [
     "描述1（最多90个字符）",
     "描述2（最多90个字符）"
+  ],
+  "callouts": [
+    "宣传信息1（最多25个字符）",
+    "宣传信息2（最多25个字符）",
+    "宣传信息3（最多25个字符）",
+    "宣传信息4（最多25个字符）"
+  ],
+  "sitelinks": [
+    { "title": "链接文字1（最多25个字符）", "description": "链接描述1（最多35个字符）" },
+    { "title": "链接文字2（最多25个字符）", "description": "链接描述2（最多35个字符）" },
+    { "title": "链接文字3（最多25个字符）", "description": "链接描述3（最多35个字符）" },
+    { "title": "链接文字4（最多25个字符）", "description": "链接描述4（最多35个字符）" }
   ]
 }
 
 要求：
-1. 标题必须在30个字符以内（包括中文和英文字符）
+1. 标题必须在30个字符以内
 2. 描述必须在90个字符以内
-3. 突出产品的独特价值和优势
-4. 使用吸引人的行动号召语
-5. 符合Google Ads政策
-6. 只返回JSON，不要其他文字`
+3. 宣传信息（Callouts）每条最多25个字符
+4. 附加链接标题最多25个字符，描述最多35个字符
+5. 突出产品的独特价值和优势
+6. 使用吸引人的行动号召语
+7. ${guidance}
+8. 符合Google Ads政策
+9. 只返回JSON，不要其他文字`
 
     let usedLearning = false
 
     // 如果提供userId，使用历史创意学习优化Prompt
-    if (userId) {
+    if (options?.userId) {
       try {
         const { getUserOptimizedPrompt } = await import('./creative-learning')
-        const optimizedPrompt = getUserOptimizedPrompt(userId, basePrompt)
+        const optimizedPrompt = getUserOptimizedPrompt(options.userId, basePrompt)
         if (optimizedPrompt !== basePrompt) {
           basePrompt = optimizedPrompt
           usedLearning = true
@@ -158,6 +188,8 @@ export async function generateAdCreatives(
     return {
       headlines: creatives.headlines || [],
       descriptions: creatives.descriptions || [],
+      callouts: creatives.callouts || [],
+      sitelinks: creatives.sitelinks || [],
       usedLearning
     }
   } catch (error: any) {

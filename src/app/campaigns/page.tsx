@@ -31,16 +31,11 @@ export default function CampaignsPage() {
 
   const fetchCampaigns = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch('/api/campaigns', {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!response.ok) {
@@ -60,17 +55,12 @@ export default function CampaignsPage() {
     setSyncing(campaignId)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/campaigns/${campaignId}/sync`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       const data = await response.json()
@@ -94,17 +84,12 @@ export default function CampaignsPage() {
     }
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/campaigns/${campaignId}`, {
         method: 'DELETE',
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!response.ok) {

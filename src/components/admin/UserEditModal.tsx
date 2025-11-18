@@ -47,10 +47,7 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
     setLoading(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        throw new Error('未登录')
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       // 验证日期
       if (formData.validFrom && formData.validUntil) {
@@ -65,8 +62,8 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include', // 确保发送cookie
         body: JSON.stringify({
           packageType: formData.packageType,
           validFrom: formData.validFrom ? new Date(formData.validFrom).toISOString() : null,

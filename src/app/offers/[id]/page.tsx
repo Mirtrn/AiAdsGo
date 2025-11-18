@@ -39,16 +39,9 @@ export default function OfferDetailPage() {
 
   const fetchOffer = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
-
+      // HttpOnly Cookie自动携带，无需手动操作
       const response = await fetch(`/api/offers/${offerId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'include', // 确保发送cookie
       })
 
       if (!response.ok) {
@@ -72,17 +65,10 @@ export default function OfferDetailPage() {
     setDeleting(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
-
+      // HttpOnly Cookie自动携带，无需手动操作
       const response = await fetch(`/api/offers/${offerId}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'include', // 确保发送cookie
       })
 
       if (!response.ok) {
@@ -100,17 +86,10 @@ export default function OfferDetailPage() {
     setScraping(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
-
+      // HttpOnly Cookie自动携带，无需手动操作
       const response = await fetch(`/api/offers/${offerId}/scrape`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'include', // 确保发送cookie
       })
 
       if (!response.ok) {

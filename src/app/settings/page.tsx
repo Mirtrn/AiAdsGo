@@ -36,16 +36,11 @@ export default function SettingsPage() {
 
   const fetchSettings = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch('/api/settings', {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!response.ok) {
@@ -87,11 +82,7 @@ export default function SettingsPage() {
     setSuccess('')
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const updates = Object.entries(formData[category] || {}).map(([key, value]) => ({
         category,
@@ -103,8 +94,7 @@ export default function SettingsPage() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({ updates }),
       })
 
@@ -131,18 +121,13 @@ export default function SettingsPage() {
     setSuccess('')
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch('/api/settings/validate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({
           category,
           config: formData[category] || {},

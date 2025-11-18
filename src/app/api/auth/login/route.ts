@@ -3,7 +3,7 @@ import { loginWithPassword } from '@/lib/auth'
 import { z } from 'zod'
 
 const loginSchema = z.object({
-  email: z.string().email('无效的邮箱格式'),
+  username: z.string().min(1, '用户名不能为空'),
   password: z.string().min(1, '密码不能为空'),
 })
 
@@ -23,16 +23,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { email, password } = validationResult.data
+    const { username, password } = validationResult.data
 
-    // 登录
-    const result = await loginWithPassword(email, password)
+    // 登录 (支持用户名或邮箱)
+    const result = await loginWithPassword(username, password)
 
-    return NextResponse.json({
+    // 创建响应
+    const response = NextResponse.json({
       success: true,
-      token: result.token,
       user: result.user,
     })
+
+    // 设置HttpOnly Cookie（安全的token存储方式）
+    response.cookies.set({
+      name: 'auth_token',
+      value: result.token,
+      httpOnly: true, // 防止JavaScript访问，防XSS攻击
+      secure: process.env.NODE_ENV === 'production', // 生产环境强制HTTPS
+      sameSite: 'lax', // CSRF保护
+      maxAge: 60 * 60 * 24 * 7, // 7天过期
+      path: '/', // 全站可用
+    })
+
+    return response
   } catch (error: any) {
     console.error('登录失败:', error)
 

@@ -13,6 +13,9 @@ const createOfferSchema = z.object({
   unique_selling_points: z.string().optional(),
   product_highlights: z.string().optional(),
   target_audience: z.string().optional(),
+  // 需求28：产品价格和佣金比例（可选）
+  product_price: z.string().optional(),
+  commission_payout: z.string().optional(),
 })
 
 /**
@@ -63,6 +66,12 @@ export async function POST(request: NextRequest) {
           scrape_status: offer.scrape_status,
           isActive: offer.is_active === 1,
           createdAt: offer.created_at,
+          // 新增字段（需求1和需求5）
+          offerName: offer.offer_name,
+          targetLanguage: offer.target_language,
+          // 需求28：产品价格和佣金比例
+          productPrice: offer.product_price,
+          commissionPayout: offer.commission_payout,
         },
       },
       { status: 201 }
@@ -142,6 +151,12 @@ export async function GET(request: NextRequest) {
         isActive: offer.is_active === 1,
         createdAt: offer.created_at,
         updatedAt: offer.updated_at,
+        // 新增字段（需求1和需求5）
+        offerName: offer.offer_name,
+        targetLanguage: offer.target_language,
+        // 需求28：产品价格和佣金比例
+        productPrice: offer.product_price,
+        commissionPayout: offer.commission_payout,
       })),
       total,
       limit,

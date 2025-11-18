@@ -45,16 +45,11 @@ export default function AdGroupsPage() {
 
   const fetchAdGroups = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/ad-groups?campaignId=${campaignId}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!response.ok) {
@@ -77,13 +72,10 @@ export default function AdGroupsPage() {
 
   const fetchKeywords = async (adGroupId: number) => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) return
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/keywords?adGroupId=${adGroupId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'include', // 确保发送cookie
       })
 
       if (response.ok) {
@@ -103,18 +95,13 @@ export default function AdGroupsPage() {
     setCreatingAdGroup(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch('/api/ad-groups', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({
           campaignId: parseInt(campaignId, 10),
           adGroupName: newAdGroupName,
@@ -139,18 +126,13 @@ export default function AdGroupsPage() {
     setGenerating(adGroupId)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/ad-groups/${adGroupId}/generate-keywords`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({
           includeNegativeKeywords: true,
         }),
@@ -177,17 +159,12 @@ export default function AdGroupsPage() {
     setSyncing(adGroupId)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/ad-groups/${adGroupId}/sync`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       const data = await response.json()

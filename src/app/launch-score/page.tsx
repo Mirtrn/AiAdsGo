@@ -67,17 +67,12 @@ export default function LaunchScorePage() {
 
   const fetchData = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       // 获取Offer信息
       const offerRes = await fetch(`/api/offers/${offerId}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!offerRes.ok) {
@@ -91,8 +86,7 @@ export default function LaunchScorePage() {
       if (creativeId) {
         const creativeRes = await fetch(`/api/creatives/${creativeId}`, {
           headers: {
-            Authorization: `Bearer ${token}`,
-          },
+},
         })
 
         if (creativeRes.ok) {
@@ -104,8 +98,7 @@ export default function LaunchScorePage() {
       // 获取最新的Launch Score
       const scoreRes = await fetch(`/api/offers/${offerId}/launch-score`, {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (scoreRes.ok) {
@@ -127,8 +120,7 @@ export default function LaunchScorePage() {
     try {
       const res = await fetch(`/api/launch-scores/${scoreId}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (res.ok) {
@@ -150,18 +142,13 @@ export default function LaunchScorePage() {
     setError('')
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch(`/api/offers/${offerId}/launch-score`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({ creativeId: parseInt(creativeId, 10) }),
       })
 

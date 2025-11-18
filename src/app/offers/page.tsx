@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import LaunchAdModal from '@/components/LaunchAdModal'
+import AdjustCpcModal from '@/components/AdjustCpcModal'
 
 interface Offer {
   id: number
@@ -14,6 +16,12 @@ interface Offer {
   scrape_status: string
   isActive: boolean
   createdAt: string
+  // 新增字段（需求1和需求5）
+  offerName: string | null
+  targetLanguage: string | null
+  // 需求28：产品价格和佣金比例
+  productPrice?: string | null
+  commissionPayout?: string | null
 }
 
 export default function OffersPage() {
@@ -22,25 +30,27 @@ export default function OffersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Launch Ad Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null)
+
+  // Adjust CPC Modal state
+  const [isAdjustCpcModalOpen, setIsAdjustCpcModalOpen] = useState(false)
+  const [selectedOfferForCpc, setSelectedOfferForCpc] = useState<Offer | null>(null)
+
   useEffect(() => {
     fetchOffers()
   }, [])
 
   const fetchOffers = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
-
+      // HttpOnly Cookie自动携带，无需手动获取token
       const response = await fetch('/api/offers', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'include', // 确保发送cookie
       })
 
       if (!response.ok) {
+        // Middleware会自动重定向未认证用户到登录页
         throw new Error('获取Offer列表失败')
       }
 
@@ -142,81 +152,151 @@ export default function OffersPage() {
               </div>
             </div>
           ) : (
-            <div className="bg-white shadow overflow-hidden sm:rounded-md">
-              <ul className="divide-y divide-gray-200">
-                {offers.map((offer) => (
-                  <li key={offer.id}>
-                    <a
-                      href={`/offers/${offer.id}`}
-                      className="block hover:bg-gray-50 transition"
-                    >
-                      <div className="px-4 py-4 sm:px-6">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <p className="text-lg font-medium text-indigo-600 truncate">
-                              {offer.brand}
-                            </p>
-                            <p className="mt-1 text-sm text-gray-500 truncate">
-                              {offer.url}
-                            </p>
-                          </div>
-                          <div className="ml-2 flex-shrink-0 flex">
-                            <span
-                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getScrapeStatusColor(
-                                offer.scrape_status
-                              )}`}
-                            >
-                              {getScrapeStatusLabel(offer.scrape_status)}
-                            </span>
-                          </div>
+            <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Offer标识
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      品牌名称
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      推广国家
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      推广语言
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      状态
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      操作
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {offers.map((offer) => (
+                    <tr key={offer.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <a
+                          href={`/offers/${offer.id}`}
+                          className="text-sm font-mono font-medium text-indigo-600 hover:text-indigo-900"
+                        >
+                          {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
+                        </a>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{offer.brand}</div>
+                        <div className="text-sm text-gray-500 truncate max-w-xs">{offer.url}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{offer.targetCountry}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{offer.targetLanguage || 'English'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getScrapeStatusColor(
+                            offer.scrape_status
+                          )}`}
+                        >
+                          {getScrapeStatusLabel(offer.scrape_status)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex justify-end space-x-2">
+                          {/* 需求2: 一键上广告按钮 */}
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault()
+                              setSelectedOffer(offer)
+                              setIsModalOpen(true)
+                            }}
+                            className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            title="快速创建并发布Google Ads广告"
+                          >
+                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                            </svg>
+                            一键上广告
+                          </button>
+
+                          {/* 需求2: 一键调整CPC按钮 */}
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault()
+                              setSelectedOfferForCpc(offer)
+                              setIsAdjustCpcModalOpen(true)
+                            }}
+                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            title="手动调整广告系列的CPC出价"
+                          >
+                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                            </svg>
+                            一键调整CPC
+                          </button>
+
+                          {/* 查看详情链接 */}
+                          <a
+                            href={`/offers/${offer.id}`}
+                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                          >
+                            查看详情
+                          </a>
                         </div>
-                        <div className="mt-2 sm:flex sm:justify-between">
-                          <div className="sm:flex">
-                            <p className="flex items-center text-sm text-gray-500">
-                              <svg
-                                className="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-400"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                              >
-                                <path
-                                  fillRule="evenodd"
-                                  d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                              {offer.category || '未分类'}
-                            </p>
-                            <p className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0 sm:ml-6">
-                              <svg
-                                className="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-400"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                              >
-                                <path
-                                  fillRule="evenodd"
-                                  d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                              {offer.targetCountry}
-                            </p>
-                          </div>
-                          <div className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                            <p>
-                              创建于{' '}
-                              {new Date(offer.createdAt).toLocaleDateString('zh-CN')}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </a>
-                  </li>
-                ))}
-              </ul>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
       </main>
+
+      {/* Launch Ad Modal - Requirement 3 */}
+      {selectedOffer && (
+        <LaunchAdModal
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false)
+            setSelectedOffer(null)
+          }}
+          offer={{
+            id: selectedOffer.id,
+            offerName: selectedOffer.offerName || `${selectedOffer.brand}_${selectedOffer.targetCountry}_01`,
+            brand: selectedOffer.brand,
+            targetCountry: selectedOffer.targetCountry,
+            targetLanguage: selectedOffer.targetLanguage || 'English',
+            url: selectedOffer.url,
+            affiliateLink: selectedOffer.affiliateLink || selectedOffer.url,
+            // 需求28：产品价格和佣金比例
+            productPrice: selectedOffer.productPrice,
+            commissionPayout: selectedOffer.commissionPayout,
+          }}
+        />
+      )}
+
+      {/* Adjust CPC Modal - Requirement 2 */}
+      {selectedOfferForCpc && (
+        <AdjustCpcModal
+          isOpen={isAdjustCpcModalOpen}
+          onClose={() => {
+            setIsAdjustCpcModalOpen(false)
+            setSelectedOfferForCpc(null)
+          }}
+          offer={{
+            id: selectedOfferForCpc.id,
+            offerName: selectedOfferForCpc.offerName || `${selectedOfferForCpc.brand}_${selectedOfferForCpc.targetCountry}_01`,
+            brand: selectedOfferForCpc.brand,
+          }}
+        />
+      )}
     </div>
   )
 }

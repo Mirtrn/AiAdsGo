@@ -47,17 +47,12 @@ export default function NewCampaignPage() {
 
   const fetchData = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       // 获取Offer信息
       const offerRes = await fetch(`/api/offers/${offerIdParam}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (!offerRes.ok) {
@@ -73,8 +68,7 @@ export default function NewCampaignPage() {
       // 获取Google Ads账号列表
       const accountsRes = await fetch('/api/google-ads-accounts', {
         headers: {
-          Authorization: `Bearer ${token}`,
-        },
+},
       })
 
       if (accountsRes.ok) {
@@ -99,11 +93,7 @@ export default function NewCampaignPage() {
     setSubmitting(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       // 验证必填字段
       if (!googleAdsAccountId || !campaignName || !budgetAmount) {
@@ -114,8 +104,7 @@ export default function NewCampaignPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({
           offerId: parseInt(offerIdParam!, 10),
           googleAdsAccountId: parseInt(googleAdsAccountId, 10),

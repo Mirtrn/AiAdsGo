@@ -50,6 +50,24 @@ export function findUserByEmail(email: string): User | null {
 }
 
 /**
+ * 通过用户名查找用户
+ */
+export function findUserByUsername(username: string): User | null {
+  const db = getDatabase()
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined
+  return user || null
+}
+
+/**
+ * 通过用户名或邮箱查找用户
+ */
+export function findUserByUsernameOrEmail(usernameOrEmail: string): User | null {
+  const db = getDatabase()
+  const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(usernameOrEmail, usernameOrEmail) as User | undefined
+  return user || null
+}
+
+/**
  * 通过Google ID查找用户
  */
 export function findUserByGoogleId(googleId: string): User | null {
@@ -116,17 +134,17 @@ export function updateLastLogin(userId: number): void {
 }
 
 /**
- * 邮箱密码登录
+ * 用户名/邮箱密码登录
  */
-export async function loginWithPassword(email: string, password: string): Promise<LoginResponse> {
-  const user = findUserByEmail(email)
+export async function loginWithPassword(usernameOrEmail: string, password: string): Promise<LoginResponse> {
+  const user = findUserByUsernameOrEmail(usernameOrEmail)
 
   if (!user) {
     throw new Error('用户不存在')
   }
 
   if (!user.password_hash) {
-    throw new Error('该账户未设置密码，请使用Google登录')
+    throw new Error('该账户未设置密码')
   }
 
   if (!user.is_active) {

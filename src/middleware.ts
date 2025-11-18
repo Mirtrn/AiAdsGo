@@ -1,17 +1,45 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { verifyToken, extractTokenFromHeader } from '@/lib/jwt'
+import { jwtVerify } from 'jose'
 
-// 需要认证的路径前缀
+// Middleware在Edge Runtime中运行，使用jose库进行JWT验证
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || 'default-secret-please-change-in-production'
+)
+
+/**
+ * 从请求头中提取Token
+ */
+function extractTokenFromHeader(authHeader: string | null): string | null {
+  if (!authHeader) return null
+  const parts = authHeader.split(' ')
+  if (parts.length === 2 && parts[0] === 'Bearer') {
+    return parts[1]
+  }
+  return authHeader
+}
+
+/**
+ * 验证JWT Token（Edge Runtime兼容）
+ */
+async function verifyTokenEdge(token: string): Promise<any | null> {
+  try {
+    const { payload } = await jwtVerify(token, JWT_SECRET)
+    return payload
+  } catch (error) {
+    console.error('JWT验证失败:', error)
+    return null
+  }
+}
+
+// 需要认证的路径前缀（仅API路由，页面路由在客户端组件中检查）
 const protectedPaths = [
-  '/dashboard',
-  '/offers',
-  '/campaigns',
-  '/settings',
   '/api/offers',
   '/api/campaigns',
   '/api/settings',
   '/api/creatives',
+  '/api/user',
+  '/api/google-ads',
 ]
 
 // 公开路径（无需认证）
@@ -24,44 +52,66 @@ const publicPaths = [
   '/api/auth/google',
 ]
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // 检查是否是受保护的路径
-  const isProtected = protectedPaths.some(path => pathname.startsWith(path))
+  const isProtectedApi = protectedPaths.some(path => pathname.startsWith(path))
+  const isProtectedPage = ['/dashboard', '/offers', '/campaigns', '/settings'].some(
+    path => pathname.startsWith(path)
+  )
 
   // 如果不是受保护的路径，直接放行
-  if (!isProtected) {
+  if (!isProtectedApi && !isProtectedPage) {
     return NextResponse.next()
   }
 
-  // 从请求头中提取token
-  const authHeader = request.headers.get('authorization')
-  const token = extractTokenFromHeader(authHeader)
+  // 从Cookie中读取token（HttpOnly Cookie方式）
+  const token = request.cookies.get('auth_token')?.value
 
-  // 如果没有token，返回401
+  // 如果没有token
   if (!token) {
-    return NextResponse.json(
-      { error: '未提供认证token，请先登录' },
-      { status: 401 }
-    )
+    if (isProtectedApi) {
+      // API路径：返回401 JSON
+      return NextResponse.json(
+        { error: '未提供认证token，请先登录' },
+        { status: 401 }
+      )
+    } else {
+      // 页面路径：重定向到登录页
+      const loginUrl = new URL('/login', request.url)
+      loginUrl.searchParams.set('redirect', pathname)
+      return NextResponse.redirect(loginUrl)
+    }
   }
 
-  // 验证token
-  const payload = verifyToken(token)
+  // 验证token（异步）
+  const payload = await verifyTokenEdge(token)
   if (!payload) {
-    return NextResponse.json(
-      { error: 'Token无效或已过期，请重新登录' },
-      { status: 401 }
-    )
+    if (isProtectedApi) {
+      // API路径：返回401 JSON
+      return NextResponse.json(
+        { error: 'Token无效或已过期，请重新登录' },
+        { status: 401 }
+      )
+    } else {
+      // 页面路径：重定向到登录页并清除无效cookie
+      const loginUrl = new URL('/login', request.url)
+      loginUrl.searchParams.set('redirect', pathname)
+      loginUrl.searchParams.set('error', encodeURIComponent('登录已过期，请重新登录'))
+
+      const response = NextResponse.redirect(loginUrl)
+      response.cookies.delete('auth_token')
+      return response
+    }
   }
 
   // Token有效，在请求头中添加用户信息，供后续API使用
   const requestHeaders = new Headers(request.headers)
-  requestHeaders.set('x-user-id', payload.userId.toString())
-  requestHeaders.set('x-user-email', payload.email)
-  requestHeaders.set('x-user-role', payload.role)
-  requestHeaders.set('x-user-package', payload.packageType)
+  requestHeaders.set('x-user-id', String(payload.userId))
+  requestHeaders.set('x-user-email', String(payload.email))
+  requestHeaders.set('x-user-role', String(payload.role))
+  requestHeaders.set('x-user-package', String(payload.packageType))
 
   return NextResponse.next({
     request: {

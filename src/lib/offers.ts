@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { generateOfferName, getTargetLanguage } from './offer-utils'
 
 export interface Offer {
   id: number
@@ -18,6 +19,12 @@ export interface Offer {
   is_active: number
   created_at: string
   updated_at: string
+  // 新增字段（需求1和需求5）
+  offer_name: string | null
+  target_language: string | null
+  // 需求28：产品价格和佣金比例
+  product_price: string | null
+  commission_payout: string | null
 }
 
 export interface CreateOfferInput {
@@ -30,6 +37,9 @@ export interface CreateOfferInput {
   unique_selling_points?: string
   product_highlights?: string
   target_audience?: string
+  // 需求28：产品价格和佣金比例（可选）
+  product_price?: string
+  commission_payout?: string
 }
 
 export interface UpdateOfferInput {
@@ -47,16 +57,26 @@ export interface UpdateOfferInput {
 
 /**
  * 创建新Offer
+ * 需求1: 自动生成offer_name和target_language
  */
 export function createOffer(userId: number, input: CreateOfferInput): Offer {
   const db = getDatabase()
+
+  // ========== 需求1和需求5: 自动生成字段 ==========
+  // 生成offer_name: 品牌名称_推广国家_序号（如 Reolink_US_01）
+  const offerName = generateOfferName(input.brand, input.target_country, userId)
+
+  // 根据国家自动映射推广语言（如 US→English, DE→German）
+  const targetLanguage = getTargetLanguage(input.target_country)
 
   const result = db.prepare(`
     INSERT INTO offers (
       user_id, url, brand, category, target_country, affiliate_link,
       brand_description, unique_selling_points, product_highlights,
-      target_audience, scrape_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+      target_audience, scrape_status,
+      offer_name, target_language,
+      product_price, commission_payout
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
   `).run(
     userId,
     input.url,
@@ -67,7 +87,11 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
     input.brand_description || null,
     input.unique_selling_points || null,
     input.product_highlights || null,
-    input.target_audience || null
+    input.target_audience || null,
+    offerName,  // 自动生成
+    targetLanguage,  // 自动生成
+    input.product_price || null,  // 需求28
+    input.commission_payout || null  // 需求28
   )
 
   const offer = findOfferById(result.lastInsertRowid as number, userId)

@@ -31,10 +31,7 @@ export default function UserCreateModal({ isOpen, onClose, onSuccess }: UserCrea
     setLoading(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        throw new Error('未登录')
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       // Calculate validity period
       const validFrom = new Date()
@@ -45,8 +42,8 @@ export default function UserCreateModal({ isOpen, onClose, onSuccess }: UserCrea
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include', // 确保发送cookie
         body: JSON.stringify({
           displayName: formData.displayName,
           email: formData.email,

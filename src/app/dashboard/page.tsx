@@ -25,29 +25,17 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    // 检查URL参数中是否有token（Google OAuth回调）
-    const tokenParam = searchParams.get('token')
-    if (tokenParam) {
-      localStorage.setItem('auth_token', tokenParam)
-      // 移除URL中的token参数
-      router.replace('/dashboard')
-    }
-
+    // Google OAuth回调现在由服务器直接设置HttpOnly Cookie
+    // 无需从URL参数读取token
     fetchUserInfo()
   }, [searchParams])
 
   const fetchUserInfo = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch('/api/auth/me', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'include', // 确保发送cookie
       })
 
       if (!response.ok) {
@@ -58,15 +46,23 @@ export default function DashboardPage() {
       setUser(data.user)
     } catch (err: any) {
       setError(err.message || '获取用户信息失败')
-      localStorage.removeItem('auth_token')
+      // 清除HttpOnly Cookie
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      }).catch(() => {}) // 忽略logout错误
       router.push('/login')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('auth_token')
+  const handleLogout = async () => {
+    // 清除HttpOnly Cookie
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    })
     router.push('/login')
   }
 

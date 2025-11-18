@@ -269,9 +269,7 @@ export async function validateAIApiKey(
   apiKey: string,
   model: 'gemini' | 'claude'
 ): Promise<{ valid: boolean; message: string }> {
-  // TODO: 实现真实的AI API验证
-  // 这里应该调用Gemini或Claude API进行测试
-  // 暂时返回简单验证
+  // Step 1: 基础验证
   if (!apiKey) {
     return {
       valid: false,
@@ -286,8 +284,63 @@ export async function validateAIApiKey(
     }
   }
 
-  return {
-    valid: true,
-    message: `${model} API密钥验证通过（注意：需要实际API测试）`,
+  // Step 2: 根据模型类型进行真实API测试
+  try {
+    if (model === 'gemini') {
+      // 测试Gemini API
+      const { GoogleGenerativeAI } = await import('@google/generative-ai')
+      const genAI = new GoogleGenerativeAI(apiKey)
+      const geminiModel = genAI.getGenerativeModel({ model: 'gemini-pro' })
+
+      // 发送测试请求
+      const result = await geminiModel.generateContent('Test')
+      await result.response // 等待响应
+
+      return {
+        valid: true,
+        message: 'Gemini API密钥验证成功，连接正常',
+      }
+    } else if (model === 'claude') {
+      // Claude API验证（如果有）
+      // 注意：需要安装 @anthropic-ai/sdk
+      return {
+        valid: true,
+        message: 'Claude API密钥格式正确（注意：实际连接需要 @anthropic-ai/sdk）',
+      }
+    } else {
+      return {
+        valid: false,
+        message: '不支持的AI模型类型',
+      }
+    }
+  } catch (error: any) {
+    // API调用失败，分析错误类型
+    const errorMessage = error.message || '未知错误'
+
+    if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('invalid key')) {
+      return {
+        valid: false,
+        message: 'API密钥无效，请检查密钥是否正确',
+      }
+    }
+
+    if (errorMessage.includes('quota') || errorMessage.includes('limit')) {
+      return {
+        valid: false,
+        message: 'API密钥配额已用尽或达到速率限制',
+      }
+    }
+
+    if (errorMessage.includes('network') || errorMessage.includes('timeout')) {
+      return {
+        valid: false,
+        message: '网络连接失败，请检查网络或稍后重试',
+      }
+    }
+
+    return {
+      valid: false,
+      message: `API验证失败: ${errorMessage}`,
+    }
   }
 }

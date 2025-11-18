@@ -31,11 +31,7 @@ export default function CompleteGoogleAdsSetup() {
     setSubmitting(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        router.push('/login')
-        return
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       // 验证customer_id格式（应该是10位数字）
       if (!/^\d{10}$/.test(customerId.replace(/-/g, ''))) {
@@ -52,8 +48,7 @@ export default function CompleteGoogleAdsSetup() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+},
         body: JSON.stringify({
           customerId: cleanCustomerId,
           accessToken: tokens.access_token,

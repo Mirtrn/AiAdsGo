@@ -70,17 +70,14 @@ export default function ChangePasswordPage() {
     setLoading(true)
 
     try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        throw new Error('未找到登录凭证，请重新登录')
-      }
+      // HttpOnly Cookie自动携带，无需手动操作
 
       const response = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
+        credentials: 'include', // 确保发送cookie
         body: JSON.stringify({
           currentPassword: formData.currentPassword,
           newPassword: formData.newPassword,
