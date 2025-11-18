@@ -384,6 +384,16 @@ export default function CreativesPage() {
                           >
                             删除
                           </button>
+                          <button
+                            onClick={() =>
+                              router.push(
+                                `/launch-score?offerId=${offerId}&creativeId=${creative.id}`
+                              )
+                            }
+                            className="px-3 py-1 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                          >
+                            Launch Score
+                          </button>
                         </>
                       )}
                     </div>
