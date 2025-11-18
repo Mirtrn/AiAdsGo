@@ -3,7 +3,7 @@ import { findAdGroupById } from '@/lib/ad-groups'
 import { findCampaignById } from '@/lib/campaigns'
 import { findOfferById } from '@/lib/offers'
 import { generateKeywords, generateNegativeKeywords } from '@/lib/keyword-generator'
-import { createKeywordsBatch } from '@/lib/keywords'
+import { createKeywordsBatch, CreateKeywordInput } from '@/lib/keywords'
 
 /**
  * POST /api/ad-groups/:id/generate-keywords
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 检查Offer是否已完成抓取
-    if (offer.scrapeStatus !== 'completed') {
+    if (offer.scrape_status !== 'completed') {
       return NextResponse.json(
         {
           error: '请先完成产品信息抓取后再生成关键词',
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 将生成的关键词保存到数据库
-    const keywordsToCreate = generationResult.keywords.map(kw => ({
+    const keywordsToCreate: CreateKeywordInput[] = generationResult.keywords.map(kw => ({
       userId: parseInt(userId, 10),
       adGroupId: adGroup.id,
       keywordText: kw.keyword,

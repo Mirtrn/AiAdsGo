@@ -1,5 +1,5 @@
 import { getCustomer } from './google-ads-api'
-import { getDatabase } from './database'
+import { getDatabase } from './db'
 import { enums } from 'google-ads-api'
 
 /**

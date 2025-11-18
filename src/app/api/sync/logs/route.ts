@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const userId = authResult.user.id
+    const userId = authResult.user.userId
 
     // 获取查询参数
     const { searchParams } = new URL(request.url)

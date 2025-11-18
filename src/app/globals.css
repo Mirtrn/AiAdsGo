@@ -25,12 +25,3 @@ body {
     )
     rgb(var(--background-start-rgb));
 }
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-}

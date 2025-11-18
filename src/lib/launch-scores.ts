@@ -218,7 +218,7 @@ export function parseLaunchScoreAnalysis(score: LaunchScore): ScoreAnalysis {
   return {
     keywordAnalysis: score.keywordAnalysisData ? JSON.parse(score.keywordAnalysisData) : {},
     marketFitAnalysis: score.marketAnalysisData ? JSON.parse(score.marketAnalysisData) : {},
-    landingPageAnalysisData: score.landingPageAnalysisData
+    landingPageAnalysis: score.landingPageAnalysisData
       ? JSON.parse(score.landingPageAnalysisData)
       : {},
     budgetAnalysis: score.budgetAnalysisData ? JSON.parse(score.budgetAnalysisData) : {},

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/database'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/creatives/:id/versions
@@ -22,7 +22,7 @@ export async function GET(
     }
 
     const db = getDatabase()
-    const userId = authResult.user.id
+    const userId = authResult.user.userId
 
     // 验证Creative所有权
     const creative = db
@@ -191,7 +191,7 @@ export async function POST(
     }
 
     const db = getDatabase()
-    const userId = authResult.user.id
+    const userId = authResult.user.userId
 
     // 验证Creative所有权
     const creative = db

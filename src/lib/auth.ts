@@ -1,6 +1,7 @@
+import { NextRequest } from 'next/server'
 import { getDatabase } from './db'
 import { hashPassword, verifyPassword } from './crypto'
-import { generateToken, JWTPayload } from './jwt'
+import { generateToken, JWTPayload, verifyToken, extractTokenFromHeader } from './jwt'
 
 export interface User {
   id: number
@@ -250,4 +251,79 @@ export function checkPackageAccess(user: User, requiredPackage: string): boolean
   }
 
   return userLevel >= requiredLevel
+}
+
+/**
+ * 验证API请求的认证状态
+ */
+export interface AuthResult {
+  authenticated: boolean
+  user: {
+    userId: number
+    email: string
+    role: string
+    packageType: string
+  } | null
+  error?: string
+}
+
+export async function verifyAuth(request: NextRequest): Promise<AuthResult> {
+  try {
+    // 从请求头提取token
+    const authHeader = request.headers.get('authorization')
+    const token = extractTokenFromHeader(authHeader)
+
+    if (!token) {
+      return {
+        authenticated: false,
+        user: null,
+        error: '未提供认证token',
+      }
+    }
+
+    // 验证token
+    const payload = verifyToken(token)
+    if (!payload) {
+      return {
+        authenticated: false,
+        user: null,
+        error: 'Token无效或已过期',
+      }
+    }
+
+    // 验证用户是否存在且激活
+    const user = findUserById(payload.userId)
+    if (!user) {
+      return {
+        authenticated: false,
+        user: null,
+        error: '用户不存在',
+      }
+    }
+
+    if (!user.is_active) {
+      return {
+        authenticated: false,
+        user: null,
+        error: '账户已被禁用',
+      }
+    }
+
+    return {
+      authenticated: true,
+      user: {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        packageType: user.package_type,
+      },
+    }
+  } catch (error: any) {
+    console.error('认证验证失败:', error)
+    return {
+      authenticated: false,
+      user: null,
+      error: error.message || '认证失败',
+    }
+  }
 }

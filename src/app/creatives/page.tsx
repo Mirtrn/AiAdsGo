@@ -39,7 +39,7 @@ interface Offer {
   brand: string
   url: string
   targetCountry: string
-  scrapeStatus: string
+  scrape_status: string
 }
 
 export default function CreativesPage() {
@@ -391,7 +391,7 @@ export default function CreativesPage() {
             <div className="flex items-center space-x-3">
               <button
                 onClick={handleGenerateCreatives}
-                disabled={generating || offer?.scrapeStatus !== 'completed'}
+                disabled={generating || offer?.scrape_status !== 'completed'}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
               >
                 {generating ? '生成中...' : '生成新创意'}
@@ -409,7 +409,7 @@ export default function CreativesPage() {
             </div>
           )}
 
-          {offer?.scrapeStatus !== 'completed' && (
+          {offer?.scrape_status !== 'completed' && (
             <div className="mb-6 px-4 py-3 bg-yellow-50 border border-yellow-400 text-yellow-700 rounded">
               请先完成产品信息抓取后再生成创意
             </div>
@@ -420,7 +420,7 @@ export default function CreativesPage() {
               <p className="text-gray-500 text-lg mb-4">暂无创意</p>
               <button
                 onClick={handleGenerateCreatives}
-                disabled={generating || offer?.scrapeStatus !== 'completed'}
+                disabled={generating || offer?.scrape_status !== 'completed'}
                 className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
               >
                 {generating ? '生成中...' : '生成第一组创意'}

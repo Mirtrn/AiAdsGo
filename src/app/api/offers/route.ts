@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createOffer, listOffers } from '@/lib/offers'
 import { z } from 'zod'
+import { apiCache, generateCacheKey, invalidateOfferCache } from '@/lib/api-cache'
 
 const createOfferSchema = z.object({
   url: z.string().url('无效的URL格式'),
@@ -42,6 +43,9 @@ export async function POST(request: NextRequest) {
 
     const offer = createOffer(parseInt(userId, 10), validationResult.data)
 
+    // 使缓存失效
+    invalidateOfferCache(parseInt(userId, 10))
+
     return NextResponse.json(
       {
         success: true,
@@ -56,7 +60,7 @@ export async function POST(request: NextRequest) {
           uniqueSellingPoints: offer.unique_selling_points,
           productHighlights: offer.product_highlights,
           targetAudience: offer.target_audience,
-          scrapeStatus: offer.scrape_status,
+          scrape_status: offer.scrape_status,
           isActive: offer.is_active === 1,
           createdAt: offer.created_at,
         },
@@ -96,6 +100,21 @@ export async function GET(request: NextRequest) {
     const targetCountry = searchParams.get('targetCountry') || undefined
     const searchQuery = searchParams.get('search') || undefined
 
+    // 缓存键
+    const cacheKey = generateCacheKey('offers', parseInt(userId, 10), {
+      limit,
+      offset,
+      isActive,
+      targetCountry,
+      searchQuery,
+    })
+
+    // 尝试从缓存获取
+    const cached = apiCache.get<any>(cacheKey)
+    if (cached) {
+      return NextResponse.json(cached)
+    }
+
     const { offers, total } = listOffers(parseInt(userId, 10), {
       limit,
       offset,
@@ -104,7 +123,7 @@ export async function GET(request: NextRequest) {
       searchQuery,
     })
 
-    return NextResponse.json({
+    const result = {
       success: true,
       offers: offers.map(offer => ({
         id: offer.id,
@@ -117,7 +136,7 @@ export async function GET(request: NextRequest) {
         uniqueSellingPoints: offer.unique_selling_points,
         productHighlights: offer.product_highlights,
         targetAudience: offer.target_audience,
-        scrapeStatus: offer.scrape_status,
+        scrape_status: offer.scrape_status,
         scrapeError: offer.scrape_error,
         scrapedAt: offer.scraped_at,
         isActive: offer.is_active === 1,
@@ -127,7 +146,12 @@ export async function GET(request: NextRequest) {
       total,
       limit,
       offset,
-    })
+    }
+
+    // 缓存结果（2分钟）
+    apiCache.set(cacheKey, result, 2 * 60 * 1000)
+
+    return NextResponse.json(result)
   } catch (error: any) {
     console.error('获取Offer列表失败:', error)
 

@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const userId = authResult.user.id
+    const userId = authResult.user.userId
 
     // 获取同步状态
     const status = dataSyncService.getSyncStatus(userId)

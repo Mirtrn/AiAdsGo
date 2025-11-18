@@ -1,0 +1,83 @@
+# syntax=docker/dockerfile:1
+FROM node:20-alpine AS base
+
+# ============================================
+# Stage 1: 依赖阶段 (Dependencies)
+# ============================================
+FROM base AS deps
+
+# 安装必要的系统依赖
+RUN apk add --no-cache libc6-compat python3 make g++
+
+WORKDIR /app
+
+# 只复制依赖清单文件（利用 Docker 层缓存）
+COPY package.json package-lock.json ./
+
+# 只安装生产依赖（使用缓存挂载加速）
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --only=production && \
+    npm cache clean --force
+
+# ============================================
+# Stage 2: 构建阶段 (Builder)
+# ============================================
+FROM base AS builder
+
+WORKDIR /app
+
+# 复制生产依赖
+COPY --from=deps /app/node_modules ./node_modules
+
+# 复制依赖清单并安装全部依赖（包括 devDependencies）
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+# 复制源代码
+COPY . .
+
+# Next.js 环境变量（构建时）
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+# 执行构建
+RUN npm run build
+
+# ============================================
+# Stage 3: 生产运行阶段 (Runner)
+# ============================================
+FROM base AS runner
+
+WORKDIR /app
+
+# 设置生产环境
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# 创建非 root 用户（安全最佳实践）
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# 复制数据库（如果使用 SQLite）
+COPY --chown=nextjs:nodejs autoads.db ./autoads.db 2>/dev/null || :
+COPY --chown=nextjs:nodejs scripts/ ./scripts/
+
+# 复制 Next.js standalone 输出
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# 确保数据库文件可写
+RUN chown -R nextjs:nodejs /app && \
+    chmod -R 755 /app && \
+    chmod 664 /app/autoads.db 2>/dev/null || :
+
+# 使用非 root 用户运行
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]

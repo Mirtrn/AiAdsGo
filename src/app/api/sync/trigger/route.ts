@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const userId = authResult.user.id
+    const userId = authResult.user.userId
 
     // 检查是否已经有同步任务在运行
     const currentStatus = dataSyncService.getSyncStatus(userId)

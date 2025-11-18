@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/database'
+import { getDatabase } from '@/lib/db'
 
 /**
  * 趋势数据点
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const userId = authResult.user.id
+    const userId = authResult.user.userId
 
     // 获取查询参数
     const { searchParams } = new URL(request.url)

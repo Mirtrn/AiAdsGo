@@ -1,0 +1,97 @@
+# ============================================
+# Node.js
+# ============================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json.bak
+
+# ============================================
+# Next.js
+# ============================================
+.next/
+out/
+build/
+dist/
+.vercel/
+
+# ============================================
+# 开发文件
+# ============================================
+*.md
+!README.md
+docs/
+claudedocs/
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ============================================
+# 测试和 CI
+# ============================================
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+coverage/
+.github/
+jest.config.js
+cypress/
+playwright/
+
+# ============================================
+# 环境文件
+# ============================================
+.env
+.env.local
+.env.development
+.env.test
+.env.production.local
+.env.*.local
+
+# ============================================
+# 临时文件
+# ============================================
+*.log
+*.swp
+.DS_Store
+Thumbs.db
+tmp/
+temp/
+.cache/
+
+# ============================================
+# 数据库备份
+# ============================================
+*.db.bak
+*.db-shm
+*.db-wal
+backups/
+
+# ============================================
+# IDE 和编辑器
+# ============================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.editorconfig
+
+# ============================================
+# 其他
+# ============================================
+LICENSE
+CHANGELOG.md
+.prettierrc
+.prettierignore
+.eslintrc.json
+.eslintignore
+tailwind.config.ts
+postcss.config.js
+tsconfig.json

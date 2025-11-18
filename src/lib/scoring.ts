@@ -27,14 +27,14 @@ export async function calculateLaunchScore(
 
 # 产品信息
 品牌名称：${offer.brand}
-目标国家：${offer.targetCountry}
+目标国家：${offer.target_country}
 产品分类：${offer.category || '未知'}
-品牌描述：${offer.brandDescription || '无'}
-独特卖点：${offer.uniqueSellingPoints || '无'}
-产品亮点：${offer.productHighlights || '无'}
-目标受众：${offer.targetAudience || '无'}
+品牌描述：${offer.brand_description || '无'}
+独特卖点：${offer.unique_selling_points || '无'}
+产品亮点：${offer.product_highlights || '无'}
+目标受众：${offer.target_audience || '无'}
 着陆页URL：${offer.url}
-联盟链接：${offer.affiliateLink || '无'}
+联盟链接：${offer.affiliate_link || '无'}
 
 # 广告创意
 标题1：${creative.headline1}

@@ -46,7 +46,7 @@ export async function POST(
     }
 
     // 验证Offer已完成抓取
-    if (offer.scrapeStatus !== 'completed') {
+    if (offer.scrape_status !== 'completed') {
       return NextResponse.json(
         {
           error: '请先完成产品信息抓取后再计算Launch Score',

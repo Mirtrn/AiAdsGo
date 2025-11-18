@@ -18,7 +18,7 @@ export interface JWTPayload {
 export function generateToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string {
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
-  })
+  } as jwt.SignOptions)
 }
 
 /**

@@ -1,0 +1,137 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================
+  # Job 1: 构建和测试
+  # ============================================
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout代码
+        uses: actions/checkout@v4
+
+      - name: 设置Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 运行类型检查
+        run: npm run type-check || npx tsc --noEmit
+
+      - name: 运行ESLint
+        run: npm run lint
+
+      - name: 构建项目
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: 运行测试 (如果有)
+        run: npm test || echo "No tests configured"
+        continue-on-error: true
+
+  # ============================================
+  # Job 2: 构建和推送Docker镜像
+  # ============================================
+  build-and-push-image:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout代码
+        uses: actions/checkout@v4
+
+      - name: 设置Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 提取元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: 构建并推送Docker镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.prod
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_ENV=production
+
+  # ============================================
+  # Job 3: 部署到ClawCloud (可选)
+  # ============================================
+  deploy-to-server:
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: 部署到服务器
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            cd /opt/autoads
+            docker-compose -f docker-compose.prod.yml pull
+            docker-compose -f docker-compose.prod.yml up -d
+            docker system prune -f
+
+      - name: 健康检查
+        run: |
+          sleep 10
+          curl -f ${{ secrets.APP_URL }}/api/health || exit 1
+
+  # ============================================
+  # Job 4: 通知 (可选)
+  # ============================================
+  notify:
+    needs: deploy-to-server
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: 发送通知
+        run: |
+          echo "部署状态: ${{ needs.deploy-to-server.result }}"
+          # 可以集成Slack、钉钉、邮件等通知服务

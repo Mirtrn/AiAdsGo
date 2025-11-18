@@ -225,16 +225,16 @@ export async function createGoogleAdsCampaign(params: {
 
   const response = await customer.campaigns.create([campaign])
 
-  if (!response || response.length === 0) {
+  if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建广告系列失败：无响应')
   }
 
-  const result = response[0]
-  const campaignId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+  const result = response.results[0]
+  const campaignId = result.resource_name?.split('/').pop() || ''
 
   return {
     campaignId,
-    resourceName: result.results?.[0]?.resource_name || '',
+    resourceName: result.resource_name || '',
   }
 }
 
@@ -260,11 +260,11 @@ async function createCampaignBudget(
 
   const response = await customer.campaignBudgets.create([budget])
 
-  if (!response || response.length === 0) {
+  if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建预算失败')
   }
 
-  return response[0].results?.[0]?.resource_name || ''
+  return response.results[0].resource_name || ''
 }
 
 /**
@@ -287,10 +287,10 @@ export async function updateGoogleAdsCampaignStatus(params: {
 
   const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-  await customer.campaigns.update({
+  await customer.campaigns.update([{
     resource_name: resourceName,
     status: enums.CampaignStatus[params.status],
-  })
+  }])
 }
 
 /**
@@ -399,16 +399,16 @@ export async function createGoogleAdsAdGroup(params: {
 
   const response = await customer.adGroups.create([adGroup])
 
-  if (!response || response.length === 0) {
+  if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建Ad Group失败：无响应')
   }
 
-  const result = response[0]
-  const adGroupId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+  const result = response.results[0]
+  const adGroupId = result.resource_name?.split('/').pop() || ''
 
   return {
     adGroupId,
-    resourceName: result.results?.[0]?.resource_name || '',
+    resourceName: result.resource_name || '',
   }
 }
 
@@ -451,16 +451,16 @@ export async function createGoogleAdsKeyword(params: {
       },
     ])
 
-    if (!response || response.length === 0) {
+    if (!response || !response.results || response.results.length === 0) {
       throw new Error('创建否定关键词失败')
     }
 
-    const result = response[0]
-    const keywordId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+    const result = response.results[0]
+    const keywordId = result.resource_name?.split('/').pop() || ''
 
     return {
       keywordId,
-      resourceName: result.results?.[0]?.resource_name || '',
+      resourceName: result.resource_name || '',
     }
   } else {
     // 创建普通关键词
@@ -480,16 +480,16 @@ export async function createGoogleAdsKeyword(params: {
 
     const response = await customer.adGroupCriteria.create([keyword])
 
-    if (!response || response.length === 0) {
+    if (!response || !response.results || response.results.length === 0) {
       throw new Error('创建关键词失败')
     }
 
-    const result = response[0]
-    const keywordId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+    const result = response.results[0]
+    const keywordId = result.resource_name?.split('/').pop() || ''
 
     return {
       keywordId,
-      resourceName: result.results?.[0]?.resource_name || '',
+      resourceName: result.resource_name || '',
     }
   }
 }
@@ -548,12 +548,12 @@ export async function createGoogleAdsKeywordsBatch(params: {
 
     const response = await customer.adGroupCriteria.create(keywordOperations)
 
-    if (response && response.length > 0) {
-      response.forEach((result, index) => {
-        const keywordId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+    if (response && response.results && response.results.length > 0) {
+      response.results.forEach((result, index) => {
+        const keywordId = result.resource_name?.split('/').pop() || ''
         results.push({
           keywordId,
-          resourceName: result.results?.[0]?.resource_name || '',
+          resourceName: result.resource_name || '',
           keywordText: batch[index].keywordText,
         })
       })
@@ -612,7 +612,7 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   // Create ad structure
   const ad = {
     ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
-    status: enums.AdStatus.ENABLED,
+    status: enums.AdGroupAdStatus.ENABLED,
     ad: {
       final_urls: params.finalUrls,
       responsive_search_ad: {
@@ -629,15 +629,15 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
 
   const response = await customer.adGroupAds.create([ad])
 
-  if (!response || response.length === 0) {
+  if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建Responsive Search Ad失败：无响应')
   }
 
-  const result = response[0]
-  const adId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+  const result = response.results[0]
+  const adId = result.resource_name?.split('/').pop() || ''
 
   return {
     adId,
-    resourceName: result.results?.[0]?.resource_name || '',
+    resourceName: result.resource_name || '',
   }
 }

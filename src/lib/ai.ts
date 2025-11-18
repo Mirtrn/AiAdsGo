@@ -76,23 +76,27 @@ ${pageData.text}
 }
 
 /**
- * 生成广告创意（用于后续功能）
+ * 生成广告创意（支持从历史创意学习）
  */
-export async function generateAdCreatives(productInfo: {
-  brand: string
-  brandDescription: string
-  uniqueSellingPoints: string
-  productHighlights: string
-  targetAudience: string
-  targetCountry: string
-}): Promise<{
+export async function generateAdCreatives(
+  productInfo: {
+    brand: string
+    brandDescription: string
+    uniqueSellingPoints: string
+    productHighlights: string
+    targetAudience: string
+    targetCountry: string
+  },
+  userId?: number
+): Promise<{
   headlines: string[]
   descriptions: string[]
+  usedLearning: boolean
 }> {
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
 
-    const prompt = `你是一个专业的Google Ads广告文案撰写专家。请根据以下产品信息，生成高质量的Google搜索广告文案。
+    let basePrompt = `你是一个专业的Google Ads广告文案撰写专家。请根据以下产品信息，生成高质量的Google搜索广告文案。
 
 品牌名称: ${productInfo.brand}
 品牌描述: ${productInfo.brandDescription}
@@ -122,7 +126,24 @@ export async function generateAdCreatives(productInfo: {
 5. 符合Google Ads政策
 6. 只返回JSON，不要其他文字`
 
-    const result = await model.generateContent(prompt)
+    let usedLearning = false
+
+    // 如果提供userId，使用历史创意学习优化Prompt
+    if (userId) {
+      try {
+        const { getUserOptimizedPrompt } = await import('./creative-learning')
+        const optimizedPrompt = getUserOptimizedPrompt(userId, basePrompt)
+        if (optimizedPrompt !== basePrompt) {
+          basePrompt = optimizedPrompt
+          usedLearning = true
+        }
+      } catch (learningError) {
+        console.warn('创意学习模块加载失败，使用基础Prompt:', learningError)
+        // 继续使用基础Prompt
+      }
+    }
+
+    const result = await model.generateContent(basePrompt)
     const response = await result.response
     const text = response.text()
 
@@ -137,6 +158,7 @@ export async function generateAdCreatives(productInfo: {
     return {
       headlines: creatives.headlines || [],
       descriptions: creatives.descriptions || [],
+      usedLearning
     }
   } catch (error: any) {
     console.error('生成广告创意失败:', error)

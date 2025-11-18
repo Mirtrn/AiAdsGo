@@ -46,18 +46,18 @@ export async function generateKeywords(offer: Offer): Promise<KeywordGenerationR
 
 # 产品信息
 品牌名称：${offer.brand}
-品牌描述：${offer.brandDescription || '未提供'}
-目标国家：${offer.targetCountry}
+品牌描述：${offer.brand_description || '未提供'}
+目标国家：${offer.target_country}
 产品类别：${offer.category || '未分类'}
 
 独特卖点：
-${offer.uniqueSellingPoints || '未提供'}
+${offer.unique_selling_points || '未提供'}
 
 产品亮点：
-${offer.productHighlights || '未提供'}
+${offer.product_highlights || '未提供'}
 
 目标受众：
-${offer.targetAudience || '未提供'}
+${offer.target_audience || '未提供'}
 
 # 关键词生成要求
 
@@ -105,15 +105,15 @@ ${offer.targetAudience || '未提供'}
 }
 
 注意事项：
-1. 关键词必须符合目标国家（${offer.targetCountry}）的语言和搜索习惯
+1. 关键词必须符合目标国家（${offer.target_country}）的语言和搜索习惯
 2. 避免违禁词和敏感词
 3. 考虑季节性和时效性因素
 4. 预算估算应基于行业标准CPC
 `
 
   try {
-    const result = await model.generateContent(prompt)
-    const response = await result.response
+    const aiResult = await model.generateContent(prompt)
+    const response = await aiResult.response
     const text = response.text()
 
     // 提取JSON
@@ -165,8 +165,8 @@ export async function generateNegativeKeywords(offer: Offer): Promise<string[]> 
 
 # 产品信息
 品牌名称：${offer.brand}
-品牌描述：${offer.brandDescription || '未提供'}
-目标国家：${offer.targetCountry}
+品牌描述：${offer.brand_description || '未提供'}
+目标国家：${offer.target_country}
 产品类别：${offer.category || '未分类'}
 
 # 否定关键词生成原则
@@ -224,7 +224,7 @@ ${baseKeywords.join(', ')}
 # 产品信息
 品牌：${offer.brand}
 类别：${offer.category || '未分类'}
-目标国家：${offer.targetCountry}
+目标国家：${offer.target_country}
 
 # 扩展策略
 1. 同义词和近义词

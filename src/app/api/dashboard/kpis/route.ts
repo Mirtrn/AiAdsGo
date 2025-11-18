@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/database'
+import { getDatabase } from '@/lib/db'
+import { apiCache, generateCacheKey } from '@/lib/api-cache'
 
 /**
  * KPI数据响应
@@ -47,11 +48,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const userId = authResult.user.id
+    const userId = authResult.user.userId
 
     // 获取查询参数
     const { searchParams } = new URL(request.url)
     const days = parseInt(searchParams.get('days') || '7', 10)
+
+    // 尝试从缓存获取
+    const cacheKey = generateCacheKey('kpis', userId, { days })
+    const cached = apiCache.get<{ success: boolean; data: KPIData }>(cacheKey)
+    if (cached) {
+      return NextResponse.json(cached)
+    }
 
     // 计算日期范围
     const endDate = new Date()
@@ -161,10 +169,15 @@ export async function GET(request: NextRequest) {
       },
     }
 
-    return NextResponse.json({
+    const result = {
       success: true,
       data: response,
-    })
+    }
+
+    // 缓存结果（5分钟）
+    apiCache.set(cacheKey, result, 5 * 60 * 1000)
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('获取KPI数据失败:', error)
     return NextResponse.json(
