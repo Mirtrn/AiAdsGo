@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { KPICards } from '@/components/dashboard/KPICards'
+import { CampaignList } from '@/components/dashboard/CampaignList'
+import { InsightsCard } from '@/components/dashboard/InsightsCard'
 
 interface UserInfo {
   id: number
@@ -165,7 +168,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="bg-white shadow rounded-lg p-6">
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">快速开始</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <a
@@ -189,6 +192,28 @@ export default function DashboardPage() {
                 <h4 className="text-lg font-semibold mb-2">系统配置</h4>
                 <p className="text-sm opacity-90">配置Google Ads和AI API密钥</p>
               </a>
+            </div>
+          </div>
+
+          {/* Dashboard数据展示 */}
+          <div className="space-y-6">
+            {/* KPI关键指标 */}
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">关键指标</h3>
+              <KPICards />
+            </div>
+
+            {/* 智能洞察与Campaign列表 */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* 智能洞察 */}
+              <div className="lg:col-span-1">
+                <InsightsCard />
+              </div>
+
+              {/* Campaign列表 */}
+              <div className="lg:col-span-2">
+                <CampaignList />
+              </div>
             </div>
           </div>
         </div>
