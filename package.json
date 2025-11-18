@@ -16,6 +16,7 @@
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^9.2.2",
     "cheerio": "^1.1.2",
+    "google-ads-api": "^21.0.1",
     "google-auth-library": "^10.3.1",
     "https-proxy-agent": "^7.0.6",
     "idb": "^8.0.0",

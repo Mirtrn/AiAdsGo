@@ -54,7 +54,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { customerId, accountName, currency, timezone, isManagerAccount } = body
+    const {
+      customerId,
+      accountName,
+      currency,
+      timezone,
+      isManagerAccount,
+      accessToken,
+      refreshToken,
+      tokenExpiresAt,
+    } = body
 
     if (!customerId) {
       return NextResponse.json(
@@ -73,6 +82,9 @@ export async function POST(request: NextRequest) {
       currency,
       timezone,
       isManagerAccount,
+      accessToken,
+      refreshToken,
+      tokenExpiresAt,
     })
 
     return NextResponse.json({
