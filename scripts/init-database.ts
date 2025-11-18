@@ -362,6 +362,26 @@ const transaction = db.transaction(() => {
   `)
   console.log('✅ creative_versions表')
 
+  // 16. sync_logs表 - 数据同步日志
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sync_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      google_ads_account_id INTEGER NOT NULL,
+      sync_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      record_count INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (google_ads_account_id) REFERENCES google_ads_accounts(id) ON DELETE CASCADE
+    )
+  `)
+  console.log('✅ sync_logs表')
+
   console.log('\n📋 创建索引...\n')
 
   // 创建索引以提升查询性能
@@ -373,8 +393,10 @@ const transaction = db.transaction(() => {
     CREATE INDEX IF NOT EXISTS idx_campaigns_offer_id ON campaigns(offer_id);
     CREATE INDEX IF NOT EXISTS idx_creatives_offer_id ON creatives(offer_id);
     CREATE INDEX IF NOT EXISTS idx_performance_campaign_date ON campaign_performance(campaign_id, date);
+    CREATE INDEX IF NOT EXISTS idx_performance_user_date ON campaign_performance(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_risk_alerts_user_status ON risk_alerts(user_id, status);
     CREATE INDEX IF NOT EXISTS idx_link_check_offer ON link_check_history(offer_id);
+    CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id, started_at DESC);
   `)
   console.log('✅ 索引创建完成')
 
