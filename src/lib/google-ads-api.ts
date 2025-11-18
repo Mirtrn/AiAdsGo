@@ -562,3 +562,82 @@ export async function createGoogleAdsKeywordsBatch(params: {
 
   return results
 }
+
+/**
+ * 创建Google Ads Responsive Search Ad
+ */
+export async function createGoogleAdsResponsiveSearchAd(params: {
+  customerId: string
+  refreshToken: string
+  adGroupId: string
+  headlines: string[] // Max 15 headlines
+  descriptions: string[] // Max 4 descriptions
+  finalUrls: string[]
+  path1?: string
+  path2?: string
+  accountId?: number
+  userId?: number
+}): Promise<{ adId: string; resourceName: string }> {
+  const customer = await getCustomer(
+    params.customerId,
+    params.refreshToken,
+    params.accountId,
+    params.userId
+  )
+
+  // Validate headlines (3-15 required)
+  if (params.headlines.length < 3 || params.headlines.length > 15) {
+    throw new Error('Responsive Search Ad需要3-15个标题')
+  }
+
+  // Validate descriptions (2-4 required)
+  if (params.descriptions.length < 2 || params.descriptions.length > 4) {
+    throw new Error('Responsive Search Ad需要2-4个描述')
+  }
+
+  // Validate headline length (max 30 characters each)
+  params.headlines.forEach((headline, index) => {
+    if (headline.length > 30) {
+      throw new Error(`标题${index + 1}超过30字符限制: "${headline}" (${headline.length}字符)`)
+    }
+  })
+
+  // Validate description length (max 90 characters each)
+  params.descriptions.forEach((desc, index) => {
+    if (desc.length > 90) {
+      throw new Error(`描述${index + 1}超过90字符限制: "${desc}" (${desc.length}字符)`)
+    }
+  })
+
+  // Create ad structure
+  const ad = {
+    ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
+    status: enums.AdStatus.ENABLED,
+    ad: {
+      final_urls: params.finalUrls,
+      responsive_search_ad: {
+        headlines: params.headlines.map(text => ({ text })),
+        descriptions: params.descriptions.map(text => ({ text })),
+      },
+    },
+  }
+
+  // Add path fields if provided
+  if (params.path1) {
+    ;(ad.ad as any).final_url_suffix = params.path1
+  }
+
+  const response = await customer.adGroupAds.create([ad])
+
+  if (!response || response.length === 0) {
+    throw new Error('创建Responsive Search Ad失败：无响应')
+  }
+
+  const result = response[0]
+  const adId = result.results?.[0]?.resource_name?.split('/').pop() || ''
+
+  return {
+    adId,
+    resourceName: result.results?.[0]?.resource_name || '',
+  }
+}

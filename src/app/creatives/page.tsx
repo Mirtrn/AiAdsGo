@@ -19,7 +19,19 @@ interface Creative {
   qualityScore: number | null
   isApproved: boolean
   approvedAt: string | null
+  adGroupId: number | null
+  adId: string | null
+  creationStatus: string
+  creationError: string | null
+  lastSyncAt: string | null
   createdAt: string
+}
+
+interface AdGroup {
+  id: number
+  adGroupName: string
+  campaignId: number
+  status: string
 }
 
 interface Offer {
@@ -37,10 +49,14 @@ export default function CreativesPage() {
 
   const [creatives, setCreatives] = useState<Creative[]>([])
   const [offer, setOffer] = useState<Offer | null>(null)
+  const [adGroups, setAdGroups] = useState<AdGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [assigningId, setAssigningId] = useState<number | null>(null)
+  const [selectedAdGroupId, setSelectedAdGroupId] = useState<number | null>(null)
+  const [syncingId, setSyncingId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState({
     headline1: '',
     headline2: '',
@@ -93,6 +109,23 @@ export default function CreativesPage() {
 
       const creativesData = await creativesRes.json()
       setCreatives(creativesData.creatives)
+
+      // 获取Ad Groups列表 (如果Offer关联了Campaign)
+      if (offerData.offer.campaignId) {
+        const adGroupsRes = await fetch(
+          `/api/ad-groups?campaignId=${offerData.offer.campaignId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        )
+
+        if (adGroupsRes.ok) {
+          const adGroupsData = await adGroupsRes.json()
+          setAdGroups(adGroupsData.adGroups)
+        }
+      }
     } catch (err: any) {
       setError(err.message || '加载失败')
     } finally {
@@ -240,6 +273,78 @@ export default function CreativesPage() {
     }
   }
 
+  const handleAssignAdGroup = async (creativeId: number) => {
+    if (!selectedAdGroupId) {
+      alert('请选择一个Ad Group')
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        router.push('/login')
+        return
+      }
+
+      const response = await fetch(`/api/creatives/${creativeId}/assign-adgroup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ adGroupId: selectedAdGroupId }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || '关联失败')
+      }
+
+      setAssigningId(null)
+      setSelectedAdGroupId(null)
+      fetchOfferAndCreatives()
+      alert('已成功关联到Ad Group')
+    } catch (err: any) {
+      alert(err.message)
+    }
+  }
+
+  const handleSyncToGoogleAds = async (creativeId: number) => {
+    if (!confirm('确定要将此Creative同步到Google Ads吗？')) {
+      return
+    }
+
+    setSyncingId(creativeId)
+
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        router.push('/login')
+        return
+      }
+
+      const response = await fetch(`/api/creatives/${creativeId}/sync`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '同步失败')
+      }
+
+      alert('Creative已成功同步到Google Ads！')
+      fetchOfferAndCreatives()
+    } catch (err: any) {
+      alert(`同步失败：${err.message}`)
+    } finally {
+      setSyncingId(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -339,10 +444,40 @@ export default function CreativesPage() {
                             已批准
                           </span>
                         )}
+                        {creative.creationStatus === 'synced' && (
+                          <span className="ml-2 px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-800">
+                            已同步
+                          </span>
+                        )}
+                        {creative.creationStatus === 'pending' && (
+                          <span className="ml-2 px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-800">
+                            同步中
+                          </span>
+                        )}
+                        {creative.creationStatus === 'failed' && (
+                          <span className="ml-2 px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-800">
+                            同步失败
+                          </span>
+                        )}
                       </h2>
                       <p className="text-sm text-gray-500">
                         创建时间: {new Date(creative.createdAt).toLocaleString('zh-CN')}
                       </p>
+                      {creative.adGroupId && (
+                        <p className="text-sm text-gray-500">
+                          关联Ad Group:{' '}
+                          {adGroups.find(ag => ag.id === creative.adGroupId)?.adGroupName ||
+                            `ID: ${creative.adGroupId}`}
+                        </p>
+                      )}
+                      {creative.lastSyncAt && (
+                        <p className="text-sm text-gray-500">
+                          最后同步: {new Date(creative.lastSyncAt).toLocaleString('zh-CN')}
+                        </p>
+                      )}
+                      {creative.creationError && (
+                        <p className="text-sm text-red-600">错误: {creative.creationError}</p>
+                      )}
                     </div>
                     <div className="flex space-x-2">
                       {editingId === creative.id ? (
@@ -360,11 +495,42 @@ export default function CreativesPage() {
                             取消
                           </button>
                         </>
+                      ) : assigningId === creative.id ? (
+                        <>
+                          <select
+                            value={selectedAdGroupId || ''}
+                            onChange={e => setSelectedAdGroupId(parseInt(e.target.value, 10))}
+                            className="px-2 py-1 text-sm border border-gray-300 rounded"
+                          >
+                            <option value="">选择Ad Group</option>
+                            {adGroups.map(ag => (
+                              <option key={ag.id} value={ag.id}>
+                                {ag.adGroupName}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => handleAssignAdGroup(creative.id)}
+                            className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                          >
+                            确认
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAssigningId(null)
+                              setSelectedAdGroupId(null)
+                            }}
+                            className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+                          >
+                            取消
+                          </button>
+                        </>
                       ) : (
                         <>
                           <button
                             onClick={() => startEdit(creative)}
-                            className="px-3 py-1 text-sm text-gray-700 hover:text-gray-900"
+                            disabled={creative.adId !== null}
+                            className="px-3 py-1 text-sm text-gray-700 hover:text-gray-900 disabled:opacity-50"
                           >
                             编辑
                           </button>
@@ -378,9 +544,32 @@ export default function CreativesPage() {
                           >
                             {creative.isApproved ? '取消批准' : '批准'}
                           </button>
+                          {!creative.adGroupId && adGroups.length > 0 && (
+                            <button
+                              onClick={() => {
+                                setAssigningId(creative.id)
+                                setSelectedAdGroupId(null)
+                              }}
+                              className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
+                            >
+                              关联Ad Group
+                            </button>
+                          )}
+                          {creative.adGroupId &&
+                            !creative.adId &&
+                            creative.creationStatus !== 'pending' && (
+                              <button
+                                onClick={() => handleSyncToGoogleAds(creative.id)}
+                                disabled={syncingId === creative.id}
+                                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {syncingId === creative.id ? '同步中...' : '同步到Google Ads'}
+                              </button>
+                            )}
                           <button
                             onClick={() => handleDelete(creative.id)}
-                            className="px-3 py-1 text-sm text-red-600 hover:text-red-800"
+                            disabled={creative.adId !== null}
+                            className="px-3 py-1 text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
                           >
                             删除
                           </button>
@@ -473,41 +662,66 @@ export default function CreativesPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">标题</p>
-                        <p className="text-sm text-gray-900">{creative.headline1}</p>
-                        {creative.headline2 && (
-                          <p className="text-sm text-gray-900">{creative.headline2}</p>
-                        )}
-                        {creative.headline3 && (
-                          <p className="text-sm text-gray-900">{creative.headline3}</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">描述</p>
-                        <p className="text-sm text-gray-900">{creative.description1}</p>
-                        {creative.description2 && (
-                          <p className="text-sm text-gray-900">{creative.description2}</p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">最终链接</p>
-                        <a
-                          href={creative.finalUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-indigo-600 hover:text-indigo-500"
-                        >
-                          {creative.finalUrl}
-                        </a>
-                      </div>
-                      {creative.qualityScore && (
-                        <div>
-                          <p className="text-sm font-medium text-gray-500">质量评分</p>
-                          <p className="text-sm text-gray-900">{creative.qualityScore}/100</p>
+                    <div className="space-y-4">
+                      {/* Google Search Ad Preview */}
+                      <div className="border border-gray-300 rounded-lg p-4 bg-white">
+                        <p className="text-xs text-gray-500 mb-2">📱 广告预览 (Google Search)</p>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <div className="text-xs text-green-700 mb-1">广告 · {offer?.url}</div>
+                          <div className="text-lg text-blue-600 font-normal leading-snug mb-1">
+                            {creative.headline1}
+                            {creative.headline2 && ` | ${creative.headline2}`}
+                            {creative.headline3 && ` | ${creative.headline3}`}
+                          </div>
+                          <div className="text-xs text-gray-600 mb-1">
+                            {new URL(creative.finalUrl).hostname}
+                            {creative.path1 && ` › ${creative.path1}`}
+                            {creative.path2 && ` › ${creative.path2}`}
+                          </div>
+                          <div className="text-sm text-gray-800 leading-relaxed">
+                            {creative.description1}
+                            {creative.description2 && ` ${creative.description2}`}
+                          </div>
                         </div>
-                      )}
+                      </div>
+
+                      {/* Creative Details */}
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-500">标题</p>
+                          <p className="text-sm text-gray-900">{creative.headline1}</p>
+                          {creative.headline2 && (
+                            <p className="text-sm text-gray-900">{creative.headline2}</p>
+                          )}
+                          {creative.headline3 && (
+                            <p className="text-sm text-gray-900">{creative.headline3}</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-500">描述</p>
+                          <p className="text-sm text-gray-900">{creative.description1}</p>
+                          {creative.description2 && (
+                            <p className="text-sm text-gray-900">{creative.description2}</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-500">最终链接</p>
+                          <a
+                            href={creative.finalUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-indigo-600 hover:text-indigo-500"
+                          >
+                            {creative.finalUrl}
+                          </a>
+                        </div>
+                        {creative.qualityScore && (
+                          <div>
+                            <p className="text-sm font-medium text-gray-500">质量评分</p>
+                            <p className="text-sm text-gray-900">{creative.qualityScore}/100</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

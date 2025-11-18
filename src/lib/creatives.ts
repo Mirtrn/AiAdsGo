@@ -19,6 +19,11 @@ export interface Creative {
   isApproved: boolean
   approvedBy: number | null
   approvedAt: string | null
+  adGroupId: number | null
+  adId: string | null
+  creationStatus: string
+  creationError: string | null
+  lastSyncAt: string | null
   createdAt: string
 }
 
@@ -155,7 +160,25 @@ export function findCreativesByUserId(userId: number, limit?: number): Creative[
 export function updateCreative(
   id: number,
   userId: number,
-  updates: Partial<Pick<Creative, 'headline1' | 'headline2' | 'headline3' | 'description1' | 'description2' | 'finalUrl' | 'path1' | 'path2' | 'qualityScore'>>
+  updates: Partial<
+    Pick<
+      Creative,
+      | 'headline1'
+      | 'headline2'
+      | 'headline3'
+      | 'description1'
+      | 'description2'
+      | 'finalUrl'
+      | 'path1'
+      | 'path2'
+      | 'qualityScore'
+      | 'adGroupId'
+      | 'adId'
+      | 'creationStatus'
+      | 'creationError'
+      | 'lastSyncAt'
+    >
+  >
 ): Creative | null {
   const db = getDatabase()
 
@@ -203,6 +226,26 @@ export function updateCreative(
   if (updates.qualityScore !== undefined) {
     fields.push('quality_score = ?')
     values.push(updates.qualityScore)
+  }
+  if (updates.adGroupId !== undefined) {
+    fields.push('ad_group_id = ?')
+    values.push(updates.adGroupId)
+  }
+  if (updates.adId !== undefined) {
+    fields.push('ad_id = ?')
+    values.push(updates.adId)
+  }
+  if (updates.creationStatus !== undefined) {
+    fields.push('creation_status = ?')
+    values.push(updates.creationStatus)
+  }
+  if (updates.creationError !== undefined) {
+    fields.push('creation_error = ?')
+    values.push(updates.creationError)
+  }
+  if (updates.lastSyncAt !== undefined) {
+    fields.push('last_sync_at = ?')
+    values.push(updates.lastSyncAt)
   }
 
   if (fields.length === 0) {
@@ -322,6 +365,11 @@ function mapRowToCreative(row: any): Creative {
     isApproved: row.is_approved === 1,
     approvedBy: row.approved_by,
     approvedAt: row.approved_at,
+    adGroupId: row.ad_group_id,
+    adId: row.ad_id,
+    creationStatus: row.creation_status || 'draft',
+    creationError: row.creation_error,
+    lastSyncAt: row.last_sync_at,
     createdAt: row.created_at,
   }
 }
