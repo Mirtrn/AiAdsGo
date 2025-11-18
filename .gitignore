@@ -34,3 +34,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database files (SQLite)
+/data/*.db
+/data/*.db-shm
+/data/*.db-wal
+/data/backups
+
+# secrets directory (from BasicPrinciples/MustKnowV1.md)
+/secrets
+*.key
+credentials.json
+service-account.json
