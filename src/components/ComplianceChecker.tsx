@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Creative合规性检查UI组件
  *
@@ -7,8 +9,6 @@
  * 3. 提供修正建议
  * 4. 一键自动修复（部分规则）
  */
-
-'use client'
 
 import { useState, useEffect } from 'react'
 import { AlertCircle, CheckCircle, AlertTriangle, Info, Loader2, Wand2 } from 'lucide-react'

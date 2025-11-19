@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Campaign对比视图组件
  *
@@ -8,8 +10,6 @@
  * - 趋势图表（近7天CTR走势）
  * - 智能建议展示和一键应用
  */
-
-'use client'
 
 import { useState, useEffect } from 'react'
 import { Crown, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, Loader2, ArrowUp, ArrowDown } from 'lucide-react'

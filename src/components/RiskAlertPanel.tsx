@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * 风险提示面板组件 - P1-4优化版
  *
@@ -8,8 +10,6 @@
  * - 手动触发链接检查
  * - 增强视觉设计和动画效果
  */
-
-'use client'
 
 import { useState, useEffect } from 'react'
 import {

@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * 优化任务清单组件
  *
@@ -7,8 +9,6 @@
  * - 更新任务状态
  * - 手动生成新任务
  */
-
-'use client'
 
 import { useState, useEffect } from 'react'
 import {
