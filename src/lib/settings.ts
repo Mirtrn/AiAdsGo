@@ -231,12 +231,51 @@ export function updateValidationStatus(
 }
 
 /**
+ * 验证结果缓存
+ * 结构: Map<credentialsHash, { result, timestamp }>
+ */
+interface ValidationCacheEntry {
+  result: { valid: boolean; message: string }
+  timestamp: number
+}
+
+const validationCache = new Map<string, ValidationCacheEntry>()
+const CACHE_TTL = 15 * 60 * 1000 // 15分钟缓存
+
+/**
+ * 生成credentials的哈希key（用于缓存）
+ */
+function generateCredentialsHash(
+  clientId: string,
+  clientSecret: string,
+  developerToken: string
+): string {
+  // 简单的哈希：使用前10个字符避免完整存储敏感信息
+  const hash = `${clientId.substring(0, 20)}_${clientSecret.substring(0, 10)}_${developerToken.substring(0, 10)}`
+  return hash
+}
+
+/**
+ * 清理过期的缓存条目
+ */
+function cleanExpiredCache(): void {
+  const now = Date.now()
+  for (const [key, entry] of validationCache.entries()) {
+    if (now - entry.timestamp > CACHE_TTL) {
+      validationCache.delete(key)
+    }
+  }
+}
+
+/**
  * 验证Google Ads API配置
  *
  * 验证步骤：
- * 1. 基础格式验证
- * 2. 尝试创建GoogleAdsApi实例
- * 3. 验证OAuth配置（可选：测试client credentials）
+ * 1. 检查缓存
+ * 2. 基础格式验证
+ * 3. 尝试创建GoogleAdsApi实例
+ * 4. 验证OAuth配置（可选：测试client credentials）
+ * 5. 缓存成功结果
  */
 export async function validateGoogleAdsConfig(
   clientId: string,
@@ -244,6 +283,20 @@ export async function validateGoogleAdsConfig(
   developerToken: string
 ): Promise<{ valid: boolean; message: string }> {
   try {
+    // 清理过期缓存
+    cleanExpiredCache()
+
+    // 检查缓存
+    const cacheKey = generateCredentialsHash(clientId, clientSecret, developerToken)
+    const cached = validationCache.get(cacheKey)
+    if (cached) {
+      const age = Date.now() - cached.timestamp
+      if (age < CACHE_TTL) {
+        console.log(`[Google Ads验证] 使用缓存结果 (缓存时间: ${Math.floor(age / 1000)}秒前)`)
+        return cached.result
+      }
+    }
+
     // Step 1: 基础验证
     if (!clientId || !clientSecret || !developerToken) {
       return {
@@ -363,10 +416,19 @@ export async function validateGoogleAdsConfig(
     }
 
     // 所有验证通过
-    return {
+    const successResult = {
       valid: true,
       message: '✅ 配置验证通过！下一步请进行Google Ads账号授权。',
     }
+
+    // 缓存成功结果
+    validationCache.set(cacheKey, {
+      result: successResult,
+      timestamp: Date.now(),
+    })
+    console.log(`[Google Ads验证] 验证成功，结果已缓存 (TTL: ${CACHE_TTL / 1000}秒)`)
+
+    return successResult
   } catch (error: any) {
     return {
       valid: false,
