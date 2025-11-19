@@ -523,3 +523,91 @@ export async function validateGeminiConfig(
     }
   }
 }
+
+// 代理URL配置项接口
+interface ProxyUrlConfig {
+  country: string
+  url: string
+}
+
+/**
+ * 获取指定国家的代理URL
+ * 如果没有找到对应国家的代理，返回第一个配置的URL作为兜底
+ *
+ * @param targetCountry - 目标国家代码 (如 'US', 'UK', 'DE' 等)
+ * @param userId - 用户ID
+ * @returns 代理URL或undefined（如果未配置代理）
+ */
+export function getProxyUrlForCountry(targetCountry: string, userId?: number): string | undefined {
+  const setting = getSetting('proxy', 'urls', userId)
+
+  if (!setting?.value) {
+    return undefined
+  }
+
+  try {
+    const proxyUrls: ProxyUrlConfig[] = JSON.parse(setting.value)
+
+    if (!Array.isArray(proxyUrls) || proxyUrls.length === 0) {
+      return undefined
+    }
+
+    // 查找匹配的国家
+    const countryUpper = targetCountry.toUpperCase()
+    const matched = proxyUrls.find(item =>
+      item.country.toUpperCase() === countryUpper
+    )
+
+    if (matched) {
+      return matched.url
+    }
+
+    // 没有找到匹配的国家，返回第一个作为兜底
+    return proxyUrls[0].url
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 检查是否启用了代理
+ * 只要配置了有效的代理URL即代表启用
+ *
+ * @param userId - 用户ID
+ * @returns 是否启用代理
+ */
+export function isProxyEnabled(userId?: number): boolean {
+  const setting = getSetting('proxy', 'urls', userId)
+
+  if (!setting?.value) {
+    return false
+  }
+
+  try {
+    const proxyUrls: ProxyUrlConfig[] = JSON.parse(setting.value)
+    return Array.isArray(proxyUrls) && proxyUrls.length > 0 && proxyUrls.some(item => item.url.trim() !== '')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 获取所有配置的代理URL列表
+ *
+ * @param userId - 用户ID
+ * @returns 代理URL配置列表
+ */
+export function getAllProxyUrls(userId?: number): ProxyUrlConfig[] {
+  const setting = getSetting('proxy', 'urls', userId)
+
+  if (!setting?.value) {
+    return []
+  }
+
+  try {
+    const proxyUrls: ProxyUrlConfig[] = JSON.parse(setting.value)
+    return Array.isArray(proxyUrls) ? proxyUrls : []
+  } catch {
+    return []
+  }
+}

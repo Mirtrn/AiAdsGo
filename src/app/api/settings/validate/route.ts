@@ -114,36 +114,70 @@ export async function POST(request: NextRequest) {
         break
 
       case 'proxy':
-        // 代理URL格式验证
-        if (config.url) {
-          const proxyUrl = config.url
-          const requiredParams = ['cc', 'ips', 'proxyType=http', 'responseType=txt']
-          const missingParams = requiredParams.filter(param => !proxyUrl.includes(param))
+        // 代理URL列表验证（JSON格式）
+        if (config.urls) {
+          try {
+            const proxyUrls = JSON.parse(config.urls)
 
-          if (missingParams.length > 0) {
-            result = {
-              valid: false,
-              message: `代理URL缺少必要参数: ${missingParams.join(', ')}`,
-            }
-          } else {
-            // 验证URL格式
-            try {
-              new URL(proxyUrl)
-              result = {
-                valid: true,
-                message: '✅ 代理URL格式正确',
-              }
-            } catch {
+            if (!Array.isArray(proxyUrls)) {
               result = {
                 valid: false,
-                message: '代理URL格式无效，请检查URL是否正确',
+                message: '代理配置格式错误，应为数组格式',
               }
+              break
+            }
+
+            if (proxyUrls.length === 0) {
+              result = {
+                valid: true,
+                message: '未配置代理URL，代理功能已禁用',
+              }
+              break
+            }
+
+            const errors: string[] = []
+            const requiredParams = ['cc', 'ips', 'proxyType=http', 'responseType=txt']
+
+            for (let i = 0; i < proxyUrls.length; i++) {
+              const item = proxyUrls[i]
+              if (!item.url || !item.country) {
+                errors.push(`第${i + 1}个配置缺少必要字段`)
+                continue
+              }
+
+              const missingParams = requiredParams.filter(param => !item.url.includes(param))
+              if (missingParams.length > 0) {
+                errors.push(`第${i + 1}个URL (${item.country}) 缺少参数: ${missingParams.join(', ')}`)
+              }
+
+              try {
+                new URL(item.url)
+              } catch {
+                errors.push(`第${i + 1}个URL (${item.country}) 格式无效`)
+              }
+            }
+
+            if (errors.length > 0) {
+              result = {
+                valid: false,
+                message: errors.join('；'),
+              }
+            } else {
+              result = {
+                valid: true,
+                message: `✅ 已配置 ${proxyUrls.length} 个代理URL，格式验证通过`,
+              }
+            }
+          } catch {
+            result = {
+              valid: false,
+              message: '代理配置JSON解析失败',
             }
           }
         } else {
           result = {
             valid: true,
-            message: '代理配置格式正确',
+            message: '未配置代理URL，代理功能已禁用',
           }
         }
         break

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveAffiliateLink } from '@/lib/url-resolver'
 import { findOfferById } from '@/lib/offers'
-import { getSetting } from '@/lib/settings'
+import { getProxyUrlForCountry, isProxyEnabled } from '@/lib/settings'
 
 /**
  * POST /api/offers/:id/resolve-url
@@ -30,12 +30,13 @@ export async function POST(
       )
     }
 
-    // 获取用户的代理配置
-    const proxySetting = getSetting('proxy', 'proxy_url', parseInt(userId, 10))
-    const proxyEnabled = getSetting('proxy', 'proxy_enabled', parseInt(userId, 10))
+    // 获取用户的代理配置 - 根据Offer的推广国家获取对应的代理URL
+    const userIdNum = parseInt(userId, 10)
+    const useProxy = isProxyEnabled(userIdNum)
 
-    const useProxy = proxyEnabled?.value === 'true' || proxyEnabled?.value === '1'
-    const proxyUrl = useProxy ? proxySetting?.value : undefined
+    // 从Offer获取推广国家，用于选择合适的代理
+    const targetCountry = offer.target_country || 'US'
+    const proxyUrl = useProxy ? getProxyUrlForCountry(targetCountry, userIdNum) : undefined
 
     if (!offer.affiliate_link) {
       return NextResponse.json(

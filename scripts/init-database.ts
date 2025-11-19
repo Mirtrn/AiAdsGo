@@ -415,9 +415,10 @@ const transaction = db.transaction(() => {
     { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: 1, isRequired: 1, description: 'Gemini API密钥' },
     { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: 0, isRequired: 1, description: 'Gemini模型版本（gemini-2.5-pro/gemini-2.5-flash/gemini-3-pro-preview）', defaultValue: 'gemini-2.5-pro' },
 
-    // 代理配置
-    { category: 'proxy', key: 'enabled', dataType: 'boolean', isSensitive: 0, isRequired: 0, description: '是否启用代理', defaultValue: 'false' },
-    { category: 'proxy', key: 'url', dataType: 'string', isSensitive: 0, isRequired: 0, description: '代理服务API地址，必须包含cc、ips、proxyType=http、responseType=txt参数' },
+    // 代理配置 - 支持多个国家的代理URL，JSON格式存储
+    // 格式: [{ country: 'US', url: '...' }, { country: 'UK', url: '...' }]
+    // 第一个URL作为默认兜底值
+    { category: 'proxy', key: 'urls', dataType: 'json', isSensitive: 0, isRequired: 0, description: '代理URL配置列表（JSON格式），支持多个国家的代理URL' },
 
     // 系统配置
     { category: 'system', key: 'currency', dataType: 'string', isSensitive: 0, isRequired: 1, description: '默认货币', defaultValue: 'CNY' },

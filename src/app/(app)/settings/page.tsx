@@ -8,7 +8,25 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card } from '@/components/ui/card'
 import { toast } from 'sonner'
-import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon } from 'lucide-react'
+import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2 } from 'lucide-react'
+
+// 代理URL配置项接口
+interface ProxyUrlConfig {
+  country: string
+  url: string
+}
+
+// 支持的国家列表
+const SUPPORTED_COUNTRIES = [
+  { code: 'US', name: '美国 (United States)' },
+  { code: 'UK', name: '英国 (United Kingdom)' },
+  { code: 'CA', name: '加拿大 (Canada)' },
+  { code: 'DE', name: '德国 (Germany)' },
+  { code: 'FR', name: '法国 (France)' },
+  { code: 'JP', name: '日本 (Japan)' },
+  { code: 'AU', name: '澳大利亚 (Australia)' },
+  { code: 'ROW', name: '其他地区 (Rest of World)' },
+]
 
 interface Setting {
   key: string
@@ -71,19 +89,10 @@ const SETTING_METADATA: Record<string, {
     defaultValue: 'gemini-2.5-pro'
   },
 
-  // Proxy
-  'proxy.enabled': {
-    label: '启用代理',
-    description: '是否通过代理服务器访问外部API（适用于网络受限环境）',
-    options: [
-      { value: 'true', label: '是' },
-      { value: 'false', label: '否' }
-    ],
-    defaultValue: 'false'
-  },
-  'proxy.url': {
-    label: '代理URL',
-    description: '代理服务API地址，必须包含cc、ips、proxyType=http、responseType=txt参数',
+  // Proxy - 新的多URL配置
+  'proxy.urls': {
+    label: '代理URL配置',
+    description: '配置不同国家的代理URL，第一个URL将作为未配置国家的默认兜底值',
     placeholder: 'https://api.iprocket.io/api?username=xxx&password=xxx&cc=ROW&ips=1&type=-res-&proxyType=http&responseType=txt'
   },
 
@@ -174,6 +183,9 @@ export default function SettingsPage() {
   // 表单状态
   const [formData, setFormData] = useState<Record<string, Record<string, string>>>({})
 
+  // 代理URL配置状态
+  const [proxyUrls, setProxyUrls] = useState<ProxyUrlConfig[]>([])
+
   useEffect(() => {
     fetchSettings()
   }, [])
@@ -198,8 +210,20 @@ export default function SettingsPage() {
         for (const setting of categorySettings as Setting[]) {
           const metaKey = `${category}.${setting.key}`
           const metadata = SETTING_METADATA[metaKey]
-          // 使用已有值，否则使用默认值
-          initialFormData[category][setting.key] = setting.value || metadata?.defaultValue || ''
+
+          // 特殊处理代理URL配置（JSON格式）
+          if (category === 'proxy' && setting.key === 'urls') {
+            try {
+              const urls = setting.value ? JSON.parse(setting.value) : []
+              setProxyUrls(Array.isArray(urls) ? urls : [])
+            } catch {
+              setProxyUrls([])
+            }
+            initialFormData[category][setting.key] = setting.value || '[]'
+          } else {
+            // 使用已有值，否则使用默认值
+            initialFormData[category][setting.key] = setting.value || metadata?.defaultValue || ''
+          }
         }
       }
       setFormData(initialFormData)
@@ -220,15 +244,43 @@ export default function SettingsPage() {
     }))
   }
 
+  // 代理URL操作函数
+  const addProxyUrl = () => {
+    setProxyUrls(prev => [...prev, { country: 'US', url: '' }])
+  }
+
+  const removeProxyUrl = (index: number) => {
+    setProxyUrls(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const updateProxyUrl = (index: number, field: 'country' | 'url', value: string) => {
+    setProxyUrls(prev => prev.map((item, i) =>
+      i === index ? { ...item, [field]: value } : item
+    ))
+  }
+
   const handleSave = async (category: string) => {
     setSaving(true)
 
     try {
-      const updates = Object.entries(formData[category] || {}).map(([key, value]) => ({
-        category,
-        key,
-        value,
-      }))
+      let updates: Array<{ category: string; key: string; value: string }>
+
+      // 特殊处理代理配置
+      if (category === 'proxy') {
+        // 过滤掉空URL的配置
+        const validProxyUrls = proxyUrls.filter(item => item.url.trim() !== '')
+        updates = [{
+          category: 'proxy',
+          key: 'urls',
+          value: JSON.stringify(validProxyUrls),
+        }]
+      } else {
+        updates = Object.entries(formData[category] || {}).map(([key, value]) => ({
+          category,
+          key,
+          value,
+        }))
+      }
 
       const response = await fetch('/api/settings', {
         method: 'PUT',
@@ -389,7 +441,7 @@ export default function SettingsPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">加载中...</p>
+          <p className="mt-4 text-body text-muted-foreground">加载中...</p>
         </div>
       </div>
     )
@@ -399,8 +451,8 @@ export default function SettingsPage() {
     <div className="p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">系统配置</h1>
-          <p className="text-slate-500 mt-2">管理 API 密钥、代理设置和系统偏好</p>
+          <h1 className="page-title">系统配置</h1>
+          <p className="page-subtitle">管理 API 密钥、代理设置和系统偏好</p>
         </div>
 
         <div className="space-y-6">
@@ -420,63 +472,141 @@ export default function SettingsPage() {
                     <IconComponent className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-slate-900">
+                    <h2 className="card-title">
                       {config.label}
                     </h2>
-                    <p className="text-sm text-slate-500 mt-1">
+                    <p className="text-body-sm text-muted-foreground mt-1">
                       {config.description}
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
-                  {categorySettings.map((setting: Setting) => {
-                    const metaKey = `${category}.${setting.key}`
-                    const metadata = SETTING_METADATA[metaKey]
-                    // 代理URL字段占据整行
-                    const isFullWidth = setting.key === 'url' && category === 'proxy'
+                {/* 特殊处理代理配置分类 */}
+                {category === 'proxy' ? (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="label-text">代理URL配置</Label>
+                      <p className="helper-text flex items-start gap-1">
+                        <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        配置不同国家的代理URL，第一个URL将作为未配置国家的默认兜底值。只要配置了有效的代理URL即代表启用代理。
+                      </p>
+                    </div>
 
-                    return (
-                      <div key={setting.key} className={`space-y-2 ${isFullWidth ? 'lg:col-span-2' : ''}`}>
-                        <div className="flex items-center justify-between">
-                          <Label className="flex items-center gap-2">
-                            {metadata?.label || setting.key}
-                            {setting.isRequired && (
-                              <span className="text-red-500 text-xs">*必填</span>
+                    {proxyUrls.length === 0 ? (
+                      <div className="text-center py-8 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+                        <Globe className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                        <p className="text-body-sm text-muted-foreground mb-3">暂未配置代理URL</p>
+                        <Button variant="outline" size="sm" onClick={addProxyUrl}>
+                          <Plus className="w-4 h-4 mr-1" />
+                          添加代理URL
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {proxyUrls.map((item, index) => (
+                          <div key={index} className="flex gap-3 items-start p-3 bg-slate-50 rounded-lg">
+                            <div className="flex-shrink-0 w-40">
+                              <Label className="text-caption text-muted-foreground mb-1.5 block">
+                                国家/地区 {index === 0 && <span className="text-amber-600">(默认)</span>}
+                              </Label>
+                              <Select
+                                value={item.country}
+                                onValueChange={(v) => updateProxyUrl(index, 'country', v)}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {SUPPORTED_COUNTRIES.map((country) => (
+                                    <SelectItem key={country.code} value={country.code}>
+                                      {country.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex-1">
+                              <Label className="text-caption text-muted-foreground mb-1.5 block">代理URL</Label>
+                              <Input
+                                value={item.url}
+                                onChange={(e) => updateProxyUrl(index, 'url', e.target.value)}
+                                placeholder="https://api.iprocket.io/api?username=xxx&password=xxx&cc=ROW&ips=1&proxyType=http&responseType=txt"
+                              />
+                            </div>
+                            <div className="flex-shrink-0 pt-6">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeProxyUrl(index)}
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                        <Button variant="outline" size="sm" onClick={addProxyUrl}>
+                          <Plus className="w-4 h-4 mr-1" />
+                          添加更多代理URL
+                        </Button>
+                      </div>
+                    )}
+
+                    {proxyUrls.length > 0 && (
+                      <p className="text-caption text-amber-600 flex items-center gap-1">
+                        <Info className="w-3 h-3" />
+                        提示：第一个配置的代理URL将作为默认兜底，当请求的国家没有专门配置代理时会使用它。
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
+                    {categorySettings.map((setting: Setting) => {
+                      const metaKey = `${category}.${setting.key}`
+                      const metadata = SETTING_METADATA[metaKey]
+
+                      return (
+                        <div key={setting.key} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="label-text flex items-center gap-2">
+                              {metadata?.label || setting.key}
+                              {setting.isRequired && (
+                                <span className="text-caption text-red-500">*必填</span>
+                              )}
+                              {setting.validationStatus && (
+                                <span>{getValidationIcon(setting.validationStatus)}</span>
+                              )}
+                            </Label>
+                            {metadata?.helpLink && (
+                              <a
+                                href={metadata.helpLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                              >
+                                获取密钥
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
                             )}
-                            {setting.validationStatus && (
-                              <span>{getValidationIcon(setting.validationStatus)}</span>
-                            )}
-                          </Label>
-                          {metadata?.helpLink && (
-                            <a
-                              href={metadata.helpLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
-                            >
-                              获取密钥
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
+                          </div>
+
+                          <p className="helper-text flex items-start gap-1">
+                            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            {metadata?.description || setting.description || '无描述'}
+                          </p>
+
+                          {renderInput(category, setting)}
+
+                          {setting.validationMessage && (
+                            <p className={`text-caption ${setting.validationStatus === 'valid' ? 'text-green-600' : 'text-red-600'}`}>
+                              {setting.validationMessage}
+                            </p>
                           )}
                         </div>
-
-                        <p className="text-xs text-slate-500 flex items-start gap-1">
-                          <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                          {metadata?.description || setting.description || '无描述'}
-                        </p>
-
-                        {renderInput(category, setting)}
-
-                        {setting.validationMessage && (
-                          <p className={`text-xs ${setting.validationStatus === 'valid' ? 'text-green-600' : 'text-red-600'}`}>
-                            {setting.validationMessage}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
+                      )
+                    })}
+                  </div>
+                )}
 
                 <div className="mt-6 pt-4 border-t border-slate-200 flex gap-3">
                   <Button
@@ -504,9 +634,9 @@ export default function SettingsPage() {
         <Card className="mt-6 p-4 bg-blue-50 border-blue-200">
           <div className="flex items-start gap-2">
             <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-            <div className="text-sm text-blue-800">
-              <p className="font-semibold mb-2">配置说明</p>
-              <ul className="space-y-1 text-blue-700">
+            <div className="text-body-sm text-blue-800">
+              <p className="text-body-sm font-semibold mb-2">配置说明</p>
+              <ul className="space-y-1 text-body-sm text-blue-700">
                 <li>• 敏感数据（如API密钥）将使用AES-256-GCM加密存储</li>
                 <li>• 标记为"必填"的配置项需要填写才能使用对应功能</li>
                 <li>• 配置Google Ads API后，请前往Google Ads设置页面完成账号授权</li>
