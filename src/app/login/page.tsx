@@ -3,6 +3,10 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
+import { Loader2, CheckCircle2, ArrowRight, ShieldCheck, TrendingUp, Zap } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 function LoginForm() {
   const router = useRouter()
@@ -39,15 +43,11 @@ function LoginForm() {
         throw new Error(data.error || '登录失败')
       }
 
-      // HttpOnly Cookie自动设置，无需手动操作
-
-      // 需求20：检查是否需要强制修改密码
       if (data.user && data.user.mustChangePassword) {
         router.push('/change-password?forced=true')
         return
       }
 
-      // 重定向到dashboard或原始请求页面
       const redirect = searchParams.get('redirect')
       router.push(redirect || '/dashboard')
     } catch (err: any) {
@@ -60,166 +60,183 @@ function LoginForm() {
   return (
     <div className="min-h-screen flex bg-white">
       {/* Left Side - Product Showcase */}
-      <div className="hidden md:flex md:w-1/2 lg:w-1/2 bg-gray-900 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 to-purple-900/40 z-10" />
-        <Image
-          src="/dashboard-dark.webp"
-          alt="AutoAds Dashboard"
-          layout="fill"
-          objectFit="cover"
-          className="opacity-40"
-          priority
-        />
-        <div className="relative z-20 flex flex-col justify-between p-12 w-full h-full text-white">
-          <div className="flex items-center gap-2">
-            <Image src="/logo.png" alt="Logo" width={0} height={0} sizes="100vw" className="h-8 w-auto brightness-0 invert" />
+      <div className="hidden lg:flex lg:w-1/2 bg-slate-900 relative overflow-hidden">
+        {/* Dynamic Background */}
+        <div className="absolute inset-0 bg-[url('/dashboard-dark.webp')] bg-cover bg-center opacity-20 mix-blend-overlay" />
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/90 via-slate-900/90 to-purple-900/90" />
+
+        {/* Decorative Elements */}
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+          <div className="absolute -top-24 -left-24 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl" />
+          <div className="absolute top-1/2 right-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl" />
+        </div>
+
+        <div className="relative z-10 flex flex-col justify-between p-16 w-full h-full text-white">
+          {/* Logo Area */}
+          <div>
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <Zap className="w-6 h-6 text-white" />
+              </div>
+              <span className="text-2xl font-bold tracking-tight">AutoAds</span>
+            </div>
           </div>
-          {/* P2-2: 优化品牌故事 */}
-          <div className="space-y-8 max-w-lg">
-            <div className="space-y-4">
-              <h1 className="text-4xl font-bold leading-tight">
-                AI驱动的 Google Ads <br />
-                <span className="text-blue-400">自动化投放平台</span>
+
+          {/* Main Content */}
+          <div className="space-y-12">
+            <div className="space-y-6">
+              <h1 className="text-5xl font-bold leading-tight tracking-tight">
+                AI驱动的 <br />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
+                  Google Ads 自动化
+                </span>
               </h1>
-              <p className="text-xl text-gray-200">
-                从Offer到广告上线，10分钟完成传统7天的工作
+              <p className="text-xl text-slate-300 max-w-md leading-relaxed">
+                从Offer筛选到广告上线，只需10分钟。让AI为您处理繁琐工作，专注于策略与增长。
               </p>
             </div>
 
-            {/* 核心价值主张 */}
+            {/* Stats Grid */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/20">
-                <div className="text-3xl font-bold text-blue-400">10倍</div>
-                <div className="text-sm text-gray-300 mt-1">投放效率提升</div>
+              <div className="glass-dark p-5 rounded-2xl border border-white/10 hover:bg-white/5 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-blue-500/20 rounded-lg">
+                    <Zap className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <span className="text-sm text-slate-400">效率提升</span>
+                </div>
+                <div className="text-3xl font-bold text-white">10x</div>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/20">
-                <div className="text-3xl font-bold text-blue-400">40%</div>
-                <div className="text-sm text-gray-300 mt-1">测试成本降低</div>
-              </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/20">
-                <div className="text-3xl font-bold text-blue-400">3.5x</div>
-                <div className="text-sm text-gray-300 mt-1">平均ROI提升</div>
-              </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/20">
-                <div className="text-3xl font-bold text-blue-400">95%</div>
-                <div className="text-sm text-gray-300 mt-1">用户续费率</div>
+              <div className="glass-dark p-5 rounded-2xl border border-white/10 hover:bg-white/5 transition-colors">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-purple-500/20 rounded-lg">
+                    <TrendingUp className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <span className="text-sm text-slate-400">ROI 增长</span>
+                </div>
+                <div className="text-3xl font-bold text-white">3.5x</div>
               </div>
             </div>
 
-            {/* 用户评价 */}
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+            {/* Testimonial */}
+            <div className="glass-dark p-6 rounded-2xl border border-white/10">
+              <div className="flex gap-1 mb-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <svg key={i} className="w-4 h-4 text-yellow-400 fill-current" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                ))}
+              </div>
+              <p className="text-slate-200 italic mb-4">
+                "AutoAds彻底改变了我们的投放流程。现在我们可以同时测试数百个Offer，而无需增加人手。"
+              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-sm font-bold">
+                  LM
+                </div>
                 <div>
-                  <p className="text-sm text-gray-200">
-                    "AutoAds让我的团队从繁琐的手工操作中解放出来，专注于策略优化。月投放量从50万增长到300万。"
-                  </p>
-                  <p className="text-xs text-gray-400 mt-2">— 李明，某Top10联盟营销工作室创始人</p>
+                  <div className="font-semibold text-white">李明</div>
+                  <div className="text-xs text-slate-400">Top10 联盟营销团队创始人</div>
                 </div>
-              </div>
-            </div>
-
-            {/* 用户统计 */}
-            <div className="flex items-center gap-4 pt-2">
-              <div className="flex -space-x-2">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-600 border-2 border-gray-900 z-30">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-                </div>
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-purple-600 border-2 border-gray-900 z-20">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                </div>
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-green-600 border-2 border-gray-900 z-10">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                </div>
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gray-800 border-2 border-gray-900 z-0">
-                  <span className="text-xs font-medium text-gray-300">+2k</span>
-                </div>
-              </div>
-              <div className="text-sm">
-                <div className="text-white font-medium">2,000+ 专业投手</div>
-                <div className="text-gray-400">每月管理超过5000万广告预算</div>
               </div>
             </div>
           </div>
-          <div className="text-sm text-gray-500">
-            &copy; 2025 AutoAds Inc.
+
+          {/* Footer */}
+          <div className="flex items-center justify-between text-sm text-slate-500">
+            <span>&copy; 2025 AutoAds Inc.</span>
+            <div className="flex gap-4">
+              <a href="#" className="hover:text-white transition-colors">隐私政策</a>
+              <a href="#" className="hover:text-white transition-colors">服务条款</a>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-12 md:w-1/2 lg:w-1/2 bg-white">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-12 bg-white">
         <div className="w-full max-w-md space-y-8">
-          <div className="text-center lg:text-left">
-            <h2 className="text-3xl font-bold text-gray-900">欢迎回来</h2>
-            <p className="mt-2 text-gray-600">
-              请输入您的账号信息以继续
+          <div className="text-center lg:text-left space-y-2">
+            <div className="lg:hidden flex justify-center mb-6">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <Zap className="w-7 h-7 text-white" />
+              </div>
+            </div>
+            <h2 className="text-3xl font-bold text-slate-900 tracking-tight">欢迎回来</h2>
+            <p className="text-slate-500">
+              请输入您的账号信息以继续使用 AutoAds
             </p>
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
-              <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" fillRule="evenodd"></path></svg>
+            <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl text-sm flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+              <div className="p-1 bg-red-100 rounded-full">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
               {error}
             </div>
           )}
 
           <form className="mt-8 space-y-6" onSubmit={handleLogin}>
             <div className="space-y-5">
-              <div>
-                <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
-                  用户名 / 邮箱
-                </label>
-                <input
+              <div className="space-y-2">
+                <Label htmlFor="username">用户名 / 邮箱</Label>
+                <Input
                   id="username"
                   name="username"
                   type="text"
                   autoComplete="username"
                   required
-                  className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-all"
-                  placeholder="请输入用户名或邮箱"
+                  placeholder="name@company.com"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
+                  className="h-12"
                 />
               </div>
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                  密码
-                </label>
-                <input
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">密码</Label>
+                  <a href="#" className="text-sm font-medium text-blue-600 hover:text-blue-500">
+                    忘记密码?
+                  </a>
+                </div>
+                <Input
                   id="password"
                   name="password"
                   type="password"
                   autoComplete="current-password"
                   required
-                  className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-all"
-                  placeholder="请输入密码"
+                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  className="h-12"
                 />
               </div>
             </div>
 
-            <div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-gray-900 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    登录中...
-                  </span>
-                ) : '立即登录'}
-              </button>
-            </div>
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full h-12 text-base font-medium bg-slate-900 hover:bg-slate-800 transition-all duration-200"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  登录中...
+                </>
+              ) : (
+                <>
+                  立即登录
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </>
+              )}
+            </Button>
           </form>
 
           <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-slate-500">
               还没有账号?{' '}
-              <a href="#" className="font-medium text-blue-600 hover:text-blue-500">
+              <a href="#" className="font-medium text-blue-600 hover:text-blue-500 hover:underline underline-offset-4">
                 联系管理员开通
               </a>
             </p>

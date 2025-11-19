@@ -86,11 +86,14 @@ async function backupDatabaseTask() {
   log('💾 开始执行数据库备份任务...')
 
   try {
-    const backupPath = await backupDatabase()
-    log(`✅ 数据库备份成功: ${backupPath}`)
-
-    // 清理7天前的备份文件
-    await cleanupOldBackups(7)
+    const result = await backupDatabase('auto')
+    if (result.success && result.backupPath) {
+      log(`✅ 数据库备份成功: ${result.backupPath}`)
+      // 清理7天前的备份文件
+      await cleanupOldBackups(7)
+    } else {
+      logError('❌ 数据库备份失败:', result.errorMessage || '未知错误')
+    }
   } catch (error) {
     logError('❌ 数据库备份失败:', error)
   }

@@ -33,6 +33,41 @@ export function performBackup() {
   }
 }
 
+export async function backupDatabase(backupType: 'manual' | 'auto'): Promise<{
+  success: boolean;
+  errorMessage?: string;
+  backupFilename?: string;
+  backupPath?: string;
+  fileSizeBytes?: number;
+}> {
+  try {
+    const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const backupFilename = `autoads-backup-${backupType}-${timestamp}.db`
+    const backupPath = path.join(BACKUP_DIR, backupFilename)
+
+    const db = getDatabase()
+    await db.backup(backupPath)
+
+    console.log(`✅ Database backup created at ${backupPath}`)
+    cleanOldBackups()
+
+    // Get file size
+    const stats = fs.statSync(backupPath)
+
+    return {
+      success: true,
+      backupFilename,
+      backupPath,
+      fileSizeBytes: stats.size
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('❌ Backup failed:', errorMessage)
+    return { success: false, errorMessage }
+  }
+}
+
 function cleanOldBackups() {
   try {
     const files = fs.readdirSync(BACKUP_DIR)

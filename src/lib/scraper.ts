@@ -184,7 +184,7 @@ export async function scrapeProductData(url: string, customProxyUrl?: string): P
  */
 function extractAmazonData($: any): ScrapedProductData {
   const features: string[] = []
-  $('#feature-bullets li').each((i, el) => {
+  $('#feature-bullets li').each((i: number, el: any) => {
     const text = $(el).text().trim()
     if (text && text.length > 10) {
       features.push(text)
@@ -192,7 +192,7 @@ function extractAmazonData($: any): ScrapedProductData {
   })
 
   const images: string[] = []
-  $('#altImages img').each((i, el) => {
+  $('#altImages img').each((i: number, el: any) => {
     const src = $(el).attr('src')
     if (src && !src.includes('data:image')) {
       images.push(src)
@@ -217,7 +217,7 @@ function extractAmazonData($: any): ScrapedProductData {
  */
 function extractShopifyData($: any): ScrapedProductData {
   const features: string[] = []
-  $('[class*="feature"] li, [class*="spec"] li').each((i, el) => {
+  $('[class*="feature"] li, [class*="spec"] li').each((i: number, el: any) => {
     const text = $(el).text().trim()
     if (text && text.length > 10) {
       features.push(text)
@@ -228,7 +228,7 @@ function extractShopifyData($: any): ScrapedProductData {
   const ogImage = $('meta[property="og:image"]').attr('content')
   if (ogImage) images.push(ogImage)
 
-  $('[class*="product"] img, [class*="gallery"] img').each((i, el) => {
+  $('[class*="product"] img, [class*="gallery"] img').each((i: number, el: any) => {
     const src = $(el).attr('src')
     if (src && !src.includes('data:image') && !images.includes(src)) {
       images.push(src)
@@ -253,7 +253,7 @@ function extractShopifyData($: any): ScrapedProductData {
  */
 function extractGenericData($: any): ScrapedProductData {
   const features: string[] = []
-  $('ul li').each((i, el) => {
+  $('ul li').each((i: number, el: any) => {
     const text = $(el).text().trim()
     if (text && text.length > 10 && text.length < 200) {
       features.push(text)
@@ -264,7 +264,7 @@ function extractGenericData($: any): ScrapedProductData {
   const ogImage = $('meta[property="og:image"]').attr('content')
   if (ogImage) images.push(ogImage)
 
-  $('img').each((i, el) => {
+  $('img').each((i: number, el: any) => {
     const src = $(el).attr('src')
     if (src && !src.includes('data:image') && !images.includes(src)) {
       images.push(src)

@@ -26,8 +26,6 @@ const nextConfig = {
   // 外部包配置：避免webpack打包特定库
   experimental: {
     serverComponentsExternalPackages: ['better-sqlite3', 'cheerio'],
-    // 优化包导入
-    optimizePackageImports: ['lucide-react'],
   },
 
   webpack: (config, { isServer }) => {
@@ -35,41 +33,7 @@ const nextConfig = {
     if (isServer) {
       config.externals.push('better-sqlite3', 'cheerio');
     }
-
-    // 优化chunk splitting
-    if (!isServer) {
-      config.optimization = {
-        ...config.optimization,
-        splitChunks: {
-          chunks: 'all',
-          cacheGroups: {
-            default: false,
-            vendors: false,
-            // 将react相关库单独打包
-            react: {
-              name: 'react-vendors',
-              test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/,
-              priority: 40,
-              enforce: true,
-            },
-            // 将大型库单独打包
-            libs: {
-              name: 'lib-vendors',
-              test: /[\\/]node_modules[\\/](@google|google-ads-api|axios)[\\/]/,
-              priority: 30,
-              reuseExistingChunk: true,
-            },
-            // 公共代码
-            commons: {
-              name: 'commons',
-              minChunks: 2,
-              priority: 20,
-            },
-          },
-        },
-      };
-    }
-
+    // 不再自定义chunk splitting，使用Next.js默认配置
     return config;
   },
 

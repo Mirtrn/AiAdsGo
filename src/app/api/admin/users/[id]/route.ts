@@ -15,7 +15,7 @@ export async function PATCH(
   try {
     const userId = parseInt(params.id)
     const body = await request.json()
-    const { packageType, packageExpiresAt, isActive } = body
+    const { email, packageType, packageExpiresAt, isActive } = body
 
     const db = getDatabase()
 
@@ -23,6 +23,10 @@ export async function PATCH(
     const updates: string[] = []
     const values: any[] = []
 
+    if (email !== undefined) {
+      updates.push('email = ?')
+      values.push(email)
+    }
     if (packageType !== undefined) {
       updates.push('package_type = ?')
       values.push(packageType)
@@ -62,7 +66,7 @@ export async function PATCH(
   }
 }
 
-// DELETE: Soft delete/disable user
+// DELETE: Hard delete user permanently
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -81,14 +85,20 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 })
     }
 
-    // Soft delete (set is_active = 0)
-    const result = db.prepare('UPDATE users SET is_active = 0, updated_at = datetime(\'now\') WHERE id = ?').run(userId)
-
-    if (result.changes === 0) {
+    // Check if user exists
+    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId)
+    if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true, message: 'User disabled successfully' })
+    // Hard delete - permanently remove user from database
+    const result = db.prepare('DELETE FROM users WHERE id = ?').run(userId)
+
+    if (result.changes === 0) {
+      return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, message: 'User deleted permanently' })
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

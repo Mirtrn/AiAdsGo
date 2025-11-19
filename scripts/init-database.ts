@@ -413,7 +413,7 @@ const transaction = db.transaction(() => {
 
     // AI配置
     { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: 1, isRequired: 1, description: 'Gemini API密钥' },
-    { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: 0, isRequired: 1, description: 'Gemini模型版本', defaultValue: 'gemini-2.5-pro' },
+    { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: 0, isRequired: 1, description: 'Gemini模型版本（gemini-2.5-pro/gemini-2.5-flash/gemini-3-pro-preview）', defaultValue: 'gemini-2.5-pro' },
 
     // 代理配置
     { category: 'proxy', key: 'enabled', dataType: 'boolean', isSensitive: 0, isRequired: 0, description: '是否启用代理', defaultValue: 'false' },

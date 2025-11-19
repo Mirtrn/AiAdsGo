@@ -161,10 +161,10 @@ export async function getGoogleSearchSuggestions(params: {
     if (useProxy) {
       try {
         const proxyConfig = await getProxyConfig(country)
-        if (proxyConfig) {
+        if (proxyConfig && proxyConfig.auth) {
           // 使用代理配置
           const proxyAuth = Buffer.from(
-            `${proxyConfig.username}:${proxyConfig.password}`
+            `${proxyConfig.auth.username}:${proxyConfig.auth.password}`
           ).toString('base64')
 
           fetchOptions = {
@@ -173,7 +173,7 @@ export async function getGoogleSearchSuggestions(params: {
             agent: {
               host: proxyConfig.host,
               port: proxyConfig.port,
-              auth: `${proxyConfig.username}:${proxyConfig.password}`,
+              auth: `${proxyConfig.auth.username}:${proxyConfig.auth.password}`,
             },
             headers: {
               ...fetchOptions.headers,

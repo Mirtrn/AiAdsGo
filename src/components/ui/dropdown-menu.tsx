@@ -39,11 +39,9 @@ const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
 
 const DropdownMenuTrigger = React.forwardRef<
     HTMLButtonElement,
-    React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }
->(({ className, children, asChild, ...props }, ref) => {
+    React.ButtonHTMLAttributes<HTMLButtonElement>
+>(({ className, children, ...props }, ref) => {
     const { open, setOpen } = React.useContext(DropdownMenuContext);
-
-    const Comp = asChild ? React.Slot : "button"; // Simplified handling, might need adjustment if Slot is not available or used differently
 
     return (
         <button

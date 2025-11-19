@@ -96,9 +96,9 @@ export const AdminUserCreateModalDynamic = dynamic(
   }
 )
 
-// 模态框组件动态导入 - 默认导出
+// 模态框组件动态导入 - 命名导出
 export const UserProfileModalDynamic = dynamic(
-  () => import('./UserProfileModal'),
+  () => import('./UserProfileModal').then(mod => mod.UserProfileModal),
   {
     loading: () => <div className="p-6 text-center">加载用户信息...</div>,
     ssr: false,

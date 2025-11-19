@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, MoreVertical, Edit, Trash, User as UserIcon, ChevronLeft, ChevronRight, Wand2 } from 'lucide-react'
+import { Plus, MoreVertical, Edit, Trash, User as UserIcon, ChevronLeft, ChevronRight, Wand2, Ban, CheckCircle } from 'lucide-react'
 import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -135,6 +135,7 @@ export default function UserManagementPage() {
     }, [isCreateOpen])
 
     // Edit Form State
+    const [editEmail, setEditEmail] = useState('')
     const [editPackage, setEditPackage] = useState('')
     const [editExpiry, setEditExpiry] = useState('')
     const [editStatus, setEditStatus] = useState(1)
@@ -204,6 +205,7 @@ export default function UserManagementPage() {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    email: editEmail || null,
                     packageType: editPackage,
                     packageExpiresAt: editExpiry || null,
                     isActive: editStatus
@@ -221,8 +223,31 @@ export default function UserManagementPage() {
         }
     }
 
-    const handleDeleteUser = async (userId: number) => {
-        if (!confirm('确定要禁用该用户吗？')) return
+    const handleDisableUser = async (userId: number, username: string, currentStatus: number) => {
+        const action = currentStatus === 1 ? '禁用' : '启用'
+        if (!confirm(`确定要${action}用户 "${username}" 吗？`)) return
+
+        try {
+            const res = await fetch(`/api/admin/users/${userId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    isActive: currentStatus === 1 ? 0 : 1
+                })
+            })
+
+            const data = await res.json()
+            if (!res.ok) throw new Error(data.error)
+
+            toast.success(`用户已${action}`)
+            fetchUsers(pagination.page)
+        } catch (error: any) {
+            toast.error(error.message)
+        }
+    }
+
+    const handleDeleteUser = async (userId: number, username: string) => {
+        if (!confirm(`⚠️ 确定要永久删除用户 "${username}" 吗？\n\n此操作不可恢复！所有相关数据将被删除。`)) return
 
         try {
             const res = await fetch(`/api/admin/users/${userId}`, {
@@ -232,7 +257,7 @@ export default function UserManagementPage() {
             const data = await res.json()
             if (!res.ok) throw new Error(data.error)
 
-            toast.success('用户已禁用')
+            toast.success('用户已永久删除')
             fetchUsers(pagination.page)
         } catch (error: any) {
             toast.error(error.message)
@@ -241,6 +266,7 @@ export default function UserManagementPage() {
 
     const openEditModal = (user: User) => {
         setSelectedUser(user)
+        setEditEmail(user.email || '')
         setEditPackage(user.package_type)
         setEditExpiry(user.package_expires_at ? new Date(user.package_expires_at).toISOString().split('T')[0] : '')
         setEditStatus(user.is_active)
@@ -309,19 +335,33 @@ export default function UserManagementPage() {
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" aria-label="操作菜单">
-                                                    <MoreVertical className="w-4 h-4" />
-                                                </Button>
+                                            <DropdownMenuTrigger className="h-8 w-8 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md inline-flex items-center justify-center" aria-label="操作菜单">
+                                                <MoreVertical className="w-4 h-4" />
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem onClick={() => openEditModal(user)}>
                                                     <Edit className="w-4 h-4 mr-2" />
                                                     编辑
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteUser(user.id)}>
+                                                <DropdownMenuItem
+                                                    className={user.is_active ? 'text-orange-600' : 'text-green-600'}
+                                                    onClick={() => handleDisableUser(user.id, user.username, user.is_active)}
+                                                >
+                                                    {user.is_active ? (
+                                                        <>
+                                                            <Ban className="w-4 h-4 mr-2" />
+                                                            禁用
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <CheckCircle className="w-4 h-4 mr-2" />
+                                                            启用
+                                                        </>
+                                                    )}
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteUser(user.id, user.username)}>
                                                     <Trash className="w-4 h-4 mr-2" />
-                                                    禁用
+                                                    删除
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>
                                         </DropdownMenu>
@@ -477,6 +517,15 @@ export default function UserManagementPage() {
                         <DialogTitle>编辑用户</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label>邮箱地址 <span className="text-slate-400 text-xs">(可选)</span></Label>
+                            <Input
+                                type="email"
+                                placeholder="user@example.com"
+                                value={editEmail}
+                                onChange={(e) => setEditEmail(e.target.value)}
+                            />
+                        </div>
                         <div className="space-y-2">
                             <Label>套餐类型</Label>
                             <Select value={editPackage} onValueChange={setEditPackage}>

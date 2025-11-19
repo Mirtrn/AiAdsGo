@@ -64,9 +64,9 @@ const SETTING_METADATA: Record<string, {
     label: 'Gemini模型',
     description: '选择用于创意生成的Gemini模型版本',
     options: [
-      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（推荐，最强）' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（默认，最强）' },
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（快速）' },
-      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash（稳定）' }
+      { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview（实验性）' }
     ],
     defaultValue: 'gemini-2.5-pro'
   },
@@ -429,13 +429,15 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="space-y-5">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
                   {categorySettings.map((setting: Setting) => {
                     const metaKey = `${category}.${setting.key}`
                     const metadata = SETTING_METADATA[metaKey]
+                    // 代理URL字段占据整行
+                    const isFullWidth = setting.key === 'url' && category === 'proxy'
 
                     return (
-                      <div key={setting.key} className="space-y-2">
+                      <div key={setting.key} className={`space-y-2 ${isFullWidth ? 'lg:col-span-2' : ''}`}>
                         <div className="flex items-center justify-between">
                           <Label className="flex items-center gap-2">
                             {metadata?.label || setting.key}

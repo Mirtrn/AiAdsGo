@@ -304,82 +304,86 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     : navigationItems
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900">
       {/* Mobile Menu Button */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 glass px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="hover:bg-slate-100"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </Button>
-          <h1 className="font-bold text-lg text-indigo-600">AutoAds</h1>
+          <h1 className="font-bold text-lg bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">AutoAds</h1>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-600">{user.username || user.email}</span>
+          <span className="text-sm text-slate-600 font-medium">{user.username || user.email}</span>
         </div>
       </div>
 
       {/* Sidebar */}
       <aside
         className={`
-          fixed top-0 left-0 h-full bg-white border-r border-slate-200 z-40 transition-all duration-300
+          fixed top-0 left-0 h-full bg-white/80 backdrop-blur-xl border-r border-slate-200/60 z-40 transition-all duration-300 shadow-sm
           ${sidebarOpen ? 'w-64' : 'w-20'}
           ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
         {/* Logo & Toggle */}
-        <div className="h-16 border-b border-slate-200 flex items-center justify-between px-4">
+        <div className="h-16 flex items-center justify-between px-4 mb-2">
           {sidebarOpen && (
-            <h1 className="font-bold text-xl text-indigo-600">AutoAds</h1>
+            <h1 className="font-bold text-2xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
+              AutoAds
+            </h1>
           )}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="hidden lg:flex"
+            className="hidden lg:flex text-slate-400 hover:text-slate-600 hover:bg-slate-50"
           >
             <Menu className="w-5 h-5" />
           </Button>
         </div>
 
         {/* User Info - Clickable */}
-        <div className="p-4 border-b border-slate-200">
+        <div className="px-3 mb-6">
           <button
             onClick={() => setProfileModalOpen(true)}
-            className="w-full flex items-center gap-3 hover:bg-slate-50 rounded-lg p-2 transition-colors"
+            className={`
+              w-full flex items-center gap-3 p-2 rounded-xl transition-all duration-200
+              ${sidebarOpen ? 'bg-slate-50 hover:bg-slate-100 border border-slate-100' : 'justify-center hover:bg-slate-50'}
+            `}
           >
-            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-200">
               <UserIcon className="w-5 h-5" />
             </div>
             {sidebarOpen && (
-              <div className="flex-1 min-w-0 text-left">
-                <p className="text-sm font-medium text-slate-900 truncate">
-                  {user.displayName || user.username || user.email}
-                </p>
-                <div className="flex items-center gap-1">
-                  <p className="text-xs text-slate-500">{user.packageType}</p>
-                  {user.role === 'admin' && (
-                    <Shield className="w-3 h-3 text-indigo-600" />
-                  )}
+              <>
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-sm font-semibold text-slate-900 truncate">
+                    {user.displayName || user.username || user.email}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <p className="text-xs text-slate-500 font-medium">{user.packageType}</p>
+                  </div>
                 </div>
-              </div>
-            )}
-            {sidebarOpen && (
-              <ChevronDown className="w-4 h-4 text-slate-400" />
+                <ChevronDown className="w-4 h-4 text-slate-400" />
+              </>
             )}
           </button>
         </div>
 
         {/* Navigation */}
-        <nav className="p-3 space-y-1 flex-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+        <nav className="px-3 space-y-1 flex-1 overflow-y-auto custom-scrollbar" style={{ maxHeight: 'calc(100vh - 200px)' }}>
           {/* 用户功能区 */}
           {sidebarOpen && (
             <div className="px-3 py-2">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                功能菜单
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Main Menu
               </span>
             </div>
           )}
@@ -392,17 +396,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={`
-                  flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all
+                  group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
                   ${active
-                    ? 'bg-indigo-50 text-indigo-600 font-medium'
-                    : 'text-slate-600 hover:bg-slate-50'
+                    ? 'bg-blue-50/80 text-blue-600 font-medium shadow-sm shadow-blue-100/50'
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                   }
                   ${!sidebarOpen && 'justify-center'}
                 `}
                 title={!sidebarOpen ? item.label : undefined}
               >
-                <Icon className="w-5 h-5 flex-shrink-0" />
+                <Icon className={`w-5 h-5 flex-shrink-0 transition-colors ${active ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
                 {sidebarOpen && <span className="text-sm">{item.label}</span>}
+                {sidebarOpen && active && (
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
+                )}
               </a>
             )
           })}
@@ -411,15 +418,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {user.role === 'admin' && (
             <>
               {sidebarOpen && (
-                <div className="px-3 py-2 mt-4 border-t border-slate-200 pt-4">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <div className="px-3 py-2 mt-6">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                     <Shield className="w-3 h-3" />
-                    管理员
+                    Admin
                   </span>
                 </div>
               )}
               {!sidebarOpen && (
-                <div className="my-3 border-t border-slate-200" />
+                <div className="my-3 border-t border-slate-100" />
               )}
               {adminNavigationItems.map((item) => {
                 const Icon = item.icon
@@ -430,16 +437,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     key={item.href}
                     href={item.href}
                     className={`
-                      flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all
+                      group flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
                       ${active
-                        ? 'bg-indigo-50 text-indigo-600 font-medium'
-                        : 'text-slate-600 hover:bg-slate-50'
+                        ? 'bg-purple-50/80 text-purple-600 font-medium shadow-sm shadow-purple-100/50'
+                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                       }
                       ${!sidebarOpen && 'justify-center'}
                     `}
                     title={!sidebarOpen ? item.label : undefined}
                   >
-                    <Icon className="w-5 h-5 flex-shrink-0" />
+                    <Icon className={`w-5 h-5 flex-shrink-0 transition-colors ${active ? 'text-purple-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
                     {sidebarOpen && <span className="text-sm">{item.label}</span>}
                   </a>
                 )
@@ -449,17 +456,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Logout Button */}
-        <div className="p-3 border-t border-slate-200">
+        <div className="p-3 border-t border-slate-100 bg-slate-50/50">
           <Button
             variant="ghost"
             onClick={handleLogout}
             className={`
-              w-full flex items-center gap-3 text-slate-600 hover:text-red-600 hover:bg-red-50
+              w-full flex items-center gap-3 text-slate-500 hover:text-red-600 hover:bg-red-50/50 transition-colors
               ${!sidebarOpen && 'justify-center'}
             `}
           >
             <LogOut className="w-5 h-5" />
-            {sidebarOpen && <span>退出登录</span>}
+            {sidebarOpen && <span className="font-medium">退出登录</span>}
           </Button>
         </div>
       </aside>
@@ -467,7 +474,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       <main
         className={`
-          transition-all duration-300 pt-16 lg:pt-0
+          transition-all duration-300 pt-16 lg:pt-0 min-h-screen
           ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}
         `}
       >

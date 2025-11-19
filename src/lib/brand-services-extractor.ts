@@ -4,7 +4,7 @@
  * 用于验证AI生成的Callout和Sitelink的真实性
  */
 
-import { scrapeWebPage } from './scraper'
+import { scrapeUrl } from './scraper'
 
 export interface BrandServices {
   shipping: string[] // 配送相关服务
@@ -20,11 +20,11 @@ export interface BrandServices {
  */
 export async function extractBrandServices(
   websiteUrl: string,
-  targetCountry: string
+  targetCountry?: string
 ): Promise<BrandServices> {
   try {
     // 抓取官网内容
-    const pageData = await scrapeWebPage(websiteUrl, targetCountry)
+    const pageData = await scrapeUrl(websiteUrl)
     const text = pageData.text.toLowerCase()
 
     const services: BrandServices = {

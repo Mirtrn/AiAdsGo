@@ -12,11 +12,11 @@ export async function GET(request: NextRequest) {
   try {
     // 验证用户身份
     const authResult = await verifyAuth(request)
-    if (!authResult.valid || !authResult.payload) {
+    if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权访问' }, { status: 401 })
     }
 
-    const userId = authResult.payload.userId
+    const userId = authResult.user.userId
     const { searchParams } = new URL(request.url)
     const creativeId = searchParams.get('creativeId')
 

@@ -88,7 +88,7 @@ export default function OffersPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
 
   // P2-5: 排序状态
-  const [sortBy, setSortBy] = useState<keyof Offer | ''>('')
+  const [sortBy, setSortBy] = useState<string>('')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
   // Modals
@@ -143,8 +143,8 @@ export default function OffersPage() {
     // P2-5: 排序
     if (sortBy) {
       filtered = [...filtered].sort((a, b) => {
-        const aVal = a[sortBy]
-        const bVal = b[sortBy]
+        const aVal = a[sortBy as keyof Offer]
+        const bVal = b[sortBy as keyof Offer]
 
         if (aVal === null || aVal === undefined) return 1
         if (bVal === null || bVal === undefined) return -1
@@ -167,7 +167,7 @@ export default function OffersPage() {
   }, [offers, searchQuery, countryFilter, statusFilter, sortBy, sortOrder])
 
   // P2-5: 排序处理函数
-  const handleSort = (field: keyof Offer) => {
+  const handleSort = (field: string) => {
     if (sortBy === field) {
       // 同一列：切换排序方向或取消排序
       if (sortOrder === 'desc') {
@@ -682,7 +682,7 @@ export default function OffersPage() {
           setIsModalOpen(false)
           setSelectedOffer(null)
         }}
-        offer={selectedOffer || {
+        offer={(selectedOffer || {
           id: 0,
           offerName: '',
           brand: '',
@@ -692,28 +692,28 @@ export default function OffersPage() {
           affiliateLink: null,
           productPrice: null,
           commissionPayout: null,
-        }}
+        }) as any}
       />
 
       {selectedOfferForCpc && (
         <AdjustCpcModal
-          open={isAdjustCpcModalOpen}
+          isOpen={isAdjustCpcModalOpen}
           onClose={() => {
             setIsAdjustCpcModalOpen(false)
             setSelectedOfferForCpc(null)
           }}
-          offer={selectedOfferForCpc}
+          offer={selectedOfferForCpc as any}
         />
       )}
 
       {selectedOfferForScore && (
         <LaunchScoreModal
-          open={isLaunchScoreModalOpen}
+          isOpen={isLaunchScoreModalOpen}
           onClose={() => {
             setIsLaunchScoreModalOpen(false)
             setSelectedOfferForScore(null)
           }}
-          offerId={selectedOfferForScore.id}
+          offer={selectedOfferForScore as any}
         />
       )}
 

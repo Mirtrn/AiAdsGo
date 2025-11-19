@@ -77,7 +77,7 @@ export async function getKeywordIdeas(params: {
     const ideas = await customer.keywordPlanIdeas.generateKeywordIdeas(request)
 
     // 转换结果格式
-    const keywordIdeas: KeywordIdea[] = ideas.map((idea: any) => ({
+    const keywordIdeas: KeywordIdea[] = (ideas as any).map((idea: any) => ({
       text: idea.text,
       avgMonthlySearches: idea.keyword_idea_metrics?.avg_monthly_searches || 0,
       competition: mapCompetition(idea.keyword_idea_metrics?.competition),
@@ -125,10 +125,10 @@ export async function getKeywordMetrics(params: {
     }
 
     // 调用Historical Metrics API
-    const metrics = await customer.keywordPlanIdeas.generateKeywordHistoricalMetrics(request)
+    const metrics = await customer.keywordPlanIdeas.generateKeywordHistoricalMetrics(request as any)
 
     // 转换结果格式
-    const keywordMetrics: KeywordMetrics[] = metrics.map((metric: any) => ({
+    const keywordMetrics: KeywordMetrics[] = (metrics as any).map((metric: any) => ({
       keyword: metric.text,
       avgMonthlySearches: metric.keyword_metrics?.avg_monthly_searches || 0,
       competition: mapCompetition(metric.keyword_metrics?.competition),

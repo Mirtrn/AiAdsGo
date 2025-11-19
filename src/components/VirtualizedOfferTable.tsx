@@ -236,10 +236,8 @@ export function VirtualizedOfferTable({
                   </Button>
 
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500 hover:text-gray-900">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
+                    <DropdownMenuTrigger className="h-8 w-8 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-md inline-flex items-center justify-center">
+                      <MoreHorizontal className="w-4 h-4" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
                       <DropdownMenuLabel>Actions</DropdownMenuLabel>

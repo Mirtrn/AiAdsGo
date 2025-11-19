@@ -329,15 +329,26 @@ export default function CreativesPage() {
 
   if (error && !offer) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600">{error}</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
+          <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-indigo-100 mb-4">
+            <svg className="h-8 w-8 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">创意管理</h3>
+          <p className="text-gray-600 mb-6">
+            需要选择一个Offer才能查看和管理创意
+          </p>
           <button
             onClick={() => router.push('/offers')}
-            className="mt-4 text-indigo-600 hover:text-indigo-500"
+            className="w-full px-4 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
           >
-            返回列表
+            前往选择 Offer
           </button>
+          <p className="mt-4 text-xs text-gray-500">
+            在Offer详情页中，您可以生成和管理AI创意
+          </p>
         </div>
       </div>
     )

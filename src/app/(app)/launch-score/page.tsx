@@ -202,15 +202,26 @@ export default function LaunchScorePage() {
 
   if (error && !offer) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600">{error}</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
+          <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-indigo-100 mb-4">
+            <svg className="h-8 w-8 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">Launch Score 投放评分</h3>
+          <p className="text-gray-600 mb-6">
+            需要选择一个Offer才能查看或计算Launch Score评分
+          </p>
           <button
             onClick={() => router.push('/offers')}
-            className="mt-4 text-indigo-600 hover:text-indigo-500"
+            className="w-full px-4 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
           >
-            返回列表
+            前往选择 Offer
           </button>
+          <p className="mt-4 text-xs text-gray-500">
+            在Offer详情页中，您可以为特定创意计算Launch Score
+          </p>
         </div>
       </div>
     )

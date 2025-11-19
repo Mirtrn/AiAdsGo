@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getGoogleAdsClient } from '@/lib/google-ads'
+import { getCustomer } from '@/lib/google-ads-api'
 import { findActiveGoogleAdsAccounts } from '@/lib/google-ads-accounts'
 
 /**
@@ -56,7 +56,7 @@ export async function PUT(
     }
 
     // 获取Google Ads客户端
-    const customer = await getGoogleAdsClient(
+    const customer = await getCustomer(
       googleAdsAccount.customerId,
       googleAdsAccount.refreshToken
     )
@@ -82,6 +82,13 @@ export async function PUT(
     }
 
     const campaign = campaignResults[0].campaign
+    if (!campaign) {
+      return NextResponse.json(
+        { error: '未找到广告系列数据' },
+        { status: 404 }
+      )
+    }
+
     const biddingStrategy = campaign.bidding_strategy_type
 
     // 根据竞价策略类型更新CPC
@@ -110,15 +117,12 @@ export async function PUT(
       const cpcMicros = Math.round(newCpc * 1000000) // 转换为微单位
 
       const operations = adGroups.map((adGroup: any) => ({
-        update: {
-          resource_name: `customers/${googleAdsAccount.customerId}/adGroups/${adGroup.ad_group.id}`,
-          cpc_bid_micros: cpcMicros,
-        },
-        update_mask: 'cpc_bid_micros',
+        resource_name: `customers/${googleAdsAccount.customerId}/adGroups/${adGroup.ad_group.id}`,
+        cpc_bid_micros: cpcMicros,
       }))
 
       // 批量更新Ad Groups
-      await customer.adGroups.update(operations)
+      await customer.adGroups.update(operations as any)
 
       return NextResponse.json({
         success: true,
@@ -126,7 +130,7 @@ export async function PUT(
         updatedAdGroups: adGroups.length,
         newCpc: newCpc,
       })
-    } else if (biddingStrategy === 'MAXIMIZE_CLICKS') {
+    } else if ((biddingStrategy as string) === 'MAXIMIZE_CLICKS') {
       // Maximize Clicks: 更新最大CPC限制
       const cpcMicros = Math.round(newCpc * 1000000)
 
@@ -140,7 +144,7 @@ export async function PUT(
         update_mask: 'maximize_clicks.max_cpc_bid_micros',
       }
 
-      await customer.campaigns.update([operation])
+      await customer.campaigns.update([operation] as any)
 
       return NextResponse.json({
         success: true,
@@ -161,7 +165,7 @@ export async function PUT(
         update_mask: 'target_cpa.target_cpa_micros',
       }
 
-      await customer.campaigns.update([operation])
+      await customer.campaigns.update([operation] as any)
 
       return NextResponse.json({
         success: true,

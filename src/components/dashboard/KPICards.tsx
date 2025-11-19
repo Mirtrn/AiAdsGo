@@ -203,14 +203,15 @@ export function KPICards() {
       )}
 
       {/* KPI卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard
-          title="展示量"
-          value={data.current.impressions}
-          change={data.changes.impressions}
-          icon={<Eye className="h-6 w-6" />}
-          format="number"
-        />
+      {data && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <KPICard
+            title="展示量"
+            value={data.current.impressions}
+            change={data.changes.impressions}
+            icon={<Eye className="h-6 w-6" />}
+            format="number"
+          />
         <KPICard
           title="点击量"
           value={data.current.clicks}
@@ -232,10 +233,12 @@ export function KPICards() {
           icon={<Target className="h-6 w-6" />}
           format="number"
         />
-      </div>
+        </div>
+      )}
 
       {/* 附加指标 - P1-5优化版 */}
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+      {data && (
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="border-gray-200 hover:shadow-md transition-shadow">
           <CardContent className="pt-6">
             <p className="text-sm font-medium text-muted-foreground mb-2">平均CTR</p>
@@ -260,7 +263,8 @@ export function KPICards() {
             </p>
           </CardContent>
         </Card>
-      </div>
+        </div>
+      )}
     </div>
   )
 }
