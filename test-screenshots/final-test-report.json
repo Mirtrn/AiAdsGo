@@ -1,0 +1,35 @@
+{
+  "testDate": "2025-11-18T16:17:26.487Z",
+  "environment": {
+    "baseUrl": "http://localhost:3000",
+    "username": "autoads"
+  },
+  "requirements": {
+    "req11_keywordSuggestions": {
+      "status": "not_tested",
+      "logs": []
+    },
+    "req12_gemini25": {
+      "status": "verified",
+      "details": "Code-level verification completed"
+    },
+    "req13_dataSync": {
+      "status": "verified",
+      "details": "Cron script and service verified"
+    },
+    "req15_aiCreative": {
+      "status": "not_tested",
+      "logs": []
+    }
+  },
+  "screenshots": [
+    "01-login-page.png",
+    "02-after-login.png",
+    "03-offers-list.png",
+    "04-offer-detail.png",
+    "05-launch-ad-modal.png",
+    "06-after-keyword-fetch.png",
+    "07-after-creative-generation.png"
+  ],
+  "allConsoleLogs": []
+}

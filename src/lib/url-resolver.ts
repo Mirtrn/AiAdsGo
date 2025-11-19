@@ -1,5 +1,4 @@
-import axios from 'axios'
-import { HttpsProxyAgent } from 'https-proxy-agent'
+import { createProxyAxiosClient } from './proxy-axios'
 
 /**
  * 解析后的URL信息
@@ -33,31 +32,6 @@ function cleanExpiredCache(): void {
     if (now >= cached.expiresAt) {
       urlResolverCache.delete(key)
     }
-  }
-}
-
-/**
- * 从Proxy URL获取代理凭证（简化版，与proxy模块解耦）
- */
-async function getSimpleProxyAgent(proxyUrl: string): Promise<HttpsProxyAgent<string> | undefined> {
-  try {
-    // 请求代理IP
-    const response = await axios.get(proxyUrl, { timeout: 10000 })
-    const proxyString = response.data.trim().split('\n')[0].trim()
-
-    // 解析格式: host:port:username:password
-    const [host, port, username, password] = proxyString.split(':')
-
-    if (!host || !port || !username || !password) {
-      console.warn('代理格式无效，使用直连')
-      return undefined
-    }
-
-    // 创建代理Agent
-    return new HttpsProxyAgent(`http://${username}:${password}@${host}:${port}`)
-  } catch (error) {
-    console.warn('获取代理失败，使用直连:', error)
-    return undefined
   }
 }
 
@@ -132,8 +106,12 @@ export async function resolveAffiliateLink(
   let currentUrl = affiliateLink
   let redirectCount = 0
 
-  // 如果提供了代理URL，获取代理Agent
-  const proxyAgent = proxyUrl ? await getSimpleProxyAgent(proxyUrl) : undefined
+  // 创建统一的代理axios客户端（如果提供了proxyUrl则使用代理）
+  const axiosClient = await createProxyAxiosClient({
+    customProxyUrl: proxyUrl,
+    timeout: 15000,
+    useCache: true,
+  })
 
   try {
     // 手动跟踪重定向链
@@ -141,12 +119,9 @@ export async function resolveAffiliateLink(
       console.log(`重定向 ${redirectCount + 1}: ${currentUrl}`)
 
       try {
-        const response = await axios.get(currentUrl, {
+        const response = await axiosClient.get(currentUrl, {
           maxRedirects: 0,  // 禁用自动重定向
           validateStatus: (status) => status >= 200 && status < 400, // 接受2xx和3xx
-          httpsAgent: proxyAgent,
-          httpAgent: proxyAgent as any,
-          timeout: 15000,
           headers: {
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

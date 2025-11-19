@@ -46,11 +46,14 @@ export async function GET(request: NextRequest) {
       user: {
         id: user.id,
         email: user.email,
+        username: (user as any).username,
         displayName: user.display_name,
         profilePicture: user.profile_picture,
         role: user.role,
         packageType: user.package_type,
         packageExpiresAt: user.package_expires_at,
+        validFrom: (user as any).valid_from,
+        validUntil: (user as any).valid_until,
         createdAt: user.created_at,
       },
     })

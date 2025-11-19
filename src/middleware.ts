@@ -40,38 +40,45 @@ const protectedPaths = [
   '/api/creatives',
   '/api/user',
   '/api/google-ads',
+  '/api/ads-accounts',
 ]
 
-// 公开路径（无需认证）
+// 公开路径（无需认证） - 需求27: 除首页和登录页，其他页面都需要登录
 const publicPaths = [
-  '/',
-  '/login',
-  '/register',
-  '/api/auth/login',
-  '/api/auth/register',
-  '/api/auth/google',
+  '/',               // 营销首页
+  '/login',          // 登录页面
+  '/api/auth/login', // 登录API
+  '/api/auth/google', // Google OAuth
+  '/robots.txt',     // SEO - robots.txt
+  '/sitemap.xml',    // SEO - sitemap.xml
 ]
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  const { pathname} = request.nextUrl
 
-  // 检查是否是受保护的路径
-  const isProtectedApi = protectedPaths.some(path => pathname.startsWith(path))
-  const isProtectedPage = ['/dashboard', '/offers', '/campaigns', '/settings'].some(
-    path => pathname.startsWith(path)
-  )
+  // 检查是否是公开路径
+  const isPublicPath = publicPaths.some(path => {
+    if (path === '/') {
+      // 首页需要精确匹配
+      return pathname === '/'
+    }
+    // 其他路径使用startsWith匹配
+    return pathname === path || pathname.startsWith(path + '/')
+  })
 
-  // 如果不是受保护的路径，直接放行
-  if (!isProtectedApi && !isProtectedPage) {
+  // 公开路径直接放行
+  if (isPublicPath) {
     return NextResponse.next()
   }
 
   // 从Cookie中读取token（HttpOnly Cookie方式）
   const token = request.cookies.get('auth_token')?.value
 
-  // 如果没有token
+  // 如果没有token，重定向到登录页
   if (!token) {
-    if (isProtectedApi) {
+    const isApiRoute = pathname.startsWith('/api/')
+
+    if (isApiRoute) {
       // API路径：返回401 JSON
       return NextResponse.json(
         { error: '未提供认证token，请先登录' },
@@ -81,6 +88,7 @@ export async function middleware(request: NextRequest) {
       // 页面路径：重定向到登录页
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('redirect', pathname)
+      console.log(`[Middleware] Redirecting ${pathname} to ${loginUrl.toString()}`)
       return NextResponse.redirect(loginUrl)
     }
   }
@@ -88,7 +96,7 @@ export async function middleware(request: NextRequest) {
   // 验证token（异步）
   const payload = await verifyTokenEdge(token)
   if (!payload) {
-    if (isProtectedApi) {
+    if (isApiRoute) {
       // API路径：返回401 JSON
       return NextResponse.json(
         { error: 'Token无效或已过期，请重新登录' },

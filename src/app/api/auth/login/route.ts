@@ -28,10 +28,13 @@ export async function POST(request: NextRequest) {
     // 登录 (支持用户名或邮箱)
     const result = await loginWithPassword(username, password)
 
-    // 创建响应
+    // 创建响应（需求20：包含must_change_password标识）
     const response = NextResponse.json({
       success: true,
-      user: result.user,
+      user: {
+        ...result.user,
+        mustChangePassword: result.mustChangePassword || false,
+      },
     })
 
     // 设置HttpOnly Cookie（安全的token存储方式）

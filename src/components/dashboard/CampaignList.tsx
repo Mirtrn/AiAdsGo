@@ -1,7 +1,26 @@
 'use client'
 
+/**
+ * CampaignList - P1-5优化版 + P2-2导出功能
+ * 使用shadcn/ui Table组件 + CSV导出
+ */
+
 import { useEffect, useState } from 'react'
-import { ArrowUpDown, Search, Filter } from 'lucide-react'
+import { ArrowUpDown, Search, Filter, Download } from 'lucide-react'
+import { exportCampaigns, type CampaignExportData } from '@/lib/export-utils'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 
 interface CampaignPerformance {
   campaignId: number
@@ -68,176 +87,177 @@ export function CampaignList() {
 
   if (loading && campaigns.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-gray-200 rounded w-48"></div>
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-12 bg-gray-100 rounded"></div>
-            ))}
+      <Card>
+        <CardContent className="py-12">
+          <div className="animate-pulse space-y-4">
+            <div className="h-6 bg-gray-200 rounded w-48"></div>
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-12 bg-gray-100 rounded"></div>
+              ))}
+            </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     )
   }
 
+  // P2-2: 导出Campaign数据
+  const handleExport = () => {
+    const exportData: CampaignExportData[] = campaigns.map((campaign) => ({
+      campaignId: campaign.campaignId,
+      campaignName: campaign.campaignName,
+      status: campaign.status,
+      offerBrand: campaign.offerBrand,
+      impressions: campaign.impressions,
+      clicks: campaign.clicks,
+      cost: campaign.cost,
+      conversions: campaign.conversions,
+      ctr: campaign.ctr,
+      cpc: campaign.cpc,
+      conversionRate: campaign.conversionRate,
+    }))
+    exportCampaigns(exportData)
+  }
+
   return (
-    <div className="bg-white rounded-lg shadow">
-      {/* Header */}
-      <div className="p-6 border-b border-gray-200">
-        <h2 className="text-lg font-semibold text-gray-900">Campaign列表</h2>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>Campaign列表</CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={campaigns.length === 0}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            导出CSV
+          </Button>
+        </div>
         <div className="mt-4 flex flex-col sm:flex-row gap-4">
           {/* 搜索框 */}
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
               type="text"
               placeholder="搜索Campaign或品牌..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="pl-10"
             />
           </div>
 
           {/* 状态筛选 */}
-          <div className="flex items-center gap-2">
-            <Filter className="h-5 w-5 text-gray-400" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">所有状态</option>
-              <option value="ENABLED">启用</option>
-              <option value="PAUSED">暂停</option>
-            </select>
-          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="所有状态" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">所有状态</SelectItem>
+              <SelectItem value="ENABLED">启用</SelectItem>
+              <SelectItem value="PAUSED">暂停</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-      </div>
+      </CardHeader>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Campaign名称
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                状态
-              </th>
-              <th
-                className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('impressions')}
-              >
-                <div className="flex items-center justify-end gap-1">
-                  展示量
-                  <ArrowUpDown className="h-4 w-4" />
-                </div>
-              </th>
-              <th
-                className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('clicks')}
-              >
-                <div className="flex items-center justify-end gap-1">
-                  点击量
-                  <ArrowUpDown className="h-4 w-4" />
-                </div>
-              </th>
-              <th
-                className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('cost')}
-              >
-                <div className="flex items-center justify-end gap-1">
-                  花费
-                  <ArrowUpDown className="h-4 w-4" />
-                </div>
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                CTR
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                CPC
-              </th>
-              <th
-                className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('conversions')}
-              >
-                <div className="flex items-center justify-end gap-1">
-                  转化量
-                  <ArrowUpDown className="h-4 w-4" />
-                </div>
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {campaigns.map((campaign) => (
-              <tr key={campaign.campaignId} className="hover:bg-gray-50">
-                <td className="px-6 py-4">
-                  <div>
-                    <div className="text-sm font-medium text-gray-900">
-                      {campaign.campaignName}
-                    </div>
-                    <div className="text-sm text-gray-500">{campaign.offerBrand}</div>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Campaign名称</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('impressions')}>
+                  <div className="flex items-center justify-end gap-1">
+                    展示量
+                    <ArrowUpDown className="h-4 w-4" />
                   </div>
-                </td>
-                <td className="px-6 py-4">
-                  <span
-                    className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      campaign.status === 'ENABLED'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                  >
-                    {campaign.status === 'ENABLED' ? '启用' : '暂停'}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-right text-sm text-gray-900">
-                  {campaign.impressions.toLocaleString()}
-                </td>
-                <td className="px-6 py-4 text-right text-sm text-gray-900">
-                  {campaign.clicks.toLocaleString()}
-                </td>
-                <td className="px-6 py-4 text-right text-sm text-gray-900">
-                  ¥{campaign.cost.toFixed(2)}
-                </td>
-                <td className="px-6 py-4 text-right text-sm text-gray-900">
-                  {campaign.ctr.toFixed(2)}%
-                </td>
-                <td className="px-6 py-4 text-right text-sm text-gray-900">
-                  ¥{campaign.cpc.toFixed(2)}
-                </td>
-                <td className="px-6 py-4 text-right text-sm text-gray-900">
-                  {campaign.conversions}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            上一页
-          </button>
-          <span className="text-sm text-gray-700">
-            第 {page} / {totalPages} 页
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            下一页
-          </button>
+                </TableHead>
+                <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('clicks')}>
+                  <div className="flex items-center justify-end gap-1">
+                    点击量
+                    <ArrowUpDown className="h-4 w-4" />
+                  </div>
+                </TableHead>
+                <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('cost')}>
+                  <div className="flex items-center justify-end gap-1">
+                    花费
+                    <ArrowUpDown className="h-4 w-4" />
+                  </div>
+                </TableHead>
+                <TableHead className="text-right">CTR</TableHead>
+                <TableHead className="text-right">CPC</TableHead>
+                <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('conversions')}>
+                  <div className="flex items-center justify-end gap-1">
+                    转化量
+                    <ArrowUpDown className="h-4 w-4" />
+                  </div>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {campaigns.map((campaign) => (
+                <TableRow key={campaign.campaignId}>
+                  <TableCell>
+                    <div className="font-medium">{campaign.campaignName}</div>
+                    <div className="text-sm text-muted-foreground">{campaign.offerBrand}</div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={campaign.status === 'ENABLED' ? 'default' : 'secondary'}>
+                      {campaign.status === 'ENABLED' ? '启用' : '暂停'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {campaign.impressions.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {campaign.clicks.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    ¥{campaign.cost.toFixed(2)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {campaign.ctr.toFixed(2)}%
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    ¥{campaign.cpc.toFixed(2)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {campaign.conversions}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
-      )}
-    </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="mt-4 flex items-center justify-between">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              上一页
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              第 {page} / {totalPages} 页
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            >
+              下一页
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

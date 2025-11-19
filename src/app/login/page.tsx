@@ -39,6 +39,13 @@ export default function LoginPage() {
       }
 
       // HttpOnly Cookie自动设置，无需手动操作
+
+      // 需求20：检查是否需要强制修改密码
+      if (data.user && data.user.mustChangePassword) {
+        router.push('/change-password?forced=true')
+        return
+      }
+
       // 重定向到dashboard或原始请求页面
       const redirect = searchParams.get('redirect')
       router.push(redirect || '/dashboard')

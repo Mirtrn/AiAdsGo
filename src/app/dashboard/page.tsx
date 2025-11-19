@@ -5,15 +5,20 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { KPICards } from '@/components/dashboard/KPICards'
 import { CampaignList } from '@/components/dashboard/CampaignList'
 import { InsightsCard } from '@/components/dashboard/InsightsCard'
+import { PerformanceTrends } from '@/components/dashboard/PerformanceTrends'
+import UserProfileModal from '@/components/UserProfileModal'
 
 interface UserInfo {
   id: number
   email: string
+  username?: string
   displayName: string | null
   profilePicture: string | null
   role: string
   packageType: string
   packageExpiresAt: string | null
+  validFrom?: string | null
+  validUntil?: string | null
   createdAt: string
 }
 
@@ -23,6 +28,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [showProfileModal, setShowProfileModal] = useState(false)
 
   useEffect(() => {
     // Google OAuth回调现在由服务器直接设置HttpOnly Cookie
@@ -122,6 +128,12 @@ export default function DashboardPage() {
                 </span>
               </div>
               <button
+                onClick={() => setShowProfileModal(true)}
+                className="px-4 py-2 text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+              >
+                个人中心
+              </button>
+              <button
                 onClick={handleLogout}
                 className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
               >
@@ -199,6 +211,11 @@ export default function DashboardPage() {
               <KPICards />
             </div>
 
+            {/* P2-1: 广告表现趋势图 */}
+            <div>
+              <PerformanceTrends />
+            </div>
+
             {/* 智能洞察与Campaign列表 */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* 智能洞察 */}
@@ -214,6 +231,25 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* 个人中心弹窗 */}
+      {user && (
+        <UserProfileModal
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+          user={{
+            username: user.username || null,
+            email: user.email,
+            displayName: user.displayName,
+            profilePicture: user.profilePicture,
+            role: user.role,
+            packageType: user.packageType,
+            validFrom: user.validFrom || null,
+            validUntil: user.validUntil || null,
+            createdAt: user.createdAt,
+          }}
+        />
+      )}
     </div>
   )
 }

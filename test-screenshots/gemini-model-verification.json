@@ -1,0 +1,26 @@
+[
+  {
+    "file": "ai.ts",
+    "usesGemini25": true,
+    "lines": [
+      "Line 26: const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-latest' })",
+      "Line 105: const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-latest' })"
+    ]
+  },
+  {
+    "file": "keyword-generator.ts",
+    "usesGemini25": true,
+    "lines": [
+      "Line 44: const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-latest' })",
+      "Line 164: const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-latest' })",
+      "Line 220: const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-latest' })"
+    ]
+  },
+  {
+    "file": "settings.ts",
+    "usesGemini25": true,
+    "lines": [
+      "Line 294: const geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.5-pro-latest' })"
+    ]
+  }
+]

@@ -1,10 +1,28 @@
 'use client'
 
+/**
+ * LaunchAdModal - P1-3优化版
+ * 使用shadcn/ui Dialog + Stepper组件
+ */
+
 import { useState, useMemo } from 'react'
 import { calculateSuggestedMaxCPC } from '@/lib/pricing-utils'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Stepper, Step } from '@/components/ui/stepper'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import { AlertCircle, RefreshCw, Sparkles, Rocket } from 'lucide-react'
 
 interface LaunchAdModalProps {
-  isOpen: boolean
+  open: boolean
   onClose: () => void
   offer: {
     id: number
@@ -34,7 +52,7 @@ interface AdVariant {
   qualityScore?: number
 }
 
-export default function LaunchAdModal({ isOpen, onClose, offer }: LaunchAdModalProps) {
+export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalProps) {
   const [currentStep, setCurrentStep] = useState(1)
 
   // Step 1: Ad variants selection
@@ -74,7 +92,13 @@ export default function LaunchAdModal({ isOpen, onClose, offer }: LaunchAdModalP
     return null
   }, [offer.productPrice, offer.commissionPayout, offer.targetCountry])
 
-  if (!isOpen) return null
+  // Stepper配置
+  const steps: Step[] = [
+    { id: 1, label: '选择变体', description: '广告数量' },
+    { id: 2, label: '配置参数', description: '系列设置' },
+    { id: 3, label: '生成创意', description: 'AI评分' },
+    { id: 4, label: '确认发布', description: '上线投放' },
+  ]
 
   const handleVariantCountChange = (count: 1 | 2 | 3) => {
     setNumVariants(count)
@@ -361,170 +385,148 @@ export default function LaunchAdModal({ isOpen, onClose, offer }: LaunchAdModalP
     }
   }
 
-  const renderStepIndicator = () => (
-    <div className="flex items-center justify-between mb-8">
-      {[1, 2, 3, 4].map((step) => (
-        <div key={step} className="flex items-center flex-1">
-          <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-            currentStep >= step
-              ? 'bg-indigo-600 border-indigo-600 text-white'
-              : 'bg-white border-gray-300 text-gray-500'
-          }`}>
-            {step}
-          </div>
-          {step < 4 && (
-            <div className={`flex-1 h-1 mx-2 ${
-              currentStep > step ? 'bg-indigo-600' : 'bg-gray-300'
-            }`} />
-          )}
-        </div>
-      ))}
-    </div>
-  )
 
   const renderStep1 = () => (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">选择广告变体数量</h3>
-      <p className="text-sm text-gray-600">
-        创建多个有差异化的广告可以快速测试哪种策略效果最好
-      </p>
+      <div>
+        <h3 className="text-lg font-semibold mb-2">选择广告变体数量</h3>
+        <p className="text-sm text-muted-foreground">
+          创建多个有差异化的广告可以快速测试哪种策略效果最好
+        </p>
+      </div>
 
       <div className="space-y-4">
-        <div className="flex space-x-4">
+        <div className="grid grid-cols-3 gap-4">
           {[1, 2, 3].map((count) => (
-            <button
+            <Button
               key={count}
+              variant={numVariants === count ? 'default' : 'outline'}
+              size="lg"
               onClick={() => handleVariantCountChange(count as 1 | 2 | 3)}
-              className={`flex-1 py-3 px-4 border-2 rounded-lg font-medium ${
-                numVariants === count
-                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                  : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
-              }`}
+              className="h-20 flex flex-col items-center justify-center"
             >
-              {count} 个广告
-            </button>
+              <span className="text-2xl font-bold">{count}</span>
+              <span className="text-xs mt-1">个广告</span>
+            </Button>
           ))}
         </div>
 
         {/* Requirement 16: Show orientations */}
-        <div className="bg-gray-50 p-4 rounded-md">
-          <h4 className="text-sm font-medium text-gray-900 mb-2">广告变体类型</h4>
-          <ul className="space-y-1 text-sm text-gray-600">
-            {selectedOrientations.map((orientation, index) => (
-              <li key={index}>
-                {index + 1}. {orientation === 'brand' ? '品牌导向' : orientation === 'product' ? '产品导向' : '促销导向'}
-                {orientation === 'brand' && ' (必选)'}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <h4 className="text-sm font-medium mb-3">广告变体类型</h4>
+            <div className="space-y-2">
+              {selectedOrientations.map((orientation, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Badge variant="secondary">
+                    {index + 1}
+                  </Badge>
+                  <span className="text-sm">
+                    {orientation === 'brand' ? '品牌导向' : orientation === 'product' ? '产品导向' : '促销导向'}
+                  </span>
+                  {orientation === 'brand' && (
+                    <Badge variant="outline" className="ml-auto">必选</Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="flex justify-end space-x-3 pt-4">
-        <button
-          onClick={onClose}
-          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-        >
+      <div className="flex justify-between pt-4">
+        <Button variant="outline" onClick={onClose}>
           取消
-        </button>
-        <button
-          onClick={() => setCurrentStep(2)}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-        >
+        </Button>
+        <Button onClick={() => setCurrentStep(2)}>
           下一步
-        </button>
+        </Button>
       </div>
     </div>
   )
 
   const renderStep2 = () => (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">广告系列设置</h3>
-      <p className="text-sm text-gray-600">
-        以下是根据最佳实践预设的默认值，您可以根据需要调整
-      </p>
+      <div>
+        <h3 className="text-lg font-semibold mb-2">广告系列设置</h3>
+        <p className="text-sm text-muted-foreground">
+          以下是根据最佳实践预设的默认值，您可以根据需要调整
+        </p>
+      </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Objective (目标)
-          </label>
-          <input
-            type="text"
+        <div className="space-y-2">
+          <Label htmlFor="objective">Objective (目标)</Label>
+          <Input
+            id="objective"
             value={campaignSettings.objective}
             onChange={(e) => setCampaignSettings({...campaignSettings, objective: e.target.value})}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Conversion Goals (转化目标)
-          </label>
-          <input
-            type="text"
+        <div className="space-y-2">
+          <Label htmlFor="conversionGoals">Conversion Goals (转化目标)</Label>
+          <Input
+            id="conversionGoals"
             value={campaignSettings.conversionGoals}
             onChange={(e) => setCampaignSettings({...campaignSettings, conversionGoals: e.target.value})}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Campaign Type (广告系列类型)
-          </label>
-          <input
-            type="text"
+        <div className="space-y-2">
+          <Label htmlFor="campaignType">Campaign Type (广告系列类型)</Label>
+          <Input
+            id="campaignType"
             value={campaignSettings.campaignType}
             onChange={(e) => setCampaignSettings({...campaignSettings, campaignType: e.target.value})}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Bidding Strategy (出价策略)
-          </label>
-          <input
-            type="text"
+        <div className="space-y-2">
+          <Label htmlFor="biddingStrategy">Bidding Strategy (出价策略)</Label>
+          <Input
+            id="biddingStrategy"
             value={campaignSettings.biddingStrategy}
             onChange={(e) => setCampaignSettings({...campaignSettings, biddingStrategy: e.target.value})}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Maximum CPC Bid Limit (最大CPC出价)
-          </label>
-          <input
-            type="text"
+        <div className="space-y-2">
+          <Label htmlFor="maxCpc">Maximum CPC Bid Limit (最大CPC出价)</Label>
+          <Input
+            id="maxCpc"
             value={campaignSettings.maxCpcBidLimit}
             onChange={(e) => setCampaignSettings({...campaignSettings, maxCpcBidLimit: e.target.value})}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
           />
-          <p className="mt-1 text-xs text-gray-500">默认: ¥1.2 或 US$0.17</p>
+          <p className="text-xs text-muted-foreground">默认: ¥1.2 或 US$0.17</p>
           {suggestedMaxCPC && (
-            <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-              <strong>💡 建议最大CPC</strong>: {suggestedMaxCPC.currency === 'CNY' ? '¥' : '$'}{suggestedMaxCPC.formatted}
-              <div className="text-blue-600 mt-0.5">
-                根据产品价格 ({offer.productPrice}) × 佣金比例 ({offer.commissionPayout}) ÷ 50 计算
-              </div>
-            </div>
+            <Card className="mt-2">
+              <CardContent className="p-3">
+                <div className="flex items-start gap-2">
+                  <Sparkles className="h-4 w-4 text-primary mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium">建议最大CPC</p>
+                    <p className="text-sm font-semibold text-primary">
+                      {suggestedMaxCPC.currency === 'CNY' ? '¥' : '$'}{suggestedMaxCPC.formatted}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      根据产品价格 ({offer.productPrice}) × 佣金比例 ({offer.commissionPayout}) ÷ 50 计算
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Daily Budget (每日预算)
-          </label>
-          <input
-            type="text"
+        <div className="space-y-2">
+          <Label htmlFor="dailyBudget">Daily Budget (每日预算)</Label>
+          <Input
+            id="dailyBudget"
             value={campaignSettings.dailyBudget}
             onChange={(e) => setCampaignSettings({...campaignSettings, dailyBudget: e.target.value})}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
           />
-          <p className="mt-1 text-xs text-gray-500">默认: ¥100 或 US$100</p>
+          <p className="text-xs text-muted-foreground">默认: ¥100 或 US$100</p>
         </div>
       </div>
 
@@ -532,302 +534,296 @@ export default function LaunchAdModal({ isOpen, onClose, offer }: LaunchAdModalP
       <div className="border-t pt-4">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h4 className="text-sm font-medium text-gray-900">关键词建议（可选）</h4>
-            <p className="text-xs text-gray-500 mt-0.5">基于AI分析，为您推荐高价值关键词</p>
+            <h4 className="text-sm font-medium">关键词建议（可选）</h4>
+            <p className="text-xs text-muted-foreground mt-0.5">基于AI分析，为您推荐高价值关键词</p>
           </div>
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleGetKeywordSuggestions}
             disabled={isLoadingKeywords}
-            className="px-3 py-1.5 text-sm border border-indigo-600 text-indigo-600 rounded-md hover:bg-indigo-50 disabled:opacity-50"
           >
             {isLoadingKeywords ? '加载中...' : showKeywords ? '刷新关键词' : '获取关键词建议'}
-          </button>
+          </Button>
         </div>
 
         {showKeywords && keywordSuggestions.length > 0 && (
-          <div className="space-y-2 max-h-64 overflow-y-auto border border-gray-200 rounded-md p-3 bg-gray-50">
-            <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
-              <span>已选中 {selectedKeywords.length} 个关键词</span>
-              {selectedKeywords.length > 0 && (
-                <button
-                  onClick={() => setSelectedKeywords([])}
-                  className="text-indigo-600 hover:text-indigo-800"
-                >
-                  清除选择
-                </button>
-              )}
-            </div>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between text-xs mb-3">
+                <span>已选中 {selectedKeywords.length} 个关键词</span>
+                {selectedKeywords.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedKeywords([])}
+                    className="h-auto py-1 text-xs"
+                  >
+                    清除选择
+                  </Button>
+                )}
+              </div>
 
-            <div className="grid grid-cols-1 gap-2">
-              {keywordSuggestions.slice(0, 20).map((kw, index) => (
-                <label
-                  key={index}
-                  className={`flex items-center justify-between p-2 border rounded cursor-pointer hover:bg-white ${
-                    selectedKeywords.includes(kw.text)
-                      ? 'border-indigo-600 bg-indigo-50'
-                      : 'border-gray-300 bg-white'
-                  }`}
-                >
-                  <div className="flex items-center flex-1">
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {keywordSuggestions.slice(0, 20).map((kw, index) => (
+                  <label
+                    key={index}
+                    className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors"
+                  >
                     <input
                       type="checkbox"
                       checked={selectedKeywords.includes(kw.text)}
                       onChange={() => handleToggleKeyword(kw.text)}
-                      className="h-4 w-4 text-indigo-600 rounded mr-2"
+                      className="h-4 w-4 rounded"
                     />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-900">{kw.text}</div>
-                      <div className="flex items-center space-x-3 text-xs text-gray-500 mt-0.5">
-                        <span>月搜索: {kw.avgMonthlySearchesFormatted}</span>
-                        <span className={`px-1.5 py-0.5 rounded ${
-                          kw.competition === 'LOW' ? 'bg-green-100 text-green-700' :
-                          kw.competition === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-red-100 text-red-700'
-                        }`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{kw.text}</div>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <Badge variant="outline" className="text-xs">
+                          月搜索: {kw.avgMonthlySearchesFormatted}
+                        </Badge>
+                        <Badge
+                          variant={
+                            kw.competition === 'LOW' ? 'default' :
+                            kw.competition === 'MEDIUM' ? 'secondary' : 'destructive'
+                          }
+                          className="text-xs"
+                        >
                           竞争: {kw.competition === 'LOW' ? '低' : kw.competition === 'MEDIUM' ? '中' : '高'}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          CPC: {kw.avgTopOfPageBid}
                         </span>
-                        <span>CPC: {kw.avgTopOfPageBid}</span>
                       </div>
                     </div>
-                  </div>
-                </label>
-              ))}
-            </div>
+                  </label>
+                ))}
+              </div>
 
-            {keywordSuggestions.length > 20 && (
-              <p className="text-xs text-gray-500 text-center mt-2">
-                显示前20个关键词，共{keywordSuggestions.length}个建议
-              </p>
-            )}
-          </div>
+              {keywordSuggestions.length > 20 && (
+                <p className="text-xs text-muted-foreground text-center mt-3">
+                  显示前20个关键词，共{keywordSuggestions.length}个建议
+                </p>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {showKeywords && keywordSuggestions.length === 0 && (
-          <div className="text-sm text-gray-500 text-center py-4 border border-gray-200 rounded-md">
-            未找到关键词建议，请尝试调整Offer信息或手动输入关键词
-          </div>
+          <Card>
+            <CardContent className="py-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                未找到关键词建议，请尝试调整Offer信息或手动输入关键词
+              </p>
+            </CardContent>
+          </Card>
         )}
       </div>
 
       <div className="flex justify-between pt-4">
-        <button
-          onClick={() => setCurrentStep(1)}
-          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-        >
+        <Button variant="outline" onClick={() => setCurrentStep(1)}>
           上一步
-        </button>
-        <button
-          onClick={handleGenerateCreatives}
-          disabled={isGenerating}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
-        >
+        </Button>
+        <Button onClick={handleGenerateCreatives} disabled={isGenerating}>
           {isGenerating ? '生成中...' : '生成广告创意'}
-        </button>
+        </Button>
       </div>
     </div>
   )
 
   const renderStep3 = () => (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">广告创意预览与评分</h3>
-      <p className="text-sm text-gray-600">
-        AI已生成 {generatedVariants.length} 个广告变体，每个都经过质量评分（满分100分）
-      </p>
+      <div>
+        <h3 className="text-lg font-semibold mb-2">广告创意预览与评分</h3>
+        <p className="text-sm text-muted-foreground">
+          AI已生成 {generatedVariants.length} 个广告变体，每个都经过质量评分（满分100分）
+        </p>
+      </div>
 
-      <div className="space-y-4 max-h-96 overflow-y-auto">
+      <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
         {generatedVariants.map((variant, index) => (
-          <div key={index} className="border border-gray-300 rounded-lg p-4 bg-white">
-            <div className="flex justify-between items-start mb-3">
-              <div>
-                <h4 className="font-medium text-gray-900">
-                  广告变体 {index + 1} -
-                  {variant.orientation === 'brand' ? ' 品牌导向' :
-                   variant.orientation === 'product' ? ' 产品导向' : ' 促销导向'}
-                </h4>
-                <div className="flex items-center mt-1">
-                  <span className="text-sm font-medium text-gray-700">质量评分: </span>
-                  <span className={`ml-2 text-lg font-bold ${
-                    variant.qualityScore && variant.qualityScore >= 90 ? 'text-green-600' :
-                    variant.qualityScore && variant.qualityScore >= 80 ? 'text-blue-600' :
-                    'text-yellow-600'
-                  }`}>
-                    {variant.qualityScore}/100
-                  </span>
+          <Card key={index}>
+            <CardContent className="pt-6">
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">广告变体 {index + 1}</Badge>
+                  <Badge variant="secondary">
+                    {variant.orientation === 'brand' ? '品牌导向' :
+                     variant.orientation === 'product' ? '产品导向' : '促销导向'}
+                  </Badge>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleRegenerateVariant(index)}
+                  disabled={isGenerating}
+                >
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                  {isGenerating ? '生成中...' : '重新生成'}
+                </Button>
+              </div>
+
+              {/* Quality Score */}
+              <div className="flex items-center gap-2 mb-4 p-3 bg-accent/50 rounded-lg">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium">质量评分:</span>
+                <span className={`text-xl font-bold ${
+                  variant.qualityScore && variant.qualityScore >= 90 ? 'text-green-600' :
+                  variant.qualityScore && variant.qualityScore >= 80 ? 'text-blue-600' :
+                  'text-yellow-600'
+                }`}>
+                  {variant.qualityScore}/100
+                </span>
+              </div>
+
+              {/* Ad Content */}
+              <div className="space-y-3 text-sm">
+                <div className="p-2 bg-accent/20 rounded">
+                  <span className="font-medium text-muted-foreground text-xs">标题1</span>
+                  <p className="text-base font-medium">{variant.headline1}</p>
+                </div>
+                <div className="p-2 bg-accent/20 rounded">
+                  <span className="font-medium text-muted-foreground text-xs">标题2</span>
+                  <p className="text-base font-medium">{variant.headline2}</p>
+                </div>
+                <div className="p-2 bg-accent/20 rounded">
+                  <span className="font-medium text-muted-foreground text-xs">标题3</span>
+                  <p className="text-base font-medium">{variant.headline3}</p>
+                </div>
+                <div className="p-2 bg-accent/20 rounded">
+                  <span className="font-medium text-muted-foreground text-xs">描述1</span>
+                  <p>{variant.description1}</p>
+                </div>
+                <div className="p-2 bg-accent/20 rounded">
+                  <span className="font-medium text-muted-foreground text-xs">描述2</span>
+                  <p>{variant.description2}</p>
+                </div>
+                <div className="p-2 bg-accent/20 rounded">
+                  <span className="font-medium text-muted-foreground text-xs">摘录</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {variant.callouts.map((callout, idx) => (
+                      <Badge key={idx} variant="outline" className="text-xs">
+                        {callout}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <button
-                onClick={() => handleRegenerateVariant(index)}
-                disabled={isGenerating}
-                className="px-3 py-1 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {isGenerating ? '生成中...' : '重新生成'}
-              </button>
-            </div>
-
-            <div className="space-y-2 text-sm">
-              <div>
-                <span className="font-medium text-gray-700">标题1: </span>
-                <span className="text-gray-900">{variant.headline1}</span>
-              </div>
-              <div>
-                <span className="font-medium text-gray-700">标题2: </span>
-                <span className="text-gray-900">{variant.headline2}</span>
-              </div>
-              <div>
-                <span className="font-medium text-gray-700">标题3: </span>
-                <span className="text-gray-900">{variant.headline3}</span>
-              </div>
-              <div>
-                <span className="font-medium text-gray-700">描述1: </span>
-                <span className="text-gray-900">{variant.description1}</span>
-              </div>
-              <div>
-                <span className="font-medium text-gray-700">描述2: </span>
-                <span className="text-gray-900">{variant.description2}</span>
-              </div>
-              <div>
-                <span className="font-medium text-gray-700">摘录: </span>
-                <span className="text-gray-900">{variant.callouts.join(', ')}</span>
-              </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
       <div className="flex justify-between pt-4">
-        <button
-          onClick={() => setCurrentStep(2)}
-          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-        >
+        <Button variant="outline" onClick={() => setCurrentStep(2)}>
           上一步
-        </button>
-        <button
-          onClick={() => setCurrentStep(4)}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-        >
+        </Button>
+        <Button onClick={() => setCurrentStep(4)}>
           下一步
-        </button>
+        </Button>
       </div>
     </div>
   )
 
   const renderStep4 = () => (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-gray-900">确认并发布</h3>
-      <p className="text-sm text-gray-600">
-        请确认以下信息无误后，点击"立即发布"创建Google Ads广告
-      </p>
-
-      <div className="bg-gray-50 p-4 rounded-lg space-y-3">
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <span className="font-medium text-gray-700">Offer名称: </span>
-            <span className="text-gray-900">{offer.offerName}</span>
-          </div>
-          <div>
-            <span className="font-medium text-gray-700">品牌: </span>
-            <span className="text-gray-900">{offer.brand}</span>
-          </div>
-          <div>
-            <span className="font-medium text-gray-700">推广国家: </span>
-            <span className="text-gray-900">{offer.targetCountry}</span>
-          </div>
-          <div>
-            <span className="font-medium text-gray-700">推广语言: </span>
-            <span className="text-gray-900">{offer.targetLanguage}</span>
-          </div>
-          <div>
-            <span className="font-medium text-gray-700">广告变体数: </span>
-            <span className="text-gray-900">{numVariants}</span>
-          </div>
-          <div>
-            <span className="font-medium text-gray-700">每日预算: </span>
-            <span className="text-gray-900">{campaignSettings.dailyBudget}</span>
-          </div>
-          <div>
-            <span className="font-medium text-gray-700">出价策略: </span>
-            <span className="text-gray-900">{campaignSettings.biddingStrategy}</span>
-          </div>
-          <div>
-            <span className="font-medium text-gray-700">最大CPC: </span>
-            <span className="text-gray-900">{campaignSettings.maxCpcBidLimit}</span>
-          </div>
-        </div>
+      <div>
+        <h3 className="text-lg font-semibold mb-2">确认并发布</h3>
+        <p className="text-sm text-muted-foreground">
+          请确认以下信息无误后，点击"立即发布"创建Google Ads广告
+        </p>
       </div>
 
-      <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
-        <div className="flex">
-          <svg className="h-5 w-5 text-yellow-400 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-          </svg>
-          <div className="ml-3">
-            <h3 className="text-sm font-medium text-yellow-800">重要提示</h3>
-            <div className="mt-2 text-sm text-yellow-700">
-              <p>发布后广告将立即在Google Ads平台上线并开始投放，请确保：</p>
-              <ul className="list-disc list-inside mt-1 space-y-1">
+      <Card>
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Offer名称</p>
+              <p className="font-medium">{offer.offerName}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">品牌</p>
+              <p className="font-medium">{offer.brand}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">推广国家</p>
+              <Badge variant="outline">{offer.targetCountry}</Badge>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">推广语言</p>
+              <p className="font-medium">{offer.targetLanguage}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">广告变体数</p>
+              <Badge>{numVariants} 个</Badge>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">每日预算</p>
+              <p className="font-medium">{campaignSettings.dailyBudget}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">出价策略</p>
+              <p className="font-medium">{campaignSettings.biddingStrategy}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">最大CPC</p>
+              <p className="font-medium">{campaignSettings.maxCpcBidLimit}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-yellow-200 bg-yellow-50/50">
+        <CardContent className="pt-6">
+          <div className="flex gap-3">
+            <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h4 className="text-sm font-medium text-yellow-800 mb-2">重要提示</h4>
+              <p className="text-sm text-yellow-700 mb-2">
+                发布后广告将立即在Google Ads平台上线并开始投放，请确保：
+              </p>
+              <ul className="text-sm text-yellow-700 space-y-1 ml-4 list-disc">
                 <li>Google Ads账号已正确关联</li>
                 <li>账号余额充足</li>
                 <li>广告内容符合Google Ads政策</li>
               </ul>
             </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       <div className="flex justify-between pt-4">
-        <button
-          onClick={() => setCurrentStep(3)}
-          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-        >
+        <Button variant="outline" onClick={() => setCurrentStep(3)}>
           上一步
-        </button>
-        <button
-          onClick={handleLaunchAds}
-          className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium"
-        >
+        </Button>
+        <Button onClick={handleLaunchAds} className="bg-green-600 hover:bg-green-700">
+          <Rocket className="w-4 h-4 mr-2" />
           立即发布
-        </button>
+        </Button>
       </div>
     </div>
   )
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        {/* Background overlay */}
-        <div
-          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
-          onClick={onClose}
-        />
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-2xl">
+            一键上广告 - {offer.offerName}
+          </DialogTitle>
+        </DialogHeader>
 
-        {/* Modal panel */}
-        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
-          <div className="bg-white px-6 pt-6 pb-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-gray-900">
-                一键上广告 - {offer.offerName}
-              </h2>
-              <button
-                onClick={onClose}
-                className="text-gray-400 hover:text-gray-500"
-              >
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+        {/* Stepper */}
+        <Stepper steps={steps} currentStep={currentStep} className="mb-6" />
 
-            {renderStepIndicator()}
-
-            <div className="mt-6">
-              {currentStep === 1 && renderStep1()}
-              {currentStep === 2 && renderStep2()}
-              {currentStep === 3 && renderStep3()}
-              {currentStep === 4 && renderStep4()}
-            </div>
-          </div>
+        {/* Step Content */}
+        <div className="mt-2">
+          {currentStep === 1 && renderStep1()}
+          {currentStep === 2 && renderStep2()}
+          {currentStep === 3 && renderStep3()}
+          {currentStep === 4 && renderStep4()}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

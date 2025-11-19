@@ -1,12 +1,5 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { generateContent } from './gemini-axios'
 import type { Offer } from './offers'
-
-const apiKey = process.env.GEMINI_API_KEY
-if (!apiKey) {
-  throw new Error('缺少GEMINI_API_KEY环境变量')
-}
-
-const genAI = new GoogleGenerativeAI(apiKey)
 
 /**
  * AI生成的关键词数据结构
@@ -40,8 +33,6 @@ export interface KeywordGenerationResult {
  * 使用AI生成关键词
  */
 export async function generateKeywords(offer: Offer): Promise<KeywordGenerationResult> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
-
   const prompt = `你是一个专业的Google Ads关键词策略专家。请基于以下产品信息，生成高质量的搜索广告关键词列表。
 
 # 产品信息
@@ -112,9 +103,13 @@ ${offer.target_audience || '未提供'}
 `
 
   try {
-    const aiResult = await model.generateContent(prompt)
-    const response = await aiResult.response
-    const text = response.text()
+    // 需求12：使用Gemini 2.5 Pro实验版模型（带代理支持 + 自动降级）
+    const text = await generateContent({
+      model: 'gemini-2.5-pro',
+      prompt,
+      temperature: 0.7,
+      maxOutputTokens: 2048,
+    })
 
     // 提取JSON
     const jsonMatch = text.match(/\{[\s\S]*\}/)
@@ -159,8 +154,6 @@ ${offer.target_audience || '未提供'}
  * 生成否定关键词（排除不相关流量）
  */
 export async function generateNegativeKeywords(offer: Offer): Promise<string[]> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
-
   const prompt = `你是一个Google Ads优化专家。请为以下产品生成否定关键词列表，以排除不相关的搜索流量。
 
 # 产品信息
@@ -189,9 +182,13 @@ export async function generateNegativeKeywords(offer: Offer): Promise<string[]> 
 `
 
   try {
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    const text = response.text()
+    // 需求12：使用Gemini 2.5 Pro实验版模型（带代理支持 + 自动降级）
+    const text = await generateContent({
+      model: 'gemini-2.5-pro',
+      prompt,
+      temperature: 0.7,
+      maxOutputTokens: 2048,
+    })
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
@@ -214,8 +211,6 @@ export async function expandKeywords(
   baseKeywords: string[],
   offer: Offer
 ): Promise<GeneratedKeyword[]> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-pro' })
-
   const prompt = `你是一个关键词扩展专家。请基于以下基础关键词，为${offer.brand}产品生成更多关键词变体。
 
 # 基础关键词
@@ -250,9 +245,13 @@ ${baseKeywords.join(', ')}
 `
 
   try {
-    const result = await model.generateContent(prompt)
-    const response = await result.response
-    const text = response.text()
+    // 需求12：使用Gemini 2.5 Pro实验版模型（带代理支持 + 自动降级）
+    const text = await generateContent({
+      model: 'gemini-2.5-pro',
+      prompt,
+      temperature: 0.7,
+      maxOutputTokens: 2048,
+    })
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {

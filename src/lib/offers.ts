@@ -103,11 +103,14 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
 }
 
 /**
- * 通过ID查找Offer（包含用户验证）
+ * 通过ID查找Offer（包含用户验证，排除已删除）
  */
 export function findOfferById(id: number, userId: number): Offer | null {
   const db = getDatabase()
-  const offer = db.prepare('SELECT * FROM offers WHERE id = ? AND user_id = ?').get(id, userId) as Offer | undefined
+  const offer = db.prepare(`
+    SELECT * FROM offers
+    WHERE id = ? AND user_id = ? AND (is_deleted = 0 OR is_deleted IS NULL)
+  `).get(id, userId) as Offer | undefined
   return offer || null
 }
 
@@ -122,12 +125,18 @@ export function listOffers(
     isActive?: boolean
     targetCountry?: string
     searchQuery?: string
+    includeDeleted?: boolean
   }
 ): { offers: Offer[]; total: number } {
   const db = getDatabase()
 
   let whereConditions = ['user_id = ?']
   const params: any[] = [userId]
+
+  // 默认排除已删除的Offer（需求25）
+  if (!options?.includeDeleted) {
+    whereConditions.push('(is_deleted = 0 OR is_deleted IS NULL)')
+  }
 
   // 构建WHERE条件
   if (options?.isActive !== undefined) {
@@ -252,7 +261,8 @@ export function updateOffer(id: number, userId: number, input: UpdateOfferInput)
 }
 
 /**
- * 删除Offer
+ * 删除Offer（软删除）
+ * 需求25: 保留历史数据，解除Ads账号关联
  */
 export function deleteOffer(id: number, userId: number): void {
   const db = getDatabase()
@@ -263,8 +273,129 @@ export function deleteOffer(id: number, userId: number): void {
     throw new Error('Offer不存在或无权访问')
   }
 
-  // 删除Offer（级联删除会自动删除关联的creatives, campaigns等）
-  db.prepare('DELETE FROM offers WHERE id = ? AND user_id = ?').run(id, userId)
+  // 使用事务确保数据一致性
+  const transaction = db.transaction(() => {
+    // 1. 软删除Offer（保留历史数据）
+    db.prepare(`
+      UPDATE offers
+      SET is_deleted = 1,
+          deleted_at = datetime('now'),
+          is_active = 0,
+          updated_at = datetime('now')
+      WHERE id = ? AND user_id = ?
+    `).run(id, userId)
+
+    // 2. 将关联的Campaigns标记为无关联（但保留数据用于历史分析）
+    db.prepare(`
+      UPDATE campaigns
+      SET status = 'REMOVED',
+          updated_at = datetime('now')
+      WHERE offer_id = ? AND user_id = ?
+    `).run(id, userId)
+
+    // 3. 检查并标记闲置的Ads账号
+    // 找到该Offer关联的所有Ads账号
+    const accounts = db.prepare(`
+      SELECT DISTINCT google_ads_account_id
+      FROM campaigns
+      WHERE offer_id = ? AND user_id = ?
+    `).all(id, userId) as { google_ads_account_id: number }[]
+
+    for (const account of accounts) {
+      // 检查该账号是否还有其他活跃的Offer关联
+      const activeOffers = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM campaigns c
+        JOIN offers o ON c.offer_id = o.id
+        WHERE c.google_ads_account_id = ?
+          AND c.user_id = ?
+          AND o.is_deleted = 0
+          AND c.status != 'REMOVED'
+      `).get(account.google_ads_account_id, userId) as { count: number }
+
+      // 如果没有活跃Offer，标记账号为闲置
+      if (activeOffers.count === 0) {
+        db.prepare(`
+          UPDATE google_ads_accounts
+          SET is_idle = 1, updated_at = datetime('now')
+          WHERE id = ? AND user_id = ?
+        `).run(account.google_ads_account_id, userId)
+      }
+    }
+  })
+
+  transaction()
+}
+
+/**
+ * 解除Offer与Ads账号的关联
+ * 需求25: 手动解除关联功能
+ */
+export function unlinkOfferFromAccount(
+  offerId: number,
+  accountId: number,
+  userId: number
+): { unlinkedCount: number } {
+  const db = getDatabase()
+
+  // 验证Offer存在
+  const existing = findOfferById(offerId, userId)
+  if (!existing) {
+    throw new Error('Offer不存在或无权访问')
+  }
+
+  const transaction = db.transaction(() => {
+    // 将该Offer在该账号下的Campaigns标记为已移除
+    const result = db.prepare(`
+      UPDATE campaigns
+      SET status = 'REMOVED',
+          updated_at = datetime('now')
+      WHERE offer_id = ?
+        AND google_ads_account_id = ?
+        AND user_id = ?
+        AND status != 'REMOVED'
+    `).run(offerId, accountId, userId)
+
+    // 检查该账号是否还有其他活跃关联
+    const activeCount = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM campaigns c
+      JOIN offers o ON c.offer_id = o.id
+      WHERE c.google_ads_account_id = ?
+        AND c.user_id = ?
+        AND o.is_deleted = 0
+        AND c.status != 'REMOVED'
+    `).get(accountId, userId) as { count: number }
+
+    // 如果没有活跃关联，标记账号为闲置
+    if (activeCount.count === 0) {
+      db.prepare(`
+        UPDATE google_ads_accounts
+        SET is_idle = 1, updated_at = datetime('now')
+        WHERE id = ? AND user_id = ?
+      `).run(accountId, userId)
+    }
+
+    return result.changes
+  })
+
+  return { unlinkedCount: transaction() }
+}
+
+/**
+ * 获取闲置的Ads账号列表
+ * 需求25: 便于其他Offer建立关联关系
+ */
+export function getIdleAdsAccounts(userId: number): any[] {
+  const db = getDatabase()
+
+  return db.prepare(`
+    SELECT * FROM google_ads_accounts
+    WHERE user_id = ?
+      AND is_idle = 1
+      AND is_active = 1
+    ORDER BY updated_at DESC
+  `).all(userId)
 }
 
 /**

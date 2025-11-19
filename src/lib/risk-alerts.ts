@@ -8,6 +8,7 @@
  */
 
 import { getDatabase } from '@/lib/db'
+import { proxyHead } from './proxy-axios'
 
 export interface RiskAlert {
   id: number
@@ -42,11 +43,13 @@ export interface LinkCheckResult {
 
 /**
  * 检查单个链接的可用性
+ * 使用统一的代理axios客户端（支持真实地理位置访问）
  */
 export async function checkLink(
   url: string,
   country: string = 'US',
-  timeout: number = 10000
+  timeout: number = 10000,
+  proxyUrl?: string
 ): Promise<{
   isAccessible: boolean
   statusCode: number | null
@@ -58,35 +61,39 @@ export async function checkLink(
   const startTime = Date.now()
 
   try {
-    // 设置请求选项
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeout)
-
     // 模拟目标国家的User-Agent
     const userAgents: Record<string, string> = {
-      US: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      US: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       CN: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      UK: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      UK: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       default: 'Mozilla/5.0 (compatible; GoogleBot/2.1; +http://www.google.com/bot.html)'
     }
 
-    const response = await fetch(url, {
-      method: 'HEAD', // 使用HEAD请求节省带宽
-      headers: {
-        'User-Agent': userAgents[country] || userAgents.default,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': country === 'CN' ? 'zh-CN,zh;q=0.9' : 'en-US,en;q=0.9'
+    // 使用统一的代理axios客户端发送HEAD请求
+    const response = await proxyHead(
+      url,
+      {
+        headers: {
+          'User-Agent': userAgents[country] || userAgents.default,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': country === 'CN' ? 'zh-CN,zh;q=0.9' : 'en-US,en;q=0.9'
+        },
+        maxRedirects: 5, // 允许自动重定向
+        validateStatus: (status) => status >= 200 && status < 600, // 接受所有HTTP状态码
+        timeout
       },
-      signal: controller.signal,
-      redirect: 'follow'
-    })
+      {
+        customProxyUrl: proxyUrl,
+        timeout,
+        useCache: true
+      }
+    )
 
-    clearTimeout(timeoutId)
     const responseTime = Date.now() - startTime
 
-    // 检查是否重定向
-    const isRedirected = response.redirected
-    const finalUrl = response.url !== url ? response.url : null
+    // 检查是否重定向（通过比较请求URL和最终URL）
+    const finalUrl = response.request?.res?.responseUrl
+    const isRedirected = finalUrl && finalUrl !== url
 
     // 2xx和3xx状态码视为可访问
     const isAccessible = response.status >= 200 && response.status < 400
@@ -95,22 +102,25 @@ export async function checkLink(
       isAccessible,
       statusCode: response.status,
       responseTime,
-      isRedirected,
-      finalUrl,
+      isRedirected: !!isRedirected,
+      finalUrl: isRedirected ? finalUrl : null,
       errorMessage: !isAccessible ? `HTTP ${response.status}` : null
     }
   } catch (error: any) {
     const responseTime = Date.now() - startTime
 
+    // 处理axios错误
+    const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout')
+
     return {
       isAccessible: false,
-      statusCode: null,
+      statusCode: error.response?.status || null,
       responseTime,
       isRedirected: false,
       finalUrl: null,
-      errorMessage: error.name === 'AbortError'
+      errorMessage: isTimeout
         ? 'Request timeout'
-        : error.message || 'Network error'
+        : error.response?.statusText || error.message || 'Network error'
     }
   }
 }
@@ -302,6 +312,7 @@ export function updateAlertStatus(
 
 /**
  * 检查所有用户的Offer链接
+ * 需求24: 使用国家特定代理进行真实访问
  */
 export async function checkAllUserLinks(userId: number): Promise<{
   totalChecked: number
@@ -312,13 +323,14 @@ export async function checkAllUserLinks(userId: number): Promise<{
 }> {
   const db = getDatabase()
 
-  // 获取用户的所有活跃Offers
+  // 获取用户的所有活跃Offers（包含目标国家）
   const offersStmt = db.prepare(`
-    SELECT id, affiliate_link, url, brand
+    SELECT id, affiliate_link, url, brand, target_country
     FROM offers
     WHERE user_id = ?
       AND affiliate_link IS NOT NULL
       AND affiliate_link != ''
+      AND (is_deleted = 0 OR is_deleted IS NULL)
   `)
 
   const offers = offersStmt.all(userId) as any[]
@@ -331,12 +343,14 @@ export async function checkAllUserLinks(userId: number): Promise<{
 
   for (const offer of offers) {
     const url = offer.affiliate_link || offer.url
+    // 使用Offer的目标国家（需求24要求配置相应国家的代理）
+    const country = offer.target_country || 'US'
 
-    // 检查链接
-    const result = await checkLink(url, 'US', 10000)
+    // 检查链接（使用国家特定代理）
+    const result = await checkLink(url, country, 10000)
 
     // 保存检查结果
-    saveLinkCheckResult(userId, offer.id, url, result, 'US')
+    saveLinkCheckResult(userId, offer.id, url, result, country)
 
     totalChecked++
 
@@ -357,7 +371,8 @@ export async function checkAllUserLinks(userId: number): Promise<{
             resourceId: offer.id,
             details: {
               originalUrl: url,
-              finalUrl: result.finalUrl
+              finalUrl: result.finalUrl,
+              country
             }
           }
         )
@@ -383,7 +398,8 @@ export async function checkAllUserLinks(userId: number): Promise<{
           details: {
             url,
             statusCode: result.statusCode,
-            errorMessage: result.errorMessage
+            errorMessage: result.errorMessage,
+            country
           }
         }
       )
@@ -401,12 +417,136 @@ export async function checkAllUserLinks(userId: number): Promise<{
 }
 
 /**
+ * 检查用户的Google Ads账号状态
+ * 需求24: 检测账号暂停、限制投放等状态
+ */
+export async function checkAdsAccountStatus(userId: number): Promise<{
+  totalChecked: number
+  activeAccounts: number
+  problemAccounts: number
+  newAlerts: number
+}> {
+  const db = getDatabase()
+
+  // 获取用户的所有活跃Ads账号
+  const accountsStmt = db.prepare(`
+    SELECT id, customer_id, account_name, is_active
+    FROM google_ads_accounts
+    WHERE user_id = ?
+      AND is_active = 1
+  `)
+
+  const accounts = accountsStmt.all(userId) as any[]
+
+  let totalChecked = 0
+  let activeAccounts = 0
+  let problemAccounts = 0
+  let newAlerts = 0
+
+  for (const account of accounts) {
+    totalChecked++
+
+    // 检查账号是否有关联的活跃campaigns
+    const campaignsStmt = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM campaigns
+      WHERE google_ads_account_id = ?
+        AND user_id = ?
+        AND status IN ('ENABLED', 'PAUSED')
+    `)
+    const campaignCount = (campaignsStmt.get(account.id, userId) as any).count
+
+    // 检查最近是否有同步错误
+    const syncErrorsStmt = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM sync_logs
+      WHERE google_ads_account_id = ?
+        AND user_id = ?
+        AND status = 'failed'
+        AND started_at >= datetime('now', '-7 days')
+    `)
+    const syncErrors = (syncErrorsStmt.get(account.id, userId) as any).count
+
+    if (syncErrors > 3) {
+      problemAccounts++
+      createRiskAlert(
+        userId,
+        'account_sync_error',
+        'warning',
+        `账号同步异常 - ${account.account_name || account.customer_id}`,
+        `Google Ads账号近7天内多次同步失败，请检查账号状态`,
+        {
+          resourceType: 'campaign',
+          resourceId: account.id,
+          details: {
+            customerId: account.customer_id,
+            syncErrors,
+            campaignCount
+          }
+        }
+      )
+      newAlerts++
+    } else {
+      activeAccounts++
+    }
+
+    // 检查账号是否长时间未同步
+    const lastSyncStmt = db.prepare(`
+      SELECT MAX(completed_at) as lastSync
+      FROM sync_logs
+      WHERE google_ads_account_id = ?
+        AND user_id = ?
+        AND status = 'success'
+    `)
+    const lastSync = (lastSyncStmt.get(account.id, userId) as any).lastSync
+
+    if (lastSync) {
+      const daysSinceSync = Math.floor(
+        (Date.now() - new Date(lastSync).getTime()) / (1000 * 60 * 60 * 24)
+      )
+
+      if (daysSinceSync > 7) {
+        createRiskAlert(
+          userId,
+          'account_stale_data',
+          'info',
+          `数据未更新 - ${account.account_name || account.customer_id}`,
+          `Google Ads账号已${daysSinceSync}天未同步数据`,
+          {
+            resourceType: 'campaign',
+            resourceId: account.id,
+            details: {
+              customerId: account.customer_id,
+              lastSync,
+              daysSinceSync
+            }
+          }
+        )
+        newAlerts++
+      }
+    }
+  }
+
+  return {
+    totalChecked,
+    activeAccounts,
+    problemAccounts,
+    newAlerts
+  }
+}
+
+/**
  * 每日链接检查（所有用户）
+ * 需求24: 包含链接检查和账号状态检查
  */
 export async function dailyLinkCheck(): Promise<{
   totalUsers: number
   totalLinks: number
   totalAlerts: number
+  accountChecks: {
+    totalAccounts: number
+    problemAccounts: number
+  }
   results: Record<number, Awaited<ReturnType<typeof checkAllUserLinks>>>
 }> {
   const db = getDatabase()
@@ -417,6 +557,7 @@ export async function dailyLinkCheck(): Promise<{
     FROM offers
     WHERE affiliate_link IS NOT NULL
       AND affiliate_link != ''
+      AND (is_deleted = 0 OR is_deleted IS NULL)
   `)
 
   const users = usersStmt.all() as { user_id: number }[]
@@ -424,18 +565,31 @@ export async function dailyLinkCheck(): Promise<{
   const results: Record<number, Awaited<ReturnType<typeof checkAllUserLinks>>> = {}
   let totalLinks = 0
   let totalAlerts = 0
+  let totalAccounts = 0
+  let problemAccounts = 0
 
   for (const user of users) {
-    const result = await checkAllUserLinks(user.user_id)
-    results[user.user_id] = result
-    totalLinks += result.totalChecked
-    totalAlerts += result.newAlerts
+    // 检查链接
+    const linkResult = await checkAllUserLinks(user.user_id)
+    results[user.user_id] = linkResult
+    totalLinks += linkResult.totalChecked
+    totalAlerts += linkResult.newAlerts
+
+    // 检查账号状态（需求24）
+    const accountResult = await checkAdsAccountStatus(user.user_id)
+    totalAccounts += accountResult.totalChecked
+    problemAccounts += accountResult.problemAccounts
+    totalAlerts += accountResult.newAlerts
   }
 
   return {
     totalUsers: users.length,
     totalLinks,
     totalAlerts,
+    accountChecks: {
+      totalAccounts,
+      problemAccounts
+    },
     results
   }
 }

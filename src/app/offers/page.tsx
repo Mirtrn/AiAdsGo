@@ -1,9 +1,39 @@
 'use client'
 
+/**
+ * Offer列表页 - P1-2优化版 + P2-2导出功能
+ * 使用shadcn/ui Table组件 + 筛选器 + CSV导出
+ */
+
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { exportOffers, type OfferExportData } from '@/lib/export-utils'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Card, CardContent } from '@/components/ui/card'
 import LaunchAdModal from '@/components/LaunchAdModal'
 import AdjustCpcModal from '@/components/AdjustCpcModal'
+import LaunchScoreModal from '@/components/LaunchScoreModal'
+import { VirtualizedOfferTable } from '@/components/VirtualizedOfferTable'
+import { MobileOfferCard } from '@/components/MobileOfferCard'
+import { useIsMobile } from '@/hooks/useMediaQuery'
+import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download } from 'lucide-react'
 
 interface Offer {
   id: number
@@ -16,10 +46,8 @@ interface Offer {
   scrape_status: string
   isActive: boolean
   createdAt: string
-  // 新增字段（需求1和需求5）
   offerName: string | null
   targetLanguage: string | null
-  // 需求28：产品价格和佣金比例
   productPrice?: string | null
   commissionPayout?: string | null
 }
@@ -27,35 +55,70 @@ interface Offer {
 export default function OffersPage() {
   const router = useRouter()
   const [offers, setOffers] = useState<Offer[]>([])
+  const [filteredOffers, setFilteredOffers] = useState<Offer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // Launch Ad Modal state
+  // P2-4: 移动端检测
+  const isMobile = useIsMobile()
+
+  // P1-2: 筛选器状态
+  const [searchQuery, setSearchQuery] = useState('')
+  const [countryFilter, setCountryFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  // Modals
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null)
-
-  // Adjust CPC Modal state
   const [isAdjustCpcModalOpen, setIsAdjustCpcModalOpen] = useState(false)
   const [selectedOfferForCpc, setSelectedOfferForCpc] = useState<Offer | null>(null)
+  const [isLaunchScoreModalOpen, setIsLaunchScoreModalOpen] = useState(false)
+  const [selectedOfferForScore, setSelectedOfferForScore] = useState<Offer | null>(null)
 
   useEffect(() => {
     fetchOffers()
   }, [])
 
+  // P1-2: 应用筛选器
+  useEffect(() => {
+    let filtered = offers
+
+    // 搜索筛选
+    if (searchQuery) {
+      filtered = filtered.filter(
+        (offer) =>
+          offer.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          offer.offerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          offer.url.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    }
+
+    // 国家筛选
+    if (countryFilter !== 'all') {
+      filtered = filtered.filter((offer) => offer.targetCountry === countryFilter)
+    }
+
+    // 状态筛选
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((offer) => offer.scrape_status === statusFilter)
+    }
+
+    setFilteredOffers(filtered)
+  }, [offers, searchQuery, countryFilter, statusFilter])
+
   const fetchOffers = async () => {
     try {
-      // HttpOnly Cookie自动携带，无需手动获取token
       const response = await fetch('/api/offers', {
-        credentials: 'include', // 确保发送cookie
+        credentials: 'include',
       })
 
       if (!response.ok) {
-        // Middleware会自动重定向未认证用户到登录页
         throw new Error('获取Offer列表失败')
       }
 
       const data = await response.json()
       setOffers(data.offers)
+      setFilteredOffers(data.offers)
     } catch (err: any) {
       setError(err.message || '获取Offer列表失败')
     } finally {
@@ -63,31 +126,42 @@ export default function OffersPage() {
     }
   }
 
-  const getScrapeStatusLabel = (status: string): string => {
-    const labels: Record<string, string> = {
-      pending: '等待抓取',
-      in_progress: '抓取中',
-      completed: '已完成',
-      failed: '失败',
+  const getScrapeStatusBadge = (status: string) => {
+    const configs = {
+      pending: { label: '等待抓取', variant: 'outline' as const },
+      in_progress: { label: '抓取中', variant: 'default' as const },
+      completed: { label: '已完成', variant: 'default' as const },
+      failed: { label: '失败', variant: 'destructive' as const },
     }
-    return labels[status] || status
+    const config = configs[status as keyof typeof configs] || { label: status, variant: 'outline' as const }
+    return <Badge variant={config.variant}>{config.label}</Badge>
   }
 
-  const getScrapeStatusColor = (status: string): string => {
-    const colors: Record<string, string> = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      in_progress: 'bg-blue-100 text-blue-800',
-      completed: 'bg-green-100 text-green-800',
-      failed: 'bg-red-100 text-red-800',
-    }
-    return colors[status] || 'bg-gray-100 text-gray-800'
+  // 获取唯一国家列表
+  const uniqueCountries = Array.from(new Set(offers.map((o) => o.targetCountry)))
+
+  // P2-2: 导出Offer数据
+  const handleExport = () => {
+    const exportData: OfferExportData[] = offers.map((offer) => ({
+      id: offer.id,
+      offerName: offer.offerName || `${offer.brand}_${offer.targetCountry}_01`,
+      brand: offer.brand,
+      targetCountry: offer.targetCountry,
+      targetLanguage: offer.targetLanguage || 'English',
+      url: offer.url,
+      affiliateLink: offer.affiliateLink,
+      scrapeStatus: offer.scrape_status,
+      isActive: offer.isActive,
+      createdAt: offer.createdAt,
+    }))
+    exportOffers(exportData)
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">加载中...</p>
         </div>
       </div>
@@ -95,38 +169,153 @@ export default function OffersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen bg-gray-50">
+      {/* Header - P2-4移动端优化 */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <a href="/dashboard" className="text-indigo-600 hover:text-indigo-500 mr-4">
-                ← 返回Dashboard
-              </a>
-              <h1 className="text-xl font-bold text-gray-900">Offer管理</h1>
-            </div>
-            <div className="flex items-center">
-              <button
-                onClick={() => router.push('/offers/new')}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 sm:h-16 gap-3 sm:gap-0">
+            {/* 左侧标题区 */}
+            <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push('/dashboard')}
+                className="flex-shrink-0"
               >
-                + 创建Offer
-              </button>
+                ← {isMobile ? '' : '返回Dashboard'}
+              </Button>
+              <h1 className="text-lg sm:text-2xl font-bold text-gray-900">Offer管理</h1>
+              <Badge variant="outline" className="text-xs sm:text-sm">
+                {offers.length}
+              </Badge>
+            </div>
+
+            {/* 右侧操作按钮 */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {!isMobile && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={offers.length === 0}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  导出CSV
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open('/api/offers/batch-template')}
+                className="flex-1 sm:flex-none"
+                title="下载批量导入CSV模板"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                {isMobile ? '模板' : '下载模板'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push('/offers/batch')}
+                className="flex-1 sm:flex-none"
+              >
+                {isMobile ? '批量' : '批量导入'}
+              </Button>
+              <Button
+                onClick={() => router.push('/offers/new')}
+                className="flex-1 sm:flex-none"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                创建
+              </Button>
             </div>
           </div>
         </div>
-      </nav>
+      </div>
 
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          {error && (
-            <div className="mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
-              {error}
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {/* P1-2 + P2-4: 筛选器（移动端优化） */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              {/* 搜索框 - 移动端全宽 */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Input
+                  type="text"
+                  placeholder={isMobile ? "搜索..." : "搜索品牌名称、Offer标识、URL..."}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              {/* 筛选器 - 移动端竖向排列，桌面端横向 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* 国家筛选 */}
+                <Select value={countryFilter} onValueChange={setCountryFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="所有国家" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">所有国家</SelectItem>
+                    {uniqueCountries.map((country) => (
+                      <SelectItem key={country} value={country}>
+                        {country}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* 状态筛选 */}
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="所有状态" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">所有状态</SelectItem>
+                    <SelectItem value="pending">等待抓取</SelectItem>
+                    <SelectItem value="in_progress">抓取中</SelectItem>
+                    <SelectItem value="completed">已完成</SelectItem>
+                    <SelectItem value="failed">失败</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          )}
 
-          {offers.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-lg shadow">
+            {/* 筛选结果提示 */}
+            {(searchQuery || countryFilter !== 'all' || statusFilter !== 'all') && (
+              <div className="mt-4 flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                  显示 {filteredOffers.length} / {offers.length} 个Offer
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSearchQuery('')
+                    setCountryFilter('all')
+                    setStatusFilter('all')
+                  }}
+                >
+                  清除筛选
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            {error}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {filteredOffers.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
               <svg
                 className="mx-auto h-12 w-12 text-gray-400"
                 fill="none"
@@ -140,161 +329,195 @@ export default function OffersPage() {
                   d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
                 />
               </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">暂无Offer</h3>
-              <p className="mt-1 text-sm text-gray-500">点击上方按钮创建您的第一个Offer</p>
-              <div className="mt-6">
-                <button
-                  onClick={() => router.push('/offers/new')}
-                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-                >
-                  + 创建Offer
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Offer标识
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      品牌名称
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      推广国家
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      推广语言
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      状态
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      操作
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {offers.map((offer) => (
-                    <tr key={offer.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <a
-                          href={`/offers/${offer.id}`}
-                          className="text-sm font-mono font-medium text-indigo-600 hover:text-indigo-900"
-                        >
-                          {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
-                        </a>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{offer.brand}</div>
-                        <div className="text-sm text-gray-500 truncate max-w-xs">{offer.url}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{offer.targetCountry}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{offer.targetLanguage || 'English'}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getScrapeStatusColor(
-                            offer.scrape_status
-                          )}`}
-                        >
-                          {getScrapeStatusLabel(offer.scrape_status)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex justify-end space-x-2">
-                          {/* 需求2: 一键上广告按钮 */}
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault()
-                              setSelectedOffer(offer)
-                              setIsModalOpen(true)
-                            }}
-                            className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                            title="快速创建并发布Google Ads广告"
-                          >
-                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                            </svg>
-                            一键上广告
-                          </button>
-
-                          {/* 需求2: 一键调整CPC按钮 */}
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault()
-                              setSelectedOfferForCpc(offer)
-                              setIsAdjustCpcModalOpen(true)
-                            }}
-                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                            title="手动调整广告系列的CPC出价"
-                          >
-                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                              <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
-                            </svg>
-                            一键调整CPC
-                          </button>
-
-                          {/* 查看详情链接 */}
+              <h3 className="mt-4 text-lg font-medium text-gray-900">
+                {offers.length === 0 ? '暂无Offer' : '未找到匹配的Offer'}
+              </h3>
+              <p className="mt-2 text-sm text-gray-500">
+                {offers.length === 0
+                  ? '点击上方按钮创建您的第一个Offer'
+                  : '尝试调整筛选条件'}
+              </p>
+              {offers.length === 0 && (
+                <div className="mt-6">
+                  <Button onClick={() => router.push('/offers/new')}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    创建Offer
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : isMobile ? (
+          /* P2-4: 移动端卡片视图 */
+          <div className="space-y-3">
+            {filteredOffers.map((offer) => (
+              <MobileOfferCard
+                key={offer.id}
+                offer={offer}
+                onLaunchAd={(offer) => {
+                  setSelectedOffer(offer)
+                  setIsModalOpen(true)
+                }}
+                onAdjustCpc={(offer) => {
+                  setSelectedOfferForCpc(offer)
+                  setIsAdjustCpcModalOpen(true)
+                }}
+                onLaunchScore={(offer) => {
+                  setSelectedOfferForScore(offer)
+                  setIsLaunchScoreModalOpen(true)
+                }}
+              />
+            ))}
+          </div>
+        ) : filteredOffers.length > 50 ? (
+          /* P2-3: 虚拟滚动优化（自动启用：>50 Offers） */
+          <VirtualizedOfferTable
+            offers={filteredOffers}
+            onLaunchAd={(offer) => {
+              setSelectedOffer(offer)
+              setIsModalOpen(true)
+            }}
+            onAdjustCpc={(offer) => {
+              setSelectedOfferForCpc(offer)
+              setIsAdjustCpcModalOpen(true)
+            }}
+            onLaunchScore={(offer) => {
+              setSelectedOfferForScore(offer)
+              setIsLaunchScoreModalOpen(true)
+            }}
+          />
+        ) : (
+          /* P1-2: shadcn/ui Table */
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[200px]">Offer标识</TableHead>
+                      <TableHead>品牌信息</TableHead>
+                      <TableHead>推广国家</TableHead>
+                      <TableHead>语言</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredOffers.map((offer) => (
+                      <TableRow key={offer.id} className="hover:bg-gray-50/50">
+                        <TableCell className="font-mono">
                           <a
                             href={`/offers/${offer.id}`}
-                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                            className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-2"
                           >
-                            查看详情
+                            {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
+                            <ExternalLink className="w-3 h-3" />
                           </a>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium text-gray-900">{offer.brand}</div>
+                            <div className="text-sm text-gray-500 truncate max-w-xs">
+                              {offer.url}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{offer.targetCountry}</Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          {offer.targetLanguage || 'English'}
+                        </TableCell>
+                        <TableCell>{getScrapeStatusBadge(offer.scrape_status)}</TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => {
+                                setSelectedOffer(offer)
+                                setIsModalOpen(true)
+                              }}
+                              title="快速创建并发布Google Ads广告"
+                            >
+                              <Rocket className="w-4 h-4 mr-1" />
+                              一键上广告
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedOfferForCpc(offer)
+                                setIsAdjustCpcModalOpen(true)
+                              }}
+                              title="手动调整广告系列的CPC出价"
+                            >
+                              <DollarSign className="w-4 h-4 mr-1" />
+                              调整CPC
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedOfferForScore(offer)
+                                setIsLaunchScoreModalOpen(true)
+                              }}
+                              title="查看投放分析和评分"
+                            >
+                              <BarChart3 className="w-4 h-4 mr-1" />
+                              投放分析
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </main>
 
-      {/* Launch Ad Modal - Requirement 3 */}
-      {selectedOffer && (
-        <LaunchAdModal
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false)
-            setSelectedOffer(null)
-          }}
-          offer={{
-            id: selectedOffer.id,
-            offerName: selectedOffer.offerName || `${selectedOffer.brand}_${selectedOffer.targetCountry}_01`,
-            brand: selectedOffer.brand,
-            targetCountry: selectedOffer.targetCountry,
-            targetLanguage: selectedOffer.targetLanguage || 'English',
-            url: selectedOffer.url,
-            affiliateLink: selectedOffer.affiliateLink || selectedOffer.url,
-            // 需求28：产品价格和佣金比例
-            productPrice: selectedOffer.productPrice,
-            commissionPayout: selectedOffer.commissionPayout,
-          }}
-        />
-      )}
+      {/* Modals */}
+      <LaunchAdModal
+        open={isModalOpen && selectedOffer !== null}
+        onClose={() => {
+          setIsModalOpen(false)
+          setSelectedOffer(null)
+        }}
+        offer={selectedOffer || {
+          id: 0,
+          offerName: '',
+          brand: '',
+          targetCountry: '',
+          targetLanguage: '',
+          url: '',
+          affiliateLink: null,
+          productPrice: null,
+          commissionPayout: null,
+        }}
+      />
 
-      {/* Adjust CPC Modal - Requirement 2 */}
       {selectedOfferForCpc && (
         <AdjustCpcModal
-          isOpen={isAdjustCpcModalOpen}
+          open={isAdjustCpcModalOpen}
           onClose={() => {
             setIsAdjustCpcModalOpen(false)
             setSelectedOfferForCpc(null)
           }}
-          offer={{
-            id: selectedOfferForCpc.id,
-            offerName: selectedOfferForCpc.offerName || `${selectedOfferForCpc.brand}_${selectedOfferForCpc.targetCountry}_01`,
-            brand: selectedOfferForCpc.brand,
+          offer={selectedOfferForCpc}
+        />
+      )}
+
+      {selectedOfferForScore && (
+        <LaunchScoreModal
+          open={isLaunchScoreModalOpen}
+          onClose={() => {
+            setIsLaunchScoreModalOpen(false)
+            setSelectedOfferForScore(null)
           }}
+          offerId={selectedOfferForScore.id}
         />
       )}
     </div>

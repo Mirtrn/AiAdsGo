@@ -5,13 +5,18 @@
 
 /**
  * 计算建议的最大CPC
- * 计算公式：maxCPC = (产品价格 × 佣金比例) ÷ 50
- * 假设平均50个点击可以出一单
+ * 计算公式：maxCPC = (产品价格 × 佣金比例) ÷ 点击转化率
+ *
+ * @param productPrice - 产品价格（支持货币符号，如 "$699.00" 或 "¥5999.00"）
+ * @param commissionPayout - 佣金比例（支持百分号，如 "6.75%"）
+ * @param targetCurrency - 目标货币（默认USD）
+ * @param clicksPerConversion - 点击转化率：多少个点击出一单（默认50，可配置）
  */
 export function calculateSuggestedMaxCPC(
   productPrice: string,
   commissionPayout: string,
-  targetCurrency: string = 'USD'
+  targetCurrency: string = 'USD',
+  clicksPerConversion: number = 50
 ): { amount: number; currency: string; formatted: string } | null {
   try {
     // 解析价格（去除货币符号和其他非数字字符，保留小数点）
@@ -28,8 +33,14 @@ export function calculateSuggestedMaxCPC(
 
     if (isNaN(payout) || payout <= 0 || payout > 1) return null
 
-    // 计算最大CPC（按50个点击出一单）
-    const maxCPC = (price * payout) / 50
+    // 验证点击转化率
+    if (clicksPerConversion <= 0) {
+      console.warn(`无效的点击转化率: ${clicksPerConversion}，使用默认值50`)
+      clicksPerConversion = 50
+    }
+
+    // 计算最大CPC（使用可配置的点击转化率）
+    const maxCPC = (price * payout) / clicksPerConversion
 
     // 货币符号映射
     const currencySymbol: Record<string, string> = {

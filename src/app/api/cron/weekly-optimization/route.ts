@@ -9,6 +9,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateWeeklyOptimizationTasks, cleanupOldTasks } from '@/lib/optimization-tasks'
+import { runCreativeOptimizationLoop } from '@/lib/creative-learning'
+import { getDatabase } from '@/lib/db'
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,10 +27,56 @@ export async function POST(request: NextRequest) {
 
     console.log('[Cron] Starting weekly optimization tasks generation...')
 
-    // 生成优化任务
-    const result = generateWeeklyOptimizationTasks()
+    // 生成Campaign层面的优化任务
+    const campaignResult = generateWeeklyOptimizationTasks()
 
-    console.log('[Cron] Generated tasks:', result)
+    console.log('[Cron] Generated campaign optimization tasks:', campaignResult)
+
+    // 运行创意优化闭环（P0-1: 迭代优化机制）
+    console.log('[Cron] Starting creative optimization loop...')
+
+    const db = getDatabase()
+    const usersStmt = db.prepare(`
+      SELECT DISTINCT user_id
+      FROM campaigns
+      WHERE status IN ('ENABLED', 'PAUSED')
+    `)
+    const users = usersStmt.all() as { user_id: number }[]
+
+    const creativeResults: Record<number, {
+      totalCreatives: number
+      highPerformers: number
+      featuresUpdated: boolean
+      avgScore: number
+    }> = {}
+
+    let totalCreativesScored = 0
+    let totalHighPerformers = 0
+    let usersWithFeaturesUpdated = 0
+
+    for (const user of users) {
+      try {
+        const result = runCreativeOptimizationLoop(user.user_id)
+        creativeResults[user.user_id] = result
+
+        totalCreativesScored += result.totalCreatives
+        totalHighPerformers += result.highPerformers
+        if (result.featuresUpdated) {
+          usersWithFeaturesUpdated++
+        }
+
+        console.log(`[Cron] User ${user.user_id} creative optimization:`, result)
+      } catch (error) {
+        console.error(`[Cron] Creative optimization failed for user ${user.user_id}:`, error)
+      }
+    }
+
+    console.log('[Cron] Creative optimization summary:', {
+      totalUsers: users.length,
+      totalCreativesScored,
+      totalHighPerformers,
+      usersWithFeaturesUpdated
+    })
 
     // 清理过期任务
     const cleanedCount = cleanupOldTasks()
@@ -39,11 +87,23 @@ export async function POST(request: NextRequest) {
       success: true,
       timestamp: new Date().toISOString(),
       result: {
-        totalUsers: result.totalUsers,
-        totalTasks: result.totalTasks,
+        // Campaign优化
+        campaign: {
+          totalUsers: campaignResult.totalUsers,
+          totalTasks: campaignResult.totalTasks,
+          userTasks: campaignResult.userTasks
+        },
+        // 创意优化（新增）
+        creative: {
+          totalUsers: users.length,
+          totalCreativesScored,
+          totalHighPerformers,
+          usersWithFeaturesUpdated,
+          userResults: creativeResults
+        },
+        // 清理统计
         cleanedTasks: cleanedCount
-      },
-      details: result.userTasks
+      }
     })
 
   } catch (error) {

@@ -38,6 +38,7 @@ export interface LoginResponse {
     role: string
     packageType: string
   }
+  mustChangePassword?: boolean
 }
 
 /**
@@ -176,6 +177,7 @@ export async function loginWithPassword(usernameOrEmail: string, password: strin
       role: user.role,
       packageType: user.package_type,
     },
+    mustChangePassword: !!(user as any).must_change_password,
   }
 }
 
@@ -243,6 +245,7 @@ export async function loginWithGoogle(googleProfile: {
       role: user.role,
       packageType: user.package_type,
     },
+    mustChangePassword: !!(user as any).must_change_password,
   }
 }
 

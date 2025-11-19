@@ -8,7 +8,13 @@ import {
   groupKeywordsByTheme,
   formatCpcMicros,
   formatSearchVolume,
+  getKeywordMetrics,
 } from '@/lib/google-ads-keyword-planner'
+import {
+  getHighIntentKeywords,
+  filterLowIntentKeywords,
+  filterMismatchedGeoKeywords,
+} from '@/lib/google-suggestions'
 
 /**
  * POST /api/offers/:id/keyword-ideas
@@ -83,29 +89,112 @@ export async function POST(
 
     console.log(`获取关键词建议: seeds=${finalSeedKeywords.join(', ')}, url=${useUrl ? offer.url : 'none'}`)
 
-    // 调用Keyword Planner API
-    const keywordIdeas = await getKeywordIdeas({
-      customerId: googleAdsAccount.customerId,
-      refreshToken: googleAdsAccount.refreshToken,
-      seedKeywords: finalSeedKeywords,
-      pageUrl: useUrl ? offer.url : undefined,
-      targetCountry: offer.target_country,
-      targetLanguage: offer.target_language || 'English',
-      accountId: googleAdsAccount.id,
-      userId: parseInt(userId, 10),
-    })
+    // 需求11：并行获取Google搜索下拉词和Keyword Planner建议
+    const [googleSuggestKeywords, keywordPlannerIdeas] = await Promise.all([
+      // 1. 获取Google搜索下拉词（自动过滤低意图关键词）
+      getHighIntentKeywords({
+        brand: offer.brand,
+        country: offer.target_country,
+        language: getLanguageCode(offer.target_language || 'English'),
+        useProxy: true,
+      }).catch((err) => {
+        console.warn('获取Google搜索建议失败，继续使用Keyword Planner:', err)
+        return []
+      }),
 
-    console.log(`获取到${keywordIdeas.length}个关键词建议`)
+      // 2. 调用Keyword Planner API
+      getKeywordIdeas({
+        customerId: googleAdsAccount.customerId,
+        refreshToken: googleAdsAccount.refreshToken,
+        seedKeywords: finalSeedKeywords,
+        pageUrl: useUrl ? offer.url : undefined,
+        targetCountry: offer.target_country,
+        targetLanguage: offer.target_language || 'English',
+        accountId: googleAdsAccount.id,
+        userId: parseInt(userId, 10),
+      }),
+    ])
+
+    console.log(
+      `✓ Google下拉词: ${googleSuggestKeywords.length}个, Keyword Planner: ${keywordPlannerIdeas.length}个`
+    )
+
+    // 合并下拉词和Keyword Planner结果
+    let keywordIdeas = keywordPlannerIdeas
+
+    // 如果有Google下拉词，查询它们的搜索量数据
+    if (googleSuggestKeywords.length > 0) {
+      try {
+        const suggestMetrics = await getKeywordMetrics({
+          customerId: googleAdsAccount.customerId,
+          refreshToken: googleAdsAccount.refreshToken,
+          keywords: googleSuggestKeywords,
+          targetCountry: offer.target_country,
+          targetLanguage: offer.target_language || 'English',
+          accountId: googleAdsAccount.id,
+          userId: parseInt(userId, 10),
+        })
+
+        // 转换为KeywordIdea格式
+        const suggestIdeas = suggestMetrics.map((metric) => ({
+          text: metric.keyword,
+          avgMonthlySearches: metric.avgMonthlySearches,
+          competition: metric.competition,
+          competitionIndex: metric.competitionIndex,
+          lowTopOfPageBidMicros: metric.lowTopOfPageBidMicros,
+          highTopOfPageBidMicros: metric.highTopOfPageBidMicros,
+        }))
+
+        // 合并并去重
+        const existingKeywords = new Set(
+          keywordPlannerIdeas.map((kw) => kw.text.toLowerCase())
+        )
+        const newSuggestions = suggestIdeas.filter(
+          (kw) => !existingKeywords.has(kw.text.toLowerCase())
+        )
+
+        keywordIdeas = [...keywordPlannerIdeas, ...newSuggestions]
+
+        console.log(`✓ 合并后共${keywordIdeas.length}个关键词（新增${newSuggestions.length}个下拉词）`)
+      } catch (err) {
+        console.warn('查询Google下拉词搜索量失败，忽略下拉词:', err)
+      }
+    }
+
+    // 需求11：过滤购买意图不强烈的关键词
+    const highIntentKeywordTexts = filterLowIntentKeywords(
+      keywordIdeas.map((kw) => kw.text)
+    )
+    let highIntentKeywords = keywordIdeas.filter((kw) =>
+      highIntentKeywordTexts.includes(kw.text)
+    )
+
+    console.log(
+      `✓ 过滤低意图关键词后剩余${highIntentKeywords.length}个 (原始${keywordIdeas.length}个)`
+    )
+
+    // 用户问题1：过滤地理不匹配的关键词
+    const geoFilteredTexts = filterMismatchedGeoKeywords(
+      highIntentKeywords.map((kw) => kw.text),
+      offer.target_country
+    )
+    highIntentKeywords = highIntentKeywords.filter((kw) =>
+      geoFilteredTexts.includes(kw.text)
+    )
+
+    console.log(
+      `✓ 过滤地理不匹配后剩余${highIntentKeywords.length}个关键词`
+    )
 
     // 过滤高质量关键词
-    const filteredKeywords = filterHighQualityKeywords(keywordIdeas, {
+    const filteredKeywords = filterHighQualityKeywords(highIntentKeywords, {
       minMonthlySearches: filterOptions.minMonthlySearches || 100,
       maxCompetitionIndex: filterOptions.maxCompetitionIndex || 80,
       maxCpcMicros: filterOptions.maxCpcMicros,
       excludeCompetition: filterOptions.excludeCompetition || [],
     })
 
-    console.log(`过滤后剩余${filteredKeywords.length}个高质量关键词`)
+    console.log(`✓ 过滤后剩余${filteredKeywords.length}个高质量关键词`)
 
     // 按相关性排序
     const rankedKeywords = rankKeywordsByRelevance(filteredKeywords)
@@ -156,6 +245,7 @@ export async function POST(
         minMonthlySearches: filterOptions.minMonthlySearches || 100,
         maxCompetitionIndex: filterOptions.maxCompetitionIndex || 80,
       },
+      googleSuggestCount: googleSuggestKeywords.length,
     })
   } catch (error: any) {
     console.error('获取关键词建议失败:', error)
@@ -168,4 +258,23 @@ export async function POST(
       { status: 500 }
     )
   }
+}
+
+/**
+ * 将语言名称转换为语言代码
+ */
+function getLanguageCode(language: string): string {
+  const languageMap: { [key: string]: string } = {
+    English: 'en',
+    German: 'de',
+    French: 'fr',
+    Spanish: 'es',
+    Italian: 'it',
+    Portuguese: 'pt',
+    Japanese: 'ja',
+    Korean: 'ko',
+    Chinese: 'zh',
+  }
+
+  return languageMap[language] || 'en'
 }

@@ -1,0 +1,12 @@
+# AutoAds - robots.txt
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /offers/
+Disallow: /campaigns/
+Disallow: /settings/
+
+Sitemap: https://www.autoads.dev/sitemap.xml

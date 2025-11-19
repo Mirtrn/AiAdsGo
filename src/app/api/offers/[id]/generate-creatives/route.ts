@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { createCreatives } from '@/lib/creatives'
 import { generateAdCreatives } from '@/lib/ai'
+import { calculateCreativeQualityScore } from '@/lib/scoring'
 
 /**
  * POST /api/offers/:id/generate-creatives
@@ -79,26 +80,46 @@ export async function POST(
       })
     }
 
-    // 返回完整的创意数据（包含callouts和sitelinks）
+    // 为每个创意计算真实的AI质量评分（需求17）
+    const variantsWithScores = await Promise.all(
+      allVariants.map(async (variant) => {
+        const creativeData = {
+          headline1: variant.headlines[0] || '',
+          headline2: variant.headlines[1] || '',
+          headline3: variant.headlines[2] || '',
+          description1: variant.descriptions[0] || '',
+          description2: variant.descriptions[1] || '',
+          brand: offer.brand,
+          orientation: variant.orientation as 'brand' | 'product' | 'promo'
+        }
+
+        // 使用真实AI评分（需求17：100分制质量评分）
+        const qualityScore = await calculateCreativeQualityScore(creativeData)
+
+        return {
+          orientation: variant.orientation,
+          headline1: creativeData.headline1,
+          headline2: creativeData.headline2,
+          headline3: creativeData.headline3,
+          description1: creativeData.description1,
+          description2: creativeData.description2,
+          callouts: variant.callouts || [],
+          sitelinks: variant.sitelinks.map((link: any) => ({
+            title: link.title,
+            description: link.description,
+            url: offer.affiliate_link || offer.url
+          })),
+          qualityScore, // 真实AI评分
+          usedLearning: variant.usedLearning
+        }
+      })
+    )
+
+    // 返回完整的创意数据（包含真实AI质量评分）
     return NextResponse.json({
       success: true,
-      variants: allVariants.map((variant, index) => ({
-        orientation: variant.orientation,
-        headline1: variant.headlines[0] || '',
-        headline2: variant.headlines[1] || '',
-        headline3: variant.headlines[2] || '',
-        description1: variant.descriptions[0] || '',
-        description2: variant.descriptions[1] || '',
-        callouts: variant.callouts || [],
-        sitelinks: variant.sitelinks.map((link: any) => ({
-          title: link.title,
-          description: link.description,
-          url: offer.affiliate_link || offer.url
-        })),
-        qualityScore: Math.floor(Math.random() * 15) + 85, // 85-100 临时评分
-        usedLearning: variant.usedLearning
-      })),
-      count: allVariants.length,
+      variants: variantsWithScores,
+      count: variantsWithScores.length,
       offer: {
         id: offer.id,
         brand: offer.brand,

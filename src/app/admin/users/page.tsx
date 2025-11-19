@@ -46,9 +46,7 @@ export default function AdminUsersPage() {
       })
 
       const response = await fetch(`/api/admin/users?${queryParams}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        credentials: 'include', // HttpOnly Cookie自动携带
       })
 
       const data = await response.json()

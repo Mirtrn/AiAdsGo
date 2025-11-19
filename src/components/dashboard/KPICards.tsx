@@ -1,7 +1,15 @@
 'use client'
 
+/**
+ * KPICards - P1-5优化版
+ * 使用shadcn/ui Card组件，增强视觉设计
+ */
+
 import { useEffect, useState } from 'react'
 import { TrendingUp, TrendingDown, Eye, MousePointerClick, DollarSign, Target } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 
 interface KPIData {
   current: {
@@ -31,8 +39,6 @@ interface KPICardProps {
 
 function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps) {
   const isPositive = change >= 0
-  const changeColor = isPositive ? 'text-green-600' : 'text-red-600'
-  const changeBgColor = isPositive ? 'bg-green-50' : 'bg-red-50'
 
   const formatValue = (val: string | number): string => {
     const numVal = typeof val === 'string' ? parseFloat(val) : val
@@ -46,33 +52,52 @@ function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps
     }
   }
 
+  // Card color based on metric type
+  const getCardStyle = () => {
+    if (title === '展示量') return 'border-blue-200 bg-gradient-to-br from-blue-50 to-blue-100/50'
+    if (title === '点击量') return 'border-green-200 bg-gradient-to-br from-green-50 to-green-100/50'
+    if (title === '总花费') return 'border-purple-200 bg-gradient-to-br from-purple-50 to-purple-100/50'
+    if (title === '转化量') return 'border-orange-200 bg-gradient-to-br from-orange-50 to-orange-100/50'
+    return 'border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100/50'
+  }
+
+  const getIconBg = () => {
+    if (title === '展示量') return 'bg-blue-100'
+    if (title === '点击量') return 'bg-green-100'
+    if (title === '总花费') return 'bg-purple-100'
+    if (title === '转化量') return 'bg-orange-100'
+    return 'bg-gray-100'
+  }
+
+  const getIconColor = () => {
+    if (title === '展示量') return 'text-blue-600'
+    if (title === '点击量') return 'text-green-600'
+    if (title === '总花费') return 'text-purple-600'
+    if (title === '转化量') return 'text-orange-600'
+    return 'text-gray-600'
+  }
+
   return (
-    <div className="bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow">
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-bold text-gray-900 mt-2">{formatValue(value)}</p>
-        </div>
-        <div className="ml-4 flex-shrink-0">
-          <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
-            {icon}
+    <Card className={`${getCardStyle()} hover:shadow-lg transition-all`}>
+      <CardContent className="pt-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-muted-foreground mb-2">{title}</p>
+            <p className="text-3xl font-bold">{formatValue(value)}</p>
+          </div>
+          <div className={`p-3 rounded-lg ${getIconBg()}`}>
+            <div className={getIconColor()}>{icon}</div>
           </div>
         </div>
-      </div>
-      <div className="mt-4 flex items-center">
-        <div className={`flex items-center gap-1 px-2 py-1 rounded ${changeBgColor}`}>
-          {isPositive ? (
-            <TrendingUp className={`h-4 w-4 ${changeColor}`} />
-          ) : (
-            <TrendingDown className={`h-4 w-4 ${changeColor}`} />
-          )}
-          <span className={`text-sm font-medium ${changeColor}`}>
-            {Math.abs(change).toFixed(1)}%
-          </span>
+        <div className="flex items-center gap-2">
+          <Badge variant={isPositive ? 'default' : 'destructive'} className="gap-1">
+            {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+            {isPositive ? '+' : ''}{change.toFixed(1)}%
+          </Badge>
+          <span className="text-xs text-muted-foreground">vs 上周期</span>
         </div>
-        <span className="ml-2 text-sm text-gray-500">vs 上周期</span>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -128,22 +153,19 @@ export function KPICards() {
 
   return (
     <div>
-      {/* 日期范围选择器 */}
+      {/* 日期范围选择器 - P1-5优化版 */}
       <div className="mb-4 flex items-center gap-2">
-        <span className="text-sm text-gray-600">统计周期:</span>
+        <span className="text-sm font-medium text-muted-foreground">统计周期:</span>
         <div className="flex gap-2">
           {[7, 30, 90].map((d) => (
-            <button
+            <Button
               key={d}
+              variant={days === d ? 'default' : 'outline'}
+              size="sm"
               onClick={() => setDays(d)}
-              className={`px-3 py-1 text-sm rounded ${
-                days === d
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
             >
               {d}天
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -180,26 +202,32 @@ export function KPICards() {
         />
       </div>
 
-      {/* 附加指标 */}
+      {/* 附加指标 - P1-5优化版 */}
       <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-600">平均CTR</p>
-          <p className="text-xl font-bold text-gray-900 mt-1">
-            {data.current.ctr.toFixed(2)}%
-          </p>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-600">平均CPC</p>
-          <p className="text-xl font-bold text-gray-900 mt-1">
-            ¥{data.current.cpc.toFixed(2)}
-          </p>
-        </div>
-        <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-600">转化率</p>
-          <p className="text-xl font-bold text-gray-900 mt-1">
-            {data.current.conversionRate.toFixed(2)}%
-          </p>
-        </div>
+        <Card className="border-gray-200 hover:shadow-md transition-shadow">
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-muted-foreground mb-2">平均CTR</p>
+            <p className="text-2xl font-bold text-primary">
+              {data.current.ctr.toFixed(2)}%
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-gray-200 hover:shadow-md transition-shadow">
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-muted-foreground mb-2">平均CPC</p>
+            <p className="text-2xl font-bold text-primary">
+              ¥{data.current.cpc.toFixed(2)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-gray-200 hover:shadow-md transition-shadow">
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-muted-foreground mb-2">转化率</p>
+            <p className="text-2xl font-bold text-primary">
+              {data.current.conversionRate.toFixed(2)}%
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

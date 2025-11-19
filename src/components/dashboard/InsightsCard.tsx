@@ -1,7 +1,15 @@
 'use client'
 
+/**
+ * InsightsCard - P1-5优化版
+ * 使用shadcn/ui Card, Button, Badge组件
+ */
+
 import { useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle, Info, AlertTriangle, TrendingUp, Lightbulb } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 
 interface Insight {
   id: string
@@ -120,21 +128,21 @@ export function InsightsCard() {
     switch (priority) {
       case 'high':
         return (
-          <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
+          <Badge variant="destructive" className="bg-red-100 text-red-800 hover:bg-red-200">
             高优先级
-          </span>
+          </Badge>
         )
       case 'medium':
         return (
-          <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800">
+          <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300">
             中优先级
-          </span>
+          </Badge>
         )
       case 'low':
         return (
-          <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+          <Badge variant="secondary">
             低优先级
-          </span>
+          </Badge>
         )
       default:
         return null
@@ -143,35 +151,38 @@ export function InsightsCard() {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-gray-200 rounded w-48"></div>
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-24 bg-gray-100 rounded"></div>
-            ))}
+      <Card>
+        <CardContent className="py-12">
+          <div className="animate-pulse space-y-4">
+            <div className="h-6 bg-gray-200 rounded w-48"></div>
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-24 bg-gray-100 rounded"></div>
+              ))}
+            </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     )
   }
 
   if (error || !data) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-600">加载智能洞察失败: {error}</p>
-      </div>
+      <Card className="border-red-200 bg-red-50">
+        <CardContent className="pt-6">
+          <p className="text-red-600">加载智能洞察失败: {error}</p>
+        </CardContent>
+      </Card>
     )
   }
 
   return (
-    <div className="bg-white rounded-lg shadow">
-      {/* Header */}
-      <div className="p-6 border-b border-gray-200">
+    <Card>
+      <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Lightbulb className="h-6 w-6 text-blue-600" />
-            <h2 className="text-lg font-semibold text-gray-900">智能洞察</h2>
+            <CardTitle className="text-lg">智能洞察</CardTitle>
           </div>
 
           {/* 统计摘要 */}
@@ -179,141 +190,142 @@ export function InsightsCard() {
             {data.summary.high > 0 && (
               <div className="flex items-center gap-1">
                 <span className="text-sm font-medium text-red-600">{data.summary.high}</span>
-                <span className="text-sm text-gray-500">高优先级</span>
+                <span className="text-sm text-muted-foreground">高优先级</span>
               </div>
             )}
             {data.summary.medium > 0 && (
               <div className="flex items-center gap-1">
                 <span className="text-sm font-medium text-yellow-600">{data.summary.medium}</span>
-                <span className="text-sm text-gray-500">中优先级</span>
+                <span className="text-sm text-muted-foreground">中优先级</span>
               </div>
             )}
             {data.summary.low > 0 && (
               <div className="flex items-center gap-1">
                 <span className="text-sm font-medium text-gray-600">{data.summary.low}</span>
-                <span className="text-sm text-gray-500">低优先级</span>
+                <span className="text-sm text-muted-foreground">低优先级</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* 日期范围选择器 */}
+        {/* 日期范围选择器 - P1-5优化版 */}
         <div className="mt-4 flex items-center gap-2">
-          <span className="text-sm text-gray-600">分析周期:</span>
+          <span className="text-sm font-medium text-muted-foreground">分析周期:</span>
           <div className="flex gap-2">
             {[7, 30, 90].map((d) => (
-              <button
+              <Button
                 key={d}
+                variant={days === d ? 'default' : 'outline'}
+                size="sm"
                 onClick={() => setDays(d)}
-                className={`px-3 py-1 text-sm rounded ${
-                  days === d
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
               >
                 {d}天
-              </button>
+              </Button>
             ))}
           </div>
         </div>
-      </div>
+      </CardHeader>
 
       {/* Insights列表 */}
-      <div className="p-6 space-y-4">
+      <CardContent className="space-y-4">
         {data.insights.length === 0 ? (
           <div className="text-center py-12">
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <p className="text-gray-600">太好了！目前没有发现需要关注的问题</p>
-            <p className="text-sm text-gray-500 mt-2">您的Campaign运行状况良好</p>
+            <p className="text-muted-foreground">太好了！目前没有发现需要关注的问题</p>
+            <p className="text-sm text-muted-foreground mt-2">您的Campaign运行状况良好</p>
           </div>
         ) : (
           data.insights.map((insight) => {
             const colors = getInsightColors(insight.type)
             return (
-              <div
+              <Card
                 key={insight.id}
-                className={`border ${colors.border} ${colors.bg} rounded-lg p-4 hover:shadow-md transition-shadow`}
+                className={`border ${colors.border} ${colors.bg} hover:shadow-lg transition-all`}
               >
-                {/* Insight Header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-start gap-3 flex-1">
-                    <div className={colors.icon}>{getInsightIcon(insight.type)}</div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className={`font-semibold ${colors.title}`}>{insight.title}</h3>
-                        {getPriorityBadge(insight.priority)}
+                <CardContent className="pt-6">
+                  {/* Insight Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-start gap-3 flex-1">
+                      <div className={`p-2 rounded-lg bg-white/50 ${colors.icon}`}>
+                        {getInsightIcon(insight.type)}
                       </div>
-                      <p className="text-sm text-gray-700">{insight.message}</p>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className={`font-semibold text-base ${colors.title}`}>{insight.title}</h3>
+                          {getPriorityBadge(insight.priority)}
+                        </div>
+                        <p className="text-sm text-foreground/80">{insight.message}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Related Campaign */}
-                {insight.relatedCampaign && (
-                  <div className="mb-3 pl-8">
-                    <div className="flex items-center gap-2 text-sm">
-                      <TrendingUp className="h-4 w-4 text-gray-500" />
-                      <span className="text-gray-600">相关Campaign:</span>
-                      <a
-                        href={`/campaigns/${insight.relatedCampaign.id}`}
-                        className="text-blue-600 hover:underline font-medium"
-                      >
-                        {insight.relatedCampaign.name}
-                      </a>
-                    </div>
-                  </div>
-                )}
-
-                {/* Metrics */}
-                {insight.metrics && (
-                  <div className="mb-3 pl-8">
-                    <div className="flex items-center gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-600">当前值: </span>
-                        <span className="font-medium text-gray-900">
-                          {insight.metrics.current.toFixed(2)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">基准值: </span>
-                        <span className="font-medium text-gray-900">
-                          {insight.metrics.benchmark.toFixed(2)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">差异: </span>
-                        <span
-                          className={`font-medium ${
-                            insight.metrics.change >= 0 ? 'text-green-600' : 'text-red-600'
-                          }`}
+                  {/* Related Campaign */}
+                  {insight.relatedCampaign && (
+                    <div className="mb-3 pl-10">
+                      <div className="flex items-center gap-2 text-sm">
+                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">相关Campaign:</span>
+                        <a
+                          href={`/campaigns/${insight.relatedCampaign.id}`}
+                          className="text-blue-600 hover:underline font-medium"
                         >
-                          {insight.metrics.change >= 0 ? '+' : ''}
-                          {insight.metrics.change.toFixed(2)}
-                        </span>
+                          {insight.relatedCampaign.name}
+                        </a>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Recommendation */}
-                <div className="pl-8 pt-3 border-t border-gray-200">
-                  <p className="text-sm font-medium text-gray-700 mb-1">💡 建议:</p>
-                  <p className="text-sm text-gray-600">{insight.recommendation}</p>
-                </div>
-              </div>
+                  {/* Metrics */}
+                  {insight.metrics && (
+                    <div className="mb-3 pl-10">
+                      <div className="flex items-center gap-4 text-sm font-mono">
+                        <div>
+                          <span className="text-muted-foreground">当前值: </span>
+                          <span className="font-semibold text-foreground">
+                            {insight.metrics.current.toFixed(2)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">基准值: </span>
+                          <span className="font-semibold text-foreground">
+                            {insight.metrics.benchmark.toFixed(2)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">差异: </span>
+                          <span
+                            className={`font-semibold ${
+                              insight.metrics.change >= 0 ? 'text-green-600' : 'text-red-600'
+                            }`}
+                          >
+                            {insight.metrics.change >= 0 ? '+' : ''}
+                            {insight.metrics.change.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommendation */}
+                  <div className="pl-10 pt-3 border-t border-border/50">
+                    <p className="text-sm font-medium text-foreground mb-1">💡 建议:</p>
+                    <p className="text-sm text-muted-foreground">{insight.recommendation}</p>
+                  </div>
+                </CardContent>
+              </Card>
             )
           })
         )}
-      </div>
+      </CardContent>
 
       {/* Footer */}
       {data.insights.length > 0 && (
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-lg">
-          <p className="text-sm text-gray-500">
+        <CardContent className="bg-muted/30 border-t">
+          <p className="text-sm text-muted-foreground">
             最后更新: {new Date(data.generatedAt).toLocaleString('zh-CN')}
           </p>
-        </div>
+        </CardContent>
       )}
-    </div>
+    </Card>
   )
 }
