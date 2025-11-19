@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * LoadingSkeleton - P2-6优化
  * 统一的Loading Skeleton组件，提供一致的加载体验
