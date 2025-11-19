@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Toast 通知工具函数
  * 统一的通知系统，用于替换所有原生 alert
