@@ -50,7 +50,9 @@ export function InsightsCard() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/dashboard/insights?days=${days}`)
+      const response = await fetch(`/api/dashboard/insights?days=${days}`, {
+        credentials: 'include'
+      })
       if (!response.ok) {
         throw new Error('获取智能洞察失败')
       }
@@ -166,14 +168,34 @@ export function InsightsCard() {
     )
   }
 
-  if (error || !data) {
+  if (error) {
     return (
-      <Card className="border-red-200 bg-red-50">
+      <Card className="border-red-200">
         <CardContent className="pt-6">
-          <p className="text-red-600">加载智能洞察失败: {error}</p>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/>
+              </svg>
+              <div>
+                <p className="text-red-800 font-medium">数据加载失败</p>
+                <p className="text-red-600 text-sm mt-1">{error}</p>
+              </div>
+            </div>
+            <button
+              onClick={fetchData}
+              className="mt-4 px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors text-sm font-medium"
+            >
+              重新加载
+            </button>
+          </div>
         </CardContent>
       </Card>
     )
+  }
+
+  if (!data) {
+    return null
   }
 
   return (

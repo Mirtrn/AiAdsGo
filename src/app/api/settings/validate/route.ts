@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   validateGoogleAdsConfig,
-  validateAIApiKey,
+  validateGeminiConfig,
   updateValidationStatus,
 } from '@/lib/settings'
 import { z } from 'zod'
@@ -80,7 +80,11 @@ export async function POST(request: NextRequest) {
 
       case 'ai':
         if (config.gemini_api_key) {
-          result = await validateAIApiKey(config.gemini_api_key, 'gemini')
+          // 获取选择的模型，默认使用 gemini-2.5-pro
+          const selectedModel = config.gemini_model || 'gemini-2.5-pro'
+          result = await validateGeminiConfig(config.gemini_api_key, selectedModel)
+
+          // 更新API密钥验证状态
           updateValidationStatus(
             'ai',
             'gemini_api_key',
@@ -88,19 +92,21 @@ export async function POST(request: NextRequest) {
             result.message,
             userIdNum
           )
-        } else if (config.claude_api_key) {
-          result = await validateAIApiKey(config.claude_api_key, 'claude')
-          updateValidationStatus(
-            'ai',
-            'claude_api_key',
-            result.valid ? 'valid' : 'invalid',
-            result.message,
-            userIdNum
-          )
+
+          // 更新模型验证状态
+          if (config.gemini_model) {
+            updateValidationStatus(
+              'ai',
+              'gemini_model',
+              result.valid ? 'valid' : 'invalid',
+              result.valid ? `模型 ${selectedModel} 可用` : result.message,
+              userIdNum
+            )
+          }
         } else {
           return NextResponse.json(
             {
-              error: '请提供API密钥',
+              error: '请提供Gemini API密钥',
             },
             { status: 400 }
           )
@@ -108,10 +114,37 @@ export async function POST(request: NextRequest) {
         break
 
       case 'proxy':
-        // 代理配置验证（可选）
-        result = {
-          valid: true,
-          message: '代理配置格式正确',
+        // 代理URL格式验证
+        if (config.url) {
+          const proxyUrl = config.url
+          const requiredParams = ['cc', 'ips', 'proxyType=http', 'responseType=txt']
+          const missingParams = requiredParams.filter(param => !proxyUrl.includes(param))
+
+          if (missingParams.length > 0) {
+            result = {
+              valid: false,
+              message: `代理URL缺少必要参数: ${missingParams.join(', ')}`,
+            }
+          } else {
+            // 验证URL格式
+            try {
+              new URL(proxyUrl)
+              result = {
+                valid: true,
+                message: '✅ 代理URL格式正确',
+              }
+            } catch {
+              result = {
+                valid: false,
+                message: '代理URL格式无效，请检查URL是否正确',
+              }
+            }
+          }
+        } else {
+          result = {
+            valid: true,
+            message: '代理配置格式正确',
+          }
         }
         break
 

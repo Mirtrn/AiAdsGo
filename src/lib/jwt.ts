@@ -36,6 +36,11 @@ export function verifyToken(token: string): JWTPayload | null {
 
 /**
  * 从请求头中提取Token
+ *
+ * ⚠️ DEPRECATED for user authentication - use HttpOnly Cookie only
+ * This function is ONLY for system-level operations (e.g., cron job authentication with CRON_SECRET)
+ *
+ * @deprecated User authentication should ONLY use HttpOnly Cookie (auth_token)
  */
 export function extractTokenFromHeader(authHeader: string | null): string | null {
   if (!authHeader) return null

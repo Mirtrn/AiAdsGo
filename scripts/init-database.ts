@@ -29,6 +29,7 @@ const transaction = db.transaction(() => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT,
       display_name TEXT,
@@ -37,6 +38,7 @@ const transaction = db.transaction(() => {
       role TEXT NOT NULL DEFAULT 'user',
       package_type TEXT NOT NULL DEFAULT 'trial',
       package_expires_at TEXT,
+      must_change_password INTEGER NOT NULL DEFAULT 1,
       is_active INTEGER NOT NULL DEFAULT 1,
       last_login_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -410,14 +412,12 @@ const transaction = db.transaction(() => {
     { category: 'google_ads', key: 'developer_token', dataType: 'string', isSensitive: 1, isRequired: 1, description: 'Google Ads Developer Token' },
 
     // AI配置
-    { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: 1, isRequired: 1, description: 'Gemini 2.5 API密钥（主AI引擎）' },
-    { category: 'ai', key: 'claude_api_key', dataType: 'string', isSensitive: 1, isRequired: 0, description: 'Claude 4.5 API密钥（备用AI引擎）' },
-    { category: 'ai', key: 'primary_model', dataType: 'string', isSensitive: 0, isRequired: 1, description: '主AI模型', defaultValue: 'gemini' },
+    { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: 1, isRequired: 1, description: 'Gemini API密钥' },
+    { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: 0, isRequired: 1, description: 'Gemini模型版本', defaultValue: 'gemini-2.5-pro' },
 
     // 代理配置
     { category: 'proxy', key: 'enabled', dataType: 'boolean', isSensitive: 0, isRequired: 0, description: '是否启用代理', defaultValue: 'false' },
-    { category: 'proxy', key: 'host', dataType: 'string', isSensitive: 0, isRequired: 0, description: '代理服务器地址' },
-    { category: 'proxy', key: 'port', dataType: 'number', isSensitive: 0, isRequired: 0, description: '代理服务器端口' },
+    { category: 'proxy', key: 'url', dataType: 'string', isSensitive: 0, isRequired: 0, description: '代理服务API地址，必须包含cc、ips、proxyType=http、responseType=txt参数' },
 
     // 系统配置
     { category: 'system', key: 'currency', dataType: 'string', isSensitive: 0, isRequired: 1, description: '默认货币', defaultValue: 'CNY' },

@@ -21,7 +21,9 @@ export function DataExportImport() {
     setMessage(null)
 
     try {
-      const response = await fetch(`/api/export/${exportType}?format=${exportFormat}`)
+      const response = await fetch(`/api/export/${exportType}?format=${exportFormat}`, {
+        credentials: 'include'
+      })
 
       if (!response.ok) {
         throw new Error('导出失败')

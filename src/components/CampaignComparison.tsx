@@ -87,7 +87,9 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
     setError(null)
 
     try {
-      const response = await fetch(`/api/campaigns/compare?offer_id=${offerId}&days=${days}`)
+      const response = await fetch(`/api/campaigns/compare?offer_id=${offerId}&days=${days}`, {
+        credentials: 'include'
+      })
 
       if (!response.ok) {
         throw new Error('Failed to load comparison data')

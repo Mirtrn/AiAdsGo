@@ -25,6 +25,13 @@ export interface Offer {
   // 需求28：产品价格和佣金比例
   product_price: string | null
   commission_payout: string | null
+  // P1-11: 关联的Google Ads账号信息
+  linked_accounts?: Array<{
+    account_id: number
+    account_name: string | null
+    customer_id: string
+    campaign_count: number
+  }>
 }
 
 export interface CreateOfferInput {
@@ -174,8 +181,33 @@ export function listOffers(
 
   const offers = db.prepare(listQuery).all(...params) as Offer[]
 
+  // P1-11: 为每个offer查询关联的Google Ads账号信息
+  const offersWithAccounts = offers.map(offer => {
+    const linkedAccounts = db.prepare(`
+      SELECT DISTINCT
+        gaa.id as account_id,
+        gaa.account_name,
+        gaa.customer_id,
+        COUNT(DISTINCT c.id) as campaign_count
+      FROM campaigns c
+      INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+      WHERE c.offer_id = ? AND c.user_id = ?
+      GROUP BY gaa.id, gaa.account_name, gaa.customer_id
+    `).all(offer.id, userId) as Array<{
+      account_id: number
+      account_name: string | null
+      customer_id: string
+      campaign_count: number
+    }>
+
+    return {
+      ...offer,
+      linked_accounts: linkedAccounts.length > 0 ? linkedAccounts : undefined
+    }
+  })
+
   return {
-    offers,
+    offers: offersWithAccounts,
     total: count,
   }
 }

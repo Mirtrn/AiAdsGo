@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabaseManager } from '@/lib/db-admin'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/dashboard/trends
@@ -11,11 +11,11 @@ export async function GET(request: NextRequest) {
   try {
     // 验证用户身份
     const authResult = await verifyAuth(request)
-    if (!authResult.valid || !authResult.payload) {
+    if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    const userId = authResult.payload.userId
+    const userId = authResult.user.userId
 
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
@@ -27,8 +27,7 @@ export async function GET(request: NextRequest) {
     startDate.setDate(startDate.getDate() - days)
 
     // 获取数据库实例
-    const dbManager = getDatabaseManager()
-    const db = dbManager.getDb()
+    const db = getDatabase()
 
     // 查询每日表现数据
     const query = `

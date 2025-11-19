@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findUserById } from '@/lib/auth'
-import { verifyToken, extractTokenFromHeader } from '@/lib/jwt'
+import { verifyToken } from '@/lib/jwt'
 
 export async function GET(request: NextRequest) {
   try {
-    // 从请求头中提取token
-    const authHeader = request.headers.get('authorization')
-    const token = extractTokenFromHeader(authHeader)
+    // 从Cookie中提取token（HttpOnly Cookie方式）
+    const token = request.cookies.get('auth_token')?.value
 
     if (!token) {
       return NextResponse.json(
-        { error: '未提供认证token' },
+        { error: '未提供认证token，请先登录' },
         { status: 401 }
       )
     }

@@ -12,10 +12,10 @@ import { NextResponse } from 'next/server'
 export async function GET() {
   // P2-1: CSV模板内容（包含示例数据）
   const csv = `推广链接,品牌名称,推广国家,店铺或商品落地页,产品价格,佣金比例
-https://example.com/affiliate/product1,BrandA,US,https://example.com/store/product1,699.00,6.75%
-https://example.com/affiliate/product2,BrandB,DE,https://example.de/shop/product2,299.00,8.00%
-https://example.com/affiliate/product3,BrandC,UK,https://example.co.uk/products/product3,499.00,7.50%
-https://example.com/affiliate/product4,BrandD,FR,https://example.fr/boutique/product4,799.00,5.00%
+https://example.com/affiliate/product1,BrandA,US,https://example.com/store/product1,$699.00,6.75%
+https://example.com/affiliate/product2,BrandB,DE,https://example.de/shop/product2,€299.00,8.00%
+https://example.com/affiliate/product3,BrandC,UK,https://example.co.uk/products/product3,£499.00,7.50%
+https://example.com/affiliate/product4,BrandD,FR,https://example.fr/boutique/product4,€799.00,5.00%
 `
 
   // 返回CSV文件响应

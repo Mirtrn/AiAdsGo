@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { showSuccess } from '@/lib/toast-utils'
 
 interface UserEditModalProps {
   isOpen: boolean
@@ -78,7 +79,7 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
         throw new Error(data.error || '更新用户失败')
       }
 
-      alert('用户信息更新成功！')
+      showSuccess('更新成功', '用户信息已更新')
       onSuccess()
     } catch (err: any) {
       setError(err.message || '更新用户失败')

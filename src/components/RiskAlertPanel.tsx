@@ -20,7 +20,11 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
-  X
+  X,
+  Link as LinkIcon,
+  CheckCheck,
+  XCircle,
+  ArrowRight
 } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -28,6 +32,15 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { showError, showSuccess } from '@/lib/toast-utils'
 
 interface RiskAlert {
   id: number
@@ -51,6 +64,14 @@ interface Statistics {
   byType: Record<string, number>
 }
 
+interface LinkCheckResult {
+  totalChecked: number
+  accessible: number
+  broken: number
+  redirected: number
+  newAlerts: number
+}
+
 export default function RiskAlertPanel() {
   const [alerts, setAlerts] = useState<RiskAlert[]>([])
   const [statistics, setStatistics] = useState<Statistics | null>(null)
@@ -58,12 +79,16 @@ export default function RiskAlertPanel() {
   const [checking, setChecking] = useState(false)
   const [expandedAlert, setExpandedAlert] = useState<number | null>(null)
   const [resolutionNote, setResolutionNote] = useState('')
+  const [showResultDialog, setShowResultDialog] = useState(false)
+  const [checkResult, setCheckResult] = useState<LinkCheckResult | null>(null)
 
   // 加载风险提示
   const loadAlerts = async () => {
     setLoading(true)
     try {
-      const response = await fetch('/api/risk-alerts?status=active')
+      const response = await fetch('/api/risk-alerts?status=active', {
+        credentials: 'include'
+      })
       if (!response.ok) throw new Error('Failed to load alerts')
 
       const data = await response.json()
@@ -89,18 +114,19 @@ export default function RiskAlertPanel() {
       const data = await response.json()
       await loadAlerts()
 
-      const result = data.result
-      alert(
-        `链接检查完成\n` +
-        `总计检查: ${result.totalChecked}\n` +
-        `可访问: ${result.accessible}\n` +
-        `失效: ${result.broken}\n` +
-        `重定向: ${result.redirected}\n` +
-        `新提示: ${result.newAlerts}`
-      )
+      // 显示美观的结果弹窗
+      setCheckResult(data.result)
+      setShowResultDialog(true)
     } catch (error) {
       console.error('Check links error:', error)
-      alert('链接检查失败')
+      setCheckResult({
+        totalChecked: 0,
+        accessible: 0,
+        broken: 0,
+        redirected: 0,
+        newAlerts: 0
+      })
+      setShowResultDialog(true)
     } finally {
       setChecking(false)
     }
@@ -124,9 +150,13 @@ export default function RiskAlertPanel() {
       await loadAlerts()
       setExpandedAlert(null)
       setResolutionNote('')
+      showSuccess(
+        status === 'resolved' ? '风险已解决' : '风险已确认',
+        '提示状态已更新'
+      )
     } catch (error) {
       console.error('Update alert error:', error)
-      alert('更新提示失败')
+      showError('更新失败', '无法更新提示状态，请重试')
     }
   }
 
@@ -468,6 +498,87 @@ export default function RiskAlertPanel() {
           </CardContent>
         </Card>
       )}
+
+      {/* 链接检查结果弹窗 */}
+      <AlertDialog open={showResultDialog} onOpenChange={setShowResultDialog}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-3 bg-blue-100 rounded-full">
+                <LinkIcon className="h-6 w-6 text-blue-600" />
+              </div>
+              <AlertDialogTitle className="text-2xl">链接检查完成</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-sm text-muted-foreground">
+              已完成所有链接的可访问性检查
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {checkResult && (
+            <div className="space-y-3 py-4">
+              {/* 总计检查 */}
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <LinkIcon className="h-5 w-5 text-gray-600" />
+                  <span className="text-sm font-medium text-gray-700">总计检查</span>
+                </div>
+                <span className="text-2xl font-bold text-gray-900">{checkResult.totalChecked}</span>
+              </div>
+
+              {/* 可访问 */}
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+                <div className="flex items-center gap-3">
+                  <CheckCheck className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-700">可访问</span>
+                </div>
+                <span className="text-2xl font-bold text-green-600">{checkResult.accessible}</span>
+              </div>
+
+              {/* 失效 */}
+              {checkResult.broken > 0 && (
+                <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
+                  <div className="flex items-center gap-3">
+                    <XCircle className="h-5 w-5 text-red-600" />
+                    <span className="text-sm font-medium text-red-700">失效</span>
+                  </div>
+                  <span className="text-2xl font-bold text-red-600">{checkResult.broken}</span>
+                </div>
+              )}
+
+              {/* 重定向 */}
+              {checkResult.redirected > 0 && (
+                <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <div className="flex items-center gap-3">
+                    <ArrowRight className="h-5 w-5 text-yellow-600" />
+                    <span className="text-sm font-medium text-yellow-700">重定向</span>
+                  </div>
+                  <span className="text-2xl font-bold text-yellow-600">{checkResult.redirected}</span>
+                </div>
+              )}
+
+              {/* 新提示 */}
+              {checkResult.newAlerts > 0 && (
+                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-3">
+                    <AlertCircle className="h-5 w-5 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-700">新增提示</span>
+                  </div>
+                  <span className="text-2xl font-bold text-blue-600">{checkResult.newAlerts}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <Button
+              onClick={() => setShowResultDialog(false)}
+              className="w-full"
+            >
+              确定
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

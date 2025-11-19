@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { showSuccess } from '@/lib/toast-utils'
 
 interface ChangePasswordModalProps {
   isOpen: boolean
@@ -84,7 +85,7 @@ export default function ChangePasswordModal({ isOpen, onClose, onSuccess }: Chan
         throw new Error(data.error || '修改密码失败')
       }
 
-      alert('密码修改成功！请重新登录')
+      showSuccess('密码修改成功', '请重新登录')
 
       // 清除HttpOnly Cookie，强制重新登录
       await fetch('/api/auth/logout', {

@@ -438,11 +438,11 @@ export async function validateGoogleAdsConfig(
 }
 
 /**
- * 验证AI API密钥
+ * 验证Gemini API密钥和模型
  */
-export async function validateAIApiKey(
+export async function validateGeminiConfig(
   apiKey: string,
-  model: 'gemini' | 'claude'
+  model: string = 'gemini-2.5-pro'
 ): Promise<{ valid: boolean; message: string }> {
   // Step 1: 基础验证
   if (!apiKey) {
@@ -459,42 +459,37 @@ export async function validateAIApiKey(
     }
   }
 
-  // Step 2: 根据模型类型进行真实API测试
+  // Step 2: 验证模型名称
+  const validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']
+  if (!validModels.includes(model)) {
+    return {
+      valid: false,
+      message: `不支持的模型: ${model}。支持的模型: ${validModels.join(', ')}`,
+    }
+  }
+
+  // Step 3: 实际API测试
   try {
-    if (model === 'gemini') {
-      // 测试Gemini API
-      const { generateContent } = await import('./gemini-axios')
+    const { generateContent } = await import('./gemini-axios')
 
-      // 需求12：使用Gemini 2.5 Pro稳定版模型（带代理支持 + 自动降级）
-      await generateContent({
-        model: 'gemini-2.5-pro',
-        prompt: 'Test',
-        temperature: 0.1,
-        maxOutputTokens: 10,
-      })
+    // 使用选择的模型进行测试
+    // 注意：Gemini 2.5 模型有"思考"功能，需要更多tokens
+    await generateContent({
+      model: model,
+      prompt: 'Say "OK" if you can hear me.',
+      temperature: 0.1,
+      maxOutputTokens: 200, // Gemini 2.5 模型的思考过程需要更多tokens
+    })
 
-      return {
-        valid: true,
-        message: 'Gemini API密钥验证成功，连接正常',
-      }
-    } else if (model === 'claude') {
-      // Claude API验证（如果有）
-      // 注意：需要安装 @anthropic-ai/sdk
-      return {
-        valid: true,
-        message: 'Claude API密钥格式正确（注意：实际连接需要 @anthropic-ai/sdk）',
-      }
-    } else {
-      return {
-        valid: false,
-        message: '不支持的AI模型类型',
-      }
+    return {
+      valid: true,
+      message: `✅ ${model} 模型验证成功，连接正常`,
     }
   } catch (error: any) {
     // API调用失败，分析错误类型
     const errorMessage = error.message || '未知错误'
 
-    if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('invalid key')) {
+    if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('invalid key') || errorMessage.includes('400')) {
       return {
         valid: false,
         message: 'API密钥无效，请检查密钥是否正确',
@@ -508,10 +503,17 @@ export async function validateAIApiKey(
       }
     }
 
-    if (errorMessage.includes('network') || errorMessage.includes('timeout')) {
+    if (errorMessage.includes('network') || errorMessage.includes('timeout') || errorMessage.includes('ECONNREFUSED')) {
       return {
         valid: false,
-        message: '网络连接失败，请检查网络或稍后重试',
+        message: '网络连接失败，请检查代理配置或稍后重试',
+      }
+    }
+
+    if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+      return {
+        valid: false,
+        message: `模型 ${model} 不可用或不存在`,
       }
     }
 

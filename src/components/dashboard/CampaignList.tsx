@@ -21,6 +21,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { TableLoadingSkeleton } from '@/components/ui/loading-skeleton' // P2-6: 统一loading
+import { NoCampaignsState } from '@/components/ui/empty-state' // P2-7: 统一空状态
 
 interface CampaignPerformance {
   campaignId: number
@@ -59,7 +61,9 @@ export function CampaignList() {
       if (searchQuery) params.append('search', searchQuery)
       if (statusFilter) params.append('status', statusFilter)
 
-      const response = await fetch(`/api/dashboard/campaigns?${params}`)
+      const response = await fetch(`/api/dashboard/campaigns?${params}`, {
+        credentials: 'include'
+      })
       if (!response.ok) throw new Error('获取Campaign列表失败')
 
       const result = await response.json()
@@ -85,21 +89,9 @@ export function CampaignList() {
     }
   }
 
+  // P2-6: 使用统一的Loading Skeleton
   if (loading && campaigns.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-gray-200 rounded w-48"></div>
-            <div className="space-y-3">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-12 bg-gray-100 rounded"></div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    )
+    return <TableLoadingSkeleton rows={5} />
   }
 
   // P2-2: 导出Campaign数据
@@ -163,99 +155,106 @@ export function CampaignList() {
       </CardHeader>
 
       <CardContent>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Campaign名称</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('impressions')}>
-                  <div className="flex items-center justify-end gap-1">
-                    展示量
-                    <ArrowUpDown className="h-4 w-4" />
-                  </div>
-                </TableHead>
-                <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('clicks')}>
-                  <div className="flex items-center justify-end gap-1">
-                    点击量
-                    <ArrowUpDown className="h-4 w-4" />
-                  </div>
-                </TableHead>
-                <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('cost')}>
-                  <div className="flex items-center justify-end gap-1">
-                    花费
-                    <ArrowUpDown className="h-4 w-4" />
-                  </div>
-                </TableHead>
-                <TableHead className="text-right">CTR</TableHead>
-                <TableHead className="text-right">CPC</TableHead>
-                <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('conversions')}>
-                  <div className="flex items-center justify-end gap-1">
-                    转化量
-                    <ArrowUpDown className="h-4 w-4" />
-                  </div>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {campaigns.map((campaign) => (
-                <TableRow key={campaign.campaignId}>
-                  <TableCell>
-                    <div className="font-medium">{campaign.campaignName}</div>
-                    <div className="text-sm text-muted-foreground">{campaign.offerBrand}</div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={campaign.status === 'ENABLED' ? 'default' : 'secondary'}>
-                      {campaign.status === 'ENABLED' ? '启用' : '暂停'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {campaign.impressions.toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {campaign.clicks.toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    ¥{campaign.cost.toFixed(2)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {campaign.ctr.toFixed(2)}%
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    ¥{campaign.cpc.toFixed(2)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {campaign.conversions}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        {/* P2-7: 空状态 */}
+        {campaigns.length === 0 ? (
+          <NoCampaignsState inCard={false} />
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Campaign名称</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('impressions')}>
+                      <div className="flex items-center justify-end gap-1">
+                        展示量
+                        <ArrowUpDown className="h-4 w-4" />
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('clicks')}>
+                      <div className="flex items-center justify-end gap-1">
+                        点击量
+                        <ArrowUpDown className="h-4 w-4" />
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('cost')}>
+                      <div className="flex items-center justify-end gap-1">
+                        花费
+                        <ArrowUpDown className="h-4 w-4" />
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right">CTR</TableHead>
+                    <TableHead className="text-right">CPC</TableHead>
+                    <TableHead className="text-right cursor-pointer hover:bg-accent" onClick={() => handleSort('conversions')}>
+                      <div className="flex items-center justify-end gap-1">
+                        转化量
+                        <ArrowUpDown className="h-4 w-4" />
+                      </div>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {campaigns.map((campaign) => (
+                    <TableRow key={campaign.campaignId}>
+                      <TableCell>
+                        <div className="font-medium">{campaign.campaignName}</div>
+                        <div className="text-sm text-muted-foreground">{campaign.offerBrand}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={campaign.status === 'ENABLED' ? 'default' : 'secondary'}>
+                          {campaign.status === 'ENABLED' ? '启用' : '暂停'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {campaign.impressions.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {campaign.clicks.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        ¥{campaign.cost.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {campaign.ctr.toFixed(2)}%
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        ¥{campaign.cpc.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {campaign.conversions}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-            >
-              上一页
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              第 {page} / {totalPages} 页
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-            >
-              下一页
-            </Button>
-          </div>
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                >
+                  上一页
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  第 {page} / {totalPages} 页
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                >
+                  下一页
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

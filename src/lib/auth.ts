@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server'
 import { getDatabase } from './db'
 import { hashPassword, verifyPassword } from './crypto'
-import { generateToken, JWTPayload, verifyToken, extractTokenFromHeader } from './jwt'
+import { generateToken, JWTPayload, verifyToken } from './jwt'
 
 export interface User {
   id: number
+  username: string | null
   email: string
   password_hash: string | null
   display_name: string | null
@@ -13,6 +14,7 @@ export interface User {
   role: string
   package_type: string
   package_expires_at: string | null
+  must_change_password: number
   is_active: number
   last_login_at: string | null
   created_at: string
@@ -20,6 +22,7 @@ export interface User {
 }
 
 export interface CreateUserInput {
+  username?: string
   email: string
   password?: string
   displayName?: string
@@ -27,16 +30,20 @@ export interface CreateUserInput {
   profilePicture?: string
   role?: string
   packageType?: string
+  packageExpiresAt?: string
+  mustChangePassword?: number
 }
 
 export interface LoginResponse {
   token: string
   user: {
     id: number
+    username: string | null
     email: string
     displayName: string | null
     role: string
     packageType: string
+    packageExpiresAt: string | null
   }
   mustChangePassword?: boolean
 }
@@ -87,6 +94,42 @@ export function findUserById(id: number): User | null {
 }
 
 /**
+ * 生成唯一的动物用户名 (8-12位)
+ */
+export function generateUniqueUsername(): string {
+  const animals = ['panda', 'tiger', 'lion', 'eagle', 'shark', 'wolf', 'bear', 'hawk', 'fox', 'owl', 'deer', 'cat', 'dog', 'fish']
+  const adjectives = ['fast', 'brave', 'wise', 'calm', 'wild', 'cool', 'kind', 'bold', 'epic', 'rare']
+
+  let username = ''
+  let isUnique = false
+  const db = getDatabase()
+
+  while (!isUnique) {
+    const animal = animals[Math.floor(Math.random() * animals.length)]
+    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)]
+    const num = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+
+    // 组合: adj + animal + num (e.g., wiseowl123)
+    // 确保长度在 8-12 之间
+    let temp = `${adjective}${animal}${num}`
+    if (temp.length > 12) {
+      temp = `${animal}${num}` // fallback
+    }
+    if (temp.length < 8) {
+      temp = `${adjective}${animal}${num}9` // padding
+    }
+
+    username = temp.substring(0, 12) // truncate to max 12
+
+    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username)
+    if (!existing) {
+      isUnique = true
+    }
+  }
+  return username
+}
+
+/**
  * 创建新用户
  */
 export async function createUser(input: CreateUserInput): Promise<User> {
@@ -104,18 +147,24 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     passwordHash = await hashPassword(input.password)
   }
 
+  // 如果没有提供用户名，自动生成
+  const username = input.username || generateUniqueUsername()
+
   const result = db.prepare(`
     INSERT INTO users (
-      email, password_hash, display_name, google_id, profile_picture, role, package_type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      username, email, password_hash, display_name, google_id, profile_picture, role, package_type, package_expires_at, must_change_password
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
+    username,
     input.email,
     passwordHash,
     input.displayName || null,
     input.googleId || null,
     input.profilePicture || null,
     input.role || 'user',
-    input.packageType || 'trial'
+    input.packageType || 'trial',
+    input.packageExpiresAt || null,
+    input.mustChangePassword !== undefined ? input.mustChangePassword : 1
   )
 
   const user = findUserById(result.lastInsertRowid as number)
@@ -152,6 +201,14 @@ export async function loginWithPassword(usernameOrEmail: string, password: strin
     throw new Error('账户已被禁用')
   }
 
+  // 检查套餐有效期
+  if (user.package_expires_at) {
+    const expiryDate = new Date(user.package_expires_at)
+    if (expiryDate < new Date()) {
+      throw new Error('套餐已过期，请购买或升级套餐')
+    }
+  }
+
   const isValid = await verifyPassword(password, user.password_hash)
   if (!isValid) {
     throw new Error('密码错误')
@@ -172,12 +229,14 @@ export async function loginWithPassword(usernameOrEmail: string, password: strin
     token,
     user: {
       id: user.id,
+      username: user.username,
       email: user.email,
       displayName: user.display_name,
       role: user.role,
       packageType: user.package_type,
+      packageExpiresAt: user.package_expires_at
     },
-    mustChangePassword: !!(user as any).must_change_password,
+    mustChangePassword: !!user.must_change_password,
   }
 }
 
@@ -213,6 +272,7 @@ export async function loginWithGoogle(googleProfile: {
         googleId: googleProfile.id,
         displayName: googleProfile.name,
         profilePicture: googleProfile.picture,
+        mustChangePassword: 0 // Google login doesn't need password change
       })
     }
   }
@@ -223,6 +283,14 @@ export async function loginWithGoogle(googleProfile: {
 
   if (!user.is_active) {
     throw new Error('账户已被禁用')
+  }
+
+  // 检查套餐有效期
+  if (user.package_expires_at) {
+    const expiryDate = new Date(user.package_expires_at)
+    if (expiryDate < new Date()) {
+      throw new Error('套餐已过期，请购买或升级套餐')
+    }
   }
 
   // 更新最后登录时间
@@ -240,12 +308,14 @@ export async function loginWithGoogle(googleProfile: {
     token,
     user: {
       id: user.id,
+      username: user.username,
       email: user.email,
       displayName: user.display_name,
       role: user.role,
       packageType: user.package_type,
+      packageExpiresAt: user.package_expires_at
     },
-    mustChangePassword: !!(user as any).must_change_password,
+    mustChangePassword: !!user.must_change_password,
   }
 }
 
@@ -290,9 +360,8 @@ export interface AuthResult {
 
 export async function verifyAuth(request: NextRequest): Promise<AuthResult> {
   try {
-    // 从请求头提取token
-    const authHeader = request.headers.get('authorization')
-    const token = extractTokenFromHeader(authHeader)
+    // 从Cookie读取token（HttpOnly Cookie方式）
+    const token = request.cookies.get('auth_token')?.value
 
     if (!token) {
       return {
@@ -327,6 +396,18 @@ export async function verifyAuth(request: NextRequest): Promise<AuthResult> {
         authenticated: false,
         user: null,
         error: '账户已被禁用',
+      }
+    }
+
+    // 检查套餐有效期
+    if (user.package_expires_at) {
+      const expiryDate = new Date(user.package_expires_at)
+      if (expiryDate < new Date()) {
+        return {
+          authenticated: false,
+          user: null,
+          error: '套餐已过期',
+        }
       }
     }
 

@@ -8,18 +8,6 @@ const JWT_SECRET = new TextEncoder().encode(
 )
 
 /**
- * 从请求头中提取Token
- */
-function extractTokenFromHeader(authHeader: string | null): string | null {
-  if (!authHeader) return null
-  const parts = authHeader.split(' ')
-  if (parts.length === 2 && parts[0] === 'Bearer') {
-    return parts[1]
-  }
-  return authHeader
-}
-
-/**
  * 验证JWT Token（Edge Runtime兼容）
  */
 async function verifyTokenEdge(token: string): Promise<any | null> {
@@ -73,10 +61,10 @@ export async function middleware(request: NextRequest) {
 
   // 从Cookie中读取token（HttpOnly Cookie方式）
   const token = request.cookies.get('auth_token')?.value
+  const isApiRoute = pathname.startsWith('/api/')
 
   // 如果没有token，重定向到登录页
   if (!token) {
-    const isApiRoute = pathname.startsWith('/api/')
 
     if (isApiRoute) {
       // API路径：返回401 JSON

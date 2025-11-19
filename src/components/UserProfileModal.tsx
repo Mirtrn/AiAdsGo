@@ -1,276 +1,289 @@
 'use client'
 
-import { useState } from 'react'
-import ChangePasswordModal from './ChangePasswordModal'
+import { useState, useEffect } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { User, Mail, Shield, Calendar, Key, AlertTriangle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 interface UserProfileModalProps {
   isOpen: boolean
   onClose: () => void
-  user: {
-    username: string | null
+  user?: {
+    username: string
     email: string
-    displayName: string | null
-    profilePicture: string | null
     role: string
     packageType: string
-    validFrom: string | null
-    validUntil: string | null
-    createdAt: string
-  }
+    packageExpiresAt: string | null
+  } | null
 }
 
-export default function UserProfileModal({ isOpen, onClose, user }: UserProfileModalProps) {
-  const [showChangePassword, setShowChangePassword] = useState(false)
+interface UserProfile {
+  username: string
+  email: string | null
+  role: string
+  subscription_type: string | null
+  subscription_end_date: string | null
+  created_at: string
+}
 
-  if (!isOpen) return null
+export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfileModalProps) {
+  const router = useRouter()
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  const packageLabels: Record<string, string> = {
-    trial: '试用版',
-    annual: '年卡版',
-    lifetime: '终身版',
-    enterprise: '私有化部署',
+  useEffect(() => {
+    if (isOpen) {
+      // 如果通过props传递了用户数据，使用props数据
+      if (propUser) {
+        setProfile({
+          username: propUser.username,
+          email: propUser.email,
+          role: propUser.role,
+          subscription_type: propUser.packageType,
+          subscription_end_date: propUser.packageExpiresAt,
+          created_at: new Date().toISOString(),
+        })
+        setLoading(false)
+      } else {
+        // 否则从API获取
+        fetchProfile()
+      }
+    }
+  }, [isOpen, propUser])
+
+  const fetchProfile = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/auth/me', {
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        throw new Error('获取用户信息失败')
+      }
+
+      const data = await response.json()
+      setProfile(data.user)
+    } catch (err: any) {
+      setError(err.message || '加载失败')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const packageColors: Record<string, string> = {
-    trial: 'bg-gray-100 text-gray-800',
-    annual: 'bg-blue-100 text-blue-800',
-    lifetime: 'bg-green-100 text-green-800',
-    enterprise: 'bg-purple-100 text-purple-800',
+  const getSubscriptionBadge = (type: string | null) => {
+    const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      trial: { label: '试用版', variant: 'outline' },
+      annual: { label: '年度会员', variant: 'default' },
+      lifetime: { label: '终身会员', variant: 'secondary' },
+      enterprise: { label: '企业版', variant: 'default' },
+    }
+
+    if (!type) return <Badge variant="outline">未激活</Badge>
+
+    const config = configs[type] || { label: type, variant: 'outline' }
+    return <Badge variant={config.variant}>{config.label}</Badge>
   }
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return 'N/A'
-    return new Date(dateStr).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    })
+  const getRoleBadge = (role: string) => {
+    return role === 'admin' ? (
+      <Badge variant="destructive" className="gap-1">
+        <Shield className="w-3 h-3" />
+        管理员
+      </Badge>
+    ) : (
+      <Badge variant="secondary">普通用户</Badge>
+    )
   }
 
-  // 计算剩余天数
-  const calculateRemainingDays = () => {
-    if (!user.validUntil) return null
-    const today = new Date()
-    const expiryDate = new Date(user.validUntil)
-    const diffTime = expiryDate.getTime() - today.getTime()
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-    return diffDays
+  const getSubscriptionStatus = (endDate: string | null) => {
+    if (!endDate) return { status: 'expired', message: '未激活', variant: 'outline' as const }
+
+    const now = new Date()
+    const end = new Date(endDate)
+    const daysLeft = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+
+    if (daysLeft < 0) {
+      return { status: 'expired', message: '已过期', variant: 'destructive' as const }
+    } else if (daysLeft <= 7) {
+      return { status: 'expiring', message: `${daysLeft} 天后到期`, variant: 'destructive' as const }
+    } else if (daysLeft <= 30) {
+      return { status: 'expiring_soon', message: `${daysLeft} 天后到期`, variant: 'outline' as const }
+    } else if (endDate === '2099-12-31') {
+      return { status: 'lifetime', message: '永久有效', variant: 'secondary' as const }
+    } else {
+      return { status: 'active', message: `${daysLeft} 天后到期`, variant: 'default' as const }
+    }
   }
 
-  const remainingDays = calculateRemainingDays()
+  const handleChangePassword = () => {
+    onClose()
+    router.push('/change-password')
+  }
+
+  if (loading) {
+    return (
+      <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="sm:max-w-[500px]">
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  if (error || !profile) {
+    return (
+      <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="sm:max-w-[500px]">
+          <div className="text-center py-8">
+            <p className="text-red-600">{error || '无法加载用户信息'}</p>
+            <Button onClick={() => fetchProfile()} className="mt-4">
+              重试
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  const subscriptionStatus = getSubscriptionStatus(profile.subscription_end_date)
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">个人中心</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[550px]">
+        <DialogHeader>
+          <DialogTitle className="text-2xl">个人中心</DialogTitle>
+          <DialogDescription>
+            查看您的账号信息和套餐详情
+          </DialogDescription>
+        </DialogHeader>
 
-        {/* Content */}
-        <div className="px-6 py-6 space-y-6">
-          {/* 个人基本信息 */}
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              个人基本信息
-            </h3>
-            <div className="bg-gray-50 rounded-lg p-5 space-y-4">
-              {/* 头像和显示名称 */}
-              <div className="flex items-center space-x-4">
-                {user.profilePicture ? (
-                  <img
-                    src={user.profilePicture}
-                    alt="Profile"
-                    className="h-16 w-16 rounded-full ring-4 ring-indigo-100"
-                  />
-                ) : (
-                  <div className="h-16 w-16 rounded-full bg-indigo-600 flex items-center justify-center ring-4 ring-indigo-100">
-                    <span className="text-2xl font-semibold text-white">
-                      {user.displayName?.charAt(0) || user.email.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                )}
-                <div>
-                  <p className="text-xl font-semibold text-gray-900">
-                    {user.displayName || '未设置显示名称'}
-                  </p>
-                  {user.role === 'admin' && (
-                    <span className="inline-block mt-1 px-2 py-1 text-xs bg-red-100 text-red-800 rounded">
-                      管理员
-                    </span>
-                  )}
+        <div className="space-y-6 py-4">
+          {/* 基本信息 */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">基本信息</h3>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 text-blue-600">
+                  <User className="w-5 h-5" />
                 </div>
+                <div className="flex-1">
+                  <p className="text-sm text-gray-500">用户名</p>
+                  <p className="font-medium text-gray-900">{profile.username}</p>
+                </div>
+                {getRoleBadge(profile.role)}
               </div>
 
-              {/* 详细信息 */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-200">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">用户名</p>
-                  <p className="text-base font-medium text-gray-900">
-                    {user.username || 'N/A'}
-                  </p>
+              {profile.email && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-green-100 text-green-600">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-500">邮箱</p>
+                    <p className="font-medium text-gray-900">{profile.email}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">邮箱地址</p>
-                  <p className="text-base font-medium text-gray-900 break-all">
-                    {user.email}
-                  </p>
+              )}
+
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-purple-100 text-purple-600">
+                  <Calendar className="w-5 h-5" />
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">注册时间</p>
-                  <p className="text-base font-medium text-gray-900">
-                    {formatDate(user.createdAt)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">账号角色</p>
-                  <p className="text-base font-medium text-gray-900">
-                    {user.role === 'admin' ? '管理员' : '普通用户'}
+                <div className="flex-1">
+                  <p className="text-sm text-gray-500">注册时间</p>
+                  <p className="font-medium text-gray-900">
+                    {new Date(profile.created_at).toLocaleDateString('zh-CN')}
                   </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 套餐类型 */}
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-              </svg>
-              套餐类型
-            </h3>
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-5 border border-green-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 mb-2">当前套餐</p>
-                  <span className={`inline-block px-4 py-2 text-base font-semibold rounded-lg ${packageColors[user.packageType] || 'bg-gray-100 text-gray-800'}`}>
-                    {packageLabels[user.packageType] || user.packageType}
-                  </span>
-                </div>
-                {user.packageType === 'trial' && (
+          {/* 套餐信息 */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">套餐信息</h3>
+
+            <div className="p-4 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50/50">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-medium text-gray-700">套餐类型</p>
+                {getSubscriptionBadge(profile.subscription_type)}
+              </div>
+
+              {profile.subscription_end_date && (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-700">有效期</p>
                   <div className="text-right">
-                    <p className="text-xs text-gray-500 mb-1">升级套餐</p>
-                    <button className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
-                      联系管理员 →
-                    </button>
+                    <p className="text-sm text-gray-900 font-medium">
+                      {new Date(profile.subscription_end_date).toLocaleDateString('zh-CN')}
+                    </p>
+                    <Badge variant={subscriptionStatus.variant} className="mt-1 text-xs">
+                      {subscriptionStatus.message}
+                    </Badge>
                   </div>
-                )}
-              </div>
-
-              {/* 套餐说明 */}
-              <div className="mt-4 pt-4 border-t border-green-200">
-                <p className="text-xs text-gray-600">
-                  {user.packageType === 'trial' && '试用版功能有限，升级后可使用完整功能'}
-                  {user.packageType === 'annual' && '年卡版提供全功能访问，有效期1年'}
-                  {user.packageType === 'lifetime' && '终身版享有永久使用权限'}
-                  {user.packageType === 'enterprise' && '私有化部署版本，专属服务器'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* 套餐有效期 */}
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              套餐有效期
-            </h3>
-            <div className={`rounded-lg p-5 border ${
-              remainingDays !== null && remainingDays < 30
-                ? 'bg-red-50 border-red-200'
-                : 'bg-blue-50 border-blue-200'
-            }`}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">生效日期</p>
-                  <p className="text-base font-semibold text-gray-900">
-                    {formatDate(user.validFrom)}
-                  </p>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">到期日期</p>
-                  <p className="text-base font-semibold text-gray-900">
-                    {formatDate(user.validUntil)}
-                  </p>
-                </div>
-              </div>
+              )}
 
-              {/* 剩余天数提示 */}
-              {remainingDays !== null && (
-                <div className={`mt-4 pt-4 border-t ${
-                  remainingDays < 30 ? 'border-red-200' : 'border-blue-200'
-                }`}>
-                  {remainingDays > 0 ? (
-                    <div className="flex items-center justify-between">
-                      <p className={`text-sm ${
-                        remainingDays < 30 ? 'text-red-700' : 'text-blue-700'
-                      }`}>
-                        {remainingDays < 30 && '⚠️ '}
-                        剩余 <span className="font-bold text-lg mx-1">{remainingDays}</span> 天
-                      </p>
-                      {remainingDays < 30 && (
-                        <button className="text-sm text-red-600 hover:text-red-700 font-medium">
-                          联系续费 →
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="bg-red-100 rounded p-3">
-                      <p className="text-sm text-red-800 font-medium">
-                        ⚠️ 您的套餐已过期，请联系管理员续费
-                      </p>
-                    </div>
-                  )}
+              {/* 到期警告 */}
+              {subscriptionStatus.status === 'expiring' && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-red-900">套餐即将到期</p>
+                    <p className="text-xs text-red-700 mt-1">
+                      请及时联系管理员续费，以免影响使用
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {subscriptionStatus.status === 'expired' && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-red-900">套餐已过期</p>
+                    <p className="text-xs text-red-700 mt-1">
+                      请联系管理员续费以继续使用
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {subscriptionStatus.status === 'lifetime' && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-900">
+                    🎉 您拥有终身会员权限，享受所有功能永久使用权
+                  </p>
                 </div>
               )}
             </div>
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-lg">
-          <div className="flex justify-between">
-            <button
-              onClick={() => setShowChangePassword(true)}
-              className="px-6 py-2 border border-indigo-600 text-indigo-600 rounded-md hover:bg-indigo-50 transition"
+          {/* 操作按钮 */}
+          <div className="pt-4 border-t border-gray-200">
+            <Button
+              onClick={handleChangePassword}
+              variant="outline"
+              className="w-full gap-2"
             >
+              <Key className="w-4 h-4" />
               修改密码
-            </button>
-            <button
-              onClick={onClose}
-              className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
-            >
-              关闭
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
-
-      {/* 修改密码弹窗 */}
-      <ChangePasswordModal
-        isOpen={showChangePassword}
-        onClose={() => setShowChangePassword(false)}
-        onSuccess={() => {
-          setShowChangePassword(false)
-          onClose()
-          // 强制重新登录
-          window.location.href = '/login'
-        }}
-      />
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

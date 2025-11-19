@@ -1,25 +1,25 @@
 'use client'
 
 /**
- * VirtualizedOfferTable - P2-3虚拟滚动优化 + P2-5可访问性增强
- * 使用 @tanstack/react-virtual 实现高性能长列表渲染
- * 添加 ARIA 属性和键盘导航支持
+ * VirtualizedOfferTable - P2-3 Optimized Virtual Scrolling + P2-5 Accessibility
+ * Uses @tanstack/react-virtual for high-performance long list rendering
+ * Adds ARIA attributes and keyboard navigation support
  */
 
 import { useRef, useState, useEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { createKeyboardHandler, announceToScreenReader } from '@/lib/accessibility'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Rocket, DollarSign, BarChart3, ExternalLink } from 'lucide-react'
+import { Rocket, DollarSign, BarChart3, ExternalLink, MoreHorizontal } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface Offer {
   id: number
@@ -53,31 +53,31 @@ export function VirtualizedOfferTable({
 }: VirtualizedOfferTableProps) {
   const parentRef = useRef<HTMLDivElement>(null)
 
-  // P2-5: 键盘导航状态
+  // P2-5: Keyboard navigation state
   const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1)
 
-  // 虚拟滚动配置
+  // Virtual scrolling config
   const rowVirtualizer = useVirtualizer({
     count: offers.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 73, // 预估行高（px）
-    overscan: 10, // 预渲染10行以获得更流畅的滚动体验
+    estimateSize: () => 80, // Increased row height for better spacing
+    overscan: 10, // Pre-render 10 rows for smoother scrolling
   })
 
-  // P2-5: 键盘导航处理
+  // P2-5: Keyboard navigation handler
   const handleTableKeyboard = createKeyboardHandler({
     onArrowDown: () => {
       if (focusedRowIndex < offers.length - 1) {
         const nextIndex = focusedRowIndex + 1
         setFocusedRowIndex(nextIndex)
-        announceToScreenReader(`行 ${nextIndex + 1}，共 ${offers.length} 行`)
+        announceToScreenReader(`Row ${nextIndex + 1}, of ${offers.length}`)
       }
     },
     onArrowUp: () => {
       if (focusedRowIndex > 0) {
         const prevIndex = focusedRowIndex - 1
         setFocusedRowIndex(prevIndex)
-        announceToScreenReader(`行 ${prevIndex + 1}，共 ${offers.length} 行`)
+        announceToScreenReader(`Row ${prevIndex + 1}, of ${offers.length}`)
       }
     },
     onEnter: () => {
@@ -87,7 +87,7 @@ export function VirtualizedOfferTable({
     },
   })
 
-  // 当焦点行改变时，滚动到对应位置
+  // Scroll to focused row when it changes
   useEffect(() => {
     if (focusedRowIndex >= 0) {
       rowVirtualizer.scrollToIndex(focusedRowIndex, { align: 'center' })
@@ -96,52 +96,57 @@ export function VirtualizedOfferTable({
 
   const getScrapeStatusBadge = (status: string) => {
     const configs = {
-      pending: { label: '等待抓取', variant: 'outline' as const },
-      in_progress: { label: '抓取中', variant: 'default' as const },
-      completed: { label: '已完成', variant: 'default' as const },
-      failed: { label: '失败', variant: 'destructive' as const },
+      pending: { label: 'Pending', variant: 'outline' as const, className: 'text-gray-500 border-gray-200' },
+      in_progress: { label: 'Scraping', variant: 'secondary' as const, className: 'bg-blue-50 text-blue-700 border-blue-100 animate-pulse' },
+      completed: { label: 'Ready', variant: 'default' as const, className: 'bg-green-50 text-green-700 border-green-100 hover:bg-green-100' },
+      failed: { label: 'Failed', variant: 'destructive' as const, className: 'bg-red-50 text-red-700 border-red-100 hover:bg-red-100' },
     }
     const config = configs[status as keyof typeof configs] || {
       label: status,
       variant: 'outline' as const,
+      className: 'text-gray-500'
     }
-    return <Badge variant={config.variant}>{config.label}</Badge>
+    return <Badge variant={config.variant} className={`font-medium border ${config.className}`}>{config.label}</Badge>
   }
 
-  // 如果列表为空，显示提示
+  // If list is empty
   if (offers.length === 0) {
     return (
-      <div className="border rounded-lg p-12 text-center bg-gray-50">
-        <p className="text-gray-500">未找到匹配的Offer</p>
+      <div className="border border-dashed border-gray-200 rounded-xl p-16 text-center bg-gray-50/50">
+        <div className="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+          <Rocket className="w-6 h-6 text-gray-400" />
+        </div>
+        <h3 className="text-lg font-medium text-gray-900">No offers found</h3>
+        <p className="text-gray-500 mt-1">Try adjusting your search or filters.</p>
       </div>
     )
   }
 
   return (
     <div
-      className="border rounded-lg overflow-hidden"
+      className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm"
       role="region"
-      aria-label="Offer列表"
+      aria-label="Offer List"
     >
-      {/* 固定表头 */}
-      <div className="bg-gray-50 border-b" role="row">
-        <div className="grid grid-cols-[200px_1fr_120px_100px_120px_auto] gap-4 px-4 py-3 text-sm font-medium text-gray-700">
-          <div role="columnheader">Offer标识</div>
-          <div role="columnheader">品牌信息</div>
-          <div role="columnheader">推广国家</div>
-          <div role="columnheader">语言</div>
-          <div role="columnheader">状态</div>
-          <div role="columnheader" className="text-right">操作</div>
+      {/* Fixed Header */}
+      <div className="bg-gray-50/80 border-b border-gray-200 backdrop-blur-sm sticky top-0 z-10" role="row">
+        <div className="grid grid-cols-[240px_1fr_120px_100px_120px_140px] gap-4 px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          <div role="columnheader">Offer Name</div>
+          <div role="columnheader">Brand / URL</div>
+          <div role="columnheader">Country</div>
+          <div role="columnheader">Language</div>
+          <div role="columnheader">Status</div>
+          <div role="columnheader" className="text-right">Actions</div>
         </div>
       </div>
 
-      {/* 虚拟滚动容器 - P2-5: 添加ARIA和键盘支持 */}
+      {/* Virtualized Container */}
       <div
         ref={parentRef}
-        className="overflow-auto bg-white"
+        className="overflow-auto bg-white custom-scrollbar"
         style={{ height: '600px' }}
         role="table"
-        aria-label={`Offer数据表，共${offers.length}项`}
+        aria-label={`Offer table, ${offers.length} items`}
         aria-rowcount={offers.length}
         tabIndex={0}
         onKeyDown={handleTableKeyboard}
@@ -170,76 +175,93 @@ export function VirtualizedOfferTable({
                 role="row"
                 aria-rowindex={virtualRow.index + 1}
                 aria-selected={isRowFocused}
-                className={`grid grid-cols-[200px_1fr_120px_100px_120px_auto] gap-4 px-4 py-4 border-b hover:bg-gray-50 transition-colors absolute top-0 left-0 w-full ${
-                  isRowFocused ? 'ring-2 ring-blue-500 bg-blue-50' : ''
-                }`}
+                className={`grid grid-cols-[240px_1fr_120px_100px_120px_140px] gap-4 px-6 py-4 border-b border-gray-100 hover:bg-gray-50/80 transition-colors absolute top-0 left-0 w-full items-center group ${isRowFocused ? 'ring-2 ring-blue-500 bg-blue-50/30 z-10' : ''
+                  }`}
                 style={{
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
                 onClick={() => setFocusedRowIndex(virtualRow.index)}
               >
-                {/* Offer标识 */}
-                <div className="font-mono">
-                  <a
-                    href={`/offers/${offer.id}`}
-                    className="text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-2"
-                  >
+                {/* Offer Name */}
+                <div className="min-w-0">
+                  <div className="font-medium text-gray-900 truncate" title={offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}>
                     {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5 font-mono">ID: {offer.id}</div>
+                </div>
+
+                {/* Brand Info */}
+                <div className="min-w-0">
+                  <div className="font-medium text-gray-900 truncate">{offer.brand}</div>
+                  <a
+                    href={offer.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate flex items-center gap-1 mt-0.5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {offer.url}
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
 
-                {/* 品牌信息 */}
+                {/* Country */}
                 <div>
-                  <div className="font-medium text-gray-900">{offer.brand}</div>
-                  <div className="text-sm text-gray-500 truncate">{offer.url}</div>
+                  <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200 font-normal">
+                    {offer.targetCountry}
+                  </Badge>
                 </div>
 
-                {/* 推广国家 */}
-                <div>
-                  <Badge variant="outline">{offer.targetCountry}</Badge>
-                </div>
-
-                {/* 语言 */}
+                {/* Language */}
                 <div className="text-sm text-gray-600">
                   {offer.targetLanguage || 'English'}
                 </div>
 
-                {/* 状态 */}
+                {/* Status */}
                 <div>{getScrapeStatusBadge(offer.scrape_status)}</div>
 
-                {/* 操作 - P2-5: ARIA labels */}
+                {/* Actions */}
                 <div className="flex justify-end gap-2" role="cell">
                   <Button
                     size="sm"
-                    variant="default"
-                    onClick={() => onLaunchAd(offer)}
-                    aria-label={`为${offer.offerName || offer.brand}一键上广告`}
-                    title="快速创建并发布Google Ads广告"
+                    className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all hover:shadow-md h-8 px-3"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onLaunchAd(offer);
+                    }}
+                    aria-label={`Launch ad for ${offer.offerName || offer.brand}`}
                   >
-                    <Rocket className="w-4 h-4 mr-1" aria-hidden="true" />
-                    一键上广告
+                    <Rocket className="w-3.5 h-3.5 mr-1.5" />
+                    Launch
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onAdjustCpc(offer)}
-                    aria-label={`调整${offer.offerName || offer.brand}的CPC出价`}
-                    title="手动调整广告系列的CPC出价"
-                  >
-                    <DollarSign className="w-4 h-4 mr-1" aria-hidden="true" />
-                    调整CPC
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onLaunchScore(offer)}
-                    aria-label={`查看${offer.offerName || offer.brand}的投放分析`}
-                    title="查看投放分析和评分"
-                  >
-                    <BarChart3 className="w-4 h-4 mr-1" aria-hidden="true" />
-                    投放分析
-                  </Button>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-500 hover:text-gray-900">
+                        <MoreHorizontal className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                      <DropdownMenuItem onClick={() => onLaunchAd(offer)}>
+                        <Rocket className="w-4 h-4 mr-2 text-blue-600" />
+                        Launch Ad
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onAdjustCpc(offer)}>
+                        <DollarSign className="w-4 h-4 mr-2 text-green-600" />
+                        Adjust CPC
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onLaunchScore(offer)}>
+                        <BarChart3 className="w-4 h-4 mr-2 text-purple-600" />
+                        View Analytics
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => window.open(offer.url, '_blank')}>
+                        <ExternalLink className="w-4 h-4 mr-2 text-gray-500" />
+                        Visit Site
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
             )
@@ -247,13 +269,14 @@ export function VirtualizedOfferTable({
         </div>
       </div>
 
-      {/* 底部统计信息 */}
-      <div className="bg-gray-50 border-t px-4 py-2 text-sm text-gray-600">
-        共 {offers.length} 个Offer，正在显示第{' '}
-        {rowVirtualizer.getVirtualItems()[0]?.index + 1 || 0} 至{' '}
-        {(rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1]
-          ?.index || 0) + 1}{' '}
-        项
+      {/* Footer Stats */}
+      <div className="bg-gray-50 border-t border-gray-200 px-6 py-3 text-xs text-gray-500 flex justify-between items-center">
+        <span>
+          Showing {rowVirtualizer.getVirtualItems()[0]?.index + 1 || 0} - {(rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1]?.index || 0) + 1} of {offers.length} offers
+        </span>
+        <span className="text-gray-400">
+          Use arrow keys to navigate
+        </span>
       </div>
     </div>
   )

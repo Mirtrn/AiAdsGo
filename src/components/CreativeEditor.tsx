@@ -67,7 +67,9 @@ export function CreativeEditor({ creative, onSave }: CreativeEditorProps) {
   const loadVersions = async () => {
     setLoadingVersions(true)
     try {
-      const response = await fetch(`/api/creatives/${creative.id}/versions`)
+      const response = await fetch(`/api/creatives/${creative.id}/versions`, {
+        credentials: 'include'
+      })
       if (!response.ok) throw new Error('获取版本历史失败')
       const result = await response.json()
       setVersions(result.data.versions)

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { verifyPassword, hashPassword } from '@/lib/crypto'
-import { verifyToken, extractTokenFromHeader } from '@/lib/jwt'
+import { verifyToken } from '@/lib/jwt'
 
 /**
  * POST /api/auth/change-password
@@ -9,9 +9,8 @@ import { verifyToken, extractTokenFromHeader } from '@/lib/jwt'
  */
 export async function POST(request: NextRequest) {
   try {
-    // 验证JWT token
-    const authHeader = request.headers.get('authorization')
-    const token = extractTokenFromHeader(authHeader)
+    // 从Cookie中提取token（HttpOnly Cookie方式）
+    const token = request.cookies.get('auth_token')?.value
 
     if (!token) {
       return NextResponse.json(

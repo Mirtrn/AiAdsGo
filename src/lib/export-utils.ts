@@ -3,6 +3,8 @@
  * P2-2优化新增
  */
 
+import { showWarning } from './toast-utils'
+
 /**
  * 将数据导出为CSV格式
  * @param data 要导出的数据数组
@@ -15,7 +17,7 @@ export function exportToCSV<T extends Record<string, any>>(
   headers?: Record<keyof T, string>
 ): void {
   if (data.length === 0) {
-    alert('没有可导出的数据')
+    showWarning('无法导出', '没有可导出的数据')
     return
   }
 

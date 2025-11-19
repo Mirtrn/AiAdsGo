@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findUserById } from '@/lib/auth'
 import { verifyPassword, hashPassword } from '@/lib/crypto'
-import { verifyToken, extractTokenFromHeader } from '@/lib/jwt'
+import { verifyToken } from '@/lib/jwt'
 import { getDatabase } from '@/lib/db'
 
 /**
@@ -10,13 +10,12 @@ import { getDatabase } from '@/lib/db'
  */
 export async function PUT(request: NextRequest) {
   try {
-    // 验证用户身份
-    const authHeader = request.headers.get('authorization')
-    const token = extractTokenFromHeader(authHeader)
+    // 从Cookie中提取token（HttpOnly Cookie方式）
+    const token = request.cookies.get('auth_token')?.value
 
     if (!token) {
       return NextResponse.json(
-        { error: '未提供认证token' },
+        { error: '未提供认证token，请先登录' },
         { status: 401 }
       )
     }

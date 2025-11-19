@@ -20,7 +20,9 @@ export function SyncStatus() {
   // 获取同步状态
   const fetchStatus = async () => {
     try {
-      const response = await fetch('/api/sync/status')
+      const response = await fetch('/api/sync/status', {
+        credentials: 'include'
+      })
       if (!response.ok) {
         throw new Error('获取同步状态失败')
       }

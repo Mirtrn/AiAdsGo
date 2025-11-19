@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
+import { Toaster } from "@/components/ui/sonner"
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -40,7 +41,7 @@ export const metadata: Metadata = {
     siteName: 'AutoAds',
     images: [
       {
-        url: '/og-image.png',
+        url: '/logo.png', // P2-1: 临时使用logo.png，建议创建专门的og-image.png (1200x630)
         width: 1200,
         height: 630,
         alt: 'AutoAds - Google Ads AI广告自动化投放系统',
@@ -53,7 +54,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'AutoAds - Google Ads AI广告自动化投放系统',
     description: '自动化Offer管理、AI广告文案生成、真实关键词数据，最大化投放ROI',
-    images: ['/og-image.png'],
+    images: ['/logo.png'], // P2-1: 临时使用logo.png
   },
   robots: {
     index: true,
@@ -80,7 +81,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        {children}
+        <Toaster />
+      </body>
     </html>
   )
 }

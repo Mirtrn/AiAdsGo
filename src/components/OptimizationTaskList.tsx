@@ -22,6 +22,7 @@ import {
   RefreshCw,
   ChevronRight
 } from 'lucide-react'
+import { showSuccess, showError } from '@/lib/toast-utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -67,7 +68,9 @@ export default function OptimizationTaskList() {
   const loadTasks = async () => {
     setLoading(true)
     try {
-      const response = await fetch('/api/optimization-tasks')
+      const response = await fetch('/api/optimization-tasks', {
+        credentials: 'include'
+      })
       if (!response.ok) throw new Error('Failed to load tasks')
 
       const data = await response.json()
@@ -93,10 +96,10 @@ export default function OptimizationTaskList() {
       const data = await response.json()
       await loadTasks()
 
-      alert(`成功生成 ${data.generatedTasks} 个优化任务`)
+      showSuccess('任务生成成功', `已生成 ${data.generatedTasks} 个优化任务`)
     } catch (error) {
       console.error('Generate tasks error:', error)
-      alert('生成任务失败')
+      showError('任务生成失败', '请稍后重试')
     } finally {
       setGenerating(false)
     }
@@ -122,7 +125,7 @@ export default function OptimizationTaskList() {
       setCompletionNote('')
     } catch (error) {
       console.error('Update task error:', error)
-      alert('更新任务失败')
+      showError('更新任务失败', '请稍后重试')
     }
   }
 
