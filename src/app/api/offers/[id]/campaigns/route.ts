@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getGoogleAdsClient } from '@/lib/google-ads'
 import { findGoogleAdsAccountById, findActiveGoogleAdsAccounts } from '@/lib/google-ads-accounts'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/offers/:id/campaigns
@@ -94,12 +95,19 @@ export async function GET(
       }
     })
 
-    // 过滤出包含Offer ID的广告系列（基于命名约定）
-    // 广告系列名称格式: OfferName_timestamp 或 Brand_Country_序号_timestamp
+    // 从数据库获取该Offer关联的campaign_id列表
+    const db = getDatabase()
+    const campaignIdsStmt = db.prepare(`
+      SELECT campaign_id
+      FROM campaigns
+      WHERE offer_id = ? AND user_id = ?
+    `)
+    const localCampaigns = campaignIdsStmt.all(id, parseInt(userId, 10)) as Array<{ campaign_id: string }>
+    const offerCampaignIds = new Set(localCampaigns.map(c => c.campaign_id))
+
+    // 过滤出属于该Offer的广告系列（基于数据库映射关系）
     const offerCampaigns = formattedCampaigns.filter((campaign: any) => {
-      // 这里需要根据实际的命名约定来筛选
-      // 暂时返回所有广告系列，让用户看到所有可调整的广告系列
-      return true
+      return offerCampaignIds.has(campaign.id)
     })
 
     return NextResponse.json({

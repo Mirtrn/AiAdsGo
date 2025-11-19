@@ -39,14 +39,17 @@ export function generateOptimizationTasksForUser(userId: number): number {
   const db = getDatabase()
   const engine = createOptimizationEngine()
 
-  // 获取用户的所有活跃Campaigns
+  // 获取用户的所有活跃Campaigns（JOIN offers获取转化价值）
   const campaignsStmt = db.prepare(`
     SELECT
       c.id as campaignId,
       c.campaign_name as campaignName,
       c.status,
-      c.created_at
+      c.created_at,
+      o.product_price,
+      o.commission_payout
     FROM campaigns c
+    LEFT JOIN offers o ON c.offer_id = o.id
     WHERE c.user_id = ?
       AND c.status IN ('ENABLED', 'PAUSED')
   `)
@@ -97,7 +100,28 @@ export function generateOptimizationTasksForUser(userId: number): number {
     const cpc = clicks > 0 ? cost / clicks : 0
     const cpa = conversions > 0 ? cost / conversions : 0
     const conversionRate = clicks > 0 ? conversions / clicks : 0
-    const roi = cost > 0 ? (conversions * 50 - cost) / cost : 0 // 假设每转化$50
+
+    // 计算真实转化价值（基于产品价格和佣金比例）
+    let conversionValue = 50 // 默认值$50（降级方案）
+    if (campaign.product_price && campaign.commission_payout) {
+      try {
+        // 解析产品价格（移除货币符号）
+        const priceMatch = campaign.product_price.match(/[\d.]+/)
+        const price = priceMatch ? parseFloat(priceMatch[0]) : 0
+
+        // 解析佣金比例（移除%符号）
+        const payoutMatch = campaign.commission_payout.match(/[\d.]+/)
+        const payout = payoutMatch ? parseFloat(payoutMatch[0]) / 100 : 0
+
+        if (price > 0 && payout > 0) {
+          conversionValue = price * payout
+        }
+      } catch (error) {
+        console.warn(`计算转化价值失败，使用默认值$50: ${error}`)
+      }
+    }
+
+    const roi = cost > 0 ? (conversions * conversionValue - cost) / cost : 0
 
     // 计算运行天数
     const createdDate = new Date(campaign.created_at)

@@ -208,7 +208,28 @@ export async function GET(request: NextRequest) {
       const cpc = clicks > 0 ? cost / clicks : 0
       const cpa = conversions > 0 ? cost / conversions : 0
       const conversionRate = clicks > 0 ? conversions / clicks : 0
-      const roi = cost > 0 ? (conversions * 50 - cost) / cost : 0 // 假设每个转化价值$50
+
+      // 计算真实转化价值（基于产品价格和佣金比例）
+      let conversionValue = 50 // 默认值$50（降级方案）
+      if (offer.product_price && offer.commission_payout) {
+        try {
+          // 解析产品价格（移除货币符号）
+          const priceMatch = offer.product_price.match(/[\d.]+/)
+          const price = priceMatch ? parseFloat(priceMatch[0]) : 0
+
+          // 解析佣金比例（移除%符号）
+          const payoutMatch = offer.commission_payout.match(/[\d.]+/)
+          const payout = payoutMatch ? parseFloat(payoutMatch[0]) / 100 : 0
+
+          if (price > 0 && payout > 0) {
+            conversionValue = price * payout
+          }
+        } catch (error) {
+          console.warn(`计算转化价值失败，使用默认值$50: ${error}`)
+        }
+      }
+
+      const roi = cost > 0 ? (conversions * conversionValue - cost) / cost : 0
 
       // 获取每日趋势
       const dailyStmt = db.prepare(`
