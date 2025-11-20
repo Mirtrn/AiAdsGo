@@ -6,6 +6,7 @@
 import { getRedisClient } from './redis'
 import { resolveAffiliateLinkWithPlaywright } from './url-resolver-playwright'
 import type { PlaywrightResolvedUrl } from './url-resolver-playwright'
+import { resolveAffiliateLinkWithHttp, canUseHttpResolver } from './url-resolver-http'
 
 // ==================== 类型定义 ====================
 
@@ -296,9 +297,19 @@ async function resolveWithHttp(
   affiliateLink: string,
   proxyUrl: string
 ): Promise<ResolvedUrlData> {
-  // TODO: 实现基础HTTP请求跟踪重定向
-  // 这里暂时抛出错误，强制降级到Playwright
-  throw new Error('HTTP请求暂未实现，降级到Playwright')
+  const result = await resolveAffiliateLinkWithHttp(affiliateLink, proxyUrl, 10)
+
+  return {
+    finalUrl: result.finalUrl,
+    finalUrlSuffix: result.finalUrlSuffix,
+    brand: null, // 需要后续AI识别
+    redirectChain: result.redirectChain,
+    redirectCount: result.redirectCount,
+    pageTitle: null, // HTTP方式无法获取页面标题
+    statusCode: result.statusCode,
+    resolveMethod: 'http',
+    proxyUsed: proxyUrl,
+  }
 }
 
 // ==================== Playwright方式（Level 2） ====================
@@ -373,12 +384,21 @@ export async function resolveAffiliateLink(
       // ========== 步骤4: 降级方案 ==========
       let result: ResolvedUrlData
 
-      try {
-        // Level 1: HTTP请求（快速但功能有限）
-        result = await resolveWithHttp(affiliateLink, proxy.url)
-      } catch (httpError) {
-        console.log(`   HTTP失败，降级到Playwright`)
-        // Level 2: Playwright（慢但功能强大）
+      // 检查是否可以使用HTTP解析器
+      if (canUseHttpResolver(affiliateLink)) {
+        try {
+          // Level 1: HTTP请求（快速但功能有限）
+          console.log(`   尝试HTTP解析...`)
+          result = await resolveWithHttp(affiliateLink, proxy.url)
+        } catch (httpError: any) {
+          console.log(`   HTTP失败: ${httpError.message}`)
+          console.log(`   降级到Playwright...`)
+          // Level 2: Playwright（慢但功能强大）
+          result = await resolveWithPlaywright(affiliateLink, proxy.url)
+        }
+      } else {
+        // 直接使用Playwright（某些域名已知需要JavaScript）
+        console.log(`   直接使用Playwright（已知需要JavaScript）`)
         result = await resolveWithPlaywright(affiliateLink, proxy.url)
       }
 

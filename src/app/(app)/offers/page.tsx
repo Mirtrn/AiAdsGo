@@ -678,7 +678,7 @@ export default function OffersPage() {
                               className="h-8"
                             >
                               <Rocket className="w-3.5 h-3.5 mr-1.5" />
-                              一键上广告
+                              发布广告
                             </Button>
 
                             <DropdownMenu>

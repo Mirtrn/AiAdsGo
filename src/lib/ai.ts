@@ -489,6 +489,7 @@ export async function generateAdCreatives(
     websiteUrl?: string // P0-2: 用于提取真实服务
     reviewAnalysis?: any // 🎯 P0优化: 用户评论深度分析结果
     competitorAnalysis?: any // 🎯 P0优化: 竞品对比分析结果
+    visualAnalysis?: any // 🎯 P1优化: 视觉元素智能分析结果
   },
   options?: {
     userId?: number
@@ -507,6 +508,7 @@ export async function generateAdCreatives(
   validationResults?: { validCallouts: string[]; invalidCallouts: string[] } // P0-2: 验证结果
   reviewInsightsUsed?: boolean // 🎯 P0优化: 是否使用了评论洞察
   competitiveInsightsUsed?: boolean // 🎯 P0优化: 是否使用了竞品对比洞察
+  visualInsightsUsed?: boolean // 🎯 P1优化: 是否使用了视觉洞察
   prompt: string // 实际使用的AI Prompt
 }> {
   try {
@@ -683,6 +685,52 @@ ${competitorAdvs}
 `
     }
 
+    // 🎯 P1优化：提取视觉洞察（如果有）
+    let visualInsightsUsed = false
+    let visualInsightsSection = ''
+
+    if (productInfo.visualAnalysis) {
+      const analysis = productInfo.visualAnalysis
+      visualInsightsUsed = true
+
+      // 提取视觉质量和场景
+      const imageQuality = analysis.imageQuality || {}
+      const scenarios = analysis.identifiedScenarios?.slice(0, 3).map((s: any) => s.adCopyIdea).join(', ') || ''
+      const highlights = analysis.visualHighlights?.slice(0, 3).map((h: any) => h.adCopyIdea).join(', ') || ''
+      const hasLifestyle = imageQuality.hasLifestyleImages || false
+      const hasInfographics = imageQuality.hasInfographics || false
+
+      // 计算整体质量评分（基于多个因素）
+      const totalImages = imageQuality.totalImages || 0
+      const highQualityRatio = imageQuality.highQualityRatio || 0
+      const qualityLevel = highQualityRatio >= 0.7 ? '优秀' : highQualityRatio >= 0.5 ? '良好' : '一般'
+
+      visualInsightsSection = `
+
+## 📸 视觉元素洞察（P1优化 - 基于${totalImages}张产品图片分析）
+
+### 图片质量评估
+- 图片总数: ${totalImages}
+- 高质量占比: ${Math.round(highQualityRatio * 100)}% (${qualityLevel})
+- 生活场景图: ${hasLifestyle ? '✅ 有' : '❌ 无'}
+- 信息图/特性展示: ${hasInfographics ? '✅ 有' : '❌ 无'}
+
+${scenarios ? `### 识别的使用场景
+${scenarios}
+💡 **广告策略**: 广告文案应体现这些真实使用场景，提高用户共鸣` : ''}
+
+${highlights ? `### 视觉亮点
+${highlights}
+💡 **广告策略**: 在标题和描述中突出这些视觉优势，增强吸引力` : ''}
+
+💡 **视觉营销策略**:
+1. ${hasLifestyle ? '利用生活场景图增强真实感，描述中加入场景化表述' : '强调产品功能和技术参数（缺少场景图）'}
+2. ${hasInfographics ? '信息图展示功能优势，可在Callouts中提炼关键特性' : '需要通过文字详细说明产品特性'}
+3. ${scenarios ? `场景化标题: "${scenarios.split(',')[0] || '产品核心场景'}"` : '产品特性标题'}
+4. ${highlights ? `视觉亮点强化: "${highlights.split(',')[0] || '产品核心优势'}"` : '强调功能优势'}
+`
+    }
+
     // P1-3优化：根据广告导向生成差异化Prompt
     let basePrompt = `你是一个专业的Google Ads广告文案撰写专家。请根据以下产品信息，生成高质量的Google搜索广告文案。
 
@@ -695,6 +743,7 @@ ${competitorAdvs}
 目标国家: ${productInfo.targetCountry}
 ${reviewInsightsSection}
 ${competitiveInsightsSection}
+${visualInsightsSection}
 ## 广告导向（P1-3优化）
 类型: ${currentOrientation === 'brand' ? '品牌导向' : currentOrientation === 'product' ? '产品导向' : '促销导向'}
 策略: ${guidance}
@@ -861,6 +910,7 @@ ${currentOrientation === 'brand' ? `
       validationResults,
       reviewInsightsUsed, // 🎯 P0优化: 是否使用了评论洞察
       competitiveInsightsUsed, // 🎯 P0优化: 是否使用了竞品对比洞察
+      visualInsightsUsed, // 🎯 P1优化: 是否使用了视觉洞察
       prompt: basePrompt // 返回实际使用的Prompt
     }
   } catch (error: any) {

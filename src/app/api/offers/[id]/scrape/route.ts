@@ -734,6 +734,56 @@ async function performScrapeAndAnalysis(
       console.log('ℹ️ 非Amazon页面暂不支持竞品对比分析')
     }
 
+    // 🎯 P1优化: 视觉元素智能分析（仅针对产品页，非店铺页）
+    let visualAnalysis = null
+    if (pageType === 'product' && aiAnalysisSuccess) {
+      try {
+        console.log('📸 开始P1视觉元素智能分析...')
+        const { analyzeProductVisuals } = await import('@/lib/visual-analyzer')
+
+        // 创建临时Playwright会话进行视觉分析
+        const { chromium } = await import('playwright')
+        const browser = await chromium.launch({ headless: true })
+        const context = await browser.newContext({
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+        })
+
+        const visualPage = await context.newPage()
+
+        try {
+          // 导航到产品页面
+          await visualPage.goto(actualUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+
+          // 执行视觉分析
+          visualAnalysis = await analyzeProductVisuals(
+            visualPage,
+            extractedBrand || brand,
+            targetCountry,
+            userId
+          )
+
+          if (visualAnalysis) {
+            console.log('✅ P1视觉元素智能分析完成')
+            console.log(`   - 图片总数: ${visualAnalysis.imageQuality.totalImages}`)
+            console.log(`   - 高质量图片: ${visualAnalysis.imageQuality.highQualityImages}`)
+            console.log(`   - 使用场景: ${visualAnalysis.identifiedScenarios.length}个`)
+            console.log(`   - 视觉亮点: ${visualAnalysis.visualHighlights.length}个`)
+          } else {
+            console.log('⚠️ 未生成视觉分析结果')
+          }
+        } finally {
+          await visualPage.close()
+          await browser.close()
+        }
+
+      } catch (visualError: any) {
+        console.warn('⚠️ P1视觉元素智能分析失败（不影响主流程）:', visualError.message)
+        // 视觉分析失败不影响主流程，继续执行
+      }
+    } else if (pageType === 'store') {
+      console.log('ℹ️ 店铺页面跳过视觉元素分析')
+    }
+
     // 如果AI分析失败，在scrape_error中记录警告信息
     const scrapeError = aiAnalysisSuccess
       ? undefined
@@ -756,6 +806,8 @@ async function performScrapeAndAnalysis(
       review_analysis: reviewAnalysis ? formatFieldForDB(reviewAnalysis) : null,
       // 🎯 P0优化: 竞品对比分析结果
       competitor_analysis: competitorAnalysis ? formatFieldForDB(competitorAnalysis) : null,
+      // 🎯 P1优化: 视觉元素智能分析结果
+      visual_analysis: visualAnalysis ? formatFieldForDB(visualAnalysis) : null,
     })
 
     console.log(`Offer ${offerId} 抓取和分析完成`)
