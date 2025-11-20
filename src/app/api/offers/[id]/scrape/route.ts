@@ -4,6 +4,65 @@ import { scrapeUrl } from '@/lib/scraper'
 import { analyzeProductPage, ProductInfo } from '@/lib/ai'
 import { getProxyUrlForCountry, isProxyEnabled } from '@/lib/settings'
 import { getCachedPageData, setCachedPageData, SeoData } from '@/lib/redis'
+import { getDatabase } from '@/lib/db'
+
+/**
+ * 🎯 Phase 3持久化: 保存抓取的产品数据到数据库
+ */
+async function saveScrapedProducts(
+  offerId: number,
+  products: any[],
+  source: 'amazon_store' | 'independent_store'
+): Promise<void> {
+  const db = getDatabase()
+
+  // 删除该Offer之前的产品数据（更新场景）
+  const deleteStmt = db.prepare('DELETE FROM scraped_products WHERE offer_id = ?')
+  deleteStmt.run(offerId)
+
+  // 批量插入新的产品数据
+  const insertStmt = db.prepare(`
+    INSERT INTO scraped_products (
+      offer_id, name, asin, price, rating, review_count, image_url,
+      promotion, badge, is_prime,
+      hot_score, rank, is_hot, hot_label,
+      scrape_source, created_at, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?,
+      ?, ?, ?, ?,
+      ?, datetime('now'), datetime('now')
+    )
+  `)
+
+  const insertMany = db.transaction((products: any[]) => {
+    for (const product of products) {
+      insertStmt.run(
+        offerId,
+        product.name,
+        product.asin || null,
+        product.price || null,
+        product.rating || null,
+        product.reviewCount || null,
+        product.imageUrl || null,
+        // Phase 3 fields
+        product.promotion || null,
+        product.badge || null,
+        product.isPrime ? 1 : 0,
+        // Phase 2 fields
+        product.hotScore || null,
+        product.rank || null,
+        product.isHot ? 1 : 0,
+        product.hotLabel || null,
+        source
+      )
+    }
+  })
+
+  insertMany(products)
+
+  console.log(`📊 Phase 3持久化: 已保存${products.length}个产品到数据库`)
+}
 
 /**
  * 从HTML中提取SEO信息
@@ -316,6 +375,10 @@ async function performScrapeAndAnalysis(
                 ]
                 if (p.hotScore) parts.push(`热销指数: ${p.hotScore.toFixed(1)}`)
                 if (p.price) parts.push(`价格: ${p.price}`)
+                // 🎯 Phase 3: 添加促销、徽章、Prime信息
+                if (p.promotion) parts.push(`💰 促销: ${p.promotion}`)
+                if (p.badge) parts.push(`🏆 ${p.badge}`)
+                if (p.isPrime) parts.push(`✓ Prime`)
                 return parts.join(' | ')
               }).join('\n')
 
@@ -344,6 +407,14 @@ async function performScrapeAndAnalysis(
               }
 
               console.log(`✅ Amazon Store抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品`)
+
+              // 🎯 Phase 3持久化：保存产品数据到数据库
+              try {
+                await saveScrapedProducts(offerId, storeData.products, 'amazon_store')
+                console.log(`✅ 产品数据已保存到数据库: ${storeData.products.length}个产品`)
+              } catch (saveError: any) {
+                console.error('⚠️ 保存产品数据失败（不影响主流程）:', saveError.message)
+              }
             } else if (isAmazon) {
               // Amazon产品页面专用抓取 - 增强版
               const { scrapeAmazonProduct } = await import('@/lib/scraper-stealth')
@@ -536,6 +607,133 @@ async function performScrapeAndAnalysis(
       }
     }
 
+    // 🎯 P0优化: 用户评论深度分析（仅针对产品页，非店铺页）
+    let reviewAnalysis = null
+    if (pageType === 'product' && actualUrl.includes('amazon') && aiAnalysisSuccess) {
+      try {
+        console.log('📝 开始P0评论分析...')
+        const { scrapeAmazonReviews, analyzeReviewsWithAI } = await import('@/lib/review-analyzer')
+
+        // 创建临时Playwright会话抓取评论
+        const { chromium } = await import('playwright')
+        const browser = await chromium.launch({ headless: true })
+        const context = await browser.newContext({
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+        })
+
+        const reviewPage = await context.newPage()
+
+        try {
+          // 导航到产品页面
+          await reviewPage.goto(actualUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+
+          // 抓取评论（最多50条）
+          const reviews = await scrapeAmazonReviews(reviewPage, 50)
+
+          if (reviews.length > 0) {
+            console.log(`✅ 抓取到${reviews.length}条评论，开始AI分析...`)
+
+            // AI分析评论
+            reviewAnalysis = await analyzeReviewsWithAI(
+              reviews,
+              extractedBrand || brand,
+              targetCountry,
+              userId
+            )
+
+            console.log('✅ P0评论分析完成')
+            console.log(`   - 情感分布: 正面${reviewAnalysis.sentimentDistribution.positive}% 中性${reviewAnalysis.sentimentDistribution.neutral}% 负面${reviewAnalysis.sentimentDistribution.negative}%`)
+            console.log(`   - 正面关键词: ${reviewAnalysis.topPositiveKeywords.length}个`)
+            console.log(`   - 使用场景: ${reviewAnalysis.realUseCases.length}个`)
+            console.log(`   - 痛点: ${reviewAnalysis.commonPainPoints.length}个`)
+          } else {
+            console.log('⚠️ 未抓取到评论，跳过AI分析')
+          }
+        } finally {
+          await reviewPage.close()
+          await browser.close()
+        }
+
+      } catch (reviewError: any) {
+        console.warn('⚠️ P0评论分析失败（不影响主流程）:', reviewError.message)
+        // 评论分析失败不影响主流程，继续执行
+      }
+    } else if (pageType === 'store') {
+      console.log('ℹ️ 店铺页面跳过评论分析')
+    } else if (!actualUrl.includes('amazon')) {
+      console.log('ℹ️ 非Amazon页面暂不支持评论分析')
+    }
+
+    // 🎯 P0优化: 竞品对比分析（仅针对产品页，非店铺页）
+    let competitorAnalysis = null
+    if (pageType === 'product' && actualUrl.includes('amazon') && aiAnalysisSuccess) {
+      try {
+        console.log('🏆 开始P0竞品对比分析...')
+        const { scrapeAmazonCompetitors, analyzeCompetitorsWithAI } = await import('@/lib/competitor-analyzer')
+
+        // 创建临时Playwright会话抓取竞品
+        const { chromium } = await import('playwright')
+        const browser = await chromium.launch({ headless: true })
+        const context = await browser.newContext({
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+        })
+
+        const competitorPage = await context.newPage()
+
+        try {
+          // 导航到产品页面
+          await competitorPage.goto(actualUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+
+          // 抓取竞品（最多10个）
+          const competitors = await scrapeAmazonCompetitors(competitorPage, 10)
+
+          if (competitors.length > 0) {
+            console.log(`✅ 抓取到${competitors.length}个竞品，开始AI对比分析...`)
+
+            // 构建我们的产品信息
+            const ourProduct = {
+              name: extractedBrand || brand,
+              price: productInfo.pricing?.currentPrice || null,
+              rating: productInfo.reviews?.averageRating || null,
+              reviewCount: productInfo.reviews?.totalCount || null,
+              features: productInfo.productHighlights
+                ? productInfo.productHighlights.split('\n').filter((f: string) => f.trim())
+                : []
+            }
+
+            // AI分析竞品对比
+            competitorAnalysis = await analyzeCompetitorsWithAI(
+              ourProduct,
+              competitors,
+              targetCountry,
+              userId
+            )
+
+            console.log('✅ P0竞品对比分析完成')
+            console.log(`   - 竞品数量: ${competitorAnalysis.totalCompetitors}`)
+            console.log(`   - 价格优势: ${competitorAnalysis.pricePosition?.advantage || 'unknown'}`)
+            console.log(`   - 评分优势: ${competitorAnalysis.ratingPosition?.advantage || 'unknown'}`)
+            console.log(`   - 独特卖点: ${competitorAnalysis.uniqueSellingPoints.length}个`)
+            console.log(`   - 竞品优势: ${competitorAnalysis.competitorAdvantages.length}个`)
+            console.log(`   - 整体竞争力: ${competitorAnalysis.overallCompetitiveness}/100`)
+          } else {
+            console.log('⚠️ 未抓取到竞品，跳过AI对比分析')
+          }
+        } finally {
+          await competitorPage.close()
+          await browser.close()
+        }
+
+      } catch (competitorError: any) {
+        console.warn('⚠️ P0竞品对比分析失败（不影响主流程）:', competitorError.message)
+        // 竞品分析失败不影响主流程，继续执行
+      }
+    } else if (pageType === 'store') {
+      console.log('ℹ️ 店铺页面跳过竞品对比分析')
+    } else if (!actualUrl.includes('amazon')) {
+      console.log('ℹ️ 非Amazon页面暂不支持竞品对比分析')
+    }
+
     // 如果AI分析失败，在scrape_error中记录警告信息
     const scrapeError = aiAnalysisSuccess
       ? undefined
@@ -554,6 +752,10 @@ async function performScrapeAndAnalysis(
       reviews: formatFieldForDB(productInfo.reviews),
       promotions: formatFieldForDB(productInfo.promotions),
       competitive_edges: formatFieldForDB(productInfo.competitiveEdges),
+      // 🎯 P0优化: 用户评论深度分析结果
+      review_analysis: reviewAnalysis ? formatFieldForDB(reviewAnalysis) : null,
+      // 🎯 P0优化: 竞品对比分析结果
+      competitor_analysis: competitorAnalysis ? formatFieldForDB(competitorAnalysis) : null,
     })
 
     console.log(`Offer ${offerId} 抓取和分析完成`)

@@ -1,4 +1,4 @@
-import { generateContent } from './gemini-axios'
+import { generateContent } from './gemini'
 import type { Offer } from './offers'
 
 /**

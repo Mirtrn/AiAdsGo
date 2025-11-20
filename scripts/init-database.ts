@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import fs from 'fs'
+import { hashPassword } from '../src/lib/crypto'
 
 const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
 const dataDir = path.dirname(dbPath)
@@ -411,9 +412,15 @@ const transaction = db.transaction(() => {
     { category: 'google_ads', key: 'client_secret', dataType: 'string', isSensitive: 1, isRequired: 1, description: 'Google Ads API Client Secret' },
     { category: 'google_ads', key: 'developer_token', dataType: 'string', isSensitive: 1, isRequired: 1, description: 'Google Ads Developer Token' },
 
-    // AI配置
-    { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: 1, isRequired: 1, description: 'Gemini API密钥' },
+    // AI配置 - Gemini直接API模式
+    { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: 1, isRequired: 0, description: 'Gemini API密钥（直接API模式）' },
     { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: 0, isRequired: 1, description: 'Gemini模型版本（gemini-2.5-pro/gemini-2.5-flash/gemini-3-pro-preview）', defaultValue: 'gemini-2.5-pro' },
+
+    // AI配置 - Vertex AI模式（优先使用）
+    { category: 'ai', key: 'use_vertex_ai', dataType: 'boolean', isSensitive: 0, isRequired: 0, description: '是否使用Vertex AI（优先于直接API）', defaultValue: 'false' },
+    { category: 'ai', key: 'gcp_project_id', dataType: 'string', isSensitive: 1, isRequired: 0, description: 'GCP项目ID（Vertex AI）' },
+    { category: 'ai', key: 'gcp_location', dataType: 'string', isSensitive: 0, isRequired: 0, description: 'GCP区域（Vertex AI）', defaultValue: 'us-central1' },
+    { category: 'ai', key: 'gcp_service_account_json', dataType: 'text', isSensitive: 1, isRequired: 0, description: 'GCP Service Account JSON（Vertex AI）' },
 
     // 代理配置 - 支持多个国家的代理URL，JSON格式存储
     // 格式: [{ country: 'US', url: '...' }, { country: 'UK', url: '...' }]
@@ -450,23 +457,62 @@ const transaction = db.transaction(() => {
   console.log('✅ 默认系统配置插入完成')
 })
 
-// 执行事务
-try {
-  transaction()
-  console.log('\n✅ 数据库初始化完成！\n')
-  console.log('📊 统计信息:')
+// 主初始化函数（使用async支持密码哈希）
+async function initializeDatabase() {
+  try {
+    // 执行事务
+    transaction()
+    console.log('\n✅ 数据库初始化完成！\n')
+    console.log('📊 统计信息:')
 
-  const tableCount = db.prepare("SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'").get() as { count: number }
-  const indexCount = db.prepare("SELECT COUNT(*) as count FROM sqlite_master WHERE type='index'").get() as { count: number }
-  const settingsCount = db.prepare("SELECT COUNT(*) as count FROM system_settings").get() as { count: number }
+    const tableCount = db.prepare("SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'").get() as { count: number }
+    const indexCount = db.prepare("SELECT COUNT(*) as count FROM sqlite_master WHERE type='index'").get() as { count: number }
+    const settingsCount = db.prepare("SELECT COUNT(*) as count FROM system_settings").get() as { count: number }
 
-  console.log(`   - 数据表数量: ${tableCount.count}`)
-  console.log(`   - 索引数量: ${indexCount.count}`)
-  console.log(`   - 默认配置项: ${settingsCount.count}`)
+    console.log(`   - 数据表数量: ${tableCount.count}`)
+    console.log(`   - 索引数量: ${indexCount.count}`)
+    console.log(`   - 默认配置项: ${settingsCount.count}`)
 
-} catch (error) {
-  console.error('❌ 数据库初始化失败:', error)
-  process.exit(1)
-} finally {
-  db.close()
+    // 创建默认管理员账号
+    console.log('\n👤 创建默认管理员账号...')
+
+    const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ? OR role = ?').get('autoads', 'admin')
+
+    if (existingAdmin) {
+      console.log('⏭️  管理员账号已存在，跳过创建')
+    } else {
+      // 使用hashPassword生成密码哈希
+      const passwordHash = await hashPassword('***REMOVED***')
+
+      db.prepare(`
+        INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'autoads',
+        'admin@autoads.com',
+        passwordHash,
+        'AutoAds Administrator',
+        'admin',
+        'lifetime',
+        '2099-12-31T23:59:59.000Z',
+        0,
+        1
+      )
+
+      console.log('✅ 默认管理员账号创建成功')
+      console.log('\n🔑 管理员登录信息:')
+      console.log('   用户名: autoads')
+      console.log('   密码: ***REMOVED***')
+      console.log('   邮箱: admin@autoads.com')
+    }
+
+  } catch (error) {
+    console.error('❌ 数据库初始化失败:', error)
+    process.exit(1)
+  } finally {
+    db.close()
+  }
 }
+
+// 运行初始化
+initializeDatabase()

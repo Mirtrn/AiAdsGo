@@ -685,6 +685,10 @@ export interface AmazonStoreData {
     rank?: number          // 🔥 新增：热销排名
     isHot?: boolean        // 🔥 新增：是否为热销商品（Top 5）
     hotLabel?: string      // 🔥 新增：热销标签
+    // 🎯 Phase 3: 数据维度增强
+    promotion?: string | null       // 促销信息：折扣、优惠券、限时优惠
+    badge?: string | null           // 徽章：Amazon's Choice、Best Seller、#1 in Category
+    isPrime?: boolean               // Prime标识
   }>
   totalProducts: number
   storeUrl: string
@@ -831,6 +835,25 @@ export async function scrapeAmazonStore(
                        $el.find('img').first().attr('src') ||
                        null
 
+      // 🎯 Phase 3: Extract promotion information
+      const promotionText = $el.find('.a-badge-label, .s-coupon-highlight-color, [aria-label*="coupon"]').text().trim() ||
+                            $el.find('[class*="discount"], [class*="deal"], [class*="coupon"]').first().text().trim() ||
+                            $el.find('.a-color-price.a-text-bold').text().trim() ||
+                            null
+      const promotion = promotionText && promotionText.length > 0 && promotionText.length < 100 ? promotionText : null
+
+      // 🎯 Phase 3: Extract badge information
+      const badgeText = $el.find('[aria-label*="Amazon\'s Choice"], [aria-label*="Best Seller"]').attr('aria-label') ||
+                        $el.find('.a-badge-label:contains("Amazon\'s Choice")').text().trim() ||
+                        $el.find('.a-badge-label:contains("Best Seller")').text().trim() ||
+                        $el.find('.a-badge-label:contains("#1")').text().trim() ||
+                        $el.find('[class*="choice-badge"], [class*="best-seller"]').text().trim() ||
+                        null
+      const badge = badgeText && badgeText.length > 0 && badgeText.length < 100 ? badgeText : null
+
+      // 🎯 Phase 3: Extract Prime eligibility
+      const isPrime = $el.find('[aria-label*="Prime"], .a-icon-prime, [class*="prime"]').length > 0
+
       // Add product if we have a name
       if (name && name.length > 5 && !products.some(p => p.name === name)) {
         products.push({
@@ -840,6 +863,9 @@ export async function scrapeAmazonStore(
           reviewCount,
           imageUrl,
           asin,
+          promotion,
+          badge,
+          isPrime,
         })
       }
     })
@@ -874,6 +900,9 @@ export async function scrapeAmazonStore(
           reviewCount: null,
           imageUrl: src,
           asin: src.match(/\/([A-Z0-9]{10})[\._]/)?.[1] || null,
+          promotion: null,  // 🎯 Phase 3
+          badge: null,      // 🎯 Phase 3
+          isPrime: false,   // 🎯 Phase 3
         })
       }
     })
@@ -919,6 +948,10 @@ export async function scrapeAmazonStore(
     hotScore: p.hotScore,
     rank: index + 1,
     isHot: index < 5,  // 前5名标记为"最热销"
+    // 🎯 Phase 3: 保留新增字段
+    promotion: p.promotion,
+    badge: p.badge,
+    isPrime: p.isPrime,
     hotLabel: index < 5 ? '🔥 热销商品' : '✅ 畅销商品'
   }))
 

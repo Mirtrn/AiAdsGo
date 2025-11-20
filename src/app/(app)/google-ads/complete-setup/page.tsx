@@ -12,7 +12,7 @@ export default function CompleteGoogleAdsSetup() {
   const [tokens, setTokens] = useState<any>(null)
 
   useEffect(() => {
-    const tokensParam = searchParams.get('tokens')
+    const tokensParam = searchParams?.get('tokens')
     if (tokensParam) {
       try {
         const parsedTokens = JSON.parse(decodeURIComponent(tokensParam))

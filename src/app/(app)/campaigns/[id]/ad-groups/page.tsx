@@ -28,7 +28,7 @@ interface Keyword {
 export default function AdGroupsPage() {
   const router = useRouter()
   const params = useParams()
-  const campaignId = params.id as string
+  const campaignId = params?.id as string
 
   const [adGroups, setAdGroups] = useState<AdGroup[]>([])
   const [keywords, setKeywords] = useState<Record<number, Keyword[]>>({})

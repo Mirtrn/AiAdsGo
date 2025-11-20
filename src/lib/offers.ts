@@ -439,11 +439,18 @@ export function updateOfferScrapeStatus(
   status: 'pending' | 'in_progress' | 'completed' | 'failed',
   error?: string,
   scrapedData?: {
+    brand?: string
+    url?: string
     brand_description?: string
     unique_selling_points?: string
     product_highlights?: string
     target_audience?: string
     category?: string
+    // 增强数据字段
+    pricing?: string
+    reviews?: string
+    promotions?: string
+    competitive_edges?: string
   }
 ): void {
   const db = getDatabase()
@@ -453,20 +460,32 @@ export function updateOfferScrapeStatus(
       UPDATE offers
       SET scrape_status = ?,
           scraped_at = datetime('now'),
+          brand = COALESCE(?, brand),
+          url = COALESCE(?, url),
           brand_description = COALESCE(?, brand_description),
           unique_selling_points = COALESCE(?, unique_selling_points),
           product_highlights = COALESCE(?, product_highlights),
           target_audience = COALESCE(?, target_audience),
           category = COALESCE(?, category),
+          pricing = COALESCE(?, pricing),
+          reviews = COALESCE(?, reviews),
+          promotions = COALESCE(?, promotions),
+          competitive_edges = COALESCE(?, competitive_edges),
           updated_at = datetime('now')
       WHERE id = ? AND user_id = ?
     `).run(
       status,
+      scrapedData.brand || null,
+      scrapedData.url || null,
       scrapedData.brand_description || null,
       scrapedData.unique_selling_points || null,
       scrapedData.product_highlights || null,
       scrapedData.target_audience || null,
       scrapedData.category || null,
+      scrapedData.pricing || null,
+      scrapedData.reviews || null,
+      scrapedData.promotions || null,
+      scrapedData.competitive_edges || null,
       id,
       userId
     )

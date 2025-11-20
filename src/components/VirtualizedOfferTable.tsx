@@ -130,7 +130,8 @@ export function VirtualizedOfferTable({
     >
       {/* Fixed Header */}
       <div className="bg-gray-50/80 border-b border-gray-200 backdrop-blur-sm sticky top-0 z-10" role="row">
-        <div className="grid grid-cols-[240px_1fr_120px_100px_120px_140px] gap-4 px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+        <div className="grid grid-cols-[100px_200px_1fr_120px_100px_120px_140px] gap-4 px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          <div role="columnheader">Offer ID</div>
           <div role="columnheader">Offer Name</div>
           <div role="columnheader">Brand / URL</div>
           <div role="columnheader">Country</div>
@@ -175,19 +176,23 @@ export function VirtualizedOfferTable({
                 role="row"
                 aria-rowindex={virtualRow.index + 1}
                 aria-selected={isRowFocused}
-                className={`grid grid-cols-[240px_1fr_120px_100px_120px_140px] gap-4 px-6 py-4 border-b border-gray-100 hover:bg-gray-50/80 transition-colors absolute top-0 left-0 w-full items-center group ${isRowFocused ? 'ring-2 ring-blue-500 bg-blue-50/30 z-10' : ''
+                className={`grid grid-cols-[100px_200px_1fr_120px_100px_120px_140px] gap-4 px-6 py-4 border-b border-gray-100 hover:bg-gray-50/80 transition-colors absolute top-0 left-0 w-full items-center group ${isRowFocused ? 'ring-2 ring-blue-500 bg-blue-50/30 z-10' : ''
                   }`}
                 style={{
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
                 onClick={() => setFocusedRowIndex(virtualRow.index)}
               >
+                {/* Offer ID */}
+                <div className="font-mono text-sm text-gray-600">
+                  #{offer.id}
+                </div>
+
                 {/* Offer Name */}
                 <div className="min-w-0">
                   <div className="font-medium text-gray-900 truncate" title={offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}>
                     {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5 font-mono">ID: {offer.id}</div>
                 </div>
 
                 {/* Brand Info */}

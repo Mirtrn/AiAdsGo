@@ -39,10 +39,26 @@ async function getProxyAgent(customProxyUrl?: string): Promise<HttpsProxyAgent<s
   }
 }
 
+// 语言代码到Accept-Language的映射
+const LANGUAGE_TO_ACCEPT: Record<string, string> = {
+  en: 'en-US,en;q=0.9',
+  zh: 'zh-CN,zh;q=0.9,en;q=0.8',
+  ja: 'ja-JP,ja;q=0.9,en;q=0.8',
+  ko: 'ko-KR,ko;q=0.9,en;q=0.8',
+  de: 'de-DE,de;q=0.9,en;q=0.8',
+  fr: 'fr-FR,fr;q=0.9,en;q=0.8',
+  es: 'es-ES,es;q=0.9,en;q=0.8',
+  it: 'it-IT,it;q=0.9,en;q=0.8',
+  pt: 'pt-BR,pt;q=0.9,en;q=0.8',
+}
+
 /**
  * 抓取网页内容
+ * @param url - 要抓取的URL
+ * @param customProxyUrl - 自定义代理URL
+ * @param language - 目标语言代码 (en, zh, ja, ko, de, fr, es, it, pt)
  */
-export async function scrapeUrl(url: string, customProxyUrl?: string): Promise<{
+export async function scrapeUrl(url: string, customProxyUrl?: string, language?: string): Promise<{
   html: string
   title: string
   description: string
@@ -50,13 +66,14 @@ export async function scrapeUrl(url: string, customProxyUrl?: string): Promise<{
 }> {
   try {
     const proxyAgent = await getProxyAgent(customProxyUrl)
+    const acceptLanguage = LANGUAGE_TO_ACCEPT[language || 'en'] || 'en-US,en;q=0.9'
 
     const response = await axios.get(url, {
       timeout: 30000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Language': acceptLanguage,
       },
       ...(proxyAgent && { httpsAgent: proxyAgent, httpAgent: proxyAgent as any }),
     })

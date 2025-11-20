@@ -13,8 +13,8 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto">
         {/* Page Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">仪表盘</h1>
-          <p className="text-slate-500 mt-2">查看您的广告系列表现概况</p>
+          <h1 className="page-title">仪表盘</h1>
+          <p className="page-subtitle">查看您的广告系列表现概况</p>
         </div>
 
         {/* Risk Alert Panel */}

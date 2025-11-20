@@ -16,16 +16,49 @@ export async function GET(request: NextRequest) {
 
   const db = getDatabase()
 
+  let query = `
+      SELECT id, username, email, display_name, role, package_type, package_expires_at, is_active, last_login_at, created_at 
+      FROM users 
+      WHERE 1=1
+    `
+  let countQuery = `SELECT COUNT(*) as count FROM users WHERE 1=1`
+  const params: any[] = []
+
+  // Search filter
+  const search = searchParams.get('search')
+  if (search) {
+    const searchCondition = ` AND (username LIKE ? OR email LIKE ?)`
+    query += searchCondition
+    countQuery += searchCondition
+    params.push(`%${search}%`, `%${search}%`)
+  }
+
+  // Role filter
+  const role = searchParams.get('role')
+  if (role && role !== 'all') {
+    const roleCondition = ` AND role = ?`
+    query += roleCondition
+    countQuery += roleCondition
+    params.push(role)
+  }
+
+  // Status filter
+  const status = searchParams.get('status')
+  if (status && status !== 'all') {
+    const statusCondition = ` AND is_active = ?`
+    query += statusCondition
+    countQuery += statusCondition
+    params.push(status === 'active' ? 1 : 0)
+  }
+
+  // Pagination
+  query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+
   // Get total count
-  const total = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }
+  const total = db.prepare(countQuery).get(...params) as { count: number }
 
   // Get users
-  const users = db.prepare(`
-    SELECT id, username, email, display_name, role, package_type, package_expires_at, is_active, last_login_at, created_at 
-    FROM users 
-    ORDER BY created_at DESC 
-    LIMIT ? OFFSET ?
-  `).all(limit, offset)
+  const users = db.prepare(query).all(...params, limit, offset)
 
   return NextResponse.json({
     users,

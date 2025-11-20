@@ -46,7 +46,7 @@ interface Offer {
 export default function CreativesPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const offerId = searchParams.get('offerId')
+  const offerId = searchParams?.get('offerId')
 
   const [creatives, setCreatives] = useState<Creative[]>([])
   const [offer, setOffer] = useState<Offer | null>(null)
@@ -336,8 +336,8 @@ export default function CreativesPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
           </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">创意管理</h3>
-          <p className="text-gray-600 mb-6">
+          <h3 className="text-h3 mb-2">创意管理</h3>
+          <p className="text-body text-muted-foreground mb-6">
             需要选择一个Offer才能查看和管理创意
           </p>
           <button
@@ -346,7 +346,7 @@ export default function CreativesPage() {
           >
             前往选择 Offer
           </button>
-          <p className="mt-4 text-xs text-gray-500">
+          <p className="mt-4 helper-text">
             在Offer详情页中，您可以生成和管理AI创意
           </p>
         </div>
@@ -366,7 +366,7 @@ export default function CreativesPage() {
               >
                 ← 返回Offer
               </a>
-              <h1 className="text-xl font-bold text-gray-900">
+              <h1 className="text-h3 font-bold text-gray-900">
                 {offer?.brand} - AI创意管理
               </h1>
             </div>
@@ -399,7 +399,7 @@ export default function CreativesPage() {
 
           {creatives.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 text-lg mb-4">暂无创意</p>
+              <p className="text-body-lg text-muted-foreground mb-4">暂无创意</p>
               <button
                 onClick={handleGenerateCreatives}
                 disabled={generating || offer?.scrape_status !== 'completed'}
@@ -419,7 +419,7 @@ export default function CreativesPage() {
                 >
                   <div className="flex justify-between items-start mb-4">
                     <div>
-                      <h2 className="text-lg font-semibold text-gray-900">
+                      <h2 className="text-h4 font-semibold text-gray-900">
                         版本 {creative.version}
                         {creative.isApproved && (
                           <span className="ml-2 px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-800">
@@ -442,18 +442,18 @@ export default function CreativesPage() {
                           </span>
                         )}
                       </h2>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-body-sm text-muted-foreground">
                         创建时间: {new Date(creative.createdAt).toLocaleString('zh-CN')}
                       </p>
                       {creative.adGroupId && (
-                        <p className="text-sm text-gray-500">
+                        <p className="text-body-sm text-muted-foreground">
                           关联Ad Group:{' '}
                           {adGroups.find(ag => ag.id === creative.adGroupId)?.adGroupName ||
                             `ID: ${creative.adGroupId}`}
                         </p>
                       )}
                       {creative.lastSyncAt && (
-                        <p className="text-sm text-gray-500">
+                        <p className="text-body-sm text-muted-foreground">
                           最后同步: {new Date(creative.lastSyncAt).toLocaleString('zh-CN')}
                         </p>
                       )}
@@ -573,7 +573,7 @@ export default function CreativesPage() {
                   {editingId === creative.id ? (
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block label-text mb-1">
                           标题1 *
                         </label>
                         <input
@@ -583,12 +583,12 @@ export default function CreativesPage() {
                           maxLength={30}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="helper-text mt-1">
                           {editForm.headline1.length}/30 字符
                         </p>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block label-text mb-1">
                           标题2
                         </label>
                         <input
@@ -600,7 +600,7 @@ export default function CreativesPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block label-text mb-1">
                           标题3
                         </label>
                         <input
@@ -612,7 +612,7 @@ export default function CreativesPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block label-text mb-1">
                           描述1 *
                         </label>
                         <textarea
@@ -624,12 +624,12 @@ export default function CreativesPage() {
                           rows={2}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md"
                         />
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="helper-text mt-1">
                           {editForm.description1.length}/90 字符
                         </p>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block label-text mb-1">
                           描述2
                         </label>
                         <textarea

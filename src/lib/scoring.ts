@@ -1,4 +1,4 @@
-import { generateContent } from './gemini-axios'
+import { generateContent } from './gemini'
 import type { ScoreAnalysis } from './launch-scores'
 import type { Offer } from './offers'
 import type { Creative } from './creatives'

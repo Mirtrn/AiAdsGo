@@ -17,7 +17,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    const errorParam = searchParams.get('error')
+    const errorParam = searchParams?.get('error')
     if (errorParam) {
       setError(decodeURIComponent(errorParam))
     }
@@ -48,7 +48,7 @@ function LoginForm() {
         return
       }
 
-      const redirect = searchParams.get('redirect')
+      const redirect = searchParams?.get('redirect')
       router.push(redirect || '/dashboard')
     } catch (err: any) {
       setError(err.message || '登录失败，请稍后重试')

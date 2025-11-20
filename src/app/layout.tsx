@@ -1,7 +1,10 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
-import { Toaster } from "@/components/ui/sonner"
+import { ToasterProvider } from '@/components/ToasterProvider'
 import './globals.css'
+
+// 强制动态渲染，避免静态生成时的 Context 错误
+export const dynamic = 'force-dynamic'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -83,7 +86,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body className={inter.className}>
         {children}
-        <Toaster />
+        <ToasterProvider />
       </body>
     </html>
   )

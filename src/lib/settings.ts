@@ -35,6 +35,7 @@ export interface SettingValue {
 
 /**
  * 获取所有系统配置（包括全局和用户级）
+ * 优先级：用户配置 > 全局配置
  */
 export function getAllSettings(userId?: number): SettingValue[] {
   const db = getDatabase()
@@ -46,7 +47,20 @@ export function getAllSettings(userId?: number): SettingValue[] {
   const params = userId ? [userId] : []
   const settings = db.prepare(query).all(...params) as SystemSetting[]
 
-  return settings.map(setting => ({
+  // 去重：对于同一个 (category, config_key) 组合，优先使用用户配置
+  const settingsMap = new Map<string, SystemSetting>()
+  for (const setting of settings) {
+    const key = `${setting.category}:${setting.config_key}`
+    const existing = settingsMap.get(key)
+
+    // 如果不存在，或者当前是用户配置（优先级更高），则更新
+    if (!existing || setting.user_id !== null) {
+      settingsMap.set(key, setting)
+    }
+  }
+
+  // 转换为返回格式
+  return Array.from(settingsMap.values()).map(setting => ({
     category: setting.category,
     key: setting.config_key,
     value: setting.is_sensitive && setting.encrypted_value
@@ -64,6 +78,7 @@ export function getAllSettings(userId?: number): SettingValue[] {
 
 /**
  * 获取指定分类的配置
+ * 优先级：用户配置 > 全局配置
  */
 export function getSettingsByCategory(category: string, userId?: number): SettingValue[] {
   const db = getDatabase()
@@ -75,7 +90,19 @@ export function getSettingsByCategory(category: string, userId?: number): Settin
   const params = userId ? [category, userId] : [category]
   const settings = db.prepare(query).all(...params) as SystemSetting[]
 
-  return settings.map(setting => ({
+  // 去重：对于同一个 config_key，优先使用用户配置
+  const settingsMap = new Map<string, SystemSetting>()
+  for (const setting of settings) {
+    const existing = settingsMap.get(setting.config_key)
+
+    // 如果不存在，或者当前是用户配置（优先级更高），则更新
+    if (!existing || setting.user_id !== null) {
+      settingsMap.set(setting.config_key, setting)
+    }
+  }
+
+  // 转换为返回格式
+  return Array.from(settingsMap.values()).map(setting => ({
     category: setting.category,
     key: setting.config_key,
     value: setting.is_sensitive && setting.encrypted_value
@@ -438,7 +465,7 @@ export async function validateGoogleAdsConfig(
 }
 
 /**
- * 验证Gemini API密钥和模型
+ * 验证Gemini API密钥和模型（直接API模式）
  */
 export async function validateGeminiConfig(
   apiKey: string,
@@ -460,7 +487,7 @@ export async function validateGeminiConfig(
   }
 
   // Step 2: 验证模型名称
-  const validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']
+  const validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3-pro-preview-11-2025']
   if (!validModels.includes(model)) {
     return {
       valid: false,
@@ -483,7 +510,7 @@ export async function validateGeminiConfig(
 
     return {
       valid: true,
-      message: `✅ ${model} 模型验证成功，连接正常`,
+      message: `✅ ${model} 模型验证成功（直接API模式），连接正常`,
     }
   } catch (error: any) {
     // API调用失败，分析错误类型
@@ -520,6 +547,146 @@ export async function validateGeminiConfig(
     return {
       valid: false,
       message: `API验证失败: ${errorMessage}`,
+    }
+  }
+}
+
+/**
+ * 验证Vertex AI配置
+ */
+export async function validateVertexAIConfig(
+  gcpProjectId: string,
+  gcpLocation: string,
+  gcpServiceAccountJson: string
+): Promise<{ valid: boolean; message: string }> {
+  // Step 1: 基础验证
+  if (!gcpProjectId || !gcpServiceAccountJson) {
+    return {
+      valid: false,
+      message: 'GCP项目ID和Service Account JSON不能为空',
+    }
+  }
+
+  // Step 2: 验证Service Account JSON格式
+  try {
+    const serviceAccount = JSON.parse(gcpServiceAccountJson)
+
+    if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+      return {
+        valid: false,
+        message: 'Service Account JSON格式不正确，缺少必要字段',
+      }
+    }
+
+    // 验证项目ID是否匹配
+    if (serviceAccount.project_id !== gcpProjectId) {
+      return {
+        valid: false,
+        message: `项目ID不匹配。JSON中的项目ID: ${serviceAccount.project_id}`,
+      }
+    }
+  } catch (error) {
+    return {
+      valid: false,
+      message: 'Service Account JSON格式无效，请检查JSON格式',
+    }
+  }
+
+  // Step 3: 实际API测试
+  try {
+    // 临时设置环境变量进行测试
+    const originalProjectId = process.env.GCP_PROJECT_ID
+    const originalLocation = process.env.GCP_LOCATION
+    const originalCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS
+
+    process.env.GCP_PROJECT_ID = gcpProjectId
+    process.env.GCP_LOCATION = gcpLocation || 'us-central1'
+
+    // 写入临时凭证文件
+    const fs = await import('fs')
+    const path = await import('path')
+    const os = await import('os')
+
+    const tempDir = os.tmpdir()
+    const credentialsPath = path.join(tempDir, `gcp-sa-test-${Date.now()}.json`)
+
+    fs.writeFileSync(credentialsPath, gcpServiceAccountJson, 'utf8')
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath
+
+    try {
+      // 清除模块缓存，确保使用新的环境变量
+      const modulePath = require.resolve('./gemini-vertex')
+      delete require.cache[modulePath]
+
+      const { checkVertexAIConnection } = await import('./gemini-vertex')
+
+      const connected = await checkVertexAIConnection()
+
+      // 恢复原始环境变量
+      if (originalProjectId) process.env.GCP_PROJECT_ID = originalProjectId
+      if (originalLocation) process.env.GCP_LOCATION = originalLocation
+      if (originalCredentials) process.env.GOOGLE_APPLICATION_CREDENTIALS = originalCredentials
+
+      // 删除临时文件
+      try {
+        fs.unlinkSync(credentialsPath)
+      } catch (e) {
+        // 忽略删除错误
+      }
+
+      if (connected) {
+        return {
+          valid: true,
+          message: `✅ Vertex AI配置验证成功，连接正常`,
+        }
+      } else {
+        return {
+          valid: false,
+          message: 'Vertex AI连接失败，请检查配置',
+        }
+      }
+    } catch (testError: any) {
+      // 恢复原始环境变量
+      if (originalProjectId) process.env.GCP_PROJECT_ID = originalProjectId
+      if (originalLocation) process.env.GCP_LOCATION = originalLocation
+      if (originalCredentials) process.env.GOOGLE_APPLICATION_CREDENTIALS = originalCredentials
+
+      // 删除临时文件
+      try {
+        fs.unlinkSync(credentialsPath)
+      } catch (e) {
+        // 忽略删除错误
+      }
+
+      throw testError
+    }
+  } catch (error: any) {
+    const errorMessage = error.message || '未知错误'
+
+    if (errorMessage.includes('PERMISSION_DENIED') || errorMessage.includes('permission')) {
+      return {
+        valid: false,
+        message: 'Service Account权限不足，请确保有Vertex AI访问权限',
+      }
+    }
+
+    if (errorMessage.includes('INVALID_ARGUMENT') || errorMessage.includes('invalid')) {
+      return {
+        valid: false,
+        message: 'Vertex AI配置参数无效，请检查项目ID和区域设置',
+      }
+    }
+
+    if (errorMessage.includes('quota') || errorMessage.includes('limit')) {
+      return {
+        valid: false,
+        message: 'Vertex AI配额已用尽或达到速率限制',
+      }
+    }
+
+    return {
+      valid: false,
+      message: `Vertex AI验证失败: ${errorMessage}`,
     }
   }
 }

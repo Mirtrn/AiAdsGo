@@ -26,7 +26,7 @@ interface Offer {
 export default function OfferDetailPage() {
   const router = useRouter()
   const params = useParams()
-  const offerId = params.id as string
+  const offerId = params?.id as string
 
   const [offer, setOffer] = useState<Offer | null>(null)
   const [loading, setLoading] = useState(true)

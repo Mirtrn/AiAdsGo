@@ -57,8 +57,14 @@ export function MobileOfferCard({
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardContent className="p-4 space-y-3">
-        {/* 顶部：Offer标识和状态 */}
-        <div className="flex items-start justify-between gap-2">
+        {/* 顶部：Offer ID */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500 font-mono">Offer ID: #{offer.id}</span>
+          {getScrapeStatusBadge(offer.scrape_status)}
+        </div>
+
+        {/* Offer标识 */}
+        <div className="flex items-start gap-2">
           <a
             href={`/offers/${offer.id}`}
             className="text-blue-600 hover:text-blue-800 font-semibold text-sm flex items-center gap-1 flex-1"
@@ -68,7 +74,6 @@ export function MobileOfferCard({
             </span>
             <ExternalLink className="w-3 h-3 flex-shrink-0" />
           </a>
-          {getScrapeStatusBadge(offer.scrape_status)}
         </div>
 
         {/* 品牌信息 */}

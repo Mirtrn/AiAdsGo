@@ -110,7 +110,8 @@ export async function POST(
             url: offer.affiliate_link || offer.url
           })),
           qualityScore, // 真实AI评分
-          usedLearning: variant.usedLearning
+          usedLearning: variant.usedLearning,
+          prompt: variant.prompt // 实际使用的AI Prompt
         }
       })
     )

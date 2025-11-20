@@ -3,6 +3,85 @@ import { getPlaywrightPool } from './playwright-pool'
 import { smartWaitForLoad, assessPageComplexity, recordWaitOptimization } from './smart-wait-strategy'
 
 /**
+ * User-Agent rotation pool (2024 browsers)
+ */
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15',
+]
+
+/**
+ * Get random User-Agent
+ */
+function getRandomUserAgent(): string {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
+}
+
+/**
+ * Configure page with stealth settings to bypass anti-bot detection
+ */
+async function configureStealthPage(page: Page): Promise<void> {
+  const userAgent = getRandomUserAgent()
+
+  // Set enhanced headers
+  await page.setExtraHTTPHeaders({
+    'User-Agent': userAgent,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Cache-Control': 'max-age=0',
+  })
+
+  // Override navigator.webdriver and other bot detection signals
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => undefined,
+    })
+
+    // Override plugins
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [1, 2, 3, 4, 5],
+    })
+
+    // Override languages
+    Object.defineProperty(navigator, 'languages', {
+      get: () => ['en-US', 'en'],
+    })
+
+    // Override chrome property
+    ;(window as any).chrome = {
+      runtime: {},
+    }
+
+    // Override permissions
+    const originalQuery = window.navigator.permissions.query
+    window.navigator.permissions.query = (parameters: any) =>
+      parameters.name === 'notifications'
+        ? Promise.resolve({ state: Notification.permission } as PermissionStatus)
+        : originalQuery(parameters)
+  })
+
+  // Set viewport to common desktop resolution
+  await page.setViewportSize({ width: 1920, height: 1080 })
+}
+
+/**
+ * Random delay for human-like behavior
+ */
+function randomDelay(min: number = 500, max: number = 1500): Promise<void> {
+  const delay = Math.floor(Math.random() * (max - min + 1)) + min
+  return new Promise(resolve => setTimeout(resolve, delay))
+}
+
+/**
  * 使用Playwright解析URL（适用于需要JavaScript执行的场景）
  */
 export interface PlaywrightResolvedUrl {
@@ -57,6 +136,13 @@ export async function resolveAffiliateLinkWithPlaywright(
     // 创建页面
     page = await context.newPage()
 
+    // Apply stealth configuration to bypass anti-bot detection
+    await configureStealthPage(page)
+    console.log('✅ Stealth配置已应用')
+
+    // Add random delay before navigation (human-like behavior)
+    await randomDelay(500, 1500)
+
     // 记录重定向链
     const redirectChain: string[] = [affiliateLink]
 
@@ -89,6 +175,13 @@ export async function resolveAffiliateLinkWithPlaywright(
     const smartWait = await smartWaitForLoad(page, affiliateLink, {
       maxWaitTime: waitTime > 0 ? waitTime : complexity.recommendedWaitTime,
     })
+
+    // Simulate human behavior: scrolling and reading
+    await randomDelay(800, 1500)
+    await page.evaluate(() => {
+      window.scrollBy(0, Math.random() * 500)
+    }).catch(() => {})
+    await randomDelay(500, 1000)
 
     const totalWaitTime = Date.now() - gotoStartTime
 

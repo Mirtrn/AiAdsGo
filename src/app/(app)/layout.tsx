@@ -1,6 +1,9 @@
 import AppLayout from '@/components/layout/AppLayout'
 import { generateMetadata as createMetadata } from '@/lib/seo' // P2-1: SEO优化
 
+// 强制动态渲染，避免静态生成时的 Context 错误
+export const dynamic = 'force-dynamic'
+
 // P2-1: 应用内页面通用metadata
 export const metadata = createMetadata({
   title: 'Dashboard',

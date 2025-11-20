@@ -37,22 +37,25 @@ const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
     );
 };
 
+import { Slot } from "@radix-ui/react-slot"
+
 const DropdownMenuTrigger = React.forwardRef<
     HTMLButtonElement,
-    React.ButtonHTMLAttributes<HTMLButtonElement>
->(({ className, children, ...props }, ref) => {
+    React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }
+>(({ className, children, asChild = false, ...props }, ref) => {
     const { open, setOpen } = React.useContext(DropdownMenuContext);
+    const Comp = asChild ? Slot : "button"
 
     return (
-        <button
+        <Comp
             ref={ref}
-            type="button"
+            type={asChild ? undefined : "button"}
             onClick={() => setOpen(!open)}
             className={cn(className)}
             {...props}
         >
             {children}
-        </button>
+        </Comp>
     );
 });
 DropdownMenuTrigger.displayName = "DropdownMenuTrigger";
@@ -87,8 +90,8 @@ DropdownMenuContent.displayName = "DropdownMenuContent";
 
 const DropdownMenuItem = React.forwardRef<
     HTMLDivElement,
-    React.HTMLAttributes<HTMLDivElement> & { inset?: boolean }
->(({ className, inset, ...props }, ref) => {
+    React.HTMLAttributes<HTMLDivElement> & { inset?: boolean; disabled?: boolean }
+>(({ className, inset, disabled, ...props }, ref) => {
     const { setOpen } = React.useContext(DropdownMenuContext);
 
     return (
@@ -99,7 +102,12 @@ const DropdownMenuItem = React.forwardRef<
                 inset && "pl-8",
                 className
             )}
+            data-disabled={disabled ? "" : undefined}
             onClick={(e) => {
+                if (disabled) {
+                    e.preventDefault();
+                    return;
+                }
                 setOpen(false);
                 props.onClick?.(e);
             }}

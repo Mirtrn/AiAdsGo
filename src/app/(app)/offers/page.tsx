@@ -37,16 +37,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import LaunchAdModal from '@/components/LaunchAdModal'
 import AdjustCpcModal from '@/components/AdjustCpcModal'
 import LaunchScoreModal from '@/components/LaunchScoreModal'
-import CreateOfferModal from '@/components/CreateOfferModal'
+import CreateOfferModalV2 from '@/components/CreateOfferModalV2'
 import { VirtualizedOfferTable } from '@/components/VirtualizedOfferTable'
 import { MobileOfferCard } from '@/components/MobileOfferCard'
 import { SortableTableHead } from '@/components/SortableTableHead' // P2-5: 可排序表头
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state' // P2-7: 统一空状态
 import { useIsMobile } from '@/hooks/useMediaQuery'
-import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink } from 'lucide-react'
+import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface Offer {
   id: number
@@ -269,13 +276,13 @@ export default function OffersPage() {
 
   const getScrapeStatusBadge = (status: string) => {
     const configs = {
-      pending: { label: '等待抓取', variant: 'outline' as const },
-      in_progress: { label: '抓取中', variant: 'default' as const },
-      completed: { label: '已完成', variant: 'default' as const },
-      failed: { label: '失败', variant: 'destructive' as const },
+      pending: { label: '等待抓取', variant: 'secondary' as const, className: 'text-gray-500' },
+      in_progress: { label: '抓取中', variant: 'default' as const, className: 'bg-blue-600' },
+      completed: { label: '已完成', variant: 'outline' as const, className: 'bg-green-50 text-green-700 border-green-200' },
+      failed: { label: '失败', variant: 'destructive' as const, className: '' },
     }
-    const config = configs[status as keyof typeof configs] || { label: status, variant: 'outline' as const }
-    return <Badge variant={config.variant}>{config.label}</Badge>
+    const config = configs[status as keyof typeof configs] || { label: status, variant: 'outline' as const, className: '' }
+    return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>
   }
 
   // 获取唯一国家列表
@@ -300,11 +307,29 @@ export default function OffersPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">加载中...</p>
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 sm:h-16 gap-3 sm:gap-0">
+              <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
+                <Skeleton className="h-9 w-24" />
+                <Skeleton className="h-8 w-32" />
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Skeleton className="h-9 w-24" />
+                <Skeleton className="h-9 w-24" />
+              </div>
+            </div>
+          </div>
         </div>
+        <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <Skeleton className="h-32 w-full mb-6" />
+          <div className="space-y-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 w-full" />
+            ))}
+          </div>
+        </main>
       </div>
     )
   }
@@ -325,43 +350,15 @@ export default function OffersPage() {
               >
                 ← {isMobile ? '' : '返回Dashboard'}
               </Button>
-              <h1 className="text-lg sm:text-2xl font-bold text-gray-900">Offer管理</h1>
-              <Badge variant="outline" className="text-xs sm:text-sm">
+              <h1 className="page-title">Offer管理</h1>
+              <Badge variant="outline" className="text-caption sm:text-body-sm">
                 {offers.length}
               </Badge>
             </div>
 
             {/* 右侧操作按钮 */}
+            {/* 右侧操作按钮 */}
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              {!isMobile && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExport}
-                  disabled={offers.length === 0}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  导出CSV
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => window.open('/api/offers/batch-template')}
-                className="flex-1 sm:flex-none"
-                title="下载批量导入CSV模板"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                {isMobile ? '模板' : '下载模板'}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push('/offers/batch')}
-                className="flex-1 sm:flex-none"
-              >
-                {isMobile ? '批量' : '批量导入'}
-              </Button>
               <Button
                 onClick={() => setIsCreateModalOpen(true)}
                 className="flex-1 sm:flex-none"
@@ -369,6 +366,50 @@ export default function OffersPage() {
                 <Plus className="w-4 h-4 mr-2" />
                 创建
               </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="hidden sm:flex">
+                    <MoreHorizontal className="w-4 h-4 mr-2" />
+                    更多操作
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleExport} disabled={offers.length === 0}>
+                    <Download className="w-4 h-4 mr-2" />
+                    导出CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => window.open('/api/offers/batch-template')}>
+                    <FileDown className="w-4 h-4 mr-2" />
+                    下载模板
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push('/offers/batch')}>
+                    <Upload className="w-4 h-4 mr-2" />
+                    批量导入
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* 移动端显示的简化按钮 */}
+              <div className="flex sm:hidden w-full gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push('/offers/batch')}
+                  className="flex-1"
+                >
+                  批量
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExport}
+                  disabled={offers.length === 0}
+                  className="flex-1"
+                >
+                  导出
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -378,9 +419,9 @@ export default function OffersPage() {
         {/* P1-2 + P2-4: 筛选器（移动端优化） */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="space-y-4">
-              {/* 搜索框 - 移动端全宽 */}
-              <div className="relative">
+            <div className="flex flex-col lg:flex-row gap-4">
+              {/* 搜索框 */}
+              <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
                   type="text"
@@ -391,11 +432,11 @@ export default function OffersPage() {
                 />
               </div>
 
-              {/* 筛选器 - 移动端竖向排列，桌面端横向 */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* 筛选器组 */}
+              <div className="flex gap-3 overflow-x-auto pb-1 lg:pb-0">
                 {/* 国家筛选 */}
                 <Select value={countryFilter} onValueChange={setCountryFilter}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-[140px]">
                     <SelectValue placeholder="所有国家" />
                   </SelectTrigger>
                   <SelectContent>
@@ -410,7 +451,7 @@ export default function OffersPage() {
 
                 {/* 状态筛选 */}
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-[140px]">
                     <SelectValue placeholder="所有状态" />
                   </SelectTrigger>
                   <SelectContent>
@@ -427,7 +468,7 @@ export default function OffersPage() {
             {/* 筛选结果提示 */}
             {(searchQuery || countryFilter !== 'all' || statusFilter !== 'all') && (
               <div className="mt-4 flex items-center justify-between">
-                <p className="text-sm text-gray-600">
+                <p className="text-body-sm text-muted-foreground">
                   显示 {filteredOffers.length} / {offers.length} 个Offer
                 </p>
                 <Button
@@ -509,6 +550,15 @@ export default function OffersPage() {
                     <TableRow>
                       {/* P2-5: 可排序列头 */}
                       <SortableTableHead
+                        field="id"
+                        currentSortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSort}
+                        className="w-[100px]"
+                      >
+                        Offer ID
+                      </SortableTableHead>
+                      <SortableTableHead
                         field="offerName"
                         currentSortBy={sortBy}
                         sortOrder={sortOrder}
@@ -550,12 +600,15 @@ export default function OffersPage() {
                         状态
                       </SortableTableHead>
                       <TableHead>关联账号</TableHead>
-                      <TableHead className="text-right">操作</TableHead>
+                      <TableHead>操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredOffers.map((offer) => (
                       <TableRow key={offer.id} className="hover:bg-gray-50/50">
+                        <TableCell className="font-mono text-body-sm text-gray-600">
+                          #{offer.id}
+                        </TableCell>
                         <TableCell className="font-mono">
                           <a
                             href={`/offers/${offer.id}`}
@@ -565,10 +618,10 @@ export default function OffersPage() {
                             <ExternalLink className="w-3 h-3" />
                           </a>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="py-4">
                           <div>
                             <div className="font-medium text-gray-900">{offer.brand}</div>
-                            <div className="text-sm text-gray-500 truncate max-w-xs">
+                            <div className="text-body-sm text-muted-foreground truncate max-w-[200px]" title={offer.url}>
                               {offer.url}
                             </div>
                           </div>
@@ -576,7 +629,7 @@ export default function OffersPage() {
                         <TableCell>
                           <Badge variant="outline">{offer.targetCountry}</Badge>
                         </TableCell>
-                        <TableCell className="text-sm text-gray-600">
+                        <TableCell className="text-body-sm text-muted-foreground">
                           {offer.targetLanguage || 'English'}
                         </TableCell>
                         <TableCell>{getScrapeStatusBadge(offer.scrape_status)}</TableCell>
@@ -586,10 +639,10 @@ export default function OffersPage() {
                             <div className="space-y-1">
                               {offer.linkedAccounts.map((account, idx) => (
                                 <div key={idx} className="flex items-center gap-2 text-xs">
-                                  <Badge variant="secondary" className="gap-1">
+                                  <Badge variant="secondary" className="gap-1 font-normal">
                                     {account.account_name || account.customer_id}
                                   </Badge>
-                                  <span className="text-gray-500">
+                                  <span className="text-gray-500 text-[10px]">
                                     {account.campaign_count}个系列
                                   </span>
                                   <button
@@ -610,11 +663,11 @@ export default function OffersPage() {
                               ))}
                             </div>
                           ) : (
-                            <span className="text-xs text-gray-400">未关联</span>
+                            <span className="text-caption text-gray-300">-</span>
                           )}
                         </TableCell>
                         <TableCell>
-                          <div className="flex justify-end gap-2">
+                          <div className="flex items-center gap-2">
                             <Button
                               size="sm"
                               variant="default"
@@ -622,47 +675,49 @@ export default function OffersPage() {
                                 setSelectedOffer(offer)
                                 setIsModalOpen(true)
                               }}
-                              title="快速创建并发布Google Ads广告"
+                              className="h-8"
                             >
-                              <Rocket className="w-4 h-4 mr-1" />
+                              <Rocket className="w-3.5 h-3.5 mr-1.5" />
                               一键上广告
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedOfferForCpc(offer)
-                                setIsAdjustCpcModalOpen(true)
-                              }}
-                              title="手动调整广告系列的CPC出价"
-                            >
-                              <DollarSign className="w-4 h-4 mr-1" />
-                              调整CPC
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedOfferForScore(offer)
-                                setIsLaunchScoreModalOpen(true)
-                              }}
-                              title="查看投放分析和评分"
-                            >
-                              <BarChart3 className="w-4 h-4 mr-1" />
-                              投放分析
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setOfferToDelete(offer)
-                                setIsDeleteDialogOpen(true)
-                              }}
-                              title="删除此Offer"
-                              className="text-red-600 hover:text-red-700 hover:border-red-300"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedOfferForCpc(offer)
+                                    setIsAdjustCpcModalOpen(true)
+                                  }}
+                                >
+                                  <DollarSign className="w-4 h-4 mr-2 text-gray-500" />
+                                  调整CPC
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedOfferForScore(offer)
+                                    setIsLaunchScoreModalOpen(true)
+                                  }}
+                                >
+                                  <BarChart3 className="w-4 h-4 mr-2 text-gray-500" />
+                                  投放分析
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setOfferToDelete(offer)
+                                    setIsDeleteDialogOpen(true)
+                                  }}
+                                  className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  删除Offer
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -717,7 +772,7 @@ export default function OffersPage() {
         />
       )}
 
-      <CreateOfferModal
+      <CreateOfferModalV2
         open={isCreateModalOpen}
         onOpenChange={setIsCreateModalOpen}
         onSuccess={fetchOffers}
@@ -732,7 +787,7 @@ export default function OffersPage() {
               <p>
                 您确定要解除 <strong className="text-gray-900">{offerToUnlink?.offer.brand}</strong> 与账号 <strong className="text-gray-900">{offerToUnlink?.accountName}</strong> 的关联吗？
               </p>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-body-sm text-blue-800">
                 <p className="font-medium mb-1">ℹ️ 解除关联将会：</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li>删除此账号下所有与该Offer相关的广告系列</li>
@@ -764,7 +819,7 @@ export default function OffersPage() {
               <p>
                 您确定要删除 <strong className="text-gray-900">{offerToDelete?.brand}</strong> 的Offer吗？
               </p>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-body-sm text-yellow-800">
                 <p className="font-medium mb-1">⚠️ 重要提示：</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li>已删除的Offer历史数据会保留在系统中</li>

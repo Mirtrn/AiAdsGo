@@ -20,7 +20,7 @@ interface Offer {
 export default function NewCampaignPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const offerIdParam = searchParams.get('offerId')
+  const offerIdParam = searchParams?.get('offerId')
 
   const [offer, setOffer] = useState<Offer | null>(null)
   const [googleAdsAccounts, setGoogleAdsAccounts] = useState<GoogleAdsAccount[]>([])

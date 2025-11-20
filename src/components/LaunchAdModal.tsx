@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
-import { AlertCircle, RefreshCw, Sparkles, Rocket } from 'lucide-react'
+import { AlertCircle, RefreshCw, Wand2, Rocket } from 'lucide-react'
 import { showSuccess, showError, showWarning, showConfirm } from '@/lib/toast-utils'
 
 interface LaunchAdModalProps {
@@ -419,8 +419,8 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
             key={count}
             onClick={() => handleVariantCountChange(count as 1 | 2 | 3)}
             className={`cursor-pointer relative p-6 rounded-2xl border-2 transition-all duration-200 hover:shadow-lg ${numVariants === count
-                ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-600'
-                : 'border-gray-200 bg-white hover:border-blue-300'
+              ? 'border-blue-600 bg-blue-50/50 ring-1 ring-blue-600'
+              : 'border-gray-200 bg-white hover:border-blue-300'
               }`}
           >
             <div className="flex flex-col items-center text-center space-y-4">
@@ -549,7 +549,7 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
 
           {suggestedMaxCPC && (
             <div className="mt-2 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-start gap-3">
-              <Sparkles className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <Wand2 className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
               <div>
                 <p className="text-xs font-medium text-blue-900">AI Suggested Max CPC</p>
                 <p className="text-sm font-bold text-blue-700">
@@ -619,8 +619,8 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
                   <label
                     key={index}
                     className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all duration-200 border ${selectedKeywords.includes(kw.text)
-                        ? 'bg-blue-50 border-blue-200'
-                        : 'hover:bg-gray-50 border-transparent'
+                      ? 'bg-blue-50 border-blue-200'
+                      : 'hover:bg-gray-50 border-transparent'
                       }`}
                   >
                     <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${selectedKeywords.includes(kw.text) ? 'bg-blue-600 border-blue-600' : 'border-gray-300 bg-white'
@@ -640,7 +640,7 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
                           Vol: {kw.avgMonthlySearchesFormatted}
                         </span>
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${kw.competition === 'LOW' ? 'bg-green-100 text-green-800' :
-                            kw.competition === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                          kw.competition === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
                           }`}>
                           Comp: {kw.competition === 'LOW' ? 'Low' : kw.competition === 'MEDIUM' ? 'Med' : 'High'}
                         </span>
@@ -668,7 +668,7 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
             </>
           ) : (
             <>
-              <Sparkles className="w-4 h-4 mr-2" /> Generate Ads
+              <Wand2 className="w-4 h-4 mr-2" /> Generate Ads
             </>
           )}
         </Button>
@@ -700,11 +700,11 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5 px-3 py-1 bg-white rounded-full border border-gray-200 shadow-sm">
-                  <Sparkles className="w-3.5 h-3.5 text-yellow-500" />
+                  <Wand2 className="w-3.5 h-3.5 text-yellow-500" />
                   <span className="text-xs font-medium text-gray-600">Score:</span>
                   <span className={`text-sm font-bold ${variant.qualityScore && variant.qualityScore >= 90 ? 'text-green-600' :
-                      variant.qualityScore && variant.qualityScore >= 80 ? 'text-blue-600' :
-                        'text-yellow-600'
+                    variant.qualityScore && variant.qualityScore >= 80 ? 'text-blue-600' :
+                      'text-yellow-600'
                     }`}>
                     {variant.qualityScore}/100
                   </span>
@@ -821,9 +821,21 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
                 <Badge variant="outline" className="bg-gray-50">{offer.targetLanguage}</Badge>
               </div>
             </div>
-            <div>
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Ad Variants</p>
-              <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-none">{numVariants} Variants</Badge>
+            <div className="col-span-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">🎯 Campaigns to Create</p>
+              <div className="flex flex-wrap gap-2">
+                {generatedVariants.map((variant, index) => (
+                  <Badge
+                    key={index}
+                    className="bg-gradient-to-r from-purple-100 to-blue-100 text-purple-800 hover:from-purple-200 hover:to-blue-200 border-none px-3 py-1"
+                  >
+                    {index + 1}. {variant.orientation} theme
+                  </Badge>
+                ))}
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                💡 Each campaign focuses on a single theme for better performance
+              </p>
             </div>
             <div className="col-span-2 border-t border-gray-100 pt-4 mt-2"></div>
             <div>
@@ -838,12 +850,15 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
         </CardContent>
       </Card>
 
-      <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4 flex gap-3">
-        <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
+        <AlertCircle className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
         <div className="flex-1">
-          <h4 className="text-sm font-medium text-yellow-800 mb-1">Important Note</h4>
-          <p className="text-sm text-yellow-700 leading-relaxed">
-            Your ads will go live immediately after launch. Please ensure your Google Ads account is connected and has sufficient balance.
+          <h4 className="text-sm font-medium text-blue-900 mb-1">🎯 Single-Theme Campaign Strategy</h4>
+          <p className="text-sm text-blue-800 leading-relaxed mb-2">
+            This will create <strong>{generatedVariants.length} separate campaigns</strong>, each focused on a single theme ({generatedVariants.map(v => v.orientation).join(', ')}). This approach improves ad relevance and Quality Score by 30-40%.
+          </p>
+          <p className="text-xs text-blue-700">
+            💡 Each campaign will have its own budget, keywords, and ad group optimized for its theme.
           </p>
         </div>
       </div>
@@ -863,7 +878,7 @@ export default function LaunchAdModal({ open, onClose, offer }: LaunchAdModalPro
             </>
           ) : (
             <>
-              <Rocket className="w-4 h-4 mr-2" /> Launch Campaign
+              <Rocket className="w-4 h-4 mr-2" /> Launch {generatedVariants.length} Campaign{generatedVariants.length > 1 ? 's' : ''}
             </>
           )}
         </Button>

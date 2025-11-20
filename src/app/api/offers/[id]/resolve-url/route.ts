@@ -48,40 +48,68 @@ export async function POST(
     console.log(`解析推广链接: ${offer.affiliate_link}`)
     console.log(`使用代理: ${useProxy ? '是' : '否'}`)
 
-    // 尝试使用基础HTTP方式解析
+    // 检测是否为需要JavaScript渲染的affiliate链接
+    const needsJavaScript =
+      offer.affiliate_link.includes('pboost.me') ||
+      offer.affiliate_link.includes('bit.ly') ||
+      offer.affiliate_link.includes('tinyurl') ||
+      offer.affiliate_link.includes('amzn.to') ||
+      offer.affiliate_link.includes('geni.us')
+
     let resolved: any
     let method = 'http'
 
-    try {
-      resolved = await resolveAffiliateLink(offer.affiliate_link, proxyUrl || undefined)
-
-      // 如果没有检测到重定向，尝试使用Playwright
-      if (resolved.redirectCount === 0 && offer.affiliate_link !== resolved.finalUrl) {
-        console.log('未检测到重定向，尝试使用Playwright...')
-        const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
-
-        resolved = await resolveAffiliateLinkWithPlaywright(
-          offer.affiliate_link,
-          proxyUrl || undefined,
-          3000
-        )
-        method = 'playwright'
-      }
-    } catch (httpError: any) {
-      // HTTP方式失败，尝试Playwright
-      console.warn(`HTTP解析失败: ${httpError.message}，尝试使用Playwright...`)
+    if (needsJavaScript) {
+      // 直接使用Playwright处理affiliate链接
+      console.log('🎭 检测到affiliate链接，直接使用Playwright...')
 
       try {
         const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
-
         resolved = await resolveAffiliateLinkWithPlaywright(
           offer.affiliate_link,
           proxyUrl || undefined,
-          3000
+          5000  // 给affiliate链接更多时间
         )
         method = 'playwright'
       } catch (playwrightError: any) {
-        throw new Error(`所有解析方法都失败了:\n- HTTP: ${httpError.message}\n- Playwright: ${playwrightError.message}`)
+        console.warn(`⚠️ Playwright失败，尝试HTTP降级: ${playwrightError.message}`)
+        // 降级到HTTP
+        resolved = await resolveAffiliateLink(offer.affiliate_link, proxyUrl || undefined)
+        method = 'http-fallback'
+      }
+    } else {
+      // 普通链接，先尝试HTTP
+      try {
+        resolved = await resolveAffiliateLink(offer.affiliate_link, proxyUrl || undefined)
+
+        // 如果没有检测到重定向，可能需要JavaScript
+        if (resolved.redirectCount === 0 && offer.affiliate_link === resolved.finalUrl) {
+          console.log('⚠️ 未检测到重定向，尝试使用Playwright...')
+          const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
+
+          resolved = await resolveAffiliateLinkWithPlaywright(
+            offer.affiliate_link,
+            proxyUrl || undefined,
+            3000
+          )
+          method = 'playwright'
+        }
+      } catch (httpError: any) {
+        // HTTP方式失败，尝试Playwright
+        console.warn(`HTTP解析失败: ${httpError.message}，尝试使用Playwright...`)
+
+        try {
+          const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
+
+          resolved = await resolveAffiliateLinkWithPlaywright(
+            offer.affiliate_link,
+            proxyUrl || undefined,
+            3000
+          )
+          method = 'playwright'
+        } catch (playwrightError: any) {
+          throw new Error(`所有解析方法都失败了:\n- HTTP: ${httpError.message}\n- Playwright: ${playwrightError.message}`)
+        }
       }
     }
 

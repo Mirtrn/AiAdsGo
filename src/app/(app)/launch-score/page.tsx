@@ -46,8 +46,8 @@ interface Creative {
 export default function LaunchScorePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const offerId = searchParams.get('offerId')
-  const creativeId = searchParams.get('creativeId')
+  const offerId = searchParams?.get('offerId')
+  const creativeId = searchParams?.get('creativeId')
 
   const [offer, setOffer] = useState<Offer | null>(null)
   const [creative, setCreative] = useState<Creative | null>(null)
@@ -209,8 +209,8 @@ export default function LaunchScorePage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           </div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Launch Score 投放评分</h3>
-          <p className="text-gray-600 mb-6">
+          <h3 className="text-h3 mb-2">Launch Score 投放评分</h3>
+          <p className="text-body text-muted-foreground mb-6">
             需要选择一个Offer才能查看或计算Launch Score评分
           </p>
           <button
@@ -219,7 +219,7 @@ export default function LaunchScorePage() {
           >
             前往选择 Offer
           </button>
-          <p className="mt-4 text-xs text-gray-500">
+          <p className="mt-4 helper-text">
             在Offer详情页中，您可以为特定创意计算Launch Score
           </p>
         </div>
@@ -241,7 +241,7 @@ export default function LaunchScorePage() {
               >
                 ← 返回Offer
               </a>
-              <h1 className="text-xl font-bold text-gray-900">
+              <h1 className="text-h3 font-bold text-gray-900">
                 {offer?.brand} - Launch Score投放评分
               </h1>
             </div>
@@ -285,8 +285,8 @@ export default function LaunchScorePage() {
 
           {creative && (
             <div className="mb-6 bg-white shadow rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-500">评分创意</h3>
-              <p className="mt-1 text-sm text-gray-900">
+              <h3 className="text-body-sm font-medium text-muted-foreground">评分创意</h3>
+              <p className="mt-1 text-body-sm text-gray-900">
                 版本 {creative.version}: {creative.headline1}
               </p>
             </div>
@@ -294,7 +294,7 @@ export default function LaunchScorePage() {
 
           {!launchScore ? (
             <div className="text-center py-12">
-              <p className="text-gray-500 text-lg mb-4">暂无Launch Score评分</p>
+              <p className="text-body-lg text-muted-foreground mb-4">暂无Launch Score评分</p>
               {creativeId && (
                 <button
                   onClick={handleCalculate}
@@ -313,11 +313,11 @@ export default function LaunchScorePage() {
                   <div className={`text-6xl font-bold ${gradeInfo?.color} mb-2`}>
                     {launchScore.totalScore}
                   </div>
-                  <div className="text-2xl font-semibold text-gray-700 mb-1">
+                  <div className="text-h2 font-semibold text-gray-700 mb-1">
                     评级: {gradeInfo?.grade}
                   </div>
-                  <div className="text-sm text-gray-500">{gradeInfo?.label}</div>
-                  <div className="mt-4 text-xs text-gray-400">
+                  <div className="text-body-sm text-muted-foreground">{gradeInfo?.label}</div>
+                  <div className="mt-4 helper-text">
                     计算时间: {new Date(launchScore.calculatedAt).toLocaleString('zh-CN')}
                   </div>
                 </div>
@@ -325,15 +325,15 @@ export default function LaunchScorePage() {
 
               {/* 各维度评分 */}
               <div className="bg-white shadow rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">维度评分详情</h2>
+                <h2 className="text-h4 mb-4">维度评分详情</h2>
                 <div className="space-y-4">
                   {/* 关键词质量 */}
                   <div>
                     <div className="flex justify-between mb-1">
-                      <span className="text-sm font-medium text-gray-700">
+                      <span className="text-body-sm font-medium text-gray-700">
                         关键词质量 (30分满分)
                       </span>
-                      <span className="text-sm font-semibold text-gray-900">
+                      <span className="text-body-sm font-semibold text-gray-900">
                         {launchScore.keywordScore}分
                       </span>
                     </div>
@@ -348,7 +348,7 @@ export default function LaunchScorePage() {
                     </div>
                     {analysis?.keywordAnalysis.issues &&
                       analysis.keywordAnalysis.issues.length > 0 && (
-                        <ul className="mt-2 text-xs text-red-600 list-disc list-inside">
+                        <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
                           {analysis.keywordAnalysis.issues.map((issue, i) => (
                             <li key={i}>{issue}</li>
                           ))}
@@ -359,10 +359,10 @@ export default function LaunchScorePage() {
                   {/* 市场契合度 */}
                   <div>
                     <div className="flex justify-between mb-1">
-                      <span className="text-sm font-medium text-gray-700">
+                      <span className="text-body-sm font-medium text-gray-700">
                         市场契合度 (25分满分)
                       </span>
-                      <span className="text-sm font-semibold text-gray-900">
+                      <span className="text-body-sm font-semibold text-gray-900">
                         {launchScore.marketFitScore}分
                       </span>
                     </div>
@@ -377,7 +377,7 @@ export default function LaunchScorePage() {
                     </div>
                     {analysis?.marketFitAnalysis.issues &&
                       analysis.marketFitAnalysis.issues.length > 0 && (
-                        <ul className="mt-2 text-xs text-red-600 list-disc list-inside">
+                        <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
                           {analysis.marketFitAnalysis.issues.map((issue, i) => (
                             <li key={i}>{issue}</li>
                           ))}
@@ -388,10 +388,10 @@ export default function LaunchScorePage() {
                   {/* 着陆页质量 */}
                   <div>
                     <div className="flex justify-between mb-1">
-                      <span className="text-sm font-medium text-gray-700">
+                      <span className="text-body-sm font-medium text-gray-700">
                         着陆页质量 (20分满分)
                       </span>
-                      <span className="text-sm font-semibold text-gray-900">
+                      <span className="text-body-sm font-semibold text-gray-900">
                         {launchScore.landingPageScore}分
                       </span>
                     </div>
@@ -406,7 +406,7 @@ export default function LaunchScorePage() {
                     </div>
                     {analysis?.landingPageAnalysis.issues &&
                       analysis.landingPageAnalysis.issues.length > 0 && (
-                        <ul className="mt-2 text-xs text-red-600 list-disc list-inside">
+                        <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
                           {analysis.landingPageAnalysis.issues.map((issue, i) => (
                             <li key={i}>{issue}</li>
                           ))}
@@ -417,10 +417,10 @@ export default function LaunchScorePage() {
                   {/* 预算合理性 */}
                   <div>
                     <div className="flex justify-between mb-1">
-                      <span className="text-sm font-medium text-gray-700">
+                      <span className="text-body-sm font-medium text-gray-700">
                         预算合理性 (15分满分)
                       </span>
-                      <span className="text-sm font-semibold text-gray-900">
+                      <span className="text-body-sm font-semibold text-gray-900">
                         {launchScore.budgetScore}分
                       </span>
                     </div>
@@ -432,7 +432,7 @@ export default function LaunchScorePage() {
                     </div>
                     {analysis?.budgetAnalysis.issues &&
                       analysis.budgetAnalysis.issues.length > 0 && (
-                        <ul className="mt-2 text-xs text-red-600 list-disc list-inside">
+                        <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
                           {analysis.budgetAnalysis.issues.map((issue, i) => (
                             <li key={i}>{issue}</li>
                           ))}
@@ -443,10 +443,10 @@ export default function LaunchScorePage() {
                   {/* 内容创意质量 */}
                   <div>
                     <div className="flex justify-between mb-1">
-                      <span className="text-sm font-medium text-gray-700">
+                      <span className="text-body-sm font-medium text-gray-700">
                         内容创意质量 (10分满分)
                       </span>
-                      <span className="text-sm font-semibold text-gray-900">
+                      <span className="text-body-sm font-semibold text-gray-900">
                         {launchScore.contentScore}分
                       </span>
                     </div>
@@ -461,7 +461,7 @@ export default function LaunchScorePage() {
                     </div>
                     {analysis?.contentAnalysis.issues &&
                       analysis.contentAnalysis.issues.length > 0 && (
-                        <ul className="mt-2 text-xs text-red-600 list-disc list-inside">
+                        <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
                           {analysis.contentAnalysis.issues.map((issue, i) => (
                             <li key={i}>{issue}</li>
                           ))}
@@ -475,12 +475,12 @@ export default function LaunchScorePage() {
               {analysis?.overallRecommendations &&
                 analysis.overallRecommendations.length > 0 && (
                   <div className="bg-white shadow rounded-lg p-6">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4">优化建议</h2>
+                    <h2 className="text-h4 mb-4">优化建议</h2>
                     <ul className="space-y-2">
                       {analysis.overallRecommendations.map((rec, index) => (
                         <li key={index} className="flex items-start">
                           <span className="flex-shrink-0 h-5 w-5 text-indigo-600 mr-2">•</span>
-                          <span className="text-sm text-gray-700">{rec}</span>
+                          <span className="text-body-sm text-gray-700">{rec}</span>
                         </li>
                       ))}
                     </ul>

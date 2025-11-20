@@ -20,7 +20,8 @@ import {
   Key,
   Link2,
   Eye,
-  EyeOff
+  EyeOff,
+  Beaker
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -120,6 +121,12 @@ const adminNavigationItems: NavItem[] = [
     icon: Database,
     requireAdmin: true,
   },
+  {
+    label: '抓取与AI测试',
+    href: '/admin/scrape-test',
+    icon: Beaker,
+    requireAdmin: true,
+  },
 ]
 
 // 全局用户缓存，避免重复请求
@@ -207,14 +214,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         credentials: 'include',
       })
 
+      // 清除用户缓存（无论API是否成功）
+      clearUserCache()
+      setUser(null)
+
       if (response.ok) {
-        // 清除用户缓存
-        clearUserCache()
         toast.success('已退出登录')
-        router.push('/login')
+      } else {
+        // API失败时也要退出，因为可能是token已失效
+        console.warn('Logout API returned error, but proceeding with logout')
       }
+
+      // 使用 replace 防止用户后退回到需要登录的页面
+      router.replace('/login')
     } catch (err) {
-      toast.error('退出登录失败')
+      console.error('Logout error:', err)
+      // 即使API调用失败，也清除本地状态并跳转
+      clearUserCache()
+      setUser(null)
+      toast.error('退出登录时发生错误')
+      router.replace('/login')
     }
   }
 
@@ -285,7 +304,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (href === '/dashboard') {
       return pathname === '/dashboard'
     }
-    return pathname.startsWith(href)
+    return pathname?.startsWith(href) || false
   }
 
   if (loading) {

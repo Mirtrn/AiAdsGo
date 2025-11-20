@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   validateGoogleAdsConfig,
   validateGeminiConfig,
+  validateVertexAIConfig,
   updateValidationStatus,
 } from '@/lib/settings'
 import { z } from 'zod'
@@ -79,8 +80,44 @@ export async function POST(request: NextRequest) {
         break
 
       case 'ai':
-        if (config.gemini_api_key) {
-          // 获取选择的模型，默认使用 gemini-2.5-pro
+        // 检查是否验证Vertex AI配置
+        if (config.gcp_project_id && config.gcp_service_account_json) {
+          // 验证Vertex AI配置
+          const gcpLocation = config.gcp_location || 'us-central1'
+          result = await validateVertexAIConfig(
+            config.gcp_project_id,
+            gcpLocation,
+            config.gcp_service_account_json
+          )
+
+          // 更新Vertex AI验证状态
+          updateValidationStatus(
+            'ai',
+            'gcp_project_id',
+            result.valid ? 'valid' : 'invalid',
+            result.message,
+            userIdNum
+          )
+
+          updateValidationStatus(
+            'ai',
+            'gcp_service_account_json',
+            result.valid ? 'valid' : 'invalid',
+            result.message,
+            userIdNum
+          )
+
+          if (config.gcp_location) {
+            updateValidationStatus(
+              'ai',
+              'gcp_location',
+              result.valid ? 'valid' : 'invalid',
+              result.valid ? `区域 ${gcpLocation} 可用` : result.message,
+              userIdNum
+            )
+          }
+        } else if (config.gemini_api_key) {
+          // 验证Gemini直接API配置
           const selectedModel = config.gemini_model || 'gemini-2.5-pro'
           result = await validateGeminiConfig(config.gemini_api_key, selectedModel)
 
@@ -106,7 +143,7 @@ export async function POST(request: NextRequest) {
         } else {
           return NextResponse.json(
             {
-              error: '请提供Gemini API密钥',
+              error: '请提供 Gemini API密钥 或 Vertex AI配置',
             },
             { status: 400 }
           )

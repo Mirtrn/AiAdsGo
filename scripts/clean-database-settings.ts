@@ -32,6 +32,12 @@ const renamedSettings = [
 const missingSettings = [
   { category: 'proxy', key: 'url', dataType: 'string', isSensitive: 0, isRequired: 0, description: '代理服务API地址，必须包含cc、ips、proxyType=http、responseType=txt参数' },
   { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: 0, isRequired: 1, description: 'Gemini模型版本', defaultValue: 'gemini-2.5-pro' },
+
+  // Vertex AI配置项
+  { category: 'ai', key: 'use_vertex_ai', dataType: 'boolean', isSensitive: 0, isRequired: 0, description: '是否使用Vertex AI（优先于直接API）', defaultValue: 'false' },
+  { category: 'ai', key: 'gcp_project_id', dataType: 'string', isSensitive: 1, isRequired: 0, description: 'GCP项目ID（Vertex AI）' },
+  { category: 'ai', key: 'gcp_location', dataType: 'string', isSensitive: 0, isRequired: 0, description: 'GCP区域（Vertex AI）', defaultValue: 'us-central1' },
+  { category: 'ai', key: 'gcp_service_account_json', dataType: 'text', isSensitive: 1, isRequired: 0, description: 'GCP Service Account JSON（Vertex AI）' },
 ]
 
 interface SettingRow {
