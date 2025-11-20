@@ -58,6 +58,7 @@ backups/
 
 # secrets directory (from BasicPrinciples/MustKnowV1.md)
 /secrets
+**/secrets/
 *.key
 credentials.json
 service-account.json
