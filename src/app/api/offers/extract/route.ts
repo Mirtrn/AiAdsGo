@@ -5,13 +5,17 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveAffiliateLink, getProxyPool } from '@/lib/url-resolver-enhanced'
-import { getSettings } from '@/lib/settings'
+import { getAllProxyUrls } from '@/lib/settings'
 import { extractProductInfo } from '@/lib/scraper'
 
 export const maxDuration = 60 // 最长60秒
 
 export async function POST(request: NextRequest) {
   try {
+    // 从中间件注入的请求头中获取用户ID
+    const userId = request.headers.get('x-user-id')
+    const userIdNum = userId ? parseInt(userId, 10) : undefined
+
     const body = await request.json()
     const { affiliate_link, target_country } = body
 
@@ -26,10 +30,7 @@ export async function POST(request: NextRequest) {
     console.log(`🔍 开始自动提取: ${affiliate_link} (国家: ${target_country})`)
 
     // ========== 步骤1: 加载代理池配置 ==========
-    const settings = await getSettings()
-    const proxySettings = settings?.proxy_urls
-      ? JSON.parse(settings.proxy_urls as string)
-      : []
+    const proxySettings = getAllProxyUrls(userIdNum)
 
     if (!proxySettings || proxySettings.length === 0) {
       return NextResponse.json(
