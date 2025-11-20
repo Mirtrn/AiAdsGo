@@ -6,6 +6,8 @@
 
 import axios, { AxiosInstance } from 'axios'
 import { HttpsProxyAgent } from 'https-proxy-agent'
+import { getProxyIp } from './proxy/fetch-proxy-ip'
+import type { ProxyCredentials } from './proxy/fetch-proxy-ip'
 
 export interface HttpResolvedUrl {
   finalUrl: string
@@ -15,25 +17,6 @@ export interface HttpResolvedUrl {
   statusCode: number
 }
 
-/**
- * 解析代理URL为代理配置
- */
-function parseProxyUrl(proxyUrl: string): { host: string; port: number; auth?: { username: string; password: string } } | null {
-  try {
-    // 首先访问proxyUrl获取实际的代理IP信息
-    // 格式：host:port:username:password
-    // 例如：15.235.13.80:5959:com49692430-res-row-sid-867994980:Qxi9V59e3kNOW6pnRi3i
-
-    // 注意：这里需要先请求proxyUrl获取实际代理信息
-    // 为了简化，我们假设proxyUrl已经是格式化的代理信息
-    // 实际使用时需要先调用代理API获取代理IP
-
-    return null // 暂时返回null，使用Playwright作为降级方案
-  } catch (error) {
-    console.error('代理URL解析失败:', error)
-    return null
-  }
-}
 
 /**
  * 使用HTTP请求解析Affiliate链接
@@ -69,15 +52,24 @@ export async function resolveAffiliateLinkWithHttp(
       },
     }
 
-    // 如果有代理URL，配置代理（暂时不启用，因为需要先获取实际代理IP）
+    // 如果有代理URL，先获取真实代理IP
     if (proxyUrl) {
-      const proxyConfig = parseProxyUrl(proxyUrl)
-      if (proxyConfig) {
+      try {
+        console.log('🔄 获取代理IP...')
+        const proxyCredentials = await getProxyIp(proxyUrl)
+
+        // 配置代理
         const proxyAgent = new HttpsProxyAgent(
-          `http://${proxyConfig.auth ? `${proxyConfig.auth.username}:${proxyConfig.auth.password}@` : ''}${proxyConfig.host}:${proxyConfig.port}`
+          `http://${proxyCredentials.username}:${proxyCredentials.password}@${proxyCredentials.host}:${proxyCredentials.port}`
         )
         axiosConfig.httpsAgent = proxyAgent
         axiosConfig.httpAgent = proxyAgent
+
+        console.log(`✅ 使用代理: ${proxyCredentials.fullAddress}`)
+      } catch (proxyError: any) {
+        // 代理获取失败 → 抛出错误，触发降级到Playwright
+        console.error('❌ 获取代理IP失败:', proxyError.message)
+        throw new Error(`无法获取代理IP（将降级到Playwright）: ${proxyError.message}`)
       }
     }
 
