@@ -1,7 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById, updateOfferScrapeStatus } from '@/lib/offers'
 import { scrapeUrl } from '@/lib/scraper'
-import { analyzeProductPage } from '@/lib/ai'
+import { analyzeProductPage, ProductInfo } from '@/lib/ai'
+import { getProxyUrlForCountry, isProxyEnabled } from '@/lib/settings'
+import { getCachedPageData, setCachedPageData, SeoData } from '@/lib/redis'
+
+/**
+ * 从HTML中提取SEO信息
+ */
+async function extractSeoData(html: string): Promise<SeoData> {
+  if (!html) {
+    return {
+      metaTitle: '',
+      metaDescription: '',
+      metaKeywords: '',
+      ogTitle: '',
+      ogDescription: '',
+      ogImage: '',
+      canonicalUrl: '',
+      h1: [],
+      imageAlts: [],
+    }
+  }
+
+  const { load } = await import('cheerio')
+  const $ = load(html)
+
+  // 提取所有h1标签文本
+  const h1: string[] = []
+  $('h1').each((_, el) => {
+    const text = $(el).text().trim()
+    if (text && text.length > 0) {
+      h1.push(text)
+    }
+  })
+
+  // 提取图片alt文本（限制数量避免数据过大）
+  const imageAlts: string[] = []
+  $('img[alt]').each((_, el) => {
+    const alt = $(el).attr('alt')?.trim()
+    if (alt && alt.length > 3 && imageAlts.length < 20) {
+      imageAlts.push(alt)
+    }
+  })
+
+  return {
+    metaTitle: $('title').text().trim(),
+    metaDescription: $('meta[name="description"]').attr('content') || '',
+    metaKeywords: $('meta[name="keywords"]').attr('content') || '',
+    ogTitle: $('meta[property="og:title"]').attr('content') || '',
+    ogDescription: $('meta[property="og:description"]').attr('content') || '',
+    ogImage: $('meta[property="og:image"]').attr('content') || '',
+    canonicalUrl: $('link[rel="canonical"]').attr('href') || '',
+    h1,
+    imageAlts,
+  }
+}
+
+// 国家代码到语言代码的映射
+const COUNTRY_TO_LANGUAGE: Record<string, string> = {
+  US: 'en',
+  UK: 'en',
+  CA: 'en',
+  AU: 'en',
+  CN: 'zh',
+  TW: 'zh',
+  HK: 'zh',
+  JP: 'ja',
+  KR: 'ko',
+  DE: 'de',
+  FR: 'fr',
+  ES: 'es',
+  IT: 'it',
+  PT: 'pt',
+  BR: 'pt',
+}
 
 /**
  * POST /api/offers/:id/scrape
@@ -63,6 +136,33 @@ export async function POST(
 }
 
 /**
+ * 检测URL是否为推广链接（需要解析重定向）
+ */
+function isAffiliateUrl(url: string): boolean {
+  const affiliateDomains = [
+    'pboost.me',
+    'bit.ly',
+    'geni.us',
+    'amzn.to',
+    'go.redirectingat.com',
+    'click.linksynergy.com',
+    'shareasale.com',
+    'dpbolvw.net',
+    'jdoqocy.com',
+    'tkqlhce.com',
+    'anrdoezrs.net',
+    'kqzyfj.com',
+  ]
+
+  try {
+    const domain = new URL(url).hostname.toLowerCase()
+    return affiliateDomains.some(affiliate => domain.includes(affiliate))
+  } catch {
+    return false
+  }
+}
+
+/**
  * 后台执行抓取和AI分析任务
  */
 async function performScrapeAndAnalysis(
@@ -72,29 +172,388 @@ async function performScrapeAndAnalysis(
   brand: string
 ): Promise<void> {
   try {
-    console.log(`开始抓取Offer ${offerId}:`, url)
+    // 获取代理配置
+    const offer = findOfferById(offerId, userId)
+    const targetCountry = offer?.target_country || 'US'
+    const useProxy = isProxyEnabled(userId)
+    const proxyUrl = useProxy ? getProxyUrlForCountry(targetCountry, userId) : undefined
 
-    // 1. 抓取网页内容
-    const pageData = await scrapeUrl(url)
-    console.log(`抓取完成，页面标题:`, pageData.title)
+    // 自动检测并解析推广链接
+    let actualUrl = url
+    const urlToResolve = offer?.affiliate_link || url  // 优先使用affiliate_link，否则检查url
 
-    // 2. 使用AI分析产品信息
-    const productInfo = await analyzeProductPage({
-      url,
-      brand,
-      title: pageData.title,
-      description: pageData.description,
-      text: pageData.text,
-    })
-    console.log(`AI分析完成:`, productInfo)
+    if (isAffiliateUrl(urlToResolve)) {
+      console.log(`🔗 检测到推广链接，开始解析: ${urlToResolve}`)
+      try {
+        const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
+        const resolved = await resolveAffiliateLinkWithPlaywright(
+          urlToResolve,
+          proxyUrl,
+          5000
+        )
+        actualUrl = resolved.finalUrl
+        console.log(`✅ 解析完成 - Final URL: ${actualUrl}`)
+        console.log(`   重定向次数: ${resolved.redirectCount}`)
+        console.log(`   重定向链: ${resolved.redirectChain.join(' → ')}`)
+      } catch (resolveError: any) {
+        console.warn(`⚠️ 推广链接解析失败，尝试使用原始URL: ${resolveError.message}`)
+        actualUrl = urlToResolve
+      }
+    } else {
+      console.log(`📍 直接使用提供的URL（非推广链接）: ${actualUrl}`)
+    }
 
-    // 3. 更新数据库
-    updateOfferScrapeStatus(offerId, userId, 'completed', undefined, {
-      brand_description: productInfo.brandDescription,
-      unique_selling_points: productInfo.uniqueSellingPoints,
-      product_highlights: productInfo.productHighlights,
-      target_audience: productInfo.targetAudience,
-      category: productInfo.category,
+    console.log(`开始抓取Offer ${offerId}:`, actualUrl)
+
+    // 获取语言代码
+    const language = COUNTRY_TO_LANGUAGE[targetCountry] || 'en'
+    console.log(`目标国家: ${targetCountry}, 语言: ${language}`)
+
+    // 提前检测URL的预期页面类型（用于缓存验证）
+    const urlPath = new URL(actualUrl).pathname
+    const expectedIsStorePage = actualUrl.includes('/stores/') ||
+                                actualUrl.includes('/store/') ||
+                                actualUrl.includes('/collections') ||
+                                (actualUrl.includes('.myshopify.com') && !actualUrl.match(/\/products\/[^/]+$/)) ||
+                                urlPath === '/' || urlPath === ''
+    const expectedPageType: 'product' | 'store' = expectedIsStorePage ? 'store' : 'product'
+    console.log(`🎯 预期页面类型: ${expectedPageType}`)
+
+    // 检查Redis缓存
+    let cachedData = await getCachedPageData(actualUrl, language)
+    let pageData: any
+
+    // 缓存验证：检查缓存数据的页面类型是否匹配预期
+    if (cachedData) {
+      // 从缓存文本中检测实际页面类型
+      const cachedText = cachedData.text.toLowerCase()
+      const cachedIsStorePage = cachedText.includes('store:') ||
+                                cachedText.includes('店铺:') ||
+                                cachedText.includes('产品列表') ||
+                                cachedText.includes('product list') ||
+                                (cachedText.includes('产品数量:') && !cachedText.includes('产品名称:'))
+      const cachedPageType: 'product' | 'store' = cachedIsStorePage ? 'store' : 'product'
+
+      // 页面类型不匹配：缓存数据无效，强制重新抓取
+      if (cachedPageType !== expectedPageType) {
+        console.warn(`⚠️ 缓存页面类型不匹配！预期: ${expectedPageType}, 缓存: ${cachedPageType}`)
+        console.warn(`   强制重新抓取以获取正确页面类型...`)
+        cachedData = null  // 清空缓存引用，触发重新抓取
+      } else {
+        console.log(`✅ 缓存验证通过: ${cachedPageType} 页面 (缓存时间: ${cachedData.cachedAt})`)
+      }
+    }
+
+    if (cachedData) {
+      console.log(`✅ 使用缓存数据`)
+
+      // 将SEO数据整合到text中，为AI分析提供更丰富的信息
+      let enrichedText = cachedData.text
+      if (cachedData.seo) {
+        const seoInfo = []
+        if (cachedData.seo.metaDescription) {
+          seoInfo.push(`Meta Description: ${cachedData.seo.metaDescription}`)
+        }
+        if (cachedData.seo.ogDescription) {
+          seoInfo.push(`OG Description: ${cachedData.seo.ogDescription}`)
+        }
+        if (cachedData.seo.h1 && cachedData.seo.h1.length > 0) {
+          seoInfo.push(`H1 Tags: ${cachedData.seo.h1.join(', ')}`)
+        }
+        if (cachedData.seo.imageAlts && cachedData.seo.imageAlts.length > 0) {
+          seoInfo.push(`Image Descriptions: ${cachedData.seo.imageAlts.slice(0, 10).join(', ')}`)
+        }
+        if (seoInfo.length > 0) {
+          enrichedText = `${enrichedText}\n\n--- SEO Information ---\n${seoInfo.join('\n')}`
+        }
+      }
+
+      pageData = {
+        title: cachedData.title,
+        description: cachedData.description || cachedData.seo?.metaDescription || '',
+        text: enrichedText,
+        html: '', // 缓存中不存储HTML，AI分析不需要
+      }
+    } else {
+      // 检测网站类型
+      const isAmazon = actualUrl.includes('amazon.com') || actualUrl.includes('amazon.')
+      const isStorePage = actualUrl.includes('/stores/') || actualUrl.includes('/store/')
+
+      // 检测是否为独立站店铺页面（首页或产品集合页）
+      const urlObj = new URL(actualUrl)
+      const urlPath = urlObj.pathname
+      const isShopifyDomain = actualUrl.includes('.myshopify.com') || actualUrl.includes('shopify')
+      const isIndependentStore = !isAmazon && (
+        // 首页（根路径）
+        urlPath === '/' || urlPath === '' ||
+        // Shopify集合页
+        urlPath.includes('/collections') ||
+        // 产品列表页（但不是单个产品页）
+        (urlPath.includes('/products') && !urlPath.match(/\/products\/[^/]+$/)) ||
+        // Shopify域名
+        isShopifyDomain
+      )
+
+      const needsJavaScript = isAmazon || isShopifyDomain || isIndependentStore
+
+      // 1. 抓取网页内容
+      if (needsJavaScript) {
+        console.log('🎭 使用Playwright Stealth模式抓取...')
+
+        try {
+            if (isAmazon && isStorePage) {
+              // Amazon Store页面专用抓取
+              console.log('📦 检测到Amazon Store页面，使用Store抓取模式...')
+              const { scrapeAmazonStore } = await import('@/lib/scraper-stealth')
+              const storeData = await scrapeAmazonStore(actualUrl, proxyUrl)
+
+              // 🔥 优化：构建突出热销商品的文本信息供AI分析
+              const productSummaries = storeData.products.map(p => {
+                const parts = [
+                  `${p.rank}. ${p.hotLabel} - ${p.name}`,
+                  `评分: ${p.rating || 'N/A'}⭐`,
+                  `评论: ${p.reviewCount || 'N/A'}条`,
+                ]
+                if (p.hotScore) parts.push(`热销指数: ${p.hotScore.toFixed(1)}`)
+                if (p.price) parts.push(`价格: ${p.price}`)
+                return parts.join(' | ')
+              }).join('\n')
+
+              const hotInsightsText = storeData.hotInsights
+                ? `\n💡 热销洞察: 本店铺前${storeData.hotInsights.topProductsCount}名热销商品平均评分${storeData.hotInsights.avgRating.toFixed(1)}星，平均评论${storeData.hotInsights.avgReviews}条`
+                : ''
+
+              const textContent = [
+                `=== ${storeData.storeName} 品牌店铺 ===`,
+                `品牌: ${storeData.brandName}`,
+                `店铺描述: ${storeData.storeDescription || 'N/A'}`,
+                '',
+                `=== 热销商品排行榜 (Top ${storeData.totalProducts}) ===`,
+                `筛选标准: 评分 × log(评论数 + 1)`,
+                `说明: 🔥 = 前5名热销商品 | ✅ = 畅销商品`,
+                '',
+                productSummaries,
+                hotInsightsText,
+              ].join('\n')
+
+              pageData = {
+                title: storeData.storeName || brand,
+                description: storeData.storeDescription || '',
+                text: textContent,
+                html: '',
+              }
+
+              console.log(`✅ Amazon Store抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品`)
+            } else if (isAmazon) {
+              // Amazon产品页面专用抓取 - 增强版
+              const { scrapeAmazonProduct } = await import('@/lib/scraper-stealth')
+              const productData = await scrapeAmazonProduct(actualUrl, proxyUrl)
+
+              // 构建全面的文本信息供AI创意生成
+              const textParts = [
+                `=== 产品信息 ===`,
+                `产品名称: ${productData.productName}`,
+                `品牌: ${productData.brandName}`,
+                `ASIN: ${productData.asin}`,
+                `类目: ${productData.category}`,
+                '',
+                `=== 价格信息 ===`,
+                `当前价格: ${productData.productPrice}`,
+                productData.originalPrice ? `原价: ${productData.originalPrice}` : '',
+                productData.discount ? `折扣: ${productData.discount}` : '',
+                productData.primeEligible ? '✓ Prime会员可享' : '',
+                productData.availability || '',
+                '',
+                `=== 销量与评价 ===`,
+                `评分: ${productData.rating || 'N/A'}⭐`,
+                `评论数: ${productData.reviewCount || 'N/A'}`,
+                `销量排名: ${productData.salesRank || 'N/A'}`,
+                '',
+                `=== 产品特点 ===`,
+                productData.features.join('\n'),
+                '',
+              ]
+
+              // 添加评论摘要
+              if (productData.reviewHighlights.length > 0) {
+                textParts.push(`=== 用户评价摘要 ===`)
+                textParts.push(productData.reviewHighlights.join('\n'))
+                textParts.push('')
+              }
+
+              // 添加热门评论
+              if (productData.topReviews.length > 0) {
+                textParts.push(`=== 热门评论 ===`)
+                textParts.push(productData.topReviews.join('\n\n'))
+                textParts.push('')
+              }
+
+              // 添加技术规格
+              if (Object.keys(productData.technicalDetails).length > 0) {
+                textParts.push(`=== 技术规格 ===`)
+                for (const [key, value] of Object.entries(productData.technicalDetails)) {
+                  textParts.push(`${key}: ${value}`)
+                }
+              }
+
+              pageData = {
+                title: productData.productName || '',
+                description: productData.productDescription || '',
+                text: textParts.filter(Boolean).join('\n'),
+                html: '',
+              }
+
+              console.log(`✅ Amazon产品抓取完成: ${productData.productName}`)
+            } else if (isIndependentStore) {
+              // 独立站店铺页面抓取
+              console.log('🏪 检测到独立站店铺页面，使用店铺抓取模式...')
+              const { scrapeIndependentStore } = await import('@/lib/scraper-stealth')
+              const storeData = await scrapeIndependentStore(actualUrl, proxyUrl)
+
+              // 构建丰富的文本信息供AI分析
+              const productSummaries = storeData.products.slice(0, 20).map((p, i) => {
+                const parts = [`${i + 1}. ${p.name}`]
+                if (p.price) parts.push(`价格: ${p.price}`)
+                return parts.join(' | ')
+              }).join('\n')
+
+              const textContent = [
+                `=== 独立站店铺: ${storeData.storeName} ===`,
+                `品牌: ${storeData.storeName}`,
+                `店铺描述: ${storeData.storeDescription || 'N/A'}`,
+                `平台: ${storeData.platform || 'generic'}`,
+                `产品数量: ${storeData.totalProducts}`,
+                '',
+                '=== 产品列表 ===',
+                productSummaries,
+              ].join('\n')
+
+              pageData = {
+                title: storeData.storeName || brand,
+                description: storeData.storeDescription || '',
+                text: textContent,
+                html: '',
+              }
+
+              console.log(`✅ 独立站店铺抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品`)
+            } else {
+              // 通用JavaScript渲染抓取
+              const { scrapeUrlWithBrowser } = await import('@/lib/scraper-stealth')
+              const result = await scrapeUrlWithBrowser(actualUrl, proxyUrl, {
+                waitForTimeout: 30000,
+              })
+
+              pageData = {
+                title: result.title,
+                description: '',
+                text: result.html.substring(0, 10000),
+                html: result.html,
+              }
+
+              console.log(`✅ 页面抓取完成: ${result.title}`)
+            }
+          } catch (playwrightError: any) {
+            console.warn(`⚠️ Playwright抓取失败，尝试降级到HTTP: ${playwrightError.message}`)
+            // 降级到HTTP方式
+            pageData = await scrapeUrl(actualUrl, proxyUrl, language)
+          }
+        } else {
+          // 普通HTTP抓取
+          console.log('📡 使用HTTP方式抓取...')
+          pageData = await scrapeUrl(actualUrl, proxyUrl, language)
+        }
+
+      console.log(`抓取完成，页面标题:`, pageData.title)
+
+      // 提取SEO数据
+      const seoData = await extractSeoData(pageData.html || '')
+      console.log(`📊 SEO数据提取完成:`, {
+        metaTitle: seoData.metaTitle ? `${seoData.metaTitle.length}字符` : '无',
+        metaDesc: seoData.metaDescription ? `${seoData.metaDescription.length}字符` : '无',
+        h1Count: seoData.h1.length,
+        altCount: seoData.imageAlts.length,
+      })
+
+      // 保存到Redis缓存（包含文本内容和SEO信息）
+      await setCachedPageData(actualUrl, language, {
+        title: pageData.title || '',
+        description: pageData.description || '',
+        text: pageData.text || '',
+        seo: seoData,
+      })
+    }
+
+    // 2. 使用AI分析产品信息（容错机制：失败时使用默认值）
+    let productInfo: ProductInfo
+    let aiAnalysisSuccess = true
+
+    // 使用之前检测的页面类型（已在缓存验证阶段完成）
+    const pageType = expectedPageType
+    console.log(`🔍 页面类型: ${pageType} (${expectedIsStorePage ? '店铺页面' : '单品页面'})`)
+
+    try {
+      productInfo = await analyzeProductPage({
+        url: actualUrl,
+        brand,
+        title: pageData.title,
+        description: pageData.description,
+        text: pageData.text,
+        targetCountry,
+        pageType,  // 传递页面类型
+      }, userId)  // 传递 userId 以使用用户级别的 AI 配置（优先 Vertex AI）
+      console.log(`✅ AI分析完成:`, productInfo)
+    } catch (aiError: any) {
+      // AI分析失败时，使用默认值并记录警告（不中断抓取流程）
+      aiAnalysisSuccess = false
+      console.warn(`⚠️ AI分析失败（将使用默认值）:`, aiError.message)
+
+      productInfo = {
+        brandDescription: `${brand} - 品牌描述待补充（AI分析失败）`,
+        uniqueSellingPoints: `产品卖点待补充（AI分析失败）`,
+        productHighlights: `产品亮点待补充（AI分析失败）`,
+        targetAudience: `目标受众待补充（AI分析失败）`,
+        category: '未分类',
+      }
+    }
+
+    // 3. 更新数据库 - 将数组/对象转为JSON字符串存储
+    const formatFieldForDB = (field: unknown): string => {
+      if (typeof field === 'string') return field
+      if (Array.isArray(field)) return JSON.stringify(field)
+      if (field && typeof field === 'object') return JSON.stringify(field)
+      return ''
+    }
+
+    // 从AI的brandDescription中提取品牌名
+    let extractedBrand = brand // 默认使用原始品牌名
+    if (productInfo.brandDescription) {
+      const match = productInfo.brandDescription.match(/^([A-Z][A-Za-z0-9\s&-]+?)\s+(positions|is|offers|provides|delivers|focuses)/i)
+      if (match && match[1]) {
+        extractedBrand = match[1].trim()
+        console.log(`✅ 从AI分析中提取品牌名: ${extractedBrand}`)
+      } else {
+        console.log(`⚠️ 无法从brandDescription提取品牌名，使用原始值: ${brand}`)
+      }
+    }
+
+    // 如果AI分析失败，在scrape_error中记录警告信息
+    const scrapeError = aiAnalysisSuccess
+      ? undefined
+      : '⚠️ 网页抓取成功，但AI产品分析失败。建议检查Gemini API配置和代理设置。'
+
+    updateOfferScrapeStatus(offerId, userId, 'completed', scrapeError, {
+      brand: extractedBrand,        // 更新品牌名
+      url: actualUrl,               // 更新为解析后的真实URL
+      brand_description: formatFieldForDB(productInfo.brandDescription),
+      unique_selling_points: formatFieldForDB(productInfo.uniqueSellingPoints),
+      product_highlights: formatFieldForDB(productInfo.productHighlights),
+      target_audience: formatFieldForDB(productInfo.targetAudience),
+      category: productInfo.category || '',
+      // 增强数据字段
+      pricing: formatFieldForDB(productInfo.pricing),
+      reviews: formatFieldForDB(productInfo.reviews),
+      promotions: formatFieldForDB(productInfo.promotions),
+      competitive_edges: formatFieldForDB(productInfo.competitiveEdges),
     })
 
     console.log(`Offer ${offerId} 抓取和分析完成`)
