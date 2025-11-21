@@ -109,12 +109,12 @@ export function QuickActions() {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           {quickActions.map((action) => (
             <button
               key={action.id}
               onClick={() => handleAction(action)}
-              className="flex items-start gap-4 p-4 rounded-lg border border-gray-200 hover:border-primary hover:bg-accent transition-all text-left group"
+              className="flex flex-col items-center gap-2 p-3 rounded-lg border border-gray-200 hover:border-primary hover:bg-accent transition-all text-center group h-full"
             >
               {/* Icon */}
               <div className={`p-2 rounded-lg ${action.iconBg} group-hover:scale-110 transition-transform`}>
@@ -124,13 +124,10 @@ export function QuickActions() {
               </div>
 
               {/* Content */}
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-sm mb-1 group-hover:text-primary transition-colors">
+              <div className="w-full min-w-0">
+                <h3 className="font-semibold text-xs mb-0.5 group-hover:text-primary transition-colors truncate">
                   {action.title}
                 </h3>
-                <p className="text-xs text-muted-foreground line-clamp-2">
-                  {action.description}
-                </p>
               </div>
             </button>
           ))}

@@ -268,6 +268,20 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
   jsonText = jsonText.replace(/\n?```$/, '')
   jsonText = jsonText.trim()
 
+  // 尝试提取JSON对象（如果AI在JSON前后加了其他文本）
+  const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    jsonText = jsonMatch[0]
+  }
+
+  // 修复常见的JSON格式错误
+  // 1. 移除尾部逗号（数组和对象中）
+  jsonText = jsonText.replace(/,\s*([}\]])/g, '$1')
+  // 2. 修复未转义的换行符
+  jsonText = jsonText.replace(/(?<!\\)\n/g, '\\n')
+  // 3. 修复单引号（替换为双引号）
+  jsonText = jsonText.replace(/'/g, '"')
+
   try {
     const data = JSON.parse(jsonText)
 
