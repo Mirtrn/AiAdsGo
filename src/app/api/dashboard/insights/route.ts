@@ -49,6 +49,8 @@ export async function GET(request: NextRequest) {
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
 
+    console.log(`[Insights API] days=${days}, startDate=${formatDate(startDate)}, endDate=${formatDate(endDate)}`)
+
     const db = getDatabase()
 
     const insights: Insight[] = []
@@ -111,14 +113,15 @@ export async function GET(request: NextRequest) {
         c.campaign_name,
         c.budget_amount,
         SUM(cp.cost) as total_cost,
-        ROUND(SUM(cp.cost) / c.budget_amount / ? * 100, 2) as spend_rate
+        ROUND(SUM(cp.cost) / NULLIF(c.budget_amount, 0) / ? * 100, 2) as spend_rate
       FROM campaigns c
       INNER JOIN campaign_performance cp ON c.id = cp.campaign_id
       WHERE c.user_id = ?
         AND cp.date >= ?
         AND cp.date <= ?
+        AND c.budget_amount > 0
       GROUP BY c.id, c.campaign_name, c.budget_amount
-      HAVING spend_rate > 120
+      HAVING spend_rate IS NOT NULL AND spend_rate > 120
       ORDER BY spend_rate DESC
       LIMIT 3
     `
@@ -270,7 +273,7 @@ export async function GET(request: NextRequest) {
         julianday('now') - julianday(c.updated_at) as days_since_update
       FROM campaigns c
       WHERE c.user_id = ?
-        AND c.status = 'ENABLED'
+        AND c.status IN ('ENABLED', 'ACTIVE')
         AND days_since_update > 30
       ORDER BY days_since_update DESC
       LIMIT 2
@@ -303,6 +306,8 @@ export async function GET(request: NextRequest) {
     // 按优先级排序
     const priorityOrder = { high: 1, medium: 2, low: 3 }
     insights.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority])
+
+    console.log(`[Insights API] Generated ${insights.length} insights for days=${days}`)
 
     return NextResponse.json({
       success: true,
