@@ -501,23 +501,30 @@ export async function resolveAffiliateLink(
         result = await resolveWithPlaywright(affiliateLink, proxy.url)
       } else if (resolverMethod === 'http') {
         // 已知HTTP重定向域名（包括Meta Refresh），先使用HTTP
-        console.log(`   尝试HTTP解析（已知HTTP/Meta Refresh重定向）`)
-        result = await resolveWithHttp(affiliateLink, proxy.url)
+        try {
+          console.log(`   尝试HTTP解析（已知HTTP/Meta Refresh重定向）`)
+          result = await resolveWithHttp(affiliateLink, proxy.url)
 
-        // KISS降级策略：检查是否停在了tracking URL
-        const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com/i.test(result.finalUrl)
+          // KISS降级策略：检查是否停在了tracking URL
+          const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com/i.test(result.finalUrl)
 
-        if (isTrackingUrl) {
-          console.log(`   ⚠️ 检测到tracking URL，可能需要继续追踪`)
-          console.log(`   降级到Playwright完成后续重定向...`)
-          const playwrightResult = await resolveWithPlaywright(result.finalUrl, proxy.url)
+          if (isTrackingUrl) {
+            console.log(`   ⚠️ 检测到tracking URL，可能需要继续追踪`)
+            console.log(`   降级到Playwright完成后续重定向...`)
+            const playwrightResult = await resolveWithPlaywright(result.finalUrl, proxy.url)
 
-          // 合并重定向链
-          result = {
-            ...playwrightResult,
-            redirectChain: [...result.redirectChain, ...playwrightResult.redirectChain.slice(1)],
-            redirectCount: result.redirectCount + playwrightResult.redirectCount,
+            // 合并重定向链
+            result = {
+              ...playwrightResult,
+              redirectChain: [...result.redirectChain, ...playwrightResult.redirectChain.slice(1)],
+              redirectCount: result.redirectCount + playwrightResult.redirectCount,
+            }
           }
+        } catch (httpError: any) {
+          // 🔥 修复：HTTP失败时降级到Playwright
+          console.log(`   HTTP失败: ${httpError.message}`)
+          console.log(`   降级到Playwright...`)
+          result = await resolveWithPlaywright(affiliateLink, proxy.url)
         }
       } else {
         // 未知域名，先尝试HTTP，失败则降级到Playwright
