@@ -27,7 +27,7 @@ async function getAIConfig(): Promise<AIConfig> {
   const db = getDatabase()
 
   const settings = db.prepare(`
-    SELECT key, value FROM settings
+    SELECT key, value FROM system_settings
     WHERE key IN (
       'VERTEX_AI_PROJECT_ID',
       'VERTEX_AI_LOCATION',

@@ -41,11 +41,14 @@ interface InsightsData {
   generatedAt: string
 }
 
-export function InsightsCard() {
+interface InsightsCardProps {
+  days: number
+}
+
+export function InsightsCard({ days }: InsightsCardProps) {
   const [data, setData] = useState<InsightsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [days, setDays] = useState(7)
 
   const fetchData = async () => {
     setLoading(true)
@@ -175,7 +178,7 @@ export function InsightsCard() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6">
             <div className="flex items-center gap-3">
               <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/>
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
               </svg>
               <div>
                 <p className="text-red-800 font-medium">数据加载失败</p>
@@ -227,23 +230,6 @@ export function InsightsCard() {
                 <span className="text-sm text-muted-foreground">低优先级</span>
               </div>
             )}
-          </div>
-        </div>
-
-        {/* 日期范围选择器 - P1-5优化版 */}
-        <div className="mt-4 flex items-center gap-2">
-          <span className="text-sm font-medium text-muted-foreground">分析周期:</span>
-          <div className="flex gap-2">
-            {[7, 30, 90].map((d) => (
-              <Button
-                key={d}
-                variant={days === d ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setDays(d)}
-              >
-                {d}天
-              </Button>
-            ))}
           </div>
         </div>
       </CardHeader>
@@ -316,9 +302,8 @@ export function InsightsCard() {
                         <div>
                           <span className="text-muted-foreground">差异: </span>
                           <span
-                            className={`font-semibold ${
-                              insight.metrics.change >= 0 ? 'text-green-600' : 'text-red-600'
-                            }`}
+                            className={`font-semibold ${insight.metrics.change >= 0 ? 'text-green-600' : 'text-red-600'
+                              }`}
                           >
                             {insight.metrics.change >= 0 ? '+' : ''}
                             {insight.metrics.change.toFixed(2)}

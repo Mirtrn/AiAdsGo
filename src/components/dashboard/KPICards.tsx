@@ -8,7 +8,6 @@
 import { useEffect, useState } from 'react'
 import { TrendingUp, TrendingDown, Eye, MousePointerClick, DollarSign, Target } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { KPILoadingSkeleton } from '@/components/ui/loading-skeleton' // P2-6: 统一loading
 
@@ -102,11 +101,14 @@ function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps
   )
 }
 
-export function KPICards() {
+interface KPICardsProps {
+  days: number
+}
+
+export function KPICards({ days }: KPICardsProps) {
   const [data, setData] = useState<KPIData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [days, setDays] = useState(7)
 
   const fetchData = async () => {
     setLoading(true)
@@ -142,7 +144,7 @@ export function KPICards() {
       <div className="bg-red-50 border border-red-200 rounded-lg p-6">
         <div className="flex items-center gap-3">
           <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/>
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
           </svg>
           <div>
             <p className="text-red-800 font-medium">数据加载失败</p>
@@ -168,29 +170,12 @@ export function KPICards() {
 
   return (
     <div>
-      {/* 日期范围选择器 - P1-5优化版 */}
-      <div className="mb-4 flex items-center gap-2">
-        <span className="text-sm font-medium text-muted-foreground">统计周期:</span>
-        <div className="flex gap-2">
-          {[7, 30, 90].map((d) => (
-            <Button
-              key={d}
-              variant={days === d ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setDays(d)}
-            >
-              {d}天
-            </Button>
-          ))}
-        </div>
-      </div>
-
       {/* 暂无数据提示 */}
       {hasNoData && (
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start gap-3">
             <svg className="w-5 h-5 text-blue-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
             </svg>
             <div>
               <p className="text-blue-800 font-medium">暂无广告数据</p>
@@ -212,57 +197,57 @@ export function KPICards() {
             icon={<Eye className="h-6 w-6" />}
             format="number"
           />
-        <KPICard
-          title="点击量"
-          value={data.current.clicks}
-          change={data.changes.clicks}
-          icon={<MousePointerClick className="h-6 w-6" />}
-          format="number"
-        />
-        <KPICard
-          title="总花费"
-          value={data.current.cost}
-          change={data.changes.cost}
-          icon={<DollarSign className="h-6 w-6" />}
-          format="currency"
-        />
-        <KPICard
-          title="转化量"
-          value={data.current.conversions}
-          change={data.changes.conversions}
-          icon={<Target className="h-6 w-6" />}
-          format="number"
-        />
+          <KPICard
+            title="点击量"
+            value={data.current.clicks}
+            change={data.changes.clicks}
+            icon={<MousePointerClick className="h-6 w-6" />}
+            format="number"
+          />
+          <KPICard
+            title="总花费"
+            value={data.current.cost}
+            change={data.changes.cost}
+            icon={<DollarSign className="h-6 w-6" />}
+            format="currency"
+          />
+          <KPICard
+            title="转化量"
+            value={data.current.conversions}
+            change={data.changes.conversions}
+            icon={<Target className="h-6 w-6" />}
+            format="number"
+          />
         </div>
       )}
 
       {/* 附加指标 - P1-5优化版 */}
       {data && (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border-gray-200 hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <p className="text-sm font-medium text-muted-foreground mb-2">平均CTR</p>
-            <p className="text-2xl font-bold text-primary">
-              {data.current.ctr.toFixed(2)}%
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-gray-200 hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <p className="text-sm font-medium text-muted-foreground mb-2">平均CPC</p>
-            <p className="text-2xl font-bold text-primary">
-              ¥{data.current.cpc.toFixed(2)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-gray-200 hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <p className="text-sm font-medium text-muted-foreground mb-2">转化率</p>
-            <p className="text-2xl font-bold text-primary">
-              {data.current.conversionRate.toFixed(2)}%
-            </p>
-          </CardContent>
-        </Card>
+          <Card className="border-gray-200 hover:shadow-md transition-shadow">
+            <CardContent className="pt-6">
+              <p className="text-sm font-medium text-muted-foreground mb-2">平均CTR</p>
+              <p className="text-2xl font-bold text-primary">
+                {data.current.ctr.toFixed(2)}%
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border-gray-200 hover:shadow-md transition-shadow">
+            <CardContent className="pt-6">
+              <p className="text-sm font-medium text-muted-foreground mb-2">平均CPC</p>
+              <p className="text-2xl font-bold text-primary">
+                ¥{data.current.cpc.toFixed(2)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border-gray-200 hover:shadow-md transition-shadow">
+            <CardContent className="pt-6">
+              <p className="text-sm font-medium text-muted-foreground mb-2">转化率</p>
+              <p className="text-2xl font-bold text-primary">
+                {data.current.conversionRate.toFixed(2)}%
+              </p>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
