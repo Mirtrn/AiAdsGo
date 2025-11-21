@@ -6,7 +6,8 @@
 import { getRedisClient } from './redis'
 import { resolveAffiliateLinkWithPlaywright } from './url-resolver-playwright'
 import type { PlaywrightResolvedUrl } from './url-resolver-playwright'
-import { resolveAffiliateLinkWithHttp, canUseHttpResolver } from './url-resolver-http'
+import { resolveAffiliateLinkWithHttp } from './url-resolver-http'
+import { getOptimalResolver, extractDomain } from './resolver-domains'
 
 // ==================== 类型定义 ====================
 
@@ -48,6 +49,8 @@ export class ProxyPoolManager {
   private readonly HEALTH_CHECK_INTERVAL = 3600000 // 1小时
   private readonly MAX_FAILURES_THRESHOLD = 3
   private readonly FAILURE_RESET_TIME = 3600000 // 1小时后重置失败计数
+  private lastHealthCheckTime: number = 0
+  private isHealthCheckRunning: boolean = false
 
   /**
    * 从settings中加载代理配置
@@ -180,6 +183,109 @@ export class ProxyPoolManager {
       failureCount: p.failureCount,
       successCount: p.successCount,
     }))
+  }
+
+  /**
+   * 主动健康检测：ping测试代理是否可用
+   */
+  async checkProxyHealth(proxyUrl: string, timeout: number = 5000): Promise<boolean> {
+    try {
+      const axios = (await import('axios')).default
+      const { HttpsProxyAgent } = await import('https-proxy-agent')
+
+      const agent = new HttpsProxyAgent(proxyUrl)
+      const testUrl = 'https://www.amazon.com' // 使用Amazon作为测试目标
+
+      const startTime = Date.now()
+      await axios.head(testUrl, {
+        httpsAgent: agent,
+        httpAgent: agent as any,
+        timeout,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      })
+      const responseTime = Date.now() - startTime
+
+      console.log(`✅ 代理健康检测通过: ${proxyUrl} (${responseTime}ms)`)
+      return true
+    } catch (error: any) {
+      console.error(`❌ 代理健康检测失败: ${proxyUrl}, 错误: ${error.message}`)
+      return false
+    }
+  }
+
+  /**
+   * 批量检测所有代理的健康状态
+   * @param force 是否强制检测（忽略时间间隔限制）
+   */
+  async performHealthCheck(force: boolean = false): Promise<void> {
+    const now = Date.now()
+
+    // 检查是否需要执行健康检测
+    if (!force && this.isHealthCheckRunning) {
+      console.log('⏳ 健康检测正在进行中，跳过...')
+      return
+    }
+
+    if (!force && now - this.lastHealthCheckTime < this.HEALTH_CHECK_INTERVAL) {
+      const remainingTime = Math.floor((this.HEALTH_CHECK_INTERVAL - (now - this.lastHealthCheckTime)) / 1000 / 60)
+      console.log(`⏳ 距离下次健康检测还有 ${remainingTime} 分钟`)
+      return
+    }
+
+    this.isHealthCheckRunning = true
+    this.lastHealthCheckTime = now
+
+    console.log(`🔍 开始批量健康检测 (${this.proxies.size}个代理)...`)
+
+    // 并行检测所有代理
+    const healthCheckPromises = Array.from(this.proxies.entries()).map(async ([url, proxy]) => {
+      const isHealthy = await this.checkProxyHealth(url, 10000)
+
+      if (isHealthy) {
+        // 健康检测通过，重置失败计数
+        proxy.failureCount = Math.max(0, proxy.failureCount - 1)
+        proxy.isHealthy = true
+        proxy.lastFailureTime = null
+      } else {
+        // 健康检测失败，增加失败计数
+        proxy.failureCount++
+        proxy.lastFailureTime = Date.now()
+
+        if (proxy.failureCount >= this.MAX_FAILURES_THRESHOLD) {
+          proxy.isHealthy = false
+          console.warn(`⚠️ 代理标记为不健康: ${url} (健康检测失败)`)
+        }
+      }
+    })
+
+    await Promise.all(healthCheckPromises)
+
+    this.isHealthCheckRunning = false
+
+    // 统计结果
+    const healthyCount = Array.from(this.proxies.values()).filter(p => p.isHealthy).length
+    const unhealthyCount = this.proxies.size - healthyCount
+
+    console.log(`✅ 健康检测完成: ${healthyCount}个健康, ${unhealthyCount}个不健康`)
+  }
+
+  /**
+   * 获取最佳可用代理（优先健康代理，必要时触发健康检测）
+   */
+  async getBestProxyWithHealthCheck(targetCountry: string): Promise<ProxyConfig | null> {
+    // 检查是否需要健康检测
+    const now = Date.now()
+    if (now - this.lastHealthCheckTime > this.HEALTH_CHECK_INTERVAL && !this.isHealthCheckRunning) {
+      // 后台异步执行健康检测（不阻塞当前请求）
+      this.performHealthCheck().catch(err => {
+        console.error('后台健康检测失败:', err)
+      })
+    }
+
+    // 返回当前最佳代理
+    return this.getBestProxyForCountry(targetCountry)
   }
 }
 
@@ -381,25 +487,64 @@ export async function resolveAffiliateLink(
 
       const startTime = Date.now()
 
-      // ========== 步骤4: 降级方案 ==========
+      // ========== 步骤4: 智能路由降级方案 ==========
       let result: ResolvedUrlData
 
-      // 检查是否可以使用HTTP解析器
-      if (canUseHttpResolver(affiliateLink)) {
+      // 使用智能路由决策
+      const resolverMethod = getOptimalResolver(affiliateLink)
+      const domain = extractDomain(affiliateLink)
+      console.log(`   智能路由决策: ${domain} → ${resolverMethod}`)
+
+      if (resolverMethod === 'playwright') {
+        // 已知JavaScript重定向域名，直接使用Playwright
+        console.log(`   直接使用Playwright（已知需要JavaScript）`)
+        result = await resolveWithPlaywright(affiliateLink, proxy.url)
+      } else if (resolverMethod === 'http') {
+        // 已知HTTP重定向域名（包括Meta Refresh），先使用HTTP
+        console.log(`   尝试HTTP解析（已知HTTP/Meta Refresh重定向）`)
+        result = await resolveWithHttp(affiliateLink, proxy.url)
+
+        // KISS降级策略：检查是否停在了tracking URL
+        const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com/i.test(result.finalUrl)
+
+        if (isTrackingUrl) {
+          console.log(`   ⚠️ 检测到tracking URL，可能需要继续追踪`)
+          console.log(`   降级到Playwright完成后续重定向...`)
+          const playwrightResult = await resolveWithPlaywright(result.finalUrl, proxy.url)
+
+          // 合并重定向链
+          result = {
+            ...playwrightResult,
+            redirectChain: [...result.redirectChain, ...playwrightResult.redirectChain.slice(1)],
+            redirectCount: result.redirectCount + playwrightResult.redirectCount,
+          }
+        }
+      } else {
+        // 未知域名，先尝试HTTP，失败则降级到Playwright
         try {
-          // Level 1: HTTP请求（快速但功能有限）
-          console.log(`   尝试HTTP解析...`)
+          console.log(`   尝试HTTP解析（未知域名）...`)
           result = await resolveWithHttp(affiliateLink, proxy.url)
+
+          // 检查是否真的有重定向（如果redirectCount=0可能需要Playwright）
+          if (result.redirectCount === 0 && affiliateLink !== result.finalUrl) {
+            // URL改变了但redirectCount为0，可能是JavaScript重定向
+            console.log(`   检测到可能的JavaScript重定向，降级到Playwright`)
+            result = await resolveWithPlaywright(affiliateLink, proxy.url)
+          } else if (result.redirectCount === 0) {
+            // URL没变且无重定向，可能是短链接服务
+            console.log(`   ⚠️ 无重定向检测到，尝试Playwright验证`)
+            const playwrightResult = await resolveWithPlaywright(affiliateLink, proxy.url)
+            // 如果Playwright获得了不同的结果，使用Playwright结果
+            if (playwrightResult.finalUrl !== result.finalUrl || playwrightResult.redirectCount > 0) {
+              console.log(`   ✅ Playwright发现了额外的重定向`)
+              result = playwrightResult
+            }
+          }
         } catch (httpError: any) {
           console.log(`   HTTP失败: ${httpError.message}`)
           console.log(`   降级到Playwright...`)
-          // Level 2: Playwright（慢但功能强大）
           result = await resolveWithPlaywright(affiliateLink, proxy.url)
         }
-      } else {
-        // 直接使用Playwright（某些域名已知需要JavaScript）
-        console.log(`   直接使用Playwright（已知需要JavaScript）`)
-        result = await resolveWithPlaywright(affiliateLink, proxy.url)
       }
 
       const responseTime = Date.now() - startTime

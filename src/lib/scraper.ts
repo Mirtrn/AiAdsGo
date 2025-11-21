@@ -29,8 +29,15 @@ async function getProxyAgent(customProxyUrl?: string): Promise<HttpsProxyAgent<s
     console.log(`使用代理: ${proxy.fullAddress}`)
 
     // 创建代理Agent (格式: http://username:password@host:port)
+    // 添加keepAlive配置以确保稳定的HTTPS隧道连接
     return new HttpsProxyAgent(
-      `http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`
+      `http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`,
+      {
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        timeout: 60000,
+        scheduling: 'lifo',
+      }
     )
   } catch (error: any) {
     console.error('获取代理失败:', error.message)
@@ -208,18 +215,60 @@ function extractAmazonData($: any): ScrapedProductData {
     }
   })
 
+  // 🔥 P1优化：增强图片提取逻辑，优先获取高质量主图
   const images: string[] = []
+
+  // 1. 尝试获取主图（高分辨率）
+  const mainImage = $('#landingImage').attr('src') ||
+                    $('#imgTagWrapperId img').attr('src') ||
+                    $('meta[property="og:image"]').attr('content') ||
+                    null
+
+  if (mainImage && !mainImage.includes('data:image')) {
+    // 移除尺寸限制以获取原始高分辨率图片
+    const highResImage = mainImage.replace(/\._.*_\./, '.')
+    images.push(highResImage)
+  }
+
+  // 2. 获取备用图片（缩略图）
   $('#altImages img').each((i: number, el: any) => {
     const src = $(el).attr('src')
-    if (src && !src.includes('data:image')) {
-      images.push(src)
+    if (src && !src.includes('data:image') && !images.includes(src)) {
+      // 同样移除尺寸限制
+      const highResSrc = src.replace(/\._.*_\./, '.')
+      if (!images.includes(highResSrc)) {
+        images.push(highResSrc)
+      }
     }
   })
+
+  // 3. 如果仍然没有图片，尝试其他选择器
+  if (images.length === 0) {
+    const fallbackImage = $('.imgTagWrapper img').attr('src') ||
+                          $('[data-old-hires]').attr('data-old-hires') ||
+                          null
+    if (fallbackImage && !fallbackImage.includes('data:image')) {
+      images.push(fallbackImage.replace(/\._.*_\./, '.'))
+    }
+  }
+
+  // 🔥 P1优化：增强价格提取逻辑，支持更多Amazon价格选择器
+  let productPrice: string | null = null
+
+  // 尝试多种价格选择器（按优先级排序）
+  productPrice = $('.a-price .a-offscreen').first().text().trim() || // 最常见的价格位置
+                 $('#priceblock_ourprice').text().trim() ||           // 传统价格位置
+                 $('#priceblock_dealprice').text().trim() ||          // Deal价格
+                 $('.a-price-whole').first().text().trim() ||         // 整数部分
+                 $('#price_inside_buybox').text().trim() ||           // Buy box价格
+                 $('[data-a-color="price"]').text().trim() ||         // 数据属性价格
+                 $('.priceToPay .a-offscreen').text().trim() ||       // 支付价格
+                 null
 
   return {
     productName: $('#productTitle').text().trim() || null,
     productDescription: $('#feature-bullets').text().trim() || $('#productDescription').text().trim() || null,
-    productPrice: $('.a-price .a-offscreen').text().trim() || $('#priceblock_ourprice').text().trim() || null,
+    productPrice,
     productCategory: $('#wayfinding-breadcrumbs_feature_div').text().trim() || null,
     productFeatures: features,
     brandName: $('#bylineInfo').text().trim().replace('Visit the ', '').replace(' Store', '') || $('[data-brand]').attr('data-brand') || null,
@@ -252,13 +301,34 @@ function extractShopifyData($: any): ScrapedProductData {
     }
   })
 
+  // 🔥 增强Shopify品牌提取逻辑
+  let brandName = $('.product-vendor').text().trim() ||
+                  $('[class*="vendor"]').text().trim() ||
+                  $('meta[property="og:site_name"]').attr('content') || null
+
+  // 如果仍然没有品牌，尝试从页面标题提取
+  if (!brandName) {
+    const pageTitle = $('title').text().trim()
+    console.log(`🔍 [Shopify] 尝试从页面标题提取品牌: ${pageTitle}`)
+    if (pageTitle) {
+      // 从标题中提取第一个单词或品牌名（通常在 | 或 - 之前）
+      const titleParts = pageTitle.split(/[\|\-]/)
+      if (titleParts.length > 0) {
+        const firstPart = titleParts[0].trim()
+        // 移除常见的后缀词
+        brandName = firstPart.replace(/\s+(Store|Shop|Official|Site|Online|Outdoor Life)$/i, '').trim()
+        console.log(`✅ [Shopify] 提取的品牌: ${brandName}`)
+      }
+    }
+  }
+
   return {
     productName: $('.product-title').text().trim() || $('h1').text().trim() || null,
     productDescription: $('.product-description').text().trim() || $('[class*="description"]').text().trim() || null,
     productPrice: $('.product-price').text().trim() || $('[class*="price"]').text().trim() || null,
     productCategory: $('.breadcrumbs').text().trim() || null,
     productFeatures: features.slice(0, 10),
-    brandName: $('.product-vendor').text().trim() || $('[class*="vendor"]').text().trim() || null,
+    brandName,
     imageUrls: images.slice(0, 5),
     metaTitle: $('title').text().trim() || null,
     metaDescription: $('meta[name="description"]').attr('content') || null,
@@ -288,15 +358,70 @@ function extractGenericData($: any): ScrapedProductData {
     }
   })
 
+  // 🔥 增强品牌提取逻辑
+  let brandName = $('[class*="brand"]').text().trim() ||
+                  $('meta[property="og:brand"]').attr('content') ||
+                  $('meta[property="og:site_name"]').attr('content') || null
+
+  // 如果仍然没有品牌，尝试从页面标题提取
+  if (!brandName) {
+    const pageTitle = $('title').text().trim()
+    console.log(`🔍 尝试从页面标题提取品牌: ${pageTitle}`)
+    if (pageTitle) {
+      // 从标题中提取第一个单词或品牌名（通常在 | 或 - 之前）
+      const titleParts = pageTitle.split(/[\|\-]/)
+      console.log(`📝 标题分割结果:`, titleParts)
+      if (titleParts.length > 0) {
+        const firstPart = titleParts[0].trim()
+        console.log(`📝 第一部分: ${firstPart}`)
+        // 移除常见的后缀词
+        brandName = firstPart.replace(/\s+(Store|Shop|Official|Site|Online)$/i, '').trim()
+        console.log(`✅ 提取的品牌: ${brandName}`)
+      }
+    }
+  } else {
+    console.log(`✅ 从meta标签提取品牌: ${brandName}`)
+  }
+
   return {
     productName: $('h1').text().trim() || $('[class*="product"][class*="title"]').text().trim() || null,
     productDescription: $('[class*="description"]').text().trim() || $('meta[name="description"]').attr('content') || null,
     productPrice: $('[class*="price"]').text().trim() || $('[data-price]').attr('data-price') || null,
     productCategory: $('.breadcrumb').text().trim() || $('[class*="breadcrumb"]').text().trim() || null,
     productFeatures: features.slice(0, 10),
-    brandName: $('[class*="brand"]').text().trim() || $('meta[property="og:brand"]').attr('content') || null,
+    brandName,
     imageUrls: images.slice(0, 5),
     metaTitle: $('title').text().trim() || null,
     metaDescription: $('meta[name="description"]').attr('content') || null,
+  }
+}
+
+/**
+ * Extract product info (simplified interface for legacy compatibility)
+ * This function wraps scrapeProductData and returns a simplified format
+ */
+export async function extractProductInfo(
+  url: string,
+  targetCountry?: string
+): Promise<{
+  brand: string | null
+  description: string | null
+  productName: string | null
+  price: string | null
+  imageUrls: string[]  // 🔥 P1优化：添加图片URL数组
+}> {
+  try {
+    const productData = await scrapeProductData(url)
+
+    return {
+      brand: productData.brandName,
+      description: productData.productDescription || productData.metaDescription,
+      productName: productData.productName,
+      price: productData.productPrice,
+      imageUrls: productData.imageUrls || [],  // 🔥 P1优化：返回图片URL数组
+    }
+  } catch (error) {
+    console.error('extractProductInfo error:', error)
+    throw error
   }
 }

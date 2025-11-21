@@ -724,13 +724,43 @@ export async function scrapeAmazonStore(
     console.log(`🌐 访问URL: ${url}`)
     await randomDelay(500, 1500)
 
-    const response = await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: 40000,
-    })
+    // 🔥 P0优化：添加重试机制以处理代理连接问题
+    const MAX_RETRIES = 3
+    let response = null
+    let lastError = null
 
-    if (!response) throw new Error('No response received')
-    console.log(`📊 HTTP状态: ${response.status()}`)
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        console.log(`🔄 尝试访问 (${attempt + 1}/${MAX_RETRIES})...`)
+
+        response = await page.goto(url, {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000, // 增加超时时间到60秒
+        })
+
+        if (!response) throw new Error('No response received')
+        console.log(`📊 HTTP状态: ${response.status()}`)
+
+        // 成功，跳出重试循环
+        lastError = null
+        break
+      } catch (error: any) {
+        lastError = error
+        console.error(`❌ 访问失败 (尝试 ${attempt + 1}/${MAX_RETRIES}): ${error.message}`)
+
+        // 如果不是最后一次重试，等待后继续
+        if (attempt < MAX_RETRIES - 1) {
+          const waitTime = 2000 * (attempt + 1) // 指数退避: 2s, 4s, 6s
+          console.log(`⏳ 等待 ${waitTime}ms 后重试...`)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+        }
+      }
+    }
+
+    // 如果所有重试都失败，抛出最后一个错误
+    if (lastError) {
+      throw new Error(`Amazon Store访问失败（${MAX_RETRIES}次重试后）: ${lastError.message}`)
+    }
 
     // Wait for store content to load
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {
@@ -758,20 +788,42 @@ export async function scrapeAmazonStore(
     const { load } = await import('cheerio')
     const $ = load(html)
 
-  // Extract store name
-  const storeName = $('h1').first().text().trim() ||
-                    $('[data-testid="store-name"]').text().trim() ||
-                    $('.stores-heading-desktop h1').text().trim() ||
-                    $('title').text().replace(' - Amazon.com', '').trim() ||
-                    null
+  // Extract store name - 优化选择器优先级
+  let storeName: string | null = null
+
+  // 尝试从title提取（最可靠）
+  const pageTitle = $('title').text().trim()
+  if (pageTitle && !pageTitle.includes('results for')) {
+    storeName = pageTitle.replace(' - Amazon.com', '').replace('.com', '').trim()
+  }
+
+  // 如果title不可用，尝试其他选择器
+  if (!storeName) {
+    storeName = $('[data-testid="store-name"]').text().trim() ||
+                $('.stores-heading-desktop h1').text().trim() ||
+                $('meta[property="og:title"]').attr('content')?.replace(' - Amazon.com', '').trim() ||
+                null
+  }
 
   // Extract store description
   const storeDescription = $('meta[name="description"]').attr('content') ||
+                           $('meta[property="og:description"]').attr('content') ||
                            $('.stores-brand-description').text().trim() ||
                            null
 
-  // Extract brand name
-  const brandName = storeName?.replace(' Store', '').replace(' Official Store', '').trim() || null
+  // Extract brand name - 从URL或storeName提取
+  let brandName: string | null = null
+
+  // 尝试从URL提取品牌名称 (e.g., /stores/Reolink/...)
+  const urlMatch = url.match(/\/stores\/([^\/]+)/)
+  if (urlMatch && urlMatch[1]) {
+    brandName = decodeURIComponent(urlMatch[1]).replace(/-/g, ' ').trim()
+  }
+
+  // 如果URL没有品牌，从storeName提取
+  if (!brandName && storeName) {
+    brandName = storeName.replace(' Store', '').replace(' Official Store', '').replace('Amazon.com:', '').trim()
+  }
 
   // Extract products from store listing
   const products: AmazonStoreData['products'] = []
@@ -880,18 +932,20 @@ export async function scrapeAmazonStore(
       const alt = $(el).attr('alt')?.trim() || ''
       const src = $(el).attr('src') || ''
 
-      // Filter for product images
-      if (alt && alt.length > 15 && alt.length < 300 &&
-          !alt.toLowerCase().includes('amazon') &&
-          !alt.toLowerCase().includes('logo') &&
-          !alt.toLowerCase().includes('brand') &&
-          src.includes('images-amazon') &&
-          !products.some(p => p.name === alt)) {
+      // 🔥 优化过滤条件：放宽限制以匹配更多Amazon Store产品图片
+      const isValidProductImage = alt &&
+        alt.length > 5 &&  // 降低最小长度从15到5
+        alt.length < 500 &&  // 提高最大长度从300到500
+        !alt.toLowerCase().match(/logo|icon|banner|button|arrow|star|prime badge/i) &&  // 只排除明显的非产品元素
+        (src.includes('images-amazon') || src.includes('ssl-images-amazon') || src.includes('m.media-amazon')) &&  // 支持更多Amazon CDN域名
+        !products.some(p => p.name === alt)
 
+      if (isValidProductImage) {
         // Try to find price near the image
         const $parent = $(el).closest('div').parent()
         const nearbyPrice = $parent.find('.a-price .a-offscreen').first().text().trim() ||
-                           $parent.find('[class*="price"]').first().text().trim() || null
+                           $parent.find('[class*="price"]').first().text().trim() ||
+                           $parent.find('[class*="Price"]').first().text().trim() || null
 
         products.push({
           name: alt,
