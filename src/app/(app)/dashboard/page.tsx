@@ -23,6 +23,8 @@ import {
   ChevronRight,
   RefreshCw
 } from 'lucide-react'
+import { InsightsCard } from '@/components/dashboard/InsightsCard'
+import { ABTestProgressCard } from '@/components/dashboard/ABTestProgressCard'
 
 interface KPIData {
   current: {
@@ -354,6 +356,12 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Insights 和 AB测试进度 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+          <InsightsCard days={days} />
+          <ABTestProgressCard />
+        </div>
       </div>
     </div>
   )

@@ -78,6 +78,7 @@ const transaction = db.transaction(() => {
       user_id INTEGER NOT NULL,
       url TEXT NOT NULL,
       brand TEXT NOT NULL,
+      product_name TEXT,
       category TEXT,
       target_country TEXT NOT NULL,
       affiliate_link TEXT,

@@ -24,7 +24,7 @@ export async function GET(
       SELECT
         at.*,
         o.brand as offer_brand,
-        o.brand as offer_product_name,
+        o.product_name as offer_product_name,
         o.affiliate_link as offer_link
       FROM ab_tests at
       LEFT JOIN offers o ON at.offer_id = o.id
@@ -194,7 +194,7 @@ export async function PUT(
       SELECT
         at.*,
         o.brand as offer_brand,
-        o.brand as offer_product_name
+        o.product_name as offer_product_name
       FROM ab_tests at
       LEFT JOIN offers o ON at.offer_id = o.id
       WHERE at.id = ?

@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
       SELECT
         at.*,
         o.brand as offer_brand,
-        o.brand as offer_product_name,
+        o.product_name as offer_product_name,
         COUNT(atv.id) as variant_count
       FROM ab_tests at
       LEFT JOIN offers o ON at.offer_id = o.id
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
         SELECT
           at.*,
           o.brand as offer_brand,
-          o.brand as offer_product_name
+          o.product_name as offer_product_name
         FROM ab_tests at
         LEFT JOIN offers o ON at.offer_id = o.id
         WHERE at.id = ?
