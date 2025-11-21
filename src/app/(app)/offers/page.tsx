@@ -43,7 +43,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import LaunchAdModal from '@/components/LaunchAdModal'
+// LaunchAdModal 已下线，使用新的 /offers/[id]/launch 流程
 import AdjustCpcModal from '@/components/AdjustCpcModal'
 import LaunchScoreModal from '@/components/LaunchScoreModal'
 import CreateOfferModalV2 from '@/components/CreateOfferModalV2'
@@ -99,8 +99,6 @@ export default function OffersPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
   // Modals
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null)
   const [isAdjustCpcModalOpen, setIsAdjustCpcModalOpen] = useState(false)
   const [selectedOfferForCpc, setSelectedOfferForCpc] = useState<Offer | null>(null)
   const [isLaunchScoreModalOpen, setIsLaunchScoreModalOpen] = useState(false)
@@ -509,8 +507,9 @@ export default function OffersPage() {
                 key={offer.id}
                 offer={offer}
                 onLaunchAd={(offer) => {
-                  setSelectedOffer(offer)
-                  setIsModalOpen(true)
+                  if (offer.scrape_status === 'completed') {
+                    router.push(`/offers/${offer.id}/launch`)
+                  }
                 }}
                 onAdjustCpc={(offer) => {
                   setSelectedOfferForCpc(offer)
@@ -528,8 +527,9 @@ export default function OffersPage() {
           <VirtualizedOfferTable
             offers={filteredOffers}
             onLaunchAd={(offer) => {
-              setSelectedOffer(offer)
-              setIsModalOpen(true)
+              if (offer.scrape_status === 'completed') {
+                router.push(`/offers/${offer.id}/launch`)
+              }
             }}
             onAdjustCpc={(offer) => {
               setSelectedOfferForCpc(offer)
@@ -671,14 +671,13 @@ export default function OffersPage() {
                             <Button
                               size="sm"
                               variant="default"
-                              onClick={() => {
-                                setSelectedOffer(offer)
-                                setIsModalOpen(true)
-                              }}
+                              onClick={() => router.push(`/offers/${offer.id}/launch`)}
+                              disabled={offer.scrape_status !== 'completed'}
                               className="h-8"
+                              title={offer.scrape_status !== 'completed' ? '请等待数据抓取完成' : ''}
                             >
                               <Rocket className="w-3.5 h-3.5 mr-1.5" />
-                              发布广告
+                              一键上广告
                             </Button>
 
                             <DropdownMenu>
@@ -731,25 +730,6 @@ export default function OffersPage() {
       </main>
 
       {/* Modals */}
-      <LaunchAdModal
-        open={isModalOpen && selectedOffer !== null}
-        onClose={() => {
-          setIsModalOpen(false)
-          setSelectedOffer(null)
-        }}
-        offer={(selectedOffer || {
-          id: 0,
-          offerName: '',
-          brand: '',
-          targetCountry: '',
-          targetLanguage: '',
-          url: '',
-          affiliateLink: null,
-          productPrice: null,
-          commissionPayout: null,
-        }) as any}
-      />
-
       {selectedOfferForCpc && (
         <AdjustCpcModal
           isOpen={isAdjustCpcModalOpen}

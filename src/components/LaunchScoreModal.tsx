@@ -90,11 +90,17 @@ export default function LaunchScoreModal({
   );
 
   // 历史评分相关状态
-  const [activeTab, setActiveTab] = useState<"current" | "history" | "compare">(
+  const [activeTab, setActiveTab] = useState<"current" | "history" | "compare" | "performance">(
     "current",
   );
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // 性能对比相关状态
+  const [performanceData, setPerformanceData] = useState<any>(null);
+  const [loadingPerformance, setLoadingPerformance] = useState(false);
+  const [performanceTimeRange, setPerformanceTimeRange] = useState<string>('30');
+  const [avgOrderValue, setAvgOrderValue] = useState<string>('');
 
   // Creative对比相关状态
   const [selectedCompareIds, setSelectedCompareIds] = useState<number[]>([]);
@@ -177,6 +183,35 @@ export default function LaunchScoreModal({
       console.error("加载对比数据失败:", err);
     } finally {
       setLoadingCompare(false);
+    }
+  };
+
+  const loadPerformanceData = async () => {
+    setLoadingPerformance(true);
+    try {
+      const params = new URLSearchParams({
+        daysBack: performanceTimeRange,
+      });
+
+      if (avgOrderValue && parseFloat(avgOrderValue) > 0) {
+        params.append('avgOrderValue', avgOrderValue);
+      }
+
+      const response = await fetch(
+        `/api/offers/${offer.id}/launch-score/performance?${params.toString()}`,
+        {
+          credentials: "include",
+        },
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setPerformanceData(data);
+      }
+    } catch (err) {
+      console.error("加载性能对比数据失败:", err);
+    } finally {
+      setLoadingPerformance(false);
     }
   };
 
@@ -403,6 +438,21 @@ export default function LaunchScoreModal({
                 }`}
               >
                 对比分析 {creatives.length > 0 && `(${creatives.length}个)`}
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab("performance");
+                  if (!performanceData) {
+                    loadPerformanceData();
+                  }
+                }}
+                className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
+                  activeTab === "performance"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                实际表现
               </button>
             </div>
 
@@ -1696,6 +1746,217 @@ export default function LaunchScoreModal({
                         </div>
                       );
                     })()}
+
+                    <div className="flex justify-end">
+                      <button
+                        onClick={onClose}
+                        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : activeTab === "performance" ? (
+              /* 实际表现Tab */
+              <div className="space-y-6">
+                {loadingPerformance ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
+                    <p className="mt-4 text-gray-600">加载性能数据中...</p>
+                  </div>
+                ) : !performanceData ? (
+                  <div className="text-center py-12">
+                    <button
+                      onClick={loadPerformanceData}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                    >
+                      加载性能数据
+                    </button>
+                  </div>
+                ) : !performanceData.hasLaunchScore ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <p className="mb-4">暂无Launch Score记录</p>
+                    <button
+                      onClick={() => setActiveTab("current")}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                    >
+                      前往创建Launch Score
+                    </button>
+                  </div>
+                ) : !performanceData.hasPerformanceData ? (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                    <svg className="mx-auto h-12 w-12 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <h3 className="mt-4 text-lg font-medium text-yellow-900">暂无实际投放数据</h3>
+                    <p className="mt-2 text-sm text-yellow-700">
+                      Launch Score已创建，但尚未检测到实际的广告投放数据。
+                      <br />
+                      请先投放广告并等待数据同步后，再查看预测准确度分析。
+                    </p>
+                    <div className="mt-6 text-sm text-gray-600">
+                      <p>Launch Score创建时间: {new Date(performanceData.launchScore.calculatedAt).toLocaleString('zh-CN')}</p>
+                      <p className="mt-1">总分: <span className="font-bold text-indigo-600">{performanceData.launchScore.totalScore}/100</span></p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* 控制面板 */}
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            时间范围
+                          </label>
+                          <select
+                            value={performanceTimeRange}
+                            onChange={(e) => {
+                              setPerformanceTimeRange(e.target.value);
+                              loadPerformanceData();
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          >
+                            <option value="7">最近7天</option>
+                            <option value="30">最近30天</option>
+                            <option value="90">最近90天</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            平均订单价值 (用于ROI计算)
+                          </label>
+                          <input
+                            type="number"
+                            value={avgOrderValue}
+                            onChange={(e) => setAvgOrderValue(e.target.value)}
+                            onBlur={loadPerformanceData}
+                            placeholder="例如: 50.00"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 准确度评分卡片 */}
+                    <div className={`rounded-lg p-6 text-white ${
+                      performanceData.accuracyScore >= 80 ? 'bg-green-500' :
+                      performanceData.accuracyScore >= 60 ? 'bg-blue-500' :
+                      performanceData.accuracyScore >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-lg font-medium opacity-90">预测准确度</h3>
+                          <div className="mt-2 flex items-baseline">
+                            <span className="text-5xl font-bold">{performanceData.accuracyScore}</span>
+                            <span className="ml-2 text-2xl opacity-75">/100</span>
+                          </div>
+                          <p className="mt-2 text-sm opacity-90">
+                            Launch Score创建于: {new Date(performanceData.launchScore.calculatedAt).toLocaleDateString('zh-CN')}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-4xl">
+                            {performanceData.accuracyScore >= 80 ? '🎯' :
+                             performanceData.accuracyScore >= 60 ? '✅' :
+                             performanceData.accuracyScore >= 40 ? '⚠️' : '❌'}
+                          </div>
+                          <p className="mt-2 text-sm opacity-90">
+                            {performanceData.accuracyScore >= 80 ? '预测非常准确' :
+                             performanceData.accuracyScore >= 60 ? '预测基本准确' :
+                             performanceData.accuracyScore >= 40 ? '预测有偏差' : '预测不准确'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 预测 vs 实际对比表格 */}
+                    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                        <h4 className="text-lg font-semibold text-gray-900">
+                          Launch Score预测 vs 实际表现
+                        </h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          数据范围: {performanceData.performanceData.dateRange.start} 至 {performanceData.performanceData.dateRange.end} ({performanceData.performanceData.dateRange.days}天)
+                        </p>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                指标
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Launch Score预测
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                实际表现
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                准确度
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                差异说明
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {performanceData.comparisons.map((comparison: any, index: number) => (
+                              <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                  {comparison.metric}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  {comparison.predicted}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-indigo-600">
+                                  {comparison.actual}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                  {comparison.accuracy !== null ? (
+                                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                      comparison.accuracy >= 80 ? 'bg-green-100 text-green-800' :
+                                      comparison.accuracy >= 60 ? 'bg-blue-100 text-blue-800' :
+                                      comparison.accuracy >= 40 ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-red-100 text-red-800'
+                                    }`}>
+                                      {comparison.accuracy}%
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-600">
+                                  {comparison.variance}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* 性能调整建议 */}
+                    {performanceData.adjustedRecommendations && performanceData.adjustedRecommendations.length > 0 && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                        <h4 className="font-semibold text-blue-900 mb-3 flex items-center">
+                          <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                          </svg>
+                          基于实际表现的优化建议
+                        </h4>
+                        <ul className="space-y-2">
+                          {performanceData.adjustedRecommendations.map((rec: string, i: number) => (
+                            <li key={i} className="flex items-start text-sm text-blue-800">
+                              <span className="mr-2">{i + 1}.</span>
+                              <span>{rec}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
 
                     <div className="flex justify-end">
                       <button

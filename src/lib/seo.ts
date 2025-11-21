@@ -209,13 +209,13 @@ export const pageMetadata = {
     noIndex: true,
   }),
 
-  // Google Ads设置
+  // Google Ads账号管理
   googleAdsSettings: generateMetadata({
-    title: 'Google Ads设置',
+    title: 'Google Ads账号管理',
     description:
-      '管理Google Ads账号连接、API配置、广告账号授权。确保与Google Ads平台无缝集成。',
-    path: '/settings/google-ads',
-    keywords: ['Google Ads账号', 'API配置', '账号授权', 'OAuth'],
+      '管理Google Ads账号、查看关联的Offer、监控账户状态。支持MCC管理账户和子账户。',
+    path: '/google-ads',
+    keywords: ['Google Ads账号', 'MCC账户', '账号管理', '关联Offer'],
     noIndex: true,
   }),
 

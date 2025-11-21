@@ -64,10 +64,10 @@ const quickActions: QuickAction[] = [
   },
   {
     id: 'google-ads',
-    title: 'Google Ads设置',
-    description: '管理账号连接',
+    title: 'Google Ads账号',
+    description: '管理Google Ads账号',
     icon: <Settings className="w-5 h-5" />,
-    href: '/settings/google-ads',
+    href: '/google-ads',
     variant: 'outline',
     iconBg: 'bg-gray-100',
     iconColor: 'text-gray-600',

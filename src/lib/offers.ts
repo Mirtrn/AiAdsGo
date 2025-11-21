@@ -451,6 +451,10 @@ export function updateOfferScrapeStatus(
     reviews?: string
     promotions?: string
     competitive_edges?: string
+    // P0优化: 分析结果字段
+    review_analysis?: string
+    competitor_analysis?: string
+    visual_analysis?: string
   }
 ): void {
   const db = getDatabase()

@@ -9,12 +9,31 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card } from '@/components/ui/card'
 import { toast } from 'sonner'
-import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2 } from 'lucide-react'
+import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
 
 // 代理URL配置项接口
 interface ProxyUrlConfig {
   country: string
   url: string
+}
+
+// Google Ads账户接口
+interface GoogleAdsAccount {
+  customer_id: string
+  descriptive_name: string
+  currency_code: string
+  time_zone: string
+  manager: boolean
+  test_account: boolean
+  status?: string
+}
+
+// Google Ads凭证状态接口
+interface GoogleAdsCredentialStatus {
+  has_credentials: boolean
+  login_customer_id?: string
+  last_verified_at?: string
+  is_active?: boolean
 }
 
 // 支持的国家列表
@@ -70,6 +89,11 @@ const SETTING_METADATA: Record<string, {
     description: 'Google Ads API开发者令牌，用于API调用授权',
     placeholder: '输入Developer Token',
     helpLink: 'https://ads.google.com/aw/apicenter'
+  },
+  'google_ads.login_customer_id': {
+    label: 'Login Customer ID (MCC账户ID)',
+    description: 'MCC管理账户ID，用于访问子账户。格式：10位数字（不含连字符）',
+    placeholder: '例如: 1234567890'
   },
 
   // AI - 模式选择
@@ -222,11 +246,46 @@ export default function SettingsPage() {
   // 表单状态
   const [formData, setFormData] = useState<Record<string, Record<string, string>>>({})
 
+  // 正在编辑的敏感字段（用于控制显示真实值还是固定占位符）
+  const [editingField, setEditingField] = useState<string | null>(null)
+
   // 代理URL配置状态
   const [proxyUrls, setProxyUrls] = useState<ProxyUrlConfig[]>([])
 
+  // Google Ads 凭证和账户状态
+  const [googleAdsCredentialStatus, setGoogleAdsCredentialStatus] = useState<GoogleAdsCredentialStatus | null>(null)
+  const [googleAdsAccounts, setGoogleAdsAccounts] = useState<GoogleAdsAccount[]>([])
+  const [loadingGoogleAdsAccounts, setLoadingGoogleAdsAccounts] = useState(false)
+  const [showGoogleAdsAccounts, setShowGoogleAdsAccounts] = useState(false)
+  const [verifyingGoogleAds, setVerifyingGoogleAds] = useState(false)
+  const [startingOAuth, setStartingOAuth] = useState(false)
+
   useEffect(() => {
     fetchSettings()
+  }, [])
+
+  // 检查 OAuth 回调结果
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const oauthSuccess = urlParams.get('oauth_success')
+    const errorParam = urlParams.get('error')
+
+    if (oauthSuccess === 'true') {
+      toast.success('✅ OAuth 授权成功！Refresh Token 已保存')
+      // 清除 URL 参数
+      window.history.replaceState({}, '', '/settings?category=google_ads')
+    } else if (errorParam) {
+      const errorMessages: Record<string, string> = {
+        'missing_code': 'OAuth 授权失败：缺少授权码',
+        'missing_state': 'OAuth 授权失败：缺少状态参数',
+        'invalid_state': 'OAuth 授权失败：无效的状态参数',
+        'state_expired': 'OAuth 授权失败：状态参数已过期',
+        'missing_google_ads_config': 'OAuth 授权失败：请先保存 Client ID、Client Secret 和 Developer Token',
+      }
+      toast.error(errorMessages[errorParam] || `OAuth 授权失败：${errorParam}`)
+      // 清除 URL 参数
+      window.history.replaceState({}, '', '/settings?category=google_ads')
+    }
   }, [])
 
   const fetchSettings = async () => {
@@ -298,6 +357,106 @@ export default function SettingsPage() {
     ))
   }
 
+  // Google Ads 凭证状态获取
+  const fetchGoogleAdsCredentialStatus = async () => {
+    try {
+      const response = await fetch('/api/google-ads/credentials', {
+        credentials: 'include',
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setGoogleAdsCredentialStatus(data.data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch Google Ads credential status:', err)
+    }
+  }
+
+  // Google Ads OAuth 授权
+  const handleStartGoogleAdsOAuth = async () => {
+    const clientId = formData.google_ads?.client_id
+
+    if (!clientId?.trim()) {
+      toast.error('请先填写并保存 Client ID')
+      return
+    }
+
+    try {
+      setStartingOAuth(true)
+      const response = await fetch(
+        `/api/google-ads/oauth/start?client_id=${encodeURIComponent(clientId)}`,
+        { credentials: 'include' }
+      )
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || '启动OAuth失败')
+      }
+
+      const data = await response.json()
+      window.location.href = data.data.auth_url
+    } catch (err: any) {
+      toast.error(err.message || 'OAuth启动失败')
+      setStartingOAuth(false)
+    }
+  }
+
+  // 验证 Google Ads 凭证
+  const handleVerifyGoogleAdsCredentials = async () => {
+    try {
+      setVerifyingGoogleAds(true)
+
+      const response = await fetch('/api/google-ads/credentials/verify', {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      const data = await response.json()
+
+      if (data.success && data.data.valid) {
+        toast.success(`凭证有效${data.data.customer_id ? ` - Customer ID: ${data.data.customer_id}` : ''}`)
+        await fetchGoogleAdsCredentialStatus()
+      } else {
+        toast.error(data.data.error || '凭证无效')
+      }
+    } catch (err: any) {
+      toast.error(err.message || '验证失败')
+    } finally {
+      setVerifyingGoogleAds(false)
+    }
+  }
+
+  // 获取可访问的 Google Ads 账户
+  const handleFetchGoogleAdsAccounts = async () => {
+    try {
+      setLoadingGoogleAdsAccounts(true)
+      setShowGoogleAdsAccounts(true)
+
+      const response = await fetch('/api/google-ads/credentials/accounts', {
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || '获取账户列表失败')
+      }
+
+      const data = await response.json()
+      setGoogleAdsAccounts(data.data.accounts || [])
+      toast.success(`找到${data.data.total}个可访问的 Google Ads 账户`)
+    } catch (err: any) {
+      toast.error(err.message || '获取失败')
+      setShowGoogleAdsAccounts(false)
+    } finally {
+      setLoadingGoogleAdsAccounts(false)
+    }
+  }
+
+  // 初始化时获取 Google Ads 凭证状态
+  useEffect(() => {
+    fetchGoogleAdsCredentialStatus()
+  }, [])
+
   const handleSave = async (category: string) => {
     setSaving(true)
 
@@ -306,8 +465,14 @@ export default function SettingsPage() {
 
       // 特殊处理代理配置
       if (category === 'proxy') {
-        // 过滤掉空URL的配置
-        const validProxyUrls = proxyUrls.filter(item => item.url.trim() !== '')
+        // 过滤掉空URL或空国家的配置，添加安全检查避免undefined
+        const validProxyUrls = proxyUrls.filter(item =>
+          item &&
+          typeof item.url === 'string' &&
+          typeof item.country === 'string' &&
+          item.url.trim() !== '' &&
+          item.country.trim() !== ''
+        )
         updates = [{
           category: 'proxy',
           key: 'urls',
@@ -351,6 +516,30 @@ export default function SettingsPage() {
     setValidating(category)
 
     try {
+      let config = formData[category] || {}
+
+      // 代理分类需要从 proxyUrls 状态获取数据
+      if (category === 'proxy') {
+        // 过滤掉空URL或空国家的配置，添加安全检查避免undefined
+        const validProxyUrls = proxyUrls.filter(item =>
+          item &&
+          typeof item.url === 'string' &&
+          typeof item.country === 'string' &&
+          item.url.trim() !== '' &&
+          item.country.trim() !== ''
+        )
+
+        if (validProxyUrls.length === 0 && proxyUrls.length > 0) {
+          toast.error('请填写完整的代理URL和国家后再验证')
+          setValidating(null)
+          return
+        }
+
+        config = {
+          urls: JSON.stringify(validProxyUrls)
+        }
+      }
+
       const response = await fetch('/api/settings/validate', {
         method: 'POST',
         credentials: 'include',
@@ -359,7 +548,7 @@ export default function SettingsPage() {
         },
         body: JSON.stringify({
           category,
-          config: formData[category] || {},
+          config,
         }),
       })
 
@@ -477,12 +666,26 @@ export default function SettingsPage() {
 
     // 敏感数据 - 密码输入
     if (setting.isSensitive) {
+      const fieldKey = `${category}.${setting.key}`
+      const isEditing = editingField === fieldKey
+
+      // 如果正在编辑，显示实际值；否则显示固定长度的占位符（12个点），避免泄露实际长度
+      const displayValue = isEditing ? value : (value ? '············' : '')
+
       return (
         <Input
           type="password"
-          value={value}
+          value={displayValue}
           onChange={(e) => handleInputChange(category, setting.key, e.target.value)}
           placeholder={metadata?.placeholder || ''}
+          onFocus={() => {
+            // 聚焦时标记为正在编辑
+            setEditingField(fieldKey)
+          }}
+          onBlur={() => {
+            // 失焦时取消编辑状态
+            setEditingField(null)
+          }}
         />
       )
     }
@@ -560,8 +763,140 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                {/* 特殊处理代理配置分类 */}
-                {category === 'proxy' ? (
+                {/* 特殊处理 Google Ads 配置分类 */}
+                {category === 'google_ads' ? (
+                  <div className="space-y-6">
+                    {/* Google Ads 凭证状态 */}
+                    {googleAdsCredentialStatus?.has_credentials && (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle2 className="w-5 h-5 text-green-600" />
+                          <span className="font-semibold text-green-700">已配置完整凭证</span>
+                        </div>
+                        {googleAdsCredentialStatus.login_customer_id && (
+                          <p className="text-sm text-green-700">
+                            Manager Customer ID: <span className="font-mono">{googleAdsCredentialStatus.login_customer_id}</span>
+                          </p>
+                        )}
+                        {googleAdsCredentialStatus.last_verified_at && (
+                          <p className="text-sm text-green-700">
+                            最后验证: {new Date(googleAdsCredentialStatus.last_verified_at).toLocaleString('zh-CN')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 基础配置字段 - 2列布局 */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
+                      {categorySettings.map((setting: Setting) => {
+                        const metaKey = `${category}.${setting.key}`
+                        const metadata = SETTING_METADATA[metaKey]
+
+                        return (
+                          <div key={setting.key}>
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label className="label-text flex items-center gap-2">
+                                  {metadata?.label || setting.key}
+                                  {setting.isRequired && (
+                                    <span className="text-caption text-red-500">*必填</span>
+                                  )}
+                                </Label>
+                                {metadata?.helpLink && (
+                                  <a
+                                    href={metadata.helpLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                                  >
+                                    获取密钥
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                )}
+                              </div>
+                              <p className="helper-text flex items-start gap-1">
+                                <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                {metadata?.description || setting.description || '无描述'}
+                              </p>
+                              {renderInput(category, setting)}
+                            </div>
+
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* 可访问的账户列表 */}
+                    {googleAdsCredentialStatus?.has_credentials && (
+                      <div className="border-t pt-6">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-semibold text-lg">Google Ads 账户</h3>
+                          <Button
+                            onClick={handleFetchGoogleAdsAccounts}
+                            disabled={loadingGoogleAdsAccounts}
+                            variant="outline"
+                            size="sm"
+                          >
+                            {loadingGoogleAdsAccounts ? '加载中...' : '查看可访问账户'}
+                          </Button>
+                        </div>
+
+                        {showGoogleAdsAccounts && (
+                          <div className="space-y-3">
+                            {loadingGoogleAdsAccounts ? (
+                              <div className="text-center py-8">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+                                <p className="mt-2 text-sm text-gray-600">加载账户列表...</p>
+                              </div>
+                            ) : googleAdsAccounts.length === 0 ? (
+                              <div className="text-center py-8 bg-gray-50 rounded-lg">
+                                <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                                <p className="text-gray-600">未找到可访问的账户</p>
+                              </div>
+                            ) : (
+                              googleAdsAccounts.map((account) => (
+                                <div
+                                  key={account.customer_id}
+                                  className="p-4 border rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="font-semibold text-gray-900">
+                                      {account.descriptive_name}
+                                    </span>
+                                    <div className="flex gap-2">
+                                      {account.manager && (
+                                        <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">
+                                          Manager
+                                        </span>
+                                      )}
+                                      {account.test_account && (
+                                        <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
+                                          测试账户
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-2 text-sm text-gray-600">
+                                    <div>
+                                      <span className="font-medium">ID:</span>{' '}
+                                      <span className="font-mono">{account.customer_id}</span>
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">货币:</span> {account.currency_code}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">时区:</span> {account.time_zone}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : category === 'proxy' ? (
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label className="label-text">代理URL配置</Label>
@@ -747,7 +1082,7 @@ export default function SettingsPage() {
                   </>
                 )}
 
-                <div className="mt-6 pt-4 border-t border-slate-200 flex gap-3">
+                <div className="mt-6 pt-4 border-t border-slate-200 flex gap-3 flex-wrap">
                   <Button
                     onClick={() => handleSave(category)}
                     disabled={saving}
@@ -755,7 +1090,18 @@ export default function SettingsPage() {
                     {saving ? '保存中...' : '保存配置'}
                   </Button>
 
-                  {(category === 'google_ads' || category === 'ai' || category === 'proxy') && (
+                  {category === 'google_ads' && (
+                    <Button
+                      onClick={handleStartGoogleAdsOAuth}
+                      disabled={startingOAuth}
+                      variant="outline"
+                    >
+                      <Key className="w-4 h-4 mr-2" />
+                      {startingOAuth ? '启动中...' : '启动 OAuth 授权'}
+                    </Button>
+                  )}
+
+                  {(category === 'ai' || category === 'proxy') && (
                     <Button
                       variant="outline"
                       onClick={() => handleValidate(category)}

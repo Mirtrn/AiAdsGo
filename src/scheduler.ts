@@ -6,12 +6,16 @@
  * 1. 每6小时同步Google Ads数据
  * 2. 每天凌晨2点备份数据库
  * 3. 每天凌晨3点清理90天前的数据
+ * 4. 每天凌晨2点检查链接可用性和账号状态（需求20优化）
+ * 5. 每小时监控A/B测试并自动优化（CPC调整、胜出切换）
  */
 
 import cron from 'node-cron'
 import { getDatabase } from './lib/db'
 import { dataSyncService } from './lib/data-sync-service'
 import { backupDatabase } from './lib/backup'
+import { dailyLinkCheck } from './lib/risk-alerts'
+import { runABTestMonitor } from './scheduler/ab-test-monitor'
 import fs from 'fs'
 import path from 'path'
 
@@ -164,6 +168,40 @@ async function cleanupOldBackups(daysToKeep: number) {
 }
 
 /**
+ * 任务4: 链接可用性和账号状态检查
+ * 频率：每天凌晨2点
+ * 需求20优化：后续异步操作 - Ads账号状态检测、推广链接检测
+ */
+async function linkAndAccountCheckTask() {
+  log('🔍 开始执行链接可用性和账号状态检查任务...')
+
+  try {
+    const result = await dailyLinkCheck()
+
+    log(
+      `✅ 链接和账号检查完成 - 用户数: ${result.totalUsers}, 链接数: ${result.totalLinks}, 新风险提示: ${result.totalAlerts}`
+    )
+    log(
+      `   账号检查: ${result.accountChecks.totalAccounts}个账号, ${result.accountChecks.problemAccounts}个异常`
+    )
+
+    // 详细统计
+    const { totalLinks, results } = result
+    let broken = 0
+    let redirected = 0
+
+    Object.values(results).forEach((r) => {
+      broken += r.broken
+      redirected += r.redirected
+    })
+
+    log(`   链接状态: ${broken}个失效, ${redirected}个重定向`)
+  } catch (error) {
+    logError('❌ 链接和账号检查任务执行失败:', error)
+  }
+}
+
+/**
  * 启动调度器
  */
 function startScheduler() {
@@ -171,7 +209,9 @@ function startScheduler() {
   log('📅 任务调度计划:')
   log('  - 数据同步: 每6小时 (0, 6, 12, 18点)')
   log('  - 数据库备份: 每天凌晨2点')
+  log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
   log('  - 数据清理: 每天凌晨3点')
+  log('  - A/B测试监控: 每小时')
 
   // 任务1: 每6小时同步数据 (0, 6, 12, 18点)
   cron.schedule('0 */6 * * *', async () => {
@@ -189,9 +229,40 @@ function startScheduler() {
     timezone: 'Asia/Shanghai'
   })
 
-  // 任务3: 每天凌晨3点清理旧数据
+  // 任务3: 每天凌晨2点检查链接和账号状态（需求20优化）
+  // 使用环境变量控制是否启用
+  const linkCheckEnabled = process.env.LINK_CHECK_ENABLED !== 'false'
+  const linkCheckCron = process.env.LINK_CHECK_CRON || '0 2 * * *'
+
+  if (linkCheckEnabled) {
+    cron.schedule(linkCheckCron, async () => {
+      await linkAndAccountCheckTask()
+    }, {
+      scheduled: true,
+      timezone: 'Asia/Shanghai'
+    })
+    log(`✅ 链接和账号检查任务已启动 (cron: ${linkCheckCron})`)
+  } else {
+    log('⏸️  链接和账号检查任务已禁用 (LINK_CHECK_ENABLED=false)')
+  }
+
+  // 任务4: 每天凌晨3点清理旧数据
   cron.schedule('0 3 * * *', async () => {
     await cleanupOldDataTask()
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Shanghai'
+  })
+
+  // 任务5: 每小时监控A/B测试（CPC调整、自动切换胜出创意）
+  cron.schedule('0 * * * *', async () => {
+    try {
+      log('🔬 开始A/B测试监控任务...')
+      await runABTestMonitor()
+      log('✅ A/B测试监控任务完成')
+    } catch (error: any) {
+      logError('❌ A/B测试监控任务失败:', error)
+    }
   }, {
     scheduled: true,
     timezone: 'Asia/Shanghai'

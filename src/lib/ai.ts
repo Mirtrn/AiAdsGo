@@ -627,8 +627,8 @@ ${majorPainPoints ? `3. 通过差异化解决用户痛点（如: 解决"${majorP
       competitiveInsightsUsed = true
 
       // 提取最有价值的竞争洞察
-      const priceAdv = analysis.pricePosition?.advantage || 'unknown'
-      const ratingAdv = analysis.ratingPosition?.advantage || 'unknown'
+      const priceAdv = (analysis.pricePosition?.priceAdvantage || 'unknown') as string
+      const ratingAdv = (analysis.ratingPosition?.ratingAdvantage || 'unknown') as string
       const usps = analysis.uniqueSellingPoints?.slice(0, 3).map((usp: any) => usp.feature).join(', ') || ''
       const competitorAdvs = analysis.competitorAdvantages?.slice(0, 3).map((adv: any) => adv.advantage).join('; ') || ''
       const competitiveness = analysis.overallCompetitiveness || 0

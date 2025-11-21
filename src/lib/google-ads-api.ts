@@ -1,5 +1,7 @@
 import { GoogleAdsApi, Customer, enums } from 'google-ads-api'
 import { updateGoogleAdsAccount } from './google-ads-accounts'
+import { withRetry } from './retry'
+import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 
 /**
  * Google Ads API客户端单例
@@ -144,8 +146,15 @@ export async function getCustomer(
   const client = getGoogleAdsClient()
 
   try {
-    // 尝试使用refresh token获取新的access token
-    const tokens = await refreshAccessToken(refreshToken)
+    // 尝试使用refresh token获取新的access token（带重试）
+    const tokens = await withRetry(
+      () => refreshAccessToken(refreshToken),
+      {
+        maxRetries: 2,
+        initialDelay: 500,
+        operationName: 'Refresh Google Ads Token'
+      }
+    )
 
     // 更新数据库中的token
     if (accountId && userId) {
@@ -223,7 +232,14 @@ export async function createGoogleAdsCampaign(params: {
     ;(campaign as any).end_date = endDateObj.toISOString().split('T')[0].replace(/-/g, '')
   }
 
-  const response = await customer.campaigns.create([campaign])
+  const response = await withRetry(
+    () => customer.campaigns.create([campaign]),
+    {
+      maxRetries: 3,
+      initialDelay: 1000,
+      operationName: `Create Campaign: ${params.campaignName}`
+    }
+  )
 
   if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建广告系列失败：无响应')
@@ -231,6 +247,11 @@ export async function createGoogleAdsCampaign(params: {
 
   const result = response.results[0]
   const campaignId = result.resource_name?.split('/').pop() || ''
+
+  // 清除Campaigns列表缓存（创建新Campaign后）
+  const listCacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
+  gadsApiCache.delete(listCacheKey)
+  console.log(`🗑️ 已清除Campaigns列表缓存: ${params.customerId}`)
 
   return {
     campaignId,
@@ -258,7 +279,14 @@ async function createCampaignBudget(
         : enums.BudgetDeliveryMethod.ACCELERATED,
   }
 
-  const response = await customer.campaignBudgets.create([budget])
+  const response = await withRetry(
+    () => customer.campaignBudgets.create([budget]),
+    {
+      maxRetries: 3,
+      initialDelay: 1000,
+      operationName: `Create Budget: ${params.name}`
+    }
+  )
 
   if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建预算失败')
@@ -287,10 +315,79 @@ export async function updateGoogleAdsCampaignStatus(params: {
 
   const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-  await customer.campaigns.update([{
-    resource_name: resourceName,
-    status: enums.CampaignStatus[params.status],
-  }])
+  await withRetry(
+    () => customer.campaigns.update([{
+      resource_name: resourceName,
+      status: enums.CampaignStatus[params.status],
+    }]),
+    {
+      maxRetries: 3,
+      initialDelay: 1000,
+      operationName: `Update Campaign Status: ${params.campaignId} -> ${params.status}`
+    }
+  )
+
+  // 清除相关缓存（更新状态后）
+  const getCacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
+    campaignId: params.campaignId
+  })
+  const listCacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
+
+  gadsApiCache.delete(getCacheKey)
+  gadsApiCache.delete(listCacheKey)
+  console.log(`🗑️ 已清除Campaign缓存: ${params.campaignId}`)
+}
+
+/**
+ * 更新Google Ads广告系列预算
+ */
+export async function updateGoogleAdsCampaignBudget(params: {
+  customerId: string
+  refreshToken: string
+  campaignId: string
+  budgetAmount: number
+  budgetType: 'DAILY' | 'TOTAL'
+  accountId?: number
+  userId?: number
+}): Promise<void> {
+  const customer = await getCustomer(
+    params.customerId,
+    params.refreshToken,
+    params.accountId,
+    params.userId
+  )
+
+  // 1. 创建新的预算
+  const budgetResourceName = await createCampaignBudget(customer, {
+    name: `Budget ${params.campaignId} - ${Date.now()}`,
+    amount: params.budgetAmount,
+    deliveryMethod: params.budgetType === 'DAILY' ? 'STANDARD' : 'ACCELERATED',
+  })
+
+  // 2. 更新Campaign指向新预算
+  const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+
+  await withRetry(
+    () => customer.campaigns.update([{
+      resource_name: resourceName,
+      campaign_budget: budgetResourceName,
+    }]),
+    {
+      maxRetries: 3,
+      initialDelay: 1000,
+      operationName: `Update Campaign Budget: ${params.campaignId} -> ${params.budgetAmount}`
+    }
+  )
+
+  // 清除相关缓存
+  const getCacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
+    campaignId: params.campaignId
+  })
+  const listCacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
+
+  gadsApiCache.delete(getCacheKey)
+  gadsApiCache.delete(listCacheKey)
+  console.log(`🗑️ 已清除Campaign预算缓存: ${params.campaignId}`)
 }
 
 /**
@@ -302,7 +399,22 @@ export async function getGoogleAdsCampaign(params: {
   campaignId: string
   accountId?: number
   userId?: number
+  skipCache?: boolean
 }): Promise<any> {
+  // 生成缓存键
+  const cacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
+    campaignId: params.campaignId
+  })
+
+  // 检查缓存（除非显式跳过）
+  if (!params.skipCache) {
+    const cached = gadsApiCache.get(cacheKey)
+    if (cached) {
+      console.log(`✅ 使用缓存的Campaign数据: ${params.campaignId}`)
+      return cached
+    }
+  }
+
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
@@ -328,7 +440,15 @@ export async function getGoogleAdsCampaign(params: {
   `
 
   const results = await customer.query(query)
-  return results[0] || null
+  const result = results[0] || null
+
+  // 缓存结果（30分钟TTL）
+  if (result) {
+    gadsApiCache.set(cacheKey, result)
+    console.log(`💾 已缓存Campaign数据: ${params.campaignId}`)
+  }
+
+  return result
 }
 
 /**
@@ -339,7 +459,20 @@ export async function listGoogleAdsCampaigns(params: {
   refreshToken: string
   accountId?: number
   userId?: number
+  skipCache?: boolean
 }): Promise<any[]> {
+  // 生成缓存键
+  const cacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
+
+  // 检查缓存（除非显式跳过）
+  if (!params.skipCache) {
+    const cached = gadsApiCache.get(cacheKey)
+    if (cached) {
+      console.log(`✅ 使用缓存的Campaigns列表: ${params.customerId}`)
+      return cached
+    }
+  }
+
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
@@ -362,6 +495,11 @@ export async function listGoogleAdsCampaigns(params: {
   `
 
   const results = await customer.query(query)
+
+  // 缓存结果（30分钟TTL）
+  gadsApiCache.set(cacheKey, results)
+  console.log(`💾 已缓存Campaigns列表: ${params.customerId} (${results.length}个)`)
+
   return results
 }
 
@@ -639,5 +777,299 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   return {
     adId,
     resourceName: result.resource_name || '',
+  }
+}
+
+// ==================== Performance Reporting ====================
+
+/**
+ * 获取Campaign表现数据
+ *
+ * @param params.customerId - Google Ads Customer ID
+ * @param params.refreshToken - OAuth refresh token
+ * @param params.campaignId - Google Ads Campaign ID
+ * @param params.startDate - 开始日期 (YYYY-MM-DD)
+ * @param params.endDate - 结束日期 (YYYY-MM-DD)
+ * @param params.accountId - 本地账号ID（用于token刷新）
+ * @param params.userId - 用户ID
+ * @returns 每日表现数据数组
+ */
+export async function getCampaignPerformance(params: {
+  customerId: string
+  refreshToken: string
+  campaignId: string
+  startDate: string
+  endDate: string
+  accountId: number
+  userId: number
+}): Promise<Array<{
+  date: string
+  impressions: number
+  clicks: number
+  conversions: number
+  cost_micros: number
+  ctr: number
+  cpc_micros: number
+  conversion_rate: number
+}>> {
+  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId)
+
+  // Google Ads Query Language (GAQL) query
+  const query = `
+    SELECT
+      segments.date,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.conversions,
+      metrics.cost_micros,
+      metrics.ctr,
+      metrics.average_cpc,
+      metrics.conversions_from_interactions_rate
+    FROM campaign
+    WHERE campaign.id = ${params.campaignId}
+      AND segments.date BETWEEN '${params.startDate}' AND '${params.endDate}'
+    ORDER BY segments.date DESC
+  `
+
+  try {
+    const response = await customer.query(query)
+
+    const performanceData = response.map((row: any) => ({
+      date: row.segments?.date || '',
+      impressions: row.metrics?.impressions || 0,
+      clicks: row.metrics?.clicks || 0,
+      conversions: row.metrics?.conversions || 0,
+      cost_micros: row.metrics?.cost_micros || 0,
+      ctr: row.metrics?.ctr || 0,
+      cpc_micros: Math.round((row.metrics?.average_cpc || 0) * 1000000), // Convert to micros
+      conversion_rate: row.metrics?.conversions_from_interactions_rate || 0,
+    }))
+
+    return performanceData
+  } catch (error: any) {
+    console.error('获取Campaign表现数据失败:', error)
+    throw new Error(`获取表现数据失败: ${error.message}`)
+  }
+}
+
+/**
+ * 获取Ad Group表现数据
+ *
+ * @param params.customerId - Google Ads Customer ID
+ * @param params.refreshToken - OAuth refresh token
+ * @param params.adGroupId - Google Ads Ad Group ID
+ * @param params.startDate - 开始日期 (YYYY-MM-DD)
+ * @param params.endDate - 结束日期 (YYYY-MM-DD)
+ * @param params.accountId - 本地账号ID
+ * @param params.userId - 用户ID
+ * @returns 每日表现数据数组
+ */
+export async function getAdGroupPerformance(params: {
+  customerId: string
+  refreshToken: string
+  adGroupId: string
+  startDate: string
+  endDate: string
+  accountId: number
+  userId: number
+}): Promise<Array<{
+  date: string
+  impressions: number
+  clicks: number
+  conversions: number
+  cost_micros: number
+  ctr: number
+  cpc_micros: number
+  conversion_rate: number
+}>> {
+  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId)
+
+  const query = `
+    SELECT
+      segments.date,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.conversions,
+      metrics.cost_micros,
+      metrics.ctr,
+      metrics.average_cpc,
+      metrics.conversions_from_interactions_rate
+    FROM ad_group
+    WHERE ad_group.id = ${params.adGroupId}
+      AND segments.date BETWEEN '${params.startDate}' AND '${params.endDate}'
+    ORDER BY segments.date DESC
+  `
+
+  try {
+    const response = await customer.query(query)
+
+    const performanceData = response.map((row: any) => ({
+      date: row.segments?.date || '',
+      impressions: row.metrics?.impressions || 0,
+      clicks: row.metrics?.clicks || 0,
+      conversions: row.metrics?.conversions || 0,
+      cost_micros: row.metrics?.cost_micros || 0,
+      ctr: row.metrics?.ctr || 0,
+      cpc_micros: Math.round((row.metrics?.average_cpc || 0) * 1000000),
+      conversion_rate: row.metrics?.conversions_from_interactions_rate || 0,
+    }))
+
+    return performanceData
+  } catch (error: any) {
+    console.error('获取Ad Group表现数据失败:', error)
+    throw new Error(`获取表现数据失败: ${error.message}`)
+  }
+}
+
+/**
+ * 获取Ad表现数据
+ *
+ * @param params.customerId - Google Ads Customer ID
+ * @param params.refreshToken - OAuth refresh token
+ * @param params.adId - Google Ads Ad ID
+ * @param params.startDate - 开始日期 (YYYY-MM-DD)
+ * @param params.endDate - 结束日期 (YYYY-MM-DD)
+ * @param params.accountId - 本地账号ID
+ * @param params.userId - 用户ID
+ * @returns 每日表现数据数组
+ */
+export async function getAdPerformance(params: {
+  customerId: string
+  refreshToken: string
+  adId: string
+  startDate: string
+  endDate: string
+  accountId: number
+  userId: number
+}): Promise<Array<{
+  date: string
+  impressions: number
+  clicks: number
+  conversions: number
+  cost_micros: number
+  ctr: number
+  cpc_micros: number
+  conversion_rate: number
+}>> {
+  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId)
+
+  const query = `
+    SELECT
+      segments.date,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.conversions,
+      metrics.cost_micros,
+      metrics.ctr,
+      metrics.average_cpc,
+      metrics.conversions_from_interactions_rate
+    FROM ad_group_ad
+    WHERE ad_group_ad.ad.id = ${params.adId}
+      AND segments.date BETWEEN '${params.startDate}' AND '${params.endDate}'
+    ORDER BY segments.date DESC
+  `
+
+  try {
+    const response = await customer.query(query)
+
+    const performanceData = response.map((row: any) => ({
+      date: row.segments?.date || '',
+      impressions: row.metrics?.impressions || 0,
+      clicks: row.metrics?.clicks || 0,
+      conversions: row.metrics?.conversions || 0,
+      cost_micros: row.metrics?.cost_micros || 0,
+      ctr: row.metrics?.ctr || 0,
+      cpc_micros: Math.round((row.metrics?.average_cpc || 0) * 1000000),
+      conversion_rate: row.metrics?.conversions_from_interactions_rate || 0,
+    }))
+
+    return performanceData
+  } catch (error: any) {
+    console.error('获取Ad表现数据失败:', error)
+    throw new Error(`获取表现数据失败: ${error.message}`)
+  }
+}
+
+/**
+ * 批量获取多个Campaign的表现数据（汇总）
+ *
+ * @param params.customerId - Google Ads Customer ID
+ * @param params.refreshToken - OAuth refresh token
+ * @param params.campaignIds - Google Ads Campaign IDs数组
+ * @param params.startDate - 开始日期 (YYYY-MM-DD)
+ * @param params.endDate - 结束日期 (YYYY-MM-DD)
+ * @param params.accountId - 本地账号ID
+ * @param params.userId - 用户ID
+ * @returns Campaign ID到表现数据的映射
+ */
+export async function getBatchCampaignPerformance(params: {
+  customerId: string
+  refreshToken: string
+  campaignIds: string[]
+  startDate: string
+  endDate: string
+  accountId: number
+  userId: number
+}): Promise<Record<string, Array<{
+  date: string
+  impressions: number
+  clicks: number
+  conversions: number
+  cost_micros: number
+  ctr: number
+  cpc_micros: number
+  conversion_rate: number
+}>>> {
+  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId)
+
+  // Construct IN clause for multiple campaign IDs
+  const campaignIdList = params.campaignIds.join(',')
+
+  const query = `
+    SELECT
+      campaign.id,
+      segments.date,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.conversions,
+      metrics.cost_micros,
+      metrics.ctr,
+      metrics.average_cpc,
+      metrics.conversions_from_interactions_rate
+    FROM campaign
+    WHERE campaign.id IN (${campaignIdList})
+      AND segments.date BETWEEN '${params.startDate}' AND '${params.endDate}'
+    ORDER BY campaign.id, segments.date DESC
+  `
+
+  try {
+    const response = await customer.query(query)
+
+    // Group by campaign ID
+    const performanceByCampaign: Record<string, any[]> = {}
+
+    response.forEach((row: any) => {
+      const campaignId = row.campaign?.id?.toString() || ''
+
+      if (!performanceByCampaign[campaignId]) {
+        performanceByCampaign[campaignId] = []
+      }
+
+      performanceByCampaign[campaignId].push({
+        date: row.segments?.date || '',
+        impressions: row.metrics?.impressions || 0,
+        clicks: row.metrics?.clicks || 0,
+        conversions: row.metrics?.conversions || 0,
+        cost_micros: row.metrics?.cost_micros || 0,
+        ctr: row.metrics?.ctr || 0,
+        cpc_micros: Math.round((row.metrics?.average_cpc || 0) * 1000000),
+        conversion_rate: row.metrics?.conversions_from_interactions_rate || 0,
+      })
+    })
+
+    return performanceByCampaign
+  } catch (error: any) {
+    console.error('批量获取Campaign表现数据失败:', error)
+    throw new Error(`批量获取表现数据失败: ${error.message}`)
   }
 }

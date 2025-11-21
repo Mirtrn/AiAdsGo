@@ -279,7 +279,7 @@ async function scrapeAlsoViewed(page: any, limit: number): Promise<CompetitorPro
           elements.forEach((el, idx) => {
             if (idx >= maxItems) return
 
-            const linkEl = el.querySelector('a[href*="/dp/"]')
+            const linkEl = el.querySelector('a[href*="/dp/"]') as HTMLAnchorElement | null
             const asin = linkEl?.href?.match(/\/dp\/([A-Z0-9]{10})/)?.[1] || null
 
             const nameEl = el.querySelector('.a-truncate-full, .p13n-sc-truncated')
@@ -348,7 +348,7 @@ async function scrapeSimilarItems(page: any, limit: number): Promise<CompetitorP
           elements.forEach((el, idx) => {
             if (idx >= maxItems) return
 
-            const linkEl = el.querySelector('a[href*="/dp/"]')
+            const linkEl = el.querySelector('a[href*="/dp/"]') as HTMLAnchorElement | null
             const asin = linkEl?.href?.match(/\/dp\/([A-Z0-9]{10})/)?.[1] || null
 
             const nameEl = el.querySelector('.a-truncate-full, .p13n-sc-truncated')

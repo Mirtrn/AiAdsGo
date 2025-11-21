@@ -6,6 +6,8 @@ import { InsightsCard } from '@/components/dashboard/InsightsCard'
 import { PerformanceTrends } from '@/components/dashboard/PerformanceTrends'
 import RiskAlertPanel from '@/components/RiskAlertPanel'
 import { QuickActions } from '@/components/dashboard/QuickActions' // P2-4: 快速操作
+import { AnalyticsQuickAccess } from '@/components/dashboard/AnalyticsQuickAccess' // 数据分析快速入口
+import { ABTestProgressCard } from '@/components/dashboard/ABTestProgressCard' // A/B测试进度
 
 export default function DashboardPage() {
   return (
@@ -39,8 +41,12 @@ export default function DashboardPage() {
             <CampaignList />
           </div>
 
-          {/* Insights Card */}
-          <div className="lg:col-span-1">
+          {/* Side Panel */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* A/B Test Progress Card */}
+            <ABTestProgressCard />
+
+            {/* Insights Card */}
             <InsightsCard />
           </div>
         </div>
@@ -48,6 +54,11 @@ export default function DashboardPage() {
         {/* Performance Trends */}
         <div>
           <PerformanceTrends />
+        </div>
+
+        {/* Analytics Quick Access */}
+        <div className="mt-8">
+          <AnalyticsQuickAccess />
         </div>
       </div>
     </div>

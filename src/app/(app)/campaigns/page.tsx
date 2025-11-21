@@ -22,7 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle } from 'lucide-react'
+import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign } from 'lucide-react'
+import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 
 interface Campaign {
   id: number
@@ -37,6 +38,29 @@ interface Campaign {
   creationError: string | null
   lastSyncAt: string | null
   createdAt: string
+  performance?: {
+    impressions: number
+    clicks: number
+    conversions: number
+    costUsd: number
+    ctr: number
+    cpcUsd: number
+    conversionRate: number
+    dateRange: {
+      start: string
+      end: string
+      days: number
+    }
+  }
+}
+
+interface PerformanceSummary {
+  totalCampaigns: number
+  activeCampaigns: number
+  totalImpressions: number
+  totalClicks: number
+  totalConversions: number
+  totalCostUsd: number
 }
 
 export default function CampaignsPage() {
@@ -46,15 +70,29 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState<number | null>(null)
+  const [syncingData, setSyncingData] = useState(false)
+  const [summary, setSummary] = useState<PerformanceSummary | null>(null)
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [creationStatusFilter, setCreationStatusFilter] = useState<string>('all')
+  const [timeRange, setTimeRange] = useState<string>('7')
+
+  // Trend data states
+  const [trendsData, setTrendsData] = useState<TrendChartData[]>([])
+  const [trendsLoading, setTrendsLoading] = useState(false)
+  const [trendsError, setTrendsError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchCampaigns()
+    fetchTrends()
   }, [])
+
+  useEffect(() => {
+    fetchCampaigns()
+    fetchTrends()
+  }, [timeRange])
 
   useEffect(() => {
     let result = campaigns
@@ -84,21 +122,70 @@ export default function CampaignsPage() {
 
   const fetchCampaigns = async () => {
     try {
-      const response = await fetch('/api/campaigns', {
+      setLoading(true)
+      const response = await fetch(`/api/campaigns/performance?daysBack=${timeRange}`, {
         credentials: 'include',
       })
 
       if (!response.ok) {
-        throw new Error('获取广告系列列表失败')
+        throw new Error('获取广告系列数据失败')
       }
 
       const data = await response.json()
       setCampaigns(data.campaigns)
       setFilteredCampaigns(data.campaigns)
+      setSummary(data.summary)
     } catch (err: any) {
       setError(err.message || '加载失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchTrends = async () => {
+    try {
+      setTrendsLoading(true)
+      const response = await fetch(`/api/campaigns/trends?daysBack=${timeRange}`, {
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        throw new Error('获取趋势数据失败')
+      }
+
+      const data = await response.json()
+      setTrendsData(data.trends)
+      setTrendsError(null)
+    } catch (err: any) {
+      setTrendsError(err.message || '加载趋势数据失败')
+    } finally {
+      setTrendsLoading(false)
+    }
+  }
+
+  const handleSyncData = async () => {
+    setSyncingData(true)
+    try {
+      const response = await fetch('/api/sync/trigger', {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '数据同步失败')
+      }
+
+      showSuccess('同步成功', `已同步 ${data.recordCount} 条性能数据`)
+      // Wait a moment then refresh campaigns
+      setTimeout(() => {
+        fetchCampaigns()
+      }, 1000)
+    } catch (err: any) {
+      showError('同步失败', err.message)
+    } finally {
+      setSyncingData(false)
     }
   }
 
@@ -209,18 +296,118 @@ export default function CampaignsPage() {
                 {campaigns.length}
               </Badge>
             </div>
-            <Button onClick={() => router.push('/offers')}>
-              创建广告系列
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={handleSyncData}
+                disabled={syncingData}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${syncingData ? 'animate-spin' : ''}`} />
+                {syncingData ? '同步中...' : '同步数据'}
+              </Button>
+              <Button onClick={() => router.push('/offers')}>
+                创建广告系列
+              </Button>
+            </div>
           </div>
         </div>
       </div>
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {/* Summary Statistics */}
+        {summary && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">总展示次数</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      {summary.totalImpressions.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">总点击次数</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      {summary.totalClicks.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
+                    <CheckCircle2 className="w-6 h-6 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">总转化次数</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      {summary.totalConversions.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="h-12 w-12 bg-purple-100 rounded-full flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-purple-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">总花费</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">
+                      ${summary.totalCostUsd.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
+                    <DollarSign className="w-6 h-6 text-orange-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Trends Chart */}
+        <div className="mb-6">
+          <TrendChart
+            data={trendsData}
+            metrics={[
+              { key: 'impressions', label: '展示次数', color: 'hsl(var(--chart-1))' },
+              { key: 'clicks', label: '点击次数', color: 'hsl(var(--chart-2))' },
+              { key: 'conversions', label: '转化次数', color: 'hsl(var(--chart-4))' },
+            ]}
+            title="性能趋势"
+            description={`过去${timeRange}天的数据变化`}
+            loading={trendsLoading}
+            error={trendsError}
+            onRetry={fetchTrends}
+            selectedTimeRange={parseInt(timeRange)}
+            onTimeRangeChange={(days) => setTimeRange(days.toString())}
+            height={280}
+          />
+        </div>
+
         {/* Filters */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -231,6 +418,18 @@ export default function CampaignsPage() {
                   className="pl-10"
                 />
               </div>
+
+              {/* Time Range Filter */}
+              <Select value={timeRange} onValueChange={setTimeRange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="时间范围" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7">近7天</SelectItem>
+                  <SelectItem value="30">近30天</SelectItem>
+                  <SelectItem value="90">近90天</SelectItem>
+                </SelectContent>
+              </Select>
 
               {/* Status Filter */}
               <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -292,17 +491,23 @@ export default function CampaignsPage() {
         ) : (
           <Card>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[300px]">广告系列名称</TableHead>
-                    <TableHead>预算</TableHead>
-                    <TableHead>投放状态</TableHead>
-                    <TableHead>同步状态</TableHead>
-                    <TableHead>创建时间</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[200px]">广告系列名称</TableHead>
+                      <TableHead>预算</TableHead>
+                      <TableHead>展示</TableHead>
+                      <TableHead>点击</TableHead>
+                      <TableHead>CTR</TableHead>
+                      <TableHead>CPC</TableHead>
+                      <TableHead>转化</TableHead>
+                      <TableHead>花费</TableHead>
+                      <TableHead>投放状态</TableHead>
+                      <TableHead>同步状态</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
                 <TableBody>
                   {filteredCampaigns.map((campaign) => (
                     <TableRow key={campaign.id} className="hover:bg-gray-50/50">
@@ -323,6 +528,36 @@ export default function CampaignsPage() {
                         <div className="text-xs text-gray-500">{campaign.budgetType}</div>
                       </TableCell>
                       <TableCell>
+                        <div className="font-medium text-gray-900">
+                          {campaign.performance?.impressions?.toLocaleString() || '0'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium text-gray-900">
+                          {campaign.performance?.clicks?.toLocaleString() || '0'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium text-gray-900">
+                          {campaign.performance?.ctr?.toFixed(2) || '0.00'}%
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium text-gray-900">
+                          ${campaign.performance?.cpcUsd?.toFixed(2) || '0.00'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium text-gray-900">
+                          {campaign.performance?.conversions?.toFixed(1) || '0.0'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium text-gray-900">
+                          ${campaign.performance?.costUsd?.toFixed(2) || '0.00'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         {getStatusBadge(campaign.status)}
                       </TableCell>
                       <TableCell>
@@ -334,9 +569,6 @@ export default function CampaignsPage() {
                             </span>
                           )}
                         </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-500">
-                        {new Date(campaign.createdAt).toLocaleDateString()}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end items-center gap-2">
@@ -379,6 +611,7 @@ export default function CampaignsPage() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
         )}

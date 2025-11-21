@@ -184,7 +184,7 @@ export async function scrapeProductImages(page: any): Promise<ProductImage[]> {
 
     // 获取图片尺寸（可选，耗时）
     // 这里仅标记，实际尺寸检查可以在分析时进行
-    const imagesWithQuality: ProductImage[] = images.map(img => ({
+    const imagesWithQuality: ProductImage[] = images.map((img: Partial<ProductImage>) => ({
       ...img,
       isHighQuality: undefined  // 将在analyzeImageQuality中评估
     }))

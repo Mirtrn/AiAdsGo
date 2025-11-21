@@ -691,11 +691,14 @@ async function performScrapeAndAnalysis(
             console.log(`✅ 抓取到${competitors.length}个竞品，开始AI对比分析...`)
 
             // 构建我们的产品信息
+            const priceStr = productInfo.pricing?.currentPrice
+            const priceNum = priceStr ? parseFloat(priceStr.replace(/[^0-9.]/g, '')) : null
+
             const ourProduct = {
               name: extractedBrand || brand,
-              price: productInfo.pricing?.currentPrice || null,
-              rating: productInfo.reviews?.averageRating || null,
-              reviewCount: productInfo.reviews?.totalCount || null,
+              price: priceNum,
+              rating: productInfo.reviews?.rating || null,
+              reviewCount: productInfo.reviews?.reviewCount || null,
               features: productInfo.productHighlights
                 ? productInfo.productHighlights.split('\n').filter((f: string) => f.trim())
                 : []
@@ -711,8 +714,8 @@ async function performScrapeAndAnalysis(
 
             console.log('✅ P0竞品对比分析完成')
             console.log(`   - 竞品数量: ${competitorAnalysis.totalCompetitors}`)
-            console.log(`   - 价格优势: ${competitorAnalysis.pricePosition?.advantage || 'unknown'}`)
-            console.log(`   - 评分优势: ${competitorAnalysis.ratingPosition?.advantage || 'unknown'}`)
+            console.log(`   - 价格优势: ${competitorAnalysis.pricePosition?.priceAdvantage || 'unknown'}`)
+            console.log(`   - 评分优势: ${competitorAnalysis.ratingPosition?.ratingAdvantage || 'unknown'}`)
             console.log(`   - 独特卖点: ${competitorAnalysis.uniqueSellingPoints.length}个`)
             console.log(`   - 竞品优势: ${competitorAnalysis.competitorAdvantages.length}个`)
             console.log(`   - 整体竞争力: ${competitorAnalysis.overallCompetitiveness}/100`)
@@ -803,11 +806,11 @@ async function performScrapeAndAnalysis(
       promotions: formatFieldForDB(productInfo.promotions),
       competitive_edges: formatFieldForDB(productInfo.competitiveEdges),
       // 🎯 P0优化: 用户评论深度分析结果
-      review_analysis: reviewAnalysis ? formatFieldForDB(reviewAnalysis) : null,
+      review_analysis: reviewAnalysis ? formatFieldForDB(reviewAnalysis) : undefined,
       // 🎯 P0优化: 竞品对比分析结果
-      competitor_analysis: competitorAnalysis ? formatFieldForDB(competitorAnalysis) : null,
+      competitor_analysis: competitorAnalysis ? formatFieldForDB(competitorAnalysis) : undefined,
       // 🎯 P1优化: 视觉元素智能分析结果
-      visual_analysis: visualAnalysis ? formatFieldForDB(visualAnalysis) : null,
+      visual_analysis: visualAnalysis ? formatFieldForDB(visualAnalysis) : undefined,
     })
 
     console.log(`Offer ${offerId} 抓取和分析完成`)

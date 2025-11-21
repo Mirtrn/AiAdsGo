@@ -93,7 +93,7 @@ const navigationItems: NavItem[] = [
   },
   {
     label: 'Google Ads账号',
-    href: '/settings/google-ads',
+    href: '/google-ads',
     icon: Link2,
   },
   {

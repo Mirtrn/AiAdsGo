@@ -257,6 +257,34 @@ export function setActiveGoogleAdsAccount(id: number, userId: number): boolean {
 }
 
 /**
+ * 获取Google Ads账号的解密凭证
+ * 用于API调用时获取认证信息
+ */
+export async function getDecryptedCredentials(
+  accountId: number,
+  userId: number
+): Promise<{
+  customerId: string
+  accessToken: string | null
+  refreshToken: string | null
+  clientId?: string
+  clientSecret?: string
+} | null> {
+  const account = findGoogleAdsAccountById(accountId, userId)
+
+  if (!account) {
+    return null
+  }
+
+  // 返回凭证信息（在实际生产环境中，这里应该进行解密操作）
+  return {
+    customerId: account.customerId,
+    accessToken: account.accessToken,
+    refreshToken: account.refreshToken,
+  }
+}
+
+/**
  * 数据库行映射为GoogleAdsAccount对象
  */
 function mapRowToGoogleAdsAccount(row: any): GoogleAdsAccount {
