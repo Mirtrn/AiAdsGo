@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
       SELECT
         o.id,
         o.brand,
-        o.product_name,
+        o.brand as product_name,
         SUM(c.budget_amount) as allocated_budget,
         SUM(cp.cost) as spent,
         COUNT(DISTINCT c.id) as campaign_count,
@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
         AND ${whereConditions.join(' AND ')}
       LEFT JOIN offers o ON c.offer_id = o.id
       WHERE c.user_id = ? AND o.id IS NOT NULL
-      GROUP BY o.id, o.brand, o.product_name
+      GROUP BY o.id, o.brand
       HAVING SUM(cp.cost) > 0
       ORDER BY spent DESC
       LIMIT 10
