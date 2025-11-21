@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
         totalImpressions: campaigns.reduce((sum, c) => sum + c.impressions, 0),
         totalClicks: campaigns.reduce((sum, c) => sum + c.clicks, 0),
         totalConversions: campaigns.reduce((sum, c) => sum + c.conversions, 0),
-        totalCost: campaigns.reduce((sum, c) => sum + c.cost, 0)
+        totalCostUsd: campaigns.reduce((sum, c) => sum + c.cost, 0)
       }
     })
 

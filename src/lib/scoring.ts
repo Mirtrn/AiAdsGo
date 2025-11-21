@@ -1,7 +1,7 @@
 import { generateContent } from './gemini'
 import type { ScoreAnalysis } from './launch-scores'
 import type { Offer } from './offers'
-import type { Creative } from './creatives'
+import type { AdCreative } from './ad-creative'
 
 /**
  * 计算Launch Score - 5维度评分系统
@@ -15,7 +15,8 @@ import type { Creative } from './creatives'
  */
 export async function calculateLaunchScore(
   offer: Offer,
-  creative: Creative
+  creative: AdCreative,
+  userId: number
 ): Promise<ScoreAnalysis> {
   try {
     const prompt = `你是一个专业的Google Ads投放评估专家。请分析以下广告投放计划，并从5个维度进行评分。
@@ -32,12 +33,10 @@ export async function calculateLaunchScore(
 联盟链接：${offer.affiliate_link || '无'}
 
 # 广告创意
-标题1：${creative.headline1}
-标题2：${creative.headline2 || '无'}
-标题3：${creative.headline3 || '无'}
-描述1：${creative.description1}
-描述2：${creative.description2 || '无'}
-最终URL：${creative.finalUrl}
+标题列表：${creative.headlines.slice(0, 3).join(', ')}
+描述列表：${creative.descriptions.join(', ')}
+关键词：${creative.keywords?.join(', ') || '无'}
+最终URL：${creative.final_url}
 
 # 评分要求
 请从以下5个维度进行评分（总分100分）：
@@ -142,8 +141,8 @@ export async function calculateLaunchScore(
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
-      maxOutputTokens: 2048,
-    })
+      maxOutputTokens: 8192, // 增加到8192以确保完整的JSON响应
+    }, userId)
 
     // 提取JSON内容
     const jsonMatch = text.match(/\{[\s\S]*\}/)

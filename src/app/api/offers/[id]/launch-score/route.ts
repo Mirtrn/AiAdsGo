@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
-import { findCreativeById } from '@/lib/creatives'
+import { findAdCreativeById } from '@/lib/ad-creative'
 import { createLaunchScore, findLatestLaunchScore } from '@/lib/launch-scores'
 import { calculateLaunchScore } from '@/lib/scoring'
 
@@ -56,7 +56,7 @@ export async function POST(
     }
 
     // 验证Creative存在且属于当前Offer
-    const creative = findCreativeById(creativeId, parseInt(userId, 10))
+    const creative = findAdCreativeById(creativeId, parseInt(userId, 10))
 
     if (!creative) {
       return NextResponse.json(
@@ -67,7 +67,7 @@ export async function POST(
       )
     }
 
-    if (creative.offerId !== offer.id) {
+    if (creative.offer_id !== offer.id) {
       return NextResponse.json(
         {
           error: '该创意不属于此Offer',
@@ -77,7 +77,7 @@ export async function POST(
     }
 
     // 使用AI计算Launch Score
-    const analysis = await calculateLaunchScore(offer, creative)
+    const analysis = await calculateLaunchScore(offer, creative, parseInt(userId, 10))
 
     // 保存到数据库
     const launchScore = createLaunchScore(parseInt(userId, 10), offer.id, analysis)

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findCreativeById, updateCreative, deleteCreative } from '@/lib/creatives'
+import { findAdCreativeById, updateAdCreative, deleteAdCreative } from '@/lib/ad-creative'
 
 /**
  * GET /api/creatives/:id
@@ -18,7 +18,7 @@ export async function GET(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const creative = findCreativeById(parseInt(id, 10), parseInt(userId, 10))
+    const creative = findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!creative) {
       return NextResponse.json(
@@ -64,19 +64,17 @@ export async function PUT(
 
     const body = await request.json()
     const {
-      headline1,
-      headline2,
-      headline3,
-      description1,
-      description2,
-      finalUrl,
-      path1,
-      path2,
-      qualityScore,
+      headlines,
+      descriptions,
+      keywords,
+      path_1,
+      path_2,
+      final_url,
+      score,
     } = body
 
     // 验证必填字段
-    if (headline1 === undefined && description1 === undefined && finalUrl === undefined) {
+    if (!headlines && !descriptions && !final_url && !keywords) {
       return NextResponse.json(
         {
           error: '至少需要提供一个字段进行更新',
@@ -86,17 +84,15 @@ export async function PUT(
     }
 
     const updates: any = {}
-    if (headline1 !== undefined) updates.headline1 = headline1
-    if (headline2 !== undefined) updates.headline2 = headline2
-    if (headline3 !== undefined) updates.headline3 = headline3
-    if (description1 !== undefined) updates.description1 = description1
-    if (description2 !== undefined) updates.description2 = description2
-    if (finalUrl !== undefined) updates.finalUrl = finalUrl
-    if (path1 !== undefined) updates.path1 = path1
-    if (path2 !== undefined) updates.path2 = path2
-    if (qualityScore !== undefined) updates.qualityScore = qualityScore
+    if (headlines !== undefined) updates.headlines = headlines
+    if (descriptions !== undefined) updates.descriptions = descriptions
+    if (keywords !== undefined) updates.keywords = keywords
+    if (path_1 !== undefined) updates.path_1 = path_1
+    if (path_2 !== undefined) updates.path_2 = path_2
+    if (final_url !== undefined) updates.final_url = final_url
+    if (score !== undefined) updates.score = score
 
-    const creative = updateCreative(parseInt(id, 10), parseInt(userId, 10), updates)
+    const creative = updateAdCreative(parseInt(id, 10), parseInt(userId, 10), updates)
 
     if (!creative) {
       return NextResponse.json(
@@ -140,7 +136,7 @@ export async function DELETE(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const success = deleteCreative(parseInt(id, 10), parseInt(userId, 10))
+    const success = deleteAdCreative(parseInt(id, 10), parseInt(userId, 10))
 
     if (!success) {
       return NextResponse.json(

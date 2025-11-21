@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findCreativesByOfferId, findCreativesByUserId } from '@/lib/creatives'
+import { findAdCreativesByOfferId, findAdCreativesByUserId } from '@/lib/ad-creative'
 
 /**
  * GET /api/creatives?offerId=:id
@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      creatives = findCreativesByOfferId(offerId, parseInt(userId, 10))
+      creatives = findAdCreativesByOfferId(offerId, parseInt(userId, 10))
     } else {
       // 获取用户的所有创意
       const limit = limitParam ? parseInt(limitParam, 10) : undefined
-      creatives = findCreativesByUserId(parseInt(userId, 10), limit)
+      creatives = findAdCreativesByUserId(parseInt(userId, 10), limit)
     }
 
     return NextResponse.json({

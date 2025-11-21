@@ -86,7 +86,8 @@ export async function POST(
 
     if (batch && actualCount > 1) {
       // 批量并行生成
-      const generatedDataList = await generateAdCreativesBatch(offerId, actualCount, {
+      // 批量并行生成（传入userId以获取用户特定配置）
+      const generatedDataList = await generateAdCreativesBatch(offerId, userId, actualCount, {
         theme,
         referencePerformance: reference_performance
       })
@@ -105,13 +106,13 @@ export async function POST(
 
       return NextResponse.json({
         success: true,
-        data: savedCreatives,
+        creatives: savedCreatives,  // 前端期望 creatives 字段
         count: savedCreatives.length,
         message: `成功生成 ${savedCreatives.length} 个广告创意`
       })
     } else {
-      // 单个生成
-      const generatedData = await generateAdCreative(offerId, {
+      // 单个生成（传入userId以获取用户特定配置）
+      const generatedData = await generateAdCreative(offerId, userId, {
         theme,
         referencePerformance: reference_performance
       })
@@ -128,7 +129,7 @@ export async function POST(
 
       return NextResponse.json({
         success: true,
-        data: adCreative,
+        creative: adCreative,  // 前端期望 creative 字段（单数）
         message: '广告创意生成成功'
       })
     }
@@ -201,7 +202,7 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      data: creatives,
+      creatives: creatives,  // 前端期望 creatives 字段
       total: creatives.length
     })
 

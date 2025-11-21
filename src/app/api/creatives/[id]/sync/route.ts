@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findCreativeById, updateCreative } from '@/lib/creatives'
+import { findAdCreativeById, updateAdCreative } from '@/lib/ad-creative'
 import { findAdGroupById } from '@/lib/ad-groups'
 import { findCampaignById } from '@/lib/campaigns'
 import { findGoogleAdsAccountById } from '@/lib/google-ads-accounts'
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Creative
-    const creative = findCreativeById(parseInt(id, 10), parseInt(userId, 10))
+    const creative = findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
     if (!creative) {
       return NextResponse.json(
         {
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 检查是否已经同步
-    if (creative.adId) {
+    if (creative.ad_id) {
       return NextResponse.json(
         {
           error: 'Creative已同步，不能重复同步',
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 检查是否已关联Ad Group
-    if (!creative.adGroupId) {
+    if (!creative.ad_group_id) {
       return NextResponse.json(
         {
           error: '请先将Creative关联到Ad Group',
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Ad Group
-    const adGroup = findAdGroupById(creative.adGroupId, parseInt(userId, 10))
+    const adGroup = findAdGroupById(creative.ad_group_id, parseInt(userId, 10))
     if (!adGroup) {
       return NextResponse.json(
         {
@@ -108,17 +108,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 更新状态为pending
-    updateCreative(creative.id, parseInt(userId, 10), {
-      creationStatus: 'pending',
-      creationError: null,
+    updateAdCreative(creative.id, parseInt(userId, 10), {
+      creation_status: 'pending',
+      creation_error: undefined,
     })
 
     try {
       // 准备Headlines (最多15个，最少3个)
-      const headlines: string[] = []
-      if (creative.headline1) headlines.push(creative.headline1)
-      if (creative.headline2) headlines.push(creative.headline2)
-      if (creative.headline3) headlines.push(creative.headline3)
+      const headlines = creative.headlines.slice(0, 15)
 
       // 如果不足3个标题，返回错误
       if (headlines.length < 3) {
@@ -126,9 +123,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       }
 
       // 准备Descriptions (最多4个，最少2个)
-      const descriptions: string[] = []
-      if (creative.description1) descriptions.push(creative.description1)
-      if (creative.description2) descriptions.push(creative.description2)
+      const descriptions = creative.descriptions.slice(0, 4)
 
       // 如果不足2个描述，返回错误
       if (descriptions.length < 2) {
@@ -138,7 +133,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       }
 
       // 准备Final URLs
-      const finalUrls = [creative.finalUrl]
+      const finalUrls = [creative.final_url]
 
       // 创建Google Ads Responsive Search Ad
       const adResult = await createGoogleAdsResponsiveSearchAd({
@@ -148,34 +143,34 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         headlines,
         descriptions,
         finalUrls,
-        path1: creative.path1 || undefined,
-        path2: creative.path2 || undefined,
+        path1: creative.path_1 || undefined,
+        path2: creative.path_2 || undefined,
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
       })
 
       // 更新Creative，标记为已同步
-      updateCreative(creative.id, parseInt(userId, 10), {
-        adId: adResult.adId,
-        creationStatus: 'synced',
-        creationError: null,
-        lastSyncAt: new Date().toISOString(),
+      updateAdCreative(creative.id, parseInt(userId, 10), {
+        ad_id: adResult.adId,
+        creation_status: 'synced',
+        creation_error: undefined,
+        last_sync_at: new Date().toISOString(),
       })
 
       return NextResponse.json({
         success: true,
         creative: {
           ...creative,
-          adId: adResult.adId,
-          creationStatus: 'synced',
+          ad_id: adResult.adId,
+          creation_status: 'synced',
         },
         adResourceName: adResult.resourceName,
       })
     } catch (error: any) {
       // 同步失败，更新错误状态
-      updateCreative(creative.id, parseInt(userId, 10), {
-        creationStatus: 'failed',
-        creationError: error.message || '同步到Google Ads失败',
+      updateAdCreative(creative.id, parseInt(userId, 10), {
+        creation_status: 'failed',
+        creation_error: error.message || '同步到Google Ads失败',
       })
 
       throw error

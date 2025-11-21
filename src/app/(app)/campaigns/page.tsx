@@ -324,7 +324,7 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总展示次数</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {summary.totalImpressions.toLocaleString()}
+                      {(summary.totalImpressions ?? 0).toLocaleString()}
                     </p>
                   </div>
                   <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center">
@@ -340,7 +340,7 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总点击次数</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {summary.totalClicks.toLocaleString()}
+                      {(summary.totalClicks ?? 0).toLocaleString()}
                     </p>
                   </div>
                   <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
@@ -356,7 +356,7 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总转化次数</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {summary.totalConversions.toLocaleString()}
+                      {(summary.totalConversions ?? 0).toLocaleString()}
                     </p>
                   </div>
                   <div className="h-12 w-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -372,7 +372,7 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总花费</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      ${summary.totalCostUsd.toFixed(2)}
+                      ${(summary.totalCostUsd ?? 0).toFixed(2)}
                     </p>
                   </div>
                   <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">

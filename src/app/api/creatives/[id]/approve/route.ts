@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { approveCreative, unapproveCreative } from '@/lib/creatives'
+import { approveAdCreative, unapproveAdCreative } from '@/lib/ad-creative'
 
 /**
  * POST /api/creatives/:id/approve
@@ -18,7 +18,7 @@ export async function POST(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const creative = approveCreative(
+    const creative = approveAdCreative(
       parseInt(id, 10),
       parseInt(userId, 10),
       parseInt(userId, 10) // 批准人ID也是当前用户
@@ -67,7 +67,7 @@ export async function DELETE(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const creative = unapproveCreative(parseInt(id, 10), parseInt(userId, 10))
+    const creative = unapproveAdCreative(parseInt(id, 10), parseInt(userId, 10))
 
     if (!creative) {
       return NextResponse.json(

@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card } from '@/components/ui/card'
 import { toast } from 'sonner'
-import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
 
 // 代理URL配置项接口
 interface ProxyUrlConfig {
@@ -73,27 +73,27 @@ const SETTING_METADATA: Record<string, {
   defaultValue?: string
 }> = {
   // Google Ads
+  'google_ads.login_customer_id': {
+    label: 'Login Customer ID (MCC账户ID)',
+    description: '您的MCC管理账户ID，用于访问您管理的广告账户。格式：10位数字（不含连字符）',
+    placeholder: '例如: 1234567890'
+  },
   'google_ads.client_id': {
-    label: 'Client ID',
-    description: 'OAuth 2.0客户端ID，用于Google Ads API身份验证',
-    placeholder: '输入Client ID',
+    label: 'Client ID（选填）',
+    description: 'OAuth 2.0客户端ID。如不填写，将使用平台共享配置',
+    placeholder: '输入Client ID（选填）',
     helpLink: 'https://console.cloud.google.com/apis/credentials'
   },
   'google_ads.client_secret': {
-    label: 'Client Secret',
-    description: 'OAuth 2.0客户端密钥，与Client ID配合使用',
-    placeholder: '输入Client Secret'
+    label: 'Client Secret（选填）',
+    description: 'OAuth 2.0客户端密钥。如不填写，将使用平台共享配置',
+    placeholder: '输入Client Secret（选填）'
   },
   'google_ads.developer_token': {
-    label: 'Developer Token',
-    description: 'Google Ads API开发者令牌，用于API调用授权',
-    placeholder: '输入Developer Token',
+    label: 'Developer Token（选填）',
+    description: 'Google Ads API开发者令牌。如不填写，将使用平台共享配置',
+    placeholder: '输入Developer Token（选填）',
     helpLink: 'https://ads.google.com/aw/apicenter'
-  },
-  'google_ads.login_customer_id': {
-    label: 'Login Customer ID (MCC账户ID)',
-    description: 'MCC管理账户ID，用于访问子账户。格式：10位数字（不含连字符）',
-    placeholder: '例如: 1234567890'
   },
 
   // AI - 模式选择
@@ -766,25 +766,42 @@ export default function SettingsPage() {
                 {/* 特殊处理 Google Ads 配置分类 */}
                 {category === 'google_ads' ? (
                   <div className="space-y-6">
-                    {/* Google Ads 凭证状态 */}
-                    {googleAdsCredentialStatus?.has_credentials && (
-                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                        <div className="flex items-center gap-2 mb-2">
-                          <CheckCircle2 className="w-5 h-5 text-green-600" />
-                          <span className="font-semibold text-green-700">已配置完整凭证</span>
+                    {/* 配置说明和凭证状态 - 2列布局 */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {/* 混合配置模式说明 */}
+                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="flex items-start gap-3">
+                          <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="font-semibold text-blue-800 mb-2">配置说明</p>
+                            <p className="text-sm text-blue-700">
+                              <strong>Login Customer ID</strong> 必填，其他OAuth凭证选填。
+                              不配置OAuth凭证将使用平台共享配置。
+                            </p>
+                          </div>
                         </div>
-                        {googleAdsCredentialStatus.login_customer_id && (
-                          <p className="text-sm text-green-700">
-                            Manager Customer ID: <span className="font-mono">{googleAdsCredentialStatus.login_customer_id}</span>
-                          </p>
-                        )}
-                        {googleAdsCredentialStatus.last_verified_at && (
-                          <p className="text-sm text-green-700">
-                            最后验证: {new Date(googleAdsCredentialStatus.last_verified_at).toLocaleString('zh-CN')}
-                          </p>
-                        )}
                       </div>
-                    )}
+
+                      {/* Google Ads 凭证状态 */}
+                      {googleAdsCredentialStatus?.has_credentials && (
+                        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <CheckCircle2 className="w-5 h-5 text-green-600" />
+                            <span className="font-semibold text-green-700">已配置完整凭证</span>
+                          </div>
+                          {googleAdsCredentialStatus.login_customer_id && (
+                            <p className="text-sm text-green-700">
+                              MCC ID: <span className="font-mono">{googleAdsCredentialStatus.login_customer_id}</span>
+                            </p>
+                          )}
+                          {googleAdsCredentialStatus.last_verified_at && (
+                            <p className="text-sm text-green-700">
+                              验证: {new Date(googleAdsCredentialStatus.last_verified_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
                     {/* 基础配置字段 - 2列布局 */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
@@ -832,12 +849,30 @@ export default function SettingsPage() {
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="font-semibold text-lg">Google Ads 账户</h3>
                           <Button
-                            onClick={handleFetchGoogleAdsAccounts}
+                            onClick={() => {
+                              if (!showGoogleAdsAccounts && googleAdsAccounts.length === 0) {
+                                handleFetchGoogleAdsAccounts()
+                              } else {
+                                setShowGoogleAdsAccounts(!showGoogleAdsAccounts)
+                              }
+                            }}
                             disabled={loadingGoogleAdsAccounts}
                             variant="outline"
                             size="sm"
                           >
-                            {loadingGoogleAdsAccounts ? '加载中...' : '查看可访问账户'}
+                            {loadingGoogleAdsAccounts ? (
+                              '加载中...'
+                            ) : showGoogleAdsAccounts ? (
+                              <>
+                                <ChevronUp className="w-4 h-4 mr-1" />
+                                收起账户列表
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="w-4 h-4 mr-1" />
+                                查看可访问账户
+                              </>
+                            )}
                           </Button>
                         </div>
 
@@ -854,42 +889,47 @@ export default function SettingsPage() {
                                 <p className="text-gray-600">未找到可访问的账户</p>
                               </div>
                             ) : (
-                              googleAdsAccounts.map((account) => (
-                                <div
-                                  key={account.customer_id}
-                                  className="p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                                >
-                                  <div className="flex items-center justify-between mb-2">
-                                    <span className="font-semibold text-gray-900">
-                                      {account.descriptive_name}
-                                    </span>
-                                    <div className="flex gap-2">
-                                      {account.manager && (
-                                        <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">
-                                          Manager
-                                        </span>
-                                      )}
-                                      {account.test_account && (
-                                        <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
-                                          测试账户
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-3 gap-2 text-sm text-gray-600">
-                                    <div>
-                                      <span className="font-medium">ID:</span>{' '}
-                                      <span className="font-mono">{account.customer_id}</span>
-                                    </div>
-                                    <div>
-                                      <span className="font-medium">货币:</span> {account.currency_code}
-                                    </div>
-                                    <div>
-                                      <span className="font-medium">时区:</span> {account.time_zone}
-                                    </div>
-                                  </div>
+                              <>
+                                <div className="text-sm text-gray-600 mb-2">
+                                  共 {googleAdsAccounts.length} 个账户
                                 </div>
-                              ))
+                                {googleAdsAccounts.map((account) => (
+                                  <div
+                                    key={account.customer_id}
+                                    className="p-4 border rounded-lg hover:bg-gray-50 transition-colors"
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="font-semibold text-gray-900">
+                                        {account.descriptive_name}
+                                      </span>
+                                      <div className="flex gap-2">
+                                        {account.manager && (
+                                          <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">
+                                            Manager
+                                          </span>
+                                        )}
+                                        {account.test_account && (
+                                          <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
+                                            测试账户
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 text-sm text-gray-600">
+                                      <div>
+                                        <span className="font-medium">ID:</span>{' '}
+                                        <span className="font-mono">{account.customer_id}</span>
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">货币:</span> {account.currency_code}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">时区:</span> {account.time_zone}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </>
                             )}
                           </div>
                         )}

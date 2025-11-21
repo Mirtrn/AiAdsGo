@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { findCreativeById } from '@/lib/creatives'
+import { findAdCreativeById } from '@/lib/ad-creative'
 import { findOfferById } from '@/lib/offers'
 import { checkCompliance, type CreativeContent } from '@/lib/compliance-checker'
 
@@ -32,7 +32,7 @@ export async function POST(
     }
 
     // 获取Creative信息
-    const creative = findCreativeById(creativeId, auth.user!.userId)
+    const creative = findAdCreativeById(creativeId, auth.user!.userId)
     if (!creative) {
       return NextResponse.json(
         { error: 'Creative not found' },
@@ -41,7 +41,7 @@ export async function POST(
     }
 
     // 获取Offer信息（用于品牌名）
-    const offer = findOfferById(creative.offerId, auth.user!.userId)
+    const offer = findOfferById(creative.offer_id, auth.user!.userId)
     if (!offer) {
       return NextResponse.json(
         { error: 'Associated offer not found' },
@@ -51,16 +51,9 @@ export async function POST(
 
     // 构建检查内容
     const content: CreativeContent = {
-      headlines: [
-        creative.headline1,
-        creative.headline2,
-        creative.headline3
-      ].filter((h): h is string => h !== null && h !== undefined),
-      descriptions: [
-        creative.description1,
-        creative.description2
-      ].filter((d): d is string => d !== null && d !== undefined),
-      finalUrl: creative.finalUrl,
+      headlines: creative.headlines,
+      descriptions: creative.descriptions,
+      finalUrl: creative.final_url,
       brandName: offer.brand
     }
 

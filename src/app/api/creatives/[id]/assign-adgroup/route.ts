@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findCreativeById, updateCreative } from '@/lib/creatives'
+import { findAdCreativeById, updateAdCreative } from '@/lib/ad-creative'
 import { findAdGroupById } from '@/lib/ad-groups'
 
 /**
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Creative
-    const creative = findCreativeById(parseInt(id, 10), parseInt(userId, 10))
+    const creative = findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
     if (!creative) {
       return NextResponse.json(
         {
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 检查是否已经同步到Google Ads
-    if (creative.adId) {
+    if (creative.ad_id) {
       return NextResponse.json(
         {
           error: 'Creative已同步到Google Ads，无法修改Ad Group关联',
@@ -56,8 +56,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 更新Creative的adGroupId
-    const updatedCreative = updateCreative(creative.id, parseInt(userId, 10), {
-      adGroupId: adGroup.id,
+    const updatedCreative = updateAdCreative(creative.id, parseInt(userId, 10), {
+      ad_group_id: adGroup.id,
     })
 
     return NextResponse.json({

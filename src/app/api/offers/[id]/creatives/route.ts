@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findCreativesByOfferId } from '@/lib/creatives'
+import { findAdCreativesByOfferId } from '@/lib/ad-creative'
 import { findOfferById } from '@/lib/offers'
 
 /**
@@ -31,7 +31,7 @@ export async function GET(
     }
 
     // 获取所有创意
-    const creatives = findCreativesByOfferId(offerId, parseInt(userId, 10))
+    const creatives = findAdCreativesByOfferId(offerId, parseInt(userId, 10))
 
     return NextResponse.json({
       success: true,
@@ -41,15 +41,13 @@ export async function GET(
         creatives: creatives.map(c => ({
           id: c.id,
           version: c.version,
-          headline1: c.headline1,
-          headline2: c.headline2,
-          headline3: c.headline3,
-          description1: c.description1,
-          description2: c.description2,
-          finalUrl: c.finalUrl,
-          qualityScore: c.qualityScore,
-          isApproved: c.isApproved,
-          createdAt: c.createdAt,
+          headlines: c.headlines,
+          descriptions: c.descriptions,
+          keywords: c.keywords,
+          final_url: c.final_url,
+          score: c.score,
+          is_approved: c.is_approved,
+          created_at: c.created_at,
         })),
       },
     })

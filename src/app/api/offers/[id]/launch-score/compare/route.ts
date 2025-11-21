@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findLatestLaunchScore, parseLaunchScoreAnalysis } from '@/lib/launch-scores'
-import { findCreativeById } from '@/lib/creatives'
+import { findAdCreativeById } from '@/lib/ad-creative'
 
 /**
  * POST /api/offers/[id]/launch-score/compare
@@ -50,9 +50,9 @@ export async function POST(
 
     for (const creativeId of creativeIds) {
       // 验证Creative存在且属于该用户
-      const creative = findCreativeById(creativeId, parseInt(userId, 10))
+      const creative = findAdCreativeById(creativeId, parseInt(userId, 10))
 
-      if (!creative || creative.offerId !== offerId) {
+      if (!creative || creative.offer_id !== offerId) {
         return NextResponse.json(
           { error: `Creative ${creativeId} 不存在或无权访问` },
           { status: 404 }
@@ -71,12 +71,9 @@ export async function POST(
           creative: {
             id: creative.id,
             version: creative.version,
-            headline1: creative.headline1,
-            headline2: creative.headline2,
-            headline3: creative.headline3,
-            description1: creative.description1,
-            description2: creative.description2,
-            qualityScore: creative.qualityScore,
+            headlines: creative.headlines,
+            descriptions: creative.descriptions,
+            score: creative.score,
           },
           score: {
             totalScore: score.totalScore,
@@ -104,12 +101,9 @@ export async function POST(
           creative: {
             id: creative.id,
             version: creative.version,
-            headline1: creative.headline1,
-            headline2: creative.headline2,
-            headline3: creative.headline3,
-            description1: creative.description1,
-            description2: creative.description2,
-            qualityScore: creative.qualityScore,
+            headlines: creative.headlines,
+            descriptions: creative.descriptions,
+            score: creative.score,
           },
           score: null
         })

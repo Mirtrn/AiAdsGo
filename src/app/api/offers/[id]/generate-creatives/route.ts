@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
-import { createCreatives } from '@/lib/creatives'
 import { generateAdCreatives } from '@/lib/ai'
 import { calculateCreativeQualityScore } from '@/lib/scoring'
 

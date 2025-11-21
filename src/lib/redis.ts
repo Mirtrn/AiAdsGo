@@ -187,3 +187,98 @@ export async function closeRedisConnection(): Promise<void> {
     console.log('Redis连接已关闭')
   }
 }
+
+// ============================================
+// Keyword Search Volume Caching
+// ============================================
+
+const PREFIX = process.env.REDIS_KEY_PREFIX || 'autoads:'
+
+// Keyword volume cache key format: autoads:kw:US:en:keyword
+export function getKeywordCacheKey(keyword: string, country: string, language: string): string {
+  return `${PREFIX}kw:${country}:${language}:${keyword.toLowerCase()}`
+}
+
+// Cache keyword search volume (TTL: 7 days)
+export async function cacheKeywordVolume(
+  keyword: string,
+  country: string,
+  language: string,
+  volume: number,
+  ttlSeconds: number = CACHE_TTL
+): Promise<void> {
+  try {
+    const client = getRedisClient()
+    const key = getKeywordCacheKey(keyword, country, language)
+    await client.setex(key, ttlSeconds, JSON.stringify({ volume, cachedAt: Date.now() }))
+  } catch (error: any) {
+    console.error('[Redis] Cache keyword volume error:', error.message)
+  }
+}
+
+// Get cached keyword volume
+export async function getCachedKeywordVolume(
+  keyword: string,
+  country: string,
+  language: string
+): Promise<{ volume: number; cachedAt: number } | null> {
+  try {
+    const client = getRedisClient()
+    const key = getKeywordCacheKey(keyword, country, language)
+    const data = await client.get(key)
+    if (data) {
+      return JSON.parse(data)
+    }
+  } catch (error: any) {
+    console.error('[Redis] Get keyword volume error:', error.message)
+  }
+  return null
+}
+
+// Batch get cached volumes
+export async function getBatchCachedVolumes(
+  keywords: string[],
+  country: string,
+  language: string
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  try {
+    const client = getRedisClient()
+    const keys = keywords.map(kw => getKeywordCacheKey(kw, country, language))
+    if (keys.length === 0) return result
+
+    const values = await client.mget(...keys)
+
+    keywords.forEach((kw, idx) => {
+      if (values[idx]) {
+        const data = JSON.parse(values[idx] as string)
+        result.set(kw.toLowerCase(), data.volume)
+      }
+    })
+  } catch (error: any) {
+    console.error('[Redis] Batch get error:', error.message)
+  }
+  return result
+}
+
+// Batch cache volumes
+export async function batchCacheVolumes(
+  data: Array<{ keyword: string; volume: number }>,
+  country: string,
+  language: string,
+  ttlSeconds: number = CACHE_TTL
+): Promise<void> {
+  try {
+    const client = getRedisClient()
+    const pipeline = client.pipeline()
+
+    for (const item of data) {
+      const key = getKeywordCacheKey(item.keyword, country, language)
+      pipeline.setex(key, ttlSeconds, JSON.stringify({ volume: item.volume, cachedAt: Date.now() }))
+    }
+
+    await pipeline.exec()
+  } catch (error: any) {
+    console.error('[Redis] Batch cache error:', error.message)
+  }
+}

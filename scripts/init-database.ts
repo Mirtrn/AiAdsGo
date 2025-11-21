@@ -479,12 +479,18 @@ async function initializeDatabase() {
 
     const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ? OR role = ?').get('autoads', 'admin')
 
-    if (existingAdmin) {
-      console.log('⏭️  管理员账号已存在，跳过创建')
-    } else {
-      // 使用hashPassword生成密码哈希
-      const passwordHash = await hashPassword('***REMOVED***')
+    // 使用hashPassword生成密码哈希
+    const passwordHash = await hashPassword('***REMOVED***')
 
+    if (existingAdmin) {
+      console.log('⚠️  管理员账号已存在，更新密码...')
+      db.prepare(`
+        UPDATE users
+        SET password_hash = ?, is_active = 1
+        WHERE username = ? OR role = ?
+      `).run(passwordHash, 'autoads', 'admin')
+      console.log('✅ 管理员密码已更新')
+    } else {
       db.prepare(`
         INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

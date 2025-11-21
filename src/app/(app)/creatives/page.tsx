@@ -4,28 +4,41 @@ import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { showSuccess, showError, showWarning, showConfirm } from '@/lib/toast-utils'
 
+interface KeywordWithVolume {
+  keyword: string
+  searchVolume: number
+  competition?: string
+}
+
+interface Sitelink {
+  text: string
+  url: string
+  description?: string
+}
+
 interface Creative {
   id: number
-  offerId: number
+  offer_id: number
   version: number
-  headline1: string
-  headline2: string | null
-  headline3: string | null
-  description1: string
-  description2: string | null
-  finalUrl: string
-  path1: string | null
-  path2: string | null
-  aiModel: string
-  qualityScore: number | null
-  isApproved: boolean
-  approvedAt: string | null
-  adGroupId: number | null
-  adId: string | null
-  creationStatus: string
-  creationError: string | null
-  lastSyncAt: string | null
-  createdAt: string
+  headlines: string[]
+  descriptions: string[]
+  keywords: string[]
+  keywords_with_volume?: KeywordWithVolume[]
+  callouts: string[]
+  sitelinks: Sitelink[]
+  final_url: string
+  path_1: string | null
+  path_2: string | null
+  ai_model: string
+  score: number | null
+  is_approved: number
+  approved_at: string | null
+  ad_group_id: number | null
+  ad_id: string | null
+  creation_status: string
+  creation_error: string | null
+  last_sync_at: string | null
+  created_at: string
 }
 
 interface AdGroup {
@@ -59,11 +72,8 @@ export default function CreativesPage() {
   const [selectedAdGroupId, setSelectedAdGroupId] = useState<number | null>(null)
   const [syncingId, setSyncingId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState({
-    headline1: '',
-    headline2: '',
-    headline3: '',
-    description1: '',
-    description2: '',
+    headlines: ['', '', ''],
+    descriptions: ['', ''],
   })
 
   useEffect(() => {
@@ -155,7 +165,7 @@ export default function CreativesPage() {
     }
   }
 
-  const handleApprove = async (creativeId: number, isApproved: boolean) => {
+  const handleApprove = async (creativeId: number, isApproved: number) => {
     try {
       // HttpOnly Cookie自动携带，无需手动操作
 
@@ -206,22 +216,16 @@ export default function CreativesPage() {
   const startEdit = (creative: Creative) => {
     setEditingId(creative.id)
     setEditForm({
-      headline1: creative.headline1,
-      headline2: creative.headline2 || '',
-      headline3: creative.headline3 || '',
-      description1: creative.description1,
-      description2: creative.description2 || '',
+      headlines: [...creative.headlines, '', '', ''].slice(0, 3), // Ensure at least 3 slots
+      descriptions: [...creative.descriptions, ''].slice(0, 2), // Ensure at least 2 slots
     })
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     setEditForm({
-      headline1: '',
-      headline2: '',
-      headline3: '',
-      description1: '',
-      description2: '',
+      headlines: ['', '', ''],
+      descriptions: ['', ''],
     })
   }
 
@@ -229,13 +233,19 @@ export default function CreativesPage() {
     try {
       // HttpOnly Cookie自动携带，无需手动操作
 
+      // Filter out empty strings
+      const updates = {
+        headlines: editForm.headlines.filter(h => h.trim().length > 0),
+        descriptions: editForm.descriptions.filter(d => d.trim().length > 0),
+      }
+
       const response = await fetch(`/api/creatives/${creativeId}`, {
         method: 'PUT',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(updates),
       })
 
       if (!response.ok) {
@@ -414,51 +424,51 @@ export default function CreativesPage() {
                 <div
                   key={creative.id}
                   className={`bg-white shadow rounded-lg p-6 ${
-                    creative.isApproved ? 'border-2 border-green-500' : ''
+                    creative.is_approved === 1 ? 'border-2 border-green-500' : ''
                   }`}
                 >
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <h2 className="text-h4 font-semibold text-gray-900">
                         版本 {creative.version}
-                        {creative.isApproved && (
+                        {creative.is_approved === 1 && (
                           <span className="ml-2 px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-800">
                             已批准
                           </span>
                         )}
-                        {creative.creationStatus === 'synced' && (
+                        {creative.creation_status === 'synced' && (
                           <span className="ml-2 px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-800">
                             已同步
                           </span>
                         )}
-                        {creative.creationStatus === 'pending' && (
+                        {creative.creation_status === 'pending' && (
                           <span className="ml-2 px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-800">
                             同步中
                           </span>
                         )}
-                        {creative.creationStatus === 'failed' && (
+                        {creative.creation_status === 'failed' && (
                           <span className="ml-2 px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-800">
                             同步失败
                           </span>
                         )}
                       </h2>
                       <p className="text-body-sm text-muted-foreground">
-                        创建时间: {new Date(creative.createdAt).toLocaleString('zh-CN')}
+                        创建时间: {new Date(creative.created_at).toLocaleString('zh-CN')}
                       </p>
-                      {creative.adGroupId && (
+                      {creative.ad_group_id && (
                         <p className="text-body-sm text-muted-foreground">
                           关联Ad Group:{' '}
-                          {adGroups.find(ag => ag.id === creative.adGroupId)?.adGroupName ||
-                            `ID: ${creative.adGroupId}`}
+                          {adGroups.find(ag => ag.id === creative.ad_group_id)?.adGroupName ||
+                            `ID: ${creative.ad_group_id}`}
                         </p>
                       )}
-                      {creative.lastSyncAt && (
+                      {creative.last_sync_at && (
                         <p className="text-body-sm text-muted-foreground">
-                          最后同步: {new Date(creative.lastSyncAt).toLocaleString('zh-CN')}
+                          最后同步: {new Date(creative.last_sync_at).toLocaleString('zh-CN')}
                         </p>
                       )}
-                      {creative.creationError && (
-                        <p className="text-sm text-red-600">错误: {creative.creationError}</p>
+                      {creative.creation_error && (
+                        <p className="text-sm text-red-600">错误: {creative.creation_error}</p>
                       )}
                     </div>
                     <div className="flex space-x-2">
@@ -511,22 +521,22 @@ export default function CreativesPage() {
                         <>
                           <button
                             onClick={() => startEdit(creative)}
-                            disabled={creative.adId !== null}
+                            disabled={creative.ad_id !== null}
                             className="px-3 py-1 text-sm text-gray-700 hover:text-gray-900 disabled:opacity-50"
                           >
                             编辑
                           </button>
                           <button
-                            onClick={() => handleApprove(creative.id, creative.isApproved)}
+                            onClick={() => handleApprove(creative.id, creative.is_approved)}
                             className={`px-3 py-1 text-sm ${
-                              creative.isApproved
+                              creative.is_approved
                                 ? 'text-yellow-600 hover:text-yellow-800'
                                 : 'text-green-600 hover:text-green-800'
                             }`}
                           >
-                            {creative.isApproved ? '取消批准' : '批准'}
+                            {creative.is_approved ? '取消批准' : '批准'}
                           </button>
-                          {!creative.adGroupId && adGroups.length > 0 && (
+                          {!creative.ad_group_id && adGroups.length > 0 && (
                             <button
                               onClick={() => {
                                 setAssigningId(creative.id)
@@ -537,9 +547,9 @@ export default function CreativesPage() {
                               关联Ad Group
                             </button>
                           )}
-                          {creative.adGroupId &&
-                            !creative.adId &&
-                            creative.creationStatus !== 'pending' && (
+                          {creative.ad_group_id &&
+                            !creative.ad_id &&
+                            creative.creation_status !== 'pending' && (
                               <button
                                 onClick={() => handleSyncToGoogleAds(creative.id)}
                                 disabled={syncingId === creative.id}
@@ -550,7 +560,7 @@ export default function CreativesPage() {
                             )}
                           <button
                             onClick={() => handleDelete(creative.id)}
-                            disabled={creative.adId !== null}
+                            disabled={creative.ad_id !== null}
                             className="px-3 py-1 text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
                           >
                             删除
@@ -572,76 +582,48 @@ export default function CreativesPage() {
 
                   {editingId === creative.id ? (
                     <div className="space-y-4">
-                      <div>
-                        <label className="block label-text mb-1">
-                          标题1 *
-                        </label>
-                        <input
-                          type="text"
-                          value={editForm.headline1}
-                          onChange={e => setEditForm({ ...editForm, headline1: e.target.value })}
-                          maxLength={30}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        />
-                        <p className="helper-text mt-1">
-                          {editForm.headline1.length}/30 字符
-                        </p>
-                      </div>
-                      <div>
-                        <label className="block label-text mb-1">
-                          标题2
-                        </label>
-                        <input
-                          type="text"
-                          value={editForm.headline2}
-                          onChange={e => setEditForm({ ...editForm, headline2: e.target.value })}
-                          maxLength={30}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        />
-                      </div>
-                      <div>
-                        <label className="block label-text mb-1">
-                          标题3
-                        </label>
-                        <input
-                          type="text"
-                          value={editForm.headline3}
-                          onChange={e => setEditForm({ ...editForm, headline3: e.target.value })}
-                          maxLength={30}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        />
-                      </div>
-                      <div>
-                        <label className="block label-text mb-1">
-                          描述1 *
-                        </label>
-                        <textarea
-                          value={editForm.description1}
-                          onChange={e =>
-                            setEditForm({ ...editForm, description1: e.target.value })
-                          }
-                          maxLength={90}
-                          rows={2}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        />
-                        <p className="helper-text mt-1">
-                          {editForm.description1.length}/90 字符
-                        </p>
-                      </div>
-                      <div>
-                        <label className="block label-text mb-1">
-                          描述2
-                        </label>
-                        <textarea
-                          value={editForm.description2}
-                          onChange={e =>
-                            setEditForm({ ...editForm, description2: e.target.value })
-                          }
-                          maxLength={90}
-                          rows={2}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                        />
-                      </div>
+                      {editForm.headlines.map((headline, index) => (
+                        <div key={index}>
+                          <label className="block label-text mb-1">
+                            标题{index + 1} {index === 0 && '*'}
+                          </label>
+                          <input
+                            type="text"
+                            value={headline}
+                            onChange={e => {
+                              const newHeadlines = [...editForm.headlines]
+                              newHeadlines[index] = e.target.value
+                              setEditForm({ ...editForm, headlines: newHeadlines })
+                            }}
+                            maxLength={30}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          />
+                          <p className="helper-text mt-1">
+                            {headline.length}/30 字符
+                          </p>
+                        </div>
+                      ))}
+                      {editForm.descriptions.map((description, index) => (
+                        <div key={index}>
+                          <label className="block label-text mb-1">
+                            描述{index + 1} {index === 0 && '*'}
+                          </label>
+                          <textarea
+                            value={description}
+                            onChange={e => {
+                              const newDescriptions = [...editForm.descriptions]
+                              newDescriptions[index] = e.target.value
+                              setEditForm({ ...editForm, descriptions: newDescriptions })
+                            }}
+                            maxLength={90}
+                            rows={2}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          />
+                          <p className="helper-text mt-1">
+                            {description.length}/90 字符
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -651,58 +633,122 @@ export default function CreativesPage() {
                         <div className="bg-gray-50 p-3 rounded">
                           <div className="text-xs text-green-700 mb-1">广告 · {offer?.url}</div>
                           <div className="text-lg text-blue-600 font-normal leading-snug mb-1">
-                            {creative.headline1}
-                            {creative.headline2 && ` | ${creative.headline2}`}
-                            {creative.headline3 && ` | ${creative.headline3}`}
+                            {creative.headlines.slice(0, 3).join(' | ')}
                           </div>
                           <div className="text-xs text-gray-600 mb-1">
-                            {new URL(creative.finalUrl).hostname}
-                            {creative.path1 && ` › ${creative.path1}`}
-                            {creative.path2 && ` › ${creative.path2}`}
+                            {new URL(creative.final_url).hostname}
+                            {creative.path_1 && ` › ${creative.path_1}`}
+                            {creative.path_2 && ` › ${creative.path_2}`}
                           </div>
                           <div className="text-sm text-gray-800 leading-relaxed">
-                            {creative.description1}
-                            {creative.description2 && ` ${creative.description2}`}
+                            {creative.descriptions.join(' ')}
                           </div>
                         </div>
                       </div>
 
                       {/* Creative Details */}
-                      <div className="space-y-3">
-                        <div>
-                          <p className="text-sm font-medium text-gray-500">标题</p>
-                          <p className="text-sm text-gray-900">{creative.headline1}</p>
-                          {creative.headline2 && (
-                            <p className="text-sm text-gray-900">{creative.headline2}</p>
-                          )}
-                          {creative.headline3 && (
-                            <p className="text-sm text-gray-900">{creative.headline3}</p>
-                          )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Headlines */}
+                        <div className="bg-gray-50 p-3 rounded">
+                          <p className="text-sm font-medium text-gray-700 mb-2">📝 Headlines ({creative.headlines.length})</p>
+                          <div className="space-y-1">
+                            {creative.headlines.map((headline, index) => (
+                              <div key={index} className="flex justify-between items-center">
+                                <span className="text-sm text-gray-900">{headline}</span>
+                                <span className="text-xs text-gray-400">{headline.length}/30</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-500">描述</p>
-                          <p className="text-sm text-gray-900">{creative.description1}</p>
-                          {creative.description2 && (
-                            <p className="text-sm text-gray-900">{creative.description2}</p>
-                          )}
+
+                        {/* Descriptions */}
+                        <div className="bg-gray-50 p-3 rounded">
+                          <p className="text-sm font-medium text-gray-700 mb-2">📄 Descriptions ({creative.descriptions.length})</p>
+                          <div className="space-y-1">
+                            {creative.descriptions.map((description, index) => (
+                              <div key={index} className="flex justify-between items-start">
+                                <span className="text-sm text-gray-900 flex-1">{description}</span>
+                                <span className="text-xs text-gray-400 ml-2">{description.length}/90</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-500">最终链接</p>
-                          <a
-                            href={creative.finalUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-indigo-600 hover:text-indigo-500"
-                          >
-                            {creative.finalUrl}
-                          </a>
+
+                        {/* Keywords with Search Volume */}
+                        <div className="bg-blue-50 p-3 rounded">
+                          <p className="text-sm font-medium text-gray-700 mb-2">🔑 Keywords ({creative.keywords?.length || 0})</p>
+                          <div className="flex flex-wrap gap-2">
+                            {(creative.keywords_with_volume || creative.keywords?.map(k => ({ keyword: k, searchVolume: 0 })) || []).map((kw, index) => (
+                              <span
+                                key={index}
+                                className="inline-flex items-center px-2 py-1 text-xs rounded bg-blue-100 text-blue-800"
+                              >
+                                {typeof kw === 'string' ? kw : kw.keyword}
+                                {typeof kw !== 'string' && kw.searchVolume > 0 && (
+                                  <span className="ml-1 text-blue-600 font-medium">
+                                    ({kw.searchVolume.toLocaleString()})
+                                  </span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                        {creative.qualityScore && (
-                          <div>
-                            <p className="text-sm font-medium text-gray-500">质量评分</p>
-                            <p className="text-sm text-gray-900">{creative.qualityScore}/100</p>
+
+                        {/* Callouts */}
+                        {creative.callouts && creative.callouts.length > 0 && (
+                          <div className="bg-green-50 p-3 rounded">
+                            <p className="text-sm font-medium text-gray-700 mb-2">✨ Callouts ({creative.callouts.length})</p>
+                            <div className="flex flex-wrap gap-2">
+                              {creative.callouts.map((callout, index) => (
+                                <span
+                                  key={index}
+                                  className="inline-flex items-center px-2 py-1 text-xs rounded bg-green-100 text-green-800"
+                                >
+                                  {callout}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         )}
+
+                        {/* Sitelinks */}
+                        {creative.sitelinks && creative.sitelinks.length > 0 && (
+                          <div className="bg-purple-50 p-3 rounded md:col-span-2">
+                            <p className="text-sm font-medium text-gray-700 mb-2">🔗 Sitelinks ({creative.sitelinks.length})</p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                              {creative.sitelinks.map((sitelink, index) => (
+                                <div key={index} className="bg-white p-2 rounded border border-purple-200">
+                                  <p className="text-sm font-medium text-purple-700">{sitelink.text}</p>
+                                  <p className="text-xs text-gray-500 truncate">{sitelink.url}</p>
+                                  {sitelink.description && (
+                                    <p className="text-xs text-gray-600 mt-1">{sitelink.description}</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Final URL & Score */}
+                        <div className="md:col-span-2 flex justify-between items-center bg-gray-50 p-3 rounded">
+                          <div>
+                            <p className="text-sm font-medium text-gray-500">最终链接</p>
+                            <a
+                              href={creative.final_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-indigo-600 hover:text-indigo-500"
+                            >
+                              {creative.final_url}
+                            </a>
+                          </div>
+                          {creative.score && (
+                            <div className="text-right">
+                              <p className="text-sm font-medium text-gray-500">质量评分</p>
+                              <p className="text-lg font-bold text-indigo-600">{creative.score}/100</p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}

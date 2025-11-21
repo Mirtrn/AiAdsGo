@@ -1,6 +1,15 @@
 import { getDatabase } from './db'
 import type { GeneratedAdCreativeData } from './ad-creative'
 import { creativeCache, generateCreativeCacheKey } from './cache'
+import { getKeywordSearchVolumes } from './keyword-planner'
+
+// Keyword with search volume data
+export interface KeywordWithVolume {
+  keyword: string
+  searchVolume: number
+  competition?: string
+  competitionIndex?: number
+}
 
 /**
  * AI广告创意生成器
@@ -22,49 +31,75 @@ interface AIConfig {
 
 /**
  * 获取AI配置（从settings表）
+ * 优先级：用户配置 > 全局配置
  */
-async function getAIConfig(): Promise<AIConfig> {
+async function getAIConfig(userId?: number): Promise<AIConfig> {
   const db = getDatabase()
 
-  const settings = db.prepare(`
-    SELECT key, value FROM system_settings
-    WHERE key IN (
-      'VERTEX_AI_PROJECT_ID',
-      'VERTEX_AI_LOCATION',
-      'VERTEX_AI_MODEL',
-      'GEMINI_API_KEY',
-      'GEMINI_MODEL'
-    )
-  `).all() as Array<{ key: string; value: string }>
+  // 1. 先尝试获取用户特定配置（优先级最高）
+  let userSettings: Record<string, string> = {}
+  if (userId) {
+    const userRows = db.prepare(`
+      SELECT config_key, config_value FROM system_settings
+      WHERE user_id = ? AND config_key IN (
+        'vertex_ai_model', 'gcp_project_id', 'gcp_location',
+        'gemini_api_key', 'gemini_model', 'use_vertex_ai'
+      )
+    `).all(userId) as Array<{ config_key: string; config_value: string }>
 
-  const configMap = settings.reduce((acc, { key, value }) => {
-    acc[key] = value
+    userSettings = userRows.reduce((acc, { config_key, config_value }) => {
+      acc[config_key] = config_value
+      return acc
+    }, {} as Record<string, string>)
+  }
+
+  // 2. 获取全局配置（作为备选）
+  const globalRows = db.prepare(`
+    SELECT config_key, config_value FROM system_settings
+    WHERE user_id IS NULL AND config_key IN (
+      'VERTEX_AI_PROJECT_ID', 'VERTEX_AI_LOCATION', 'VERTEX_AI_MODEL',
+      'GEMINI_API_KEY', 'GEMINI_MODEL'
+    )
+  `).all() as Array<{ config_key: string; config_value: string }>
+
+  const globalSettings = globalRows.reduce((acc, { config_key, config_value }) => {
+    acc[config_key] = config_value
     return acc
   }, {} as Record<string, string>)
 
-  // 检查Vertex AI配置
-  if (
-    configMap['VERTEX_AI_PROJECT_ID'] &&
-    configMap['VERTEX_AI_LOCATION'] &&
-    configMap['VERTEX_AI_MODEL']
-  ) {
+  // 3. 检查用户是否配置了使用Vertex AI
+  const useVertexAI = userSettings['use_vertex_ai'] === 'true'
+
+  // 4. 合并配置：用户配置优先
+  const projectId = userSettings['gcp_project_id'] || globalSettings['VERTEX_AI_PROJECT_ID']
+  const location = userSettings['gcp_location'] || globalSettings['VERTEX_AI_LOCATION']
+  // 关键：用户的vertex_ai_model或gemini_model优先于全局VERTEX_AI_MODEL
+  const model = userSettings['vertex_ai_model'] || userSettings['gemini_model'] || globalSettings['VERTEX_AI_MODEL']
+
+  // 5. 检查Vertex AI配置（用户设置use_vertex_ai=true时优先）
+  if (useVertexAI && projectId && location && model) {
+    console.log(`🤖 使用Vertex AI: 项目=${projectId}, 区域=${location}, 模型=${model}`)
     return {
       type: 'vertex-ai',
       vertexAI: {
-        projectId: configMap['VERTEX_AI_PROJECT_ID'],
-        location: configMap['VERTEX_AI_LOCATION'],
-        model: configMap['VERTEX_AI_MODEL']
+        projectId,
+        location,
+        model
       }
     }
   }
 
-  // 检查Gemini API配置
-  if (configMap['GEMINI_API_KEY'] && configMap['GEMINI_MODEL']) {
+  // 6. 检查Gemini API配置
+  const apiKey = userSettings['gemini_api_key'] || globalSettings['GEMINI_API_KEY']
+  const geminiModel = userSettings['gemini_model'] || globalSettings['GEMINI_MODEL']
+
+  if (apiKey && geminiModel) {
+    console.log(`🤖 使用Gemini API: 模型=${geminiModel}`)
     return {
       type: 'gemini-api',
       geminiAPI: {
-        apiKey: configMap['GEMINI_API_KEY'],
-        model: configMap['GEMINI_MODEL']
+        apiKey,
+        model: geminiModel
       }
     }
   }
@@ -220,12 +255,19 @@ async function generateWithVertexAI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 4096,
     },
   })
 
   const response = result.response
   const text = response.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+  // 调试信息：检查响应是否被截断
+  const finishReason = response.candidates?.[0]?.finishReason
+  console.log(`🔍 Vertex AI finishReason: ${finishReason}`)
+  if (finishReason === 'MAX_TOKENS') {
+    console.warn('⚠️ 响应因达到token上限而被截断!')
+  }
 
   return parseAIResponse(text)
 }
@@ -261,6 +303,9 @@ async function generateWithGeminiAPI(
  * 解析AI响应
  */
 function parseAIResponse(text: string): GeneratedAdCreativeData {
+  console.log('🔍 AI原始响应长度:', text.length)
+  console.log('🔍 AI原始响应前500字符:', text.substring(0, 500))
+
   // 移除可能的markdown代码块标记
   let jsonText = text.trim()
   jsonText = jsonText.replace(/^```json\n?/, '')
@@ -268,19 +313,31 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
   jsonText = jsonText.replace(/\n?```$/, '')
   jsonText = jsonText.trim()
 
+  console.log('🔍 清理markdown后长度:', jsonText.length)
+  console.log('🔍 清理markdown后前200字符:', jsonText.substring(0, 200))
+
   // 尝试提取JSON对象（如果AI在JSON前后加了其他文本）
   const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
   if (jsonMatch) {
     jsonText = jsonMatch[0]
+    console.log('✅ 成功提取JSON对象，长度:', jsonText.length)
+  } else {
+    console.warn('⚠️ 未能通过正则提取JSON对象')
   }
 
   // 修复常见的JSON格式错误
   // 1. 移除尾部逗号（数组和对象中）
   jsonText = jsonText.replace(/,\s*([}\]])/g, '$1')
-  // 2. 修复未转义的换行符
-  jsonText = jsonText.replace(/(?<!\\)\n/g, '\\n')
-  // 3. 修复单引号（替换为双引号）
-  jsonText = jsonText.replace(/'/g, '"')
+  // 2. 修复智能引号（替换为标准ASCII引号）
+  jsonText = jsonText.replace(/[""]/g, '"')  // 花引号 " " → 直引号 "
+  jsonText = jsonText.replace(/['']/g, "'")  // 花单引号 ' ' → 直单引号 '
+  // 注意：不再替换换行符和所有单引号，以保留JSON中的撇号和格式
+
+  console.log('🔍 修复后JSON前200字符:', jsonText.substring(0, 200))
+
+  // 临时调试：将JSON写入stderr以便检查
+  console.error('🐛 JSON前1000字符:', jsonText.substring(0, 1000))
+  console.error('🐛 JSON后500字符:', jsonText.substring(Math.max(0, jsonText.length - 500)))
 
   try {
     const data = JSON.parse(jsonText)
@@ -334,6 +391,7 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
  */
 export async function generateAdCreative(
   offerId: number,
+  userId?: number,
   options?: {
     theme?: string
     referencePerformance?: any
@@ -366,8 +424,8 @@ export async function generateAdCreative(
     throw new Error('Offer不存在')
   }
 
-  // 获取AI配置
-  const aiConfig = await getAIConfig()
+  // 获取AI配置（用户配置优先）
+  const aiConfig = await getAIConfig(userId)
 
   if (!aiConfig.type) {
     throw new Error('AI配置未设置。请前往设置页面配置Vertex AI或Gemini API。')
@@ -401,8 +459,65 @@ export async function generateAdCreative(
   console.log(`   - Descriptions: ${result.descriptions.length}个`)
   console.log(`   - Keywords: ${result.keywords.length}个`)
 
+  // Enrich keywords with search volume data
+  let keywordsWithVolume: KeywordWithVolume[] = []
+  try {
+    const country = (offer as { target_country?: string }).target_country || 'US'
+    // Extract language from target_language or default to 'en'
+    const lang = ((offer as { target_language?: string }).target_language || 'English').toLowerCase().substring(0, 2)
+    const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : 'en'
+
+    console.log(`🔍 获取关键词搜索量: ${result.keywords.length}个关键词, 国家=${country}, 语言=${language}`)
+    const volumes = await getKeywordSearchVolumes(result.keywords, country, language)
+
+    keywordsWithVolume = volumes.map(v => ({
+      keyword: v.keyword,
+      searchVolume: v.avgMonthlySearches,
+      competition: v.competition,
+      competitionIndex: v.competitionIndex
+    }))
+    console.log(`✅ 关键词搜索量获取完成`)
+  } catch (error) {
+    console.warn('⚠️ 获取关键词搜索量失败，使用默认值:', error)
+    keywordsWithVolume = result.keywords.map(kw => ({ keyword: kw, searchVolume: 0 }))
+  }
+
+  // 修正 sitelinks URL 为真实的 offer URL
+  if (result.sitelinks && result.sitelinks.length > 0) {
+    const offerUrl = (offer as { url?: string }).url
+    if (offerUrl) {
+      result.sitelinks = result.sitelinks.map(link => {
+        let url = link.url || ''
+
+        // 如果是相对路径或localhost路径，转换为offer的真实URL
+        if (url.startsWith('/') || url.includes('localhost')) {
+          // 从相对路径中提取路径部分
+          const path = url.replace(/^https?:\/\/[^\/]+/, '').replace(/^\//, '')
+
+          // 构建完整URL
+          const parsedOfferUrl = new URL(offerUrl)
+          if (path) {
+            // 如果有路径，拼接到offer URL
+            url = `${parsedOfferUrl.origin}/${path}`
+          } else {
+            // 否则直接使用offer URL
+            url = offerUrl
+          }
+        }
+
+        return {
+          ...link,
+          url
+        }
+      })
+
+      console.log(`🔗 修正 ${result.sitelinks.length} 个附加链接URL`)
+    }
+  }
+
   const fullResult = {
     ...result,
+    keywordsWithVolume,
     ai_model: aiModel
   }
 
@@ -423,6 +538,7 @@ export async function generateAdCreative(
  */
 export async function generateAdCreativesBatch(
   offerId: number,
+  userId?: number,
   count: number = 3,
   options?: {
     theme?: string
@@ -448,7 +564,7 @@ export async function generateAdCreativesBatch(
       skipCache: options?.skipCache || false
     }
 
-    return generateAdCreative(offerId, taskOptions)
+    return generateAdCreative(offerId, userId, taskOptions)
   })
 
   // 并行执行所有任务

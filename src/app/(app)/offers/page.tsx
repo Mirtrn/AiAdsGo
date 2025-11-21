@@ -632,7 +632,7 @@ export default function OffersPage() {
                         <TableCell className="text-body-sm text-muted-foreground">
                           {offer.targetLanguage || 'English'}
                         </TableCell>
-                        <TableCell>{getScrapeStatusBadge(offer.scrape_status)}</TableCell>
+                        <TableCell className="whitespace-nowrap">{getScrapeStatusBadge(offer.scrape_status)}</TableCell>
                         <TableCell>
                           {/* P1-11: 显示关联的Google Ads账号 */}
                           {offer.linkedAccounts && offer.linkedAccounts.length > 0 ? (
@@ -666,14 +666,14 @@ export default function OffersPage() {
                             <span className="text-caption text-gray-300">-</span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <Button
                               size="sm"
                               variant="default"
                               onClick={() => router.push(`/offers/${offer.id}/launch`)}
                               disabled={offer.scrape_status !== 'completed'}
-                              className="h-8"
+                              className="h-8 whitespace-nowrap"
                               title={offer.scrape_status !== 'completed' ? '请等待数据抓取完成' : ''}
                             >
                               <Rocket className="w-3.5 h-3.5 mr-1.5" />

@@ -1,6 +1,16 @@
 import { getDatabase } from './db'
 
 /**
+ * 关键词搜索量数据
+ */
+export interface KeywordWithVolume {
+  keyword: string
+  searchVolume: number
+  competition?: string
+  competitionIndex?: number
+}
+
+/**
  * 广告创意接口
  */
 export interface AdCreative {
@@ -11,7 +21,8 @@ export interface AdCreative {
   // 广告创意内容
   headlines: string[]           // 最多15个headline，每个最多30字符
   descriptions: string[]        // 最多4个description，每个最多90字符
-  keywords: string[]            // 关键词列表
+  keywords: string[]            // 关键词列表（向后兼容）
+  keywordsWithVolume?: KeywordWithVolume[]  // 带搜索量的关键词数据
   callouts?: string[]           // 标注（每个最多25字符）
   sitelinks?: Array<{           // 站点链接
     text: string                // 链接文本（最多25字符）
@@ -22,6 +33,8 @@ export interface AdCreative {
   // URL配置
   final_url: string
   final_url_suffix?: string
+  path_1?: string               // URL路径1
+  path_2?: string               // URL路径2
 
   // 评分信息
   score: number                 // 总评分 (0-100)
@@ -35,10 +48,24 @@ export interface AdCreative {
   score_explanation: string
 
   // 生成信息
+  version: number               // 版本号
   generation_round: number      // 第几轮生成
+  generation_prompt?: string    // 生成提示词
   theme: string                 // 广告主题
   ai_model: string             // 使用的AI模型
   is_selected: number          // 是否被用户选中
+
+  // 审批信息
+  is_approved: number          // 是否已审批
+  approved_by?: number         // 审批人ID
+  approved_at?: string         // 审批时间
+
+  // Google Ads同步信息
+  ad_group_id?: number         // 关联的Ad Group ID
+  ad_id?: string               // Google Ads中的Ad ID
+  creation_status: string      // 创建状态: draft/pending/synced/failed
+  creation_error?: string      // 创建错误信息
+  last_sync_at?: string        // 最后同步时间
 
   created_at: string
   updated_at: string
@@ -65,6 +92,7 @@ export interface GeneratedAdCreativeData {
   headlines: string[]
   descriptions: string[]
   keywords: string[]
+  keywordsWithVolume?: KeywordWithVolume[]  // 带搜索量的关键词
   callouts?: string[]
   sitelinks?: Array<{
     text: string
@@ -96,17 +124,18 @@ export function createAdCreative(
   const result = db.prepare(`
     INSERT INTO ad_creatives (
       offer_id, user_id,
-      headlines, descriptions, keywords, callouts, sitelinks,
+      headlines, descriptions, keywords, keywords_with_volume, callouts, sitelinks,
       final_url, final_url_suffix,
       score, score_breakdown, score_explanation,
       generation_round, theme, ai_model
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     offerId,
     userId,
     JSON.stringify(data.headlines),
     JSON.stringify(data.descriptions),
     JSON.stringify(data.keywords),
+    data.keywordsWithVolume ? JSON.stringify(data.keywordsWithVolume) : null,
     data.callouts ? JSON.stringify(data.callouts) : null,
     data.sitelinks ? JSON.stringify(data.sitelinks) : null,
     data.final_url,
@@ -214,6 +243,7 @@ function parseAdCreativeRow(row: any): AdCreative {
     headlines: JSON.parse(row.headlines),
     descriptions: JSON.parse(row.descriptions),
     keywords: JSON.parse(row.keywords),
+    keywordsWithVolume: row.keywords_with_volume ? JSON.parse(row.keywords_with_volume) : undefined,
     callouts: row.callouts ? JSON.parse(row.callouts) : undefined,
     sitelinks: row.sitelinks ? JSON.parse(row.sitelinks) : undefined,
     score_breakdown: JSON.parse(row.score_breakdown),
@@ -419,4 +449,196 @@ export function compareAdCreatives(creativeIds: number[], userId: number): {
       recommendation
     }
   }
+}
+
+/**
+ * 更新广告创意
+ */
+export function updateAdCreative(
+  id: number,
+  userId: number,
+  updates: Partial<{
+    headlines: string[]
+    descriptions: string[]
+    keywords: string[]
+    callouts: string[]
+    path_1: string
+    path_2: string
+    final_url: string
+    score: number
+    is_approved: number
+    ad_group_id: number
+    ad_id: string
+    creation_status: string
+    creation_error: string
+    last_sync_at: string
+  }>
+): AdCreative | null {
+  const db = getDatabase()
+
+  // 验证权限
+  const creative = findAdCreativeById(id, userId)
+  if (!creative) {
+    return null
+  }
+
+  const fields: string[] = []
+  const values: any[] = []
+
+  if (updates.headlines !== undefined) {
+    fields.push('headlines = ?')
+    values.push(JSON.stringify(updates.headlines))
+  }
+  if (updates.descriptions !== undefined) {
+    fields.push('descriptions = ?')
+    values.push(JSON.stringify(updates.descriptions))
+  }
+  if (updates.keywords !== undefined) {
+    fields.push('keywords = ?')
+    values.push(JSON.stringify(updates.keywords))
+  }
+  if (updates.callouts !== undefined) {
+    fields.push('callouts = ?')
+    values.push(JSON.stringify(updates.callouts))
+  }
+  if (updates.path_1 !== undefined) {
+    fields.push('path_1 = ?')
+    values.push(updates.path_1)
+  }
+  if (updates.path_2 !== undefined) {
+    fields.push('path_2 = ?')
+    values.push(updates.path_2)
+  }
+  if (updates.final_url !== undefined) {
+    fields.push('final_url = ?')
+    values.push(updates.final_url)
+  }
+  if (updates.score !== undefined) {
+    fields.push('score = ?')
+    values.push(updates.score)
+  }
+  if (updates.is_approved !== undefined) {
+    fields.push('is_approved = ?')
+    values.push(updates.is_approved)
+  }
+  if (updates.ad_group_id !== undefined) {
+    fields.push('ad_group_id = ?')
+    values.push(updates.ad_group_id)
+  }
+  if (updates.ad_id !== undefined) {
+    fields.push('ad_id = ?')
+    values.push(updates.ad_id)
+  }
+  if (updates.creation_status !== undefined) {
+    fields.push('creation_status = ?')
+    values.push(updates.creation_status)
+  }
+  if (updates.creation_error !== undefined) {
+    fields.push('creation_error = ?')
+    values.push(updates.creation_error)
+  }
+  if (updates.last_sync_at !== undefined) {
+    fields.push('last_sync_at = ?')
+    values.push(updates.last_sync_at)
+  }
+
+  if (fields.length === 0) {
+    return creative
+  }
+
+  fields.push('updated_at = datetime(\'now\')')
+  values.push(id, userId)
+
+  db.prepare(`
+    UPDATE ad_creatives
+    SET ${fields.join(', ')}
+    WHERE id = ? AND user_id = ?
+  `).run(...values)
+
+  return findAdCreativeById(id, userId)
+}
+
+/**
+ * 删除广告创意
+ */
+export function deleteAdCreative(id: number, userId: number): boolean {
+  const db = getDatabase()
+
+  const result = db.prepare(`
+    DELETE FROM ad_creatives
+    WHERE id = ? AND user_id = ?
+  `).run(id, userId)
+
+  return result.changes > 0
+}
+
+/**
+ * 批准广告创意
+ */
+export function approveAdCreative(id: number, userId: number, approvedByUserId: number): AdCreative | null {
+  const db = getDatabase()
+
+  const result = db.prepare(`
+    UPDATE ad_creatives
+    SET is_approved = 1,
+        approved_by = ?,
+        approved_at = datetime('now'),
+        updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `).run(approvedByUserId, id, userId)
+
+  if (result.changes === 0) {
+    return null
+  }
+
+  return findAdCreativeById(id, userId)
+}
+
+/**
+ * 取消批准广告创意
+ */
+export function unapproveAdCreative(id: number, userId: number): AdCreative | null {
+  const db = getDatabase()
+
+  const result = db.prepare(`
+    UPDATE ad_creatives
+    SET is_approved = 0,
+        approved_by = NULL,
+        approved_at = NULL,
+        updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `).run(id, userId)
+
+  if (result.changes === 0) {
+    return null
+  }
+
+  return findAdCreativeById(id, userId)
+}
+
+/**
+ * 获取Offer的所有创意（兼容creatives.ts API）
+ */
+export function findAdCreativesByOfferId(offerId: number, userId: number): AdCreative[] {
+  return listAdCreativesByOffer(offerId, userId)
+}
+
+/**
+ * 获取用户的所有创意（兼容creatives.ts API）
+ */
+export function findAdCreativesByUserId(userId: number, limit?: number): AdCreative[] {
+  const db = getDatabase()
+
+  let sql = `
+    SELECT * FROM ad_creatives
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+  `
+
+  if (limit) {
+    sql += ` LIMIT ${limit}`
+  }
+
+  const rows = db.prepare(sql).all(userId) as any[]
+  return rows.map(parseAdCreativeRow)
 }
