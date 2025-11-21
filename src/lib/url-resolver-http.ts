@@ -115,7 +115,33 @@ export async function resolveAffiliateLinkWithHttp(
         // 添加随机延迟模拟人类行为
         await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
       } else if (response.status === 200) {
-        // 成功到达最终页面
+        // 检查是否有meta refresh头（如yeahpromos.com）
+        const refreshHeader = response.headers.refresh || response.headers.Refresh
+
+        if (refreshHeader) {
+          console.log(`🔄 检测到Meta Refresh: ${refreshHeader}`)
+
+          // 解析 refresh 头: "0;url=https://example.com"
+          const urlMatch = refreshHeader.match(/url=(.+)$/i)
+          if (urlMatch && urlMatch[1]) {
+            const nextUrl = urlMatch[1].trim()
+
+            // 验证URL格式
+            if (nextUrl.startsWith('http')) {
+              redirectChain.push(nextUrl)
+              currentUrl = nextUrl
+              redirectCount++
+
+              console.log(`   → Meta Refresh重定向到: ${nextUrl}`)
+
+              // 添加随机延迟
+              await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+              continue
+            }
+          }
+        }
+
+        // 没有meta refresh，成功到达最终页面
         break
       } else {
         throw new Error(`HTTP请求失败: 状态码 ${response.status}`)
@@ -127,8 +153,19 @@ export async function resolveAffiliateLinkWithHttp(
     }
 
     // 分离Final URL和Final URL suffix
-    const finalFullUrl = currentUrl
-    const urlObj = new URL(finalFullUrl)
+    let finalFullUrl = currentUrl
+    let urlObj = new URL(finalFullUrl)
+
+    // 🔥 优化：检测tracking域名并提取嵌入的目标URL
+    const embeddedUrl = extractEmbeddedTargetUrl(finalFullUrl)
+    if (embeddedUrl) {
+      console.log(`🎯 检测到tracking域名，提取嵌入URL: ${embeddedUrl}`)
+      finalFullUrl = embeddedUrl
+      urlObj = new URL(finalFullUrl)
+      redirectChain.push(embeddedUrl)
+      redirectCount++
+    }
+
     const finalUrl = `${urlObj.origin}${urlObj.pathname}`
     const finalUrlSuffix = urlObj.search.substring(1)
 
@@ -169,7 +206,7 @@ export async function resolveAffiliateLinkWithHttp(
  */
 export function canUseHttpResolver(url: string): boolean {
   // 已知需要JavaScript的域名黑名单
-  const jsRequiredDomains = [
+  const jsRequiredDomains: string[] = [
     // 可以根据实际情况添加
   ]
 
@@ -188,5 +225,69 @@ export function canUseHttpResolver(url: string): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * 🔥 从tracking域名URL中提取嵌入的目标URL
+ *
+ * 某些tracking服务（如partnermatic.com）会将目标URL嵌入到查询参数中
+ * 例如: https://app.partnermatic.com/track/xxx?url=https://byinsomnia.com/
+ *
+ * @param url - 可能包含嵌入URL的tracking链接
+ * @returns 提取的目标URL，如果没有则返回null
+ */
+export function extractEmbeddedTargetUrl(url: string): string | null {
+  // 已知的tracking域名列表
+  const trackingDomains = [
+    'partnermatic.com',
+    'go2cloud.org',
+    'tracking.com',
+    'aff.bstk.com',
+    'click.linksynergy.com',
+  ]
+
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname.toLowerCase()
+
+    // 检查是否是tracking域名
+    const isTrackingDomain = trackingDomains.some(domain => hostname.includes(domain))
+    if (!isTrackingDomain) {
+      return null
+    }
+
+    // 尝试从查询参数中提取目标URL
+    // 常见参数名: url, redirect, target, destination, goto, link
+    const targetParamNames = ['url', 'redirect', 'target', 'destination', 'goto', 'link', 'r', 'u']
+
+    for (const paramName of targetParamNames) {
+      const targetUrl = urlObj.searchParams.get(paramName)
+      if (targetUrl && targetUrl.startsWith('http')) {
+        console.log(`   📎 从参数 "${paramName}" 提取目标URL`)
+        return targetUrl
+      }
+    }
+
+    // 尝试从URL路径中提取（某些tracking服务将URL编码在路径中）
+    // 例如: /track/base64encodedurl
+    const pathParts = urlObj.pathname.split('/')
+    for (const part of pathParts) {
+      // 检查是否是URL编码的完整URL
+      try {
+        const decoded = decodeURIComponent(part)
+        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+          console.log(`   📎 从路径中提取URL编码的目标URL`)
+          return decoded
+        }
+      } catch {
+        // 不是有效的URL编码，跳过
+      }
+    }
+
+    return null
+  } catch (error) {
+    console.warn('提取嵌入URL失败:', error)
+    return null
   }
 }
