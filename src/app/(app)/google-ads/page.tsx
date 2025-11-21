@@ -52,6 +52,8 @@ export default function GoogleAdsPage() {
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!searchParams) return
+
     const oauthSuccess = searchParams.get('oauth_success')
     if (oauthSuccess === 'true') {
       setSuccess('OAuth 授权成功！')
@@ -65,7 +67,7 @@ export default function GoogleAdsPage() {
     }
 
     fetchCredentials()
-  }, [searchParams])
+  }, [searchParams, router])
 
   const fetchCredentials = async () => {
     try {

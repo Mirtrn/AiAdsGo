@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
       client_secret: clientSecret,
       refresh_token: tokens.refresh_token,
       developer_token: developerToken,
-      login_customer_id: loginCustomerId || null,
+      login_customer_id: loginCustomerId || undefined,
       access_token: tokens.access_token,
       access_token_expires_at: expiresAt,
     })

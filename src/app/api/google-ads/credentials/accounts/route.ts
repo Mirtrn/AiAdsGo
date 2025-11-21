@@ -326,7 +326,7 @@ export async function GET(request: NextRequest) {
           AND (o.is_deleted = 0 OR o.is_deleted IS NULL)
           AND c.status != 'REMOVED'
         GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_active
-      `).all(dbAccountId, authResult.user.userId)
+      `).all(dbAccountId, authResult.user!.userId)
 
       return { ...account, linked_offers: linkedOffers }
     })
