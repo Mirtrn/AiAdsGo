@@ -1,7 +1,13 @@
 import { getDatabase } from './db'
-import type { GeneratedAdCreativeData } from './ad-creative'
+import type {
+  GeneratedAdCreativeData,
+  HeadlineAsset,
+  DescriptionAsset,
+  QualityMetrics
+} from './ad-creative'
 import { creativeCache, generateCreativeCacheKey } from './cache'
 import { getKeywordSearchVolumes } from './keyword-planner'
+import { generateContent, getGeminiMode } from './gemini'
 
 // Keyword with search volume data
 export interface KeywordWithVolume {
@@ -176,57 +182,154 @@ function buildAdCreativePrompt(
 
   prompt += `
 
-## 要求
-请生成一组完整的Google Ads响应式搜索广告创意，包括：
+## Google Ads Ad Strength优化要求（目标：EXCELLENT级别）
 
-1. **Headlines** (15个)
-   - 每个不超过30个字符
-   - 包含品牌名、产品特性、优惠信息、行动号召等多种类型
-   - 至少3个包含数字或百分比
-   - 至少2个包含紧迫感（如"限时"、"今日"）
-   - 确保多样性，避免重复
+### 核心标准
+响应式搜索广告的Ad Strength评级直接影响广告效果。EXCELLENT级别要求：
+- ✅ 15个高度差异化的Headlines
+- ✅ 4个价值导向的Descriptions
+- ✅ 资产类型均衡分布
+- ✅ 长度梯度合理
+- ✅ 关键词自然融入
 
-2. **Descriptions** (4个)
-   - 每个不超过90个字符
-   - 详细描述产品优势和独特卖点
-   - 至少2个包含明确的行动号召（CTA）
-   - 突出价值主张和用户利益
+---
 
-3. **Keywords** (10-15个)
-   - 与产品高度相关的关键词
-   - 包括品牌词、产品词、功能词
-   - 考虑长尾关键词
+### 1. Headlines要求（必须15个，分5大类型）
 
-4. **Callouts** (可选，4-6个)
-   - 每个不超过25个字符
-   - 突出产品特点和服务优势
-   - 如：免费配送、24小时客服、质保N年等
+#### 类型分布（确保覆盖5种）
+- **品牌认知类（3个）**：建立品牌可信度
+  - 示例："${offer.brand} Official Store"、"Trusted by 50,000+ Customers"、"#1 ${offer.category}"
 
-5. **Sitelinks** (可选，4个)
-   - 每个包含：text（不超过25字符）、url、description（不超过35字符）
-   - 链接到产品相关页面（如：产品详情、优惠活动、客户评价、购买指南）
+- **产品特性类（4个）**：突出核心价值
+  - 示例："Premium Quality ${offer.category}"、"Advanced [关键特性] Technology"、"All-in-One Solution"
 
-## 输出格式
+- **优惠促销类（3个，必含数字/百分比）**：刺激购买
+  - 示例："Save up to 40% Off"、"$50 Off Your First Order"、"Buy 2 Get 1 Free"
+
+- **行动召唤类（3个）**：驱动转化
+  - 示例："Shop Now & Save"、"Get Yours Today"、"Order Online in Minutes"
+
+- **紧迫感类（2个）**：创造FOMO
+  - 示例："Limited Time Offer"、"Only 10 Left in Stock"、"Ends Tonight at Midnight"
+
+#### 长度分布（优化展示效果）
+- 短标题（10-20字符）：5个 - 移动端优化
+- 中标题（20-25字符）：5个 - 桌面端平衡
+- 长标题（25-30字符）：5个 - 信息最大化
+
+#### 质量要求
+- ✓ 每个标题≤30字符（严格限制）
+- ✓ 15个标题文本相似度<20%（避免重复）
+- ✓ 至少5个包含目标关键词
+- ✓ 至少3个包含具体数字或百分比
+- ✓ 至少2个体现紧迫感
+
+---
+
+### 2. Descriptions要求（必须4个，分2大类型）
+
+#### 类型分布
+- **价值主张类（2个）**：回答"为什么选择我们？"
+  - 详细说明独特卖点、竞争优势、用户利益
+  - 示例："Discover premium ${offer.category} with free shipping, 24/7 support, and 30-day money-back guarantee."
+
+- **行动召唤类（2个）**：明确CTA + 立即利益
+  - 驱动转化行动，强调即时价值
+  - 示例："Shop now and save up to 40%! Free delivery on all orders. Limited time offer - order today!"
+
+#### 质量要求
+- ✓ 每个描述≤90字符（严格限制）
+- ✓ 至少2个包含强CTA动词（Shop, Buy, Get, Order, Discover, Try）
+- ✓ 突出3个以上用户利益点
+- ✓ 自然融入关键词
+
+---
+
+### 3. Keywords要求（10-15个）
+- 品牌词（1-2个）：包含品牌名
+- 产品词（4-6个）：核心产品类别
+- 功能词（2-3个）：关键特性
+- 长尾词（3-5个）：细分场景
+
+---
+
+### 4. Callouts要求（可选，4-6个）
+- 每个≤25字符
+- 突出服务优势：Free Shipping, 24/7 Support, Money-Back Guarantee, Same-Day Delivery等
+
+---
+
+### 5. Sitelinks要求（可选，4个）
+- text≤25字符, description≤35字符
+- 链接到相关页面：Product Details, Special Offers, Customer Reviews, Buying Guide
+
+---
+
+## 禁用词清单（避免违反Google Ads政策）
+- ❌ 绝对化词汇："100%", "最佳", "第一", "保证", "必须"
+- ❌ 夸大表述："奇迹", "魔法", "神奇", "完美"
+- ❌ 医疗声明：未经验证的健康效果
+- ❌ 重复标点："!!!", "???", "..."
+- ❌ 全大写滥用：不超过1个单词
+
+---
+
+## 输出格式（带资产标注，便于评分）
 请严格按照以下JSON格式输出（不要包含markdown代码块标记）：
 
 {
-  "headlines": ["headline1", "headline2", ...],
-  "descriptions": ["desc1", "desc2", ...],
-  "keywords": ["keyword1", "keyword2", ...],
-  "callouts": ["callout1", "callout2", ...],
-  "sitelinks": [
-    {"text": "站点链接1", "url": "/path1", "description": "描述1"},
-    {"text": "站点链接2", "url": "/path2", "description": "描述2"}
+  "headlines": [
+    {
+      "text": "Save 40% on Premium Laptops",
+      "type": "promo",
+      "length": 29,
+      "keywords": ["laptops"],
+      "hasNumber": true,
+      "hasUrgency": false
+    },
+    {
+      "text": "Limited Time Offer",
+      "type": "urgency",
+      "length": 18,
+      "keywords": [],
+      "hasNumber": false,
+      "hasUrgency": true
+    }
+    // ... 共15个
   ],
-  "theme": "广告主题概括",
-  "explanation": "创意说明（100字以内）"
+  "descriptions": [
+    {
+      "text": "Shop our collection of high-performance laptops. Free shipping & 2-year warranty. Order today!",
+      "type": "cta",
+      "length": 89,
+      "hasCTA": true,
+      "keywords": ["laptops", "warranty"]
+    }
+    // ... 共4个
+  ],
+  "keywords": ["laptop", "premium laptop", "gaming laptop", ...],
+  "callouts": ["Free Shipping", "24/7 Support", "2-Year Warranty", ...],
+  "sitelinks": [
+    {"text": "Shop Laptops", "url": "/laptops", "description": "Browse our full laptop collection"}
+  ],
+  "theme": "Premium laptop sales with warranty and support",
+  "explanation": "Emphasis on quality, value, and customer service with strong urgency elements.",
+  "quality_metrics": {
+    "headline_diversity_score": 95,
+    "keyword_relevance_score": 90,
+    "estimated_ad_strength": "EXCELLENT"
+  }
 }
 
-注意：
+---
+
+## 重要提示
 - 所有文案使用${offer.target_language || 'English'}语言
-- Headlines和Descriptions要符合Google Ads的字符限制
-- 确保文案专业、吸引人、符合广告规范
-- 避免过度营销或误导性表述
+- Headlines和Descriptions必须符合字符限制（超限将被拒登）
+- 确保15个Headlines分布在5种类型且长度梯度合理
+- 文本差异化≥80%，避免相似重复
+- 自然融入关键词，避免堆砌
+- 专业、吸引人、符合广告规范
 `
 
   return prompt
@@ -255,7 +358,7 @@ async function generateWithVertexAI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 8192,  // 增加以容纳完整创意
     },
   })
 
@@ -355,29 +458,99 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
       throw new Error('Keywords格式无效')
     }
 
+    // 处理headlines格式（支持新旧格式）
+    let headlinesArray: string[]
+    let headlinesWithMetadata: HeadlineAsset[] | undefined
+
+    // 检测格式：第一个元素是string还是object
+    const isNewFormat = data.headlines.length > 0 && typeof data.headlines[0] === 'object'
+
+    if (isNewFormat) {
+      // 新格式：对象数组（带metadata）
+      headlinesWithMetadata = data.headlines as HeadlineAsset[]
+      headlinesArray = headlinesWithMetadata.map(h => h.text)
+      console.log('✅ 检测到新格式headlines（带metadata）')
+    } else {
+      // 旧格式：字符串数组
+      headlinesArray = data.headlines as string[]
+      console.log('✅ 检测到旧格式headlines（字符串数组）')
+    }
+
+    // 处理descriptions格式
+    let descriptionsArray: string[]
+    let descriptionsWithMetadata: DescriptionAsset[] | undefined
+
+    const isDescNewFormat = data.descriptions.length > 0 && typeof data.descriptions[0] === 'object'
+
+    if (isDescNewFormat) {
+      descriptionsWithMetadata = data.descriptions as DescriptionAsset[]
+      descriptionsArray = descriptionsWithMetadata.map(d => d.text)
+      console.log('✅ 检测到新格式descriptions（带metadata）')
+    } else {
+      descriptionsArray = data.descriptions as string[]
+      console.log('✅ 检测到旧格式descriptions（字符串数组）')
+    }
+
     // 验证字符长度
-    const invalidHeadlines = data.headlines.filter((h: string) => h.length > 30)
+    const invalidHeadlines = headlinesArray.filter((h: string) => h.length > 30)
     if (invalidHeadlines.length > 0) {
       console.warn(`警告: ${invalidHeadlines.length}个headline超过30字符限制`)
       // 截断过长的headlines
-      data.headlines = data.headlines.map((h: string) => h.substring(0, 30))
+      headlinesArray = headlinesArray.map((h: string) => h.substring(0, 30))
+
+      // 同步更新metadata中的text
+      if (headlinesWithMetadata) {
+        headlinesWithMetadata = headlinesWithMetadata.map(h => ({
+          ...h,
+          text: h.text.substring(0, 30),
+          length: Math.min(h.length || h.text.length, 30)
+        }))
+      }
     }
 
-    const invalidDescriptions = data.descriptions.filter((d: string) => d.length > 90)
+    const invalidDescriptions = descriptionsArray.filter((d: string) => d.length > 90)
     if (invalidDescriptions.length > 0) {
       console.warn(`警告: ${invalidDescriptions.length}个description超过90字符限制`)
       // 截断过长的descriptions
-      data.descriptions = data.descriptions.map((d: string) => d.substring(0, 90))
+      descriptionsArray = descriptionsArray.map((d: string) => d.substring(0, 90))
+
+      // 同步更新metadata中的text
+      if (descriptionsWithMetadata) {
+        descriptionsWithMetadata = descriptionsWithMetadata.map(d => ({
+          ...d,
+          text: d.text.substring(0, 90),
+          length: Math.min(d.length || d.text.length, 90)
+        }))
+      }
+    }
+
+    // 解析quality_metrics（如果存在）
+    const qualityMetrics = data.quality_metrics ? {
+      headline_diversity_score: data.quality_metrics.headline_diversity_score,
+      keyword_relevance_score: data.quality_metrics.keyword_relevance_score,
+      estimated_ad_strength: data.quality_metrics.estimated_ad_strength
+    } : undefined
+
+    if (qualityMetrics) {
+      console.log('📊 Ad Strength预估:', qualityMetrics.estimated_ad_strength)
+      console.log('📊 Headline多样性:', qualityMetrics.headline_diversity_score)
+      console.log('📊 关键词相关性:', qualityMetrics.keyword_relevance_score)
     }
 
     return {
-      headlines: data.headlines,
-      descriptions: data.descriptions,
+      // 核心字段（向后兼容）
+      headlines: headlinesArray,
+      descriptions: descriptionsArray,
       keywords: data.keywords,
       callouts: data.callouts,
       sitelinks: data.sitelinks,
       theme: data.theme || '通用广告',
-      explanation: data.explanation || '基于产品信息生成的广告创意'
+      explanation: data.explanation || '基于产品信息生成的广告创意',
+
+      // 新增字段（可选）
+      headlinesWithMetadata,
+      descriptionsWithMetadata,
+      qualityMetrics
     }
   } catch (error) {
     console.error('解析AI响应失败:', error)
@@ -424,13 +597,6 @@ export async function generateAdCreative(
     throw new Error('Offer不存在')
   }
 
-  // 获取AI配置（用户配置优先）
-  const aiConfig = await getAIConfig(userId)
-
-  if (!aiConfig.type) {
-    throw new Error('AI配置未设置。请前往设置页面配置Vertex AI或Gemini API。')
-  }
-
   // 构建Prompt
   const prompt = buildAdCreativePrompt(
     offer,
@@ -438,21 +604,23 @@ export async function generateAdCreative(
     options?.referencePerformance
   )
 
-  // 调用AI生成
-  let result: GeneratedAdCreativeData
-  let aiModel: string
-
-  if (aiConfig.type === 'vertex-ai' && aiConfig.vertexAI) {
-    console.log('🤖 使用Vertex AI生成广告创意...')
-    result = await generateWithVertexAI(aiConfig.vertexAI, prompt)
-    aiModel = `vertex-ai:${aiConfig.vertexAI.model}`
-  } else if (aiConfig.type === 'gemini-api' && aiConfig.geminiAPI) {
-    console.log('🤖 使用Gemini API生成广告创意...')
-    result = await generateWithGeminiAPI(aiConfig.geminiAPI, prompt)
-    aiModel = `gemini-api:${aiConfig.geminiAPI.model}`
-  } else {
-    throw new Error('AI配置无效')
+  // 使用统一AI入口（优先Vertex AI，自动降级到Gemini API）
+  if (!userId) {
+    throw new Error('生成广告创意需要用户ID，请确保已登录')
   }
+  const aiMode = getGeminiMode(userId)
+  console.log(`🤖 使用统一AI入口生成广告创意 (${aiMode})...`)
+
+  const responseText = await generateContent({
+    model: 'gemini-2.5-pro',
+    prompt,
+    temperature: 0.9,
+    maxOutputTokens: 8192,  // 增加以容纳完整创意（15 headlines + 4 descriptions + keywords + callouts + sitelinks）
+  }, userId)
+
+  // 解析AI响应
+  const result: GeneratedAdCreativeData = parseAIResponse(responseText)
+  const aiModel = `${aiMode}:gemini-2.5-pro`
 
   console.log('✅ 广告创意生成成功')
   console.log(`   - Headlines: ${result.headlines.length}个`)

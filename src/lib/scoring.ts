@@ -1,7 +1,17 @@
 import { generateContent } from './gemini'
 import type { ScoreAnalysis } from './launch-scores'
 import type { Offer } from './offers'
-import type { AdCreative } from './ad-creative'
+import type { AdCreative, HeadlineAsset, DescriptionAsset } from './ad-creative'
+import {
+  evaluateAdStrength,
+  type AdStrengthEvaluation,
+  type AdStrengthRating
+} from './ad-strength-evaluator'
+import {
+  getAdStrength,
+  validateExcellentStandard,
+  type GoogleAdStrengthResponse
+} from './google-ads-strength-api'
 
 /**
  * 计算Launch Score - 5维度评分系统
@@ -200,7 +210,7 @@ export async function calculateCreativeQualityScore(creative: {
   description2: string
   brand: string
   orientation: 'brand' | 'product' | 'promo'
-}): Promise<number> {
+}, userId?: number): Promise<number> {
   try {
     const prompt = `你是一个专业的Google Ads广告创意评估专家。请评估以下广告创意的质量，给出0-100分的评分。
 
@@ -243,13 +253,16 @@ export async function calculateCreativeQualityScore(creative: {
 例如：
 92`
 
-    // 使用Gemini 2.5 Pro进行评分
+    // 使用Gemini 2.5 Pro进行评分（优先Vertex AI）
+    if (!userId) {
+      throw new Error('创意质量评分需要用户ID，请确保已登录')
+    }
     const text = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.3, // 降低温度以获得更稳定的评分
-      maxOutputTokens: 10,
-    })
+      maxOutputTokens: 256, // 增加以容纳Gemini 2.5的思考tokens + 实际输出
+    }, userId)
 
     // 提取数字
     const scoreMatch = text.trim().match(/\d+/)
@@ -325,3 +338,167 @@ export function getScoreGrade(totalScore: number): {
     return { grade: 'F', color: 'red', label: '不建议投放' }
   }
 }
+
+/**
+ * ========================================
+ * Ad Strength评估系统（NEW）
+ * 结合本地算法 + Google Ads API验证
+ * ========================================
+ */
+
+/**
+ * 综合评估结果（本地 + Google API）
+ */
+export interface ComprehensiveAdStrengthResult {
+  // 本地评估结果
+  localEvaluation: AdStrengthEvaluation
+
+  // Google API验证结果（可选）
+  googleValidation?: {
+    adStrength: AdStrengthRating
+    isExcellent: boolean
+    recommendations: string[]
+    assetPerformance?: {
+      bestHeadlines: string[]
+      bestDescriptions: string[]
+      lowPerformingAssets: string[]
+    }
+  }
+
+  // 最终评级（优先使用Google API结果，否则使用本地结果）
+  finalRating: AdStrengthRating
+  finalScore: number
+
+  // 综合建议
+  combinedSuggestions: string[]
+}
+
+/**
+ * 评估广告创意的Ad Strength（支持本地评估 + Google API验证）
+ *
+ * @param headlines Headline资产数组（带metadata）
+ * @param descriptions Description资产数组（带metadata）
+ * @param keywords 关键词列表
+ * @param options 可选配置
+ * @returns 综合评估结果
+ */
+export async function evaluateCreativeAdStrength(
+  headlines: HeadlineAsset[],
+  descriptions: DescriptionAsset[],
+  keywords: string[],
+  options?: {
+    // Google API验证配置（可选）
+    googleValidation?: {
+      customerId: string
+      campaignId: string
+      userId: number
+    }
+  }
+): Promise<ComprehensiveAdStrengthResult> {
+  console.log('🎯 开始Ad Strength评估...')
+
+  // 1. 本地评估（快速，无需API调用）
+  const localEvaluation = await evaluateAdStrength(headlines, descriptions, keywords)
+
+  console.log(`📊 本地评估: ${localEvaluation.rating} (${localEvaluation.overallScore}分)`)
+
+  // 2. Google API验证（可选）
+  let googleValidation: ComprehensiveAdStrengthResult['googleValidation'] | undefined
+
+  if (options?.googleValidation) {
+    try {
+      console.log('🔍 正在调用Google Ads API验证...')
+
+      const { customerId, campaignId, userId } = options.googleValidation
+
+      const validationResult = await validateExcellentStandard(
+        customerId,
+        campaignId,
+        userId
+      )
+
+      googleValidation = {
+        adStrength: validationResult.currentStrength,
+        isExcellent: validationResult.isExcellent,
+        recommendations: validationResult.recommendations,
+        assetPerformance: validationResult.assetPerformance
+      }
+
+      console.log(`✅ Google API验证: ${validationResult.currentStrength}`)
+    } catch (error) {
+      console.warn('⚠️ Google API验证失败，使用本地评估结果:', error)
+    }
+  }
+
+  // 3. 确定最终评级（优先Google API）
+  const finalRating = googleValidation?.adStrength || localEvaluation.rating
+  const finalScore = localEvaluation.overallScore
+
+  // 4. 合并建议
+  const combinedSuggestions = [
+    ...localEvaluation.suggestions,
+    ...(googleValidation?.recommendations || [])
+  ]
+
+  // 去重建议
+  const uniqueSuggestions = Array.from(new Set(combinedSuggestions))
+
+  console.log(`🎯 最终评级: ${finalRating} (${finalScore}分)`)
+  console.log(`💡 改进建议: ${uniqueSuggestions.length}条`)
+
+  return {
+    localEvaluation,
+    googleValidation,
+    finalRating,
+    finalScore,
+    combinedSuggestions: uniqueSuggestions
+  }
+}
+
+/**
+ * 简化版：仅返回Ad Strength评级（用于快速评估）
+ *
+ * @param headlines Headline资产数组
+ * @param descriptions Description资产数组
+ * @param keywords 关键词列表
+ * @returns Ad Strength评级
+ */
+export async function getQuickAdStrength(
+  headlines: HeadlineAsset[],
+  descriptions: DescriptionAsset[],
+  keywords: string[]
+): Promise<AdStrengthRating> {
+  const evaluation = await evaluateAdStrength(headlines, descriptions, keywords)
+  return evaluation.rating
+}
+
+/**
+ * 转换旧格式创意为新格式（向后兼容）
+ *
+ * @param creative 旧格式创意
+ * @returns 新格式的headlines和descriptions
+ */
+export function convertLegacyCreativeFormat(creative: {
+  headline1: string
+  headline2: string
+  headline3: string
+  description1: string
+  description2: string
+}): {
+  headlines: HeadlineAsset[]
+  descriptions: DescriptionAsset[]
+} {
+  const headlines: HeadlineAsset[] = [
+    { text: creative.headline1, length: creative.headline1.length },
+    { text: creative.headline2, length: creative.headline2.length },
+    { text: creative.headline3, length: creative.headline3.length }
+  ]
+
+  const descriptions: DescriptionAsset[] = [
+    { text: creative.description1, length: creative.description1.length },
+    { text: creative.description2, length: creative.description2.length }
+  ]
+
+  return { headlines, descriptions }
+}
+

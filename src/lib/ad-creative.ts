@@ -88,6 +88,30 @@ export interface GenerateAdCreativeInput {
 /**
  * 生成的广告创意数据（AI返回格式）
  */
+// 资产标注接口（用于Ad Strength评估）
+export interface HeadlineAsset {
+  text: string
+  type?: 'brand' | 'product' | 'promo' | 'cta' | 'urgency'  // 资产类型
+  length?: number                                           // 字符长度
+  keywords?: string[]                                       // 包含的关键词
+  hasNumber?: boolean                                       // 是否包含数字
+  hasUrgency?: boolean                                      // 是否体现紧迫感
+}
+
+export interface DescriptionAsset {
+  text: string
+  type?: 'value' | 'cta'  // 价值主张 或 行动召唤
+  length?: number
+  hasCTA?: boolean        // 是否包含CTA
+  keywords?: string[]
+}
+
+export interface QualityMetrics {
+  headline_diversity_score?: number  // 0-100
+  keyword_relevance_score?: number   // 0-100
+  estimated_ad_strength?: 'POOR' | 'AVERAGE' | 'GOOD' | 'EXCELLENT'
+}
+
 export interface GeneratedAdCreativeData {
   headlines: string[]
   descriptions: string[]
@@ -101,6 +125,11 @@ export interface GeneratedAdCreativeData {
   }>
   theme: string
   explanation: string           // 创意说明
+
+  // 新增：带标注的资产（可选，用于Ad Strength评估）
+  headlinesWithMetadata?: HeadlineAsset[]
+  descriptionsWithMetadata?: DescriptionAsset[]
+  qualityMetrics?: QualityMetrics
 }
 
 /**
