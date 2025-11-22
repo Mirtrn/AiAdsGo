@@ -86,6 +86,8 @@ const transaction = db.transaction(() => {
       unique_selling_points TEXT,
       product_highlights TEXT,
       target_audience TEXT,
+      final_url TEXT,
+      final_url_suffix TEXT,
       scrape_status TEXT NOT NULL DEFAULT 'pending',
       scrape_error TEXT,
       scraped_at TEXT,
@@ -163,6 +165,7 @@ const transaction = db.transaction(() => {
       description_1 TEXT NOT NULL,
       description_2 TEXT,
       final_url TEXT NOT NULL,
+      final_url_suffix TEXT,
       path_1 TEXT,
       path_2 TEXT,
       ai_model TEXT NOT NULL,
@@ -386,6 +389,40 @@ const transaction = db.transaction(() => {
   `)
   console.log('✅ sync_logs表')
 
+  // 创意学习模式表 - 用户创意成功特征
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS creative_learning_patterns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE,
+      success_features TEXT NOT NULL,
+      total_creatives_analyzed INTEGER NOT NULL DEFAULT 0,
+      avg_ctr REAL,
+      avg_conversion_rate REAL,
+      min_ctr_threshold REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `)
+  console.log('✅ creative_learning_patterns表')
+
+  // 备份日志表 - 记录数据库备份历史
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS backup_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      backup_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      backup_filename TEXT,
+      backup_path TEXT,
+      file_size_bytes INTEGER,
+      error_message TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by INTEGER,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `)
+  console.log('✅ backup_logs表')
+
   console.log('\n📋 创建索引...\n')
 
   // 创建索引以提升查询性能
@@ -401,6 +438,9 @@ const transaction = db.transaction(() => {
     CREATE INDEX IF NOT EXISTS idx_risk_alerts_user_status ON risk_alerts(user_id, status);
     CREATE INDEX IF NOT EXISTS idx_link_check_offer ON link_check_history(offer_id);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_user ON sync_logs(user_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_creative_learning_user_id ON creative_learning_patterns(user_id);
+    CREATE INDEX IF NOT EXISTS idx_backup_logs_created_at ON backup_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_backup_logs_status ON backup_logs(status);
   `)
   console.log('✅ 索引创建完成')
 
