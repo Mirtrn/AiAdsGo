@@ -120,9 +120,27 @@ const transaction = db.transaction(() => {
       last_sync_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+      -- 创意关联和Google Ads ID（2025-11-22新增）
+      ad_creative_id INTEGER,
+      google_campaign_id TEXT,
+      google_ad_group_id TEXT,
+      google_ad_id TEXT,
+
+      -- 广告配置和行为
+      campaign_config TEXT,
+      pause_old_campaigns INTEGER,
+
+      -- A/B测试支持
+      is_test_variant INTEGER DEFAULT 0,
+      ab_test_id INTEGER,
+      traffic_allocation REAL DEFAULT 1.0 CHECK(traffic_allocation >= 0 AND traffic_allocation <= 1),
+
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE CASCADE,
-      FOREIGN KEY (google_ads_account_id) REFERENCES google_ads_accounts(id) ON DELETE CASCADE
+      FOREIGN KEY (google_ads_account_id) REFERENCES google_ads_accounts(id) ON DELETE CASCADE,
+      FOREIGN KEY (ad_creative_id) REFERENCES ad_creatives(id) ON DELETE SET NULL,
+      FOREIGN KEY (ab_test_id) REFERENCES ab_tests(id) ON DELETE SET NULL
     )
   `)
   console.log('✅ campaigns表')
@@ -432,6 +450,8 @@ const transaction = db.transaction(() => {
     CREATE INDEX IF NOT EXISTS idx_offers_user_id ON offers(user_id);
     CREATE INDEX IF NOT EXISTS idx_campaigns_user_id ON campaigns(user_id);
     CREATE INDEX IF NOT EXISTS idx_campaigns_offer_id ON campaigns(offer_id);
+    CREATE INDEX IF NOT EXISTS idx_campaigns_is_test_variant ON campaigns(is_test_variant);
+    CREATE INDEX IF NOT EXISTS idx_campaigns_ab_test_id ON campaigns(ab_test_id);
     CREATE INDEX IF NOT EXISTS idx_creatives_offer_id ON creatives(offer_id);
     CREATE INDEX IF NOT EXISTS idx_performance_campaign_date ON campaign_performance(campaign_id, date);
     CREATE INDEX IF NOT EXISTS idx_performance_user_date ON campaign_performance(user_id, date);
