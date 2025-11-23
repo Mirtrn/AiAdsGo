@@ -331,7 +331,6 @@ export function updateTaskStatus(
     SET status = ?,
         ${status === 'completed' ? 'completed_at = datetime("now"),' : ''}
         ${status === 'dismissed' ? 'dismissed_at = datetime("now"),' : ''}
-        ${note ? 'completion_note = ?' : ''}
         completion_note = ?
     WHERE id = ? AND user_id = ?
   `

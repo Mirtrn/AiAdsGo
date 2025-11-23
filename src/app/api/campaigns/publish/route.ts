@@ -12,6 +12,7 @@ import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { calculateLaunchScore } from '@/lib/scoring'
+import type { AdCreative } from '@/lib/ad-creative'
 
 /**
  * POST /api/campaigns/publish
@@ -227,12 +228,13 @@ export async function POST(request: NextRequest) {
       const launchScoreResult = await calculateLaunchScore(
         offer,
         {
-          ...creativeData,
-          final_url: primaryCreative.final_url || offer.url,
-          brand: offer.brand,
-          target_country: offer.target_country || 'US',
-          target_language: offer.target_language || 'en'
-        },
+          ...primaryCreative,
+          headlines: creativeData.headlines,
+          descriptions: creativeData.descriptions,
+          keywords: creativeData.keywords,
+          callouts: creativeData.callouts,
+          sitelinks: creativeData.sitelinks
+        } as AdCreative,
         userId
       )
 
