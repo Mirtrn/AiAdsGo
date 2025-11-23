@@ -225,7 +225,7 @@ function isAffiliateUrl(url: string): boolean {
  * 后台执行抓取和AI分析任务
  * 导出此函数以供异步抓取复用，确保逻辑一致性
  */
-export async function performScrapeAndAnalysis(
+async function performScrapeAndAnalysis(
   offerId: number,
   userId: number,
   url: string,

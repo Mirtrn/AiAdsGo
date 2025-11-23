@@ -88,11 +88,11 @@ interface Creative {
     score: number
     isExcellent: boolean
     dimensions: {
-      diversity: number
-      relevance: number
-      completeness: number
-      quality: number
-      compliance: number
+      diversity: { score: number; weight: number; details: any }
+      relevance: { score: number; weight: number; details: any }
+      completeness: { score: number; weight: number; details: any }
+      quality: { score: number; weight: number; details: any }
+      compliance: { score: number; weight: number; details: any }
     }
     suggestions: string[]
   }

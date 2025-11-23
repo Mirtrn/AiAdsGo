@@ -11,6 +11,7 @@ import {
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
+import { calculateLaunchScore } from '@/lib/scoring'
 
 /**
  * POST /api/campaigns/publish
@@ -60,7 +61,8 @@ export async function POST(request: NextRequest) {
       campaign_config,
       pause_old_campaigns,
       enable_smart_optimization = false,
-      variant_count = 3
+      variant_count = 3,
+      force_publish = false // 强制发布标志（用于绕过60-80分警告）
     } = body
 
     // 3. 验证必填字段
@@ -206,6 +208,110 @@ export async function POST(request: NextRequest) {
           // 继续处理，不中断流程
         }
       }
+    }
+
+    // 7.5 Launch Score评估（投放风险评估）
+    console.log(`\n🎯 开始Launch Score评估...`)
+    const primaryCreative = creatives[0]
+
+    // 解析创意数据（从JSON字符串）
+    const creativeData = {
+      headlines: JSON.parse(primaryCreative.headlines || '[]'),
+      descriptions: JSON.parse(primaryCreative.descriptions || '[]'),
+      keywords: JSON.parse(primaryCreative.keywords || '[]'),
+      callouts: JSON.parse(primaryCreative.callouts || '[]'),
+      sitelinks: JSON.parse(primaryCreative.sitelinks || '[]')
+    }
+
+    try {
+      const launchScoreResult = await calculateLaunchScore(
+        offer,
+        {
+          ...creativeData,
+          final_url: primaryCreative.final_url || offer.url,
+          brand: offer.brand,
+          target_country: offer.target_country || 'US',
+          target_language: offer.target_language || 'en'
+        },
+        userId
+      )
+
+      // 从ScoreAnalysis中提取各维度分数
+      const keywordScore = launchScoreResult.keywordAnalysis.score
+      const marketFitScore = launchScoreResult.marketFitAnalysis.score
+      const landingPageScore = launchScoreResult.landingPageAnalysis.score
+      const budgetScore = launchScoreResult.budgetAnalysis.score
+      const contentScore = launchScoreResult.contentAnalysis.score
+      const launchScore = keywordScore + marketFitScore + landingPageScore + budgetScore + contentScore
+
+      console.log(`📊 Launch Score评估结果: ${launchScore}分`)
+      console.log(`   - 关键词: ${keywordScore}/30`)
+      console.log(`   - 市场契合: ${marketFitScore}/25`)
+      console.log(`   - 着陆页: ${landingPageScore}/20`)
+      console.log(`   - 预算: ${budgetScore}/15`)
+      console.log(`   - 内容: ${contentScore}/10`)
+
+      // 阻断规则
+      const CRITICAL_THRESHOLD = 60  // 严重问题阈值
+      const WARNING_THRESHOLD = 80   // 警告阈值
+
+      if (launchScore < CRITICAL_THRESHOLD) {
+        // 强制阻断：<60分
+        console.error(`❌ Launch Score过低: ${launchScore}分 < ${CRITICAL_THRESHOLD}分，强制阻断`)
+
+        return NextResponse.json(
+          {
+            error: `投放风险过高（Launch Score: ${launchScore}分），无法发布`,
+            details: {
+              launchScore,
+              threshold: CRITICAL_THRESHOLD,
+              breakdown: {
+                keyword: keywordScore,
+                marketFit: marketFitScore,
+                landingPage: landingPageScore,
+                budget: budgetScore,
+                content: contentScore
+              },
+              issues: launchScoreResult.keywordAnalysis?.issues || [],
+              recommendations: launchScoreResult.overallRecommendations || []
+            },
+            action: 'LAUNCH_SCORE_BLOCKED'
+          },
+          { status: 422 } // 422 Unprocessable Entity
+        )
+      } else if (launchScore < WARNING_THRESHOLD && !force_publish) {
+        // 警告但可绕过：60-80分
+        console.warn(`⚠️ Launch Score偏低: ${launchScore}分 < ${WARNING_THRESHOLD}分，建议优化后再发布`)
+
+        return NextResponse.json(
+          {
+            error: `投放风险较高（Launch Score: ${launchScore}分），建议优化`,
+            details: {
+              launchScore,
+              threshold: WARNING_THRESHOLD,
+              breakdown: {
+                keyword: keywordScore,
+                marketFit: marketFitScore,
+                landingPage: landingPageScore,
+                budget: budgetScore,
+                content: contentScore
+              },
+              issues: launchScoreResult.keywordAnalysis?.issues || [],
+              recommendations: launchScoreResult.overallRecommendations || [],
+              canForcePublish: true // 允许强制发布
+            },
+            action: 'LAUNCH_SCORE_WARNING'
+          },
+          { status: 422 }
+        )
+      }
+
+      console.log(`✅ Launch Score评估通过: ${launchScore}分 ${force_publish ? '(强制发布)' : ''}`)
+
+    } catch (error: any) {
+      console.error('Launch Score评估失败:', error.message)
+      // Launch Score评估失败不阻断发布，只记录日志
+      console.warn('⚠️ Launch Score评估失败，跳过风险评估')
     }
 
     // 8. 创建A/B测试记录（智能优化模式）
@@ -447,7 +553,7 @@ export async function POST(request: NextRequest) {
           // 记录API使用（仅在有userId时追踪）
           if (userId) {
             trackApiUsage({
-              userId: parseInt(userId, 10),
+              userId: userId,
               operationType: ApiOperationType.MUTATE_BATCH,
               endpoint: 'publishCampaign',
               customerId: adsAccount.customer_id,

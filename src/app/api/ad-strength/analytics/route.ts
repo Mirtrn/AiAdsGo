@@ -16,10 +16,10 @@ export async function GET(request: NextRequest) {
     const days = parseInt(searchParams.get('days') || '30')
     const offerId = searchParams.get('offerId')
 
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // 1. 各评级的平均转化率
-    const ratingPerformance = await db.all(`
+    const ratingPerformance = db.prepare(`
       SELECT
         rating,
         COUNT(*) as count,
@@ -44,10 +44,10 @@ export async function GET(request: NextRequest) {
           WHEN 'POOR' THEN 4
           ELSE 5
         END
-    `, offerId ? [userId, days, offerId] : [userId, days])
+    `).all(offerId ? [userId, days, offerId] : [userId, days])
 
     // 2. 评分与转化率的相关性
-    const scoreCorrelation = await db.all(`
+    const scoreCorrelation = db.prepare(`
       SELECT
         CASE
           WHEN overall_score >= 90 THEN '90-100'
@@ -65,10 +65,10 @@ export async function GET(request: NextRequest) {
         AND impressions > 100
       GROUP BY score_range
       ORDER BY score_range DESC
-    `, [userId, days])
+    `).all([userId, days])
 
     // 3. 各维度对转化率的影响
-    const dimensionImpact = await db.all(`
+    const dimensionImpact = db.prepare(`
       SELECT
         'diversity' as dimension,
         CASE
@@ -111,10 +111,10 @@ export async function GET(request: NextRequest) {
       FROM ad_strength_history
       WHERE user_id = ? AND impressions > 100
       GROUP BY level
-    `, [userId, userId, userId])
+    `).all([userId, userId, userId])
 
     // 4. 资产特征对转化的影响
-    const featureImpact = await db.all(`
+    const featureImpact = db.prepare(`
       SELECT
         'has_numbers' as feature,
         has_numbers as has_feature,
@@ -145,10 +145,10 @@ export async function GET(request: NextRequest) {
       FROM ad_strength_history
       WHERE user_id = ? AND impressions > 100
       GROUP BY has_urgency
-    `, [userId, userId, userId])
+    `).all([userId, userId, userId])
 
     // 5. 时间趋势（按周）
-    const weeklyTrend = await db.all(`
+    const weeklyTrend = db.prepare(`
       SELECT
         strftime('%Y-%W', evaluated_at) as week,
         COUNT(*) as count,
@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
         AND evaluated_at >= datetime('now', '-' || ? || ' days')
       GROUP BY week
       ORDER BY week
-    `, [userId, days])
+    `).all([userId, days])
 
     // 6. 计算关键洞察
     const insights = generateInsights(ratingPerformance, scoreCorrelation, featureImpact)
@@ -281,10 +281,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // 插入历史记录
-    const result = await db.run(`
+    const result = db.prepare(`
       INSERT INTO ad_strength_history (
         user_id, offer_id, creative_id, campaign_id,
         rating, overall_score,
@@ -293,7 +293,7 @@ export async function POST(request: NextRequest) {
         has_numbers, has_cta, has_urgency,
         avg_headline_length, avg_description_length
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
+    `).run([
       userId,
       offerId,
       creativeId || null,
@@ -317,7 +317,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      historyId: result.lastID,
+      historyId: result.lastInsertRowid,
       message: 'Ad Strength历史记录已保存'
     })
   } catch (error: any) {

@@ -5,7 +5,7 @@
 
 import { getDatabase } from './db'
 import { saveCreativePerformance, PerformanceData } from './bonus-score-calculator'
-import { GoogleAdsApi, GoogleAdsRow } from 'google-ads-api'
+import { GoogleAdsApi } from 'google-ads-api'
 
 interface SyncResult {
   success: boolean
@@ -48,7 +48,7 @@ export async function syncCreativePerformance(
     // 从Google Ads API获取效果数据
     const customer = googleAdsClient.Customer({
       customer_id: customerID,
-      refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN
+      refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN!
     })
 
     // 查询最近30天的效果数据
@@ -131,7 +131,7 @@ export async function syncAllCreativesPerformance(
   googleAdsClient: GoogleAdsApi,
   customerID: string
 ): Promise<SyncResult> {
-  const db = getDb()
+  const db = getDatabase()
   const syncDate = new Date().toISOString().split('T')[0]
   const errors: string[] = []
   let syncedCount = 0

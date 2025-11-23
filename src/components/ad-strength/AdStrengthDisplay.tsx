@@ -10,7 +10,7 @@ import {
   XCircle,
   TrendingUp,
   Target,
-  Sparkles
+  Star
 } from 'lucide-react'
 
 /**
@@ -115,7 +115,7 @@ export function AdStrengthDisplay({
           {/* EXCELLENT徽章 */}
           {isExcellent && (
             <Alert className="border-green-500 bg-green-50">
-              <Sparkles className="h-4 w-4 text-green-600" />
+              <Star className="h-4 w-4 text-green-600" />
               <AlertDescription className="text-green-800 font-medium">
                 🎉 恭喜！已达到Google Ads最高标准（EXCELLENT）
               </AlertDescription>
@@ -308,7 +308,7 @@ function DimensionScore({
           {Object.entries(details).map(([key, value]) => (
             <div key={key} className="flex justify-between">
               <span>{formatDetailKey(key)}</span>
-              <span className="font-medium">{value}</span>
+              <span className="font-medium">{String(value)}</span>
             </div>
           ))}
         </div>

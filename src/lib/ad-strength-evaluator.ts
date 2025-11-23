@@ -63,9 +63,10 @@ export interface AdStrengthEvaluation {
       score: number // 0-15
       weight: 0.15
       details: {
-        numberUsage: number // 0-5 数字使用
-        ctaPresence: number // 0-5 CTA存在
-        urgencyExpression: number // 0-5 紧迫感表达
+        numberUsage: number // 0-4 数字使用
+        ctaPresence: number // 0-4 CTA存在
+        urgencyExpression: number // 0-3 紧迫感表达
+        differentiation: number // 0-4 差异化表达（NEW）
       }
     }
     compliance: {
@@ -149,7 +150,7 @@ export async function evaluateAdStrength(
   const completeness = calculateCompleteness(headlines, descriptions)
 
   // 4. Quality维度 (20%)
-  const quality = calculateQuality(headlines, descriptions)
+  const quality = calculateQuality(headlines, descriptions, options?.brandName)
 
   // 5. Compliance维度 (10%)
   const compliance = calculateCompliance(headlines, descriptions)
@@ -343,35 +344,121 @@ function calculateCompleteness(headlines: HeadlineAsset[], descriptions: Descrip
 
 /**
  * 4. 计算Quality（质量）- 15分
+ *
+ * 子维度：
+ * - 数字使用 (4分): 具体的数字增强可信度（如 "4K", "24/7", "30-Day"）
+ * - CTA存在 (4分): 行动召唤提升转化率
+ * - 紧迫感 (3分): 时效性表达增加紧迫性
+ * - 差异化 (4分): 突出独特卖点，避免通用表达（NEW）
  */
-function calculateQuality(headlines: HeadlineAsset[], descriptions: DescriptionAsset[]) {
-  // 4.1 数字使用 (0-5分)
+function calculateQuality(
+  headlines: HeadlineAsset[],
+  descriptions: DescriptionAsset[],
+  brandName?: string,
+  productData?: any // 产品数据（用于USP分析）
+) {
+  // 4.1 数字使用 (0-4分) - 降低权重，从5分改为4分
   const headlinesWithNumbers = headlines.filter(h => h.hasNumber || /\d/.test(h.text)).length
-  const numberUsage = Math.min(5, headlinesWithNumbers / 3 * 5) // 至少3个含数字得满分
+  const numberUsage = Math.min(4, headlinesWithNumbers / 3 * 4) // 至少3个含数字得满分
 
-  // 4.2 CTA存在 (0-5分)
+  // 4.2 CTA存在 (0-4分) - 降低权重，从5分改为4分
   const descriptionsWithCTA = descriptions.filter(d =>
     d.hasCTA || /shop now|buy now|get|order|learn more|sign up|try|start/i.test(d.text)
   ).length
-  const ctaPresence = Math.min(5, descriptionsWithCTA / 2 * 5) // 至少2个含CTA得满分
+  const ctaPresence = Math.min(4, descriptionsWithCTA / 2 * 4) // 至少2个含CTA得满分
 
-  // 4.3 紧迫感表达 (0-5分)
+  // 4.3 紧迫感表达 (0-3分) - 降低权重，从5分改为3分
   const headlinesWithUrgency = headlines.filter(h =>
     h.hasUrgency || /limited|today|now|hurry|exclusive|only|sale ends/i.test(h.text)
   ).length
-  const urgencyExpression = Math.min(5, headlinesWithUrgency / 2 * 5) // 至少2个含紧迫感得满分
+  const urgencyExpression = Math.min(3, headlinesWithUrgency / 2 * 3) // 至少2个含紧迫感得满分
 
-  const totalScore = numberUsage + ctaPresence + urgencyExpression
+  // 4.4 差异化表达 (0-4分) - 新增维度
+  const differentiation = calculateDifferentiation(headlines, descriptions, brandName, productData)
+
+  const totalScore = numberUsage + ctaPresence + urgencyExpression + differentiation
+
+  console.log(`📊 Quality子维度:`)
+  console.log(`   - 数字使用: ${numberUsage.toFixed(1)}/4 (${headlinesWithNumbers}个标题含数字)`)
+  console.log(`   - CTA存在: ${ctaPresence.toFixed(1)}/4 (${descriptionsWithCTA}个描述含CTA)`)
+  console.log(`   - 紧迫感: ${urgencyExpression.toFixed(1)}/3 (${headlinesWithUrgency}个标题含紧迫感)`)
+  console.log(`   - 差异化: ${differentiation.toFixed(1)}/4`)
 
   return {
     score: Math.min(15, Math.round(totalScore)), // 确保不超过最大值15
     weight: 0.15 as const,
     details: {
-      numberUsage: Math.round(numberUsage),
-      ctaPresence: Math.round(ctaPresence),
-      urgencyExpression: Math.round(urgencyExpression)
+      numberUsage: Math.round(numberUsage * 10) / 10,
+      ctaPresence: Math.round(ctaPresence * 10) / 10,
+      urgencyExpression: Math.round(urgencyExpression * 10) / 10,
+      differentiation: Math.round(differentiation * 10) / 10
     }
   }
+}
+
+/**
+ * 4.4 计算差异化表达 (0-4分)
+ *
+ * 评估创意是否突出产品独特卖点（USP），避免过于通用的表达
+ */
+function calculateDifferentiation(
+  headlines: HeadlineAsset[],
+  descriptions: DescriptionAsset[],
+  brandName?: string,
+  productData?: any
+): number {
+  const allTexts = [...headlines.map(h => h.text), ...descriptions.map(d => d.text)].join(' ').toLowerCase()
+  let score = 0
+
+  // 1. 技术规格提及 (+1.5分)
+  // 检查是否提到具体的技术参数（4K, HD, AI, WiFi, Bluetooth, 5G, LTE等）
+  const techSpecs = /4k|8k|hd|uhd|ai|wifi|bluetooth|5g|lte|4g|poe|nvr|dvr|fps|mp|ghz|mah|watts|ip\d{2}/i
+  const hasTechSpecs = techSpecs.test(allTexts)
+  if (hasTechSpecs) {
+    score += 1.5
+    console.log(`   ✅ 提及技术规格 (+1.5分)`)
+  }
+
+  // 2. 独特功能提及 (+1.5分)
+  // 检查是否提到独特的功能特性（no subscription, solar, battery, wireless, waterproof, night vision等）
+  const uniqueFeatures = /no subscription|subscription.free|solar.powered|battery.powered|wireless|waterproof|night.vision|motion.detection|two.way.audio|cloud.storage|local.storage|voice.control|smart.home/i
+  const hasUniqueFeatures = uniqueFeatures.test(allTexts)
+  if (hasUniqueFeatures) {
+    score += 1.5
+    console.log(`   ✅ 提及独特功能 (+1.5分)`)
+  }
+
+  // 3. 避免过于通用的标题 (+1分)
+  // 检查是否存在过于通用的标题（"Buy Now", "Shop Now", "Best Quality", "Trusted Brand"等）
+  const genericPhrases = [
+    /^buy now$/i,
+    /^shop now$/i,
+    /^get yours$/i,
+    /^trusted [\w\s]+$/i, // "Trusted Security Cameras"
+    /^best [\w\s]+$/i,    // "Best Quality Products"
+    /^high quality$/i,
+    /^premium [\w\s]+$/i,
+    /^top rated$/i,
+    /^official site$/i    // "Official Site"
+  ]
+
+  const genericHeadlineCount = headlines.filter(h => {
+    const text = h.text.trim()
+    return genericPhrases.some(pattern => pattern.test(text))
+  }).length
+
+  if (genericHeadlineCount === 0) {
+    score += 1
+    console.log(`   ✅ 无通用标题 (+1分)`)
+  } else if (genericHeadlineCount <= 2) {
+    score += 0.5
+    console.log(`   ⚠️ ${genericHeadlineCount}个通用标题 (+0.5分)`)
+  } else {
+    console.log(`   ❌ ${genericHeadlineCount}个通用标题 (+0分)`)
+  }
+
+  // 确保分数在0-4之间
+  return Math.min(4, Math.max(0, score))
 }
 
 /**

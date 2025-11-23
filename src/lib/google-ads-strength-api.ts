@@ -76,12 +76,11 @@ export async function getAdStrength(
 ): Promise<GoogleAdStrengthResponse | null> {
   try {
     // 从数据库获取refresh_token
-    const db = await getDatabase()
-    const account = await db.get(
+    const db = getDatabase()
+    const account = db.prepare(
       `SELECT refresh_token FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`,
-      [userId, customerId]
-    )
+       WHERE user_id = ? AND customer_id = ?`
+    ).get([userId, customerId]) as any
 
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')
@@ -116,8 +115,14 @@ export async function getAdStrength(
     }
 
     const ad = results[0]
+    if (!ad.ad_group_ad?.ad?.id) {
+      console.log('⚠️ 广告数据不完整')
+      return null
+    }
+
     const adId = ad.ad_group_ad.ad.id
-    const adStrength = ad.ad_group_ad.ad.responsive_search_ad?.ad_strength || 'PENDING'
+    const adData = ad as any
+    const adStrength = adData.ad_group_ad?.ad?.responsive_search_ad?.ad_strength || 'PENDING'
 
     console.log(`📊 Google Ads Ad Strength: ${adStrength} (Ad ID: ${adId})`)
 
@@ -146,12 +151,11 @@ export async function getAdStrengthRecommendations(
   userId: number
 ): Promise<AdStrengthRecommendation[]> {
   try {
-    const db = await getDatabase()
-    const account = await db.get(
+    const db = getDatabase()
+    const account = db.prepare(
       `SELECT refresh_token FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`,
-      [userId, customerId]
-    )
+       WHERE user_id = ? AND customer_id = ?`
+    ).get([userId, customerId]) as any
 
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')
@@ -219,12 +223,11 @@ export async function getAssetPerformance(
   userId: number
 ): Promise<AssetPerformanceData[]> {
   try {
-    const db = await getDatabase()
-    const account = await db.get(
+    const db = getDatabase()
+    const account = db.prepare(
       `SELECT refresh_token FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`,
-      [userId, customerId]
-    )
+       WHERE user_id = ? AND customer_id = ?`
+    ).get([userId, customerId]) as any
 
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')

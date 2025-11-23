@@ -153,7 +153,7 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid ad creative ID' }, { status: 400 })
     }
 
-    const db = getDb()
+    const db = getDatabase()
 
     // 获取所有转化反馈
     const feedbacks = db.prepare(`

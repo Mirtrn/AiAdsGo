@@ -119,7 +119,7 @@ export async function POST(
           brandName: offer.brand,
           targetCountry: offer.target_country || 'US',
           targetLanguage: offer.target_language || 'en',
-          userId
+          userId: parseInt(userId, 10)
         }
       )
 
@@ -177,7 +177,7 @@ export async function POST(
       }
     }
 
-    // 7. 保存到数据库并返回最佳结果
+    // 7. 检查最终结果是否达到最低标准（70分）
     if (!bestCreative || !bestEvaluation) {
       throw new Error('生成创意失败')
     }
@@ -185,6 +185,32 @@ export async function POST(
     console.log(`\n🎯 最终结果: ${bestEvaluation.finalRating} (${bestEvaluation.finalScore}分)`)
     console.log(`📊 总尝试次数: ${attempts}次`)
     console.timeEnd('⏱️ 总生成耗时')
+
+    // 阻断规则：Ad Strength <70分（GOOD以下）不允许进入下一步
+    const MINIMUM_SCORE = 70 // GOOD评级的最低分数
+    if (bestEvaluation.finalScore < MINIMUM_SCORE) {
+      console.error(`❌ 创意质量未达标: ${bestEvaluation.finalScore}分 < ${MINIMUM_SCORE}分 (${bestEvaluation.finalRating})`)
+
+      return NextResponse.json(
+        {
+          error: `创意质量未达标（${bestEvaluation.finalScore}分），需要至少${MINIMUM_SCORE}分（GOOD评级）才能继续`,
+          details: {
+            currentScore: bestEvaluation.finalScore,
+            currentRating: bestEvaluation.finalRating,
+            minimumScore: MINIMUM_SCORE,
+            requiredRating: 'GOOD',
+            attempts,
+            suggestions: bestEvaluation.combinedSuggestions.slice(0, 10),
+            dimensions: bestEvaluation.localEvaluation.dimensions
+          },
+          action: 'QUALITY_GATE_BLOCKED'
+        },
+        { status: 422 } // 422 Unprocessable Entity
+      )
+    }
+
+    console.log(`✅ 创意质量达标: ${bestEvaluation.finalScore}分 ≥ ${MINIMUM_SCORE}分`)
+
 
     // 保存到数据库
     const savedCreative = createAdCreative(parseInt(userId, 10), parseInt(id, 10), {
