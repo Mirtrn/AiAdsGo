@@ -4,13 +4,20 @@ echo "🧪 自动化测试：评分算法迁移"
 echo ""
 echo "============================================================"
 
+# 读取密码
+if [ -z "$AUTOADS_PASSWORD" ]; then
+  echo "⚠️  环境变量 AUTOADS_PASSWORD 未设置"
+  echo "请设置密码: export AUTOADS_PASSWORD='your-password'"
+  exit 1
+fi
+
 # 1. 登录获取cookie
 echo ""
 echo "🔐 步骤1: 登录获取认证..."
 
 LOGIN_RESPONSE=$(curl -s -c /tmp/test_cookies.txt -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "autoads", "password": "123456"}')
+  -d "{\"username\": \"autoads\", \"password\": \"$AUTOADS_PASSWORD\"}")
 
 if echo "$LOGIN_RESPONSE" | grep -q '"success":true'; then
   echo "   ✅ 登录成功"

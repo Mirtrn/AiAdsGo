@@ -6,12 +6,19 @@
 echo "🔐 Testing Login with autoads user..."
 echo "=================================="
 
+# 读取密码
+if [ -z "$AUTOADS_PASSWORD" ]; then
+  echo "⚠️  环境变量 AUTOADS_PASSWORD 未设置"
+  echo "请设置密码: export AUTOADS_PASSWORD='your-password'"
+  exit 1
+fi
+
 # Step 1: Login
 echo ""
 echo "Step 1: Login with autoads user"
 LOGIN_RESPONSE=$(curl -s -c /tmp/cookies.txt -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "autoads", "password": "***REMOVED***"}')
+  -d "{\"username\": \"autoads\", \"password\": \"$AUTOADS_PASSWORD\"}")
 
 echo "Login Response:"
 echo "$LOGIN_RESPONSE" | jq '.'
@@ -68,7 +75,7 @@ echo "=================================="
 echo "✅ Authentication & Bonus Score Test Complete!"
 echo ""
 echo "Next: Open http://localhost:3000/offers/49/launch in browser"
-echo "      Login with autoads / K\$j6z!9Tq@P2w#aR to see the UI"
+echo "      Login with autoads user (password from environment variable)"
 
 # Cleanup
 rm -f /tmp/cookies.txt

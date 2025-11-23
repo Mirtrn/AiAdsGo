@@ -8,6 +8,7 @@
 import { getDatabase } from '../src/lib/db'
 
 const BASE_URL = 'http://localhost:3000'
+const PASSWORD = process.env.AUTOADS_PASSWORD
 
 interface Creative {
   id: number
@@ -29,6 +30,10 @@ async function sleep(ms: number) {
 async function login(): Promise<string> {
   console.log('🔐 步骤1: 登录获取认证...')
 
+  if (!PASSWORD) {
+    throw new Error('环境变量 AUTOADS_PASSWORD 未设置')
+  }
+
   const response = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: {
@@ -36,7 +41,7 @@ async function login(): Promise<string> {
     },
     body: JSON.stringify({
       username: 'autoads',
-      password: '123456'
+      password: PASSWORD
     })
   })
 

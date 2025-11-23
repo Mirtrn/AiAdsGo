@@ -5,11 +5,18 @@
 echo "🧪 测试评分算法迁移 - API调用测试"
 echo ""
 
+# 读取密码
+if [ -z "$AUTOADS_PASSWORD" ]; then
+  echo "⚠️  环境变量 AUTOADS_PASSWORD 未设置"
+  echo "请设置密码: export AUTOADS_PASSWORD='your-password'"
+  exit 1
+fi
+
 # 1. 登录获取Cookie
 echo "1️⃣ 登录获取认证..."
 curl -s -c /tmp/cookies.txt -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "autoads", "password": "123456"}' > /dev/null
+  -d "{\"username\": \"autoads\", \"password\": \"$AUTOADS_PASSWORD\"}" > /dev/null
 
 if [ $? -eq 0 ]; then
   echo "   ✅ 登录成功"
