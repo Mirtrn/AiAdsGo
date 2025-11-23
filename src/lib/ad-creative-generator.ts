@@ -114,223 +114,86 @@ async function getAIConfig(userId?: number): Promise<AIConfig> {
 }
 
 /**
- * 生成广告创意的Prompt
+ * 生成广告创意的Prompt（优化版 - 减少40%+ token消耗）
  */
 function buildAdCreativePrompt(
   offer: any,
   theme?: string,
-  referencePerformance?: any
+  referencePerformance?: any,
+  excludeKeywords?: string[]
 ): string {
-  let prompt = `你是一个专业的Google Ads广告文案创作专家。请根据以下产品信息生成高质量的广告创意。
+  // 基础产品信息（精简格式）
+  let prompt = `Generate Google Ads creative for ${offer.brand} (${offer.category || 'product'}).
 
-## 产品信息
-品牌: ${offer.brand}
-类别: ${offer.category || '未分类'}
-品牌描述: ${offer.brand_description || '无'}
-独特卖点: ${offer.unique_selling_points || '无'}
-产品亮点: ${offer.product_highlights || '无'}
-目标受众: ${offer.target_audience || '无'}
-推广国家: ${offer.target_country}
-推广语言: ${offer.target_language || 'English'}
+PRODUCT: ${offer.brand_description || offer.unique_selling_points || 'Quality product'}
+USPs: ${offer.unique_selling_points || offer.product_highlights || 'Premium quality'}
+AUDIENCE: ${offer.target_audience || 'General'}
+COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English'}
 `
 
-  // 如果有增强数据，添加到prompt中
+  // 可选的增强数据（仅添加关键信息，不完整JSON）
+  const extras: string[] = []
   if (offer.pricing) {
-    try {
-      const pricing = JSON.parse(offer.pricing)
-      prompt += `\n价格信息: ${JSON.stringify(pricing, null, 2)}`
-    } catch {}
+    try { extras.push(`PRICE: ${JSON.parse(offer.pricing).current || JSON.parse(offer.pricing).price || 'See site'}`) } catch {}
   }
-
-  if (offer.reviews) {
-    try {
-      const reviews = JSON.parse(offer.reviews)
-      prompt += `\n用户评价: ${JSON.stringify(reviews, null, 2)}`
-    } catch {}
-  }
-
   if (offer.promotions) {
-    try {
-      const promotions = JSON.parse(offer.promotions)
-      prompt += `\n促销信息: ${JSON.stringify(promotions, null, 2)}`
-    } catch {}
+    try { extras.push(`PROMO: ${JSON.parse(offer.promotions).current || 'Special offer'}`) } catch {}
   }
+  if (extras.length) prompt += extras.join(' | ') + '\n'
 
-  if (offer.competitive_edges) {
-    try {
-      const edges = JSON.parse(offer.competitive_edges)
-      prompt += `\n竞争优势: ${JSON.stringify(edges, null, 2)}`
-    } catch {}
-  }
-
+  // 主题要求（精简版）
   if (theme) {
-    prompt += `\n\n## 广告主题\n${theme}`
+    prompt += `\n**THEME: ${theme}** - All content must reflect this theme. 60%+ headlines should directly embody theme.\n`
   }
 
+  // 历史表现参考（精简版）
   if (referencePerformance) {
-    prompt += `\n\n## 历史表现数据参考\n`
-    if (referencePerformance.best_headlines) {
-      prompt += `表现优秀的Headlines: ${referencePerformance.best_headlines.join(', ')}\n`
+    if (referencePerformance.best_headlines?.length) {
+      prompt += `TOP HEADLINES: ${referencePerformance.best_headlines.slice(0, 3).join(', ')}\n`
     }
-    if (referencePerformance.best_descriptions) {
-      prompt += `表现优秀的Descriptions: ${referencePerformance.best_descriptions.join(', ')}\n`
-    }
-    if (referencePerformance.top_keywords) {
-      prompt += `高效关键词: ${referencePerformance.top_keywords.join(', ')}\n`
+    if (referencePerformance.top_keywords?.length) {
+      prompt += `TOP KEYWORDS: ${referencePerformance.top_keywords.slice(0, 5).join(', ')}\n`
     }
   }
 
+  // 核心要求（大幅精简）
   prompt += `
+## REQUIREMENTS (Target: EXCELLENT Ad Strength)
 
-## Google Ads Ad Strength优化要求（目标：EXCELLENT级别）
+### HEADLINES (15 required, ≤30 chars each)
+Types (must cover all 5):
+- Brand (3): "${offer.brand} Official", "Trusted Brand", "#1 ${offer.category || 'Choice'}"
+- Feature (4): Core product benefits
+- Promo (3): Numbers/% required - "Save 40%", "$50 Off"
+- CTA (3): "Shop Now", "Get Yours Today"
+- Urgency (2): "Limited Time", "Ends Soon"
+**Dynamic Keyword (DKI)**: 1-2 headlines with {KeyWord:DefaultText} syntax for higher CTR
 
-### 核心标准
-响应式搜索广告的Ad Strength评级直接影响广告效果。EXCELLENT级别要求：
-- ✅ 15个高度差异化的Headlines
-- ✅ 4个价值导向的Descriptions
-- ✅ 资产类型均衡分布
-- ✅ 长度梯度合理
-- ✅ 关键词自然融入
+Length distribution: 5 short(10-20), 5 medium(20-25), 5 long(25-30)
+Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarity
 
----
+### DESCRIPTIONS (4 required, ≤90 chars each)
+- Value (2): Why choose us? Benefits, USPs
+- CTA (2): Strong action verbs (Shop/Buy/Get/Order) + immediate value
 
-### 1. Headlines要求（必须15个，分5大类型）
+### KEYWORDS (10-15): Brand(1-2), Product(4-6), Feature(2-3), Long-tail(3-5)
+${excludeKeywords?.length ? `AVOID duplicates: ${excludeKeywords.join(', ')}` : ''}
 
-#### 类型分布（确保覆盖5种）
-- **品牌认知类（3个）**：建立品牌可信度
-  - 示例："${offer.brand} Official Store"、"Trusted by 50,000+ Customers"、"#1 ${offer.category}"
+### CALLOUTS (4-6, ≤25 chars): Free Shipping, 24/7 Support, etc.
+### SITELINKS (4): text≤25, desc≤35, url="/" (auto-replaced)
 
-- **产品特性类（4个）**：突出核心价值
-  - 示例："Premium Quality ${offer.category}"、"Advanced [关键特性] Technology"、"All-in-One Solution"
+## FORBIDDEN: "100%", "best", "guarantee", "miracle", "!!!", ALL CAPS abuse
 
-- **优惠促销类（3个，必含数字/百分比）**：刺激购买
-  - 示例："Save up to 40% Off"、"$50 Off Your First Order"、"Buy 2 Get 1 Free"
-
-- **行动召唤类（3个）**：驱动转化
-  - 示例："Shop Now & Save"、"Get Yours Today"、"Order Online in Minutes"
-
-- **紧迫感类（2个）**：创造FOMO
-  - 示例："Limited Time Offer"、"Only 10 Left in Stock"、"Ends Tonight at Midnight"
-
-#### 长度分布（优化展示效果）
-- 短标题（10-20字符）：5个 - 移动端优化
-- 中标题（20-25字符）：5个 - 桌面端平衡
-- 长标题（25-30字符）：5个 - 信息最大化
-
-#### 质量要求
-- ✓ 每个标题≤30字符（严格限制）
-- ✓ 15个标题文本相似度<20%（避免重复）
-- ✓ 至少5个包含目标关键词
-- ✓ 至少3个包含具体数字或百分比
-- ✓ 至少2个体现紧迫感
-
----
-
-### 2. Descriptions要求（必须4个，分2大类型）
-
-#### 类型分布
-- **价值主张类（2个）**：回答"为什么选择我们？"
-  - 详细说明独特卖点、竞争优势、用户利益
-  - 示例："Discover premium ${offer.category} with free shipping, 24/7 support, and 30-day money-back guarantee."
-
-- **行动召唤类（2个）**：明确CTA + 立即利益
-  - 驱动转化行动，强调即时价值
-  - 示例："Shop now and save up to 40%! Free delivery on all orders. Limited time offer - order today!"
-
-#### 质量要求
-- ✓ 每个描述≤90字符（严格限制）
-- ✓ 至少2个包含强CTA动词（Shop, Buy, Get, Order, Discover, Try）
-- ✓ 突出3个以上用户利益点
-- ✓ 自然融入关键词
-
----
-
-### 3. Keywords要求（10-15个）
-- 品牌词（1-2个）：包含品牌名
-- 产品词（4-6个）：核心产品类别
-- 功能词（2-3个）：关键特性
-- 长尾词（3-5个）：细分场景
-
----
-
-### 4. Callouts要求（可选，4-6个）
-- 每个≤25字符
-- 突出服务优势：Free Shipping, 24/7 Support, Money-Back Guarantee, Same-Day Delivery等
-
----
-
-### 5. Sitelinks要求（可选，4个）
-- text≤25字符, description≤35字符
-- 链接到相关页面：Product Details, Special Offers, Customer Reviews, Buying Guide
-
----
-
-## 禁用词清单（避免违反Google Ads政策）
-- ❌ 绝对化词汇："100%", "最佳", "第一", "保证", "必须"
-- ❌ 夸大表述："奇迹", "魔法", "神奇", "完美"
-- ❌ 医疗声明：未经验证的健康效果
-- ❌ 重复标点："!!!", "???", "..."
-- ❌ 全大写滥用：不超过1个单词
-
----
-
-## 输出格式（带资产标注，便于评分）
-请严格按照以下JSON格式输出（不要包含markdown代码块标记）：
-
+## OUTPUT (JSON only, no markdown):
 {
-  "headlines": [
-    {
-      "text": "Save 40% on Premium Laptops",
-      "type": "promo",
-      "length": 29,
-      "keywords": ["laptops"],
-      "hasNumber": true,
-      "hasUrgency": false
-    },
-    {
-      "text": "Limited Time Offer",
-      "type": "urgency",
-      "length": 18,
-      "keywords": [],
-      "hasNumber": false,
-      "hasUrgency": true
-    }
-    // ... 共15个
-  ],
-  "descriptions": [
-    {
-      "text": "Shop our collection of high-performance laptops. Free shipping & 2-year warranty. Order today!",
-      "type": "cta",
-      "length": 89,
-      "hasCTA": true,
-      "keywords": ["laptops", "warranty"]
-    }
-    // ... 共4个
-  ],
-  "keywords": ["laptop", "premium laptop", "gaming laptop", ...],
-  "callouts": ["Free Shipping", "24/7 Support", "2-Year Warranty", ...],
-  "sitelinks": [
-    {"text": "Shop Laptops", "url": "/laptops", "description": "Browse our full laptop collection"}
-  ],
-  "theme": "Premium laptop sales with warranty and support",
-  "explanation": "Emphasis on quality, value, and customer service with strong urgency elements.",
-  "quality_metrics": {
-    "headline_diversity_score": 95,
-    "keyword_relevance_score": 90,
-    "estimated_ad_strength": "EXCELLENT"
-  }
-}
-
----
-
-## 重要提示
-- 所有文案使用${offer.target_language || 'English'}语言
-- Headlines和Descriptions必须符合字符限制（超限将被拒登）
-- 确保15个Headlines分布在5种类型且长度梯度合理
-- 文本差异化≥80%，避免相似重复
-- 自然融入关键词，避免堆砌
-- 专业、吸引人、符合广告规范
-`
+  "headlines": [{"text":"...", "type":"brand|feature|promo|cta|urgency", "length":N, "keywords":[], "hasNumber":bool, "hasUrgency":bool}...],
+  "descriptions": [{"text":"...", "type":"value|cta", "length":N, "hasCTA":bool, "keywords":[]}...],
+  "keywords": ["..."],
+  "callouts": ["..."],
+  "sitelinks": [{"text":"...", "url":"/", "description":"..."}],
+  "theme": "...",
+  "quality_metrics": {"headline_diversity_score":N, "keyword_relevance_score":N, "estimated_ad_strength":"EXCELLENT"}
+}`
 
   return prompt
 }
@@ -434,7 +297,11 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
   // 2. 修复智能引号（替换为标准ASCII引号）
   jsonText = jsonText.replace(/[""]/g, '"')  // 花引号 " " → 直引号 "
   jsonText = jsonText.replace(/['']/g, "'")  // 花单引号 ' ' → 直单引号 '
-  // 注意：不再替换换行符和所有单引号，以保留JSON中的撇号和格式
+  // 3. 移除JSON中的非法标识符行（如 LAGGS_CALLOUTS 等调试输出）
+  jsonText = jsonText.replace(/],\s*[A-Z_]+\s*\n\s*"/g, '],\n  "')
+  // 4. 移除JSON字符串值中的换行符（保留结构性换行）
+  // 只处理字符串值内部的换行（字母/标点后跟换行再跟字母）
+  jsonText = jsonText.replace(/([a-zA-Z,.])\s*\n\s*([a-zA-Z])/g, '$1 $2')
 
   console.log('🔍 修复后JSON前200字符:', jsonText.substring(0, 200))
 
@@ -569,6 +436,7 @@ export async function generateAdCreative(
     theme?: string
     referencePerformance?: any
     skipCache?: boolean
+    excludeKeywords?: string[] // 需要排除的关键词（用于多次生成时避免重复）
   }
 ): Promise<GeneratedAdCreativeData & { ai_model: string }> {
   // 生成缓存键
@@ -601,7 +469,8 @@ export async function generateAdCreative(
   const prompt = buildAdCreativePrompt(
     offer,
     options?.theme,
-    options?.referencePerformance
+    options?.referencePerformance,
+    options?.excludeKeywords
   )
 
   // 使用统一AI入口（优先Vertex AI，自动降级到Gemini API）
@@ -611,16 +480,20 @@ export async function generateAdCreative(
   const aiMode = getGeminiMode(userId)
   console.log(`🤖 使用统一AI入口生成广告创意 (${aiMode})...`)
 
+  console.time('⏱️ AI生成创意')
   const responseText = await generateContent({
-    model: 'gemini-2.5-pro',
+    model: 'gemini-2.5-pro',  // 最优选择：稳定质量+最快速度（62秒）
     prompt,
     temperature: 0.9,
-    maxOutputTokens: 8192,  // 增加以容纳完整创意（15 headlines + 4 descriptions + keywords + callouts + sitelinks）
+    maxOutputTokens: 8192,
   }, userId)
+  console.timeEnd('⏱️ AI生成创意')
 
   // 解析AI响应
+  console.time('⏱️ 解析AI响应')
   const result: GeneratedAdCreativeData = parseAIResponse(responseText)
   const aiModel = `${aiMode}:gemini-2.5-pro`
+  console.timeEnd('⏱️ 解析AI响应')
 
   console.log('✅ 广告创意生成成功')
   console.log(`   - Headlines: ${result.headlines.length}个`)
@@ -628,6 +501,7 @@ export async function generateAdCreative(
   console.log(`   - Keywords: ${result.keywords.length}个`)
 
   // Enrich keywords with search volume data
+  console.time('⏱️ 获取关键词搜索量')
   let keywordsWithVolume: KeywordWithVolume[] = []
   try {
     const country = (offer as { target_country?: string }).target_country || 'US'
@@ -636,7 +510,7 @@ export async function generateAdCreative(
     const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : 'en'
 
     console.log(`🔍 获取关键词搜索量: ${result.keywords.length}个关键词, 国家=${country}, 语言=${language}`)
-    const volumes = await getKeywordSearchVolumes(result.keywords, country, language)
+    const volumes = await getKeywordSearchVolumes(result.keywords, country, language, userId)
 
     keywordsWithVolume = volumes.map(v => ({
       keyword: v.keyword,
@@ -649,37 +523,23 @@ export async function generateAdCreative(
     console.warn('⚠️ 获取关键词搜索量失败，使用默认值:', error)
     keywordsWithVolume = result.keywords.map(kw => ({ keyword: kw, searchVolume: 0 }))
   }
+  console.timeEnd('⏱️ 获取关键词搜索量')
 
   // 修正 sitelinks URL 为真实的 offer URL
+  // 需求优化：所有sitelinks统一使用offer的主URL，避免虚构的子路径
   if (result.sitelinks && result.sitelinks.length > 0) {
     const offerUrl = (offer as { url?: string }).url
     if (offerUrl) {
       result.sitelinks = result.sitelinks.map(link => {
-        let url = link.url || ''
-
-        // 如果是相对路径或localhost路径，转换为offer的真实URL
-        if (url.startsWith('/') || url.includes('localhost')) {
-          // 从相对路径中提取路径部分
-          const path = url.replace(/^https?:\/\/[^\/]+/, '').replace(/^\//, '')
-
-          // 构建完整URL
-          const parsedOfferUrl = new URL(offerUrl)
-          if (path) {
-            // 如果有路径，拼接到offer URL
-            url = `${parsedOfferUrl.origin}/${path}`
-          } else {
-            // 否则直接使用offer URL
-            url = offerUrl
-          }
-        }
-
+        // 所有sitelinks统一使用offer的主URL（不拼接子路径）
+        // 这确保所有链接都是真实可访问的
         return {
           ...link,
-          url
+          url: offerUrl  // 直接使用完整的offer URL
         }
       })
 
-      console.log(`🔗 修正 ${result.sitelinks.length} 个附加链接URL`)
+      console.log(`🔗 修正 ${result.sitelinks.length} 个附加链接URL为真实offer URL`)
     }
   }
 
@@ -720,9 +580,14 @@ export async function generateAdCreativesBatch(
   console.log(`🎨 并行生成 ${validCount} 个广告创意...`)
 
   // 为每个创意生成不同的主题变体（如果没有指定主题）
+  // 增强差异性：使用更具体和对比鲜明的主题
   const themes = options?.theme
     ? [options.theme]
-    : ['通用广告', '促销活动', '品牌故事']
+    : [
+        'Premium Brand & Trust - 强调官方商城、品牌信任度、客户评价、权威认证。Headlines必须包含品牌名、信任标志（Official、Trusted、Certified），Descriptions强调品质保证',
+        'Value & Promotions - 强调折扣优惠、限时促销、性价比。Headlines必须包含具体折扣数字（30% Off、$50 Off），Descriptions突出立即购买的紧迫性',
+        'Product Features & Innovation - 强调独特功能、技术参数、使用场景。Headlines突出产品特性（TSA Lock、360° Wheels、Waterproof），Descriptions详细说明功能优势'
+      ]
 
   // 创建并行生成任务
   const tasks = Array.from({ length: validCount }, (_, index) => {

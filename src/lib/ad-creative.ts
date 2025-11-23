@@ -44,6 +44,7 @@ export interface AdCreative {
     engagement: number          // 吸引力 (0-25)
     diversity: number           // 多样性 (0-10)
     clarity: number             // 清晰度 (0-10)
+    brandSearchVolume?: number  // 品牌搜索量 (0-20, 可选)
   }
   score_explanation: string
 
@@ -141,14 +142,31 @@ export function createAdCreative(
   data: GeneratedAdCreativeData & {
     final_url: string
     final_url_suffix?: string
-    ai_model: string
+    ai_model?: string
     generation_round?: number
+    // 新增：允许外部传入评分（Ad Strength评估结果）
+    score?: number
+    score_breakdown?: {
+      relevance: number
+      quality: number
+      engagement: number
+      diversity: number
+      clarity: number
+      brandSearchVolume?: number  // 品牌搜索量维度（可选）
+    }
   }
 ): AdCreative {
   const db = getDatabase()
 
-  // 计算评分
-  const scoreResult = calculateAdCreativeScore(data, offerId)
+  // 如果外部传入了score，优先使用（来自Ad Strength评估）
+  // 否则使用旧的评分算法计算（向后兼容）
+  const scoreResult = data.score && data.score_breakdown
+    ? {
+        total_score: data.score,
+        breakdown: data.score_breakdown,
+        explanation: data.explanation || '由Ad Strength评估系统生成'
+      }
+    : calculateAdCreativeScore(data, offerId)
 
   const result = db.prepare(`
     INSERT INTO ad_creatives (
@@ -174,7 +192,7 @@ export function createAdCreative(
     scoreResult.explanation,
     data.generation_round || 1,
     data.theme,
-    data.ai_model
+    data.ai_model || 'gemini-2.0-flash-exp'
   )
 
   const creative = findAdCreativeById(result.lastInsertRowid as number, userId)
@@ -282,7 +300,10 @@ function parseAdCreativeRow(row: any): AdCreative {
 /**
  * 计算广告创意评分
  *
- * 评分维度：
+ * @deprecated 该评分算法已废弃，请使用 evaluateCreativeAdStrength (Ad Strength评估系统)
+ * @see evaluateCreativeAdStrength in @/lib/scoring
+ *
+ * 评分维度（旧版）：
  * 1. 相关性 (30分) - 与Offer产品的相关程度
  * 2. 质量 (25分) - Headlines和Descriptions的质量
  * 3. 吸引力 (25分) - 用户点击的吸引程度
@@ -303,6 +324,9 @@ export function calculateAdCreativeScore(
   }
   explanation: string
 } {
+  // 警告：旧评分算法已废弃
+  console.warn('⚠️ calculateAdCreativeScore已废弃，建议使用Ad Strength评估系统 (evaluateCreativeAdStrength)')
+
   const db = getDatabase()
 
   // 获取Offer数据用于相关性评分

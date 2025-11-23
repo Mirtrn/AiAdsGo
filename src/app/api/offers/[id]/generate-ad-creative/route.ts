@@ -4,6 +4,10 @@ import { findOfferById } from '@/lib/offers'
 import { generateAdCreative, generateAdCreativesBatch } from '@/lib/ad-creative-generator'
 import { createAdCreative, listAdCreativesByOffer } from '@/lib/ad-creative'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
+import {
+  evaluateCreativeAdStrength,
+  type ComprehensiveAdStrengthResult
+} from '@/lib/scoring'
 
 /**
  * POST /api/offers/[id]/generate-ad-creative
@@ -85,24 +89,59 @@ export async function POST(
     const userId = authResult.user!.userId  // Already verified above
 
     if (batch && actualCount > 1) {
-      // 批量并行生成
       // 批量并行生成（传入userId以获取用户特定配置）
       const generatedDataList = await generateAdCreativesBatch(offerId, userId, actualCount, {
         theme,
         referencePerformance: reference_performance
       })
 
-      // 批量保存到数据库
-      const savedCreatives = generatedDataList.map(generatedData =>
-        createAdCreative(userId, offerId, {
-          ...generatedData,
-          final_url: offer.url,
-          final_url_suffix: offer.affiliate_link ? `?ref=${userId}` : undefined,
-          generation_round
-        })
-      )
+      // 批量评估Ad Strength并保存到数据库
+      const savedCreatives = await Promise.all(generatedDataList.map(async (generatedData) => {
+        // 确保有metadata，否则构造基础格式
+        const headlinesWithMetadata = generatedData.headlinesWithMetadata || generatedData.headlines.map(text => ({
+          text,
+          length: text.length
+        }))
+        const descriptionsWithMetadata = generatedData.descriptionsWithMetadata || generatedData.descriptions.map(text => ({
+          text,
+          length: text.length
+        }))
 
-      console.log(`✅ ${savedCreatives.length} 个广告创意已保存`)
+        // Ad Strength评估（传入品牌信息）
+        const evaluation = await evaluateCreativeAdStrength(
+          headlinesWithMetadata,
+          descriptionsWithMetadata,
+          generatedData.keywords,
+          {
+            brandName: offer.brand,
+            targetCountry: offer.target_country || 'US',
+            targetLanguage: offer.target_language || 'en',
+            userId
+          }
+        )
+
+        console.log(`📊 批量创意评估: ${evaluation.finalRating} (${evaluation.finalScore}分)`)
+
+        // 保存到数据库（传入Ad Strength评分）
+        return createAdCreative(userId, offerId, {
+          ...generatedData,
+          final_url: offer.final_url || offer.url,
+          final_url_suffix: offer.final_url_suffix || undefined,
+          generation_round,
+          // 传入Ad Strength评估结果
+          score: evaluation.finalScore,
+          score_breakdown: {
+            relevance: evaluation.localEvaluation.dimensions.relevance.score,
+            quality: evaluation.localEvaluation.dimensions.quality.score,
+            engagement: evaluation.localEvaluation.dimensions.completeness.score,
+            diversity: evaluation.localEvaluation.dimensions.diversity.score,
+            clarity: evaluation.localEvaluation.dimensions.compliance.score,
+            brandSearchVolume: evaluation.localEvaluation.dimensions.brandSearchVolume.score
+          }
+        })
+      }))
+
+      console.log(`✅ ${savedCreatives.length} 个广告创意已保存（使用Ad Strength评估）`)
 
       return NextResponse.json({
         success: true,
@@ -117,15 +156,50 @@ export async function POST(
         referencePerformance: reference_performance
       })
 
-      // 保存到数据库
+      // 确保有metadata，否则构造基础格式
+      const headlinesWithMetadata = generatedData.headlinesWithMetadata || generatedData.headlines.map(text => ({
+        text,
+        length: text.length
+      }))
+      const descriptionsWithMetadata = generatedData.descriptionsWithMetadata || generatedData.descriptions.map(text => ({
+        text,
+        length: text.length
+      }))
+
+      // Ad Strength评估（传入品牌信息用于品牌搜索量维度）
+      const evaluation = await evaluateCreativeAdStrength(
+        headlinesWithMetadata,
+        descriptionsWithMetadata,
+        generatedData.keywords,
+        {
+          brandName: offer.brand,
+          targetCountry: offer.target_country || 'US',
+          targetLanguage: offer.target_language || 'en',
+          userId
+        }
+      )
+
+      console.log(`📊 创意评估: ${evaluation.finalRating} (${evaluation.finalScore}分)`)
+
+      // 保存到数据库（传入Ad Strength评分）
       const adCreative = createAdCreative(userId, offerId, {
         ...generatedData,
-        final_url: offer.url,
-        final_url_suffix: offer.affiliate_link ? `?ref=${userId}` : undefined,
-        generation_round
+        final_url: offer.final_url || offer.url,
+        final_url_suffix: offer.final_url_suffix || undefined,
+        generation_round,
+        // 传入Ad Strength评估结果
+        score: evaluation.finalScore,
+        score_breakdown: {
+          relevance: evaluation.localEvaluation.dimensions.relevance.score,
+          quality: evaluation.localEvaluation.dimensions.quality.score,
+          engagement: evaluation.localEvaluation.dimensions.completeness.score,
+          diversity: evaluation.localEvaluation.dimensions.diversity.score,
+          clarity: evaluation.localEvaluation.dimensions.compliance.score,
+          brandSearchVolume: evaluation.localEvaluation.dimensions.brandSearchVolume.score
+        }
       })
 
-      console.log(`✅ 广告创意已保存 (ID: ${adCreative.id}, 评分: ${adCreative.score})`)
+      console.log(`✅ 广告创意已保存 (ID: ${adCreative.id}, 评分: ${adCreative.score}, 评级: ${evaluation.finalRating})`)
 
       return NextResponse.json({
         success: true,
