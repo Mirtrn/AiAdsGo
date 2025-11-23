@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:scheduler": "node build-scheduler.js",
     "start": "next start",
     "lint": "next lint",
     "db:init": "tsx scripts/init-database.ts",
@@ -72,6 +73,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.0.1",
+    "esbuild": "^0.19.0",
     "eslint": "^8",
     "eslint-config-next": "14.0.4",
     "postcss": "^8",

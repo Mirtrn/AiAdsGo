@@ -84,6 +84,29 @@ backups/
 .editorconfig
 
 # ============================================
+# Docker相关（单容器部署使用Dockerfile.single）
+# ============================================
+Dockerfile
+Dockerfile.prod
+docker-compose.yml
+docker-compose.prod.yml
+.dockerignore.bak
+
+# ============================================
+# 测试数据和截图
+# ============================================
+test-screenshots/
+test-results/
+playwright-report/
+
+# ============================================
+# 脚本（生产环境不需要）
+# ============================================
+scripts/reset-test-password.ts
+scripts/test-*.ts
+scripts/verify-and-reset-password.js
+
+# ============================================
 # 其他
 # ============================================
 LICENSE
@@ -96,3 +119,6 @@ CHANGELOG.md
 # tailwind.config.ts  - Tailwind CSS配置
 # postcss.config.js   - PostCSS配置
 # tsconfig.json       - TypeScript配置（包含@/路径别名）
+# build-scheduler.js  - 调度器打包脚本（构建时需要）
+# nginx.conf          - Nginx配置（单容器部署必需）
+# supervisord.conf    - Supervisord配置（单容器部署必需）
