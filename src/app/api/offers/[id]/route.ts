@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById, updateOffer, deleteOffer } from '@/lib/offers'
+import { invalidateOfferCache } from '@/lib/api-cache'
 import { z } from 'zod'
 
 /**
@@ -120,6 +121,9 @@ export async function PUT(
       is_active: validationResult.data.is_active,
     })
 
+    // 使缓存失效
+    invalidateOfferCache(parseInt(userId, 10), parseInt(id, 10))
+
     return NextResponse.json({
       success: true,
       offer: {
@@ -169,6 +173,9 @@ export async function DELETE(
     }
 
     deleteOffer(parseInt(id, 10), parseInt(userId, 10))
+
+    // 使缓存失效
+    invalidateOfferCache(parseInt(userId, 10), parseInt(id, 10))
 
     return NextResponse.json({
       success: true,

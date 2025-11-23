@@ -216,9 +216,10 @@ async function insertDefaultSystemSettings(): Promise<void> {
 
   const defaultSettings = [
     // Google Ads API配置
-    { category: 'google_ads', key: 'client_id', dataType: 'string', isSensitive: true, isRequired: true, description: 'Google Ads API Client ID' },
-    { category: 'google_ads', key: 'client_secret', dataType: 'string', isSensitive: true, isRequired: true, description: 'Google Ads API Client Secret' },
-    { category: 'google_ads', key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: true, description: 'Google Ads Developer Token' },
+    { category: 'google_ads', key: 'login_customer_id', dataType: 'string', isSensitive: false, isRequired: true, description: 'Google Ads Login Customer ID (MCC账户ID)' },
+    { category: 'google_ads', key: 'client_id', dataType: 'string', isSensitive: true, isRequired: false, description: 'Google Ads API Client ID（可选）' },
+    { category: 'google_ads', key: 'client_secret', dataType: 'string', isSensitive: true, isRequired: false, description: 'Google Ads API Client Secret（可选）' },
+    { category: 'google_ads', key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: false, description: 'Google Ads Developer Token（可选）' },
 
     // AI配置 - Gemini直接API模式
     { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: 'Gemini API密钥（直接API模式）' },

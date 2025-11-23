@@ -624,7 +624,7 @@ export default function OffersPage() {
                         currentSortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
-                        className="w-[100px]"
+                        className="w-[100px] whitespace-nowrap"
                       >
                         产品编号
                       </SortableTableHead>
@@ -650,6 +650,7 @@ export default function OffersPage() {
                         currentSortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
+                        className="w-[110px] whitespace-nowrap"
                       >
                         推广国家
                       </SortableTableHead>
@@ -658,6 +659,7 @@ export default function OffersPage() {
                         currentSortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
+                        className="w-[100px] whitespace-nowrap"
                       >
                         语言
                       </SortableTableHead>
@@ -666,11 +668,12 @@ export default function OffersPage() {
                         currentSortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
+                        className="w-[120px] whitespace-nowrap"
                       >
                         状态
                       </SortableTableHead>
-                      <TableHead>关联账号</TableHead>
-                      <TableHead>操作</TableHead>
+                      <TableHead className="whitespace-nowrap">关联账号</TableHead>
+                      <TableHead className="whitespace-nowrap">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -755,7 +758,7 @@ export default function OffersPage() {
                               title={offer.scrape_status !== 'completed' ? '请等待数据抓取完成' : ''}
                             >
                               <Rocket className="w-3.5 h-3.5 mr-1.5" />
-                              一键上广告
+                              发布广告
                             </Button>
 
                             <DropdownMenu>
@@ -806,11 +809,11 @@ export default function OffersPage() {
               {/* 分页组件 */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between px-6 py-4 border-t">
-                  <div className="flex items-center gap-4">
-                    <div className="text-sm text-gray-500">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="text-sm text-gray-500 whitespace-nowrap">
                       显示第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredOffers.length)} 条，共 {filteredOffers.length} 条
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 whitespace-nowrap">
                       <span className="text-sm text-gray-500">每页</span>
                       <Select
                         value={pageSize.toString()}
