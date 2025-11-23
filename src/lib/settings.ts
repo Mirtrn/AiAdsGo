@@ -150,6 +150,50 @@ export function getSetting(category: string, key: string, userId?: number): Sett
 }
 
 /**
+ * 获取用户级配置项（不回退到全局配置）
+ *
+ * 重要：此函数只返回用户自己的配置，不会返回全局配置
+ * 用于需要严格用户隔离的场景（如AI配置）
+ *
+ * @param category - 配置分类
+ * @param key - 配置键
+ * @param userId - 用户ID（必需）
+ * @returns 用户级配置值，如果用户没有配置则返回 null
+ */
+export function getUserOnlySetting(category: string, key: string, userId: number): SettingValue | null {
+  if (!userId || userId <= 0) {
+    throw new Error('getUserOnlySetting requires a valid userId')
+  }
+
+  const db = getDatabase()
+
+  // 只查询用户级配置，不包含全局配置（user_id IS NULL）
+  const query = 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND user_id = ? LIMIT 1'
+  const params = [category, key, userId]
+
+  console.log(`SELECT * FROM system_settings WHERE category = '${category}' AND config_key = '${key}' AND user_id = ${userId} LIMIT 1`)
+
+  const setting = db.prepare(query).get(...params) as SystemSetting | undefined
+
+  if (!setting) return null
+
+  return {
+    category: setting.category,
+    key: setting.config_key,
+    value: setting.is_sensitive && setting.encrypted_value
+      ? decrypt(setting.encrypted_value)
+      : setting.config_value,
+    dataType: setting.data_type,
+    isSensitive: setting.is_sensitive === 1,
+    isRequired: setting.is_required === 1,
+    validationStatus: setting.validation_status,
+    validationMessage: setting.validation_message,
+    lastValidatedAt: setting.last_validated_at,
+    description: setting.description,
+  }
+}
+
+/**
  * 更新配置项
  */
 export function updateSetting(
@@ -466,10 +510,14 @@ export async function validateGoogleAdsConfig(
 
 /**
  * 验证Gemini API密钥和模型（直接API模式）
+ * @param apiKey - API密钥
+ * @param model - 模型名称
+ * @param userId - 用户ID（必需，用于调用AI服务）
  */
 export async function validateGeminiConfig(
   apiKey: string,
-  model: string = 'gemini-2.5-pro'
+  model: string = 'gemini-2.5-pro',
+  userId: number
 ): Promise<{ valid: boolean; message: string }> {
   // Step 1: 基础验证
   if (!apiKey) {
@@ -499,14 +547,14 @@ export async function validateGeminiConfig(
   try {
     const { generateContent } = await import('./gemini-axios')
 
-    // 使用选择的模型进行测试
+    // 使用选择的模型进行测试（使用用户级AI配置）
     // 注意：Gemini 2.5 模型有"思考"功能，需要更多tokens
     await generateContent({
       model: model,
       prompt: 'Say "OK" if you can hear me.',
       temperature: 0.1,
       maxOutputTokens: 200, // Gemini 2.5 模型的思考过程需要更多tokens
-    })
+    }, userId)
 
     return {
       valid: true,

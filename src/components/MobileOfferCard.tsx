@@ -42,7 +42,7 @@ export function MobileOfferCard({
 }: MobileOfferCardProps) {
   const getScrapeStatusBadge = (status: string) => {
     const configs = {
-      pending: { label: '等待抓取', variant: 'outline' as const },
+      pending: { label: '抓取中', variant: 'default' as const },
       in_progress: { label: '抓取中', variant: 'default' as const },
       completed: { label: '已完成', variant: 'default' as const },
       failed: { label: '失败', variant: 'destructive' as const },

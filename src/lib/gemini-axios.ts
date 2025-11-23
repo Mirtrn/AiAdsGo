@@ -1,11 +1,14 @@
 /**
  * 使用 axios + HttpsProxyAgent 调用 Gemini API
  * 解决 Node.js fetch 不支持代理的问题
+ *
+ * 重要：API密钥从用户配置获取，不使用全局配置
  */
 
 import axios, { AxiosInstance } from 'axios'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { getProxyIp } from './proxy/fetch-proxy-ip'
+import { getUserOnlySetting } from './settings'
 
 /**
  * Gemini API 请求接口
@@ -95,11 +98,14 @@ export async function createGeminiAxiosClient(): Promise<AxiosInstance> {
  *
  * 尝试使用 gemini-2.5-pro，如果遇到模型过载（503）则自动降级到 gemini-2.5-flash
  *
+ * 重要：API密钥从用户配置获取，不使用全局配置
+ *
  * @param params - 生成参数
  * @param params.model - 模型名称，默认 'gemini-2.5-pro'
  * @param params.prompt - 提示词
  * @param params.temperature - 温度参数，默认 0.7
  * @param params.maxOutputTokens - 最大输出tokens，默认 2048
+ * @param userId - 用户ID（必需，用于获取用户的API密钥）
  * @returns 生成的文本内容
  */
 export async function generateContent(params: {
@@ -107,7 +113,7 @@ export async function generateContent(params: {
   prompt: string
   temperature?: number
   maxOutputTokens?: number
-}): Promise<string> {
+}, userId: number): Promise<string> {
   const {
     model = 'gemini-2.5-pro',
     prompt,
@@ -115,9 +121,11 @@ export async function generateContent(params: {
     maxOutputTokens = 2048,
   } = params
 
-  const apiKey = process.env.GEMINI_API_KEY
+  // 从用户配置获取API密钥（不使用全局配置）
+  const apiKeySetting = getUserOnlySetting('ai', 'gemini_api_key', userId)
+  const apiKey = apiKeySetting?.value
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY 未配置')
+    throw new Error(`用户(ID=${userId})未配置 Gemini API 密钥。请在设置页面配置您自己的 API 密钥。`)
   }
 
   // 创建配置了代理的 axios 客户端

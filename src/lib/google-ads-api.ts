@@ -179,6 +179,60 @@ export async function getCustomer(
 }
 
 /**
+ * 国家代码到Geo Target Constant ID的映射
+ * 参考: https://developers.google.com/google-ads/api/reference/data/geotargets
+ */
+function getGeoTargetConstantId(countryCode: string): number | null {
+  const geoTargetMap: Record<string, number> = {
+    'US': 2840,   // United States
+    'GB': 2826,   // United Kingdom
+    'CA': 2124,   // Canada
+    'AU': 2036,   // Australia
+    'DE': 2276,   // Germany
+    'FR': 2250,   // France
+    'JP': 2392,   // Japan
+    'CN': 2156,   // China
+    'IN': 2356,   // India
+    'BR': 2076,   // Brazil
+    'MX': 2484,   // Mexico
+    'ES': 2724,   // Spain
+    'IT': 2380,   // Italy
+    'KR': 2410,   // South Korea
+    'RU': 2643,   // Russia
+    'SG': 2702,   // Singapore
+    'HK': 2344,   // Hong Kong
+    'TW': 2158,   // Taiwan
+  }
+
+  return geoTargetMap[countryCode.toUpperCase()] || null
+}
+
+/**
+ * 语言代码到Language Constant ID的映射
+ * 参考: https://developers.google.com/google-ads/api/reference/data/codes-formats
+ */
+function getLanguageConstantId(languageCode: string): number | null {
+  const languageMap: Record<string, number> = {
+    'en': 1000,      // English
+    'zh': 1017,      // Chinese (Simplified)
+    'zh-CN': 1017,   // Chinese (Simplified)
+    'zh-TW': 1018,   // Chinese (Traditional)
+    'ja': 1005,      // Japanese
+    'de': 1001,      // German
+    'fr': 1002,      // French
+    'es': 1003,      // Spanish
+    'it': 1004,      // Italian
+    'ko': 1012,      // Korean
+    'ru': 1031,      // Russian
+    'pt': 1014,      // Portuguese
+    'ar': 1019,      // Arabic
+    'hi': 1023,      // Hindi
+  }
+
+  return languageMap[languageCode.toLowerCase()] || null
+}
+
+/**
  * 创建Google Ads广告系列
  */
 export async function createGoogleAdsCampaign(params: {
@@ -188,6 +242,11 @@ export async function createGoogleAdsCampaign(params: {
   budgetAmount: number
   budgetType: 'DAILY' | 'TOTAL'
   status: 'ENABLED' | 'PAUSED'
+  biddingStrategy?: string
+  cpcBidCeilingMicros?: number
+  targetCountry?: string
+  targetLanguage?: string
+  finalUrlSuffix?: string
   startDate?: string
   endDate?: string
   accountId?: number
@@ -207,21 +266,41 @@ export async function createGoogleAdsCampaign(params: {
     deliveryMethod: params.budgetType === 'DAILY' ? 'STANDARD' : 'ACCELERATED',
   })
 
-  // 2. 创建广告系列
-  const campaign = {
+  // 2. 创建广告系列（遵循Google Ads API官方最佳实践）
+  const campaign: any = {
     name: params.campaignName,
-    status: enums.CampaignStatus[params.status],
+    // 官方推荐：创建时使用PAUSED状态，添加完定位和广告后再启用
+    status: enums.CampaignStatus.PAUSED,
     advertising_channel_type: enums.AdvertisingChannelType.SEARCH,
     campaign_budget: budgetResourceName,
     network_settings: {
       target_google_search: true,
       target_search_network: true,
-      target_content_network: false,
+      // 启用Display Expansion (官方推荐)
+      target_content_network: true,
       target_partner_search_network: false,
     },
   }
 
-  // 添加日期设置
+  // 设置出价策略 - Maximize Clicks (TARGET_SPEND)
+  // 根据业务规范：Bidding Strategy = Maximize Clicks，CPC Bid = 0.17 USD
+  // 注意：Maximize Clicks在API中的枚举值是TARGET_SPEND
+  campaign.bidding_strategy_type = enums.BiddingStrategyType.TARGET_SPEND
+  campaign.target_spend = {
+    cpc_bid_ceiling_micros: params.cpcBidCeilingMicros || 170000  // 默认0.17 USD
+  }
+
+  // 必填字段：EU政治广告状态声明
+  // 大多数Campaign不包含政治广告，设置为DOES_NOT_CONTAIN
+  campaign.contains_eu_political_advertising = enums.EuPoliticalAdvertisingStatus.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
+
+  // 添加Final URL Suffix（如果提供）
+  // 从推广链接重定向访问后提取的Final URL suffix
+  if (params.finalUrlSuffix) {
+    campaign.final_url_suffix = params.finalUrlSuffix
+  }
+
+  // 3. 添加日期设置
   if (params.startDate) {
     const startDateObj = new Date(params.startDate)
     ;(campaign as any).start_date = startDateObj.toISOString().split('T')[0].replace(/-/g, '')
@@ -232,14 +311,45 @@ export async function createGoogleAdsCampaign(params: {
     ;(campaign as any).end_date = endDateObj.toISOString().split('T')[0].replace(/-/g, '')
   }
 
-  const response = await withRetry(
-    () => customer.campaigns.create([campaign]),
-    {
-      maxRetries: 3,
-      initialDelay: 1000,
-      operationName: `Create Campaign: ${params.campaignName}`
+  // 🐛 DEBUG: 打印完整的Campaign对象用于调试
+  console.log('📋 创建Campaign的完整配置:', JSON.stringify(campaign, null, 2))
+  console.log('📋 Bidding Strategy Type (直接读取):', campaign.bidding_strategy_type)
+  console.log('📋 Target Spend:', campaign.target_spend)
+  console.log('📋 Customer ID:', params.customerId)
+  console.log('📋 Target Country:', params.targetCountry)
+  console.log('📋 Target Language:', params.targetLanguage)
+
+  let response
+  try {
+    response = await withRetry(
+      () => customer.campaigns.create([campaign]),
+      {
+        maxRetries: 3,
+        initialDelay: 1000,
+        operationName: `Create Campaign: ${params.campaignName}`
+      }
+    )
+  } catch (error: any) {
+    // 打印详细的错误信息，特别是location字段
+    console.error('🐛 Campaign创建失败 - 详细错误信息:')
+    console.error('📋 错误对象:', JSON.stringify(error, null, 2))
+
+    if (error.errors && Array.isArray(error.errors)) {
+      console.error('📋 错误详情:')
+      error.errors.forEach((err: any, index: number) => {
+        console.error(`  错误 ${index + 1}:`)
+        console.error(`    - message: ${err.message}`)
+        console.error(`    - error_code: ${JSON.stringify(err.error_code)}`)
+
+        // location字段可能包含缺失字段的信息
+        if (err.location) {
+          console.error(`    - location:`, JSON.stringify(err.location, null, 2))
+        }
+      })
     }
-  )
+
+    throw error
+  }
 
   if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建广告系列失败：无响应')
@@ -247,6 +357,68 @@ export async function createGoogleAdsCampaign(params: {
 
   const result = response.results[0]
   const campaignId = result.resource_name?.split('/').pop() || ''
+  const campaignResourceName = result.resource_name || ''
+
+  console.log(`✅ Campaign创建成功! ID: ${campaignId}, Resource: ${campaignResourceName}`)
+
+  // 4. 添加地理位置和语言定位条件（必需）
+  // 参考: https://developers.google.com/google-ads/api/docs/campaigns/search-campaigns/getting-started
+  const criteriaOperations: any[] = []
+
+  // 添加地理位置定位
+  if (params.targetCountry) {
+    const geoTargetConstantId = getGeoTargetConstantId(params.targetCountry)
+    if (geoTargetConstantId) {
+      criteriaOperations.push({
+        campaign: campaignResourceName,
+        location: {
+          geo_target_constant: `geoTargetConstants/${geoTargetConstantId}`
+        }
+      })
+      console.log(`📍 添加地理位置定位: ${params.targetCountry} (${geoTargetConstantId})`)
+    }
+  }
+
+  // 添加语言定位
+  if (params.targetLanguage) {
+    const languageConstantId = getLanguageConstantId(params.targetLanguage)
+    if (languageConstantId) {
+      criteriaOperations.push({
+        campaign: campaignResourceName,
+        language: {
+          language_constant: `languageConstants/${languageConstantId}`
+        }
+      })
+      console.log(`🌐 添加语言定位: ${params.targetLanguage} (${languageConstantId})`)
+    }
+  }
+
+  // 批量创建定位条件
+  if (criteriaOperations.length > 0) {
+    try {
+      await withRetry(
+        () => customer.campaignCriteria.create(criteriaOperations),
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          operationName: `Create Campaign Criteria for ${params.campaignName}`
+        }
+      )
+      console.log(`✅ 成功添加${criteriaOperations.length}个定位条件`)
+    } catch (error: any) {
+      console.error('❌ 添加定位条件失败:', error.message)
+      // 如果定位条件创建失败，删除已创建的Campaign以保持数据一致性
+      try {
+        await customer.campaigns.remove([campaignResourceName])
+        console.log(`🗑️ 已删除Campaign ${campaignId}（因定位条件创建失败）`)
+      } catch (rollbackError) {
+        console.error('⚠️ Campaign删除失败:', rollbackError)
+      }
+      throw new Error(`Campaign定位条件创建失败: ${error.message}`)
+    }
+  } else {
+    console.warn('⚠️ 未提供地理位置或语言定位，Campaign可能无法正常投放')
+  }
 
   // 清除Campaigns列表缓存（创建新Campaign后）
   const listCacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
@@ -255,7 +427,7 @@ export async function createGoogleAdsCampaign(params: {
 
   return {
     campaignId,
-    resourceName: result.resource_name || '',
+    resourceName: campaignResourceName,
   }
 }
 
@@ -711,6 +883,7 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   headlines: string[] // Max 15 headlines
   descriptions: string[] // Max 4 descriptions
   finalUrls: string[]
+  finalUrlSuffix?: string  // 查询参数后缀（用于tracking）
   path1?: string
   path2?: string
   accountId?: number
@@ -723,14 +896,16 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
     params.userId
   )
 
-  // Validate headlines (3-15 required)
-  if (params.headlines.length < 3 || params.headlines.length > 15) {
-    throw new Error('Responsive Search Ad需要3-15个标题')
+  // Validate headlines (必须正好15个)
+  // 根据业务规范：Headlines必须配置15个，如果从广告创意中获得的标题数量不足，则报错
+  if (params.headlines.length !== 15) {
+    throw new Error(`Headlines必须正好15个，当前提供了${params.headlines.length}个。如果从广告创意中获得的标题数量不足，请报错。`)
   }
 
-  // Validate descriptions (2-4 required)
-  if (params.descriptions.length < 2 || params.descriptions.length > 4) {
-    throw new Error('Responsive Search Ad需要2-4个描述')
+  // Validate descriptions (必须正好4个)
+  // 根据业务规范：Descriptions必须配置4个，如果从广告创意中获得的描述数量不足，则报错
+  if (params.descriptions.length !== 4) {
+    throw new Error(`Descriptions必须正好4个，当前提供了${params.descriptions.length}个。如果从广告创意中获得的描述数量不足，请报错。`)
   }
 
   // Validate headline length (max 30 characters each)
@@ -748,7 +923,7 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   })
 
   // Create ad structure
-  const ad = {
+  const ad: any = {
     ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
     status: enums.AdGroupAdStatus.ENABLED,
     ad: {
@@ -760,9 +935,17 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
     },
   }
 
-  // Add path fields if provided
+  // Add Final URL Suffix if provided (for tracking parameters)
+  if (params.finalUrlSuffix) {
+    ad.ad.final_url_suffix = params.finalUrlSuffix
+  }
+
+  // Add display path fields if provided
   if (params.path1) {
-    ;(ad.ad as any).final_url_suffix = params.path1
+    ad.ad.responsive_search_ad.path1 = params.path1
+  }
+  if (params.path2) {
+    ad.ad.responsive_search_ad.path2 = params.path2
   }
 
   const response = await customer.adGroupAds.create([ad])

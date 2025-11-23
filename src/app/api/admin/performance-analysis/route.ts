@@ -102,13 +102,13 @@ export async function POST(request: NextRequest) {
 
 保持专业、数据驱动、可执行。`
 
-    // 调用AI生成分析报告
+    // 调用AI生成分析报告（使用用户级AI配置）
     const analysis = await generateContent({
       model: 'gemini-2.5-pro',
       prompt: analysisPrompt,
       temperature: 0.7,
       maxOutputTokens: 3072,
-    })
+    }, parseInt(userId, 10))
 
     // 如果有足够的数据，生成具体的Prompt优化建议
     let promptOptimization = null
@@ -155,7 +155,7 @@ ${i + 1}. ${ad.headline1}
         prompt: optimizationPrompt,
         temperature: 0.5,
         maxOutputTokens: 1024,
-      })
+      }, parseInt(userId, 10))
     }
 
     return NextResponse.json({

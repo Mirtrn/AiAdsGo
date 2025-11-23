@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createOffer, listOffers } from '@/lib/offers'
+import { createOffer, listOffers, updateOfferScrapeStatus } from '@/lib/offers'
 import { z } from 'zod'
 import { apiCache, generateCacheKey, invalidateOfferCache } from '@/lib/api-cache'
+import { triggerOfferScraping } from '@/lib/offer-scraping'
 
 const createOfferSchema = z.object({
   url: z.string().url('无效的URL格式'),
@@ -13,6 +14,9 @@ const createOfferSchema = z.object({
   unique_selling_points: z.string().optional(),
   product_highlights: z.string().optional(),
   target_audience: z.string().optional(),
+  // Final URL字段：存储解析后的最终落地页URL
+  final_url: z.string().url('无效的Final URL格式').optional(),
+  final_url_suffix: z.string().optional(),
   // 需求28：产品价格和佣金比例（可选）
   product_price: z.string().optional(),
   commission_payout: z.string().optional(),
@@ -49,6 +53,20 @@ export async function POST(request: NextRequest) {
     // 使缓存失效
     invalidateOfferCache(parseInt(userId, 10))
 
+    // 🚀 自动触发异步抓取（不等待完成，立即返回）
+    // 直接调用抓取函数，避免HTTP请求的认证问题
+    if (offer.scrape_status === 'pending') {
+      // 使用setImmediate或setTimeout确保在响应返回后执行
+      setImmediate(() => {
+        triggerOfferScraping(
+          offer.id,
+          parseInt(userId, 10),
+          offer.url,
+          offer.brand
+        )
+      })
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -63,6 +81,9 @@ export async function POST(request: NextRequest) {
           uniqueSellingPoints: offer.unique_selling_points,
           productHighlights: offer.product_highlights,
           targetAudience: offer.target_audience,
+          // Final URL字段
+          finalUrl: offer.final_url,
+          finalUrlSuffix: offer.final_url_suffix,
           scrape_status: offer.scrape_status,
           isActive: offer.is_active === 1,
           createdAt: offer.created_at,
@@ -145,6 +166,9 @@ export async function GET(request: NextRequest) {
         uniqueSellingPoints: offer.unique_selling_points,
         productHighlights: offer.product_highlights,
         targetAudience: offer.target_audience,
+        // Final URL字段
+        finalUrl: offer.final_url,
+        finalUrlSuffix: offer.final_url_suffix,
         scrape_status: offer.scrape_status,
         scrapeError: offer.scrape_error,
         scrapedAt: offer.scraped_at,

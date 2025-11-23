@@ -246,7 +246,7 @@ export default function OfferDetailPage() {
 
   const getScrapeStatusLabel = (status: string): string => {
     const labels: Record<string, string> = {
-      pending: '等待抓取',
+      pending: '抓取中',
       in_progress: '抓取中',
       completed: '已完成',
       failed: '失败',
@@ -256,7 +256,7 @@ export default function OfferDetailPage() {
 
   const getScrapeStatusColor = (status: string): string => {
     const colors: Record<string, string> = {
-      pending: 'bg-yellow-100 text-yellow-800',
+      pending: 'bg-blue-100 text-blue-800',
       in_progress: 'bg-blue-100 text-blue-800',
       completed: 'bg-green-100 text-green-800',
       failed: 'bg-red-100 text-red-800',
@@ -327,8 +327,7 @@ export default function OfferDetailPage() {
           <div className={`mb-6 px-4 py-3 rounded border ${
             offer.scrape_status === 'completed' ? 'bg-green-50 border-green-400 text-green-700' :
             offer.scrape_status === 'failed' ? 'bg-red-50 border-red-400 text-red-700' :
-            offer.scrape_status === 'in_progress' ? 'bg-blue-50 border-blue-400 text-blue-700' :
-            'bg-yellow-50 border-yellow-400 text-yellow-700'
+            'bg-blue-50 border-blue-400 text-blue-700'
           }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
@@ -336,19 +335,19 @@ export default function OfferDetailPage() {
                   {getScrapeStatusLabel(offer.scrape_status)}
                 </span>
                 <span className="ml-3">
-                  {offer.scrape_status === 'pending' && '产品信息等待抓取'}
+                  {offer.scrape_status === 'pending' && '产品信息后台异步抓取中...'}
                   {offer.scrape_status === 'in_progress' && '正在抓取产品信息...'}
                   {offer.scrape_status === 'completed' && `产品信息抓取完成 (${offer.scrapedAt ? new Date(offer.scrapedAt).toLocaleString('zh-CN') : ''})`}
                   {offer.scrape_status === 'failed' && `抓取失败: ${offer.scrapeError || '未知错误'}`}
                 </span>
               </div>
-              {(offer.scrape_status === 'pending' || offer.scrape_status === 'failed') && (
+              {offer.scrape_status === 'failed' && (
                 <button
                   onClick={handleScrape}
                   disabled={scraping}
                   className="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
                 >
-                  {scraping ? '启动中...' : offer.scrape_status === 'failed' ? '重新抓取' : '开始抓取'}
+                  {scraping ? '启动中...' : '重新抓取'}
                 </button>
               )}
             </div>

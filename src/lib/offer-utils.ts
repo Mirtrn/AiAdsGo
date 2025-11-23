@@ -6,6 +6,51 @@ import { getDatabase } from '@/lib/db'
  */
 
 /**
+ * 规范化品牌名称
+ * - 首字母大写格式（Title Case）："apple" → "Apple", "APPLE" → "Apple"
+ * - 多个单词："outdoor life" → "Outdoor Life"
+ * - 保留常见全大写缩写：IBM, BMW, HP, LG, etc.
+ *
+ * @param brand - 原始品牌名称
+ * @returns 规范化后的品牌名称
+ */
+export function normalizeBrandName(brand: string): string {
+  if (!brand || typeof brand !== 'string') return brand
+
+  const trimmed = brand.trim()
+  if (!trimmed) return trimmed
+
+  // 常见全大写缩写列表（保持大写）
+  const ABBREVIATIONS = new Set([
+    'IBM', 'HP', 'LG', 'BMW', 'ASUS', 'DELL', 'AMD', 'AT&T',
+    'BBC', 'CNN', 'ESPN', 'HBO', 'MTV', 'NBA', 'NFL', 'NHL',
+    'USA', 'UK', 'EU', 'NASA', 'FBI', 'CIA', 'DVD', 'LCD',
+    'LED', 'USB', 'GPS', 'API', 'SEO', 'CEO', 'CTO', 'CFO'
+  ])
+
+  // 如果是常见缩写，保持大写
+  if (ABBREVIATIONS.has(trimmed.toUpperCase())) {
+    return trimmed.toUpperCase()
+  }
+
+  // 对每个单词进行首字母大写处理
+  return trimmed
+    .split(/\s+/)
+    .map(word => {
+      if (!word) return word
+
+      // 检查是否是缩写
+      if (ABBREVIATIONS.has(word.toUpperCase())) {
+        return word.toUpperCase()
+      }
+
+      // 首字母大写，其余小写
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    })
+    .join(' ')
+}
+
+/**
  * 生成Offer唯一标识
  * 格式：品牌名称_推广国家_序号
  * 示例：Reolink_US_01, Reolink_US_02, ITEHIL_DE_01

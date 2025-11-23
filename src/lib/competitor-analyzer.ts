@@ -532,6 +532,9 @@ IMPORTANT: Focus on insights that will make advertising more effective and diffe
 
   try {
     // 使用Gemini AI进行分析
+    if (!userId) {
+      throw new Error('竞品分析需要用户ID，请确保已登录')
+    }
     const text = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,

@@ -33,20 +33,21 @@ export function performBackup() {
   }
 }
 
-export async function backupDatabase(backupType: 'manual' | 'auto'): Promise<{
+export async function backupDatabase(backupType: 'manual' | 'auto', createdBy?: number): Promise<{
   success: boolean;
   errorMessage?: string;
   backupFilename?: string;
   backupPath?: string;
   fileSizeBytes?: number;
 }> {
+  const db = getDatabase()
+
   try {
     const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const backupFilename = `autoads-backup-${backupType}-${timestamp}.db`
     const backupPath = path.join(BACKUP_DIR, backupFilename)
 
-    const db = getDatabase()
     await db.backup(backupPath)
 
     console.log(`✅ Database backup created at ${backupPath}`)
@@ -54,6 +55,12 @@ export async function backupDatabase(backupType: 'manual' | 'auto'): Promise<{
 
     // Get file size
     const stats = fs.statSync(backupPath)
+
+    // Log to backup_logs table
+    db.prepare(`
+      INSERT INTO backup_logs (backup_type, status, backup_filename, backup_path, file_size_bytes, created_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(backupType, 'success', backupFilename, backupPath, stats.size, createdBy || null)
 
     return {
       success: true,
@@ -64,6 +71,17 @@ export async function backupDatabase(backupType: 'manual' | 'auto'): Promise<{
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     console.error('❌ Backup failed:', errorMessage)
+
+    // Log failure to backup_logs table
+    try {
+      db.prepare(`
+        INSERT INTO backup_logs (backup_type, status, error_message, created_by)
+        VALUES (?, ?, ?, ?)
+      `).run(backupType, 'failed', errorMessage, createdBy || null)
+    } catch (logError) {
+      console.error('Failed to log backup failure:', logError)
+    }
+
     return { success: false, errorMessage }
   }
 }

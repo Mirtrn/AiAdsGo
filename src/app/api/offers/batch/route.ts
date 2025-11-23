@@ -1,27 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createOffer } from '@/lib/offers'
+import { triggerOfferExtraction } from '@/lib/offer-extraction'
 import { z } from 'zod'
 
+/**
+ * 批量导入Offer - 与手动创建保持一致的参数
+ * 必填：affiliate_link（推广链接）, target_country（推广国家）
+ * 选填：product_price（产品价格）, commission_payout（佣金比例）
+ */
 const batchOfferSchema = z.object({
-  url: z.string().url('无效的URL格式'),
-  brand: z.string().min(1, '品牌名称不能为空'),
-  category: z.string().optional(),
+  // 必填字段
+  affiliate_link: z.string().url('无效的推广链接格式'),
   target_country: z.string().min(2, '目标国家代码至少2个字符'),
-  affiliate_link: z.string().url('无效的联盟链接格式').optional().or(z.literal('')),
+  // 选填字段
   product_price: z.string().optional().or(z.literal('')),
   commission_payout: z.string().optional().or(z.literal('')),
-  product_currency: z.string().optional().or(z.literal('')),
-  brand_description: z.string().optional().or(z.literal('')),
-  unique_selling_points: z.string().optional().or(z.literal('')),
-  product_highlights: z.string().optional().or(z.literal('')),
-  target_audience: z.string().optional().or(z.literal('')),
 })
 
-// CSV模板内容
-const CSV_TEMPLATE = `url,brand,target_country,affiliate_link,product_price,commission_payout,category
-https://www.amazon.com/stores/page/xxxx,Reolink,US,https://pboost.me/xxxx,$699.00,6.75%,Electronics
-https://itehil.com/,ITEHIL,DE,https://pboost.me/yyyy,$199.00,8.00%,Outdoor
-https://www.amazon.com/dp/B0xxxxx,BrandName,US,https://pboost.me/zzzz,$299.00,5.50%,Home`
+// CSV模板内容 - 与手动创建保持一致
+const CSV_TEMPLATE = `affiliate_link,target_country,product_price,commission_payout
+https://pboost.me/UKTs4I6,US,$699.00,6.75%
+https://pboost.me/xEAgQ8ec,DE,$199.00,8.00%
+https://pboost.me/RKWwEZR9,US,$299.00,5.50%`
 
 /**
  * GET /api/offers/batch
@@ -178,26 +178,36 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // 创建Offer
+        // 创建Offer（使用推广链接作为临时URL，品牌名称待提取）
         const offer = createOffer(parseInt(userId, 10), {
-          url: validationResult.data.url,
-          brand: validationResult.data.brand,
-          category: validationResult.data.category || undefined,
+          url: validationResult.data.affiliate_link, // 临时使用推广链接，后续会更新为Final URL
+          brand: '提取中...', // 临时品牌名，后续会更新
           target_country: validationResult.data.target_country,
-          affiliate_link: validationResult.data.affiliate_link || undefined,
-          brand_description: validationResult.data.brand_description || undefined,
-          unique_selling_points: validationResult.data.unique_selling_points || undefined,
-          product_highlights: validationResult.data.product_highlights || undefined,
-          target_audience: validationResult.data.target_audience || undefined,
+          affiliate_link: validationResult.data.affiliate_link,
+          product_price: validationResult.data.product_price || undefined,
+          commission_payout: validationResult.data.commission_payout || undefined,
         })
+
+        // 🚀 自动触发异步提取（解析推广链接 + 识别品牌名称）
+        if (offer.scrape_status === 'pending') {
+          setImmediate(() => {
+            triggerOfferExtraction(
+              offer.id,
+              parseInt(userId, 10),
+              validationResult.data.affiliate_link,
+              validationResult.data.target_country
+            )
+          })
+        }
 
         results.push({
           success: true,
           row: i + 1,
           offer: {
             id: offer.id,
-            brand: offer.brand,
-            url: offer.url,
+            affiliate_link: offer.affiliate_link,
+            target_country: offer.target_country,
+            scrape_status: offer.scrape_status,
           },
         })
       } catch (error: any) {

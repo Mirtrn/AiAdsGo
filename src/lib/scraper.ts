@@ -2,6 +2,7 @@ import axios from 'axios'
 import { load } from 'cheerio'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { getProxyIp, ProxyCredentials } from './proxy/fetch-proxy-ip'
+import { normalizeBrandName } from './offer-utils'
 
 const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true'
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -328,7 +329,7 @@ function extractShopifyData($: any): ScrapedProductData {
     productPrice: $('.product-price').text().trim() || $('[class*="price"]').text().trim() || null,
     productCategory: $('.breadcrumbs').text().trim() || null,
     productFeatures: features.slice(0, 10),
-    brandName,
+    brandName: brandName ? normalizeBrandName(brandName) : null,
     imageUrls: images.slice(0, 5),
     metaTitle: $('title').text().trim() || null,
     metaDescription: $('meta[name="description"]').attr('content') || null,
@@ -389,7 +390,7 @@ function extractGenericData($: any): ScrapedProductData {
     productPrice: $('[class*="price"]').text().trim() || $('[data-price]').attr('data-price') || null,
     productCategory: $('.breadcrumb').text().trim() || $('[class*="breadcrumb"]').text().trim() || null,
     productFeatures: features.slice(0, 10),
-    brandName,
+    brandName: brandName ? normalizeBrandName(brandName) : null,
     imageUrls: images.slice(0, 5),
     metaTitle: $('title').text().trim() || null,
     metaDescription: $('meta[name="description"]').attr('content') || null,

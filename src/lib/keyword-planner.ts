@@ -6,6 +6,7 @@ import { GoogleAdsApi, enums } from 'google-ads-api'
 import { getDatabase } from './db'
 import { getCachedKeywordVolume, cacheKeywordVolume, getBatchCachedVolumes, batchCacheVolumes } from './redis'
 import { decrypt } from './crypto'
+import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 
 interface KeywordVolume {
   keyword: string
@@ -57,11 +58,16 @@ function getUserRefreshToken(db: any, userId: number): string {
 }
 
 // Helper: Get customer_id from google_ads_accounts table
+// 只选择状态为ENABLED且非Manager账号的客户账号
 function getUserCustomerId(db: any, userId: number): string {
   const account = db.prepare(`
     SELECT customer_id
     FROM google_ads_accounts
-    WHERE user_id = ? AND is_active = 1
+    WHERE user_id = ?
+      AND is_active = 1
+      AND status = 'ENABLED'
+      AND is_manager_account = 0
+    ORDER BY id ASC
     LIMIT 1
   `).get(userId) as { customer_id: string } | undefined
 
@@ -177,7 +183,8 @@ const GEO_TARGETS: Record<string, string> = {
 export async function getKeywordSearchVolumes(
   keywords: string[],
   country: string,
-  language: string
+  language: string,
+  userId?: number
 ): Promise<KeywordVolume[]> {
   if (!keywords.length) return []
 
@@ -208,7 +215,7 @@ export async function getKeywordSearchVolumes(
       FROM global_keywords
       WHERE keyword IN (${placeholders})
         AND country = ? AND language = ?
-        AND cached_at > datetime('now', '-7 days')
+        AND created_at > datetime('now', '-7 days')
     `)
     const rows = stmt.all(...uncachedKeywords.map(k => k.toLowerCase()), country, language) as Array<{ keyword: string; search_volume: number }>
     rows.forEach(row => dbVolumes.set(row.keyword, row.search_volume))
@@ -226,6 +233,11 @@ export async function getKeywordSearchVolumes(
     const config = getGoogleAdsConfig()
 
     if (config?.developerToken && config?.refreshToken && config?.customerId) {
+      // API追踪设置
+      const apiStartTime = Date.now()
+      let apiSuccess = false
+      let apiErrorMessage: string | undefined
+
       try {
         const client = new GoogleAdsApi({
           client_id: config.clientId,
@@ -280,8 +292,30 @@ export async function getKeywordSearchVolumes(
         if (toCache.length) {
           await batchCacheVolumes(toCache, country, language)
         }
-      } catch (error) {
+
+        apiSuccess = true
+      } catch (error: any) {
+        apiSuccess = false
+        // 改进错误捕获：Google Ads API错误可能包含在不同位置
+        apiErrorMessage = error.message
+          || error.errors?.[0]?.message
+          || error.error?.message
+          || (typeof error === 'string' ? error : JSON.stringify(error))
         console.error('[KeywordPlanner] API error:', error)
+      } finally {
+        // 记录API使用（仅在有userId时追踪）
+        if (userId) {
+          trackApiUsage({
+            userId,
+            operationType: ApiOperationType.GET_KEYWORD_IDEAS,
+            endpoint: 'getKeywordSearchVolumes',
+            customerId: config.customerId,
+            requestCount: 1,
+            responseTimeMs: Date.now() - apiStartTime,
+            isSuccess: apiSuccess,
+            errorMessage: apiErrorMessage
+          })
+        }
       }
     }
   }
@@ -333,6 +367,12 @@ export async function getKeywordSearchVolumes(
 
 /**
  * 保存到全局关键词表
+ *
+ * 缓存策略：
+ * - created_at: 首次缓存或搜索量变化时的时间，用于7天过期判断
+ * - cached_at: 最后一次API调用时间，用于记录
+ * - 如果搜索量变化，重置created_at开始新的7天计时
+ * - 如果搜索量未变化，保持created_at不变，确保7天后会重新从API刷新
  */
 function saveToGlobalKeywords(
   keyword: string,
@@ -343,11 +383,18 @@ function saveToGlobalKeywords(
   try {
     const db = getDatabase()
     db.prepare(`
-      INSERT INTO global_keywords (keyword, country, language, search_volume, cached_at)
-      VALUES (?, ?, ?, ?, datetime('now'))
+      INSERT INTO global_keywords (keyword, country, language, search_volume, cached_at, created_at)
+      VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
       ON CONFLICT(keyword, country, language)
-      DO UPDATE SET search_volume = ?, cached_at = datetime('now')
-    `).run(keyword.toLowerCase(), country, language, volume, volume)
+      DO UPDATE SET
+        search_volume = excluded.search_volume,
+        cached_at = datetime('now'),
+        created_at = CASE
+          WHEN global_keywords.search_volume != excluded.search_volume
+          THEN datetime('now')
+          ELSE global_keywords.created_at
+        END
+    `).run(keyword.toLowerCase(), country, language, volume)
   } catch {
     // Table might not exist yet
   }

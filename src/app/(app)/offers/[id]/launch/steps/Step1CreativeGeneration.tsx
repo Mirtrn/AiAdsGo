@@ -11,9 +11,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Star, RefreshCw, CheckCircle2, AlertCircle, TrendingUp, Loader2, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { Star, RefreshCw, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, Wand2 } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import ScoreRadarChart from '@/components/charts/ScoreRadarChart'
+import { BonusScoreCard } from '@/components/BonusScoreCard'
+import { ConversionFeedbackForm } from '@/components/ConversionFeedbackForm'
 
 interface Props {
   offer: any
@@ -26,6 +28,29 @@ interface KeywordWithVolume {
   searchVolume: number
   competition?: string
   competitionIndex?: number
+}
+
+interface HeadlineAsset {
+  text: string
+  type?: 'brand' | 'product' | 'promo' | 'cta' | 'urgency'
+  length?: number
+  keywords?: string[]
+  hasNumber?: boolean
+  hasUrgency?: boolean
+}
+
+interface DescriptionAsset {
+  text: string
+  type?: 'value' | 'cta'
+  length?: number
+  hasCTA?: boolean
+  keywords?: string[]
+}
+
+interface QualityMetrics {
+  headline_diversity_score?: number
+  keyword_relevance_score?: number
+  estimated_ad_strength?: 'POOR' | 'AVERAGE' | 'GOOD' | 'EXCELLENT'
 }
 
 interface Creative {
@@ -53,6 +78,35 @@ interface Creative {
   generation_round: number
   theme: string
   ai_model: string
+
+  // AD_STRENGTH新增字段
+  headlinesWithMetadata?: HeadlineAsset[]
+  descriptionsWithMetadata?: DescriptionAsset[]
+  qualityMetrics?: QualityMetrics
+  adStrength?: {
+    rating: 'POOR' | 'AVERAGE' | 'GOOD' | 'EXCELLENT' | 'PENDING'
+    score: number
+    isExcellent: boolean
+    dimensions: {
+      diversity: number
+      relevance: number
+      completeness: number
+      quality: number
+      compliance: number
+    }
+    suggestions: string[]
+  }
+  optimization?: {
+    attempts: number
+    targetRating: string
+    achieved: boolean
+    history: Array<{
+      attempt: number
+      rating: string
+      score: number
+      suggestions: string[]
+    }>
+  }
 }
 
 // 格式化搜索量显示
@@ -74,6 +128,48 @@ const getCompetitionColor = (competition?: string): string => {
   return 'text-gray-500'
 }
 
+// Ad Strength评级颜色和样式
+const getAdStrengthColor = (rating: string) => {
+  switch (rating) {
+    case 'EXCELLENT':
+      return 'text-green-600 bg-green-50 border-green-200'
+    case 'GOOD':
+      return 'text-blue-600 bg-blue-50 border-blue-200'
+    case 'AVERAGE':
+      return 'text-yellow-600 bg-yellow-50 border-yellow-200'
+    case 'POOR':
+      return 'text-red-600 bg-red-50 border-red-200'
+    default:
+      return 'text-gray-600 bg-gray-50 border-gray-200'
+  }
+}
+
+const getAdStrengthBadge = (rating: string) => {
+  switch (rating) {
+    case 'EXCELLENT':
+      return { label: '优秀', variant: 'default' as const, className: 'bg-green-600 hover:bg-green-700' }
+    case 'GOOD':
+      return { label: '良好', variant: 'default' as const, className: 'bg-blue-600 hover:bg-blue-700' }
+    case 'AVERAGE':
+      return { label: '一般', variant: 'secondary' as const, className: 'bg-yellow-500 hover:bg-yellow-600' }
+    case 'POOR':
+      return { label: '待优化', variant: 'destructive' as const }
+    default:
+      return { label: '待评估', variant: 'outline' as const }
+  }
+}
+
+const getAdStrengthLabel = (rating: string) => {
+  const labels: Record<string, string> = {
+    'EXCELLENT': '优秀',
+    'GOOD': '良好',
+    'AVERAGE': '一般',
+    'POOR': '待优化',
+    'PENDING': '待评估'
+  }
+  return labels[rating] || rating
+}
+
 export default function Step1CreativeGeneration({ offer, onCreativeSelected, selectedCreative }: Props) {
   const [generating, setGenerating] = useState(false)
   const [creatives, setCreatives] = useState<Creative[]>([])
@@ -81,12 +177,14 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
     selectedCreative?.id || null
   )
   const [generationCount, setGenerationCount] = useState(0)
-  const [comparing, setComparing] = useState(false)
-  const [comparisonResult, setComparisonResult] = useState<any>(null)
 
   // 展开/折叠状态管理
   const [expandedSections, setExpandedSections] = useState<Record<number, Record<string, boolean>>>({})
 
+  // Bonus Score & Conversion Feedback
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false)
+  const [selectedCreativeForFeedback, setSelectedCreativeForFeedback] = useState<number | null>(null)
+  const [bonusScoreRefreshKey, setBonusScoreRefreshKey] = useState(0)
   const toggleSection = (creativeId: number, section: string) => {
     setExpandedSections(prev => ({
       ...prev,
@@ -115,11 +213,53 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
       const data = await response.json()
       if (data.creatives && data.creatives.length > 0) {
-        setCreatives(data.creatives)
-        setGenerationCount(data.creatives.length)
+        // 转换数据库创意为前端需要的格式（构造adStrength对象）
+        const formattedCreatives = data.creatives.map((c: any) => {
+          const calculatedRating = c.score >= 85 ? 'EXCELLENT' : c.score >= 70 ? 'GOOD' : c.score >= 50 ? 'AVERAGE' : 'POOR'
+
+          return {
+            ...c,
+            // 构造adStrength对象（如果不存在）
+            adStrength: c.adStrength || {
+              rating: calculatedRating,
+              score: c.score || 0,
+              dimensions: {
+                diversity: {
+                  score: c.score_breakdown?.diversity || 0,
+                  weight: 0.25,
+                  details: ''
+                },
+                relevance: {
+                  score: c.score_breakdown?.relevance || 0,
+                  weight: 0.25,
+                  details: ''
+                },
+                completeness: {
+                  score: c.score_breakdown?.engagement || 0,
+                  weight: 0.20,
+                  details: ''
+                },
+                quality: {
+                  score: c.score_breakdown?.quality || 0,
+                  weight: 0.20,
+                  details: ''
+                },
+                compliance: {
+                  score: c.score_breakdown?.clarity || 0,
+                  weight: 0.10,
+                  details: ''
+                }
+              },
+              suggestions: c.score_explanation ? [c.score_explanation] : []
+            }
+          }
+        })
+
+        setCreatives(formattedCreatives)
+        setGenerationCount(formattedCreatives.length)
 
         // Auto-select if already selected
-        const selected = data.creatives.find((c: Creative) => c.id === selectedCreative?.id)
+        const selected = formattedCreatives.find((c: Creative) => c.id === selectedCreative?.id)
         if (selected) {
           setSelectedId(selected.id)
         }
@@ -130,22 +270,18 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   }
 
   const handleGenerate = async () => {
-    if (generationCount >= 3) {
-      showError('已达上限', '每个Offer最多生成3个广告创意')
-      return
-    }
-
     try {
       setGenerating(true)
 
-      const response = await fetch(`/api/offers/${offer.id}/generate-ad-creative`, {
+      const response = await fetch(`/api/offers/${offer.id}/generate-creatives`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'include',
         body: JSON.stringify({
-          generation_round: generationCount + 1
+          maxRetries: 3,
+          targetRating: 'EXCELLENT'
         })
       })
 
@@ -163,52 +299,49 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         throw new Error(data.error || '生成失败')
       }
 
-      showSuccess('生成成功', `创意评分: ${data.creative.score.toFixed(1)}分`)
-      setCreatives([...creatives, data.creative])
-      setGenerationCount(generationCount + 1)
-
-      // Auto-compare if we have multiple creatives
-      if (creatives.length > 0) {
-        handleCompare([...creatives, data.creative])
+      // 构造完整的creative对象（包含Ad Strength数据）
+      const newCreative = {
+        id: Date.now(), // 临时ID，等待后端实现保存功能
+        ...data.creative,
+        score: data.adStrength.score,
+        score_breakdown: {
+          // 提取 .score 属性，适配旧的雷达图组件
+          diversity: data.adStrength.dimensions.diversity.score,
+          relevance: data.adStrength.dimensions.relevance.score,
+          engagement: data.adStrength.dimensions.completeness.score, // completeness 映射为 engagement
+          quality: data.adStrength.dimensions.quality.score,
+          clarity: data.adStrength.dimensions.compliance.score
+        },
+        score_explanation: data.adStrength.suggestions.join(' '),
+        generation_round: generationCount + 1,
+        theme: data.creative.theme || '品牌导向',
+        ai_model: 'gemini-2.0-flash-exp',
+        final_url: data.offer?.url || '',
+        adStrength: data.adStrength,
+        optimization: data.optimization
       }
+
+      const rating = data.adStrength.rating
+      const score = data.adStrength.score
+      showSuccess(
+        '生成成功',
+        `Ad Strength: ${rating === 'EXCELLENT' ? '优秀' : rating === 'GOOD' ? '良好' : rating === 'AVERAGE' ? '一般' : '待优化'} (${score}分)`
+      )
+
+      // 添加新创意到列表
+      const allCreatives = [...creatives, newCreative]
+
+      // 按评分降序排序，只保留前3个最高分的创意
+      const topCreatives = allCreatives
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+
+      setCreatives(topCreatives)
+      setGenerationCount(generationCount + 1)
     } catch (error: any) {
       showError('生成失败', error.message)
     } finally {
       setGenerating(false)
-    }
-  }
-
-  const handleCompare = async (creativesToCompare?: Creative[]) => {
-    const targetCreatives = creativesToCompare || creatives
-    if (targetCreatives.length < 2) {
-      showError('无法对比', '至少需要2个创意才能对比')
-      return
-    }
-
-    try {
-      setComparing(true)
-
-      const response = await fetch('/api/ad-creatives/compare', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          creative_ids: targetCreatives.slice(0, 3).map(c => c.id)
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error('对比失败')
-      }
-
-      const data = await response.json()
-      setComparisonResult(data.comparison)
-    } catch (error: any) {
-      showError('对比失败', error.message)
-    } finally {
-      setComparing(false)
     }
   }
 
@@ -305,100 +438,118 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Star className="w-5 h-5 text-purple-600" />
+    <div className="space-y-8">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Wand2 className="w-6 h-6 text-purple-600" />
             生成广告创意
-          </CardTitle>
-          <CardDescription>
+          </h2>
+          <p className="text-gray-500 mt-1">
             AI自动生成广告创意，包含标题、描述、关键词等完整内容，并提供专业评分和解释
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Badge variant="outline">
-                已生成: {generationCount}/3
-              </Badge>
-              {creatives.length > 1 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleCompare()}
-                  disabled={comparing}
-                >
-                  <TrendingUp className="w-4 h-4 mr-2" />
-                  {comparing ? '对比中...' : '对比分析'}
-                </Button>
-              )}
-            </div>
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {creatives.length > 0 && (
+            <Badge variant="secondary" className="px-3 py-1.5 text-sm font-medium bg-white border border-gray-200 shadow-sm">
+              已生成: {generationCount}次 | 展示最佳3个
+            </Badge>
+          )}
 
+          <Button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-md shadow-purple-500/20 border-0"
+          >
+            {generating ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                AI生成中...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                {generationCount === 0 ? '开始生成创意' : '再次生成'}
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Creatives List */}
+      {creatives.length === 0 ? (
+        <Card className="border-dashed border-2 border-gray-200 bg-gray-50/50 min-h-[500px] flex flex-col justify-center items-center">
+          <CardContent className="text-center">
+            <div className="w-20 h-20 bg-white rounded-full shadow-sm flex items-center justify-center mx-auto mb-6">
+              <Wand2 className="w-10 h-10 text-purple-500" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              还没有广告创意
+            </h3>
+            <p className="text-gray-500 max-w-md mx-auto mb-8">
+              点击右上角的"开始生成创意"按钮，AI将为您自动分析网页内容并生成高质量的Google Ads广告文案。
+            </p>
             <Button
               onClick={handleGenerate}
-              disabled={generating || generationCount >= 3}
+              disabled={generating}
+              size="lg"
+              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 border-0"
             >
               {generating ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  生成中...
+                  正在生成...
                 </>
               ) : (
                 <>
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  {generationCount === 0 ? '开始生成' : '重新生成'}
+                  <Wand2 className="w-4 h-4 mr-2" />
+                  立即生成
                 </>
               )}
             </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Comparison Result */}
-      {comparisonResult && (
-        <Alert className="bg-blue-50 border-blue-200">
-          <AlertCircle className="h-4 w-4 text-blue-600" />
-          <AlertDescription className="text-blue-900">
-            <strong>对比建议：</strong>
-            {comparisonResult.recommendation}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Creatives List */}
-      {creatives.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Star className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">点击"开始生成"创建第一个广告创意</p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {creatives.map((creative, index) => {
-            const scoreBadge = getScoreBadge(creative.score)
             const isSelected = selectedId === creative.id
+            const rankLabels = ['🥇 TOP 1', '🥈 TOP 2', '🥉 TOP 3']
 
             return (
               <Card
                 key={creative.id}
-                className={`relative ${isSelected ? 'ring-2 ring-primary shadow-lg' : ''}`}
+                className={`relative transition-all duration-200 group hover:shadow-md ${isSelected
+                  ? 'ring-2 ring-purple-500 shadow-lg bg-purple-50/10'
+                  : 'hover:border-purple-200'
+                  }`}
               >
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div>
-                      <CardTitle className="text-lg">
-                        创意 #{index + 1}
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <span className="font-bold text-gray-900">{rankLabels[index]}</span>
+                        {/* 轮次标记 */}
+                        <Badge
+                          variant="outline"
+                          className={`
+                            text-[11px] px-1.5 py-0.5 h-5 font-semibold border
+                            ${creative.generation_round === 1 ? 'bg-blue-50 text-blue-700 border-blue-300' : ''}
+                            ${creative.generation_round === 2 ? 'bg-green-50 text-green-700 border-green-300' : ''}
+                            ${creative.generation_round === 3 ? 'bg-orange-50 text-orange-700 border-orange-300' : ''}
+                            ${creative.generation_round > 3 ? 'bg-gray-50 text-gray-600 border-gray-300' : ''}
+                          `}
+                        >
+                          {creative.generation_round}
+                        </Badge>
                       </CardTitle>
-                      <CardDescription className="text-xs mt-1">
-                        {creative.theme || '综合推广'}
-                      </CardDescription>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        <span>{creative.theme || '综合推广'}</span>
+                      </div>
                     </div>
 
                     {isSelected && (
-                      <Badge variant="default" className="bg-green-600">
+                      <Badge variant="default" className="bg-purple-600 hover:bg-purple-700">
                         <CheckCircle2 className="w-3 h-3 mr-1" />
                         已选择
                       </Badge>
@@ -406,23 +557,72 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                   </div>
                 </CardHeader>
 
-                <CardContent className="space-y-4">
-                  {/* Score Display with Radar Chart */}
-                  <div className={`p-4 rounded-lg border ${getScoreColor(creative.score)}`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium">综合评分</span>
-                      <Badge variant={scoreBadge.variant} className={scoreBadge.className}>
-                        {scoreBadge.label}
-                      </Badge>
-                    </div>
-                    <div className="text-3xl font-bold mb-3">{creative.score.toFixed(1)}</div>
+                <CardContent className="space-y-5">
+                  {/* Ad Strength Rating Display */}
+                  {creative.adStrength ? (
+                    <div className={`p-4 rounded-xl border ${getAdStrengthColor(creative.adStrength.rating)} bg-opacity-50`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-gray-700">Ad Strength</span>
+                        <Badge
+                          variant={getAdStrengthBadge(creative.adStrength.rating).variant}
+                          className={getAdStrengthBadge(creative.adStrength.rating).className}
+                        >
+                          {getAdStrengthBadge(creative.adStrength.rating).label}
+                        </Badge>
+                      </div>
+                      <div className="flex items-baseline gap-2 mb-3">
+                        <div className="text-3xl font-bold tracking-tight">{creative.adStrength.score.toFixed(0)}</div>
+                        <div className="text-sm text-gray-500 font-medium">/ 100</div>
+                      </div>
 
-                    {/* Radar Chart */}
-                    <ScoreRadarChart
-                      scoreBreakdown={creative.score_breakdown}
-                      size="sm"
-                    />
-                  </div>
+                      {/* Radar Chart - Ad Strength Dimensions */}
+                      {creative.adStrength.dimensions && (
+                        <div className="mt-2">
+                          <ScoreRadarChart
+                            scoreBreakdown={{
+                              diversity: creative.adStrength.dimensions.diversity.score,
+                              relevance: creative.adStrength.dimensions.relevance.score,
+                              engagement: creative.adStrength.dimensions.completeness.score,
+                              quality: creative.adStrength.dimensions.quality.score,
+                              clarity: creative.adStrength.dimensions.compliance.score
+                            }}
+                            maxScores={{
+                              diversity: 25,
+                              relevance: 25,
+                              engagement: 20,
+                              quality: 20,
+                              clarity: 10
+                            }}
+                            size="sm"
+                          />
+                        </div>
+                      )}
+
+                      {/* Performance Bonus Score */}
+                      <div className="mt-3 border-t pt-3">
+                        <BonusScoreCard
+                          key={`bonus-${creative.id}-${bonusScoreRefreshKey}`}
+                          adCreativeId={creative.id}
+                          baseScore={creative.adStrength.score || 0}
+                          onConversionClick={() => {
+                            setSelectedCreativeForFeedback(creative.id)
+                            setShowFeedbackForm(true)
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    /* Fallback: Old Score Display */
+                    <div className={`p-4 rounded-xl border ${getScoreColor(creative.score)}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">综合评分</span>
+                        <Badge variant={getScoreBadge(creative.score).variant} className={getScoreBadge(creative.score).className}>
+                          {getScoreBadge(creative.score).label}
+                        </Badge>
+                      </div>
+                      <div className="text-3xl font-bold">{creative.score.toFixed(1)}</div>
+                    </div>
+                  )}
 
                   <Separator />
 
@@ -450,12 +650,12 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                   {/* Keywords */}
                   <Separator />
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
+                    <div className="text-sm font-medium text-gray-700 mb-3 flex items-center justify-between">
                       <span>关键词 ({creative.keywordsWithVolume?.length || creative.keywords.length})</span>
                       {(creative.keywordsWithVolume?.length || creative.keywords.length) > 3 && (
                         <button
                           onClick={() => toggleSection(creative.id, 'keywords')}
-                          className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                          className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
                         >
                           {isSectionExpanded(creative.id, 'keywords') ? (
                             <>收起 <ChevronUp className="w-3 h-3" /></>
@@ -465,38 +665,28 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                         </button>
                       )}
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-2">
                       {creative.keywordsWithVolume ? (
-                        // 显示带搜索量的关键词
                         (isSectionExpanded(creative.id, 'keywords')
                           ? creative.keywordsWithVolume
                           : creative.keywordsWithVolume.slice(0, 3)
                         ).map((kw, i) => (
-                          <Badge key={i} variant="outline" className="text-xs flex items-center gap-1.5 px-2 py-1">
+                          <Badge key={i} variant="secondary" className="text-xs flex items-center gap-1.5 px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200">
                             <span className="font-medium">{kw.keyword}</span>
                             {kw.searchVolume > 0 && (
                               <>
-                                <span className="text-gray-400">|</span>
+                                <span className="text-gray-300">|</span>
                                 <span className="text-blue-600 font-semibold">{formatSearchVolume(kw.searchVolume)}</span>
-                                {kw.competition && (
-                                  <>
-                                    <span className="text-gray-400">|</span>
-                                    <span className={getCompetitionColor(kw.competition)}>
-                                      {kw.competition.substring(0, 1)}
-                                    </span>
-                                  </>
-                                )}
                               </>
                             )}
                           </Badge>
                         ))
                       ) : (
-                        // 显示普通关键词（向后兼容）
                         (isSectionExpanded(creative.id, 'keywords')
                           ? creative.keywords
                           : creative.keywords.slice(0, 3)
                         ).map((k, i) => (
-                          <Badge key={i} variant="outline" className="text-xs">
+                          <Badge key={i} variant="secondary" className="text-xs bg-gray-100 text-gray-700">
                             {k}
                           </Badge>
                         ))
@@ -512,7 +702,8 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                         creative.id,
                         'callouts',
                         creative.callouts,
-                        'Callout扩展'
+                        '附加信息',
+                        4
                       )}
                     </>
                   )}
@@ -522,45 +713,22 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                     <>
                       <Separator />
                       <div>
-                        <div className="text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
-                          <span>附加链接 ({creative.sitelinks.length})</span>
-                          {creative.sitelinks.length > 3 && (
-                            <button
-                              onClick={() => toggleSection(creative.id, 'sitelinks')}
-                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                            >
-                              {isSectionExpanded(creative.id, 'sitelinks') ? (
-                                <>收起 <ChevronUp className="w-3 h-3" /></>
-                              ) : (
-                                <>展开全部 <ChevronDown className="w-3 h-3" /></>
-                              )}
-                            </button>
-                          )}
+                        <div className="text-sm font-medium text-gray-700 mb-2">
+                          附加链接 ({creative.sitelinks.length})
                         </div>
-                        <div className="space-y-1.5">
-                          {(isSectionExpanded(creative.id, 'sitelinks')
-                            ? creative.sitelinks
-                            : creative.sitelinks.slice(0, 3)
-                          ).map((link, i) => (
-                            <a
-                              key={i}
-                              href={link.url || '#'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="block bg-gray-50 p-2.5 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-blue-600 hover:text-blue-800">{link.text}</div>
-                                  {link.description && (
-                                    <div className="text-xs text-gray-600 mt-0.5">{link.description}</div>
-                                  )}
-                                </div>
-                                {link.url && (
-                                  <ExternalLink className="w-3 h-3 text-blue-500 flex-shrink-0 mt-1" />
-                                )}
-                              </div>
-                            </a>
+                        <div className="space-y-1">
+                          {creative.sitelinks.map((link, i) => (
+                            <div key={i}>
+                              <a
+                                href={link.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-blue-600 hover:text-blue-800 underline hover:no-underline inline-flex items-center gap-1"
+                              >
+                                {link.text}
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -569,15 +737,17 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
                   {/* Select Button */}
                   <Button
-                    className="w-full"
-                    variant={isSelected ? 'secondary' : 'default'}
+                    className={`w-full transition-all duration-200 ${isSelected
+                      ? 'bg-green-600 hover:bg-green-700 text-white shadow-md'
+                      : 'bg-gray-900 hover:bg-gray-800 text-white'
+                      }`}
                     onClick={() => handleSelect(creative)}
                     disabled={isSelected}
                   >
                     {isSelected ? (
                       <>
                         <CheckCircle2 className="w-4 h-4 mr-2" />
-                        已选择
+                        已选择此创意
                       </>
                     ) : (
                       '选择此创意'
@@ -588,6 +758,20 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
             )
           })}
         </div>
+      )}
+
+      {/* Conversion Feedback Dialog */}
+      {selectedCreativeForFeedback && (
+        <ConversionFeedbackForm
+          adCreativeId={selectedCreativeForFeedback}
+          open={showFeedbackForm}
+          onOpenChange={setShowFeedbackForm}
+          onSuccess={() => {
+            // Refresh bonus score data
+            setBonusScoreRefreshKey(prev => prev + 1)
+            setShowFeedbackForm(false)
+          }}
+        />
       )}
     </div>
   )

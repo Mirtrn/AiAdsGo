@@ -9,6 +9,9 @@ export interface GoogleAdsAccount {
   timezone: string
   isManagerAccount: boolean
   isActive: boolean
+  status: string | null
+  testAccount: boolean
+  parentMccId: string | null
   accessToken: string | null
   refreshToken: string | null
   tokenExpiresAt: string | null
@@ -115,13 +118,33 @@ export function findGoogleAdsAccountsByUserId(userId: number): GoogleAdsAccount[
 }
 
 /**
- * 查找用户的激活账号
+ * 查找用户的激活账号（包括所有状态）
+ * 注意：这会返回所有is_active=1的账号，包括DISABLED状态的
+ * 如果需要可用于API调用的账号，请使用 findEnabledGoogleAdsAccounts
  */
 export function findActiveGoogleAdsAccounts(userId: number): GoogleAdsAccount[] {
   const db = getDatabase()
   const stmt = db.prepare(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ? AND is_active = 1
+    ORDER BY created_at DESC
+  `)
+
+  const rows = stmt.all(userId) as any[]
+  return rows.map(mapRowToGoogleAdsAccount)
+}
+
+/**
+ * 查找用户可用于API调用的账号（ENABLED状态，非Manager账号）
+ */
+export function findEnabledGoogleAdsAccounts(userId: number): GoogleAdsAccount[] {
+  const db = getDatabase()
+  const stmt = db.prepare(`
+    SELECT * FROM google_ads_accounts
+    WHERE user_id = ?
+      AND is_active = 1
+      AND status = 'ENABLED'
+      AND is_manager_account = 0
     ORDER BY created_at DESC
   `)
 
@@ -197,7 +220,7 @@ export function updateGoogleAdsAccount(
     return account
   }
 
-  fields.push('updated_at = datetime("now")')
+  fields.push("updated_at = datetime('now')")
   values.push(id, userId)
 
   const stmt = db.prepare(`
@@ -297,6 +320,9 @@ function mapRowToGoogleAdsAccount(row: any): GoogleAdsAccount {
     timezone: row.timezone,
     isManagerAccount: row.is_manager_account === 1,
     isActive: row.is_active === 1,
+    status: row.status || null,
+    testAccount: row.test_account === 1,
+    parentMccId: row.parent_mcc_id || null,
     accessToken: row.access_token,
     refreshToken: row.refresh_token,
     tokenExpiresAt: row.token_expires_at,

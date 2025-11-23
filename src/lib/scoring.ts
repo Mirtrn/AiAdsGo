@@ -393,12 +393,22 @@ export async function evaluateCreativeAdStrength(
       campaignId: string
       userId: number
     }
+    // 品牌搜索量配置（可选）
+    brandName?: string
+    targetCountry?: string
+    targetLanguage?: string
+    userId?: number
   }
 ): Promise<ComprehensiveAdStrengthResult> {
   console.log('🎯 开始Ad Strength评估...')
 
   // 1. 本地评估（快速，无需API调用）
-  const localEvaluation = await evaluateAdStrength(headlines, descriptions, keywords)
+  const localEvaluation = await evaluateAdStrength(headlines, descriptions, keywords, {
+    brandName: options?.brandName,
+    targetCountry: options?.targetCountry,
+    targetLanguage: options?.targetLanguage,
+    userId: options?.userId
+  })
 
   console.log(`📊 本地评估: ${localEvaluation.rating} (${localEvaluation.overallScore}分)`)
 
@@ -461,14 +471,21 @@ export async function evaluateCreativeAdStrength(
  * @param headlines Headline资产数组
  * @param descriptions Description资产数组
  * @param keywords 关键词列表
+ * @param brandOptions 品牌搜索量配置（可选）
  * @returns Ad Strength评级
  */
 export async function getQuickAdStrength(
   headlines: HeadlineAsset[],
   descriptions: DescriptionAsset[],
-  keywords: string[]
+  keywords: string[],
+  brandOptions?: {
+    brandName?: string
+    targetCountry?: string
+    targetLanguage?: string
+    userId?: number
+  }
 ): Promise<AdStrengthRating> {
-  const evaluation = await evaluateAdStrength(headlines, descriptions, keywords)
+  const evaluation = await evaluateAdStrength(headlines, descriptions, keywords, brandOptions)
   return evaluation.rating
 }
 

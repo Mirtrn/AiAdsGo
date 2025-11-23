@@ -4,6 +4,7 @@
  */
 import { chromium, Browser, Page } from 'playwright'
 import { getProxyIp, ProxyCredentials } from './proxy/fetch-proxy-ip'
+import { normalizeBrandName } from './offer-utils'
 
 const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true'
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -646,7 +647,7 @@ export async function scrapeAmazonProduct(
     productPrice: currentPrice,
     originalPrice,
     discount,
-    brandName,
+    brandName: brandName ? normalizeBrandName(brandName) : null,
     features,
     imageUrls: Array.from(new Set(imageUrls)).slice(0, 5),
     rating,
@@ -811,18 +812,27 @@ export async function scrapeAmazonStore(
                            $('.stores-brand-description').text().trim() ||
                            null
 
-  // Extract brand name - 从URL或storeName提取
+  // Extract brand name - 优先从storeName提取（更可靠）
   let brandName: string | null = null
 
-  // 尝试从URL提取品牌名称 (e.g., /stores/Reolink/...)
-  const urlMatch = url.match(/\/stores\/([^\/]+)/)
-  if (urlMatch && urlMatch[1]) {
-    brandName = decodeURIComponent(urlMatch[1]).replace(/-/g, ' ').trim()
+  // 🔥 优先级1: 从storeName提取（最可靠）
+  if (storeName) {
+    // 处理各种Amazon前缀格式
+    brandName = storeName
+      .replace(/^Amazon\.com:\s*/i, '')  // "Amazon.com: REOLINK"
+      .replace(/^Amazon:\s*/i, '')       // "Amazon: REOLINK"
+      .replace(/\s+Store$/i, '')         // "REOLINK Store"
+      .replace(/\s+Official Store$/i, '') // "REOLINK Official Store"
+      .trim()
   }
 
-  // 如果URL没有品牌，从storeName提取
-  if (!brandName && storeName) {
-    brandName = storeName.replace(' Store', '').replace(' Official Store', '').replace('Amazon.com:', '').trim()
+  // 🔥 优先级2: 从URL提取品牌名称 (e.g., /stores/Reolink/...)
+  // 注意：跳过 /stores/page/ 这种结构
+  if (!brandName) {
+    const urlMatch = url.match(/\/stores\/([^\/]+)/)
+    if (urlMatch && urlMatch[1] && urlMatch[1].toLowerCase() !== 'page') {
+      brandName = decodeURIComponent(urlMatch[1]).replace(/-/g, ' ').trim()
+    }
   }
 
   // Extract products from store listing
@@ -1020,7 +1030,7 @@ export async function scrapeAmazonStore(
   const storeData: AmazonStoreData = {
     storeName,
     storeDescription,
-    brandName,
+    brandName: brandName ? normalizeBrandName(brandName) : null,
     products: enhancedProducts,
     totalProducts: enhancedProducts.length,
     storeUrl: finalUrl,
@@ -1243,7 +1253,7 @@ export async function scrapeIndependentStore(
     }
 
     const storeData: IndependentStoreData = {
-      storeName,
+      storeName: storeName ? normalizeBrandName(storeName) : null,
       storeDescription,
       logoUrl,
       products,

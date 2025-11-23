@@ -1,12 +1,13 @@
 /**
  * Ad Strength评估器 - 本地评估算法
  *
- * 基于Google Ads Ad Strength标准的5维度评分系统：
- * 1. Diversity (25%) - 资产多样性
- * 2. Relevance (25%) - 关键词相关性
- * 3. Completeness (20%) - 资产完整性
- * 4. Quality (20%) - 内容质量
- * 5. Compliance (10%) - 政策合规性
+ * 基于Google Ads Ad Strength标准的6维度评分系统：
+ * 1. Diversity (20%) - 资产多样性
+ * 2. Relevance (20%) - 关键词相关性
+ * 3. Brand Search Volume (20%) - 品牌搜索量
+ * 4. Completeness (15%) - 资产完整性
+ * 5. Quality (15%) - 内容质量
+ * 6. Compliance (10%) - 政策合规性
  *
  * 输出：0-100分 + POOR/AVERAGE/GOOD/EXCELLENT评级
  */
@@ -16,6 +17,7 @@ import type {
   DescriptionAsset,
   QualityMetrics
 } from './ad-creative'
+import { getKeywordSearchVolumes } from './keyword-planner'
 
 /**
  * Ad Strength评级标准
@@ -33,37 +35,37 @@ export interface AdStrengthEvaluation {
   // 各维度得分
   dimensions: {
     diversity: {
-      score: number // 0-25
-      weight: 0.25
+      score: number // 0-20
+      weight: 0.20
       details: {
-        typeDistribution: number // 0-10 资产类型分布
-        lengthDistribution: number // 0-10 长度梯度
-        textUniqueness: number // 0-5 文本独特性
+        typeDistribution: number // 0-8 资产类型分布
+        lengthDistribution: number // 0-8 长度梯度
+        textUniqueness: number // 0-4 文本独特性
       }
     }
     relevance: {
-      score: number // 0-25
-      weight: 0.25
+      score: number // 0-20
+      weight: 0.20
       details: {
-        keywordCoverage: number // 0-15 关键词覆盖率
-        keywordNaturalness: number // 0-10 关键词自然度
+        keywordCoverage: number // 0-12 关键词覆盖率
+        keywordNaturalness: number // 0-8 关键词自然度
       }
     }
     completeness: {
-      score: number // 0-20
-      weight: 0.20
+      score: number // 0-15
+      weight: 0.15
       details: {
-        assetCount: number // 0-12 资产数量
-        characterCompliance: number // 0-8 字符合规性
+        assetCount: number // 0-9 资产数量
+        characterCompliance: number // 0-6 字符合规性
       }
     }
     quality: {
-      score: number // 0-20
-      weight: 0.20
+      score: number // 0-15
+      weight: 0.15
       details: {
-        numberUsage: number // 0-7 数字使用
-        ctaPresence: number // 0-7 CTA存在
-        urgencyExpression: number // 0-6 紧迫感表达
+        numberUsage: number // 0-5 数字使用
+        ctaPresence: number // 0-5 CTA存在
+        urgencyExpression: number // 0-5 紧迫感表达
       }
     }
     compliance: {
@@ -72,6 +74,15 @@ export interface AdStrengthEvaluation {
       details: {
         policyAdherence: number // 0-6 政策遵守
         noSpamWords: number // 0-4 无垃圾词汇
+      }
+    }
+    brandSearchVolume: {
+      score: number // 0-20
+      weight: 0.20
+      details: {
+        monthlySearchVolume: number // 月均搜索量
+        volumeLevel: 'micro' | 'small' | 'medium' | 'large' | 'xlarge' // 流量级别
+        dataSource: 'keyword_planner' | 'cached' | 'database' | 'unavailable' // 数据来源
       }
     }
   }
@@ -119,7 +130,13 @@ const FORBIDDEN_WORDS = [
 export async function evaluateAdStrength(
   headlines: HeadlineAsset[],
   descriptions: DescriptionAsset[],
-  keywords: string[]
+  keywords: string[],
+  options?: {
+    brandName?: string
+    targetCountry?: string
+    targetLanguage?: string
+    userId?: number
+  }
 ): Promise<AdStrengthEvaluation> {
 
   // 1. Diversity维度 (25%)
@@ -137,14 +154,22 @@ export async function evaluateAdStrength(
   // 5. Compliance维度 (10%)
   const compliance = calculateCompliance(headlines, descriptions)
 
-  // 计算总分
-  const overallScore = diversity.score + relevance.score + completeness.score + quality.score + compliance.score
+  // 6. Brand Search Volume维度 (20%)
+  const brandSearchVolume = await calculateBrandSearchVolume(
+    options?.brandName,
+    options?.targetCountry || 'US',
+    options?.targetLanguage || 'en',
+    options?.userId
+  )
+
+  // 计算总分（100分制）
+  const overallScore = diversity.score + relevance.score + completeness.score + quality.score + compliance.score + brandSearchVolume.score
 
   // 确定评级
   const rating = scoreToRating(overallScore)
 
   // 生成改进建议
-  const suggestions = generateSuggestions(diversity, relevance, completeness, quality, compliance, rating)
+  const suggestions = generateSuggestions(diversity, relevance, completeness, quality, compliance, brandSearchVolume, rating)
 
   return {
     overallScore: Math.round(overallScore),
@@ -154,21 +179,41 @@ export async function evaluateAdStrength(
       relevance,
       completeness,
       quality,
-      compliance
+      compliance,
+      brandSearchVolume
     },
     suggestions
   }
 }
 
 /**
- * 1. 计算Diversity（多样性）- 25分
+ * 1. 计算Diversity（多样性）- 20分
  */
 function calculateDiversity(headlines: HeadlineAsset[], descriptions: DescriptionAsset[]) {
-  // 1.1 资产类型分布 (0-10分)
+  // 1.1 资产类型分布 (0-8分)
   const headlineTypes = new Set(headlines.map(h => h.type).filter(Boolean))
-  const typeDistribution = Math.min(10, headlineTypes.size * 2) // 5种类型 * 2分/种
+  let typeDistribution = Math.min(8, headlineTypes.size * 1.6) // 5种类型 * 1.6分/种
 
-  // 1.2 长度梯度分布 (0-10分)
+  // 优化：如果所有headlines都没有type属性，使用启发式规则估算多样性
+  if (headlineTypes.size === 0 && headlines.length >= 10) {
+    console.log('⚠️ Headlines缺少type属性，使用启发式规则评估多样性')
+
+    // 基于文本内容的多样性评估
+    const hasNumbers = headlines.filter(h => /\d/.test(h.text)).length
+    const hasCTA = headlines.filter(h => /shop|buy|get|order|now/i.test(h.text)).length
+    const hasUrgency = headlines.filter(h => /limited|today|only|exclusive/i.test(h.text)).length
+    const hasBrand = headlines.filter(h => h.text.length < 25).length // 短标题通常是品牌类
+
+    // 估算类型数量（每满足一个特征算1种类型）
+    const estimatedTypes = [hasNumbers > 0, hasCTA > 0, hasUrgency > 0, hasBrand > 3].filter(Boolean).length
+    typeDistribution = Math.min(8, estimatedTypes * 1.6 + 1.6) // 基础分1.6分
+
+    console.log(`   估算类型数: ${estimatedTypes}, 多样性得分: ${typeDistribution}`)
+  } else if (headlineTypes.size > 0) {
+    console.log(`✅ Headlines类型分布: ${Array.from(headlineTypes).join(', ')} (${headlineTypes.size}种)`)
+  }
+
+  // 1.2 长度梯度分布 (0-8分)
   const lengthCategories = {
     short: headlines.filter(h => (h.length || h.text.length) <= 20).length,
     medium: headlines.filter(h => {
@@ -178,22 +223,26 @@ function calculateDiversity(headlines: HeadlineAsset[], descriptions: Descriptio
     long: headlines.filter(h => (h.length || h.text.length) > 25).length
   }
 
-  // 理想：短5 中5 长5，每个分类达标得3.33分
-  const lengthScore =
-    Math.min(3.33, lengthCategories.short / 5 * 3.33) +
-    Math.min(3.33, lengthCategories.medium / 5 * 3.33) +
-    Math.min(3.34, lengthCategories.long / 5 * 3.34)
+  console.log(`📏 长度分布: 短=${lengthCategories.short}, 中=${lengthCategories.medium}, 长=${lengthCategories.long}`)
 
-  // 1.3 文本独特性 (0-5分)
+  // 理想：短5 中5 长5，每个分类达标得2.67分
+  const lengthScore =
+    Math.min(2.67, lengthCategories.short / 5 * 2.67) +
+    Math.min(2.67, lengthCategories.medium / 5 * 2.67) +
+    Math.min(2.66, lengthCategories.long / 5 * 2.66)
+
+  // 1.3 文本独特性 (0-4分)
   const allTexts = [...headlines.map(h => h.text), ...descriptions.map(d => d.text)]
   const uniqueness = calculateTextUniqueness(allTexts)
-  const textUniqueness = uniqueness * 5 // 0-1 转为 0-5
+  const textUniqueness = uniqueness * 4 // 0-1 转为 0-4
+
+  console.log(`🎨 文本独特性: ${(uniqueness * 100).toFixed(1)}% (得分: ${textUniqueness.toFixed(1)})`)
 
   const totalScore = typeDistribution + lengthScore + textUniqueness
 
   return {
-    score: Math.round(totalScore),
-    weight: 0.25 as const,
+    score: Math.min(20, Math.round(totalScore)), // 确保不超过最大值20
+    weight: 0.20 as const,
     details: {
       typeDistribution: Math.round(typeDistribution),
       lengthDistribution: Math.round(lengthScore),
@@ -203,7 +252,7 @@ function calculateDiversity(headlines: HeadlineAsset[], descriptions: Descriptio
 }
 
 /**
- * 2. 计算Relevance（相关性）- 25分
+ * 2. 计算Relevance（相关性）- 20分
  */
 function calculateRelevance(
   headlines: HeadlineAsset[],
@@ -212,21 +261,45 @@ function calculateRelevance(
 ) {
   const allTexts = [...headlines.map(h => h.text), ...descriptions.map(d => d.text)].join(' ').toLowerCase()
 
-  // 2.1 关键词覆盖率 (0-15分)
-  const matchedKeywords = keywords.filter(kw => allTexts.includes(kw.toLowerCase()))
-  const coverageRatio = keywords.length > 0 ? matchedKeywords.length / keywords.length : 0
-  const keywordCoverage = coverageRatio * 15
+  // 2.1 关键词覆盖率 (0-12分) - 优化：支持词形变化和部分匹配
+  const matchedKeywords = keywords.filter(kw => {
+    const kwLower = kw.toLowerCase()
 
-  // 2.2 关键词自然度 (0-10分)
+    // 精确匹配
+    if (allTexts.includes(kwLower)) return true
+
+    // 词形变化匹配（单复数、ing形式等）
+    const kwRoot = kwLower.replace(/s$|ing$|ed$/g, '') // 简单词根提取
+    if (kwRoot.length >= 3 && allTexts.includes(kwRoot)) return true
+
+    // 部分匹配（关键词是文本中某个词的一部分）
+    const words = allTexts.split(/\s+/)
+    if (words.some(word => word.includes(kwLower) || kwLower.includes(word))) return true
+
+    return false
+  })
+
+  const coverageRatio = keywords.length > 0 ? matchedKeywords.length / keywords.length : 0
+  const keywordCoverage = coverageRatio * 12
+
+  // 调试输出
+  if (coverageRatio < 0.8) {
+    const unmatchedKeywords = keywords.filter(kw => !matchedKeywords.includes(kw))
+    console.log(`⚠️ 关键词覆盖率偏低: ${(coverageRatio * 100).toFixed(0)}%`)
+    console.log(`   匹配成功: ${matchedKeywords.join(', ')}`)
+    console.log(`   匹配失败: ${unmatchedKeywords.join(', ')}`)
+  }
+
+  // 2.2 关键词自然度 (0-8分)
   // 检查关键词是否自然融入（非堆砌）
   const keywordDensity = calculateKeywordDensity(allTexts, keywords)
-  const naturalness = keywordDensity < 0.3 ? 10 : (keywordDensity < 0.5 ? 7 : 4) // 密度低于30%最佳
+  const naturalness = keywordDensity < 0.3 ? 8 : (keywordDensity < 0.5 ? 5.6 : 3.2) // 密度低于30%最佳
 
   const totalScore = keywordCoverage + naturalness
 
   return {
-    score: Math.round(totalScore),
-    weight: 0.25 as const,
+    score: Math.min(20, Math.round(totalScore)), // 确保不超过最大值20
+    weight: 0.20 as const,
     details: {
       keywordCoverage: Math.round(keywordCoverage),
       keywordNaturalness: Math.round(naturalness)
@@ -235,15 +308,15 @@ function calculateRelevance(
 }
 
 /**
- * 3. 计算Completeness（完整性）- 20分
+ * 3. 计算Completeness（完整性）- 15分
  */
 function calculateCompleteness(headlines: HeadlineAsset[], descriptions: DescriptionAsset[]) {
-  // 3.1 资产数量 (0-12分)
+  // 3.1 资产数量 (0-9分)
   const headlineCount = Math.min(15, headlines.length)
   const descriptionCount = Math.min(4, descriptions.length)
-  const assetCount = (headlineCount / 15 * 9) + (descriptionCount / 4 * 3) // Headlines占9分，Descriptions占3分
+  const assetCount = (headlineCount / 15 * 6.75) + (descriptionCount / 4 * 2.25) // Headlines占6.75分，Descriptions占2.25分
 
-  // 3.2 字符合规性 (0-8分)
+  // 3.2 字符合规性 (0-6分)
   const headlineCompliance = headlines.filter(h => {
     const len = h.length || h.text.length
     return len >= 10 && len <= 30
@@ -254,13 +327,13 @@ function calculateCompleteness(headlines: HeadlineAsset[], descriptions: Descrip
     return len >= 60 && len <= 90
   }).length / descriptions.length
 
-  const characterCompliance = (headlineCompliance * 5) + (descriptionCompliance * 3)
+  const characterCompliance = (headlineCompliance * 3.75) + (descriptionCompliance * 2.25)
 
   const totalScore = assetCount + characterCompliance
 
   return {
-    score: Math.round(totalScore),
-    weight: 0.20 as const,
+    score: Math.min(15, Math.round(totalScore)), // 确保不超过最大值15
+    weight: 0.15 as const,
     details: {
       assetCount: Math.round(assetCount),
       characterCompliance: Math.round(characterCompliance)
@@ -269,34 +342,124 @@ function calculateCompleteness(headlines: HeadlineAsset[], descriptions: Descrip
 }
 
 /**
- * 4. 计算Quality（质量）- 20分
+ * 4. 计算Quality（质量）- 15分
  */
 function calculateQuality(headlines: HeadlineAsset[], descriptions: DescriptionAsset[]) {
-  // 4.1 数字使用 (0-7分)
+  // 4.1 数字使用 (0-5分)
   const headlinesWithNumbers = headlines.filter(h => h.hasNumber || /\d/.test(h.text)).length
-  const numberUsage = Math.min(7, headlinesWithNumbers / 3 * 7) // 至少3个含数字得满分
+  const numberUsage = Math.min(5, headlinesWithNumbers / 3 * 5) // 至少3个含数字得满分
 
-  // 4.2 CTA存在 (0-7分)
+  // 4.2 CTA存在 (0-5分)
   const descriptionsWithCTA = descriptions.filter(d =>
     d.hasCTA || /shop now|buy now|get|order|learn more|sign up|try|start/i.test(d.text)
   ).length
-  const ctaPresence = Math.min(7, descriptionsWithCTA / 2 * 7) // 至少2个含CTA得满分
+  const ctaPresence = Math.min(5, descriptionsWithCTA / 2 * 5) // 至少2个含CTA得满分
 
-  // 4.3 紧迫感表达 (0-6分)
+  // 4.3 紧迫感表达 (0-5分)
   const headlinesWithUrgency = headlines.filter(h =>
     h.hasUrgency || /limited|today|now|hurry|exclusive|only|sale ends/i.test(h.text)
   ).length
-  const urgencyExpression = Math.min(6, headlinesWithUrgency / 2 * 6) // 至少2个含紧迫感得满分
+  const urgencyExpression = Math.min(5, headlinesWithUrgency / 2 * 5) // 至少2个含紧迫感得满分
 
   const totalScore = numberUsage + ctaPresence + urgencyExpression
 
   return {
-    score: Math.round(totalScore),
-    weight: 0.20 as const,
+    score: Math.min(15, Math.round(totalScore)), // 确保不超过最大值15
+    weight: 0.15 as const,
     details: {
       numberUsage: Math.round(numberUsage),
       ctaPresence: Math.round(ctaPresence),
       urgencyExpression: Math.round(urgencyExpression)
+    }
+  }
+}
+
+/**
+ * 6. 计算Brand Search Volume（品牌搜索量）- 20分
+ */
+async function calculateBrandSearchVolume(
+  brandName: string | undefined,
+  targetCountry: string,
+  targetLanguage: string,
+  userId?: number
+) {
+  // 如果没有品牌名称，返回0分
+  if (!brandName || brandName.trim() === '') {
+    console.log('⚠️ 未提供品牌名称，品牌搜索量得分为0')
+    return {
+      score: 0,
+      weight: 0.20 as const,
+      details: {
+        monthlySearchVolume: 0,
+        volumeLevel: 'micro' as const,
+        dataSource: 'unavailable' as const
+      }
+    }
+  }
+
+  try {
+    // 使用现有的关键词搜索量查询机制（Redis → Database → Google Ads API）
+    const volumeResults = await getKeywordSearchVolumes(
+      [brandName],
+      targetCountry,
+      targetLanguage,
+      userId
+    )
+
+    const brandVolume = volumeResults[0]
+    const monthlySearchVolume = brandVolume?.avgMonthlySearches || 0
+
+    // 确定数据来源
+    let dataSource: 'keyword_planner' | 'cached' | 'database' = 'keyword_planner'
+    if (brandVolume) {
+      // 根据实际实现，可能需要从volumeResults中获取数据源信息
+      // 这里简化处理，假设成功获取就是从缓存或API
+      dataSource = monthlySearchVolume > 0 ? 'cached' : 'keyword_planner'
+    }
+
+    // 根据搜索量确定流量级别和分数
+    let volumeLevel: 'micro' | 'small' | 'medium' | 'large' | 'xlarge'
+    let score: number
+
+    if (monthlySearchVolume >= 100001) {
+      volumeLevel = 'xlarge'
+      score = 20
+    } else if (monthlySearchVolume >= 10001) {
+      volumeLevel = 'large'
+      score = 15
+    } else if (monthlySearchVolume >= 1001) {
+      volumeLevel = 'medium'
+      score = 10
+    } else if (monthlySearchVolume >= 100) {
+      volumeLevel = 'small'
+      score = 5
+    } else {
+      volumeLevel = 'micro'
+      score = 0
+    }
+
+    console.log(`📊 品牌"${brandName}"搜索量: ${monthlySearchVolume.toLocaleString()}/月 (${volumeLevel}级别, ${score}分)`)
+
+    return {
+      score,
+      weight: 0.20 as const,
+      details: {
+        monthlySearchVolume,
+        volumeLevel,
+        dataSource
+      }
+    }
+  } catch (error) {
+    console.error(`❌ 获取品牌搜索量失败:`, error)
+    // 出错时返回0分，但不影响其他维度评分
+    return {
+      score: 0,
+      weight: 0.20 as const,
+      details: {
+        monthlySearchVolume: 0,
+        volumeLevel: 'micro' as const,
+        dataSource: 'unavailable' as const
+      }
     }
   }
 }
@@ -331,7 +494,7 @@ function calculateCompliance(headlines: HeadlineAsset[], descriptions: Descripti
   const totalScore = policyAdherence + noSpamWords
 
   return {
-    score: Math.round(totalScore),
+    score: Math.min(10, Math.round(totalScore)), // 确保不超过最大值10
     weight: 0.10 as const,
     details: {
       policyAdherence: Math.round(policyAdherence),
@@ -360,6 +523,7 @@ function generateSuggestions(
   completeness: any,
   quality: any,
   compliance: any,
+  brandSearchVolume: any,
   rating: AdStrengthRating
 ): string[] {
   const suggestions: string[] = []
@@ -371,40 +535,40 @@ function generateSuggestions(
   }
 
   // Diversity建议
-  if (diversity.details.typeDistribution < 8) {
+  if (diversity.details.typeDistribution < 6) {
     suggestions.push('💡 增加资产类型多样性：确保包含品牌、产品、促销、CTA、紧迫感5种类型')
   }
-  if (diversity.details.lengthDistribution < 8) {
+  if (diversity.details.lengthDistribution < 6) {
     suggestions.push('💡 优化长度分布：建议短标题5个、中标题5个、长标题5个')
   }
-  if (diversity.details.textUniqueness < 4) {
+  if (diversity.details.textUniqueness < 3) {
     suggestions.push('💡 提高文本独特性：避免使用相似或重复的表述')
   }
 
   // Relevance建议
-  if (relevance.details.keywordCoverage < 12) {
+  if (relevance.details.keywordCoverage < 10) {
     suggestions.push('💡 提高关键词覆盖率：至少90%的关键词应出现在创意中')
   }
-  if (relevance.details.keywordNaturalness < 8) {
+  if (relevance.details.keywordNaturalness < 6) {
     suggestions.push('💡 优化关键词自然度：避免关键词堆砌，自然融入文案')
   }
 
   // Completeness建议
-  if (completeness.details.assetCount < 10) {
+  if (completeness.details.assetCount < 7) {
     suggestions.push('💡 补充资产数量：建议15个Headlines + 4个Descriptions')
   }
-  if (completeness.details.characterCompliance < 6) {
+  if (completeness.details.characterCompliance < 5) {
     suggestions.push('💡 优化字符长度：Headlines 10-30字符，Descriptions 60-90字符')
   }
 
   // Quality建议
-  if (quality.details.numberUsage < 5) {
+  if (quality.details.numberUsage < 4) {
     suggestions.push('💡 增加数字使用：至少3个Headlines包含具体数字（折扣、价格、数量）')
   }
-  if (quality.details.ctaPresence < 5) {
+  if (quality.details.ctaPresence < 4) {
     suggestions.push('💡 强化行动号召：至少2个Descriptions包含明确CTA（Shop Now、Get、Buy）')
   }
-  if (quality.details.urgencyExpression < 4) {
+  if (quality.details.urgencyExpression < 3) {
     suggestions.push('💡 增加紧迫感：至少2个Headlines体现限时优惠或稀缺性')
   }
 
@@ -415,6 +579,16 @@ function generateSuggestions(
   if (compliance.details.noSpamWords < 3) {
     suggestions.push('⚠️ 移除违规词汇：避免使用绝对化、夸大或误导性表述')
   }
+
+  // Brand Search Volume建议
+  if (brandSearchVolume.details.volumeLevel === 'micro') {
+    suggestions.push('📊 品牌知名度较低：建议加强品牌推广，提升市场认知度')
+  } else if (brandSearchVolume.details.volumeLevel === 'small') {
+    suggestions.push('📊 品牌处于成长期：建议结合品牌建设和效果营销策略')
+  } else if (brandSearchVolume.details.volumeLevel === 'medium') {
+    suggestions.push('📊 品牌具备一定影响力：可以适当增加品牌类创意资产比例')
+  }
+  // large和xlarge级别无需建议，已经有足够品牌影响力
 
   return suggestions
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
-import { findAdCreativeById } from '@/lib/ad-creative'
+import { findAdCreativeById, findAdCreativesByOfferId } from '@/lib/ad-creative'
 import { createLaunchScore, findLatestLaunchScore } from '@/lib/launch-scores'
 import { calculateLaunchScore } from '@/lib/scoring'
 
@@ -102,6 +102,7 @@ export async function POST(
 /**
  * GET /api/offers/:id/launch-score
  * 获取Offer的最新Launch Score
+ * 支持 ?autoCalculate=true 参数自动计算
  */
 export async function GET(
   request: NextRequest,
@@ -109,6 +110,8 @@ export async function GET(
 ) {
   try {
     const { id } = params
+    const { searchParams } = new URL(request.url)
+    const autoCalculate = searchParams.get('autoCalculate') === 'true'
 
     // 从中间件注入的请求头中获取用户ID
     const userId = request.headers.get('x-user-id')
@@ -129,17 +132,60 @@ export async function GET(
     }
 
     // 获取最新的Launch Score
-    const launchScore = findLatestLaunchScore(offer.id, parseInt(userId, 10))
+    let launchScore = findLatestLaunchScore(offer.id, parseInt(userId, 10))
 
-    if (!launchScore) {
-      return NextResponse.json(
-        {
+    // 如果没有Launch Score且启用自动计算
+    if (!launchScore && autoCalculate) {
+      // 检查Offer是否已完成抓取
+      if (offer.scrape_status !== 'completed') {
+        return NextResponse.json({
           success: true,
           launchScore: null,
-          message: '暂无Launch Score，请先计算',
-        },
-        { status: 200 }
+          message: '请先完成产品信息抓取后再计算Launch Score',
+          canAutoCalculate: false,
+        })
+      }
+
+      // 查找该Offer的最新创意
+      const creatives = findAdCreativesByOfferId(offer.id, parseInt(userId, 10))
+      if (creatives.length === 0) {
+        return NextResponse.json({
+          success: true,
+          launchScore: null,
+          message: '请先生成广告创意后再计算Launch Score',
+          canAutoCalculate: false,
+        })
+      }
+
+      // 使用评分最高的创意自动计算
+      const bestCreative = creatives.reduce((best, current) =>
+        (current.score || 0) > (best.score || 0) ? current : best
       )
+
+      // 计算Launch Score
+      const analysis = await calculateLaunchScore(offer, bestCreative, parseInt(userId, 10))
+      launchScore = createLaunchScore(parseInt(userId, 10), offer.id, analysis)
+
+      return NextResponse.json({
+        success: true,
+        launchScore,
+        autoCalculated: true,
+        usedCreativeId: bestCreative.id,
+      })
+    }
+
+    if (!launchScore) {
+      // 检查是否可以自动计算
+      const canAutoCalculate = offer.scrape_status === 'completed' &&
+        findAdCreativesByOfferId(offer.id, parseInt(userId, 10)).length > 0
+
+      return NextResponse.json({
+        success: true,
+        launchScore: null,
+        message: '暂无Launch Score，请先计算',
+        canAutoCalculate,
+        hint: canAutoCalculate ? '可使用 ?autoCalculate=true 参数自动计算' : undefined,
+      })
     }
 
     return NextResponse.json({

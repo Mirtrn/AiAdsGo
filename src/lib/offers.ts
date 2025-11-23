@@ -13,6 +13,9 @@ export interface Offer {
   unique_selling_points: string | null
   product_highlights: string | null
   target_audience: string | null
+  // Final URL字段：存储解析后的最终落地页URL
+  final_url: string | null
+  final_url_suffix: string | null
   scrape_status: string
   scrape_error: string | null
   scraped_at: string | null
@@ -44,6 +47,9 @@ export interface CreateOfferInput {
   unique_selling_points?: string
   product_highlights?: string
   target_audience?: string
+  // Final URL字段：存储解析后的最终落地页URL
+  final_url?: string
+  final_url_suffix?: string
   // 需求28：产品价格和佣金比例（可选）
   product_price?: string
   commission_payout?: string
@@ -59,6 +65,9 @@ export interface UpdateOfferInput {
   unique_selling_points?: string
   product_highlights?: string
   target_audience?: string
+  // Final URL字段：存储解析后的最终落地页URL
+  final_url?: string
+  final_url_suffix?: string
   is_active?: boolean
 }
 
@@ -80,10 +89,10 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
     INSERT INTO offers (
       user_id, url, brand, category, target_country, affiliate_link,
       brand_description, unique_selling_points, product_highlights,
-      target_audience, scrape_status,
+      target_audience, final_url, final_url_suffix, scrape_status,
       offer_name, target_language,
       product_price, commission_payout
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
   `).run(
     userId,
     input.url,
@@ -95,6 +104,8 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
     input.unique_selling_points || null,
     input.product_highlights || null,
     input.target_audience || null,
+    input.final_url || null,  // 解析后的最终URL
+    input.final_url_suffix || null,  // URL查询参数后缀
     offerName,  // 自动生成
     targetLanguage,  // 自动生成
     input.product_price || null,  // 需求28
@@ -264,6 +275,14 @@ export function updateOffer(id: number, userId: number, input: UpdateOfferInput)
     updates.push('target_audience = ?')
     params.push(input.target_audience)
   }
+  if (input.final_url !== undefined) {
+    updates.push('final_url = ?')
+    params.push(input.final_url)
+  }
+  if (input.final_url_suffix !== undefined) {
+    updates.push('final_url_suffix = ?')
+    params.push(input.final_url_suffix)
+  }
   if (input.is_active !== undefined) {
     updates.push('is_active = ?')
     params.push(input.is_active ? 1 : 0)
@@ -417,6 +436,7 @@ export function unlinkOfferFromAccount(
 /**
  * 获取闲置的Ads账号列表
  * 需求25: 便于其他Offer建立关联关系
+ * 只返回ENABLED状态且非Manager的账号
  */
 export function getIdleAdsAccounts(userId: number): any[] {
   const db = getDatabase()
@@ -426,6 +446,8 @@ export function getIdleAdsAccounts(userId: number): any[] {
     WHERE user_id = ?
       AND is_idle = 1
       AND is_active = 1
+      AND status = 'ENABLED'
+      AND is_manager_account = 0
     ORDER BY updated_at DESC
   `).all(userId)
 }

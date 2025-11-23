@@ -8,7 +8,9 @@ import {
   createGoogleAdsResponsiveSearchAd,
   updateGoogleAdsCampaignStatus
 } from '@/lib/google-ads-api'
+import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
+import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 
 /**
  * POST /api/campaigns/publish
@@ -149,9 +151,9 @@ export async function POST(request: NextRequest) {
       creatives = [creative]
     }
 
-    // 6. 获取Google Ads账号凭证
+    // 6. 获取Google Ads账号信息（customer_id）
     const adsAccount = db.prepare(`
-      SELECT id, customer_id, refresh_token, is_active
+      SELECT id, customer_id, is_active
       FROM google_ads_accounts
       WHERE id = ? AND user_id = ? AND is_active = 1
     `).get(google_ads_account_id, userId) as any
@@ -160,6 +162,16 @@ export async function POST(request: NextRequest) {
       const error = createError.gadsAccountNotActive({
         accountId: google_ads_account_id,
         userId
+      })
+      return NextResponse.json(error.toJSON(), { status: error.httpStatus })
+    }
+
+    // 6.1 获取全局OAuth凭证（refresh_token存储在google_ads_credentials表）
+    const credentials = getGoogleAdsCredentials(userId)
+    if (!credentials || !credentials.refresh_token) {
+      const error = new AppError(ErrorCode.GADS_CREDENTIALS_INVALID, {
+        userId,
+        reason: 'OAuth refresh token missing in google_ads_credentials table'
       })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
@@ -176,7 +188,7 @@ export async function POST(request: NextRequest) {
         try {
           await updateGoogleAdsCampaignStatus({
             customerId: adsAccount.customer_id,
-            refreshToken: adsAccount.refresh_token,
+            refreshToken: credentials.refresh_token,
             campaignId: oldCampaign.google_campaign_id,
             status: 'PAUSED',
             accountId: adsAccount.id,
@@ -291,25 +303,37 @@ export async function POST(request: NextRequest) {
 
     try {
       for (const { campaignId, creative, variantName, variantBudget } of createdCampaigns) {
+        // API追踪设置
+        const apiStartTime = Date.now()
+        let apiSuccess = false
+        let apiErrorMessage: string | undefined
+        let totalApiOperations = 0
+
         try {
           console.log(`🚀 发布Campaign ${campaignId} (Variant ${variantName || 'Single'})...`)
 
           // 创建Campaign到Google Ads
+          totalApiOperations++ // Campaign creation = 1 operation
           const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
             customerId: adsAccount.customer_id,
-            refreshToken: adsAccount.refresh_token,
+            refreshToken: credentials.refresh_token,
             campaignName: campaign_config.campaignName + (variantName ? ` - Variant ${variantName}` : ''),
             budgetAmount: variantBudget,
             budgetType: campaign_config.budgetType,
+            biddingStrategy: campaign_config.biddingStrategy,
+            targetCountry: campaign_config.targetCountry,
+            targetLanguage: campaign_config.targetLanguage,
+            finalUrlSuffix: creative.final_url_suffix,  // Final URL suffix从推广链接中提取
             status: 'ENABLED',
             accountId: adsAccount.id,
             userId
           })
 
           // 创建Ad Group到Google Ads
+          totalApiOperations++ // Ad group creation = 1 operation
           const { adGroupId: googleAdGroupId } = await createGoogleAdsAdGroup({
             customerId: adsAccount.customer_id,
-            refreshToken: adsAccount.refresh_token,
+            refreshToken: credentials.refresh_token,
             campaignId: googleCampaignId,
             adGroupName: campaign_config.adGroupName + (variantName ? ` ${variantName}` : ''),
             cpcBidMicros: campaign_config.maxCpcBid * 1000000,
@@ -329,9 +353,10 @@ export async function POST(request: NextRequest) {
           }))
 
           if (keywordOperations.length > 0) {
+            totalApiOperations += keywordOperations.length // Each keyword = 1 operation
             await createGoogleAdsKeywordsBatch({
               customerId: adsAccount.customer_id,
-              refreshToken: adsAccount.refresh_token,
+              refreshToken: credentials.refresh_token,
               adGroupId: googleAdGroupId,
               keywords: keywordOperations,
               accountId: adsAccount.id,
@@ -348,9 +373,10 @@ export async function POST(request: NextRequest) {
               isNegative: true
             }))
 
+            totalApiOperations += negativeKeywordOperations.length // Each negative keyword = 1 operation
             await createGoogleAdsKeywordsBatch({
               customerId: adsAccount.customer_id,
-              refreshToken: adsAccount.refresh_token,
+              refreshToken: credentials.refresh_token,
               adGroupId: googleAdGroupId,
               keywords: negativeKeywordOperations,
               accountId: adsAccount.id,
@@ -359,9 +385,10 @@ export async function POST(request: NextRequest) {
           }
 
           // 创建Responsive Search Ad
+          totalApiOperations++ // Ad creation = 1 operation
           const { adId: googleAdId } = await createGoogleAdsResponsiveSearchAd({
             customerId: adsAccount.customer_id,
-            refreshToken: adsAccount.refresh_token,
+            refreshToken: credentials.refresh_token,
             adGroupId: googleAdGroupId,
             headlines: headlines.slice(0, 15),
             descriptions: descriptions.slice(0, 4),
@@ -394,9 +421,12 @@ export async function POST(request: NextRequest) {
             creation_status: 'synced'
           })
 
-          console.log(`✅ Campaign ${campaignId} 发布成功`)
+          apiSuccess = true
+          console.log(`✅ Campaign ${campaignId} 发布成功 (${totalApiOperations} API operations)`)
 
         } catch (variantError: any) {
+          apiSuccess = false
+          apiErrorMessage = variantError.message
           console.error(`❌ Campaign ${campaignId} 发布失败:`, variantError.message)
 
           db.prepare(`
@@ -413,6 +443,20 @@ export async function POST(request: NextRequest) {
             variant_name: variantName,
             error: variantError.message
           })
+        } finally {
+          // 记录API使用（仅在有userId时追踪）
+          if (userId) {
+            trackApiUsage({
+              userId: parseInt(userId, 10),
+              operationType: ApiOperationType.MUTATE_BATCH,
+              endpoint: 'publishCampaign',
+              customerId: adsAccount.customer_id,
+              requestCount: totalApiOperations,
+              responseTimeMs: Date.now() - apiStartTime,
+              isSuccess: apiSuccess,
+              errorMessage: apiErrorMessage
+            })
+          }
         }
       }
 

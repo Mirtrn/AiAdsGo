@@ -9,7 +9,7 @@
  * 4. 广告文案建议生成
  */
 
-import { getGeminiModel } from './settings'
+import { generateContent } from './gemini'
 
 // ===========================
 // 数据结构定义
@@ -322,17 +322,7 @@ export async function analyzeImagesWithGeminiVision(
     // 选择最有代表性的图片进行分析（最多5张）
     const selectedImages = selectRepresentativeImages(images, 5)
 
-    console.log(`🔍 使用Gemini Vision分析${selectedImages.length}张图片...`)
-
-    const genAI = await getGeminiModel(userId)
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-exp',  // Gemini 2.5 Pro with Vision
-      generationConfig: {
-        temperature: 0.7,               // 平衡创造性和准确性
-        maxOutputTokens: 4096,
-        responseMimeType: 'application/json'
-      }
-    })
+    console.log(`🔍 使用统一AI入口分析${selectedImages.length}张图片（优先Vertex AI）...`)
 
     // 构建Prompt
     const prompt = `你是一个专业的产品摄影和视觉营销分析师。请分析以下产品图片。
@@ -390,11 +380,16 @@ export async function analyzeImagesWithGeminiVision(
 ${selectedImages.map((img, i) => `${i + 1}. [图片类型: ${img.type}] ${img.url}`).join('\n')}
 `
 
-    // 调用Gemini Vision API
-    // 注意：Gemini Vision需要特殊的图片输入格式
-    // 这里简化处理，实际应该使用图片URL或base64编码
-    const result = await model.generateContent(prompt)
-    const responseText = result.response.text()
+    // 使用统一AI入口（优先Vertex AI，自动降级到Gemini API）
+    if (!userId) {
+      throw new Error('视觉分析需要用户ID，请确保已登录')
+    }
+    const responseText = await generateContent({
+      model: 'gemini-2.5-pro',  // 使用统一配置的模型
+      prompt,
+      temperature: 0.7,
+      maxOutputTokens: 4096,
+    }, userId)
 
     // 解析JSON响应
     let analysisJson = responseText

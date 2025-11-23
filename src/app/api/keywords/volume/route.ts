@@ -7,6 +7,12 @@ import { getKeywordSearchVolumes } from '@/lib/keyword-planner'
 
 export async function GET(request: NextRequest) {
   try {
+    // 从中间件注入的请求头中获取用户ID
+    const userId = request.headers.get('x-user-id')
+    if (!userId) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
     const searchParams = request.nextUrl.searchParams
     const keywordsParam = searchParams.get('keywords')
     const country = searchParams.get('country') || 'US'
@@ -25,7 +31,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Maximum 100 keywords per request' }, { status: 400 })
     }
 
-    const volumes = await getKeywordSearchVolumes(keywords, country, language)
+    const volumes = await getKeywordSearchVolumes(keywords, country, language, parseInt(userId, 10))
 
     return NextResponse.json({
       success: true,

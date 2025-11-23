@@ -183,9 +183,9 @@ export default function LaunchAdPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50/50 flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-4">
@@ -193,14 +193,18 @@ export default function LaunchAdPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => router.push('/offers')}
+                className="-ml-2 text-gray-600 hover:text-gray-900"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 返回Offers
               </Button>
+              <div className="h-6 w-px bg-gray-200 mx-2" />
               <div>
-                <h1 className="text-xl font-bold text-gray-900">一键上广告</h1>
-                <p className="text-sm text-gray-500">
-                  {offer.offerName || offer.brand} · {offer.targetCountry}
+                <h1 className="text-lg font-bold text-gray-900">一键上广告</h1>
+                <p className="text-xs text-gray-500 flex items-center gap-1">
+                  {offer.offerName || offer.brand}
+                  <span className="w-1 h-1 rounded-full bg-gray-300" />
+                  {offer.targetCountry}
                 </p>
               </div>
             </div>
@@ -208,16 +212,16 @@ export default function LaunchAdPage() {
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      <main className="flex-1 max-w-7xl mx-auto w-full py-8 px-4 sm:px-6 lg:px-8 pb-24">
         {/* Stepper */}
-        <Card className="mb-8">
-          <CardContent className="pt-8 pb-6">
+        <div className="mb-6">
+          <div className="py-4">
             <Stepper steps={STEPS} currentStep={currentStep} />
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Step Content */}
-        <div className="mb-6">
+        <div className="mb-6 min-h-[400px]">
           {currentStep === 1 && (
             <Step1CreativeGeneration
               offer={offer}
@@ -253,33 +257,38 @@ export default function LaunchAdPage() {
             />
           )}
         </div>
-
-        {/* Navigation Buttons */}
-        {currentStep < 4 && (
-          <Card>
-            <CardContent className="py-4">
-              <div className="flex justify-between items-center">
-                <Button
-                  variant="outline"
-                  onClick={handleBack}
-                  disabled={currentStep === 1}
-                >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  上一步
-                </Button>
-
-                <Button
-                  onClick={handleNext}
-                  disabled={!canProceed}
-                >
-                  下一步
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </main>
+
+      {/* Sticky Navigation Footer */}
+      {currentStep < 4 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-200 z-20 py-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <Button
+              variant="outline"
+              onClick={handleBack}
+              disabled={currentStep === 1}
+              className="min-w-[100px]"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              上一步
+            </Button>
+
+            <div className="flex items-center gap-4">
+              <div className="text-sm text-gray-500">
+                步骤 {currentStep} / {STEPS.length}
+              </div>
+              <Button
+                onClick={handleNext}
+                disabled={!canProceed}
+                className="min-w-[120px] shadow-md shadow-blue-500/20"
+              >
+                下一步
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

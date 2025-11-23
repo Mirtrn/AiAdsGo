@@ -45,10 +45,10 @@ export async function POST(request: NextRequest) {
 
     // 加载代理到代理池
     const proxyPool = getProxyPool()
-    const proxiesWithDefault = proxySettings.map((p, i) => ({
+    const proxiesWithDefault = proxySettings.map((p) => ({
       url: p.url,
       country: p.country,
-      is_default: i === 0
+      is_default: false // 不设置emergency proxy，所有proxy平等参与国家匹配
     }))
     await proxyPool.loadProxies(proxiesWithDefault)
 
@@ -99,6 +99,15 @@ export async function POST(request: NextRequest) {
                                      resolvedData.finalUrl.includes('amazon.com')
 
     const isAmazonStore = isAmazonStoreByUrl || isAmazonStoreByFinalUrl
+
+    // 🔍 调试日志
+    console.log('🔍 Amazon Store检测:')
+    console.log('  - finalUrl:', resolvedData.finalUrl)
+    console.log('  - 包含/stores/:', resolvedData.finalUrl.includes('/stores/'))
+    console.log('  - 包含amazon.com:', resolvedData.finalUrl.includes('amazon.com'))
+    console.log('  - isAmazonStoreByUrl:', isAmazonStoreByUrl)
+    console.log('  - isAmazonStoreByFinalUrl:', isAmazonStoreByFinalUrl)
+    console.log('  - 最终isAmazonStore:', isAmazonStore)
 
     // ========== 步骤3: 抓取网页数据识别品牌 ==========
     let brandName = null

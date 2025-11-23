@@ -65,13 +65,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       )
     }
 
-    // 生成关键词
-    const generationResult = await generateKeywords(offer)
+    // 生成关键词（使用用户级AI配置）
+    const userIdNum = parseInt(userId, 10)
+    const generationResult = await generateKeywords(offer, userIdNum)
 
     // 生成否定关键词（如果需要）
     let negativeKeywords: string[] = []
     if (includeNegativeKeywords) {
-      negativeKeywords = await generateNegativeKeywords(offer)
+      negativeKeywords = await generateNegativeKeywords(offer, userIdNum)
     }
 
     // 将生成的关键词保存到数据库

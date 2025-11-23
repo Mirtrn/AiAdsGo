@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { InsightsCard } from '@/components/dashboard/InsightsCard'
 import { ABTestProgressCard } from '@/components/dashboard/ABTestProgressCard'
+import { ApiQuotaChart } from '@/components/dashboard/ApiQuotaChart'
 
 interface KPIData {
   current: {
@@ -287,75 +288,81 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* 快速操作 - 只保留2个核心操作 */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">快速开始</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Button
-                variant="outline"
-                className="h-auto py-4 justify-start gap-4 hover:border-blue-300 hover:bg-blue-50"
-                onClick={() => router.push('/offers?action=create')}
-              >
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Plus className="w-5 h-5 text-blue-600" />
-                </div>
-                <div className="text-left">
-                  <div className="font-semibold">创建Offer</div>
-                  <div className="text-xs text-gray-500">添加新的推广产品</div>
-                </div>
-              </Button>
+        {/* API配额 和 快速开始 - 同一行 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* API配额卡片 */}
+          <ApiQuotaChart days={days} />
 
-              <Button
-                variant="outline"
-                className="h-auto py-4 justify-start gap-4 hover:border-green-300 hover:bg-green-50"
-                onClick={() => router.push('/offers')}
-              >
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Rocket className="w-5 h-5 text-green-600" />
-                </div>
-                <div className="text-left">
-                  <div className="font-semibold">一键上广告</div>
-                  <div className="text-xs text-gray-500">
-                    {offerSummary && offerSummary.total > 0
-                      ? `${offerSummary.total} 个Offer可投放`
-                      : '先创建Offer'}
+          {/* 快速开始 - 占2列 */}
+          <Card className="md:col-span-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">快速开始</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Button
+                  variant="outline"
+                  className="h-auto py-4 justify-start gap-4 hover:border-blue-300 hover:bg-blue-50"
+                  onClick={() => router.push('/offers?action=create')}
+                >
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Plus className="w-5 h-5 text-blue-600" />
                   </div>
-                </div>
-              </Button>
-            </div>
+                  <div className="text-left">
+                    <div className="font-semibold">创建Offer</div>
+                    <div className="text-xs text-gray-500">添加新的推广产品</div>
+                  </div>
+                </Button>
 
-            {/* 其他入口 - 文字链接形式 */}
-            <div className="flex items-center gap-4 mt-4 pt-4 border-t">
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-gray-500 hover:text-gray-900"
-                onClick={() => router.push('/campaigns')}
-              >
-                广告系列
-              </Button>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-gray-500 hover:text-gray-900"
-                onClick={() => router.push('/google-ads')}
-              >
-                Google Ads账号
-              </Button>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-gray-500 hover:text-gray-900"
-                onClick={() => router.push('/settings')}
-              >
-                系统设置
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                <Button
+                  variant="outline"
+                  className="h-auto py-4 justify-start gap-4 hover:border-green-300 hover:bg-green-50"
+                  onClick={() => router.push('/offers')}
+                >
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <Rocket className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-semibold">一键上广告</div>
+                    <div className="text-xs text-gray-500">
+                      {offerSummary && offerSummary.total > 0
+                        ? `${offerSummary.total} 个Offer可投放`
+                        : '先创建Offer'}
+                    </div>
+                  </div>
+                </Button>
+              </div>
+
+              {/* 其他入口 - 文字链接形式 */}
+              <div className="flex items-center gap-4 mt-4 pt-4 border-t">
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-gray-500 hover:text-gray-900"
+                  onClick={() => router.push('/campaigns')}
+                >
+                  广告系列
+                </Button>
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-gray-500 hover:text-gray-900"
+                  onClick={() => router.push('/google-ads')}
+                >
+                  Google Ads账号
+                </Button>
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-gray-500 hover:text-gray-900"
+                  onClick={() => router.push('/settings')}
+                >
+                  系统设置
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Insights 和 AB测试进度 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">

@@ -24,7 +24,28 @@ export interface StepperProps {
 export function Stepper({ steps, currentStep, className }: StepperProps) {
   return (
     <nav aria-label="Progress" className={cn('w-full', className)}>
-      <ol role="list" className="flex items-center justify-between">
+      <ol role="list" className="flex items-center w-full relative justify-between pb-12 px-8">
+        {/* Background Line */}
+        <div className="absolute top-5 left-8 right-8 border-t-2 border-dashed border-gray-200 -z-10" />
+
+        {/* Active Progress Line */}
+        <div
+          className="absolute top-5 left-8 h-[2px] bg-blue-600 transition-all duration-500 ease-in-out -z-10"
+          style={{
+            width: `calc(${((currentStep - 1) / (steps.length - 1)) * 100}% - ${((currentStep - 1) / (steps.length - 1)) * 4}rem)`
+            // Calculation: Percentage of total width minus percentage of total padding (4rem = 64px approx for left+right padding compensation?)
+            // Actually, simpler: width is percentage of the *content box*.
+            // If line is inside ol (which has padding), and we want it to span between steps.
+            // The steps are justified between.
+            // The distance is 100% of content box.
+            // So width should be percentage of (100% - padding).
+            // But 'width: X%' on absolute child refers to padding box of parent.
+            // So 100% is full width including padding.
+            // We want width to be percentage of (100% - 4rem).
+            // So `calc((100% - 4rem) * percentage)`.
+          }}
+        />
+
         {steps.map((step, stepIdx) => {
           const isCompleted = currentStep > step.id
           const isCurrent = currentStep === step.id
@@ -34,57 +55,47 @@ export function Stepper({ steps, currentStep, className }: StepperProps) {
             <li
               key={step.id}
               className={cn(
-                'relative flex items-center',
-                stepIdx !== steps.length - 1 ? 'flex-1' : ''
+                'relative flex flex-col items-center group',
+                // Adjust width distribution if needed, but justify-between handles spacing
               )}
             >
               {/* Step Circle */}
-              <div className="flex flex-col items-center">
-                <div
-                  className={cn(
-                    'relative flex h-10 w-10 items-center justify-center rounded-full border-2 transition-colors duration-200',
-                    isCompleted && 'border-primary bg-primary text-primary-foreground',
-                    isCurrent && 'border-primary bg-background text-primary',
-                    isUpcoming && 'border-muted-foreground bg-background text-muted-foreground'
-                  )}
-                >
-                  {isCompleted ? (
-                    <Check className="h-5 w-5" />
-                  ) : (
-                    <span className="text-sm font-semibold">{step.id}</span>
-                  )}
-                </div>
-
-                {/* Step Label */}
-                <div className="mt-2 text-center">
-                  <p
-                    className={cn(
-                      'text-sm font-medium transition-colors duration-200',
-                      isCurrent && 'text-primary',
-                      isCompleted && 'text-primary',
-                      isUpcoming && 'text-muted-foreground'
-                    )}
-                  >
-                    {step.label}
-                  </p>
-                  {step.description && (
-                    <p className="mt-0.5 text-xs text-muted-foreground max-w-[120px]">
-                      {step.description}
-                    </p>
-                  )}
-                </div>
+              <div
+                className={cn(
+                  'relative flex h-10 w-10 items-center justify-center rounded-full border-2 transition-all duration-300 z-10 bg-white',
+                  isCompleted && 'border-blue-600 bg-blue-600 text-white scale-105 shadow-md shadow-blue-200',
+                  isCurrent && 'border-blue-600 text-blue-600 ring-4 ring-blue-50 scale-110 shadow-lg',
+                  isUpcoming && 'border-gray-200 text-gray-400 bg-white'
+                )}
+              >
+                {isCompleted ? (
+                  <Check className="h-5 w-5 animate-in zoom-in duration-300" />
+                ) : (
+                  <span className={cn("text-sm font-bold", isCurrent && "animate-pulse")}>{step.id}</span>
+                )}
               </div>
 
-              {/* Connector Line */}
-              {stepIdx !== steps.length - 1 && (
-                <div
+              {/* Step Label */}
+              <div className="mt-3 text-center absolute top-10 w-40 left-1/2 -translate-x-1/2">
+                <p
                   className={cn(
-                    'absolute top-5 left-[50%] h-0.5 w-full -translate-x-[50%] transition-colors duration-200',
-                    currentStep > step.id ? 'bg-primary' : 'bg-muted'
+                    'text-sm font-medium transition-colors duration-300 mb-0.5',
+                    isCurrent && 'text-blue-700 font-bold',
+                    isCompleted && 'text-blue-600',
+                    isUpcoming && 'text-gray-400'
                   )}
-                  aria-hidden="true"
-                />
-              )}
+                >
+                  {step.label}
+                </p>
+                {step.description && (
+                  <p className={cn(
+                    "text-xs transition-colors duration-300 hidden md:block",
+                    isCurrent ? "text-blue-400" : "text-gray-400"
+                  )}>
+                    {step.description}
+                  </p>
+                )}
+              </div>
             </li>
           )
         })}

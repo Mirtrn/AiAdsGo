@@ -3,6 +3,8 @@ import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
 import { ArrowRight, CheckCircle2, Zap, TrendingUp, Shield, BarChart3, Users, Star } from "lucide-react";
 
+import { HolidayCountdown } from "@/components/marketing/HolidayCountdown";
+
 export const metadata = pageMetadata.home;
 
 export default function MarketingHome() {
@@ -47,7 +49,10 @@ export default function MarketingHome() {
       </header>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden pt-32 pb-20 lg:pt-40 lg:pb-32">
+      <section className="relative overflow-hidden pt-16 lg:pt-16">
+        {/* Countdown Banner - Full Width */}
+        <HolidayCountdown />
+
         {/* Background Gradients */}
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100/50 via-white to-white" />
@@ -55,7 +60,8 @@ export default function MarketingHome() {
           <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-purple-400/10 blur-[100px]" />
         </div>
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center pt-6 pb-20 lg:pb-32">
+
           {/* Badge */}
           <div className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50/50 backdrop-blur-sm px-3 py-1 text-sm font-medium text-blue-700 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <span className="flex h-2 w-2 rounded-full bg-blue-600 mr-2 animate-pulse"></span>

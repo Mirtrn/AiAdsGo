@@ -96,13 +96,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 调用AI生成分析
+    // 调用AI生成分析（使用用户级AI配置）
     const analysis = await generateContent({
       model: 'gemini-2.5-pro',
       prompt: conversationContext,
       temperature: 0.8,
       maxOutputTokens: 2048,
-    })
+    }, parseInt(userId, 10))
 
     return NextResponse.json({
       success: true,

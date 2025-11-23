@@ -50,6 +50,8 @@ export default function GoogleAdsPage() {
   const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set())
   const [isCached, setIsCached] = useState(false)
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
   useEffect(() => {
     if (!searchParams) return
@@ -164,16 +166,81 @@ export default function GoogleAdsPage() {
     setExpandedOffers(newExpanded)
   }
 
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // 同一列，切换排序方向
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      // 新列，默认升序
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+    setCurrentPage(1) // 重置到第一页
+  }
+
+  // 排序逻辑
+  const sortedAccounts = [...accounts].sort((a, b) => {
+    if (!sortColumn) return 0
+
+    let aValue: any
+    let bValue: any
+
+    switch (sortColumn) {
+      case 'name':
+        aValue = a.descriptive_name.toLowerCase()
+        bValue = b.descriptive_name.toLowerCase()
+        break
+      case 'customer_id':
+        aValue = a.customer_id
+        bValue = b.customer_id
+        break
+      case 'mcc':
+        aValue = a.parent_mcc_name?.toLowerCase() || ''
+        bValue = b.parent_mcc_name?.toLowerCase() || ''
+        break
+      case 'type':
+        aValue = a.manager ? 'mcc' : a.test_account ? 'test' : 'normal'
+        bValue = b.manager ? 'mcc' : b.test_account ? 'test' : 'normal'
+        break
+      case 'status':
+        aValue = a.status.toLowerCase()
+        bValue = b.status.toLowerCase()
+        break
+      case 'offers':
+        aValue = a.linked_offers?.length || 0
+        bValue = b.linked_offers?.length || 0
+        break
+      default:
+        return 0
+    }
+
+    if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
+    if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
+    return 0
+  })
+
   // 分页计算
-  const totalPages = Math.ceil(accounts.length / PAGE_SIZE)
+  const totalPages = Math.ceil(sortedAccounts.length / PAGE_SIZE)
   const startIndex = (currentPage - 1) * PAGE_SIZE
   const endIndex = startIndex + PAGE_SIZE
-  const paginatedAccounts = accounts.slice(startIndex, endIndex)
+  const paginatedAccounts = sortedAccounts.slice(startIndex, endIndex)
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) {
       setCurrentPage(page)
     }
+  }
+
+  // 排序指示器
+  const SortIndicator = ({ column }: { column: string }) => {
+    if (sortColumn !== column) {
+      return <span className="ml-1 text-gray-400">⇅</span>
+    }
+    return sortDirection === 'asc' ? (
+      <span className="ml-1 text-indigo-600">↑</span>
+    ) : (
+      <span className="ml-1 text-indigo-600">↓</span>
+    )
   }
 
   if (loading) {
@@ -247,13 +314,13 @@ export default function GoogleAdsPage() {
                 <div>
                   <h2 className="text-xl font-semibold text-gray-900">可访问的账户</h2>
                   {lastSyncAt && (
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-sm text-gray-500 mt-1">
                       {isCached ? '缓存数据' : '已刷新'} · 同步时间: {new Date(lastSyncAt).toLocaleString('zh-CN')}
                     </p>
                   )}
                 </div>
                 {accounts.length > 0 && (
-                  <span className="text-sm text-gray-500">
+                  <span className="text-base text-gray-600 font-medium">
                     共 {accounts.length} 个账户
                   </span>
                 )}
@@ -289,23 +356,59 @@ export default function GoogleAdsPage() {
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            账户名称
+                          <th
+                            className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => handleSort('name')}
+                          >
+                            <div className="flex items-center">
+                              账户名称
+                              <SortIndicator column="name" />
+                            </div>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Customer ID
+                          <th
+                            className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => handleSort('customer_id')}
+                          >
+                            <div className="flex items-center">
+                              Customer ID
+                              <SortIndicator column="customer_id" />
+                            </div>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            所属 MCC
+                          <th
+                            className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => handleSort('mcc')}
+                          >
+                            <div className="flex items-center">
+                              所属 MCC
+                              <SortIndicator column="mcc" />
+                            </div>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            类型
+                          <th
+                            className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => handleSort('type')}
+                          >
+                            <div className="flex items-center">
+                              类型
+                              <SortIndicator column="type" />
+                            </div>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            状态
+                          <th
+                            className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => handleSort('status')}
+                          >
+                            <div className="flex items-center">
+                              状态
+                              <SortIndicator column="status" />
+                            </div>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            关联 Offer
+                          <th
+                            className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => handleSort('offers')}
+                          >
+                            <div className="flex items-center">
+                              关联 Offer
+                              <SortIndicator column="offers" />
+                            </div>
                           </th>
                         </tr>
                       </thead>
@@ -315,17 +418,17 @@ export default function GoogleAdsPage() {
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex items-center">
                                 <div>
-                                  <div className="text-sm font-medium text-gray-900">
+                                  <div className="text-base font-medium text-gray-900">
                                     {account.descriptive_name}
                                   </div>
-                                  <div className="text-xs text-gray-500">
+                                  <div className="text-sm text-gray-500">
                                     {account.currency_code} · {account.time_zone}
                                   </div>
                                 </div>
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="text-sm font-mono text-gray-600">
+                              <span className="text-sm font-mono text-gray-700">
                                 {account.customer_id}
                               </span>
                             </td>
@@ -335,7 +438,7 @@ export default function GoogleAdsPage() {
                                   <div className="text-sm text-gray-900">
                                     {account.parent_mcc_name || '未知 MCC'}
                                   </div>
-                                  <div className="text-xs text-gray-500 font-mono">
+                                  <div className="text-sm text-gray-500 font-mono">
                                     {account.parent_mcc}
                                   </div>
                                 </div>
@@ -346,30 +449,53 @@ export default function GoogleAdsPage() {
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex flex-wrap gap-1">
                                 {account.manager && (
-                                  <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                  <span className="px-2 py-1 text-sm font-semibold rounded-full bg-blue-100 text-blue-800">
                                     MCC
                                   </span>
                                 )}
                                 {account.test_account && (
-                                  <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                  <span className="px-2 py-1 text-sm font-semibold rounded-full bg-yellow-100 text-yellow-800">
                                     测试
                                   </span>
                                 )}
                                 {!account.manager && !account.test_account && (
-                                  <span className="text-sm text-gray-500">普通账户</span>
+                                  <span className="text-sm text-gray-600">普通账户</span>
                                 )}
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <span
-                                className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                                  account.status === 'ENABLED'
-                                    ? 'bg-green-100 text-green-800'
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}
-                              >
-                                {account.status === 'ENABLED' ? '启用' : account.status}
-                              </span>
+                              {(() => {
+                                const getStatusConfig = (status: string) => {
+                                  switch (status) {
+                                    case 'ENABLED':
+                                      return { label: '启用', color: 'bg-green-100 text-green-800' }
+                                    case 'DISABLED':
+                                      return { label: '已禁用', color: 'bg-red-100 text-red-800' }
+                                    case 'REMOVED':
+                                      return { label: '已删除', color: 'bg-gray-100 text-gray-800' }
+                                    case 'UNKNOWN':
+                                      return { label: '未知', color: 'bg-gray-100 text-gray-600' }
+                                    case 'UNSPECIFIED':
+                                      return { label: '未指定', color: 'bg-gray-50 text-gray-500' }
+                                    // 兼容旧状态
+                                    case 'SUSPENDED':
+                                      return { label: '已暂停', color: 'bg-red-100 text-red-800' }
+                                    case 'CANCELLED':
+                                    case 'CANCELED':
+                                      return { label: '已取消', color: 'bg-orange-100 text-orange-800' }
+                                    case 'CLOSED':
+                                      return { label: '已关闭', color: 'bg-gray-100 text-gray-800' }
+                                    default:
+                                      return { label: status, color: 'bg-gray-100 text-gray-600' }
+                                  }
+                                }
+                                const config = getStatusConfig(account.status)
+                                return (
+                                  <span className={`px-2 py-1 text-sm font-semibold rounded-full ${config.color}`}>
+                                    {config.label}
+                                  </span>
+                                )
+                              })()}
                             </td>
                             <td className="px-6 py-4">
                               {account.linked_offers && account.linked_offers.length > 0 ? (
@@ -388,7 +514,7 @@ export default function GoogleAdsPage() {
                                       {account.linked_offers.map((offer) => (
                                         <div
                                           key={offer.id}
-                                          className="text-xs bg-gray-50 px-2 py-1 rounded"
+                                          className="text-sm bg-gray-50 px-2 py-1.5 rounded"
                                         >
                                           <a
                                             href={`/offers/${offer.id}`}
@@ -396,7 +522,7 @@ export default function GoogleAdsPage() {
                                           >
                                             {offer.offer_name || offer.brand}
                                           </a>
-                                          <span className="text-gray-500 ml-1">
+                                          <span className="text-gray-600 ml-1">
                                             · {offer.target_country} · {offer.campaign_count} 系列
                                           </span>
                                         </div>
@@ -417,8 +543,8 @@ export default function GoogleAdsPage() {
                   {/* 分页控件 */}
                   {totalPages > 1 && (
                     <div className="mt-4 flex items-center justify-between bg-white px-4 py-3 rounded-lg shadow">
-                      <div className="flex items-center text-sm text-gray-500">
-                        显示第 {startIndex + 1} - {Math.min(endIndex, accounts.length)} 条，共 {accounts.length} 条
+                      <div className="flex items-center text-sm text-gray-600">
+                        显示第 {startIndex + 1} - {Math.min(endIndex, sortedAccounts.length)} 条，共 {sortedAccounts.length} 条
                       </div>
                       <div className="flex items-center gap-2">
                         <button

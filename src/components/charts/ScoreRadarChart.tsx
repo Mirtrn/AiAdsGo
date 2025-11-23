@@ -9,54 +9,92 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 
 interface ScoreRadarChartProps {
   scoreBreakdown: {
-    relevance: number    // 相关性 /30
-    quality: number      // 质量 /25
-    engagement: number   // 吸引力 /25
-    diversity: number    // 多样性 /10
-    clarity: number      // 清晰度 /10
+    relevance: number        // 相关性
+    quality: number          // 质量
+    engagement: number       // 吸引力/完整性
+    diversity: number        // 多样性
+    clarity: number          // 清晰度/合规性
+    brandSearchVolume?: number  // 品牌搜索量（可选，支持旧数据兼容）
   }
   size?: 'sm' | 'md' | 'lg'
+  // 新增：支持自定义最大值（用于适配Ad Strength评分体系）
+  maxScores?: {
+    relevance: number
+    quality: number
+    engagement: number
+    diversity: number
+    clarity: number
+    brandSearchVolume?: number  // 品牌搜索量（可选）
+  }
 }
 
-export default function ScoreRadarChart({ scoreBreakdown, size = 'md' }: ScoreRadarChartProps) {
-  // 转换为百分比以便在雷达图上显示
+export default function ScoreRadarChart({ scoreBreakdown, size = 'md', maxScores }: ScoreRadarChartProps) {
+  // 默认最大值（旧系统）
+  const defaultMaxScores = {
+    relevance: 30,
+    quality: 25,
+    engagement: 25,
+    diversity: 10,
+    clarity: 10,
+    brandSearchVolume: 20  // 新Ad Strength系统默认
+  }
+
+  // 使用自定义最大值或默认最大值
+  const maxValues = maxScores || defaultMaxScores
+
+  // 检测是否有品牌搜索量数据
+  const hasBrandVolume = scoreBreakdown.brandSearchVolume !== undefined
+
+  // 转换为百分比以便在雷达图上显示（防御性处理：clamp到100%）
   const data = [
     {
       dimension: '相关性',
-      score: (scoreBreakdown.relevance / 30) * 100,
+      score: Math.min(100, (scoreBreakdown.relevance / maxValues.relevance) * 100),
       fullMark: 100,
-      actual: scoreBreakdown.relevance,
-      max: 30
+      actual: Math.min(maxValues.relevance, scoreBreakdown.relevance), // clamp到最大值
+      max: maxValues.relevance
     },
     {
       dimension: '质量',
-      score: (scoreBreakdown.quality / 25) * 100,
+      score: Math.min(100, (scoreBreakdown.quality / maxValues.quality) * 100),
       fullMark: 100,
-      actual: scoreBreakdown.quality,
-      max: 25
+      actual: Math.min(maxValues.quality, scoreBreakdown.quality),
+      max: maxValues.quality
     },
     {
       dimension: '吸引力',
-      score: (scoreBreakdown.engagement / 25) * 100,
+      score: Math.min(100, (scoreBreakdown.engagement / maxValues.engagement) * 100),
       fullMark: 100,
-      actual: scoreBreakdown.engagement,
-      max: 25
+      actual: Math.min(maxValues.engagement, scoreBreakdown.engagement),
+      max: maxValues.engagement
     },
     {
       dimension: '多样性',
-      score: (scoreBreakdown.diversity / 10) * 100,
+      score: Math.min(100, (scoreBreakdown.diversity / maxValues.diversity) * 100),
       fullMark: 100,
-      actual: scoreBreakdown.diversity,
-      max: 10
+      actual: Math.min(maxValues.diversity, scoreBreakdown.diversity),
+      max: maxValues.diversity
     },
     {
       dimension: '清晰度',
-      score: (scoreBreakdown.clarity / 10) * 100,
+      score: Math.min(100, (scoreBreakdown.clarity / maxValues.clarity) * 100),
       fullMark: 100,
-      actual: scoreBreakdown.clarity,
-      max: 10
+      actual: Math.min(maxValues.clarity, scoreBreakdown.clarity),
+      max: maxValues.clarity
     }
   ]
+
+  // 如果有品牌搜索量数据，添加第6个维度
+  if (hasBrandVolume && scoreBreakdown.brandSearchVolume !== undefined) {
+    const brandMax = maxValues.brandSearchVolume || 20
+    data.push({
+      dimension: '品牌影响力',
+      score: Math.min(100, (scoreBreakdown.brandSearchVolume / brandMax) * 100),
+      fullMark: 100,
+      actual: Math.min(brandMax, scoreBreakdown.brandSearchVolume),
+      max: brandMax
+    })
+  }
 
   const sizeMap = {
     sm: 180,
@@ -73,7 +111,7 @@ export default function ScoreRadarChart({ scoreBreakdown, size = 'md' }: ScoreRa
         <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
           <p className="font-semibold text-gray-900 mb-1">{data.dimension}</p>
           <p className="text-sm text-gray-600">
-            得分: <span className="font-semibold text-blue-600">{data.actual}/{data.max}</span>
+            得分: <span className="font-semibold text-blue-600">{data.actual.toFixed(1)}/{data.max}</span>
           </p>
           <p className="text-xs text-gray-500">
             完成度: {data.score.toFixed(1)}%

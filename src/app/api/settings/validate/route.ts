@@ -117,9 +117,15 @@ export async function POST(request: NextRequest) {
             )
           }
         } else if (config.gemini_api_key) {
-          // 验证Gemini直接API配置
+          // 验证Gemini直接API配置（使用用户级AI配置）
+          if (!userIdNum) {
+            return NextResponse.json(
+              { error: '验证AI配置需要登录' },
+              { status: 401 }
+            )
+          }
           const selectedModel = config.gemini_model || 'gemini-2.5-pro'
-          result = await validateGeminiConfig(config.gemini_api_key, selectedModel)
+          result = await validateGeminiConfig(config.gemini_api_key, selectedModel, userIdNum)
 
           // 更新API密钥验证状态
           updateValidationStatus(

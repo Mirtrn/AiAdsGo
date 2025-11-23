@@ -9,35 +9,77 @@
 import { VertexAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai'
 import * as path from 'path'
 
-// 配置
-const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID || 'gen-lang-client-0944935873'
-const GCP_LOCATION = process.env.GCP_LOCATION || 'us-central1'
-const GCP_CREDENTIALS_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-  path.join(process.cwd(), 'docs/secrets/gcp_autoads_dev.json')
-
-// 单例 VertexAI 客户端
+// 单例 VertexAI 客户端和当前配置
 let vertexAI: VertexAI | null = null
+let currentConfig: {
+  projectId: string
+  location: string
+  credentialsPath: string
+} | null = null
 
 /**
- * 获取 VertexAI 客户端（单例模式）
+ * 重置 VertexAI 客户端（当配置变更时调用）
+ */
+export function resetVertexAIClient(): void {
+  vertexAI = null
+  currentConfig = null
+  console.log('🔄 Vertex AI 客户端已重置')
+}
+
+/**
+ * 获取 VertexAI 客户端（带配置变更检测）
+ * 每次调用都检查当前环境变量，如果配置变了就重新初始化
  */
 function getVertexAI(): VertexAI {
-  if (!vertexAI) {
-    // 设置环境变量以使用 Service Account
-    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = GCP_CREDENTIALS_PATH
+  // 获取当前环境变量配置（每次都读取最新值）
+  const projectId = process.env.GCP_PROJECT_ID
+  const location = process.env.GCP_LOCATION || 'us-central1'
+  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    path.join(process.cwd(), 'docs/secrets/gcp_autoads_dev.json')
+
+  // 检查是否需要重新初始化（配置变更或首次初始化）
+  const needsReinit = !vertexAI || !currentConfig ||
+    currentConfig.projectId !== projectId ||
+    currentConfig.location !== location ||
+    currentConfig.credentialsPath !== credentialsPath
+
+  if (needsReinit) {
+    if (!projectId) {
+      throw new Error('Vertex AI配置错误：缺少GCP_PROJECT_ID环境变量')
+    }
+
+    if (!credentialsPath) {
+      throw new Error('Vertex AI配置错误：缺少GOOGLE_APPLICATION_CREDENTIALS环境变量')
     }
 
     console.log(`🔧 初始化 Vertex AI 客户端...`)
-    console.log(`   Project: ${GCP_PROJECT_ID}`)
-    console.log(`   Location: ${GCP_LOCATION}`)
+    console.log(`   Project: ${projectId}`)
+    console.log(`   Location: ${location}`)
+    console.log(`   Credentials: ${credentialsPath}`)
 
+    // 直接传递凭证文件路径，而不是依赖环境变量
+    // 这样可以确保在运行时动态设置的凭证被正确使用
     vertexAI = new VertexAI({
-      project: GCP_PROJECT_ID,
-      location: GCP_LOCATION,
+      project: projectId,
+      location: location,
+      googleAuthOptions: {
+        keyFilename: credentialsPath,
+      },
     })
 
+    // 保存当前配置用于后续比较
+    currentConfig = {
+      projectId,
+      location,
+      credentialsPath,
+    }
+
     console.log('✓ Vertex AI 客户端初始化成功')
+  }
+
+  // TypeScript确保vertexAI在此处非null
+  if (!vertexAI) {
+    throw new Error('Vertex AI客户端初始化失败')
   }
 
   return vertexAI
@@ -143,12 +185,14 @@ export async function generateContent(params: {
         console.warn(`⚠️ Vertex AI 输出被截断: ${candidate.finishReason}`)
         if (candidate.finishReason === 'MAX_TOKENS') {
           console.warn(`   原因: 达到maxOutputTokens限制 (当前: ${maxOutputTokens})`)
+          console.warn(`   ⚠️  建议: 增加maxOutputTokens或精简prompt`)
         } else if (candidate.finishReason === 'SAFETY') {
           console.warn(`   原因: 安全过滤触发`)
           if (candidate.safetyRatings) {
             console.warn(`   安全评级:`, JSON.stringify(candidate.safetyRatings))
           }
         }
+        // 注意：即使被截断，仍然尝试返回部分内容（下游可以尝试解析）
       }
 
       if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
@@ -176,6 +220,14 @@ export async function generateContent(params: {
     } catch (error: any) {
       lastError = error
       console.warn(`⚠️ Vertex AI 调用失败 (尝试 ${attempt}/${maxRetries}): ${error.message}`)
+      console.error('完整错误信息:', JSON.stringify({
+        message: error.message,
+        code: error.code,
+        status: error.status,
+        statusCode: error.statusCode,
+        details: error.details,
+        stack: error.stack?.split('\n').slice(0, 3).join('\n')
+      }, null, 2))
 
       // 检查是否是可重试的错误
       const isRetryable =

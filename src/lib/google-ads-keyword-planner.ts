@@ -1,4 +1,5 @@
 import { getCustomer } from './google-ads-api'
+import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 
 /**
  * 关键词建议结果
@@ -50,6 +51,11 @@ export async function getKeywordIdeas(params: {
     params.userId
   )
 
+  // API追踪
+  const startTime = Date.now()
+  let success = false
+  let errorMessage: string | undefined
+
   try {
     // 构建Keyword Ideas请求
     const request: any = {
@@ -87,10 +93,27 @@ export async function getKeywordIdeas(params: {
       keyword_annotations: idea.keyword_annotations,
     }))
 
+    success = true
     return keywordIdeas
   } catch (error: any) {
+    success = false
+    errorMessage = error.message
     console.error('获取关键词建议失败:', error)
     throw new Error(`Keyword Planner API调用失败: ${error.message}`)
+  } finally {
+    // 记录API使用（仅在有userId时追踪）
+    if (params.userId) {
+      trackApiUsage({
+        userId: params.userId,
+        operationType: ApiOperationType.GET_KEYWORD_IDEAS,
+        endpoint: 'getKeywordIdeas',
+        customerId: params.customerId,
+        requestCount: 1,
+        responseTimeMs: Date.now() - startTime,
+        isSuccess: success,
+        errorMessage
+      })
+    }
   }
 }
 
@@ -113,6 +136,11 @@ export async function getKeywordMetrics(params: {
     params.accountId,
     params.userId
   )
+
+  // API追踪
+  const startTime = Date.now()
+  let success = false
+  let errorMessage: string | undefined
 
   try {
     // 构建历史指标请求
@@ -139,10 +167,27 @@ export async function getKeywordMetrics(params: {
       threeMonthChange: metric.keyword_metrics?.three_month_change,
     }))
 
+    success = true
     return keywordMetrics
   } catch (error: any) {
+    success = false
+    errorMessage = error.message
     console.error('获取关键词指标失败:', error)
     throw new Error(`Keyword Metrics API调用失败: ${error.message}`)
+  } finally {
+    // 记录API使用（仅在有userId时追踪）
+    if (params.userId) {
+      trackApiUsage({
+        userId: params.userId,
+        operationType: ApiOperationType.GET_KEYWORD_IDEAS,
+        endpoint: 'getKeywordMetrics',
+        customerId: params.customerId,
+        requestCount: 1,
+        responseTimeMs: Date.now() - startTime,
+        isSuccess: success,
+        errorMessage
+      })
+    }
   }
 }
 

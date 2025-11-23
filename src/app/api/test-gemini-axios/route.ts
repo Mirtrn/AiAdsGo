@@ -2,18 +2,26 @@
  * 测试 Gemini API axios 代理调用（带自动降级）
  * GET /api/test-gemini-axios
  * GET /api/test-gemini-axios?model=gemini-2.5-flash (测试指定模型)
+ *
+ * 注意：需要登录后才能使用，会使用当前用户的AI配置
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { generateContent } from '@/lib/gemini-axios'
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    // 获取当前登录用户ID（必需）
+    const userId = request.headers.get('x-user-id')
+    if (!userId) {
+      return NextResponse.json({ error: '请先登录后再测试' }, { status: 401 })
+    }
+
     // 从 URL 参数获取模型名称（可选）
     const { searchParams } = new URL(request.url)
     const model = searchParams.get('model') || 'gemini-2.5-pro' // 默认使用 Pro 模型
 
-    console.log(`🧪 开始测试 Gemini API (axios方案, 模型: ${model})...`)
+    console.log(`🧪 用户(ID=${userId})开始测试 Gemini API (axios方案, 模型: ${model})...`)
 
     const startTime = Date.now()
 
@@ -22,7 +30,7 @@ export async function GET(request: Request) {
       prompt: 'Hello, please respond with "Success"',
       temperature: 0.1,
       maxOutputTokens: 50,
-    })
+    }, parseInt(userId, 10))
 
     const duration = Date.now() - startTime
 

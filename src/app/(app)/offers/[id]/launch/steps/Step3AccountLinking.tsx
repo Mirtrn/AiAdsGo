@@ -20,18 +20,33 @@ interface Props {
 }
 
 interface GoogleAdsAccount {
-  id: number
   customer_id: string
-  account_name?: string
-  is_active: boolean
-  last_verified_at?: string
+  descriptive_name: string
+  currency_code: string
+  time_zone: string
+  manager: boolean
+  test_account: boolean
+  status: string
+  parent_mcc?: string
+  parent_mcc_name?: string
+  db_account_id: number | null
+  db_account_name: string | null
+  last_sync_at?: string
+  linked_offers?: Array<{
+    id: number
+    offer_name: string | null
+    brand: string
+    target_country: string
+    is_active: number
+    campaign_count: number
+  }>
 }
 
 export default function Step3AccountLinking({ offer, onAccountLinked, selectedAccount }: Props) {
   const [accounts, setAccounts] = useState<GoogleAdsAccount[]>([])
-  const [selectedId, setSelectedId] = useState<number | null>(selectedAccount?.id || null)
+  const [selectedId, setSelectedId] = useState<string | null>(selectedAccount?.customer_id || null)
   const [loading, setLoading] = useState(true)
-  const [verifying, setVerifying] = useState<number | null>(null)
+  const [verifying, setVerifying] = useState<string | null>(null)
   const [hasCredentials, setHasCredentials] = useState(false)
 
   useEffect(() => {
@@ -57,9 +72,9 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
   const fetchAccounts = async () => {
     try {
       setLoading(true)
-      // Note: This API endpoint needs to be implemented to list Google Ads accounts
-      // For now, we'll use a mock implementation based on credentials
-      const response = await fetch('/api/google-ads/credentials', {
+
+      // 调用真实 API 获取账号列表
+      const response = await fetch('/api/google-ads/credentials/accounts?refresh=false', {
         credentials: 'include'
       })
 
@@ -69,22 +84,32 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
 
       const data = await response.json()
 
-      // Mock account data - in real implementation, this should list all accessible customer accounts
-      if (data.has_credentials) {
-        setAccounts([
-          {
-            id: 1,
-            customer_id: data.login_customer_id || 'XXXXXXXXXX',
-            account_name: '主广告账号',
-            is_active: true,
-            last_verified_at: data.last_verified_at
-          }
-        ])
+      if (data.success && data.data?.accounts) {
+        const allAccounts = data.data.accounts as GoogleAdsAccount[]
+
+        // 筛选可用账号：
+        // 1. 状态必须是 ENABLED
+        // 2. 未被当前 Offer 关联
+        const availableAccounts = allAccounts.filter(account => {
+          // 条件1：状态必须是 ENABLED
+          if (account.status !== 'ENABLED') return false
+
+          // 条件2：未被当前 Offer 关联
+          const linkedOffers = account.linked_offers || []
+          const isLinkedToCurrentOffer = linkedOffers.some(
+            (linkedOffer: any) => linkedOffer.id === offer.id
+          )
+
+          return !isLinkedToCurrentOffer
+        })
+
+        setAccounts(availableAccounts)
       } else {
         setAccounts([])
       }
     } catch (error: any) {
-      showError('加载失败', error.message)
+      console.error('获取账号列表失败:', error)
+      showError('加载失败', error.message || '获取账号列表失败')
     } finally {
       setLoading(false)
     }
@@ -138,9 +163,9 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
     }
   }
 
-  const handleVerifyAccount = async (accountId: number) => {
+  const handleVerifyAccount = async (customerId: string) => {
     try {
-      setVerifying(accountId)
+      setVerifying(customerId)
 
       const response = await fetch('/api/google-ads/credentials/verify', {
         method: 'POST',
@@ -168,39 +193,9 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
   }
 
   const handleSelectAccount = (account: GoogleAdsAccount) => {
-    setSelectedId(account.id)
+    setSelectedId(account.customer_id)
     onAccountLinked(account)
-    showSuccess('已选择', `账号 ${account.customer_id} 已关联`)
-  }
-
-  const getAccountStatusBadge = (account: GoogleAdsAccount) => {
-    if (!account.last_verified_at) {
-      return (
-        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-          <AlertCircle className="w-3 h-3 mr-1" />
-          未验证
-        </Badge>
-      )
-    }
-
-    const lastVerified = new Date(account.last_verified_at)
-    const hoursSinceVerified = (Date.now() - lastVerified.getTime()) / (1000 * 60 * 60)
-
-    if (hoursSinceVerified > 24) {
-      return (
-        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-          <AlertCircle className="w-3 h-3 mr-1" />
-          需要重新验证
-        </Badge>
-      )
-    }
-
-    return (
-      <Badge variant="default" className="bg-green-600">
-        <CheckCircle2 className="w-3 h-3 mr-1" />
-        已验证
-      </Badge>
-    )
+    showSuccess('已选择', `账号 ${account.descriptive_name} (${account.customer_id}) 已关联`)
   }
 
   if (loading) {
@@ -262,11 +257,11 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {accounts.map((account) => {
-            const isSelected = selectedId === account.id
+            const isSelected = selectedId === account.customer_id
 
             return (
               <Card
-                key={account.id}
+                key={account.customer_id}
                 className={`relative cursor-pointer transition-all ${
                   isSelected ? 'ring-2 ring-primary shadow-lg' : 'hover:shadow-md'
                 }`}
@@ -276,7 +271,7 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <CardTitle className="text-lg flex items-center gap-2">
-                        {account.account_name || '广告账号'}
+                        {account.descriptive_name}
                         {isSelected && (
                           <Badge variant="default" className="bg-green-600">
                             <CheckCircle2 className="w-3 h-3 mr-1" />
@@ -292,19 +287,52 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                 </CardHeader>
 
                 <CardContent className="space-y-3">
-                  {/* Status */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">账号状态:</span>
-                    {getAccountStatusBadge(account)}
+                  {/* Account Info */}
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">货币:</span>
+                      <span className="text-gray-900 font-medium">{account.currency_code}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">时区:</span>
+                      <span className="text-gray-900">{account.time_zone}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">状态:</span>
+                      <Badge variant="default" className="bg-green-600">
+                        <CheckCircle2 className="w-3 h-3 mr-1" />
+                        启用
+                      </Badge>
+                    </div>
                   </div>
 
-                  {/* Last Verified */}
-                  {account.last_verified_at && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">最后验证:</span>
-                      <span className="text-gray-900">
-                        {new Date(account.last_verified_at).toLocaleString('zh-CN')}
-                      </span>
+                  {/* Account Type Badges */}
+                  {(account.manager || account.test_account) && (
+                    <div className="flex flex-wrap gap-1 pt-2">
+                      {account.manager && (
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                          MCC账号
+                        </Badge>
+                      )}
+                      {account.test_account && (
+                        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                          测试账号
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Parent MCC */}
+                  {account.parent_mcc && (
+                    <div className="text-xs text-gray-500 pt-2">
+                      所属 MCC: {account.parent_mcc_name || account.parent_mcc}
+                    </div>
+                  )}
+
+                  {/* Linked Offers Info */}
+                  {account.linked_offers && account.linked_offers.length > 0 && (
+                    <div className="text-xs text-gray-500 pt-2">
+                      已关联 {account.linked_offers.length} 个其他 Offer
                     </div>
                   )}
 
@@ -315,12 +343,12 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                       size="sm"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleVerifyAccount(account.id)
+                        handleVerifyAccount(account.customer_id)
                       }}
-                      disabled={verifying === account.id}
+                      disabled={verifying === account.customer_id}
                       className="flex-1"
                     >
-                      {verifying === account.id ? (
+                      {verifying === account.customer_id ? (
                         <>
                           <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                           验证中...

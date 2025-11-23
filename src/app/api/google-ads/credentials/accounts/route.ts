@@ -3,27 +3,58 @@ import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
+import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 
 // Google Ads CustomerStatus 枚举值映射
+// 参考: https://developers.google.com/google-ads/api/reference/rpc/latest/CustomerStatusEnum.CustomerStatus
 const CustomerStatusMap: Record<number | string, string> = {
   0: 'UNSPECIFIED',
   1: 'UNKNOWN',
   2: 'ENABLED',
-  3: 'CANCELED',
-  4: 'SUSPENDED',
-  5: 'CLOSED',
+  3: 'DISABLED',   // 账号已禁用
+  4: 'REMOVED',    // 账号已删除
   'UNSPECIFIED': 'UNSPECIFIED',
   'UNKNOWN': 'UNKNOWN',
   'ENABLED': 'ENABLED',
-  'CANCELED': 'CANCELED',
-  'SUSPENDED': 'SUSPENDED',
-  'CLOSED': 'CLOSED',
+  'DISABLED': 'DISABLED',
+  'REMOVED': 'REMOVED',
+  // 兼容旧的错误映射
+  'CANCELED': 'DISABLED',
+  'CANCELLED': 'DISABLED',
+  'SUSPENDED': 'DISABLED',
+  'CLOSED': 'REMOVED',
 }
 
 function parseStatus(status: any): string {
-  if (status === undefined || status === null) return 'UNKNOWN'
+  if (status === undefined || status === null) {
+    console.log('[DEBUG] parseStatus: status is undefined or null')
+    return 'UNKNOWN'
+  }
+
+  // 如果是对象，尝试获取枚举值
+  if (typeof status === 'object') {
+    console.log('[DEBUG] parseStatus: status is object:', JSON.stringify(status))
+    // Google Ads API 可能返回 { value: number, name: string } 格式
+    if ('value' in status) {
+      status = status.value
+    } else if ('name' in status) {
+      status = status.name
+    }
+  }
+
+  console.log('[DEBUG] parseStatus: processing status:', status, 'type:', typeof status)
+
+  // 尝试映射
   const mapped = CustomerStatusMap[status]
-  return mapped || String(status)
+  if (mapped) {
+    console.log('[DEBUG] parseStatus: mapped to:', mapped)
+    return mapped
+  }
+
+  // 如果是字符串且已经是有效状态，直接返回
+  const statusStr = String(status).toUpperCase()
+  console.log('[DEBUG] parseStatus: fallback to string:', statusStr)
+  return statusStr
 }
 
 interface CachedAccount {
@@ -145,6 +176,11 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
   for (const customerId of customerIds) {
     if (processedIds.has(customerId)) continue
 
+    // API追踪设置
+    const apiStartTime = Date.now()
+    let apiSuccess = false
+    let apiErrorMessage: string | undefined
+
     try {
       const customer = await getCustomer(customerId, credentials.refresh_token)
       const accountInfoQuery = `
@@ -161,9 +197,15 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
       `
 
       const accountInfo = await customer.query(accountInfoQuery)
+      apiSuccess = true // Account query succeeded
 
       if (accountInfo && accountInfo.length > 0) {
         const account = accountInfo[0]
+        const rawStatus = account.customer?.status
+        console.log(`[DEBUG] Account ${customerId} raw status:`, rawStatus, 'type:', typeof rawStatus)
+        const parsedStatus = parseStatus(rawStatus)
+        console.log(`[DEBUG] Account ${customerId} parsed status:`, parsedStatus)
+
         const accountData = {
           customer_id: customerId,
           descriptive_name: account.customer?.descriptive_name || `客户 ${customerId}`,
@@ -171,7 +213,7 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
           time_zone: account.customer?.time_zone || 'UTC',
           manager: account.customer?.manager || false,
           test_account: account.customer?.test_account || false,
-          status: parseStatus(account.customer?.status),
+          status: parsedStatus,
         }
 
         // 保存到数据库
@@ -195,16 +237,26 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
               customer_client.test_account,
               customer_client.status
             FROM customer_client
-            WHERE customer_client.status = 'ENABLED'
           `
+
+          // MCC子账户查询追踪
+          const mccApiStartTime = Date.now()
+          let mccApiSuccess = false
+          let mccApiErrorMessage: string | undefined
 
           try {
             const childAccounts = await customer.query(childAccountsQuery)
+            mccApiSuccess = true
 
             for (const child of childAccounts) {
               const childId = child.customer_client?.id?.toString()
 
               if (childId && !processedIds.has(childId)) {
+                const rawChildStatus = child.customer_client?.status
+                console.log(`[DEBUG] Child Account ${childId} raw status:`, rawChildStatus, 'type:', typeof rawChildStatus)
+                const parsedChildStatus = parseStatus(rawChildStatus)
+                console.log(`[DEBUG] Child Account ${childId} parsed status:`, parsedChildStatus)
+
                 const childData = {
                   customer_id: childId,
                   descriptive_name: child.customer_client?.descriptive_name || `客户 ${childId}`,
@@ -212,7 +264,7 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
                   time_zone: child.customer_client?.time_zone || 'UTC',
                   manager: child.customer_client?.manager || false,
                   test_account: child.customer_client?.test_account || false,
-                  status: parseStatus(child.customer_client?.status),
+                  status: parsedChildStatus,
                   parent_mcc: customerId,
                 }
 
@@ -226,11 +278,27 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
 
             console.log(`   ✓ MCC ${customerId} 共有 ${childAccounts.length} 个子账户`)
           } catch (childError: any) {
+            mccApiSuccess = false
+            mccApiErrorMessage = childError.message
             console.warn(`   ⚠️ 查询MCC ${customerId} 子账户失败: ${childError.message}`)
+          } finally {
+            // 记录MCC子账户查询API使用
+            trackApiUsage({
+              userId,
+              operationType: ApiOperationType.SEARCH,
+              endpoint: 'getMccChildAccounts',
+              customerId,
+              requestCount: 1,
+              responseTimeMs: Date.now() - mccApiStartTime,
+              isSuccess: mccApiSuccess,
+              errorMessage: mccApiErrorMessage
+            })
           }
         }
       }
     } catch (accountError: any) {
+      apiSuccess = false
+      apiErrorMessage = accountError.message
       console.warn(`   ⚠️ 获取账户 ${customerId} 信息失败: ${accountError.message}`)
 
       const fallbackData = {
@@ -245,6 +313,18 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
       const dbId = upsertAccount(userId, fallbackData)
       allAccounts.push({ ...fallbackData, db_account_id: dbId })
       processedIds.add(customerId)
+    } finally {
+      // 记录账户查询API使用
+      trackApiUsage({
+        userId,
+        operationType: ApiOperationType.SEARCH,
+        endpoint: 'getAccountInfo',
+        customerId,
+        requestCount: 1,
+        responseTimeMs: Date.now() - apiStartTime,
+        isSuccess: apiSuccess,
+        errorMessage: apiErrorMessage
+      })
     }
   }
 
@@ -277,15 +357,17 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const forceRefresh = searchParams.get('refresh') === 'true'
+    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}`)
 
     let allAccounts: any[]
 
     // 检查缓存
     const cachedAccounts = getCachedAccounts(authResult.user.userId)
+    console.log(`📦 缓存中有 ${cachedAccounts.length} 个账号`)
 
     if (!forceRefresh && cachedAccounts.length > 0) {
       // 使用缓存数据
-      console.log(`📦 使用缓存的 ${cachedAccounts.length} 个账号`)
+      console.log(`✅ 使用缓存的 ${cachedAccounts.length} 个账号`)
       allAccounts = cachedAccounts.map(acc => ({
         customer_id: acc.customer_id,
         descriptive_name: acc.account_name || `客户 ${acc.customer_id}`,
@@ -300,7 +382,9 @@ export async function GET(request: NextRequest) {
       }))
     } else {
       // 从 API 获取并同步
+      console.log(`🔄 强制刷新: 从 Google Ads API 同步账号...`)
       allAccounts = await syncAccountsFromAPI(authResult.user.userId, credentials)
+      console.log(`✅ 同步完成，获取到 ${allAccounts.length} 个账号`)
     }
 
     // 查询关联的 Offer 信息

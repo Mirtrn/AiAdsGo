@@ -219,6 +219,9 @@ Requirements:
 
     // 需求12：使用Gemini 2.5 Pro稳定版模型（优先Vertex AI，带代理支持 + 自动降级）
     // 增加maxOutputTokens以确保完整返回所有字段（包括增强的pricing、reviews、promotions、competitiveEdges）
+    if (!userId) {
+      throw new Error('分析产品页面需要用户ID，请确保已登录')
+    }
     const text = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
@@ -862,12 +865,16 @@ ${currentOrientation === 'brand' ? `
     }
 
     // 需求12：使用Gemini 2.5 Pro实验版模型（带代理支持 + 自动降级）
+    // 传递userId以使用用户级AI配置（优先Vertex AI）
+    if (!options?.userId) {
+      throw new Error('AI页面分析需要用户ID，请确保已登录')
+    }
     const text = await generateContent({
       model: 'gemini-2.5-pro',
       prompt: basePrompt,
       temperature: 0.7,
-      maxOutputTokens: 2048,
-    })
+      maxOutputTokens: 4096,  // 增加以避免输出被截断
+    }, options.userId)
 
     // 提取JSON内容
     const jsonMatch = text.match(/\{[\s\S]*\}/)

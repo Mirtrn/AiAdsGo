@@ -96,7 +96,7 @@ export function VirtualizedOfferTable({
 
   const getScrapeStatusBadge = (status: string) => {
     const configs = {
-      pending: { label: 'Pending', variant: 'outline' as const, className: 'text-gray-500 border-gray-200' },
+      pending: { label: 'Scraping', variant: 'secondary' as const, className: 'bg-blue-50 text-blue-700 border-blue-100 animate-pulse' },
       in_progress: { label: 'Scraping', variant: 'secondary' as const, className: 'bg-blue-50 text-blue-700 border-blue-100 animate-pulse' },
       completed: { label: 'Ready', variant: 'default' as const, className: 'bg-green-50 text-green-700 border-green-100 hover:bg-green-100' },
       failed: { label: 'Failed', variant: 'destructive' as const, className: 'bg-red-50 text-red-700 border-red-100 hover:bg-red-100' },
