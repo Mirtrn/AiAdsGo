@@ -1,9 +1,11 @@
-name: Deploy to Production
+name: Build Production Image
 
 on:
   push:
     branches:
       - main
+    tags:
+      - 'v*.*.*'  # 匹配版本标签，如 v3.0.0
   workflow_dispatch:
 
 env:
@@ -78,9 +80,12 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
+            # main分支推送: prod-latest 和 prod-[commitid]
+            type=raw,value=prod-latest,enable={{is_default_branch}}
+            type=sha,prefix=prod-,format=short,enable={{is_default_branch}}
+            # tag推送 (如v3.0.0): prod-[tag] 和 prod-[commitid]
+            type=match,pattern=v(.*),group=1,prefix=prod-,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=prod-,format=short,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: 构建并推送Docker镜像
         uses: docker/build-push-action@v5
@@ -96,42 +101,22 @@ jobs:
             NODE_ENV=production
 
   # ============================================
-  # Job 3: 部署到ClawCloud (可选)
+  # 部署说明
   # ============================================
-  deploy-to-server:
-    needs: build-and-push-image
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: 部署到服务器
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SERVER_PORT || 22 }}
-          script: |
-            cd /opt/autoads
-            docker-compose -f docker-compose.prod.yml pull
-            docker-compose -f docker-compose.prod.yml up -d
-            docker system prune -f
-
-      - name: 健康检查
-        run: |
-          sleep 10
-          curl -f ${{ secrets.APP_URL }}/api/health || exit 1
-
-  # ============================================
-  # Job 4: 通知 (可选)
-  # ============================================
-  notify:
-    needs: deploy-to-server
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: 发送通知
-        run: |
-          echo "部署状态: ${{ needs.deploy-to-server.result }}"
-          # 可以集成Slack、钉钉、邮件等通知服务
+  # 镜像构建完成后，需要手动拉取并部署到ClawCloud
+  #
+  # 手动部署步骤：
+  # 1. SSH登录到ClawCloud服务器
+  # 2. 拉取最新镜像：
+  #    docker pull ghcr.io/xxrenzhe/autobb:prod-latest
+  #    或指定版本：
+  #    docker pull ghcr.io/xxrenzhe/autobb:prod-3.0.0
+  # 3. 重启服务：
+  #    docker-compose -f docker-compose.prod.yml up -d
+  # 4. 清理旧镜像：
+  #    docker system prune -f
+  #
+  # 可用的镜像标签：
+  # - prod-latest: main分支最新版本
+  # - prod-[commitid]: 特定commit版本（如 prod-a1b2c3d）
+  # - prod-[version]: 特定发布版本（如 prod-3.0.0）
