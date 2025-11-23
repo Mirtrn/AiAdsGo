@@ -56,6 +56,15 @@ autoads.db
 backups/
 *.db.bak
 
+# database backups and dumps - 防止敏感数据泄露
+*.db.backup*
+*.sqlite.backup*
+*.backup
+*.dump
+*.sql.gz
+data/*.backup*
+data/*.dump
+
 # secrets directory (from BasicPrinciples/MustKnowV1.md)
 /secrets
 **/secrets/

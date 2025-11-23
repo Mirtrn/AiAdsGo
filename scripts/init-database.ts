@@ -539,8 +539,10 @@ async function initializeDatabase() {
 
     const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ? OR role = ?').get('autoads', 'admin')
 
-    // 使用hashPassword生成密码哈希
-    const passwordHash = await hashPassword('***REMOVED***')
+    // 使用hashPassword生成密码哈希（从环境变量获取，或生成随机密码）
+    const crypto = require('crypto')
+    const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || crypto.randomBytes(32).toString('base64')
+    const passwordHash = await hashPassword(defaultPassword)
 
     if (existingAdmin) {
       console.log('⚠️  管理员账号已存在，更新密码...')
@@ -569,8 +571,12 @@ async function initializeDatabase() {
       console.log('✅ 默认管理员账号创建成功')
       console.log('\n🔑 管理员登录信息:')
       console.log('   用户名: autoads')
-      console.log('   密码: ***REMOVED***')
+      console.log('   密码:', defaultPassword)
       console.log('   邮箱: admin@autoads.com')
+      console.log('\n⚠️  重要提示:')
+      console.log('   1. 请将密码保存到密码管理器')
+      console.log('   2. 建议首次登录后立即修改密码')
+      console.log('   3. 生产环境请使用 DEFAULT_ADMIN_PASSWORD 环境变量设置强密码')
     }
 
   } catch (error) {

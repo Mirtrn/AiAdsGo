@@ -6,9 +6,15 @@
 
 import { chromium, Browser, Page } from 'playwright'
 
-const BASE_URL = 'http://localhost:3000'
-const ADMIN_USERNAME = 'autoads'
-const ADMIN_PASSWORD = '***REMOVED***'
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'autoads'
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''
+
+if (!ADMIN_PASSWORD) {
+  console.error('❌ Error: ADMIN_PASSWORD environment variable is required')
+  console.log('Usage: ADMIN_PASSWORD=your_password tsx scripts/trigger-scraping-playwright.ts')
+  process.exit(1)
+}
 
 // Offers to trigger scraping
 const OFFER_IDS = [24, 25]
