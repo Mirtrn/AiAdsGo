@@ -186,7 +186,7 @@ export default function DashboardPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => router.push('/data-management')}
+                  onClick={() => router.push('/risk-alerts')}
                   className="text-orange-600 hover:text-orange-700 hover:bg-orange-100"
                 >
                   查看
@@ -276,11 +276,11 @@ export default function DashboardPage() {
               {kpiData && (
                 <div className="flex items-center gap-2 mt-3">
                   <span className="text-sm text-gray-500">
-                    CTR {formatPercent(kpiData.current.ctr)}
+                    点击率(CTR) {formatPercent(kpiData.current.ctr)}
                   </span>
                   <span className="text-gray-300">·</span>
                   <span className="text-sm text-gray-500">
-                    CPC {formatCurrency(kpiData.current.cpc)}
+                    每次点击费用(CPC) {formatCurrency(kpiData.current.cpc)}
                   </span>
                 </div>
               )}

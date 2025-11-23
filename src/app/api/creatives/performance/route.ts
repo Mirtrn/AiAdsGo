@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/creatives/performance
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get('sortBy') || 'score'
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 2. 获取所有Ad Creatives及其基本信息
     let creativesQuery = `

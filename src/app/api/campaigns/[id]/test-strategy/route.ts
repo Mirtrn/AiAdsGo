@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import {
   createGoogleAdsCampaign,
   createGoogleAdsAdGroup,
@@ -82,7 +82,7 @@ export async function POST(
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 4. 验证原Campaign
     const originalCampaign = db.prepare(`

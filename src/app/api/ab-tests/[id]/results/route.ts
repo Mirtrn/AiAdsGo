@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 // 强制动态渲染（使用了request.cookies）
 export const dynamic = 'force-dynamic'
@@ -87,7 +87,7 @@ export async function GET(
     }
 
     const testId = parseInt(params.id)
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 获取测试信息
     const test = db.prepare(`

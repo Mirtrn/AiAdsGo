@@ -7,7 +7,7 @@
  * - 追踪任务完成情况
  */
 
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { createOptimizationEngine, type CampaignMetrics, type OptimizationRecommendation } from './optimization-rules'
 
 export interface OptimizationTask {
@@ -36,7 +36,7 @@ export interface OptimizationTaskWithCampaign extends OptimizationTask {
  * 为单个用户生成优化任务
  */
 export function generateOptimizationTasksForUser(userId: number): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const engine = createOptimizationEngine()
 
   // 获取用户的所有活跃Campaigns（JOIN offers获取转化价值）
@@ -230,7 +230,7 @@ export function generateWeeklyOptimizationTasks(): {
   totalTasks: number
   userTasks: Record<number, number>
 } {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取所有有活跃Campaign的用户
   const usersStmt = db.prepare(`
@@ -264,7 +264,7 @@ export function getUserOptimizationTasks(
   userId: number,
   status?: 'pending' | 'in_progress' | 'completed' | 'dismissed'
 ): OptimizationTaskWithCampaign[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   let query = `
     SELECT
@@ -324,7 +324,7 @@ export function updateTaskStatus(
   status: 'in_progress' | 'completed' | 'dismissed',
   note?: string
 ): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   let query = `
     UPDATE optimization_tasks
@@ -355,7 +355,7 @@ export function updateCampaignTasks(
   status: 'completed' | 'dismissed',
   note?: string
 ): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const query = `
     UPDATE optimization_tasks
@@ -389,7 +389,7 @@ export function getTaskStatistics(userId: number): {
     low: number
   }
 } {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     SELECT
@@ -426,7 +426,7 @@ export function getTaskStatistics(userId: number): {
  * 清理过期任务（30天前的已完成/已忽略任务）
  */
 export function cleanupOldTasks(): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     DELETE FROM optimization_tasks

@@ -11,7 +11,7 @@
  */
 
 import cron from 'node-cron'
-import { getDatabase } from './lib/db'
+import { getDatabase, getSQLiteDatabase } from './lib/db'
 import { dataSyncService } from './lib/data-sync-service'
 import { backupDatabase } from './lib/backup'
 import { dailyLinkCheck } from './lib/risk-alerts'
@@ -37,7 +37,7 @@ function logError(message: string, error: any) {
 async function syncDataTask() {
   log('📊 开始执行数据同步任务...')
 
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   try {
     // 获取所有活跃用户
@@ -110,7 +110,7 @@ async function backupDatabaseTask() {
 async function cleanupOldDataTask() {
   log('🗑️ 开始执行数据清理任务...')
 
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   try {
     // 计算90天前的日期

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * 智能洞察
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`[Insights API] days=${days}, startDate=${formatDate(startDate)}, endDate=${formatDate(endDate)}`)
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     const insights: Insight[] = []
 

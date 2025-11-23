@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { findOfferById } from '@/lib/offers'
 
 /**
@@ -38,7 +38,7 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '30')
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 4. 计算日期范围
     const endDate = new Date()

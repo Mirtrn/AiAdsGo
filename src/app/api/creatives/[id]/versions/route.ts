@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/creatives/:id/versions
@@ -21,7 +21,7 @@ export async function GET(
       return NextResponse.json({ error: '无效的Creative ID' }, { status: 400 })
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const userId = authResult.user.userId
 
     // 验证Creative所有权
@@ -190,7 +190,7 @@ export async function POST(
       }
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const userId = authResult.user.userId
 
     // 验证Creative所有权

@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { createOptimizationEngine, type CampaignMetrics } from '@/lib/optimization-rules'
 
 interface CampaignPerformance {
@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 获取Offer信息
     const offerStmt = db.prepare(`

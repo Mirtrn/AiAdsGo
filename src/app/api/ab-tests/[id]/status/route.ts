@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { createError, AppError } from '@/lib/errors'
 
 /**
@@ -46,7 +46,7 @@ export async function GET(
     const userId = authResult.user.userId
     const testId = parseInt(params.id)
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 2. 获取测试基本信息
     const test = db.prepare(`

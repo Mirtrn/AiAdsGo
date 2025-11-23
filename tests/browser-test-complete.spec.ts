@@ -26,7 +26,7 @@ test('AutoAds Complete Browser Test', async ({ page }) => {
   const passwordField = page.locator('input').nth(1);
 
   await usernameField.fill('autoads');
-  await passwordField.fill('***REMOVED***');
+  await passwordField.fill('test123');
   console.log('Filled in credentials: autoads / [password hidden]');
 
   // Take screenshot with filled form

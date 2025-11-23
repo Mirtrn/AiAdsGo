@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/campaigns/performance
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '7')
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 2. Calculate date range
     const endDate = new Date().toISOString().split('T')[0]

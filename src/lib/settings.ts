@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import { encrypt, decrypt } from './crypto'
 
 export interface SystemSetting {
@@ -38,7 +38,7 @@ export interface SettingValue {
  * 优先级：用户配置 > 全局配置
  */
 export function getAllSettings(userId?: number): SettingValue[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const query = userId
     ? 'SELECT * FROM system_settings WHERE user_id IS NULL OR user_id = ? ORDER BY category, config_key'
@@ -81,7 +81,7 @@ export function getAllSettings(userId?: number): SettingValue[] {
  * 优先级：用户配置 > 全局配置
  */
 export function getSettingsByCategory(category: string, userId?: number): SettingValue[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const query = userId
     ? 'SELECT * FROM system_settings WHERE category = ? AND (user_id IS NULL OR user_id = ?) ORDER BY config_key'
@@ -122,7 +122,7 @@ export function getSettingsByCategory(category: string, userId?: number): Settin
  * 获取单个配置项
  */
 export function getSetting(category: string, key: string, userId?: number): SettingValue | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const query = userId
     ? 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC LIMIT 1'
@@ -165,7 +165,7 @@ export function getUserOnlySetting(category: string, key: string, userId: number
     throw new Error('getUserOnlySetting requires a valid userId')
   }
 
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 只查询用户级配置，不包含全局配置（user_id IS NULL）
   const query = 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND user_id = ? LIMIT 1'
@@ -202,7 +202,7 @@ export function updateSetting(
   value: string,
   userId?: number
 ): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取配置元数据
   const metadata = db.prepare(`
@@ -263,7 +263,7 @@ export function updateSettings(
   updates: Array<{ category: string; key: string; value: string }>,
   userId?: number
 ): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const transaction = db.transaction(() => {
     for (const update of updates) {
@@ -284,7 +284,7 @@ export function updateValidationStatus(
   message?: string,
   userId?: number
 ): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const query = userId
     ? `UPDATE system_settings

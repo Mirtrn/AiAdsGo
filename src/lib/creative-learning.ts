@@ -8,7 +8,7 @@
  * - 提供个性化创意建议
  */
 
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 export interface HistoricalCreative {
   creativeId: number
@@ -82,7 +82,7 @@ export function queryHighPerformingCreatives(
   minClicks: number = 100,
   limit: number = 50
 ): HistoricalCreative[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 查询高CTR的创意及其性能数据
   const stmt = db.prepare(`
@@ -531,7 +531,7 @@ export function scoreCreativePerformance(
   creativeId: number,
   userId: number
 ): CreativePerformanceScore | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 查询创意的性能数据
   const stmt = db.prepare(`
@@ -720,7 +720,7 @@ export function scoreCreativePerformance(
  * 批量评分所有创意（供定时任务使用）
  */
 export function scoreAllCreatives(userId: number): CreativePerformanceScore[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取所有有性能数据的创意
   const creativeIds = db.prepare(`
@@ -753,7 +753,7 @@ export function saveSuccessFeatures(
   features: SuccessFeatures,
   totalCreatives: number
 ): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 将SuccessFeatures对象序列化为JSON
   const featuresJson = JSON.stringify(features)
@@ -812,7 +812,7 @@ export function saveSuccessFeatures(
  * 从数据库加载成功特征
  */
 export function loadSuccessFeatures(userId: number): SuccessFeatures | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     SELECT success_features
@@ -843,7 +843,7 @@ export function saveCreativeScore(
   userId: number,
   score: CreativePerformanceScore
 ): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const insertStmt = db.prepare(`
     INSERT INTO creative_performance_scores (
@@ -911,7 +911,7 @@ export function runCreativeOptimizationLoop(userId: number): {
   let featuresUpdated = false
   if (highPerformers.length >= 5) {
     // 将评分转换为HistoricalCreative格式
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const stmt = db.prepare(`
       SELECT
         c.id as creativeId,

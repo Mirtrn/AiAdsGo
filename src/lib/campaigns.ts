@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 export interface Campaign {
   id: number
@@ -39,7 +39,7 @@ export interface CreateCampaignInput {
  * 创建广告系列
  */
 export function createCampaign(input: CreateCampaignInput): Campaign {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     INSERT INTO campaigns (
@@ -71,7 +71,7 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
  * 查找广告系列（带权限验证）
  */
 export function findCampaignById(id: number, userId: number): Campaign | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM campaigns
     WHERE id = ? AND user_id = ?
@@ -90,7 +90,7 @@ export function findCampaignById(id: number, userId: number): Campaign | null {
  * 根据Google Ads campaign_id查找
  */
 export function findCampaignByGoogleId(campaignId: string, userId: number): Campaign | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM campaigns
     WHERE campaign_id = ? AND user_id = ?
@@ -109,7 +109,7 @@ export function findCampaignByGoogleId(campaignId: string, userId: number): Camp
  * 查找Offer的所有广告系列
  */
 export function findCampaignsByOfferId(offerId: number, userId: number): Campaign[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM campaigns
     WHERE offer_id = ? AND user_id = ?
@@ -124,7 +124,7 @@ export function findCampaignsByOfferId(offerId: number, userId: number): Campaig
  * 查找用户的所有广告系列
  */
 export function findCampaignsByUserId(userId: number, limit?: number): Campaign[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   let sql = `
     SELECT * FROM campaigns
     WHERE user_id = ?
@@ -147,7 +147,7 @@ export function findCampaignsByAccountId(
   googleAdsAccountId: number,
   userId: number
 ): Campaign[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM campaigns
     WHERE google_ads_account_id = ? AND user_id = ?
@@ -182,7 +182,7 @@ export function updateCampaign(
     >
   >
 ): Campaign | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证权限
   const campaign = findCampaignById(id, userId)
@@ -264,7 +264,7 @@ export function updateCampaign(
  * 删除广告系列
  */
 export function deleteCampaign(id: number, userId: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     DELETE FROM campaigns

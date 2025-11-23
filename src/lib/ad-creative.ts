@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 /**
  * 关键词搜索量数据
@@ -156,7 +156,7 @@ export function createAdCreative(
     }
   }
 ): AdCreative {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 如果外部传入了score，优先使用（来自Ad Strength评估）
   // 否则使用旧的评分算法计算（向后兼容）
@@ -207,7 +207,7 @@ export function createAdCreative(
  * 查找广告创意
  */
 export function findAdCreativeById(id: number, userId: number): AdCreative | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const row = db.prepare(`
     SELECT * FROM ad_creatives
     WHERE id = ? AND user_id = ?
@@ -229,7 +229,7 @@ export function listAdCreativesByOffer(
     is_selected?: boolean
   }
 ): AdCreative[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   let whereConditions = ['offer_id = ?', 'user_id = ?']
   const params: any[] = [offerId, userId]
@@ -257,7 +257,7 @@ export function listAdCreativesByOffer(
  * 标记广告创意为已选中
  */
 export function selectAdCreative(id: number, userId: number): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 先取消该Offer的其他已选中创意
   const creative = findAdCreativeById(id, userId)
@@ -327,7 +327,7 @@ export function calculateAdCreativeScore(
   // 警告：旧评分算法已废弃
   console.warn('⚠️ calculateAdCreativeScore已废弃，建议使用Ad Strength评估系统 (evaluateCreativeAdStrength)')
 
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取Offer数据用于相关性评分
   const offer = db.prepare(`
@@ -527,7 +527,7 @@ export function updateAdCreative(
     last_sync_at: string
   }>
 ): AdCreative | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证权限
   const creative = findAdCreativeById(id, userId)
@@ -615,7 +615,7 @@ export function updateAdCreative(
  * 删除广告创意
  */
 export function deleteAdCreative(id: number, userId: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const result = db.prepare(`
     DELETE FROM ad_creatives
@@ -629,7 +629,7 @@ export function deleteAdCreative(id: number, userId: number): boolean {
  * 批准广告创意
  */
 export function approveAdCreative(id: number, userId: number, approvedByUserId: number): AdCreative | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const result = db.prepare(`
     UPDATE ad_creatives
@@ -651,7 +651,7 @@ export function approveAdCreative(id: number, userId: number, approvedByUserId: 
  * 取消批准广告创意
  */
 export function unapproveAdCreative(id: number, userId: number): AdCreative | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const result = db.prepare(`
     UPDATE ad_creatives
@@ -680,7 +680,7 @@ export function findAdCreativesByOfferId(offerId: number, userId: number): AdCre
  * 获取用户的所有创意（兼容creatives.ts API）
  */
 export function findAdCreativesByUserId(userId: number, limit?: number): AdCreative[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   let sql = `
     SELECT * FROM ad_creatives

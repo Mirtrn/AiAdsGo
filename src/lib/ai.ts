@@ -925,3 +925,71 @@ ${currentOrientation === 'brand' ? `
     throw new Error(`生成广告创意失败: ${error.message}`)
   }
 }
+
+/**
+ * 🎯 新增：从产品内容中智能提取品牌名
+ * 专门用于当Scraper无法提取品牌名时的AI fallback
+ */
+export async function extractBrandFromContent(
+  pageData: {
+    title: string
+    description: string
+    text: string
+    url: string
+  },
+  userId?: number
+): Promise<string> {
+  try {
+    const prompt = `You are a brand name extraction expert. Extract the brand name from the following product information.
+
+**CRITICAL RULES**:
+1. Return ONLY the brand name, nothing else
+2. Brand name must be 2-30 characters
+3. If multiple brands mentioned, return the PRIMARY product brand
+4. Remove suffixes like "Store", "Official", "Shop"
+5. If uncertain, extract from the product title (usually the first capitalized word/phrase)
+
+**Product Information**:
+URL: ${pageData.url}
+Title: ${pageData.title}
+Description: ${pageData.description}
+Content Preview: ${pageData.text.substring(0, 500)}
+
+**Examples of correct extraction**:
+- "Reolink 4K Security Camera..." → "Reolink"
+- "Amazon.com: BAGSMART Store" → "BAGSMART"
+- "Anker PowerCore 20000mAh..." → "Anker"
+- "Apple iPhone 15 Pro Max..." → "Apple"
+
+Extract the brand name now (ONLY the brand name, no explanation):`.trim()
+
+    const brandName = await generateContent(prompt, userId)
+
+    // 验证和清洗AI返回的品牌名
+    const cleanedBrand = brandName
+      .trim()
+      .replace(/^["']|["']$/g, '') // 移除引号
+      .replace(/^Brand:\s*/i, '') // 移除"Brand:"前缀
+      .replace(/\s+(Store|Shop|Official|Brand)$/i, '') // 移除常见后缀
+      .trim()
+
+    // 验证品牌名合理性
+    if (cleanedBrand.length < 2 || cleanedBrand.length > 30) {
+      throw new Error(`品牌名长度不合理: ${cleanedBrand.length}字符`)
+    }
+
+    // 验证不包含常见的无效词汇
+    const invalidWords = ['unknown', 'n/a', 'none', 'null', 'undefined', 'product']
+    if (invalidWords.some(word => cleanedBrand.toLowerCase().includes(word))) {
+      throw new Error(`品牌名包含无效词汇: ${cleanedBrand}`)
+    }
+
+    console.log(`✅ AI品牌提取: "${brandName}" → 清洗后: "${cleanedBrand}"`)
+    return cleanedBrand
+
+  } catch (error: any) {
+    console.error('AI品牌提取失败:', error)
+    throw new Error(`AI品牌提取失败: ${error.message}`)
+  }
+}
+

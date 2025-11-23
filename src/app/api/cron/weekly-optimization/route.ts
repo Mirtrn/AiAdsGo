@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateWeeklyOptimizationTasks, cleanupOldTasks } from '@/lib/optimization-tasks'
 import { runCreativeOptimizationLoop } from '@/lib/creative-learning'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     // 运行创意优化闭环（P0-1: 迭代优化机制）
     console.log('[Cron] Starting creative optimization loop...')
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const usersStmt = db.prepare(`
       SELECT DISTINCT user_id
       FROM campaigns

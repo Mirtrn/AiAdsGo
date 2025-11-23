@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import type {
   GeneratedAdCreativeData,
   HeadlineAsset,
@@ -40,7 +40,7 @@ interface AIConfig {
  * 优先级：用户配置 > 全局配置
  */
 async function getAIConfig(userId?: number): Promise<AIConfig> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 1. 先尝试获取用户特定配置（优先级最高）
   let userSettings: Record<string, string> = {}
@@ -454,7 +454,7 @@ export async function generateAdCreative(
     }
   }
 
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取Offer数据
   const offer = db.prepare(`

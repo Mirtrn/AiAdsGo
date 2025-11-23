@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * POST /api/ab-tests/[id]/declare-winner
@@ -27,7 +27,7 @@ export async function POST(
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 验证测试所有权
     const test = db.prepare(

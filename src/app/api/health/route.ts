@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/health
@@ -8,7 +8,7 @@ import { getDatabase } from '@/lib/db'
 export async function GET() {
   try {
     // 检查数据库连接
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const result = db.prepare('SELECT 1 as health').get() as { health: number }
 
     if (result.health !== 1) {

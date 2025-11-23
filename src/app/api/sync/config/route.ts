@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * Sync configuration interface
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = authResult.user.userId
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 2. Get sync config (create default if not exists)
     let config = db
@@ -151,7 +151,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 3. Build update query dynamically
     const updates: string[] = []

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/ad-strength/analytics
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const days = parseInt(searchParams.get('days') || '30')
     const offerId = searchParams.get('offerId')
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 1. 各评级的平均转化率
     const ratingPerformance = db.prepare(`
@@ -281,7 +281,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 插入历史记录
     const result = db.prepare(`

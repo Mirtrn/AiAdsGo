@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 const BACKUP_DIR = path.join(process.cwd(), 'backups')
 
@@ -17,7 +17,7 @@ export function performBackup() {
 
     // Use SQLite's backup API if available, or file copy
     // Better-sqlite3 has a backup method
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     db.backup(backupPath)
       .then(() => {
         console.log(`✅ Database backup created at ${backupPath}`)
@@ -40,7 +40,7 @@ export async function backupDatabase(backupType: 'manual' | 'auto', createdBy?: 
   backupPath?: string;
   fileSizeBytes?: number;
 }> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   try {
     const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')

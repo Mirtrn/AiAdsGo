@@ -3,7 +3,7 @@
  * 获取真实的关键词搜索量数据
  */
 import { GoogleAdsApi, enums } from 'google-ads-api'
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import { getCachedKeywordVolume, cacheKeywordVolume, getBatchCachedVolumes, batchCacheVolumes } from './redis'
 import { decrypt } from './crypto'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
@@ -79,7 +79,7 @@ function getUserCustomerId(db: any, userId: number): string {
 // - If not: share autoads user's OAuth config, but use user's login_customer_id and customer_id
 function getGoogleAdsConfig(userId?: number): KeywordPlannerConfig | null {
   try {
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const autoadsUserId = 1
     const targetUserId = userId || autoadsUserId
 
@@ -205,7 +205,7 @@ export async function getKeywordSearchVolumes(
   }
 
   // 2. Check global_keywords table
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const dbVolumes = new Map<string, number>()
 
   try {
@@ -381,7 +381,7 @@ function saveToGlobalKeywords(
   volume: number
 ): void {
   try {
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     db.prepare(`
       INSERT INTO global_keywords (keyword, country, language, search_volume, cached_at, created_at)
       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))

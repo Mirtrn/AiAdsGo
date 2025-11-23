@@ -10,7 +10,7 @@ test.describe('需求1-5完整功能测试', () => {
 
     // 填写登录表单 (用户名+密码)
     await page.fill('input[name="username"], input[id="username"]', 'autoads')
-    await page.fill('input[type="password"], input[name="password"]', '***REMOVED***')
+    await page.fill('input[type="password"], input[name="password"]', 'test123')
 
     // 点击登录按钮
     await page.click('button[type="submit"], button:has-text("登录")')

@@ -5,7 +5,7 @@
  * 示例: swiftelephant12, bravepenguin456
  */
 
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 // 形容词列表
 const ADJECTIVES = [
@@ -42,7 +42,7 @@ function generateSingleName(): string {
  * 检查用户名是否已存在
  */
 function isUsernameExists(username: string): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const user = db.prepare('SELECT id FROM users WHERE username = ?').get(username)
   return !!user
 }

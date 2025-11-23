@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/analytics/budget
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('end_date')
     const campaignId = searchParams.get('campaign_id')
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 构建查询条件
     let whereConditions = ['cp.user_id = ?']

@@ -24,6 +24,12 @@ import {
 } from '@/components/ui/select'
 import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
+import {
+  getCampaignStatusLabel,
+  getCreationStatusLabel,
+  type CampaignStatus,
+  type CreationStatus
+} from '@/lib/i18n-constants'
 
 interface Campaign {
   id: number
@@ -242,9 +248,9 @@ export default function CampaignsPage() {
 
   const getStatusBadge = (status: string) => {
     const configs = {
-      ENABLED: { label: '启用', variant: 'default' as const, icon: PlayCircle, className: 'bg-green-600 hover:bg-green-700' },
-      PAUSED: { label: '暂停', variant: 'secondary' as const, icon: PauseCircle, className: 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200' },
-      REMOVED: { label: '已移除', variant: 'destructive' as const, icon: XCircle, className: '' },
+      ENABLED: { label: getCampaignStatusLabel('ENABLED'), variant: 'default' as const, icon: PlayCircle, className: 'bg-green-600 hover:bg-green-700' },
+      PAUSED: { label: getCampaignStatusLabel('PAUSED'), variant: 'secondary' as const, icon: PauseCircle, className: 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200' },
+      REMOVED: { label: getCampaignStatusLabel('REMOVED'), variant: 'destructive' as const, icon: XCircle, className: '' },
     }
     const config = configs[status as keyof typeof configs] || { label: status, variant: 'outline' as const, icon: AlertCircle, className: '' }
     const Icon = config.icon
@@ -259,10 +265,10 @@ export default function CampaignsPage() {
 
   const getCreationStatusBadge = (status: string) => {
     const configs = {
-      draft: { label: '草稿', variant: 'secondary' as const, className: 'bg-gray-100 text-gray-600' },
-      pending: { label: '同步中', variant: 'secondary' as const, className: 'bg-blue-100 text-blue-700' },
-      synced: { label: '已同步', variant: 'default' as const, className: 'bg-green-600 hover:bg-green-700' },
-      failed: { label: '同步失败', variant: 'destructive' as const, className: '' },
+      draft: { label: getCreationStatusLabel('draft'), variant: 'secondary' as const, className: 'bg-gray-100 text-gray-600' },
+      pending: { label: getCreationStatusLabel('pending'), variant: 'secondary' as const, className: 'bg-blue-100 text-blue-700' },
+      synced: { label: getCreationStatusLabel('synced'), variant: 'default' as const, className: 'bg-green-600 hover:bg-green-700' },
+      failed: { label: getCreationStatusLabel('failed'), variant: 'destructive' as const, className: '' },
     }
     const config = configs[status as keyof typeof configs] || { label: status, variant: 'outline' as const, className: '' }
 
@@ -438,9 +444,9 @@ export default function CampaignsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">所有投放状态</SelectItem>
-                  <SelectItem value="ENABLED">启用</SelectItem>
-                  <SelectItem value="PAUSED">暂停</SelectItem>
-                  <SelectItem value="REMOVED">已移除</SelectItem>
+                  <SelectItem value="ENABLED">{getCampaignStatusLabel('ENABLED')}</SelectItem>
+                  <SelectItem value="PAUSED">{getCampaignStatusLabel('PAUSED')}</SelectItem>
+                  <SelectItem value="REMOVED">{getCampaignStatusLabel('REMOVED')}</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -451,10 +457,10 @@ export default function CampaignsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">所有同步状态</SelectItem>
-                  <SelectItem value="draft">草稿</SelectItem>
-                  <SelectItem value="synced">已同步</SelectItem>
-                  <SelectItem value="failed">同步失败</SelectItem>
-                  <SelectItem value="pending">同步中</SelectItem>
+                  <SelectItem value="draft">{getCreationStatusLabel('draft')}</SelectItem>
+                  <SelectItem value="synced">{getCreationStatusLabel('synced')}</SelectItem>
+                  <SelectItem value="failed">{getCreationStatusLabel('failed')}</SelectItem>
+                  <SelectItem value="pending">{getCreationStatusLabel('pending')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -497,11 +503,11 @@ export default function CampaignsPage() {
                     <TableRow>
                       <TableHead className="w-[200px]">广告系列名称</TableHead>
                       <TableHead>预算</TableHead>
-                      <TableHead>展示</TableHead>
-                      <TableHead>点击</TableHead>
-                      <TableHead>CTR</TableHead>
-                      <TableHead>CPC</TableHead>
-                      <TableHead>转化</TableHead>
+                      <TableHead>展示次数(Impressions)</TableHead>
+                      <TableHead>点击次数(Clicks)</TableHead>
+                      <TableHead>点击率(CTR)</TableHead>
+                      <TableHead>每次点击费用(CPC)</TableHead>
+                      <TableHead>转化次数(Conversions)</TableHead>
                       <TableHead>花费</TableHead>
                       <TableHead>投放状态</TableHead>
                       <TableHead>同步状态</TableHead>

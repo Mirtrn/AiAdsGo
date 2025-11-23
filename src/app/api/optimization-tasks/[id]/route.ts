@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { updateTaskStatus } from '@/lib/optimization-tasks'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * PATCH - 更新任务状态
@@ -91,7 +91,7 @@ export async function DELETE(
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const stmt = db.prepare(`
       DELETE FROM optimization_tasks
       WHERE id = ? AND user_id = ?

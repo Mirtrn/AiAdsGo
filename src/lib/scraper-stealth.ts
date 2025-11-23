@@ -615,14 +615,20 @@ export async function scrapeAmazonProduct(
     }
   }
 
-  // 🎯 优化品牌名提取 - 限定在核心产品区域
+  // 🎯 优化品牌名提取 - 多源策略应对反爬虫
+  let brandName: string | null = null
+
+  // 策略1: 从核心产品区域的品牌链接提取（主要方法）
   const brandSelectors = [
     '#ppd #bylineInfo',
     '#centerCol #bylineInfo',
     '#dp-container #bylineInfo',
-    '#bylineInfo'
+    '#bylineInfo',
+    'a#bylineInfo',  // 新增：直接选择a标签
+    '[data-feature-name="bylineInfo"]',  // 新增：通过data属性
+    '#productOverview_feature_div tr:contains("Brand") td:last-child',  // 新增：从产品规格表
+    '#detailBullets_feature_div li:contains("Brand") span:last-child',  // 新增：从产品详情
   ]
-  let brandName: string | null = null
   for (const selector of brandSelectors) {
     const $el = $(selector)
     if ($el.length > 0 && !isInRecommendationArea($el[0])) {
@@ -630,15 +636,79 @@ export async function scrapeAmazonProduct(
         .replace('Visit the ', '')
         .replace(' Store', '')
         .replace(/^Brand:\s*/i, '')
-      if (brand && brand.length > 1) {
+        .replace(/^品牌:\s*/i, '')
+      if (brand && brand.length > 1 && brand.length < 50) {
         brandName = brand
+        console.log(`✅ 策略1成功: 从选择器${selector}提取品牌 "${brandName}"`)
         break
       }
     }
   }
-  // Fallback: 从data属性获取
+
+  // 策略2: 从data属性获取
   if (!brandName) {
-    brandName = $('[data-brand]').attr('data-brand') || null
+    const dataBrand = $('[data-brand]').attr('data-brand')
+    if (dataBrand && dataBrand.length > 1 && dataBrand.length < 50) {
+      brandName = dataBrand
+      console.log(`✅ 策略2成功: 从data-brand属性提取 "${brandName}"`)
+    }
+  }
+
+  // 策略3: 从产品标题智能提取（适用于标题包含品牌名的情况）
+  // 常见格式: "Brand Name - Product Description", "Brand Name Product Name"
+  if (!brandName && productName) {
+    // 提取标题开头的品牌名（通常在前3个单词内）
+    const titleParts = productName.split(/[\s-,|]+/)
+    if (titleParts.length > 0) {
+      const potentialBrand = titleParts[0].trim()
+      // 验证是否为合理的品牌名（全大写或首字母大写，长度2-20）
+      if (potentialBrand.length >= 2 && potentialBrand.length <= 20) {
+        const isValidBrand = /^[A-Z][A-Za-z0-9&\s-]+$/.test(potentialBrand) ||
+                            /^[A-Z0-9]+$/.test(potentialBrand)
+        if (isValidBrand) {
+          brandName = potentialBrand
+          console.log(`✅ 策略3成功: 从产品标题提取品牌 "${brandName}"`)
+        }
+      }
+    }
+  }
+
+  // 策略4: 从Amazon URL中提取品牌提示
+  // Amazon Store URL格式: /stores/BrandName/page/... 或 /BrandName/s?...
+  if (!brandName) {
+    const urlBrandMatch = url.match(/amazon\.com\/stores\/([^\/]+)/) ||
+                          url.match(/amazon\.com\/([A-Z][A-Za-z0-9-]+)\/s\?/)
+    if (urlBrandMatch && urlBrandMatch[1]) {
+      const urlBrand = decodeURIComponent(urlBrandMatch[1])
+        .replace(/-/g, ' ')
+        .replace(/\+/g, ' ')
+        .trim()
+      if (urlBrand.length >= 2 && urlBrand.length <= 30 && !urlBrand.includes('page')) {
+        brandName = urlBrand
+        console.log(`✅ 策略4成功: 从URL提取品牌 "${brandName}"`)
+      }
+    }
+  }
+
+  // 策略5: 从meta标签提取
+  if (!brandName) {
+    const metaBrand = $('meta[property="og:brand"]').attr('content') ||
+                     $('meta[name="brand"]').attr('content')
+    if (metaBrand && metaBrand.length > 1 && metaBrand.length < 50) {
+      brandName = metaBrand
+      console.log(`✅ 策略5成功: 从meta标签提取品牌 "${brandName}"`)
+    }
+  }
+
+  // 最后清洗：去除常见后缀
+  if (brandName) {
+    brandName = brandName
+      .replace(/\s+(Official|Store|Shop|Brand)$/i, '')
+      .trim()
+  }
+
+  if (!brandName) {
+    console.warn('⚠️ 所有品牌提取策略均失败，返回null')
   }
 
   const productData: AmazonProductData = {

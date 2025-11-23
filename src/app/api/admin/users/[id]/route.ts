@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 // PATCH: Update user details
 export async function PATCH(
@@ -17,7 +17,7 @@ export async function PATCH(
     const body = await request.json()
     const { email, packageType, packageExpiresAt, isActive } = body
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // Build update query dynamically
     const updates: string[] = []
@@ -78,7 +78,7 @@ export async function DELETE(
 
   try {
     const userId = parseInt(params.id)
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // Prevent deleting self
     if (auth.user?.userId === userId) {

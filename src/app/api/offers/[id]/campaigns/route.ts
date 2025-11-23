@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomer } from '@/lib/google-ads-api'
 import { findGoogleAdsAccountById, findActiveGoogleAdsAccounts } from '@/lib/google-ads-accounts'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/offers/:id/campaigns
@@ -96,7 +96,7 @@ export async function GET(
     })
 
     // 从数据库获取该Offer关联的campaign_id列表
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const campaignIdsStmt = db.prepare(`
       SELECT campaign_id
       FROM campaigns

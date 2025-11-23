@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 /**
  * Offer Performance Analytics
@@ -66,7 +66,7 @@ export function getOfferPerformanceSummary(
   userId: number,
   daysBack: number = 30
 ): OfferPerformanceSummary {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // Calculate date range
   const endDate = new Date()
@@ -128,7 +128,7 @@ export function getOfferPerformanceTrend(
   userId: number,
   daysBack: number = 30
 ): OfferPerformanceTrend[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // Calculate date range
   const endDate = new Date()
@@ -185,7 +185,7 @@ export function getCampaignPerformanceComparison(
   userId: number,
   daysBack: number = 30
 ): CampaignPerformanceComparison[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // Calculate date range
   const endDate = new Date()
@@ -251,7 +251,7 @@ export function calculateOfferROI(
   avgOrderValue: number,
   daysBack: number = 30
 ): OfferROI {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // Calculate date range
   const endDate = new Date()

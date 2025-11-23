@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/ab-tests/[id]
@@ -17,7 +17,7 @@ export async function GET(
     }
 
     const testId = parseInt(params.id)
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 获取测试基本信息
     const test = db.prepare(`
@@ -97,7 +97,7 @@ export async function PUT(
       confidence_level,
     } = body
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 验证测试所有权
     const test = db.prepare(
@@ -231,7 +231,7 @@ export async function DELETE(
     }
 
     const testId = parseInt(params.id)
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 验证测试所有权
     const test = db.prepare(

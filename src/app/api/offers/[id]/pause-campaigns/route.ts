@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { updateGoogleAdsCampaignStatus } from '@/lib/google-ads-api'
 import { getDecryptedCredentials } from '@/lib/google-ads-accounts'
 
@@ -34,7 +34,7 @@ export async function POST(
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 1. 获取Offer信息和用户ID
     const offer = db.prepare(`

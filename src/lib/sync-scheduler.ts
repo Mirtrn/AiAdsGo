@@ -6,7 +6,7 @@
  * them according to the configured interval.
  */
 
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import { dataSyncService } from './data-sync-service'
 
 export interface SyncSchedulerConfig {
@@ -93,7 +93,7 @@ export class SyncScheduler {
     }
 
     try {
-      const db = getDatabase()
+      const db = getSQLiteDatabase()
       const now = new Date().toISOString()
 
       // Find users with auto sync enabled and next sync time has passed
@@ -162,7 +162,7 @@ export class SyncScheduler {
     notification_email: string | null
   }) {
     const { user_id, sync_interval_hours, consecutive_failures } = syncConfig
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     try {
       console.log(`🔄 Starting auto sync for user ${user_id}...`)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findUserById } from '@/lib/auth'
 import { verifyPassword, hashPassword } from '@/lib/crypto'
 import { verifyToken } from '@/lib/jwt'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * PUT /api/user/password
@@ -93,7 +93,7 @@ export async function PUT(request: NextRequest) {
     const newPasswordHash = await hashPassword(newPassword)
 
     // 更新密码，同时取消首次修改密码标记
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     db.prepare(`
       UPDATE users
       SET password_hash = ?, must_change_password = 0, updated_at = datetime('now')

@@ -7,7 +7,7 @@
  * - 每日自动检查
  */
 
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { proxyHead } from './proxy-axios'
 
 export interface RiskAlert {
@@ -135,7 +135,7 @@ export function saveLinkCheckResult(
   result: Awaited<ReturnType<typeof checkLink>>,
   country: string = 'US'
 ): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     INSERT INTO link_check_history (
@@ -183,7 +183,7 @@ export function createRiskAlert(
     details?: Record<string, any>
   }
 ): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 检查是否已存在相同的活跃提示（避免重复）
   const existingStmt = db.prepare(`
@@ -242,7 +242,7 @@ export function getUserRiskAlerts(
   userId: number,
   status?: 'active' | 'acknowledged' | 'resolved'
 ): RiskAlert[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   let query = `
     SELECT * FROM risk_alerts
@@ -295,7 +295,7 @@ export function updateAlertStatus(
   status: 'acknowledged' | 'resolved',
   note?: string
 ): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     UPDATE risk_alerts
@@ -321,7 +321,7 @@ export async function checkAllUserLinks(userId: number): Promise<{
   redirected: number
   newAlerts: number
 }> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取用户的所有活跃Offers（包含目标国家）
   const offersStmt = db.prepare(`
@@ -426,7 +426,7 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
   problemAccounts: number
   newAlerts: number
 }> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取用户的所有活跃Ads账号
   const accountsStmt = db.prepare(`
@@ -549,7 +549,7 @@ export async function dailyLinkCheck(): Promise<{
   }
   results: Record<number, Awaited<ReturnType<typeof checkAllUserLinks>>>
 }> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取所有有Offers的用户
   const usersStmt = db.prepare(`
@@ -602,7 +602,7 @@ export function getLinkCheckHistory(
   offerId?: number,
   limit: number = 50
 ): LinkCheckResult[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   let query = `
     SELECT * FROM link_check_history
@@ -648,7 +648,7 @@ export function getRiskStatistics(userId: number): {
   info: number
   byType: Record<string, number>
 } {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     SELECT

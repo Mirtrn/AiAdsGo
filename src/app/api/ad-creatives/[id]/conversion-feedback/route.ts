@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { calculateBonusScore, saveCreativePerformance } from '@/lib/bonus-score-calculator'
 import { getIndustryBenchmark } from '@/lib/industry-classifier'
 import { verifyAuth } from '@/lib/auth'
@@ -45,7 +45,7 @@ export async function POST(
       return NextResponse.json({ error: 'Period start and end dates are required' }, { status: 400 })
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 验证广告创意存在
     const creative = db.prepare(`
@@ -153,7 +153,7 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid ad creative ID' }, { status: 400 })
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 获取所有转化反馈
     const feedbacks = db.prepare(`

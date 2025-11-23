@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import {
   createGoogleAdsCampaign,
   createGoogleAdsAdGroup,
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 4. 验证Offer归属
     const offer = db.prepare(`

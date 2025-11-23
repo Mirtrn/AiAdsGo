@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 export interface LaunchScore {
   id: number
@@ -78,7 +78,7 @@ export function createLaunchScore(
   offerId: number,
   analysis: ScoreAnalysis
 ): LaunchScore {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     INSERT INTO launch_scores (
@@ -121,7 +121,7 @@ export function createLaunchScore(
  * 查找Launch Score（带权限验证）
  */
 export function findLaunchScoreById(id: number, userId: number): LaunchScore | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM launch_scores
     WHERE id = ? AND user_id = ?
@@ -140,7 +140,7 @@ export function findLaunchScoreById(id: number, userId: number): LaunchScore | n
  * 查找Offer的所有Launch Scores
  */
 export function findLaunchScoresByOfferId(offerId: number, userId: number): LaunchScore[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM launch_scores
     WHERE offer_id = ? AND user_id = ?
@@ -155,7 +155,7 @@ export function findLaunchScoresByOfferId(offerId: number, userId: number): Laun
  * 查找Offer的最新Launch Score
  */
 export function findLatestLaunchScore(offerId: number, userId: number): LaunchScore | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM launch_scores
     WHERE offer_id = ? AND user_id = ?
@@ -176,7 +176,7 @@ export function findLatestLaunchScore(offerId: number, userId: number): LaunchSc
  * 删除Launch Score
  */
 export function deleteLaunchScore(id: number, userId: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     DELETE FROM launch_scores

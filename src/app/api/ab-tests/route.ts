@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/ab-tests
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const offerId = searchParams.get('offer_id')
     const status = searchParams.get('status')
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     let query = `
       SELECT
         at.*,
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 开启事务
     db.exec('BEGIN TRANSACTION')

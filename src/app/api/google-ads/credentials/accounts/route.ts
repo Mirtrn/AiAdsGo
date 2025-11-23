@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 
 // Google Ads CustomerStatus 枚举值映射
@@ -75,7 +75,7 @@ interface CachedAccount {
  * 从数据库获取缓存的账号列表
  */
 function getCachedAccounts(userId: number): CachedAccount[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   return db.prepare(`
     SELECT id, customer_id, account_name, currency, timezone,
            is_manager_account, is_active, status, test_account,
@@ -99,7 +99,7 @@ function upsertAccount(userId: number, account: {
   status: string
   parent_mcc?: string
 }): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 检查是否已存在
   const existing = db.prepare(`
@@ -388,7 +388,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 查询关联的 Offer 信息
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const accountsWithOffers = allAccounts.map(account => {
       const dbAccountId = account.db_account_id
       if (!dbAccountId) {

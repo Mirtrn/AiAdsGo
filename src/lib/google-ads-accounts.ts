@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 export interface GoogleAdsAccount {
   id: number
@@ -36,7 +36,7 @@ export interface CreateGoogleAdsAccountInput {
  * 创建Google Ads账号
  */
 export function createGoogleAdsAccount(input: CreateGoogleAdsAccountInput): GoogleAdsAccount {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     INSERT INTO google_ads_accounts (
@@ -65,7 +65,7 @@ export function createGoogleAdsAccount(input: CreateGoogleAdsAccountInput): Goog
  * 查找Google Ads账号（带权限验证）
  */
 export function findGoogleAdsAccountById(id: number, userId: number): GoogleAdsAccount | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM google_ads_accounts
     WHERE id = ? AND user_id = ?
@@ -87,7 +87,7 @@ export function findGoogleAdsAccountByCustomerId(
   customerId: string,
   userId: number
 ): GoogleAdsAccount | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM google_ads_accounts
     WHERE customer_id = ? AND user_id = ?
@@ -106,7 +106,7 @@ export function findGoogleAdsAccountByCustomerId(
  * 查找用户的所有Google Ads账号
  */
 export function findGoogleAdsAccountsByUserId(userId: number): GoogleAdsAccount[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ?
@@ -123,7 +123,7 @@ export function findGoogleAdsAccountsByUserId(userId: number): GoogleAdsAccount[
  * 如果需要可用于API调用的账号，请使用 findEnabledGoogleAdsAccounts
  */
 export function findActiveGoogleAdsAccounts(userId: number): GoogleAdsAccount[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ? AND is_active = 1
@@ -138,7 +138,7 @@ export function findActiveGoogleAdsAccounts(userId: number): GoogleAdsAccount[] 
  * 查找用户可用于API调用的账号（ENABLED状态，非Manager账号）
  */
 export function findEnabledGoogleAdsAccounts(userId: number): GoogleAdsAccount[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ?
@@ -172,7 +172,7 @@ export function updateGoogleAdsAccount(
     >
   >
 ): GoogleAdsAccount | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证权限
   const account = findGoogleAdsAccountById(id, userId)
@@ -238,7 +238,7 @@ export function updateGoogleAdsAccount(
  * 删除Google Ads账号
  */
 export function deleteGoogleAdsAccount(id: number, userId: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     DELETE FROM google_ads_accounts
@@ -253,7 +253,7 @@ export function deleteGoogleAdsAccount(id: number, userId: number): boolean {
  * 设置默认激活账号（将其他账号设为不激活）
  */
 export function setActiveGoogleAdsAccount(id: number, userId: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 开始事务
   const setActive = db.transaction((accountId: number, uid: number) => {

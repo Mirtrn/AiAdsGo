@@ -1,4 +1,4 @@
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * Offer相关的辅助函数库
@@ -62,7 +62,7 @@ export function generateOfferName(
   countryCode: string,
   userId: number
 ): string {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 查询该用户下同品牌同国家的Offer数量
   const result = db
@@ -298,7 +298,7 @@ export function getCountryList(): Array<{ code: string; name: string; language: 
  * 验证Offer名称是否唯一
  */
 export function isOfferNameUnique(offerName: string, userId: number, excludeOfferId?: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const query = excludeOfferId
     ? `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND offer_name = ? AND id != ?`

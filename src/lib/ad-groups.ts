@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 export interface AdGroup {
   id: number
@@ -27,7 +27,7 @@ export interface CreateAdGroupInput {
  * 创建Ad Group
  */
 export function createAdGroup(input: CreateAdGroupInput): AdGroup {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     INSERT INTO ad_groups (
@@ -51,7 +51,7 @@ export function createAdGroup(input: CreateAdGroupInput): AdGroup {
  * 查找Ad Group（带权限验证）
  */
 export function findAdGroupById(id: number, userId: number): AdGroup | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM ad_groups
     WHERE id = ? AND user_id = ?
@@ -70,7 +70,7 @@ export function findAdGroupById(id: number, userId: number): AdGroup | null {
  * 根据Google Ads ad_group_id查找
  */
 export function findAdGroupByGoogleId(adGroupId: string, userId: number): AdGroup | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM ad_groups
     WHERE ad_group_id = ? AND user_id = ?
@@ -89,7 +89,7 @@ export function findAdGroupByGoogleId(adGroupId: string, userId: number): AdGrou
  * 查找Campaign的所有Ad Groups
  */
 export function findAdGroupsByCampaignId(campaignId: number, userId: number): AdGroup[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM ad_groups
     WHERE campaign_id = ? AND user_id = ?
@@ -104,7 +104,7 @@ export function findAdGroupsByCampaignId(campaignId: number, userId: number): Ad
  * 查找用户的所有Ad Groups
  */
 export function findAdGroupsByUserId(userId: number, limit?: number): AdGroup[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   let sql = `
     SELECT * FROM ad_groups
     WHERE user_id = ?
@@ -139,7 +139,7 @@ export function updateAdGroup(
     >
   >
 ): AdGroup | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证权限
   const adGroup = findAdGroupById(id, userId)
@@ -201,7 +201,7 @@ export function updateAdGroup(
  * 删除Ad Group
  */
 export function deleteAdGroup(id: number, userId: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     DELETE FROM ad_groups
@@ -223,7 +223,7 @@ export function updateAdGroupStatus(id: number, userId: number, status: string):
  * 批量创建Ad Groups
  */
 export function createAdGroupsBatch(adGroups: CreateAdGroupInput[]): AdGroup[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const transaction = db.transaction((groups: CreateAdGroupInput[]) => {
     const results: AdGroup[] = []

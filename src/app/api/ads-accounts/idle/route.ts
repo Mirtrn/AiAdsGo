@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getIdleAdsAccounts } from '@/lib/offers'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 // 强制动态渲染（使用了request.headers）
 export const dynamic = 'force-dynamic'
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const accounts = getIdleAdsAccounts(parseInt(userId, 10))
 
     // 为每个账号添加额外信息（最后使用的Offer、历史统计等）
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const enrichedAccounts = accounts.map((account: any) => {
       // 获取该账号最后关联的Offer信息
       const lastOffer = db

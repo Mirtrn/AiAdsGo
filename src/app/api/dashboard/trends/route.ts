@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * GET /api/dashboard/trends
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     startDate.setDate(startDate.getDate() - days)
 
     // 获取数据库实例
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 查询每日表现数据
     const query = `

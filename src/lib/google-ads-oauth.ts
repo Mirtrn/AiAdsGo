@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 /**
  * Google Ads OAuth凭证接口
@@ -34,7 +34,7 @@ export function saveGoogleAdsCredentials(
     access_token_expires_at?: string
   }
 ): GoogleAdsCredentials {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 检查是否已存在
   const existing = db.prepare(`
@@ -96,7 +96,7 @@ export function saveGoogleAdsCredentials(
  * 获取用户的Google Ads凭证
  */
 export function getGoogleAdsCredentials(userId: number): GoogleAdsCredentials | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const credentials = db.prepare(`
     SELECT * FROM google_ads_credentials
@@ -110,7 +110,7 @@ export function getGoogleAdsCredentials(userId: number): GoogleAdsCredentials | 
  * 删除Google Ads凭证
  */
 export function deleteGoogleAdsCredentials(userId: number): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   db.prepare(`
     UPDATE google_ads_credentials
@@ -153,7 +153,7 @@ export async function refreshAccessToken(userId: number): Promise<{
   const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString()
 
   // 更新数据库
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   db.prepare(`
     UPDATE google_ads_credentials
     SET access_token = ?,
@@ -231,7 +231,7 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
     const firstCustomerId = resourceNames[0].split('/').pop() || ''
 
     // 更新验证时间
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     db.prepare(`
       UPDATE google_ads_credentials
       SET last_verified_at = datetime('now'),

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import { hashPassword, verifyPassword } from './crypto'
 import { generateToken, JWTPayload, verifyToken } from './jwt'
 
@@ -52,7 +52,7 @@ export interface LoginResponse {
  * 通过邮箱查找用户
  */
 export function findUserByEmail(email: string): User | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as User | undefined
   return user || null
 }
@@ -61,7 +61,7 @@ export function findUserByEmail(email: string): User | null {
  * 通过用户名查找用户
  */
 export function findUserByUsername(username: string): User | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined
   return user || null
 }
@@ -70,7 +70,7 @@ export function findUserByUsername(username: string): User | null {
  * 通过用户名或邮箱查找用户
  */
 export function findUserByUsernameOrEmail(usernameOrEmail: string): User | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(usernameOrEmail, usernameOrEmail) as User | undefined
   return user || null
 }
@@ -79,7 +79,7 @@ export function findUserByUsernameOrEmail(usernameOrEmail: string): User | null 
  * 通过Google ID查找用户
  */
 export function findUserByGoogleId(googleId: string): User | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const user = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId) as User | undefined
   return user || null
 }
@@ -88,7 +88,7 @@ export function findUserByGoogleId(googleId: string): User | null {
  * 通过ID查找用户
  */
 export function findUserById(id: number): User | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined
   return user || null
 }
@@ -102,7 +102,7 @@ export function generateUniqueUsername(): string {
 
   let username = ''
   let isUnique = false
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   while (!isUnique) {
     const animal = animals[Math.floor(Math.random() * animals.length)]
@@ -133,7 +133,7 @@ export function generateUniqueUsername(): string {
  * 创建新用户
  */
 export async function createUser(input: CreateUserInput): Promise<User> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 检查邮箱是否已存在
   const existingUser = findUserByEmail(input.email)
@@ -179,7 +179,7 @@ export async function createUser(input: CreateUserInput): Promise<User> {
  * 更新用户最后登录时间
  */
 export function updateLastLogin(userId: number): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   db.prepare('UPDATE users SET last_login_at = datetime(\'now\') WHERE id = ?').run(userId)
 }
 
@@ -257,7 +257,7 @@ export async function loginWithGoogle(googleProfile: {
     const existingUser = findUserByEmail(googleProfile.email)
     if (existingUser) {
       // 绑定Google ID到现有账户
-      const db = getDatabase()
+      const db = getSQLiteDatabase()
       db.prepare(`
         UPDATE users
         SET google_id = ?, profile_picture = ?, updated_at = datetime('now')

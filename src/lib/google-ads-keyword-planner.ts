@@ -326,16 +326,16 @@ export function groupKeywordsByTheme(keywords: KeywordIdea[]): {
  */
 function getLanguageCode(language: string): string {
   const languageMap: { [key: string]: string } = {
-    English: '1000', // English
-    Chinese: '1017', // Chinese (Simplified)
-    Spanish: '1003', // Spanish
-    French: '1002', // French
-    German: '1001', // German
-    Japanese: '1005', // Japanese
-    Korean: '1012', // Korean
+    English: 'languageConstants/1000', // English
+    Chinese: 'languageConstants/1017', // Chinese (Simplified)
+    Spanish: 'languageConstants/1003', // Spanish
+    French: 'languageConstants/1002', // French
+    German: 'languageConstants/1001', // German
+    Japanese: 'languageConstants/1005', // Japanese
+    Korean: 'languageConstants/1012', // Korean
   }
 
-  return languageMap[language] || '1000' // 默认英语
+  return languageMap[language] || 'languageConstants/1000' // 默认英语
 }
 
 /**

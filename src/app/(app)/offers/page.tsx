@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Offer列表页 - P1-2优化版 + P2-2导出功能
+ * Offer列表页 - P1-2优化版 + P2-2导出功能 + 分页 + 批量删除 + 强制重新编译
  * 使用shadcn/ui Table组件 + 筛选器 + CSV导出
  */
 
@@ -46,13 +46,23 @@ import {
 import AdjustCpcModal from '@/components/AdjustCpcModal'
 import LaunchScoreModal from '@/components/LaunchScoreModal'
 import CreateOfferModalV2 from '@/components/CreateOfferModalV2'
-import { VirtualizedOfferTable } from '@/components/VirtualizedOfferTable'
-import { MobileOfferCard } from '@/components/MobileOfferCard'
+// 移除移动端视图，统一使用表格视图
+// import { MobileOfferCard } from '@/components/MobileOfferCard'
 import { SortableTableHead } from '@/components/SortableTableHead' // P2-5: 可排序表头
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state' // P2-7: 统一空状态
-import { useIsMobile } from '@/hooks/useMediaQuery'
-import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload } from 'lucide-react'
+// import { useIsMobile } from '@/hooks/useMediaQuery'
+import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, CheckSquare, Square } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
+import { getScrapeStatusLabel, type ScrapeStatus } from '@/lib/i18n-constants'
 
 interface Offer {
   id: number
@@ -85,8 +95,8 @@ export default function OffersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // P2-4: 移动端检测
-  const isMobile = useIsMobile()
+  // P2-4: 移动端检测 - 已移除，统一使用表格视图
+  // const isMobile = useIsMobile()
 
   // P1-2: 筛选器状态
   const [searchQuery, setSearchQuery] = useState('')
@@ -96,6 +106,16 @@ export default function OffersPage() {
   // P2-5: 排序状态
   const [sortBy, setSortBy] = useState<string>('')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+
+  // 多选和批量删除状态
+  const [selectedOfferIds, setSelectedOfferIds] = useState<Set<number>>(new Set())
+  const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false)
+  const [batchDeleting, setBatchDeleting] = useState(false)
+
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10) // 每页显示条数，可选：10/20/50/100
+  const [paginatedOffers, setPaginatedOffers] = useState<Offer[]>([])
 
   // Modals
   const [isAdjustCpcModalOpen, setIsAdjustCpcModalOpen] = useState(false)
@@ -168,7 +188,17 @@ export default function OffersPage() {
     }
 
     setFilteredOffers(filtered)
+
+    // 重置到第一页当筛选条件改变时
+    setCurrentPage(1)
   }, [offers, searchQuery, countryFilter, statusFilter, sortBy, sortOrder])
+
+  // 计算分页数据
+  useEffect(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    const endIndex = startIndex + pageSize
+    setPaginatedOffers(filteredOffers.slice(startIndex, endIndex))
+  }, [filteredOffers, currentPage, pageSize])
 
   // P2-5: 排序处理函数
   const handleSort = (field: string) => {
@@ -236,6 +266,68 @@ export default function OffersPage() {
     }
   }
 
+  // 批量删除处理函数
+  const handleBatchDelete = async () => {
+    if (selectedOfferIds.size === 0) return
+
+    try {
+      setBatchDeleting(true)
+
+      // 并行删除所有选中的offers
+      const deletePromises = Array.from(selectedOfferIds).map(id =>
+        fetch(`/api/offers/${id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+      )
+
+      const results = await Promise.allSettled(deletePromises)
+
+      // 检查是否有失败的删除操作
+      const failures = results.filter(r => r.status === 'rejected')
+      if (failures.length > 0) {
+        setError(`部分删除失败: ${failures.length}/${selectedOfferIds.size} 个Offer删除失败`)
+      }
+
+      // 刷新列表
+      await fetchOffers()
+
+      // 清空选中状态
+      setSelectedOfferIds(new Set())
+
+      // 关闭对话框
+      setIsBatchDeleteDialogOpen(false)
+    } catch (err: any) {
+      setError(err.message || '批量删除失败')
+    } finally {
+      setBatchDeleting(false)
+    }
+  }
+
+  // 全选/取消全选
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allIds = new Set(paginatedOffers.map(o => o.id))
+      setSelectedOfferIds(allIds)
+    } else {
+      setSelectedOfferIds(new Set())
+    }
+  }
+
+  // 单选切换
+  const handleSelectOffer = (offerId: number, checked: boolean) => {
+    const newSelected = new Set(selectedOfferIds)
+    if (checked) {
+      newSelected.add(offerId)
+    } else {
+      newSelected.delete(offerId)
+    }
+    setSelectedOfferIds(newSelected)
+  }
+
+  // 计算总页数
+  const totalPages = Math.ceil(filteredOffers.length / pageSize)
+
   // P1-11: 解除关联处理函数
   const handleUnlinkAccount = async () => {
     if (!offerToUnlink) return
@@ -273,10 +365,10 @@ export default function OffersPage() {
 
   const getScrapeStatusBadge = (status: string) => {
     const configs = {
-      pending: { label: '等待抓取', variant: 'secondary' as const, className: 'text-gray-500' },
-      in_progress: { label: '抓取中', variant: 'default' as const, className: 'bg-blue-600' },
-      completed: { label: '已完成', variant: 'outline' as const, className: 'bg-green-50 text-green-700 border-green-200' },
-      failed: { label: '失败', variant: 'destructive' as const, className: '' },
+      pending: { label: getScrapeStatusLabel('pending'), variant: 'secondary' as const, className: 'text-gray-500' },
+      in_progress: { label: getScrapeStatusLabel('in_progress'), variant: 'default' as const, className: 'bg-blue-600' },
+      completed: { label: getScrapeStatusLabel('completed'), variant: 'outline' as const, className: 'bg-green-50 text-green-700 border-green-200' },
+      failed: { label: getScrapeStatusLabel('failed'), variant: 'destructive' as const, className: '' },
     }
     const config = configs[status as keyof typeof configs] || { label: status, variant: 'outline' as const, className: '' }
     return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>
@@ -345,7 +437,7 @@ export default function OffersPage() {
                 onClick={() => router.push('/dashboard')}
                 className="flex-shrink-0"
               >
-                ← {isMobile ? '' : '返回Dashboard'}
+                ← 返回Dashboard
               </Button>
               <h1 className="page-title">Offer管理</h1>
               <Badge variant="outline" className="text-caption sm:text-body-sm">
@@ -354,8 +446,20 @@ export default function OffersPage() {
             </div>
 
             {/* 右侧操作按钮 */}
-            {/* 右侧操作按钮 */}
             <div className="flex items-center gap-2 w-full sm:w-auto">
+              {/* 批量删除按钮 - 有选中项时显示 */}
+              {selectedOfferIds.size > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setIsBatchDeleteDialogOpen(true)}
+                  className="flex-shrink-0"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  删除 ({selectedOfferIds.size})
+                </Button>
+              )}
+
               <Button
                 onClick={() => setIsCreateModalOpen(true)}
                 className="flex-1 sm:flex-none"
@@ -422,7 +526,7 @@ export default function OffersPage() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
                   type="text"
-                  placeholder={isMobile ? "搜索..." : "搜索品牌名称、Offer标识、URL..."}
+                  placeholder="搜索品牌名称、Offer标识、URL..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -453,10 +557,10 @@ export default function OffersPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">所有状态</SelectItem>
-                    <SelectItem value="pending">等待抓取</SelectItem>
-                    <SelectItem value="in_progress">抓取中</SelectItem>
-                    <SelectItem value="completed">已完成</SelectItem>
-                    <SelectItem value="failed">失败</SelectItem>
+                    <SelectItem value="pending">{getScrapeStatusLabel('pending')}</SelectItem>
+                    <SelectItem value="in_progress">{getScrapeStatusLabel('in_progress')}</SelectItem>
+                    <SelectItem value="completed">{getScrapeStatusLabel('completed')}</SelectItem>
+                    <SelectItem value="failed">{getScrapeStatusLabel('failed')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -498,55 +602,22 @@ export default function OffersPage() {
           ) : (
             <NoResultsState />
           )
-        ) : isMobile ? (
-          /* P2-4: 移动端卡片视图 */
-          <div className="space-y-3">
-            {filteredOffers.map((offer) => (
-              <MobileOfferCard
-                key={offer.id}
-                offer={offer}
-                onLaunchAd={(offer) => {
-                  if (offer.scrape_status === 'completed') {
-                    router.push(`/offers/${offer.id}/launch`)
-                  }
-                }}
-                onAdjustCpc={(offer) => {
-                  setSelectedOfferForCpc(offer)
-                  setIsAdjustCpcModalOpen(true)
-                }}
-                onLaunchScore={(offer) => {
-                  setSelectedOfferForScore(offer)
-                  setIsLaunchScoreModalOpen(true)
-                }}
-              />
-            ))}
-          </div>
-        ) : filteredOffers.length > 50 ? (
-          /* P2-3: 虚拟滚动优化（自动启用：>50 Offers） */
-          <VirtualizedOfferTable
-            offers={filteredOffers}
-            onLaunchAd={(offer) => {
-              if (offer.scrape_status === 'completed') {
-                router.push(`/offers/${offer.id}/launch`)
-              }
-            }}
-            onAdjustCpc={(offer) => {
-              setSelectedOfferForCpc(offer)
-              setIsAdjustCpcModalOpen(true)
-            }}
-            onLaunchScore={(offer) => {
-              setSelectedOfferForScore(offer)
-              setIsLaunchScoreModalOpen(true)
-            }}
-          />
         ) : (
-          /* P1-2: shadcn/ui Table */
+          /* 统一使用表格视图 */
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {/* 全选checkbox */}
+                      <TableHead className="w-[50px]">
+                        <Checkbox
+                          checked={paginatedOffers.length > 0 && paginatedOffers.every(o => selectedOfferIds.has(o.id))}
+                          onCheckedChange={handleSelectAll}
+                          aria-label="全选"
+                        />
+                      </TableHead>
                       {/* P2-5: 可排序列头 */}
                       <SortableTableHead
                         field="id"
@@ -555,7 +626,7 @@ export default function OffersPage() {
                         onSort={handleSort}
                         className="w-[100px]"
                       >
-                        Offer ID
+                        产品编号
                       </SortableTableHead>
                       <SortableTableHead
                         field="offerName"
@@ -564,7 +635,7 @@ export default function OffersPage() {
                         onSort={handleSort}
                         className="w-[200px]"
                       >
-                        Offer标识
+                        产品标识
                       </SortableTableHead>
                       <SortableTableHead
                         field="brand"
@@ -603,8 +674,16 @@ export default function OffersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOffers.map((offer) => (
+                    {paginatedOffers.map((offer) => (
                       <TableRow key={offer.id} className="hover:bg-gray-50/50">
+                        {/* 选择checkbox */}
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedOfferIds.has(offer.id)}
+                            onCheckedChange={(checked) => handleSelectOffer(offer.id, checked as boolean)}
+                            aria-label={`选择 ${offer.brand}`}
+                          />
+                        </TableCell>
                         <TableCell className="font-mono text-body-sm text-gray-600">
                           #{offer.id}
                         </TableCell>
@@ -723,6 +802,81 @@ export default function OffersPage() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* 分页组件 */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-6 py-4 border-t">
+                  <div className="flex items-center gap-4">
+                    <div className="text-sm text-gray-500">
+                      显示第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredOffers.length)} 条，共 {filteredOffers.length} 条
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">每页</span>
+                      <Select
+                        value={pageSize.toString()}
+                        onValueChange={(value) => {
+                          const newPageSize = parseInt(value)
+                          setPageSize(newPageSize)
+                          setCurrentPage(1) // 重置到第一页
+                        }}
+                      >
+                        <SelectTrigger className="w-[80px] h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="10">10</SelectItem>
+                          <SelectItem value="20">20</SelectItem>
+                          <SelectItem value="50">50</SelectItem>
+                          <SelectItem value="100">100</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span className="text-sm text-gray-500">条</span>
+                    </div>
+                  </div>
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        />
+                      </PaginationItem>
+
+                      {/* 显示页码 */}
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                        // 只显示当前页附近的页码
+                        if (
+                          page === 1 ||
+                          page === totalPages ||
+                          (page >= currentPage - 1 && page <= currentPage + 1)
+                        ) {
+                          return (
+                            <PaginationItem key={page}>
+                              <PaginationLink
+                                onClick={() => setCurrentPage(page)}
+                                isActive={page === currentPage}
+                                className="cursor-pointer"
+                              >
+                                {page}
+                              </PaginationLink>
+                            </PaginationItem>
+                          )
+                        } else if (page === currentPage - 2 || page === currentPage + 2) {
+                          return <span key={page} className="px-2">...</span>
+                        }
+                        return null
+                      })}
+
+                      <PaginationItem>
+                        <PaginationNext
+                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -816,6 +970,36 @@ export default function OffersPage() {
               className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
             >
               {deleting ? '删除中...' : '确认删除'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={setIsBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量删除</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>您确定要删除选中的 <strong className="text-gray-900">{selectedOfferIds.size}</strong> 个Offer吗？</p>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-body-sm text-yellow-800">
+                <p className="font-medium mb-1">⚠️ 重要提示：</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>已删除的Offer历史数据会保留在系统中</li>
+                  <li>关联的Google Ads账号会自动解除关联</li>
+                  <li>此操作不可撤销</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchDeleting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBatchDelete}
+              disabled={batchDeleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {batchDeleting ? '删除中...' : '确认删除'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

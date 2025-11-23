@@ -1,5 +1,5 @@
 import { getCustomer } from './google-ads-api'
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import { enums } from 'google-ads-api'
 
 /**
@@ -94,7 +94,7 @@ export class DataSyncService {
     userId: number,
     syncType: 'manual' | 'auto' = 'manual'
   ): Promise<SyncLog> {
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const startTime = Date.now()
     const startedAt = new Date().toISOString()
 
@@ -376,7 +376,7 @@ export class DataSyncService {
    * 清理90天之前的数据
    */
   async cleanupOldData(): Promise<number> {
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - 90)
@@ -397,7 +397,7 @@ export class DataSyncService {
    * 获取同步日志
    */
   getSyncLogs(userId: number, limit: number = 20): SyncLog[] {
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     return db
       .prepare(

@@ -25,13 +25,15 @@ const nextConfig = {
 
   // 外部包配置：避免webpack打包特定库
   experimental: {
-    serverComponentsExternalPackages: ['better-sqlite3', 'cheerio'],
+    serverComponentsExternalPackages: ['better-sqlite3', 'cheerio', 'postgres'],
+    // 启用 instrumentation
+    instrumentationHook: true,
   },
 
   webpack: (config, { isServer }) => {
-    // 支持better-sqlite3和cheerio
+    // 支持better-sqlite3, cheerio, postgres
     if (isServer) {
-      config.externals.push('better-sqlite3', 'cheerio');
+      config.externals.push('better-sqlite3', 'cheerio', 'postgres');
     }
     // 不再自定义chunk splitting，使用Next.js默认配置
     return config;

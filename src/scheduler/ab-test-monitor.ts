@@ -14,7 +14,7 @@
  * 执行频率：每小时一次
  */
 
-import { getDatabase } from '../lib/db'
+import { getDatabase, getSQLiteDatabase } from '../lib/db'
 import { updateGoogleAdsCampaignStatus, updateGoogleAdsCampaignBudget } from '../lib/google-ads-api'
 
 // Z-test计算（判断统计显著性）
@@ -86,7 +86,7 @@ function normalCDF(x: number): number {
  * 主监控函数
  */
 export async function monitorActiveABTests() {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   try {
     console.log('🔍 开始A/B测试监控任务...')
@@ -140,7 +140,7 @@ export async function monitorActiveABTests() {
  * 处理单个测试
  */
 async function processTest(test: any) {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const dimensionLabel = test.test_dimension === 'creative' ? '创意测试' : '策略测试'
   console.log(`\n📋 处理测试: ${test.test_name} (ID: ${test.id}, 维度: ${dimensionLabel})`)
@@ -273,7 +273,7 @@ async function processTest(test: any) {
  * CPC自适应调整
  */
 async function checkAndAdjustCPC(test: any, variantMetrics: any[]) {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 计算测试运行时长（小时）
   const startTime = new Date(test.start_date || test.created_at).getTime()
@@ -447,7 +447,7 @@ async function switchToWinner(
   variantMetrics: any[],
   analysis: any
 ) {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const winner = variantMetrics[analysis.winnerIndex]
 

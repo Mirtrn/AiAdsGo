@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { apiCache, generateCacheKey } from '@/lib/api-cache'
 
 /**
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     const previousStartDate = new Date(previousEndDate)
     previousStartDate.setDate(previousStartDate.getDate() - days)
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 查询当前周期数据
     const currentPeriodQuery = `

@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import { generateOfferName, getTargetLanguage } from './offer-utils'
 
 export interface Offer {
@@ -76,7 +76,7 @@ export interface UpdateOfferInput {
  * 需求1: 自动生成offer_name和target_language
  */
 export function createOffer(userId: number, input: CreateOfferInput): Offer {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // ========== 需求1和需求5: 自动生成字段 ==========
   // 生成offer_name: 品牌名称_推广国家_序号（如 Reolink_US_01）
@@ -124,7 +124,7 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
  * 通过ID查找Offer（包含用户验证，排除已删除）
  */
 export function findOfferById(id: number, userId: number): Offer | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const offer = db.prepare(`
     SELECT * FROM offers
     WHERE id = ? AND user_id = ? AND (is_deleted = 0 OR is_deleted IS NULL)
@@ -146,7 +146,7 @@ export function listOffers(
     includeDeleted?: boolean
   }
 ): { offers: Offer[]; total: number } {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   let whereConditions = ['user_id = ?']
   const params: any[] = [userId]
@@ -227,7 +227,7 @@ export function listOffers(
  * 更新Offer
  */
 export function updateOffer(id: number, userId: number, input: UpdateOfferInput): Offer {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证Offer存在且属于该用户
   const existing = findOfferById(id, userId)
@@ -316,7 +316,7 @@ export function updateOffer(id: number, userId: number, input: UpdateOfferInput)
  * 需求25: 保留历史数据，解除Ads账号关联
  */
 export function deleteOffer(id: number, userId: number): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证Offer存在且属于该用户
   const existing = findOfferById(id, userId)
@@ -387,7 +387,7 @@ export function unlinkOfferFromAccount(
   accountId: number,
   userId: number
 ): { unlinkedCount: number } {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证Offer存在
   const existing = findOfferById(offerId, userId)
@@ -439,7 +439,7 @@ export function unlinkOfferFromAccount(
  * 只返回ENABLED状态且非Manager的账号
  */
 export function getIdleAdsAccounts(userId: number): any[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   return db.prepare(`
     SELECT * FROM google_ads_accounts
@@ -479,7 +479,7 @@ export function updateOfferScrapeStatus(
     visual_analysis?: string
   }
 ): void {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   if (status === 'completed' && scrapedData) {
     db.prepare(`

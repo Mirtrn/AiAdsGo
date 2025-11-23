@@ -4,7 +4,7 @@ import { scrapeUrl } from '@/lib/scraper'
 import { analyzeProductPage, ProductInfo } from '@/lib/ai'
 import { getProxyUrlForCountry, isProxyEnabled } from '@/lib/settings'
 import { getCachedPageData, setCachedPageData, SeoData } from '@/lib/redis'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * 🎯 Phase 3持久化: 保存抓取的产品数据到数据库
@@ -14,7 +14,7 @@ async function saveScrapedProducts(
   products: any[],
   source: 'amazon_store' | 'independent_store'
 ): Promise<void> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 删除该Offer之前的产品数据（更新场景）
   const deleteStmt = db.prepare('DELETE FROM scraped_products WHERE offer_id = ?')
@@ -607,6 +607,77 @@ async function performScrapeAndAnalysis(
         console.log(`⚠️ 无法从brandDescription提取品牌名，使用原始值: ${brand}`)
       }
     }
+
+    // 🎯 新增: 品牌名智能提取fallback - 当品牌名为"提取中..."或无效时
+    const isInvalidBrand = !extractedBrand ||
+                          extractedBrand === '提取中...' ||
+                          extractedBrand === 'Extracting...' ||
+                          extractedBrand.trim().length < 2
+
+    if (isInvalidBrand && aiAnalysisSuccess && pageData.title) {
+      console.log('🔍 尝试使用AI专门提取品牌名...')
+      try {
+        // 使用AI从产品标题和描述中提取品牌名
+        const { extractBrandFromContent } = await import('@/lib/ai')
+        const aiBrand = await extractBrandFromContent({
+          title: pageData.title,
+          description: pageData.description || '',
+          text: pageData.text?.substring(0, 2000) || '', // 限制长度以节省token
+          url: actualUrl,
+        }, userId)
+
+        if (aiBrand && aiBrand.length >= 2 && aiBrand.length <= 30) {
+          extractedBrand = aiBrand
+          console.log(`✅ AI品牌提取成功: "${extractedBrand}"`)
+        } else {
+          console.warn(`⚠️ AI品牌提取结果无效: "${aiBrand}"`)
+        }
+      } catch (brandExtractionError: any) {
+        console.warn(`⚠️ AI品牌提取失败: ${brandExtractionError.message}`)
+      }
+    }
+
+    // 最终验证：如果还是无效品牌名，从URL中尝试提取
+    if (!extractedBrand || extractedBrand === '提取中...' || extractedBrand.trim().length < 2) {
+      console.log('🔍 尝试从URL提取品牌名...')
+
+      // Amazon Store URL: /stores/BrandName/...
+      let urlBrand = actualUrl.match(/amazon\.com\/stores\/([^\/]+)/)?.[1]
+
+      // Amazon产品URL: /dp/ASIN 无法直接提取品牌，但可以尝试从标题
+      if (!urlBrand && pageData.title) {
+        // 从标题开头提取（Amazon产品标题通常以品牌名开头）
+        const titleBrand = pageData.title.split(/[\s-,|]/)[0]?.trim()
+        if (titleBrand && titleBrand.length >= 2 && titleBrand.length <= 30) {
+          const isValidBrand = /^[A-Z][A-Za-z0-9&\s-]+$/.test(titleBrand) ||
+                              /^[A-Z0-9]+$/.test(titleBrand)
+          if (isValidBrand) {
+            urlBrand = titleBrand
+          }
+        }
+      }
+
+      if (urlBrand) {
+        extractedBrand = decodeURIComponent(urlBrand)
+          .replace(/-/g, ' ')
+          .replace(/\+/g, ' ')
+          .replace(/\s+(Store|Shop|Official)$/i, '')
+          .trim()
+        console.log(`✅ 从URL/标题提取品牌: "${extractedBrand}"`)
+      } else {
+        // 最后的备选方案：使用ASIN作为标识符（如果是Amazon产品页）
+        if (actualUrl.includes('amazon.com/dp/')) {
+          const asin = actualUrl.match(/\/dp\/([A-Z0-9]{10})/)?.[1]
+          if (asin) {
+            extractedBrand = `Product_${asin.substring(0, 6)}`
+            console.log(`⚠️ 使用ASIN生成临时品牌标识: "${extractedBrand}"`)
+          }
+        }
+      }
+    }
+
+    console.log(`📦 最终品牌名: "${extractedBrand}"`)
+
 
     // 🎯 P0优化: 用户评论深度分析（仅针对产品页，非店铺页）
     let reviewAnalysis = null

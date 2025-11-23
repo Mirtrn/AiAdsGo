@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import type { LaunchScore, ScoreAnalysis } from './launch-scores'
 
 /**
@@ -47,7 +47,7 @@ export function getPerformanceDataForOffer(
   userId: number,
   daysBack: number = 30
 ): PerformanceData | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const cutoffDate = new Date()
   cutoffDate.setDate(cutoffDate.getDate() - daysBack)

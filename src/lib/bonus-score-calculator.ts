@@ -3,7 +3,7 @@
  * 基于实际广告效果计算20分加分
  */
 
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import { getIndustryBenchmark, IndustryBenchmark } from './industry-classifier'
 
 export interface PerformanceData {
@@ -231,7 +231,7 @@ export async function saveCreativePerformance(
   industryCode: string,
   syncDate: string
 ): Promise<BonusScoreResult> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 计算加分
   const bonusResult = await calculateBonusScore(performance, industryCode)
@@ -287,7 +287,7 @@ export async function getCreativePerformance(adCreativeId: number): Promise<{
   bonusScore: BonusScoreResult
   syncDate: string
 } | null> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const row = db.prepare(`
     SELECT
@@ -334,7 +334,7 @@ export async function getUserBonusStats(userId: string): Promise<{
   averageBonus: number
   topPerformers: { adCreativeId: number; bonusScore: number; industryLabel: string }[]
 }> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stats = db.prepare(`
     SELECT

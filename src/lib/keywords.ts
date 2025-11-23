@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 export interface Keyword {
   id: number
@@ -38,7 +38,7 @@ export interface CreateKeywordInput {
  * 创建Keyword
  */
 export function createKeyword(input: CreateKeywordInput): Keyword {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     INSERT INTO keywords (
@@ -69,7 +69,7 @@ export function createKeyword(input: CreateKeywordInput): Keyword {
  * 查找Keyword（带权限验证）
  */
 export function findKeywordById(id: number, userId: number): Keyword | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM keywords
     WHERE id = ? AND user_id = ?
@@ -88,7 +88,7 @@ export function findKeywordById(id: number, userId: number): Keyword | null {
  * 根据Google Ads keyword_id查找
  */
 export function findKeywordByGoogleId(keywordId: string, userId: number): Keyword | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM keywords
     WHERE keyword_id = ? AND user_id = ?
@@ -107,7 +107,7 @@ export function findKeywordByGoogleId(keywordId: string, userId: number): Keywor
  * 查找Ad Group的所有Keywords
  */
 export function findKeywordsByAdGroupId(adGroupId: number, userId: number): Keyword[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM keywords
     WHERE ad_group_id = ? AND user_id = ?
@@ -122,7 +122,7 @@ export function findKeywordsByAdGroupId(adGroupId: number, userId: number): Keyw
  * 查找用户的所有Keywords
  */
 export function findKeywordsByUserId(userId: number, limit?: number): Keyword[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   let sql = `
     SELECT * FROM keywords
     WHERE user_id = ?
@@ -142,7 +142,7 @@ export function findKeywordsByUserId(userId: number, limit?: number): Keyword[] 
  * 查找AI生成的Keywords
  */
 export function findAIGeneratedKeywords(adGroupId: number, userId: number): Keyword[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM keywords
     WHERE ad_group_id = ? AND user_id = ? AND ai_generated = 1
@@ -176,7 +176,7 @@ export function updateKeyword(
     >
   >
 ): Keyword | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证权限
   const keyword = findKeywordById(id, userId)
@@ -254,7 +254,7 @@ export function updateKeyword(
  * 删除Keyword
  */
 export function deleteKeyword(id: number, userId: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     DELETE FROM keywords
@@ -269,7 +269,7 @@ export function deleteKeyword(id: number, userId: number): boolean {
  * 批量创建Keywords
  */
 export function createKeywordsBatch(keywords: CreateKeywordInput[]): Keyword[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const transaction = db.transaction((kws: CreateKeywordInput[]) => {
     const results: Keyword[] = []
@@ -293,7 +293,7 @@ export function updateKeywordsStatus(
   userId: number,
   status: string
 ): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const transaction = db.transaction((ids: number[], uid: number, newStatus: string) => {
     let updateCount = 0
@@ -315,7 +315,7 @@ export function updateKeywordsStatus(
  * 删除Ad Group的所有Keywords
  */
 export function deleteKeywordsByAdGroupId(adGroupId: number, userId: number): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     DELETE FROM keywords

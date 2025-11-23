@@ -1,4 +1,4 @@
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 
 export interface Creative {
   id: number
@@ -47,7 +47,7 @@ export interface CreateCreativeInput {
  * 创建新的创意
  */
 export function createCreative(input: CreateCreativeInput): Creative {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 获取该Offer的最新版本号
   const maxVersionStmt = db.prepare(`
@@ -92,7 +92,7 @@ export function createCreative(input: CreateCreativeInput): Creative {
  * 批量创建创意
  */
 export function createCreatives(inputs: CreateCreativeInput[]): Creative[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const createBatch = db.transaction((creatives: CreateCreativeInput[]) => {
     return creatives.map(input => createCreative(input))
   })
@@ -104,7 +104,7 @@ export function createCreatives(inputs: CreateCreativeInput[]): Creative[] {
  * 查找单个创意（带权限验证）
  */
 export function findCreativeById(id: number, userId: number): Creative | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM creatives
     WHERE id = ? AND user_id = ?
@@ -123,7 +123,7 @@ export function findCreativeById(id: number, userId: number): Creative | null {
  * 查找Offer的所有创意
  */
 export function findCreativesByOfferId(offerId: number, userId: number): Creative[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const stmt = db.prepare(`
     SELECT * FROM creatives
     WHERE offer_id = ? AND user_id = ?
@@ -138,7 +138,7 @@ export function findCreativesByOfferId(offerId: number, userId: number): Creativ
  * 查找用户的所有创意
  */
 export function findCreativesByUserId(userId: number, limit?: number): Creative[] {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   let sql = `
     SELECT * FROM creatives
     WHERE user_id = ?
@@ -180,7 +180,7 @@ export function updateCreative(
     >
   >
 ): Creative | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   // 验证权限
   const creative = findCreativeById(id, userId)
@@ -269,7 +269,7 @@ export function updateCreative(
  * 批准创意
  */
 export function approveCreative(id: number, userId: number, approvedByUserId: number): Creative | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     UPDATE creatives
@@ -292,7 +292,7 @@ export function approveCreative(id: number, userId: number, approvedByUserId: nu
  * 取消批准
  */
 export function unapproveCreative(id: number, userId: number): Creative | null {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     UPDATE creatives
@@ -315,7 +315,7 @@ export function unapproveCreative(id: number, userId: number): Creative | null {
  * 删除创意
  */
 export function deleteCreative(id: number, userId: number): boolean {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     DELETE FROM creatives
@@ -330,7 +330,7 @@ export function deleteCreative(id: number, userId: number): boolean {
  * 获取Offer的最新创意版本号
  */
 export function getLatestCreativeVersion(offerId: number, userId: number): number {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
 
   const stmt = db.prepare(`
     SELECT MAX(version) as max_version

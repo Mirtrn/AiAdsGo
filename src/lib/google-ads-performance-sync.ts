@@ -3,7 +3,7 @@
  * 自动同步广告创意效果数据用于加分计算
  */
 
-import { getDatabase } from './db'
+import { getDatabase, getSQLiteDatabase } from './db'
 import { saveCreativePerformance, PerformanceData } from './bonus-score-calculator'
 import { GoogleAdsApi } from 'google-ads-api'
 
@@ -24,7 +24,7 @@ export async function syncCreativePerformance(
   customerID: string
 ): Promise<boolean> {
   try {
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 获取广告创意和关联的campaign/ad_group信息
     const creative = db.prepare(`
@@ -131,7 +131,7 @@ export async function syncAllCreativesPerformance(
   googleAdsClient: GoogleAdsApi,
   customerID: string
 ): Promise<SyncResult> {
-  const db = getDatabase()
+  const db = getSQLiteDatabase()
   const syncDate = new Date().toISOString().split('T')[0]
   const errors: string[] = []
   let syncedCount = 0
@@ -195,7 +195,7 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!
     })
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // Get user's Google Ads account
     const account = db.prepare(`

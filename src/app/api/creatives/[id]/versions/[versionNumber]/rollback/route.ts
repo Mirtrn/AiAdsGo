@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 
 /**
  * POST /api/creatives/:id/versions/:versionNumber/rollback
@@ -26,7 +26,7 @@ export async function POST(
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
     const userId = authResult.user.userId
 
     // 验证Creative所有权

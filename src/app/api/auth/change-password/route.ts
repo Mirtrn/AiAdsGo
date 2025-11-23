@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { verifyPassword, hashPassword } from '@/lib/crypto'
 import { verifyToken } from '@/lib/jwt'
 
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const db = getDatabase()
+    const db = getSQLiteDatabase()
 
     // 查询用户
     const user = db.prepare(
