@@ -99,9 +99,9 @@ const SETTING_METADATA: Record<string, {
   // AI - 模式选择
   'ai.use_vertex_ai': {
     label: 'AI模式',
-    description: '选择AI调用模式。Vertex AI无需代理，更稳定；Gemini API需要配置代理',
+    description: '选择AI调用模式。Vertex AI企业级稳定；Gemini API配置简单快速',
     options: [
-      { value: 'false', label: 'Gemini API（需要代理）' },
+      { value: 'false', label: 'Gemini API（直连访问）' },
       { value: 'true', label: 'Vertex AI（推荐，企业级）' }
     ],
     defaultValue: 'false'
@@ -479,11 +479,14 @@ export default function SettingsPage() {
           value: JSON.stringify(validProxyUrls),
         }]
       } else {
-        updates = Object.entries(formData[category] || {}).map(([key, value]) => ({
-          category,
-          key,
-          value,
-        }))
+        // 过滤掉空值字段，避免提交未填写的配置项
+        updates = Object.entries(formData[category] || {})
+          .filter(([_, value]) => value !== undefined && value !== null && value.trim() !== '')
+          .map(([key, value]) => ({
+            category,
+            key,
+            value,
+          }))
       }
 
       const response = await fetch('/api/settings', {
@@ -729,7 +732,7 @@ export default function SettingsPage() {
               <ul className="space-y-1 text-body-sm text-blue-700">
                 <li>• 敏感数据（如API密钥、Service Account JSON）将使用AES-256-GCM加密存储</li>
                 <li>• 标记为"必填"的配置项需要填写才能使用对应功能</li>
-                <li>• AI引擎支持两种模式：Vertex AI（推荐，无需代理）和 Gemini API（需要代理）</li>
+                <li>• AI引擎支持两种模式：Vertex AI（推荐，企业级）和 Gemini API（直连访问）</li>
                 <li>• 配置Google Ads API后，请前往Google Ads设置页面完成账号授权</li>
                 <li>• 如遇API访问问题，可尝试启用代理设置</li>
               </ul>
@@ -1027,15 +1030,15 @@ export default function SettingsPage() {
                             <p className="font-medium text-purple-800 mb-2">Vertex AI（推荐）</p>
                             <ul className="space-y-1">
                               <li>• 企业级稳定性</li>
-                              <li>• 无需代理访问</li>
                               <li>• 需要GCP账号</li>
+                              <li>• Service Account配置</li>
                             </ul>
                           </div>
                           <div className="bg-white/50 p-3 rounded">
                             <p className="font-medium text-purple-800 mb-2">Gemini API</p>
                             <ul className="space-y-1">
                               <li>• 配置简单快速</li>
-                              <li>• 需要配置代理</li>
+                              <li>• 直连访问</li>
                               <li>• 适合快速测试</li>
                             </ul>
                           </div>

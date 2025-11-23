@@ -1,13 +1,10 @@
 /**
- * 使用 axios + HttpsProxyAgent 调用 Gemini API
- * 解决 Node.js fetch 不支持代理的问题
+ * 使用 axios 调用 Gemini API
  *
  * 重要：API密钥从用户配置获取，不使用全局配置
  */
 
 import axios, { AxiosInstance } from 'axios'
-import { HttpsProxyAgent } from 'https-proxy-agent'
-import { getProxyIp } from './proxy/fetch-proxy-ip'
 import { getUserOnlySetting } from './settings'
 
 /**
@@ -49,48 +46,18 @@ export interface GeminiResponse {
 }
 
 /**
- * 创建配置了代理的 axios 实例用于 Gemini API
+ * 创建 axios 实例用于 Gemini API
  */
-export async function createGeminiAxiosClient(): Promise<AxiosInstance> {
-  const proxyEnabled = process.env.PROXY_ENABLED === 'true'
-  const proxyUrl = process.env.PROXY_URL
+export function createGeminiAxiosClient(): AxiosInstance {
+  const client = axios.create({
+    baseURL: 'https://generativelanguage.googleapis.com',
+    timeout: 60000, // 60秒超时
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
 
-  if (!proxyEnabled || !proxyUrl) {
-    throw new Error(
-      'Gemini API调用必须启用代理。请在.env中设置 PROXY_ENABLED=true 和 PROXY_URL'
-    )
-  }
-
-  try {
-    console.log('🔧 为Gemini API配置axios代理...')
-
-    // 获取代理凭证
-    const proxy = await getProxyIp(proxyUrl)
-    console.log(`✓ 代理IP: ${proxy.fullAddress}`)
-
-    // 创建 HttpsProxyAgent
-    const proxyAgent = new HttpsProxyAgent(
-      `http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`
-    )
-
-    // 创建 axios 实例，配置代理 agent
-    const client = axios.create({
-      baseURL: 'https://generativelanguage.googleapis.com',
-      timeout: 60000, // 60秒超时
-      httpsAgent: proxyAgent, // 关键：使用代理 agent
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-
-    console.log('✓ Gemini axios客户端配置成功')
-    return client
-  } catch (error) {
-    throw new Error(
-      `Gemini API代理配置失败: ${error instanceof Error ? error.message : '未知错误'}。` +
-        `根据需求10，不允许降级为直连访问。请检查代理配置。`
-    )
-  }
+  return client
 }
 
 /**
@@ -128,8 +95,8 @@ export async function generateContent(params: {
     throw new Error(`用户(ID=${userId})未配置 Gemini API 密钥。请在设置页面配置您自己的 API 密钥。`)
   }
 
-  // 创建配置了代理的 axios 客户端
-  const client = await createGeminiAxiosClient()
+  // 创建 axios 客户端
+  const client = createGeminiAxiosClient()
 
   // 构建请求
   const request: GeminiRequest = {

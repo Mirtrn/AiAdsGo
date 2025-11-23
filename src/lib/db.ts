@@ -78,7 +78,10 @@ class PostgresAdapter implements DatabaseAdapter {
   private sql: postgres.Sql
 
   constructor(connectionString: string) {
-    this.sql = postgres(connectionString, {
+    // 移除postgres.js不支持的连接参数
+    const cleanedUrl = connectionString.replace(/[?&]directConnection=[^&]*/g, '')
+
+    this.sql = postgres(cleanedUrl, {
       max: 10, // 最大连接数
       idle_timeout: 20, // 空闲超时（秒）
       connect_timeout: 10, // 连接超时（秒）
@@ -137,7 +140,7 @@ export function getDatabase(): DatabaseAdapter {
   if (!dbAdapter) {
     const databaseUrl = process.env.DATABASE_URL
 
-    if (databaseUrl && databaseUrl.startsWith('postgres')) {
+    if (databaseUrl && (databaseUrl.startsWith('postgres://') || databaseUrl.startsWith('postgresql://'))) {
       // 使用 PostgreSQL
       console.log('🐘 Initializing PostgreSQL connection...')
       dbAdapter = new PostgresAdapter(databaseUrl)
