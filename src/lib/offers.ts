@@ -193,22 +193,21 @@ export function listOffers(
   const offers = db.prepare(listQuery).all(...params) as Offer[]
 
   // P1-11: 为每个offer查询关联的Google Ads账号信息
+  // 只显示活跃的campaigns（排除REMOVED状态），且排除MCC账号
   const offersWithAccounts = offers.map(offer => {
     const linkedAccounts = db.prepare(`
       SELECT DISTINCT
         gaa.id as account_id,
-        gaa.account_name,
-        gaa.customer_id,
-        COUNT(DISTINCT c.id) as campaign_count
+        gaa.customer_id
       FROM campaigns c
       INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
-      WHERE c.offer_id = ? AND c.user_id = ?
-      GROUP BY gaa.id, gaa.account_name, gaa.customer_id
+      WHERE c.offer_id = ?
+        AND c.user_id = ?
+        AND c.status != 'REMOVED'
+        AND gaa.is_manager_account = 0
     `).all(offer.id, userId) as Array<{
       account_id: number
-      account_name: string | null
       customer_id: string
-      campaign_count: number
     }>
 
     return {
@@ -324,9 +323,23 @@ export function deleteOffer(id: number, userId: number): void {
     throw new Error('Offer不存在或无权访问')
   }
 
+  // 检查是否有关联的Ads账号（Campaigns）
+  // 使用INNER JOIN确保只检查有效账号的campaigns，忽略孤儿campaigns
+  const associatedCampaigns = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM campaigns c
+    INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+    WHERE c.offer_id = ? AND c.user_id = ? AND c.status != 'REMOVED'
+  `).get(id, userId) as { count: number }
+
+  if (associatedCampaigns.count > 0) {
+    throw new Error(`无法删除Offer：该Offer关联了 ${associatedCampaigns.count} 个广告系列。请先解除所有Ads账号的关联后再删除。`)
+  }
+
   // 使用事务确保数据一致性
   const transaction = db.transaction(() => {
-    // 1. 软删除Offer（保留历史数据）
+    // 软删除Offer（保留历史数据）
+    // 注意：此时已经确认没有关联的活跃Campaigns，可以安全删除
     db.prepare(`
       UPDATE offers
       SET is_deleted = 1,
@@ -336,43 +349,39 @@ export function deleteOffer(id: number, userId: number): void {
       WHERE id = ? AND user_id = ?
     `).run(id, userId)
 
-    // 2. 将关联的Campaigns标记为无关联（但保留数据用于历史分析）
-    db.prepare(`
-      UPDATE campaigns
-      SET status = 'REMOVED',
-          updated_at = datetime('now')
-      WHERE offer_id = ? AND user_id = ?
-    `).run(id, userId)
+    // 注意：不再自动更新Campaigns状态，用户必须先手动解除关联
+    // 此时应该不存在任何活跃的Campaigns关联（已在上面验证）
 
-    // 3. 检查并标记闲置的Ads账号
+    // TODO: 检查并标记闲置的Ads账号
+    // TODO: 实现闲置账号标记功能（需要先添加 is_idle 列到 google_ads_accounts 表）
     // 找到该Offer关联的所有Ads账号
-    const accounts = db.prepare(`
-      SELECT DISTINCT google_ads_account_id
-      FROM campaigns
-      WHERE offer_id = ? AND user_id = ?
-    `).all(id, userId) as { google_ads_account_id: number }[]
+    // const accounts = db.prepare(`
+    //   SELECT DISTINCT google_ads_account_id
+    //   FROM campaigns
+    //   WHERE offer_id = ? AND user_id = ?
+    // `).all(id, userId) as { google_ads_account_id: number }[]
 
-    for (const account of accounts) {
-      // 检查该账号是否还有其他活跃的Offer关联
-      const activeOffers = db.prepare(`
-        SELECT COUNT(*) as count
-        FROM campaigns c
-        JOIN offers o ON c.offer_id = o.id
-        WHERE c.google_ads_account_id = ?
-          AND c.user_id = ?
-          AND o.is_deleted = 0
-          AND c.status != 'REMOVED'
-      `).get(account.google_ads_account_id, userId) as { count: number }
+    // for (const account of accounts) {
+    //   // 检查该账号是否还有其他活跃的Offer关联
+    //   const activeOffers = db.prepare(`
+    //     SELECT COUNT(*) as count
+    //     FROM campaigns c
+    //     JOIN offers o ON c.offer_id = o.id
+    //     WHERE c.google_ads_account_id = ?
+    //       AND c.user_id = ?
+    //       AND o.is_deleted = 0
+    //       AND c.status != 'REMOVED'
+    //   `).get(account.google_ads_account_id, userId) as { count: number }
 
-      // 如果没有活跃Offer，标记账号为闲置
-      if (activeOffers.count === 0) {
-        db.prepare(`
-          UPDATE google_ads_accounts
-          SET is_idle = 1, updated_at = datetime('now')
-          WHERE id = ? AND user_id = ?
-        `).run(account.google_ads_account_id, userId)
-      }
-    }
+    //   // 如果没有活跃Offer，标记账号为闲置
+    //   if (activeOffers.count === 0) {
+    //     db.prepare(`
+    //       UPDATE google_ads_accounts
+    //       SET is_idle = 1, updated_at = datetime('now')
+    //       WHERE id = ? AND user_id = ?
+    //     `).run(account.google_ads_account_id, userId)
+    //   }
+    // }
   })
 
   transaction()
@@ -407,25 +416,26 @@ export function unlinkOfferFromAccount(
         AND status != 'REMOVED'
     `).run(offerId, accountId, userId)
 
+    // TODO: 实现闲置账号标记功能（需要先添加 is_idle 列到 google_ads_accounts 表）
     // 检查该账号是否还有其他活跃关联
-    const activeCount = db.prepare(`
-      SELECT COUNT(*) as count
-      FROM campaigns c
-      JOIN offers o ON c.offer_id = o.id
-      WHERE c.google_ads_account_id = ?
-        AND c.user_id = ?
-        AND o.is_deleted = 0
-        AND c.status != 'REMOVED'
-    `).get(accountId, userId) as { count: number }
+    // const activeCount = db.prepare(`
+    //   SELECT COUNT(*) as count
+    //   FROM campaigns c
+    //   JOIN offers o ON c.offer_id = o.id
+    //   WHERE c.google_ads_account_id = ?
+    //     AND c.user_id = ?
+    //     AND o.is_deleted = 0
+    //     AND c.status != 'REMOVED'
+    // `).get(accountId, userId) as { count: number }
 
-    // 如果没有活跃关联，标记账号为闲置
-    if (activeCount.count === 0) {
-      db.prepare(`
-        UPDATE google_ads_accounts
-        SET is_idle = 1, updated_at = datetime('now')
-        WHERE id = ? AND user_id = ?
-      `).run(accountId, userId)
-    }
+    // // 如果没有活跃关联，标记账号为闲置
+    // if (activeCount.count === 0) {
+    //   db.prepare(`
+    //     UPDATE google_ads_accounts
+    //     SET is_idle = 1, updated_at = datetime('now')
+    //     WHERE id = ? AND user_id = ?
+    //   `).run(accountId, userId)
+    // }
 
     return result.changes
   })
@@ -436,19 +446,29 @@ export function unlinkOfferFromAccount(
 /**
  * 获取闲置的Ads账号列表
  * 需求25: 便于其他Offer建立关联关系
- * 只返回ENABLED状态且非Manager的账号
+ * 只返回ENABLED状态且非Manager的账号，且没有关联任何活跃Campaigns的账号
  */
 export function getIdleAdsAccounts(userId: number): any[] {
   const db = getSQLiteDatabase()
 
+  // 通过子查询判断账号是否闲置（没有活跃的Campaign关联）
   return db.prepare(`
-    SELECT * FROM google_ads_accounts
-    WHERE user_id = ?
-      AND is_idle = 1
-      AND is_active = 1
-      AND status = 'ENABLED'
-      AND is_manager_account = 0
-    ORDER BY updated_at DESC
+    SELECT gaa.*
+    FROM google_ads_accounts gaa
+    WHERE gaa.user_id = ?
+      AND gaa.is_active = 1
+      AND gaa.status = 'ENABLED'
+      AND gaa.is_manager_account = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM campaigns c
+        JOIN offers o ON c.offer_id = o.id
+        WHERE c.google_ads_account_id = gaa.id
+          AND c.user_id = gaa.user_id
+          AND o.is_deleted = 0
+          AND c.status != 'REMOVED'
+      )
+    ORDER BY gaa.updated_at DESC
   `).all(userId)
 }
 

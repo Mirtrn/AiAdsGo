@@ -21,7 +21,8 @@ import {
   Link2,
   Eye,
   EyeOff,
-  Beaker
+  Beaker,
+  TrendingUp
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -100,6 +101,11 @@ const navigationItems: NavItem[] = [
     label: '数据管理',
     href: '/data-management',
     icon: Database,
+  },
+  {
+    label: '优化迭代',
+    href: '/optimization',
+    icon: TrendingUp,
   },
   {
     label: '系统设置',

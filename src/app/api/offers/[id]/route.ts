@@ -184,9 +184,33 @@ export async function DELETE(
   } catch (error: any) {
     console.error('删除Offer失败:', error)
 
+    // 区分不同类型的错误，返回合适的HTTP状态码
+    const errorMessage = error.message || '删除Offer失败'
+
+    // 业务逻辑验证错误：Offer有关联的Campaigns
+    if (errorMessage.includes('无法删除Offer：该Offer关联了')) {
+      return NextResponse.json(
+        {
+          error: errorMessage,
+        },
+        { status: 409 } // 409 Conflict: 资源冲突，无法删除
+      )
+    }
+
+    // 资源不存在或权限错误
+    if (errorMessage.includes('Offer不存在或无权访问')) {
+      return NextResponse.json(
+        {
+          error: errorMessage,
+        },
+        { status: 404 } // 404 Not Found
+      )
+    }
+
+    // 其他未知错误，视为服务器内部错误
     return NextResponse.json(
       {
-        error: error.message || '删除Offer失败',
+        error: errorMessage,
       },
       { status: 500 }
     )

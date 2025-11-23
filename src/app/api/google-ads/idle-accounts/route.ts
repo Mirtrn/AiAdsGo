@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
         customerId: account.customer_id,
         accountName: account.account_name,
         isActive: account.is_active === 1,
-        isIdle: account.is_idle === 1,
+        isIdle: true, // 由getIdleAdsAccounts查询逻辑保证返回的都是闲置账号
         createdAt: account.created_at,
         updatedAt: account.updated_at,
       })),

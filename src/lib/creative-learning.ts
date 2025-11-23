@@ -494,6 +494,7 @@ export interface CreativePerformanceScore {
   metrics: {
     ctr: number
     cpc: number
+    impressions: number
     clicks: number
     conversions: number
     budget: number
@@ -504,20 +505,24 @@ export interface CreativePerformanceScore {
 /**
  * 多维度创意效果评分系统（基于可获取数据）
  *
- * 评分维度（仅使用可靠的Google Ads指标）：
- * 1. CTR（点击率）- 40分
+ * 评分维度（5个维度，总分100）：
+ * 1. CTR（点击率）- 30分
  *    - 直接反映广告质量和用户兴趣
  *    - 行业基准：搜索广告平均CTR为2-3%
  *
- * 2. CPC效率（成本控制）- 30分
+ * 2. CPC效率（成本控制）- 25分
  *    - CPC相对于预算的比例
  *    - 成本越低效率越高
  *
- * 3. 点击量规模 - 20分
+ * 3. 展示量（Impressions）- 20分
+ *    - 广告曝光能力和覆盖范围
+ *    - 反映广告投放规模
+ *
+ * 4. 点击量规模 - 15分
  *    - 绝对点击量，反映广告影响力
  *    - 兼顾质量（CTR）和规模（Clicks）
  *
- * 4. 预算利用率 - 10分
+ * 5. 预算利用率 - 10分
  *    - 实际花费/预算
  *    - 资源利用效率
  *
@@ -572,81 +577,105 @@ export function scoreCreativePerformance(
   // 初始化评分
   let totalScore = 0
 
-  // ========== 1. CTR评分（40分）- 最重要指标 ==========
+  // ========== 1. CTR评分（30分）- 最重要指标 ==========
   let ctrScore = 0
   const ctrPercent = ctr * 100
 
   if (ctr >= 0.05) {        // ≥5% - 优秀
-    ctrScore = 40
+    ctrScore = 30
     reasons.push(`优秀CTR (${ctrPercent.toFixed(2)}%)`)
   } else if (ctr >= 0.03) { // ≥3% - 良好（接近行业高水平）
-    ctrScore = 32 + ((ctr - 0.03) / 0.02) * 8 // 32-40分
+    ctrScore = 24 + ((ctr - 0.03) / 0.02) * 6 // 24-30分
     reasons.push(`良好CTR (${ctrPercent.toFixed(2)}%)`)
   } else if (ctr >= 0.02) { // ≥2% - 行业平均水平
-    ctrScore = 24 + ((ctr - 0.02) / 0.01) * 8 // 24-32分
+    ctrScore = 18 + ((ctr - 0.02) / 0.01) * 6 // 18-24分
     reasons.push(`中等CTR (${ctrPercent.toFixed(2)}%)`)
   } else if (ctr >= 0.01) { // ≥1% - 及格线
-    ctrScore = 16 + ((ctr - 0.01) / 0.01) * 8 // 16-24分
+    ctrScore = 12 + ((ctr - 0.01) / 0.01) * 6 // 12-18分
     reasons.push(`一般CTR (${ctrPercent.toFixed(2)}%)`)
   } else if (ctr >= 0.005) { // ≥0.5% - 偏低但可接受
-    ctrScore = 8 + ((ctr - 0.005) / 0.005) * 8 // 8-16分
+    ctrScore = 6 + ((ctr - 0.005) / 0.005) * 6 // 6-12分
     reasons.push(`偏低CTR (${ctrPercent.toFixed(2)}%)`)
   } else {                   // <0.5% - 需要优化
-    ctrScore = Math.max(2, ctr * 1600) // 2-8分
+    ctrScore = Math.max(2, ctr * 1200) // 2-6分
     reasons.push(`低CTR (${ctrPercent.toFixed(2)}%)`)
   }
   totalScore += ctrScore
 
-  // ========== 2. CPC效率评分（30分）- 成本控制 ==========
+  // ========== 2. CPC效率评分（25分）- 成本控制 ==========
   let cpcScore = 0
   const cpcRatio = cpc / (budget * 0.01) // CPC相对于预算1%的比例
 
   if (cpcRatio <= 0.5) {        // CPC ≤ 预算*0.5% - 极低成本
-    cpcScore = 30
+    cpcScore = 25
     reasons.push(`极低CPC (${cpc.toFixed(2)}，预算${(cpcRatio).toFixed(2)}%）`)
   } else if (cpcRatio <= 1.0) { // CPC ≤ 预算*1% - 低成本
-    cpcScore = 24 + (1.0 - cpcRatio) / 0.5 * 6 // 24-30分
+    cpcScore = 20 + (1.0 - cpcRatio) / 0.5 * 5 // 20-25分
     reasons.push(`低CPC (${cpc.toFixed(2)}，预算${(cpcRatio).toFixed(2)}%）`)
   } else if (cpcRatio <= 2.0) { // CPC ≤ 预算*2% - 可接受
-    cpcScore = 18 + (2.0 - cpcRatio) / 1.0 * 6 // 18-24分
+    cpcScore = 15 + (2.0 - cpcRatio) / 1.0 * 5 // 15-20分
     reasons.push(`中等CPC (${cpc.toFixed(2)}，预算${(cpcRatio).toFixed(2)}%）`)
   } else if (cpcRatio <= 3.0) { // CPC ≤ 预算*3% - 偏高
-    cpcScore = 12 + (3.0 - cpcRatio) / 1.0 * 6 // 12-18分
+    cpcScore = 10 + (3.0 - cpcRatio) / 1.0 * 5 // 10-15分
     reasons.push(`偏高CPC (${cpc.toFixed(2)}，预算${(cpcRatio).toFixed(2)}%）`)
   } else if (cpcRatio <= 5.0) { // CPC ≤ 预算*5% - 高成本
-    cpcScore = 6 + (5.0 - cpcRatio) / 2.0 * 6 // 6-12分
+    cpcScore = 5 + (5.0 - cpcRatio) / 2.0 * 5 // 5-10分
     reasons.push(`高CPC (${cpc.toFixed(2)}，预算${(cpcRatio).toFixed(2)}%）`)
   } else {                       // CPC > 预算*5% - 成本过高
-    cpcScore = Math.max(2, 30 - cpcRatio * 2) // 2-6分
+    cpcScore = Math.max(2, 25 - cpcRatio * 2) // 2-5分
     reasons.push(`过高CPC (${cpc.toFixed(2)}，预算${(cpcRatio).toFixed(2)}%）`)
   }
   totalScore += cpcScore
 
-  // ========== 3. 点击量规模评分（20分）- 效果规模 ==========
+  // ========== 3. 展示量评分（20分）- 曝光能力 ==========
+  let impressionsScore = 0
+
+  if (impressions >= 100000) {
+    impressionsScore = 20
+    reasons.push(`高展示量 (${impressions.toLocaleString()}次)`)
+  } else if (impressions >= 50000) {
+    impressionsScore = 16 + ((impressions - 50000) / 50000) * 4 // 16-20分
+    reasons.push(`良好展示量 (${impressions.toLocaleString()}次)`)
+  } else if (impressions >= 20000) {
+    impressionsScore = 12 + ((impressions - 20000) / 30000) * 4 // 12-16分
+    reasons.push(`中等展示量 (${impressions.toLocaleString()}次)`)
+  } else if (impressions >= 10000) {
+    impressionsScore = 8 + ((impressions - 10000) / 10000) * 4 // 8-12分
+    reasons.push(`一般展示量 (${impressions.toLocaleString()}次)`)
+  } else if (impressions >= 5000) {
+    impressionsScore = 4 + ((impressions - 5000) / 5000) * 4 // 4-8分
+    reasons.push(`展示量较少 (${impressions.toLocaleString()}次)`)
+  } else {
+    impressionsScore = Math.max(2, (impressions / 5000) * 4) // 2-4分
+    reasons.push(`展示量很少 (${impressions.toLocaleString()}次)`)
+  }
+  totalScore += impressionsScore
+
+  // ========== 4. 点击量规模评分（15分）- 效果规模 ==========
   let clicksScore = 0
 
   if (clicks >= 1000) {
-    clicksScore = 20
+    clicksScore = 15
     reasons.push(`高点击量 (${clicks}次)`)
   } else if (clicks >= 500) {
-    clicksScore = 16 + ((clicks - 500) / 500) * 4 // 16-20分
+    clicksScore = 12 + ((clicks - 500) / 500) * 3 // 12-15分
     reasons.push(`良好点击量 (${clicks}次)`)
   } else if (clicks >= 200) {
-    clicksScore = 12 + ((clicks - 200) / 300) * 4 // 12-16分
+    clicksScore = 9 + ((clicks - 200) / 300) * 3 // 9-12分
     reasons.push(`中等点击量 (${clicks}次)`)
   } else if (clicks >= 100) {
-    clicksScore = 8 + ((clicks - 100) / 100) * 4 // 8-12分
+    clicksScore = 6 + ((clicks - 100) / 100) * 3 // 6-9分
     reasons.push(`一般点击量 (${clicks}次)`)
   } else if (clicks >= 50) {
-    clicksScore = 4 + ((clicks - 50) / 50) * 4 // 4-8分
+    clicksScore = 3 + ((clicks - 50) / 50) * 3 // 3-6分
     reasons.push(`点击量较少 (${clicks}次)`)
   } else {
-    clicksScore = Math.max(2, (clicks / 50) * 4) // 2-4分
+    clicksScore = Math.max(1, (clicks / 50) * 3) // 1-3分
     reasons.push(`点击量很少 (${clicks}次)`)
   }
   totalScore += clicksScore
 
-  // ========== 4. 预算利用率评分（10分）- 资源利用 ==========
+  // ========== 5. 预算利用率评分（10分）- 资源利用 ==========
   let budgetScore = 0
   const budgetUsage = cost / budget
 
@@ -708,6 +737,7 @@ export function scoreCreativePerformance(
     metrics: {
       ctr,
       cpc,
+      impressions,
       clicks,
       conversions,
       budget

@@ -79,12 +79,10 @@ interface Offer {
   targetLanguage: string | null
   productPrice?: string | null
   commissionPayout?: string | null
-  // P1-11: 关联的Google Ads账号信息
+  // P1-11: 关联的Google Ads账号信息（只显示非MCC账号）
   linkedAccounts?: Array<{
     account_id: number
-    account_name: string | null
     customer_id: string
-    campaign_count: number
   }>
 }
 
@@ -672,7 +670,7 @@ export default function OffersPage() {
                       >
                         状态
                       </SortableTableHead>
-                      <TableHead className="whitespace-nowrap">关联账号</TableHead>
+                      <TableHead className="whitespace-nowrap">关联Ads账号</TableHead>
                       <TableHead className="whitespace-nowrap">操作</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -715,23 +713,20 @@ export default function OffersPage() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap">{getScrapeStatusBadge(offer.scrape_status)}</TableCell>
                         <TableCell>
-                          {/* P1-11: 显示关联的Google Ads账号 */}
+                          {/* P1-11: 显示关联的Google Ads账号（只显示非MCC账号） */}
                           {offer.linkedAccounts && offer.linkedAccounts.length > 0 ? (
                             <div className="space-y-1">
                               {offer.linkedAccounts.map((account, idx) => (
-                                <div key={idx} className="flex items-center gap-2 text-xs">
-                                  <Badge variant="secondary" className="gap-1 font-normal">
-                                    {account.account_name || account.customer_id}
-                                  </Badge>
-                                  <span className="text-gray-500 text-[10px]">
-                                    {account.campaign_count}个系列
+                                <div key={idx} className="flex items-center gap-1.5 text-xs">
+                                  <span className="text-gray-700 font-mono">
+                                    {account.customer_id}
                                   </span>
                                   <button
                                     onClick={() => {
                                       setOfferToUnlink({
                                         offer,
                                         accountId: account.account_id,
-                                        accountName: account.account_name || account.customer_id
+                                        accountName: account.customer_id
                                       })
                                       setIsUnlinkDialogOpen(true)
                                     }}
