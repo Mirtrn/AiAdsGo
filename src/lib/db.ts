@@ -5,14 +5,14 @@ import path from 'path'
 // 数据库类型枚举
 export type DatabaseType = 'sqlite' | 'postgres'
 
-// 统一的数据库接口
+// 统一的数据库接口（支持异步操作）
 export interface DatabaseAdapter {
   type: DatabaseType
-  query<T = any>(sql: string, params?: any[]): T[]
-  queryOne<T = any>(sql: string, params?: any[]): T | undefined
-  exec(sql: string, params?: any[]): { changes: number; lastInsertRowid?: number }
-  transaction<T>(fn: () => T): T
-  close(): void
+  query<T = any>(sql: string, params?: any[]): Promise<T[]>
+  queryOne<T = any>(sql: string, params?: any[]): Promise<T | undefined>
+  exec(sql: string, params?: any[]): Promise<{ changes: number; lastInsertRowid?: number }>
+  transaction<T>(fn: () => Promise<T>): Promise<T>
+  close(): Promise<void> | void
 }
 
 // SQLite 适配器
@@ -40,26 +40,26 @@ class SQLiteAdapter implements DatabaseAdapter {
     this.db.pragma('temp_store = MEMORY')
   }
 
-  query<T = any>(sql: string, params: any[] = []): T[] {
-    return this.db.prepare(sql).all(...params) as T[]
+  async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    return Promise.resolve(this.db.prepare(sql).all(...params) as T[])
   }
 
-  queryOne<T = any>(sql: string, params: any[] = []): T | undefined {
-    return this.db.prepare(sql).get(...params) as T | undefined
+  async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
+    return Promise.resolve(this.db.prepare(sql).get(...params) as T | undefined)
   }
 
-  exec(sql: string, params: any[] = []): { changes: number; lastInsertRowid?: number } {
+  async exec(sql: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: number }> {
     const stmt = this.db.prepare(sql)
     const info = stmt.run(...params)
-    return {
+    return Promise.resolve({
       changes: info.changes,
       lastInsertRowid: Number(info.lastInsertRowid)
-    }
+    })
   }
 
-  transaction<T>(fn: () => T): T {
-    const transactionFn = this.db.transaction(fn)
-    return transactionFn()
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    const transactionFn = this.db.transaction(async () => await fn())
+    return await transactionFn()
   }
 
   close(): void {
@@ -87,7 +87,7 @@ class PostgresAdapter implements DatabaseAdapter {
 
   async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
     const result = await this.sql.unsafe(sql, params)
-    return result as T[]
+    return result as unknown as T[]
   }
 
   async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
@@ -109,11 +109,11 @@ class PostgresAdapter implements DatabaseAdapter {
       const originalSql = this.sql
       this.sql = tx as any
       try {
-        return await fn()
+        return await fn() as Promise<T>
       } finally {
         this.sql = originalSql
       }
-    })
+    }) as Promise<T>
   }
 
   async close(): Promise<void> {
@@ -123,43 +123,6 @@ class PostgresAdapter implements DatabaseAdapter {
   // 获取原始 postgres.js 实例
   getRawConnection(): postgres.Sql {
     return this.sql
-  }
-}
-
-// 同步版本的 PostgreSQL 适配器（用于兼容 SQLite 接口）
-class PostgresSyncAdapter implements DatabaseAdapter {
-  type: DatabaseType = 'postgres'
-  private adapter: PostgresAdapter
-
-  constructor(connectionString: string) {
-    this.adapter = new PostgresAdapter(connectionString)
-  }
-
-  query<T = any>(sql: string, params: any[] = []): T[] {
-    // 注意：这会阻塞事件循环，仅用于兼容性
-    throw new Error('Synchronous query not supported for PostgreSQL. Use async version.')
-  }
-
-  queryOne<T = any>(sql: string, params: any[] = []): T | undefined {
-    throw new Error('Synchronous queryOne not supported for PostgreSQL. Use async version.')
-  }
-
-  exec(sql: string, params: any[] = []): { changes: number; lastInsertRowid?: number } {
-    throw new Error('Synchronous exec not supported for PostgreSQL. Use async version.')
-  }
-
-  transaction<T>(fn: () => T): T {
-    throw new Error('Synchronous transaction not supported for PostgreSQL. Use async version.')
-  }
-
-  close(): void {
-    // 异步关闭但不等待
-    this.adapter.close().catch(console.error)
-  }
-
-  // 获取异步适配器
-  getAsyncAdapter(): PostgresAdapter {
-    return this.adapter
   }
 }
 
@@ -177,7 +140,7 @@ export function getDatabase(): DatabaseAdapter {
     if (databaseUrl && databaseUrl.startsWith('postgres')) {
       // 使用 PostgreSQL
       console.log('🐘 Initializing PostgreSQL connection...')
-      dbAdapter = new PostgresSyncAdapter(databaseUrl)
+      dbAdapter = new PostgresAdapter(databaseUrl)
     } else {
       // 使用 SQLite
       const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
@@ -186,18 +149,7 @@ export function getDatabase(): DatabaseAdapter {
     }
   }
 
-  return dbAdapter
-}
-
-/**
- * 获取异步数据库适配器（PostgreSQL 专用）
- */
-export function getAsyncDatabase(): PostgresAdapter {
-  const db = getDatabase()
-  if (db.type === 'postgres') {
-    return (db as PostgresSyncAdapter).getAsyncAdapter()
-  }
-  throw new Error('Async database operations only supported for PostgreSQL')
+  return dbAdapter!
 }
 
 /**
@@ -241,16 +193,5 @@ export function transaction<T>(fn: (db: Database.Database) => T): T {
  */
 export async function asyncTransaction<T>(fn: () => Promise<T>): Promise<T> {
   const db = getDatabase()
-  if (db.type === 'postgres') {
-    const asyncDb = getAsyncDatabase()
-    return await asyncDb.transaction(fn)
-  } else {
-    // SQLite 同步事务转异步
-    return Promise.resolve(
-      (db as SQLiteAdapter).transaction(() => {
-        // 将同步函数转换为异步执行
-        return fn() as any
-      })
-    )
-  }
+  return await db.transaction(fn)
 }

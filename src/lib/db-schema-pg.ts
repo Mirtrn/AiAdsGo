@@ -5,17 +5,21 @@
  * 包含33个表的创建语句，从 SQLite 架构迁移而来
  */
 
-import { getAsyncDatabase } from './db'
+import { getDatabase } from './db'
+import type postgres from 'postgres'
 
 export async function initializePostgreSQLSchema(): Promise<void> {
-  const db = getAsyncDatabase()
-  const sql = db.getRawConnection()
+  const db = getDatabase()
+  if (db.type !== 'postgres') {
+    throw new Error('This function only works with PostgreSQL')
+  }
+  const sql = (db as any).getRawConnection() as postgres.Sql
 
   console.log('🐘 Starting PostgreSQL schema initialization...')
 
   try {
     // 开始事务
-    await sql.begin(async (tx) => {
+    await sql.begin(async (tx: postgres.TransactionSql) => {
       console.log('\n📋 Creating database tables...\n')
 
       // 1. users表 - 用户信息

@@ -963,7 +963,11 @@ Content Preview: ${pageData.text.substring(0, 500)}
 
 Extract the brand name now (ONLY the brand name, no explanation):`.trim()
 
-    const brandName = await generateContent(prompt, userId)
+    if (!userId) {
+      throw new Error('userId is required for brand extraction')
+    }
+
+    const brandName = await generateContent({ prompt }, userId)
 
     // 验证和清洗AI返回的品牌名
     const cleanedBrand = brandName

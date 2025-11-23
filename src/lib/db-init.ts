@@ -9,7 +9,7 @@
  * 5. 插入默认系统配置
  */
 
-import { getDatabase, getAsyncDatabase } from './db'
+import { getDatabase } from './db'
 import { initializePostgreSQLSchema } from './db-schema-pg'
 import { hashPassword } from './crypto'
 import fs from 'fs'
@@ -38,7 +38,7 @@ async function isDatabaseInitialized(): Promise<boolean> {
   if (db.type === 'sqlite') {
     // SQLite: 检查 users 表是否存在
     try {
-      const result = db.query<{ count: number }>(
+      const result = await db.query<{ count: number }>(
         "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='users'"
       )
       return result[0].count > 0
@@ -48,8 +48,7 @@ async function isDatabaseInitialized(): Promise<boolean> {
   } else {
     // PostgreSQL: 检查 users 表是否存在
     try {
-      const asyncDb = getAsyncDatabase()
-      const result = await asyncDb.query<{ exists: boolean }>(
+      const result = await db.query<{ exists: boolean }>(
         "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')"
       )
       return result[0].exists
@@ -115,7 +114,7 @@ async function createDefaultAdmin(): Promise<void> {
   console.log('\n👤 Creating default admin account...')
 
   const db = getDatabase()
-  const asyncDb = db.type === 'postgres' ? getAsyncDatabase() : null
+  const asyncDb = db.type === 'postgres' ? getDatabase() : null
 
   try {
     // 检查管理员是否已存在
@@ -203,7 +202,7 @@ async function insertDefaultSystemSettings(): Promise<void> {
   console.log('\n⚙️  Inserting default system settings...')
 
   const db = getDatabase()
-  const asyncDb = db.type === 'postgres' ? getAsyncDatabase() : null
+  const asyncDb = db.type === 'postgres' ? getDatabase() : null
 
   const defaultSettings = [
     // Google Ads API配置
@@ -307,7 +306,7 @@ async function importAdminConfig(): Promise<void> {
 
   try {
     const exportData = JSON.parse(fs.readFileSync(CONFIG_EXPORT_PATH, 'utf-8'))
-    const asyncDb = getAsyncDatabase()
+    const asyncDb = getDatabase()
 
     // 查找管理员用户ID
     const adminResult = await asyncDb.query<{ id: number }>(
@@ -375,7 +374,7 @@ async function insertIndustryBenchmarks(): Promise<void> {
   console.log('\n📊 Inserting industry benchmarks...')
 
   const db = getDatabase()
-  const asyncDb = db.type === 'postgres' ? getAsyncDatabase() : null
+  const asyncDb = db.type === 'postgres' ? getDatabase() : null
 
   // 行业基准数据（30个二级分类）
   const benchmarks = [
