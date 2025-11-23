@@ -1,0 +1,102 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 Running pre-commit checks..."
+
+# 1. 检查是否有敏感文件被添加
+echo "📁 Checking for sensitive files..."
+
+SENSITIVE_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(db|sqlite|backup|dump|key|pem|p12|env)$' || true)
+
+if [ -n "$SENSITIVE_FILES" ]; then
+  echo "❌ ERROR: Attempting to commit sensitive files:"
+  echo "$SENSITIVE_FILES"
+  echo ""
+  echo "These file types should not be committed. Please:"
+  echo "1. Remove them from the commit: git reset HEAD <file>"
+  echo "2. Add them to .gitignore"
+  echo "3. Use environment variables or Secret Manager instead"
+  exit 1
+fi
+
+# 2. 检查代码中的硬编码密钥和密码
+echo "🔑 Scanning for hardcoded secrets..."
+
+# 检查常见的API密钥模式
+API_KEY_PATTERN='(AIza[0-9A-Za-z-_]{35}|ya29\.[0-9A-Za-z-_]+|sk-[a-zA-Z0-9]{48}|xox[baprs]-[0-9]{12}-[0-9]{12}-[0-9a-zA-Z]{24})'
+
+# 检查硬编码密码模式
+PASSWORD_PATTERN='(password|passwd|pwd)["\s]*[:=]["\s]*["\047][^"\047]{8,}["\047]'
+
+# 检查私钥模式
+PRIVATE_KEY_PATTERN='-----BEGIN (RSA|OPENSSH|DSA|EC|PGP) PRIVATE KEY-----'
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(js|ts|jsx|tsx|py|go|java|sh)$' || true)
+
+if [ -n "$STAGED_FILES" ]; then
+  if git diff --cached $STAGED_FILES | grep -E "$API_KEY_PATTERN|$PASSWORD_PATTERN|$PRIVATE_KEY_PATTERN" > /dev/null; then
+    echo "❌ ERROR: Potential secrets detected in staged files!"
+    echo ""
+    echo "Found patterns that match:"
+    echo "- API keys (AIza..., ya29..., sk-...)"
+    echo "- Hardcoded passwords (password=\"...\")"
+    echo "- Private keys (-----BEGIN ... PRIVATE KEY-----)"
+    echo ""
+    echo "Please review your code and:"
+    echo "1. Remove any hardcoded secrets"
+    echo "2. Use environment variables instead"
+    echo "3. Store secrets in Secret Manager or 1Password"
+    echo ""
+    echo "To bypass this check (NOT RECOMMENDED):"
+    echo "git commit --no-verify"
+    exit 1
+  fi
+fi
+
+# 3. 检查.env文件是否被添加
+echo "🔐 Checking for .env files..."
+
+ENV_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.env' || true)
+
+if [ -n "$ENV_FILES" ]; then
+  echo "⚠️  WARNING: Attempting to commit .env files:"
+  echo "$ENV_FILES"
+  echo ""
+  echo "Environment files should NOT be committed."
+  echo "Please:"
+  echo "1. Remove them: git reset HEAD $ENV_FILES"
+  echo "2. Verify .gitignore includes .env patterns"
+  echo "3. Create .env.example with placeholder values instead"
+  exit 1
+fi
+
+# 4. 检查大文件
+echo "📦 Checking for large files..."
+
+LARGE_FILES=$(git diff --cached --name-only --diff-filter=ACM | while read file; do
+  SIZE=$(git cat-file -s ":0:$file" 2>/dev/null || echo 0)
+  if [ "$SIZE" -gt 1048576 ]; then  # 1MB
+    echo "$file ($(($SIZE / 1024))KB)"
+  fi
+done)
+
+if [ -n "$LARGE_FILES" ]; then
+  echo "⚠️  WARNING: Large files detected:"
+  echo "$LARGE_FILES"
+  echo ""
+  echo "Consider using Git LFS for files >1MB"
+  echo "To proceed anyway: git commit --no-verify"
+fi
+
+# 5. 运行代码检查（如果配置了）
+if [ -f "package.json" ] && grep -q "lint" package.json; then
+  echo "🔍 Running linter..."
+  npm run lint --silent || {
+    echo "❌ Linter found issues. Please fix them before committing."
+    echo "To bypass: git commit --no-verify"
+    exit 1
+  }
+fi
+
+echo "✅ All pre-commit checks passed!"
+exit 0
