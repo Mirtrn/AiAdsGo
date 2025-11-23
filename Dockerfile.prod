@@ -58,8 +58,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# 复制数据库（如果使用 SQLite）
-COPY --chown=nextjs:nodejs autoads.db ./autoads.db 2>/dev/null || :
+# 复制数据库（如果存在）- 使用通配符，文件不存在时自动忽略
+COPY --chown=nextjs:nodejs autoads.db* ./
 COPY --chown=nextjs:nodejs scripts/ ./scripts/
 
 # 复制 Next.js standalone 输出
@@ -70,7 +70,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # 确保数据库文件可写
 RUN chown -R nextjs:nodejs /app && \
     chmod -R 755 /app && \
-    chmod 664 /app/autoads.db 2>/dev/null || :
+    (chmod 664 /app/autoads.db || true)
 
 # 使用非 root 用户运行
 USER nextjs
