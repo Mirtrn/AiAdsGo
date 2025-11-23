@@ -16,10 +16,12 @@ import fs from 'fs'
 import path from 'path'
 
 // 默认管理员信息
+// 安全说明：密码从环境变量读取，如果未设置则生成32位随机密码
+const crypto = require('crypto')
 const DEFAULT_ADMIN = {
   username: 'autoads',
   email: 'admin@autoads.com',
-  password: '***REMOVED***',
+  password: process.env.DEFAULT_ADMIN_PASSWORD || crypto.randomBytes(32).toString('base64'),
   display_name: 'AutoAds Administrator',
   role: 'admin',
   package_type: 'lifetime',
@@ -188,6 +190,14 @@ async function createDefaultAdmin(): Promise<void> {
       console.log(`   Username: ${DEFAULT_ADMIN.username}`)
       console.log(`   Password: ${DEFAULT_ADMIN.password}`)
       console.log(`   Email: ${DEFAULT_ADMIN.email}`)
+      console.log('\n⚠️  Security Notice:')
+      if (process.env.DEFAULT_ADMIN_PASSWORD) {
+        console.log('   ✅ Using password from DEFAULT_ADMIN_PASSWORD environment variable')
+      } else {
+        console.log('   ⚠️  Random password generated! Please save it immediately:')
+        console.log(`   👉 ${DEFAULT_ADMIN.password}`)
+        console.log('   Recommended: Set DEFAULT_ADMIN_PASSWORD in production environment')
+      }
     }
   } catch (error) {
     console.error('❌ Failed to create admin account:', error)
