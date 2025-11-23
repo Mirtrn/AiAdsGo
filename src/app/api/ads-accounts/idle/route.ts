@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getIdleAdsAccounts } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
 
+// 强制动态渲染（使用了request.headers）
+export const dynamic = 'force-dynamic'
+
 /**
  * GET /api/ads-accounts/idle
  * 获取闲置的Ads账号列表

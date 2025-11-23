@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { exchangeCodeForTokens } from '@/lib/google-ads-api'
 import { createGoogleAdsAccount, findGoogleAdsAccountByCustomerId } from '@/lib/google-ads-accounts'
 
+// 强制动态渲染（OAuth回调必须动态处理）
+export const dynamic = 'force-dynamic'
+
 /**
  * GET /api/auth/google-ads/callback
  * Google Ads OAuth回调处理

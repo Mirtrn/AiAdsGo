@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 
+// 强制动态渲染（使用了request.cookies）
+export const dynamic = 'force-dynamic'
+
 /**
  * 计算Z检验的P值（双尾检验）
  */

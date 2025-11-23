@@ -329,8 +329,8 @@ export function updateTaskStatus(
   let query = `
     UPDATE optimization_tasks
     SET status = ?,
-        ${status === 'completed' ? 'completed_at = datetime("now"),' : ''}
-        ${status === 'dismissed' ? 'dismissed_at = datetime("now"),' : ''}
+        ${status === 'completed' ? "completed_at = datetime('now')," : ''}
+        ${status === 'dismissed' ? "dismissed_at = datetime('now')," : ''}
         completion_note = ?
     WHERE id = ? AND user_id = ?
   `

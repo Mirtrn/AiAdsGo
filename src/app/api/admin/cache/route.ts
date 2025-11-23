@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCachedPageData } from '@/lib/redis'
 
+// 强制动态渲染（使用了request.headers）
+export const dynamic = 'force-dynamic'
+
 /**
  * GET /api/admin/cache?url=xxx&language=xxx
  * 获取Redis中的缓存数据（仅管理员）
