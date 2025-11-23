@@ -92,6 +92,7 @@ CHANGELOG.md
 .prettierignore
 .eslintrc.json
 .eslintignore
-tailwind.config.ts
-postcss.config.js
-tsconfig.json
+# 注意：以下配置文件是构建必需的，不能排除
+# tailwind.config.ts  - Tailwind CSS配置
+# postcss.config.js   - PostCSS配置
+# tsconfig.json       - TypeScript配置（包含@/路径别名）
