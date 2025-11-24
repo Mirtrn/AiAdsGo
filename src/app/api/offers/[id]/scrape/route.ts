@@ -1043,6 +1043,96 @@ async function performScrapeAndAnalysis(
       ? undefined
       : '⚠️ 网页抓取成功，但AI产品分析失败。建议检查Gemini API配置和代理设置。'
 
+    // 🎯 需求34: 提取广告投放元素（关键字、标题、描述）
+    let extractedKeywords: any[] = []
+    let extractedHeadlines: string[] = []
+    let extractedDescriptions: string[] = []
+    let extractionMetadata: any = {}
+    let extractedAt: string | undefined
+
+    try {
+      console.log('🎯 开始提取广告投放元素（关键字、标题、描述）...')
+      const { extractAdElements } = await import('@/lib/ad-elements-extractor')
+
+      // 根据页面类型准备不同的输入数据
+      if (pageType === 'product') {
+        // 单商品场景：从AI分析结果中提取
+        const extractionResult = await extractAdElements(
+          {
+            pageType: 'product',
+            product: {
+              productName: pageData.title || extractedBrand,
+              brandName: extractedBrand,
+              aboutThisItem: productInfo.productHighlights
+                ? productInfo.productHighlights.split('\n').filter((f: string) => f.trim())
+                : [],
+              features: productInfo.uniqueSellingPoints
+                ? productInfo.uniqueSellingPoints.split('\n').filter((f: string) => f.trim())
+                : []
+            }
+          },
+          extractedBrand,
+          targetCountry,
+          language,
+          userId
+        )
+
+        extractedKeywords = extractionResult.keywords
+        extractedHeadlines = extractionResult.headlines
+        extractedDescriptions = extractionResult.descriptions
+        extractionMetadata = extractionResult.sources
+        extractedAt = new Date().toISOString()
+
+        console.log(`✅ 单商品提取完成: ${extractedKeywords.length}个关键词, ${extractedHeadlines.length}个标题`)
+      } else if (pageType === 'store') {
+        // 店铺场景：从数据库读取已保存的产品数据
+        const db = getSQLiteDatabase()
+        const products = db.prepare(`
+          SELECT name, rating, review_count, hot_score
+          FROM scraped_products
+          WHERE offer_id = ?
+          ORDER BY hot_score DESC
+          LIMIT 5
+        `).all(offerId) as Array<{
+          name: string
+          rating: string | null
+          review_count: string | null
+          hot_score: number | null
+        }>
+
+        if (products.length > 0) {
+          const extractionResult = await extractAdElements(
+            {
+              pageType: 'store',
+              storeProducts: products.map(p => ({
+                name: p.name,
+                rating: p.rating,
+                reviewCount: p.review_count,
+                hotScore: p.hot_score || undefined
+              }))
+            },
+            extractedBrand,
+            targetCountry,
+            language,
+            userId
+          )
+
+          extractedKeywords = extractionResult.keywords
+          extractedHeadlines = extractionResult.headlines
+          extractedDescriptions = extractionResult.descriptions
+          extractionMetadata = extractionResult.sources
+          extractedAt = new Date().toISOString()
+
+          console.log(`✅ 店铺提取完成: ${extractedKeywords.length}个关键词, ${extractedHeadlines.length}个标题`)
+        } else {
+          console.warn('⚠️ 店铺页面未找到产品数据，跳过广告元素提取')
+        }
+      }
+    } catch (extractError: any) {
+      console.warn('⚠️ 广告元素提取失败（不影响主流程）:', extractError.message)
+      // 提取失败不影响主流程，继续执行
+    }
+
     updateOfferScrapeStatus(offerId, userId, 'completed', scrapeError, {
       brand: extractedBrand,        // 更新品牌名
       url: actualUrl,               // 更新为解析后的真实URL
@@ -1062,6 +1152,12 @@ async function performScrapeAndAnalysis(
       competitor_analysis: competitorAnalysis ? formatFieldForDB(competitorAnalysis) : undefined,
       // ❌ P1优化已下线: 视觉元素智能分析（性价比不高）
       // visual_analysis: visualAnalysis ? formatFieldForDB(visualAnalysis) : undefined,
+      // 🎯 需求34: 广告元素提取结果
+      extracted_keywords: extractedKeywords.length > 0 ? formatFieldForDB(extractedKeywords) : undefined,
+      extracted_headlines: extractedHeadlines.length > 0 ? formatFieldForDB(extractedHeadlines) : undefined,
+      extracted_descriptions: extractedDescriptions.length > 0 ? formatFieldForDB(extractedDescriptions) : undefined,
+      extraction_metadata: Object.keys(extractionMetadata).length > 0 ? formatFieldForDB(extractionMetadata) : undefined,
+      extracted_at: extractedAt,
     })
 
     console.log(`Offer ${offerId} 抓取和分析完成`)

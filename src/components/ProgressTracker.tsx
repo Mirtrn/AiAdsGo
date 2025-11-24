@@ -1,0 +1,239 @@
+'use client';
+
+import React from 'react';
+import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react';
+import type { ProgressStage, ProgressStatus, ProgressEvent } from '@/types/progress';
+import { calculateProgress } from '@/types/progress';
+
+interface ProgressTrackerProps {
+  currentStage: ProgressStage;
+  currentStatus: ProgressStatus;
+  currentMessage: string;
+  events: ProgressEvent[];
+  details?: ProgressEvent['details'];
+}
+
+const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string }> = {
+  resolving_link: { label: '解析推广链接', icon: '🔗' },
+  fetching_proxy: { label: '获取代理IP', icon: '🌐' },
+  accessing_page: { label: '访问目标页面', icon: '🚀' },
+  extracting_brand: { label: '提取品牌信息', icon: '🏷️' },
+  scraping_products: { label: '抓取产品数据', icon: '📦' },
+  processing_data: { label: '处理数据', icon: '⚙️' },
+  completed: { label: '完成', icon: '✅' },
+  error: { label: '错误', icon: '❌' },
+};
+
+const STAGE_ORDER: ProgressStage[] = [
+  'fetching_proxy',
+  'resolving_link',
+  'accessing_page',
+  'extracting_brand',
+  'scraping_products',
+  'processing_data',
+  'completed',
+];
+
+export default function ProgressTracker({
+  currentStage,
+  currentStatus,
+  currentMessage,
+  events,
+  details,
+}: ProgressTrackerProps) {
+  const progress = calculateProgress(currentStage, currentStatus);
+
+  const getStageStatus = (stage: ProgressStage): ProgressStatus => {
+    const currentIndex = STAGE_ORDER.indexOf(currentStage);
+    const stageIndex = STAGE_ORDER.indexOf(stage);
+
+    if (currentStage === 'error') {
+      // Find the last completed stage before error
+      const lastEvent = [...events].reverse().find((e) => e.status === 'completed');
+      if (lastEvent) {
+        const lastCompletedIndex = STAGE_ORDER.indexOf(lastEvent.stage);
+        if (stageIndex <= lastCompletedIndex) return 'completed';
+        if (stageIndex === lastCompletedIndex + 1) return 'error';
+      }
+      return 'pending';
+    }
+
+    if (stageIndex < currentIndex) return 'completed';
+    if (stageIndex === currentIndex) return currentStatus;
+    return 'pending';
+  };
+
+  const renderStageIcon = (stage: ProgressStage) => {
+    const status = getStageStatus(stage);
+
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="w-6 h-6 text-green-600" />;
+      case 'in_progress':
+        return <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />;
+      case 'error':
+        return <XCircle className="w-6 h-6 text-red-600" />;
+      case 'pending':
+      default:
+        return <Circle className="w-6 h-6 text-gray-300" />;
+    }
+  };
+
+  const renderStageDetails = (stage: ProgressStage) => {
+    if (stage !== currentStage || !details) return null;
+
+    return (
+      <div className="ml-10 mt-2 text-sm text-gray-600 space-y-1">
+        {details.currentUrl && (
+          <div className="truncate">
+            <span className="font-medium">URL:</span> {details.currentUrl}
+          </div>
+        )}
+        {details.redirectCount !== undefined && details.redirectCount > 0 && (
+          <div>
+            <span className="font-medium">重定向次数:</span> {details.redirectCount}
+          </div>
+        )}
+        {details.proxyUsed && (
+          <div className="truncate">
+            <span className="font-medium">代理:</span> {details.proxyUsed}
+          </div>
+        )}
+        {details.brandName && (
+          <div>
+            <span className="font-medium">品牌:</span> {details.brandName}
+          </div>
+        )}
+        {details.productCount !== undefined && (
+          <div>
+            <span className="font-medium">产品数:</span> {details.productCount}
+          </div>
+        )}
+        {details.retryCount !== undefined && details.retryCount > 0 && (
+          <div className="text-orange-600">
+            <span className="font-medium">重试次数:</span> {details.retryCount}
+          </div>
+        )}
+        {details.errorMessage && (
+          <div className="text-red-600">
+            <span className="font-medium">错误:</span> {details.errorMessage}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Progress Bar */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center text-sm">
+          <span className="font-medium text-gray-700">提取进度</span>
+          <span className="text-gray-600">{Math.round(progress)}%</span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+          <div
+            className="bg-blue-600 h-full rounded-full transition-all duration-300 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Current Status Message */}
+      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+        <div className="flex items-start space-x-3">
+          {currentStatus === 'in_progress' && (
+            <Loader2 className="w-5 h-5 text-blue-600 animate-spin mt-0.5 flex-shrink-0" />
+          )}
+          {currentStatus === 'error' && (
+            <XCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+          )}
+          {currentStatus === 'completed' && currentStage === 'completed' && (
+            <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+          )}
+          <div className="flex-1">
+            <p className="text-sm font-medium text-gray-900">{currentMessage}</p>
+            {details && Object.keys(details).length > 0 && (
+              <div className="mt-2 text-xs text-gray-600 space-y-1">
+                {details.currentUrl && (
+                  <div className="truncate">
+                    <span className="font-semibold">当前URL:</span> {details.currentUrl}
+                  </div>
+                )}
+                {details.brandName && (
+                  <div>
+                    <span className="font-semibold">品牌名称:</span> {details.brandName}
+                  </div>
+                )}
+                {details.productCount !== undefined && (
+                  <div>
+                    <span className="font-semibold">产品数量:</span> {details.productCount}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Stage List */}
+      <div className="space-y-3">
+        {STAGE_ORDER.slice(0, -1).map((stage) => {
+          const status = getStageStatus(stage);
+          const config = STAGE_CONFIG[stage];
+          const isActive = stage === currentStage;
+
+          return (
+            <div
+              key={stage}
+              className={`flex items-start space-x-3 transition-all ${
+                isActive ? 'scale-105' : ''
+              }`}
+            >
+              <div className="flex-shrink-0 mt-0.5">{renderStageIcon(stage)}</div>
+              <div className="flex-1 min-w-0">
+                <div
+                  className={`text-sm font-medium ${
+                    status === 'completed'
+                      ? 'text-green-700'
+                      : status === 'in_progress'
+                      ? 'text-blue-700'
+                      : status === 'error'
+                      ? 'text-red-700'
+                      : 'text-gray-500'
+                  }`}
+                >
+                  <span className="mr-2">{config.icon}</span>
+                  {config.label}
+                </div>
+                {renderStageDetails(stage)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Event Log (Optional, for debugging) */}
+      {process.env.NODE_ENV === 'development' && events.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
+            查看详细日志 ({events.length} 条事件)
+          </summary>
+          <div className="mt-2 space-y-1 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">
+            {events.map((event, idx) => (
+              <div key={idx} className="text-gray-600">
+                <span className="font-mono">
+                  {new Date(event.timestamp).toLocaleTimeString()}
+                </span>{' '}
+                - <span className="font-medium">{event.stage}</span>:{' '}
+                <span className={event.status === 'error' ? 'text-red-600' : ''}>
+                  {event.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}

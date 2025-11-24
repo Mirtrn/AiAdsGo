@@ -280,8 +280,8 @@ export async function createGoogleAdsCampaign(params: {
     network_settings: {
       target_google_search: true,
       target_search_network: true,
-      // 启用Display Expansion (官方推荐)
-      target_content_network: true,
+      // 禁用Display Expansion（只投放搜索网络）
+      target_content_network: false,
       target_partner_search_network: false,
     },
   }
@@ -309,6 +309,13 @@ export async function createGoogleAdsCampaign(params: {
   // 必填字段：EU政治广告状态声明
   // 大多数Campaign不包含政治广告，设置为DOES_NOT_CONTAIN
   campaign.contains_eu_political_advertising = enums.EuPoliticalAdvertisingStatus.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
+
+  // 地理位置选项设置：PRESENCE = 所在地（只定位实际位于该地理位置的用户）
+  // PRESENCE_OR_INTEREST = 所在地或兴趣（定位在该地或对该地感兴趣的用户）
+  // 参考：https://developers.google.com/google-ads/api/reference/rpc/latest/PositiveGeoTargetTypeEnum.PositiveGeoTargetType
+  campaign.geo_target_type_setting = {
+    positive_geo_target_type: enums.PositiveGeoTargetType.PRESENCE
+  }
 
   // 添加Final URL Suffix（始终设置，即使为空）
   // Final URL Suffix用于在所有广告的最终URL后附加跟踪参数

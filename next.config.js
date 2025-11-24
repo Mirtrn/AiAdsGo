@@ -25,15 +25,47 @@ const nextConfig = {
 
   // 外部包配置：避免webpack打包特定库
   experimental: {
-    serverComponentsExternalPackages: ['better-sqlite3', 'cheerio', 'postgres'],
+    serverComponentsExternalPackages: [
+      'better-sqlite3',
+      'cheerio',
+      'postgres',
+      // 🔥 Crawlee相关包（需要动态加载playwright）
+      'playwright',
+      'playwright-core',
+      '@crawlee/playwright',
+      '@crawlee/browser',
+      '@crawlee/browser-pool',
+      '@crawlee/core',
+      '@crawlee/utils',
+      '@crawlee/types',
+      'fingerprint-generator',
+      'fingerprint-injector',
+      'header-generator',
+    ],
     // 启用 instrumentation
     instrumentationHook: true,
   },
 
   webpack: (config, { isServer }) => {
-    // 支持better-sqlite3, cheerio, postgres
+    // 支持better-sqlite3, cheerio, postgres, Crawlee相关包
     if (isServer) {
-      config.externals.push('better-sqlite3', 'cheerio', 'postgres');
+      config.externals.push(
+        'better-sqlite3',
+        'cheerio',
+        'postgres',
+        // 🔥 Crawlee相关包
+        'playwright',
+        'playwright-core',
+        '@crawlee/playwright',
+        '@crawlee/browser',
+        '@crawlee/browser-pool',
+        '@crawlee/core',
+        '@crawlee/utils',
+        '@crawlee/types',
+        'fingerprint-generator',
+        'fingerprint-injector',
+        'header-generator'
+      );
     }
     // 不再自定义chunk splitting，使用Next.js默认配置
     return config;

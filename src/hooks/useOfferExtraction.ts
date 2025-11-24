@@ -1,0 +1,168 @@
+'use client';
+
+import { useState, useCallback, useRef } from 'react';
+import type {
+  ProgressStage,
+  ProgressStatus,
+  ProgressEvent,
+  SSEMessage,
+} from '@/types/progress';
+
+interface ExtractionResult {
+  finalUrl: string;
+  finalUrlSuffix: string;
+  brand: string;
+  productDescription?: string;
+  targetLanguage: string;
+  productCount?: number;
+  [key: string]: any;
+}
+
+interface UseOfferExtractionReturn {
+  // State
+  isExtracting: boolean;
+  currentStage: ProgressStage;
+  currentStatus: ProgressStatus;
+  currentMessage: string;
+  events: ProgressEvent[];
+  details?: ProgressEvent['details'];
+  result: ExtractionResult | null;
+  error: string | null;
+
+  // Actions
+  startExtraction: (affiliateLink: string, targetCountry: string) => void;
+  reset: () => void;
+}
+
+export function useOfferExtraction(): UseOfferExtractionReturn {
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [currentStage, setCurrentStage] = useState<ProgressStage>('resolving_link');
+  const [currentStatus, setCurrentStatus] = useState<ProgressStatus>('pending');
+  const [currentMessage, setCurrentMessage] = useState('');
+  const [events, setEvents] = useState<ProgressEvent[]>([]);
+  const [details, setDetails] = useState<ProgressEvent['details']>();
+  const [result, setResult] = useState<ExtractionResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const reset = useCallback(() => {
+    setIsExtracting(false);
+    setCurrentStage('resolving_link');
+    setCurrentStatus('pending');
+    setCurrentMessage('');
+    setEvents([]);
+    setDetails(undefined);
+    setResult(null);
+    setError(null);
+
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, []);
+
+  const startExtraction = useCallback(
+    async (affiliateLink: string, targetCountry: string) => {
+      reset();
+      setIsExtracting(true);
+      setCurrentMessage('准备开始提取...');
+
+      try {
+        // Use fetch with streaming instead of EventSource for POST requests
+        const response = await fetch('/api/offers/extract/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            affiliate_link: affiliateLink,
+            target_country: targetCountry,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        if (!response.body) {
+          throw new Error('Response body is null');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log('✅ SSE stream completed');
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // Process complete messages (separated by \n\n)
+          const messages = buffer.split('\n\n');
+          buffer = messages.pop() || ''; // Keep incomplete message in buffer
+
+          for (const message of messages) {
+            if (!message.trim() || !message.startsWith('data: ')) continue;
+
+            try {
+              const jsonStr = message.substring(6); // Remove "data: " prefix
+              const data: SSEMessage = JSON.parse(jsonStr);
+
+              console.log('📨 SSE Message:', data);
+
+              if (data.type === 'progress') {
+                const progressEvent = data.data;
+                setCurrentStage(progressEvent.stage);
+                setCurrentStatus(progressEvent.status);
+                setCurrentMessage(progressEvent.message);
+                setDetails(progressEvent.details);
+                setEvents((prev) => [...prev, progressEvent]);
+              } else if (data.type === 'complete') {
+                setCurrentStage('completed');
+                setCurrentStatus('completed');
+                setCurrentMessage('提取完成！');
+                setResult(data.data as any);
+                setIsExtracting(false);
+              } else if (data.type === 'error') {
+                setCurrentStage('error');
+                setCurrentStatus('error');
+                setCurrentMessage(data.data.message);
+                setError(data.data.message);
+                setIsExtracting(false);
+              }
+            } catch (parseError) {
+              console.error('Failed to parse SSE message:', parseError, message);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Extraction failed:', err);
+        setCurrentStage('error');
+        setCurrentStatus('error');
+        setError(err instanceof Error ? err.message : String(err));
+        setCurrentMessage('提取失败，请重试');
+        setIsExtracting(false);
+      }
+    },
+    [reset]
+  );
+
+  return {
+    isExtracting,
+    currentStage,
+    currentStatus,
+    currentMessage,
+    events,
+    details,
+    result,
+    error,
+    startExtraction,
+    reset,
+  };
+}

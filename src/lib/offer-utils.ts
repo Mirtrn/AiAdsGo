@@ -327,3 +327,90 @@ export function formatOfferDisplayName(offer: {
   // 如果没有offer_name，临时生成一个显示名称
   return `${offer.brand} (${offer.target_country})`
 }
+
+/**
+ * 从URL检测目标国家
+ *
+ * 支持的检测规则：
+ * - Amazon域名: amazon.com(US), amazon.co.uk(UK), amazon.de(DE), amazon.ca(CA), amazon.co.jp(JP)等
+ * - 其他域名: 使用顶级域名推断(.uk→UK, .de→DE等)
+ *
+ * @param url - 目标URL
+ * @returns 检测到的国家代码，默认返回'US'
+ */
+export function detectCountryFromUrl(url: string): string {
+  if (!url) return 'US';
+
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname.toLowerCase();
+
+    // Amazon域名映射
+    const amazonDomainMap: Record<string, string> = {
+      'amazon.com': 'US',
+      'amazon.co.uk': 'UK',
+      'amazon.de': 'DE',
+      'amazon.fr': 'FR',
+      'amazon.it': 'IT',
+      'amazon.es': 'ES',
+      'amazon.ca': 'CA',
+      'amazon.co.jp': 'JP',
+      'amazon.com.au': 'AU',
+      'amazon.in': 'IN',
+      'amazon.com.br': 'BR',
+      'amazon.com.mx': 'MX',
+      'amazon.nl': 'NL',
+      'amazon.se': 'SE',
+      'amazon.pl': 'PL',
+      'amazon.ae': 'AE',
+      'amazon.sa': 'SA',
+      'amazon.sg': 'SG',
+    };
+
+    // 检查Amazon域名
+    for (const [domain, country] of Object.entries(amazonDomainMap)) {
+      if (hostname === domain || hostname === `www.${domain}`) {
+        return country;
+      }
+    }
+
+    // 通用顶级域名映射
+    const tldMap: Record<string, string> = {
+      'uk': 'UK',
+      'de': 'DE',
+      'fr': 'FR',
+      'it': 'IT',
+      'es': 'ES',
+      'ca': 'CA',
+      'jp': 'JP',
+      'au': 'AU',
+      'in': 'IN',
+      'br': 'BR',
+      'mx': 'MX',
+      'nl': 'NL',
+      'se': 'SE',
+      'pl': 'PL',
+    };
+
+    // 从顶级域名推断
+    const parts = hostname.split('.');
+    if (parts.length >= 2) {
+      const tld = parts[parts.length - 1];
+      // 处理 .co.uk 这类复合顶级域名
+      if (parts.length >= 3 && parts[parts.length - 2] === 'co') {
+        const countryTld = parts[parts.length - 1];
+        if (tldMap[countryTld]) {
+          return tldMap[countryTld];
+        }
+      }
+      if (tldMap[tld]) {
+        return tldMap[tld];
+      }
+    }
+
+    // 默认返回US
+    return 'US';
+  } catch {
+    return 'US';
+  }
+}

@@ -116,12 +116,18 @@ async function getAIConfig(userId?: number): Promise<AIConfig> {
 
 /**
  * 生成广告创意的Prompt（优化版 - 减少40%+ token消耗）
+ * 🎯 需求34: 新增 extractedElements 参数，包含从爬虫阶段提取的关键词、标题、描述
  */
 function buildAdCreativePrompt(
   offer: any,
   theme?: string,
   referencePerformance?: any,
-  excludeKeywords?: string[]
+  excludeKeywords?: string[],
+  extractedElements?: {
+    keywords?: Array<{ keyword: string; searchVolume: number; source: string; priority: string }>
+    headlines?: string[]
+    descriptions?: string[]
+  }
 ): string {
   // 基础产品信息（精简格式）
   let prompt = `Generate Google Ads creative for ${offer.brand} (${offer.category || 'product'}).
@@ -155,6 +161,29 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
     if (referencePerformance.top_keywords?.length) {
       prompt += `TOP KEYWORDS: ${referencePerformance.top_keywords.slice(0, 5).join(', ')}\n`
     }
+  }
+
+  // 🎯 需求34: 提取的广告元素作为参考（从爬虫阶段获取）
+  if (extractedElements) {
+    if (extractedElements.keywords && extractedElements.keywords.length > 0) {
+      const topKeywords = extractedElements.keywords
+        .filter(k => k.searchVolume >= 500)
+        .slice(0, 10)
+        .map(k => `"${k.keyword}" (${k.searchVolume}/mo, ${k.source})`)
+      if (topKeywords.length > 0) {
+        prompt += `\n**EXTRACTED KEYWORDS** (from product data, validated by Keyword Planner):\n${topKeywords.join(', ')}\n`
+      }
+    }
+
+    if (extractedElements.headlines && extractedElements.headlines.length > 0) {
+      prompt += `\n**EXTRACTED HEADLINES** (from product titles, ≤30 chars):\n${extractedElements.headlines.slice(0, 5).join(', ')}\n`
+    }
+
+    if (extractedElements.descriptions && extractedElements.descriptions.length > 0) {
+      prompt += `\n**EXTRACTED DESCRIPTIONS** (from product features, ≤90 chars):\n${extractedElements.descriptions.slice(0, 2).join('; ')}\n`
+    }
+
+    prompt += `\n**INSTRUCTION**: Use above extracted elements as reference. You can refine, expand, or create variations, but prioritize extracted keywords (they have real search volume). Generate complete 15 headlines and 4 descriptions as required.\n`
   }
 
   // 核心要求（大幅精简）
@@ -497,7 +526,7 @@ export async function generateAdCreative(
 
   const db = getSQLiteDatabase()
 
-  // 获取Offer数据
+  // 获取Offer数据（包含提取的广告元素）
   const offer = db.prepare(`
     SELECT * FROM offers WHERE id = ?
   `).get(offerId)
@@ -506,12 +535,37 @@ export async function generateAdCreative(
     throw new Error('Offer不存在')
   }
 
-  // 构建Prompt
+  // 🎯 需求34: 读取已提取的广告元素（从爬虫阶段保存的数据）
+  let extractedElements: {
+    keywords?: Array<{ keyword: string; searchVolume: number; source: string; priority: string }>
+    headlines?: string[]
+    descriptions?: string[]
+  } = {}
+
+  try {
+    if (offer.extracted_keywords) {
+      extractedElements.keywords = JSON.parse(offer.extracted_keywords)
+      console.log(`📦 读取到 ${extractedElements.keywords.length} 个提取的关键词`)
+    }
+    if (offer.extracted_headlines) {
+      extractedElements.headlines = JSON.parse(offer.extracted_headlines)
+      console.log(`📦 读取到 ${extractedElements.headlines.length} 个提取的标题`)
+    }
+    if (offer.extracted_descriptions) {
+      extractedElements.descriptions = JSON.parse(offer.extracted_descriptions)
+      console.log(`📦 读取到 ${extractedElements.descriptions.length} 个提取的描述`)
+    }
+  } catch (parseError: any) {
+    console.warn('⚠️ 解析提取的广告元素失败，将使用AI全新生成:', parseError.message)
+  }
+
+  // 构建Prompt（传入提取的元素作为参考）
   const prompt = buildAdCreativePrompt(
     offer,
     options?.theme,
     options?.referencePerformance,
-    options?.excludeKeywords
+    options?.excludeKeywords,
+    extractedElements  // 🎯 新增：传入提取的元素
   )
 
   // 使用统一AI入口（优先Vertex AI，自动降级到Gemini API）

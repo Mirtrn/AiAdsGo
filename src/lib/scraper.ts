@@ -208,6 +208,27 @@ export async function scrapeProductData(url: string, customProxyUrl?: string): P
  * Extract product data from Amazon pages
  */
 function extractAmazonData($: any, url: string): ScrapedProductData {
+  // 🔍 调试：检查页面状态
+  const pageTitle = $('title').text().trim()
+  const isBlocked = pageTitle.includes('Robot Check') || pageTitle.includes('Sorry!')
+  console.log(`🔍 [extractAmazonData] 页面标题: "${pageTitle.slice(0, 60)}"`)
+  console.log(`🔍 [extractAmazonData] 是否被拦截: ${isBlocked}`)
+
+  if (isBlocked) {
+    console.warn('⚠️ [extractAmazonData] 页面被Amazon拦截，无法提取数据')
+    return {
+      productName: null,
+      productDescription: null,
+      productPrice: null,
+      productCategory: null,
+      productFeatures: [],
+      brandName: null,
+      imageUrls: [],
+      metaTitle: pageTitle,
+      metaDescription: null,
+    }
+  }
+
   const features: string[] = []
   $('#feature-bullets li').each((i: number, el: any) => {
     const text = $(el).text().trim()
@@ -267,8 +288,17 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
                  null
 
   // 🔥 增强品牌提取逻辑 - 支持Amazon Store页面
-  let brandName = $('#bylineInfo').text().trim().replace('Visit the ', '').replace(' Store', '') ||
-                  $('[data-brand]').attr('data-brand') ||
+  const bylineInfo = $('#bylineInfo').text().trim()
+  const dataBrand = $('[data-brand]').attr('data-brand')
+  const poBrand = $('.po-brand .a-size-base').text().trim()
+
+  console.log(`🔍 [extractAmazonData] #bylineInfo: "${bylineInfo}"`)
+  console.log(`🔍 [extractAmazonData] [data-brand]: "${dataBrand || '(空)'}"`)
+  console.log(`🔍 [extractAmazonData] .po-brand: "${poBrand}"`)
+
+  let brandName = bylineInfo.replace('Visit the ', '').replace(' Store', '') ||
+                  dataBrand ||
+                  poBrand.replace(/^Brand/, '') || // 备用选择器
                   null
 
   // 如果是Amazon stores URL且没有从页面提取到品牌，从URL中提取
@@ -280,8 +310,27 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
     }
   }
 
+  // 🔥 后备方案：从商品标题提取品牌名
+  // Amazon商品标题通常以品牌名开头，格式如: "REOLINK 12MP PoE Security Camera..."
+  const productTitle = $('#productTitle').text().trim()
+  if (!brandName && productTitle) {
+    // 方法1: 提取标题开头的全大写单词（常见品牌格式）
+    const upperCaseMatch = productTitle.match(/^([A-Z][A-Z0-9]+)(?:\s|$)/)
+    if (upperCaseMatch) {
+      brandName = upperCaseMatch[1]
+      console.log(`✅ [Amazon] 从商品标题提取品牌(大写): ${brandName}`)
+    } else {
+      // 方法2: 提取标题第一个单词（首字母大写）
+      const firstWordMatch = productTitle.match(/^([A-Z][a-z]+)(?:\s|$)/)
+      if (firstWordMatch) {
+        brandName = firstWordMatch[1]
+        console.log(`✅ [Amazon] 从商品标题提取品牌(首词): ${brandName}`)
+      }
+    }
+  }
+
   return {
-    productName: $('#productTitle').text().trim() || null,
+    productName: productTitle || null,
     productDescription: $('#feature-bullets').text().trim() || $('#productDescription').text().trim() || null,
     productPrice,
     productCategory: $('#wayfinding-breadcrumbs_feature_div').text().trim() || null,

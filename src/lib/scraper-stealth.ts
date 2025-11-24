@@ -74,15 +74,15 @@ async function retryWithBackoff<T>(
 async function createStealthBrowser(proxyUrl?: string): Promise<{ browser: Browser; proxy?: ProxyCredentials }> {
   let proxy: ProxyCredentials | undefined
 
-  // Get proxy if enabled
-  if ((PROXY_ENABLED || proxyUrl) && (proxyUrl || PROXY_URL)) {
-    try {
-      proxy = await getProxyIp(proxyUrl || PROXY_URL)
-      console.log(`🔒 使用代理: ${proxy.host}:${proxy.port}`)
-    } catch (error: any) {
-      console.warn('⚠️ 代理获取失败，继续使用直连:', error.message)
-    }
+  // 🔴 根据需求10：必须使用代理，不允许降级为直连访问
+  const effectiveProxyUrl = proxyUrl || PROXY_URL
+  if (!effectiveProxyUrl) {
+    throw new Error('❌ 代理配置缺失：根据需求10，必须配置代理URL(PROXY_URL环境变量或传入customProxyUrl参数)，不允许直连访问')
   }
+
+  // 获取代理IP，失败时直接抛出错误
+  proxy = await getProxyIp(effectiveProxyUrl)
+  console.log(`🔒 使用代理: ${proxy.host}:${proxy.port}`)
 
   // Launch browser with stealth settings
   const browser = await chromium.launch({
@@ -309,11 +309,15 @@ export async function resolveAffiliateLink(
 
       const redirectChain: string[] = [affiliateLink]
 
-      // Track all redirects
-      page.on('response', response => {
-        const url = response.url()
-        if (!redirectChain.includes(url)) {
-          redirectChain.push(url)
+      // 🔥 修复：只追踪导航重定向，不追踪资源请求
+      // 使用 request 事件追踪导航链
+      page.on('request', request => {
+        // 只追踪导航请求（document类型）
+        if (request.isNavigationRequest()) {
+          const url = request.url()
+          if (!redirectChain.includes(url)) {
+            redirectChain.push(url)
+          }
         }
       })
 
@@ -863,8 +867,9 @@ export async function scrapeAmazonStore(
     const maxScrolls = 5        // 最大滚动次数
     let scrollCount = 0
 
-    // 🔧 FIX: 等待初始产品加载（给页面更多时间渲染）
-    await randomDelay(1000, 1500)
+    // 🔧 FIX: 等待初始产品加载（增加等待时间确保完全渲染）
+    console.log('⏳ 等待页面渲染...')
+    await randomDelay(2000, 3000) // 从1000-1500ms增加到2000-3000ms
 
     while (scrollCount < maxScrolls) {
       // 🔧 FIX: 使用更强大的产品选择器组合
@@ -1492,3 +1497,21 @@ export async function scrapeIndependentStore(
     await browser.close()
   }
 }
+
+// ============================================================================
+// Crawlee版本导出（推荐用于生产环境）
+// ============================================================================
+// Crawlee版本特性：
+// - SessionPool自动Session管理和封号检测
+// - AutoscaledPool智能并发控制
+// - 智能选择器（支持多种Amazon Store页面布局）
+// - 颜色变体去重
+// - 品牌名规范化
+// ============================================================================
+export {
+  scrapeAmazonStoreWithCrawlee,
+  scrapeMultipleStoresWithCrawlee,
+  scrapeIndependentStoreWithCrawlee,
+  scrapeAmazonProductWithCrawlee,
+  type AmazonProductData as CrawleeAmazonProductData,
+} from './crawlee-scraper'

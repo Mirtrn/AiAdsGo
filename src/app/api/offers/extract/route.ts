@@ -7,7 +7,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveAffiliateLink, getProxyPool } from '@/lib/url-resolver-enhanced'
 import { getAllProxyUrls } from '@/lib/settings'
 import { extractProductInfo } from '@/lib/scraper'
-import { scrapeAmazonStore, scrapeIndependentStore } from '@/lib/scraper-stealth'
+// 🔥 切换到Crawlee版本（SessionPool + 智能并发控制）
+import {
+  scrapeAmazonStoreWithCrawlee,
+  scrapeIndependentStoreWithCrawlee,
+  scrapeAmazonProductWithCrawlee,
+} from '@/lib/scraper-stealth'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
 
 export const maxDuration = 60 // 最长60秒
@@ -32,6 +37,14 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`🔍 开始自动提取: ${affiliate_link} (国家: ${target_country})`)
+
+    // 🔥 Crawlee版本需要userId
+    if (!userIdNum) {
+      const error = createError.unauthorized({
+        suggestion: '请先登录后再使用此功能'
+      })
+      return NextResponse.json(error.toJSON(), { status: error.httpStatus })
+    }
 
     // ========== 步骤1: 加载代理池配置 ==========
     const proxySettings = getAllProxyUrls(userIdNum)
@@ -100,6 +113,11 @@ export async function POST(request: NextRequest) {
 
     const isAmazonStore = isAmazonStoreByUrl || isAmazonStoreByFinalUrl
 
+    // 🔥 检测是否为Amazon单品页面（/dp/ 或 /gp/product/）
+    const isAmazonProductPage = !isAmazonStore &&
+                                 resolvedData.finalUrl.includes('amazon.com') &&
+                                 (resolvedData.finalUrl.includes('/dp/') || resolvedData.finalUrl.includes('/gp/product/'))
+
     // 🔍 调试日志
     console.log('🔍 Amazon Store检测:')
     console.log('  - finalUrl:', resolvedData.finalUrl)
@@ -108,6 +126,7 @@ export async function POST(request: NextRequest) {
     console.log('  - isAmazonStoreByUrl:', isAmazonStoreByUrl)
     console.log('  - isAmazonStoreByFinalUrl:', isAmazonStoreByFinalUrl)
     console.log('  - 最终isAmazonStore:', isAmazonStore)
+    console.log('  - isAmazonProductPage:', isAmazonProductPage)
 
     // ========== 步骤3: 抓取网页数据识别品牌 ==========
     let brandName = null
@@ -115,11 +134,12 @@ export async function POST(request: NextRequest) {
     let scrapedData = null
     let storeData = null
     let independentStoreData = null
+    let amazonProductData = null  // 🔥 新增：Amazon单品数据
     let productCount = 0
 
     try {
       // 🔥 检测是否为独立站店铺首页
-      const isIndependentStore = !isAmazonStore && (() => {
+      const isIndependentStore = !isAmazonStore && !isAmazonProductPage && (() => {
         const url = resolvedData.finalUrl.toLowerCase()
         const urlObj = new URL(resolvedData.finalUrl)
         const pathname = urlObj.pathname
@@ -142,11 +162,10 @@ export async function POST(request: NextRequest) {
       })()
 
       if (isAmazonStore) {
-        console.log('🏪 检测到Amazon Store页面，使用浏览器抓取...')
+        console.log('🏪 检测到Amazon Store页面，使用Crawlee抓取...')
 
-        // 使用Playwright浏览器抓取Amazon Store
-        const defaultProxy = proxySettings[0]?.url
-        storeData = await scrapeAmazonStore(resolvedData.finalUrl, defaultProxy)
+        // 🔥 使用Crawlee版本抓取Amazon Store（SessionPool + 智能并发）
+        storeData = await scrapeAmazonStoreWithCrawlee(resolvedData.finalUrl, userIdNum, target_country)
 
         // 从Store数据中提取品牌信息
         brandName = storeData.brandName || storeData.storeName
@@ -154,12 +173,31 @@ export async function POST(request: NextRequest) {
         productCount = storeData.totalProducts
 
         console.log(`✅ Amazon Store识别成功: ${brandName}, 产品数: ${productCount}`)
-      } else if (isIndependentStore) {
-        console.log('🏬 检测到独立站首页，使用浏览器抓取产品列表...')
+      } else if (isAmazonProductPage) {
+        // 🔥 Amazon单品页面使用Crawlee抓取（SessionPool + 智能并发）
+        console.log('📦 检测到Amazon单品页面，使用Crawlee抓取...')
 
-        // 使用Playwright浏览器抓取独立站产品
-        const defaultProxy = proxySettings[0]?.url
-        independentStoreData = await scrapeIndependentStore(resolvedData.finalUrl, defaultProxy)
+        amazonProductData = await scrapeAmazonProductWithCrawlee(resolvedData.finalUrl, userIdNum, target_country)
+
+        // 从Amazon单品数据中提取品牌信息
+        brandName = amazonProductData.brandName
+        productDescription = amazonProductData.productDescription
+
+        // 🔥 构造兼容的scrapedData格式，供后续API响应使用
+        scrapedData = {
+          productName: amazonProductData.productName,
+          brand: amazonProductData.brandName,
+          description: amazonProductData.productDescription,
+          price: amazonProductData.productPrice,
+          imageUrls: amazonProductData.imageUrls,
+        }
+
+        console.log(`✅ Amazon单品识别成功: ${brandName || 'Unknown'}, 产品: ${amazonProductData.productName?.slice(0, 50)}...`)
+      } else if (isIndependentStore) {
+        console.log('🏬 检测到独立站首页，使用Crawlee抓取...')
+
+        // 🔥 使用Crawlee版本抓取独立站（SessionPool + 智能并发）
+        independentStoreData = await scrapeIndependentStoreWithCrawlee(resolvedData.finalUrl, userIdNum, target_country)
 
         // 从独立站数据中提取品牌信息
         brandName = independentStoreData.storeName
@@ -168,7 +206,7 @@ export async function POST(request: NextRequest) {
 
         console.log(`✅ 独立站识别成功: ${brandName}, 产品数: ${productCount}, 平台: ${independentStoreData.platform}`)
       } else {
-        // 使用普通scraper抓取单个产品页面
+        // 使用普通scraper抓取单个产品页面（非Amazon站点）
         scrapedData = await extractProductInfo(resolvedData.finalUrl, target_country)
 
         // 从抓取数据中提取品牌名称
@@ -237,8 +275,13 @@ export async function POST(request: NextRequest) {
           scrapedDataAvailable: !!scrapedData,
           brandAutoDetected: !!brandName,
           isAmazonStore: !!storeData,
+          isAmazonProductPage: !!amazonProductData,
           isIndependentStore: !!independentStoreData,
           productsExtracted: productCount,
+          // 🔥 Crawlee版本：SessionPool + 智能并发
+          scrapeMethod: isAmazonStore ? 'crawlee-store' :
+                        amazonProductData ? 'crawlee-product' :
+                        independentStoreData ? 'crawlee-independent' : 'axios-cheerio',
         },
       },
     })

@@ -139,16 +139,29 @@ export default function OffersPage() {
   useEffect(() => {
     fetchOffers()
 
-    // Poll for scraping status updates every 5 seconds if any offer is in progress
+    // Poll for scraping status updates every 30 seconds (优化：减少轮询频率)
     const pollInterval = setInterval(async () => {
-      if (offers.some(offer => offer.scrape_status === 'in_progress')) {
-        console.log('[Polling] Checking scraping status...')
-        await fetchOffers()
+      try {
+        const response = await fetch('/api/offers', {
+          credentials: 'include',
+          cache: 'no-store',
+        })
+        if (response.ok) {
+          const data = await response.json()
+          // 只有存在进行中的任务时才更新状态
+          if (data.offers.some((offer: Offer) => offer.scrape_status === 'in_progress')) {
+            console.log('[Polling] Found in-progress tasks, updating offers...')
+            setOffers(data.offers)
+            setFilteredOffers(data.offers)
+          }
+        }
+      } catch (error) {
+        console.error('[Polling] Error fetching offers:', error)
       }
-    }, 5000) // Poll every 5 seconds
+    }, 30000) // Poll every 30 seconds (降低频率)
 
     return () => clearInterval(pollInterval)
-  }, [offers])
+  }, []) // 空依赖数组，只在组件挂载时执行一次
 
   // P1-2 + P2-5: 应用筛选器和排序
   useEffect(() => {

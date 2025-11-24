@@ -7,7 +7,7 @@
  * 步骤3: 用户确认（可修正品牌名称）
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -28,6 +28,8 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react'
+import ProgressTracker from '@/components/ProgressTracker'
+import { useOfferExtraction } from '@/hooks/useOfferExtraction'
 
 interface CreateOfferModalV2Props {
   open: boolean
@@ -93,44 +95,55 @@ export default function CreateOfferModalV2({
   // 步骤3：用户可修正的字段
   const [brandName, setBrandName] = useState('')
 
+  // 🔥 SSE进度跟踪
+  const {
+    isExtracting,
+    currentStage,
+    currentStatus,
+    currentMessage,
+    events,
+    details,
+    result: extractionResult,
+    error: extractionError,
+    startExtraction,
+    reset: resetExtraction,
+  } = useOfferExtraction()
+
+  // 🔥 监听提取完成，自动进入确认步骤
+  useEffect(() => {
+    if (extractionResult && currentStage === 'completed') {
+      // 保存提取的数据
+      setExtractedData({
+        finalUrl: extractionResult.finalUrl,
+        finalUrlSuffix: extractionResult.finalUrlSuffix || '',
+        brand: extractionResult.brand,
+        productDescription: null,
+        targetLanguage: extractionResult.targetLanguage || 'English',
+        redirectCount: 0,
+        resolveMethod: 'sse-stream',
+      })
+      setBrandName(extractionResult.brand || '')
+      setCurrentStep('confirm')
+    }
+  }, [extractionResult, currentStage])
+
+  // 🔥 监听提取错误
+  useEffect(() => {
+    if (extractionError) {
+      setError(extractionError)
+      setCurrentStep('input')
+    }
+  }, [extractionError])
+
   // ========== 步骤1: 提交用户输入，开始自动提取 ==========
   const handleExtract = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    setLoading(true)
+    resetExtraction() // 重置之前的提取状态
     setCurrentStep('extracting')
 
-    try {
-      const response = await fetch('/api/offers/extract', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          affiliate_link: affiliateLink,
-          target_country: targetCountry,
-        }),
-      })
-
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || '自动提取失败')
-      }
-
-      // 保存提取的数据
-      setExtractedData(result.data)
-      setBrandName(result.data.brand || '') // 预填品牌名称
-
-      // 进入确认步骤
-      setCurrentStep('confirm')
-    } catch (err: any) {
-      setError(err.message || '自动提取失败，请稍后重试')
-      setCurrentStep('input') // 失败后返回输入步骤
-    } finally {
-      setLoading(false)
-    }
+    // 🔥 启动SSE流式提取
+    startExtraction(affiliateLink, targetCountry)
   }
 
   // ========== 步骤3: 用户确认后创建Offer ==========
@@ -194,10 +207,11 @@ export default function CreateOfferModalV2({
     setExtractedData(null)
     setCurrentStep('input')
     setError('')
+    resetExtraction() // 🔥 重置SSE提取状态
   }
 
   const handleClose = () => {
-    if (!loading) {
+    if (!loading && !isExtracting) {
       resetForm()
       onOpenChange(false)
     }
@@ -207,6 +221,7 @@ export default function CreateOfferModalV2({
     setCurrentStep('input')
     setExtractedData(null)
     setError('')
+    resetExtraction() // 🔥 重置SSE提取状态
   }
 
   // ========== 渲染不同步骤 ==========
@@ -217,7 +232,7 @@ export default function CreateOfferModalV2({
           <DialogTitle>创建Offer</DialogTitle>
           <DialogDescription>
             {currentStep === 'input' && '输入推广链接和国家，系统将自动提取Offer信息'}
-            {currentStep === 'extracting' && '正在自动提取Offer信息...'}
+            {currentStep === 'extracting' && '实时跟踪提取进度，了解每个步骤的执行情况'}
             {currentStep === 'confirm' && '确认自动提取的信息，可修正品牌名称'}
           </DialogDescription>
         </DialogHeader>
@@ -303,11 +318,16 @@ export default function CreateOfferModalV2({
             </div>
 
             <DialogFooter className="gap-2 pt-4">
-              <Button type="button" variant="outline" onClick={handleClose} disabled={loading}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleClose}
+                disabled={loading || isExtracting}
+              >
                 取消
               </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? (
+              <Button type="submit" disabled={loading || isExtracting}>
+                {isExtracting ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     提取中...
@@ -320,17 +340,16 @@ export default function CreateOfferModalV2({
           </form>
         )}
 
-        {/* ========== 步骤2: 自动提取中 ========== */}
+        {/* ========== 步骤2: 自动提取中（SSE实时进度） ========== */}
         {currentStep === 'extracting' && (
-          <div className="py-12 text-center space-y-4">
-            <Loader2 className="w-12 h-12 mx-auto text-blue-600 animate-spin" />
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">正在自动提取Offer信息</h3>
-              <p className="text-sm text-gray-600 mt-2">
-                系统正在解析推广链接，识别品牌名称...
-              </p>
-              <p className="text-xs text-gray-500 mt-1">这可能需要10-30秒，请耐心等待</p>
-            </div>
+          <div className="py-6">
+            <ProgressTracker
+              currentStage={currentStage}
+              currentStatus={currentStatus}
+              currentMessage={currentMessage}
+              events={events}
+              details={details}
+            />
           </div>
         )}
 

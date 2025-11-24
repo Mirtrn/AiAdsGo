@@ -501,6 +501,12 @@ export function updateOfferScrapeStatus(
     review_analysis?: string
     competitor_analysis?: string
     visual_analysis?: string
+    // 🎯 需求34: 广告元素提取结果字段
+    extracted_keywords?: string
+    extracted_headlines?: string
+    extracted_descriptions?: string
+    extraction_metadata?: string
+    extracted_at?: string
   }
 ): void {
   const db = getSQLiteDatabase()
@@ -524,6 +530,11 @@ export function updateOfferScrapeStatus(
           review_analysis = COALESCE(?, review_analysis),
           competitor_analysis = COALESCE(?, competitor_analysis),
           visual_analysis = COALESCE(?, visual_analysis),
+          extracted_keywords = COALESCE(?, extracted_keywords),
+          extracted_headlines = COALESCE(?, extracted_headlines),
+          extracted_descriptions = COALESCE(?, extracted_descriptions),
+          extraction_metadata = COALESCE(?, extraction_metadata),
+          extracted_at = COALESCE(?, extracted_at),
           updated_at = datetime('now')
       WHERE id = ? AND user_id = ?
     `).run(
@@ -542,6 +553,11 @@ export function updateOfferScrapeStatus(
       scrapedData.review_analysis || null,
       scrapedData.competitor_analysis || null,
       scrapedData.visual_analysis || null,
+      scrapedData.extracted_keywords || null,
+      scrapedData.extracted_headlines || null,
+      scrapedData.extracted_descriptions || null,
+      scrapedData.extraction_metadata || null,
+      scrapedData.extracted_at || null,
       id,
       userId
     )
