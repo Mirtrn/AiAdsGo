@@ -23,6 +23,7 @@ const POOL_CONFIG = {
 interface BrowserInstance {
   browser: Browser
   context: BrowserContext
+  contextOptions: any           // 保存context配置供复用
   proxyKey: string              // 代理配置的唯一标识
   createdAt: number
   lastUsedAt: number
@@ -54,10 +55,15 @@ class PlaywrightPool {
         // 验证实例是否仍然有效
         const isConnected = existing.browser.isConnected()
         if (isConnected) {
+          // 🔧 FIX: 关闭旧context，创建新context（避免状态污染）
+          await existing.context.close().catch(() => {})
+          const newContext = await existing.browser.newContext(existing.contextOptions)
+
+          existing.context = newContext
           existing.inUse = true
           existing.lastUsedAt = Date.now()
           console.log(`复用Playwright实例: ${proxyKey}`)
-          return { browser: existing.browser, context: existing.context }
+          return { browser: existing.browser, context: newContext }
         } else {
           // 实例已断开，清理
           console.log(`实例已断开，清理: ${proxyKey}`)
@@ -82,11 +88,12 @@ class PlaywrightPool {
 
     // 3. 创建新实例
     console.log(`创建新Playwright实例: ${proxyKey}`)
-    const { browser, context } = await this.createInstance(proxyUrl)
+    const { browser, context, contextOptions } = await this.createInstance(proxyUrl)
 
     const instance: BrowserInstance = {
       browser,
       context,
+      contextOptions,
       proxyKey,
       createdAt: Date.now(),
       lastUsedAt: Date.now(),
@@ -115,7 +122,7 @@ class PlaywrightPool {
   /**
    * 创建新的浏览器实例
    */
-  private async createInstance(proxyUrl?: string): Promise<{ browser: Browser; context: BrowserContext }> {
+  private async createInstance(proxyUrl?: string): Promise<{ browser: Browser; context: BrowserContext; contextOptions: any }> {
     const browser = await chromium.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -150,7 +157,7 @@ class PlaywrightPool {
 
     const context = await browser.newContext(contextOptions)
 
-    return { browser, context }
+    return { browser, context, contextOptions }
   }
 
   /**

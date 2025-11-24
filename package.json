@@ -15,6 +15,8 @@
     "verify:google-ads": "tsx scripts/verify-google-ads-config.ts"
   },
   "dependencies": {
+    "@crawlee/core": "^3.15.3",
+    "@crawlee/playwright": "^3.15.3",
     "@google-cloud/vertexai": "^1.10.0",
     "@google/generative-ai": "^0.24.1",
     "@heroicons/react": "^2.2.0",
