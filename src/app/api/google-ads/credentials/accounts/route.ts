@@ -182,7 +182,13 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
     let apiErrorMessage: string | undefined
 
     try {
-      const customer = await getCustomer(customerId, credentials.refresh_token)
+      const customer = await getCustomer(
+        customerId,
+        credentials.refresh_token,
+        undefined,
+        undefined,
+        credentials.login_customer_id
+      )
       const accountInfoQuery = `
         SELECT
           customer.id,

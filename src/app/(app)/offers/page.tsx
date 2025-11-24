@@ -109,6 +109,7 @@ export default function OffersPage() {
   const [selectedOfferIds, setSelectedOfferIds] = useState<Set<number>>(new Set())
   const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false)
   const [batchDeleting, setBatchDeleting] = useState(false)
+  const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null)
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1)
@@ -124,6 +125,7 @@ export default function OffersPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [offerToDelete, setOfferToDelete] = useState<Offer | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // P1-11: 解除关联状态
   const [isUnlinkDialogOpen, setIsUnlinkDialogOpen] = useState(false)
@@ -136,7 +138,17 @@ export default function OffersPage() {
 
   useEffect(() => {
     fetchOffers()
-  }, [])
+
+    // Poll for scraping status updates every 5 seconds if any offer is in progress
+    const pollInterval = setInterval(async () => {
+      if (offers.some(offer => offer.scrape_status === 'in_progress')) {
+        console.log('[Polling] Checking scraping status...')
+        await fetchOffers()
+      }
+    }, 5000) // Poll every 5 seconds
+
+    return () => clearInterval(pollInterval)
+  }, [offers])
 
   // P1-2 + P2-5: 应用筛选器和排序
   useEffect(() => {
@@ -241,14 +253,18 @@ export default function OffersPage() {
 
     try {
       setDeleting(true)
+      setDeleteError(null)
       const response = await fetch(`/api/offers/${offerToDelete.id}`, {
         method: 'DELETE',
         credentials: 'include',
       })
 
+      const data = await response.json()
+
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || '删除Offer失败')
+        // 在对话框内显示错误，不关闭对话框
+        setDeleteError(data.error || '删除Offer失败')
+        return
       }
 
       // 刷新列表
@@ -257,8 +273,9 @@ export default function OffersPage() {
       // 关闭对话框
       setIsDeleteDialogOpen(false)
       setOfferToDelete(null)
+      setDeleteError(null)
     } catch (err: any) {
-      setError(err.message || '删除Offer失败')
+      setDeleteError(err.message || '删除Offer失败')
     } finally {
       setDeleting(false)
     }
@@ -270,24 +287,46 @@ export default function OffersPage() {
 
     try {
       setBatchDeleting(true)
+      setBatchDeleteError(null)
 
       // 并行删除所有选中的offers
-      const deletePromises = Array.from(selectedOfferIds).map(id =>
-        fetch(`/api/offers/${id}`, {
+      const deletePromises = Array.from(selectedOfferIds).map(async (id) => {
+        const response = await fetch(`/api/offers/${id}`, {
           method: 'DELETE',
           credentials: 'include',
         })
-      )
+        const data = await response.json()
+        return { id, response, data }
+      })
 
       const results = await Promise.allSettled(deletePromises)
 
-      // 检查是否有失败的删除操作
-      const failures = results.filter(r => r.status === 'rejected')
-      if (failures.length > 0) {
-        setError(`部分删除失败: ${failures.length}/${selectedOfferIds.size} 个Offer删除失败`)
+      // 收集所有错误（包括HTTP错误响应和网络错误）
+      const errors: string[] = []
+
+      results.forEach((result) => {
+        if (result.status === 'rejected') {
+          // 网络错误等
+          errors.push(result.reason?.message || '网络错误')
+        } else if (result.status === 'fulfilled') {
+          const { response, data, id } = result.value
+          if (!response.ok) {
+            // HTTP错误响应（如409 Conflict）
+            const offerInfo = offers.find(o => o.id === id)?.brand || `ID:${id}`
+            errors.push(`${offerInfo}: ${data.error || '删除失败'}`)
+          }
+        }
+      })
+
+      if (errors.length > 0) {
+        // 在对话框内显示错误，不关闭对话框
+        setBatchDeleteError(`${errors.length}/${selectedOfferIds.size} 个Offer删除失败：\n${errors.join('\n')}`)
+        // 刷新列表以显示成功删除的结果
+        await fetchOffers()
+        return
       }
 
-      // 刷新列表
+      // 全部删除成功
       await fetchOffers()
 
       // 清空选中状态
@@ -295,8 +334,9 @@ export default function OffersPage() {
 
       // 关闭对话框
       setIsBatchDeleteDialogOpen(false)
+      setBatchDeleteError(null)
     } catch (err: any) {
-      setError(err.message || '批量删除失败')
+      setBatchDeleteError(err.message || '批量删除失败')
     } finally {
       setBatchDeleting(false)
     }
@@ -942,63 +982,91 @@ export default function OffersPage() {
       </AlertDialog>
 
       {/* P1-10: Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
+        setIsDeleteDialogOpen(open)
+        if (!open) setDeleteError(null)
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除Offer</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>
-                您确定要删除 <strong className="text-gray-900">{offerToDelete?.brand}</strong> 的Offer吗？
-              </p>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-body-sm text-yellow-800">
-                <p className="font-medium mb-1">⚠️ 重要提示：</p>
-                <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li>已删除的Offer历史数据会保留在系统中</li>
-                  <li>关联的Google Ads账号会自动解除关联</li>
-                  <li>此操作不可撤销</li>
-                </ul>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  您确定要删除 <strong className="text-gray-900">{offerToDelete?.brand}</strong> 的Offer吗？
+                </p>
+                {/* 删除错误提示 */}
+                {deleteError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-body-sm text-red-800">
+                    <p className="font-medium mb-1">删除失败</p>
+                    <p>{deleteError}</p>
+                  </div>
+                )}
+                {!deleteError && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-body-sm text-yellow-800">
+                    <p className="font-medium mb-1">⚠️ 重要提示：</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>已删除的Offer历史数据会保留在系统中</li>
+                      <li>关联的Google Ads账号会自动解除关联</li>
+                      <li>此操作不可撤销</li>
+                    </ul>
+                  </div>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
-            <AlertDialogAction
+            <AlertDialogCancel disabled={deleting} onClick={() => setDeleteError(null)}>取消</AlertDialogCancel>
+            <Button
               onClick={handleDeleteOffer}
               disabled={deleting}
-              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              variant="destructive"
             >
-              {deleting ? '删除中...' : '确认删除'}
-            </AlertDialogAction>
+              {deleting ? '删除中...' : deleteError ? '重试删除' : '确认删除'}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* Batch Delete Confirmation Dialog */}
-      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={setIsBatchDeleteDialogOpen}>
+      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {
+        setIsBatchDeleteDialogOpen(open)
+        if (!open) setBatchDeleteError(null)
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认批量删除</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>您确定要删除选中的 <strong className="text-gray-900">{selectedOfferIds.size}</strong> 个Offer吗？</p>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-body-sm text-yellow-800">
-                <p className="font-medium mb-1">⚠️ 重要提示：</p>
-                <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li>已删除的Offer历史数据会保留在系统中</li>
-                  <li>关联的Google Ads账号会自动解除关联</li>
-                  <li>此操作不可撤销</li>
-                </ul>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>您确定要删除选中的 <strong className="text-gray-900">{selectedOfferIds.size}</strong> 个Offer吗？</p>
+                {/* 批量删除错误提示 */}
+                {batchDeleteError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-body-sm text-red-800">
+                    <p className="font-medium mb-1">部分删除失败</p>
+                    <p className="whitespace-pre-line">{batchDeleteError}</p>
+                  </div>
+                )}
+                {!batchDeleteError && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-body-sm text-yellow-800">
+                    <p className="font-medium mb-1">⚠️ 重要提示：</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>已删除的Offer历史数据会保留在系统中</li>
+                      <li>关联的Google Ads账号会自动解除关联</li>
+                      <li>此操作不可撤销</li>
+                    </ul>
+                  </div>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={batchDeleting}>取消</AlertDialogCancel>
-            <AlertDialogAction
+            <AlertDialogCancel disabled={batchDeleting} onClick={() => setBatchDeleteError(null)}>取消</AlertDialogCancel>
+            <Button
               onClick={handleBatchDelete}
               disabled={batchDeleting}
-              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              variant="destructive"
             >
-              {batchDeleting ? '删除中...' : '确认删除'}
-            </AlertDialogAction>
+              {batchDeleting ? '删除中...' : batchDeleteError ? '重试删除' : '确认删除'}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

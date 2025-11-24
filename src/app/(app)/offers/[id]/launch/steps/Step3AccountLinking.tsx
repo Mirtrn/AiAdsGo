@@ -194,7 +194,17 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
 
   const handleSelectAccount = (account: GoogleAdsAccount) => {
     setSelectedId(account.customer_id)
-    onAccountLinked(account)
+
+    // 🔧 BUG FIX: Transform account object to match parent component's expected interface
+    // The API returns `db_account_id` but Step4 expects `id`
+    const transformedAccount = {
+      id: account.db_account_id!,  // Database ID used in Step4
+      customer_id: account.customer_id,
+      account_name: account.descriptive_name,
+      is_active: account.status === 'ENABLED'
+    }
+
+    onAccountLinked(transformedAccount)
     showSuccess('已选择', `账号 ${account.descriptive_name} (${account.customer_id}) 已关联`)
   }
 

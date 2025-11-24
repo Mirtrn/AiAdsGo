@@ -352,7 +352,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <aside
         className={`
           fixed top-0 left-0 h-full bg-white/80 backdrop-blur-xl border-r border-slate-200/60 z-40 transition-all duration-300 shadow-sm
-          ${sidebarOpen ? 'w-64' : 'w-20'}
+          ${sidebarOpen ? 'w-56' : 'w-20'}
           ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
@@ -500,7 +500,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <main
         className={`
           transition-all duration-300 pt-16 lg:pt-0 min-h-screen
-          ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}
+          ${sidebarOpen ? 'lg:ml-56' : 'lg:ml-20'}
         `}
       >
         {children}

@@ -29,8 +29,12 @@ export function triggerOfferScraping(
   // 立即更新状态为 in_progress
   updateOfferScrapeStatus(offerId, userId, 'in_progress')
 
+  // 构建完整的URL（服务器端fetch需要完整URL）
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const scrapeUrl = `${baseUrl}/api/offers/${offerId}/scrape`
+
   // 后台执行抓取（通过调用 scrape API endpoint）
-  fetch(`/api/offers/${offerId}/scrape`, {
+  fetch(scrapeUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

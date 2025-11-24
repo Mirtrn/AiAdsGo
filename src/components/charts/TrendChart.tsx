@@ -43,6 +43,7 @@ export interface TrendChartProps {
   height?: number
   showLegend?: boolean
   className?: string
+  hideTimeRangeSelector?: boolean
 }
 
 const defaultTimeRangeOptions = [7, 14, 30]
@@ -62,6 +63,7 @@ export function TrendChart({
   height = 300,
   showLegend = true,
   className = '',
+  hideTimeRangeSelector = false,
 }: TrendChartProps) {
   // Loading state
   if (loading) {
@@ -139,7 +141,7 @@ export function TrendChart({
           </div>
 
           {/* Time range selector */}
-          {onTimeRangeChange && selectedTimeRange !== undefined && (
+          {!hideTimeRangeSelector && onTimeRangeChange && selectedTimeRange !== undefined && (
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground hidden sm:block" />
               <div className="flex gap-2">

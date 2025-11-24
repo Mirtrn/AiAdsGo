@@ -8,6 +8,7 @@ import type {
 import { creativeCache, generateCreativeCacheKey } from './cache'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { generateContent, getGeminiMode } from './gemini'
+import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
 
 // Keyword with search volume data
 export interface KeywordWithVolume {
@@ -525,6 +526,137 @@ export async function generateAdCreative(
   }
   console.timeEnd('⏱️ 获取关键词搜索量')
 
+  // 🎯 过滤低搜索量关键词（<500搜索量）
+  const MIN_SEARCH_VOLUME = 500
+  const originalKeywordCount = result.keywords.length
+  const filteredKeywordsWithVolume = keywordsWithVolume.filter(kw => {
+    if (kw.searchVolume > 0 && kw.searchVolume < MIN_SEARCH_VOLUME) {
+      console.log(`⚠️ 过滤低搜索量关键词: "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
+      return false
+    }
+    return true
+  })
+
+  // 更新关键词列表
+  const filteredKeywords = filteredKeywordsWithVolume.map(kw => kw.keyword)
+  const removedCount = originalKeywordCount - filteredKeywords.length
+
+  if (removedCount > 0) {
+    console.log(`🔧 已过滤 ${removedCount} 个低搜索量关键词 (< ${MIN_SEARCH_VOLUME}/月)`)
+    console.log(`📊 剩余关键词: ${filteredKeywords.length}/${originalKeywordCount}`)
+    result.keywords = filteredKeywords
+    keywordsWithVolume = filteredKeywordsWithVolume
+  }
+
+  // 🎯 通过Keyword Planner扩展品牌关键词
+  try {
+    const brandName = (offer as { brand?: string }).brand
+    if (brandName && userId) {
+      console.log(`🔍 使用Keyword Planner扩展品牌关键词: "${brandName}"`)
+      console.time('⏱️ Keyword Planner扩展')
+
+      // 获取Google Ads账号信息
+      const { getKeywordIdeas } = await import('@/lib/google-ads-keyword-planner')
+      const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
+      const { getSQLiteDatabase } = await import('@/lib/db')
+      const db = getSQLiteDatabase()
+
+      // 查询用户的Google Ads账号
+      const adsAccount = db.prepare(`
+        SELECT id, customer_id FROM google_ads_accounts
+        WHERE user_id = ? AND is_active = 1
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(userId) as { id: number; customer_id: string } | undefined
+
+      if (adsAccount) {
+        // 获取OAuth凭证
+        const credentials = await getGoogleAdsCredentials(userId)
+
+        if (credentials) {
+          const country = (offer as { target_country?: string }).target_country || 'US'
+          const lang = ((offer as { target_language?: string }).target_language || 'English').toLowerCase().substring(0, 2)
+          const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : 'en'
+
+          // 调用Keyword Planner API获取关键词创意
+          const keywordIdeas = await getKeywordIdeas({
+            customerId: adsAccount.customer_id,
+            refreshToken: credentials.refresh_token,
+            seedKeywords: [brandName],
+            targetCountry: country,
+            targetLanguage: language,
+            accountId: adsAccount.id,
+            userId
+          })
+
+          console.log(`📊 Keyword Planner返回${keywordIdeas.length}个关键词创意`)
+
+          // 过滤：只保留包含品牌名且搜索量>=500的关键词
+          const brandKeywords = keywordIdeas
+            .filter(idea => {
+              const keywordText = idea.text.toLowerCase()
+              const brandLower = brandName.toLowerCase()
+              // 关键词必须包含品牌名
+              if (!keywordText.includes(brandLower)) {
+                return false
+              }
+              // 搜索量必须>=500
+              if (idea.avgMonthlySearches < MIN_SEARCH_VOLUME) {
+                console.log(`⚠️ 过滤低搜索量品牌关键词: "${idea.text}" (搜索量: ${idea.avgMonthlySearches}/月)`)
+                return false
+              }
+              return true
+            })
+            .map(idea => ({
+              keyword: idea.text,
+              searchVolume: idea.avgMonthlySearches,
+              competition: idea.competition,
+              competitionIndex: idea.competitionIndex
+            }))
+
+          console.log(`✅ 筛选出${brandKeywords.length}个有效品牌关键词（搜索量>=${MIN_SEARCH_VOLUME}）`)
+
+          // 去重：排除已存在的关键词
+          const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
+          const newBrandKeywords = brandKeywords.filter(kw =>
+            !existingKeywordsSet.has(kw.keyword.toLowerCase())
+          )
+
+          if (newBrandKeywords.length > 0) {
+            console.log(`🆕 添加${newBrandKeywords.length}个新的品牌关键词:`)
+            newBrandKeywords.forEach(kw => {
+              console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume.toLocaleString()}/月)`)
+            })
+
+            // 添加到关键词列表
+            result.keywords = [...result.keywords, ...newBrandKeywords.map(kw => kw.keyword)]
+            keywordsWithVolume = [...keywordsWithVolume, ...newBrandKeywords]
+
+            console.log(`📊 关键词总数: ${result.keywords.length}（原${filteredKeywords.length} + 新增${newBrandKeywords.length}）`)
+          } else {
+            console.log(`ℹ️ 未发现新的品牌关键词（所有Keyword Planner结果已存在）`)
+          }
+        } else {
+          console.warn('⚠️ 未找到Google Ads OAuth凭证，跳过Keyword Planner扩展')
+        }
+      } else {
+        console.warn('⚠️ 未找到激活的Google Ads账号，跳过Keyword Planner扩展')
+      }
+
+      console.timeEnd('⏱️ Keyword Planner扩展')
+    } else {
+      if (!brandName) {
+        console.log('ℹ️ Offer缺少品牌名，跳过Keyword Planner扩展')
+      }
+      if (!userId) {
+        console.log('ℹ️ 缺少userId，跳过Keyword Planner扩展')
+      }
+    }
+  } catch (plannerError: any) {
+    // Keyword Planner扩展失败不影响主流程
+    console.warn('⚠️ Keyword Planner扩展失败（非致命错误）:', plannerError.message)
+  }
+
   // 修正 sitelinks URL 为真实的 offer URL
   // 需求优化：所有sitelinks统一使用offer的主URL，避免虚构的子路径
   if (result.sitelinks && result.sitelinks.length > 0) {
@@ -543,9 +675,23 @@ export async function generateAdCreative(
     }
   }
 
+  // 🎯 生成否定关键词（排除不相关流量）
+  let negativeKeywords: string[] = []
+  try {
+    console.log('🔍 生成否定关键词...')
+    console.time('⏱️ 否定关键词生成')
+    negativeKeywords = await generateNegativeKeywords(offer, userId)
+    console.timeEnd('⏱️ 否定关键词生成')
+    console.log(`✅ 生成${negativeKeywords.length}个否定关键词:`, negativeKeywords.slice(0, 5).join(', '), '...')
+  } catch (negError: any) {
+    // 否定关键词生成失败不影响主流程
+    console.warn('⚠️ 否定关键词生成失败（非致命错误）:', negError.message)
+  }
+
   const fullResult = {
     ...result,
     keywordsWithVolume,
+    negativeKeywords,  // 🎯 新增：添加否定关键词到结果
     ai_model: aiModel
   }
 

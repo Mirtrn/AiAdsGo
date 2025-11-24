@@ -2,9 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import { showSuccess, showError, showInfo, showConfirm } from '@/lib/toast-utils'
+import { showSuccess, showError, showInfo } from '@/lib/toast-utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Table,
   TableBody,
@@ -21,6 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { TrendingUp, DollarSign, Target, Activity } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 
@@ -90,6 +101,8 @@ export default function OfferDetailPage() {
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [scraping, setScraping] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // Performance data states
   const [performanceLoading, setPerformanceLoading] = useState(true)
@@ -187,31 +200,32 @@ export default function OfferDetailPage() {
   }
 
   const handleDelete = async () => {
-    const confirmed = await showConfirm(
-      '确认删除',
-      '确定要删除这个Offer吗？此操作不可撤销。'
-    )
-
-    if (!confirmed) {
-      return
-    }
-
-    setDeleting(true)
-
     try {
-      // HttpOnly Cookie自动携带，无需手动操作
+      setDeleting(true)
+      setDeleteError(null)
+
       const response = await fetch(`/api/offers/${offerId}`, {
         method: 'DELETE',
-        credentials: 'include', // 确保发送cookie
+        credentials: 'include',
       })
 
+      const data = await response.json()
+
       if (!response.ok) {
-        throw new Error('删除Offer失败')
+        // 在对话框内显示错误，不关闭对话框
+        setDeleteError(data.error || '删除Offer失败')
+        return
       }
 
+      // 关闭对话框
+      setIsDeleteDialogOpen(false)
+      setDeleteError(null)
+
+      // 跳转到列表页
       router.push('/offers')
     } catch (err: any) {
-      showError('删除失败', err.message || '请稍后重试')
+      setDeleteError(err.message || '删除Offer失败')
+    } finally {
       setDeleting(false)
     }
   }
@@ -310,11 +324,11 @@ export default function OfferDetailPage() {
                 编辑
               </button>
               <button
-                onClick={handleDelete}
+                onClick={() => setIsDeleteDialogOpen(true)}
                 disabled={deleting}
                 className="px-4 py-2 text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
               >
-                {deleting ? '删除中...' : '删除'}
+                删除
               </button>
             </div>
           </div>
@@ -356,30 +370,47 @@ export default function OfferDetailPage() {
           {/* 性能数据控制 */}
           <Card className="mb-6">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">投放表现</h2>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
                 <div className="flex items-center gap-3">
-                  <Select value={timeRange} onValueChange={setTimeRange}>
-                    <SelectTrigger className="w-[120px]">
-                      <SelectValue placeholder="时间范围" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="7">近7天</SelectItem>
-                      <SelectItem value="30">近30天</SelectItem>
-                      <SelectItem value="90">近90天</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600">平均订单价值:</span>
-                    <Input
-                      type="number"
-                      placeholder="0.00"
-                      value={avgOrderValue}
-                      onChange={(e) => setAvgOrderValue(e.target.value)}
-                      className="w-[100px]"
-                    />
-                    <span className="text-sm text-gray-600">USD</span>
+                  <h2 className="text-lg font-semibold text-gray-900">投放表现</h2>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={timeRange === '7' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setTimeRange('7')}
+                      className="text-xs sm:text-sm px-3"
+                    >
+                      7天
+                    </Button>
+                    <Button
+                      variant={timeRange === '30' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setTimeRange('30')}
+                      className="text-xs sm:text-sm px-3"
+                    >
+                      30天
+                    </Button>
+                    <Button
+                      variant={timeRange === '90' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setTimeRange('90')}
+                      className="text-xs sm:text-sm px-3"
+                    >
+                      90天
+                    </Button>
                   </div>
+                </div>
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="text-sm text-gray-600 shrink-0">AOV:</span>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={avgOrderValue}
+                    onChange={(e) => setAvgOrderValue(e.target.value)}
+                    className="w-[90px] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    style={{ textAlign: 'right', width: '90px' }}
+                  />
+                  <span className="text-sm text-gray-600">USD</span>
                 </div>
               </div>
 
@@ -536,9 +567,8 @@ export default function OfferDetailPage() {
                       loading={trendsLoading}
                       error={trendsError}
                       onRetry={fetchTrends}
-                      selectedTimeRange={parseInt(timeRange)}
-                      onTimeRangeChange={(days) => setTimeRange(days.toString())}
                       height={280}
+                      hideTimeRangeSelector={true}
                     />
                   </div>
 
@@ -713,6 +743,54 @@ export default function OfferDetailPage() {
           </div>
         </div>
       </main>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={(open) => {
+        setIsDeleteDialogOpen(open)
+        if (!open) setDeleteError(null)
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除Offer</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  您确定要删除 <strong className="text-gray-900">{offer?.brand}</strong> 的Offer吗？
+                </p>
+
+                {/* 删除错误提示 */}
+                {deleteError && (
+                  <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                    <p className="text-sm text-red-800">{deleteError}</p>
+                  </div>
+                )}
+
+                {!deleteError && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-md p-3">
+                    <p className="text-sm text-amber-800 font-medium mb-2">⚠️ 警告</p>
+                    <ul className="text-sm text-amber-700 space-y-1 list-disc list-inside">
+                      <li>此操作不可撤销</li>
+                      <li>所有相关数据将被永久删除</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting} onClick={() => setDeleteError(null)}>
+              取消
+            </AlertDialogCancel>
+            <Button
+              onClick={handleDelete}
+              disabled={deleting}
+              variant="destructive"
+            >
+              {deleting ? '删除中...' : deleteError ? '重试删除' : '确认删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

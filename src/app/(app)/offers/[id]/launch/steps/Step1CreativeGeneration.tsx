@@ -273,18 +273,24 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
     try {
       setGenerating(true)
 
+      // Create AbortController with 2-minute timeout for long-running AI generation
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 120000) // 120 seconds
+
       const response = await fetch(`/api/offers/${offer.id}/generate-creatives`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({
           maxRetries: 3,
           targetRating: 'EXCELLENT'
         })
       })
 
+      clearTimeout(timeoutId)
       const data = await response.json()
 
       if (!response.ok) {
@@ -339,7 +345,11 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       setCreatives(topCreatives)
       setGenerationCount(generationCount + 1)
     } catch (error: any) {
-      showError('生成失败', error.message)
+      if (error.name === 'AbortError') {
+        showError('生成超时', 'AI创意生成耗时过长（>2分钟），请稍后重试或减少重试次数')
+      } else {
+        showError('生成失败', error.message)
+      }
     } finally {
       setGenerating(false)
     }
@@ -461,6 +471,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
             onClick={handleGenerate}
             disabled={generating}
             className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-md shadow-purple-500/20 border-0"
+            title={generating ? 'AI正在生成创意，最多可能需要2分钟，请耐心等待...' : ''}
           >
             {generating ? (
               <>

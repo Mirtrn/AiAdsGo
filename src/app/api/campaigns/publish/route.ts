@@ -6,7 +6,9 @@ import {
   createGoogleAdsAdGroup,
   createGoogleAdsKeywordsBatch,
   createGoogleAdsResponsiveSearchAd,
-  updateGoogleAdsCampaignStatus
+  updateGoogleAdsCampaignStatus,
+  createGoogleAdsCalloutExtensions,
+  createGoogleAdsSitelinkExtensions
 } from '@/lib/google-ads-api'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest) {
     if (enable_smart_optimization) {
       // 智能优化模式：选择多个最优创意
       creatives = db.prepare(`
-        SELECT id, headlines, descriptions, keywords, callouts, sitelinks, final_url, launch_score
+        SELECT id, headlines, descriptions, keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score
         FROM ad_creatives
         WHERE offer_id = ? AND user_id = ?
         ORDER BY launch_score DESC, created_at DESC
@@ -141,7 +143,7 @@ export async function POST(request: NextRequest) {
     } else {
       // 单创意模式：验证指定的创意
       const creative = db.prepare(`
-        SELECT id, headlines, descriptions, keywords, callouts, sitelinks, final_url, is_selected
+        SELECT id, headlines, descriptions, keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected
         FROM ad_creatives
         WHERE id = ? AND offer_id = ? AND user_id = ?
       `).get(ad_creative_id, offer_id, userId) as any
@@ -152,6 +154,17 @@ export async function POST(request: NextRequest) {
       }
 
       creatives = [creative]
+    }
+
+    // 验证Final URL必须存在（Final URL Suffix可以为空）
+    for (const creative of creatives) {
+      if (!creative.final_url) {
+        const error = createError.invalidParameter({
+          field: 'final_url',
+          message: `广告创意 ${creative.id} 缺少Final URL，请重新抓取Offer数据`
+        })
+        return NextResponse.json(error.toJSON(), { status: error.httpStatus })
+      }
     }
 
     // 6. 获取Google Ads账号信息（customer_id）
@@ -431,7 +444,7 @@ export async function POST(request: NextRequest) {
             biddingStrategy: campaign_config.biddingStrategy,
             targetCountry: campaign_config.targetCountry,
             targetLanguage: campaign_config.targetLanguage,
-            finalUrlSuffix: creative.final_url_suffix,  // Final URL suffix从推广链接中提取
+            finalUrlSuffix: creative.final_url_suffix || undefined,  // Final URL suffix从推广链接中提取（如果为空则不设置）
             status: 'ENABLED',
             accountId: adsAccount.id,
             userId
@@ -505,6 +518,54 @@ export async function POST(request: NextRequest) {
             userId
           })
 
+          // 🎯 添加广告扩展（Callout和Sitelink）
+          try {
+            // 解析Callout数据
+            const callouts = JSON.parse(creative.callouts || '[]') as string[]
+            if (callouts.length > 0) {
+              totalApiOperations += callouts.length + 1 // Assets creation + campaign link
+              await createGoogleAdsCalloutExtensions({
+                customerId: adsAccount.customer_id,
+                refreshToken: credentials.refresh_token,
+                campaignId: googleCampaignId,
+                callouts: callouts,
+                accountId: adsAccount.id,
+                userId
+              })
+              console.log(`✅ 成功添加${callouts.length}个Callout扩展`)
+            }
+
+            // 解析Sitelink数据
+            const sitelinks = JSON.parse(creative.sitelinks || '[]') as Array<{
+              text: string
+              url: string
+              description?: string
+            }>
+            if (sitelinks.length > 0) {
+              // 处理Sitelink的description字段（可能需要拆分为description1和description2）
+              const formattedSitelinks = sitelinks.map(link => ({
+                text: link.text,
+                url: link.url,
+                description1: link.description || '',
+                description2: ''
+              }))
+
+              totalApiOperations += sitelinks.length + 1 // Assets creation + campaign link
+              await createGoogleAdsSitelinkExtensions({
+                customerId: adsAccount.customer_id,
+                refreshToken: credentials.refresh_token,
+                campaignId: googleCampaignId,
+                sitelinks: formattedSitelinks,
+                accountId: adsAccount.id,
+                userId
+              })
+              console.log(`✅ 成功添加${sitelinks.length}个Sitelink扩展`)
+            }
+          } catch (extensionError: any) {
+            // 扩展创建失败不影响主流程，只记录警告
+            console.warn(`⚠️ 广告扩展创建失败（非致命错误）:`, extensionError.message)
+          }
+
           // 更新数据库记录
           db.prepare(`
             UPDATE campaigns
@@ -534,8 +595,23 @@ export async function POST(request: NextRequest) {
 
         } catch (variantError: any) {
           apiSuccess = false
-          apiErrorMessage = variantError.message
-          console.error(`❌ Campaign ${campaignId} 发布失败:`, variantError.message)
+          // 安全获取错误消息
+          let errorMessage = '未知错误'
+          if (variantError?.message) {
+            errorMessage = variantError.message
+          } else if (typeof variantError === 'string') {
+            errorMessage = variantError
+          } else if (variantError) {
+            try {
+              errorMessage = JSON.stringify(variantError, null, 2)
+            } catch {
+              errorMessage = String(variantError)
+            }
+          }
+
+          apiErrorMessage = errorMessage
+          console.error(`❌ Campaign ${campaignId} 发布失败:`, errorMessage)
+          console.error('完整错误对象:', variantError)
 
           db.prepare(`
             UPDATE campaigns
@@ -544,12 +620,12 @@ export async function POST(request: NextRequest) {
               creation_error = ?,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-          `).run(variantError.message, campaignId)
+          `).run(errorMessage, campaignId)
 
           failedCampaigns.push({
             id: campaignId,
             variant_name: variantName,
-            error: variantError.message
+            error: errorMessage
           })
         } finally {
           // 记录API使用（仅在有userId时追踪）

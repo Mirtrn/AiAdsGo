@@ -141,7 +141,8 @@ export async function getCustomer(
   customerId: string,
   refreshToken: string,
   accountId?: number,
-  userId?: number
+  userId?: number,
+  loginCustomerId?: string
 ): Promise<Customer> {
   const client = getGoogleAdsClient()
 
@@ -166,10 +167,11 @@ export async function getCustomer(
     }
 
     // 创建customer实例
+    // 优先使用传入的loginCustomerId，其次使用环境变量
     const customer = client.Customer({
       customer_id: customerId,
       refresh_token: refreshToken,
-      login_customer_id: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+      login_customer_id: loginCustomerId || process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
     })
 
     return customer
@@ -259,9 +261,9 @@ export async function createGoogleAdsCampaign(params: {
     params.userId
   )
 
-  // 1. 创建预算
+  // 1. 创建预算（添加时间戳避免重复名称）
   const budgetResourceName = await createCampaignBudget(customer, {
-    name: `${params.campaignName} Budget`,
+    name: `${params.campaignName} Budget ${Date.now()}`,
     amount: params.budgetAmount,
     deliveryMethod: params.budgetType === 'DAILY' ? 'STANDARD' : 'ACCELERATED',
   })
@@ -272,6 +274,8 @@ export async function createGoogleAdsCampaign(params: {
     // 官方推荐：创建时使用PAUSED状态，添加完定位和广告后再启用
     status: enums.CampaignStatus.PAUSED,
     advertising_channel_type: enums.AdvertisingChannelType.SEARCH,
+    // 设置营销目标为标准搜索广告系列
+    advertising_channel_sub_type: enums.AdvertisingChannelSubType.SEARCH_STANDARD,
     campaign_budget: budgetResourceName,
     network_settings: {
       target_google_search: true,
@@ -281,6 +285,18 @@ export async function createGoogleAdsCampaign(params: {
       target_partner_search_network: false,
     },
   }
+
+  // 🎯 设置营销目标（Goal）为"网站流量"
+  // 对应Google Ads UI中的"营销目标"选项
+  // 参考：https://developers.google.com/google-ads-api/fields/v18/campaign#campaign_goal
+  // ❌ DISABLED: CampaignGoalCategory enum不存在于google-ads-api v21
+  // 营销目标不是必填字段，可以在Google Ads UI中手动设置
+  // campaign.campaign_goal = {
+  //   // WEBSITE_TRAFFIC: 增加网站流量（适合电商和内容网站）
+  //   goal_category: enums.CampaignGoalCategory.WEBSITE_TRAFFIC,
+  //   // 优化转化：最大化转化价值
+  //   optimization_goal_type: enums.OptimizationGoalType.MAXIMIZE_CONVERSION_VALUE
+  // }
 
   // 设置出价策略 - Maximize Clicks (TARGET_SPEND)
   // 根据业务规范：Bidding Strategy = Maximize Clicks，CPC Bid = 0.17 USD
@@ -294,10 +310,18 @@ export async function createGoogleAdsCampaign(params: {
   // 大多数Campaign不包含政治广告，设置为DOES_NOT_CONTAIN
   campaign.contains_eu_political_advertising = enums.EuPoliticalAdvertisingStatus.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
 
-  // 添加Final URL Suffix（如果提供）
+  // 添加Final URL Suffix（始终设置，即使为空）
+  // Final URL Suffix用于在所有广告的最终URL后附加跟踪参数
   // 从推广链接重定向访问后提取的Final URL suffix
-  if (params.finalUrlSuffix) {
-    campaign.final_url_suffix = params.finalUrlSuffix
+  // 即使为空也设置字段，确保在Google Ads界面中显示配置状态
+  campaign.final_url_suffix = params.finalUrlSuffix && params.finalUrlSuffix.trim() !== ''
+    ? params.finalUrlSuffix
+    : ''
+
+  if (campaign.final_url_suffix) {
+    console.log('✅ Campaign Final URL Suffix配置:', campaign.final_url_suffix)
+  } else {
+    console.log('ℹ️ Campaign Final URL Suffix未设置（空字符串）')
   }
 
   // 3. 添加日期设置
@@ -1254,5 +1278,143 @@ export async function getBatchCampaignPerformance(params: {
   } catch (error: any) {
     console.error('批量获取Campaign表现数据失败:', error)
     throw new Error(`批量获取表现数据失败: ${error.message}`)
+  }
+}
+
+/**
+ * 创建Callout扩展（现在称为Callout Assets）
+ *
+ * @param params.customerId - Google Ads Customer ID
+ * @param params.refreshToken - OAuth refresh token
+ * @param params.campaignId - Campaign ID to attach callouts to
+ * @param params.callouts - Array of callout texts (max 25 characters each)
+ * @param params.accountId - 本地账号ID
+ * @param params.userId - 用户ID
+ * @returns Array of created asset IDs
+ */
+export async function createGoogleAdsCalloutExtensions(params: {
+  customerId: string
+  refreshToken: string
+  campaignId: string
+  callouts: string[]
+  accountId?: number
+  userId?: number
+}): Promise<{ assetIds: string[] }> {
+  const customer = await getCustomer(
+    params.customerId,
+    params.refreshToken,
+    params.accountId,
+    params.userId
+  )
+
+  const assetIds: string[] = []
+
+  try {
+    // Step 1: Create Callout Assets
+    const assetOperations = params.callouts.map(calloutText => ({
+      callout_asset: {
+        callout_text: calloutText.substring(0, 25) // Google Ads限制：最多25个字符
+      }
+    }))
+
+    console.log(`📢 创建${params.callouts.length}个Callout Assets...`)
+    const assetResponse = await customer.assets.create(assetOperations)
+
+    if (assetResponse && assetResponse.results) {
+      assetResponse.results.forEach((result: any) => {
+        const assetId = result.resource_name?.split('/').pop() || ''
+        assetIds.push(assetId)
+      })
+      console.log(`✅ Callout Assets创建成功: ${assetIds.length}个`)
+    }
+
+    // Step 2: Link Assets to Campaign
+    const campaignAssetOperations = assetIds.map(assetId => ({
+      campaign: `customers/${params.customerId}/campaigns/${params.campaignId}`,
+      asset: `customers/${params.customerId}/assets/${assetId}`,
+      field_type: enums.AssetFieldType.CALLOUT
+    }))
+
+    console.log(`🔗 关联Callout Assets到Campaign ${params.campaignId}...`)
+    await customer.campaignAssets.create(campaignAssetOperations)
+    console.log(`✅ Callout Assets关联成功`)
+
+    return { assetIds }
+  } catch (error: any) {
+    console.error('❌ 创建Callout扩展失败:', error.message)
+    throw new Error(`创建Callout扩展失败: ${error.message}`)
+  }
+}
+
+/**
+ * 创建Sitelink扩展（现在称为Sitelink Assets）
+ *
+ * @param params.customerId - Google Ads Customer ID
+ * @param params.refreshToken - OAuth refresh token
+ * @param params.campaignId - Campaign ID to attach sitelinks to
+ * @param params.sitelinks - Array of sitelink objects
+ * @param params.accountId - 本地账号ID
+ * @param params.userId - 用户ID
+ * @returns Array of created asset IDs
+ */
+export async function createGoogleAdsSitelinkExtensions(params: {
+  customerId: string
+  refreshToken: string
+  campaignId: string
+  sitelinks: Array<{
+    text: string
+    url: string
+    description1?: string
+    description2?: string
+  }>
+  accountId?: number
+  userId?: number
+}): Promise<{ assetIds: string[] }> {
+  const customer = await getCustomer(
+    params.customerId,
+    params.refreshToken,
+    params.accountId,
+    params.userId
+  )
+
+  const assetIds: string[] = []
+
+  try {
+    // Step 1: Create Sitelink Assets
+    const assetOperations = params.sitelinks.map(sitelink => ({
+      sitelink_asset: {
+        link_text: sitelink.text.substring(0, 25), // 最多25个字符
+        description1: sitelink.description1?.substring(0, 35) || '', // 最多35个字符
+        description2: sitelink.description2?.substring(0, 35) || '', // 最多35个字符
+        final_urls: [sitelink.url]
+      }
+    }))
+
+    console.log(`🔗 创建${params.sitelinks.length}个Sitelink Assets...`)
+    const assetResponse = await customer.assets.create(assetOperations)
+
+    if (assetResponse && assetResponse.results) {
+      assetResponse.results.forEach((result: any) => {
+        const assetId = result.resource_name?.split('/').pop() || ''
+        assetIds.push(assetId)
+      })
+      console.log(`✅ Sitelink Assets创建成功: ${assetIds.length}个`)
+    }
+
+    // Step 2: Link Assets to Campaign
+    const campaignAssetOperations = assetIds.map(assetId => ({
+      campaign: `customers/${params.customerId}/campaigns/${params.campaignId}`,
+      asset: `customers/${params.customerId}/assets/${assetId}`,
+      field_type: enums.AssetFieldType.SITELINK
+    }))
+
+    console.log(`🔗 关联Sitelink Assets到Campaign ${params.campaignId}...`)
+    await customer.campaignAssets.create(campaignAssetOperations)
+    console.log(`✅ Sitelink Assets关联成功`)
+
+    return { assetIds }
+  } catch (error: any) {
+    console.error('❌ 创建Sitelink扩展失败:', error.message)
+    throw new Error(`创建Sitelink扩展失败: ${error.message}`)
   }
 }

@@ -23,6 +23,7 @@ export interface AdCreative {
   descriptions: string[]        // 最多4个description，每个最多90字符
   keywords: string[]            // 关键词列表（向后兼容）
   keywordsWithVolume?: KeywordWithVolume[]  // 带搜索量的关键词数据
+  negativeKeywords?: string[]   // 🎯 新增：否定关键词列表
   callouts?: string[]           // 标注（每个最多25字符）
   sitelinks?: Array<{           // 站点链接
     text: string                // 链接文本（最多25字符）
@@ -118,6 +119,7 @@ export interface GeneratedAdCreativeData {
   descriptions: string[]
   keywords: string[]
   keywordsWithVolume?: KeywordWithVolume[]  // 带搜索量的关键词
+  negativeKeywords?: string[]               // 🎯 新增：否定关键词列表
   callouts?: string[]
   sitelinks?: Array<{
     text: string

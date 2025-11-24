@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { findOfferById, updateOfferScrapeStatus } from '@/lib/offers'
+import { findOfferById, updateOfferScrapeStatus, updateOffer } from '@/lib/offers'
 import { scrapeUrl } from '@/lib/scraper'
 import { analyzeProductPage, ProductInfo } from '@/lib/ai'
 import { getProxyUrlForCountry, isProxyEnabled } from '@/lib/settings'
@@ -263,6 +263,37 @@ async function performScrapeAndAnalysis(
       console.log(`📍 直接使用提供的URL（非推广链接）: ${actualUrl}`)
     }
 
+    // ========== URL分割：提取Final URL和Final URL Suffix ==========
+    // 用于Google Ads配置：Final URL配置在Ad层级，Final URL Suffix配置在Campaign层级
+    try {
+      const urlObj = new URL(actualUrl)
+      const finalUrl = `${urlObj.origin}${urlObj.pathname}` // 基础URL（不含查询参数）
+      const finalUrlSuffix = urlObj.search.substring(1)     // 查询参数（去掉开头的?）
+
+      // 只有当存在查询参数时才更新（避免覆盖已有的suffix）
+      if (finalUrlSuffix) {
+        console.log(`📋 提取Final URL: ${finalUrl}`)
+        console.log(`📋 提取Final URL Suffix (${finalUrlSuffix.length}字符): ${finalUrlSuffix.substring(0, 100)}${finalUrlSuffix.length > 100 ? '...' : ''}`)
+
+        // 更新Offer中的final_url和final_url_suffix字段
+        updateOffer(offerId, offer.user_id, {
+          final_url: finalUrl,
+          final_url_suffix: finalUrlSuffix,
+          url: finalUrl  // 同时更新url为清理后的基础URL
+        })
+
+        console.log(`✅ 已更新Offer ${offerId}的Final URL和Final URL Suffix`)
+      } else {
+        console.log(`ℹ️ URL不含查询参数，仅更新Final URL`)
+        updateOffer(offerId, offer.user_id, {
+          final_url: finalUrl,
+          url: finalUrl
+        })
+      }
+    } catch (urlError: any) {
+      console.warn(`⚠️ URL解析失败: ${urlError.message}`)
+    }
+
     console.log(`开始抓取Offer ${offerId}:`, actualUrl)
 
     // 获取语言代码
@@ -367,34 +398,153 @@ async function performScrapeAndAnalysis(
               const { scrapeAmazonStore } = await import('@/lib/scraper-stealth')
               const storeData = await scrapeAmazonStore(actualUrl, proxyUrl)
 
-              // 🔥 优化：构建突出热销商品的文本信息供AI分析
+              // 🔥 优化：构建突出热销商品的文本信息供AI分析（国际化版本）
+              // 🌍 国际化文本配置
+              const i18nTexts: Record<string, {
+                rating: string
+                reviews: string
+                hotScore: string
+                price: string
+                promotion: string
+                brandStore: string
+                brand: string
+                storeDesc: string
+                topProducts: string
+                scoringCriteria: string
+                legend: string
+                hotInsights: string
+              }> = {
+                en: {
+                  rating: 'Rating',
+                  reviews: 'reviews',
+                  hotScore: 'Hot Score',
+                  price: 'Price',
+                  promotion: 'Promotion',
+                  brandStore: 'Brand Store',
+                  brand: 'Brand',
+                  storeDesc: 'Store Description',
+                  topProducts: 'Hot-Selling Products Ranking (Top',
+                  scoringCriteria: 'Scoring: Rating × log(Review Count + 1)',
+                  legend: 'Legend: 🔥 = TOP 5 Hot-Selling | ✅ = Best-Selling',
+                  hotInsights: 'Hot Insights: Top'
+                },
+                zh: {
+                  rating: '评分',
+                  reviews: '条',
+                  hotScore: '热销指数',
+                  price: '价格',
+                  promotion: '促销',
+                  brandStore: '品牌店铺',
+                  brand: '品牌',
+                  storeDesc: '店铺描述',
+                  topProducts: '热销商品排行榜 (Top',
+                  scoringCriteria: '筛选标准: 评分 × log(评论数 + 1)',
+                  legend: '说明: 🔥 = 前5名热销商品 | ✅ = 畅销商品',
+                  hotInsights: '热销洞察: 本店铺前'
+                },
+                de: {
+                  rating: 'Bewertung',
+                  reviews: 'Bewertungen',
+                  hotScore: 'Beliebtheitsindex',
+                  price: 'Preis',
+                  promotion: 'Aktion',
+                  brandStore: 'Marken-Shop',
+                  brand: 'Marke',
+                  storeDesc: 'Shop-Beschreibung',
+                  topProducts: 'Bestseller-Ranking (Top',
+                  scoringCriteria: 'Bewertung: Bewertung × log(Anzahl Bewertungen + 1)',
+                  legend: 'Legende: 🔥 = TOP 5 Bestseller | ✅ = Bestseller',
+                  hotInsights: 'Bestseller-Einblicke: Top'
+                },
+                fr: {
+                  rating: 'Note',
+                  reviews: 'avis',
+                  hotScore: 'Score de popularité',
+                  price: 'Prix',
+                  promotion: 'Promotion',
+                  brandStore: 'Boutique de marque',
+                  brand: 'Marque',
+                  storeDesc: 'Description de la boutique',
+                  topProducts: 'Classement des meilleures ventes (Top',
+                  scoringCriteria: 'Notation: Note × log(Nombre d\'avis + 1)',
+                  legend: 'Légende: 🔥 = TOP 5 Meilleures ventes | ✅ = Meilleures ventes',
+                  hotInsights: 'Informations sur les meilleures ventes: Top'
+                },
+                es: {
+                  rating: 'Calificación',
+                  reviews: 'reseñas',
+                  hotScore: 'Índice de popularidad',
+                  price: 'Precio',
+                  promotion: 'Promoción',
+                  brandStore: 'Tienda de marca',
+                  brand: 'Marca',
+                  storeDesc: 'Descripción de la tienda',
+                  topProducts: 'Ranking de productos más vendidos (Top',
+                  scoringCriteria: 'Puntuación: Calificación × log(Número de reseñas + 1)',
+                  legend: 'Leyenda: 🔥 = TOP 5 Más vendidos | ✅ = Más vendidos',
+                  hotInsights: 'Información de más vendidos: Top'
+                },
+                ja: {
+                  rating: '評価',
+                  reviews: 'レビュー',
+                  hotScore: '人気スコア',
+                  price: '価格',
+                  promotion: 'プロモーション',
+                  brandStore: 'ブランドストア',
+                  brand: 'ブランド',
+                  storeDesc: 'ストア説明',
+                  topProducts: '人気商品ランキング (Top',
+                  scoringCriteria: 'スコアリング: 評価 × log(レビュー数 + 1)',
+                  legend: '凡例: 🔥 = TOP 5 人気商品 | ✅ = 人気商品',
+                  hotInsights: '人気インサイト: Top'
+                },
+                ko: {
+                  rating: '평점',
+                  reviews: '리뷰',
+                  hotScore: '인기 점수',
+                  price: '가격',
+                  promotion: '프로모션',
+                  brandStore: '브랜드 스토어',
+                  brand: '브랜드',
+                  storeDesc: '스토어 설명',
+                  topProducts: '인기 상품 순위 (Top',
+                  scoringCriteria: '평가: 평점 × log(리뷰 수 + 1)',
+                  legend: '범례: 🔥 = TOP 5 인기 상품 | ✅ = 인기 상품',
+                  hotInsights: '인기 인사이트: Top'
+                }
+              }
+
+              const t = i18nTexts[language] || i18nTexts.en
+
               const productSummaries = storeData.products.map(p => {
                 const parts = [
                   `${p.rank}. ${p.hotLabel} - ${p.name}`,
-                  `评分: ${p.rating || 'N/A'}⭐`,
-                  `评论: ${p.reviewCount || 'N/A'}条`,
+                  `${t.rating}: ${p.rating || 'N/A'}⭐`,
+                  `${p.reviewCount || 'N/A'} ${t.reviews}`,
                 ]
-                if (p.hotScore) parts.push(`热销指数: ${p.hotScore.toFixed(1)}`)
-                if (p.price) parts.push(`价格: ${p.price}`)
+                if (p.hotScore) parts.push(`${t.hotScore}: ${p.hotScore.toFixed(1)}`)
+                if (p.price) parts.push(`${t.price}: ${p.price}`)
                 // 🎯 Phase 3: 添加促销、徽章、Prime信息
-                if (p.promotion) parts.push(`💰 促销: ${p.promotion}`)
+                if (p.promotion) parts.push(`💰 ${t.promotion}: ${p.promotion}`)
                 if (p.badge) parts.push(`🏆 ${p.badge}`)
                 if (p.isPrime) parts.push(`✓ Prime`)
                 return parts.join(' | ')
               }).join('\n')
 
               const hotInsightsText = storeData.hotInsights
-                ? `\n💡 热销洞察: 本店铺前${storeData.hotInsights.topProductsCount}名热销商品平均评分${storeData.hotInsights.avgRating.toFixed(1)}星，平均评论${storeData.hotInsights.avgReviews}条`
+                ? language === 'zh'
+                  ? `\n💡 ${t.hotInsights}${storeData.hotInsights.topProductsCount}名热销商品平均评分${storeData.hotInsights.avgRating.toFixed(1)}星，平均评论${storeData.hotInsights.avgReviews}条`
+                  : `\n💡 ${t.hotInsights} ${storeData.hotInsights.topProductsCount} hot-selling products have average rating ${storeData.hotInsights.avgRating.toFixed(1)}★, average ${storeData.hotInsights.avgReviews} reviews`
                 : ''
 
               const textContent = [
-                `=== ${storeData.storeName} 品牌店铺 ===`,
-                `品牌: ${storeData.brandName}`,
-                `店铺描述: ${storeData.storeDescription || 'N/A'}`,
+                `=== ${storeData.storeName} ${t.brandStore} ===`,
+                `${t.brand}: ${storeData.brandName}`,
+                `${t.storeDesc}: ${storeData.storeDescription || 'N/A'}`,
                 '',
-                `=== 热销商品排行榜 (Top ${storeData.totalProducts}) ===`,
-                `筛选标准: 评分 × log(评论数 + 1)`,
-                `说明: 🔥 = 前5名热销商品 | ✅ = 畅销商品`,
+                `=== ${t.topProducts} ${storeData.totalProducts}) ===`,
+                `${t.scoringCriteria}`,
+                `${t.legend}`,
                 '',
                 productSummaries,
                 hotInsightsText,
@@ -608,6 +758,32 @@ async function performScrapeAndAnalysis(
       }
     }
 
+    // 🎯 品牌名清理和标准化（去除冠词、型号、格式化）
+    if (extractedBrand && extractedBrand.length > 0) {
+      // 1. 去除开头的冠词 (The, A, An)
+      extractedBrand = extractedBrand.replace(/^(The|A|An)\s+/i, '')
+
+      // 2. 提取品牌核心名称（第一个有效单词，去除产品型号）
+      // 产品型号特征：包含连续大写字母+数字+连字符的组合，如 "RLK16-1200D8-A"
+      const words = extractedBrand.split(/\s+/)
+      const brandCore = words.find(word => {
+        // 有效品牌名：2-20字符，主要是字母，可以包含&
+        const isValidBrandWord = /^[A-Z][A-Za-z&]{1,19}$/i.test(word)
+        // 排除产品型号：包含连续的字母+数字+连字符的复杂组合
+        const isProductModel = /[A-Z0-9]{2,}[-][A-Z0-9]{2,}/i.test(word)
+        return isValidBrandWord && !isProductModel
+      })
+
+      if (brandCore) {
+        extractedBrand = brandCore
+        console.log(`🔧 品牌名清理: 提取核心名称 "${extractedBrand}"`)
+      }
+
+      // 3. 标准化格式：首字母大写 + 其余小写
+      extractedBrand = extractedBrand.charAt(0).toUpperCase() + extractedBrand.slice(1).toLowerCase()
+      console.log(`✨ 品牌名标准化: "${extractedBrand}"`)
+    }
+
     // 🎯 新增: 品牌名智能提取fallback - 当品牌名为"提取中..."或无效时
     const isInvalidBrand = !extractedBrand ||
                           extractedBrand === '提取中...' ||
@@ -809,7 +985,9 @@ async function performScrapeAndAnalysis(
       console.log('ℹ️ 非Amazon页面暂不支持竞品对比分析')
     }
 
-    // 🎯 P1优化: 视觉元素智能分析（仅针对产品页，非店铺页）
+    // ❌ P1优化已下线: 视觉元素智能分析（性价比不高）
+    // 用户反馈："使用统一AI入口分析5张图片"，下线图片分析功能，性价比不高
+    /*
     let visualAnalysis = null
     if (pageType === 'product' && aiAnalysisSuccess) {
       try {
@@ -858,6 +1036,7 @@ async function performScrapeAndAnalysis(
     } else if (pageType === 'store') {
       console.log('ℹ️ 店铺页面跳过视觉元素分析')
     }
+    */
 
     // 如果AI分析失败，在scrape_error中记录警告信息
     const scrapeError = aiAnalysisSuccess
@@ -881,8 +1060,8 @@ async function performScrapeAndAnalysis(
       review_analysis: reviewAnalysis ? formatFieldForDB(reviewAnalysis) : undefined,
       // 🎯 P0优化: 竞品对比分析结果
       competitor_analysis: competitorAnalysis ? formatFieldForDB(competitorAnalysis) : undefined,
-      // 🎯 P1优化: 视觉元素智能分析结果
-      visual_analysis: visualAnalysis ? formatFieldForDB(visualAnalysis) : undefined,
+      // ❌ P1优化已下线: 视觉元素智能分析（性价比不高）
+      // visual_analysis: visualAnalysis ? formatFieldForDB(visualAnalysis) : undefined,
     })
 
     console.log(`Offer ${offerId} 抓取和分析完成`)

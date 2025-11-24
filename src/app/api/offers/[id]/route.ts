@@ -44,6 +44,9 @@ export async function GET(
         uniqueSellingPoints: offer.unique_selling_points,
         productHighlights: offer.product_highlights,
         targetAudience: offer.target_audience,
+        // Final URL字段（从推广链接解析后的最终落地页）
+        finalUrl: offer.final_url,
+        finalUrlSuffix: offer.final_url_suffix,
         scrape_status: offer.scrape_status,
         scrapeError: offer.scrape_error,
         scrapedAt: offer.scraped_at,
@@ -137,6 +140,9 @@ export async function PUT(
         uniqueSellingPoints: offer.unique_selling_points,
         productHighlights: offer.product_highlights,
         targetAudience: offer.target_audience,
+        // Final URL字段（从推广链接解析后的最终落地页）
+        finalUrl: offer.final_url,
+        finalUrlSuffix: offer.final_url_suffix,
         scrape_status: offer.scrape_status,
         isActive: offer.is_active === 1,
         createdAt: offer.created_at,

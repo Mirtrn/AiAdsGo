@@ -29,6 +29,11 @@ export async function calculateLaunchScore(
   userId: number
 ): Promise<ScoreAnalysis> {
   try {
+    // 🎯 获取创意中的关键词和否定关键词数据
+    const creativeKeywords = creative.keywords || []
+    const negativeKeywords = (creative as any).negativeKeywords || []  // 否定关键词列表
+    const keywordsWithVolume = (creative as any).keywordsWithVolume || []  // 带搜索量和竞争度的关键词
+
     const prompt = `你是一个专业的Google Ads投放评估专家。请分析以下广告投放计划，并从5个维度进行评分。
 
 # 产品信息
@@ -45,8 +50,19 @@ export async function calculateLaunchScore(
 # 广告创意
 标题列表：${creative.headlines.slice(0, 3).join(', ')}
 描述列表：${creative.descriptions.join(', ')}
-关键词：${creative.keywords?.join(', ') || '无'}
+关键词：${creativeKeywords.join(', ')}
+否定关键词：${negativeKeywords.length > 0 ? negativeKeywords.join(', ') : '❌ 未设置（重要缺失！）'}
 最终URL：${creative.final_url}
+
+# 关键词数据分析
+${keywordsWithVolume.length > 0 ?
+  `关键词竞争度数据（0-100，数值越高竞争越激烈）：\n${
+    keywordsWithVolume.slice(0, 10).map((kw: any) =>
+      `- ${kw.keyword}: 搜索量${kw.searchVolume || 0}/月, 竞争度${kw.competitionIndex || 0}, 竞争级别${kw.competition || '未知'}`
+    ).join('\n')
+  }`
+  : '⚠️ 缺少关键词竞争度数据'
+}
 
 # 评分要求
 请从以下5个维度进行评分（总分100分）：
@@ -55,8 +71,14 @@ export async function calculateLaunchScore(
 评估要点：
 - 标题和描述中关键词的相关性和匹配度
 - 关键词的搜索意图匹配
-- 关键词的竞争程度预估
+- **🎯 关键词的竞争程度评估（重要！）**
+  - 竞争度指数>70为高竞争（扣分）
+  - 竞争度指数30-70为中等竞争（正常）
+  - 竞争度指数<30为低竞争（加分）
 - 长尾关键词vs热门关键词的平衡
+- **🎯 是否设置了否定关键词（重要！）**
+  - 未设置否定关键词扣5-10分
+  - 否定关键词数量不足（<10个）扣3-5分
 
 ## 2. 市场契合度评分（25分满分）
 评估要点：
@@ -75,7 +97,9 @@ export async function calculateLaunchScore(
 ## 4. 预算合理性评分（15分满分）
 评估要点：
 - 预估的CPC成本合理性
-- 关键词竞争度与预算的匹配
+- **🎯 关键词竞争度与预算的匹配**
+  - 高竞争度关键词需要更高预算
+  - 低竞争度关键词可降低预算
 - 投放目标的现实性
 - ROI潜力预估
 
@@ -94,8 +118,16 @@ export async function calculateLaunchScore(
     "score": 0-30之间的整数,
     "relevance": 0-100,
     "competition": "低|中|高",
-    "issues": ["问题1", "问题2"],
-    "suggestions": ["建议1", "建议2"]
+    "issues": [
+      ${negativeKeywords.length === 0 ? '"❌ 缺少否定关键词列表，可能导致广告展示给意图不符的用户（如搜索\\"维修\\"、\\"评论\\"、\\"免费\\"等）",' : ''}
+      ${keywordsWithVolume.some((kw: any) => (kw.competitionIndex || 0) > 70) ? '"⚠️ 部分关键词竞争度过高（>70），预计点击成本（CPC）会非常高",' : ''}
+      "其他问题..."
+    ],
+    "suggestions": [
+      ${negativeKeywords.length === 0 ? '"建议添加否定关键词：free, repair, review, broken, crack, torrent, download等",' : ''}
+      ${keywordsWithVolume.some((kw: any) => (kw.competitionIndex || 0) > 70) ? '"建议优化高竞争度关键词，或增加预算以应对高CPC",' : ''}
+      "其他建议..."
+    ]
   },
   "marketFitAnalysis": {
     "score": 0-25之间的整数,
@@ -141,10 +173,11 @@ export async function calculateLaunchScore(
 
 要求：
 1. 评分必须客观、基于实际分析
-2. 每个维度都要给出具体的问题和改进建议
-3. 总体建议要具有可操作性
-4. 所有文字使用中文
-5. 只返回JSON，不要其他内容`
+2. **🎯 必须严格检查否定关键词和竞争度，这是评分的关键因素**
+3. 每个维度都要给出具体的问题和改进建议
+4. 总体建议要具有可操作性
+5. 所有文字使用中文
+6. 只返回JSON，不要其他内容`
 
     // 需求12：使用Gemini 2.5 Pro稳定版模型（带代理支持 + 自动降级）
     const text = await generateContent({

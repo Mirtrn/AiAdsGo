@@ -39,9 +39,10 @@ export interface Offer {
 
 export interface CreateOfferInput {
   url: string
-  brand: string
+  brand?: string // 可选，抓取时自动提取
   category?: string
   target_country: string
+  target_language?: string // 目标语言（如English, Spanish等）
   affiliate_link?: string
   brand_description?: string
   unique_selling_points?: string
@@ -79,11 +80,14 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
   const db = getSQLiteDatabase()
 
   // ========== 需求1和需求5: 自动生成字段 ==========
-  // 生成offer_name: 品牌名称_推广国家_序号（如 Reolink_US_01）
-  const offerName = generateOfferName(input.brand, input.target_country, userId)
+  // 如果没有提供brand，使用临时值"Unknown"，等抓取完成后更新
+  const brandValue = input.brand || 'Unknown'
 
-  // 根据国家自动映射推广语言（如 US→English, DE→German）
-  const targetLanguage = getTargetLanguage(input.target_country)
+  // 生成offer_name: 品牌名称_推广国家_序号（如 Reolink_US_01）
+  const offerName = generateOfferName(brandValue, input.target_country, userId)
+
+  // 根据国家或用户输入自动映射推广语言（如 US→English, DE→German）
+  const targetLanguage = input.target_language || getTargetLanguage(input.target_country)
 
   const result = db.prepare(`
     INSERT INTO offers (
@@ -96,7 +100,7 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
   `).run(
     userId,
     input.url,
-    input.brand,
+    brandValue, // 使用临时值或用户提供的值
     input.category || null,
     input.target_country,
     input.affiliate_link || null,
@@ -323,17 +327,17 @@ export function deleteOffer(id: number, userId: number): void {
     throw new Error('Offer不存在或无权访问')
   }
 
-  // 检查是否有关联的Ads账号（Campaigns）
-  // 使用INNER JOIN确保只检查有效账号的campaigns，忽略孤儿campaigns
-  const associatedCampaigns = db.prepare(`
-    SELECT COUNT(*) as count
+  // 检查是否有关联的Ads账号
+  // 使用INNER JOIN确保只检查有效账号，忽略孤儿campaigns
+  const associatedAccounts = db.prepare(`
+    SELECT COUNT(DISTINCT gaa.id) as account_count, COUNT(*) as campaign_count
     FROM campaigns c
     INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     WHERE c.offer_id = ? AND c.user_id = ? AND c.status != 'REMOVED'
-  `).get(id, userId) as { count: number }
+  `).get(id, userId) as { account_count: number; campaign_count: number }
 
-  if (associatedCampaigns.count > 0) {
-    throw new Error(`无法删除Offer：该Offer关联了 ${associatedCampaigns.count} 个广告系列。请先解除所有Ads账号的关联后再删除。`)
+  if (associatedAccounts.account_count > 0) {
+    throw new Error(`无法删除Offer：该Offer关联了 ${associatedAccounts.account_count} 个Ads账号。请先在"关联Ads账号"列中解除所有账号的关联后再删除。`)
   }
 
   // 使用事务确保数据一致性
@@ -517,6 +521,9 @@ export function updateOfferScrapeStatus(
           reviews = COALESCE(?, reviews),
           promotions = COALESCE(?, promotions),
           competitive_edges = COALESCE(?, competitive_edges),
+          review_analysis = COALESCE(?, review_analysis),
+          competitor_analysis = COALESCE(?, competitor_analysis),
+          visual_analysis = COALESCE(?, visual_analysis),
           updated_at = datetime('now')
       WHERE id = ? AND user_id = ?
     `).run(
@@ -532,6 +539,9 @@ export function updateOfferScrapeStatus(
       scrapedData.reviews || null,
       scrapedData.promotions || null,
       scrapedData.competitive_edges || null,
+      scrapedData.review_analysis || null,
+      scrapedData.competitor_analysis || null,
+      scrapedData.visual_analysis || null,
       id,
       userId
     )

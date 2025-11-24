@@ -131,38 +131,84 @@ export async function scrapeAmazonReviews(
   console.log(`📝 开始抓取评论，目标数量: ${limit}`)
 
   try {
-    // 尝试导航到评论页面（如果当前在产品页）
+    // 导航到评论区域（使用#customer-reviews_feature_div锚点直接定位到评论）
     const currentUrl = page.url()
     const isProductPage = currentUrl.includes('/dp/') || currentUrl.includes('/product/')
 
-    if (isProductPage) {
-      // 尝试点击"See all reviews"链接
+    if (isProductPage && !currentUrl.includes('#customer-reviews_feature_div')) {
       try {
-        const seeAllReviewsSelector = 'a[data-hook="see-all-reviews-link-foot"], a:has-text("See all reviews")'
-        const seeAllButton = await page.$(seeAllReviewsSelector)
-
-        if (seeAllButton) {
-          console.log('🔗 找到"See all reviews"链接，导航到评论页...')
-          await Promise.all([
-            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }),
-            seeAllButton.click()
-          ])
-          console.log('✅ 已导航到评论页')
-        } else {
-          console.log('⚠️ 未找到"See all reviews"链接，在当前页面抓取评论')
-        }
+        // 直接在URL后添加#customer-reviews_feature_div锚点，浏览器会自动滚动到评论区域
+        const reviewsUrl = currentUrl.split('#')[0] + '#customer-reviews_feature_div'
+        console.log(`🔗 导航到评论区域: ${reviewsUrl}`)
+        await page.goto(reviewsUrl, { waitUntil: 'domcontentloaded', timeout: 10000 })
+        console.log('✅ 已导航到评论区域')
+        // 等待页面滚动到评论区域
+        await page.waitForTimeout(2000)
       } catch (navError) {
-        console.log('⚠️ 导航到评论页失败，在当前页面抓取评论:', navError)
+        console.log('⚠️ 导航到评论区域失败，在当前页面抓取评论:', navError)
       }
     }
 
-    // 等待评论加载
-    await page.waitForSelector('[data-hook="review"], .review, [data-testid="review"]', { timeout: 5000 })
-      .catch(() => console.log('⚠️ 评论选择器等待超时，继续尝试抓取'))
+    // 等待评论加载 - 支持多种Amazon布局
+    // 尝试多个选择器：标准评论、Customers say区域、Reviews区域
+    const selectors = [
+      '#customer-reviews_feature_div',              // 产品评论区域容器（最高优先）
+      '#customer-reviews_feature_div [data-hook="review"]',  // 产品评论区域+标准评论元素
+      '#customer-reviews_feature_div .review',      // 产品评论区域+通用评论类名
+      '[data-hook="review"]',                    // 标准评论容器
+      '.review',                                  // 通用评论类名
+      '[data-testid="review"]',                  // 测试ID
+      '[data-component-type="s-customer-reviews-list-desktop"]',  // 桌面版评论列表
+      '#cm-cr-dp-review-list [data-hook="review"]',  // 详情页评论列表
+      'div[data-hook="reviews-medley-footer"] ~ div [data-hook="review"]',  // Reviews区域
+      '#cm_cr-review_list [data-hook="review"]'    // 传统评论列表ID
+    ]
 
-    // 抓取评论
+    let reviewSelectorFound = false
+    for (const selector of selectors) {
+      try {
+        await page.waitForSelector(selector, { timeout: 3000 })
+        console.log(`✅ 找到评论选择器: ${selector}`)
+        reviewSelectorFound = true
+        break
+      } catch {
+        // 继续尝试下一个选择器
+      }
+    }
+
+    if (!reviewSelectorFound) {
+      console.log('⚠️ 所有评论选择器均未找到，尝试通用抓取')
+    }
+
+    // 抓取评论 - 使用增强的选择器组合
     const reviews: RawReview[] = await page.evaluate((maxReviews: number) => {
-      const reviewElements = document.querySelectorAll('[data-hook="review"], .review, [data-testid="review"]')
+      // 尝试多个选择器路径
+      const selectorGroups = [
+        '#customer-reviews_feature_div [data-hook="review"]',  // 产品评论区域+标准评论元素（优先）
+        '#customer-reviews_feature_div .review',      // 产品评论区域+通用评论类名
+        '#customer-reviews_feature_div div[data-hook="review"]',  // 产品评论区域+深层评论
+        '[data-hook="review"]',
+        '.review',
+        '[data-testid="review"]',
+        '#cm-cr-dp-review-list [data-hook="review"]',
+        '#cm_cr-review_list [data-hook="review"]',
+        'div[data-hook="reviews-medley-footer"] ~ div [data-hook="review"]'
+      ]
+
+      let reviewElements: NodeListOf<Element> | null = null
+      for (const selector of selectorGroups) {
+        const elements = document.querySelectorAll(selector)
+        if (elements.length > 0) {
+          reviewElements = elements
+          break
+        }
+      }
+
+      if (!reviewElements || reviewElements.length === 0) {
+        console.log('⚠️ 未找到评论元素')
+        return []
+      }
+
       const results: RawReview[] = []
 
       reviewElements.forEach((el, index) => {
@@ -186,9 +232,10 @@ export async function scrapeAmazonReviews(
         const helpfulEl = el.querySelector('[data-hook="helpful-vote-statement"], .review-votes')
         const helpful = helpfulEl?.textContent?.trim() || null
 
-        // 认证购买
-        const verifiedEl = el.querySelector('[data-hook="avp-badge"], .avp-badge, :has-text("Verified Purchase")')
-        const verified = verifiedEl !== null
+        // 认证购买 - 移除无效的:has-text伪选择器（不是标准CSS选择器）
+        const verifiedEl = el.querySelector('[data-hook="avp-badge"], .avp-badge')
+        // 如果没有找到badge元素，检查文本内容是否包含"Verified Purchase"
+        const verified = verifiedEl !== null || (el.textContent?.includes('Verified Purchase') ?? false)
 
         // 日期
         const dateEl = el.querySelector('[data-hook="review-date"], .review-date')
@@ -403,7 +450,7 @@ IMPORTANT: Focus on actionable insights that can improve advertising creative qu
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.5,  // 降低温度确保更准确的提取
-      maxOutputTokens: 4096,  // 较大的token限制以容纳完整分析
+      maxOutputTokens: 8192,  // 增加到8192以避免评论分析被截断
     }, userId)
 
     // 提取JSON内容

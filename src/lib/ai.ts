@@ -873,7 +873,7 @@ ${currentOrientation === 'brand' ? `
       model: 'gemini-2.5-pro',
       prompt: basePrompt,
       temperature: 0.7,
-      maxOutputTokens: 4096,  // 增加以避免输出被截断
+      maxOutputTokens: 8192,  // 增加到8192以避免广告创意输出被截断
     }, options.userId)
 
     // 提取JSON内容

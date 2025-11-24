@@ -6,9 +6,10 @@ import { triggerOfferScraping } from '@/lib/offer-scraping'
 
 const createOfferSchema = z.object({
   url: z.string().url('无效的URL格式'),
-  brand: z.string().min(1, '品牌名称不能为空'),
+  brand: z.string().min(1, '品牌名称不能为空').optional(), // 可选，抓取时自动提取
   category: z.string().optional(),
   target_country: z.string().min(2, '目标国家代码至少2个字符'),
+  target_language: z.string().optional(), // 目标语言（如English, Spanish等）
   affiliate_link: z.string().url('无效的联盟链接格式').optional(),
   brand_description: z.string().optional(),
   unique_selling_points: z.string().optional(),

@@ -829,7 +829,7 @@ export function getAllProxyUrls(userId?: number): ProxyUrlConfig[] {
 
 /**
  * 获取Gemini Model实例（用于直接API调用）
- * 用于需要使用GoogleGenerativeAI SDK的场景，如图片分析
+ * 用于需要使用GoogleGenerativeAI SDK的场景
  *
  * @param userId - 用户ID（可选）
  * @returns GoogleGenerativeAI实例

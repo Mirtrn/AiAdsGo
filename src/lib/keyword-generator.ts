@@ -24,6 +24,7 @@ export interface KeywordGenerationOptions {
   expandBrandKeywords?: boolean // 是否扩展品牌关键词，默认true
   maxBrandKeywords?: number // 最大品牌关键词数量，默认10
   minEfficiencyScore?: number // 最小CPC效率分（搜索量/CPC），默认100
+  maxCompetitionIndex?: number // 🎯 新增：最大竞争度指数（0-100），默认70，过滤高竞争度关键词
   filterByIntent?: boolean // 是否过滤研究意图关键词，默认true
   smartMatchType?: boolean // 是否智能分配匹配类型，默认true
 }
@@ -73,6 +74,7 @@ export async function generateKeywords(
   const expandBrandKeywords = options?.expandBrandKeywords ?? true
   const maxBrandKeywords = options?.maxBrandKeywords ?? 10
   const minEfficiencyScore = options?.minEfficiencyScore ?? 100
+  const maxCompetitionIndex = options?.maxCompetitionIndex ?? 70  // 🎯 新增：默认过滤竞争度>70的关键词
   const filterByIntent = options?.filterByIntent ?? true
   const smartMatchType = options?.smartMatchType ?? true
 
@@ -113,7 +115,7 @@ export async function generateKeywords(
       model: 'gemini-2.0-flash-exp',
       prompt,
       temperature: 0.7,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 8192,  // 增加到8192以避免关键词生成输出被截断
     }, userId)
 
     // 提取JSON（尝试移除markdown代码块标记）
@@ -197,12 +199,14 @@ export async function generateKeywords(
     // 创建搜索量和CPC映射
     const volumeMap = new Map<string, number>()
     const cpcMap = new Map<string, number>()
+    const competitionIndexMap = new Map<string, number>()  // 🎯 新增：竞争度指数映射
     volumeData.forEach(v => {
       const key = v.keyword.toLowerCase()
       volumeMap.set(key, v.avgMonthlySearches)
       // 使用平均CPC
       const avgCpc = (v.lowTopPageBid + v.highTopPageBid) / 2
       cpcMap.set(key, avgCpc || 1) // 避免除以0
+      competitionIndexMap.set(key, v.competitionIndex || 0)  // 🎯 新增：存储竞争度指数
     })
 
     // 3. 过滤关键词
@@ -210,9 +214,17 @@ export async function generateKeywords(
       const kwLower = kw.keyword.toLowerCase()
       const volume = volumeMap.get(kwLower) || 0
       const avgCpc = cpcMap.get(kwLower) || 1
+      const competitionIndex = competitionIndexMap.get(kwLower) || 0  // 🎯 新增：获取竞争度指数
 
       // 过滤搜索量
       if (volume < minSearchVolume) {
+        filteredCount++
+        return false
+      }
+
+      // 🎯 新增：过滤高竞争度关键词
+      if (competitionIndex > maxCompetitionIndex) {
+        console.log(`⚠️ 过滤高竞争度关键词: "${kw.keyword}" (竞争度指数: ${competitionIndex})`)
         filteredCount++
         return false
       }
@@ -244,6 +256,7 @@ export async function generateKeywords(
       const kwLower = kw.keyword.toLowerCase()
       const volume = volumeMap.get(kwLower) || 0
       const avgCpc = cpcMap.get(kwLower) || 1
+      const competitionIndex = competitionIndexMap.get(kwLower) || 0  // 🎯 新增：获取竞争度
 
       // 智能分配匹配类型
       let matchType = kw.matchType
@@ -265,8 +278,8 @@ export async function generateKeywords(
       }
     })
 
-    // 4. 按效率分和优先级排序
-    // 品牌词 > HIGH > MEDIUM > LOW，同优先级按效率分降序
+    // 4. 按效率分和优先级排序（考虑竞争度）
+    // 品牌词 > HIGH > MEDIUM > LOW，同优先级按综合得分降序
     filteredKeywords.sort((a, b) => {
       // 品牌词优先
       const aIsBrand = a.category === '品牌词'
@@ -279,10 +292,23 @@ export async function generateKeywords(
       const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority]
       if (priorityDiff !== 0) return priorityDiff
 
-      // 同优先级按效率分降序（搜索量/CPC）
+      // 🎯 同优先级按综合得分降序（效率分70% + 竞争度加分30%）
       const aEfficiency = (a.searchVolume || 0) / (a.estimatedCpc || 1)
       const bEfficiency = (b.searchVolume || 0) / (b.estimatedCpc || 1)
-      return bEfficiency - aEfficiency
+
+      // 获取竞争度指数
+      const aCompetitionIndex = competitionIndexMap.get(a.keyword.toLowerCase()) || 50
+      const bCompetitionIndex = competitionIndexMap.get(b.keyword.toLowerCase()) || 50
+
+      // 竞争度加分：竞争度越低加分越多（0-100转换为0-1的加成）
+      const aCompetitionBonus = (100 - aCompetitionIndex) / 100
+      const bCompetitionBonus = (100 - bCompetitionIndex) / 100
+
+      // 综合得分：效率分 × (1 + 竞争度加成 × 0.3)
+      const aScore = aEfficiency * (1 + aCompetitionBonus * 0.3)
+      const bScore = bEfficiency * (1 + bCompetitionBonus * 0.3)
+
+      return bScore - aScore
     })
 
     // 提取分类
