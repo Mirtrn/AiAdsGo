@@ -34,8 +34,6 @@ interface Credentials {
   has_refresh_token: boolean
 }
 
-const PAGE_SIZE = 10
-
 export default function GoogleAdsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -47,6 +45,7 @@ export default function GoogleAdsPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set())
   const [isCached, setIsCached] = useState(false)
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
@@ -220,9 +219,9 @@ export default function GoogleAdsPage() {
   })
 
   // 分页计算
-  const totalPages = Math.ceil(sortedAccounts.length / PAGE_SIZE)
-  const startIndex = (currentPage - 1) * PAGE_SIZE
-  const endIndex = startIndex + PAGE_SIZE
+  const totalPages = Math.ceil(sortedAccounts.length / pageSize)
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = startIndex + pageSize
   const paginatedAccounts = sortedAccounts.slice(startIndex, endIndex)
 
   const goToPage = (page: number) => {
@@ -540,11 +539,30 @@ export default function GoogleAdsPage() {
                     </table>
                   </div>
 
-                  {/* 分页控件 */}
+                  {/* 分页控件 - Updated with page size selector */}
                   {totalPages > 1 && (
                     <div className="mt-4 flex items-center justify-between bg-white px-4 py-3 rounded-lg shadow">
-                      <div className="flex items-center text-sm text-gray-600">
-                        显示第 {startIndex + 1} - {Math.min(endIndex, sortedAccounts.length)} 条，共 {sortedAccounts.length} 条
+                      <div className="flex items-center gap-4 text-sm text-gray-600">
+                        <div className="flex items-center gap-2">
+                          <span>每页显示</span>
+                          <select
+                            value={pageSize}
+                            onChange={(e) => {
+                              const newSize = Number(e.target.value)
+                              setPageSize(newSize)
+                              setCurrentPage(1) // 重置到第一页
+                            }}
+                            className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value={10}>10</option>
+                            <option value={20}>20</option>
+                            <option value={50}>50</option>
+                          </select>
+                          <span>条</span>
+                        </div>
+                        <div>
+                          显示第 {startIndex + 1} - {Math.min(endIndex, sortedAccounts.length)} 条，共 {sortedAccounts.length} 条
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button

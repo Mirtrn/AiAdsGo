@@ -162,13 +162,15 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
 ## REQUIREMENTS (Target: EXCELLENT Ad Strength)
 
 ### HEADLINES (15 required, ≤30 chars each)
-Types (must cover all 5):
-- Brand (3): "${offer.brand} Official", "Trusted Brand", "#1 ${offer.category || 'Choice'}"
+**FIRST HEADLINE (MANDATORY)**: "{KeyWord:${offer.brand}} Official" - Must be EXACTLY this format, no extra words
+
+Remaining 14 headlines - Types (must cover all 5):
+- Brand (2): "Trusted Brand", "#1 ${offer.category || 'Choice'}"
 - Feature (4): Core product benefits
 - Promo (3): Numbers/% required - "Save 40%", "$50 Off"
 - CTA (3): "Shop Now", "Get Yours Today"
 - Urgency (2): "Limited Time", "Ends Soon"
-**Dynamic Keyword (DKI)**: 1-2 headlines with {KeyWord:DefaultText} syntax for higher CTR
+**Dynamic Keyword (DKI)**: 1 more headline using "{KeyWord:${offer.brand}}" format
 
 Length distribution: 5 short(10-20), 5 medium(20-25), 5 long(25-30)
 Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarity
@@ -178,6 +180,10 @@ Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarit
 - CTA (2): Strong action verbs (Shop/Buy/Get/Order) + immediate value
 
 ### KEYWORDS (10-15): Brand(1-2), Product(4-6), Feature(2-3), Long-tail(3-5)
+**质量要求（重要！确保Launch Score >60分）**:
+- 搜索量: 每个关键词≥1000/月（高流量潜力）
+- 购买意图: 优先transactional关键词（buy, shop, store, best, price）
+- 相关性: 与${offer.brand}品牌和${offer.category || '产品'}高度相关
 ${excludeKeywords?.length ? `AVOID duplicates: ${excludeKeywords.join(', ')}` : ''}
 
 ### CALLOUTS (4-6, ≤25 chars): Free Shipping, 24/7 Support, etc.
@@ -376,6 +382,40 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
       }
     }
 
+    // 🔥 修复Ad Customizer标签格式（DKI语法验证）
+    // 问题：AI可能生成 "{KeyWord:Text" 缺少结束符 "}"
+    const fixDKISyntax = (text: string): string => {
+      // 检测未闭合的 {KeyWord: 标签
+      const unclosedPattern = /\{KeyWord:([^}]*?)$/i
+      if (unclosedPattern.test(text)) {
+        // 尝试修复：如果只是缺少结束符，添加它
+        const match = text.match(unclosedPattern)
+        if (match) {
+          const defaultText = match[1].trim()
+          // Google Ads headline限制30字符，DKI的defaultText也应支持到30字符
+          if (defaultText.length > 0 && defaultText.length <= 30) {
+            // 合理的默认文本长度，添加结束符
+            console.log(`🔧 修复DKI标签: "${text}" → "${text}}"`)
+            return text + '}'
+          } else {
+            // 默认文本过长或为空，移除整个DKI标签
+            const fixedText = text.replace(unclosedPattern, match[1].trim() || '')
+            console.log(`🔧 移除无效DKI标签（defaultText长度${defaultText.length}）: "${text}" → "${fixedText}"`)
+            return fixedText
+          }
+        }
+      }
+      return text
+    }
+
+    // 应用DKI修复到所有headlines
+    const originalHeadlines = [...headlinesArray]
+    headlinesArray = headlinesArray.map((h: string) => fixDKISyntax(h))
+    const fixedCount = headlinesArray.filter((h: string, i: number) => h !== originalHeadlines[i]).length
+    if (fixedCount > 0) {
+      console.log(`✅ 修复了${fixedCount}个DKI标签格式问题`)
+    }
+
     const invalidDescriptions = descriptionsArray.filter((d: string) => d.length > 90)
     if (invalidDescriptions.length > 0) {
       console.warn(`警告: ${invalidDescriptions.length}个description超过90字符限制`)
@@ -496,6 +536,27 @@ export async function generateAdCreative(
   const aiModel = `${aiMode}:gemini-2.5-pro`
   console.timeEnd('⏱️ 解析AI响应')
 
+  // 🔥 强制第一个headline为DKI品牌Official格式
+  const brandName = (offer as { brand?: string }).brand || 'Brand'
+  const requiredFirstHeadline = `{KeyWord:${brandName}} Official`
+
+  if (result.headlines.length > 0) {
+    // 检查第一个headline是否符合要求
+    if (result.headlines[0].text !== requiredFirstHeadline) {
+      console.log(`🔧 强制第一个headline: "${result.headlines[0].text}" → "${requiredFirstHeadline}"`)
+      result.headlines[0] = {
+        text: requiredFirstHeadline,
+        type: 'brand',
+        length: requiredFirstHeadline.length,
+        keywords: [brandName.toLowerCase()],
+        hasNumber: false,
+        hasUrgency: false
+      }
+    } else {
+      console.log(`✅ 第一个headline已符合要求: "${requiredFirstHeadline}"`)
+    }
+  }
+
   console.log('✅ 广告创意生成成功')
   console.log(`   - Headlines: ${result.headlines.length}个`)
   console.log(`   - Descriptions: ${result.descriptions.length}个`)
@@ -526,10 +587,11 @@ export async function generateAdCreative(
   }
   console.timeEnd('⏱️ 获取关键词搜索量')
 
-  // 🎯 过滤低搜索量关键词（<500搜索量）
-  const MIN_SEARCH_VOLUME = 500
+  // 🎯 过滤低搜索量关键词（Launch Score优化）
+  const MIN_SEARCH_VOLUME = 1000  // 提高到1000/月，确保关键词质量
   const originalKeywordCount = result.keywords.length
   const filteredKeywordsWithVolume = keywordsWithVolume.filter(kw => {
+    // 过滤低搜索量
     if (kw.searchVolume > 0 && kw.searchVolume < MIN_SEARCH_VOLUME) {
       console.log(`⚠️ 过滤低搜索量关键词: "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
       return false
@@ -660,18 +722,19 @@ export async function generateAdCreative(
   // 修正 sitelinks URL 为真实的 offer URL
   // 需求优化：所有sitelinks统一使用offer的主URL，避免虚构的子路径
   if (result.sitelinks && result.sitelinks.length > 0) {
-    const offerUrl = (offer as { url?: string }).url
+    // 优先使用final_url（推广链接解析后的真实URL），否则使用url
+    const offerUrl = (offer as { final_url?: string; url?: string }).final_url || (offer as { url?: string }).url
     if (offerUrl) {
       result.sitelinks = result.sitelinks.map(link => {
         // 所有sitelinks统一使用offer的主URL（不拼接子路径）
         // 这确保所有链接都是真实可访问的
         return {
           ...link,
-          url: offerUrl  // 直接使用完整的offer URL
+          url: offerUrl  // 优先使用final_url，避免推广链接
         }
       })
 
-      console.log(`🔗 修正 ${result.sitelinks.length} 个附加链接URL为真实offer URL`)
+      console.log(`🔗 修正 ${result.sitelinks.length} 个附加链接URL为真实offer URL (${offerUrl.substring(0, 50)}...)`)
     }
   }
 

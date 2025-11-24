@@ -192,11 +192,11 @@ export async function scrapeProductData(url: string, customProxyUrl?: string): P
 
     // Extract data based on site type
     if (isAmazon) {
-      return extractAmazonData($)
+      return extractAmazonData($, url)
     } else if (isShopify) {
-      return extractShopifyData($)
+      return extractShopifyData($, url)
     } else {
-      return extractGenericData($)
+      return extractGenericData($, url)
     }
   } catch (error: any) {
     console.error('Product scraping error:', error)
@@ -207,7 +207,7 @@ export async function scrapeProductData(url: string, customProxyUrl?: string): P
 /**
  * Extract product data from Amazon pages
  */
-function extractAmazonData($: any): ScrapedProductData {
+function extractAmazonData($: any, url: string): ScrapedProductData {
   const features: string[] = []
   $('#feature-bullets li').each((i: number, el: any) => {
     const text = $(el).text().trim()
@@ -266,13 +266,27 @@ function extractAmazonData($: any): ScrapedProductData {
                  $('.priceToPay .a-offscreen').text().trim() ||       // 支付价格
                  null
 
+  // 🔥 增强品牌提取逻辑 - 支持Amazon Store页面
+  let brandName = $('#bylineInfo').text().trim().replace('Visit the ', '').replace(' Store', '') ||
+                  $('[data-brand]').attr('data-brand') ||
+                  null
+
+  // 如果是Amazon stores URL且没有从页面提取到品牌，从URL中提取
+  if (!brandName && url.includes('amazon.com/stores/')) {
+    const urlMatch = url.match(/\/stores\/([^\/]+)\//)
+    if (urlMatch && urlMatch[1]) {
+      brandName = decodeURIComponent(urlMatch[1])
+      console.log(`✅ [Amazon Store] 从URL提取品牌: ${brandName}`)
+    }
+  }
+
   return {
     productName: $('#productTitle').text().trim() || null,
     productDescription: $('#feature-bullets').text().trim() || $('#productDescription').text().trim() || null,
     productPrice,
     productCategory: $('#wayfinding-breadcrumbs_feature_div').text().trim() || null,
     productFeatures: features,
-    brandName: $('#bylineInfo').text().trim().replace('Visit the ', '').replace(' Store', '') || $('[data-brand]').attr('data-brand') || null,
+    brandName,
     imageUrls: images,
     metaTitle: $('title').text().trim() || null,
     metaDescription: $('meta[name="description"]').attr('content') || null,
@@ -282,7 +296,7 @@ function extractAmazonData($: any): ScrapedProductData {
 /**
  * Extract product data from Shopify stores
  */
-function extractShopifyData($: any): ScrapedProductData {
+function extractShopifyData($: any, url: string): ScrapedProductData {
   const features: string[] = []
   $('[class*="feature"] li, [class*="spec"] li').each((i: number, el: any) => {
     const text = $(el).text().trim()
@@ -339,7 +353,7 @@ function extractShopifyData($: any): ScrapedProductData {
 /**
  * Extract product data from generic e-commerce sites
  */
-function extractGenericData($: any): ScrapedProductData {
+function extractGenericData($: any, url: string): ScrapedProductData {
   const features: string[] = []
   $('ul li').each((i: number, el: any) => {
     const text = $(el).text().trim()
@@ -364,6 +378,15 @@ function extractGenericData($: any): ScrapedProductData {
                   $('meta[property="og:brand"]').attr('content') ||
                   $('meta[property="og:site_name"]').attr('content') || null
 
+  // 优先从Amazon stores URL中提取品牌名
+  if (!brandName && url.includes('amazon.com/stores/')) {
+    const urlMatch = url.match(/\/stores\/([^\/]+)\//)
+    if (urlMatch && urlMatch[1]) {
+      brandName = decodeURIComponent(urlMatch[1])
+      console.log(`✅ 从Amazon stores URL提取品牌: ${brandName}`)
+    }
+  }
+
   // 如果仍然没有品牌，尝试从页面标题提取
   if (!brandName) {
     const pageTitle = $('title').text().trim()
@@ -375,12 +398,12 @@ function extractGenericData($: any): ScrapedProductData {
       if (titleParts.length > 0) {
         const firstPart = titleParts[0].trim()
         console.log(`📝 第一部分: ${firstPart}`)
-        // 移除常见的后缀词
-        brandName = firstPart.replace(/\s+(Store|Shop|Official|Site|Online)$/i, '').trim()
+        // 移除常见的后缀词和末尾数字
+        brandName = firstPart.replace(/\s+(Store|Shop|Official|Site|Online)$/i, '').replace(/\d+$/, '').trim()
         console.log(`✅ 提取的品牌: ${brandName}`)
       }
     }
-  } else {
+  } else if (!url.includes('amazon.com/stores/')) {
     console.log(`✅ 从meta标签提取品牌: ${brandName}`)
   }
 

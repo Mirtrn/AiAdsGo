@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const userIdNum = userId ? parseInt(userId, 10) : undefined
 
     const body = await request.json()
-    const { affiliate_link, target_country, skipCache = false } = body
+    const { affiliate_link, target_country, skipCache = true } = body  // 🔥 默认跳过缓存，确保获取最新重定向数据
 
     // 验证必填参数
     if (!affiliate_link || !target_country) {

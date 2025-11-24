@@ -78,8 +78,8 @@ service-account.json
 *.swo
 .pnpm-debug.log*
 
-# Claude文档目录（可选，根据需要决定是否提交）
-# claudedocs/
+# Claude文档目录 - 包含敏感信息，不提交到Github
+claudedocs/
 
 # 安全相关 - 额外保护
 *.env*

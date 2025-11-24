@@ -4,7 +4,8 @@ import { generateAdCreative } from '@/lib/ad-creative-generator'
 import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
 import {
   evaluateCreativeAdStrength,
-  type ComprehensiveAdStrengthResult
+  type ComprehensiveAdStrengthResult,
+  calculateLaunchScore
 } from '@/lib/scoring'
 
 /**
@@ -238,6 +239,54 @@ export async function POST(
 
     console.log(`✅ 广告创意已保存到数据库 (ID: ${savedCreative.id})`)
 
+    // 🎯 计算Launch Score（投放评分，独立于Ad Strength）
+    console.log('\n🚀 计算Launch Score（投放准备度评分）...')
+    console.time('⏱️ Launch Score计算')
+
+    const launchScore = await calculateLaunchScore(
+      offer,
+      {
+        headlines: bestCreative.headlines,
+        descriptions: bestCreative.descriptions,
+        keywords: bestCreative.keywords || [],
+        keywordsWithVolume: bestCreative.keywordsWithVolume || [],
+        negativeKeywords: bestCreative.negativeKeywords || [],
+        callouts: bestCreative.callouts || [],
+        sitelinks: bestCreative.sitelinks || [],
+        final_url: offer.final_url || offer.url,
+        final_url_suffix: offer.final_url_suffix || undefined
+      },
+      parseInt(userId, 10)
+    )
+
+    console.timeEnd('⏱️ Launch Score计算')
+    console.log(`📊 Launch Score: ${launchScore.totalScore}分`)
+    console.log(`   - 关键词质量: ${launchScore.analysis.keywordsQuality.score}/30`)
+    console.log(`   - 市场契合度: ${launchScore.analysis.marketFit.score}/25`)
+    console.log(`   - 着陆页质量: ${launchScore.analysis.landingPageQuality.score}/20`)
+    console.log(`   - 预算合理性: ${launchScore.analysis.budgetRationality.score}/15`)
+    console.log(`   - 内容创意质量: ${launchScore.analysis.contentCreativeQuality.score}/10`)
+
+    // Launch Score警告（不阻断，仅提示）
+    const LAUNCH_SCORE_WARNING_THRESHOLD = 60
+    const LAUNCH_SCORE_EXCELLENT_THRESHOLD = 80
+    let launchScoreStatus: 'excellent' | 'good' | 'warning' = 'excellent'
+    let launchScoreMessage = ''
+
+    if (launchScore.totalScore < LAUNCH_SCORE_WARNING_THRESHOLD) {
+      launchScoreStatus = 'warning'
+      launchScoreMessage = `⚠️ Launch Score偏低（${launchScore.totalScore}分），建议优化后再发布广告`
+      console.warn(launchScoreMessage)
+    } else if (launchScore.totalScore < LAUNCH_SCORE_EXCELLENT_THRESHOLD) {
+      launchScoreStatus = 'good'
+      launchScoreMessage = `✅ Launch Score合格（${launchScore.totalScore}分），可以发布广告`
+      console.log(launchScoreMessage)
+    } else {
+      launchScoreStatus = 'excellent'
+      launchScoreMessage = `🎉 Launch Score优秀（${launchScore.totalScore}分），建议立即发布`
+      console.log(launchScoreMessage)
+    }
+
     return NextResponse.json({
       success: true,
       creative: {
@@ -274,6 +323,13 @@ export async function POST(
         brand: offer.brand,
         url: offer.url,
         affiliateLink: offer.affiliate_link
+      },
+      launchScore: {
+        score: launchScore.totalScore,
+        status: launchScoreStatus,
+        message: launchScoreMessage,
+        analysis: launchScore.analysis,
+        recommendations: launchScore.recommendations
       }
     })
   } catch (error: any) {

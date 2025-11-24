@@ -173,11 +173,11 @@ export function createAdCreative(
   const result = db.prepare(`
     INSERT INTO ad_creatives (
       offer_id, user_id,
-      headlines, descriptions, keywords, keywords_with_volume, callouts, sitelinks,
+      headlines, descriptions, keywords, keywords_with_volume, negative_keywords, callouts, sitelinks,
       final_url, final_url_suffix,
       score, score_breakdown, score_explanation,
       generation_round, theme, ai_model
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     offerId,
     userId,
@@ -185,6 +185,7 @@ export function createAdCreative(
     JSON.stringify(data.descriptions),
     JSON.stringify(data.keywords),
     data.keywordsWithVolume ? JSON.stringify(data.keywordsWithVolume) : null,
+    data.negativeKeywords ? JSON.stringify(data.negativeKeywords) : null,  // 🎯 新增：保存否定关键词
     data.callouts ? JSON.stringify(data.callouts) : null,
     data.sitelinks ? JSON.stringify(data.sitelinks) : null,
     data.final_url,
@@ -293,6 +294,7 @@ function parseAdCreativeRow(row: any): AdCreative {
     descriptions: JSON.parse(row.descriptions),
     keywords: JSON.parse(row.keywords),
     keywordsWithVolume: row.keywords_with_volume ? JSON.parse(row.keywords_with_volume) : undefined,
+    negativeKeywords: row.negative_keywords ? JSON.parse(row.negative_keywords) : undefined,  // 🎯 新增：解析否定关键词
     callouts: row.callouts ? JSON.parse(row.callouts) : undefined,
     sitelinks: row.sitelinks ? JSON.parse(row.sitelinks) : undefined,
     score_breakdown: JSON.parse(row.score_breakdown),

@@ -140,18 +140,18 @@ const proxyCache = new Map<string, CachedProxy>()
 const CACHE_DURATION = 5 * 60 * 1000 // 5分钟
 
 /**
- * 获取代理IP（带缓存）
+ * 获取代理IP（默认不使用缓存）
  *
- * 同一个Proxy URL在5分钟内会复用相同的代理IP，
- * 避免频繁请求代理服务商API
+ * 默认每次都获取最新的代理IP，确保代理有效性
+ * 如需使用缓存（5分钟），设置 forceRefresh = false
  *
  * @param proxyUrl - 代理服务商API URL
- * @param forceRefresh - 是否强制刷新（忽略缓存）
+ * @param forceRefresh - 是否强制刷新（默认true，总是获取新IP）
  * @returns 代理凭证信息
  */
 export async function getProxyIp(
   proxyUrl: string,
-  forceRefresh = false
+  forceRefresh = true
 ): Promise<ProxyCredentials> {
   const now = Date.now()
 

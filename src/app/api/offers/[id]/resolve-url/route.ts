@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveAffiliateLink } from '@/lib/url-resolver'
+import { resolveAffiliateLink, getProxyPool } from '@/lib/url-resolver-enhanced'  // 🔥 使用新的增强版API
 import { findOfferById } from '@/lib/offers'
-import { getProxyUrlForCountry, isProxyEnabled } from '@/lib/settings'
+import { getAllProxyUrls } from '@/lib/settings'
 
 /**
  * POST /api/offers/:id/resolve-url
@@ -30,13 +30,26 @@ export async function POST(
       )
     }
 
-    // 获取用户的代理配置 - 根据Offer的推广国家获取对应的代理URL
+    // 🔥 加载代理池配置（使用新的增强版API）
     const userIdNum = parseInt(userId, 10)
-    const useProxy = isProxyEnabled(userIdNum)
-
-    // 从Offer获取推广国家，用于选择合适的代理
     const targetCountry = offer.target_country || 'US'
-    const proxyUrl = useProxy ? getProxyUrlForCountry(targetCountry, userIdNum) : undefined
+
+    const proxySettings = getAllProxyUrls(userIdNum)
+    if (!proxySettings || proxySettings.length === 0) {
+      return NextResponse.json(
+        { error: '未配置代理，无法解析推广链接' },
+        { status: 400 }
+      )
+    }
+
+    // 加载代理到代理池
+    const proxyPool = getProxyPool()
+    const proxiesWithDefault = proxySettings.map((p, index) => ({
+      url: p.url,
+      country: p.country,
+      is_default: index === proxySettings.length - 1,  // 最后一个作为默认代理
+    }))
+    await proxyPool.loadProxies(proxiesWithDefault)
 
     if (!offer.affiliate_link) {
       return NextResponse.json(
@@ -46,72 +59,14 @@ export async function POST(
     }
 
     console.log(`解析推广链接: ${offer.affiliate_link}`)
-    console.log(`使用代理: ${useProxy ? '是' : '否'}`)
+    console.log(`目标国家: ${targetCountry}`)
+    console.log(`🔥 强制跳过缓存，确保获取最新重定向数据`)
 
-    // 检测是否为需要JavaScript渲染的affiliate链接
-    const needsJavaScript =
-      offer.affiliate_link.includes('pboost.me') ||
-      offer.affiliate_link.includes('bit.ly') ||
-      offer.affiliate_link.includes('tinyurl') ||
-      offer.affiliate_link.includes('amzn.to') ||
-      offer.affiliate_link.includes('geni.us')
-
-    let resolved: any
-    let method = 'http'
-
-    if (needsJavaScript) {
-      // 直接使用Playwright处理affiliate链接
-      console.log('🎭 检测到affiliate链接，直接使用Playwright...')
-
-      try {
-        const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
-        resolved = await resolveAffiliateLinkWithPlaywright(
-          offer.affiliate_link,
-          proxyUrl || undefined,
-          5000  // 给affiliate链接更多时间
-        )
-        method = 'playwright'
-      } catch (playwrightError: any) {
-        console.warn(`⚠️ Playwright失败，尝试HTTP降级: ${playwrightError.message}`)
-        // 降级到HTTP
-        resolved = await resolveAffiliateLink(offer.affiliate_link, proxyUrl || undefined)
-        method = 'http-fallback'
-      }
-    } else {
-      // 普通链接，先尝试HTTP
-      try {
-        resolved = await resolveAffiliateLink(offer.affiliate_link, proxyUrl || undefined)
-
-        // 如果没有检测到重定向，可能需要JavaScript
-        if (resolved.redirectCount === 0 && offer.affiliate_link === resolved.finalUrl) {
-          console.log('⚠️ 未检测到重定向，尝试使用Playwright...')
-          const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
-
-          resolved = await resolveAffiliateLinkWithPlaywright(
-            offer.affiliate_link,
-            proxyUrl || undefined,
-            3000
-          )
-          method = 'playwright'
-        }
-      } catch (httpError: any) {
-        // HTTP方式失败，尝试Playwright
-        console.warn(`HTTP解析失败: ${httpError.message}，尝试使用Playwright...`)
-
-        try {
-          const { resolveAffiliateLinkWithPlaywright } = await import('@/lib/url-resolver-playwright')
-
-          resolved = await resolveAffiliateLinkWithPlaywright(
-            offer.affiliate_link,
-            proxyUrl || undefined,
-            3000
-          )
-          method = 'playwright'
-        } catch (playwrightError: any) {
-          throw new Error(`所有解析方法都失败了:\n- HTTP: ${httpError.message}\n- Playwright: ${playwrightError.message}`)
-        }
-      }
-    }
+    // 🔥 使用新的增强版API，强制skipCache确保获取最新数据
+    const resolved = await resolveAffiliateLink(offer.affiliate_link, {
+      targetCountry,
+      skipCache: true,  // 🔥 关键：强制跳过缓存
+    })
 
     return NextResponse.json({
       success: true,
@@ -123,8 +78,8 @@ export async function POST(
         finalUrlSuffix: resolved.finalUrlSuffix,
         redirectCount: resolved.redirectCount,
         redirectChain: resolved.redirectChain,
-        proxyUsed: useProxy,
-        method, // 'http' or 'playwright'
+        proxyUsed: resolved.proxyUsed,
+        method: resolved.resolveMethod, // 'http' or 'playwright' or 'cache'
         pageTitle: resolved.pageTitle || null,
       },
     })

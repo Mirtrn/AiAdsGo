@@ -233,6 +233,7 @@ export async function POST(request: NextRequest) {
       headlines: JSON.parse(primaryCreative.headlines || '[]'),
       descriptions: JSON.parse(primaryCreative.descriptions || '[]'),
       keywords: JSON.parse(primaryCreative.keywords || '[]'),
+      negativeKeywords: JSON.parse(primaryCreative.negative_keywords || '[]'),  // 🔥 修复：添加否定关键词解析
       callouts: JSON.parse(primaryCreative.callouts || '[]'),
       sitelinks: JSON.parse(primaryCreative.sitelinks || '[]')
     }
@@ -245,6 +246,7 @@ export async function POST(request: NextRequest) {
           headlines: creativeData.headlines,
           descriptions: creativeData.descriptions,
           keywords: creativeData.keywords,
+          negativeKeywords: creativeData.negativeKeywords,  // 🔥 修复：传递否定关键词给Launch Score评估
           callouts: creativeData.callouts,
           sitelinks: creativeData.sitelinks
         } as AdCreative,
@@ -464,8 +466,28 @@ export async function POST(request: NextRequest) {
           })
 
           // 添加关键词
-          const headlines = JSON.parse(creative.headlines) as string[]
+          let headlines = JSON.parse(creative.headlines) as string[]
           const descriptions = JSON.parse(creative.descriptions) as string[]
+
+          // 🔥 修复未闭合的DKI标签（防御性处理已存储的数据）
+          headlines = headlines.map((h: string) => {
+            const unclosedPattern = /\{KeyWord:([^}]*?)$/i
+            if (unclosedPattern.test(h)) {
+              const match = h.match(unclosedPattern)
+              if (match) {
+                const defaultText = match[1].trim()
+                // Google Ads headline限制30字符，DKI的defaultText也应支持到30字符
+                if (defaultText.length > 0 && defaultText.length <= 30) {
+                  console.log(`🔧 [Publish] 修复DKI标签: "${h}"`)
+                  return h + '}'
+                } else {
+                  console.log(`🔧 [Publish] 移除无效DKI标签（defaultText长度${defaultText.length}）: "${h}"`)
+                  return h.replace(unclosedPattern, defaultText || '')
+                }
+              }
+            }
+            return h
+          })
 
           const keywordOperations = campaign_config.keywords.map((keyword: string) => ({
             keywordText: keyword,

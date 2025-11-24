@@ -24,7 +24,7 @@ export interface KeywordGenerationOptions {
   expandBrandKeywords?: boolean // 是否扩展品牌关键词，默认true
   maxBrandKeywords?: number // 最大品牌关键词数量，默认10
   minEfficiencyScore?: number // 最小CPC效率分（搜索量/CPC），默认100
-  maxCompetitionIndex?: number // 🎯 新增：最大竞争度指数（0-100），默认70，过滤高竞争度关键词
+  maxCompetitionIndex?: number // 🎯 最大竞争度指数（0-100），可选，用于手动过滤（不建议使用）
   filterByIntent?: boolean // 是否过滤研究意图关键词，默认true
   smartMatchType?: boolean // 是否智能分配匹配类型，默认true
 }
@@ -74,7 +74,7 @@ export async function generateKeywords(
   const expandBrandKeywords = options?.expandBrandKeywords ?? true
   const maxBrandKeywords = options?.maxBrandKeywords ?? 10
   const minEfficiencyScore = options?.minEfficiencyScore ?? 100
-  const maxCompetitionIndex = options?.maxCompetitionIndex ?? 70  // 🎯 新增：默认过滤竞争度>70的关键词
+  const maxCompetitionIndex = options?.maxCompetitionIndex  // 🎯 移除默认值，只在用户明确指定时才过滤
   const filterByIntent = options?.filterByIntent ?? true
   const smartMatchType = options?.smartMatchType ?? true
 
@@ -110,9 +110,9 @@ export async function generateKeywords(
 `
 
   try {
-    // 需求12：使用Gemini 2.0 Flash实验版模型（使用用户级AI配置）
+    // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
     const text = await generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,  // 增加到8192以避免关键词生成输出被截断
@@ -214,7 +214,7 @@ export async function generateKeywords(
       const kwLower = kw.keyword.toLowerCase()
       const volume = volumeMap.get(kwLower) || 0
       const avgCpc = cpcMap.get(kwLower) || 1
-      const competitionIndex = competitionIndexMap.get(kwLower) || 0  // 🎯 新增：获取竞争度指数
+      const competitionIndex = competitionIndexMap.get(kwLower) || 0
 
       // 过滤搜索量
       if (volume < minSearchVolume) {
@@ -222,8 +222,8 @@ export async function generateKeywords(
         return false
       }
 
-      // 🎯 新增：过滤高竞争度关键词
-      if (competitionIndex > maxCompetitionIndex) {
+      // 🎯 竞争度过滤（仅在用户明确指定时）
+      if (maxCompetitionIndex !== undefined && competitionIndex > maxCompetitionIndex) {
         console.log(`⚠️ 过滤高竞争度关键词: "${kw.keyword}" (竞争度指数: ${competitionIndex})`)
         filteredCount++
         return false
@@ -256,7 +256,7 @@ export async function generateKeywords(
       const kwLower = kw.keyword.toLowerCase()
       const volume = volumeMap.get(kwLower) || 0
       const avgCpc = cpcMap.get(kwLower) || 1
-      const competitionIndex = competitionIndexMap.get(kwLower) || 0  // 🎯 新增：获取竞争度
+      const competitionIndex = competitionIndexMap.get(kwLower) || 0  // 保留竞争度信息用于排序
 
       // 智能分配匹配类型
       let matchType = kw.matchType
@@ -337,7 +337,7 @@ export async function generateKeywords(
  * @param userId - 用户ID（必需，用于获取用户的AI配置）
  */
 export async function generateNegativeKeywords(offer: Offer, userId: number): Promise<string[]> {
-  const prompt = `你是一个Google Ads优化专家。请为以下产品生成否定关键词列表，以排除不相关的搜索流量。
+  const prompt = `你是一个Google Ads优化专家。请为以下电商产品生成否定关键词列表，以排除不相关的搜索流量，提升广告投放ROI。
 
 # 产品信息
 品牌名称：${offer.brand}
@@ -345,32 +345,45 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
 目标国家：${offer.target_country}
 产品类别：${offer.category || '未分类'}
 
-# 否定关键词生成原则
-1. 排除免费、破解、盗版等低质量搜索
-2. 排除招聘、职位、工作等非产品搜索
-3. 排除竞品的特定型号或版本
-4. 排除与产品无关的相似词
-5. 排除价格过低的搜索（如"便宜"、"最低价"）
+# 否定关键词生成原则（针对电商产品）
+1. **低价值搜索**：排除免费、破解、盗版、试用、样品
+2. **信息查询**：排除教程、指南、评测、对比、如何使用
+3. **招聘/工作**：排除招聘、职位、工作、兼职、薪资
+4. **二手/维修**：排除二手、翻新、维修、修理、配件
+5. **竞品品牌**：排除主要竞品的品牌名和型号
+6. **不相关产品**：排除与${offer.category || '产品'}无关的相似产品
+7. **低价搜索**：排除便宜、最低价、批发、清仓
+8. **DIY/自制**：排除DIY、手工、自制、教程
+9. **下载/虚拟**：排除下载、软件、APP、PDF
+10. **地域/渠道限制**：排除与目标市场不符的地域词或渠道词
+
+# 数量要求
+**必须生成40-50个否定关键词**，确保覆盖所有低价值流量类型。
 
 # 输出格式
-请输出一个JSON数组，包含15-25个否定关键词：
-
 {
   "negativeKeywords": [
-    "关键词1",
-    "关键词2",
-    "关键词3"
+    "free",
+    "cheap",
+    "tutorial",
+    "...（继续添加至40-50个）"
   ]
 }
+
+重要：
+1. 所有关键词用${offer.target_country === 'US' ? '英文' : '当地语言'}
+2. 关键词必须覆盖上述10个类别
+3. 总数必须达到40-50个
+4. 返回纯JSON，不要markdown代码块
 `
 
   try {
-    // 需求12：使用Gemini 2.0 Flash实验版模型（使用用户级AI配置）
+    // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
     const text = await generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 8192,
     }, userId)
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
@@ -432,12 +445,12 @@ ${baseKeywords.join(', ')}
 `
 
   try {
-    // 需求12：使用Gemini 2.0 Flash实验版模型（使用用户级AI配置）
+    // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
     const text = await generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 8192,
     }, userId)
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
