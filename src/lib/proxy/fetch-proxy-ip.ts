@@ -12,13 +12,80 @@ export interface ProxyCredentials {
 }
 
 /**
- * 从代理服务商API获取代理IP（带重试机制）
+ * 🔥 P1优化：测试代理IP健康状态
+ * 通过快速HTTP请求测试代理IP的连通性和响应时间
+ *
+ * @param credentials - 代理凭证
+ * @param timeoutMs - 测试超时时间（默认5秒）
+ * @returns 健康状态对象
+ */
+async function testProxyHealth(
+  credentials: ProxyCredentials,
+  timeoutMs = 5000
+): Promise<{ healthy: boolean; responseTime?: number; error?: string }> {
+  const startTime = Date.now()
+
+  try {
+    // 使用简单的HTTP请求测试代理（访问Amazon favicon，轻量级请求）
+    const testUrl = 'https://www.amazon.com/favicon.ico'
+    const proxyUrl = `http://${credentials.username}:${credentials.password}@${credentials.host}:${credentials.port}`
+
+    // 使用node-fetch + https-proxy-agent测试
+    const { default: fetch } = await import('node-fetch')
+    const { HttpsProxyAgent } = await import('https-proxy-agent')
+
+    const agent = new HttpsProxyAgent(proxyUrl)
+
+    const response = await fetch(testUrl, {
+      method: 'HEAD', // 只请求header，更快
+      agent,
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+
+    const responseTime = Date.now() - startTime
+
+    // 健康标准：
+    // 1. HTTP状态码正常 (200-399)
+    // 2. 响应时间 < 3秒（快速代理）
+    const healthy = response.ok && responseTime < 3000
+
+    if (healthy) {
+      console.log(`✅ 代理IP健康检查通过: ${credentials.fullAddress} (${responseTime}ms)`)
+    } else {
+      console.warn(`⚠️ 代理IP响应慢: ${credentials.fullAddress} (${responseTime}ms)`)
+    }
+
+    return {
+      healthy,
+      responseTime,
+      error: !response.ok ? `HTTP ${response.status}` : undefined,
+    }
+  } catch (error: any) {
+    const responseTime = Date.now() - startTime
+    console.warn(`❌ 代理IP健康检查失败: ${credentials.fullAddress} - ${error.message} (${responseTime}ms)`)
+
+    return {
+      healthy: false,
+      responseTime,
+      error: error.message || String(error),
+    }
+  }
+}
+
+/**
+ * 从代理服务商API获取代理IP（带重试机制和健康检查）
+ *
+ * 🔥 P1优化：新增代理IP质量过滤机制
+ * - 自动测试代理IP连通性和响应时间
+ * - 过滤掉慢速或不可用的代理IP
+ * - 减少SSL错误和连接超时问题
  *
  * 代理服务商返回格式: host:port:username:password
  * 例如: 15.235.13.80:5959:com49692430-res-row-sid-867994980:Qxi9V59e3kNOW6pnRi3i
  *
  * @param proxyUrl - 代理服务商API URL
  * @param maxRetries - 最大重试次数，默认3次
+ * @param skipHealthCheck - 跳过健康检查（默认false，启用质量过滤）
  * @returns 代理凭证信息
  * @throws 如果获取失败或格式错误
  *
@@ -32,7 +99,11 @@ export interface ProxyCredentials {
  * //   fullAddress: '15.235.13.80:5959'
  * // }
  */
-export async function fetchProxyIp(proxyUrl: string, maxRetries = 3): Promise<ProxyCredentials> {
+export async function fetchProxyIp(
+  proxyUrl: string,
+  maxRetries = 3,
+  skipHealthCheck = false
+): Promise<ProxyCredentials> {
   // Step 1: 验证URL格式
   const validation = validateProxyUrl(proxyUrl)
   if (!validation.isValid) {
@@ -107,6 +178,31 @@ export async function fetchProxyIp(proxyUrl: string, maxRetries = 3): Promise<Pr
     }
 
       console.log(`成功获取代理IP: ${credentials.fullAddress}`)
+
+      // 🔥 P1优化：健康检查（可选）
+      if (!skipHealthCheck) {
+        console.log('🔍 开始代理IP质量检测...')
+        const healthCheck = await testProxyHealth(credentials)
+
+        if (!healthCheck.healthy) {
+          // 代理IP不健康，记录警告但不抛出错误（允许降级使用）
+          console.warn(
+            `⚠️ 代理IP质量检测未通过: ${credentials.fullAddress}\n` +
+              `  - 响应时间: ${healthCheck.responseTime}ms\n` +
+              `  - 错误: ${healthCheck.error || '响应过慢'}\n` +
+              `  → 将在下次重试时尝试获取新的代理IP`
+          )
+
+          // 如果不是最后一次尝试，抛出错误以触发重试（获取新代理IP）
+          if (attempt < maxRetries) {
+            throw new Error(
+              `代理IP质量检测失败: ${healthCheck.error || '响应时间超过3秒'} (${healthCheck.responseTime}ms)`
+            )
+          }
+          // 最后一次尝试：即使质量不佳也返回（降级策略）
+          console.warn('⚠️ 已达最大重试次数，使用当前代理IP（质量不佳但可能仍可用）')
+        }
+      }
 
       return credentials
     } catch (error) {

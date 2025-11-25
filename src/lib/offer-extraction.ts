@@ -3,45 +3,26 @@
  * 异步提取推广链接的Final URL和品牌名称
  *
  * 用于批量导入时的后台处理，与手动创建的extract流程保持一致
+ * 🔥 KISS优化：使用统一的extractOffer核心函数
+ * ✨ 支持AI分析：产品分析、评论分析、竞品对比、广告元素提取
  */
 
 import { updateOffer, updateOfferScrapeStatus } from './offers'
-import { resolveAffiliateLink, getProxyPool } from './url-resolver-enhanced'
-import { getAllProxyUrls } from './settings'
-import { extractProductInfo } from './scraper'
-import { scrapeAmazonStore, scrapeIndependentStore } from './scraper-stealth'
 import { triggerOfferScraping } from './offer-scraping'
 import { normalizeBrandName } from './offer-utils'
+import { extractOffer } from './offer-extraction-core'
+import { executeAIAnalysis } from './ai-analysis-service'
+import { getTargetLanguage } from './offer-utils'
 
-/**
- * 根据国家代码确定语言
- */
-function getLanguageByCountry(countryCode: string): string {
-  const languageMap: Record<string, string> = {
-    US: 'English',
-    GB: 'English',
-    CA: 'English',
-    AU: 'English',
-    DE: 'German',
-    FR: 'French',
-    ES: 'Spanish',
-    IT: 'Italian',
-    NL: 'Dutch',
-    SE: 'Swedish',
-    NO: 'Norwegian',
-    DK: 'Danish',
-    FI: 'Finnish',
-    PL: 'Polish',
-    JP: 'Japanese',
-    CN: 'Chinese',
-    KR: 'Korean',
-    IN: 'English',
-    TH: 'Thai',
-    VN: 'Vietnamese',
-    MX: 'Spanish',
-    BR: 'Portuguese',
-  }
-  return languageMap[countryCode] || 'English'
+export interface OfferExtractionOptions {
+  offerId: number
+  userId: number
+  affiliateLink: string
+  targetCountry: string
+  enableAI?: boolean  // 是否启用AI分析（默认false）
+  enableReviewAnalysis?: boolean  // 是否启用评论分析（默认true）
+  enableCompetitorAnalysis?: boolean  // 是否启用竞品分析（默认true）
+  enableAdExtraction?: boolean  // 是否启用广告元素提取（默认true）
 }
 
 /**
@@ -50,143 +31,152 @@ function getLanguageByCountry(countryCode: string): string {
  * 流程：
  * 1. 解析推广链接获取Final URL
  * 2. 抓取网页识别品牌名称
- * 3. 更新Offer记录
- * 4. 触发后续的数据抓取（scraping）
+ * 3. （可选）AI分析：产品分析、评论分析、竞品对比、广告元素提取
+ * 4. 更新Offer记录
+ * 5. 触发后续的数据抓取（scraping）
  *
- * @param offerId Offer ID
- * @param userId User ID
- * @param affiliateLink 推广链接
- * @param targetCountry 目标国家代码
+ * @param options - 提取选项
  */
+export async function triggerOfferExtraction(
+  options: OfferExtractionOptions
+): Promise<void>
 export async function triggerOfferExtraction(
   offerId: number,
   userId: number,
   affiliateLink: string,
-  targetCountry: string
+  targetCountry: string,
+  enableAI?: boolean
+): Promise<void>
+export async function triggerOfferExtraction(
+  optionsOrOfferId: OfferExtractionOptions | number,
+  userId?: number,
+  affiliateLink?: string,
+  targetCountry?: string,
+  enableAI?: boolean
 ): Promise<void> {
-  console.log(`[OfferExtraction] 开始异步提取 Offer #${offerId}`)
+  // 参数归一化
+  let options: OfferExtractionOptions
+  if (typeof optionsOrOfferId === 'object') {
+    options = optionsOrOfferId
+  } else {
+    options = {
+      offerId: optionsOrOfferId,
+      userId: userId!,
+      affiliateLink: affiliateLink!,
+      targetCountry: targetCountry!,
+      enableAI: enableAI || false,
+    }
+  }
+
+  const {
+    offerId,
+    userId: uid,
+    affiliateLink: aLink,
+    targetCountry: tCountry,
+    enableAI: aiEnabled = false,
+    enableReviewAnalysis = true,
+    enableCompetitorAnalysis = true,
+    enableAdExtraction = true,
+  } = options
+
+  console.log(`[OfferExtraction] 开始异步提取 Offer #${offerId}${aiEnabled ? ' (启用AI分析)' : ''}`)
 
   try {
     // 更新状态为 in_progress
-    updateOfferScrapeStatus(offerId, userId, 'in_progress')
+    updateOfferScrapeStatus(offerId, uid, 'in_progress')
 
-    // ========== 步骤1: 加载代理池配置 ==========
-    const proxySettings = getAllProxyUrls(userId)
+    // 🔥 KISS优化：调用统一的核心提取函数
+    const result = await extractOffer({
+      affiliateLink: aLink,
+      targetCountry: tCountry,
+      userId: uid,
+      skipCache: false, // 批量导入允许使用缓存（与旧逻辑一致）
+      batchMode: false, // 非批量模式，允许正常重试
+    })
 
-    if (!proxySettings || proxySettings.length === 0) {
-      throw new Error('未配置代理URL，请先在设置页面配置')
+    if (!result.success) {
+      throw new Error(result.error?.message || '提取失败')
     }
 
-    // 加载代理到代理池
-    const proxyPool = getProxyPool()
-    const proxiesWithDefault = proxySettings.map((p) => ({
-      url: p.url,
-      country: p.country,
-      is_default: false
-    }))
-    await proxyPool.loadProxies(proxiesWithDefault)
-
-    // 🔥 检测是否为Amazon Store页面
-    const isAmazonStoreByUrl = (affiliateLink.includes('/stores/') || affiliateLink.includes('/store/')) &&
-                               affiliateLink.includes('amazon.com')
-
-    // ========== 步骤2: 解析推广链接 ==========
-    let resolvedData
-
-    if (isAmazonStoreByUrl) {
-      console.log(`[OfferExtraction] #${offerId} 检测到Amazon Store页面，跳过URL解析`)
-      resolvedData = {
-        finalUrl: affiliateLink,
-        finalUrlSuffix: '',
-        redirectCount: 0,
-        resolveMethod: 'direct',
-      }
-    } else {
-      resolvedData = await resolveAffiliateLink(affiliateLink, {
-        targetCountry: targetCountry,
-        skipCache: false,
-      })
-    }
-
-    console.log(`[OfferExtraction] #${offerId} URL解析完成: ${resolvedData.finalUrl}`)
-
-    // 🔥 URL解析后，再次检测是否为Amazon Store
-    const isAmazonStoreByFinalUrl = (resolvedData.finalUrl.includes('/stores/') || resolvedData.finalUrl.includes('/store/')) &&
-                                     resolvedData.finalUrl.includes('amazon.com')
-    const isAmazonStore = isAmazonStoreByUrl || isAmazonStoreByFinalUrl
-
-    // ========== 步骤3: 抓取网页数据识别品牌 ==========
-    let brandName: string | null = null
-    let productDescription: string | null = null
-
-    try {
-      // 检测是否为独立站店铺首页
-      const isIndependentStore = !isAmazonStore && (() => {
-        const urlObj = new URL(resolvedData.finalUrl)
-        const pathname = urlObj.pathname
-        const isSingleProductPage =
-          pathname.includes('/products/') ||
-          pathname.includes('/product/') ||
-          pathname.includes('/p/') ||
-          pathname.includes('/dp/') ||
-          pathname.includes('/item/')
-        const isStorePage =
-          pathname === '/' ||
-          pathname.match(/^\/(collections|shop|store|category|catalogue)(\/.+)?$/i) ||
-          pathname.split('/').filter(Boolean).length <= 1
-        return !isSingleProductPage && isStorePage
-      })()
-
-      if (isAmazonStore) {
-        console.log(`[OfferExtraction] #${offerId} 使用浏览器抓取Amazon Store`)
-        const defaultProxy = proxySettings[0]?.url
-        const storeData = await scrapeAmazonStore(resolvedData.finalUrl, defaultProxy)
-        brandName = storeData.brandName || storeData.storeName
-        productDescription = storeData.storeDescription
-      } else if (isIndependentStore) {
-        console.log(`[OfferExtraction] #${offerId} 使用浏览器抓取独立站`)
-        const defaultProxy = proxySettings[0]?.url
-        const independentStoreData = await scrapeIndependentStore(resolvedData.finalUrl, defaultProxy)
-        brandName = independentStoreData.storeName
-        productDescription = independentStoreData.storeDescription
-      } else {
-        console.log(`[OfferExtraction] #${offerId} 抓取单品页面`)
-        const scrapedData = await extractProductInfo(resolvedData.finalUrl, targetCountry)
-        brandName = scrapedData.brand || null
-        productDescription = scrapedData.description || null
-      }
-
-      console.log(`[OfferExtraction] #${offerId} 品牌识别: ${brandName || '未识别'}`)
-    } catch (error: any) {
-      console.error(`[OfferExtraction] #${offerId} 品牌识别失败:`, error.message)
-      // 品牌识别失败不中断流程
-    }
-
-    // ========== 步骤4: 更新Offer记录 ==========
-    const targetLanguage = getLanguageByCountry(targetCountry)
+    console.log(`[OfferExtraction] #${offerId} 提取完成: ${result.data!.finalUrl}`)
 
     // 规范化品牌名称（首字母大写）
-    const normalizedBrandName = brandName ? normalizeBrandName(brandName) : `Offer_${offerId}`
+    const normalizedBrandName = result.data!.brand
+      ? normalizeBrandName(result.data!.brand)
+      : `Offer_${offerId}`
 
-    updateOffer(offerId, userId, {
-      url: resolvedData.finalUrl,
+    // ========== AI分析（可选）==========
+    let aiAnalysisResult = null
+    if (aiEnabled) {
+      try {
+        console.log(`[OfferExtraction] #${offerId} 开始AI分析...`)
+
+        const targetLanguage = getTargetLanguage(tCountry)
+
+        aiAnalysisResult = await executeAIAnalysis({
+          extractResult: result.data!,
+          targetCountry: tCountry,
+          targetLanguage,
+          userId: uid,
+          enableReviewAnalysis,
+          enableCompetitorAnalysis,
+          enableAdExtraction,
+        })
+
+        console.log(`[OfferExtraction] #${offerId} AI分析完成`)
+      } catch (aiError: any) {
+        console.error(`[OfferExtraction] #${offerId} AI分析失败（不影响主流程）:`, aiError.message)
+      }
+    }
+
+    // ========== 更新Offer记录 ==========
+    const updateData: any = {
+      url: result.data!.finalUrl,
       brand: normalizedBrandName,
-      final_url: resolvedData.finalUrl,
-      final_url_suffix: resolvedData.finalUrlSuffix || '',
-      brand_description: productDescription || undefined,
-    })
+      final_url: result.data!.finalUrl,
+      final_url_suffix: result.data!.finalUrlSuffix,
+      brand_description: result.data!.productDescription || undefined,
+    }
+
+    // 如果有AI分析结果，添加到更新数据中
+    if (aiAnalysisResult?.aiAnalysisSuccess && aiAnalysisResult.aiProductInfo) {
+      updateData.brand_description = aiAnalysisResult.aiProductInfo.brandDescription || undefined
+      updateData.unique_selling_points = aiAnalysisResult.aiProductInfo.uniqueSellingPoints || undefined
+      updateData.product_highlights = aiAnalysisResult.aiProductInfo.productHighlights || undefined
+      updateData.target_audience = aiAnalysisResult.aiProductInfo.targetAudience || undefined
+      updateData.category = aiAnalysisResult.aiProductInfo.category || undefined
+    }
+
+    // 保存评论分析结果（如果有）
+    if (aiAnalysisResult?.reviewAnalysisSuccess && aiAnalysisResult.reviewAnalysis) {
+      updateData.review_analysis = JSON.stringify(aiAnalysisResult.reviewAnalysis)
+    }
+
+    // 保存竞品分析结果（如果有）
+    if (aiAnalysisResult?.competitorAnalysisSuccess && aiAnalysisResult.competitorAnalysis) {
+      updateData.competitor_analysis = JSON.stringify(aiAnalysisResult.competitorAnalysis)
+    }
+
+    // 保存广告元素（如果有）
+    if (aiAnalysisResult?.adExtractionSuccess) {
+      updateData.extracted_keywords = JSON.stringify(aiAnalysisResult.extractedKeywords)
+      updateData.extracted_headlines = JSON.stringify(aiAnalysisResult.extractedHeadlines)
+      updateData.extracted_descriptions = JSON.stringify(aiAnalysisResult.extractedDescriptions)
+    }
+
+    updateOffer(offerId, uid, updateData)
 
     console.log(`[OfferExtraction] #${offerId} Offer记录已更新，品牌名: ${normalizedBrandName}`)
 
-    // ========== 步骤5: 触发后续的数据抓取 ==========
+    // ========== 触发后续的数据抓取 ==========
     // 更新状态为 pending，让 scraping 流程继续
-    updateOfferScrapeStatus(offerId, userId, 'pending')
+    updateOfferScrapeStatus(offerId, uid, 'pending')
 
     // 触发详细数据抓取
     triggerOfferScraping(
       offerId,
-      userId,
-      resolvedData.finalUrl,
+      uid,
+      result.data!.finalUrl,
       normalizedBrandName
     )
 
@@ -196,11 +186,11 @@ export async function triggerOfferExtraction(
     console.error(`[OfferExtraction] #${offerId} 提取失败:`, error)
 
     // 更新状态为失败
-    updateOfferScrapeStatus(offerId, userId, 'failed', error.message)
+    updateOfferScrapeStatus(offerId, uid, 'failed', error.message)
 
     // 即使提取失败，也尝试更新品牌名称为可识别的值
     try {
-      updateOffer(offerId, userId, {
+      updateOffer(offerId, uid, {
         brand: `提取失败_${offerId}`,
       })
     } catch (updateError) {

@@ -309,15 +309,11 @@ export async function resolveAffiliateLink(
 
       const redirectChain: string[] = [affiliateLink]
 
-      // 🔥 修复：只追踪导航重定向，不追踪资源请求
-      // 使用 request 事件追踪导航链
-      page.on('request', request => {
-        // 只追踪导航请求（document类型）
-        if (request.isNavigationRequest()) {
-          const url = request.url()
-          if (!redirectChain.includes(url)) {
-            redirectChain.push(url)
-          }
+      // Track all redirects
+      page.on('response', response => {
+        const url = response.url()
+        if (!redirectChain.includes(url)) {
+          redirectChain.push(url)
         }
       })
 
@@ -796,25 +792,6 @@ export async function scrapeAmazonStore(
     const page = await context.newPage()
     await configureStealthPage(page)
 
-    // 🚀 Phase 1.3优化：请求过滤，阻止不必要的资源加载
-    // 🔧 FIX: 放宽过滤条件，保留关键CSS以确保产品正确渲染
-    await page.route('**/*', (route) => {
-      const request = route.request()
-      const resourceType = request.resourceType()
-      const url = request.url()
-
-      // 只阻止大型图片和字体，保留CSS和所有脚本
-      if (
-        (resourceType === 'image' && !url.includes('sprite')) || // 保留sprite图片
-        resourceType === 'font' ||
-        resourceType === 'media'
-      ) {
-        route.abort()
-      } else {
-        route.continue()
-      }
-    })
-
     console.log(`🌐 访问URL: ${url}`)
     await randomDelay(500, 1500)
 
@@ -856,64 +833,16 @@ export async function scrapeAmazonStore(
       throw new Error(`Amazon Store访问失败（${MAX_RETRIES}次重试后）: ${lastError.message}`)
     }
 
-    // 🚀 Phase 2.2优化：减少网络等待时间（15秒 → 8秒）
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {
-      console.warn('⚠️ 网络未完全空闲（8秒超时），继续处理')
+    // Wait for store content to load
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {
+      console.warn('⚠️ 网络未完全空闲，继续处理')
     })
 
-    // Scroll down to trigger lazy loading of products (智能滚动优化 + 增强调试)
+    // Scroll down to trigger lazy loading of products
     console.log('🔄 滚动页面加载更多产品...')
-    const targetProducts = 15  // 目标产品数量
-    const maxScrolls = 5        // 最大滚动次数
-    let scrollCount = 0
-
-    // 🔧 FIX: 等待初始产品加载（增加等待时间确保完全渲染）
-    console.log('⏳ 等待页面渲染...')
-    await randomDelay(2000, 3000) // 从1000-1500ms增加到2000-3000ms
-
-    while (scrollCount < maxScrolls) {
-      // 🔧 FIX: 使用更强大的产品选择器组合
-      const productCount = await page.evaluate(() => {
-        const selectors = [
-          '[data-asin]',
-          '[data-component-type="s-search-result"]',
-          '.product-card',
-          '[class*="ProductCard"]',
-          'div[class*="ImageArea"]',
-          '.stores-widget-item'
-        ]
-
-        const products = new Set()
-        selectors.forEach(selector => {
-          document.querySelectorAll(selector).forEach(el => {
-            const asin = el.getAttribute('data-asin')
-            if (asin) products.add(asin)
-          })
-        })
-
-        console.log(`🔍 检测到${products.size}个产品 (选择器组合)`)
-        return products.size
-      })
-
-      console.log(`📊 当前滚动${scrollCount + 1}次，检测到${productCount}个产品`)
-
-      // 达到目标数量，提前退出
-      if (productCount >= targetProducts) {
-        console.log(`✅ 已加载${productCount}个产品，达到目标数量${targetProducts}，停止滚动`)
-        break
-      }
-
-      // 继续滚动
+    for (let i = 0; i < 5; i++) {
       await page.evaluate(() => window.scrollBy(0, window.innerHeight))
-      await randomDelay(800, 1200)  // 🔧 FIX: 增加延迟，给页面更多时间加载
-      scrollCount++
-    }
-
-    if (scrollCount === maxScrolls) {
-      const finalProductCount = await page.evaluate(() =>
-        document.querySelectorAll('[data-asin], .product-card, div[data-component-type="s-search-result"]').length
-      )
-      console.log(`⚠️ 达到最大滚动次数${maxScrolls}，共加载${finalProductCount}个产品`)
+      await randomDelay(800, 1200)
     }
 
     // Scroll back to top
@@ -924,15 +853,6 @@ export async function scrapeAmazonStore(
     console.log(`✅ 最终URL: ${finalUrl}`)
 
     const html = await page.content()
-
-    // 🔧 DEBUG: 保存HTML用于调试产品选择器问题
-    if (process.env.DEBUG_HTML === 'true') {
-      const fs = await import('fs')
-      const debugPath = `/tmp/amazon-store-debug-${Date.now()}.html`
-      await fs.promises.writeFile(debugPath, html, 'utf-8')
-      console.log(`🐛 DEBUG: HTML已保存到${debugPath}`)
-    }
-
     await context.close()
 
     // Parse HTML with cheerio
@@ -985,78 +905,8 @@ export async function scrapeAmazonStore(
     }
   }
 
-  // 🚀 Phase 2.1优化：优化产品数据提取逻辑
+  // Extract products from store listing
   const products: AmazonStoreData['products'] = []
-
-  // 辅助函数：提取单个产品数据
-  const extractProductData = ($el: any) => {
-    const asin = $el.attr('data-asin') ||
-                 $el.find('[data-asin]').attr('data-asin') ||
-                 $el.find('a[href*="/dp/"]').attr('href')?.match(/\/dp\/([A-Z0-9]+)/)?.[1] ||
-                 null
-
-    // Try multiple name extraction methods
-    const name = $el.find('h2 a span, .s-title-instructions-style span').text().trim() ||
-                 $el.find('[class*="ProductTitle"], [class*="product-title"]').text().trim() ||
-                 $el.find('span[class*="Title"]').text().trim() ||
-                 $el.find('img[alt]').first().attr('alt') ||
-                 ''
-
-    // Extract price (优化：缓存选择器结果)
-    const price = $el.find('.a-price .a-offscreen').first().text().trim() ||
-                  $el.find('[class*="Price"] .a-offscreen').text().trim() ||
-                  $el.find('.a-color-price').text().trim() ||
-                  $el.find('[class*="price"]').first().text().trim() ||
-                  null
-
-    // Extract rating
-    const ratingText = $el.find('.a-icon-star-small span, .a-icon-star span').text().trim() ||
-                       $el.find('[class*="star"]').text().trim()
-    const rating = ratingText ? ratingText.match(/[\d.]+/)?.[0] || null : null
-
-    // Extract review count
-    const reviewCountText = $el.find('[aria-label*="stars"]').attr('aria-label') ||
-                            $el.find('.s-underline-text').text().trim() ||
-                            $el.find('[class*="review"]').text().trim()
-    const reviewCount = reviewCountText ? reviewCountText.match(/[\d,]+/)?.[0]?.replace(/,/g, '') || null : null
-
-    // Extract image
-    const imageUrl = $el.find('img.s-image, .s-product-image-container img').attr('src') ||
-                     $el.find('img[src*="images-amazon"]').first().attr('src') ||
-                     $el.find('img').first().attr('src') ||
-                     null
-
-    // Extract promotion information
-    const promotionText = $el.find('.a-badge-label, .s-coupon-highlight-color, [aria-label*="coupon"]').text().trim() ||
-                          $el.find('[class*="discount"], [class*="deal"], [class*="coupon"]').first().text().trim() ||
-                          $el.find('.a-color-price.a-text-bold').text().trim() ||
-                          null
-    const promotion = promotionText && promotionText.length > 0 && promotionText.length < 100 ? promotionText : null
-
-    // Extract badge information
-    const badgeText = $el.find('[aria-label*="Amazon\'s Choice"], [aria-label*="Best Seller"]').attr('aria-label') ||
-                      $el.find('.a-badge-label:contains("Amazon\'s Choice")').text().trim() ||
-                      $el.find('.a-badge-label:contains("Best Seller")').text().trim() ||
-                      $el.find('.a-badge-label:contains("#1")').text().trim() ||
-                      $el.find('[class*="choice-badge"], [class*="best-seller"]').text().trim() ||
-                      null
-    const badge = badgeText && badgeText.length > 0 && badgeText.length < 100 ? badgeText : null
-
-    // Extract Prime eligibility
-    const isPrime = $el.find('[aria-label*="Prime"], .a-icon-prime, [class*="prime"]').length > 0
-
-    return {
-      name,
-      price,
-      rating,
-      reviewCount,
-      imageUrl,
-      asin,
-      promotion,
-      badge,
-      isPrime,
-    }
-  }
 
   // Try multiple selectors for product cards - Amazon store specific selectors
   const productSelectors = [
@@ -1081,11 +931,74 @@ export async function scrapeAmazonStore(
       if (products.length >= 30) return false // Limit to 30 products
 
       const $el = $(el)
-      const productData = extractProductData($el)
+      const asin = $el.attr('data-asin') ||
+                   $el.find('[data-asin]').attr('data-asin') ||
+                   $el.find('a[href*="/dp/"]').attr('href')?.match(/\/dp\/([A-Z0-9]+)/)?.[1] ||
+                   null
+
+      // Try multiple name extraction methods
+      const name = $el.find('h2 a span, .s-title-instructions-style span').text().trim() ||
+                   $el.find('[class*="ProductTitle"], [class*="product-title"]').text().trim() ||
+                   $el.find('span[class*="Title"]').text().trim() ||
+                   $el.find('img[alt]').first().attr('alt') ||
+                   ''
+
+      // Extract price
+      const price = $el.find('.a-price .a-offscreen').first().text().trim() ||
+                    $el.find('[class*="Price"] .a-offscreen').text().trim() ||
+                    $el.find('.a-color-price').text().trim() ||
+                    $el.find('[class*="price"]').first().text().trim() ||
+                    null
+
+      // Extract rating
+      const ratingText = $el.find('.a-icon-star-small span, .a-icon-star span').text().trim() ||
+                         $el.find('[class*="star"]').text().trim()
+      const rating = ratingText ? ratingText.match(/[\d.]+/)?.[0] || null : null
+
+      // Extract review count
+      const reviewCountText = $el.find('[aria-label*="stars"]').attr('aria-label') ||
+                              $el.find('.s-underline-text').text().trim() ||
+                              $el.find('[class*="review"]').text().trim()
+      const reviewCount = reviewCountText ? reviewCountText.match(/[\d,]+/)?.[0]?.replace(/,/g, '') || null : null
+
+      // Extract image
+      const imageUrl = $el.find('img.s-image, .s-product-image-container img').attr('src') ||
+                       $el.find('img[src*="images-amazon"]').first().attr('src') ||
+                       $el.find('img').first().attr('src') ||
+                       null
+
+      // 🎯 Phase 3: Extract promotion information
+      const promotionText = $el.find('.a-badge-label, .s-coupon-highlight-color, [aria-label*="coupon"]').text().trim() ||
+                            $el.find('[class*="discount"], [class*="deal"], [class*="coupon"]').first().text().trim() ||
+                            $el.find('.a-color-price.a-text-bold').text().trim() ||
+                            null
+      const promotion = promotionText && promotionText.length > 0 && promotionText.length < 100 ? promotionText : null
+
+      // 🎯 Phase 3: Extract badge information
+      const badgeText = $el.find('[aria-label*="Amazon\'s Choice"], [aria-label*="Best Seller"]').attr('aria-label') ||
+                        $el.find('.a-badge-label:contains("Amazon\'s Choice")').text().trim() ||
+                        $el.find('.a-badge-label:contains("Best Seller")').text().trim() ||
+                        $el.find('.a-badge-label:contains("#1")').text().trim() ||
+                        $el.find('[class*="choice-badge"], [class*="best-seller"]').text().trim() ||
+                        null
+      const badge = badgeText && badgeText.length > 0 && badgeText.length < 100 ? badgeText : null
+
+      // 🎯 Phase 3: Extract Prime eligibility
+      const isPrime = $el.find('[aria-label*="Prime"], .a-icon-prime, [class*="prime"]').length > 0
 
       // Add product if we have a name
-      if (productData.name && productData.name.length > 5 && !products.some(p => p.name === productData.name)) {
-        products.push(productData)
+      if (name && name.length > 5 && !products.some(p => p.name === name)) {
+        products.push({
+          name,
+          price,
+          rating,
+          reviewCount,
+          imageUrl,
+          asin,
+          promotion,
+          badge,
+          isPrime,
+        })
       }
     })
   }
@@ -1244,25 +1157,6 @@ export async function scrapeIndependentStore(
     const page = await context.newPage()
     await configureStealthPage(page)
 
-    // 🚀 Phase 1.3优化：请求过滤，阻止不必要的资源加载
-    // 🔧 FIX: 放宽过滤条件，保留关键CSS以确保产品正确渲染
-    await page.route('**/*', (route) => {
-      const request = route.request()
-      const resourceType = request.resourceType()
-      const url = request.url()
-
-      // 只阻止大型图片和字体，保留CSS和所有脚本
-      if (
-        (resourceType === 'image' && !url.includes('sprite')) || // 保留sprite图片
-        resourceType === 'font' ||
-        resourceType === 'media'
-      ) {
-        route.abort()
-      } else {
-        route.continue()
-      }
-    })
-
     console.log(`🌐 访问URL: ${url}`)
     await randomDelay(500, 1500)
 
@@ -1274,67 +1168,16 @@ export async function scrapeIndependentStore(
     if (!response) throw new Error('No response received')
     console.log(`📊 HTTP状态: ${response.status()}`)
 
-    // 🚀 Phase 2.2优化：减少网络等待时间（15秒 → 8秒）
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {
-      console.warn('⚠️ 网络未完全空闲（8秒超时），继续处理')
+    // Wait for content to load
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {
+      console.warn('⚠️ 网络未完全空闲，继续处理')
     })
 
-    // Scroll down to trigger lazy loading of products (智能滚动优化 + 增强调试)
+    // Scroll down to trigger lazy loading of products
     console.log('🔄 滚动页面加载更多产品...')
-    const targetProducts = 15  // 目标产品数量
-    const maxScrolls = 5        // 最大滚动次数
-    let scrollCount = 0
-
-    // 🔧 FIX: 等待初始产品加载
-    await randomDelay(1000, 1500)
-
-    while (scrollCount < maxScrolls) {
-      // 🔧 FIX: 使用更强大的产品选择器组合
-      const productCount = await page.evaluate(() => {
-        const selectors = [
-          '.product-card',
-          '[data-product-id]',
-          '.product-item',
-          'article[data-product]',
-          '[itemtype*="Product"]',
-          '.product',
-          '[class*="product-"]'
-        ]
-
-        const products = new Set()
-        selectors.forEach(selector => {
-          document.querySelectorAll(selector).forEach(el => {
-            // 尝试获取唯一标识
-            const id = el.getAttribute('data-product-id') ||
-                      el.getAttribute('data-id') ||
-                      el.querySelector('a')?.href
-            if (id) products.add(id)
-          })
-        })
-
-        console.log(`🔍 检测到${products.size}个产品 (独立站选择器)`)
-        return products.size
-      })
-
-      console.log(`📊 当前滚动${scrollCount + 1}次，检测到${productCount}个产品`)
-
-      // 达到目标数量，提前退出
-      if (productCount >= targetProducts) {
-        console.log(`✅ 已加载${productCount}个产品，达到目标数量${targetProducts}，停止滚动`)
-        break
-      }
-
-      // 继续滚动
+    for (let i = 0; i < 5; i++) {
       await page.evaluate(() => window.scrollBy(0, window.innerHeight))
-      await randomDelay(800, 1200)  // 🔧 FIX: 增加延迟
-      scrollCount++
-    }
-
-    if (scrollCount === maxScrolls) {
-      const finalProductCount = await page.evaluate(() =>
-        document.querySelectorAll('.product-card, [data-product-id], .product-item, article[data-product]').length
-      )
-      console.log(`⚠️ 达到最大滚动次数${maxScrolls}，共加载${finalProductCount}个产品`)
+      await randomDelay(600, 1000)
     }
 
     // Scroll back to top
@@ -1497,21 +1340,3 @@ export async function scrapeIndependentStore(
     await browser.close()
   }
 }
-
-// ============================================================================
-// Crawlee版本导出（推荐用于生产环境）
-// ============================================================================
-// Crawlee版本特性：
-// - SessionPool自动Session管理和封号检测
-// - AutoscaledPool智能并发控制
-// - 智能选择器（支持多种Amazon Store页面布局）
-// - 颜色变体去重
-// - 品牌名规范化
-// ============================================================================
-export {
-  scrapeAmazonStoreWithCrawlee,
-  scrapeMultipleStoresWithCrawlee,
-  scrapeIndependentStoreWithCrawlee,
-  scrapeAmazonProductWithCrawlee,
-  type AmazonProductData as CrawleeAmazonProductData,
-} from './crawlee-scraper'

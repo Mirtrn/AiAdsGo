@@ -4,16 +4,9 @@
  */
 
 import { NextRequest } from 'next/server';
-import { resolveAffiliateLink, getProxyPool } from '@/lib/url-resolver-enhanced';
-import { getAllProxyUrls } from '@/lib/settings';
-import { extractProductInfo } from '@/lib/scraper';
-import {
-  scrapeAmazonStoreWithCrawlee,
-  scrapeIndependentStoreWithCrawlee,
-  scrapeAmazonProductWithCrawlee,
-} from '@/lib/scraper-stealth';
 import { createError, AppError } from '@/lib/errors';
 import { createSSEStream, sendProgress, sendComplete, sendError } from '@/lib/sse-helper';
+import { extractOffer } from '@/lib/offer-extraction-core';
 
 export const maxDuration = 60; // 最长60秒
 
@@ -32,7 +25,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { affiliate_link, target_country, skipCache = true } = body;
+  const { affiliate_link, target_country, skipCache = true, skipWarmup = false } = body;
 
   // 验证必填参数
   if (!affiliate_link || !target_country) {
@@ -59,298 +52,398 @@ export async function POST(request: NextRequest) {
     try {
       console.log(`🔍 开始自动提取 (SSE): ${affiliate_link} (国家: ${target_country})`);
 
-      // ========== 步骤1: 获取代理IP ==========
-      sendProgress(controller, 'fetching_proxy', 'in_progress', '正在获取代理IP...');
+      // ========== 步骤0-5: 调用核心提取函数（包含预热、代理、URL解析、品牌提取）==========
+      const extractResult = await extractOffer({
+        affiliateLink: affiliate_link,
+        targetCountry: target_country,
+        userId: userIdNum,
+        skipCache,
+        skipWarmup, // SSE版本默认不跳过预热
+        progressCallback: (step, status, message, data) => {
+          // 转发进度到SSE流
+          sendProgress(controller, step, status, message, data);
+        },
+      });
 
-      const proxySettings = getAllProxyUrls(userIdNum);
-
-      if (!proxySettings || proxySettings.length === 0) {
-        sendError(
-          controller,
-          'fetching_proxy',
-          '代理配置未设置，请先在设置页面配置代理URL'
-        );
+      // 检查核心提取是否失败
+      if (!extractResult.success || !extractResult.data) {
+        sendError(controller, 'error', extractResult.error?.message || '提取失败', extractResult.error?.details);
         return;
       }
 
-      // 加载代理到代理池
-      const proxyPool = getProxyPool();
-      const proxiesWithDefault = proxySettings.map((p) => ({
-        url: p.url,
-        country: p.country,
-        is_default: false,
-      }));
-      await proxyPool.loadProxies(proxiesWithDefault);
+      // 提取核心数据
+      const {
+        finalUrl,
+        finalUrlSuffix,
+        brand: brandName,
+        productDescription,
+        targetLanguage,
+        redirectCount,
+        redirectChain,
+        pageTitle,
+        resolveMethod,
+        proxyUsed,
+        productCount,
+        products,
+        storeName,
+        hotInsights,
+        logoUrl,
+        platform,
+        productName: extractedProductName,
+        price: extractedPrice,
+        imageUrls,
+        debug,
+      } = extractResult.data;
 
-      sendProgress(controller, 'fetching_proxy', 'completed', '代理IP获取完成', {
-        proxyUsed: proxiesWithDefault[0]?.url,
-      });
+      console.log(`✅ 核心提取完成: ${brandName || '未识别'}`);
 
-      // 🔥 检测是否为Amazon Store页面
-      const isAmazonStoreByUrl =
-        (affiliate_link.includes('/stores/') || affiliate_link.includes('/store/')) &&
-        affiliate_link.includes('amazon.com');
+      // ========== 步骤6: AI产品分析（SSE特有功能）==========
+      sendProgress(controller, 'processing_data', 'in_progress', '正在进行AI产品分析...');
 
-      // ========== 步骤2: 解析推广链接 ==========
-      sendProgress(controller, 'resolving_link', 'in_progress', '正在解析推广链接...');
-
-      let resolvedData;
-
-      if (isAmazonStoreByUrl) {
-        console.log('🏪 检测到Amazon Store页面，跳过URL解析...');
-        resolvedData = {
-          finalUrl: affiliate_link,
-          finalUrlSuffix: '',
-          redirectCount: 0,
-          redirectChain: [affiliate_link],
-          pageTitle: null,
-          resolveMethod: 'direct',
-          proxyUsed: null,
-        };
-        sendProgress(controller, 'resolving_link', 'completed', '推广链接解析完成（直接使用）', {
-          currentUrl: affiliate_link,
-          redirectCount: 0,
-        });
-      } else {
-        try {
-          resolvedData = await resolveAffiliateLink(affiliate_link, {
-            targetCountry: target_country,
-            skipCache: skipCache,
-          });
-          sendProgress(controller, 'resolving_link', 'completed', '推广链接解析完成', {
-            currentUrl: resolvedData.finalUrl,
-            redirectCount: resolvedData.redirectCount,
-          });
-        } catch (error: any) {
-          console.error('URL解析失败:', error);
-          sendError(
-            controller,
-            'resolving_link',
-            error instanceof AppError ? error.message : '推广链接解析失败，请检查链接是否有效',
-            { originalError: error.message }
-          );
-          return;
-        }
-      }
-
-      // 🔥 检测页面类型
-      const isAmazonStoreByFinalUrl =
-        (resolvedData.finalUrl.includes('/stores/') ||
-          resolvedData.finalUrl.includes('/store/')) &&
-        resolvedData.finalUrl.includes('amazon.com');
-
-      const isAmazonStore = isAmazonStoreByUrl || isAmazonStoreByFinalUrl;
-
-      const isAmazonProductPage =
-        !isAmazonStore &&
-        resolvedData.finalUrl.includes('amazon.com') &&
-        (resolvedData.finalUrl.includes('/dp/') ||
-          resolvedData.finalUrl.includes('/gp/product/'));
-
-      // ========== 步骤3: 访问目标页面 ==========
-      sendProgress(controller, 'accessing_page', 'in_progress', '正在访问目标页面...', {
-        currentUrl: resolvedData.finalUrl,
-      });
-
-      // 模拟访问延迟
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      sendProgress(controller, 'accessing_page', 'completed', '目标页面访问成功');
-
-      // ========== 步骤4: 抓取网页数据识别品牌 ==========
-      let brandName = null;
-      let productDescription = null;
-      let scrapedData = null;
-      let storeData = null;
-      let independentStoreData = null;
-      let amazonProductData = null;
-      let productCount = 0;
+      let aiProductInfo = null;
+      let aiAnalysisSuccess = false;
 
       try {
-        // 🔥 检测是否为独立站店铺首页
-        const isIndependentStore =
-          !isAmazonStore &&
-          !isAmazonProductPage &&
-          (() => {
-            const url = resolvedData.finalUrl.toLowerCase();
-            const urlObj = new URL(resolvedData.finalUrl);
-            const pathname = urlObj.pathname;
+        // 导入AI分析函数
+        const { analyzeProductPage } = await import('@/lib/ai');
 
-            const isSingleProductPage =
-              pathname.includes('/products/') ||
-              pathname.includes('/product/') ||
-              pathname.includes('/p/') ||
-              pathname.includes('/dp/') ||
-              pathname.includes('/item/');
+        // 根据不同页面类型构造text内容
+        let pageData: { title: string; description: string; text: string };
+        let pageType: 'product' | 'store';
 
-            const isStorePage =
-              pathname === '/' ||
-              pathname.match(/^\/(collections|shop|store|category|catalogue)(\/.+)?$/i) ||
-              pathname.split('/').filter(Boolean).length <= 1;
+        if (debug.isAmazonStore && products) {
+          // Amazon Store页面
+          pageType = 'store';
 
-            return !isSingleProductPage && isStorePage;
-          })();
+          const productSummaries = products
+            .slice(0, 15)
+            .map((p: any, i: number) => {
+              const hotMarker = i < 5 ? '🔥 ' : '✅ ';
+              return `${hotMarker}${p.name} - ${p.price || 'N/A'} (Rating: ${p.rating || 'N/A'}, Reviews: ${p.reviews || 0})`;
+            })
+            .join('\n');
 
-        if (isAmazonStore) {
-          sendProgress(
-            controller,
-            'extracting_brand',
-            'in_progress',
-            '正在从Amazon Store提取品牌信息...'
-          );
+          const textContent = [
+            `Store Name: ${storeName || brandName || 'Unknown'}`,
+            `Total Products: ${productCount}`,
+            productDescription ? `Description: ${productDescription}` : '',
+            '\n=== HOT-SELLING PRODUCTS (Top 15) ===',
+            productSummaries,
+          ].join('\n');
 
-          storeData = await scrapeAmazonStoreWithCrawlee(
-            resolvedData.finalUrl,
-            userIdNum,
-            target_country
-          );
-
-          brandName = storeData.brandName || storeData.storeName;
-          productDescription = storeData.storeDescription;
-          productCount = storeData.totalProducts;
-
-          sendProgress(controller, 'extracting_brand', 'completed', '品牌信息提取完成', {
-            brandName: brandName ?? undefined,
-          });
-
-          sendProgress(
-            controller,
-            'scraping_products',
-            'completed',
-            `成功抓取 ${productCount} 个产品`,
-            {
-              productCount,
-            }
-          );
-
-          console.log(`✅ Amazon Store识别成功: ${brandName}, 产品数: ${productCount}`);
-        } else if (isAmazonProductPage) {
-          sendProgress(
-            controller,
-            'extracting_brand',
-            'in_progress',
-            '正在从Amazon产品页提取品牌信息...'
-          );
-
-          amazonProductData = await scrapeAmazonProductWithCrawlee(
-            resolvedData.finalUrl,
-            userIdNum,
-            target_country
-          );
-
-          brandName = amazonProductData.brandName;
-          productDescription = amazonProductData.productDescription;
-
-          scrapedData = {
-            productName: amazonProductData.productName,
-            brand: amazonProductData.brandName,
-            description: amazonProductData.productDescription,
-            price: amazonProductData.productPrice,
-            imageUrls: amazonProductData.imageUrls,
+          pageData = {
+            title: storeName || brandName || 'Unknown Store',
+            description: productDescription || '',
+            text: textContent,
           };
+        } else if (debug.isAmazonProductPage) {
+          // Amazon产品页面
+          pageType = 'product';
 
-          sendProgress(controller, 'extracting_brand', 'completed', '品牌信息提取完成', {
-            brandName: brandName ?? undefined,
-          });
+          const textContent = [
+            `Product: ${extractedProductName || 'Unknown'}`,
+            `Brand: ${brandName || 'Unknown'}`,
+            `Price: ${extractedPrice || 'N/A'}`,
+            productDescription ? `\nDescription:\n${productDescription}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n');
 
-          console.log(
-            `✅ Amazon单品识别成功: ${brandName || 'Unknown'}, 产品: ${amazonProductData.productName?.slice(0, 50)}...`
-          );
-        } else if (isIndependentStore) {
-          sendProgress(
-            controller,
-            'extracting_brand',
-            'in_progress',
-            '正在从独立站提取品牌信息...'
-          );
+          pageData = {
+            title: extractedProductName || brandName || 'Unknown Product',
+            description: productDescription || '',
+            text: textContent,
+          };
+        } else if (debug.isIndependentStore && products) {
+          // 独立站店铺页面
+          pageType = 'store';
 
-          sendProgress(
-            controller,
-            'scraping_products',
-            'in_progress',
-            '正在抓取独立站产品数据...'
-          );
+          const productSummaries = products
+            .slice(0, 15)
+            .map((p: any, i: number) => `${i + 1}. ${p.name} - ${p.price || 'N/A'}`)
+            .join('\n');
 
-          independentStoreData = await scrapeIndependentStoreWithCrawlee(
-            resolvedData.finalUrl,
-            userIdNum,
-            target_country
-          );
+          const textContent = [
+            `Store Name: ${storeName}`,
+            `Platform: ${platform || 'Unknown'}`,
+            `Total Products: ${productCount}`,
+            productDescription ? `Description: ${productDescription}` : '',
+            '\n=== PRODUCTS ===',
+            productSummaries,
+          ].join('\n');
 
-          brandName = independentStoreData.storeName;
-          productDescription = independentStoreData.storeDescription;
-          productCount = independentStoreData.totalProducts;
-
-          sendProgress(controller, 'extracting_brand', 'completed', '品牌信息提取完成', {
-            brandName: brandName ?? undefined,
-          });
-
-          sendProgress(
-            controller,
-            'scraping_products',
-            'completed',
-            `成功抓取 ${productCount} 个产品`,
-            {
-              productCount,
-            }
-          );
-
-          console.log(
-            `✅ 独立站识别成功: ${brandName}, 产品数: ${productCount}, 平台: ${independentStoreData.platform}`
-          );
+          pageData = {
+            title: storeName || brandName || 'Unknown Store',
+            description: productDescription || '',
+            text: textContent,
+          };
         } else {
-          sendProgress(
-            controller,
-            'extracting_brand',
-            'in_progress',
-            '正在提取产品品牌信息...'
-          );
+          // 通用产品页面（兜底）
+          pageType = 'product';
 
-          scrapedData = await extractProductInfo(resolvedData.finalUrl, target_country);
-
-          if (scrapedData.brand) {
-            brandName = scrapedData.brand;
-          }
-
-          if (scrapedData.description) {
-            productDescription = scrapedData.description;
-          }
-
-          sendProgress(controller, 'extracting_brand', 'completed', '品牌信息提取完成', {
-            brandName: brandName ?? undefined,
-          });
-
-          console.log(`✅ 品牌识别成功: ${brandName}`);
+          pageData = {
+            title: extractedProductName || brandName || 'Unknown Product',
+            description: productDescription || '',
+            text: [
+              extractedProductName ? `Product: ${extractedProductName}` : '',
+              brandName ? `Brand: ${brandName}` : '',
+              extractedPrice ? `Price: ${extractedPrice}` : '',
+              productDescription ? `\nDescription:\n${productDescription}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          };
         }
-      } catch (error: any) {
-        console.error('品牌识别失败:', error);
-        sendProgress(
-          controller,
-          'extracting_brand',
-          'completed',
-          '品牌识别失败，您可以手动填写',
+
+        // 调用AI分析
+        console.log(`🤖 开始AI产品分析 (页面类型: ${pageType})...`);
+        aiProductInfo = await analyzeProductPage(
           {
-            errorMessage: error.message,
-          }
+            url: finalUrl,
+            brand: brandName || 'Unknown',
+            title: pageData.title,
+            description: pageData.description,
+            text: pageData.text,
+            targetCountry: target_country,
+            pageType,
+          },
+          userIdNum
         );
+
+        aiAnalysisSuccess = true;
+        console.log('✅ AI产品分析完成');
+      } catch (aiError: any) {
+        console.error('⚠️ AI产品分析失败（不影响流程）:', aiError.message);
       }
 
-      // ========== 步骤5: 处理数据 ==========
-      sendProgress(controller, 'processing_data', 'in_progress', '正在处理提取的数据...');
+      sendProgress(
+        controller,
+        'processing_data',
+        'completed',
+        aiAnalysisSuccess ? 'AI产品分析完成' : '数据处理完成（AI分析失败）'
+      );
 
-      const targetLanguage = getLanguageByCountry(target_country);
+      // ========== 步骤6.5: P0评论深度分析（仅Amazon产品页）==========
+      let reviewAnalysis = null;
+      let reviewAnalysisSuccess = false;
 
-      // 模拟处理延迟
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (debug.isAmazonProductPage && aiAnalysisSuccess) {
+        try {
+          sendProgress(controller, 'processing_data', 'in_progress', '正在抓取用户评论进行AI分析...');
+          console.log('📝 开始P0评论分析...');
 
-      sendProgress(controller, 'processing_data', 'completed', '数据处理完成');
+          const { scrapeAmazonReviews, analyzeReviewsWithAI } = await import('@/lib/review-analyzer');
+          const { chromium } = await import('playwright');
 
-      // ========== 步骤6: 发送完成事件 ==========
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            userAgent:
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+          });
+
+          const reviewPage = await context.newPage();
+
+          try {
+            await reviewPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            const reviews = await scrapeAmazonReviews(reviewPage, 50);
+
+            if (reviews.length > 0) {
+              console.log(`✅ 抓取到${reviews.length}条评论，开始AI分析...`);
+
+              reviewAnalysis = await analyzeReviewsWithAI(
+                reviews,
+                brandName || 'Unknown',
+                target_country,
+                userIdNum
+              );
+
+              reviewAnalysisSuccess = true;
+              console.log('✅ P0评论分析完成');
+            } else {
+              console.log('⚠️ 未抓取到评论，跳过AI分析');
+            }
+          } finally {
+            await reviewPage.close();
+            await browser.close();
+          }
+        } catch (reviewError: any) {
+          console.warn('⚠️ P0评论分析失败（不影响主流程）:', reviewError.message);
+        }
+      }
+
+      // ========== 步骤6.6: P0竞品对比分析（仅Amazon产品页）==========
+      let competitorAnalysis = null;
+      let competitorAnalysisSuccess = false;
+
+      if (debug.isAmazonProductPage && aiAnalysisSuccess) {
+        try {
+          sendProgress(controller, 'processing_data', 'in_progress', '正在抓取竞品进行对比分析...');
+          console.log('🏆 开始P0竞品对比分析...');
+
+          const { scrapeAmazonCompetitors, analyzeCompetitorsWithAI } = await import(
+            '@/lib/competitor-analyzer'
+          );
+          const { chromium } = await import('playwright');
+
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({
+            userAgent:
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+          });
+
+          const competitorPage = await context.newPage();
+
+          try {
+            await competitorPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            const competitors = await scrapeAmazonCompetitors(competitorPage, 10);
+
+            if (competitors.length > 0) {
+              console.log(`✅ 抓取到${competitors.length}个竞品，开始AI对比分析...`);
+
+              const priceStr = extractedPrice;
+              const priceNum = priceStr ? parseFloat(priceStr.replace(/[^0-9.]/g, '')) : null;
+
+              const ourProduct = {
+                name: brandName || 'Unknown',
+                price: priceNum,
+                rating: null,
+                reviewCount: null,
+                features: aiProductInfo?.productHighlights
+                  ? aiProductInfo.productHighlights.split('\n').filter((f: string) => f.trim())
+                  : [],
+              };
+
+              competitorAnalysis = await analyzeCompetitorsWithAI(
+                ourProduct,
+                competitors,
+                target_country,
+                userIdNum
+              );
+
+              competitorAnalysisSuccess = true;
+              console.log('✅ P0竞品对比分析完成');
+            } else {
+              console.log('⚠️ 未抓取到竞品，跳过AI对比分析');
+            }
+          } finally {
+            await competitorPage.close();
+            await browser.close();
+          }
+        } catch (competitorError: any) {
+          console.warn('⚠️ P0竞品对比分析失败（不影响主流程）:', competitorError.message);
+        }
+      }
+
+      // ========== 步骤6.7: 广告元素提取（keywords, headlines, descriptions）==========
+      let extractedKeywords: any[] = [];
+      let extractedHeadlines: any[] = [];
+      let extractedDescriptions: any[] = [];
+      let extractionMetadata: any = null;
+      let adExtractionSuccess = false;
+
+      if (aiAnalysisSuccess && aiProductInfo) {
+        try {
+          sendProgress(controller, 'processing_data', 'in_progress', '正在提取广告元素...');
+          console.log('📝 开始广告元素提取...');
+
+          const { extractAdElements } = await import('@/lib/ad-elements-extractor');
+
+          if (debug.isAmazonStore && products) {
+            // 店铺页面：使用热销产品数据
+            const extractionResult = await extractAdElements(
+              {
+                pageType: 'store',
+                storeProducts: products.slice(0, 5).map((p: any) => ({
+                  name: p.name,
+                  price: null,
+                  rating: p.rating,
+                  reviewCount: p.reviews,
+                  imageUrl: null,
+                  asin: null,
+                  hotScore: p.hotScore,
+                })),
+              },
+              brandName || 'Unknown',
+              target_country,
+              targetLanguage,
+              userIdNum
+            );
+
+            extractedKeywords = extractionResult.keywords;
+            extractedHeadlines = extractionResult.headlines;
+            extractedDescriptions = extractionResult.descriptions;
+            extractionMetadata = extractionResult.sources;
+
+            console.log(
+              `✅ 店铺广告元素提取完成: ${extractedKeywords.length}个关键词, ${extractedHeadlines.length}个标题`
+            );
+          } else {
+            // 单品页面：使用AI分析结果
+            const extractionResult = await extractAdElements(
+              {
+                pageType: 'product',
+                product: {
+                  productName: extractedProductName || brandName || 'Unknown',
+                  brandName: brandName || 'Unknown',
+                  features: aiProductInfo.productHighlights
+                    ? aiProductInfo.productHighlights.split('\n').filter((f: string) => f.trim())
+                    : [],
+                } as any,
+              },
+              brandName || 'Unknown',
+              target_country,
+              targetLanguage,
+              userIdNum
+            );
+
+            extractedKeywords = extractionResult.keywords;
+            extractedHeadlines = extractionResult.headlines;
+            extractedDescriptions = extractionResult.descriptions;
+            extractionMetadata = extractionResult.sources;
+
+            console.log(
+              `✅ 单品广告元素提取完成: ${extractedKeywords.length}个关键词, ${extractedHeadlines.length}个标题`
+            );
+          }
+
+          adExtractionSuccess = true;
+        } catch (adError: any) {
+          console.warn('⚠️ 广告元素提取失败（不影响主流程）:', adError.message);
+        }
+      }
+
+      // ========== 步骤7: 发送完成事件（包含完整分析结果）==========
       sendComplete(controller, {
         success: true,
-        finalUrl: resolvedData.finalUrl,
+        finalUrl,
+        finalUrlSuffix: finalUrlSuffix || '',
         brand: brandName || '未识别',
+        productDescription: productDescription || null,
+        targetLanguage,
+        redirectCount,
+        redirectChain,
+        pageTitle,
+        resolveMethod: resolveMethod || 'sse-stream',
         productCount,
+        // AI产品分析结果
+        brandDescription: aiProductInfo?.brandDescription || null,
+        uniqueSellingPoints: aiProductInfo?.uniqueSellingPoints || null,
+        productHighlights: aiProductInfo?.productHighlights || null,
+        targetAudience: aiProductInfo?.targetAudience || null,
+        category: aiProductInfo?.category || null,
+        aiAnalysisSuccess,
+        // P0评论深度分析结果
+        reviewAnalysis: reviewAnalysisSuccess ? reviewAnalysis : null,
+        reviewAnalysisSuccess,
+        // P0竞品对比分析结果
+        competitorAnalysis: competitorAnalysisSuccess ? competitorAnalysis : null,
+        competitorAnalysisSuccess,
+        // 广告元素提取结果
+        extractedKeywords: adExtractionSuccess ? extractedKeywords : [],
+        extractedHeadlines: adExtractionSuccess ? extractedHeadlines : [],
+        extractedDescriptions: adExtractionSuccess ? extractedDescriptions : [],
+        extractionMetadata: adExtractionSuccess ? extractionMetadata : null,
+        adExtractionSuccess,
       });
 
       console.log('✅ SSE提取流程完成');
@@ -375,36 +468,4 @@ export async function POST(request: NextRequest) {
       Connection: 'keep-alive',
     },
   });
-}
-
-/**
- * 根据国家代码确定语言
- */
-function getLanguageByCountry(countryCode: string): string {
-  const languageMap: Record<string, string> = {
-    US: 'English',
-    GB: 'English',
-    CA: 'English',
-    AU: 'English',
-    DE: 'German',
-    FR: 'French',
-    ES: 'Spanish',
-    IT: 'Italian',
-    NL: 'Dutch',
-    SE: 'Swedish',
-    NO: 'Norwegian',
-    DK: 'Danish',
-    FI: 'Finnish',
-    PL: 'Polish',
-    JP: 'Japanese',
-    CN: 'Chinese',
-    KR: 'Korean',
-    IN: 'English',
-    TH: 'Thai',
-    VN: 'Vietnamese',
-    MX: 'Spanish',
-    BR: 'Portuguese',
-  };
-
-  return languageMap[countryCode] || 'English';
 }
