@@ -27,7 +27,17 @@ export async function calculateLaunchScore(
   offer: Offer,
   creative: AdCreative,
   userId: number
-): Promise<ScoreAnalysis> {
+): Promise<{
+  totalScore: number
+  analysis: {
+    keywordsQuality: { score: number; issues?: string[]; suggestions?: string[] }
+    marketFit: { score: number; issues?: string[]; suggestions?: string[] }
+    landingPageQuality: { score: number; issues?: string[]; suggestions?: string[] }
+    budgetRationality: { score: number; issues?: string[]; suggestions?: string[] }
+    contentCreativeQuality: { score: number; issues?: string[]; suggestions?: string[] }
+  }
+  recommendations: string[]
+}> {
   try {
     // 🎯 获取创意中的关键词和否定关键词数据
     const creativeKeywords = creative.keywords || []
@@ -189,12 +199,50 @@ ${keywordsWithVolume.length > 0 ?
       throw new Error('AI返回格式错误，未找到JSON')
     }
 
-    const analysis = JSON.parse(jsonMatch[0]) as ScoreAnalysis
+    const rawAnalysis = JSON.parse(jsonMatch[0]) as ScoreAnalysis
 
     // 验证评分范围
-    validateScores(analysis)
+    validateScores(rawAnalysis)
 
-    return analysis
+    // 🎯 转换为route.ts期望的格式
+    const totalScore =
+      rawAnalysis.keywordAnalysis.score +
+      rawAnalysis.marketFitAnalysis.score +
+      rawAnalysis.landingPageAnalysis.score +
+      rawAnalysis.budgetAnalysis.score +
+      rawAnalysis.contentAnalysis.score
+
+    return {
+      totalScore,
+      analysis: {
+        keywordsQuality: {
+          score: rawAnalysis.keywordAnalysis.score,
+          issues: rawAnalysis.keywordAnalysis.issues,
+          suggestions: rawAnalysis.keywordAnalysis.suggestions
+        },
+        marketFit: {
+          score: rawAnalysis.marketFitAnalysis.score,
+          issues: rawAnalysis.marketFitAnalysis.issues,
+          suggestions: rawAnalysis.marketFitAnalysis.suggestions
+        },
+        landingPageQuality: {
+          score: rawAnalysis.landingPageAnalysis.score,
+          issues: rawAnalysis.landingPageAnalysis.issues,
+          suggestions: rawAnalysis.landingPageAnalysis.suggestions
+        },
+        budgetRationality: {
+          score: rawAnalysis.budgetAnalysis.score,
+          issues: rawAnalysis.budgetAnalysis.issues,
+          suggestions: rawAnalysis.budgetAnalysis.suggestions
+        },
+        contentCreativeQuality: {
+          score: rawAnalysis.contentAnalysis.score,
+          issues: rawAnalysis.contentAnalysis.issues,
+          suggestions: rawAnalysis.contentAnalysis.suggestions
+        }
+      },
+      recommendations: rawAnalysis.overallRecommendations
+    }
   } catch (error: any) {
     console.error('计算Launch Score失败:', error)
     throw new Error(`计算Launch Score失败: ${error.message}`)

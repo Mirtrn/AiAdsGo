@@ -96,19 +96,19 @@ export interface PlaywrightResolvedUrl {
 /**
  * 从连接池获取浏览器上下文（复用实例，减少启动时间）
  */
-async function getBrowserFromPool(proxyUrl?: string): Promise<{ browser: Browser; context: BrowserContext; fromPool: boolean }> {
+async function getBrowserFromPool(proxyUrl?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string; fromPool: boolean }> {
   const pool = getPlaywrightPool()
-  const { browser, context } = await pool.acquire(proxyUrl)
+  const { browser, context, instanceId } = await pool.acquire(proxyUrl)
 
-  return { browser, context, fromPool: true }
+  return { browser, context, instanceId, fromPool: true }
 }
 
 /**
  * 释放浏览器回连接池
  */
-function releaseBrowserToPool(proxyUrl?: string): void {
+function releaseBrowserToPool(instanceId: string): void {
   const pool = getPlaywrightPool()
-  pool.release(proxyUrl)
+  pool.release(instanceId)
 }
 
 /**
@@ -126,12 +126,15 @@ export async function resolveAffiliateLinkWithPlaywright(
   waitTime = 5000
 ): Promise<PlaywrightResolvedUrl> {
   let page: Page | null = null
+  let instanceId: string | null = null
   let fromPool = false
 
   try {
     // 从连接池获取浏览器（复用实例，减少启动时间50%）
-    const { browser, context, fromPool: pooled } = await getBrowserFromPool(proxyUrl)
-    fromPool = pooled
+    const result = await getBrowserFromPool(proxyUrl)
+    const { context } = result
+    instanceId = result.instanceId
+    fromPool = result.fromPool
 
     // 创建页面
     page = await context.newPage()
@@ -222,8 +225,8 @@ export async function resolveAffiliateLinkWithPlaywright(
     if (page) await page.close().catch(() => {})
 
     // 释放浏览器回连接池（而不是关闭）
-    if (fromPool) {
-      releaseBrowserToPool(proxyUrl)
+    if (fromPool && instanceId) {
+      releaseBrowserToPool(instanceId)
     }
   }
 }
@@ -242,11 +245,14 @@ export async function verifyBrandInFinalUrl(
   proxyUrl?: string
 ): Promise<{ found: boolean; score: number; matches: string[] }> {
   let page: Page | null = null
+  let instanceId: string | null = null
   let fromPool = false
 
   try {
-    const { browser, context, fromPool: pooled } = await getBrowserFromPool(proxyUrl)
-    fromPool = pooled
+    const result = await getBrowserFromPool(proxyUrl)
+    const { context } = result
+    instanceId = result.instanceId
+    fromPool = result.fromPool
     page = await context.newPage()
 
     await page.goto(finalUrl, {
@@ -293,8 +299,8 @@ export async function verifyBrandInFinalUrl(
     return { found: false, score: 0, matches: [] }
   } finally {
     if (page) await page.close().catch(() => {})
-    if (fromPool) {
-      releaseBrowserToPool(proxyUrl)
+    if (fromPool && instanceId) {
+      releaseBrowserToPool(instanceId)
     }
   }
 }
@@ -312,11 +318,14 @@ export async function captureScreenshot(
   proxyUrl?: string
 ): Promise<void> {
   let page: Page | null = null
+  let instanceId: string | null = null
   let fromPool = false
 
   try {
-    const { browser, context, fromPool: pooled } = await getBrowserFromPool(proxyUrl)
-    fromPool = pooled
+    const result = await getBrowserFromPool(proxyUrl)
+    const { context } = result
+    instanceId = result.instanceId
+    fromPool = result.fromPool
     page = await context.newPage()
 
     await page.goto(finalUrl, {
@@ -335,8 +344,8 @@ export async function captureScreenshot(
     throw new Error(`截图失败: ${error.message}`)
   } finally {
     if (page) await page.close().catch(() => {})
-    if (fromPool) {
-      releaseBrowserToPool(proxyUrl)
+    if (fromPool && instanceId) {
+      releaseBrowserToPool(instanceId)
     }
   }
 }

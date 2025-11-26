@@ -28,6 +28,23 @@ export interface Offer {
   // 需求28：产品价格和佣金比例
   product_price: string | null
   commission_payout: string | null
+  // 增强数据字段（JSON格式存储）
+  pricing: string | null
+  reviews: string | null
+  promotions: string | null
+  competitive_edges: string | null
+  // P0优化: 分析结果字段
+  review_analysis: string | null
+  competitor_analysis: string | null
+  visual_analysis: string | null
+  // 需求34: 广告元素提取结果字段
+  extracted_keywords: string | null
+  extracted_headlines: string | null
+  extracted_descriptions: string | null
+  extraction_metadata: string | null
+  extracted_at: string | null
+  // P0优化: 原始爬虫数据（包含discount, salesRank, badge等所有字段）
+  scraped_data: string | null
   // P1-11: 关联的Google Ads账号信息
   linked_accounts?: Array<{
     account_id: number
@@ -507,6 +524,8 @@ export function updateOfferScrapeStatus(
     extracted_descriptions?: string
     extraction_metadata?: string
     extracted_at?: string
+    // 🎯 P0优化: 原始爬虫数据（JSON格式存储所有scraped字段）
+    scraped_data?: string
   }
 ): void {
   const db = getSQLiteDatabase()
@@ -535,6 +554,7 @@ export function updateOfferScrapeStatus(
           extracted_descriptions = COALESCE(?, extracted_descriptions),
           extraction_metadata = COALESCE(?, extraction_metadata),
           extracted_at = COALESCE(?, extracted_at),
+          scraped_data = COALESCE(?, scraped_data),
           updated_at = datetime('now')
       WHERE id = ? AND user_id = ?
     `).run(
@@ -558,6 +578,7 @@ export function updateOfferScrapeStatus(
       scrapedData.extracted_descriptions || null,
       scrapedData.extraction_metadata || null,
       scrapedData.extracted_at || null,
+      scrapedData.scraped_data || null,
       id,
       userId
     )

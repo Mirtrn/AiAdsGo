@@ -3,11 +3,12 @@
  *
  * 智能路由逻辑：
  * 1. 优先使用 Vertex AI（如果用户配置了）
- * 2. 降级到 Gemini 直接 API（使用代理）
+ * 2. 降级到 Gemini 直接 API（不使用代理，直连）
  *
  * 重要：只使用用户级配置，不存在全局AI配置
  * - 每个用户必须配置自己的 Vertex AI 或 Gemini API
  * - 如果用户没有配置，则报错
+ * - AI API调用不使用代理（代理仅用于网页爬取）
  */
 
 import { getUserOnlySetting } from './settings'
@@ -36,14 +37,22 @@ function isVertexAIConfigured(userId: number): boolean {
     const gcpProjectId = getUserOnlySetting('ai', 'gcp_project_id', userId)
     const gcpServiceAccountJson = getUserOnlySetting('ai', 'gcp_service_account_json', userId)
 
+    // 调试日志
+    console.log(`🔍 Vertex AI配置检查 (用户ID: ${userId}):`)
+    console.log(`   use_vertex_ai: ${useVertexAI?.value} (类型: ${typeof useVertexAI?.value})`)
+    console.log(`   gcp_project_id: ${gcpProjectId?.value ? '已配置' : '未配置'}`)
+    console.log(`   gcp_service_account_json: ${gcpServiceAccountJson?.value ? '已配置' : '未配置'}`)
+
     // 必须明确启用Vertex AI，且配置了项目ID和Service Account
-    return (
+    const isConfigured = (
       useVertexAI?.value === 'true' &&
       !!gcpProjectId?.value &&
       !!gcpServiceAccountJson?.value
     )
-  } catch (error) {
-    console.log('⚠️ 检查Vertex AI配置失败')
+    console.log(`   → Vertex AI已配置: ${isConfigured}`)
+    return isConfigured
+  } catch (error: any) {
+    console.log(`⚠️ 检查Vertex AI配置失败: ${error.message}`)
     return false
   }
 }
@@ -125,7 +134,7 @@ export async function generateContent(
     model = 'gemini-2.5-pro',
     prompt,
     temperature = 0.7,
-    maxOutputTokens = 2048,
+    maxOutputTokens = 8192,
   } = params
 
   // 检查用户是否配置了任何AI
@@ -180,7 +189,7 @@ export async function generateContent(
 }
 
 /**
- * 调用Gemini直接API（使用代理，只使用用户级配置）
+ * 调用Gemini直接API（直连，不使用代理，只使用用户级配置）
  * @param userId - 用户ID（必需）
  */
 async function callDirectAPI(

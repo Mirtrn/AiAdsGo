@@ -369,7 +369,20 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
     'ECONNREFUSED',
     'ENETUNREACH',
     'ERR_NAME_NOT_RESOLVED',
+    'ERR_EMPTY_RESPONSE',     // 服务器无响应（可能是代理IP被封）
+    'ERR_CONNECTION_CLOSED',  // 连接被关闭
+    'ERR_PROXY_CONNECTION_FAILED', // 代理连接失败
+    'net::ERR_EMPTY_RESPONSE', // Playwright格式的空响应错误
   ],
+}
+
+/**
+ * 批量模式重试配置（快速失败策略）
+ */
+export const BATCH_MODE_RETRY_CONFIG: Partial<RetryConfig> = {
+  maxRetries: 1, // 减少重试次数
+  baseDelay: 1000, // 1秒
+  maxDelay: 5000, // 5秒
 }
 
 /**
@@ -443,7 +456,7 @@ async function resolveWithPlaywright(
 
 export interface ResolveOptions {
   targetCountry: string
-  skipCache?: boolean
+  skipCache?: boolean // 默认为true，禁用缓存以确保获取最新数据
   retryConfig?: Partial<RetryConfig>
 }
 
@@ -455,15 +468,18 @@ export async function resolveAffiliateLink(
   affiliateLink: string,
   options: ResolveOptions
 ): Promise<ResolvedUrlData> {
-  const { targetCountry, skipCache = false, retryConfig: customRetryConfig } = options
+  const { targetCountry, skipCache = true, retryConfig: customRetryConfig } = options // 默认禁用缓存
   const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...customRetryConfig }
 
-  // ========== 步骤1: 检查Redis缓存 ==========
+  // ========== 步骤1: 检查Redis缓存（默认禁用，确保获取最新追踪参数） ==========
   if (!skipCache) {
     const cached = await getCachedRedirect(affiliateLink, targetCountry)
     if (cached) {
+      console.log(`⚠️ 使用缓存数据（注意：追踪参数可能已过期）`)
       return cached
     }
+  } else {
+    console.log(`🔄 跳过缓存，直接解析URL（确保获取最新追踪参数）`)
   }
 
   // ========== 步骤2: 获取代理池 ==========
@@ -559,8 +575,9 @@ export async function resolveAffiliateLink(
       // 记录代理成功
       proxyPool.recordSuccess(proxy.url, responseTime)
 
-      // ========== 步骤5: 保存到缓存 ==========
-      await setCachedRedirect(affiliateLink, targetCountry, result)
+      // ========== 步骤5: 不再保存到缓存（确保每次获取最新追踪参数） ==========
+      // 注释掉缓存保存逻辑
+      // await setCachedRedirect(affiliateLink, targetCountry, result)
 
       console.log(`✅ 解析成功: ${result.finalUrl} (${responseTime}ms)`)
       return result

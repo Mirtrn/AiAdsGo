@@ -58,6 +58,9 @@ export async function analyzeProductPage(
       DE: { name: 'Deutsch', examples: 'Sicherheitskameras, Smart Home, Elektronik' },
       FR: { name: 'Français', examples: 'Caméras de sécurité, Maison intelligente, Électronique' },
       ES: { name: 'Español', examples: 'Cámaras de seguridad, Hogar inteligente, Electrónica' },
+      IT: { name: 'Italiano', examples: 'Telecamere di sicurezza, Casa intelligente, Elettronica' },
+      SE: { name: 'Svenska', examples: 'Säkerhetskameror, Smart hem, Elektronik' },
+      CH: { name: 'Deutsch', examples: 'Sicherheitskameras, Smart Home, Elektronik' },
     }
 
     const lang = languageConfig[targetCountry] || languageConfig.US

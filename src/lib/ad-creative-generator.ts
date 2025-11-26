@@ -138,15 +138,110 @@ AUDIENCE: ${offer.target_audience || 'General'}
 COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English'}
 `
 
-  // 可选的增强数据（仅添加关键信息，不完整JSON）
+  // 🔥 P0优化：增强数据 - 添加真实折扣、促销、排名、徽章等爬虫抓取的数据
   const extras: string[] = []
+
+  // 价格信息（优先使用爬虫数据的原始字段）
+  let currentPrice = null
+  let originalPrice = null
+  let discount = null
+
   if (offer.pricing) {
-    try { extras.push(`PRICE: ${JSON.parse(offer.pricing).current || JSON.parse(offer.pricing).price || 'See site'}`) } catch {}
+    try {
+      const pricing = JSON.parse(offer.pricing)
+      currentPrice = pricing.current || pricing.price
+      originalPrice = pricing.original
+      discount = pricing.discount
+    } catch {}
   }
+
+  if (currentPrice) {
+    extras.push(`PRICE: ${currentPrice}`)
+  }
+  if (originalPrice && discount) {
+    extras.push(`ORIGINAL: ${originalPrice} | DISCOUNT: ${discount}`)
+  }
+
+  // 促销信息（优先使用爬虫数据）
+  let promotion = null
   if (offer.promotions) {
-    try { extras.push(`PROMO: ${JSON.parse(offer.promotions).current || 'Special offer'}`) } catch {}
+    try {
+      const promos = JSON.parse(offer.promotions)
+      promotion = promos.current
+    } catch {}
   }
-  if (extras.length) prompt += extras.join(' | ') + '\n'
+  if (promotion) {
+    extras.push(`PROMOTION: ${promotion}`)
+  }
+
+  // 🔥 P0-2: 销售排名和徽章（社会证明）
+  let salesRank = null
+  let badge = null
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+      salesRank = scrapedData.salesRank
+      badge = scrapedData.badge
+    } catch {}
+  }
+  if (salesRank) {
+    // 提取排名数字，例如 "#1,234 in Electronics" → "#1,234"
+    const rankMatch = salesRank.match(/#[\d,]+/)
+    if (rankMatch) {
+      extras.push(`SALES RANK: ${rankMatch[0]}`)
+    }
+  }
+  if (badge) {
+    extras.push(`BADGE: ${badge}`)
+  }
+
+  // 🔥 P0-3: Prime资格和库存状态
+  let primeEligible = false
+  let availability = null
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+      primeEligible = scrapedData.primeEligible || scrapedData.isPrime || false
+      availability = scrapedData.availability
+    } catch {}
+  }
+  if (primeEligible) {
+    extras.push(`PRIME: Yes`)
+  }
+  if (availability) {
+    extras.push(`STOCK: ${availability}`)
+  }
+
+  // 🔥 P1-1: 用户评论洞察
+  let reviewHighlights: string[] = []
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+      reviewHighlights = scrapedData.reviewHighlights || []
+    } catch {}
+  }
+  if (reviewHighlights.length > 0) {
+    extras.push(`REVIEW INSIGHTS: ${reviewHighlights.slice(0, 5).join(', ')}`)
+  }
+
+  // 🔥 P1-2: 技术规格（关键参数）
+  let technicalDetails: Record<string, string> = {}
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+      technicalDetails = scrapedData.technicalDetails || {}
+    } catch {}
+  }
+  if (Object.keys(technicalDetails).length > 0) {
+    // 提取前3个最重要的技术参数
+    const topSpecs = Object.entries(technicalDetails)
+      .slice(0, 3)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(', ')
+    extras.push(`SPECS: ${topSpecs}`)
+  }
+
+  if (extras.length) prompt += '\n' + extras.join(' | ') + '\n'
 
   // 主题要求（精简版）
   if (theme) {
@@ -186,7 +281,7 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
     prompt += `\n**INSTRUCTION**: Use above extracted elements as reference. You can refine, expand, or create variations, but prioritize extracted keywords (they have real search volume). Generate complete 15 headlines and 4 descriptions as required.\n`
   }
 
-  // 核心要求（大幅精简）
+  // 核心要求（增强版 - 指导如何使用真实数据）
   prompt += `
 ## REQUIREMENTS (Target: EXCELLENT Ad Strength)
 
@@ -194,19 +289,20 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
 **FIRST HEADLINE (MANDATORY)**: "{KeyWord:${offer.brand}} Official" - Must be EXACTLY this format, no extra words
 
 Remaining 14 headlines - Types (must cover all 5):
-- Brand (2): "Trusted Brand", "#1 ${offer.category || 'Choice'}"
-- Feature (4): Core product benefits
-- Promo (3): Numbers/% required - "Save 40%", "$50 Off"
-- CTA (3): "Shop Now", "Get Yours Today"
-- Urgency (2): "Limited Time", "Ends Soon"
+- Brand (2): ${badge ? `Use BADGE if available (e.g., "${badge} Brand")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}
+- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}
+- Promo (3): ${discount || promotion ? `MUST use real DISCOUNT/PROMOTION data: ${discount ? `"${discount}"` : ''}${promotion ? ` or "${promotion}"` : ''}` : 'Numbers/% required - "Save 40%", "$50 Off"'}
+- CTA (3): "Shop Now", "Get Yours Today"${primeEligible ? ', "Prime Eligible"' : ''}
+- Urgency (2): ${availability && availability.includes('left') ? `Use real STOCK data: "${availability}"` : '"Limited Time", "Ends Soon"'}
 **Dynamic Keyword (DKI)**: 1 more headline using "{KeyWord:${offer.brand}}" format
 
 Length distribution: 5 short(10-20), 5 medium(20-25), 5 long(25-30)
 Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarity
 
 ### DESCRIPTIONS (4 required, ≤90 chars each)
-- Value (2): Why choose us? Benefits, USPs
-- CTA (2): Strong action verbs (Shop/Buy/Get/Order) + immediate value
+- Value (2): Why choose us? Benefits, USPs${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}
+- CTA (2): Strong action verbs (Shop/Buy/Get/Order)${primeEligible ? ' + Prime eligibility' : ''} + immediate value${availability ? `. Mention STOCK status if urgent` : ''}
+${reviewHighlights.length > 0 ? `- **USE REVIEW INSIGHTS**: Incorporate customer feedback keywords: ${reviewHighlights.slice(0, 3).join(', ')}` : ''}
 
 ### KEYWORDS (10-15): Brand(1-2), Product(4-6), Feature(2-3), Long-tail(3-5)
 **质量要求（重要！确保Launch Score >60分）**:
@@ -215,7 +311,12 @@ Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarit
 - 相关性: 与${offer.brand}品牌和${offer.category || '产品'}高度相关
 ${excludeKeywords?.length ? `AVOID duplicates: ${excludeKeywords.join(', ')}` : ''}
 
-### CALLOUTS (4-6, ≤25 chars): Free Shipping, 24/7 Support, etc.
+### CALLOUTS (4-6, ≤25 chars)
+${primeEligible ? '- **MUST include**: "Prime Free Shipping"' : '- Free Shipping'}
+${availability && !availability.toLowerCase().includes('out of stock') ? '- **MUST include**: "In Stock Now"' : ''}
+${badge ? `- **MUST include**: "${badge}"` : ''}
+- 24/7 Support, Money Back Guarantee, etc.
+
 ### SITELINKS (4): text≤25, desc≤35, url="/" (auto-replaced)
 
 ## FORBIDDEN: "100%", "best", "guarantee", "miracle", "!!!", ALL CAPS abuse
@@ -257,7 +358,7 @@ async function generateWithVertexAI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 8192,  // 增加以容纳完整创意
+      maxOutputTokens: 16384,  // 增加以容纳完整创意（含完整metadata）
     },
   })
 
@@ -291,7 +392,7 @@ async function generateWithGeminiAPI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 16384,  // 增加以容纳完整创意（含完整metadata）
     },
   })
 
@@ -580,7 +681,7 @@ export async function generateAdCreative(
     model: 'gemini-2.5-pro',  // 最优选择：稳定质量+最快速度（62秒）
     prompt,
     temperature: 0.9,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 16384,  // 增加以容纳完整创意（含完整metadata）
   }, userId)
   console.timeEnd('⏱️ AI生成创意')
 

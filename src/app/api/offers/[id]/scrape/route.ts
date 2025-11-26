@@ -133,6 +133,8 @@ const COUNTRY_TO_LANGUAGE: Record<string, string> = {
   IT: 'it',
   PT: 'pt',
   BR: 'pt',
+  CH: 'de',  // 瑞士（德语）
+  SE: 'sv',  // 瑞典
 }
 
 /**
@@ -231,6 +233,9 @@ async function performScrapeAndAnalysis(
   url: string,
   brand: string
 ): Promise<void> {
+  // 🎯 P0优化: 保存原始爬虫数据（用于后续广告创意生成）
+  let rawScrapedData: any = null
+
   try {
     // 获取代理配置
     const offer = findOfferById(offerId, userId)
@@ -240,6 +245,7 @@ async function performScrapeAndAnalysis(
 
     // 自动检测并解析推广链接
     let actualUrl = url
+    let resolvedFinalUrlSuffix: string | null = null  // 保存解析器返回的suffix
     const urlToResolve = offer?.affiliate_link || url  // 优先使用affiliate_link，否则检查url
 
     if (isAffiliateUrl(urlToResolve)) {
@@ -252,7 +258,9 @@ async function performScrapeAndAnalysis(
           5000
         )
         actualUrl = resolved.finalUrl
+        resolvedFinalUrlSuffix = resolved.finalUrlSuffix  // 🔥 保存解析器返回的suffix
         console.log(`✅ 解析完成 - Final URL: ${actualUrl}`)
+        console.log(`   Final URL Suffix: ${resolvedFinalUrlSuffix ? resolvedFinalUrlSuffix.substring(0, 100) + '...' : '(无)'}`)
         console.log(`   重定向次数: ${resolved.redirectCount}`)
         console.log(`   重定向链: ${resolved.redirectChain.join(' → ')}`)
       } catch (resolveError: any) {
@@ -268,7 +276,8 @@ async function performScrapeAndAnalysis(
     try {
       const urlObj = new URL(actualUrl)
       const finalUrl = `${urlObj.origin}${urlObj.pathname}` // 基础URL（不含查询参数）
-      const finalUrlSuffix = urlObj.search.substring(1)     // 查询参数（去掉开头的?）
+      // 🔥 优先使用解析器返回的suffix，否则尝试从当前URL提取
+      const finalUrlSuffix = resolvedFinalUrlSuffix || urlObj.search.substring(1)
 
       // 只有当存在查询参数时才更新（避免覆盖已有的suffix）
       if (finalUrlSuffix) {
@@ -559,6 +568,9 @@ async function performScrapeAndAnalysis(
 
               console.log(`✅ Amazon Store抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品`)
 
+              // 🎯 P0优化: 保存原始爬虫数据（Store页面）
+              rawScrapedData = storeData
+
               // 🎯 Phase 3持久化：保存产品数据到数据库
               try {
                 await saveScrapedProducts(offerId, storeData.products, 'amazon_store')
@@ -570,6 +582,9 @@ async function performScrapeAndAnalysis(
               // Amazon产品页面专用抓取 - 增强版
               const { scrapeAmazonProduct } = await import('@/lib/scraper-stealth')
               const productData = await scrapeAmazonProduct(actualUrl, proxyUrl)
+
+              // 🎯 P0优化: 保存原始爬虫数据
+              rawScrapedData = productData
 
               // 构建全面的文本信息供AI创意生成
               const textParts = [
@@ -658,6 +673,17 @@ async function performScrapeAndAnalysis(
               }
 
               console.log(`✅ 独立站店铺抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品`)
+
+              // 🎯 P0优化: 保存原始爬虫数据（Independent Store页面）
+              rawScrapedData = storeData
+
+              // 🎯 Phase 3持久化：保存产品数据到数据库
+              try {
+                await saveScrapedProducts(offerId, storeData.products, 'independent_store')
+                console.log(`✅ 产品数据已保存到数据库: ${storeData.products.length}个产品`)
+              } catch (saveError: any) {
+                console.error('⚠️ 保存产品数据失败（不影响主流程）:', saveError.message)
+              }
             } else {
               // 通用JavaScript渲染抓取
               const { scrapeUrlWithBrowser } = await import('@/lib/scraper-stealth')
@@ -749,7 +775,10 @@ async function performScrapeAndAnalysis(
     // 从AI的brandDescription中提取品牌名
     let extractedBrand = brand // 默认使用原始品牌名
     if (productInfo.brandDescription) {
-      const match = productInfo.brandDescription.match(/^([A-Z][A-Za-z0-9\s&-]+?)\s+(positions|is|offers|provides|delivers|focuses)/i)
+      // 支持多语言模式：英语(positions/is/offers) + 德语(positioniert/ist/bietet) + 法语/西班牙语
+      const match = productInfo.brandDescription.match(
+        /^([A-Z][A-Za-z0-9\s&üöäÜÖÄß-]+?)\s+(positions|is|offers|provides|delivers|focuses|positioniert|ist|bietet|liefert|konzentriert|se\s+positionne|est|offre|se\s+posiciona|es|ofrece)/i
+      )
       if (match && match[1]) {
         extractedBrand = match[1].trim()
         console.log(`✅ 从AI分析中提取品牌名: ${extractedBrand}`)
@@ -760,15 +789,15 @@ async function performScrapeAndAnalysis(
 
     // 🎯 品牌名清理和标准化（去除冠词、型号、格式化）
     if (extractedBrand && extractedBrand.length > 0) {
-      // 1. 去除开头的冠词 (The, A, An)
-      extractedBrand = extractedBrand.replace(/^(The|A|An)\s+/i, '')
+      // 1. 去除开头的冠词 (英语: The/A/An, 德语: Der/Die/Das, 法语: Le/La/Les, 西班牙语: El/La/Los/Las)
+      extractedBrand = extractedBrand.replace(/^(The|A|An|Der|Die|Das|Le|La|Les|El|Los|Las)\s+/i, '')
 
       // 2. 提取品牌核心名称（第一个有效单词，去除产品型号）
       // 产品型号特征：包含连续大写字母+数字+连字符的组合，如 "RLK16-1200D8-A"
       const words = extractedBrand.split(/\s+/)
       const brandCore = words.find(word => {
-        // 有效品牌名：2-20字符，主要是字母，可以包含&
-        const isValidBrandWord = /^[A-Z][A-Za-z&]{1,19}$/i.test(word)
+        // 有效品牌名：2-20字符，主要是字母（含欧洲特殊字符），可以包含&
+        const isValidBrandWord = /^[A-Z][A-Za-z&üöäÜÖÄßéèêëàâáíìîïóòôõúùûñç]{1,19}$/i.test(word)
         // 排除产品型号：包含连续的字母+数字+连字符的复杂组合
         const isProductModel = /[A-Z0-9]{2,}[-][A-Z0-9]{2,}/i.test(word)
         return isValidBrandWord && !isProductModel
@@ -948,7 +977,9 @@ async function performScrapeAndAnalysis(
               rating: productInfo.reviews?.rating || null,
               reviewCount: productInfo.reviews?.reviewCount || null,
               features: productInfo.productHighlights
-                ? productInfo.productHighlights.split('\n').filter((f: string) => f.trim())
+                ? (Array.isArray(productInfo.productHighlights)
+                    ? productInfo.productHighlights
+                    : productInfo.productHighlights.split('\n')).filter((f: string) => f.trim())
                 : []
             }
 
@@ -1057,18 +1088,43 @@ async function performScrapeAndAnalysis(
       // 根据页面类型准备不同的输入数据
       if (pageType === 'product') {
         // 单商品场景：从AI分析结果中提取
+        // productHighlights = "About this item" 产品详细描述
+        // uniqueSellingPoints = 其他特性
+        const aboutItems: string[] = productInfo.productHighlights
+          ? (Array.isArray(productInfo.productHighlights)
+              ? productInfo.productHighlights
+              : productInfo.productHighlights.split('\n')).filter((f: string) => f.trim())
+          : []
+
+        const featureItems: string[] = productInfo.uniqueSellingPoints
+          ? (Array.isArray(productInfo.uniqueSellingPoints)
+              ? productInfo.uniqueSellingPoints
+              : productInfo.uniqueSellingPoints.split('\n')).filter((f: string) => f.trim())
+          : []
+
         const extractionResult = await extractAdElements(
           {
             pageType: 'product',
             product: {
               productName: pageData.title || extractedBrand,
+              productDescription: productInfo.brandDescription || null,
+              productPrice: pageData.price || null,
+              originalPrice: null,
+              discount: null,
               brandName: extractedBrand,
-              aboutThisItem: productInfo.productHighlights
-                ? productInfo.productHighlights.split('\n').filter((f: string) => f.trim())
-                : [],
-              features: productInfo.uniqueSellingPoints
-                ? productInfo.uniqueSellingPoints.split('\n').filter((f: string) => f.trim())
-                : []
+              features: featureItems,
+              aboutThisItem: aboutItems,  // Amazon "About this item" 产品详细描述
+              imageUrls: pageData.imageUrls || [],
+              rating: productInfo.reviews?.rating?.toString() || null,
+              reviewCount: productInfo.reviews?.reviewCount?.toString() || null,
+              salesRank: null,
+              availability: null,
+              primeEligible: false,
+              reviewHighlights: [],
+              topReviews: [],
+              technicalDetails: {},
+              asin: null,
+              category: productInfo.category || null
             }
           },
           extractedBrand,
@@ -1158,6 +1214,8 @@ async function performScrapeAndAnalysis(
       extracted_descriptions: extractedDescriptions.length > 0 ? formatFieldForDB(extractedDescriptions) : undefined,
       extraction_metadata: Object.keys(extractionMetadata).length > 0 ? formatFieldForDB(extractionMetadata) : undefined,
       extracted_at: extractedAt,
+      // 🎯 P0优化: 原始爬虫数据（包含discount, salesRank, badge, primeEligible等字段）
+      scraped_data: rawScrapedData ? formatFieldForDB(rawScrapedData) : undefined,
     })
 
     console.log(`Offer ${offerId} 抓取和分析完成`)

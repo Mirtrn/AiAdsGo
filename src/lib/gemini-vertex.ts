@@ -133,7 +133,7 @@ async function delay(ms: number): Promise<void> {
  *   - gemini-3-pro-preview-11-2025 (预览版，最新)
  * @param params.prompt - 提示词
  * @param params.temperature - 温度参数，默认 0.7
- * @param params.maxOutputTokens - 最大输出tokens，默认 2048
+ * @param params.maxOutputTokens - 最大输出tokens，默认 8192
  * @returns 生成的文本内容
  */
 export async function generateContent(params: {
@@ -146,7 +146,7 @@ export async function generateContent(params: {
     model = 'gemini-2.5-pro',
     prompt,
     temperature = 0.7,
-    maxOutputTokens = 2048,
+    maxOutputTokens = 8192,
   } = params
 
   const maxRetries = 3

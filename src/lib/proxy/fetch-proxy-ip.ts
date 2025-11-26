@@ -12,22 +12,32 @@ export interface ProxyCredentials {
 }
 
 /**
- * 🔥 P1优化：测试代理IP健康状态
+ * 健康检查结果
+ */
+export interface HealthCheckResult {
+  healthy: boolean
+  responseTime?: number
+  error?: string
+}
+
+/**
+ * 🔥 P0优化：测试代理IP健康状态（非阻塞版本）
  * 通过快速HTTP请求测试代理IP的连通性和响应时间
  *
  * @param credentials - 代理凭证
- * @param timeoutMs - 测试超时时间（默认5秒）
+ * @param timeoutMs - 测试超时时间（默认3秒）
  * @returns 健康状态对象
  */
-async function testProxyHealth(
+export async function testProxyHealth(
   credentials: ProxyCredentials,
-  timeoutMs = 5000
-): Promise<{ healthy: boolean; responseTime?: number; error?: string }> {
+  timeoutMs = 3000
+): Promise<HealthCheckResult> {
   const startTime = Date.now()
 
   try {
-    // 使用简单的HTTP请求测试代理（访问Amazon favicon，轻量级请求）
-    const testUrl = 'https://www.amazon.com/favicon.ico'
+    // 🔥 使用Amazon本身测试，因为我们的目标就是访问Amazon
+    // 使用robots.txt作为测试端点（轻量级，无反爬虫）
+    const testUrl = 'https://www.amazon.com/robots.txt'
     const proxyUrl = `http://${credentials.username}:${credentials.password}@${credentials.host}:${credentials.port}`
 
     // 使用node-fetch + https-proxy-agent测试
@@ -37,7 +47,11 @@ async function testProxyHealth(
     const agent = new HttpsProxyAgent(proxyUrl)
 
     const response = await fetch(testUrl, {
-      method: 'HEAD', // 只请求header，更快
+      method: 'GET', // 使用GET获取实际内容，确保代理真实可用
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/plain,*/*',
+      },
       agent,
       signal: AbortSignal.timeout(timeoutMs),
     })
@@ -46,8 +60,8 @@ async function testProxyHealth(
 
     // 健康标准：
     // 1. HTTP状态码正常 (200-399)
-    // 2. 响应时间 < 3秒（快速代理）
-    const healthy = response.ok && responseTime < 3000
+    // 2. 响应时间 < 8秒（放宽阈值，提高代理可用率）
+    const healthy = response.ok && responseTime < 8000
 
     if (healthy) {
       console.log(`✅ 代理IP健康检查通过: ${credentials.fullAddress} (${responseTime}ms)`)
@@ -70,6 +84,18 @@ async function testProxyHealth(
       error: error.message || String(error),
     }
   }
+}
+
+/**
+ * 🔥 P0优化：异步健康检查（不阻塞主流程）
+ * 在后台执行健康检查，返回Promise供调用者选择是否等待
+ */
+export function testProxyHealthAsync(
+  credentials: ProxyCredentials,
+  timeoutMs = 3000
+): Promise<HealthCheckResult> {
+  // 直接返回Promise，调用者可以选择await或忽略
+  return testProxyHealth(credentials, timeoutMs)
 }
 
 /**
@@ -177,34 +203,26 @@ export async function fetchProxyIp(
       fullAddress: `${host}:${port}`,
     }
 
-      console.log(`成功获取代理IP: ${credentials.fullAddress}`)
+    console.log(`成功获取代理IP: ${credentials.fullAddress}`)
 
-      // 🔥 P1优化：健康检查（可选）
-      if (!skipHealthCheck) {
-        console.log('🔍 开始代理IP质量检测...')
-        const healthCheck = await testProxyHealth(credentials)
-
-        if (!healthCheck.healthy) {
-          // 代理IP不健康，记录警告但不抛出错误（允许降级使用）
-          console.warn(
-            `⚠️ 代理IP质量检测未通过: ${credentials.fullAddress}\n` +
-              `  - 响应时间: ${healthCheck.responseTime}ms\n` +
-              `  - 错误: ${healthCheck.error || '响应过慢'}\n` +
-              `  → 将在下次重试时尝试获取新的代理IP`
-          )
-
-          // 如果不是最后一次尝试，抛出错误以触发重试（获取新代理IP）
-          if (attempt < maxRetries) {
-            throw new Error(
-              `代理IP质量检测失败: ${healthCheck.error || '响应时间超过3秒'} (${healthCheck.responseTime}ms)`
-            )
-          }
-          // 最后一次尝试：即使质量不佳也返回（降级策略）
-          console.warn('⚠️ 已达最大重试次数，使用当前代理IP（质量不佳但可能仍可用）')
-        }
+    // 🔥 P0优化：阻塞式健康检查，失败时重试获取新代理
+    if (!skipHealthCheck) {
+      const healthCheck = await testProxyHealth(credentials, 10000) // 10秒超时，提高代理可用率
+      if (!healthCheck.healthy) {
+        console.warn(
+          `⚠️ 代理IP质量检测未通过: ${credentials.fullAddress}\n` +
+            `  - 响应时间: ${healthCheck.responseTime}ms\n` +
+            `  - 错误: ${healthCheck.error || '响应过慢'}\n` +
+            `  - 重试获取新代理IP...`
+        )
+        // 抛出错误，触发外层重试逻辑
+        throw new Error(`代理IP健康检查失败: ${healthCheck.error || '响应过慢'}`)
       }
+      console.log(`✅ 代理IP质量检测通过: ${credentials.fullAddress} (${healthCheck.responseTime}ms)`)
+    }
 
-      return credentials
+    // 返回健康的代理IP
+    return credentials
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('未知错误')
       console.warn(`尝试 ${attempt}/${maxRetries} 失败: ${lastError.message}`)

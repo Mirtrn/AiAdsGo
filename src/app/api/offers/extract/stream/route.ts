@@ -303,14 +303,27 @@ export async function POST(request: NextRequest) {
               const priceStr = extractedPrice;
               const priceNum = priceStr ? parseFloat(priceStr.replace(/[^0-9.]/g, '')) : null;
 
+              // 安全提取productHighlights（可能是字符串、字符串数组或对象数组）
+              const extractFeatures = (highlights: any): string[] => {
+                if (!highlights) return [];
+                if (typeof highlights === 'string') {
+                  return highlights.split('\n').filter((f: string) => f.trim());
+                }
+                if (Array.isArray(highlights)) {
+                  return highlights.map((item: any) => {
+                    if (typeof item === 'string') return item;
+                    return item?.line || item?.highlight || item?.description || String(item);
+                  }).filter((f: string) => f.trim());
+                }
+                return [];
+              };
+
               const ourProduct = {
                 name: brandName || 'Unknown',
                 price: priceNum,
                 rating: null,
                 reviewCount: null,
-                features: aiProductInfo?.productHighlights
-                  ? aiProductInfo.productHighlights.split('\n').filter((f: string) => f.trim())
-                  : [],
+                features: extractFeatures(aiProductInfo?.productHighlights),
               };
 
               competitorAnalysis = await analyzeCompetitorsWithAI(
@@ -348,8 +361,8 @@ export async function POST(request: NextRequest) {
 
           const { extractAdElements } = await import('@/lib/ad-elements-extractor');
 
-          if (debug.isAmazonStore && products) {
-            // 店铺页面：使用热销产品数据
+          if ((debug.isAmazonStore || debug.isIndependentStore) && products) {
+            // 店铺页面（Amazon或独立站）：使用热销产品数据
             const extractionResult = await extractAdElements(
               {
                 pageType: 'store',
@@ -379,15 +392,28 @@ export async function POST(request: NextRequest) {
             );
           } else {
             // 单品页面：使用AI分析结果
+            // 安全提取productHighlights（可能是字符串、字符串数组或对象数组）
+            const extractFeaturesForAd = (highlights: any): string[] => {
+              if (!highlights) return [];
+              if (typeof highlights === 'string') {
+                return highlights.split('\n').filter((f: string) => f.trim());
+              }
+              if (Array.isArray(highlights)) {
+                return highlights.map((item: any) => {
+                  if (typeof item === 'string') return item;
+                  return item?.line || item?.highlight || item?.description || String(item);
+                }).filter((f: string) => f.trim());
+              }
+              return [];
+            };
+
             const extractionResult = await extractAdElements(
               {
                 pageType: 'product',
                 product: {
                   productName: extractedProductName || brandName || 'Unknown',
                   brandName: brandName || 'Unknown',
-                  features: aiProductInfo.productHighlights
-                    ? aiProductInfo.productHighlights.split('\n').filter((f: string) => f.trim())
-                    : [],
+                  features: extractFeaturesForAd(aiProductInfo.productHighlights),
                 } as any,
               },
               brandName || 'Unknown',

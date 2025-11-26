@@ -1,7 +1,9 @@
 /**
  * 使用 axios 调用 Gemini API
  *
- * 重要：API密钥从用户配置获取，不使用全局配置
+ * 重要：
+ * 1. API密钥从用户配置获取，不使用全局配置
+ * 2. 不使用代理，直接访问Google API
  */
 
 import axios, { AxiosInstance } from 'axios'
@@ -46,24 +48,23 @@ export interface GeminiResponse {
 }
 
 /**
- * 创建 axios 实例用于 Gemini API
+ * 创建 axios 实例用于 Gemini API（直连，不使用代理）
  */
 export function createGeminiAxiosClient(): AxiosInstance {
-  const client = axios.create({
+  return axios.create({
     baseURL: 'https://generativelanguage.googleapis.com',
     timeout: 60000, // 60秒超时
     headers: {
       'Content-Type': 'application/json',
     },
   })
-
-  return client
 }
 
 /**
  * 调用 Gemini API 生成内容（带自动降级）
  *
  * 尝试使用 gemini-2.5-pro，如果遇到模型过载（503）则自动降级到 gemini-2.5-flash
+ * 直接访问Google API，不使用代理
  *
  * 重要：API密钥从用户配置获取，不使用全局配置
  *
@@ -71,7 +72,7 @@ export function createGeminiAxiosClient(): AxiosInstance {
  * @param params.model - 模型名称，默认 'gemini-2.5-pro'
  * @param params.prompt - 提示词
  * @param params.temperature - 温度参数，默认 0.7
- * @param params.maxOutputTokens - 最大输出tokens，默认 2048
+ * @param params.maxOutputTokens - 最大输出tokens，默认 8192
  * @param userId - 用户ID（必需，用于获取用户的API密钥）
  * @returns 生成的文本内容
  */
@@ -85,7 +86,7 @@ export async function generateContent(params: {
     model = 'gemini-2.5-pro',
     prompt,
     temperature = 0.7,
-    maxOutputTokens = 2048,
+    maxOutputTokens = 8192,
   } = params
 
   // 从用户配置获取API密钥（不使用全局配置）
@@ -95,8 +96,9 @@ export async function generateContent(params: {
     throw new Error(`用户(ID=${userId})未配置 Gemini API 密钥。请在设置页面配置您自己的 API 密钥。`)
   }
 
-  // 创建 axios 客户端
+  // 创建 axios 客户端（直连，不使用代理）
   const client = createGeminiAxiosClient()
+  console.log(`🌐 直接访问Gemini API（不使用代理）`)
 
   // 构建请求
   const request: GeminiRequest = {

@@ -1,9 +1,158 @@
 import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getAllProxyUrls } from '@/lib/settings'
+import { getProxyPool } from '@/lib/url-resolver-enhanced'
 
 /**
  * Offer相关的辅助函数库
  * 包括offer_name生成、语言映射、验证等
  */
+
+/**
+ * 页面类型检测结果
+ */
+export interface PageTypeResult {
+  pageType: 'amazon_store' | 'amazon_product' | 'independent_store' | 'independent_product' | 'unknown'
+  isAmazonStore: boolean
+  isAmazonProductPage: boolean
+  isIndependentStore: boolean
+}
+
+/**
+ * 检测页面类型
+ *
+ * @param url - 目标URL
+ * @returns 页面类型检测结果
+ */
+export function detectPageType(url: string): PageTypeResult {
+  if (!url) {
+    return {
+      pageType: 'unknown',
+      isAmazonStore: false,
+      isAmazonProductPage: false,
+      isIndependentStore: false,
+    }
+  }
+
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname.toLowerCase()
+    const pathname = urlObj.pathname.toLowerCase()
+
+    // Amazon域名检测
+    const isAmazonDomain = hostname.includes('amazon.')
+
+    if (isAmazonDomain) {
+      // Amazon Store页面检测（stores路径）
+      if (pathname.includes('/stores/') || pathname.includes('/storefront/')) {
+        return {
+          pageType: 'amazon_store',
+          isAmazonStore: true,
+          isAmazonProductPage: false,
+          isIndependentStore: false,
+        }
+      }
+
+      // Amazon单品页面检测（dp路径）
+      if (pathname.includes('/dp/') || pathname.includes('/gp/product/')) {
+        return {
+          pageType: 'amazon_product',
+          isAmazonStore: false,
+          isAmazonProductPage: true,
+          isIndependentStore: false,
+        }
+      }
+
+      // 其他Amazon页面默认视为单品页面
+      return {
+        pageType: 'amazon_product',
+        isAmazonStore: false,
+        isAmazonProductPage: true,
+        isIndependentStore: false,
+      }
+    }
+
+    // 独立站检测
+    const isSingleProductPage =
+      pathname.includes('/products/') ||
+      pathname.includes('/product/') ||
+      pathname.includes('/p/') ||
+      pathname.includes('/item/')
+
+    if (isSingleProductPage) {
+      return {
+        pageType: 'independent_product',
+        isAmazonStore: false,
+        isAmazonProductPage: false,
+        isIndependentStore: false,
+      }
+    }
+
+    // 店铺首页特征
+    const isStorePage =
+      pathname === '/' ||
+      pathname === '' ||
+      pathname.includes('/collections') ||
+      pathname.includes('/shop') ||
+      pathname.includes('/store')
+
+    if (isStorePage) {
+      return {
+        pageType: 'independent_store',
+        isAmazonStore: false,
+        isAmazonProductPage: false,
+        isIndependentStore: true,
+      }
+    }
+
+    return {
+      pageType: 'unknown',
+      isAmazonStore: false,
+      isAmazonProductPage: false,
+      isIndependentStore: false,
+    }
+  } catch {
+    return {
+      pageType: 'unknown',
+      isAmazonStore: false,
+      isAmazonProductPage: false,
+      isIndependentStore: false,
+    }
+  }
+}
+
+/**
+ * 初始化代理池
+ *
+ * 检查用户的代理配置并确保可用
+ *
+ * @param userId - 用户ID
+ * @param targetCountry - 目标国家
+ * @throws AppError 如果代理配置未设置
+ */
+export async function initializeProxyPool(userId: number, targetCountry: string): Promise<void> {
+  // 获取用户配置的代理URL列表
+  const proxyUrls = getAllProxyUrls(userId)
+
+  if (!proxyUrls || proxyUrls.length === 0) {
+    const error = new Error(`未找到代理配置，请在设置页面配置代理URL`) as any
+    error.code = 'PROXY_NOT_CONFIGURED'
+    error.details = { targetCountry, userId }
+    throw error
+  }
+
+  // 确保代理列表中有default标记
+  const proxiesWithDefault = proxyUrls.map((p, i) => ({
+    url: p.url,
+    country: p.country,
+    is_default: i === 0, // 第一个代理作为默认代理
+  }))
+
+  // 加载代理到代理池
+  const proxyPool = getProxyPool()
+  await proxyPool.loadProxies(proxiesWithDefault)
+
+  console.log(`✅ 代理池初始化成功: ${proxiesWithDefault.length}个代理 (用户ID: ${userId})`)
+}
 
 /**
  * 规范化品牌名称

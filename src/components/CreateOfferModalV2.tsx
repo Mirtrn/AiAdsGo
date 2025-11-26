@@ -52,6 +52,7 @@ const countries = [
   { code: 'DK', name: '丹麦 (DK)' },
   { code: 'FI', name: '芬兰 (FI)' },
   { code: 'PL', name: '波兰 (PL)' },
+  { code: 'CH', name: '瑞士 (CH)' },
   { code: 'JP', name: '日本 (JP)' },
   { code: 'CN', name: '中国 (CN)' },
   { code: 'KR', name: '韩国 (KR)' },

@@ -153,18 +153,11 @@ export async function resolveAffiliateLinkWithHttp(
     }
 
     // 分离Final URL和Final URL suffix
+    // 注意：不要从tracking域名的URL参数中提取目标URL
+    // 应该让HTTP重定向自然跟踪，tracking域名会302重定向到带追踪参数的最终URL
+    // 例如：partnermatic.com/track/... → 302 → diamondsfactory.ca/?wgu=...&utm_source=...
     let finalFullUrl = currentUrl
     let urlObj = new URL(finalFullUrl)
-
-    // 🔥 优化：检测tracking域名并提取嵌入的目标URL
-    const embeddedUrl = extractEmbeddedTargetUrl(finalFullUrl)
-    if (embeddedUrl) {
-      console.log(`🎯 检测到tracking域名，提取嵌入URL: ${embeddedUrl}`)
-      finalFullUrl = embeddedUrl
-      urlObj = new URL(finalFullUrl)
-      redirectChain.push(embeddedUrl)
-      redirectCount++
-    }
 
     const finalUrl = `${urlObj.origin}${urlObj.pathname}`
     const finalUrlSuffix = urlObj.search.substring(1)

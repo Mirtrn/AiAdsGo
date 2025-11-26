@@ -37,8 +37,10 @@ export function validateProxyUrl(proxyUrl: string): ProxyUrlValidation {
       errors.push('缺少国家代码参数 (cc)，请确认URL包含 cc=UK、cc=CA 或 cc=ROW')
     } else {
       const ccUpper = cc.toUpperCase()
-      if (!['UK', 'CA', 'ROW'].includes(ccUpper)) {
-        errors.push(`国家代码 "${cc}" 无效，仅支持 UK（英国）、CA（加拿大）、ROW（美国）`)
+      // 支持更多国家代码：UK(英国)、CA(加拿大)、US/ROW(美国)、DE(德国)、FR(法国)、AU(澳大利亚)、JP(日本)
+      const validCountryCodes = ['UK', 'CA', 'US', 'ROW', 'DE', 'FR', 'AU', 'JP', 'ES', 'IT', 'NL', 'BR', 'MX', 'IN', 'SG']
+      if (!validCountryCodes.includes(ccUpper)) {
+        errors.push(`国家代码 "${cc}" 无效，支持: ${validCountryCodes.join(', ')}`)
       } else {
         countryCode = ccUpper
       }
@@ -108,7 +110,19 @@ export function getCountryName(countryCode: string): string {
   const countryNames: Record<string, string> = {
     UK: '英国 (United Kingdom)',
     CA: '加拿大 (Canada)',
+    US: '美国 (United States)',
     ROW: '美国 (United States)',
+    DE: '德国 (Germany)',
+    FR: '法国 (France)',
+    AU: '澳大利亚 (Australia)',
+    JP: '日本 (Japan)',
+    ES: '西班牙 (Spain)',
+    IT: '意大利 (Italy)',
+    NL: '荷兰 (Netherlands)',
+    BR: '巴西 (Brazil)',
+    MX: '墨西哥 (Mexico)',
+    IN: '印度 (India)',
+    SG: '新加坡 (Singapore)',
   }
 
   return countryNames[countryCode.toUpperCase()] || countryCode

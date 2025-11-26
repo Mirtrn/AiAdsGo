@@ -48,12 +48,29 @@ export function createSSEStream(
 }
 
 /**
+ * 检查控制器是否可用
+ */
+function isControllerOpen(controller: ReadableStreamDefaultController): boolean {
+  try {
+    // 尝试获取desiredSize来判断controller是否仍然打开
+    const size = controller.desiredSize;
+    return size !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Helper to send progress update via SSE
  */
 export function sendSSEMessage(
   controller: ReadableStreamDefaultController,
   message: SSEMessage
 ): void {
+  if (!isControllerOpen(controller)) {
+    console.warn('SSE Controller already closed, skipping message:', message.type);
+    return;
+  }
   const encoder = createSSEEncoder();
   const formatted = formatSSEMessage(message);
   controller.enqueue(encoder.encode(formatted));
@@ -88,11 +105,19 @@ export function sendComplete(
   controller: ReadableStreamDefaultController,
   data: { success: boolean; finalUrl: string; brand: string; productCount?: number }
 ): void {
+  if (!isControllerOpen(controller)) {
+    console.warn('SSE Controller already closed, cannot send complete');
+    return;
+  }
   sendSSEMessage(controller, {
     type: 'complete',
     data,
   });
-  controller.close();
+  try {
+    controller.close();
+  } catch (e) {
+    console.warn('SSE Controller close failed:', e);
+  }
 }
 
 /**
@@ -104,6 +129,10 @@ export function sendError(
   message: string,
   details?: Record<string, unknown>
 ): void {
+  if (!isControllerOpen(controller)) {
+    console.warn('SSE Controller already closed, cannot send error');
+    return;
+  }
   sendSSEMessage(controller, {
     type: 'error',
     data: {
@@ -112,5 +141,9 @@ export function sendError(
       details,
     },
   });
-  controller.close();
+  try {
+    controller.close();
+  } catch (e) {
+    console.warn('SSE Controller close failed:', e);
+  }
 }

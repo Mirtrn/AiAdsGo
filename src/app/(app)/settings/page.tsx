@@ -43,7 +43,11 @@ const SUPPORTED_COUNTRIES = [
   { code: 'CA', name: '加拿大 (Canada)' },
   { code: 'DE', name: '德国 (Germany)' },
   { code: 'FR', name: '法国 (France)' },
+  { code: 'IT', name: '意大利 (Italy)' },
   { code: 'JP', name: '日本 (Japan)' },
+  { code: 'KR', name: '韩国 (Korea)' },
+  { code: 'CH', name: '瑞士 (Switzerland)' },
+  { code: 'SE', name: '瑞典 (Sweden)' },
   { code: 'AU', name: '澳大利亚 (Australia)' },
   { code: 'ROW', name: '其他地区 (Rest of World)' },
 ]
