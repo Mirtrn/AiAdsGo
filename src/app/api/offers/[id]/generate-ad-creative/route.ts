@@ -48,6 +48,15 @@ export async function POST(
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
+    // ⚠️ 品牌验证：如果品牌为Unknown，拒绝生成创意
+    if (!offer.brand || offer.brand === 'Unknown' || offer.brand.trim() === '') {
+      const error = createError.requiredField('brand (有效品牌名称)')
+      return NextResponse.json({
+        ...error.toJSON(),
+        message: '品牌名称缺失或无效。品牌词对于生成高质量关键词和广告创意至关重要。请重新抓取Offer或手动设置品牌名称。'
+      }, { status: error.httpStatus })
+    }
+
     // 解析请求参数
     const body = await request.json()
     const {
@@ -92,7 +101,8 @@ export async function POST(
       // 批量并行生成（传入userId以获取用户特定配置）
       const generatedDataList = await generateAdCreativesBatch(offerId, userId, actualCount, {
         theme,
-        referencePerformance: reference_performance
+        referencePerformance: reference_performance,
+        skipCache: true  // 🔧 修复：每次生成都跳过缓存，避免重复创意
       })
 
       // 批量评估Ad Strength并保存到数据库
@@ -153,7 +163,8 @@ export async function POST(
       // 单个生成（传入userId以获取用户特定配置）
       const generatedData = await generateAdCreative(offerId, userId, {
         theme,
-        referencePerformance: reference_performance
+        referencePerformance: reference_performance,
+        skipCache: true  // 🔧 修复：每次生成都跳过缓存，避免重复创意
       })
 
       // 确保有metadata，否则构造基础格式
@@ -268,10 +279,11 @@ export async function GET(
     const generationRound = searchParams.get('generation_round')
     const isSelected = searchParams.get('is_selected')
 
-    // 查询广告创意
+    // 🔥 性能优化：默认使用轻量级模式快速返回
     const creatives = listAdCreativesByOffer(offerId, authResult.user.userId, {
       generation_round: generationRound ? parseInt(generationRound) : undefined,
-      is_selected: isSelected === 'true' ? true : isSelected === 'false' ? false : undefined
+      is_selected: isSelected === 'true' ? true : isSelected === 'false' ? false : undefined,
+      lightweight: true  // 只返回核心字段，提升加载速度
     })
 
     return NextResponse.json({

@@ -42,7 +42,7 @@ export function assessPageComplexity(url: string): PageComplexity {
 
   // 复杂页面：电商、社交媒体、SPA应用
   if (
-    urlLower.includes('amazon.com') ||
+    urlLower.includes('amazon.') ||  // 🔥 修复：支持所有Amazon域名（.com/.it/.de/.fr等）
     urlLower.includes('ebay.com') ||
     urlLower.includes('facebook.com') ||
     urlLower.includes('twitter.com') ||

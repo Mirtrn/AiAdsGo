@@ -37,6 +37,7 @@ export async function GET(
         id: offer.id,
         url: offer.url,
         brand: offer.brand,
+        offerName: offer.offer_name, // 🔧 添加offer_name字段映射
         category: offer.category,
         targetCountry: offer.target_country,
         affiliateLink: offer.affiliate_link,
@@ -133,6 +134,7 @@ export async function PUT(
         id: offer.id,
         url: offer.url,
         brand: offer.brand,
+        offerName: offer.offer_name, // 🔧 添加offer_name字段映射
         category: offer.category,
         targetCountry: offer.target_country,
         affiliateLink: offer.affiliate_link,

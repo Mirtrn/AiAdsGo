@@ -223,6 +223,8 @@ export function findAdCreativeById(id: number, userId: number): AdCreative | nul
 
 /**
  * 获取Offer的所有广告创意
+ *
+ * @param lightweight - 如果为true，只返回核心字段（用于列表展示）以提升性能
  */
 export function listAdCreativesByOffer(
   offerId: number,
@@ -230,6 +232,7 @@ export function listAdCreativesByOffer(
   options?: {
     generation_round?: number
     is_selected?: boolean
+    lightweight?: boolean  // 🔥 新增：轻量级模式
   }
 ): AdCreative[] {
   const db = getSQLiteDatabase()
@@ -247,8 +250,13 @@ export function listAdCreativesByOffer(
     params.push(options.is_selected ? 1 : 0)
   }
 
+  // 🔥 性能优化：轻量级模式只查询必要字段
+  const selectFields = options?.lightweight
+    ? 'id, offer_id, user_id, headlines, descriptions, keywords, keywords_with_volume, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, score, score_breakdown, theme, created_at, is_selected'
+    : '*'
+
   const rows = db.prepare(`
-    SELECT * FROM ad_creatives
+    SELECT ${selectFields} FROM ad_creatives
     WHERE ${whereConditions.join(' AND ')}
     ORDER BY score DESC, created_at DESC
   `).all(...params) as any[]

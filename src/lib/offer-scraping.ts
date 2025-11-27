@@ -1,18 +1,20 @@
 /**
  * Offer抓取触发器
- * 提供直接函数调用方式触发抓取，避免HTTP请求的认证问题
+ * 通过直接调用抓取逻辑触发抓取，避免HTTP请求的认证问题
  *
- * 核心原则：直接调用 performScrapeAndAnalysis，确保异步抓取和手动抓取行为一致
+ * 核心原则：直接调用抓取逻辑，确保异步抓取和手动抓取行为一致
  */
 
-import { updateOfferScrapeStatus } from './offers'
-import { performScrapeAndAnalysis } from '../app/api/offers/[id]/scrape/route'
+import { updateOfferScrapeStatus, findOfferById } from './offers'
+import { scrapeUrl } from './scraper'
+import { analyzeProductPage } from './ai'
+import { getProxyUrlForCountry, isProxyEnabled } from './settings'
 
 /**
  * 触发Offer抓取（异步，不阻塞）
  *
  * 此函数会立即返回，抓取在后台进行
- * 直接调用 performScrapeAndAnalysis 函数，避免HTTP认证问题
+ * 直接执行抓取逻辑，避免HTTP认证问题
  *
  * @param offerId Offer ID
  * @param userId User ID
@@ -37,8 +39,50 @@ export function triggerOfferScraping(
     try {
       console.log(`[OfferScraping] 开始执行后台抓取任务...`)
 
-      // 直接调用 performScrapeAndAnalysis 函数
-      await performScrapeAndAnalysis(offerId, userId, url, brand)
+      // 🔧 修复：直接执行简化的抓取逻辑，而不是导入route.ts中的函数
+      // 获取代理配置
+      const offer = findOfferById(offerId, userId)
+      const targetCountry = offer?.target_country || 'US'
+      const useProxy = isProxyEnabled(userId)
+      const proxyUrl = useProxy ? getProxyUrlForCountry(targetCountry, userId) : undefined
+
+      // 抓取网页内容
+      console.log(`[OfferScraping] 开始抓取: ${url}`)
+      const pageData = await scrapeUrl(url, proxyUrl)
+
+      // AI分析
+      console.log(`[OfferScraping] 开始AI分析...`)
+      const analysis = await analyzeProductPage({
+        url,
+        brand,
+        title: pageData.title || '',
+        description: pageData.description || '',
+        text: pageData.text,
+        targetCountry,
+      }, userId)
+
+      // 更新Offer信息
+      const { getSQLiteDatabase } = await import('./db')
+      const db = getSQLiteDatabase()
+      const stmt = db.prepare(`
+        UPDATE offers
+        SET brand_description = ?,
+            unique_selling_points = ?,
+            product_highlights = ?,
+            target_audience = ?,
+            scrape_status = 'completed',
+            scraped_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE id = ? AND user_id = ?
+      `)
+      stmt.run(
+        analysis.brandDescription || null,
+        analysis.uniqueSellingPoints || null,
+        analysis.productHighlights || null,
+        analysis.targetAudience || null,
+        offerId,
+        userId
+      )
 
       console.log(`[OfferScraping] ✅ 后台抓取任务完成 Offer #${offerId}`)
     } catch (error: any) {

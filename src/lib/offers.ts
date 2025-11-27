@@ -215,6 +215,7 @@ export function listOffers(
 
   // P1-11: 为每个offer查询关联的Google Ads账号信息
   // 只显示活跃的campaigns（排除REMOVED状态），且排除MCC账号
+  // ⚠️ 修复：忽略未成功发布到Google Ads的campaigns(google_campaign_id为空)
   const offersWithAccounts = offers.map(offer => {
     const linkedAccounts = db.prepare(`
       SELECT DISTINCT
@@ -228,6 +229,8 @@ export function listOffers(
         AND c.user_id = ?
         AND c.status != 'REMOVED'
         AND gaa.is_manager_account = 0
+        AND c.google_campaign_id IS NOT NULL
+        AND c.google_campaign_id != ''
     `).all(offer.id, userId) as Array<{
       account_id: number
       account_name: string | null
@@ -350,11 +353,16 @@ export function deleteOffer(id: number, userId: number): void {
 
   // 检查是否有关联的Ads账号
   // 使用INNER JOIN确保只检查有效账号，忽略孤儿campaigns
+  // ⚠️ 修复：忽略未成功发布到Google Ads的campaigns(google_campaign_id为空)
   const associatedAccounts = db.prepare(`
     SELECT COUNT(DISTINCT gaa.id) as account_count, COUNT(*) as campaign_count
     FROM campaigns c
     INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
-    WHERE c.offer_id = ? AND c.user_id = ? AND c.status != 'REMOVED'
+    WHERE c.offer_id = ?
+      AND c.user_id = ?
+      AND c.status != 'REMOVED'
+      AND c.google_campaign_id IS NOT NULL
+      AND c.google_campaign_id != ''
   `).get(id, userId) as { account_count: number; campaign_count: number }
 
   if (associatedAccounts.account_count > 0) {
@@ -535,11 +543,28 @@ export function updateOfferScrapeStatus(
   const db = getSQLiteDatabase()
 
   if (status === 'completed' && scrapedData) {
+    // 🔧 修复：当品牌名更新时，同步更新offer_name
+    // 需要先查询当前的offer_name以提取序号
+    const currentOffer = db.prepare(`
+      SELECT offer_name, target_country FROM offers WHERE id = ? AND user_id = ?
+    `).get(id, userId) as { offer_name: string; target_country: string } | undefined
+
+    let newOfferName = currentOffer?.offer_name || null
+
+    // 如果提供了新的品牌名且不是Unknown，则更新offer_name
+    if (scrapedData.brand && scrapedData.brand !== 'Unknown' && currentOffer) {
+      // 从旧的offer_name中提取序号（格式：Brand_Country_序号）
+      const parts = currentOffer.offer_name.split('_')
+      const sequenceNumber = parts.length >= 3 ? parts[parts.length - 1] : '01'
+      newOfferName = `${scrapedData.brand}_${currentOffer.target_country}_${sequenceNumber}`
+    }
+
     db.prepare(`
       UPDATE offers
       SET scrape_status = ?,
           scraped_at = datetime('now'),
           brand = COALESCE(?, brand),
+          offer_name = COALESCE(?, offer_name),
           url = COALESCE(?, url),
           brand_description = COALESCE(?, brand_description),
           unique_selling_points = COALESCE(?, unique_selling_points),
@@ -564,6 +589,7 @@ export function updateOfferScrapeStatus(
     `).run(
       status,
       scrapedData.brand || null,
+      newOfferName,
       scrapedData.url || null,
       scrapedData.brand_description || null,
       scrapedData.unique_selling_points || null,

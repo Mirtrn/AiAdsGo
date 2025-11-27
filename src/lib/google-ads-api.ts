@@ -1388,16 +1388,32 @@ export async function createGoogleAdsSitelinkExtensions(params: {
 
   try {
     // Step 1: Create Sitelink Assets
-    const assetOperations = params.sitelinks.map(sitelink => ({
-      sitelink_asset: {
-        link_text: sitelink.text.substring(0, 25), // 最多25个字符
-        description1: sitelink.description1?.substring(0, 35) || '', // 最多35个字符
-        description2: sitelink.description2?.substring(0, 35) || '', // 最多35个字符
-        final_urls: [sitelink.url]
+    const assetOperations = params.sitelinks.map(sitelink => {
+      console.log(`🔍 处理Sitelink: text="${sitelink.text}", url="${sitelink.url}", desc1="${sitelink.description1}"`)
+
+      const sitelinkAsset: any = {
+        link_text: sitelink.text.substring(0, 25) // 最多25个字符
       }
-    }))
+
+      // description1 和 description2 必须要么都存在，要么都不存在
+      if (sitelink.description1 && sitelink.description1.trim()) {
+        sitelinkAsset.description1 = sitelink.description1.substring(0, 35)
+        sitelinkAsset.description2 = sitelink.description2?.substring(0, 35) || sitelink.description1.substring(0, 35)
+      }
+
+      // 关键修复：final_urls必须在Asset层级，不是sitelink_asset内部
+      const assetObj = {
+        sitelink_asset: sitelinkAsset,
+        final_urls: [sitelink.url] // final_urls在Asset层级
+      }
+
+      console.log(`✅ 生成的Asset:`, JSON.stringify(assetObj, null, 2))
+
+      return assetObj
+    })
 
     console.log(`🔗 创建${params.sitelinks.length}个Sitelink Assets...`)
+    console.log(`📋 Sitelink数据:`, JSON.stringify(assetOperations, null, 2))
     const assetResponse = await customer.assets.create(assetOperations)
 
     if (assetResponse && assetResponse.results) {
@@ -1422,6 +1438,7 @@ export async function createGoogleAdsSitelinkExtensions(params: {
     return { assetIds }
   } catch (error: any) {
     console.error('❌ 创建Sitelink扩展失败:', error.message)
+    console.error('❌ 错误详情:', JSON.stringify(error, null, 2))
     throw new Error(`创建Sitelink扩展失败: ${error.message}`)
   }
 }

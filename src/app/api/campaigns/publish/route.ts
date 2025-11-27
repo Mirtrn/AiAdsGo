@@ -15,6 +15,7 @@ import { createError, ErrorCode, AppError } from '@/lib/errors'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { calculateLaunchScore } from '@/lib/scoring'
 import type { AdCreative } from '@/lib/ad-creative'
+import { generateNamingScheme } from '@/lib/naming-convention'
 
 /**
  * POST /api/campaigns/publish
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
     if (enable_smart_optimization) {
       // 智能优化模式：选择多个最优创意
       creatives = db.prepare(`
-        SELECT id, headlines, descriptions, keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score
+        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score
         FROM ad_creatives
         WHERE offer_id = ? AND user_id = ?
         ORDER BY launch_score DESC, created_at DESC
@@ -143,7 +144,7 @@ export async function POST(request: NextRequest) {
     } else {
       // 单创意模式：验证指定的创意
       const creative = db.prepare(`
-        SELECT id, headlines, descriptions, keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected
+        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected
         FROM ad_creatives
         WHERE id = ? AND offer_id = ? AND user_id = ?
       `).get(ad_creative_id, offer_id, userId) as any
@@ -380,6 +381,33 @@ export async function POST(request: NextRequest) {
       const variantSuffix = variantName ? ` - Variant ${variantName}` : ''
       const variantBudget = campaign_config.budgetAmount * trafficAllocations[i]
 
+      // 🔥 使用统一命名规范生成名称
+      const naming = generateNamingScheme({
+        offer: {
+          id: offer_id,
+          brand: offer.brand,
+          category: offer.category || undefined
+        },
+        config: {
+          targetCountry: campaign_config.targetCountry,
+          budgetAmount: variantBudget,
+          budgetType: campaign_config.budgetType,
+          biddingStrategy: campaign_config.biddingStrategy,
+          maxCpcBid: campaign_config.maxCpcBid
+        },
+        creative: {
+          id: creative.id,
+          theme: creative.theme || undefined
+        },
+        smartOptimization: enable_smart_optimization ? {
+          enabled: true,
+          variantIndex: i + 1,
+          totalVariants: creatives.length
+        } : undefined
+      })
+
+      console.log(`📝 生成命名: Campaign=${naming.campaignName}, AdGroup=${naming.adGroupName}, Ad=${naming.adName}`)
+
       const campaignInsert = db.prepare(`
         INSERT INTO campaigns (
           user_id,
@@ -403,7 +431,7 @@ export async function POST(request: NextRequest) {
         userId,
         offer_id,
         google_ads_account_id,
-        campaign_config.campaignName + variantSuffix,
+        naming.campaignName,  // 🔥 使用规范化的Campaign名称
         variantBudget,
         campaign_config.budgetType,
         creative.id,
@@ -417,7 +445,13 @@ export async function POST(request: NextRequest) {
       )
 
       const campaignId = Number(campaignInsert.lastInsertRowid)
-      createdCampaigns.push({ campaignId, creative, variantName, variantBudget })
+      createdCampaigns.push({
+        campaignId,
+        creative,
+        variantName,
+        variantBudget,
+        naming  // 🔥 保存命名方案供后续使用
+      })
     }
 
     // 11. 批量发布到Google Ads
@@ -425,7 +459,7 @@ export async function POST(request: NextRequest) {
     const failedCampaigns: any[] = []
 
     try {
-      for (const { campaignId, creative, variantName, variantBudget } of createdCampaigns) {
+      for (const { campaignId, creative, variantName, variantBudget, naming } of createdCampaigns) {
         // API追踪设置
         const apiStartTime = Date.now()
         let apiSuccess = false
@@ -440,7 +474,7 @@ export async function POST(request: NextRequest) {
           const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
             customerId: adsAccount.customer_id,
             refreshToken: credentials.refresh_token,
-            campaignName: campaign_config.campaignName + (variantName ? ` - Variant ${variantName}` : ''),
+            campaignName: naming.campaignName,  // 🔥 使用规范化的Campaign名称
             budgetAmount: variantBudget,
             budgetType: campaign_config.budgetType,
             biddingStrategy: campaign_config.biddingStrategy,
@@ -458,7 +492,7 @@ export async function POST(request: NextRequest) {
             customerId: adsAccount.customer_id,
             refreshToken: credentials.refresh_token,
             campaignId: googleCampaignId,
-            adGroupName: campaign_config.adGroupName + (variantName ? ` ${variantName}` : ''),
+            adGroupName: naming.adGroupName,  // 🔥 使用规范化的Ad Group名称
             cpcBidMicros: campaign_config.maxCpcBid * 1000000,
             status: 'ENABLED',
             accountId: adsAccount.id,
@@ -529,6 +563,7 @@ export async function POST(request: NextRequest) {
 
           // 创建Responsive Search Ad
           totalApiOperations++ // Ad creation = 1 operation
+          console.log(`📝 创建广告: ${naming.adName || 'RSA_Default'}`)  // 🔥 记录Ad命名（仅用于日志追踪）
           const { adId: googleAdId } = await createGoogleAdsResponsiveSearchAd({
             customerId: adsAccount.customer_id,
             refreshToken: credentials.refresh_token,

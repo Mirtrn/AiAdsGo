@@ -339,6 +339,7 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
 
 ### HEADLINES (15 required, ≤30 chars each)
 **FIRST HEADLINE (MANDATORY)**: "{KeyWord:${offer.brand}} Official" - Must be EXACTLY this format, no extra words
+**⚠️ CRITICAL**: ONLY the first headline can use {KeyWord:...} format. All other 14 headlines MUST NOT contain {KeyWord:...} or any DKI syntax.
 
 Remaining 14 headlines - Types (must cover all 5):
 - Brand (2): ${badge ? `Use BADGE if available (e.g., "${badge} Brand")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: For stores with hot products, create "Best Seller Collection" headlines featuring top products (e.g., "Best ${topProducts[0]?.split(' ').slice(0, 2).join(' ')} Collection")` : ''}
@@ -346,23 +347,58 @@ Remaining 14 headlines - Types (must cover all 5):
 - Promo (3): ${discount || promotion ? `MUST use real DISCOUNT/PROMOTION data: ${discount ? `"${discount}"` : ''}${promotion ? ` or "${promotion}"` : ''}` : 'Numbers/% required - "Save 40%", "$50 Off"'}
 - CTA (3): "Shop Now", "Get Yours Today"${primeEligible ? ', "Prime Eligible"' : ''}${purchaseReasons.length > 0 ? `. **NEW**: Incorporate WHY BUY reasons: ${purchaseReasons.slice(0, 2).join(', ')}` : ''}
 - Urgency (2): ${availability && availability.includes('left') ? `Use real STOCK data: "${availability}"` : '"Limited Time", "Ends Soon"'}
-**Dynamic Keyword (DKI)**: 1 more headline using "{KeyWord:${offer.brand}}" format
 
 Length distribution: 5 short(10-20), 5 medium(20-25), 5 long(25-30)
 Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarity
 
 ### DESCRIPTIONS (4 required, ≤90 chars each)
-- Value (2): Why choose us? Benefits, USPs${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}${useCases.length > 0 ? `. **NEW**: Reference real USE CASES: ${useCases.slice(0, 2).join(', ')}` : ''}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)}⭐ from ${hotInsights.avgReviews}+ reviews)` : ''}
-- CTA (2): Strong action verbs (Shop/Buy/Get/Order)${primeEligible ? ' + Prime eligibility' : ''} + immediate value${availability ? `. Mention STOCK status if urgent` : ''}
-${reviewHighlights.length > 0 ? `- **USE REVIEW INSIGHTS**: Incorporate customer feedback keywords: ${reviewHighlights.slice(0, 3).join(', ')}` : ''}
-${commonPainPoints.length > 0 ? `- **AVOID MENTIONING**: Address common pain points indirectly (don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}` : ''}
+**UNIQUENESS REQUIREMENT**: Each description MUST be DISTINCT in focus and wording
+- **Description 1 (Value-Driven)**: Lead with the PRIMARY benefit or competitive advantage${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}
+  * Focus: What makes this product/brand special
+  * Example: "Award-Winning Tech. Rated 4.8 stars by 50K+ Happy Customers."
+- **Description 2 (Action-Oriented)**: Strong CTA with immediate incentive${primeEligible ? ' + Prime eligibility' : ''}
+  * Focus: Urgency + convenience + trust signal
+  * Example: "Shop Now for Fast, Free Delivery. Easy Returns Guaranteed."
+- **Description 3 (Feature-Rich)**: Specific product features or use cases${useCases.length > 0 ? `. **NEW**: Reference real USE CASES: ${useCases.slice(0, 2).join(', ')}` : ''}
+  * Focus: Technical specs, capabilities, or versatility
+  * Example: "4K Resolution. Solar Powered. Works Rain or Shine."
+- **Description 4 (Trust + Social Proof)**: Customer validation or support${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)} stars from ${hotInsights.avgReviews}+ reviews)` : ''}
+  * Focus: Reviews, ratings, guarantees, customer service
+  * Example: "Trusted by 100K+ Buyers. 30-Day Money-Back Promise."
 
-### KEYWORDS (10-15): Brand(1-2), Product(4-6), Feature(2-3), Long-tail(3-5)
-**质量要求（重要！确保Launch Score >60分）**:
-- 搜索量: 每个关键词≥1000/月（高流量潜力）
-- 购买意图: 优先transactional关键词（buy, shop, store, best, price）
+**AVOID**: Repeating similar phrases like "shop now", "buy today" across multiple descriptions
+**LEVERAGE DATA**:${reviewHighlights.length > 0 ? ` Review insights: ${reviewHighlights.slice(0, 3).join(', ')}` : ''}${commonPraises.length > 0 ? ` User praises: ${commonPraises.slice(0, 2).join(', ')}` : ''}${commonPainPoints.length > 0 ? ` (Address pain points indirectly - don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}` : ''}
+
+
+### KEYWORDS (10-15 required)
+**🎯 优先级策略（重要！确保Launch Score >60分）**:
+1. **品牌短尾词 (2-4个，最高优先级)**: 品牌名称 + 产品类别/型号的短语（2-3个词）
+   - ✅ 优秀示例: "${offer.brand} robot vacuum", "${offer.brand} c20", "${offer.brand} cleaner"
+   - ✅ 为什么优秀: 高搜索量（通常>5000/月）、高购买意图、精准匹配
+   - ❌ 避免: 仅品牌名单词（如"${offer.brand}"）- 过于宽泛
+
+2. **功能组合词 (3-5个，高优先级)**: 产品核心功能 + 类别
+   - ✅ 优秀示例: "robot vacuum mop combo", "self emptying robot vacuum", "7000pa vacuum cleaner"
+   - ✅ 为什么优秀: 明确产品特性，搜索量中高（1000-10000/月）
+
+3. **购买意图词 (2-3个，中高优先级)**: 包含购买动词的关键词
+   - ✅ 优秀示例: "buy ${offer.brand} robot", "shop robot vacuum", "best ${offer.brand} price"
+   - ✅ 为什么优秀: 用户有明确购买意图，转化率高
+
+4. **长尾精准词 (2-4个，补充优先级)**: 特定场景或细分需求（3-5个词）
+   - ✅ 优秀示例: "robot vacuum for pet hair", "quiet robot vacuum for hardwood", "best budget robot mop"
+   - ⚠️ 注意: 仅作为补充，不应占关键词总数的50%以上
+
+**质量要求**:
+- 搜索量: 品牌短尾词和功能组合词应≥1000/月（优先选择高搜索量）
 - 相关性: 与${offer.brand}品牌和${offer.category || '产品'}高度相关
-${excludeKeywords?.length ? `AVOID duplicates: ${excludeKeywords.join(', ')}` : ''}
+- **🚫 禁止生成的无效关键词**:
+  - ❌ "unknown", "null", "undefined"等系统占位符
+  - ❌ 单一通用词（"camera", "phone", "vacuum"）- 竞争过大且不精准
+  - ❌ 与产品无关的关键词
+${excludeKeywords?.length ? `- ❌ 避免重复: ${excludeKeywords.join(', ')}` : ''}
+
+**🎯 目标**: 至少60%关键词应为品牌短尾词或功能组合词（高搜索量+高转化）
 
 ### CALLOUTS (4-6, ≤25 chars)
 ${primeEligible ? '- **MUST include**: "Prime Free Shipping"' : '- Free Shipping'}
@@ -370,9 +406,19 @@ ${availability && !availability.toLowerCase().includes('out of stock') ? '- **MU
 ${badge ? `- **MUST include**: "${badge}"` : ''}
 - 24/7 Support, Money Back Guarantee, etc.
 
-### SITELINKS (4): text≤25, desc≤35, url="/" (auto-replaced)
+### SITELINKS (6): text≤25, desc≤35, url="/" (auto-replaced)
+- **REQUIREMENT**: Each sitelink must have a UNIQUE, compelling description
+- Focus on different product features, benefits, or use cases
+- Avoid repeating similar phrases across sitelinks
+- Examples: "Free 2-Day Prime Delivery", "30-Day Money Back Promise", "Expert Tech Support 24/7"
 
-## FORBIDDEN: "100%", "best", "guarantee", "miracle", "!!!", ALL CAPS abuse
+## FORBIDDEN CONTENT:
+**❌ Prohibited Words**: "100%", "best", "guarantee", "miracle", ALL CAPS abuse
+**❌ Prohibited Symbols (Google Ads Policy)**: ★ ☆ ⭐ 🌟 ✨ © ® ™ • ● ◆ ▪ → ← ↑ ↓ ✓ ✔ ✗ ✘ ❤ ♥ ⚡ 🔥 💎 👍 👎
+  * Use text alternatives instead: "stars" or "star rating" instead of ★
+  * Use "Rated 4.8 stars" NOT "4.8★"
+  * Use "Top Choice" NOT "Top Choice ✓"
+**❌ Excessive Punctuation**: "!!!", "???", "...", repeated exclamation marks
 
 ## OUTPUT (JSON only, no markdown):
 {
@@ -591,6 +637,44 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
       return text
     }
 
+    // 🔥 过滤Google Ads禁止的符号（Policy Violation防御）
+    const removeProhibitedSymbols = (text: string): string => {
+      // Google Ads禁止的符号列表（基于SYMBOLS policy）
+      const prohibitedSymbols = [
+        '★', '☆', '⭐', '🌟', '✨',  // 星星符号
+        '©', '®', '™',              // 版权商标符号
+        '•', '●', '◆', '▪',         // 项目符号
+        '→', '←', '↑', '↓',         // 箭头符号
+        '✓', '✔', '✗', '✘',         // 勾选符号
+        '❤', '♥',                    // 心形符号
+        '⚡', '🔥', '💎',            // 装饰性emoji
+        '👍', '👎'                   // 手势emoji
+      ]
+
+      let cleaned = text
+      let removedSymbols: string[] = []
+
+      for (const symbol of prohibitedSymbols) {
+        if (cleaned.includes(symbol)) {
+          removedSymbols.push(symbol)
+          // 替换规则：星星符号替换为 "star(s)"，其他符号直接删除
+          if (['★', '☆', '⭐', '🌟', '✨'].includes(symbol)) {
+            cleaned = cleaned.replace(new RegExp(symbol, 'g'), 'stars')
+          } else if (['✓', '✔'].includes(symbol)) {
+            cleaned = cleaned.replace(new RegExp(symbol, 'g'), '')  // 直接删除
+          } else {
+            cleaned = cleaned.replace(new RegExp(symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '')
+          }
+        }
+      }
+
+      if (removedSymbols.length > 0) {
+        console.log(`🛡️ 移除违规符号: "${text}" → "${cleaned}" (移除: ${removedSymbols.join(', ')})`)
+      }
+
+      return cleaned.trim()
+    }
+
     // 应用DKI修复到所有headlines
     const originalHeadlines = [...headlinesArray]
     headlinesArray = headlinesArray.map((h: string) => fixDKISyntax(h))
@@ -598,6 +682,10 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
     if (fixedCount > 0) {
       console.log(`✅ 修复了${fixedCount}个DKI标签格式问题`)
     }
+
+    // 🔥 新增：应用符号过滤到所有headlines和descriptions
+    headlinesArray = headlinesArray.map((h: string) => removeProhibitedSymbols(h))
+    descriptionsArray = descriptionsArray.map((d: string) => removeProhibitedSymbols(d))
 
     const invalidDescriptions = descriptionsArray.filter((d: string) => d.length > 90)
     if (invalidDescriptions.length > 0) {

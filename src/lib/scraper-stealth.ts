@@ -50,6 +50,7 @@ function randomDelay(min: number = 1000, max: number = 3000): Promise<void> {
  */
 function getDynamicTimeout(url: string): number {
   const complexity = assessPageComplexity(url)
+  console.log(`📊 页面复杂度: ${complexity.complexity}, 推荐timeout: ${complexity.recommendedTimeout}ms (URL: ${url})`)
   return complexity.recommendedTimeout
 }
 
@@ -497,7 +498,8 @@ export async function scrapeAmazonProduct(
 
   const result = await scrapeUrlWithBrowser(url, customProxyUrl, {
     waitForSelector: '#productTitle',
-    waitForTimeout: 40000,
+    // 🔥 修复：使用动态超时，Amazon.it等国际站点使用120秒
+    waitForTimeout: getDynamicTimeout(url),
   })
 
   // Parse HTML with cheerio
@@ -738,6 +740,17 @@ export async function scrapeAmazonProduct(
     }
   }
 
+  // 策略2.5: 从technicalDetails.Brand提取（重要！Amazon产品规格中的官方品牌）
+  if (!brandName && technicalDetails.Brand) {
+    const techBrand = technicalDetails.Brand.toString().trim()
+      .replace(/^‎/, '') // 移除Unicode左到右标记
+      .replace(/^Brand:\s*/i, '')
+    if (techBrand && techBrand.length > 1 && techBrand.length < 50) {
+      brandName = techBrand
+      console.log(`✅ 策略2.5成功: 从technicalDetails.Brand提取 "${brandName}"`)
+    }
+  }
+
   // 策略3: 从产品标题智能提取（适用于标题包含品牌名的情况）
   // 常见格式: "Brand Name - Product Description", "Brand Name Product Name"
   if (!brandName && productName) {
@@ -745,10 +758,10 @@ export async function scrapeAmazonProduct(
     const titleParts = productName.split(/[\s-,|]+/)
     if (titleParts.length > 0) {
       const potentialBrand = titleParts[0].trim()
-      // 验证是否为合理的品牌名（全大写或首字母大写，长度2-20）
+      // 验证是否为合理的品牌名（允许全小写、全大写或首字母大写，长度2-20）
       if (potentialBrand.length >= 2 && potentialBrand.length <= 20) {
-        const isValidBrand = /^[A-Z][A-Za-z0-9&\s-]+$/.test(potentialBrand) ||
-                            /^[A-Z0-9]+$/.test(potentialBrand)
+        const isValidBrand = /^[A-Za-z][A-Za-z0-9&\s-]*$/.test(potentialBrand) ||  // 允许小写开头
+                            /^[A-Z0-9]+$/.test(potentialBrand)  // 全大写+数字
         if (isValidBrand) {
           brandName = potentialBrand
           console.log(`✅ 策略3成功: 从产品标题提取品牌 "${brandName}"`)

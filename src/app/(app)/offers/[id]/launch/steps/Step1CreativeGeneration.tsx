@@ -59,6 +59,7 @@ interface Creative {
   descriptions: string[]
   keywords: string[]
   keywordsWithVolume?: KeywordWithVolume[]
+  negativeKeywords?: string[]  // 🎯 新增：否定关键词
   callouts?: string[]
   sitelinks?: Array<{
     text: string
@@ -704,6 +705,40 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                       )}
                     </div>
                   </div>
+
+                  {/* Negative Keywords */}
+                  {creative.negativeKeywords && creative.negativeKeywords.length > 0 && (
+                    <>
+                      <Separator />
+                      <div>
+                        <div className="text-sm font-medium text-gray-700 mb-3 flex items-center justify-between">
+                          <span>否定关键词 ({creative.negativeKeywords.length})</span>
+                          {creative.negativeKeywords.length > 5 && (
+                            <button
+                              onClick={() => toggleSection(creative.id, 'negativeKeywords')}
+                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium"
+                            >
+                              {isSectionExpanded(creative.id, 'negativeKeywords') ? (
+                                <>收起 <ChevronUp className="w-3 h-3" /></>
+                              ) : (
+                                <>展开全部 <ChevronDown className="w-3 h-3" /></>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {(isSectionExpanded(creative.id, 'negativeKeywords')
+                            ? creative.negativeKeywords
+                            : creative.negativeKeywords.slice(0, 5)
+                          ).map((nk, i) => (
+                            <Badge key={i} variant="outline" className="text-xs px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 border-red-200">
+                              {nk}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {/* Callouts */}
                   {creative.callouts && creative.callouts.length > 0 && (

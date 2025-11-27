@@ -484,8 +484,18 @@ export default function SettingsPage() {
         }]
       } else {
         // 过滤掉空值字段，避免提交未填写的配置项
+        // 但需要保留占位符（············）的字段，因为这些是已配置的敏感字段
         updates = Object.entries(formData[category] || {})
-          .filter(([_, value]) => value !== undefined && value !== null && value.trim() !== '')
+          .filter(([_, value]) => {
+            if (value === undefined || value === null || value.trim() === '') {
+              return false
+            }
+            // 如果是占位符（············），说明用户没有修改，不需要提交
+            if (value === '············') {
+              return false
+            }
+            return true
+          })
           .map(([key, value]) => ({
             category,
             key,
@@ -510,8 +520,11 @@ export default function SettingsPage() {
       const categoryLabel = CATEGORY_CONFIG[category]?.label || category
       toast.success(`${categoryLabel} 配置保存成功`)
 
-      // 刷新配置
+      // 刷新配置（会重新获取解密后的值）
       await fetchSettings()
+
+      // 🔥 重要：刷新后清除编辑状态，让敏感字段重新显示为占位符
+      setEditingField(null)
     } catch (err: any) {
       toast.error(err.message || '保存失败')
     } finally {
@@ -675,25 +688,39 @@ export default function SettingsPage() {
     if (setting.isSensitive) {
       const fieldKey = `${category}.${setting.key}`
       const isEditing = editingField === fieldKey
+      const hasValue = value && value.trim() !== ''
 
       // 如果正在编辑，显示实际值；否则显示固定长度的占位符（12个点），避免泄露实际长度
-      const displayValue = isEditing ? value : (value ? '············' : '')
+      const displayValue = isEditing ? value : (hasValue ? '············' : '')
 
       return (
-        <Input
-          type="password"
-          value={displayValue}
-          onChange={(e) => handleInputChange(category, setting.key, e.target.value)}
-          placeholder={metadata?.placeholder || ''}
-          onFocus={() => {
-            // 聚焦时标记为正在编辑
-            setEditingField(fieldKey)
-          }}
-          onBlur={() => {
-            // 失焦时取消编辑状态
-            setEditingField(null)
-          }}
-        />
+        <div className="space-y-1">
+          <Input
+            type="password"
+            value={displayValue}
+            onChange={(e) => handleInputChange(category, setting.key, e.target.value)}
+            placeholder={metadata?.placeholder || ''}
+            className={hasValue ? 'border-green-300' : ''}
+            onFocus={() => {
+              // 聚焦时标记为正在编辑，并清空占位符
+              setEditingField(fieldKey)
+              if (hasValue && !isEditing) {
+                // 清空占位符，让用户输入新值
+                handleInputChange(category, setting.key, '')
+              }
+            }}
+            onBlur={() => {
+              // 失焦时取消编辑状态
+              setEditingField(null)
+            }}
+          />
+          {hasValue && !isEditing && (
+            <p className="text-caption text-green-600 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" />
+              已配置（点击输入框可修改）
+            </p>
+          )}
+        </div>
       )
     }
 
