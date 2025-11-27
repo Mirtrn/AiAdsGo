@@ -173,11 +173,11 @@ export default function CreateOfferModalV2({
           brand: brandName.trim(),
           target_country: targetCountry,
           url: extractedData.finalUrl,
-          final_url_suffix: extractedData.finalUrlSuffix,
+          final_url_suffix: extractedData.finalUrlSuffix || undefined,
           product_price: productPrice || undefined,
           commission_payout: commissionPayout || undefined,
           // 传递提取的数据（用于后续数据抓取）
-          brand_description: extractedData.productDescription,
+          brand_description: extractedData.productDescription || undefined,
           target_language: extractedData.targetLanguage,
         }),
       })
