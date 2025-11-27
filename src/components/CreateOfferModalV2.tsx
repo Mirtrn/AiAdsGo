@@ -172,7 +172,8 @@ export default function CreateOfferModalV2({
           affiliate_link: affiliateLink,
           brand: brandName.trim(),
           target_country: targetCountry,
-          url: extractedData.finalUrl,
+          url: extractedData.finalUrl,  // 原始URL（推广链接解析后的最终落地页）
+          final_url: extractedData.finalUrl,  // ✅ 同时保存到final_url字段，标记SSE已完成
           final_url_suffix: extractedData.finalUrlSuffix || undefined,
           product_price: productPrice || undefined,
           commission_payout: commissionPayout || undefined,

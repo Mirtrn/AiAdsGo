@@ -54,18 +54,28 @@ export async function POST(request: NextRequest) {
     // 使缓存失效
     invalidateOfferCache(parseInt(userId, 10))
 
-    // 🚀 自动触发异步抓取（不等待完成，立即返回）
-    // 直接调用抓取函数，避免HTTP请求的认证问题
+    // ⚠️ 智能抓取逻辑：避免重复抓取
+    // 判断依据：
+    // 1. 如果final_url已存在 → SSE流程已完成基础提取，无需再次抓取
+    // 2. 如果final_url为空 → 手动创建场景，需要触发抓取
     if (offer.scrape_status === 'pending') {
-      // 使用setImmediate或setTimeout确保在响应返回后执行
-      setImmediate(() => {
-        triggerOfferScraping(
-          offer.id,
-          parseInt(userId, 10),
-          offer.url,
-          offer.brand
-        )
-      })
+      if (offer.final_url) {
+        // SSE已完成基础提取（品牌、Final URL），直接标记为completed
+        // 即使AI分析失败，基础信息已足够使用
+        console.log(`✅ Offer ${offer.id} 已通过SSE完成基础提取，标记为completed`)
+        updateOfferScrapeStatus(offer.id, parseInt(userId, 10), 'completed')
+      } else {
+        // 手动创建场景：final_url为空，需要触发完整抓取
+        console.log(`🚀 Offer ${offer.id} 缺少final_url，触发后台抓取`)
+        setImmediate(() => {
+          triggerOfferScraping(
+            offer.id,
+            parseInt(userId, 10),
+            offer.url,
+            offer.brand
+          )
+        })
+      }
     }
 
     return NextResponse.json(
