@@ -219,7 +219,9 @@ export function listOffers(
     const linkedAccounts = db.prepare(`
       SELECT DISTINCT
         gaa.id as account_id,
-        gaa.customer_id
+        gaa.account_name as account_name,
+        gaa.customer_id,
+        0 as campaign_count
       FROM campaigns c
       INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       WHERE c.offer_id = ?
@@ -228,7 +230,9 @@ export function listOffers(
         AND gaa.is_manager_account = 0
     `).all(offer.id, userId) as Array<{
       account_id: number
+      account_name: string | null
       customer_id: string
+      campaign_count: number
     }>
 
     return {

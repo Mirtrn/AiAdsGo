@@ -103,7 +103,7 @@ export function sendProgress(
  */
 export function sendComplete(
   controller: ReadableStreamDefaultController,
-  data: { success: boolean; finalUrl: string; brand: string; productCount?: number }
+  data: { success: boolean; finalUrl: string; brand: string; productCount?: number; [key: string]: any }
 ): void {
   if (!isControllerOpen(controller)) {
     console.warn('SSE Controller already closed, cannot send complete');

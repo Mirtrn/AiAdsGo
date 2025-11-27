@@ -91,7 +91,6 @@ export async function POST(request: NextRequest) {
         platform,
         productName: extractedProductName,
         price: extractedPrice,
-        imageUrls,
         debug,
       } = extractResult.data;
 

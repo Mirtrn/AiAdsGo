@@ -245,17 +245,7 @@ export async function POST(
 
     const launchScore = await calculateLaunchScore(
       offer,
-      {
-        headlines: bestCreative.headlines,
-        descriptions: bestCreative.descriptions,
-        keywords: bestCreative.keywords || [],
-        keywordsWithVolume: bestCreative.keywordsWithVolume || [],
-        negativeKeywords: bestCreative.negativeKeywords || [],
-        callouts: bestCreative.callouts || [],
-        sitelinks: bestCreative.sitelinks || [],
-        final_url: offer.final_url || offer.url,
-        final_url_suffix: offer.final_url_suffix || undefined
-      },
+      savedCreative,  // 使用已保存的完整AdCreative对象
       parseInt(userId, 10)
     )
 
