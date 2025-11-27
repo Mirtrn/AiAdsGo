@@ -130,10 +130,17 @@ export function detectPageType(url: string): PageTypeResult {
  * @throws AppError 如果代理配置未设置
  */
 export async function initializeProxyPool(userId: number, targetCountry: string): Promise<void> {
+  console.log(`🔍 [initializeProxyPool] 开始初始化代理池...`)
+  console.log(`   - userId: ${userId}`)
+  console.log(`   - targetCountry: ${targetCountry}`)
+
   // 获取用户配置的代理URL列表
   const proxyUrls = getAllProxyUrls(userId)
 
+  console.log(`🔍 [initializeProxyPool] getAllProxyUrls返回:`, proxyUrls)
+
   if (!proxyUrls || proxyUrls.length === 0) {
+    console.error(`❌ [initializeProxyPool] 未找到代理配置`)
     const error = new Error(`未找到代理配置，请在设置页面配置代理URL`) as any
     error.code = 'PROXY_NOT_CONFIGURED'
     error.details = { targetCountry, userId }
@@ -146,6 +153,8 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
     country: p.country,
     is_default: i === 0, // 第一个代理作为默认代理
   }))
+
+  console.log(`🔍 [initializeProxyPool] 准备加载${proxiesWithDefault.length}个代理到代理池`)
 
   // 加载代理到代理池
   const proxyPool = getProxyPool()
