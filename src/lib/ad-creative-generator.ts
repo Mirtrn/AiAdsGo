@@ -5,6 +5,7 @@ import type {
   DescriptionAsset,
   QualityMetrics
 } from './ad-creative'
+import type { Offer } from './offers'
 import { creativeCache, generateCreativeCacheKey } from './cache'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { generateContent, getGeminiMode } from './gemini'
@@ -696,17 +697,17 @@ export async function generateAdCreative(
   } = {}
 
   try {
-    if (offer.extracted_keywords) {
-      extractedElements.keywords = JSON.parse(offer.extracted_keywords)
-      console.log(`📦 读取到 ${extractedElements.keywords.length} 个提取的关键词`)
+    if ((offer as any).extracted_keywords) {
+      extractedElements.keywords = JSON.parse((offer as any).extracted_keywords)
+      console.log(`📦 读取到 ${extractedElements.keywords?.length || 0} 个提取的关键词`)
     }
-    if (offer.extracted_headlines) {
-      extractedElements.headlines = JSON.parse(offer.extracted_headlines)
-      console.log(`📦 读取到 ${extractedElements.headlines.length} 个提取的标题`)
+    if ((offer as any).extracted_headlines) {
+      extractedElements.headlines = JSON.parse((offer as any).extracted_headlines)
+      console.log(`📦 读取到 ${extractedElements.headlines?.length || 0} 个提取的标题`)
     }
-    if (offer.extracted_descriptions) {
-      extractedElements.descriptions = JSON.parse(offer.extracted_descriptions)
-      console.log(`📦 读取到 ${extractedElements.descriptions.length} 个提取的描述`)
+    if ((offer as any).extracted_descriptions) {
+      extractedElements.descriptions = JSON.parse((offer as any).extracted_descriptions)
+      console.log(`📦 读取到 ${extractedElements.descriptions?.length || 0} 个提取的描述`)
     }
   } catch (parseError: any) {
     console.warn('⚠️ 解析提取的广告元素失败，将使用AI全新生成:', parseError.message)
@@ -749,16 +750,9 @@ export async function generateAdCreative(
 
   if (result.headlines.length > 0) {
     // 检查第一个headline是否符合要求
-    if (result.headlines[0].text !== requiredFirstHeadline) {
-      console.log(`🔧 强制第一个headline: "${result.headlines[0].text}" → "${requiredFirstHeadline}"`)
-      result.headlines[0] = {
-        text: requiredFirstHeadline,
-        type: 'brand',
-        length: requiredFirstHeadline.length,
-        keywords: [brandName.toLowerCase()],
-        hasNumber: false,
-        hasUrgency: false
-      }
+    if (result.headlines[0] !== requiredFirstHeadline) {
+      console.log(`🔧 强制第一个headline: "${result.headlines[0]}" → "${requiredFirstHeadline}"`)
+      result.headlines[0] = requiredFirstHeadline
     } else {
       console.log(`✅ 第一个headline已符合要求: "${requiredFirstHeadline}"`)
     }
@@ -950,7 +944,7 @@ export async function generateAdCreative(
   try {
     console.log('🔍 生成否定关键词...')
     console.time('⏱️ 否定关键词生成')
-    negativeKeywords = await generateNegativeKeywords(offer, userId)
+    negativeKeywords = await generateNegativeKeywords(offer as Offer, userId)
     console.timeEnd('⏱️ 否定关键词生成')
     console.log(`✅ 生成${negativeKeywords.length}个否定关键词:`, negativeKeywords.slice(0, 5).join(', '), '...')
   } catch (negError: any) {

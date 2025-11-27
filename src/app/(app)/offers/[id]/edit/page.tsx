@@ -6,7 +6,7 @@ import { useRouter, useParams } from 'next/navigation'
 export default function EditOfferPage() {
   const router = useRouter()
   const params = useParams()
-  const offerId = params.id as string
+  const offerId = params?.id as string
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

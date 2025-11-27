@@ -14,6 +14,7 @@ interface ProgressTrackerProps {
 }
 
 const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string }> = {
+  proxy_warmup: { label: '推广链接预热', icon: '🔥' },
   resolving_link: { label: '解析推广链接', icon: '🔗' },
   fetching_proxy: { label: '获取代理IP', icon: '🌐' },
   accessing_page: { label: '访问目标页面', icon: '🚀' },
@@ -25,6 +26,7 @@ const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string }> = {
 };
 
 const STAGE_ORDER: ProgressStage[] = [
+  'proxy_warmup',
   'fetching_proxy',
   'resolving_link',
   'accessing_page',

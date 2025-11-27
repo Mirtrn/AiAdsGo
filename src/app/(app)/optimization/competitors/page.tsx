@@ -204,9 +204,9 @@ export default function CompetitorsPage() {
               <p className="text-slate-500 max-w-md mx-auto">
                 请先在Offer管理中进行数据抓取，系统将自动分析竞品信息
               </p>
-              <Button className="mt-4" asChild>
-                <a href="/offers">前往Offer管理</a>
-              </Button>
+              <a href="/offers">
+                <Button className="mt-4">前往Offer管理</Button>
+              </a>
             </div>
           </CardContent>
         </Card>

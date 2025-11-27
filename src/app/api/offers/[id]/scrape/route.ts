@@ -287,19 +287,23 @@ export async function performScrapeAndAnalysis(
         console.log(`📋 提取Final URL Suffix (${finalUrlSuffix.length}字符): ${finalUrlSuffix.substring(0, 100)}${finalUrlSuffix.length > 100 ? '...' : ''}`)
 
         // 更新Offer中的final_url和final_url_suffix字段
-        updateOffer(offerId, offer.user_id, {
-          final_url: finalUrl,
-          final_url_suffix: finalUrlSuffix,
-          url: finalUrl  // 同时更新url为清理后的基础URL
-        })
+        if (offer) {
+          updateOffer(offerId, offer.user_id, {
+            final_url: finalUrl,
+            final_url_suffix: finalUrlSuffix,
+            url: finalUrl  // 同时更新url为清理后的基础URL
+          })
+        }
 
         console.log(`✅ 已更新Offer ${offerId}的Final URL和Final URL Suffix`)
       } else {
         console.log(`ℹ️ URL不含查询参数，仅更新Final URL`)
-        updateOffer(offerId, offer.user_id, {
-          final_url: finalUrl,
-          url: finalUrl
-        })
+        if (offer) {
+          updateOffer(offerId, offer.user_id, {
+            final_url: finalUrl,
+            url: finalUrl
+          })
+        }
       }
     } catch (urlError: any) {
       console.warn(`⚠️ URL解析失败: ${urlError.message}`)
@@ -1159,8 +1163,10 @@ export async function performScrapeAndAnalysis(
               pageType: 'store',
               storeProducts: products.map(p => ({
                 name: p.name,
+                price: null,
                 rating: p.rating,
                 reviewCount: p.review_count,
+                asin: null,
                 hotScore: p.hot_score || undefined
               }))
             },

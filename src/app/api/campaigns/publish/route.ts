@@ -253,12 +253,12 @@ export async function POST(request: NextRequest) {
         userId
       )
 
-      // 从ScoreAnalysis中提取各维度分数
-      const keywordScore = launchScoreResult.keywordAnalysis.score
-      const marketFitScore = launchScoreResult.marketFitAnalysis.score
-      const landingPageScore = launchScoreResult.landingPageAnalysis.score
-      const budgetScore = launchScoreResult.budgetAnalysis.score
-      const contentScore = launchScoreResult.contentAnalysis.score
+      // 从scoreAnalysis中提取各维度分数
+      const keywordScore = launchScoreResult.scoreAnalysis.keywordAnalysis.score
+      const marketFitScore = launchScoreResult.scoreAnalysis.marketFitAnalysis.score
+      const landingPageScore = launchScoreResult.scoreAnalysis.landingPageAnalysis.score
+      const budgetScore = launchScoreResult.scoreAnalysis.budgetAnalysis.score
+      const contentScore = launchScoreResult.scoreAnalysis.contentAnalysis.score
       const launchScore = keywordScore + marketFitScore + landingPageScore + budgetScore + contentScore
 
       console.log(`📊 Launch Score评估结果: ${launchScore}分`)
@@ -289,8 +289,8 @@ export async function POST(request: NextRequest) {
                 budget: budgetScore,
                 content: contentScore
               },
-              issues: launchScoreResult.keywordAnalysis?.issues || [],
-              recommendations: launchScoreResult.overallRecommendations || []
+              issues: launchScoreResult.scoreAnalysis.keywordAnalysis?.issues || [],
+              recommendations: launchScoreResult.scoreAnalysis.overallRecommendations || []
             },
             action: 'LAUNCH_SCORE_BLOCKED'
           },
@@ -313,8 +313,8 @@ export async function POST(request: NextRequest) {
                 budget: budgetScore,
                 content: contentScore
               },
-              issues: launchScoreResult.keywordAnalysis?.issues || [],
-              recommendations: launchScoreResult.overallRecommendations || [],
+              issues: launchScoreResult.scoreAnalysis.keywordAnalysis?.issues || [],
+              recommendations: launchScoreResult.scoreAnalysis.overallRecommendations || [],
               canForcePublish: true // 允许强制发布
             },
             action: 'LAUNCH_SCORE_WARNING'

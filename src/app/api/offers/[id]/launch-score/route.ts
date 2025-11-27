@@ -79,8 +79,8 @@ export async function POST(
     // 使用AI计算Launch Score
     const analysis = await calculateLaunchScore(offer, creative, parseInt(userId, 10))
 
-    // 保存到数据库
-    const launchScore = createLaunchScore(parseInt(userId, 10), offer.id, analysis)
+    // 保存到数据库 - 使用scoreAnalysis字段
+    const launchScore = createLaunchScore(parseInt(userId, 10), offer.id, analysis.scoreAnalysis)
 
     return NextResponse.json({
       success: true,
@@ -164,7 +164,7 @@ export async function GET(
 
       // 计算Launch Score
       const analysis = await calculateLaunchScore(offer, bestCreative, parseInt(userId, 10))
-      launchScore = createLaunchScore(parseInt(userId, 10), offer.id, analysis)
+      launchScore = createLaunchScore(parseInt(userId, 10), offer.id, analysis.scoreAnalysis)
 
       return NextResponse.json({
         success: true,

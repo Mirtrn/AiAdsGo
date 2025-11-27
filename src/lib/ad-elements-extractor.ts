@@ -699,8 +699,8 @@ async function extractFromSingleProduct(
       },
       topProducts: [{
         name: productInfo.name,
-        rating: productInfo.rating,
-        reviewCount: productInfo.reviewCount
+        rating: productInfo.rating ?? null,
+        reviewCount: productInfo.reviewCount ?? null
       }]
     }
   }

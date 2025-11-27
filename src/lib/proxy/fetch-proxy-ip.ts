@@ -41,7 +41,7 @@ export async function testProxyHealth(
     const proxyUrl = `http://${credentials.username}:${credentials.password}@${credentials.host}:${credentials.port}`
 
     // 使用node-fetch + https-proxy-agent测试
-    const { default: fetch } = await import('node-fetch')
+    const { default: fetch } = await import('node-fetch') as any
     const { HttpsProxyAgent } = await import('https-proxy-agent')
 
     const agent = new HttpsProxyAgent(proxyUrl)

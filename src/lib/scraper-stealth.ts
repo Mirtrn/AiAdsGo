@@ -131,8 +131,11 @@ async function createStealthBrowser(proxyUrl?: string, targetCountry?: string): 
       const proxyPool = getProxyPoolManager()
       const cachedProxy = await proxyPool.getHealthyProxy(targetCountry)
       if (cachedProxy) {
-        proxy = cachedProxy
-        console.log(`🔥 [代理池] Cache HIT: ${proxy.host}:${proxy.port} (${targetCountry})`)
+        proxy = {
+          ...cachedProxy,
+          fullAddress: `${cachedProxy.host}:${cachedProxy.port}:${cachedProxy.username || ''}:${cachedProxy.password || ''}`
+        }
+        console.log(`🔥 [代理池] Cache HIT: ${proxy?.host}:${proxy?.port} (${targetCountry})`)
       }
     } catch (poolError: any) {
       console.warn(`⚠️ 代理池获取失败，降级为直接fetch: ${poolError.message}`)
@@ -972,7 +975,7 @@ export async function scrapeAmazonStore(
               waitUntil: 'domcontentloaded',
               timeout: getDynamicTimeout(finalUrlWithParams),
             })
-            console.log(`📊 重访HTTP状态: ${response.status()}`)
+            console.log(`📊 重访HTTP状态: ${response?.status()}`)
           }
         }
 
@@ -1239,7 +1242,7 @@ export async function scrapeAmazonStore(
 
     try {
       // 关闭当前页面，打开搜索页面
-      const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(brandName)}`
+      const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(brandName || '')}`
       console.log(`🌐 访问搜索URL: ${searchUrl}`)
 
       await page.goto(searchUrl, {
@@ -1352,7 +1355,6 @@ export async function scrapeAmazonStore(
           price,
           rating,
           reviewCount,
-          imageUrl,
           asin,
           promotion,
           badge,
@@ -1783,7 +1785,6 @@ export async function scrapeIndependentStore(
           products.push({
             name,
             price,
-            imageUrl,
             productUrl: productUrl ? (productUrl.startsWith('http') ? productUrl : new URL(productUrl, finalUrl).href) : null,
           })
         }

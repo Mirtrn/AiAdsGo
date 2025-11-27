@@ -3,6 +3,7 @@
  */
 
 export type ProgressStage =
+  | 'proxy_warmup'       // 推广链接预热
   | 'resolving_link'     // 解析推广链接
   | 'fetching_proxy'     // 获取代理IP
   | 'accessing_page'     // 访问目标页面
@@ -60,6 +61,11 @@ export type SSEMessage = ProgressUpdate | ErrorUpdate | CompleteUpdate;
  * Stage configuration with display metadata
  */
 export const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string; estimatedTime: number }> = {
+  proxy_warmup: {
+    label: '推广链接预热',
+    icon: '🔥',
+    estimatedTime: 5000, // 5 seconds
+  },
   resolving_link: {
     label: '解析推广链接',
     icon: '🔗',
@@ -107,6 +113,7 @@ export const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string; 
  */
 export function calculateProgress(stage: ProgressStage, status: ProgressStatus): number {
   const stageOrder: ProgressStage[] = [
+    'proxy_warmup',
     'fetching_proxy',
     'resolving_link',
     'accessing_page',

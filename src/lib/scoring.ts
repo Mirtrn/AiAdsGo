@@ -37,6 +37,7 @@ export async function calculateLaunchScore(
     contentCreativeQuality: { score: number; issues?: string[]; suggestions?: string[] }
   }
   recommendations: string[]
+  scoreAnalysis: ScoreAnalysis  // Add ScoreAnalysis for createLaunchScore
 }> {
   try {
     // 🎯 获取创意中的关键词和否定关键词数据
@@ -241,7 +242,8 @@ ${keywordsWithVolume.length > 0 ?
           suggestions: rawAnalysis.contentAnalysis.suggestions
         }
       },
-      recommendations: rawAnalysis.overallRecommendations
+      recommendations: rawAnalysis.overallRecommendations,
+      scoreAnalysis: rawAnalysis  // Return ScoreAnalysis for createLaunchScore
     }
   } catch (error: any) {
     console.error('计算Launch Score失败:', error)
