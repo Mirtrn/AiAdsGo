@@ -1,71 +1,60 @@
-import Redis from 'ioredis'
+#!/usr/bin/env npx tsx
 
-const redisUrl = process.env.REDIS_URL
-if (!redisUrl) {
-  console.error('❌ REDIS_URL environment variable is not set')
-  process.exit(1)
-}
+import { getCachedPageData, clearPageCache } from '../src/lib/redis'
 
-const redis = new Redis(redisUrl)
-
-async function clearCache(pattern?: string) {
-  try {
-    console.log('🚀 开始清理Redis缓存...')
-
-    const searchPattern = pattern || 'scrape:*'
-    console.log(`🔍 搜索模式: ${searchPattern}`)
-
-    // 使用SCAN命令批量获取键（避免KEYS命令阻塞）
-    const keys: string[] = []
-    let cursor = '0'
-
-    do {
-      const result = await redis.scan(cursor, 'MATCH', searchPattern, 'COUNT', 100)
-      cursor = result[0]
-      keys.push(...result[1])
-    } while (cursor !== '0')
-
-    if (keys.length === 0) {
-      console.log('✨ 没有找到匹配的缓存键')
-      return
-    }
-
-    console.log(`\n📋 找到 ${keys.length} 个缓存键:`)
-
-    // 显示前10个键作为示例
-    keys.slice(0, 10).forEach(key => {
-      console.log(`   - ${key}`)
-    })
-    if (keys.length > 10) {
-      console.log(`   ... 还有 ${keys.length - 10} 个键`)
-    }
-
-    console.log('\n🗑️  开始删除...')
-
-    // 批量删除（每次删除100个）
-    let deletedCount = 0
-    for (let i = 0; i < keys.length; i += 100) {
-      const batch = keys.slice(i, i + 100)
-      await redis.del(...batch)
-      deletedCount += batch.length
-      console.log(`   进度: ${deletedCount}/${keys.length}`)
-    }
-
-    console.log(`\n✅ 清理完成！删除了 ${deletedCount} 个缓存键`)
-
-  } catch (error) {
-    console.error('❌ 清理失败:', error)
-    process.exit(1)
-  } finally {
-    await redis.quit()
+async function clearCache() {
+  console.log('🧹 清除YeahPromos URL的Redis缓存')
+  console.log('='.repeat(80))
+  
+  const url = 'https://yeahpromos.com/index/index/openurl?track=606a814910875990&url='
+  const language = 'en'
+  
+  console.log(`URL: ${url}`)
+  console.log(`Language: ${language}`)
+  console.log('')
+  
+  // 检查缓存是否存在
+  console.log('🔍 检查现有缓存...')
+  const cached = await getCachedPageData(url, language)
+  
+  if (cached) {
+    console.log(`✅ 找到缓存数据`)
+    console.log(`   缓存时间: ${cached.cachedAt}`)
+    console.log(`   内容长度: ${cached.text.length} 字符`)
+    console.log(`   标题: ${cached.title || '(空)'}`)
+    console.log(`   描述: ${cached.description || '(空)'}`)
+    console.log('')
+  } else {
+    console.log('⏭️  没有找到缓存数据')
+    console.log('')
+    return
   }
+  
+  // 删除缓存
+  console.log('🗑️  删除缓存...')
+  await clearPageCache(url, language)
+  console.log('✅ 缓存已删除')
+  console.log('')
+  
+  // 验证删除
+  console.log('🔍 验证缓存是否已删除...')
+  const checkDeleted = await getCachedPageData(url, language)
+  
+  if (checkDeleted) {
+    console.log('❌ 缓存删除失败，仍然存在')
+  } else {
+    console.log('✅ 确认缓存已清除')
+  }
+  
+  console.log('='.repeat(80))
 }
 
-// 从命令行参数获取搜索模式
-const pattern = process.argv[2]
-
-if (pattern) {
-  console.log(`📌 使用自定义模式: ${pattern}`)
-}
-
-clearCache(pattern)
+clearCache()
+  .then(() => {
+    console.log('✅ 任务完成')
+    process.exit(0)
+  })
+  .catch((error) => {
+    console.error('❌ 错误:', error)
+    process.exit(1)
+  })

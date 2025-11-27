@@ -72,7 +72,6 @@ export interface ExtractOfferResult {
     // 单品页数据（可选）
     productName?: string
     price?: string
-    imageUrls?: string[]
 
     // Amazon Store专属数据（可选）
     productCount?: number
@@ -316,7 +315,6 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           brand: amazonProductData.brandName,
           description: amazonProductData.productDescription,
           price: amazonProductData.productPrice,
-          imageUrls: amazonProductData.imageUrls,
         }
         console.log(`✅ Amazon单品识别成功: ${brandName || 'Unknown'}`)
       } else if (isIndependentStore) {
@@ -381,7 +379,6 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         ...(scrapedData && {
           productName: scrapedData.productName,
           price: scrapedData.price,
-          imageUrls: scrapedData.imageUrls,
         }),
 
         // Amazon Store专属数据（可选）

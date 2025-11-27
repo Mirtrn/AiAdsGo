@@ -202,6 +202,7 @@ export async function POST(
 function isAffiliateUrl(url: string): boolean {
   const affiliateDomains = [
     'pboost.me',
+    'yeahpromos.com',  // 🔥 添加YeahPromos推广平台
     'bit.ly',
     'geni.us',
     'amzn.to',
@@ -227,7 +228,7 @@ function isAffiliateUrl(url: string): boolean {
  * 后台执行抓取和AI分析任务
  * 导出此函数以供异步抓取复用，确保逻辑一致性
  */
-async function performScrapeAndAnalysis(
+export async function performScrapeAndAnalysis(
   offerId: number,
   userId: number,
   url: string,
@@ -255,7 +256,8 @@ async function performScrapeAndAnalysis(
         const resolved = await resolveAffiliateLinkWithPlaywright(
           urlToResolve,
           proxyUrl,
-          5000
+          5000,
+          targetCountry  // 🔥 传入目标国家，使用代理池缓存
         )
         actualUrl = resolved.finalUrl
         resolvedFinalUrlSuffix = resolved.finalUrlSuffix  // 🔥 保存解析器返回的suffix
@@ -319,20 +321,14 @@ async function performScrapeAndAnalysis(
     const expectedPageType: 'product' | 'store' = expectedIsStorePage ? 'store' : 'product'
     console.log(`🎯 预期页面类型: ${expectedPageType}`)
 
-    // 检查Redis缓存
-    let cachedData = await getCachedPageData(actualUrl, language)
+    // 检查Redis缓存（传递预期页面类型）
+    let cachedData = await getCachedPageData(actualUrl, language, expectedPageType)
     let pageData: any
 
     // 缓存验证：检查缓存数据的页面类型是否匹配预期
     if (cachedData) {
-      // 从缓存文本中检测实际页面类型
-      const cachedText = cachedData.text.toLowerCase()
-      const cachedIsStorePage = cachedText.includes('store:') ||
-                                cachedText.includes('店铺:') ||
-                                cachedText.includes('产品列表') ||
-                                cachedText.includes('product list') ||
-                                (cachedText.includes('产品数量:') && !cachedText.includes('产品名称:'))
-      const cachedPageType: 'product' | 'store' = cachedIsStorePage ? 'store' : 'product'
+      // 直接使用缓存中的pageType字段，无需从文本推断
+      const cachedPageType = cachedData.pageType || expectedPageType
 
       // 页面类型不匹配：缓存数据无效，强制重新抓取
       if (cachedPageType !== expectedPageType) {
@@ -722,12 +718,13 @@ async function performScrapeAndAnalysis(
         altCount: seoData.imageAlts.length,
       })
 
-      // 保存到Redis缓存（包含文本内容和SEO信息）
+      // 保存到Redis缓存（包含文本内容、SEO信息和页面类型）
       await setCachedPageData(actualUrl, language, {
         title: pageData.title || '',
         description: pageData.description || '',
         text: pageData.text || '',
         seo: seoData,
+        pageType: expectedPageType,  // 存储页面类型避免缓存类型不匹配
       })
     }
 

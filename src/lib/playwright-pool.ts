@@ -124,9 +124,14 @@ class PlaywrightPool {
 
   /**
    * 获取或创建浏览器实例
+   * @param proxyUrl - 代理API URL（会调用getProxyIp获取凭证）
+   * @param proxyCredentials - 直接传入的代理凭证（来自代理池缓存，跳过API调用）
    */
-  async acquire(proxyUrl?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
-    const proxyKey = proxyUrl || 'no-proxy'
+  async acquire(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
+    // 生成proxyKey用于实例匹配
+    const proxyKey = proxyCredentials
+      ? `${proxyCredentials.host}:${proxyCredentials.port}`
+      : (proxyUrl || 'no-proxy')
 
     // 1. 尝试复用现有空闲实例
     const existing = this.findIdleInstance(proxyKey)
@@ -165,7 +170,7 @@ class PlaywrightPool {
 
     if (canCreateForProxy && canCreateGlobal) {
       // 直接创建新实例
-      return await this.createAndRegisterInstance(proxyUrl)
+      return await this.createAndRegisterInstance(proxyUrl, proxyCredentials)
     }
 
     // 3. 尝试清理空闲实例腾出空间
@@ -206,12 +211,14 @@ class PlaywrightPool {
   /**
    * 创建并注册新实例
    */
-  private async createAndRegisterInstance(proxyUrl?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
-    const proxyKey = proxyUrl || 'no-proxy'
+  private async createAndRegisterInstance(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
+    const proxyKey = proxyCredentials
+      ? `${proxyCredentials.host}:${proxyCredentials.port}`
+      : (proxyUrl || 'no-proxy')
     const instanceId = this.generateInstanceId()
 
     console.log(`🚀 创建新Playwright实例: ${instanceId} (${proxyKey})`)
-    const { browser, context, contextOptions } = await this.createInstance(proxyUrl)
+    const { browser, context, contextOptions } = await this.createInstance(proxyUrl, proxyCredentials)
 
     const instance: BrowserInstance = {
       id: instanceId,
@@ -287,7 +294,7 @@ class PlaywrightPool {
   /**
    * 创建新的浏览器实例
    */
-  private async createInstance(proxyUrl?: string): Promise<{ browser: Browser; context: BrowserContext; contextOptions: any }> {
+  private async createInstance(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }): Promise<{ browser: Browser; context: BrowserContext; contextOptions: any }> {
     // 🔥 代理必须在browser.launch时配置，无法在newContext时动态配置
     let launchOptions: any = {
       headless: true,
@@ -303,19 +310,28 @@ class PlaywrightPool {
       timeout: POOL_CONFIG.launchTimeout,
     }
 
-    // 如果提供了代理URL，获取代理凭证并在launch时配置
-    if (proxyUrl) {
+    // 如果提供了直接的代理凭证（来自代理池缓存），直接使用
+    let proxy: any = null
+    if (proxyCredentials) {
+      proxy = proxyCredentials
+      console.log(`🔒 [缓存] 使用代理: ${proxy.host}:${proxy.port}`)
+    } else if (proxyUrl) {
+      // 如果提供了代理URL，获取代理凭证并在launch时配置
       const { getProxyIp } = await import('./proxy/fetch-proxy-ip')
       // 🔥 严禁降级为直连，代理获取失败应该抛出错误（需求10）
-      const proxy = await getProxyIp(proxyUrl, false) // forceRefresh=false 使用缓存
+      proxy = await getProxyIp(proxyUrl, false) // forceRefresh=false 使用缓存
+      console.log(`🔒 [独立] 使用代理: ${proxy.host}:${proxy.port}`)
+    }
 
+    if (proxy) {
       launchOptions.proxy = {
         server: `http://${proxy.host}:${proxy.port}`,
         username: proxy.username,
         password: proxy.password,
       }
 
-      console.log(`✅ Playwright实例使用代理: ${proxy.fullAddress}`)
+      const proxySource = proxyCredentials ? '[缓存]' : '[独立]'
+      console.log(`✅ Playwright实例使用代理 ${proxySource}: ${proxy.host}:${proxy.port}`)
     }
 
     const browser = await chromium.launch(launchOptions)

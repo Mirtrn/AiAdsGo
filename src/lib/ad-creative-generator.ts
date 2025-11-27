@@ -212,7 +212,7 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
     extras.push(`STOCK: ${availability}`)
   }
 
-  // 🔥 P1-1: 用户评论洞察
+  // 🔥 P1-1: 用户评论洞察（基础）
   let reviewHighlights: string[] = []
   if (offer.scraped_data) {
     try {
@@ -222,6 +222,35 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
   }
   if (reviewHighlights.length > 0) {
     extras.push(`REVIEW INSIGHTS: ${reviewHighlights.slice(0, 5).join(', ')}`)
+  }
+
+  // 🔥 P1-1+: 用户评论深度分析（新增优化）
+  let commonPraises: string[] = []
+  let purchaseReasons: string[] = []
+  let useCases: string[] = []
+  let commonPainPoints: string[] = []
+  if (offer.review_analysis) {
+    try {
+      const reviewAnalysis = JSON.parse(offer.review_analysis)
+      commonPraises = reviewAnalysis.commonPraises || []
+      purchaseReasons = reviewAnalysis.purchaseReasons || []
+      useCases = reviewAnalysis.realUseCases || reviewAnalysis.useCases || []
+      commonPainPoints = reviewAnalysis.commonPainPoints || []
+    } catch {}
+  }
+
+  // 将深度评论分析数据添加到Prompt
+  if (commonPraises.length > 0) {
+    extras.push(`USER PRAISES: ${commonPraises.slice(0, 3).join(', ')}`)
+  }
+  if (purchaseReasons.length > 0) {
+    extras.push(`WHY BUY: ${purchaseReasons.slice(0, 3).join(', ')}`)
+  }
+  if (useCases.length > 0) {
+    extras.push(`USE CASES: ${useCases.slice(0, 3).join(', ')}`)
+  }
+  if (commonPainPoints.length > 0) {
+    extras.push(`AVOID: ${commonPainPoints.slice(0, 2).join(', ')}`)
   }
 
   // 🔥 P1-2: 技术规格（关键参数）
@@ -239,6 +268,28 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
       .map(([key, value]) => `${key}: ${value}`)
       .join(', ')
     extras.push(`SPECS: ${topSpecs}`)
+  }
+
+  // 🔥 P1-3: Store热销数据（新增优化 - 用于Amazon Store或独立站店铺页）
+  let hotInsights: { avgRating: number; avgReviews: number; topProductsCount: number } | null = null
+  let topProducts: string[] = []
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+      hotInsights = scrapedData.hotInsights || null
+      // 提取热销产品名称（如果有products数组）
+      if (scrapedData.products && Array.isArray(scrapedData.products)) {
+        topProducts = scrapedData.products
+          .slice(0, 5)
+          .map((p: any) => p.name || p.productName)
+          .filter(Boolean)
+      }
+    } catch {}
+  }
+
+  // 如果是Store页面，添加热销洞察到Prompt
+  if (hotInsights && topProducts.length > 0) {
+    extras.push(`STORE HOT PRODUCTS: ${topProducts.slice(0, 3).join(', ')} (Avg: ${hotInsights.avgRating.toFixed(1)}⭐, ${hotInsights.avgReviews} reviews)`)
   }
 
   if (extras.length) prompt += '\n' + extras.join(' | ') + '\n'
@@ -289,10 +340,10 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
 **FIRST HEADLINE (MANDATORY)**: "{KeyWord:${offer.brand}} Official" - Must be EXACTLY this format, no extra words
 
 Remaining 14 headlines - Types (must cover all 5):
-- Brand (2): ${badge ? `Use BADGE if available (e.g., "${badge} Brand")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}
-- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}
+- Brand (2): ${badge ? `Use BADGE if available (e.g., "${badge} Brand")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: For stores with hot products, create "Best Seller Collection" headlines featuring top products (e.g., "Best ${topProducts[0]?.split(' ').slice(0, 2).join(' ')} Collection")` : ''}
+- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}${commonPraises.length > 0 ? `. **NEW**: Use USER PRAISES for authentic features: ${commonPraises.slice(0, 2).join(', ')}` : ''}
 - Promo (3): ${discount || promotion ? `MUST use real DISCOUNT/PROMOTION data: ${discount ? `"${discount}"` : ''}${promotion ? ` or "${promotion}"` : ''}` : 'Numbers/% required - "Save 40%", "$50 Off"'}
-- CTA (3): "Shop Now", "Get Yours Today"${primeEligible ? ', "Prime Eligible"' : ''}
+- CTA (3): "Shop Now", "Get Yours Today"${primeEligible ? ', "Prime Eligible"' : ''}${purchaseReasons.length > 0 ? `. **NEW**: Incorporate WHY BUY reasons: ${purchaseReasons.slice(0, 2).join(', ')}` : ''}
 - Urgency (2): ${availability && availability.includes('left') ? `Use real STOCK data: "${availability}"` : '"Limited Time", "Ends Soon"'}
 **Dynamic Keyword (DKI)**: 1 more headline using "{KeyWord:${offer.brand}}" format
 
@@ -300,9 +351,10 @@ Length distribution: 5 short(10-20), 5 medium(20-25), 5 long(25-30)
 Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarity
 
 ### DESCRIPTIONS (4 required, ≤90 chars each)
-- Value (2): Why choose us? Benefits, USPs${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}
+- Value (2): Why choose us? Benefits, USPs${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}${useCases.length > 0 ? `. **NEW**: Reference real USE CASES: ${useCases.slice(0, 2).join(', ')}` : ''}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)}⭐ from ${hotInsights.avgReviews}+ reviews)` : ''}
 - CTA (2): Strong action verbs (Shop/Buy/Get/Order)${primeEligible ? ' + Prime eligibility' : ''} + immediate value${availability ? `. Mention STOCK status if urgent` : ''}
 ${reviewHighlights.length > 0 ? `- **USE REVIEW INSIGHTS**: Incorporate customer feedback keywords: ${reviewHighlights.slice(0, 3).join(', ')}` : ''}
+${commonPainPoints.length > 0 ? `- **AVOID MENTIONING**: Address common pain points indirectly (don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}` : ''}
 
 ### KEYWORDS (10-15): Brand(1-2), Product(4-6), Feature(2-3), Long-tail(3-5)
 **质量要求（重要！确保Launch Score >60分）**:

@@ -13,7 +13,10 @@
 import { generateContent } from './gemini'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { getHighIntentKeywords } from './google-suggestions'
-import type { AmazonProductData, StoreProduct } from './scraper-stealth'
+import type { AmazonProductData, AmazonStoreData } from './scraper-stealth'
+
+// Type alias for Store Product (extracted from AmazonStoreData.products)
+type StoreProduct = AmazonStoreData['products'][number]
 
 /**
  * 从AI响应中提取JSON（处理markdown代码块等格式）
@@ -178,6 +181,324 @@ function extractBrandProductName(productTitle: string, brandName: string): strin
 }
 
 /**
+ * 🔥 P1.2优化1：类目权重系数
+ * 不同类目的评论数量基准不同，需要动态调整门槛
+ */
+interface CategoryThreshold {
+  highReviewBase: number  // High 流行度评论数基准
+  mediumReviewBase: number  // Medium 流行度评论数基准
+  multiplier: number  // 门槛倍数
+  description: string
+}
+
+const CATEGORY_THRESHOLDS: Record<string, CategoryThreshold> = {
+  // 电子产品：竞争激烈，门槛提高 50%
+  'Electronics': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.5, description: '电子产品' },
+  'Computers': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.5, description: '计算机' },
+  'Cell Phones': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.5, description: '手机' },
+
+  // 服装鞋包：评论较多，标准门槛
+  'Clothing': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.0, description: '服装' },
+  'Shoes': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.0, description: '鞋类' },
+  'Handbags': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.0, description: '箱包' },
+
+  // 图书音乐：评论较少，门槛降低 20%
+  'Books': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.8, description: '图书' },
+  'Music': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.8, description: '音乐' },
+  'Movies': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.8, description: '影视' },
+
+  // 家居园艺：评论中等，门槛降低 10%
+  'Home': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.9, description: '家居' },
+  'Kitchen': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.9, description: '厨具' },
+  'Garden': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.9, description: '园艺' },
+
+  // 美容健康：评论较多，标准门槛
+  'Beauty': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.0, description: '美容' },
+  'Health': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.0, description: '健康' },
+
+  // 玩具游戏：评论中等，门槛降低 10%
+  'Toys': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.9, description: '玩具' },
+  'Games': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.9, description: '游戏' },
+
+  // 运动户外：评论较多，标准门槛
+  'Sports': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.0, description: '运动' },
+  'Outdoors': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.0, description: '户外' },
+
+  // 汽车配件：评论较少，门槛降低 15%
+  'Automotive': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.85, description: '汽车配件' },
+
+  // 工具：评论较少，门槛降低 15%
+  'Tools': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 0.85, description: '工具' },
+
+  // 默认类目：标准门槛
+  'default': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.0, description: '默认' }
+}
+
+/**
+ * 🔥 P1.2优化1：从 Sales Rank 中提取类目
+ * @param salesRank - Sales Rank 字符串，如 "#123 in Electronics" 或 "#1 in Cell Phones & Accessories"
+ * @returns 类目名称或 'default'
+ */
+function extractCategoryFromSalesRank(salesRank: string | null | undefined): string {
+  if (!salesRank) return 'default'
+
+  // 提取 "in" 后面的类目名称
+  const categoryMatch = salesRank.match(/in\s+([^>]+?)(?:\s*>|$)/)
+  if (!categoryMatch) return 'default'
+
+  const category = categoryMatch[1].trim()
+
+  // 精确匹配
+  if (CATEGORY_THRESHOLDS[category]) {
+    return category
+  }
+
+  // 模糊匹配（包含关键词）
+  for (const [key, _] of Object.entries(CATEGORY_THRESHOLDS)) {
+    if (key !== 'default' && category.includes(key)) {
+      return key
+    }
+  }
+
+  return 'default'
+}
+
+/**
+ * 🔥 P3优化：评估品牌流行度
+ * 基于评论数量、评分、Sales Rank等因素评估品牌知名度
+ *
+ * @param reviewCount - 评论数量（字符串，如 "1,234" 或 "1.2K"）
+ * @param rating - 评分（字符串，如 "4.5" 或 null）
+ * @param salesRank - 销售排名（字符串，如 "#123 in Electronics" 或 null）
+ * @returns 'high' | 'medium' | 'low'
+ */
+function estimateBrandPopularity(
+  reviewCount: string | null | undefined,
+  rating: string | null | undefined,
+  salesRank: string | null | undefined
+): 'high' | 'medium' | 'low' {
+  // 解析评论数量（处理 "1,234" 或 "1.2K" 格式）
+  let numReviews = 0
+  if (reviewCount) {
+    const cleanCount = reviewCount.replace(/,/g, '')
+    if (cleanCount.includes('K')) {
+      numReviews = parseFloat(cleanCount) * 1000
+    } else if (cleanCount.includes('M')) {
+      numReviews = parseFloat(cleanCount) * 1000000
+    } else {
+      numReviews = parseFloat(cleanCount) || 0
+    }
+  }
+
+  // 解析评分
+  let numRating = rating ? parseFloat(rating) : 0
+
+  // 解析Sales Rank（提取数字，如 "#123" → 123）
+  let rankNum = Infinity
+  if (salesRank) {
+    const rankMatch = salesRank.match(/#?(\d+)/)
+    if (rankMatch) {
+      rankNum = parseInt(rankMatch[1], 10)
+    }
+  }
+
+  // 🔥 P1.2优化1: 类目动态门槛调整
+  const category = extractCategoryFromSalesRank(salesRank)
+  const threshold = CATEGORY_THRESHOLDS[category]
+  const multiplier = threshold.multiplier
+
+  // 应用类目倍数调整门槛
+  const highThreshold = Math.round(threshold.highReviewBase * multiplier)
+  const mediumThreshold = Math.round(threshold.mediumReviewBase * multiplier)
+  const mediumWithRatingThreshold = Math.round(300 * multiplier)
+
+  if (category !== 'default') {
+    console.log(`  📂 类目: ${threshold.description} (${category}) - 门槛倍数: ${multiplier}x`)
+    console.log(`     High门槛: ${highThreshold}, Medium门槛: ${mediumThreshold}/${mediumWithRatingThreshold}`)
+  }
+
+  // 🔥 改进3: Sales Rank 缺失补偿 - 无 Sales Rank 时增加评分权重
+  if (!salesRank && numRating >= 4.7) {
+    // 评分 >= 4.7 视为高质量信号，评论数权重放大 50%
+    numReviews *= 1.5
+    console.log(`  📊 无Sales Rank，评分${numRating}较高，评论数权重放大: ${Math.round(numReviews / 1.5)} → ${Math.round(numReviews)}`)
+  }
+
+  // 🔥 流行度评估规则（使用动态门槛）
+  // High: 评论数 >= highThreshold 或 (评论数 >= 1000 且评分 >= 4.5) 或 Sales Rank <= 100
+  if (
+    numReviews >= highThreshold ||
+    (numReviews >= 1000 && numRating >= 4.5) ||
+    rankNum <= 100
+  ) {
+    return 'high'
+  }
+
+  // 🔥 改进1: Medium 门槛调整 - 将 100 评论数提升至 300，避免边界误判
+  // Medium: 评论数 >= mediumThreshold 或 (评论数 >= mediumWithRatingThreshold 且评分 >= 4.0) 或 Sales Rank <= 1000
+  if (
+    numReviews >= mediumThreshold ||
+    (numReviews >= mediumWithRatingThreshold && numRating >= 4.0) ||
+    rankNum <= 1000
+  ) {
+    return 'medium'
+  }
+
+  // Low: 其他情况
+  return 'low'
+}
+
+/**
+ * 🔥 P1.2优化3：品牌名标准化
+ * 统一品牌名格式，去除空格、标点，统一大小写
+ * @param brand - 原始品牌名，如 "Bag Smart" 或 "NIKE™"
+ * @returns 标准化品牌名，如 "bagsmart" 或 "nike"
+ */
+function normalizeBrandName(brand: string): string {
+  return brand
+    .toLowerCase()
+    .replace(/[™®©]/g, '')  // 移除商标符号
+    .replace(/\s+/g, '')     // 移除所有空格
+    .replace(/[_-]+/g, '')   // 移除下划线和连字符
+    .trim()
+}
+
+/**
+ * 🔥 P1.2优化2：多语言语义关键词检测
+ * 检测品牌名中是否包含各语言的商店、官方、网站等关键词
+ */
+const SEMANTIC_KEYWORDS = {
+  store: [
+    'store', 'shop',           // 英语
+    'geschäft', 'laden',       // 德语
+    'magasin', 'boutique',     // 法语
+    'tienda',                  // 西班牙语
+    'negozio',                 // 意大利语
+    'loja',                    // 葡萄牙语
+    'sklep',                   // 波兰语
+    'winkel'                   // 荷兰语
+  ],
+  official: [
+    'official', 'authentic',   // 英语
+    'offiziell', 'echt',       // 德语
+    'officiel', 'authentique', // 法语
+    'oficial', 'auténtico',    // 西班牙语
+    'ufficiale', 'autentico',  // 意大利语
+    'oficial', 'autêntico',    // 葡萄牙语
+    'oficjalny'                // 波兰语
+  ],
+  website: [
+    'website', 'site', 'web',  // 英语
+    'webseite', 'seite',       // 德语
+    'site web', 'site',        // 法语
+    'sitio web', 'sitio',      // 西班牙语
+    'sito web', 'sito',        // 意大利语
+    'site', 'página'           // 葡萄牙语
+  ]
+}
+
+/**
+ * 检测品牌名中是否包含语义关键词
+ * @param brandLower - 小写品牌名
+ * @param keywords - 关键词数组
+ * @returns 是否包含
+ */
+function containsSemanticKeyword(brandLower: string, keywords: string[]): boolean {
+  return keywords.some(keyword => brandLower.includes(keyword))
+}
+
+/**
+ * 🔥 P3优化：动态生成品牌变体关键词
+ * 根据品牌流行度调整变体数量和类型
+ *
+ * @param brand - 品牌名
+ * @param popularity - 品牌流行度 ('high' | 'medium' | 'low')
+ * @returns 品牌变体关键词数组
+ */
+function generateDynamicBrandVariants(
+  brand: string,
+  popularity: 'high' | 'medium' | 'low'
+): string[] {
+  // 🔥 P1.2优化3: 品牌名标准化
+  const brandNormalized = normalizeBrandName(brand)
+  const brandLower = brandNormalized  // 已经是小写了
+
+  if (brandNormalized !== brand.toLowerCase()) {
+    console.log(`  🔧 品牌名标准化: "${brand}" → "${brandNormalized}"`)
+  }
+
+  // 🔥 P1.2优化2: 多语言语义重复检测
+  const containsStore = containsSemanticKeyword(brandLower, SEMANTIC_KEYWORDS.store)
+  const containsOfficial = containsSemanticKeyword(brandLower, SEMANTIC_KEYWORDS.official)
+  const containsWebsite = containsSemanticKeyword(brandLower, SEMANTIC_KEYWORDS.website)
+
+  if (containsStore || containsOfficial || containsWebsite) {
+    console.log(`  🌐 多语言检测: store=${containsStore}, official=${containsOfficial}, website=${containsWebsite}`)
+  }
+
+  // 🔥 知名品牌（如Nike, Apple, Samsung）: 减少变体，避免与热门搜索词冲突
+  if (popularity === 'high') {
+    console.log(`  🏆 高知名度品牌 "${brand}" - 使用精简变体（2个）`)
+    const variants = [brandLower]
+
+    // 避免 "official store official" 语义重复
+    if (!containsOfficial) {
+      variants.push(`${brandLower} official`)
+    }
+
+    return variants
+  }
+
+  // 🔥 中等知名度品牌: 标准变体
+  if (popularity === 'medium') {
+    console.log(`  ⭐ 中等知名度品牌 "${brand}" - 使用标准变体（4个）`)
+    const variants = [brandLower]
+
+    if (!containsOfficial) {
+      variants.push(`${brandLower} official`)
+    }
+
+    // 避免 "led store store" 语义重复
+    if (!containsStore) {
+      variants.push(`${brandLower} store`)
+    }
+
+    variants.push(`buy ${brandLower}`)
+
+    return variants
+  }
+
+  // 🔥 低知名度品牌: 扩展变体，增加曝光
+  console.log(`  📌 低知名度品牌 "${brand}" - 使用扩展变体（6个）`)
+  const variants = [brandLower]
+
+  if (!containsOfficial) {
+    variants.push(`${brandLower} official`)
+  }
+
+  if (!containsStore) {
+    variants.push(`${brandLower} store`)
+  }
+
+  variants.push(`buy ${brandLower}`)
+
+  if (!containsStore && !containsWebsite) {
+    // 只有不包含 store/website 时才添加 amazon 和 website 变体
+    variants.push(`${brandLower} amazon`)
+
+    if (!containsWebsite) {
+      variants.push(`${brandLower} website`)
+    }
+  } else {
+    // 如果包含 store/website，用其他有价值的变体替换
+    variants.push(`${brandLower} online`)
+    variants.push(`${brandLower} reviews`)
+  }
+
+  return variants
+}
+
+/**
  * 从单个商品提取广告元素
  */
 async function extractFromSingleProduct(
@@ -209,30 +530,79 @@ async function extractFromSingleProduct(
     console.log(`  ✓ 商品标题关键字: "${brandProductName}"`)
   }
 
-  // 1.2 生成品牌变体关键字
-  const brandVariants = [
-    brand,
-    `${brand} official`,
-    `${brand} store`,
-    `buy ${brand}`,
-    `${brand} amazon`
-  ]
-  keywordCandidates.push(...brandVariants)
-  console.log(`  ✓ 品牌变体关键字: ${brandVariants.length}个`)
-
-  // 1.3 获取Google搜索下拉词（高购买意图）
+  // 1.2 获取Google搜索下拉词（高购买意图）- 🔥 调整顺序：先获取Google词
+  let googleKeywords: string[] = []
   try {
-    const googleKeywords = await getHighIntentKeywords({
+    googleKeywords = await getHighIntentKeywords({
       brand,
       country: targetCountry,
       language: targetLanguage,
       useProxy: true
     })
-    keywordCandidates.push(...googleKeywords)
     console.log(`  ✓ Google下拉词: ${googleKeywords.length}个`)
   } catch (error: any) {
     console.warn('  ⚠️ Google下拉词获取失败:', error.message)
   }
+
+  // 1.3 生成品牌变体关键字 - 🔥 P3优化：动态品牌变体生成
+  const productTitle = productInfo.name?.toLowerCase() || ''
+  const googleKeywordsLower = new Set(googleKeywords.map(k => k.toLowerCase()))
+
+  // 🔥 P3优化：评估品牌流行度
+  const brandPopularity = estimateBrandPopularity(
+    productInfo.reviewCount,
+    productInfo.rating,
+    (product as any).salesRank // AmazonProductData可能有salesRank字段
+  )
+
+  // 🔥 P3优化：根据流行度动态生成品牌变体
+  const allBrandVariants = generateDynamicBrandVariants(brand, brandPopularity)
+
+  // 🔥 P1优化：智能过滤已存在的变体
+  const brandVariants = allBrandVariants.filter(variant => {
+    const variantLower = variant.toLowerCase()
+
+    // 过滤规则1: 如果Product Title已包含该变体，跳过
+    if (productTitle.includes(variantLower)) {
+      console.log(`  ⊘ 跳过品牌变体 "${variant}" (已存在于Product Title)`)
+      return false
+    }
+
+    // 过滤规则2: 如果Google Suggest已包含完全相同的关键词，跳过
+    if (googleKeywordsLower.has(variantLower)) {
+      console.log(`  ⊘ 跳过品牌变体 "${variant}" (已存在于Google下拉词)`)
+      return false
+    }
+
+    return true
+  })
+
+  keywordCandidates.push(...googleKeywords)
+  keywordCandidates.push(...brandVariants)
+  console.log(`  ✓ 品牌变体关键字: ${brandVariants.length}个（已智能过滤${allBrandVariants.length - brandVariants.length}个重复）`)
+
+  // 🔥 P1优化：去重关键词候选（大小写不敏感）
+  const keywordCountBeforeDedup = keywordCandidates.length
+  const uniqueKeywordsMap = new Map<string, string>()
+
+  keywordCandidates.forEach(keyword => {
+    const keywordLower = keyword.toLowerCase()
+    if (!uniqueKeywordsMap.has(keywordLower)) {
+      // 保留原始大小写（通常是首次出现的版本）
+      uniqueKeywordsMap.set(keywordLower, keyword)
+    }
+  })
+
+  const deduplicatedKeywords = Array.from(uniqueKeywordsMap.values())
+  const duplicatesRemoved = keywordCountBeforeDedup - deduplicatedKeywords.length
+
+  if (duplicatesRemoved > 0) {
+    console.log(`\n🔄 关键词去重: ${keywordCountBeforeDedup}个 → ${deduplicatedKeywords.length}个（移除${duplicatesRemoved}个重复）`)
+  }
+
+  // 更新keywordCandidates为去重后的列表
+  keywordCandidates.length = 0
+  keywordCandidates.push(...deduplicatedKeywords)
 
   // 2. 查询搜索量并过滤
   console.log(`\n🔍 查询${keywordCandidates.length}个关键字的搜索量...`)
@@ -246,15 +616,15 @@ async function extractFromSingleProduct(
   }> = []
 
   try {
-    const volumeData = await getKeywordSearchVolumes({
-      keywords: keywordCandidates,
+    const volumeData = await getKeywordSearchVolumes(
+      keywordCandidates,
       targetCountry,
       targetLanguage,
       userId
-    })
+    )
 
     keywordsWithVolume = keywordCandidates.map((keyword, index) => {
-      const volume = volumeData[index]?.searchVolume || 0
+      const volume = volumeData[index]?.avgMonthlySearches || 0
 
       // 确定来源
       let source: 'product_title' | 'google_suggest' | 'brand_variant' = 'brand_variant'
@@ -405,15 +775,15 @@ async function extractFromStore(
   }> = []
 
   try {
-    const volumeData = await getKeywordSearchVolumes({
-      keywords: keywordCandidates,
+    const volumeData = await getKeywordSearchVolumes(
+      keywordCandidates,
       targetCountry,
       targetLanguage,
       userId
-    })
+    )
 
     keywordsWithVolume = keywordCandidates.map((keyword, index) => {
-      const volume = volumeData[index]?.searchVolume || 0
+      const volume = volumeData[index]?.avgMonthlySearches || 0
 
       // 确定来源
       let source: 'product_title' | 'google_suggest' | 'brand_variant' = 'brand_variant'

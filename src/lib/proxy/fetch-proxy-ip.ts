@@ -46,33 +46,45 @@ export async function testProxyHealth(
 
     const agent = new HttpsProxyAgent(proxyUrl)
 
-    const response = await fetch(testUrl, {
-      method: 'GET', // 使用GET获取实际内容，确保代理真实可用
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/plain,*/*',
-      },
-      agent,
-      signal: AbortSignal.timeout(timeoutMs),
-    })
+    // 🔥 修复：使用AbortController代替AbortSignal.timeout (更可靠的超时控制)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
-    const responseTime = Date.now() - startTime
+    try {
+      const response = await fetch(testUrl, {
+        method: 'GET', // 使用GET获取实际内容，确保代理真实可用
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/plain,*/*',
+        },
+        agent,
+        signal: controller.signal,
+      })
 
-    // 健康标准：
-    // 1. HTTP状态码正常 (200-399)
-    // 2. 响应时间 < 8秒（放宽阈值，提高代理可用率）
-    const healthy = response.ok && responseTime < 8000
+      clearTimeout(timeoutId)
 
-    if (healthy) {
-      console.log(`✅ 代理IP健康检查通过: ${credentials.fullAddress} (${responseTime}ms)`)
-    } else {
-      console.warn(`⚠️ 代理IP响应慢: ${credentials.fullAddress} (${responseTime}ms)`)
-    }
+      const responseTime = Date.now() - startTime
 
-    return {
-      healthy,
-      responseTime,
-      error: !response.ok ? `HTTP ${response.status}` : undefined,
+      // 健康标准：
+      // 1. HTTP状态码正常 (200-399)
+      // 2. 响应时间 < 8秒（放宽阈值，提高代理可用率）
+      const healthy = response.ok && responseTime < 8000
+
+      if (healthy) {
+        console.log(`✅ 代理IP健康检查通过: ${credentials.fullAddress} (${responseTime}ms)`)
+      } else {
+        console.warn(`⚠️ 代理IP响应慢: ${credentials.fullAddress} (${responseTime}ms)`)
+      }
+
+      return {
+        healthy,
+        responseTime,
+        error: !response.ok ? `HTTP ${response.status}` : undefined,
+      }
+    } catch (fetchError: any) {
+      // 清理超时定时器
+      clearTimeout(timeoutId)
+      throw fetchError
     }
   } catch (error: any) {
     const responseTime = Date.now() - startTime
@@ -143,86 +155,97 @@ export async function fetchProxyIp(
     try {
       console.log(`尝试获取代理IP (${attempt}/${maxRetries})...`)
 
-      const response = await fetch(proxyUrl, {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-        // 设置超时10秒
-        signal: AbortSignal.timeout(10000),
-      })
+      // 🔥 修复：使用AbortController代替AbortSignal.timeout (更可靠的超时控制)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
 
-      if (!response.ok) {
-        throw new Error(`获取代理IP失败: HTTP ${response.status} ${response.statusText}`)
+      try {
+        const response = await fetch(proxyUrl, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          signal: controller.signal,
+        })
+
+        clearTimeout(timeoutId)
+
+        if (!response.ok) {
+          throw new Error(`获取代理IP失败: HTTP ${response.status} ${response.statusText}`)
+        }
+
+        // Step 3: 解析响应
+        const responseText = await response.text()
+        const proxyString = responseText.trim()
+
+        // 如果返回多行，只取第一行
+        const firstLine = proxyString.split('\n')[0].trim()
+
+        // Step 4: 解析代理字符串 (格式: host:port:username:password)
+        const parts = firstLine.split(':')
+
+        if (parts.length !== 4) {
+          throw new Error(
+            `代理IP格式错误: 期望4个字段（host:port:username:password），实际${parts.length}个字段。\n响应内容: ${firstLine}`
+          )
+        }
+
+        const [host, portStr, username, password] = parts
+
+        // 验证host
+        if (!host || host.length < 7) {
+          // 最短IP: 1.1.1.1
+          throw new Error(`主机地址无效: ${host}`)
+        }
+
+        // 验证port
+        const port = parseInt(portStr)
+        if (isNaN(port) || port < 1 || port > 65535) {
+          throw new Error(`端口号无效: ${portStr}（有效范围: 1-65535）`)
+        }
+
+        // 验证username和password
+        if (!username || username.length === 0) {
+          throw new Error('用户名不能为空')
+        }
+
+        if (!password || password.length === 0) {
+          throw new Error('密码不能为空')
+        }
+
+        const credentials: ProxyCredentials = {
+          host,
+          port,
+          username,
+          password,
+          fullAddress: `${host}:${port}`,
+        }
+
+        console.log(`成功获取代理IP: ${credentials.fullAddress}`)
+
+        // 🔥 P0优化：阻塞式健康检查，失败时重试获取新代理
+        if (!skipHealthCheck) {
+          const healthCheck = await testProxyHealth(credentials, 10000) // 10秒超时，提高代理可用率
+          if (!healthCheck.healthy) {
+            console.warn(
+              `⚠️ 代理IP质量检测未通过: ${credentials.fullAddress}\n` +
+                `  - 响应时间: ${healthCheck.responseTime}ms\n` +
+                `  - 错误: ${healthCheck.error || '响应过慢'}\n` +
+                `  - 重试获取新代理IP...`
+            )
+            // 抛出错误，触发外层重试逻辑
+            throw new Error(`代理IP健康检查失败: ${healthCheck.error || '响应过慢'}`)
+          }
+          console.log(`✅ 代理IP质量检测通过: ${credentials.fullAddress} (${healthCheck.responseTime}ms)`)
+        }
+
+        // 返回健康的代理IP
+        return credentials
+      } catch (fetchError: any) {
+        // 清理超时定时器
+        clearTimeout(timeoutId)
+        throw fetchError
       }
-
-    // Step 3: 解析响应
-    const responseText = await response.text()
-    const proxyString = responseText.trim()
-
-    // 如果返回多行，只取第一行
-    const firstLine = proxyString.split('\n')[0].trim()
-
-    // Step 4: 解析代理字符串 (格式: host:port:username:password)
-    const parts = firstLine.split(':')
-
-    if (parts.length !== 4) {
-      throw new Error(
-        `代理IP格式错误: 期望4个字段（host:port:username:password），实际${parts.length}个字段。\n响应内容: ${firstLine}`
-      )
-    }
-
-    const [host, portStr, username, password] = parts
-
-    // 验证host
-    if (!host || host.length < 7) {
-      // 最短IP: 1.1.1.1
-      throw new Error(`主机地址无效: ${host}`)
-    }
-
-    // 验证port
-    const port = parseInt(portStr)
-    if (isNaN(port) || port < 1 || port > 65535) {
-      throw new Error(`端口号无效: ${portStr}（有效范围: 1-65535）`)
-    }
-
-    // 验证username和password
-    if (!username || username.length === 0) {
-      throw new Error('用户名不能为空')
-    }
-
-    if (!password || password.length === 0) {
-      throw new Error('密码不能为空')
-    }
-
-    const credentials: ProxyCredentials = {
-      host,
-      port,
-      username,
-      password,
-      fullAddress: `${host}:${port}`,
-    }
-
-    console.log(`成功获取代理IP: ${credentials.fullAddress}`)
-
-    // 🔥 P0优化：阻塞式健康检查，失败时重试获取新代理
-    if (!skipHealthCheck) {
-      const healthCheck = await testProxyHealth(credentials, 10000) // 10秒超时，提高代理可用率
-      if (!healthCheck.healthy) {
-        console.warn(
-          `⚠️ 代理IP质量检测未通过: ${credentials.fullAddress}\n` +
-            `  - 响应时间: ${healthCheck.responseTime}ms\n` +
-            `  - 错误: ${healthCheck.error || '响应过慢'}\n` +
-            `  - 重试获取新代理IP...`
-        )
-        // 抛出错误，触发外层重试逻辑
-        throw new Error(`代理IP健康检查失败: ${healthCheck.error || '响应过慢'}`)
-      }
-      console.log(`✅ 代理IP质量检测通过: ${credentials.fullAddress} (${healthCheck.responseTime}ms)`)
-    }
-
-    // 返回健康的代理IP
-    return credentials
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('未知错误')
       console.warn(`尝试 ${attempt}/${maxRetries} 失败: ${lastError.message}`)

@@ -435,9 +435,10 @@ async function resolveWithHttp(
 
 async function resolveWithPlaywright(
   affiliateLink: string,
-  proxyUrl: string
+  proxyUrl: string,
+  targetCountry?: string
 ): Promise<ResolvedUrlData> {
-  const result = await resolveAffiliateLinkWithPlaywright(affiliateLink, proxyUrl, 5000)
+  const result = await resolveAffiliateLinkWithPlaywright(affiliateLink, proxyUrl, 5000, targetCountry)
 
   return {
     finalUrl: result.finalUrl,
@@ -514,7 +515,7 @@ export async function resolveAffiliateLink(
       if (resolverMethod === 'playwright') {
         // 已知JavaScript重定向域名，直接使用Playwright
         console.log(`   直接使用Playwright（已知需要JavaScript）`)
-        result = await resolveWithPlaywright(affiliateLink, proxy.url)
+        result = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
       } else if (resolverMethod === 'http') {
         // 已知HTTP重定向域名（包括Meta Refresh），先使用HTTP
         try {
@@ -527,7 +528,7 @@ export async function resolveAffiliateLink(
           if (isTrackingUrl) {
             console.log(`   ⚠️ 检测到tracking URL，可能需要继续追踪`)
             console.log(`   降级到Playwright完成后续重定向...`)
-            const playwrightResult = await resolveWithPlaywright(result.finalUrl, proxy.url)
+            const playwrightResult = await resolveWithPlaywright(result.finalUrl, proxy.url, targetCountry)
 
             // 合并重定向链
             result = {
@@ -540,7 +541,7 @@ export async function resolveAffiliateLink(
           // 🔥 修复：HTTP失败时降级到Playwright
           console.log(`   HTTP失败: ${httpError.message}`)
           console.log(`   降级到Playwright...`)
-          result = await resolveWithPlaywright(affiliateLink, proxy.url)
+          result = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
         }
       } else {
         // 未知域名，先尝试HTTP，失败则降级到Playwright
@@ -552,11 +553,11 @@ export async function resolveAffiliateLink(
           if (result.redirectCount === 0 && affiliateLink !== result.finalUrl) {
             // URL改变了但redirectCount为0，可能是JavaScript重定向
             console.log(`   检测到可能的JavaScript重定向，降级到Playwright`)
-            result = await resolveWithPlaywright(affiliateLink, proxy.url)
+            result = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
           } else if (result.redirectCount === 0) {
             // URL没变且无重定向，可能是短链接服务
             console.log(`   ⚠️ 无重定向检测到，尝试Playwright验证`)
-            const playwrightResult = await resolveWithPlaywright(affiliateLink, proxy.url)
+            const playwrightResult = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
             // 如果Playwright获得了不同的结果，使用Playwright结果
             if (playwrightResult.finalUrl !== result.finalUrl || playwrightResult.redirectCount > 0) {
               console.log(`   ✅ Playwright发现了额外的重定向`)
@@ -566,7 +567,7 @@ export async function resolveAffiliateLink(
         } catch (httpError: any) {
           console.log(`   HTTP失败: ${httpError.message}`)
           console.log(`   降级到Playwright...`)
-          result = await resolveWithPlaywright(affiliateLink, proxy.url)
+          result = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
         }
       }
 

@@ -233,10 +233,20 @@ export async function getKeywordSearchVolumes(
     const config = getGoogleAdsConfig()
 
     if (config?.developerToken && config?.refreshToken && config?.customerId) {
+      // Split keywords into batches of 20 (Google Ads API limit)
+      const BATCH_SIZE = 20
+      const keywordBatches: string[][] = []
+      for (let i = 0; i < needApiKeywords.length; i += BATCH_SIZE) {
+        keywordBatches.push(needApiKeywords.slice(i, i + BATCH_SIZE))
+      }
+
+      console.log(`[KeywordPlanner] Processing ${needApiKeywords.length} keywords in ${keywordBatches.length} batches`)
+
       // API追踪设置
       const apiStartTime = Date.now()
       let apiSuccess = false
       let apiErrorMessage: string | undefined
+      let totalApiCalls = 0
 
       try {
         const client = new GoogleAdsApi({
@@ -254,33 +264,48 @@ export async function getKeywordSearchVolumes(
         const geoTargetId = GEO_TARGETS[country.toUpperCase()] || GEO_TARGETS.US
         const languageId = LANGUAGE_CODES[language.toLowerCase()] || LANGUAGE_CODES.en
 
-        // Use generateKeywordIdeas to get volume metrics
-        const response = await customer.keywordPlanIdeas.generateKeywordIdeas({
-          customer_id: config.customerId,
-          language: `languageConstants/${languageId}`,
-          geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
-          keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
-          keyword_seed: { keywords: needApiKeywords },
-          include_adult_keywords: false,
-          page_token: '',
-          page_size: 100,
-          keyword_annotation: [],
-        } as any)
+        // Process each batch
+        for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
+          const batch = keywordBatches[batchIndex]
+          console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
 
-        const ideas = (response as any).results || response || []
-        for (const idea of ideas) {
-          if (idea.text && idea.keyword_idea_metrics) {
-            const metrics = idea.keyword_idea_metrics
-            apiVolumes.set(idea.text.toLowerCase(), {
-              keyword: idea.text,
-              avgMonthlySearches: Number(metrics.avg_monthly_searches) || 0,
-              competition: metrics.competition?.toString() || 'UNKNOWN',
-              competitionIndex: Number(metrics.competition_index) || 0,
-              lowTopPageBid: Number(metrics.low_top_of_page_bid_micros) / 1_000_000 || 0,
-              highTopPageBid: Number(metrics.high_top_of_page_bid_micros) / 1_000_000 || 0,
-            })
+          // Use generateKeywordIdeas to get volume metrics
+          const response = await customer.keywordPlanIdeas.generateKeywordIdeas({
+            customer_id: config.customerId,
+            language: `languageConstants/${languageId}`,
+            geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
+            keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
+            keyword_seed: { keywords: batch },
+            include_adult_keywords: false,
+            page_token: '',
+            page_size: 100,
+            keyword_annotation: [],
+          } as any)
+
+          totalApiCalls++
+
+          const ideas = (response as any).results || response || []
+          for (const idea of ideas) {
+            if (idea.text && idea.keyword_idea_metrics) {
+              const metrics = idea.keyword_idea_metrics
+              apiVolumes.set(idea.text.toLowerCase(), {
+                keyword: idea.text,
+                avgMonthlySearches: Number(metrics.avg_monthly_searches) || 0,
+                competition: metrics.competition?.toString() || 'UNKNOWN',
+                competitionIndex: Number(metrics.competition_index) || 0,
+                lowTopPageBid: Number(metrics.low_top_of_page_bid_micros) / 1_000_000 || 0,
+                highTopPageBid: Number(metrics.high_top_of_page_bid_micros) / 1_000_000 || 0,
+              })
+            }
+          }
+
+          // Small delay between batches to respect rate limits
+          if (batchIndex < keywordBatches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100))
           }
         }
+
+        console.log(`[KeywordPlanner] Completed ${totalApiCalls} API calls, retrieved ${apiVolumes.size} keyword volumes`)
 
         // Save to database and cache
         const toCache: Array<{ keyword: string; volume: number }> = []
@@ -310,7 +335,7 @@ export async function getKeywordSearchVolumes(
             operationType: ApiOperationType.GET_KEYWORD_IDEAS,
             endpoint: 'getKeywordSearchVolumes',
             customerId: config.customerId,
-            requestCount: 1,
+            requestCount: totalApiCalls,
             responseTimeMs: Date.now() - apiStartTime,
             isSuccess: apiSuccess,
             errorMessage: apiErrorMessage

@@ -95,10 +95,34 @@ export interface PlaywrightResolvedUrl {
 
 /**
  * 从连接池获取浏览器上下文（复用实例，减少启动时间）
+ * P0优化: 集成代理IP池预热缓存
  */
-async function getBrowserFromPool(proxyUrl?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string; fromPool: boolean }> {
+async function getBrowserFromPool(proxyUrl?: string, targetCountry?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string; fromPool: boolean }> {
+  // 🔥 P0优化: 如果有targetCountry，尝试从代理池获取预热的代理（节省3-5s）
+  let proxyCredentials: { host: string; port: number; username: string; password: string } | undefined
+
+  if (targetCountry && !proxyUrl) {
+    try {
+      const { getProxyPoolManager } = await import('./proxy/proxy-pool')
+      const proxyPool = getProxyPoolManager()
+      const cachedProxy = await proxyPool.getHealthyProxy(targetCountry)
+
+      if (cachedProxy) {
+        proxyCredentials = {
+          host: cachedProxy.host,
+          port: cachedProxy.port,
+          username: cachedProxy.username,
+          password: cachedProxy.password,
+        }
+        console.log(`🔥 [代理池] Cache HIT: ${cachedProxy.host}:${cachedProxy.port} (${targetCountry})`)
+      }
+    } catch (error: any) {
+      console.warn(`⚠️ 代理池获取失败，使用默认代理: ${error.message}`)
+    }
+  }
+
   const pool = getPlaywrightPool()
-  const { browser, context, instanceId } = await pool.acquire(proxyUrl)
+  const { browser, context, instanceId } = await pool.acquire(proxyUrl, proxyCredentials)
 
   return { browser, context, instanceId, fromPool: true }
 }
@@ -114,16 +138,19 @@ function releaseBrowserToPool(instanceId: string): void {
 /**
  * 使用Playwright解析Affiliate链接
  * 支持JavaScript重定向和动态内容
+ * P0优化: 集成代理IP池预热缓存
  *
  * @param affiliateLink - Offer推广链接
  * @param proxyUrl - 可选的代理URL
  * @param waitTime - 等待页面稳定的时间（毫秒），默认5000
+ * @param targetCountry - 目标国家代码，用于代理池缓存（如 'US', 'DE'）
  * @returns 解析后的URL信息
  */
 export async function resolveAffiliateLinkWithPlaywright(
   affiliateLink: string,
   proxyUrl?: string,
-  waitTime = 5000
+  waitTime = 5000,
+  targetCountry?: string
 ): Promise<PlaywrightResolvedUrl> {
   let page: Page | null = null
   let instanceId: string | null = null
@@ -131,7 +158,8 @@ export async function resolveAffiliateLinkWithPlaywright(
 
   try {
     // 从连接池获取浏览器（复用实例，减少启动时间50%）
-    const result = await getBrowserFromPool(proxyUrl)
+    // P0优化: 如果有targetCountry，尝试使用代理IP池预热缓存（节省3-5s）
+    const result = await getBrowserFromPool(proxyUrl, targetCountry)
     const { context } = result
     instanceId = result.instanceId
     fromPool = result.fromPool

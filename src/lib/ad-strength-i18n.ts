@@ -51,17 +51,27 @@ export function getLanguageConfig(targetCountry: string): LanguageConfig {
     return koreanConfig
   }
 
+  // 意大利
+  if (country === 'IT') {
+    return italianConfig
+  }
+
+  // 瑞典
+  if (country === 'SE') {
+    return swedishConfig
+  }
+
   // 西班牙语区
   if (['ES', 'MX', 'AR', 'CO', 'CL', 'PE'].includes(country)) {
     return spanishConfig
   }
 
-  // 法语区
-  if (['FR', 'CA', 'BE', 'CH'].includes(country)) {
+  // 法语区（移除CH，瑞士单独处理）
+  if (['FR', 'CA', 'BE'].includes(country)) {
     return frenchConfig
   }
 
-  // 德语区
+  // 德语区（包括瑞士，瑞士默认使用德语）
   if (['DE', 'AT', 'CH'].includes(country)) {
     return germanConfig
   }
@@ -275,6 +285,61 @@ const germanConfig: LanguageConfig = {
     'nicht verpassen', 'jetzt handeln'
   ],
   numberPattern: /\d+%?|€\d+/
+}
+
+/**
+ * 意大利语配置
+ */
+const italianConfig: LanguageConfig = {
+  code: 'it',
+  name: 'Italiano',
+  charWeightMultiplier: 1,
+  maxHeadlineLength: 30,
+  maxDescriptionLength: 90,
+  forbiddenWords: [
+    '100%', 'migliore al mondo', 'numero uno', 'garantito',
+    'perfetto', 'miracolo', 'magico', 'rivoluzionario',
+    'soldi gratis', 'senza rischi', 'sempre', 'mai',
+    'eccellente', 'straordinario', 'unico'
+  ],
+  ctaKeywords: [
+    'acquista ora', 'compra ora', 'ottieni', 'ordina', 'scopri di più',
+    'registrati', 'prova', 'inizia', 'scopri',
+    'scarica', 'iscriviti', 'contatta', 'richiedi'
+  ],
+  urgencyKeywords: [
+    'limitato', 'oggi', 'ora', 'esclusivo',
+    'solo', 'offerta termina', 'ultima opportunità',
+    'non perdere', 'agisci ora', 'fino a esaurimento'
+  ],
+  numberPattern: /\d+%?|€\d+/
+}
+
+/**
+ * 瑞典语配置
+ */
+const swedishConfig: LanguageConfig = {
+  code: 'sv',
+  name: 'Svenska',
+  charWeightMultiplier: 1,
+  maxHeadlineLength: 30,
+  maxDescriptionLength: 90,
+  forbiddenWords: [
+    '100%', 'bäst i världen', 'nummer ett', 'garanterad',
+    'perfekt', 'mirakel', 'magisk', 'revolutionerande',
+    'gratis pengar', 'ingen risk', 'alltid', 'aldrig'
+  ],
+  ctaKeywords: [
+    'köp nu', 'få', 'beställ', 'läs mer',
+    'registrera dig', 'prova', 'börja', 'upptäck',
+    'ladda ner', 'prenumerera', 'kontakta', 'begär'
+  ],
+  urgencyKeywords: [
+    'begränsad', 'idag', 'nu', 'exklusiv',
+    'endast', 'erbjudandet slutar', 'sista chansen',
+    'missa inte', 'agera nu', 'så länge lagret räcker'
+  ],
+  numberPattern: /\d+%?|kr\d+|\d+kr|€\d+/
 }
 
 /**

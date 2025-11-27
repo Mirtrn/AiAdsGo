@@ -7,6 +7,7 @@
  */
 import { chromium, Browser, BrowserContext, Page } from 'playwright'
 import { getProxyIp, ProxyCredentials } from './proxy/fetch-proxy-ip'
+import { getProxyPoolManager } from './proxy/proxy-pool'
 import { getPlaywrightPool } from './playwright-pool'
 import { normalizeBrandName } from './offer-utils'
 import { smartWaitForLoad, assessPageComplexity, recordWaitOptimization } from './smart-wait-strategy'
@@ -99,8 +100,9 @@ interface StealthBrowserResult {
 /**
  * Create stealth browser context
  * P0优化: 优先使用连接池，减少80-90%启动时间
+ * P0优化: 集成代理IP池预热缓存，节省3-5s
  */
-async function createStealthBrowser(proxyUrl?: string): Promise<StealthBrowserResult> {
+async function createStealthBrowser(proxyUrl?: string, targetCountry?: string): Promise<StealthBrowserResult> {
   // 🔴 根据需求10：必须使用代理，不允许降级为直连访问
   const effectiveProxyUrl = proxyUrl || PROXY_URL
   if (!effectiveProxyUrl) {
@@ -121,8 +123,27 @@ async function createStealthBrowser(proxyUrl?: string): Promise<StealthBrowserRe
   }
 
   // 传统方式：独立创建浏览器实例
-  const proxy = await getProxyIp(effectiveProxyUrl)
-  console.log(`🔒 [独立] 使用代理: ${proxy.host}:${proxy.port}`)
+  // 🔥 P0优化: 尝试使用代理IP池预热缓存（cache hit = 节省3-5s）
+  let proxy: ProxyCredentials | null = null
+
+  if (targetCountry) {
+    try {
+      const proxyPool = getProxyPoolManager()
+      const cachedProxy = await proxyPool.getHealthyProxy(targetCountry)
+      if (cachedProxy) {
+        proxy = cachedProxy
+        console.log(`🔥 [代理池] Cache HIT: ${proxy.host}:${proxy.port} (${targetCountry})`)
+      }
+    } catch (poolError: any) {
+      console.warn(`⚠️ 代理池获取失败，降级为直接fetch: ${poolError.message}`)
+    }
+  }
+
+  // 如果代理池未命中，降级为传统getProxyIp
+  if (!proxy) {
+    proxy = await getProxyIp(effectiveProxyUrl)
+    console.log(`🔒 [独立] 使用代理: ${proxy.host}:${proxy.port}`)
+  }
 
   // Launch browser with stealth settings
   const browser = await chromium.launch({
@@ -350,19 +371,21 @@ export async function scrapeUrlWithBrowser(
 /**
  * Resolve affiliate link redirects
  * P0优化: 使用连接池减少启动时间
+ * P0优化: 集成代理IP池预热缓存
  */
 export async function resolveAffiliateLink(
   affiliateLink: string,
-  customProxyUrl?: string
+  customProxyUrl?: string,
+  targetCountry?: string
 ): Promise<{
   finalUrl: string
   finalUrlSuffix: string
   redirectChain: string[]
   redirectCount: number
 }> {
-  console.log(`🔗 解析推广链接: ${affiliateLink}`)
+  console.log(`🔗 解析推广链接: ${affiliateLink}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
 
-  const browserResult = await createStealthBrowser(customProxyUrl)
+  const browserResult = await createStealthBrowser(customProxyUrl, targetCountry)
 
   try {
     return await retryWithBackoff(async () => {
@@ -400,7 +423,9 @@ export async function resolveAffiliateLink(
 
       await randomDelay(1000, 2000)
 
-      const finalUrl = page.url()
+      // 🔥 修复：使用page.evaluate获取完整URL，包括Cloudflare拦截页的URL
+      // page.url()在某些情况下可能返回不完整的URL
+      const finalUrl = await page.evaluate(() => window.location.href).catch(() => page.url())
 
       // Parse final URL and suffix
       const urlObj = new URL(finalUrl)
@@ -409,6 +434,13 @@ export async function resolveAffiliateLink(
 
       console.log(`✅ 最终URL: ${basePath}`)
       console.log(`🔧 URL Suffix: ${suffix.substring(0, 100)}${suffix.length > 100 ? '...' : ''}`)
+
+      // 🔥 新增：如果suffix为空但finalUrl包含查询参数，记录警告
+      if (!suffix && finalUrl.includes('?')) {
+        console.warn(`⚠️ URL Suffix提取警告: finalUrl包含?但suffix为空`)
+        console.warn(`   finalUrl: ${finalUrl}`)
+        console.warn(`   urlObj.search: ${urlObj.search}`)
+      }
 
       await page.close().catch(() => {})
 
@@ -527,30 +559,10 @@ export async function scrapeAmazonProduct(
     })
   }
 
-  // Extract image URLs - 限定在核心产品区域
-  const imageUrls: string[] = []
-  const imageSelectors = [
-    '#ppd #altImages img',
-    '#centerCol #altImages img',
-    '#dp-container #altImages img',
-    '#altImages img',
-    '#main-image',
-    '#landingImage'
-  ]
-
-  for (const selector of imageSelectors) {
-    if (imageUrls.length >= 5) break  // 限制最多5张图片
-
-    $(selector).each((i, el) => {
-      if (imageUrls.length >= 5) return false
-      if (isInRecommendationArea(el)) return  // 跳过推荐区域
-
-      const src = $(el).attr('src') || $(el).attr('data-old-hires')
-      if (src && !src.includes('data:image') && !imageUrls.includes(src)) {
-        imageUrls.push(src)
-      }
-    })
-  }
+  // ========== 图片提取已移除 ==========
+  // 📝 说明：Google Search Ads仅显示文本（标题、描述、链接、附加信息），不展示图片
+  // 因此移除了imageUrls提取逻辑，降低抓取复杂度和数据冗余
+  const imageUrls: string[] = [] // 保留空数组以维持接口兼容性
 
   // Extract rating and review count
   const ratingText = $('#acrPopover').attr('title') ||
@@ -820,7 +832,6 @@ export interface AmazonStoreData {
     price: string | null
     rating: string | null
     reviewCount: string | null
-    imageUrl: string | null
     asin: string | null
     hotScore?: number      // 🔥 新增：热销分数
     rank?: number          // 🔥 新增：热销排名
@@ -866,7 +877,6 @@ export async function scrapeAmazonStore(
       price: string | null
       rating: string | null
       reviewCount: string | null
-      imageUrl: string | null
     }> = []
 
     // 🔥 调试：监听所有JSON响应，找到产品数据API
@@ -1142,7 +1152,6 @@ export async function scrapeAmazonStore(
           price: productData.formattedPriceV2 || null,
           rating: productData.ratingValue ? String(productData.ratingValue) : null,
           reviewCount: productData.totalReviewCount ? String(productData.totalReviewCount) : null,
-          imageUrl: productData.formattedImageUrl || null,
           asin: asin,
           promotion: productData.dealBadge?.messageText || null,
           badge: productData.dealBadge?.labelText || null,
@@ -1180,7 +1189,6 @@ export async function scrapeAmazonStore(
             price: formattedPrice,
             rating: null,
             reviewCount: null,
-            imageUrl: null,
             asin: asin,
             promotion: messageText || null,
             badge: labelText || null,
@@ -1458,11 +1466,7 @@ export async function scrapeAmazonStore(
       const reviewCount = reviewCountText ? reviewCountText.match(/[\d,]+/)?.[0]?.replace(/,/g, '') || null : null
 
       // Extract image (Store页面优先，然后搜索结果页面) - 从容器中查找
-      const imageUrl = $searchScope.find('.EditorialTileProduct__image__M1rM1').attr('src') ||
-                       $searchScope.find('img.s-image, .s-product-image-container img').attr('src') ||
-                       $searchScope.find('img[src*="images-amazon"]').first().attr('src') ||
-                       $searchScope.find('img').first().attr('src') ||
-                       null
+      // 🔥 已移除：Google Search Ads不展示图片，移除imageUrl提取逻辑
 
       // 🎯 Phase 3: Extract promotion information
       const promotionText = $el.find('.a-badge-label, .s-coupon-highlight-color, [aria-label*="coupon"]').text().trim() ||
@@ -1497,7 +1501,6 @@ export async function scrapeAmazonStore(
         if (name && name.length > 5) {
           console.log(`  🔄 合并产品: ${name.substring(0, 50)} -> ${asin}`)
           existingProductByAsin.name = name
-          if (!existingProductByAsin.imageUrl && imageUrl) existingProductByAsin.imageUrl = imageUrl
           if (!existingProductByAsin.rating && rating) existingProductByAsin.rating = rating
           if (!existingProductByAsin.reviewCount && reviewCount) existingProductByAsin.reviewCount = reviewCount
         }
@@ -1509,7 +1512,6 @@ export async function scrapeAmazonStore(
           price,
           rating,
           reviewCount,
-          imageUrl,
           asin,
           promotion,
           badge,
@@ -1521,52 +1523,26 @@ export async function scrapeAmazonStore(
     })
   }
 
-  // Enhanced fallback: Try to extract products from any visible product images
-  if (products.length < 5) {
-    console.log('🔍 尝试从图片alt属性提取产品...')
-    $('img[alt]').each((i, el) => {
-      if (products.length >= 30) return false
-
-      const alt = $(el).attr('alt')?.trim() || ''
-      const src = $(el).attr('src') || ''
-
-      // 🔥 优化过滤条件：严格过滤以避免提取导航/品牌图片
-      const isValidProductImage = alt &&
-        alt.length > 10 &&  // 产品名称通常较长
-        alt.length < 500 &&
-        !alt.toLowerCase().match(/logo|icon|banner|button|arrow|star|prime badge|home page|store|brand page|shop|navigation|menu/i) &&  // 排除非产品元素
-        (src.includes('images-amazon') || src.includes('ssl-images-amazon') || src.includes('m.media-amazon')) &&
-        !products.some(p => p.name === alt) &&
-        !/^[A-Z\s]+$/i.test(alt.trim())  // 排除纯大写字母（如"REOLINK"）
-
-      if (isValidProductImage) {
-        // Try to find price near the image
-        const $parent = $(el).closest('div').parent()
-        const nearbyPrice = $parent.find('.a-price .a-offscreen').first().text().trim() ||
-                           $parent.find('[class*="price"]').first().text().trim() ||
-                           $parent.find('[class*="Price"]').first().text().trim() || null
-
-        products.push({
-          name: alt,
-          price: nearbyPrice,
-          rating: null,
-          reviewCount: null,
-          imageUrl: src,
-          asin: src.match(/\/([A-Z0-9]{10})[\._]/)?.[1] || null,
-          promotion: null,  // 🎯 Phase 3
-          badge: null,      // 🎯 Phase 3
-          isPrime: false,   // 🎯 Phase 3
-        })
-      }
-    })
-  }
+  // 🔥 已移除图片fallback提取逻辑
+  // Enhanced fallback已被移除：Google Search Ads不展示图片，不需要从img[alt]提取产品
   } // 🔥 关闭 else 块
 
-  // 🔥 热销商品筛选逻辑
+  // 🔥 过滤掉占位符名称的产品
   console.log(`📊 原始产品数量: ${products.length}`)
+  const validProducts = products.filter(p => {
+    // 过滤条件：名称不能是占位符格式 "Product BXXXXXXX"
+    const isPlaceholder = /^Product [A-Z0-9]{10}$/.test(p.name)
+    if (isPlaceholder) {
+      console.log(`  ⊗ 过滤占位符产品: ${p.name} (ASIN: ${p.asin})`)
+      return false
+    }
+    return true
+  })
+  console.log(`📊 过滤后产品数量: ${validProducts.length} (移除 ${products.length - validProducts.length} 个占位符)`)
 
+  // 🔥 热销商品筛选逻辑
   // 计算热销分数：score = rating × log(reviewCount + 1)
-  const productsWithScores = products.map(p => {
+  const productsWithScores = validProducts.map(p => {
     const rating = p.rating ? parseFloat(p.rating) : 0
     const reviewCount = p.reviewCount ? parseInt(p.reviewCount.replace(/,/g, '')) : 0
 
@@ -1597,7 +1573,6 @@ export async function scrapeAmazonStore(
     price: p.price,
     rating: p.rating,
     reviewCount: p.reviewCount,
-    imageUrl: p.imageUrl,
     asin: p.asin,
     hotScore: p.hotScore,
     rank: index + 1,
@@ -1610,10 +1585,10 @@ export async function scrapeAmazonStore(
   }))
 
   // 计算热销洞察
-  const validProducts = topProducts.filter(p => p.ratingNum > 0 && p.reviewCountNum > 0)
-  const hotInsights = validProducts.length > 0 ? {
-    avgRating: validProducts.reduce((sum, p) => sum + p.ratingNum, 0) / validProducts.length,
-    avgReviews: Math.round(validProducts.reduce((sum, p) => sum + p.reviewCountNum, 0) / validProducts.length),
+  const productsWithRatings = topProducts.filter(p => p.ratingNum > 0 && p.reviewCountNum > 0)
+  const hotInsights = productsWithRatings.length > 0 ? {
+    avgRating: productsWithRatings.reduce((sum, p) => sum + p.ratingNum, 0) / productsWithRatings.length,
+    avgReviews: Math.round(productsWithRatings.reduce((sum, p) => sum + p.reviewCountNum, 0) / productsWithRatings.length),
     topProductsCount: topCount
   } : undefined
 
@@ -1652,7 +1627,6 @@ export interface IndependentStoreData {
   products: Array<{
     name: string
     price: string | null
-    imageUrl: string | null
     productUrl: string | null
   }>
   totalProducts: number
@@ -1841,7 +1815,6 @@ export async function scrapeIndependentStore(
           products.push({
             name: alt,
             price: nearbyPrice,
-            imageUrl: src.startsWith('http') ? src : (src.startsWith('//') ? `https:${src}` : new URL(src, finalUrl).href),
             productUrl: nearbyLink ? (nearbyLink.startsWith('http') ? nearbyLink : new URL(nearbyLink, finalUrl).href) : null,
           })
         }

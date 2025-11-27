@@ -38,14 +38,17 @@ export function getRedisClient(): Redis {
  * 生成网页缓存的key
  * @param url - 网页URL
  * @param language - 目标语言
+ * @param pageType - 页面类型（product或store）
  */
-function generateCacheKey(url: string, language: string): string {
+function generateCacheKey(url: string, language: string, pageType?: 'product' | 'store'): string {
   // 标准化URL（移除尾部斜杠和查询参数中的tracking）
   const normalizedUrl = url
     .replace(/\/$/, '')
     .replace(/[?&](ref|tag|utm_[^&]+)=[^&]*/g, '')
 
-  return `scrape:${language}:${Buffer.from(normalizedUrl).toString('base64')}`
+  // 包含页面类型以避免类型不匹配
+  const typePrefix = pageType ? `${pageType}:` : ''
+  return `scrape:${typePrefix}${language}:${Buffer.from(normalizedUrl).toString('base64')}`
 }
 
 /**
@@ -72,6 +75,7 @@ export interface CachedPageData {
   description: string
   text: string
   seo: SeoData
+  pageType?: 'product' | 'store'  // 页面类型（可选，避免类型不匹配）
   cachedAt: string
   url: string
   language: string
@@ -81,23 +85,25 @@ export interface CachedPageData {
  * 从缓存获取网页数据
  * @param url - 网页URL
  * @param language - 目标语言
+ * @param pageType - 页面类型（product或store，可选）
  * @returns 缓存的数据或null
  */
 export async function getCachedPageData(
   url: string,
-  language: string
+  language: string,
+  pageType?: 'product' | 'store'
 ): Promise<CachedPageData | null> {
   try {
     const redis = getRedisClient()
-    const key = generateCacheKey(url, language)
+    const key = generateCacheKey(url, language, pageType)
 
     const cached = await redis.get(key)
     if (cached) {
-      console.log(`📦 缓存命中: ${url}`)
+      console.log(`📦 缓存命中: ${url} (${pageType || '未指定类型'})`)
       return JSON.parse(cached)
     }
 
-    console.log(`📭 缓存未命中: ${url}`)
+    console.log(`📭 缓存未命中: ${url} (${pageType || '未指定类型'})`)
     return null
   } catch (error: any) {
     console.error('Redis读取失败:', error.message)
@@ -110,15 +116,16 @@ export async function getCachedPageData(
  * @param url - 网页URL
  * @param language - 目标语言
  * @param data - 网页数据（包含文本内容和SEO信息）
+ * @param pageType - 页面类型（product或store，可选）
  */
 export async function setCachedPageData(
   url: string,
   language: string,
-  data: { title: string; description: string; text: string; seo?: SeoData }
+  data: { title: string; description: string; text: string; seo?: SeoData; pageType?: 'product' | 'store' }
 ): Promise<void> {
   try {
     const redis = getRedisClient()
-    const key = generateCacheKey(url, language)
+    const key = generateCacheKey(url, language, data.pageType)
 
     const cacheData: CachedPageData = {
       title: data.title,
@@ -135,13 +142,14 @@ export async function setCachedPageData(
         h1: [],
         imageAlts: [],
       },
+      pageType: data.pageType,  // 存储页面类型
       url,
       language,
       cachedAt: new Date().toISOString(),
     }
 
     await redis.setex(key, CACHE_TTL, JSON.stringify(cacheData))
-    console.log(`💾 已缓存网页数据: ${url} (TTL: 7天, 大小: ${JSON.stringify(cacheData).length} bytes)`)
+    console.log(`💾 已缓存网页数据: ${url} (${data.pageType || '未指定类型'}, TTL: 7天, 大小: ${JSON.stringify(cacheData).length} bytes)`)
   } catch (error: any) {
     console.error('Redis写入失败:', error.message)
     // 缓存失败不影响主流程

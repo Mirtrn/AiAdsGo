@@ -54,7 +54,7 @@ export function assessPageComplexity(url: string): PageComplexity {
       complexity: 'complex',
       estimatedLoadTime: 8000,
       recommendedWaitTime: 5000,
-      recommendedTimeout: 60000,
+      recommendedTimeout: 120000,  // 🔥 增加到120秒，应对慢速代理和多次重定向
     }
   }
 
@@ -63,7 +63,7 @@ export function assessPageComplexity(url: string): PageComplexity {
     complexity: 'medium',
     estimatedLoadTime: 4000,
     recommendedWaitTime: 2000,
-    recommendedTimeout: 45000,
+    recommendedTimeout: 90000,  // 🔥 增加到90秒，应对代理延迟和页面加载慢
   }
 }
 
