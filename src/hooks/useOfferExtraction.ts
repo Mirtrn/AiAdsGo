@@ -28,6 +28,7 @@ interface UseOfferExtractionReturn {
   details?: ProgressEvent['details'];
   result: ExtractionResult | null;
   error: string | null;
+  currentDuration?: number; // 当前阶段的耗时（毫秒）
 
   // Actions
   startExtraction: (affiliateLink: string, targetCountry: string) => void;
@@ -43,8 +44,11 @@ export function useOfferExtraction(): UseOfferExtractionReturn {
   const [details, setDetails] = useState<ProgressEvent['details']>();
   const [result, setResult] = useState<ExtractionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentDuration, setCurrentDuration] = useState<number | undefined>(); // 当前阶段耗时
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const stageStartTimeRef = useRef<number>(Date.now()); // 追踪当前阶段开始时间
+  const lastStageRef = useRef<ProgressStage>('resolving_link'); // 追踪上一个阶段
 
   const reset = useCallback(() => {
     setIsExtracting(false);
@@ -55,6 +59,9 @@ export function useOfferExtraction(): UseOfferExtractionReturn {
     setDetails(undefined);
     setResult(null);
     setError(null);
+    setCurrentDuration(undefined);
+    stageStartTimeRef.current = Date.now();
+    lastStageRef.current = 'resolving_link';
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -118,6 +125,28 @@ export function useOfferExtraction(): UseOfferExtractionReturn {
 
               if (data.type === 'progress') {
                 const progressEvent = data.data;
+
+                // 如果是新的阶段开始，重置计时器
+                if (progressEvent.stage !== lastStageRef.current && progressEvent.status === 'in_progress') {
+                  stageStartTimeRef.current = Date.now();
+                  setCurrentDuration(0);
+                  lastStageRef.current = progressEvent.stage;
+                }
+
+                // 如果阶段完成，使用后端返回的duration
+                if (progressEvent.status === 'completed' || progressEvent.status === 'error') {
+                  const duration = progressEvent.duration;
+                  if (duration !== undefined) {
+                    setCurrentDuration(duration);
+                  }
+                }
+
+                // 如果正在进行的阶段，更新已用时间
+                if (progressEvent.status === 'in_progress') {
+                  const elapsed = Date.now() - stageStartTimeRef.current;
+                  setCurrentDuration(elapsed);
+                }
+
                 setCurrentStage(progressEvent.stage);
                 setCurrentStatus(progressEvent.status);
                 setCurrentMessage(progressEvent.message);
@@ -162,6 +191,7 @@ export function useOfferExtraction(): UseOfferExtractionReturn {
     details,
     result,
     error,
+    currentDuration, // 返回当前阶段耗时
     startExtraction,
     reset,
   };

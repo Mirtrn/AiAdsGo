@@ -11,6 +11,8 @@ interface ProgressTrackerProps {
   currentMessage: string;
   events: ProgressEvent[];
   details?: ProgressEvent['details'];
+  currentDuration?: number; // 当前阶段的耗时（毫秒）
+  stageDurations?: Map<ProgressStage, number>; // 各阶段的完成耗时
 }
 
 const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string }> = {
@@ -42,8 +44,31 @@ export default function ProgressTracker({
   currentMessage,
   events,
   details,
+  currentDuration,
+  stageDurations,
 }: ProgressTrackerProps) {
   const progress = calculateProgress(currentStage, currentStatus);
+
+  // 从事件中提取各阶段完成耗时（如果没有传入stageDurations）
+  const getStageDuration = (stage: ProgressStage): number | undefined => {
+    // 优先使用传入的stageDurations
+    if (stageDurations?.has(stage)) {
+      return stageDurations.get(stage);
+    }
+    // 从events中查找该阶段的completed事件
+    const completedEvent = events.find(
+      (e) => e.stage === stage && e.status === 'completed' && e.duration !== undefined
+    );
+    return completedEvent?.duration;
+  };
+
+  // 格式化耗时显示
+  const formatDuration = (ms: number): string => {
+    if (ms < 1000) {
+      return `${ms}ms`;
+    }
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
 
   const getStageStatus = (stage: ProgressStage): ProgressStatus => {
     const currentIndex = STAGE_ORDER.indexOf(currentStage);
@@ -184,6 +209,8 @@ export default function ProgressTracker({
           const status = getStageStatus(stage);
           const config = STAGE_CONFIG[stage];
           const isActive = stage === currentStage;
+          const stageDuration = getStageDuration(stage);
+          const isInProgress = status === 'in_progress';
 
           return (
             <div
@@ -195,7 +222,7 @@ export default function ProgressTracker({
               <div className="flex-shrink-0 mt-0.5">{renderStageIcon(stage)}</div>
               <div className="flex-1 min-w-0">
                 <div
-                  className={`text-sm font-medium ${
+                  className={`flex items-center gap-2 text-sm font-medium ${
                     status === 'completed'
                       ? 'text-green-700'
                       : status === 'in_progress'
@@ -205,8 +232,20 @@ export default function ProgressTracker({
                       : 'text-gray-500'
                   }`}
                 >
-                  <span className="mr-2">{config.icon}</span>
-                  {config.label}
+                  <span className="mr-1">{config.icon}</span>
+                  <span>{config.label}</span>
+                  {/* 已完成阶段显示耗时 */}
+                  {status === 'completed' && stageDuration !== undefined && (
+                    <span className="text-xs font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                      {formatDuration(stageDuration)}
+                    </span>
+                  )}
+                  {/* 正在执行阶段显示实时耗时 */}
+                  {isInProgress && currentDuration !== undefined && (
+                    <span className="text-xs font-mono text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded animate-pulse">
+                      {formatDuration(currentDuration)}...
+                    </span>
+                  )}
                 </div>
                 {renderStageDetails(stage)}
               </div>
