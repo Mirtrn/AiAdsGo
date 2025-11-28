@@ -71,6 +71,13 @@ export interface CreateOfferInput {
   // 需求28：产品价格和佣金比例（可选）
   product_price?: string
   commission_payout?: string
+  // AI分析结果字段（JSON字符串格式）
+  review_analysis?: string
+  competitor_analysis?: string
+  extracted_keywords?: string
+  extracted_headlines?: string
+  extracted_descriptions?: string
+  extraction_metadata?: string
 }
 
 export interface UpdateOfferInput {
@@ -112,8 +119,11 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
       brand_description, unique_selling_points, product_highlights,
       target_audience, final_url, final_url_suffix, scrape_status,
       offer_name, target_language,
-      product_price, commission_payout
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+      product_price, commission_payout,
+      review_analysis, competitor_analysis,
+      extracted_keywords, extracted_headlines, extracted_descriptions, extraction_metadata,
+      extracted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     input.url,
@@ -130,7 +140,15 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
     offerName,  // 自动生成
     targetLanguage,  // 自动生成
     input.product_price || null,  // 需求28
-    input.commission_payout || null  // 需求28
+    input.commission_payout || null,  // 需求28
+    // AI分析结果字段
+    input.review_analysis || null,
+    input.competitor_analysis || null,
+    input.extracted_keywords || null,
+    input.extracted_headlines || null,
+    input.extracted_descriptions || null,
+    input.extraction_metadata || null,
+    input.review_analysis || input.competitor_analysis ? new Date().toISOString() : null  // 如果有AI分析结果，记录提取时间
   )
 
   const offer = findOfferById(result.lastInsertRowid as number, userId)

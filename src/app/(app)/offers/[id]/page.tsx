@@ -52,6 +52,9 @@ interface Offer {
   isActive: boolean
   createdAt: string
   updatedAt: string
+  // AI分析结果字段（仅显示评论分析和竞品分析）
+  reviewAnalysis: string | null
+  competitorAnalysis: string | null
 }
 
 interface PerformanceSummary {
@@ -706,6 +709,339 @@ export default function OfferDetailPage() {
               </div>
             </dl>
           </div>
+
+          {/* 评论分析卡片 */}
+          {offer.reviewAnalysis && (() => {
+            try {
+              const reviewData = JSON.parse(offer.reviewAnalysis)
+              return (
+                <div className="bg-white shadow rounded-lg p-6 mb-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    <span className="mr-2">📊</span>评论分析
+                    {reviewData.totalReviews && (
+                      <span className="ml-2 text-sm font-normal text-gray-500">
+                        （基于 {reviewData.totalReviews} 条评论，平均评分 {reviewData.averageRating}⭐）
+                      </span>
+                    )}
+                  </h2>
+                  <dl className="space-y-4">
+                    {/* 情感分布 */}
+                    {reviewData.sentimentDistribution && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">情感分布</dt>
+                        <dd className="flex gap-4 text-sm">
+                          <span className="text-green-600">👍 好评 {reviewData.sentimentDistribution.positive}%</span>
+                          <span className="text-gray-600">😐 中立 {reviewData.sentimentDistribution.neutral}%</span>
+                          <span className="text-red-600">👎 差评 {reviewData.sentimentDistribution.negative}%</span>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 正面关键词 */}
+                    {reviewData.topPositiveKeywords && reviewData.topPositiveKeywords.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">用户好评点</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="list-disc list-inside space-y-2">
+                            {reviewData.topPositiveKeywords.map((item: any, idx: number) => (
+                              <li key={idx} className="text-green-700">
+                                <strong>{item.keyword}</strong>（提及{item.frequency}次）
+                                {item.context && <p className="ml-5 text-gray-600 text-xs mt-1">{item.context}</p>}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 负面关键词 */}
+                    {reviewData.topNegativeKeywords && reviewData.topNegativeKeywords.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">用户痛点</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="list-disc list-inside space-y-2">
+                            {reviewData.topNegativeKeywords.map((item: any, idx: number) => (
+                              <li key={idx} className="text-red-700">
+                                <strong>{item.keyword}</strong>（提及{item.frequency}次）
+                                {item.context && <p className="ml-5 text-gray-600 text-xs mt-1">{item.context}</p>}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 购买原因 */}
+                    {reviewData.purchaseReasons && reviewData.purchaseReasons.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">购买原因</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="list-disc list-inside space-y-1">
+                            {reviewData.purchaseReasons.map((item: any, idx: number) => (
+                              <li key={idx}>
+                                {typeof item === 'string' ? item : item.reason}
+                                {item.frequency && <span className="text-gray-500 text-xs ml-1">（{item.frequency}人）</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 真实使用场景 */}
+                    {reviewData.realUseCases && reviewData.realUseCases.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">使用场景</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="list-disc list-inside space-y-2">
+                            {reviewData.realUseCases.map((item: any, idx: number) => (
+                              <li key={idx}>
+                                <strong>{item.scenario}</strong>（提及{item.mentions}次）
+                                {item.examples && item.examples.length > 0 && (
+                                  <ul className="ml-5 mt-1 text-gray-600 text-xs list-none">
+                                    {item.examples.map((ex: string, exIdx: number) => (
+                                      <li key={exIdx}>• {ex}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 用户画像 */}
+                    {reviewData.userProfiles && reviewData.userProfiles.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">用户画像</dt>
+                        <dd className="text-sm text-gray-900">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {reviewData.userProfiles.map((profile: any, idx: number) => (
+                              <div key={idx} className="bg-gray-50 p-3 rounded">
+                                <div className="font-medium text-blue-700">{profile.profile}</div>
+                                {profile.indicators && (
+                                  <ul className="mt-1 text-xs text-gray-600">
+                                    {profile.indicators.map((ind: string, indIdx: number) => (
+                                      <li key={indIdx}>• {ind}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 常见问题 */}
+                    {reviewData.commonPainPoints && reviewData.commonPainPoints.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">常见问题</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="space-y-2">
+                            {reviewData.commonPainPoints.map((item: any, idx: number) => (
+                              <li key={idx} className="bg-red-50 p-2 rounded">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-red-700 font-medium">{typeof item === 'string' ? item : item.issue}</span>
+                                  {item.severity && (
+                                    <Badge variant={item.severity === 'high' ? 'destructive' : item.severity === 'moderate' ? 'secondary' : 'outline'}>
+                                      {item.severity === 'high' ? '严重' : item.severity === 'moderate' ? '中等' : '轻微'}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {item.workarounds && item.workarounds.length > 0 && (
+                                  <div className="mt-1 text-xs text-gray-600">
+                                    解决方案：{item.workarounds.join('；')}
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              )
+            } catch {
+              return null
+            }
+          })()}
+
+          {/* 竞品分析卡片 */}
+          {offer.competitorAnalysis && (() => {
+            try {
+              const competitorData = JSON.parse(offer.competitorAnalysis)
+              return (
+                <div className="bg-white shadow rounded-lg p-6 mb-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    <span className="mr-2">🏆</span>竞品分析
+                    {competitorData.totalCompetitors && (
+                      <span className="ml-2 text-sm font-normal text-gray-500">
+                        （分析了 {competitorData.totalCompetitors} 个竞品）
+                      </span>
+                    )}
+                    {competitorData.overallCompetitiveness !== undefined && (
+                      <Badge
+                        variant={competitorData.overallCompetitiveness >= 70 ? 'default' : competitorData.overallCompetitiveness >= 50 ? 'secondary' : 'destructive'}
+                        className="ml-2"
+                      >
+                        竞争力 {competitorData.overallCompetitiveness}/100
+                      </Badge>
+                    )}
+                  </h2>
+                  <dl className="space-y-4">
+                    {/* 价格竞争力 */}
+                    {competitorData.pricePosition && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">价格竞争力</dt>
+                        <dd className="text-sm text-gray-900">
+                          <div className="bg-gray-50 p-3 rounded space-y-2">
+                            <div className="flex items-center gap-4">
+                              <span>我方价格: <strong>${competitorData.pricePosition.ourPrice}</strong></span>
+                              <span>竞品均价: ${competitorData.pricePosition.avgCompetitorPrice?.toFixed(2)}</span>
+                              <Badge variant={
+                                competitorData.pricePosition.priceAdvantage === 'lowest' ? 'default' :
+                                competitorData.pricePosition.priceAdvantage === 'below_average' ? 'secondary' :
+                                competitorData.pricePosition.priceAdvantage === 'average' ? 'outline' : 'destructive'
+                              }>
+                                {competitorData.pricePosition.priceAdvantage === 'lowest' ? '最低价' :
+                                 competitorData.pricePosition.priceAdvantage === 'below_average' ? '低于均价' :
+                                 competitorData.pricePosition.priceAdvantage === 'average' ? '均价水平' :
+                                 competitorData.pricePosition.priceAdvantage === 'above_average' ? '高于均价' : '高端定价'}
+                              </Badge>
+                            </div>
+                            {competitorData.pricePosition.savingsVsAvg && (
+                              <div className="text-green-600 text-xs">{competitorData.pricePosition.savingsVsAvg}</div>
+                            )}
+                          </div>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 评分竞争力 */}
+                    {competitorData.ratingPosition && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">评分竞争力</dt>
+                        <dd className="text-sm text-gray-900">
+                          <div className="bg-gray-50 p-3 rounded flex items-center gap-4">
+                            <span>我方评分: <strong>{competitorData.ratingPosition.ourRating}⭐</strong></span>
+                            <span>竞品均分: {competitorData.ratingPosition.avgCompetitorRating?.toFixed(1)}⭐</span>
+                            <Badge variant={
+                              competitorData.ratingPosition.ratingAdvantage === 'top_rated' ? 'default' :
+                              competitorData.ratingPosition.ratingAdvantage === 'above_average' ? 'secondary' : 'outline'
+                            }>
+                              {competitorData.ratingPosition.ratingAdvantage === 'top_rated' ? '评分最高' :
+                               competitorData.ratingPosition.ratingAdvantage === 'above_average' ? '高于均分' :
+                               competitorData.ratingPosition.ratingAdvantage === 'average' ? '均分水平' : '低于均分'}
+                            </Badge>
+                          </div>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 独特卖点 */}
+                    {competitorData.uniqueSellingPoints && competitorData.uniqueSellingPoints.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">独特卖点 (USP)</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="space-y-2">
+                            {competitorData.uniqueSellingPoints.map((usp: any, idx: number) => (
+                              <li key={idx} className="bg-green-50 p-2 rounded flex items-start gap-2">
+                                <Badge variant={usp.significance === 'high' ? 'default' : usp.significance === 'medium' ? 'secondary' : 'outline'} className="shrink-0">
+                                  {usp.significance === 'high' ? '高度差异化' : usp.significance === 'medium' ? '中度差异化' : '轻度差异化'}
+                                </Badge>
+                                <div>
+                                  <div className="font-medium text-green-800">{usp.usp}</div>
+                                  {usp.differentiator && <div className="text-xs text-gray-600 mt-1">{usp.differentiator}</div>}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 竞品优势（需应对） */}
+                    {competitorData.competitorAdvantages && competitorData.competitorAdvantages.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">竞品优势（需应对）</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="space-y-2">
+                            {competitorData.competitorAdvantages.map((adv: any, idx: number) => (
+                              <li key={idx} className="bg-yellow-50 p-2 rounded">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-yellow-800 font-medium">{adv.advantage}</span>
+                                  {adv.competitor && <span className="text-xs text-gray-500">— {adv.competitor}</span>}
+                                </div>
+                                {adv.howToCounter && (
+                                  <div className="mt-1 text-xs text-blue-600">💡 应对策略：{adv.howToCounter}</div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 功能对比 */}
+                    {competitorData.featureComparison && competitorData.featureComparison.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">功能对比</dt>
+                        <dd className="text-sm text-gray-900">
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {competitorData.featureComparison.map((feat: any, idx: number) => (
+                              <div key={idx} className={`p-2 rounded ${feat.ourAdvantage ? 'bg-green-50 border border-green-200' : feat.weHave ? 'bg-gray-50' : 'bg-red-50'}`}>
+                                <div className="flex items-center gap-1">
+                                  <span>{feat.weHave ? '✅' : '❌'}</span>
+                                  <span className={feat.ourAdvantage ? 'text-green-700 font-medium' : ''}>{feat.feature}</span>
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {feat.competitorsHave}/{competitorData.totalCompetitors || '?'} 竞品有此功能
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 竞品列表 */}
+                    {competitorData.competitors && competitorData.competitors.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">竞品列表</dt>
+                        <dd className="text-sm text-gray-900">
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">品牌/名称</th>
+                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">价格</th>
+                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">评分</th>
+                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">评论数</th>
+                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">来源</th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-gray-200">
+                                {competitorData.competitors.slice(0, 8).map((comp: any, idx: number) => (
+                                  <tr key={idx}>
+                                    <td className="px-3 py-2 text-sm text-gray-900 max-w-[200px]">
+                                      <div className="font-medium truncate" title={comp.name}>{comp.name}</div>
+                                      {comp.brand && <div className="text-xs text-gray-500">{comp.brand}</div>}
+                                    </td>
+                                    <td className="px-3 py-2 text-sm text-gray-900">{comp.priceText || (comp.price ? `$${comp.price}` : '-')}</td>
+                                    <td className="px-3 py-2 text-sm text-gray-900">{comp.rating ? `${comp.rating}⭐` : '-'}</td>
+                                    <td className="px-3 py-2 text-sm text-gray-900">{comp.reviewCount?.toLocaleString() || '-'}</td>
+                                    <td className="px-3 py-2 text-xs text-gray-500">
+                                      {comp.source === 'amazon_compare' ? '对比表' :
+                                       comp.source === 'amazon_also_viewed' ? '看了又看' :
+                                       comp.source === 'amazon_similar' ? '相似商品' : comp.source || '-'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              )
+            } catch {
+              return null
+            }
+          })()}
 
           {/* 系统信息卡片 */}
           <div className="bg-white shadow rounded-lg p-6">

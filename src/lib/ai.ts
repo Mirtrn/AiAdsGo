@@ -466,11 +466,22 @@ Requirements:
       }
     }
 
+    // 🔧 修复：确保数组字段转换为字符串（AI可能返回数组或字符串）
+    const ensureString = (value: any): string => {
+      if (!value) return ''
+      if (Array.isArray(value)) {
+        return value.map((item: any) =>
+          typeof item === 'string' ? item : JSON.stringify(item)
+        ).join('\n')
+      }
+      return String(value)
+    }
+
     return {
-      brandDescription: productInfo.brandDescription || '',
-      uniqueSellingPoints: productInfo.uniqueSellingPoints || '',
-      productHighlights: productInfo.productHighlights || '',
-      targetAudience: productInfo.targetAudience || '',
+      brandDescription: ensureString(productInfo.brandDescription),
+      uniqueSellingPoints: ensureString(productInfo.uniqueSellingPoints),
+      productHighlights: ensureString(productInfo.productHighlights),
+      targetAudience: ensureString(productInfo.targetAudience),
       category: productInfo.category,
     }
   } catch (error: any) {

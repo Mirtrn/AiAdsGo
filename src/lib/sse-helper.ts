@@ -84,7 +84,8 @@ export function sendProgress(
   stage: import('@/types/progress').ProgressStage,
   status: 'pending' | 'in_progress' | 'completed' | 'error',
   message: string,
-  details?: import('@/types/progress').ProgressEvent['details']
+  details?: import('@/types/progress').ProgressEvent['details'],
+  duration?: number
 ): void {
   sendSSEMessage(controller, {
     type: 'progress',
@@ -93,6 +94,7 @@ export function sendProgress(
       status,
       message,
       timestamp: Date.now(),
+      duration,
       details,
     },
   });

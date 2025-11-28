@@ -59,9 +59,9 @@ export async function POST(request: NextRequest) {
         userId: userIdNum,
         skipCache,
         skipWarmup, // SSE版本默认不跳过预热
-        progressCallback: (step, status, message, data) => {
+        progressCallback: (step, status, message, data, duration) => {
           // 转发进度到SSE流
-          sendProgress(controller, step, status, message, data);
+          sendProgress(controller, step, status, message, data, duration);
         },
       });
 
@@ -97,7 +97,8 @@ export async function POST(request: NextRequest) {
       console.log(`✅ 核心提取完成: ${brandName || '未识别'}`);
 
       // ========== 步骤6: AI产品分析（SSE特有功能）==========
-      sendProgress(controller, 'processing_data', 'in_progress', '正在进行AI产品分析...');
+      const aiAnalysisStartTime = Date.now();
+      sendProgress(controller, 'ai_analysis', 'in_progress', '正在进行AI产品分析...');
 
       let aiProductInfo = null;
       let aiAnalysisSuccess = false;
@@ -215,20 +216,13 @@ export async function POST(request: NextRequest) {
         console.error('⚠️ AI产品分析失败（不影响流程）:', aiError.message);
       }
 
-      sendProgress(
-        controller,
-        'processing_data',
-        'completed',
-        aiAnalysisSuccess ? 'AI产品分析完成' : '数据处理完成（AI分析失败）'
-      );
-
       // ========== 步骤6.5: P0评论深度分析（仅Amazon产品页）==========
       let reviewAnalysis = null;
       let reviewAnalysisSuccess = false;
 
       if (debug.isAmazonProductPage && aiAnalysisSuccess) {
         try {
-          sendProgress(controller, 'processing_data', 'in_progress', '正在抓取用户评论进行AI分析...');
+          sendProgress(controller, 'ai_analysis', 'in_progress', '正在抓取用户评论进行AI分析...');
           console.log('📝 开始P0评论分析...');
 
           const { scrapeAmazonReviews, analyzeReviewsWithAI } = await import('@/lib/review-analyzer');
@@ -276,7 +270,7 @@ export async function POST(request: NextRequest) {
 
       if (debug.isAmazonProductPage && aiAnalysisSuccess) {
         try {
-          sendProgress(controller, 'processing_data', 'in_progress', '正在抓取竞品进行对比分析...');
+          sendProgress(controller, 'ai_analysis', 'in_progress', '正在抓取竞品进行对比分析...');
           console.log('🏆 开始P0竞品对比分析...');
 
           const { scrapeAmazonCompetitors, analyzeCompetitorsWithAI } = await import(
@@ -355,7 +349,7 @@ export async function POST(request: NextRequest) {
 
       if (aiAnalysisSuccess && aiProductInfo) {
         try {
-          sendProgress(controller, 'processing_data', 'in_progress', '正在提取广告元素...');
+          sendProgress(controller, 'ai_analysis', 'in_progress', '正在提取广告元素...');
           console.log('📝 开始广告元素提取...');
 
           const { extractAdElements } = await import('@/lib/ad-elements-extractor');
@@ -436,6 +430,17 @@ export async function POST(request: NextRequest) {
           console.warn('⚠️ 广告元素提取失败（不影响主流程）:', adError.message);
         }
       }
+
+      // 发送AI分析阶段完成事件
+      const aiAnalysisDuration = Date.now() - aiAnalysisStartTime;
+      sendProgress(
+        controller,
+        'ai_analysis',
+        'completed',
+        aiAnalysisSuccess ? 'AI智能分析完成' : 'AI分析失败，使用基础数据',
+        undefined,
+        aiAnalysisDuration
+      );
 
       // ========== 步骤7: 发送完成事件（包含完整分析结果）==========
       sendComplete(controller, {

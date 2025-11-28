@@ -53,7 +53,8 @@ export type ProgressCallback = (
   step: ProgressStage,
   status: 'in_progress' | 'completed' | 'error',
   message: string,
-  data?: any
+  data?: any,
+  duration?: number // 执行耗时（毫秒）
 ) => void
 
 /**
@@ -109,6 +110,21 @@ export interface ExtractOfferResult {
 }
 
 /**
+ * 记录阶段耗时的辅助函数
+ */
+function trackStageProgress(
+  progressCallback: ProgressCallback | undefined,
+  startTime: number,
+  step: ProgressStage,
+  status: 'in_progress' | 'completed' | 'error',
+  message: string,
+  data?: any
+) {
+  const duration = Date.now() - startTime
+  progressCallback?.(step, status, message, data, duration)
+}
+
+/**
  * Offer提取核心函数
  *
  * @param options - 提取选项
@@ -126,55 +142,57 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
   } = options
 
   try {
-    // ========== 步骤0: 推广链接预热（可选） ==========
+    // ========== 步骤0: 初始化代理池（必须在预热之前） ==========
+    const fetchingProxyStartTime = Date.now()
+    progressCallback?.('fetching_proxy', 'in_progress', '正在初始化代理池...', undefined, 0)
+
+    try {
+      await initializeProxyPool(userId, targetCountry)
+      trackStageProgress(progressCallback, fetchingProxyStartTime, 'fetching_proxy', 'completed', '代理池初始化完成')
+    } catch (error: any) {
+      const errorMessage = error instanceof AppError ? error.message : '代理池初始化失败'
+      trackStageProgress(progressCallback, fetchingProxyStartTime, 'fetching_proxy', 'error', errorMessage)
+
+      return {
+        success: false,
+        error: {
+          code: error instanceof AppError ? error.code : 'PROXY_POOL_INIT_FAILED',
+          message: errorMessage,
+          details: error.details,
+        },
+      }
+    }
+
+    // ========== 步骤1: 推广链接预热（可选） ==========
+    const proxyWarmupStartTime = Date.now()
     if (!skipWarmup) {
-      progressCallback?.('proxy_warmup', 'in_progress', '正在进行推广链接预热...')
+      progressCallback?.('proxy_warmup', 'in_progress', '正在进行推广链接预热...', undefined, 0)
 
       try {
         const targetProxyUrl = getProxyUrlForCountry(targetCountry, userId)
 
         if (!targetProxyUrl) {
           console.warn('⚠️ 未配置代理URL，跳过预热步骤')
-          progressCallback?.('proxy_warmup', 'completed', '未配置代理URL，跳过预热')
+          trackStageProgress(progressCallback, proxyWarmupStartTime, 'proxy_warmup', 'completed', '未配置代理URL，跳过预热')
         } else {
           const warmupSuccess = await warmupAffiliateLink(targetProxyUrl, affiliateLink)
 
           if (!warmupSuccess) {
             // 预热失败不中断流程，只记录警告
             console.warn('⚠️ 推广链接预热失败，继续后续流程')
-            progressCallback?.('proxy_warmup', 'completed', '推广链接预热失败，继续后续流程')
+            trackStageProgress(progressCallback, proxyWarmupStartTime, 'proxy_warmup', 'completed', '推广链接预热失败，继续后续流程')
           } else {
             console.log('✅ 推广链接预热已触发（12个代理IP访问中）')
-            progressCallback?.('proxy_warmup', 'completed', '推广链接预热已触发')
+            trackStageProgress(progressCallback, proxyWarmupStartTime, 'proxy_warmup', 'completed', '推广链接预热已触发')
           }
         }
       } catch (error: any) {
         // 预热异常不中断流程，只记录警告
         console.warn('⚠️ 推广链接预热异常:', error.message)
-        progressCallback?.('proxy_warmup', 'completed', `推广链接预热异常: ${error.message}`)
+        trackStageProgress(progressCallback, proxyWarmupStartTime, 'proxy_warmup', 'completed', `推广链接预热异常: ${error.message}`)
       }
     } else {
       console.log('⏩ 跳过推广链接预热（skipWarmup=true）')
-    }
-
-    // ========== 步骤1: 加载代理池配置 ==========
-    progressCallback?.('fetching_proxy', 'in_progress', '正在获取代理IP...')
-
-    try {
-      await initializeProxyPool(userId, targetCountry)
-      progressCallback?.('fetching_proxy', 'completed', '代理IP获取完成')
-    } catch (error: any) {
-      const errorMessage = error instanceof AppError ? error.message : '代理配置未设置'
-      progressCallback?.('fetching_proxy', 'error', errorMessage)
-
-      return {
-        success: false,
-        error: {
-          code: error instanceof AppError ? error.code : 'PROXY_NOT_CONFIGURED',
-          message: errorMessage,
-          details: error.details,
-        },
-      }
     }
 
     // ========== 步骤2: 检测页面类型（URL解析前） ==========
@@ -182,7 +200,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     const isAmazonStoreByUrl = pageTypeByUrl.isAmazonStore
 
     // ========== 步骤3: 解析推广链接 ==========
-    progressCallback?.('resolving_link', 'in_progress', '正在解析推广链接...')
+    const resolvingLinkStartTime = Date.now()
+    progressCallback?.('resolving_link', 'in_progress', '正在解析推广链接...', undefined, 0)
 
     let resolvedData
 
@@ -198,7 +217,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         resolveMethod: 'direct',
         proxyUsed: null,
       }
-      progressCallback?.('resolving_link', 'completed', '推广链接解析完成（直接使用）', {
+      trackStageProgress(progressCallback, resolvingLinkStartTime, 'resolving_link', 'completed', '推广链接解析完成（直接使用）', {
         currentUrl: affiliateLink,
         redirectCount: 0,
       })
@@ -214,14 +233,14 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           } : {}),
         })
 
-        progressCallback?.('resolving_link', 'completed', '推广链接解析完成', {
+        trackStageProgress(progressCallback, resolvingLinkStartTime, 'resolving_link', 'completed', '推广链接解析完成', {
           currentUrl: resolvedData.finalUrl,
           redirectCount: resolvedData.redirectCount,
         })
       } catch (error: any) {
         console.error('URL解析失败:', error)
         const errorMessage = error instanceof AppError ? error.message : '推广链接解析失败'
-        progressCallback?.('resolving_link', 'error', errorMessage)
+        trackStageProgress(progressCallback, resolvingLinkStartTime, 'resolving_link', 'error', errorMessage)
 
         return {
           success: false,
@@ -248,8 +267,11 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     console.log('  - isAmazonStore:', isAmazonStore)
     console.log('  - isAmazonProductPage:', isAmazonProductPage)
 
-    // ========== 步骤5: 抓取网页数据识别品牌 ==========
-    progressCallback?.('extracting_brand', 'in_progress', '正在提取品牌信息...')
+    // ========== 步骤5: 访问目标页面 ==========
+    const accessingPageStartTime = Date.now()
+    progressCallback?.('accessing_page', 'in_progress', '正在访问目标页面...', {
+      currentUrl: resolvedData.finalUrl,
+    }, 0)
 
     let brandName = null
     let productDescription = null
@@ -286,6 +308,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       // 获取用户代理配置
       const proxyApiUrl = getProxyUrlForCountry(targetCountry, userId)
       if (!proxyApiUrl) {
+        trackStageProgress(progressCallback, accessingPageStartTime, 'accessing_page', 'error', `用户 ${userId} 未配置${targetCountry}国家的代理URL`)
         throw new Error(`用户 ${userId} 未配置${targetCountry}国家的代理URL`)
       }
 
@@ -297,6 +320,16 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       console.log('🔗 完整目标URL:', fullTargetUrl)
       console.log('  - Final URL:', resolvedData.finalUrl)
       console.log('  - URL Suffix:', resolvedData.finalUrlSuffix || '(无)')
+
+      // 访问目标页面完成
+      trackStageProgress(progressCallback, accessingPageStartTime, 'accessing_page', 'completed', '目标页面访问成功', {
+        currentUrl: fullTargetUrl,
+        pageType: isAmazonStore ? 'Amazon Store' : isAmazonProductPage ? 'Amazon Product' : isIndependentStore ? '独立站首页' : '单品页面',
+      })
+
+      // ========== 步骤6: 抓取产品数据 ==========
+      const scrapingProductsStartTime = Date.now()
+      progressCallback?.('scraping_products', 'in_progress', '正在抓取产品数据...', undefined, 0)
 
       if (isAmazonStore) {
         console.log('🏪 检测到Amazon Store页面，使用非Crawlee方案抓取...')
@@ -336,7 +369,16 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         console.log(`✅ 品牌识别成功: ${brandName}`)
       }
 
-      progressCallback?.('extracting_brand', 'completed', '品牌信息提取完成', {
+      // 抓取产品数据完成
+      trackStageProgress(progressCallback, scrapingProductsStartTime, 'scraping_products', 'completed', '产品数据抓取完成', {
+        productCount: productCount || (scrapedData ? 1 : 0),
+      })
+
+      // ========== 步骤7: 提取品牌信息 ==========
+      const extractingBrandStartTime = Date.now()
+      progressCallback?.('extracting_brand', 'in_progress', '正在提取品牌信息...', undefined, 0)
+
+      trackStageProgress(progressCallback, extractingBrandStartTime, 'extracting_brand', 'completed', '品牌信息提取完成', {
         brandName: brandName ?? undefined,
       })
     } catch (error: any) {
@@ -358,13 +400,23 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 
       // 品牌识别失败不中断流程，用户可以手动填写
-      progressCallback?.('extracting_brand', 'completed', `品牌信息提取失败: ${error?.message || '未知错误'}`)
+      // 标记当前阶段为完成（即使有错误）
+      const errorTime = Date.now()
+      trackStageProgress(progressCallback, accessingPageStartTime, 'accessing_page', 'completed', '目标页面访问完成')
+      progressCallback?.('scraping_products', 'completed', `产品数据抓取失败: ${error?.message || '未知错误'}`, undefined, errorTime - accessingPageStartTime)
+      progressCallback?.('extracting_brand', 'completed', `品牌信息提取失败: ${error?.message || '未知错误'}`, undefined, 0)
     }
 
-    // ========== 步骤6: 确定推广语言 ==========
+    // ========== 步骤8: 处理数据 ==========
+    const processingDataStartTime = Date.now()
+    progressCallback?.('processing_data', 'in_progress', '正在处理数据...', undefined, 0)
+
+    // ========== 步骤9: 确定推广语言 ==========
     const targetLanguage = getTargetLanguage(targetCountry)
 
-    // ========== 步骤7: 返回提取结果 ==========
+    trackStageProgress(progressCallback, processingDataStartTime, 'processing_data', 'completed', '数据处理完成')
+
+    // ========== 步骤10: 返回提取结果 ==========
     return {
       success: true,
       data: {

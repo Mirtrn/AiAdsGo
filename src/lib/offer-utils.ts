@@ -121,18 +121,32 @@ export function detectPageType(url: string): PageTypeResult {
 }
 
 /**
+ * 缓存代理池初始化状态，避免重复加载
+ */
+let proxyPoolInitialized = false
+let proxyPoolInitializedForUser: number | null = null
+
+/**
  * 初始化代理池
  *
  * 检查用户的代理配置并确保可用
+ * 注意：只在第一次调用时初始化，后续调用会跳过（使用缓存）
  *
  * @param userId - 用户ID
  * @param targetCountry - 目标国家
  * @throws AppError 如果代理配置未设置
  */
 export async function initializeProxyPool(userId: number, targetCountry: string): Promise<void> {
+  // 检查是否已经初始化过，且是同一个用户
+  if (proxyPoolInitialized && proxyPoolInitializedForUser === userId) {
+    console.log(`✅ [initializeProxyPool] 代理池已初始化，跳过重复初始化`)
+    return
+  }
+
   console.log(`🔍 [initializeProxyPool] 开始初始化代理池...`)
   console.log(`   - userId: ${userId}`)
   console.log(`   - targetCountry: ${targetCountry}`)
+  console.log(`   - 之前初始化用户: ${proxyPoolInitializedForUser || '无'}`)
 
   // 获取用户配置的代理URL列表
   const proxyUrls = getAllProxyUrls(userId)
@@ -159,6 +173,10 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
   // 加载代理到代理池
   const proxyPool = getProxyPool()
   await proxyPool.loadProxies(proxiesWithDefault)
+
+  // 更新缓存状态
+  proxyPoolInitialized = true
+  proxyPoolInitializedForUser = userId
 
   console.log(`✅ 代理池初始化成功: ${proxiesWithDefault.length}个代理 (用户ID: ${userId})`)
 }

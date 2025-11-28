@@ -23,18 +23,20 @@ const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string }> = {
   extracting_brand: { label: '提取品牌信息', icon: '🏷️' },
   scraping_products: { label: '抓取产品数据', icon: '📦' },
   processing_data: { label: '处理数据', icon: '⚙️' },
+  ai_analysis: { label: 'AI智能分析', icon: '🤖' },
   completed: { label: '完成', icon: '✅' },
   error: { label: '错误', icon: '❌' },
 };
 
 const STAGE_ORDER: ProgressStage[] = [
-  'proxy_warmup',
   'fetching_proxy',
+  'proxy_warmup',
   'resolving_link',
   'accessing_page',
-  'extracting_brand',
   'scraping_products',
+  'extracting_brand',
   'processing_data',
+  'ai_analysis',
   'completed',
 ];
 

@@ -10,7 +10,7 @@ const createOfferSchema = z.object({
   category: z.string().optional(),
   target_country: z.string().min(2, '目标国家代码至少2个字符'),
   target_language: z.string().optional(), // 目标语言（如English, Spanish等）
-  affiliate_link: z.string().url('无效的联盟链接格式').optional(),
+  affiliate_link: z.string().url('无效的联盟链接格式').optional().or(z.literal('')), // 允许空字符串
   brand_description: z.string().optional(),
   unique_selling_points: z.string().optional(),
   product_highlights: z.string().optional(),
@@ -21,6 +21,13 @@ const createOfferSchema = z.object({
   // 需求28：产品价格和佣金比例（可选）
   product_price: z.string().optional(),
   commission_payout: z.string().optional(),
+  // AI分析结果字段（JSON字符串格式）
+  review_analysis: z.string().optional(),
+  competitor_analysis: z.string().optional(),
+  extracted_keywords: z.string().optional(),
+  extracted_headlines: z.string().optional(),
+  extracted_descriptions: z.string().optional(),
+  extraction_metadata: z.string().optional(),
 })
 
 /**

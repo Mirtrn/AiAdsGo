@@ -41,7 +41,7 @@ function parseProxyIP(proxyIP: string): ProxyCredentials | null {
 }
 
 /**
- * 从代理URL获取12个代理IP
+ * 使用Playwright+Stealth从代理URL获取12个代理IP
  * 通过在URL中添加 &ips=12 参数来实现
  *
  * @param proxyUrl - 原始代理URL
@@ -50,44 +50,184 @@ function parseProxyIP(proxyIP: string): ProxyCredentials | null {
 export async function fetch12ProxyIPs(proxyUrl: string): Promise<string[]> {
   try {
     // 移除URL中已存在的ips参数，然后添加ips=12
-    let modifiedUrl = proxyUrl;
+    let modifiedUrl = proxyUrl
 
     // 移除已存在的ips参数
-    modifiedUrl = modifiedUrl.replace(/[&?]ips=\d+/g, '');
+    modifiedUrl = modifiedUrl.replace(/[&?]ips=\d+/g, '')
 
     // 添加新的ips=12参数
-    const separator = modifiedUrl.includes('?') ? '&' : '?';
-    modifiedUrl = `${modifiedUrl}${separator}ips=12`;
+    const separator = modifiedUrl.includes('?') ? '&' : '?'
+    modifiedUrl = `${modifiedUrl}${separator}ips=12`
 
-    console.log(`🌐 获取12个代理IP: ${modifiedUrl}`);
+    console.log(`🌐 获取12个代理IP: ${modifiedUrl}`)
 
-    // 发起HTTP请求获取代理IP列表
-    const response = await fetch(modifiedUrl, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-      // 10秒超时
-      signal: AbortSignal.timeout(10000),
-    });
+    // 🔥 使用增强版Stealth配置绕过CloudFlare
+    const { chromium } = await import('playwright')
+    const browser = await chromium.launch({
+      headless: true,
+      args: [
+        // 基础安全参数
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
 
-    if (!response.ok) {
-      console.error(`❌ 获取代理IP失败: HTTP ${response.status}`);
-      return [];
+        // 反检测参数
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=IsolateOrigins,site-per-process,TranslateUI',
+        '--disable-ipc-flooding-protection',
+
+        // User-Agent和语言
+        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+
+        // 性能优化
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-features=ScriptStreaming',
+        '--disable-v8-idle-tasks',
+
+        // WebGL和Canvas指纹防护
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+      ],
+    })
+
+    let proxyIPs: string[] = []
+
+    try {
+      const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        viewport: { width: 1920, height: 1080 },
+        locale: 'en-US',
+        timezoneId: 'America/New_York',
+        colorScheme: 'light',
+        extraHTTPHeaders: {
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Sec-Ch-Ua': '"Google Chrome";v="130", "Chromium";v="130", "Not?A_Brand";v="24"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+        },
+      })
+
+      const page = await context.newPage()
+
+      // ========== 核心Stealth脚本 ==========
+      // @ts-ignore - 此代码在浏览器端执行，非Node.js环境
+      await page.addInitScript(() => {
+        // 1. 移除webdriver特征
+        // @ts-ignore
+        delete Object.getPrototypeOf(navigator).webdriver
+
+        // 2. 修改navigator信息
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
+        })
+
+        // 3. 修改plugins（显示为真实Chrome）
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [1, 2, 3, 4, 5].map((_, i) => ({
+            name: 'Chrome PDF Plugin',
+            filename: 'internal-pdf-viewer',
+            description: 'Portable Document Format',
+          })),
+        })
+
+        // 4. 修改languages
+        Object.defineProperty(navigator, 'languages', {
+          get: () => ['en-US', 'en'],
+        })
+
+        // 5. 修改permissions（通知权限）
+        // @ts-ignore - 浏览器端类型与Node.js不同
+        const originalQuery = window.navigator.permissions.query
+        // @ts-ignore
+        window.navigator.permissions.query = (parameters: any) => (
+          parameters.name === 'notifications' ?
+            Promise.resolve({ state: Notification.permission }) :
+            originalQuery(parameters)
+        )
+
+        // 6. 修改Chrome运行时信息
+        // @ts-ignore - chrome对象仅存在于浏览器端
+        window.chrome = {
+          runtime: {},
+          loadTimes: function() {},
+          csi: function() {},
+          onConnect: null,
+          onMessage: null,
+        }
+
+        // 7. 移除automation属性
+        Object.defineProperty(navigator, 'automation', {
+          get: () => undefined,
+        })
+
+        // 8. 修改屏幕信息
+        Object.defineProperty(screen, 'availWidth', {
+          get: () => 1920,
+        })
+        Object.defineProperty(screen, 'availHeight', {
+          get: () => 1080,
+        })
+
+        // 9. 覆盖toString方法
+        window.navigator.toString = function() {
+          return '[object Navigator]'
+        }
+
+        // 10. 修改内部属性
+        try {
+          // @ts-ignore - __proto__在浏览器端存在
+          const proto = window.navigator.__proto__
+          delete proto.webdriver
+        } catch (e) {}
+      })
+
+      // 页面加载前等待
+      await page.waitForTimeout(500)
+
+      const response = await page.goto(modifiedUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 20000,
+      })
+
+      if (!response || response.status() !== 200) {
+        console.error(`❌ 获取代理IP失败: HTTP ${response?.status() || 'unknown'}`)
+        return []
+      }
+
+      // 等待内容加载
+      await page.waitForTimeout(1000)
+
+      // 获取页面文本内容
+      const text = await page.textContent('body')
+
+      if (!text) {
+        console.error('❌ 代理API响应为空')
+        return []
+      }
+
+      // 解析代理IP列表（每行一个）
+      proxyIPs = text
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+
+      console.log(`✅ 成功获取 ${proxyIPs.length} 个代理IP`)
+    } finally {
+      await browser.close().catch(() => {})
     }
 
-    // 响应格式通常是每行一个代理IP
-    const text = await response.text();
-    const proxyIPs = text
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
-
-    console.log(`✅ 成功获取 ${proxyIPs.length} 个代理IP`);
-    return proxyIPs;
-  } catch (error) {
-    console.error('❌ 获取代理IP时发生错误:', error);
-    return [];
+    return proxyIPs
+  } catch (error: any) {
+    console.error('❌ 获取代理IP时发生错误:', error.message || error)
+    return []
   }
 }
 

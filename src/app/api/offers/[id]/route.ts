@@ -54,6 +54,9 @@ export async function GET(
         isActive: offer.is_active === 1,
         createdAt: offer.created_at,
         updatedAt: offer.updated_at,
+        // AI分析结果字段（仅返回评论分析和竞品分析）
+        reviewAnalysis: offer.review_analysis,
+        competitorAnalysis: offer.competitor_analysis,
       },
     })
   } catch (error: any) {

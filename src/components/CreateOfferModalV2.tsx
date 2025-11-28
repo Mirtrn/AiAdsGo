@@ -73,6 +73,21 @@ interface ExtractedData {
   targetLanguage: string
   redirectCount: number
   resolveMethod: string
+  // AI分析结果
+  brandDescription: string | null
+  uniqueSellingPoints: string | null
+  productHighlights: string | null
+  targetAudience: string | null
+  category: string | null
+  // P0评论深度分析
+  reviewAnalysis: any | null
+  // P0竞品对比分析
+  competitorAnalysis: any | null
+  // 广告元素提取
+  extractedKeywords: any[] | null
+  extractedHeadlines: any[] | null
+  extractedDescriptions: any[] | null
+  extractionMetadata: any | null
 }
 
 export default function CreateOfferModalV2({
@@ -106,6 +121,7 @@ export default function CreateOfferModalV2({
     details,
     result: extractionResult,
     error: extractionError,
+    currentDuration,
     startExtraction,
     reset: resetExtraction,
   } = useOfferExtraction()
@@ -113,15 +129,30 @@ export default function CreateOfferModalV2({
   // 🔥 监听提取完成，自动进入确认步骤
   useEffect(() => {
     if (extractionResult && currentStage === 'completed') {
-      // 保存提取的数据
+      // 保存提取的数据（包含所有AI分析结果）
       setExtractedData({
         finalUrl: extractionResult.finalUrl,
         finalUrlSuffix: extractionResult.finalUrlSuffix || '',
         brand: extractionResult.brand,
-        productDescription: null,
+        productDescription: extractionResult.productDescription || null,
         targetLanguage: extractionResult.targetLanguage || 'English',
-        redirectCount: 0,
+        redirectCount: extractionResult.redirectCount || 0,
         resolveMethod: 'sse-stream',
+        // AI分析结果
+        brandDescription: extractionResult.brandDescription || null,
+        uniqueSellingPoints: extractionResult.uniqueSellingPoints || null,
+        productHighlights: extractionResult.productHighlights || null,
+        targetAudience: extractionResult.targetAudience || null,
+        category: extractionResult.category || null,
+        // P0评论深度分析
+        reviewAnalysis: extractionResult.reviewAnalysis || null,
+        // P0竞品对比分析
+        competitorAnalysis: extractionResult.competitorAnalysis || null,
+        // 广告元素提取
+        extractedKeywords: extractionResult.extractedKeywords || null,
+        extractedHeadlines: extractionResult.extractedHeadlines || null,
+        extractedDescriptions: extractionResult.extractedDescriptions || null,
+        extractionMetadata: extractionResult.extractionMetadata || null,
       })
       setBrandName(extractionResult.brand || '')
       setCurrentStep('confirm')
@@ -169,7 +200,7 @@ export default function CreateOfferModalV2({
         },
         credentials: 'include',
         body: JSON.stringify({
-          affiliate_link: affiliateLink,
+          affiliate_link: affiliateLink || undefined,
           brand: brandName.trim(),
           target_country: targetCountry,
           url: extractedData.finalUrl,  // 原始URL（推广链接解析后的最终落地页）
@@ -177,9 +208,21 @@ export default function CreateOfferModalV2({
           final_url_suffix: extractedData.finalUrlSuffix || undefined,
           product_price: productPrice || undefined,
           commission_payout: commissionPayout || undefined,
-          // 传递提取的数据（用于后续数据抓取）
-          brand_description: extractedData.productDescription || undefined,
+          // 传递AI分析结果
+          brand_description: extractedData.brandDescription || undefined,
+          unique_selling_points: extractedData.uniqueSellingPoints || undefined,
+          product_highlights: extractedData.productHighlights || undefined,
+          target_audience: extractedData.targetAudience || undefined,
+          category: extractedData.category || undefined,
           target_language: extractedData.targetLanguage,
+          // P0评论深度分析和竞品分析（JSON格式）
+          review_analysis: extractedData.reviewAnalysis ? JSON.stringify(extractedData.reviewAnalysis) : undefined,
+          competitor_analysis: extractedData.competitorAnalysis ? JSON.stringify(extractedData.competitorAnalysis) : undefined,
+          // 广告元素提取（JSON格式）
+          extracted_keywords: extractedData.extractedKeywords ? JSON.stringify(extractedData.extractedKeywords) : undefined,
+          extracted_headlines: extractedData.extractedHeadlines ? JSON.stringify(extractedData.extractedHeadlines) : undefined,
+          extracted_descriptions: extractedData.extractedDescriptions ? JSON.stringify(extractedData.extractedDescriptions) : undefined,
+          extraction_metadata: extractedData.extractionMetadata ? JSON.stringify(extractedData.extractionMetadata) : undefined,
         }),
       })
 
@@ -351,6 +394,7 @@ export default function CreateOfferModalV2({
               currentMessage={currentMessage}
               events={events}
               details={details}
+              currentDuration={currentDuration}
             />
           </div>
         )}

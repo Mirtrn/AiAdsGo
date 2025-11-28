@@ -10,6 +10,7 @@ export type ProgressStage =
   | 'extracting_brand'   // 提取品牌信息
   | 'scraping_products'  // 抓取产品数据
   | 'processing_data'    // 处理数据
+  | 'ai_analysis'        // AI智能分析
   | 'completed'          // 完成
   | 'error';             // 错误
 
@@ -20,6 +21,7 @@ export interface ProgressEvent {
   status: ProgressStatus;
   message: string;
   timestamp: number;
+  duration?: number; // 执行耗时（毫秒）
   details?: {
     currentUrl?: string;
     redirectCount?: number;
@@ -28,6 +30,7 @@ export interface ProgressEvent {
     productCount?: number;
     errorMessage?: string;
     retryCount?: number;
+    elapsedTime?: number; // 已用时间（毫秒）
   };
 }
 
@@ -96,6 +99,11 @@ export const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string; 
     icon: '⚙️',
     estimatedTime: 3000, // 3 seconds
   },
+  ai_analysis: {
+    label: 'AI智能分析',
+    icon: '🤖',
+    estimatedTime: 60000, // 60 seconds (AI分析通常较慢)
+  },
   completed: {
     label: '完成',
     icon: '✅',
@@ -120,6 +128,7 @@ export function calculateProgress(stage: ProgressStage, status: ProgressStatus):
     'extracting_brand',
     'scraping_products',
     'processing_data',
+    'ai_analysis',
     'completed',
   ];
 
