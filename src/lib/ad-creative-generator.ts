@@ -1385,46 +1385,95 @@ export async function generateAdCreative(
   // 第2步：过滤非品牌词（只保留搜索量 >= 500）
   const filteredNonBrandKeywords = nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
 
-  // 第3步：强制约束1 - 保留品牌词 "eufy"（不管搜索量）
-  console.log(`\n📌 强制约束1: 保留品牌词 "${offerBrand}"（不管搜索量）`)
+  // 第3步：强制约束1 - 保留品牌词（需要有搜索量数据）
+  console.log(`\n📌 强制约束1: 保留品牌词 "${offerBrand}"（需要搜索量数据）`)
   if (brandKeywords.length > 0) {
+    // 品牌词已存在且有搜索量
     console.log(`   ✅ 找到品牌词: ${brandKeywords.length} 个`)
     brandKeywords.forEach(kw => {
       console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
     })
   } else {
-    console.log(`   ⚠️ 未找到品牌词 "${offerBrand}"，将自动添加`)
-    // 如果没有品牌词，自动添加一个搜索量为 0 的品牌词
-    brandKeywords.push({
-      keyword: offerBrand,
-      searchVolume: 0
-    })
+    // 品牌词不存在，尝试从全局缓存查询搜索量
+    console.log(`   ⚠️ 未找到品牌词 "${offerBrand}"，尝试从全局缓存查询搜索量...`)
+    try {
+      const { getSQLiteDatabase } = await import('./db')
+      const db = getSQLiteDatabase()
+      const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
+      const langCode = targetLanguage.toLowerCase().substring(0, 2)
+
+      // 查询品牌词的搜索量（不区分大小写）
+      const stmt = db.prepare(`
+        SELECT keyword, search_volume
+        FROM global_keywords
+        WHERE LOWER(keyword) = LOWER(?) AND country = ?
+        ORDER BY search_volume DESC
+        LIMIT 1
+      `)
+      const row = stmt.get(offerBrand, targetCountry) as { keyword: string; search_volume: number } | undefined
+
+      if (row && row.search_volume > 0) {
+        console.log(`   ✅ 从全局缓存查询到品牌词搜索量: ${row.search_volume}/月`)
+        brandKeywords.push({
+          keyword: offerBrand,
+          searchVolume: row.search_volume
+        })
+      } else {
+        // 如果缓存中也没有，尝试通过API查询
+        console.log(`   ⚠️ 全局缓存中未找到品牌词，尝试API查询...`)
+        const volumes = await getKeywordSearchVolumes([offerBrand], targetCountry, langCode, userId)
+        if (volumes.length > 0 && volumes[0].avgMonthlySearches > 0) {
+          console.log(`   ✅ API查询到品牌词搜索量: ${volumes[0].avgMonthlySearches}/月`)
+          brandKeywords.push({
+            keyword: offerBrand,
+            searchVolume: volumes[0].avgMonthlySearches
+          })
+        } else {
+          console.log(`   ⚠️ 品牌词 "${offerBrand}" 无搜索量数据，不添加到关键词列表`)
+        }
+      }
+    } catch (err: any) {
+      console.warn(`   ⚠️ 查询品牌词搜索量失败: ${err.message}`)
+    }
   }
 
   // 第4步：强制约束2 - 非品牌词搜索量必须 >= 500
   console.log(`\n📌 强制约束2: 非品牌词搜索量必须 >= 500`)
   console.log(`   - 搜索量 >= 500 的非品牌词: ${filteredNonBrandKeywords.length} 个`)
 
-  // 第5步：强制约束3 - 保留最少 10 个关键词
-  console.log(`\n📌 强制约束3: 保留最少 10 个关键词`)
+  // 第5步：强制约束3 - 保留最少 10 个关键词（只补充有搜索量的）
+  console.log(`\n📌 强制约束3: 保留最少 10 个关键词（只补充搜索量>0的关键词）`)
   let finalKeywords = [...brandKeywords, ...filteredNonBrandKeywords]
 
   if (finalKeywords.length < 10) {
-    // 如果不足 10 个，从被过滤的非品牌词中补充（按搜索量从高到低）
+    // 如果不足 10 个，从被过滤的非品牌词中补充（按搜索量从高到低，但必须>0）
     const needMore = 10 - finalKeywords.length
     const supplementaryKeywords = nonBrandKeywords
       .filter(kw => !finalKeywords.some(fk => fk.keyword === kw.keyword))
+      .filter(kw => kw.searchVolume > 0)  // 🎯 只补充有搜索量的关键词
       .sort((a, b) => b.searchVolume - a.searchVolume)
       .slice(0, needMore)
 
     if (supplementaryKeywords.length > 0) {
-      console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个低搜索量关键词:`)
+      console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个低搜索量关键词 (搜索量>0):`)
       supplementaryKeywords.forEach(kw => {
         console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume}/月) [补充]`)
       })
       finalKeywords = [...finalKeywords, ...supplementaryKeywords]
+    } else {
+      console.log(`   ℹ️ 没有更多有搜索量的关键词可补充，当前关键词数: ${finalKeywords.length}`)
     }
   }
+
+  // 🎯 第6步：最终过滤 - 移除所有搜索量为0或null的关键词
+  console.log(`\n📌 强制约束4: 移除所有搜索量为0或null的关键词`)
+  const beforeFinalFilter = finalKeywords.length
+  finalKeywords = finalKeywords.filter(kw => kw.searchVolume > 0)
+  const removedZeroVolume = beforeFinalFilter - finalKeywords.length
+  if (removedZeroVolume > 0) {
+    console.log(`   ⚠️ 已移除 ${removedZeroVolume} 个搜索量为0的关键词`)
+  }
+  console.log(`   ✅ 最终保留 ${finalKeywords.length} 个有搜索量的关键词`)
 
   // 第6步：按搜索量从高到低排序（品牌词始终排在最后）
   finalKeywords.sort((a, b) => {
@@ -1444,37 +1493,33 @@ export async function generateAdCreative(
   console.log(`\n✅ 过滤完成:`)
   console.log(`   原始关键词: ${beforeFilterCount} 个`)
   console.log(`   最终保留: ${afterFilterCount} 个`)
-  console.log(`   - 品牌词 "${offerBrand}": ${brandKeywords.length} 个`)
+  console.log(`   - 品牌词 "${offerBrand}" (搜索量>0): ${brandKeywords.filter(kw => kw.searchVolume > 0).length} 个`)
   console.log(`   - 非品牌词 (搜索量 >= 500): ${filteredNonBrandKeywords.length} 个`)
-  if (afterFilterCount > brandKeywords.length + filteredNonBrandKeywords.length) {
-    console.log(`   - 补充词 (搜索量 < 500): ${afterFilterCount - brandKeywords.length - filteredNonBrandKeywords.length} 个`)
+  const supplementCount = afterFilterCount - brandKeywords.filter(kw => kw.searchVolume > 0).length - filteredNonBrandKeywords.length
+  if (supplementCount > 0) {
+    console.log(`   - 补充词 (0 < 搜索量 < 500): ${supplementCount} 个`)
   }
 
   // 更新 result.keywords 为过滤后的关键词
   result.keywords = keywordsWithVolume.map(kw => kw.keyword)
 
-  // 最终验证
+  // 最终验证 - 确保所有关键词都有搜索量
   const finalKeywordCount = result.keywords.length
-  const hasBrandKeyword = result.keywords.some(kw => kw.toLowerCase() === brandKeywordLower)
-  const nonBrandKeywordCount = result.keywords.filter(kw => kw.toLowerCase() !== brandKeywordLower).length
-  const allNonBrandHaveVolume = keywordsWithVolume
-    .filter(kw => kw.keyword.toLowerCase() !== brandKeywordLower)
-    .every(kw => kw.searchVolume >= 500)
+  const allHaveVolume = keywordsWithVolume.every(kw => kw.searchVolume > 0)
+  const hasBrandKeyword = keywordsWithVolume.some(kw => kw.keyword.toLowerCase() === brandKeywordLower && kw.searchVolume > 0)
 
   console.log(`\n🎯 最终验证:`)
-  console.log(`   ✅ 关键词总数: ${finalKeywordCount} 个 (>= 10个最小要求: ${finalKeywordCount >= 10 ? '✅' : '❌'})`)
-  console.log(`   ${hasBrandKeyword ? '✅' : '❌'} 包含品牌词 "${offerBrand}"`)
-  console.log(`   ${allNonBrandHaveVolume ? '✅' : '❌'} 所有非品牌词搜索量 >= 500`)
+  console.log(`   ✅ 关键词总数: ${finalKeywordCount} 个`)
+  console.log(`   ${allHaveVolume ? '✅' : '❌'} 所有关键词都有搜索量数据 (searchVolume > 0)`)
+  console.log(`   ${hasBrandKeyword ? '✅' : 'ℹ️'} 品牌词 "${offerBrand}" ${hasBrandKeyword ? '有搜索量' : '无搜索量数据，已排除'}`)
 
-  if (!hasBrandKeyword) {
-    console.warn(`⚠️ 警告: 缺少品牌词 "${offerBrand}"`)
+  if (!allHaveVolume) {
+    const zeroVolumeKeywords = keywordsWithVolume.filter(kw => kw.searchVolume <= 0)
+    console.warn(`⚠️ 警告: 仍有 ${zeroVolumeKeywords.length} 个关键词搜索量为0`)
+    zeroVolumeKeywords.forEach(kw => console.warn(`   - "${kw.keyword}"`))
   }
-  if (!allNonBrandHaveVolume) {
-    const lowVolumeKeywords = keywordsWithVolume.filter(kw => kw.keyword.toLowerCase() !== brandKeywordLower && kw.searchVolume < 500)
-    console.warn(`⚠️ 警告: 有 ${lowVolumeKeywords.length} 个非品牌词搜索量 < 500`)
-  }
-  if (finalKeywordCount < 10) {
-    console.warn(`⚠️ 警告: 关键词数量 ${finalKeywordCount} < 10`)
+  if (finalKeywordCount < 5) {
+    console.warn(`⚠️ 警告: 关键词数量 ${finalKeywordCount} < 5，可能影响广告效果`)
   }
 
   // 修正 sitelinks URL 为真实的 offer URL
