@@ -1385,24 +1385,31 @@ export async function generateAdCreative(
   // 第2步：过滤非品牌词（只保留搜索量 >= 500）
   const filteredNonBrandKeywords = nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
 
-  // 第3步：强制约束1 - 保留品牌词（需要有搜索量数据）
-  console.log(`\n📌 强制约束1: 保留品牌词 "${offerBrand}"（需要搜索量数据）`)
-  if (brandKeywords.length > 0) {
+  // 第3步：强制约束1 - 品牌词必须添加（并确保有搜索量数据）
+  console.log(`\n📌 强制约束1: 品牌词 "${offerBrand}" 必须添加（需查询搜索量）`)
+
+  // 检查品牌词是否已存在于关键词列表中
+  const existingBrandKeyword = brandKeywords.find(kw => kw.searchVolume > 0)
+
+  if (existingBrandKeyword) {
     // 品牌词已存在且有搜索量
     console.log(`   ✅ 找到品牌词: ${brandKeywords.length} 个`)
     brandKeywords.forEach(kw => {
       console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
     })
   } else {
-    // 品牌词不存在，尝试从全局缓存查询搜索量
-    console.log(`   ⚠️ 未找到品牌词 "${offerBrand}"，尝试从全局缓存查询搜索量...`)
+    // 品牌词不存在或搜索量为0，需要查询搜索量
+    console.log(`   ⚠️ 品牌词 "${offerBrand}" 需要查询搜索量...`)
+    let brandSearchVolume = 0
+
     try {
       const { getSQLiteDatabase } = await import('./db')
       const db = getSQLiteDatabase()
       const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
       const langCode = targetLanguage.toLowerCase().substring(0, 2)
 
-      // 查询品牌词的搜索量（不区分大小写）
+      // 步骤1: 尝试从全局缓存查询（不区分大小写）
+      console.log(`   📦 步骤1: 查询全局缓存...`)
       const stmt = db.prepare(`
         SELECT keyword, search_volume
         FROM global_keywords
@@ -1413,27 +1420,35 @@ export async function generateAdCreative(
       const row = stmt.get(offerBrand, targetCountry) as { keyword: string; search_volume: number } | undefined
 
       if (row && row.search_volume > 0) {
-        console.log(`   ✅ 从全局缓存查询到品牌词搜索量: ${row.search_volume}/月`)
-        brandKeywords.push({
-          keyword: offerBrand,
-          searchVolume: row.search_volume
-        })
+        brandSearchVolume = row.search_volume
+        console.log(`   ✅ 全局缓存查询到搜索量: ${brandSearchVolume}/月`)
       } else {
-        // 如果缓存中也没有，尝试通过API查询
-        console.log(`   ⚠️ 全局缓存中未找到品牌词，尝试API查询...`)
+        // 步骤2: 缓存中没有，通过Keyword Planner API查询
+        console.log(`   📡 步骤2: 全局缓存无数据，调用Keyword Planner API查询...`)
         const volumes = await getKeywordSearchVolumes([offerBrand], targetCountry, langCode, userId)
         if (volumes.length > 0 && volumes[0].avgMonthlySearches > 0) {
-          console.log(`   ✅ API查询到品牌词搜索量: ${volumes[0].avgMonthlySearches}/月`)
-          brandKeywords.push({
-            keyword: offerBrand,
-            searchVolume: volumes[0].avgMonthlySearches
-          })
+          brandSearchVolume = volumes[0].avgMonthlySearches
+          console.log(`   ✅ Keyword Planner API查询到搜索量: ${brandSearchVolume}/月`)
         } else {
-          console.log(`   ⚠️ 品牌词 "${offerBrand}" 无搜索量数据，不添加到关键词列表`)
+          console.log(`   ⚠️ Keyword Planner API未返回搜索量数据`)
         }
       }
     } catch (err: any) {
       console.warn(`   ⚠️ 查询品牌词搜索量失败: ${err.message}`)
+    }
+
+    // 🎯 无论是否有搜索量，品牌词都必须添加
+    // 清空之前可能存在的搜索量为0的品牌词
+    brandKeywords.length = 0
+    brandKeywords.push({
+      keyword: offerBrand,
+      searchVolume: brandSearchVolume
+    })
+
+    if (brandSearchVolume > 0) {
+      console.log(`   ✅ 品牌词 "${offerBrand}" 已添加 (搜索量: ${brandSearchVolume}/月)`)
+    } else {
+      console.log(`   ⚠️ 品牌词 "${offerBrand}" 已添加 (搜索量: 未知，建议手动验证)`)
     }
   }
 
