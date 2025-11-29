@@ -1234,122 +1234,180 @@ export async function generateAdCreative(
   result.keywords = validKeywords.map(kw => kw.keyword)
   keywordsWithVolume = validKeywords
 
-  // 🎯 通过Keyword Planner扩展高搜索量关键词（多轮查询）
-  // 规则: 搜索量 > 500 的关键词通过 Keyword Planner 查询，获取新的搜索量 > 500 的关键字提示
+  // 🎯 通过Keyword Planner扩展高搜索量关键词（多角度3轮查询策略）
+  // 策略: 使用不同角度的种子词进行3轮查询，最大化获取高搜索量关键词提示
   try {
     if (brandName && userId) {
-      // 找出搜索量 > 500 的关键词作为种子关键词
-      let highVolumeKeywords = keywordsWithVolume
-        .filter(kw => kw.searchVolume > 500)
-        .map(kw => kw.keyword)
+      console.log(`🔍 启动Keyword Planner多角度3轮查询策略`)
+      console.time('⏱️ Keyword Planner扩展')
 
-      if (highVolumeKeywords.length > 0) {
-        console.log(`🔍 使用Keyword Planner扩展高搜索量关键词 (> 500/月): ${highVolumeKeywords.join(', ')}`)
-        console.time('⏱️ Keyword Planner扩展')
+      // 获取Google Ads账号信息
+      const { getKeywordIdeas } = await import('@/lib/google-ads-keyword-planner')
+      const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
+      const { getSQLiteDatabase } = await import('@/lib/db')
+      const db = getSQLiteDatabase()
 
-        // 获取Google Ads账号信息
-        const { getKeywordIdeas } = await import('@/lib/google-ads-keyword-planner')
-        const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
-        const { getSQLiteDatabase } = await import('@/lib/db')
-        const db = getSQLiteDatabase()
+      // 查询用户的Google Ads账号
+      const adsAccount = db.prepare(`
+        SELECT id, customer_id FROM google_ads_accounts
+        WHERE user_id = ? AND is_active = 1
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(userId) as { id: number; customer_id: string } | undefined
 
-        // 查询用户的Google Ads账号
-        const adsAccount = db.prepare(`
-          SELECT id, customer_id FROM google_ads_accounts
-          WHERE user_id = ? AND is_active = 1
-          ORDER BY created_at DESC
-          LIMIT 1
-        `).get(userId) as { id: number; customer_id: string } | undefined
+      if (adsAccount) {
+        // 获取OAuth凭证
+        const credentials = await getGoogleAdsCredentials(userId)
 
-        if (adsAccount) {
-          // 获取OAuth凭证
-          const credentials = await getGoogleAdsCredentials(userId)
+        if (credentials) {
+          const country = (offer as { target_country?: string }).target_country || 'US'
+          const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
+          const lang = targetLanguage.toLowerCase().substring(0, 2)
+          const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
 
-          if (credentials) {
-            const country = (offer as { target_country?: string }).target_country || 'US'
-            const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
-            const lang = targetLanguage.toLowerCase().substring(0, 2)
-            const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
+          console.log(`🌍 Keyword Planner 查询语言: ${language} (${targetLanguage})`)
 
-            console.log(`🌍 Keyword Planner 查询语言: ${language} (${targetLanguage})`)
+          const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
+          let totalNewKeywords = 0
 
-            // 多轮查询：最多进行3轮，每轮使用上一轮返回的高搜索量关键词作为新种子
-            const maxRounds = 3
-            let currentRound = 0
-            const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
+          // 🎯 准备3轮不同角度的种子关键词
+          // 第1轮：产品通用词（高搜索量非品牌词）
+          const genericKeywords = keywordsWithVolume
+            .filter(kw => kw.searchVolume > 500 && !kw.keyword.toLowerCase().includes(brandName.toLowerCase()))
+            .sort((a, b) => b.searchVolume - a.searchVolume)
+            .slice(0, 5)
+            .map(kw => kw.keyword)
 
-            while (highVolumeKeywords.length > 0 && currentRound < maxRounds) {
-              currentRound++
-              console.log(`\n📍 第 ${currentRound} 轮 Keyword Planner 查询 (种子关键词: ${highVolumeKeywords.length}个)`)
+          // 第2轮：品牌组合词（品牌名 + 产品类别）
+          const brandCombinations: string[] = []
+          // 从现有关键词中提取产品类别词
+          const productCategories = keywordsWithVolume
+            .filter(kw => !kw.keyword.toLowerCase().includes(brandName.toLowerCase()))
+            .map(kw => kw.keyword.split(' ').slice(0, 2).join(' ')) // 取前两个词作为产品类别
+            .filter((v, i, a) => a.indexOf(v) === i) // 去重
+            .slice(0, 3)
+          productCategories.forEach(cat => {
+            brandCombinations.push(`${brandName} ${cat}`)
+          })
+          // 添加品牌词本身
+          if (!brandCombinations.some(kw => kw.toLowerCase() === brandName.toLowerCase())) {
+            brandCombinations.unshift(brandName)
+          }
 
-              // 调用Keyword Planner API获取关键词创意
-              const keywordIdeas = await getKeywordIdeas({
-                customerId: adsAccount.customer_id,
-                refreshToken: credentials.refresh_token,
-                seedKeywords: highVolumeKeywords,
-                targetCountry: country,
-                targetLanguage: language,
-                accountId: adsAccount.id,
-                userId
-              })
+          // 第3轮：从前两轮结果中选择高搜索量词（动态生成）
+          // 这一轮的种子词将在前两轮完成后确定
 
-              console.log(`  📊 返回 ${keywordIdeas.length} 个关键词创意`)
+          const roundSeeds: { round: number; name: string; seeds: string[] }[] = [
+            { round: 1, name: '产品通用词', seeds: genericKeywords },
+            { round: 2, name: '品牌组合词', seeds: brandCombinations },
+            { round: 3, name: '扩展词（动态）', seeds: [] } // 第3轮种子将动态生成
+          ]
 
-              // 过滤：只保留搜索量 > 500 的新关键词
-              const expandedKeywords = keywordIdeas
-                .filter(idea => {
-                  // ✅ 必须搜索量 > 500
-                  if (idea.avgMonthlySearches <= 500) {
-                    return false
-                  }
-                  return true
-                })
-                .map(idea => ({
-                  keyword: idea.text,
-                  searchVolume: idea.avgMonthlySearches,
-                  competition: idea.competition,
-                  competitionIndex: idea.competitionIndex,
-                  source: 'KEYWORD_EXPANSION'
-                }))
+          console.log(`\n📋 3轮查询种子词准备:`)
+          console.log(`   第1轮 [产品通用词]: ${genericKeywords.length > 0 ? genericKeywords.join(', ') : '(无)'}`)
+          console.log(`   第2轮 [品牌组合词]: ${brandCombinations.join(', ')}`)
+          console.log(`   第3轮 [扩展词]: (根据前两轮结果动态生成)`)
 
-              console.log(`  ✅ 筛选出 ${expandedKeywords.length} 个搜索量 > 500 的关键词`)
+          // 收集所有轮次新增的高搜索量关键词，用于第3轮
+          const allNewHighVolumeKeywords: string[] = []
 
-              // 去重：排除已存在的关键词
-              const newExpandedKeywords = expandedKeywords.filter(kw =>
-                !existingKeywordsSet.has(kw.keyword.toLowerCase())
-              )
+          // 执行3轮查询
+          for (let roundIndex = 0; roundIndex < 3; roundIndex++) {
+            const roundInfo = roundSeeds[roundIndex]
+            let seedKeywords = roundInfo.seeds
 
-              if (newExpandedKeywords.length > 0) {
-                console.log(`  🆕 添加 ${newExpandedKeywords.length} 个新的扩展关键词:`)
-                newExpandedKeywords.forEach(kw => {
-                  console.log(`     - "${kw.keyword}" (搜索量: ${kw.searchVolume.toLocaleString()}/月)`)
-                  existingKeywordsSet.add(kw.keyword.toLowerCase())
-                })
-
-                // 添加到关键词列表
-                result.keywords = [...result.keywords, ...newExpandedKeywords.map(kw => kw.keyword)]
-                keywordsWithVolume = [...keywordsWithVolume, ...newExpandedKeywords]
-
-                // 为下一轮准备种子关键词：使用本轮返回的高搜索量关键词
-                highVolumeKeywords = newExpandedKeywords.map(kw => kw.keyword)
-              } else {
-                console.log(`  ℹ️ 未发现新的扩展关键词，停止查询`)
-                break
+            // 第3轮：使用前两轮新增的高搜索量关键词作为种子
+            if (roundIndex === 2) {
+              seedKeywords = allNewHighVolumeKeywords.slice(0, 5) // 取前5个
+              roundInfo.seeds = seedKeywords
+              if (seedKeywords.length === 0) {
+                // 如果前两轮没有新增关键词，使用所有现有高搜索量关键词
+                seedKeywords = keywordsWithVolume
+                  .filter(kw => kw.searchVolume > 1000)
+                  .sort((a, b) => b.searchVolume - a.searchVolume)
+                  .slice(0, 5)
+                  .map(kw => kw.keyword)
               }
             }
 
-            console.log(`\n📊 Keyword Planner 扩展完成: 共进行 ${currentRound} 轮查询，添加 ${keywordsWithVolume.length} 个关键词`)
-          } else {
-            console.warn('⚠️ 未找到Google Ads OAuth凭证，跳过Keyword Planner扩展')
-          }
-        } else {
-          console.warn('⚠️ 未找到激活的Google Ads账号，跳过Keyword Planner扩展')
-        }
+            if (seedKeywords.length === 0) {
+              console.log(`\n📍 第 ${roundInfo.round} 轮 [${roundInfo.name}]: 跳过（无种子关键词）`)
+              continue
+            }
 
-        console.timeEnd('⏱️ Keyword Planner扩展')
+            console.log(`\n📍 第 ${roundInfo.round} 轮 [${roundInfo.name}] Keyword Planner 查询`)
+            console.log(`   种子关键词 (${seedKeywords.length}个): ${seedKeywords.join(', ')}`)
+
+            // 调用Keyword Planner API获取关键词创意
+            const keywordIdeas = await getKeywordIdeas({
+              customerId: adsAccount.customer_id,
+              refreshToken: credentials.refresh_token,
+              seedKeywords: seedKeywords,
+              targetCountry: country,
+              targetLanguage: language,
+              accountId: adsAccount.id,
+              userId
+            })
+
+            console.log(`   📊 返回 ${keywordIdeas.length} 个关键词创意`)
+
+            // 过滤：只保留搜索量 > 500 的新关键词
+            const expandedKeywords = keywordIdeas
+              .filter(idea => idea.avgMonthlySearches > 500)
+              .map(idea => ({
+                keyword: idea.text,
+                searchVolume: idea.avgMonthlySearches,
+                competition: idea.competition,
+                competitionIndex: idea.competitionIndex,
+                source: 'KEYWORD_EXPANSION'
+              }))
+
+            console.log(`   ✅ 筛选出 ${expandedKeywords.length} 个搜索量 > 500 的关键词`)
+
+            // 去重：排除已存在的关键词
+            const newExpandedKeywords = expandedKeywords.filter(kw =>
+              !existingKeywordsSet.has(kw.keyword.toLowerCase())
+            )
+
+            if (newExpandedKeywords.length > 0) {
+              console.log(`   🆕 添加 ${newExpandedKeywords.length} 个新的扩展关键词:`)
+              newExpandedKeywords.slice(0, 10).forEach(kw => {
+                console.log(`      - "${kw.keyword}" (搜索量: ${kw.searchVolume.toLocaleString()}/月)`)
+              })
+              if (newExpandedKeywords.length > 10) {
+                console.log(`      ... 及其他 ${newExpandedKeywords.length - 10} 个关键词`)
+              }
+
+              // 添加到已存在集合
+              newExpandedKeywords.forEach(kw => {
+                existingKeywordsSet.add(kw.keyword.toLowerCase())
+              })
+
+              // 添加到关键词列表
+              result.keywords = [...result.keywords, ...newExpandedKeywords.map(kw => kw.keyword)]
+              keywordsWithVolume = [...keywordsWithVolume, ...newExpandedKeywords]
+              totalNewKeywords += newExpandedKeywords.length
+
+              // 收集高搜索量关键词用于下一轮
+              const highVolumeNew = newExpandedKeywords
+                .filter(kw => kw.searchVolume > 1000)
+                .map(kw => kw.keyword)
+              allNewHighVolumeKeywords.push(...highVolumeNew)
+            } else {
+              console.log(`   ℹ️ 未发现新的扩展关键词`)
+            }
+          }
+
+          console.log(`\n📊 Keyword Planner 扩展完成: 共进行 3 轮查询，新增 ${totalNewKeywords} 个关键词`)
+          console.log(`   当前关键词总数: ${keywordsWithVolume.length} 个`)
+        } else {
+          console.warn('⚠️ 未找到Google Ads OAuth凭证，跳过Keyword Planner扩展')
+        }
       } else {
-        console.log('ℹ️ 未发现搜索量 > 500 的关键词，跳过Keyword Planner扩展')
+        console.warn('⚠️ 未找到激活的Google Ads账号，跳过Keyword Planner扩展')
       }
+
+      console.timeEnd('⏱️ Keyword Planner扩展')
     } else {
       if (!brandName || !userId) {
         console.log('ℹ️ Offer缺少品牌名或userId，跳过Keyword Planner扩展')
@@ -1490,16 +1548,12 @@ export async function generateAdCreative(
   }
   console.log(`   ✅ 最终保留 ${finalKeywords.length} 个有搜索量的关键词`)
 
-  // 第6步：按搜索量从高到低排序（品牌词始终排在最后）
-  finalKeywords.sort((a, b) => {
-    // 品牌词始终排在最后
-    const aIsBrand = a.keyword.toLowerCase() === brandKeywordLower
-    const bIsBrand = b.keyword.toLowerCase() === brandKeywordLower
-    if (aIsBrand && !bIsBrand) return 1
-    if (!aIsBrand && bIsBrand) return -1
-    // 其他关键词按搜索量从高到低排序
-    return b.searchVolume - a.searchVolume
-  })
+  // 第6步：按搜索量从高到低排序
+  // 需求: 高搜索量的非品牌词优先级 > 低搜索量的品牌组合词
+  // 排序规则: 完全按搜索量排序，不特殊处理品牌词位置
+  finalKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
+
+  console.log(`\n📊 关键词排序规则: 按搜索量从高到低（高搜索量非品牌词 > 低搜索量品牌组合词）`)
 
   keywordsWithVolume = finalKeywords
   const afterFilterCount = keywordsWithVolume.length
