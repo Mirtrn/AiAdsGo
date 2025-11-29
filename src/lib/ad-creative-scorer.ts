@@ -5,12 +5,107 @@
  * - 作为AI评分的补充或备选
  * - 基于确定性规则的评分系统
  * - 5个维度：relevance, quality, engagement, diversity, clarity
+ * - 支持全局多语言（20+种语言）
  *
  * 使用场景：
  * 1. AI API不可用时的备选方案
  * 2. 与AI评分对比验证
  * 3. 快速本地评分
  */
+
+/**
+ * 多语言CTA词汇表（行动召唤）
+ * 支持: 英语、中文、日语、韩语、德语、法语、西班牙语、意大利语、葡萄牙语、
+ *       荷兰语、瑞典语、挪威语、丹麦语、芬兰语、波兰语、俄语、阿拉伯语、土耳其语、越南语、泰语
+ */
+const MULTILINGUAL_CTA_WORDS: string[] = [
+  // 英语
+  'buy', 'shop', 'get', 'order', 'purchase', 'save', 'deal', 'free', 'discount', 'subscribe', 'download', 'join', 'discover', 'explore', 'claim', 'try', 'start', 'learn more', 'sign up',
+  // 中文
+  '购买', '立即', '免费', '优惠', '折扣', '限时', '特价', '抢购', '下单', '订阅', '下载', '加入', '探索', '领取', '点击', '获取', '了解更多', '注册', '开始',
+  // 日语
+  '今すぐ購入', '購入する', 'ご注文', '詳しく', '登録', '試す', '始める', 'ダウンロード', '参加', '発見', '節約', '申し込む',
+  // 韩语
+  '지금 구매', '구매하기', '주문', '자세히', '가입', '시작', '다운로드', '참여', '발견', '절약', '신청',
+  // 德语
+  'jetzt kaufen', 'kaufen', 'bestellen', 'mehr erfahren', 'anmelden', 'testen', 'starten', 'herunterladen', 'beitreten', 'entdecken', 'sparen', 'sichern', 'holen',
+  // 法语
+  'acheter maintenant', 'acheter', 'commander', 'en savoir plus', 'essayer', 'commencer', 'télécharger', 'rejoindre', 'découvrir', 'économiser', 'obtenir',
+  // 西班牙语
+  'comprar ahora', 'comprar', 'pedir', 'más información', 'registrarse', 'probar', 'empezar', 'descargar', 'unirse', 'descubrir', 'ahorrar', 'obtener',
+  // 意大利语
+  'acquista ora', 'acquista', 'compra', 'ordina', 'scopri di più', 'iscriviti', 'prova', 'inizia', 'scarica', 'unisciti', 'scopri', 'risparmia', 'ottieni', 'richiedi',
+  // 葡萄牙语
+  'comprar agora', 'comprar', 'pedir', 'saiba mais', 'experimentar', 'começar', 'baixar', 'participar', 'descobrir', 'economizar', 'obter',
+  // 荷兰语
+  'nu kopen', 'kopen', 'bestellen', 'meer informatie', 'aanmelden', 'proberen', 'starten', 'downloaden', 'deelnemen', 'ontdekken', 'besparen',
+  // 瑞典语
+  'köp nu', 'köp', 'beställ', 'läs mer', 'registrera', 'prova', 'börja', 'ladda ner', 'upptäck', 'spara',
+  // 挪威语
+  'kjøp nå', 'kjøp', 'bestill', 'les mer', 'registrer', 'prøv', 'start', 'last ned', 'oppdag', 'spar',
+  // 丹麦语
+  'køb nu', 'køb', 'bestil', 'læs mere', 'tilmeld', 'prøv', 'start', 'download', 'opdag', 'spar',
+  // 芬兰语
+  'osta nyt', 'osta', 'tilaa', 'lue lisää', 'rekisteröidy', 'kokeile', 'aloita', 'lataa', 'löydä', 'säästä',
+  // 波兰语
+  'kup teraz', 'kup', 'zamów', 'dowiedz się więcej', 'zarejestruj', 'wypróbuj', 'zacznij', 'pobierz', 'odkryj', 'oszczędź',
+  // 俄语
+  'купить сейчас', 'купить', 'заказать', 'узнать больше', 'попробовать', 'начать', 'скачать', 'открыть', 'сэкономить',
+  // 阿拉伯语
+  'اشتري الآن', 'اشتري', 'اطلب', 'اعرف المزيد', 'جرب', 'ابدأ', 'حمل', 'اكتشف', 'وفر',
+  // 土耳其语
+  'şimdi satın al', 'satın al', 'sipariş ver', 'daha fazla bilgi', 'dene', 'başla', 'indir', 'keşfet', 'tasarruf et',
+  // 越南语
+  'mua ngay', 'mua', 'đặt hàng', 'tìm hiểu thêm', 'thử', 'bắt đầu', 'tải xuống', 'khám phá', 'tiết kiệm',
+  // 泰语
+  'ซื้อเลย', 'ซื้อ', 'สั่งซื้อ', 'เรียนรู้เพิ่มเติม', 'ลอง', 'เริ่มต้น', 'ดาวน์โหลด', 'ค้นพบ', 'ประหยัด'
+]
+
+/**
+ * 多语言紧迫感词汇表
+ */
+const MULTILINGUAL_URGENCY_WORDS: string[] = [
+  // 英语
+  'today', 'now', 'limited', 'hurry', 'exclusive', 'only', 'last chance', 'ending soon', 'act fast', 'urgent', 'final', 'sale ends',
+  // 中文
+  '今天', '现在', '限时', '仅限', '独家', '最后', '紧急', '倒计时', '抢购', '限量', '马上', '立即', '不要错过',
+  // 日语
+  '限定', '今日', '今すぐ', '急いで', '独占', 'のみ', '最後のチャンス', '間もなく終了', '在庫限り', '緊急', '最終',
+  // 韩语
+  '한정', '오늘', '지금', '서둘러', '독점', '단독', '마지막 기회', '곧 종료', '재고 한정', '긴급', '마지막',
+  // 德语
+  'begrenzt', 'heute', 'jetzt', 'schnell', 'exklusiv', 'nur', 'letzte chance', 'bald endend', 'eilen', 'dringend', 'letzte',
+  // 法语
+  'limité', "aujourd'hui", 'maintenant', 'vite', 'exclusif', 'seulement', 'dernière chance', 'bientôt terminé', 'urgent', 'final',
+  // 西班牙语
+  'limitado', 'hoy', 'ahora', 'rápido', 'exclusivo', 'solo', 'última oportunidad', 'pronto termina', 'urgente', 'final',
+  // 意大利语
+  'limitato', 'oggi', 'ora', 'subito', 'esclusivo', 'solo', 'ultima occasione', 'tempo limitato', 'urgente', 'ultimi', 'pochi pezzi', 'a breve', 'offerta scade',
+  // 葡萄牙语
+  'limitado', 'hoje', 'agora', 'rápido', 'exclusivo', 'apenas', 'última chance', 'em breve', 'urgente', 'final',
+  // 荷兰语
+  'beperkt', 'vandaag', 'nu', 'snel', 'exclusief', 'alleen', 'laatste kans', 'binnenkort eindigend', 'urgent', 'laatste',
+  // 瑞典语
+  'begränsad', 'idag', 'nu', 'snabbt', 'exklusiv', 'endast', 'sista chansen', 'snart slut', 'brådskande', 'sista',
+  // 挪威语
+  'begrenset', 'i dag', 'nå', 'fort', 'eksklusiv', 'kun', 'siste sjanse', 'snart slutt', 'haster', 'siste',
+  // 丹麦语
+  'begrænset', 'i dag', 'nu', 'hurtigt', 'eksklusiv', 'kun', 'sidste chance', 'snart slut', 'haster', 'sidste',
+  // 芬兰语
+  'rajoitettu', 'tänään', 'nyt', 'nopeasti', 'eksklusiivinen', 'vain', 'viimeinen mahdollisuus', 'pian päättyy', 'kiireellinen', 'viimeinen',
+  // 波兰语
+  'ograniczone', 'dziś', 'teraz', 'szybko', 'ekskluzywne', 'tylko', 'ostatnia szansa', 'wkrótce kończy się', 'pilne', 'ostatni',
+  // 俄语
+  'ограничено', 'сегодня', 'сейчас', 'быстро', 'эксклюзивно', 'только', 'последний шанс', 'скоро закончится', 'срочно', 'последний',
+  // 阿拉伯语
+  'محدود', 'اليوم', 'الآن', 'سريعا', 'حصري', 'فقط', 'الفرصة الأخيرة', 'ينتهي قريبا', 'عاجل', 'أخير',
+  // 土耳其语
+  'sınırlı', 'bugün', 'şimdi', 'hızlı', 'özel', 'sadece', 'son şans', 'yakında bitiyor', 'acil', 'son',
+  // 越南语
+  'giới hạn', 'hôm nay', 'ngay', 'nhanh', 'độc quyền', 'chỉ', 'cơ hội cuối', 'sắp kết thúc', 'khẩn cấp', 'cuối cùng',
+  // 泰语
+  'จำกัด', 'วันนี้', 'ตอนนี้', 'เร็ว', 'พิเศษ', 'เท่านั้น', 'โอกาสสุดท้าย', 'ใกล้หมด', 'ด่วน', 'สุดท้าย'
+]
 
 export interface AdCreative {
   headline: string[]
@@ -190,6 +285,7 @@ function scoreQuality(creative: AdCreative): number {
 /**
  * 评分维度3: 吸引力 (Engagement)
  * 评估广告的吸引用户点击的能力
+ * 支持全局多语言（20+种语言）
  */
 function scoreEngagement(creative: AdCreative): number {
   let score = 65 // 基准分
@@ -199,13 +295,8 @@ function scoreEngagement(creative: AdCreative): number {
     ...creative.description
   ].join(' ').toLowerCase()
 
-  // 1. 行动号召词 (Call-to-Action) (+15分)
-  const ctaWords = [
-    'buy', 'shop', 'get', 'order', 'purchase', 'save', 'deal', 'free', 'discount',
-    '购买', '立即', '免费', '优惠', '折扣', '限时', '特价', '抢购', '下单'
-  ]
-
-  const ctaCount = ctaWords.filter(word => allText.includes(word)).length
+  // 1. 行动号召词 (Call-to-Action) (+15分) - 使用全局多语言词汇表
+  const ctaCount = MULTILINGUAL_CTA_WORDS.filter(word => allText.includes(word.toLowerCase())).length
   if (ctaCount >= 3) {
     score += 15
   } else if (ctaCount >= 1) {
@@ -221,15 +312,33 @@ function scoreEngagement(creative: AdCreative): number {
     score += 5
   }
 
-  // 3. 紧迫性词汇 (+5分)
-  const urgencyWords = ['today', 'now', 'limited', 'hurry', 'exclusive', '今天', '现在', '限时', '仅限', '独家']
-  const hasUrgency = urgencyWords.some(word => allText.includes(word))
+  // 3. 紧迫性词汇 (+5分) - 使用全局多语言词汇表
+  const hasUrgency = MULTILINGUAL_URGENCY_WORDS.some(word => allText.includes(word.toLowerCase()))
   if (hasUrgency) {
     score += 5
   }
 
-  // 4. 问题或疑问词 (+5分)
-  const hasQuestion = /[?？]/.test(allText) || ['how', 'what', 'why', 'when', 'where', '如何', '什么', '为什么'].some(word => allText.includes(word))
+  // 4. 问题或疑问词 (+5分) - 支持多语言问号和疑问词
+  const questionMarks = /[?？¿‽⁇؟]/  // 多语言问号
+  const questionWords = [
+    // 英语
+    'how', 'what', 'why', 'when', 'where', 'which', 'who',
+    // 中文
+    '如何', '什么', '为什么', '怎么', '哪里', '谁', '吗',
+    // 日语
+    'どう', '何', 'なぜ', 'どこ', '誰',
+    // 韩语
+    '어떻게', '무엇', '왜', '어디', '누구',
+    // 德语
+    'wie', 'was', 'warum', 'wann', 'wo', 'wer',
+    // 法语
+    'comment', 'quoi', 'pourquoi', 'quand', 'où', 'qui',
+    // 西班牙语
+    'cómo', 'qué', 'por qué', 'cuándo', 'dónde', 'quién',
+    // 意大利语
+    'come', 'cosa', 'perché', 'quando', 'dove', 'chi'
+  ]
+  const hasQuestion = questionMarks.test(allText) || questionWords.some(word => allText.includes(word))
   if (hasQuestion) {
     score += 5
   }

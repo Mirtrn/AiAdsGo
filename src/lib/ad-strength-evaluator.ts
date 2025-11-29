@@ -110,6 +110,120 @@ export interface AdStrengthEvaluation {
 }
 
 /**
+ * 多语言CTA词汇表（行动召唤）
+ * 支持: 英语、中文、日语、韩语、德语、法语、西班牙语、意大利语、葡萄牙语、
+ *       荷兰语、瑞典语、挪威语、丹麦语、芬兰语、波兰语、俄语、阿拉伯语、土耳其语、越南语、泰语
+ */
+const MULTILINGUAL_CTA_WORDS: Record<string, string[]> = {
+  // 英语
+  en: ['shop now', 'buy now', 'get', 'order', 'learn more', 'sign up', 'try', 'start', 'subscribe', 'download', 'join', 'discover', 'explore', 'save', 'claim'],
+  // 中文
+  zh: ['立即购买', '马上购买', '立即下单', '获取', '了解更多', '注册', '免费试用', '开始', '订阅', '下载', '加入', '探索', '省钱', '领取', '抢购', '点击', '立刻'],
+  // 日语
+  ja: ['今すぐ購入', '購入する', 'ご注文', '詳しく', '登録', '試す', '始める', 'ダウンロード', '参加', '発見', '探索', '節約', '申し込む', 'クリック'],
+  // 韩语
+  ko: ['지금 구매', '구매하기', '주문', '자세히', '가입', '시작', '다운로드', '참여', '발견', '탐색', '절약', '신청', '클릭'],
+  // 德语
+  de: ['jetzt kaufen', 'kaufen', 'bestellen', 'mehr erfahren', 'anmelden', 'testen', 'starten', 'herunterladen', 'beitreten', 'entdecken', 'sparen', 'sichern', 'holen'],
+  // 法语
+  fr: ['acheter maintenant', 'acheter', 'commander', 'en savoir plus', 'inscrivez-vous', 'essayer', 'commencer', 'télécharger', 'rejoindre', 'découvrir', 'économiser', 'obtenir'],
+  // 西班牙语
+  es: ['comprar ahora', 'comprar', 'pedir', 'más información', 'registrarse', 'probar', 'empezar', 'descargar', 'unirse', 'descubrir', 'ahorrar', 'obtener', 'solicitar'],
+  // 意大利语
+  it: ['acquista ora', 'acquista', 'compra', 'ordina', 'scopri di più', 'iscriviti', 'prova', 'inizia', 'scarica', 'unisciti', 'scopri', 'risparmia', 'ottieni', 'richiedi'],
+  // 葡萄牙语
+  pt: ['comprar agora', 'comprar', 'pedir', 'saiba mais', 'inscreva-se', 'experimentar', 'começar', 'baixar', 'participar', 'descobrir', 'economizar', 'obter'],
+  // 荷兰语
+  nl: ['nu kopen', 'kopen', 'bestellen', 'meer informatie', 'aanmelden', 'proberen', 'starten', 'downloaden', 'deelnemen', 'ontdekken', 'besparen', 'krijgen'],
+  // 瑞典语
+  sv: ['köp nu', 'köp', 'beställ', 'läs mer', 'registrera', 'prova', 'börja', 'ladda ner', 'gå med', 'upptäck', 'spara', 'hämta'],
+  // 挪威语
+  no: ['kjøp nå', 'kjøp', 'bestill', 'les mer', 'registrer', 'prøv', 'start', 'last ned', 'bli med', 'oppdag', 'spar', 'få'],
+  // 丹麦语
+  da: ['køb nu', 'køb', 'bestil', 'læs mere', 'tilmeld', 'prøv', 'start', 'download', 'deltag', 'opdag', 'spar', 'få'],
+  // 芬兰语
+  fi: ['osta nyt', 'osta', 'tilaa', 'lue lisää', 'rekisteröidy', 'kokeile', 'aloita', 'lataa', 'liity', 'löydä', 'säästä', 'hanki'],
+  // 波兰语
+  pl: ['kup teraz', 'kup', 'zamów', 'dowiedz się więcej', 'zarejestruj', 'wypróbuj', 'zacznij', 'pobierz', 'dołącz', 'odkryj', 'oszczędź', 'otrzymaj'],
+  // 俄语
+  ru: ['купить сейчас', 'купить', 'заказать', 'узнать больше', 'зарегистрироваться', 'попробовать', 'начать', 'скачать', 'присоединиться', 'открыть', 'сэкономить', 'получить'],
+  // 阿拉伯语
+  ar: ['اشتري الآن', 'اشتري', 'اطلب', 'اعرف المزيد', 'سجل', 'جرب', 'ابدأ', 'حمل', 'انضم', 'اكتشف', 'وفر', 'احصل'],
+  // 土耳其语
+  tr: ['şimdi satın al', 'satın al', 'sipariş ver', 'daha fazla bilgi', 'kaydol', 'dene', 'başla', 'indir', 'katıl', 'keşfet', 'tasarruf et', 'al'],
+  // 越南语
+  vi: ['mua ngay', 'mua', 'đặt hàng', 'tìm hiểu thêm', 'đăng ký', 'thử', 'bắt đầu', 'tải xuống', 'tham gia', 'khám phá', 'tiết kiệm', 'nhận'],
+  // 泰语
+  th: ['ซื้อเลย', 'ซื้อ', 'สั่งซื้อ', 'เรียนรู้เพิ่มเติม', 'สมัคร', 'ลอง', 'เริ่มต้น', 'ดาวน์โหลด', 'เข้าร่วม', 'ค้นพบ', 'ประหยัด', 'รับ']
+}
+
+/**
+ * 多语言紧迫感词汇表
+ */
+const MULTILINGUAL_URGENCY_WORDS: Record<string, string[]> = {
+  // 英语
+  en: ['limited', 'today', 'now', 'hurry', 'exclusive', 'only', 'sale ends', 'last chance', 'don\'t miss', 'ending soon', 'while supplies last', 'act fast', 'urgent', 'final'],
+  // 中文
+  zh: ['限时', '今天', '立即', '马上', '独家', '仅剩', '即将结束', '最后机会', '不要错过', '抢购', '限量', '紧急', '最后', '倒计时', '仅限今日', '错过不再'],
+  // 日语
+  ja: ['限定', '今日', '今すぐ', '急いで', '独占', 'のみ', 'セール終了', '最後のチャンス', 'お見逃しなく', '間もなく終了', '在庫限り', '急げ', '緊急', '最終'],
+  // 韩语
+  ko: ['한정', '오늘', '지금', '서둘러', '독점', '단독', '세일 종료', '마지막 기회', '놓치지 마세요', '곧 종료', '재고 한정', '급하게', '긴급', '마지막'],
+  // 德语
+  de: ['begrenzt', 'heute', 'jetzt', 'schnell', 'exklusiv', 'nur', 'angebot endet', 'letzte chance', 'nicht verpassen', 'bald endend', 'solange vorrat', 'eilen', 'dringend', 'letzte'],
+  // 法语
+  fr: ['limité', 'aujourd\'hui', 'maintenant', 'vite', 'exclusif', 'seulement', 'offre expire', 'dernière chance', 'ne manquez pas', 'bientôt terminé', 'stock limité', 'urgent', 'final'],
+  // 西班牙语
+  es: ['limitado', 'hoy', 'ahora', 'rápido', 'exclusivo', 'solo', 'oferta termina', 'última oportunidad', 'no te pierdas', 'pronto termina', 'existencias limitadas', 'urgente', 'final'],
+  // 意大利语
+  it: ['limitato', 'oggi', 'ora', 'subito', 'esclusivo', 'solo', 'offerta scade', 'ultima occasione', 'non perdere', 'tempo limitato', 'scorte limitate', 'urgente', 'ultimi', 'pochi pezzi', 'a breve'],
+  // 葡萄牙语
+  pt: ['limitado', 'hoje', 'agora', 'rápido', 'exclusivo', 'apenas', 'oferta termina', 'última chance', 'não perca', 'em breve', 'estoque limitado', 'urgente', 'final'],
+  // 荷兰语
+  nl: ['beperkt', 'vandaag', 'nu', 'snel', 'exclusief', 'alleen', 'aanbieding eindigt', 'laatste kans', 'mis het niet', 'binnenkort eindigend', 'beperkte voorraad', 'urgent', 'laatste'],
+  // 瑞典语
+  sv: ['begränsad', 'idag', 'nu', 'snabbt', 'exklusiv', 'endast', 'erbjudandet slutar', 'sista chansen', 'missa inte', 'snart slut', 'begränsat lager', 'brådskande', 'sista'],
+  // 挪威语
+  no: ['begrenset', 'i dag', 'nå', 'fort', 'eksklusiv', 'kun', 'tilbudet slutter', 'siste sjanse', 'ikke gå glipp av', 'snart slutt', 'begrenset lager', 'haster', 'siste'],
+  // 丹麦语
+  da: ['begrænset', 'i dag', 'nu', 'hurtigt', 'eksklusiv', 'kun', 'tilbuddet slutter', 'sidste chance', 'gå ikke glip af', 'snart slut', 'begrænset lager', 'haster', 'sidste'],
+  // 芬兰语
+  fi: ['rajoitettu', 'tänään', 'nyt', 'nopeasti', 'eksklusiivinen', 'vain', 'tarjous päättyy', 'viimeinen mahdollisuus', 'älä missaa', 'pian päättyy', 'rajoitettu varasto', 'kiireellinen', 'viimeinen'],
+  // 波兰语
+  pl: ['ograniczone', 'dziś', 'teraz', 'szybko', 'ekskluzywne', 'tylko', 'oferta kończy się', 'ostatnia szansa', 'nie przegap', 'wkrótce kończy się', 'ograniczone zapasy', 'pilne', 'ostatni'],
+  // 俄语
+  ru: ['ограничено', 'сегодня', 'сейчас', 'быстро', 'эксклюзивно', 'только', 'акция заканчивается', 'последний шанс', 'не пропустите', 'скоро закончится', 'ограниченный запас', 'срочно', 'последний'],
+  // 阿拉伯语
+  ar: ['محدود', 'اليوم', 'الآن', 'سريعا', 'حصري', 'فقط', 'العرض ينتهي', 'الفرصة الأخيرة', 'لا تفوت', 'ينتهي قريبا', 'مخزون محدود', 'عاجل', 'أخير'],
+  // 土耳其语
+  tr: ['sınırlı', 'bugün', 'şimdi', 'hızlı', 'özel', 'sadece', 'teklif bitiyor', 'son şans', 'kaçırma', 'yakında bitiyor', 'sınırlı stok', 'acil', 'son'],
+  // 越南语
+  vi: ['giới hạn', 'hôm nay', 'ngay', 'nhanh', 'độc quyền', 'chỉ', 'ưu đãi kết thúc', 'cơ hội cuối', 'đừng bỏ lỡ', 'sắp kết thúc', 'số lượng có hạn', 'khẩn cấp', 'cuối cùng'],
+  // 泰语
+  th: ['จำกัด', 'วันนี้', 'ตอนนี้', 'เร็ว', 'พิเศษ', 'เท่านั้น', 'ข้อเสนอสิ้นสุด', 'โอกาสสุดท้าย', 'อย่าพลาด', 'ใกล้หมด', 'สต็อกจำกัด', 'ด่วน', 'สุดท้าย']
+}
+
+/**
+ * 扩展的技术规格词汇（支持更多产品类别）
+ */
+const TECH_SPECS_PATTERN = /4k|8k|hd|uhd|fhd|qhd|ai|wifi|wi-fi|bluetooth|5g|lte|4g|3g|poe|nvr|dvr|fps|mp|ghz|mhz|mah|wh|watts|w\b|ip\d{2}|usb|hdmi|type-c|thunderbolt|\d+pa|\d+rpm|\d+db|nfc|gps|oled|amoled|lcd|led|\d+hz|\d+bit|\d+gb|\d+tb|\d+mb|ssd|hdd|ddr\d|ram|rom|\d+mp|\d+mm|\d+cm/i
+
+/**
+ * 扩展的独特功能词汇（多语言支持）
+ */
+const UNIQUE_FEATURES_PATTERNS: Record<string, RegExp> = {
+  en: /no subscription|subscription.free|solar.powered|battery.powered|wireless|waterproof|water.resistant|night.vision|motion.detection|two.way.audio|cloud.storage|local.storage|voice.control|smart.home|all.in.one|self.cleaning|auto.empty|hands.free/i,
+  zh: /免订阅|免费订阅|太阳能|电池供电|无线|防水|夜视|移动检测|双向语音|云存储|本地存储|语音控制|智能家居|一体机|自清洁|自动清空|免手动/i,
+  ja: /サブスク不要|ソーラー|バッテリー|ワイヤレス|防水|ナイトビジョン|動体検知|双方向音声|クラウド|ローカル|音声制御|スマートホーム|オールインワン|自動清掃|自動ゴミ収集|ハンズフリー/i,
+  ko: /구독 불필요|태양열|배터리|무선|방수|야간 시야|동작 감지|양방향 오디오|클라우드|로컬|음성 제어|스마트홈|올인원|자동 청소|자동 비움|핸즈프리/i,
+  de: /ohne abo|solar|akku|kabellos|wasserdicht|nachtsicht|bewegungserkennung|zwei.wege.audio|cloud|lokal|sprachsteuerung|smart home|all.in.one|selbstreinigend|automatisch/i,
+  fr: /sans abonnement|solaire|batterie|sans fil|étanche|vision nocturne|détection mouvement|audio bidirectionnel|cloud|local|contrôle vocal|maison intelligente|tout.en.un|auto.nettoyant|automatique/i,
+  es: /sin suscripción|solar|batería|inalámbrico|impermeable|visión nocturna|detección movimiento|audio bidireccional|nube|local|control voz|hogar inteligente|todo.en.uno|auto.limpieza|automático/i,
+  it: /senza abbonamento|solare|batteria|wireless|senza fili|impermeabile|visione notturna|rilevamento movimento|audio bidirezionale|cloud|locale|controllo vocale|casa intelligente|all.in.one|tutto.in.uno|auto.pulizia|automatico|svuota|lava|asciuga/i,
+  pt: /sem assinatura|solar|bateria|sem fio|à prova d'água|visão noturna|detecção movimento|áudio bidirecional|nuvem|local|controle voz|casa inteligente|tudo.em.um|auto.limpeza|automático/i
+}
+
+/**
  * 禁用词清单（Google Ads政策违规）
  */
 const FORBIDDEN_WORDS = [
