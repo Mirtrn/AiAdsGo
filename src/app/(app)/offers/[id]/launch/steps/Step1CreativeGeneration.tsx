@@ -697,12 +697,19 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                       </div>
                     </div>
 
-                    {isSelected && (
-                      <Badge variant="default" className="bg-purple-600 hover:bg-purple-700">
-                        <CheckCircle2 className="w-3 h-3 mr-1" />
-                        已选择
-                      </Badge>
-                    )}
+                    <div className="flex flex-col items-end gap-2">
+                      {/* 广告创意ID - 右上角显示 */}
+                      <div className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-md font-mono border border-gray-200">
+                        ID: {creative.id}
+                      </div>
+
+                      {isSelected && (
+                        <Badge variant="default" className="bg-purple-600 hover:bg-purple-700">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          已选择
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
 
