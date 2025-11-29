@@ -7,6 +7,8 @@ import { getDatabase, getSQLiteDatabase } from './db'
 import { getCachedKeywordVolume, cacheKeywordVolume, getBatchCachedVolumes, batchCacheVolumes } from './redis'
 import { decrypt } from './crypto'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
+import { refreshAccessToken } from './google-ads-oauth'
+import { getGoogleAdsLanguageIdString, getGoogleAdsGeoTargetId } from './language-country-codes'
 
 interface KeywordVolume {
   keyword: string
@@ -144,38 +146,9 @@ function getGoogleAdsConfig(userId?: number): KeywordPlannerConfig | null {
   }
 }
 
-// Language code to Google Ads language ID mapping
-const LANGUAGE_CODES: Record<string, string> = {
-  en: '1000', // English
-  zh: '1017', // Chinese
-  es: '1003', // Spanish
-  fr: '1002', // French
-  de: '1001', // German
-  ja: '1005', // Japanese
-  ko: '1012', // Korean
-  pt: '1014', // Portuguese
-  it: '1004', // Italian
-  ru: '1031', // Russian
-}
-
-// Country code to Google Ads geo target ID
-const GEO_TARGETS: Record<string, string> = {
-  US: '2840', // United States
-  UK: '2826', // United Kingdom
-  GB: '2826',
-  CA: '2124', // Canada
-  AU: '2036', // Australia
-  DE: '2276', // Germany
-  FR: '2250', // France
-  JP: '2392', // Japan
-  CN: '2156', // China
-  KR: '2410', // South Korea
-  BR: '2076', // Brazil
-  IN: '2356', // India
-  MX: '2484', // Mexico
-  ES: '2724', // Spain
-  IT: '2380', // Italy
-}
+// 使用全局统一映射代替硬编码（来自 language-country-codes.ts）
+// LANGUAGE_CODES → getGoogleAdsLanguageIdString()
+// GEO_TARGETS → getGoogleAdsGeoTargetId()
 
 /**
  * 从Google Ads Keyword Planner获取关键词搜索量
@@ -249,6 +222,16 @@ export async function getKeywordSearchVolumes(
       let totalApiCalls = 0
 
       try {
+        // 刷新 access token 以确保有效
+        console.log('[KeywordPlanner] Refreshing access token...')
+        try {
+          await refreshAccessToken(userId || 1)
+          console.log('[KeywordPlanner] Access token refreshed successfully')
+        } catch (refreshError: any) {
+          console.warn('[KeywordPlanner] Token refresh warning:', refreshError.message)
+          // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
+        }
+
         const client = new GoogleAdsApi({
           client_id: config.clientId,
           client_secret: config.clientSecret,
@@ -261,35 +244,34 @@ export async function getKeywordSearchVolumes(
           refresh_token: config.refreshToken,
         })
 
-        const geoTargetId = GEO_TARGETS[country.toUpperCase()] || GEO_TARGETS.US
-        const languageId = LANGUAGE_CODES[language.toLowerCase()] || LANGUAGE_CODES.en
+        const geoTargetId = getGoogleAdsGeoTargetId(country)
+        const languageId = getGoogleAdsLanguageIdString(language)
 
-        // Process each batch
+        // Process each batch using generateKeywordHistoricalMetrics
+        // This API returns exact search volume for the specified keywords,
+        // unlike generateKeywordIdeas which returns related keyword suggestions
         for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
           const batch = keywordBatches[batchIndex]
           console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
 
-          // Use generateKeywordIdeas to get volume metrics
-          const response = await customer.keywordPlanIdeas.generateKeywordIdeas({
+          // Use generateKeywordHistoricalMetrics for EXACT keyword search volumes
+          const response = await customer.keywordPlanIdeas.generateKeywordHistoricalMetrics({
             customer_id: config.customerId,
+            keywords: batch,
             language: `languageConstants/${languageId}`,
             geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
             keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
-            keyword_seed: { keywords: batch },
-            include_adult_keywords: false,
-            page_token: '',
-            page_size: 100,
-            keyword_annotation: [],
           } as any)
 
           totalApiCalls++
 
-          const ideas = (response as any).results || response || []
-          for (const idea of ideas) {
-            if (idea.text && idea.keyword_idea_metrics) {
-              const metrics = idea.keyword_idea_metrics
-              apiVolumes.set(idea.text.toLowerCase(), {
-                keyword: idea.text,
+          const results = (response as any).results || response || []
+          for (const result of results) {
+            // generateKeywordHistoricalMetrics returns { text, keyword_metrics }
+            if (result.text && result.keyword_metrics) {
+              const metrics = result.keyword_metrics
+              apiVolumes.set(result.text.toLowerCase(), {
+                keyword: result.text,
                 avgMonthlySearches: Number(metrics.avg_monthly_searches) || 0,
                 competition: metrics.competition?.toString() || 'UNKNOWN',
                 competitionIndex: Number(metrics.competition_index) || 0,
@@ -332,8 +314,8 @@ export async function getKeywordSearchVolumes(
         if (userId) {
           trackApiUsage({
             userId,
-            operationType: ApiOperationType.GET_KEYWORD_IDEAS,
-            endpoint: 'getKeywordSearchVolumes',
+            operationType: ApiOperationType.GET_KEYWORD_IDEAS, // Historical metrics use same quota
+            endpoint: 'generateKeywordHistoricalMetrics',
             customerId: config.customerId,
             requestCount: totalApiCalls,
             responseTimeMs: Date.now() - apiStartTime,
@@ -470,8 +452,8 @@ export async function getKeywordSuggestions(
       refresh_token: config.refreshToken,
     })
 
-    const geoTargetId = GEO_TARGETS[country.toUpperCase()] || GEO_TARGETS.US
-    const languageId = LANGUAGE_CODES[language.toLowerCase()] || LANGUAGE_CODES.en
+    const geoTargetId = getGoogleAdsGeoTargetId(country)
+    const languageId = getGoogleAdsLanguageIdString(language)
 
     const response = await customer.keywordPlanIdeas.generateKeywordIdeas({
       customer_id: config.customerId,

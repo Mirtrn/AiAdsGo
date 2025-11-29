@@ -88,7 +88,7 @@ class ProxyPoolManager {
       refreshIntervalMs: 5 * 60 * 1000,  // 5 minutes
       minHealthyProxies: 3,
       maxPoolSize: 10,
-      countries: ['US', 'DE', 'UK'],
+      countries: ['US', 'DE', 'GB'],  // 使用ISO 3166-1标准国家代码（GB而非UK）
       ...config,
     }
 

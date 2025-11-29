@@ -261,10 +261,10 @@ test.describe('Requirements 1-5 Real Testing', () => {
       if (countryCell && languageCell) {
         console.log(`Row ${i + 1}: Country=${countryCell}, Language=${languageCell}`)
 
-        // Verify mapping
+        // Verify mapping (使用ISO 3166-1标准代码GB而非UK)
         const expectedMapping: Record<string, string> = {
           'US': 'English',
-          'UK': 'English',
+          'GB': 'English',
           'DE': 'German',
           'FR': 'French',
           'JP': 'Japanese',

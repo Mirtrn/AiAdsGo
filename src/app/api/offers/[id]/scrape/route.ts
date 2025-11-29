@@ -5,6 +5,7 @@ import { analyzeProductPage, ProductInfo } from '@/lib/ai'
 import { getProxyUrlForCountry, isProxyEnabled } from '@/lib/settings'
 import { getCachedPageData, setCachedPageData, SeoData } from '@/lib/redis'
 import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getLanguageCodeForCountry } from '@/lib/language-country-codes'
 
 /**
  * 🎯 Phase 3持久化: 保存抓取的产品数据到数据库
@@ -116,26 +117,8 @@ async function extractSeoData(html: string): Promise<SeoData> {
   }
 }
 
-// 国家代码到语言代码的映射
-const COUNTRY_TO_LANGUAGE: Record<string, string> = {
-  US: 'en',
-  UK: 'en',
-  CA: 'en',
-  AU: 'en',
-  CN: 'zh',
-  TW: 'zh',
-  HK: 'zh',
-  JP: 'ja',
-  KR: 'ko',
-  DE: 'de',
-  FR: 'fr',
-  ES: 'es',
-  IT: 'it',
-  PT: 'pt',
-  BR: 'pt',
-  CH: 'de',  // 瑞士（德语）
-  SE: 'sv',  // 瑞典
-}
+// 使用全局统一的国家到语言代码映射
+// 通过 getLanguageCodeForCountry() 函数获取，支持69个国家
 
 /**
  * POST /api/offers/:id/scrape
@@ -313,8 +296,8 @@ async function performScrapeAndAnalysis(
 
     console.log(`开始抓取Offer ${offerId}:`, urlForScraping)  // 🔧 使用完整URL进行抓取
 
-    // 获取语言代码
-    const language = COUNTRY_TO_LANGUAGE[targetCountry] || 'en'
+    // 获取语言代码（使用全局统一映射）
+    const language = getLanguageCodeForCountry(targetCountry)
     console.log(`目标国家: ${targetCountry}, 语言: ${language}`)
 
     // 提前检测URL的预期页面类型（用于缓存验证）

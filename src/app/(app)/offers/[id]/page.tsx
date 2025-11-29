@@ -1062,21 +1062,6 @@ export default function OfferDetailPage() {
             </dl>
           </div>
 
-          {/* 快速操作 */}
-          <div className="mt-6 flex space-x-3">
-            <button
-              onClick={() => router.push(`/creatives?offerId=${offerId}`)}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-            >
-              生成AI创意
-            </button>
-            <button
-              onClick={() => router.push(`/campaigns/new?offerId=${offerId}`)}
-              className="px-4 py-2 border border-indigo-600 text-indigo-600 rounded-md hover:bg-indigo-50"
-            >
-              创建广告系列
-            </button>
-          </div>
         </div>
       </main>
 

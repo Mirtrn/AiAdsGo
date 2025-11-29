@@ -6,6 +6,7 @@
 import { getDatabase, getSQLiteDatabase } from './db'
 import { saveCreativePerformance, PerformanceData } from './bonus-score-calculator'
 import { GoogleAdsApi } from 'google-ads-api'
+import { refreshAccessToken } from './google-ads-oauth'
 
 interface SyncResult {
   success: boolean
@@ -188,6 +189,16 @@ export async function syncAllCreativesPerformance(
  */
 export async function syncUserPerformanceData(userId: string): Promise<SyncResult> {
   try {
+    // 刷新 access token 以确保有效
+    console.log('[PerformanceSync] Refreshing access token...')
+    try {
+      await refreshAccessToken(parseInt(userId) || 1)
+      console.log('[PerformanceSync] Access token refreshed successfully')
+    } catch (refreshError: any) {
+      console.warn('[PerformanceSync] Token refresh warning:', refreshError.message)
+      // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
+    }
+
     // Initialize Google Ads client
     const googleAdsClient = new GoogleAdsApi({
       client_id: process.env.GOOGLE_ADS_CLIENT_ID!,

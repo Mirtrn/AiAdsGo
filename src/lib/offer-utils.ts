@@ -1,6 +1,7 @@
 import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 import { getAllProxyUrls } from '@/lib/settings'
 import { getProxyPool } from '@/lib/url-resolver-enhanced'
+import { getLanguageNameForCountry, getSupportedCountries, getCountryChineseName } from '@/lib/language-country-codes'
 
 /**
  * Offer相关的辅助函数库
@@ -265,71 +266,11 @@ export function generateOfferName(
  * 示例：
  * - 美国US → English
  * - 德国DE → German
+ *
+ * 使用全局统一映射，支持69+国家
  */
 export function getTargetLanguage(countryCode: string): string {
-  const mapping: Record<string, string> = {
-    // 英语国家
-    US: 'English', // 美国
-    GB: 'English', // 英国
-    CA: 'English', // 加拿大（默认英语）
-    AU: 'English', // 澳大利亚
-    NZ: 'English', // 新西兰
-    IE: 'English', // 爱尔兰
-
-    // 欧洲主要语言
-    DE: 'German', // 德国
-    AT: 'German', // 奥地利
-    CH: 'German', // 瑞士（默认德语）
-    FR: 'French', // 法国
-    BE: 'French', // 比利时（默认法语）
-    ES: 'Spanish', // 西班牙
-    IT: 'Italian', // 意大利
-    PT: 'Portuguese', // 葡萄牙
-    NL: 'Dutch', // 荷兰
-    PL: 'Polish', // 波兰
-    SE: 'Swedish', // 瑞典
-    NO: 'Norwegian', // 挪威
-    DK: 'Danish', // 丹麦
-    FI: 'Finnish', // 芬兰
-    GR: 'Greek', // 希腊
-    CZ: 'Czech', // 捷克
-    HU: 'Hungarian', // 匈牙利
-    RO: 'Romanian', // 罗马尼亚
-
-    // 亚洲语言
-    JP: 'Japanese', // 日本
-    CN: 'Chinese', // 中国
-    TW: 'Chinese', // 台湾
-    HK: 'Chinese', // 香港
-    KR: 'Korean', // 韩国
-    TH: 'Thai', // 泰国
-    VN: 'Vietnamese', // 越南
-    IN: 'Hindi', // 印度（默认印地语）
-    ID: 'Indonesian', // 印度尼西亚
-    MY: 'Malay', // 马来西亚
-    SG: 'English', // 新加坡（默认英语）
-    PH: 'English', // 菲律宾（默认英语）
-
-    // 美洲
-    BR: 'Portuguese', // 巴西
-    MX: 'Spanish', // 墨西哥
-    AR: 'Spanish', // 阿根廷
-    CL: 'Spanish', // 智利
-    CO: 'Spanish', // 哥伦比亚
-
-    // 中东
-    SA: 'Arabic', // 沙特阿拉伯
-    AE: 'Arabic', // 阿联酋
-    IL: 'Hebrew', // 以色列
-    TR: 'Turkish', // 土耳其
-
-    // 非洲
-    ZA: 'English', // 南非（默认英语）
-    EG: 'Arabic', // 埃及
-  }
-
-  // 如果没有映射，默认返回English
-  return mapping[countryCode] || 'English'
+  return getLanguageNameForCountry(countryCode)
 }
 
 /**
@@ -414,60 +355,16 @@ export function calculateSuggestedMaxCPC(
 
 /**
  * 获取国家列表（用于前端下拉选择）
+ * 使用全局统一的国家映射，支持69个国家
  */
 export function getCountryList(): Array<{ code: string; name: string; language: string }> {
-  return [
-    // 北美
-    { code: 'US', name: '美国', language: 'English' },
-    { code: 'CA', name: '加拿大', language: 'English' },
-    { code: 'MX', name: '墨西哥', language: 'Spanish' },
-
-    // 欧洲
-    { code: 'GB', name: '英国', language: 'English' },
-    { code: 'DE', name: '德国', language: 'German' },
-    { code: 'FR', name: '法国', language: 'French' },
-    { code: 'ES', name: '西班牙', language: 'Spanish' },
-    { code: 'IT', name: '意大利', language: 'Italian' },
-    { code: 'NL', name: '荷兰', language: 'Dutch' },
-    { code: 'BE', name: '比利时', language: 'French' },
-    { code: 'PL', name: '波兰', language: 'Polish' },
-    { code: 'SE', name: '瑞典', language: 'Swedish' },
-    { code: 'NO', name: '挪威', language: 'Norwegian' },
-    { code: 'DK', name: '丹麦', language: 'Danish' },
-    { code: 'FI', name: '芬兰', language: 'Finnish' },
-    { code: 'AT', name: '奥地利', language: 'German' },
-    { code: 'CH', name: '瑞士', language: 'German' },
-    { code: 'PT', name: '葡萄牙', language: 'Portuguese' },
-
-    // 亚太
-    { code: 'AU', name: '澳大利亚', language: 'English' },
-    { code: 'NZ', name: '新西兰', language: 'English' },
-    { code: 'JP', name: '日本', language: 'Japanese' },
-    { code: 'CN', name: '中国', language: 'Chinese' },
-    { code: 'KR', name: '韩国', language: 'Korean' },
-    { code: 'SG', name: '新加坡', language: 'English' },
-    { code: 'IN', name: '印度', language: 'Hindi' },
-    { code: 'TH', name: '泰国', language: 'Thai' },
-    { code: 'VN', name: '越南', language: 'Vietnamese' },
-    { code: 'ID', name: '印度尼西亚', language: 'Indonesian' },
-    { code: 'MY', name: '马来西亚', language: 'Malay' },
-    { code: 'PH', name: '菲律宾', language: 'English' },
-
-    // 南美
-    { code: 'BR', name: '巴西', language: 'Portuguese' },
-    { code: 'AR', name: '阿根廷', language: 'Spanish' },
-    { code: 'CL', name: '智利', language: 'Spanish' },
-    { code: 'CO', name: '哥伦比亚', language: 'Spanish' },
-
-    // 中东
-    { code: 'AE', name: '阿联酋', language: 'Arabic' },
-    { code: 'SA', name: '沙特阿拉伯', language: 'Arabic' },
-    { code: 'IL', name: '以色列', language: 'Hebrew' },
-    { code: 'TR', name: '土耳其', language: 'Turkish' },
-
-    // 非洲
-    { code: 'ZA', name: '南非', language: 'English' },
-  ].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+  return getSupportedCountries()
+    .map(country => ({
+      code: country.code,
+      name: getCountryChineseName(country.code),
+      language: getLanguageNameForCountry(country.code),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
 }
 
 /**

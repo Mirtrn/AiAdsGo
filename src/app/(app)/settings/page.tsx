@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card } from '@/components/ui/card'
 import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 
 // 代理URL配置项接口
 interface ProxyUrlConfig {
@@ -36,20 +37,10 @@ interface GoogleAdsCredentialStatus {
   is_active?: boolean
 }
 
-// 支持的国家列表
+// 代理配置支持的国家列表（使用全局映射 + ROW其他地区选项）
 const SUPPORTED_COUNTRIES = [
-  { code: 'US', name: '美国 (United States)' },
-  { code: 'UK', name: '英国 (United Kingdom)' },
-  { code: 'CA', name: '加拿大 (Canada)' },
-  { code: 'DE', name: '德国 (Germany)' },
-  { code: 'FR', name: '法国 (France)' },
-  { code: 'IT', name: '意大利 (Italy)' },
-  { code: 'JP', name: '日本 (Japan)' },
-  { code: 'KR', name: '韩国 (Korea)' },
-  { code: 'CH', name: '瑞士 (Switzerland)' },
-  { code: 'SE', name: '瑞典 (Sweden)' },
-  { code: 'AU', name: '澳大利亚 (Australia)' },
-  { code: 'ROW', name: '其他地区 (Rest of World)' },
+  ...getCountryOptionsForUI(),
+  { code: 'ROW', name: '其他地区 (ROW)' },  // 代理配置专用的"其他地区"选项
 ]
 
 interface Setting {

@@ -1,5 +1,6 @@
 import { getCustomer } from './google-ads-api'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
+import { getGoogleAdsLanguageCode, getGoogleAdsGeoTargetId } from './language-country-codes'
 
 /**
  * 关键词建议结果
@@ -323,38 +324,20 @@ export function groupKeywordsByTheme(keywords: KeywordIdea[]): {
 
 /**
  * 获取语言代码
+ * 使用全局统一映射，支持40+种语言
  */
 function getLanguageCode(language: string): string {
-  const languageMap: { [key: string]: string } = {
-    English: 'languageConstants/1000', // English
-    Chinese: 'languageConstants/1017', // Chinese (Simplified)
-    Spanish: 'languageConstants/1003', // Spanish
-    French: 'languageConstants/1002', // French
-    German: 'languageConstants/1001', // German
-    Japanese: 'languageConstants/1005', // Japanese
-    Korean: 'languageConstants/1012', // Korean
-  }
-
-  return languageMap[language] || 'languageConstants/1000' // 默认英语
+  const languageId = getGoogleAdsLanguageCode(language)
+  return `languageConstants/${languageId}`
 }
 
 /**
  * 获取地理位置常量
+ * 使用全局统一映射，支持60+个国家
  */
 function getGeoTargetConstant(country: string): string {
-  const geoMap: { [key: string]: string } = {
-    US: 'geoTargetConstants/2840', // United States
-    CN: 'geoTargetConstants/2156', // China
-    UK: 'geoTargetConstants/2826', // United Kingdom
-    CA: 'geoTargetConstants/2124', // Canada
-    AU: 'geoTargetConstants/2036', // Australia
-    DE: 'geoTargetConstants/2276', // Germany
-    FR: 'geoTargetConstants/2250', // France
-    JP: 'geoTargetConstants/2392', // Japan
-    KR: 'geoTargetConstants/2410', // South Korea
-  }
-
-  return geoMap[country] || 'geoTargetConstants/2840' // 默认美国
+  const geoTargetId = getGoogleAdsGeoTargetId(country)
+  return `geoTargetConstants/${geoTargetId}`
 }
 
 /**

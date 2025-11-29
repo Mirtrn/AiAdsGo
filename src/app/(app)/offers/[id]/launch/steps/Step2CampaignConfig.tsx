@@ -91,7 +91,8 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
           searchVolume: k.searchVolume || 0
         }
       }),
-      negativeKeywords: [],
+      // 🎯 新增：从创意中读取否定关键词
+      negativeKeywords: selectedCreative?.negativeKeywords || [],
 
       // Ad Level
       adName: `${offer.brand || 'Brand'} - Ad 1`,

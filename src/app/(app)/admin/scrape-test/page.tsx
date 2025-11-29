@@ -10,17 +10,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { Loader2, Search, Wand2, ThumbsUp, ThumbsDown, Info, ChevronDown, ChevronUp, AlertTriangle, Settings } from 'lucide-react'
 import Link from 'next/link'
+import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 
-// 支持的国家列表
-const COUNTRIES = [
-  { code: 'US', name: '美国 (United States)' },
-  { code: 'UK', name: '英国 (United Kingdom)' },
-  { code: 'CA', name: '加拿大 (Canada)' },
-  { code: 'AU', name: '澳大利亚 (Australia)' },
-  { code: 'DE', name: '德国 (Germany)' },
-  { code: 'FR', name: '法国 (France)' },
-  { code: 'JP', name: '日本 (Japan)' },
-]
+// 使用全局统一的国家列表（支持69个国家）
+const COUNTRIES = getCountryOptionsForUI()
 
 interface ScrapeResult {
   cached: boolean

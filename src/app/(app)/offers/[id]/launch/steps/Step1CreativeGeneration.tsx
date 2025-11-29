@@ -179,6 +179,18 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   )
   const [generationCount, setGenerationCount] = useState(0)
 
+  // 生成进度状态
+  const [generationProgress, setGenerationProgress] = useState<{
+    step: string
+    progress: number
+    message: string
+    details?: any
+  } | null>(null)
+
+  // 生成开始时间（用于计算总耗时）
+  const [generationStartTime, setGenerationStartTime] = useState<number | null>(null)
+  const [elapsedTime, setElapsedTime] = useState<number>(0)
+
   // 展开/折叠状态管理
   const [expandedSections, setExpandedSections] = useState<Record<number, Record<string, boolean>>>({})
 
@@ -203,6 +215,21 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   useEffect(() => {
     fetchExistingCreatives()
   }, [offer.id])
+
+  // 计时器：每秒更新已用时间
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null
+    if (generating && generationStartTime) {
+      timer = setInterval(() => {
+        setElapsedTime(Math.floor((Date.now() - generationStartTime) / 1000))
+      }, 1000)
+    } else {
+      setElapsedTime(0)
+    }
+    return () => {
+      if (timer) clearInterval(timer)
+    }
+  }, [generating, generationStartTime])
 
   const fetchExistingCreatives = async () => {
     try {
@@ -256,11 +283,26 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
           }
         })
 
-        setCreatives(formattedCreatives)
+        // 🎯 排序：按分数从高到低，若分数相同则按创建时间从新到旧
+        const sortedCreatives = formattedCreatives
+          .sort((a: any, b: any) => {
+            // 首先按分数从高到低排序
+            if (b.score !== a.score) {
+              return b.score - a.score
+            }
+            // 若分数相同，按创建时间从新到旧排序
+            const timeA = new Date(a.created_at).getTime()
+            const timeB = new Date(b.created_at).getTime()
+            return timeB - timeA
+          })
+          // 🎯 只取前 3 个最佳创意
+          .slice(0, 3)
+
+        setCreatives(sortedCreatives)
         setGenerationCount(formattedCreatives.length)
 
         // Auto-select if already selected
-        const selected = formattedCreatives.find((c: Creative) => c.id === selectedCreative?.id)
+        const selected = sortedCreatives.find((c: Creative) => c.id === selectedCreative?.id)
         if (selected) {
           setSelectedId(selected.id)
         }
@@ -273,86 +315,116 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const handleGenerate = async () => {
     try {
       setGenerating(true)
+      setGenerationStartTime(Date.now())
+      setGenerationProgress({ step: 'init', progress: 0, message: '正在初始化...' })
 
-      // Create AbortController with 2-minute timeout for long-running AI generation
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 120000) // 120 seconds
-
-      const response = await fetch(`/api/offers/${offer.id}/generate-creatives`, {
+      // 使用流式API
+      const response = await fetch(`/api/offers/${offer.id}/generate-creatives-stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'include',
-        signal: controller.signal,
         body: JSON.stringify({
           maxRetries: 3,
           targetRating: 'EXCELLENT'
         })
       })
 
-      clearTimeout(timeoutId)
-      const data = await response.json()
-
       if (!response.ok) {
-        // Check if AI is not configured
-        if (data.redirect) {
-          showError(data.error || 'AI配置未设置', data.message || '请前往设置页面配置AI')
-          setTimeout(() => {
-            window.location.href = data.redirect
-          }, 2000)
-          return
+        const errorData = await response.json()
+        throw new Error(errorData.error || '生成失败')
+      }
+
+      // 读取SSE流
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('无法读取响应流')
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+
+              if (data.type === 'progress') {
+                setGenerationProgress({
+                  step: data.step,
+                  progress: data.progress,
+                  message: data.message,
+                  details: data.details
+                })
+              } else if (data.type === 'result') {
+                // 生成成功
+                const newCreative = {
+                  id: data.creative.id,
+                  ...data.creative,
+                  score: data.adStrength.score,
+                  score_breakdown: {
+                    diversity: data.adStrength.dimensions.diversity.score,
+                    relevance: data.adStrength.dimensions.relevance.score,
+                    engagement: data.adStrength.dimensions.completeness.score,
+                    quality: data.adStrength.dimensions.quality.score,
+                    clarity: data.adStrength.dimensions.compliance.score
+                  },
+                  score_explanation: data.adStrength.suggestions.join(' '),
+                  generation_round: generationCount + 1,
+                  theme: data.creative.theme || '品牌导向',
+                  ai_model: 'gemini-2.5-pro',
+                  final_url: data.offer?.url || '',
+                  adStrength: data.adStrength,
+                  optimization: data.optimization
+                }
+
+                const rating = data.adStrength.rating
+                const score = data.adStrength.score
+                showSuccess(
+                  '生成成功',
+                  `Ad Strength: ${rating === 'EXCELLENT' ? '优秀' : rating === 'GOOD' ? '良好' : rating === 'AVERAGE' ? '一般' : '待优化'} (${score}分)`
+                )
+
+                const allCreatives = [...creatives, newCreative]
+                const topCreatives = allCreatives
+                  .sort((a: any, b: any) => {
+                    // 首先按分数从高到低排序
+                    if (b.score !== a.score) {
+                      return b.score - a.score
+                    }
+                    // 若分数相同，按创建时间从新到旧排序
+                    const timeA = new Date(a.created_at).getTime()
+                    const timeB = new Date(b.created_at).getTime()
+                    return timeB - timeA
+                  })
+                  .slice(0, 3)
+
+                setCreatives(topCreatives)
+                setGenerationCount(generationCount + 1)
+              } else if (data.type === 'error') {
+                throw new Error(data.error)
+              }
+            } catch (parseError) {
+              console.warn('解析SSE数据失败:', parseError)
+            }
+          }
         }
-        throw new Error(data.error || '生成失败')
       }
-
-      // 构造完整的creative对象（包含Ad Strength数据）
-      const newCreative = {
-        id: Date.now(), // 临时ID，等待后端实现保存功能
-        ...data.creative,
-        score: data.adStrength.score,
-        score_breakdown: {
-          // 提取 .score 属性，适配旧的雷达图组件
-          diversity: data.adStrength.dimensions.diversity.score,
-          relevance: data.adStrength.dimensions.relevance.score,
-          engagement: data.adStrength.dimensions.completeness.score, // completeness 映射为 engagement
-          quality: data.adStrength.dimensions.quality.score,
-          clarity: data.adStrength.dimensions.compliance.score
-        },
-        score_explanation: data.adStrength.suggestions.join(' '),
-        generation_round: generationCount + 1,
-        theme: data.creative.theme || '品牌导向',
-        ai_model: 'gemini-2.0-flash-exp',
-        final_url: data.offer?.url || '',
-        adStrength: data.adStrength,
-        optimization: data.optimization
-      }
-
-      const rating = data.adStrength.rating
-      const score = data.adStrength.score
-      showSuccess(
-        '生成成功',
-        `Ad Strength: ${rating === 'EXCELLENT' ? '优秀' : rating === 'GOOD' ? '良好' : rating === 'AVERAGE' ? '一般' : '待优化'} (${score}分)`
-      )
-
-      // 添加新创意到列表
-      const allCreatives = [...creatives, newCreative]
-
-      // 按评分降序排序，只保留前3个最高分的创意
-      const topCreatives = allCreatives
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3)
-
-      setCreatives(topCreatives)
-      setGenerationCount(generationCount + 1)
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        showError('生成超时', 'AI创意生成耗时过长（>2分钟），请稍后重试或减少重试次数')
-      } else {
-        showError('生成失败', error.message)
-      }
+      showError('生成失败', error.message)
     } finally {
       setGenerating(false)
+      setGenerationProgress(null)
+      setGenerationStartTime(null)
     }
   }
 
@@ -491,35 +563,100 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
       {/* Creatives List */}
       {creatives.length === 0 ? (
-        <Card className="border-dashed border-2 border-gray-200 bg-gray-50/50 min-h-[500px] flex flex-col justify-center items-center">
+        <Card className="border-dashed border-2 border-gray-200 bg-gray-50/50 py-8">
           <CardContent className="text-center">
-            <div className="w-20 h-20 bg-white rounded-full shadow-sm flex items-center justify-center mx-auto mb-6">
-              <Wand2 className="w-10 h-10 text-purple-500" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              还没有广告创意
-            </h3>
-            <p className="text-gray-500 max-w-md mx-auto mb-8">
-              点击右上角的"开始生成创意"按钮，AI将为您自动分析网页内容并生成高质量的Google Ads广告文案。
-            </p>
-            <Button
-              onClick={handleGenerate}
-              disabled={generating}
-              size="lg"
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 border-0"
-            >
-              {generating ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  正在生成...
-                </>
-              ) : (
-                <>
+            {generating && generationProgress ? (
+              // 生成中显示进度
+              <div className="space-y-4">
+                <div className="w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto">
+                  <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900 mb-1">
+                    AI正在生成广告创意
+                  </h3>
+                  <p className="text-purple-600 font-medium text-sm">
+                    {generationProgress.message}
+                  </p>
+                </div>
+                {/* 进度条 */}
+                <div className="max-w-md mx-auto">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>进度</span>
+                    <span>{generationProgress.progress}%</span>
+                  </div>
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${generationProgress.progress}%` }}
+                    />
+                  </div>
+                  {/* 总耗时显示 */}
+                  <div className="flex justify-center mt-2">
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                      已用时: {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
+                    </span>
+                  </div>
+                </div>
+                {/* 详细信息 */}
+                {generationProgress.details && (
+                  <div className="text-xs text-gray-500 space-y-1">
+                    {generationProgress.details.attempt && (
+                      <p>第 {generationProgress.details.attempt} / {generationProgress.details.maxRetries || 3} 次尝试</p>
+                    )}
+                    {generationProgress.details.rating && (
+                      <p className="flex items-center justify-center gap-1">
+                        当前评级:
+                        <span className={`font-medium ${
+                          generationProgress.details.rating === 'EXCELLENT' ? 'text-green-600' :
+                          generationProgress.details.rating === 'GOOD' ? 'text-blue-600' :
+                          generationProgress.details.rating === 'AVERAGE' ? 'text-yellow-600' : 'text-red-600'
+                        }`}>
+                          {generationProgress.details.rating === 'EXCELLENT' ? '优秀' :
+                           generationProgress.details.rating === 'GOOD' ? '良好' :
+                           generationProgress.details.rating === 'AVERAGE' ? '一般' : '待优化'}
+                        </span>
+                        ({generationProgress.details.score}分)
+                      </p>
+                    )}
+                    {generationProgress.details.suggestions && generationProgress.details.suggestions.length > 0 && (
+                      <div className="mt-2 text-left bg-yellow-50 rounded-lg p-2 max-w-sm mx-auto">
+                        <p className="font-medium text-yellow-800 mb-1">优化建议:</p>
+                        <ul className="text-yellow-700 list-disc list-inside">
+                          {generationProgress.details.suggestions.map((s: string, i: number) => (
+                            <li key={i} className="truncate">{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 mt-2">
+                  AI正在努力创作最优质的广告文案，请稍候...
+                </p>
+              </div>
+            ) : (
+              // 未生成时显示空状态
+              <>
+                <div className="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center mx-auto mb-4">
+                  <Wand2 className="w-8 h-8 text-purple-500" />
+                </div>
+                <h3 className="text-base font-semibold text-gray-900 mb-1">
+                  还没有广告创意
+                </h3>
+                <p className="text-gray-500 max-w-md mx-auto mb-4 text-sm">
+                  点击右上角的"开始生成创意"按钮，AI将自动生成高质量的Google Ads广告文案
+                </p>
+                <Button
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 border-0"
+                >
                   <Wand2 className="w-4 h-4 mr-2" />
                   立即生成
-                </>
-              )}
-            </Button>
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (

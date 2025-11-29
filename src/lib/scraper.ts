@@ -3,6 +3,7 @@ import { load } from 'cheerio'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { getProxyIp, ProxyCredentials } from './proxy/fetch-proxy-ip'
 import { normalizeBrandName } from './offer-utils'
+import { getAcceptLanguageHeader } from './language-country-codes'
 
 const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true'
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -47,24 +48,14 @@ async function getProxyAgent(customProxyUrl?: string): Promise<HttpsProxyAgent<s
   }
 }
 
-// 语言代码到Accept-Language的映射
-const LANGUAGE_TO_ACCEPT: Record<string, string> = {
-  en: 'en-US,en;q=0.9',
-  zh: 'zh-CN,zh;q=0.9,en;q=0.8',
-  ja: 'ja-JP,ja;q=0.9,en;q=0.8',
-  ko: 'ko-KR,ko;q=0.9,en;q=0.8',
-  de: 'de-DE,de;q=0.9,en;q=0.8',
-  fr: 'fr-FR,fr;q=0.9,en;q=0.8',
-  es: 'es-ES,es;q=0.9,en;q=0.8',
-  it: 'it-IT,it;q=0.9,en;q=0.8',
-  pt: 'pt-BR,pt;q=0.9,en;q=0.8',
-}
+// 使用全局统一的Accept-Language映射（支持27种语言）
+// 通过 getAcceptLanguageHeader() 函数获取
 
 /**
  * 抓取网页内容
  * @param url - 要抓取的URL
  * @param customProxyUrl - 自定义代理URL
- * @param language - 目标语言代码 (en, zh, ja, ko, de, fr, es, it, pt)
+ * @param language - 目标语言代码（支持27种语言，如 en, zh, ja, ko, de, fr, es, it, pt, sv, no, da 等）
  */
 export async function scrapeUrl(url: string, customProxyUrl?: string, language?: string): Promise<{
   html: string
@@ -74,7 +65,7 @@ export async function scrapeUrl(url: string, customProxyUrl?: string, language?:
 }> {
   try {
     const proxyAgent = await getProxyAgent(customProxyUrl)
-    const acceptLanguage = LANGUAGE_TO_ACCEPT[language || 'en'] || 'en-US,en;q=0.9'
+    const acceptLanguage = getAcceptLanguageHeader(language || 'en')
 
     const response = await axios.get(url, {
       timeout: 30000,

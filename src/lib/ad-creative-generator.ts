@@ -116,6 +116,114 @@ async function getAIConfig(userId?: number): Promise<AIConfig> {
 }
 
 /**
+ * 获取语言指令 - 确保 AI 生成指定语言的内容
+ */
+function getLanguageInstruction(targetLanguage: string): string {
+  const lang = targetLanguage.toLowerCase()
+
+  if (lang.includes('italian') || lang === 'it') {
+    return `🔴 IMPORTANT: Generate ALL content in ITALIAN ONLY.
+- Headlines: Italian
+- Descriptions: Italian
+- Keywords: Italian (e.g., "robot aspirapolvere", "aspirapolvere intelligente", not "robot vacuum")
+- Callouts: Italian
+- Sitelinks: Italian
+Do NOT use English words or mix languages. Every single word must be in Italian.`
+  } else if (lang.includes('spanish') || lang === 'es') {
+    return `🔴 IMPORTANT: Generate ALL content in SPANISH ONLY.
+- Headlines: Spanish
+- Descriptions: Spanish
+- Keywords: Spanish (e.g., "robot aspirador", "aspirador inteligente", not "robot vacuum")
+- Callouts: Spanish
+- Sitelinks: Spanish
+Do NOT use English words or mix languages. Every single word must be in Spanish.`
+  } else if (lang.includes('french') || lang === 'fr') {
+    return `🔴 IMPORTANT: Generate ALL content in FRENCH ONLY.
+- Headlines: French
+- Descriptions: French
+- Keywords: French (e.g., "robot aspirateur", "aspirateur intelligent", not "robot vacuum")
+- Callouts: French
+- Sitelinks: French
+Do NOT use English words or mix languages. Every single word must be in French.`
+  } else if (lang.includes('german') || lang === 'de') {
+    return `🔴 IMPORTANT: Generate ALL content in GERMAN ONLY.
+- Headlines: German
+- Descriptions: German
+- Keywords: German (e.g., "Staubsauger-Roboter", "intelligenter Staubsauger", not "robot vacuum")
+- Callouts: German
+- Sitelinks: German
+Do NOT use English words or mix languages. Every single word must be in German.`
+  } else if (lang.includes('portuguese') || lang === 'pt') {
+    return `🔴 IMPORTANT: Generate ALL content in PORTUGUESE ONLY.
+- Headlines: Portuguese
+- Descriptions: Portuguese
+- Keywords: Portuguese (e.g., "robô aspirador", "aspirador inteligente", not "robot vacuum")
+- Callouts: Portuguese
+- Sitelinks: Portuguese
+Do NOT use English words or mix languages. Every single word must be in Portuguese.`
+  } else if (lang.includes('japanese') || lang === 'ja') {
+    return `🔴 IMPORTANT: Generate ALL content in JAPANESE ONLY.
+- Headlines: Japanese
+- Descriptions: Japanese
+- Keywords: Japanese (e.g., "ロボット掃除機", "スマート掃除機", not "robot vacuum")
+- Callouts: Japanese
+- Sitelinks: Japanese
+Do NOT use English words or mix languages. Every single word must be in Japanese.`
+  } else if (lang.includes('korean') || lang === 'ko') {
+    return `🔴 IMPORTANT: Generate ALL content in KOREAN ONLY.
+- Headlines: Korean
+- Descriptions: Korean
+- Keywords: Korean (e.g., "로봇 청소기", "스마트 청소기", not "robot vacuum")
+- Callouts: Korean
+- Sitelinks: Korean
+Do NOT use English words or mix languages. Every single word must be in Korean.`
+  } else if (lang.includes('russian') || lang === 'ru') {
+    return `🔴 IMPORTANT: Generate ALL content in RUSSIAN ONLY.
+- Headlines: Russian
+- Descriptions: Russian
+- Keywords: Russian (e.g., "робот-пылесос", "умный пылесос", not "robot vacuum")
+- Callouts: Russian
+- Sitelinks: Russian
+Do NOT use English words or mix languages. Every single word must be in Russian.`
+  } else if (lang.includes('arabic') || lang === 'ar') {
+    return `🔴 IMPORTANT: Generate ALL content in ARABIC ONLY.
+- Headlines: Arabic
+- Descriptions: Arabic
+- Keywords: Arabic (e.g., "روبوت مكنسة", "مكنسة ذكية", not "robot vacuum")
+- Callouts: Arabic
+- Sitelinks: Arabic
+Do NOT use English words or mix languages. Every single word must be in Arabic.`
+  } else if (lang.includes('chinese') || lang === 'zh') {
+    return `🔴 IMPORTANT: Generate ALL content in CHINESE ONLY.
+- Headlines: Chinese
+- Descriptions: Chinese
+- Keywords: Chinese (e.g., "扫地机器人", "智能吸尘器", not "robot vacuum")
+- Callouts: Chinese
+- Sitelinks: Chinese
+Do NOT use English words or mix languages. Every single word must be in Chinese.`
+  } else if (lang.includes('swedish') || lang === 'sv') {
+    return `🔴 IMPORTANT: Generate ALL content in SWEDISH ONLY.
+- Headlines: Swedish
+- Descriptions: Swedish
+- Keywords: Swedish (e.g., "robotdammsugare", "smart dammsugare", not "robot vacuum")
+- Callouts: Swedish
+- Sitelinks: Swedish
+Do NOT use English words or mix languages. Every single word must be in Swedish.`
+  } else if (lang.includes('swiss german') || lang === 'de-ch') {
+    return `🔴 IMPORTANT: Generate ALL content in SWISS GERMAN ONLY.
+- Headlines: Swiss German
+- Descriptions: Swiss German
+- Keywords: Swiss German (e.g., "Roboter-Staubsauger", "intelligenter Staubsauger", not "robot vacuum")
+- Callouts: Swiss German
+- Sitelinks: Swiss German
+Do NOT use English words or mix languages. Every single word must be in Swiss German.`
+  }
+
+  // Default to English
+  return `Generate content in English.`
+}
+
+/**
  * 生成广告创意的Prompt（优化版 - 减少40%+ token消耗）
  * 🎯 需求34: 新增 extractedElements 参数，包含从爬虫阶段提取的关键词、标题、描述
  */
@@ -131,12 +239,17 @@ function buildAdCreativePrompt(
   }
 ): string {
   // 基础产品信息（精简格式）
-  let prompt = `Generate Google Ads creative for ${offer.brand} (${offer.category || 'product'}).
+  const targetLanguage = offer.target_language || 'English'
+  const languageInstruction = getLanguageInstruction(targetLanguage)
+
+  let prompt = `${languageInstruction}
+
+Generate Google Ads creative for ${offer.brand} (${offer.category || 'product'}).
 
 PRODUCT: ${offer.brand_description || offer.unique_selling_points || 'Quality product'}
 USPs: ${offer.unique_selling_points || offer.product_highlights || 'Premium quality'}
 AUDIENCE: ${offer.target_audience || 'General'}
-COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English'}
+COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
 `
 
   // 🔥 P0优化：增强数据 - 添加真实折扣、促销、排名、徽章等爬虫抓取的数据
@@ -225,18 +338,40 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
     extras.push(`REVIEW INSIGHTS: ${reviewHighlights.slice(0, 5).join(', ')}`)
   }
 
-  // 🔥 P1-1+: 用户评论深度分析（新增优化）
+  // 🔥 P1-1+: 用户评论深度分析（增强版 - 充分利用所有评论分析字段）
   let commonPraises: string[] = []
   let purchaseReasons: string[] = []
   let useCases: string[] = []
   let commonPainPoints: string[] = []
+  // 🆕 新增字段
+  let topPositiveKeywords: Array<{keyword: string; frequency: number; context?: string}> = []
+  let topNegativeKeywords: Array<{keyword: string; frequency: number; context?: string}> = []
+  let userProfiles: Array<{profile: string; indicators?: string[]}> = []
+  let sentimentDistribution: {positive: number; neutral: number; negative: number} | null = null
+  let totalReviews: number = 0
+  let averageRating: number = 0
+
   if (offer.review_analysis) {
     try {
       const reviewAnalysis = JSON.parse(offer.review_analysis)
+      // 原有字段
       commonPraises = reviewAnalysis.commonPraises || []
-      purchaseReasons = reviewAnalysis.purchaseReasons || []
-      useCases = reviewAnalysis.realUseCases || reviewAnalysis.useCases || []
-      commonPainPoints = reviewAnalysis.commonPainPoints || []
+      purchaseReasons = (reviewAnalysis.purchaseReasons || []).map((r: any) =>
+        typeof r === 'string' ? r : r.reason || r
+      )
+      useCases = (reviewAnalysis.realUseCases || reviewAnalysis.useCases || []).map((u: any) =>
+        typeof u === 'string' ? u : u.scenario || u
+      )
+      commonPainPoints = (reviewAnalysis.commonPainPoints || []).map((p: any) =>
+        typeof p === 'string' ? p : p.issue || p
+      )
+      // 🆕 新增字段提取
+      topPositiveKeywords = reviewAnalysis.topPositiveKeywords || []
+      topNegativeKeywords = reviewAnalysis.topNegativeKeywords || []
+      userProfiles = reviewAnalysis.userProfiles || []
+      sentimentDistribution = reviewAnalysis.sentimentDistribution || null
+      totalReviews = reviewAnalysis.totalReviews || 0
+      averageRating = reviewAnalysis.averageRating || 0
     } catch {}
   }
 
@@ -252,6 +387,31 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
   }
   if (commonPainPoints.length > 0) {
     extras.push(`AVOID: ${commonPainPoints.slice(0, 2).join(', ')}`)
+  }
+
+  // 🆕 新增：正面关键词作为关键词参考（高频用户好评词）
+  if (topPositiveKeywords.length > 0) {
+    const positiveKWs = topPositiveKeywords
+      .slice(0, 5)
+      .map(k => `"${k.keyword}"(${k.frequency}x)`)
+      .join(', ')
+    extras.push(`POSITIVE KEYWORDS: ${positiveKWs}`)
+  }
+
+  // 🆕 新增：情感分布作为社会证明（高好评率）
+  if (sentimentDistribution && totalReviews > 0) {
+    const positiveRate = sentimentDistribution.positive
+    if (positiveRate >= 80) {
+      extras.push(`SOCIAL PROOF: ${positiveRate}% positive reviews from ${totalReviews} customers${averageRating ? `, ${averageRating} stars` : ''}`)
+    } else if (positiveRate >= 60) {
+      extras.push(`REVIEWS: ${totalReviews} customer reviews${averageRating ? `, ${averageRating} avg rating` : ''}`)
+    }
+  }
+
+  // 🆕 新增：用户画像用于受众定制
+  if (userProfiles.length > 0) {
+    const profiles = userProfiles.slice(0, 3).map(p => p.profile).join(', ')
+    extras.push(`TARGET PERSONAS: ${profiles}`)
   }
 
   // 🔥 P1-2: 技术规格（关键参数）
@@ -341,64 +501,143 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${offer.target_language || 'English
 **FIRST HEADLINE (MANDATORY)**: "{KeyWord:${offer.brand}} Official" - Must be EXACTLY this format, no extra words
 **⚠️ CRITICAL**: ONLY the first headline can use {KeyWord:...} format. All other 14 headlines MUST NOT contain {KeyWord:...} or any DKI syntax.
 
+**🎯 DIVERSITY REQUIREMENT (CRITICAL)**:
+- Maximum 20% text similarity between ANY two headlines
+- Each headline must have a UNIQUE angle, focus, or emotional trigger
+- NO headline should repeat more than 2 words from another headline
+- Each headline should use DIFFERENT primary keywords or features
+- Vary sentence structure: statements, questions, commands, exclamations
+- Use DIFFERENT emotional triggers: trust, urgency, value, curiosity, exclusivity, social proof
+
 Remaining 14 headlines - Types (must cover all 5):
-- Brand (2): ${badge ? `Use BADGE if available (e.g., "${badge} Brand")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: For stores with hot products, create "Best Seller Collection" headlines featuring top products (e.g., "Best ${topProducts[0]?.split(' ').slice(0, 2).join(' ')} Collection")` : ''}
-- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}${commonPraises.length > 0 ? `. **NEW**: Use USER PRAISES for authentic features: ${commonPraises.slice(0, 2).join(', ')}` : ''}
+- Brand (2): ${badge ? `Use BADGE if available (e.g., "${badge} Brand")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: For stores with hot products, create "Best Seller Collection" headlines featuring top products (e.g., "Best ${topProducts[0]?.split(' ').slice(0, 2).join(' ')} Collection")` : ''}${sentimentDistribution && sentimentDistribution.positive >= 80 ? `. **SOCIAL PROOF**: Use high approval rate: "${sentimentDistribution.positive}% Love It", "Rated ${averageRating} Stars"` : ''}
+  * IMPORTANT: Make these 2 brand headlines COMPLETELY DIFFERENT in focus and wording
+  * Example 1: "Official ${offer.brand} Store" (trust focus)
+  * Example 2: "#1 Trusted ${offer.brand}" (social proof focus)
+  * ❌ AVOID: "Official ${offer.brand}", "Official ${offer.brand} Brand" (too similar)
+
+- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}${commonPraises.length > 0 ? `. **USER PRAISES**: Use authentic features: ${commonPraises.slice(0, 2).join(', ')}` : ''}${topPositiveKeywords.length > 0 ? `. **POSITIVE KEYWORDS**: Incorporate high-frequency praise words: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}` : ''}
+  * IMPORTANT: Each of the 4 feature headlines must focus on a DIFFERENT feature or benefit
+  * Example 1: "4K Resolution Display" (technical spec)
+  * Example 2: "Extended Battery Life" (performance benefit)
+  * Example 3: "Smart Navigation System" (functionality)
+  * Example 4: "Eco-Friendly Design" (sustainability)
+  * ❌ AVOID: "4K Display", "4K Resolution", "High Resolution" (too similar)
+
 - Promo (3): ${discount || promotion ? `MUST use real DISCOUNT/PROMOTION data: ${discount ? `"${discount}"` : ''}${promotion ? ` or "${promotion}"` : ''}` : 'Numbers/% required - "Save 40%", "$50 Off"'}
-- CTA (3): "Shop Now", "Get Yours Today"${primeEligible ? ', "Prime Eligible"' : ''}${purchaseReasons.length > 0 ? `. **NEW**: Incorporate WHY BUY reasons: ${purchaseReasons.slice(0, 2).join(', ')}` : ''}
+  * IMPORTANT: Each promo headline must use a DIFFERENT promotional angle
+  * Example 1: "Save 40% Today" (discount focus)
+  * Example 2: "$100 Off This Week" (amount focus)
+  * Example 3: "Limited Time Offer" (urgency focus)
+  * ❌ AVOID: "Save 40%", "40% Off", "40% Discount" (too similar)
+
+- CTA (3): "Shop Now", "Get Yours Today"${primeEligible ? ', "Prime Eligible"' : ''}${purchaseReasons.length > 0 ? `. **WHY BUY**: Incorporate purchase motivations: ${purchaseReasons.slice(0, 2).join(', ')}` : ''}
+  * IMPORTANT: Each CTA headline must use a DIFFERENT call-to-action verb or angle
+  * Example 1: "Shop Now" (direct action)
+  * Example 2: "Get Yours Today" (possession focus)
+  * Example 3: "Claim Your Deal" (exclusivity focus)
+  * ❌ AVOID: "Shop Now", "Shop Today", "Buy Now" (too similar)
+
 - Urgency (2): ${availability && availability.includes('left') ? `Use real STOCK data: "${availability}"` : '"Limited Time", "Ends Soon"'}
+  * IMPORTANT: Each urgency headline must use a DIFFERENT urgency signal
+  * Example 1: "Only 5 Left in Stock" (scarcity focus)
+  * Example 2: "Ends Tomorrow" (time limit focus)
+  * ❌ AVOID: "Limited Stock", "Limited Time", "Limited Offer" (too similar)
 
 Length distribution: 5 short(10-20), 5 medium(20-25), 5 long(25-30)
-Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarity
+Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarity between ANY two headlines
 
 ### DESCRIPTIONS (4 required, ≤90 chars each)
 **UNIQUENESS REQUIREMENT**: Each description MUST be DISTINCT in focus and wording
+**🎯 DIVERSITY REQUIREMENT (CRITICAL)**:
+- Maximum 20% text similarity between ANY two descriptions
+- Each description must have a COMPLETELY DIFFERENT focus and angle
+- NO description should repeat more than 2 words from another description
+- Use DIFFERENT emotional triggers and value propositions
+- Vary the structure: benefit-focused, action-focused, feature-focused, proof-focused
+
 - **Description 1 (Value-Driven)**: Lead with the PRIMARY benefit or competitive advantage${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}
-  * Focus: What makes this product/brand special
+  * Focus: What makes this product/brand special (unique value proposition)
   * Example: "Award-Winning Tech. Rated 4.8 stars by 50K+ Happy Customers."
+  * ❌ AVOID: Repeating "shop", "buy", "get" from other descriptions
+
 - **Description 2 (Action-Oriented)**: Strong CTA with immediate incentive${primeEligible ? ' + Prime eligibility' : ''}
-  * Focus: Urgency + convenience + trust signal
+  * Focus: Urgency + convenience + trust signal (action-focused)
   * Example: "Shop Now for Fast, Free Delivery. Easy Returns Guaranteed."
-- **Description 3 (Feature-Rich)**: Specific product features or use cases${useCases.length > 0 ? `. **NEW**: Reference real USE CASES: ${useCases.slice(0, 2).join(', ')}` : ''}
-  * Focus: Technical specs, capabilities, or versatility
+  * ❌ AVOID: Using the same CTA verb as Description 1 or 3
+
+- **Description 3 (Feature-Rich)**: Specific product features or use cases${useCases.length > 0 ? `. **USE CASES**: Reference real scenarios: ${useCases.slice(0, 2).join(', ')}` : ''}${userProfiles.length > 0 ? `. **TARGET PERSONAS**: Speak to: ${userProfiles.slice(0, 2).map(p => p.profile).join(', ')}` : ''}
+  * Focus: Technical specs, capabilities, or versatility (feature-focused)
   * Example: "4K Resolution. Solar Powered. Works Rain or Shine."
-- **Description 4 (Trust + Social Proof)**: Customer validation or support${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)} stars from ${hotInsights.avgReviews}+ reviews)` : ''}
-  * Focus: Reviews, ratings, guarantees, customer service
+  * ❌ AVOID: Mentioning "award", "rated", "trusted" from other descriptions
+
+- **Description 4 (Trust + Social Proof)**: Customer validation or support${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)} stars from ${hotInsights.avgReviews}+ reviews)` : ''}${sentimentDistribution && totalReviews > 0 ? `. **SOCIAL PROOF DATA**: ${sentimentDistribution.positive}% positive from ${totalReviews} reviews${averageRating ? `, ${averageRating} stars` : ''}` : ''}
+  * Focus: Reviews, ratings, guarantees, customer service (proof-focused)
   * Example: "Trusted by 100K+ Buyers. 30-Day Money-Back Promise."
+  * ❌ AVOID: Repeating "fast", "free", "easy" from other descriptions
 
-**AVOID**: Repeating similar phrases like "shop now", "buy today" across multiple descriptions
-**LEVERAGE DATA**:${reviewHighlights.length > 0 ? ` Review insights: ${reviewHighlights.slice(0, 3).join(', ')}` : ''}${commonPraises.length > 0 ? ` User praises: ${commonPraises.slice(0, 2).join(', ')}` : ''}${commonPainPoints.length > 0 ? ` (Address pain points indirectly - don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}` : ''}
+**CRITICAL DIVERSITY CHECKLIST**:
+- ✓ Description 1 focuses on VALUE (what makes it special)
+- ✓ Description 2 focuses on ACTION (what to do now)
+- ✓ Description 3 focuses on FEATURES (what it can do)
+- ✓ Description 4 focuses on PROOF (why to trust it)
+- ✓ Each uses DIFFERENT keywords and phrases
+- ✓ Each has a DIFFERENT emotional trigger
+- ✓ Maximum 20% similarity between any two descriptions
+**LEVERAGE DATA**:${reviewHighlights.length > 0 ? ` Review insights: ${reviewHighlights.slice(0, 3).join(', ')}` : ''}${commonPraises.length > 0 ? ` User praises: ${commonPraises.slice(0, 2).join(', ')}` : ''}${topPositiveKeywords.length > 0 ? ` Positive keywords: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}` : ''}${commonPainPoints.length > 0 ? ` (Address pain points indirectly - don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}` : ''}
 
 
-### KEYWORDS (10-15 required)
-**🎯 优先级策略（重要！确保Launch Score >60分）**:
-1. **品牌短尾词 (2-4个，最高优先级)**: 品牌名称 + 产品类别/型号的短语（2-3个词）
-   - ✅ 优秀示例: "${offer.brand} robot vacuum", "${offer.brand} c20", "${offer.brand} cleaner"
-   - ✅ 为什么优秀: 高搜索量（通常>5000/月）、高购买意图、精准匹配
-   - ❌ 避免: 仅品牌名单词（如"${offer.brand}"）- 过于宽泛
+### KEYWORDS (20-30 required)
+**🎯 关键词生成策略（重要！确保高搜索量关键词优先）**:
+**⚠️ 强制约束：所有关键词必须使用目标语言 ${offer.target_language || 'English'}，不能使用英文！**
 
-2. **功能组合词 (3-5个，高优先级)**: 产品核心功能 + 类别
-   - ✅ 优秀示例: "robot vacuum mop combo", "self emptying robot vacuum", "7000pa vacuum cleaner"
-   - ✅ 为什么优秀: 明确产品特性，搜索量中高（1000-10000/月）
+**第一优先级 - 品牌短尾词 (必须生成8-10个)**:
+- 格式: [品牌名] + [产品核心词]（2-3个单词）
+- ✅ 必须包含的品牌短尾词（基于 ${offer.brand}）:
+  - "${offer.brand} ${offer.category || 'products'}"（品牌+品类）
+  - "${offer.brand} official"（品牌+官方）
+  - "${offer.brand} store"（品牌+商店）
+  - "${offer.brand} [型号/系列]"（如有型号信息）
+  - "${offer.brand} buy"（品牌+购买）
+  - "${offer.brand} price"（品牌+价格）
+  - "${offer.brand} review"（品牌+评测）
+  - "${offer.brand} [主要特性]"（品牌+特性）
+- ✅ 示例 (英文): "eufy robot vacuum", "eufy c20", "eufy cleaner", "eufy official", "eufy buy", "eufy price"
+- ✅ 示例 (意大利语): "eufy robot aspirapolvere", "eufy c20", "eufy pulitore", "eufy ufficiale", "eufy acquista", "eufy prezzo"
+- ❌ 避免: 仅品牌名单词（过于宽泛）
 
-3. **购买意图词 (2-3个，中高优先级)**: 包含购买动词的关键词
-   - ✅ 优秀示例: "buy ${offer.brand} robot", "shop robot vacuum", "best ${offer.brand} price"
-   - ✅ 为什么优秀: 用户有明确购买意图，转化率高
+**第二优先级 - 产品核心词 (必须生成6-8个)**:
+- 格式: [产品功能] + [类别]（2-3个单词）
+- ✅ 示例 (英文): "robot vacuum mop", "self emptying vacuum", "cordless vacuum cleaner", "smart vacuum", "app controlled vacuum"
+- ✅ 示例 (意大利语): "robot aspirapolvere e lavapavimenti", "aspirapolvere svuotamento automatico", "aspirapolvere senza fili", "aspirapolvere intelligente", "aspirapolvere controllata da app"
+- ✅ 为什么优秀: 高搜索量（通常5000-50000/月），匹配用户搜索意图
 
-4. **长尾精准词 (2-4个，补充优先级)**: 特定场景或细分需求（3-5个词）
-   - ✅ 优秀示例: "robot vacuum for pet hair", "quiet robot vacuum for hardwood", "best budget robot mop"
-   - ⚠️ 注意: 仅作为补充，不应占关键词总数的50%以上
+**第三优先级 - 购买意图词 (必须生成3-5个)**:
+- 格式: [购买动词] + [品牌/产品]
+- ✅ 示例 (英文): "buy ${offer.brand}", "shop ${offer.brand}", "best ${offer.brand} price", "${offer.brand} deals", "where to buy ${offer.brand}"
+- ✅ 示例 (意大利语): "acquista ${offer.brand}", "negozio ${offer.brand}", "miglior prezzo ${offer.brand}", "offerte ${offer.brand}", "dove acquistare ${offer.brand}"
 
+**第四优先级 - 长尾精准词 (必须生成3-7个)**:
+- 格式: [具体场景] + [产品]（3-5个单词）
+- ✅ 示例 (英文): "best robot vacuum for pet hair", "robot vacuum for hardwood floors", "quiet robot vacuum", "robot vacuum with mop"
+- ✅ 示例 (意大利语): "miglior aspirapolvere per peli di animali", "aspirapolvere per pavimenti in legno", "aspirapolvere silenzioso", "aspirapolvere con funzione lavapavimenti"
+- ⚠️ 注意: 长尾词可以超过总关键词数的25%
+
+**🔴 强制语言要求**:
+- 关键词必须使用目标语言 ${offer.target_language || 'English'}
+- 如果目标语言是意大利语，所有关键词必须是意大利语
+- 如果目标语言是西班牙语，所有关键词必须是西班牙语
+- 不能混合使用英文和目标语言
+- 不能使用英文关键词
 **质量要求**:
-- 搜索量: 品牌短尾词和功能组合词应≥1000/月（优先选择高搜索量）
-- 相关性: 与${offer.brand}品牌和${offer.category || '产品'}高度相关
-- **🚫 禁止生成的无效关键词**:
-  - ❌ "unknown", "null", "undefined"等系统占位符
-  - ❌ 单一通用词（"camera", "phone", "vacuum"）- 竞争过大且不精准
-  - ❌ 与产品无关的关键词
-${excludeKeywords?.length ? `- ❌ 避免重复: ${excludeKeywords.join(', ')}` : ''}
-
-**🎯 目标**: 至少60%关键词应为品牌短尾词或功能组合词（高搜索量+高转化）
+- 每个关键词2-4个单词（最优搜索量范围）
+- 关键词总数: 20-30个
+- 搜索量目标: 品牌词>1000/月，核心词>500/月，长尾词>100/月
+**🚫 禁止**:
+- 无意义词: "unknown", "null", "undefined"
+- 单一通用词: "camera", "phone", "vacuum"
+- 与${offer.brand}无关的关键词
+${excludeKeywords?.length ? `- 已用关键词: ${excludeKeywords.slice(0, 10).join(', ')}` : ''}
 
 ### CALLOUTS (4-6, ≤25 chars)
 ${primeEligible ? '- **MUST include**: "Prime Free Shipping"' : '- Free Shipping'}
@@ -703,6 +942,84 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
       }
     }
 
+    // ============================================================================
+    // 验证 Callouts 长度 (≤25 字符)
+    // ============================================================================
+    let calloutsArray = Array.isArray(data.callouts) ? data.callouts : []
+    const invalidCallouts = calloutsArray.filter((c: string) => c && c.length > 25)
+    if (invalidCallouts.length > 0) {
+      console.warn(`警告: ${invalidCallouts.length}个callout超过25字符限制`)
+      console.warn(`  超长callouts: ${invalidCallouts.map((c: string) => `"${c}"(${c.length}字符)`).join(', ')}`)
+      // 截断过长的callouts
+      calloutsArray = calloutsArray.map((c: string) => {
+        if (c && c.length > 25) {
+          const truncated = c.substring(0, 25)
+          console.warn(`  截断: "${c}" → "${truncated}"`)
+          return truncated
+        }
+        return c
+      })
+    }
+
+    // ============================================================================
+    // 验证 Sitelinks 长度 (text≤25, desc≤35)
+    // ============================================================================
+    let sitelinksArray = Array.isArray(data.sitelinks) ? data.sitelinks : []
+    const invalidSitelinks = sitelinksArray.filter((s: any) =>
+      s && (s.text?.length > 25 || s.description?.length > 35)
+    )
+    if (invalidSitelinks.length > 0) {
+      console.warn(`警告: ${invalidSitelinks.length}个sitelink超过长度限制`)
+      invalidSitelinks.forEach((s: any) => {
+        if (s.text?.length > 25) {
+          console.warn(`  Sitelink文本超长: "${s.text}"(${s.text.length}字符 > 25)`)
+        }
+        if (s.description?.length > 35) {
+          console.warn(`  Sitelink描述超长: "${s.description}"(${s.description.length}字符 > 35)`)
+        }
+      })
+      // 截断过长的sitelinks
+      sitelinksArray = sitelinksArray.map((s: any) => {
+        if (!s) return s
+        const truncated = { ...s }
+        if (s.text && s.text.length > 25) {
+          truncated.text = s.text.substring(0, 25)
+          console.warn(`  截断文本: "${s.text}" → "${truncated.text}"`)
+        }
+        if (s.description && s.description.length > 35) {
+          truncated.description = s.description.substring(0, 35)
+          console.warn(`  截断描述: "${s.description}" → "${truncated.description}"`)
+        }
+        return truncated
+      })
+    }
+
+    // ============================================================================
+    // 验证关键词长度 (1-4 个单词)
+    // 注: 品牌词通常是1个单词，所以允许1-4个单词的关键词
+    // ============================================================================
+    let keywordsArray = Array.isArray(data.keywords) ? data.keywords : []
+    const invalidKeywords = keywordsArray.filter((k: string) => {
+      if (!k) return false
+      const wordCount = k.trim().split(/\s+/).length
+      return wordCount < 1 || wordCount > 4
+    })
+    if (invalidKeywords.length > 0) {
+      console.warn(`警告: ${invalidKeywords.length}个keyword不符合1-4单词要求`)
+      invalidKeywords.forEach((k: string) => {
+        const wordCount = k.trim().split(/\s+/).length
+        console.warn(`  "${k}"(${wordCount}个单词)`)
+      })
+      // 过滤不符合要求的关键词
+      const originalCount = keywordsArray.length
+      keywordsArray = keywordsArray.filter((k: string) => {
+        if (!k) return false
+        const wordCount = k.trim().split(/\s+/).length
+        return wordCount >= 1 && wordCount <= 4
+      })
+      console.warn(`  过滤后: ${originalCount} → ${keywordsArray.length}个关键词`)
+    }
+
     // 解析quality_metrics（如果存在）
     const qualityMetrics = data.quality_metrics ? {
       headline_diversity_score: data.quality_metrics.headline_diversity_score,
@@ -720,9 +1037,9 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
       // 核心字段（向后兼容）
       headlines: headlinesArray,
       descriptions: descriptionsArray,
-      keywords: data.keywords,
-      callouts: data.callouts,
-      sitelinks: data.sitelinks,
+      keywords: keywordsArray, // 使用验证后的关键词
+      callouts: calloutsArray, // 使用验证后的 callouts
+      sitelinks: sitelinksArray, // 使用验证后的 sitelinks
       theme: data.theme || '通用广告',
       explanation: data.explanation || '基于产品信息生成的广告创意',
 
@@ -857,10 +1174,11 @@ export async function generateAdCreative(
   try {
     const country = (offer as { target_country?: string }).target_country || 'US'
     // Extract language from target_language or default to 'en'
-    const lang = ((offer as { target_language?: string }).target_language || 'English').toLowerCase().substring(0, 2)
-    const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : 'en'
+    const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
+    const lang = targetLanguage.toLowerCase().substring(0, 2)
+    const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
 
-    console.log(`🔍 获取关键词搜索量: ${result.keywords.length}个关键词, 国家=${country}, 语言=${language}`)
+    console.log(`🔍 获取关键词搜索量: ${result.keywords.length}个关键词, 国家=${country}, 语言=${language} (${targetLanguage})`)
     const volumes = await getKeywordSearchVolumes(result.keywords, country, language, userId)
 
     keywordsWithVolume = volumes.map(v => ({
@@ -876,136 +1194,287 @@ export async function generateAdCreative(
   }
   console.timeEnd('⏱️ 获取关键词搜索量')
 
-  // 🎯 过滤低搜索量关键词（Launch Score优化）
-  const MIN_SEARCH_VOLUME = 1000  // 提高到1000/月，确保关键词质量
+  // 🎯 新的过滤规则：
+  // 1. 保留品牌词（不管搜索量）
+  // 2. 过滤掉搜索量 < 500 的非品牌词
   const originalKeywordCount = result.keywords.length
-  const filteredKeywordsWithVolume = keywordsWithVolume.filter(kw => {
-    // 过滤低搜索量
-    if (kw.searchVolume > 0 && kw.searchVolume < MIN_SEARCH_VOLUME) {
-      console.log(`⚠️ 过滤低搜索量关键词: "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
+  const brandNameForFilter = (offer as { brand?: string }).brand || ''
+  const brandNameLower = brandNameForFilter.toLowerCase()
+
+  const validKeywords = keywordsWithVolume.filter(kw => {
+    const keywordLower = kw.keyword.toLowerCase()
+    const isBrandKeyword = keywordLower.includes(brandNameLower)
+
+    // ✅ 规则1: 保留品牌词（不管搜索量）
+    if (isBrandKeyword) {
+      return true
+    }
+
+    // ✅ 规则2: 过滤掉搜索量 < 500 的非品牌词
+    if (kw.searchVolume < 500) {
+      console.log(`🔧 过滤低搜索量关键词: "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
       return false
     }
+
+    // ✅ 保留搜索量 >= 500 的关键词
     return true
   })
 
   // 更新关键词列表
-  const filteredKeywords = filteredKeywordsWithVolume.map(kw => kw.keyword)
-  const removedCount = originalKeywordCount - filteredKeywords.length
+  const removedCount = originalKeywordCount - validKeywords.length
 
   if (removedCount > 0) {
-    console.log(`🔧 已过滤 ${removedCount} 个低搜索量关键词 (< ${MIN_SEARCH_VOLUME}/月)`)
-    console.log(`📊 剩余关键词: ${filteredKeywords.length}/${originalKeywordCount}`)
-    result.keywords = filteredKeywords
-    keywordsWithVolume = filteredKeywordsWithVolume
+    console.log(`🔧 已过滤 ${removedCount} 个低搜索量关键词 (< 500/月)`)
+    console.log(`📊 剩余关键词: ${validKeywords.length}/${originalKeywordCount}`)
   }
 
-  // 🎯 通过Keyword Planner扩展品牌关键词
+  // 按搜索量从高到低排序
+  validKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
+
+  result.keywords = validKeywords.map(kw => kw.keyword)
+  keywordsWithVolume = validKeywords
+
+  // 🎯 通过Keyword Planner扩展高搜索量关键词（多轮查询）
+  // 规则: 搜索量 > 500 的关键词通过 Keyword Planner 查询，获取新的搜索量 > 500 的关键字提示
   try {
-    const brandName = (offer as { brand?: string }).brand
     if (brandName && userId) {
-      console.log(`🔍 使用Keyword Planner扩展品牌关键词: "${brandName}"`)
-      console.time('⏱️ Keyword Planner扩展')
+      // 找出搜索量 > 500 的关键词作为种子关键词
+      let highVolumeKeywords = keywordsWithVolume
+        .filter(kw => kw.searchVolume > 500)
+        .map(kw => kw.keyword)
 
-      // 获取Google Ads账号信息
-      const { getKeywordIdeas } = await import('@/lib/google-ads-keyword-planner')
-      const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
-      const { getSQLiteDatabase } = await import('@/lib/db')
-      const db = getSQLiteDatabase()
+      if (highVolumeKeywords.length > 0) {
+        console.log(`🔍 使用Keyword Planner扩展高搜索量关键词 (> 500/月): ${highVolumeKeywords.join(', ')}`)
+        console.time('⏱️ Keyword Planner扩展')
 
-      // 查询用户的Google Ads账号
-      const adsAccount = db.prepare(`
-        SELECT id, customer_id FROM google_ads_accounts
-        WHERE user_id = ? AND is_active = 1
-        ORDER BY created_at DESC
-        LIMIT 1
-      `).get(userId) as { id: number; customer_id: string } | undefined
+        // 获取Google Ads账号信息
+        const { getKeywordIdeas } = await import('@/lib/google-ads-keyword-planner')
+        const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
+        const { getSQLiteDatabase } = await import('@/lib/db')
+        const db = getSQLiteDatabase()
 
-      if (adsAccount) {
-        // 获取OAuth凭证
-        const credentials = await getGoogleAdsCredentials(userId)
+        // 查询用户的Google Ads账号
+        const adsAccount = db.prepare(`
+          SELECT id, customer_id FROM google_ads_accounts
+          WHERE user_id = ? AND is_active = 1
+          ORDER BY created_at DESC
+          LIMIT 1
+        `).get(userId) as { id: number; customer_id: string } | undefined
 
-        if (credentials) {
-          const country = (offer as { target_country?: string }).target_country || 'US'
-          const lang = ((offer as { target_language?: string }).target_language || 'English').toLowerCase().substring(0, 2)
-          const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : 'en'
+        if (adsAccount) {
+          // 获取OAuth凭证
+          const credentials = await getGoogleAdsCredentials(userId)
 
-          // 调用Keyword Planner API获取关键词创意
-          const keywordIdeas = await getKeywordIdeas({
-            customerId: adsAccount.customer_id,
-            refreshToken: credentials.refresh_token,
-            seedKeywords: [brandName],
-            targetCountry: country,
-            targetLanguage: language,
-            accountId: adsAccount.id,
-            userId
-          })
+          if (credentials) {
+            const country = (offer as { target_country?: string }).target_country || 'US'
+            const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
+            const lang = targetLanguage.toLowerCase().substring(0, 2)
+            const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
 
-          console.log(`📊 Keyword Planner返回${keywordIdeas.length}个关键词创意`)
+            console.log(`🌍 Keyword Planner 查询语言: ${language} (${targetLanguage})`)
 
-          // 过滤：只保留包含品牌名且搜索量>=500的关键词
-          const brandKeywords = keywordIdeas
-            .filter(idea => {
-              const keywordText = idea.text.toLowerCase()
-              const brandLower = brandName.toLowerCase()
-              // 关键词必须包含品牌名
-              if (!keywordText.includes(brandLower)) {
-                return false
+            // 多轮查询：最多进行3轮，每轮使用上一轮返回的高搜索量关键词作为新种子
+            const maxRounds = 3
+            let currentRound = 0
+            const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
+
+            while (highVolumeKeywords.length > 0 && currentRound < maxRounds) {
+              currentRound++
+              console.log(`\n📍 第 ${currentRound} 轮 Keyword Planner 查询 (种子关键词: ${highVolumeKeywords.length}个)`)
+
+              // 调用Keyword Planner API获取关键词创意
+              const keywordIdeas = await getKeywordIdeas({
+                customerId: adsAccount.customer_id,
+                refreshToken: credentials.refresh_token,
+                seedKeywords: highVolumeKeywords,
+                targetCountry: country,
+                targetLanguage: language,
+                accountId: adsAccount.id,
+                userId
+              })
+
+              console.log(`  📊 返回 ${keywordIdeas.length} 个关键词创意`)
+
+              // 过滤：只保留搜索量 > 500 的新关键词
+              const expandedKeywords = keywordIdeas
+                .filter(idea => {
+                  // ✅ 必须搜索量 > 500
+                  if (idea.avgMonthlySearches <= 500) {
+                    return false
+                  }
+                  return true
+                })
+                .map(idea => ({
+                  keyword: idea.text,
+                  searchVolume: idea.avgMonthlySearches,
+                  competition: idea.competition,
+                  competitionIndex: idea.competitionIndex,
+                  source: 'KEYWORD_EXPANSION'
+                }))
+
+              console.log(`  ✅ 筛选出 ${expandedKeywords.length} 个搜索量 > 500 的关键词`)
+
+              // 去重：排除已存在的关键词
+              const newExpandedKeywords = expandedKeywords.filter(kw =>
+                !existingKeywordsSet.has(kw.keyword.toLowerCase())
+              )
+
+              if (newExpandedKeywords.length > 0) {
+                console.log(`  🆕 添加 ${newExpandedKeywords.length} 个新的扩展关键词:`)
+                newExpandedKeywords.forEach(kw => {
+                  console.log(`     - "${kw.keyword}" (搜索量: ${kw.searchVolume.toLocaleString()}/月)`)
+                  existingKeywordsSet.add(kw.keyword.toLowerCase())
+                })
+
+                // 添加到关键词列表
+                result.keywords = [...result.keywords, ...newExpandedKeywords.map(kw => kw.keyword)]
+                keywordsWithVolume = [...keywordsWithVolume, ...newExpandedKeywords]
+
+                // 为下一轮准备种子关键词：使用本轮返回的高搜索量关键词
+                highVolumeKeywords = newExpandedKeywords.map(kw => kw.keyword)
+              } else {
+                console.log(`  ℹ️ 未发现新的扩展关键词，停止查询`)
+                break
               }
-              // 搜索量必须>=500
-              if (idea.avgMonthlySearches < MIN_SEARCH_VOLUME) {
-                console.log(`⚠️ 过滤低搜索量品牌关键词: "${idea.text}" (搜索量: ${idea.avgMonthlySearches}/月)`)
-                return false
-              }
-              return true
-            })
-            .map(idea => ({
-              keyword: idea.text,
-              searchVolume: idea.avgMonthlySearches,
-              competition: idea.competition,
-              competitionIndex: idea.competitionIndex
-            }))
+            }
 
-          console.log(`✅ 筛选出${brandKeywords.length}个有效品牌关键词（搜索量>=${MIN_SEARCH_VOLUME}）`)
-
-          // 去重：排除已存在的关键词
-          const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
-          const newBrandKeywords = brandKeywords.filter(kw =>
-            !existingKeywordsSet.has(kw.keyword.toLowerCase())
-          )
-
-          if (newBrandKeywords.length > 0) {
-            console.log(`🆕 添加${newBrandKeywords.length}个新的品牌关键词:`)
-            newBrandKeywords.forEach(kw => {
-              console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume.toLocaleString()}/月)`)
-            })
-
-            // 添加到关键词列表
-            result.keywords = [...result.keywords, ...newBrandKeywords.map(kw => kw.keyword)]
-            keywordsWithVolume = [...keywordsWithVolume, ...newBrandKeywords]
-
-            console.log(`📊 关键词总数: ${result.keywords.length}（原${filteredKeywords.length} + 新增${newBrandKeywords.length}）`)
+            console.log(`\n📊 Keyword Planner 扩展完成: 共进行 ${currentRound} 轮查询，添加 ${keywordsWithVolume.length} 个关键词`)
           } else {
-            console.log(`ℹ️ 未发现新的品牌关键词（所有Keyword Planner结果已存在）`)
+            console.warn('⚠️ 未找到Google Ads OAuth凭证，跳过Keyword Planner扩展')
           }
         } else {
-          console.warn('⚠️ 未找到Google Ads OAuth凭证，跳过Keyword Planner扩展')
+          console.warn('⚠️ 未找到激活的Google Ads账号，跳过Keyword Planner扩展')
         }
-      } else {
-        console.warn('⚠️ 未找到激活的Google Ads账号，跳过Keyword Planner扩展')
-      }
 
-      console.timeEnd('⏱️ Keyword Planner扩展')
-    } else {
-      if (!brandName) {
-        console.log('ℹ️ Offer缺少品牌名，跳过Keyword Planner扩展')
+        console.timeEnd('⏱️ Keyword Planner扩展')
+      } else {
+        console.log('ℹ️ 未发现搜索量 > 500 的关键词，跳过Keyword Planner扩展')
       }
-      if (!userId) {
-        console.log('ℹ️ 缺少userId，跳过Keyword Planner扩展')
+    } else {
+      if (!brandName || !userId) {
+        console.log('ℹ️ Offer缺少品牌名或userId，跳过Keyword Planner扩展')
       }
     }
   } catch (plannerError: any) {
     // Keyword Planner扩展失败不影响主流程
     console.warn('⚠️ Keyword Planner扩展失败（非致命错误）:', plannerError.message)
+  }
+
+  // 🎯 最终关键词过滤：强制约束
+  console.log('\n🔍 执行最终关键词过滤 (强制约束)...')
+  const beforeFilterCount = keywordsWithVolume.length
+  const offerBrand = (offer as { brand?: string }).brand || 'Unknown'
+  const targetCountry = (offer as { target_country?: string }).target_country || 'US'
+  const brandKeywordLower = offerBrand.toLowerCase()
+
+  // 第1步：分离品牌词（单独的品牌名）和非品牌词
+  // 品牌词定义：关键词 === 品牌名（精确匹配，不包括品牌组合词）
+  const brandKeywords: typeof keywordsWithVolume = []
+  const nonBrandKeywords: typeof keywordsWithVolume = []
+
+  keywordsWithVolume.forEach(kw => {
+    // 精确匹配：只有完全等于品牌名的才是品牌词
+    const isBrandKeyword = kw.keyword.toLowerCase() === brandKeywordLower
+    if (isBrandKeyword) {
+      brandKeywords.push(kw)
+    } else {
+      nonBrandKeywords.push(kw)
+    }
+  })
+
+  // 第2步：过滤非品牌词（只保留搜索量 >= 500）
+  const filteredNonBrandKeywords = nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
+
+  // 第3步：强制约束1 - 保留品牌词 "eufy"（不管搜索量）
+  console.log(`\n📌 强制约束1: 保留品牌词 "${offerBrand}"（不管搜索量）`)
+  if (brandKeywords.length > 0) {
+    console.log(`   ✅ 找到品牌词: ${brandKeywords.length} 个`)
+    brandKeywords.forEach(kw => {
+      console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
+    })
+  } else {
+    console.log(`   ⚠️ 未找到品牌词 "${offerBrand}"，将自动添加`)
+    // 如果没有品牌词，自动添加一个搜索量为 0 的品牌词
+    brandKeywords.push({
+      keyword: offerBrand,
+      searchVolume: 0
+    })
+  }
+
+  // 第4步：强制约束2 - 非品牌词搜索量必须 >= 500
+  console.log(`\n📌 强制约束2: 非品牌词搜索量必须 >= 500`)
+  console.log(`   - 搜索量 >= 500 的非品牌词: ${filteredNonBrandKeywords.length} 个`)
+
+  // 第5步：强制约束3 - 保留最少 10 个关键词
+  console.log(`\n📌 强制约束3: 保留最少 10 个关键词`)
+  let finalKeywords = [...brandKeywords, ...filteredNonBrandKeywords]
+
+  if (finalKeywords.length < 10) {
+    // 如果不足 10 个，从被过滤的非品牌词中补充（按搜索量从高到低）
+    const needMore = 10 - finalKeywords.length
+    const supplementaryKeywords = nonBrandKeywords
+      .filter(kw => !finalKeywords.some(fk => fk.keyword === kw.keyword))
+      .sort((a, b) => b.searchVolume - a.searchVolume)
+      .slice(0, needMore)
+
+    if (supplementaryKeywords.length > 0) {
+      console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个低搜索量关键词:`)
+      supplementaryKeywords.forEach(kw => {
+        console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume}/月) [补充]`)
+      })
+      finalKeywords = [...finalKeywords, ...supplementaryKeywords]
+    }
+  }
+
+  // 第6步：按搜索量从高到低排序（品牌词始终排在最后）
+  finalKeywords.sort((a, b) => {
+    // 品牌词始终排在最后
+    const aIsBrand = a.keyword.toLowerCase() === brandKeywordLower
+    const bIsBrand = b.keyword.toLowerCase() === brandKeywordLower
+    if (aIsBrand && !bIsBrand) return 1
+    if (!aIsBrand && bIsBrand) return -1
+    // 其他关键词按搜索量从高到低排序
+    return b.searchVolume - a.searchVolume
+  })
+
+  keywordsWithVolume = finalKeywords
+  const afterFilterCount = keywordsWithVolume.length
+  const filteredOutCount = beforeFilterCount - afterFilterCount
+
+  console.log(`\n✅ 过滤完成:`)
+  console.log(`   原始关键词: ${beforeFilterCount} 个`)
+  console.log(`   最终保留: ${afterFilterCount} 个`)
+  console.log(`   - 品牌词 "${offerBrand}": ${brandKeywords.length} 个`)
+  console.log(`   - 非品牌词 (搜索量 >= 500): ${filteredNonBrandKeywords.length} 个`)
+  if (afterFilterCount > brandKeywords.length + filteredNonBrandKeywords.length) {
+    console.log(`   - 补充词 (搜索量 < 500): ${afterFilterCount - brandKeywords.length - filteredNonBrandKeywords.length} 个`)
+  }
+
+  // 更新 result.keywords 为过滤后的关键词
+  result.keywords = keywordsWithVolume.map(kw => kw.keyword)
+
+  // 最终验证
+  const finalKeywordCount = result.keywords.length
+  const hasBrandKeyword = result.keywords.some(kw => kw.toLowerCase() === brandKeywordLower)
+  const nonBrandKeywordCount = result.keywords.filter(kw => kw.toLowerCase() !== brandKeywordLower).length
+  const allNonBrandHaveVolume = keywordsWithVolume
+    .filter(kw => kw.keyword.toLowerCase() !== brandKeywordLower)
+    .every(kw => kw.searchVolume >= 500)
+
+  console.log(`\n🎯 最终验证:`)
+  console.log(`   ✅ 关键词总数: ${finalKeywordCount} 个 (>= 10个最小要求: ${finalKeywordCount >= 10 ? '✅' : '❌'})`)
+  console.log(`   ${hasBrandKeyword ? '✅' : '❌'} 包含品牌词 "${offerBrand}"`)
+  console.log(`   ${allNonBrandHaveVolume ? '✅' : '❌'} 所有非品牌词搜索量 >= 500`)
+
+  if (!hasBrandKeyword) {
+    console.warn(`⚠️ 警告: 缺少品牌词 "${offerBrand}"`)
+  }
+  if (!allNonBrandHaveVolume) {
+    const lowVolumeKeywords = keywordsWithVolume.filter(kw => kw.keyword.toLowerCase() !== brandKeywordLower && kw.searchVolume < 500)
+    console.warn(`⚠️ 警告: 有 ${lowVolumeKeywords.length} 个非品牌词搜索量 < 500`)
+  }
+  if (finalKeywordCount < 10) {
+    console.warn(`⚠️ 警告: 关键词数量 ${finalKeywordCount} < 10`)
   }
 
   // 修正 sitelinks URL 为真实的 offer URL
@@ -1107,4 +1576,370 @@ export async function generateAdCreativesBatch(
   console.log(`   平均每个: ${(parseFloat(duration) / validCount).toFixed(2)}秒`)
 
   return results
+}
+
+/**
+ * ============================================================================
+ * 自动多样性检查和重新生成
+ * ============================================================================
+ * 生成多个创意时，自动检查相似度，不符合要求则重新生成
+ */
+
+/**
+ * 计算两个文本的相似度 (0-1)
+ * 使用加权多算法
+ */
+function calculateTextSimilarity(text1: string, text2: string): number {
+  if (!text1 || !text2) return 0
+
+  // 1. Jaccard 相似度 (词集合) - 30%
+  const words1 = new Set(text1.toLowerCase().split(/\s+/).filter(w => w.length > 0))
+  const words2 = new Set(text2.toLowerCase().split(/\s+/).filter(w => w.length > 0))
+
+  if (words1.size === 0 && words2.size === 0) return 1
+  if (words1.size === 0 || words2.size === 0) return 0
+
+  const intersection = new Set([...words1].filter(word => words2.has(word)))
+  const union = new Set([...words1, ...words2])
+  const jaccardSimilarity = union.size > 0 ? intersection.size / union.size : 0
+
+  // 2. 简单的词频相似度 - 30%
+  const allWords = new Set([...words1, ...words2])
+  let dotProduct = 0
+  let mag1 = 0
+  let mag2 = 0
+
+  for (const word of allWords) {
+    const count1 = text1.toLowerCase().split(word).length - 1
+    const count2 = text2.toLowerCase().split(word).length - 1
+    dotProduct += count1 * count2
+    mag1 += count1 * count1
+    mag2 += count2 * count2
+  }
+
+  const cosineSimilarity = mag1 > 0 && mag2 > 0 ? dotProduct / (Math.sqrt(mag1) * Math.sqrt(mag2)) : 0
+
+  // 3. 编辑距离相似度 - 20%
+  const maxLen = Math.max(text1.length, text2.length)
+  const editDistance = calculateEditDistance(text1, text2)
+  const levenshteinSimilarity = maxLen > 0 ? 1 - editDistance / maxLen : 0
+
+  // 4. N-gram 相似度 - 20%
+  const ngrams1 = getNgrams(text1, 2)
+  const ngrams2 = getNgrams(text2, 2)
+  const ngramIntersection = ngrams1.filter(ng => ngrams2.includes(ng)).length
+  const ngramUnion = new Set([...ngrams1, ...ngrams2]).size
+  const ngramSimilarity = ngramUnion > 0 ? ngramIntersection / ngramUnion : 0
+
+  // 加权平均
+  const weightedSimilarity =
+    jaccardSimilarity * 0.3 +
+    cosineSimilarity * 0.3 +
+    levenshteinSimilarity * 0.2 +
+    ngramSimilarity * 0.2
+
+  return Math.min(1, Math.max(0, weightedSimilarity))
+}
+
+/**
+ * 计算编辑距离 (Levenshtein Distance)
+ */
+function calculateEditDistance(str1: string, str2: string): number {
+  const matrix: number[][] = []
+
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i]
+  }
+
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j
+  }
+
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        )
+      }
+    }
+  }
+
+  return matrix[str2.length][str1.length]
+}
+
+/**
+ * 提取 N-gram
+ */
+function getNgrams(text: string, n: number): string[] {
+  const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 0)
+  const ngrams: string[] = []
+
+  for (let i = 0; i <= words.length - n; i++) {
+    ngrams.push(words.slice(i, i + n).join(' '))
+  }
+
+  return ngrams
+}
+
+/**
+ * 检查创意集合中的多样性
+ * 返回相似度过高的创意对
+ */
+function validateCreativeDiversity(
+  creatives: GeneratedAdCreativeData[],
+  maxSimilarity: number = 0.2
+): {
+  valid: boolean
+  issues: string[]
+  similarities: Array<{
+    creative1Index: number
+    creative2Index: number
+    similarity: number
+    type: 'headline' | 'description' | 'keyword'
+  }>
+} {
+  const issues: string[] = []
+  const similarities: any[] = []
+
+  for (let i = 0; i < creatives.length; i++) {
+    for (let j = i + 1; j < creatives.length; j++) {
+      // 检查标题相似度
+      const headlineSimilarity = calculateCreativeHeadlineSimilarity(
+        creatives[i].headlines,
+        creatives[j].headlines
+      )
+
+      if (headlineSimilarity > maxSimilarity) {
+        issues.push(
+          `创意 ${i + 1} 和 ${j + 1} 的标题相似度过高: ${(headlineSimilarity * 100).toFixed(1)}% > ${maxSimilarity * 100}%`
+        )
+        similarities.push({
+          creative1Index: i,
+          creative2Index: j,
+          similarity: headlineSimilarity,
+          type: 'headline'
+        })
+      }
+
+      // 检查描述相似度
+      const descriptionSimilarity = calculateCreativeDescriptionSimilarity(
+        creatives[i].descriptions,
+        creatives[j].descriptions
+      )
+
+      if (descriptionSimilarity > maxSimilarity) {
+        issues.push(
+          `创意 ${i + 1} 和 ${j + 1} 的描述相似度过高: ${(descriptionSimilarity * 100).toFixed(1)}% > ${maxSimilarity * 100}%`
+        )
+        similarities.push({
+          creative1Index: i,
+          creative2Index: j,
+          similarity: descriptionSimilarity,
+          type: 'description'
+        })
+      }
+
+      // 检查关键词相似度
+      const keywordSimilarity = calculateCreativeKeywordSimilarity(
+        creatives[i].keywords,
+        creatives[j].keywords
+      )
+
+      if (keywordSimilarity > maxSimilarity) {
+        issues.push(
+          `创意 ${i + 1} 和 ${j + 1} 的关键词相似度过高: ${(keywordSimilarity * 100).toFixed(1)}% > ${maxSimilarity * 100}%`
+        )
+        similarities.push({
+          creative1Index: i,
+          creative2Index: j,
+          similarity: keywordSimilarity,
+          type: 'keyword'
+        })
+      }
+    }
+  }
+
+  return {
+    valid: issues.length === 0,
+    issues,
+    similarities
+  }
+}
+
+/**
+ * 计算两个创意的标题相似度
+ */
+function calculateCreativeHeadlineSimilarity(
+  headlines1: string[],
+  headlines2: string[]
+): number {
+  let totalSimilarity = 0
+  let comparisons = 0
+
+  for (const h1 of headlines1.slice(0, 3)) {
+    for (const h2 of headlines2.slice(0, 3)) {
+      totalSimilarity += calculateTextSimilarity(h1, h2)
+      comparisons++
+    }
+  }
+
+  return comparisons > 0 ? totalSimilarity / comparisons : 0
+}
+
+/**
+ * 计算两个创意的描述相似度
+ */
+function calculateCreativeDescriptionSimilarity(
+  descriptions1: string[],
+  descriptions2: string[]
+): number {
+  let totalSimilarity = 0
+  let comparisons = 0
+
+  for (const d1 of descriptions1) {
+    for (const d2 of descriptions2) {
+      totalSimilarity += calculateTextSimilarity(d1, d2)
+      comparisons++
+    }
+  }
+
+  return comparisons > 0 ? totalSimilarity / comparisons : 0
+}
+
+/**
+ * 计算两个创意的关键词相似度
+ */
+function calculateCreativeKeywordSimilarity(
+  keywords1: string[],
+  keywords2: string[]
+): number {
+  const set1 = new Set(keywords1.map(k => k.toLowerCase()))
+  const set2 = new Set(keywords2.map(k => k.toLowerCase()))
+
+  const intersection = new Set([...set1].filter(k => set2.has(k)))
+  const union = new Set([...set1, ...set2])
+
+  return union.size > 0 ? intersection.size / union.size : 0
+}
+
+/**
+ * 生成多个创意，确保多样性
+ * 如果相似度过高，自动重新生成
+ */
+export async function generateMultipleCreativesWithDiversityCheck(
+  offerId: number,
+  userId?: number,
+  count: number = 3,
+  maxSimilarity: number = 0.2,
+  maxRetries: number = 3,
+  options?: {
+    theme?: string
+    referencePerformance?: any
+    skipCache?: boolean
+    excludeKeywords?: string[]
+  }
+): Promise<{
+  creatives: GeneratedAdCreativeData[]
+  diversityCheck: {
+    valid: boolean
+    issues: string[]
+    similarities: any[]
+  }
+  stats: {
+    totalAttempts: number
+    successfulCreatives: number
+    failedAttempts: number
+    totalTime: number
+  }
+}> {
+  const creatives: GeneratedAdCreativeData[] = []
+  let totalAttempts = 0
+  let failedAttempts = 0
+  const startTime = Date.now()
+
+  console.log(`\n🎯 开始生成 ${count} 个多样化创意 (最大相似度: ${maxSimilarity * 100}%)`)
+
+  while (creatives.length < count && failedAttempts < maxRetries) {
+    totalAttempts++
+    console.log(`\n📝 生成创意 ${creatives.length + 1}/${count} (尝试 ${totalAttempts})...`)
+
+    try {
+      // 生成新创意
+      const newCreative = await generateAdCreative(offerId, userId, {
+        ...options,
+        skipCache: true
+      })
+
+      // 检查与现有创意的多样性
+      if (creatives.length === 0) {
+        // 第一个创意直接添加
+        creatives.push(newCreative)
+        console.log(`✅ 创意 1 已添加`)
+      } else {
+        // 检查与现有创意的相似度
+        const tempCreatives = [...creatives, newCreative]
+        const diversityCheck = validateCreativeDiversity(tempCreatives, maxSimilarity)
+
+        if (diversityCheck.valid) {
+          // 通过多样性检查
+          creatives.push(newCreative)
+          console.log(`✅ 创意 ${creatives.length} 通过多样性检查`)
+        } else {
+          // 未通过多样性检查
+          failedAttempts++
+          console.warn(`⚠️  创意未通过多样性检查，原因:`)
+          diversityCheck.issues.forEach(issue => {
+            console.warn(`   - ${issue}`)
+          })
+
+          if (failedAttempts < maxRetries) {
+            console.log(`   重新生成... (${failedAttempts}/${maxRetries})`)
+          }
+        }
+      }
+    } catch (error) {
+      failedAttempts++
+      console.error(`❌ 生成创意失败:`, error instanceof Error ? error.message : '未知错误')
+
+      if (failedAttempts >= maxRetries) {
+        console.warn(`⚠️  达到最大重试次数 (${maxRetries})`)
+      }
+    }
+  }
+
+  const totalTime = (Date.now() - startTime) / 1000
+
+  // 最终多样性检查
+  const finalDiversityCheck = validateCreativeDiversity(creatives, maxSimilarity)
+
+  console.log(`\n📊 生成完成:`)
+  console.log(`   ✅ 成功创意: ${creatives.length}/${count}`)
+  console.log(`   ❌ 失败尝试: ${failedAttempts}`)
+  console.log(`   📈 总尝试数: ${totalAttempts}`)
+  console.log(`   ⏱️  总耗时: ${totalTime.toFixed(2)}秒`)
+
+  if (finalDiversityCheck.valid) {
+    console.log(`\n✅ 所有创意通过多样性检查！`)
+  } else {
+    console.log(`\n⚠️  部分创意未通过多样性检查:`)
+    finalDiversityCheck.issues.forEach(issue => {
+      console.log(`   - ${issue}`)
+    })
+  }
+
+  return {
+    creatives,
+    diversityCheck: finalDiversityCheck,
+    stats: {
+      totalAttempts,
+      successfulCreatives: creatives.length,
+      failedAttempts,
+      totalTime
+    }
+  }
 }

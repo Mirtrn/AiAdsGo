@@ -13,6 +13,7 @@
  */
 
 import { generateContent } from './gemini'
+import { getLanguageNameForCountry } from './language-country-codes'
 
 // ==================== 数据结构定义 ====================
 
@@ -296,17 +297,8 @@ export async function analyzeReviewsWithAI(
 
   console.log(`🤖 开始AI分析${reviews.length}条评论...`)
 
-  // 根据目标国家确定分析语言
-  const languageConfig: Record<string, string> = {
-    US: 'English',
-    CN: '中文',
-    JP: '日本語',
-    KR: '한국어',
-    DE: 'Deutsch',
-    FR: 'Français',
-    ES: 'Español',
-  }
-  const langName = languageConfig[targetCountry] || 'English'
+  // 根据目标国家确定分析语言（使用全局语言映射）
+  const langName = getLanguageNameForCountry(targetCountry)
 
   // 计算基础统计
   const verifiedCount = reviews.filter(r => r.verified).length

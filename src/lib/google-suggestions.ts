@@ -81,8 +81,8 @@ const COUNTRY_KEYWORDS: Record<string, string[]> = {
   CA: ['canada', 'canadian'],
   MX: ['mexico', 'mexican'],
 
-  // 欧洲
-  UK: ['uk', 'united kingdom', 'britain', 'british', 'england', 'english'],
+  // 欧洲（使用ISO 3166-1标准代码GB）
+  GB: ['uk', 'united kingdom', 'britain', 'british', 'england', 'english'],
   DE: ['germany', 'german', 'deutschland', 'deutsche'],
   FR: ['france', 'french', 'français'],
   IT: ['italy', 'italian', 'italia', 'italiano'],

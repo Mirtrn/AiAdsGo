@@ -3,6 +3,58 @@ import { getKeywordSearchVolumes, getKeywordSuggestions } from './keyword-planne
 import type { Offer } from './offers'
 
 /**
+ * 获取否定关键词的语言指令
+ */
+function getLanguageInstructionForNegativeKeywords(targetLanguage: string): string {
+  const lang = targetLanguage.toLowerCase()
+
+  if (lang.includes('italian') || lang === 'it') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in ITALIAN ONLY.
+- Examples: "gratuito", "economico", "tutorial", "come usare", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in Italian.`
+  } else if (lang.includes('spanish') || lang === 'es') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in SPANISH ONLY.
+- Examples: "gratis", "barato", "tutorial", "cómo usar", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in Spanish.`
+  } else if (lang.includes('french') || lang === 'fr') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in FRENCH ONLY.
+- Examples: "gratuit", "bon marché", "tutoriel", "comment utiliser", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in French.`
+  } else if (lang.includes('german') || lang === 'de') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in GERMAN ONLY.
+- Examples: "kostenlos", "billig", "anleitung", "wie man benutzt", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in German.`
+  } else if (lang.includes('portuguese') || lang === 'pt') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in PORTUGUESE ONLY.
+- Examples: "grátis", "barato", "tutorial", "como usar", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in Portuguese.`
+  } else if (lang.includes('japanese') || lang === 'ja') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in JAPANESE ONLY.
+- Examples: "無料", "安い", "チュートリアル", "使い方", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in Japanese.`
+  } else if (lang.includes('korean') || lang === 'ko') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in KOREAN ONLY.
+- Examples: "무료", "싼", "튜토리얼", "사용 방법", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in Korean.`
+  } else if (lang.includes('russian') || lang === 'ru') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in RUSSIAN ONLY.
+- Examples: "бесплатно", "дешево", "учебник", "как использовать", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in Russian.`
+  } else if (lang.includes('arabic') || lang === 'ar') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in ARABIC ONLY.
+- Examples: "مجاني", "رخيص", "درس تعليمي", "كيفية الاستخدام", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in Arabic.`
+  } else if (lang.includes('chinese') || lang === 'zh') {
+    return `🔴 IMPORTANT: Generate ALL negative keywords in CHINESE ONLY.
+- Examples: "免费", "便宜", "教程", "如何使用", not "free", "cheap", "tutorial"
+- Do NOT use English words or mix languages. Every single word must be in Chinese.`
+  }
+
+  // Default to English
+  return `Generate negative keywords in English.`
+}
+
+/**
  * AI生成的关键词数据结构
  */
 export interface GeneratedKeyword {
@@ -337,12 +389,18 @@ export async function generateKeywords(
  * @param userId - 用户ID（必需，用于获取用户的AI配置）
  */
 export async function generateNegativeKeywords(offer: Offer, userId: number): Promise<string[]> {
-  const prompt = `你是一个Google Ads优化专家。请为以下电商产品生成否定关键词列表，以排除不相关的搜索流量，提升广告投放ROI。
+  const targetLanguage = offer.target_language || 'English'
+  const languageInstruction = getLanguageInstructionForNegativeKeywords(targetLanguage)
+
+  const prompt = `${languageInstruction}
+
+你是一个Google Ads优化专家。请为以下电商产品生成否定关键词列表，以排除不相关的搜索流量，提升广告投放ROI。
 
 # 产品信息
 品牌名称：${offer.brand}
 品牌描述：${offer.brand_description || '未提供'}
 目标国家：${offer.target_country}
+目标语言：${targetLanguage}
 产品类别：${offer.category || '未分类'}
 
 # 否定关键词生成原则（针对电商产品）
@@ -371,7 +429,7 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
 }
 
 重要：
-1. 所有关键词用${offer.target_country === 'US' ? '英文' : '当地语言'}
+1. 所有关键词必须使用目标语言 ${targetLanguage}
 2. 关键词必须覆盖上述10个类别
 3. 总数必须达到40-50个
 4. 返回纯JSON，不要markdown代码块

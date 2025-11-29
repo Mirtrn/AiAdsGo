@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { getLanguageNameForCountry, getCountryOptionsForUI } from '@/lib/language-country-codes'
 
 export default function NewOfferPage() {
   const router = useRouter()
@@ -23,17 +24,9 @@ export default function NewOfferPage() {
   const [commissionPayout, setCommissionPayout] = useState('')
 
   // ========== 需求1和需求5: 实时预览自动生成的字段 ==========
-  // 国家到语言的映射
+  // 国家到语言的映射（使用全局统一映射，支持80+国家）
   const getTargetLanguage = (countryCode: string): string => {
-    const mapping: Record<string, string> = {
-      'US': 'English', 'GB': 'English', 'CA': 'English', 'AU': 'English',
-      'DE': 'German', 'FR': 'French', 'ES': 'Spanish', 'IT': 'Italian',
-      'JP': 'Japanese', 'CN': 'Chinese', 'KR': 'Korean',
-      'MX': 'Spanish', 'BR': 'Portuguese', 'NL': 'Dutch',
-      'SE': 'Swedish', 'NO': 'Norwegian', 'DK': 'Danish', 'FI': 'Finnish',
-      'PL': 'Polish', 'IN': 'Hindi', 'TH': 'Thai', 'VN': 'Vietnamese',
-    }
-    return mapping[countryCode] || 'English'
+    return getLanguageNameForCountry(countryCode)
   }
 
   // 自动生成Offer预览名称（品牌_国家_01）
@@ -91,34 +84,8 @@ export default function NewOfferPage() {
     }
   }
 
-  const countries = [
-    // 英语国家
-    { code: 'US', name: '美国 (US)' },
-    { code: 'GB', name: '英国 (GB)' },
-    { code: 'CA', name: '加拿大 (CA)' },
-    { code: 'AU', name: '澳大利亚 (AU)' },
-    // 欧洲国家
-    { code: 'DE', name: '德国 (DE)' },
-    { code: 'FR', name: '法国 (FR)' },
-    { code: 'ES', name: '西班牙 (ES)' },
-    { code: 'IT', name: '意大利 (IT)' },
-    { code: 'NL', name: '荷兰 (NL)' },
-    { code: 'SE', name: '瑞典 (SE)' },
-    { code: 'NO', name: '挪威 (NO)' },
-    { code: 'DK', name: '丹麦 (DK)' },
-    { code: 'FI', name: '芬兰 (FI)' },
-    { code: 'PL', name: '波兰 (PL)' },
-    // 亚太国家
-    { code: 'JP', name: '日本 (JP)' },
-    { code: 'CN', name: '中国 (CN)' },
-    { code: 'KR', name: '韩国 (KR)' },
-    { code: 'IN', name: '印度 (IN)' },
-    { code: 'TH', name: '泰国 (TH)' },
-    { code: 'VN', name: '越南 (VN)' },
-    // 拉丁美洲
-    { code: 'MX', name: '墨西哥 (MX)' },
-    { code: 'BR', name: '巴西 (BR)' },
-  ]
+  // 使用全局统一的国家列表（支持69个国家）
+  const countries = getCountryOptionsForUI()
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -211,7 +178,7 @@ export default function NewOfferPage() {
                       >
                         {countries.map((country) => (
                           <option key={country.code} value={country.code}>
-                            {country.name} ({country.code})
+                            {country.name}
                           </option>
                         ))}
                       </select>

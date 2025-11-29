@@ -30,6 +30,7 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react'
 import ProgressTracker from '@/components/ProgressTracker'
 import { useOfferExtraction } from '@/hooks/useOfferExtraction'
+import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 
 interface CreateOfferModalV2Props {
   open: boolean
@@ -37,31 +38,8 @@ interface CreateOfferModalV2Props {
   onSuccess?: () => void
 }
 
-const countries = [
-  { code: 'US', name: '美国 (US)' },
-  { code: 'GB', name: '英国 (GB)' },
-  { code: 'CA', name: '加拿大 (CA)' },
-  { code: 'AU', name: '澳大利亚 (AU)' },
-  { code: 'DE', name: '德国 (DE)' },
-  { code: 'FR', name: '法国 (FR)' },
-  { code: 'ES', name: '西班牙 (ES)' },
-  { code: 'IT', name: '意大利 (IT)' },
-  { code: 'NL', name: '荷兰 (NL)' },
-  { code: 'SE', name: '瑞典 (SE)' },
-  { code: 'NO', name: '挪威 (NO)' },
-  { code: 'DK', name: '丹麦 (DK)' },
-  { code: 'FI', name: '芬兰 (FI)' },
-  { code: 'PL', name: '波兰 (PL)' },
-  { code: 'CH', name: '瑞士 (CH)' },
-  { code: 'JP', name: '日本 (JP)' },
-  { code: 'CN', name: '中国 (CN)' },
-  { code: 'KR', name: '韩国 (KR)' },
-  { code: 'IN', name: '印度 (IN)' },
-  { code: 'TH', name: '泰国 (TH)' },
-  { code: 'VN', name: '越南 (VN)' },
-  { code: 'MX', name: '墨西哥 (MX)' },
-  { code: 'BR', name: '巴西 (BR)' },
-]
+// 使用全局统一的国家列表
+const countries = getCountryOptionsForUI()
 
 type Step = 'input' | 'extracting' | 'confirm'
 
