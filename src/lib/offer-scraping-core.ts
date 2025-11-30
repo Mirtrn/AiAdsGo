@@ -14,6 +14,7 @@ import { getProxyUrlForCountry, isProxyEnabled } from './settings'
 import { SeoData } from './redis'
 import { getSQLiteDatabase } from './db'
 import { getLanguageCodeForCountry } from './language-country-codes'
+import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from './feature-flags'
 
 async function saveScrapedProducts(
   offerId: number,
@@ -884,12 +885,19 @@ export async function performScrapeAndAnalysis(
                 : []
             }
 
+            // 🆕 Token优化：竞品压缩灰度发布（10%）
+            const enableCompression = isCompetitorCompressionEnabled(userId, FEATURE_FLAGS.competitorCompression.rolloutPercentage)
+            const enableCache = isCompetitorCacheEnabled(userId, FEATURE_FLAGS.competitorCache.rolloutPercentage)
+            logFeatureFlag('competitorCompression', userId, enableCompression)
+            logFeatureFlag('competitorCache', userId, enableCache)
+
             // AI分析竞品对比
             competitorAnalysis = await analyzeCompetitorsWithAI(
               ourProduct,
               competitors,
               targetCountry,
-              userId
+              userId,
+              { enableCompression, enableCache }
             )
 
             console.log('✅ P0竞品对比分析完成')

@@ -1,4 +1,5 @@
 import { generateContent } from './gemini'
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getKeywordSearchVolumes, getKeywordSuggestions } from './keyword-planner'
 import type { Offer } from './offers'
 
@@ -161,6 +162,42 @@ export async function generateKeywords(
 4. 所有关键词必须是购买意图，searchIntent必须是transactional
 `
 
+  // 🆕 Token优化：定义结构化JSON schema
+  const responseSchema = {
+    type: 'OBJECT' as const,
+    properties: {
+      keywords: {
+        type: 'ARRAY' as const,
+        description: '30个高质量关键词数组',
+        items: {
+          type: 'OBJECT' as const,
+          properties: {
+            keyword: { type: 'STRING' as const, description: '关键词文本' },
+            matchType: { type: 'STRING' as const, enum: ['BROAD', 'PHRASE', 'EXACT'], description: '匹配类型' },
+            priority: { type: 'STRING' as const, enum: ['HIGH', 'MEDIUM', 'LOW'], description: '优先级' },
+            category: { type: 'STRING' as const, description: '关键词类别' },
+            searchIntent: { type: 'STRING' as const, description: '搜索意图' }
+          },
+          required: ['keyword', 'matchType', 'priority', 'category', 'searchIntent']
+        }
+      },
+      estimatedBudget: {
+        type: 'OBJECT' as const,
+        properties: {
+          minDaily: { type: 'NUMBER' as const, description: '最小日预算' },
+          maxDaily: { type: 'NUMBER' as const, description: '最大日预算' },
+          currency: { type: 'STRING' as const, description: '货币单位' }
+        }
+      },
+      recommendations: {
+        type: 'ARRAY' as const,
+        description: '策略建议',
+        items: { type: 'STRING' as const }
+      }
+    },
+    required: ['keywords']
+  }
+
   try {
     // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
     const aiResponse = await generateContent({
@@ -168,7 +205,28 @@ export async function generateKeywords(
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,  // 增加到8192以避免关键词生成输出被截断
+      responseSchema,  // 🆕 传递JSON schema约束
+      responseMimeType: 'application/json'  // 🆕 强制JSON输出
     }, userId)
+
+    // 记录token使用
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: aiResponse.model,
+        operationType: 'keyword_generation',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
 
     const text = aiResponse.text
 
@@ -437,6 +495,21 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
 4. 返回纯JSON，不要markdown代码块
 `
 
+  // 🆕 Token优化：定义结构化JSON schema
+  const responseSchema = {
+    type: 'OBJECT' as const,
+    properties: {
+      negativeKeywords: {
+        type: 'ARRAY' as const,
+        description: '40-50个否定关键词数组',
+        items: {
+          type: 'STRING' as const
+        }
+      }
+    },
+    required: ['negativeKeywords']
+  }
+
   try {
     // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
     const aiResponse = await generateContent({
@@ -444,7 +517,28 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,
+      responseSchema,  // 🆕 传递JSON schema约束
+      responseMimeType: 'application/json'  // 🆕 强制JSON输出
     }, userId)
+
+    // 记录token使用
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: aiResponse.model,
+        operationType: 'negative_keyword_generation',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
 
     const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
@@ -512,6 +606,25 @@ ${baseKeywords.join(', ')}
       temperature: 0.7,
       maxOutputTokens: 8192,
     }, userId)
+
+    // 记录token使用
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: aiResponse.model,
+        operationType: 'keyword_expansion',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
 
     const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {

@@ -1419,14 +1419,14 @@ export async function generateAdCreative(
             console.log(`   ✅ 获取 ${roundKeywords.length} 个扩展关键词（精确搜索量）`)
 
             // 去重：排除已存在的关键词
-            const newExpandedKeywords = roundKeywords
+            const newExpandedKeywords: KeywordWithVolume[] = roundKeywords
               .filter(kw => !existingKeywordsSet.has(kw.keyword.toLowerCase()))
               .map(kw => ({
                 keyword: kw.keyword,
                 searchVolume: kw.searchVolume, // 已经是精确值
                 competition: kw.competition,
                 competitionIndex: kw.competitionIndex,
-                source: 'KEYWORD_EXPANSION'
+                source: 'KEYWORD_EXPANSION' as const
               }))
 
             if (newExpandedKeywords.length > 0) {

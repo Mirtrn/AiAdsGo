@@ -11,6 +11,7 @@
  */
 
 import { generateContent } from './gemini'
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { getHighIntentKeywords } from './google-suggestions'
 import { getHeadlineLanguageInstructions, getDescriptionLanguageInstructions } from './ad-elements-language-instructions'
@@ -1224,8 +1225,47 @@ async function generateHeadlines(
 ): Promise<string[]> {
   const prompt = getHeadlinePrompt(product, topKeywords, targetLanguage)
 
+  // 🆕 Token优化：定义结构化JSON schema（确保AI输出符合预期格式）
+  const responseSchema = {
+    type: 'OBJECT' as const,
+    properties: {
+      headlines: {
+        type: 'ARRAY' as const,
+        description: '15个广告标题数组，每个标题最多30字符',
+        items: {
+          type: 'STRING' as const
+        }
+      }
+    },
+    required: ['headlines']
+  }
+
   try {
-    const response = await generateContent({ prompt }, userId)
+    const response = await generateContent({
+      prompt,
+      responseSchema,  // 🆕 传递JSON schema约束
+      responseMimeType: 'application/json'  // 🆕 强制JSON输出
+    }, userId)
+
+    // 记录token使用
+    if (response.usage) {
+      const cost = estimateTokenCost(
+        response.model,
+        response.usage.inputTokens,
+        response.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: response.model,
+        operationType: 'ad_headline_extraction_single',
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        totalTokens: response.usage.totalTokens,
+        cost,
+        apiType: response.apiType
+      })
+    }
+
     const parsed = extractJsonFromResponse(response.text)
 
     if (!parsed.headlines || !Array.isArray(parsed.headlines)) {
@@ -1476,8 +1516,47 @@ async function generateHeadlinesFromMultipleProducts(
 ): Promise<string[]> {
   const prompt = getMultipleProductHeadlinePrompt(products, topKeywords, targetLanguage)
 
+  // 🆕 Token优化：定义结构化JSON schema
+  const responseSchema = {
+    type: 'OBJECT' as const,
+    properties: {
+      headlines: {
+        type: 'ARRAY' as const,
+        description: '15个广告标题数组，每个标题最多30字符',
+        items: {
+          type: 'STRING' as const
+        }
+      }
+    },
+    required: ['headlines']
+  }
+
   try {
-    const response = await generateContent({ prompt }, userId)
+    const response = await generateContent({
+      prompt,
+      responseSchema,  // 🆕 传递JSON schema约束
+      responseMimeType: 'application/json'  // 🆕 强制JSON输出
+    }, userId)
+
+    // 记录token使用
+    if (response.usage) {
+      const cost = estimateTokenCost(
+        response.model,
+        response.usage.inputTokens,
+        response.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: response.model,
+        operationType: 'ad_headline_extraction_store',
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        totalTokens: response.usage.totalTokens,
+        cost,
+        apiType: response.apiType
+      })
+    }
+
     const parsed = extractJsonFromResponse(response.text)
     const validHeadlines = parsed.headlines
       .filter((h: string) => h && h.length <= 30)
@@ -1843,8 +1922,47 @@ async function generateDescriptions(
 ): Promise<string[]> {
   const prompt = getDescriptionPrompt(product, targetLanguage)
 
+  // 🆕 Token优化：定义结构化JSON schema
+  const responseSchema = {
+    type: 'OBJECT' as const,
+    properties: {
+      descriptions: {
+        type: 'ARRAY' as const,
+        description: '4个广告描述数组，每个描述最多90字符',
+        items: {
+          type: 'STRING' as const
+        }
+      }
+    },
+    required: ['descriptions']
+  }
+
   try {
-    const response = await generateContent({ prompt }, userId)
+    const response = await generateContent({
+      prompt,
+      responseSchema,  // 🆕 传递JSON schema约束
+      responseMimeType: 'application/json'  // 🆕 强制JSON输出
+    }, userId)
+
+    // 记录token使用
+    if (response.usage) {
+      const cost = estimateTokenCost(
+        response.model,
+        response.usage.inputTokens,
+        response.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: response.model,
+        operationType: 'ad_description_extraction_single',
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        totalTokens: response.usage.totalTokens,
+        cost,
+        apiType: response.apiType
+      })
+    }
+
     const parsed = extractJsonFromResponse(response.text)
     const validDescriptions = parsed.descriptions
       .filter((d: string) => d && d.length <= 90)
@@ -2060,8 +2178,47 @@ async function generateDescriptionsFromMultipleProducts(
 ): Promise<string[]> {
   const prompt = getMultipleProductDescriptionPrompt(products, targetLanguage)
 
+  // 🆕 Token优化：定义结构化JSON schema
+  const responseSchema = {
+    type: 'OBJECT' as const,
+    properties: {
+      descriptions: {
+        type: 'ARRAY' as const,
+        description: '4个广告描述数组，每个描述最多90字符',
+        items: {
+          type: 'STRING' as const
+        }
+      }
+    },
+    required: ['descriptions']
+  }
+
   try {
-    const response = await generateContent({ prompt }, userId)
+    const response = await generateContent({
+      prompt,
+      responseSchema,  // 🆕 传递JSON schema约束
+      responseMimeType: 'application/json'  // 🆕 强制JSON输出
+    }, userId)
+
+    // 记录token使用
+    if (response.usage) {
+      const cost = estimateTokenCost(
+        response.model,
+        response.usage.inputTokens,
+        response.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: response.model,
+        operationType: 'ad_description_extraction_store',
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        totalTokens: response.usage.totalTokens,
+        cost,
+        apiType: response.apiType
+      })
+    }
+
     const parsed = extractJsonFromResponse(response.text)
     const validDescriptions = parsed.descriptions
       .filter((d: string) => d && d.length <= 90)

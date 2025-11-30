@@ -14,6 +14,7 @@
  */
 
 import { generateContent } from './gemini'
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 
 export interface EnhancedHeadline {
   text: string
@@ -368,6 +369,26 @@ async function generateHeadlinesWithAI(
     `
 
     const aiResponse = await generateContent({ prompt }, userId)
+
+    // 记录token使用
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: aiResponse.model,
+        operationType: 'headline_generation',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
+
     // 清理可能的markdown代码块
     const cleanedResponse = aiResponse.text
       .replace(/```json\s*/gi, '')
@@ -416,6 +437,26 @@ async function generateDescriptionsWithAI(
     `
 
     const aiResponse = await generateContent({ prompt }, userId)
+
+    // 记录token使用
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: aiResponse.model,
+        operationType: 'description_generation',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
+
     // 清理可能的markdown代码块
     const cleanedResponse = aiResponse.text
       .replace(/```json\s*/gi, '')

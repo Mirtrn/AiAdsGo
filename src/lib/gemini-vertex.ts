@@ -154,12 +154,16 @@ export async function generateContent(params: {
   prompt: string
   temperature?: number
   maxOutputTokens?: number
+  responseSchema?: any  // 🆕 Token优化：结构化JSON输出约束
+  responseMimeType?: string  // 🆕 配合responseSchema使用
 }): Promise<VertexAIGenerateResult> {
   const {
     model = 'gemini-2.5-pro',
     prompt,
     temperature = 0.7,
     maxOutputTokens = 8192,
+    responseSchema,  // 🆕 JSON schema约束
+    responseMimeType,  // 🆕 MIME类型
   } = params
 
   const maxRetries = 3
@@ -172,6 +176,19 @@ export async function generateContent(params: {
 
       const generativeModel = getGenerativeModel(model)
 
+      // 构建generationConfig（根据是否有responseSchema）
+      const generationConfig: any = {
+        temperature,
+        maxOutputTokens,
+      }
+
+      // 🆕 Token优化：结构化JSON输出约束
+      if (responseSchema) {
+        generationConfig.responseMimeType = responseMimeType || 'application/json'
+        generationConfig.responseSchema = responseSchema
+        console.log(`📋 使用JSON schema约束: ${JSON.stringify(responseSchema).substring(0, 100)}...`)
+      }
+
       const result = await generativeModel.generateContent({
         contents: [
           {
@@ -179,10 +196,7 @@ export async function generateContent(params: {
             parts: [{ text: prompt }],
           },
         ],
-        generationConfig: {
-          temperature,
-          maxOutputTokens,
-        },
+        generationConfig,
       })
 
       const response = result.response

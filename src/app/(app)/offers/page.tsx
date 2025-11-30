@@ -529,7 +529,7 @@ export default function OffersPage() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={handleExport} disabled={offers.length === 0}>
                     <Download className="w-4 h-4 mr-2" />
-                    导出CSV
+                    导出Offer
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => window.open('/api/offers/batch-template')}>
                     <FileDown className="w-4 h-4 mr-2" />
@@ -537,7 +537,7 @@ export default function OffersPage() {
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => router.push('/offers/batch')}>
                     <Upload className="w-4 h-4 mr-2" />
-                    批量导入
+                    导入Offer
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -550,7 +550,7 @@ export default function OffersPage() {
                   onClick={() => router.push('/offers/batch')}
                   className="flex-1"
                 >
-                  批量
+                  导入
                 </Button>
                 <Button
                   variant="outline"

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateContent } from '@/lib/gemini'
+import { recordTokenUsage, estimateTokenCost } from '@/lib/ai-token-tracker'
 
 /**
  * POST /api/admin/performance-analysis
@@ -110,6 +111,25 @@ export async function POST(request: NextRequest) {
       maxOutputTokens: 3072,
     }, parseInt(userId, 10))
 
+    // 记录token使用
+    if (analysis.usage) {
+      const cost = estimateTokenCost(
+        analysis.model,
+        analysis.usage.inputTokens,
+        analysis.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId: parseInt(userId, 10),
+        model: analysis.model,
+        operationType: 'admin_performance_analysis',
+        inputTokens: analysis.usage.inputTokens,
+        outputTokens: analysis.usage.outputTokens,
+        totalTokens: analysis.usage.totalTokens,
+        cost,
+        apiType: analysis.apiType
+      })
+    }
+
     // 如果有足够的数据，生成具体的Prompt优化建议
     let promptOptimization = null
 
@@ -156,6 +176,25 @@ ${i + 1}. ${ad.headline1}
         temperature: 0.5,
         maxOutputTokens: 1024,
       }, parseInt(userId, 10))
+
+      // 记录token使用
+      if (promptOptimization.usage) {
+        const cost = estimateTokenCost(
+          promptOptimization.model,
+          promptOptimization.usage.inputTokens,
+          promptOptimization.usage.outputTokens
+        )
+        await recordTokenUsage({
+          userId: parseInt(userId, 10),
+          model: promptOptimization.model,
+          operationType: 'admin_prompt_optimization',
+          inputTokens: promptOptimization.usage.inputTokens,
+          outputTokens: promptOptimization.usage.outputTokens,
+          totalTokens: promptOptimization.usage.totalTokens,
+          cost,
+          apiType: promptOptimization.apiType
+        })
+      }
     }
 
     return NextResponse.json({

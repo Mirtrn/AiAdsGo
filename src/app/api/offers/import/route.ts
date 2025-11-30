@@ -48,4 +48,4 @@ import { NextRequest, NextResponse } from 'next/server'
  */
 
 // Re-export from batch route
-export { GET, POST } from '../batch/route'
+export { POST } from '../batch/route'

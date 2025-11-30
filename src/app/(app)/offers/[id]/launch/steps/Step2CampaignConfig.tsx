@@ -3,9 +3,15 @@
 /**
  * Step 2: Campaign Configuration (完整版)
  * 根据业务规范：显示所有广告配置参数，用户可修改，2列布局
+ *
+ * 优化：
+ * 1. Target Country/Language 与 Offer 保持一致且只读
+ * 2. Final URL Suffix 为必填项
+ * 3. 使用统一命名规范自动生成 Campaign/AdGroup/Ad 名称
+ * 4. 移除重复的确认按钮，点击"下一步"时验证配置
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,8 +21,9 @@ import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info } from 'lucide-react'
+import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
+import { generateNamingScheme } from '@/lib/naming-convention'
 
 // 格式化搜索量显示
 const formatSearchVolume = (volume?: number): string => {
@@ -64,20 +71,49 @@ interface CampaignConfig {
 }
 
 export default function Step2CampaignConfig({ offer, selectedCreative, onConfigured, initialConfig }: Props) {
+  // 使用统一命名规范生成初始名称
+  const getInitialNaming = useCallback(() => {
+    const budgetAmount = initialConfig?.budgetAmount || 10
+    const maxCpcBid = initialConfig?.maxCpcBid || 0.17
+    const biddingStrategy = initialConfig?.biddingStrategy || 'MAXIMIZE_CLICKS'
+
+    return generateNamingScheme({
+      offer: {
+        id: offer.id,
+        brand: offer.brand || 'Brand',
+        category: offer.category || undefined
+      },
+      config: {
+        targetCountry: offer.target_country || 'US',
+        budgetAmount,
+        budgetType: 'DAILY',
+        biddingStrategy,
+        maxCpcBid
+      },
+      creative: selectedCreative ? {
+        id: selectedCreative.id,
+        theme: selectedCreative.theme || undefined
+      } : undefined
+    })
+  }, [offer, selectedCreative, initialConfig])
+
+  const initialNaming = getInitialNaming()
+
   const [config, setConfig] = useState<CampaignConfig>(
     initialConfig || {
-      // Campaign Level - 符合业务规范
-      campaignName: `${offer.brand || 'Brand'} - ${offer.target_country || 'US'} Campaign`,
+      // Campaign Level - 使用统一命名规范
+      campaignName: initialNaming.campaignName,
       budgetAmount: 10,  // 10 USD（业务规范）
       budgetType: 'DAILY' as const,  // 固定每日预算
+      // 🔒 Target Country/Language 强制与 Offer 保持一致
       targetCountry: offer.target_country || 'US',
       targetLanguage: offer.target_language || 'en',
       biddingStrategy: 'MAXIMIZE_CLICKS',  // 业务规范：网站流量营销目标
       // 优先使用: 创意的final_url_suffix → Offer解析后的final_url_suffix
       finalUrlSuffix: selectedCreative?.final_url_suffix || offer.finalUrlSuffix || offer.final_url_suffix || '',
 
-      // Ad Group Level
-      adGroupName: `${offer.brand || 'Brand'} - Ad Group 1`,
+      // Ad Group Level - 使用统一命名规范
+      adGroupName: initialNaming.adGroupName,
       maxCpcBid: 0.17,  // 0.17 USD（业务规范）
 
       // Keywords Level - 优先使用keywordsWithVolume（包含搜索量）
@@ -94,8 +130,8 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
       // 🎯 新增：从创意中读取否定关键词
       negativeKeywords: selectedCreative?.negativeKeywords || [],
 
-      // Ad Level
-      adName: `${offer.brand || 'Brand'} - Ad 1`,
+      // Ad Level - 使用统一命名规范
+      adName: initialNaming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
       headlines: selectedCreative?.headlines || [],
       descriptions: selectedCreative?.descriptions || [],
       // 优先使用: 创意的final_url → Offer解析后的final_url → 原始url
@@ -188,19 +224,17 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
     if (!config.campaignName.trim()) {
       errors.push('Campaign名称不能为空')
     }
-    if (!config.campaignName.includes(offer.brand || '')) {
-      errors.push('Campaign名称必须包含品牌名')
-    }
     if (config.budgetAmount <= 0) {
       errors.push('预算金额必须大于0')
+    }
+    // 🔒 Final URL Suffix 必填验证
+    if (!config.finalUrlSuffix.trim()) {
+      errors.push('Final URL Suffix为必填项，用于追踪广告效果')
     }
 
     // Ad Group Level
     if (!config.adGroupName.trim()) {
       errors.push('Ad Group名称不能为空')
-    }
-    if (!config.adGroupName.includes(offer.brand || '')) {
-      errors.push('Ad Group名称必须包含品牌名')
     }
     if (config.maxCpcBid <= 0) {
       errors.push('CPC出价必须大于0')
@@ -219,9 +253,6 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
     // Ad Level
     if (!config.adName.trim()) {
       errors.push('Ad名称不能为空')
-    }
-    if (!config.adName.includes(offer.brand || '')) {
-      errors.push('Ad名称必须包含品牌名')
     }
 
     // Headlines - 必须正好15个
@@ -271,14 +302,38 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
     return true
   }
 
-  const handleConfirm = () => {
+  // 当配置有效时，自动触发 onConfigured
+  // 这样"下一步"按钮可以正常工作
+  useEffect(() => {
+    // 检查基本必填项是否都有值
+    const isBasicValid =
+      config.campaignName.trim() &&
+      config.budgetAmount > 0 &&
+      config.finalUrlSuffix.trim() &&
+      config.adGroupName.trim() &&
+      config.maxCpcBid > 0 &&
+      config.keywords.length > 0 &&
+      config.adName.trim() &&
+      config.headlines.length === 15 &&
+      config.descriptions.length === 4 &&
+      config.finalUrls.length > 0 &&
+      config.callouts.length > 0 &&
+      config.sitelinks.length > 0
+
+    if (isBasicValid) {
+      // 配置基本有效，传递给父组件
+      onConfigured(config)
+    }
+  }, [config, onConfigured])
+
+  // 手动验证配置（用于显示详细错误信息）
+  const handleValidate = () => {
     if (!validateConfig()) {
       showError('配置验证失败', '请检查所有必填项')
-      return
+      return false
     }
-
-    onConfigured(config)
-    showSuccess('配置完成', '广告系列参数已保存')
+    showSuccess('配置验证通过', '可以点击"下一步"继续')
+    return true
   }
 
   // 自动填充Headlines/Descriptions到15/4个
@@ -309,13 +364,21 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
       {/* Header Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5 text-blue-600" />
-            配置广告系列参数
-          </CardTitle>
-          <CardDescription>
-            所有参数均可修改，配置完成后进入下一步
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-blue-600" />
+                配置广告系列参数
+              </CardTitle>
+              <CardDescription>
+                所有参数均可修改，配置完成后点击右下角"下一步"继续
+              </CardDescription>
+            </div>
+            <Button onClick={handleValidate} variant="outline" size="sm">
+              <CheckCircle2 className="w-4 h-4 mr-2" />
+              验证配置
+            </Button>
+          </div>
         </CardHeader>
       </Card>
 
@@ -342,11 +405,11 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
         </CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-4">
-            {/* Campaign Name */}
+            {/* Campaign Name - 使用统一命名规范 */}
             <div className="space-y-2">
               <Label>
                 Campaign Name <Badge variant="destructive" className="ml-1">必需</Badge>
-                <Badge className="ml-1">需含品牌名</Badge>
+                <Badge variant="outline" className="ml-1">自动生成</Badge>
               </Label>
               <Input
                 value={config.campaignName}
@@ -388,28 +451,34 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
               </div>
             </div>
 
-            {/* Target Country */}
+            {/* Target Country - 🔒 只读，与Offer保持一致 */}
             <div className="space-y-2">
-              <Label>
-                Target Country <Badge variant="destructive" className="ml-1">必需</Badge>
+              <Label className="flex items-center gap-2">
+                Target Country
+                <Badge variant="secondary" className="ml-1">
+                  <Lock className="w-3 h-3 mr-1" />
+                  与Offer一致
+                </Badge>
               </Label>
-              <Input
-                value={config.targetCountry}
-                onChange={(e) => handleChange('targetCountry', e.target.value)}
-                placeholder="US, GB, CA..."
-              />
+              <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-md border">
+                <span className="font-medium">{config.targetCountry}</span>
+                <span className="text-sm text-muted-foreground">（来自Offer配置，不可修改）</span>
+              </div>
             </div>
 
-            {/* Target Language */}
+            {/* Target Language - 🔒 只读，与Offer保持一致 */}
             <div className="space-y-2">
-              <Label>
-                Target Language <Badge variant="destructive" className="ml-1">必需</Badge>
+              <Label className="flex items-center gap-2">
+                Target Language
+                <Badge variant="secondary" className="ml-1">
+                  <Lock className="w-3 h-3 mr-1" />
+                  与Offer一致
+                </Badge>
               </Label>
-              <Input
-                value={config.targetLanguage}
-                onChange={(e) => handleChange('targetLanguage', e.target.value)}
-                placeholder="en, zh, ja..."
-              />
+              <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-md border">
+                <span className="font-medium">{config.targetLanguage}</span>
+                <span className="text-sm text-muted-foreground">（来自Offer配置，不可修改）</span>
+              </div>
             </div>
 
             {/* Marketing Objective - 营销目标 */}
@@ -455,19 +524,26 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
               </Select>
             </div>
 
-            {/* Final URL Suffix */}
+            {/* Final URL Suffix - 🔒 必填 */}
             <div className="space-y-2">
               <Label>
-                Final URL Suffix <Badge variant="secondary" className="ml-1">可选</Badge>
+                Final URL Suffix <Badge variant="destructive" className="ml-1">必填</Badge>
               </Label>
               <Input
                 value={config.finalUrlSuffix}
                 onChange={(e) => handleChange('finalUrlSuffix', e.target.value)}
-                placeholder="例如: utm_source={lpurl}&utm_campaign={campaignid}"
+                placeholder="例如: maas=xxx&ref_=aa_maas&tag=maas&aa_campaignid=xxx"
+                className={!config.finalUrlSuffix.trim() ? 'border-red-300 focus:border-red-500' : ''}
               />
               <p className="text-xs text-gray-500">
-                URL跟踪参数，留空则不添加。示例: utm_source=google&utm_medium=cpc
+                URL跟踪参数，用于追踪广告效果和佣金归因，通常从推广链接中自动提取
               </p>
+              {!config.finalUrlSuffix.trim() && (
+                <p className="text-xs text-red-500 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Final URL Suffix不能为空，否则无法追踪广告效果
+                </p>
+              )}
             </div>
           </div>
         </CardContent>
@@ -481,11 +557,11 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
         </CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-4">
-            {/* Ad Group Name */}
+            {/* Ad Group Name - 使用统一命名规范 */}
             <div className="space-y-2">
               <Label>
                 Ad Group Name <Badge variant="destructive" className="ml-1">必需</Badge>
-                <Badge className="ml-1">需含品牌名</Badge>
+                <Badge variant="outline" className="ml-1">自动生成</Badge>
               </Label>
               <Input
                 value={config.adGroupName}
@@ -614,11 +690,11 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Ad Name */}
+          {/* Ad Name - 使用统一命名规范 */}
           <div className="space-y-2">
             <Label>
               Ad Name <Badge variant="destructive" className="ml-1">必需</Badge>
-              <Badge className="ml-1">需含品牌名</Badge>
+              <Badge variant="outline" className="ml-1">自动生成</Badge>
             </Label>
             <Input
               value={config.adName}
@@ -770,16 +846,6 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
               ))}
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Confirm Button */}
-      <Card>
-        <CardContent className="py-4">
-          <Button onClick={handleConfirm} className="w-full" size="lg">
-            <CheckCircle2 className="w-5 h-5 mr-2" />
-            确认配置并进入下一步
-          </Button>
         </CardContent>
       </Card>
     </div>

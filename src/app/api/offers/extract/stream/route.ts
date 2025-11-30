@@ -7,6 +7,7 @@ import { NextRequest } from 'next/server';
 import { createError, AppError } from '@/lib/errors';
 import { createSSEStream, sendProgress, sendComplete, sendError } from '@/lib/sse-helper';
 import { extractOffer } from '@/lib/offer-extraction-core';
+import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from '@/lib/feature-flags';
 
 export const maxDuration = 60; // 最长60秒
 
@@ -410,11 +411,18 @@ export async function POST(request: NextRequest) {
                 features: extractFeatures(aiProductInfo?.productHighlights),
               };
 
+              // 🆕 Token优化：竞品压缩灰度发布（10%）
+              const enableCompression = isCompetitorCompressionEnabled(userIdNum, FEATURE_FLAGS.competitorCompression.rolloutPercentage);
+              const enableCache = isCompetitorCacheEnabled(userIdNum, FEATURE_FLAGS.competitorCache.rolloutPercentage);
+              logFeatureFlag('competitorCompression', userIdNum, enableCompression);
+              logFeatureFlag('competitorCache', userIdNum, enableCache);
+
               competitorAnalysis = await analyzeCompetitorsWithAI(
                 ourProduct,
                 competitors,
                 target_country,
-                userIdNum
+                userIdNum,
+                { enableCompression, enableCache }
               );
 
               competitorAnalysisSuccess = true;

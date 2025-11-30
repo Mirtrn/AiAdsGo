@@ -21,12 +21,22 @@ interface TokenUsage {
   callCount: number
 }
 
+interface OperationUsage {
+  operationType: string
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  cost: number
+  callCount: number
+}
+
 interface AiTokenData {
   today: {
     totalCost: number
     totalTokens: number
     totalCalls: number
     modelUsage: TokenUsage[]
+    operationUsage?: OperationUsage[] // 🆕 操作类型分布
   }
   trend: Array<{
     date: string
@@ -34,6 +44,7 @@ interface AiTokenData {
     totalTokens: number
   }>
   recommendations: string[]
+  highCostOperations?: OperationUsage[] // 🆕 高成本操作
 }
 
 interface Props {
@@ -221,6 +232,37 @@ export function AiTokenCostChart({ days = 7 }: Props) {
               {recommendations[0]}
             </AlertDescription>
           </Alert>
+        )}
+
+        {/* 🆕 操作类型分布（优先显示，更重要）*/}
+        {today.operationUsage && today.operationUsage.length > 0 && (
+          <div className="pt-2 border-t">
+            <div className="text-xs text-gray-500 mb-2">高成本操作类型（Top 5）</div>
+            <div className="space-y-1.5">
+              {today.operationUsage
+                .slice(0, 5)
+                .map((op) => {
+                  const isHighCost = op.cost > 10
+                  const opName = op.operationType
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, (c) => c.toUpperCase())
+                  return (
+                    <div key={op.operationType} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center flex-1 mr-2">
+                        <span className={`truncate ${isHighCost ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
+                          {opName}
+                        </span>
+                        {isHighCost && <AlertTriangle className="w-3 h-3 ml-1 text-red-500" />}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 text-xs">{op.callCount}次</span>
+                        <span className="font-medium text-gray-900">¥{op.cost.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
         )}
 
         {/* 模型使用分布 */}

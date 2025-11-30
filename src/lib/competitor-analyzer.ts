@@ -15,7 +15,10 @@
  */
 
 import { generateContent } from './gemini'
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getLanguageNameForCountry } from './language-country-codes'
+import { compressCompetitors, type CompetitorInfo as CompressorCompetitorInfo } from './competitor-compressor'
+import { withCache, type CacheOptions } from './ai-cache'
 
 // ==================== 数据结构定义 ====================
 
@@ -420,6 +423,7 @@ function deduplicateCompetitors(competitors: CompetitorProduct[]): CompetitorPro
  * @param competitors 竞品数组
  * @param targetCountry 目标国家（用于语言适配）
  * @param userId 用户ID（用于API配额管理）
+ * @param options 优化选项（可选）
  * @returns 竞品分析结果
  */
 export async function analyzeCompetitorsWithAI(
@@ -432,7 +436,12 @@ export async function analyzeCompetitorsWithAI(
   },
   competitors: CompetitorProduct[],
   targetCountry: string = 'US',
-  userId?: number
+  userId?: number,
+  options?: {
+    enableCompression?: boolean  // 启用竞品数据压缩（默认false，零破坏性）
+    enableCache?: boolean        // 启用缓存（默认false，零破坏性）
+    cacheKey?: string            // 自定义缓存键（默认使用产品名+竞品数量）
+  }
 ): Promise<CompetitorAnalysisResult> {
 
   if (competitors.length === 0) {
@@ -449,16 +458,40 @@ export async function analyzeCompetitorsWithAI(
   const pricePosition = calculatePricePosition(ourProduct, competitors)
   const ratingPosition = calculateRatingPosition(ourProduct, competitors)
 
-  // 准备竞品数据（限制长度避免超token）
-  const competitorSummaries = competitors.slice(0, 10).map((c, idx) => {
-    return `Competitor ${idx + 1}:
+  // 准备竞品数据（支持压缩优化）
+  let competitorSummaries: string
+  let compressionStats: any = null
+
+  if (options?.enableCompression) {
+    // 🆕 Token优化：使用压缩格式（40-50%减少）
+    console.log('🗜️ 启用竞品数据压缩优化...')
+    const compressorInput: CompressorCompetitorInfo[] = competitors.slice(0, 10).map(c => ({
+      name: c.name,
+      brand: c.brand || undefined,
+      price: c.priceText || undefined,
+      rating: c.rating ? `${c.rating} stars` : undefined,
+      reviewCount: c.reviewCount || undefined,
+      usp: undefined,
+      keyFeatures: c.features,
+      url: undefined,
+    }))
+
+    const compressed = compressCompetitors(compressorInput, 20)
+    competitorSummaries = compressed.compressed
+    compressionStats = compressed.stats
+    console.log(`   压缩率: ${compressionStats.compressionRatio}（${compressionStats.originalChars} → ${compressionStats.compressedChars}字符）`)
+  } else {
+    // 原始格式（保持向后兼容）
+    competitorSummaries = competitors.slice(0, 10).map((c, idx) => {
+      return `Competitor ${idx + 1}:
 - Name: ${c.name}
 - Brand: ${c.brand || 'Unknown'}
 - Price: ${c.priceText || 'N/A'}
 - Rating: ${c.rating || 'N/A'} stars
 - Reviews: ${c.reviewCount || 'N/A'}
 - Source: ${c.source}`
-  }).join('\n\n')
+    }).join('\n\n')
+  }
 
   // 构建AI分析prompt
   const prompt = `You are a professional competitive analysis expert. Please analyze the following product vs competitors to identify competitive advantages and unique selling points.
@@ -527,15 +560,46 @@ IMPORTANT: Focus on insights that will make advertising more effective and diffe
     if (!userId) {
       throw new Error('竞品分析需要用户ID，请确保已登录')
     }
-    const aiResponse = await generateContent({
-      model: 'gemini-2.5-pro',
-      prompt,
-      temperature: 0.6,  // 平衡创造性和准确性
-      maxOutputTokens: 3072,
-    }, userId)
+
+    // 🆕 Token优化：支持缓存（3天TTL）
+    const cacheKey = options?.cacheKey || `${ourProduct.name}:${competitors.length}competitors`
+    const performAnalysis = async () => {
+      const aiResponse = await generateContent({
+        model: 'gemini-2.5-pro',
+        prompt,
+        temperature: 0.6,  // 平衡创造性和准确性
+        maxOutputTokens: 8192,  // 恢复原始值，确保JSON不被截断
+      }, userId!)
+
+      // 记录token使用
+      if (aiResponse.usage) {
+        const cost = estimateTokenCost(
+          aiResponse.model,
+          aiResponse.usage.inputTokens,
+          aiResponse.usage.outputTokens
+        )
+        await recordTokenUsage({
+          userId: userId!,
+          model: aiResponse.model,
+          operationType: 'competitor_analysis',
+          inputTokens: aiResponse.usage.inputTokens,
+          outputTokens: aiResponse.usage.outputTokens,
+          totalTokens: aiResponse.usage.totalTokens,
+          cost,
+          apiType: aiResponse.apiType
+        })
+      }
+
+      return aiResponse.text
+    }
+
+    // 使用缓存包装器（如果启用）
+    const text = options?.enableCache
+      ? await withCache('competitor_analysis', cacheKey, performAnalysis)
+      : await performAnalysis()
 
     // 提取JSON内容
-    let jsonText = aiResponse.text.replace(/```json\s*/g, '').replace(/```\s*/g, '')
+    let jsonText = text.replace(/```json\s*/g, '').replace(/```\s*/g, '')
     const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
 
     if (!jsonMatch) {

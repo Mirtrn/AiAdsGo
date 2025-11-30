@@ -22,7 +22,8 @@ import {
   Eye,
   EyeOff,
   Beaker,
-  TrendingUp
+  TrendingUp,
+  FileText
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -137,6 +138,12 @@ const adminNavigationItems: NavItem[] = [
     label: '抓取与AI测试',
     href: '/admin/scrape-test',
     icon: Beaker,
+    requireAdmin: true,
+  },
+  {
+    label: 'Prompt管理',
+    href: '/admin/prompts',
+    icon: FileText,
     requireAdmin: true,
   },
 ]

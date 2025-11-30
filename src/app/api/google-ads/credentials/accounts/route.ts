@@ -67,6 +67,7 @@ interface CachedAccount {
   is_active: number
   status: string | null
   test_account: number
+  account_balance: number | null
   parent_mcc_id: string | null
   last_sync_at: string | null
 }
@@ -79,7 +80,7 @@ function getCachedAccounts(userId: number): CachedAccount[] {
   return db.prepare(`
     SELECT id, customer_id, account_name, currency, timezone,
            is_manager_account, is_active, status, test_account,
-           parent_mcc_id, last_sync_at
+           account_balance, parent_mcc_id, last_sync_at
     FROM google_ads_accounts
     WHERE user_id = ?
     ORDER BY is_manager_account DESC, account_name ASC
@@ -97,6 +98,7 @@ function upsertAccount(userId: number, account: {
   manager: boolean
   test_account: boolean
   status: string
+  account_balance?: number | null
   parent_mcc?: string
 }): number {
   const db = getSQLiteDatabase()
@@ -117,6 +119,7 @@ function upsertAccount(userId: number, account: {
           is_manager_account = ?,
           test_account = ?,
           status = ?,
+          account_balance = ?,
           parent_mcc_id = ?,
           last_sync_at = datetime('now'),
           updated_at = datetime('now')
@@ -128,6 +131,7 @@ function upsertAccount(userId: number, account: {
       account.manager ? 1 : 0,
       account.test_account ? 1 : 0,
       account.status,
+      account.account_balance ?? null,
       account.parent_mcc || null,
       existing.id
     )
@@ -137,8 +141,8 @@ function upsertAccount(userId: number, account: {
     const result = db.prepare(`
       INSERT INTO google_ads_accounts (
         user_id, customer_id, account_name, currency, timezone,
-        is_manager_account, test_account, status, parent_mcc_id, last_sync_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        is_manager_account, test_account, status, account_balance, parent_mcc_id, last_sync_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `).run(
       userId,
       account.customer_id,
@@ -148,6 +152,7 @@ function upsertAccount(userId: number, account: {
       account.manager ? 1 : 0,
       account.test_account ? 1 : 0,
       account.status,
+      account.account_balance ?? null,
       account.parent_mcc || null
     )
     return result.lastInsertRowid as number
@@ -212,6 +217,32 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
         const parsedStatus = parseStatus(rawStatus)
         console.log(`[DEBUG] Account ${customerId} parsed status:`, parsedStatus)
 
+        // 查询账户预算信息获取余额
+        let accountBalance: number | null = null
+        try {
+          const budgetQuery = `
+            SELECT
+              account_budget.amount_served_micros,
+              account_budget.approved_spending_limit_micros,
+              account_budget.proposed_spending_limit_micros
+            FROM account_budget
+            WHERE account_budget.status = 'APPROVED'
+            ORDER BY account_budget.id DESC
+            LIMIT 1
+          `
+          const budgetInfo = await customer.query(budgetQuery)
+          if (budgetInfo && budgetInfo.length > 0) {
+            const budget = budgetInfo[0].account_budget
+            const amountServed = Number(budget?.amount_served_micros || 0)
+            const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
+            // 余额 = 预算 - 已使用
+            accountBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
+            console.log(`   💰 ${customerId} 余额: ${accountBalance ? (accountBalance / 1000000).toFixed(2) : 'N/A'}`)
+          }
+        } catch (budgetError) {
+          console.log(`   ⚠️ ${customerId} 无法获取预算信息（可能账户无预算设置）`)
+        }
+
         const accountData = {
           customer_id: customerId,
           descriptive_name: account.customer?.descriptive_name || `客户 ${customerId}`,
@@ -220,6 +251,7 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
           manager: account.customer?.manager || false,
           test_account: account.customer?.test_account || false,
           status: parsedStatus,
+          account_balance: accountBalance,
         }
 
         // 保存到数据库
@@ -263,14 +295,50 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
                 const parsedChildStatus = parseStatus(rawChildStatus)
                 console.log(`[DEBUG] Child Account ${childId} parsed status:`, parsedChildStatus)
 
+                // 查询子账户预算信息获取余额
+                let childBalance: number | null = null
+                const isChildManager = child.customer_client?.manager || false
+                if (!isChildManager) {
+                  try {
+                    const childCustomer = await getCustomer(
+                      childId,
+                      credentials.refresh_token,
+                      undefined,
+                      undefined,
+                      credentials.login_customer_id
+                    )
+                    const childBudgetQuery = `
+                      SELECT
+                        account_budget.amount_served_micros,
+                        account_budget.approved_spending_limit_micros,
+                        account_budget.proposed_spending_limit_micros
+                      FROM account_budget
+                      WHERE account_budget.status = 'APPROVED'
+                      ORDER BY account_budget.id DESC
+                      LIMIT 1
+                    `
+                    const childBudgetInfo = await childCustomer.query(childBudgetQuery)
+                    if (childBudgetInfo && childBudgetInfo.length > 0) {
+                      const budget = childBudgetInfo[0].account_budget
+                      const amountServed = Number(budget?.amount_served_micros || 0)
+                      const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
+                      childBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
+                      console.log(`      💰 ${childId} 余额: ${childBalance ? (childBalance / 1000000).toFixed(2) : 'N/A'}`)
+                    }
+                  } catch (budgetError) {
+                    console.log(`      ⚠️ ${childId} 无法获取预算信息`)
+                  }
+                }
+
                 const childData = {
                   customer_id: childId,
                   descriptive_name: child.customer_client?.descriptive_name || `客户 ${childId}`,
                   currency_code: child.customer_client?.currency_code || 'USD',
                   time_zone: child.customer_client?.time_zone || 'UTC',
-                  manager: child.customer_client?.manager || false,
+                  manager: isChildManager,
                   test_account: child.customer_client?.test_account || false,
                   status: parsedChildStatus,
+                  account_balance: childBalance,
                   parent_mcc: customerId,
                 }
 
@@ -382,6 +450,7 @@ export async function GET(request: NextRequest) {
         manager: acc.is_manager_account === 1,
         test_account: acc.test_account === 1,
         status: acc.status || 'UNKNOWN',
+        account_balance: acc.account_balance,
         parent_mcc: acc.parent_mcc_id,
         db_account_id: acc.id,
         last_sync_at: acc.last_sync_at,

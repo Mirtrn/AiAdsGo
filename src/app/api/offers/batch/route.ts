@@ -4,9 +4,18 @@ import { triggerOfferScraping } from '@/lib/offer-scraping'
 import { z } from 'zod'
 
 /**
+ * POST /api/offers/batch
  * 批量导入Offer - 与手动创建保持一致的参数
- * 必填：affiliate_link（推广链接）, target_country（推广国家）
- * 选填：product_price（产品价格）, commission_payout（佣金比例）
+ *
+ * 必填字段：
+ * - affiliate_link（推广链接）
+ * - target_country（推广国家）
+ *
+ * 可选字段：
+ * - product_price（产品价格）
+ * - commission_payout（佣金比例）
+ *
+ * 注意：CSV模板下载请使用 /api/offers/batch-template
  */
 const batchOfferSchema = z.object({
   // 必填字段
@@ -17,28 +26,9 @@ const batchOfferSchema = z.object({
   commission_payout: z.string().optional().or(z.literal('')),
 })
 
-// CSV模板内容 - 与手动创建保持一致
-const CSV_TEMPLATE = `affiliate_link,target_country,product_price,commission_payout
-https://pboost.me/UKTs4I6,US,$699.00,6.75%
-https://pboost.me/xEAgQ8ec,DE,$199.00,8.00%
-https://pboost.me/RKWwEZR9,US,$299.00,5.50%`
-
-/**
- * GET /api/offers/batch
- * 下载CSV模板（需求23）
- */
-export async function GET(request: NextRequest) {
-  return new NextResponse(CSV_TEMPLATE, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="offer_template.csv"',
-    },
-  })
-}
-
 /**
  * 解析CSV字符串为JSON数组
+ * 支持中文和英文表头
  */
 function parseCSV(csvText: string): Record<string, string>[] {
   const lines = csvText.trim().split('\n')
@@ -46,8 +36,22 @@ function parseCSV(csvText: string): Record<string, string>[] {
     throw new Error('CSV文件必须包含标题行和至少一行数据')
   }
 
+  // 中文表头映射为英文字段名
+  const fieldMapping: Record<string, string> = {
+    '推广链接': 'affiliate_link',
+    '推广国家': 'target_country',
+    '产品价格': 'product_price',
+    '佣金比例': 'commission_payout',
+    // 兼容英文表头
+    'affiliate_link': 'affiliate_link',
+    'target_country': 'target_country',
+    'product_price': 'product_price',
+    'commission_payout': 'commission_payout',
+  }
+
   // 解析标题行
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'))
+  const rawHeaders = lines[0].split(',').map(h => h.trim())
+  const headers = rawHeaders.map(h => fieldMapping[h] || h.toLowerCase().replace(/\s+/g, '_'))
 
   // 解析数据行
   const results: Record<string, string>[] = []

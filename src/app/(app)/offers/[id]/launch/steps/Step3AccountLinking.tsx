@@ -3,6 +3,11 @@
 /**
  * Step 3: Google Ads Account Linking
  * 关联Google Ads账号、OAuth授权
+ *
+ * 账号筛选规则：
+ * 1. 状态必须是 ENABLED（启用）
+ * 2. 不能是 MCC 账号（manager !== true）
+ * 3. 未被任何其他 Offer 关联
  */
 
 import { useState, useEffect } from 'react'
@@ -10,8 +15,25 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Link2, CheckCircle2, AlertCircle, Plus, RefreshCw, ExternalLink, Loader2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Link2, CheckCircle2, AlertCircle, Plus, RefreshCw, ExternalLink, Loader2, Info } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
+import Link from 'next/link'
 
 interface Props {
   offer: any
@@ -48,6 +70,7 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
   const [loading, setLoading] = useState(true)
   const [verifying, setVerifying] = useState<string | null>(null)
   const [hasCredentials, setHasCredentials] = useState(false)
+  const [showGuideDialog, setShowGuideDialog] = useState(false)
 
   useEffect(() => {
     checkCredentials()
@@ -89,18 +112,24 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
 
         // 筛选可用账号：
         // 1. 状态必须是 ENABLED
-        // 2. 未被当前 Offer 关联
+        // 2. 不能是 MCC 账号
+        // 3. 未被任何其他 Offer 关联（当前 Offer 除外）
         const availableAccounts = allAccounts.filter(account => {
           // 条件1：状态必须是 ENABLED
           if (account.status !== 'ENABLED') return false
 
-          // 条件2：未被当前 Offer 关联
-          const linkedOffers = account.linked_offers || []
-          const isLinkedToCurrentOffer = linkedOffers.some(
-            (linkedOffer: any) => linkedOffer.id === offer.id
-          )
+          // 条件2：不能是 MCC 账号
+          if (account.manager === true) return false
 
-          return !isLinkedToCurrentOffer
+          // 条件3：未被任何其他 Offer 关联
+          const linkedOffers = account.linked_offers || []
+          // 如果有关联的 Offers，且不全是当前 Offer，则排除
+          const hasOtherOfferLinks = linkedOffers.some(
+            (linkedOffer: any) => linkedOffer.id !== offer.id
+          )
+          if (hasOtherOfferLinks) return false
+
+          return true
         })
 
         setAccounts(availableAccounts)
@@ -115,52 +144,9 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
     }
   }
 
-  const handleConnectNewAccount = async () => {
-    try {
-      // Get client_id from settings or environment
-      const clientId = process.env.NEXT_PUBLIC_GOOGLE_ADS_CLIENT_ID || ''
-
-      if (!clientId) {
-        showError('配置错误', 'Google Ads Client ID 未配置，请联系管理员')
-        return
-      }
-
-      const response = await fetch(`/api/google-ads/oauth/start?client_id=${clientId}`, {
-        credentials: 'include'
-      })
-
-      if (!response.ok) {
-        throw new Error('启动OAuth失败')
-      }
-
-      const data = await response.json()
-
-      // Open OAuth URL in new window
-      const width = 600
-      const height = 700
-      const left = window.screen.width / 2 - width / 2
-      const top = window.screen.height / 2 - height / 2
-
-      const authWindow = window.open(
-        data.auth_url,
-        'Google Ads OAuth',
-        `width=${width},height=${height},left=${left},top=${top}`
-      )
-
-      // Poll for OAuth completion
-      const checkAuth = setInterval(() => {
-        if (authWindow?.closed) {
-          clearInterval(checkAuth)
-          // Refresh accounts after OAuth
-          setTimeout(() => {
-            checkCredentials()
-            fetchAccounts()
-          }, 1000)
-        }
-      }, 500)
-    } catch (error: any) {
-      showError('连接失败', error.message)
-    }
+  const handleConnectNewAccount = () => {
+    // 显示操作指南弹窗，引导用户添加新账号
+    setShowGuideDialog(true)
   }
 
   const handleVerifyAccount = async (customerId: string) => {
@@ -245,9 +231,9 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
         <Alert className="bg-yellow-50 border-yellow-200">
           <AlertCircle className="h-4 w-4 text-yellow-600" />
           <AlertDescription className="text-yellow-900">
-            <strong>尚未连接Google Ads账号</strong>
+            <strong>尚未配置Google Ads凭证</strong>
             <p className="mt-2">
-              您需要先连接Google Ads账号才能发布广告。点击上方"连接新账号"按钮开始OAuth授权流程。
+              您需要先在<Link href="/settings" className="text-blue-600 hover:underline">设置页面</Link>配置Google Ads OAuth凭证（Client ID、Client Secret、Developer Token、MCC账号），然后在<Link href="/google-ads" className="text-blue-600 hover:underline">Google Ads管理页面</Link>刷新账户列表。
             </p>
           </AlertDescription>
         </Alert>
@@ -258,146 +244,124 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
         <Card>
           <CardContent className="py-12 text-center">
             <Link2 className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">暂无已连接的Google Ads账号</p>
+            <p className="text-gray-500">暂无可用的Google Ads账号</p>
             <p className="text-sm text-gray-400 mt-2">
-              点击"连接新账号"开始授权流程
+              点击"连接新账号"查看添加账号的操作指南
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {accounts.map((account) => {
-            const isSelected = selectedId === account.customer_id
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">可用账号列表</CardTitle>
+            <CardDescription>
+              选择一个账号用于发布广告（仅显示启用状态、非MCC、未被其他Offer关联的账号）
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[50px]">选择</TableHead>
+                  <TableHead>账号名称</TableHead>
+                  <TableHead>账号ID</TableHead>
+                  <TableHead>货币</TableHead>
+                  <TableHead>时区</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accounts.map((account) => {
+                  const isSelected = selectedId === account.customer_id
 
-            return (
-              <Card
-                key={account.customer_id}
-                className={`relative cursor-pointer transition-all ${
-                  isSelected ? 'ring-2 ring-primary shadow-lg' : 'hover:shadow-md'
-                }`}
-                onClick={() => !isSelected && handleSelectAccount(account)}
-              >
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        {account.descriptive_name}
-                        {isSelected && (
-                          <Badge variant="default" className="bg-green-600">
-                            <CheckCircle2 className="w-3 h-3 mr-1" />
-                            已选择
-                          </Badge>
-                        )}
-                      </CardTitle>
-                      <CardDescription className="font-mono mt-1">
-                        ID: {account.customer_id}
-                      </CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="space-y-3">
-                  {/* Account Info */}
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">货币:</span>
-                      <span className="text-gray-900 font-medium">{account.currency_code}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">时区:</span>
-                      <span className="text-gray-900">{account.time_zone}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">状态:</span>
-                      <Badge variant="default" className="bg-green-600">
-                        <CheckCircle2 className="w-3 h-3 mr-1" />
-                        启用
-                      </Badge>
-                    </div>
-                  </div>
-
-                  {/* Account Type Badges */}
-                  {(account.manager || account.test_account) && (
-                    <div className="flex flex-wrap gap-1 pt-2">
-                      {account.manager && (
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                          MCC账号
-                        </Badge>
-                      )}
-                      {account.test_account && (
-                        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                          测试账号
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Parent MCC */}
-                  {account.parent_mcc && (
-                    <div className="text-xs text-gray-500 pt-2">
-                      所属 MCC: {account.parent_mcc_name || account.parent_mcc}
-                    </div>
-                  )}
-
-                  {/* Linked Offers Info */}
-                  {account.linked_offers && account.linked_offers.length > 0 && (
-                    <div className="text-xs text-gray-500 pt-2">
-                      已关联 {account.linked_offers.length} 个其他 Offer
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex gap-2 pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleVerifyAccount(account.customer_id)
-                      }}
-                      disabled={verifying === account.customer_id}
-                      className="flex-1"
-                    >
-                      {verifying === account.customer_id ? (
-                        <>
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                          验证中...
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-3 h-3 mr-1" />
-                          验证凭证
-                        </>
-                      )}
-                    </Button>
-
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        window.open('https://ads.google.com', '_blank')
-                      }}
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                    </Button>
-                  </div>
-
-                  {/* Select Button */}
-                  {!isSelected && (
-                    <Button
-                      className="w-full"
-                      size="sm"
+                  return (
+                    <TableRow
+                      key={account.customer_id}
+                      className={`cursor-pointer ${isSelected ? 'bg-green-50' : 'hover:bg-gray-50'}`}
                       onClick={() => handleSelectAccount(account)}
                     >
-                      选择此账号
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
+                      <TableCell>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                          isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300'
+                        }`}>
+                          {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{account.descriptive_name}</span>
+                          {account.test_account && (
+                            <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 text-xs">
+                              测试
+                            </Badge>
+                          )}
+                        </div>
+                        {account.parent_mcc && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            MCC: {account.parent_mcc_name || account.parent_mcc}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">{account.customer_id}</TableCell>
+                      <TableCell>{account.currency_code}</TableCell>
+                      <TableCell className="text-sm">{account.time_zone}</TableCell>
+                      <TableCell>
+                        <Badge variant="default" className="bg-green-600">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          启用
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleVerifyAccount(account.customer_id)
+                            }}
+                            disabled={verifying === account.customer_id}
+                            title="验证凭证"
+                          >
+                            {verifying === account.customer_id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              window.open('https://ads.google.com', '_blank')
+                            }}
+                            title="在Google Ads中查看"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+
+            {/* Selected Account Info */}
+            {selectedId && (
+              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center gap-2 text-green-800">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="font-medium">
+                    已选择账号：{accounts.find(a => a.customer_id === selectedId)?.descriptive_name} ({selectedId})
+                  </span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Info Alert */}
@@ -412,6 +376,102 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
           </ul>
         </AlertDescription>
       </Alert>
+
+      {/* Add New Account Guide Dialog */}
+      <Dialog open={showGuideDialog} onOpenChange={setShowGuideDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Info className="w-5 h-5 text-blue-600" />
+              如何添加新的Google Ads账号
+            </DialogTitle>
+            <DialogDescription>
+              请按照以下步骤操作，完成后返回此页面选择账号
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Step 1 */}
+            <div className="flex gap-3">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-semibold">
+                1
+              </div>
+              <div className="flex-1">
+                <h4 className="font-medium text-gray-900 mb-1">在MCC账号中添加新的Ads账号</h4>
+                <p className="text-sm text-gray-600 mb-2">
+                  登录您的Google Ads MCC账号，将新的Ads账号关联到MCC下进行统一管理
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open('https://ads.google.com', '_blank')}
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  打开Google Ads MCC
+                </Button>
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex gap-3">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-semibold">
+                2
+              </div>
+              <div className="flex-1">
+                <h4 className="font-medium text-gray-900 mb-1">在系统中刷新账户列表</h4>
+                <p className="text-sm text-gray-600 mb-2">
+                  前往"Google Ads账号管理"页面，点击"刷新账户列表"按钮同步最新的账号信息
+                </p>
+                <Link href="/google-ads" target="_blank">
+                  <Button variant="outline" size="sm">
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    打开Google Ads管理页面
+                  </Button>
+                </Link>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="flex gap-3">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-semibold">
+                3
+              </div>
+              <div className="flex-1">
+                <h4 className="font-medium text-gray-900 mb-1">返回此页面选择账号</h4>
+                <p className="text-sm text-gray-600">
+                  账号刷新完成后，返回此页面即可在列表中看到新添加的账号
+                </p>
+              </div>
+            </div>
+
+            {/* Important Notes */}
+            <Alert className="bg-blue-50 border-blue-200">
+              <Info className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-blue-900">
+                <strong>重要提示</strong>
+                <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
+                  <li>新账号必须在MCC账号下才能被系统识别</li>
+                  <li>账号状态必须为"启用"</li>
+                  <li>不支持MCC账号，仅支持普通Ads账号</li>
+                  <li>账号刷新可能需要1-2分钟时间</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGuideDialog(false)}>
+              我知道了
+            </Button>
+            <Link href="/google-ads" target="_blank">
+              <Button onClick={() => setShowGuideDialog(false)}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                前往刷新账号列表
+              </Button>
+            </Link>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

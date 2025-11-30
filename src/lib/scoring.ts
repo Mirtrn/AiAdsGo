@@ -1,4 +1,5 @@
 import { generateContent } from './gemini'
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import type { ScoreAnalysis } from './launch-scores'
 import type { Offer } from './offers'
 import type { AdCreative, HeadlineAsset, DescriptionAsset } from './ad-creative'
@@ -197,6 +198,25 @@ ${keywordsWithVolume.length > 0 ?
       maxOutputTokens: 8192, // 增加到8192以确保完整的JSON响应
     }, userId)
 
+    // 记录token使用
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: aiResponse.model,
+        operationType: 'launch_score_calculation',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
+
     // 提取JSON内容
     const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
@@ -345,6 +365,25 @@ export async function calculateCreativeQualityScore(creative: {
       temperature: 0.3, // 降低温度以获得更稳定的评分
       maxOutputTokens: 256, // 增加以容纳Gemini 2.5的思考tokens + 实际输出
     }, userId)
+
+    // 记录token使用
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: aiResponse.model,
+        operationType: 'creative_quality_scoring',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
 
     // 提取数字
     const scoreMatch = aiResponse.text.trim().match(/\d+/)

@@ -9,13 +9,36 @@
  * - 每个用户必须配置自己的 Vertex AI 或 Gemini API
  * - 如果用户没有配置，则报错
  * - AI API调用不使用代理（代理仅用于网页爬取）
+ *
+ * 新功能（Token优化）：
+ * - 可选的智能模型选择：Pro vs Flash
+ * - 通过operationType自动选择最优模型
+ * - 默认行为不变，确保零破坏性
  */
 
 import { getUserOnlySetting } from './settings'
 import { resetVertexAIClient } from './gemini-vertex'
+import { selectOptimalModel, type ModelType } from './model-selector'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+
+/**
+ * JSON Schema类型定义（符合OpenAPI 3.0规范）
+ */
+export interface ResponseSchema {
+  type?: 'STRING' | 'NUMBER' | 'INTEGER' | 'BOOLEAN' | 'ARRAY' | 'OBJECT'
+  format?: string
+  description?: string
+  nullable?: boolean
+  items?: ResponseSchema
+  enum?: string[]
+  properties?: {
+    [key: string]: ResponseSchema
+  }
+  required?: string[]
+  example?: unknown
+}
 
 /**
  * Gemini生成内容的参数接口
@@ -25,6 +48,10 @@ export interface GeminiGenerateParams {
   prompt: string
   temperature?: number
   maxOutputTokens?: number
+  operationType?: string // 用于智能模型选择（可选）
+  enableAutoModelSelection?: boolean // 启用自动模型选择（默认false，零破坏性）
+  responseSchema?: ResponseSchema  // 🆕 Token优化：结构化JSON输出约束
+  responseMimeType?: string  // 🆕 配合responseSchema使用（默认'application/json'）
 }
 
 /**
@@ -145,11 +172,26 @@ export async function generateContent(
   }
 
   const {
-    model = 'gemini-2.5-pro',
+    model: requestedModel = 'gemini-2.5-pro',
     prompt,
     temperature = 0.7,
     maxOutputTokens = 8192,
+    operationType,
+    enableAutoModelSelection = false, // 默认false，零破坏性
+    responseSchema,  // 🆕 Token优化：结构化JSON输出
+    responseMimeType,  // 🆕 配合schema使用
   } = params
+
+  // 智能模型选择（仅当启用时）
+  let finalModel = requestedModel
+  if (enableAutoModelSelection && operationType) {
+    const selection = selectOptimalModel(operationType)
+    finalModel = selection.model
+    console.log(`🤖 智能模型选择: ${operationType} → ${finalModel} (${selection.reason})`)
+  } else {
+    // 保持原有行为（向后兼容）
+    console.log(`📝 使用指定模型: ${finalModel}`)
+  }
 
   // 检查用户是否配置了任何AI
   const hasVertexAI = isVertexAIConfigured(userId)
@@ -175,17 +217,19 @@ export async function generateContent(
       const { generateContent: vertexGenerate } = await import('./gemini-vertex')
 
       const result = await vertexGenerate({
-        model,
+        model: finalModel, // 使用智能选择的模型
         prompt,
         temperature,
         maxOutputTokens,
+        responseSchema,  // 🆕 传递JSON schema约束
+        responseMimeType,  // 🆕 传递MIME类型
       })
 
       console.log('✓ Vertex AI 调用成功')
       return {
         text: result.text,
         usage: result.usage,
-        model: result.model || model,
+        model: result.model || finalModel,
         apiType: 'vertex-ai'
       }
     } catch (error: any) {
@@ -194,7 +238,7 @@ export async function generateContent(
       // 如果用户也配置了Gemini API，则降级
       if (hasGeminiAPI) {
         console.log('🔄 降级到用户的 Gemini 直接 API 模式...')
-        return await callDirectAPI({ model, prompt, temperature, maxOutputTokens }, userId)
+        return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, responseSchema, responseMimeType }, userId)
       } else {
         // 用户只配置了Vertex AI，没有降级选项
         throw new Error(`Vertex AI 调用失败，且用户未配置 Gemini API 作为备选: ${error.message}`)
@@ -204,7 +248,7 @@ export async function generateContent(
 
   // 使用 Gemini API（用户没有配置Vertex AI）
   console.log(`🌐 使用用户(ID=${userId})的 Gemini 直接 API 配置`)
-  return await callDirectAPI({ model, prompt, temperature, maxOutputTokens }, userId)
+  return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, responseSchema, responseMimeType }, userId)
 }
 
 /**
@@ -215,7 +259,7 @@ async function callDirectAPI(
   params: GeminiGenerateParams,
   userId: number
 ): Promise<GeminiGenerateResult> {
-  const { model, prompt, temperature, maxOutputTokens } = params
+  const { model, prompt, temperature, maxOutputTokens, responseSchema, responseMimeType } = params
 
   // 检查用户的API密钥配置
   const apiKey = getUserOnlySetting('ai', 'gemini_api_key', userId)
@@ -233,6 +277,8 @@ async function callDirectAPI(
     prompt,
     temperature,
     maxOutputTokens,
+    responseSchema,  // 🆕 传递JSON schema约束
+    responseMimeType,  // 🆕 传递MIME类型
   }, userId)
 
   return {

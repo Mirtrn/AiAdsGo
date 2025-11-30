@@ -1,21 +1,26 @@
 /**
  * GET /api/offers/batch-template
- * P2-1优化：提供批量导入CSV模板下载
+ * 提供批量导入CSV模板下载
  *
  * 调用方式：
  * - 浏览器直接访问：触发文件下载
  * - 前端按钮：window.open('/api/offers/batch-template')
+ *
+ * 模板字段说明：
+ * - 必填：affiliate_link（推广链接）, target_country（推广国家）
+ * - 可选：product_price（产品价格）, commission_payout（佣金比例）
+ * - 说明：品牌名称、Final URL等信息会通过自动抓取获得
  */
 
 import { NextResponse } from 'next/server'
 
 export async function GET() {
-  // P2-1: CSV模板内容（包含示例数据）
-  const csv = `推广链接,品牌名称,推广国家,店铺或商品落地页,产品价格,佣金比例
-https://example.com/affiliate/product1,BrandA,US,https://example.com/store/product1,$699.00,6.75%
-https://example.com/affiliate/product2,BrandB,DE,https://example.de/shop/product2,€299.00,8.00%
-https://example.com/affiliate/product3,BrandC,UK,https://example.co.uk/products/product3,£499.00,7.50%
-https://example.com/affiliate/product4,BrandD,FR,https://example.fr/boutique/product4,€799.00,5.00%
+  // CSV模板内容（匹配最新业务需求）
+  const csv = `推广链接,推广国家,产品价格,佣金比例
+https://pboost.me/UKTs4I6,US,$699.00,6.75%
+https://pboost.me/xEAgQ8ec,DE,€299.00,8.00%
+https://pboost.me/RKWwEZR9,UK,£499.00,7.50%
+https://yeahpromos.com/index/index/openurl?track=606a814910875990&url=,US,$199.00,5.00%
 `
 
   // 返回CSV文件响应
@@ -24,7 +29,7 @@ https://example.com/affiliate/product4,BrandD,FR,https://example.fr/boutique/pro
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': 'attachment; filename="offer-import-template.csv"',
-      'Cache-Control': 'public, max-age=86400', // 缓存24小时
+      'Cache-Control': 'no-cache, no-store, must-revalidate', // 禁用缓存，确保始终获取最新模板
     },
   })
 }

@@ -13,7 +13,10 @@
  */
 
 import { generateContent } from './gemini'
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getLanguageNameForCountry } from './language-country-codes'
+import { compressReviews, type RawReview as CompressorRawReview } from './review-compressor'
+import { withCache, type CacheOptions } from './ai-cache'
 
 // ==================== 数据结构定义 ====================
 
@@ -281,13 +284,19 @@ export async function scrapeAmazonReviews(
  * @param productName 产品名称
  * @param targetCountry 目标国家（用于语言适配）
  * @param userId 用户ID（用于API配额管理）
+ * @param options 优化选项（可选）
  * @returns 分析结果
  */
 export async function analyzeReviewsWithAI(
   reviews: RawReview[],
   productName: string,
   targetCountry: string = 'US',
-  userId?: number
+  userId?: number,
+  options?: {
+    enableCompression?: boolean  // 启用评论压缩（默认false，零破坏性）
+    enableCache?: boolean        // 启用缓存（默认false，零破坏性）
+    cacheKey?: string            // 自定义缓存键（默认使用productName）
+  }
 ): Promise<ReviewAnalysisResult> {
 
   if (reviews.length === 0) {
@@ -309,18 +318,31 @@ export async function analyzeReviewsWithAI(
     ? ratingsArray.reduce((sum, r) => sum + r, 0) / ratingsArray.length
     : 0
 
-  // 准备评论文本（限制长度避免超token）
-  const reviewTexts = reviews.slice(0, 50).map((r, idx) => {
-    const ratingNum = parseFloat(r.rating?.match(/[\d.]+/)?.[0] || '0')
-    const parts = [
-      `Review ${idx + 1}:`,
-      `Rating: ${ratingNum} stars`,
-      r.verified ? '[Verified Purchase]' : '',
-      `Title: ${r.title || 'N/A'}`,
-      `Body: ${(r.body || '').substring(0, 500)}`, // 限制每条评论最多500字符
-    ]
-    return parts.filter(p => p).join('\n')
-  }).join('\n\n---\n\n')
+  // 准备评论文本（支持压缩优化）
+  let reviewTexts: string
+  let compressionStats: any = null
+
+  if (options?.enableCompression) {
+    // 🆕 Token优化：使用压缩评论（60-70%减少）
+    console.log('🗜️ 启用评论压缩优化...')
+    const compressed = compressReviews(reviews as CompressorRawReview[], 40)
+    reviewTexts = compressed.compressed
+    compressionStats = compressed.stats
+    console.log(`   压缩率: ${compressionStats.compressionRatio}（${compressionStats.originalChars} → ${compressionStats.compressedChars}字符）`)
+  } else {
+    // 原始格式（保持向后兼容）
+    reviewTexts = reviews.slice(0, 50).map((r, idx) => {
+      const ratingNum = parseFloat(r.rating?.match(/[\d.]+/)?.[0] || '0')
+      const parts = [
+        `Review ${idx + 1}:`,
+        `Rating: ${ratingNum} stars`,
+        r.verified ? '[Verified Purchase]' : '',
+        `Title: ${r.title || 'N/A'}`,
+        `Body: ${(r.body || '').substring(0, 500)}`, // 限制每条评论最多500字符
+      ]
+      return parts.filter(p => p).join('\n')
+    }).join('\n\n---\n\n')
+  }
 
   // 构建AI分析prompt
   const prompt = `You are a professional user review analyst. Please analyze the following Amazon product reviews to extract key insights for advertising creative generation.
@@ -438,14 +460,43 @@ IMPORTANT: Focus on actionable insights that can improve advertising creative qu
     if (!userId) {
       throw new Error('评论分析需要用户ID，请确保已登录')
     }
-    const aiResponse = await generateContent({
-      model: 'gemini-2.5-pro',
-      prompt,
-      temperature: 0.5,  // 降低温度确保更准确的提取
-      maxOutputTokens: 8192,  // 增加到8192以避免评论分析被截断
-    }, userId)
 
-    const text = aiResponse.text
+    // 🆕 Token优化：支持缓存（7天TTL）
+    const cacheKey = options?.cacheKey || productName
+    const performAnalysis = async () => {
+      const aiResponse = await generateContent({
+        model: 'gemini-2.5-pro',
+        prompt,
+        temperature: 0.5,  // 降低温度确保更准确的提取
+        maxOutputTokens: 8192,  // 增加到8192以避免评论分析被截断
+      }, userId!)
+
+      // 记录token使用
+      if (aiResponse.usage) {
+        const cost = estimateTokenCost(
+          aiResponse.model,
+          aiResponse.usage.inputTokens,
+          aiResponse.usage.outputTokens
+        )
+        await recordTokenUsage({
+          userId: userId!,
+          model: aiResponse.model,
+          operationType: 'review_analysis',
+          inputTokens: aiResponse.usage.inputTokens,
+          outputTokens: aiResponse.usage.outputTokens,
+          totalTokens: aiResponse.usage.totalTokens,
+          cost,
+          apiType: aiResponse.apiType
+        })
+      }
+
+      return aiResponse.text
+    }
+
+    // 使用缓存包装器（如果启用）
+    const text = options?.enableCache
+      ? await withCache('review_analysis', cacheKey, performAnalysis)
+      : await performAnalysis()
 
     // 提取JSON内容
     let jsonText = text.replace(/```json\s*/g, '').replace(/```\s*/g, '')

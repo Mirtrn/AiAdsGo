@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateContent } from '@/lib/gemini'
+import { recordTokenUsage, estimateTokenCost } from '@/lib/ai-token-tracker'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -103,6 +104,25 @@ export async function POST(request: NextRequest) {
       temperature: 0.8,
       maxOutputTokens: 2048,
     }, parseInt(userId, 10))
+
+    // 记录token使用
+    if (analysis.usage) {
+      const cost = estimateTokenCost(
+        analysis.model,
+        analysis.usage.inputTokens,
+        analysis.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId: parseInt(userId, 10),
+        model: analysis.model,
+        operationType: 'admin_feedback_analysis',
+        inputTokens: analysis.usage.inputTokens,
+        outputTokens: analysis.usage.outputTokens,
+        totalTokens: analysis.usage.totalTokens,
+        cost,
+        apiType: analysis.apiType
+      })
+    }
 
     return NextResponse.json({
       success: true,

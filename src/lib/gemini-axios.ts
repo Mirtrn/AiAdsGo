@@ -24,6 +24,8 @@ export interface GeminiRequest {
     topK?: number
     topP?: number
     maxOutputTokens?: number
+    responseMimeType?: string  // 🆕 Token优化：MIME类型
+    responseSchema?: any  // 🆕 Token优化：JSON schema
   }
 }
 
@@ -94,12 +96,16 @@ export async function generateContent(params: {
   prompt: string
   temperature?: number
   maxOutputTokens?: number
+  responseSchema?: any  // 🆕 Token优化：JSON schema
+  responseMimeType?: string  // 🆕 Token优化：MIME类型
 }, userId: number): Promise<GeminiAxiosGenerateResult> {
   const {
     model = 'gemini-2.5-pro',
     prompt,
     temperature = 0.7,
     maxOutputTokens = 8192,
+    responseSchema,  // 🆕 Token优化：JSON schema
+    responseMimeType,  // 🆕 Token优化：MIME类型
   } = params
 
   // 从用户配置获取API密钥（不使用全局配置）
@@ -114,6 +120,19 @@ export async function generateContent(params: {
   console.log(`🌐 直接访问Gemini API（不使用代理）`)
 
   // 构建请求
+  // 构建generationConfig（根据是否有responseSchema）
+  const generationConfig: any = {
+    temperature,
+    maxOutputTokens,
+  }
+
+  // 🆕 Token优化：结构化JSON输出约束
+  if (responseSchema) {
+    generationConfig.responseMimeType = responseMimeType || 'application/json'
+    generationConfig.responseSchema = responseSchema
+    console.log(`📋 Gemini API使用JSON schema约束`)
+  }
+
   const request: GeminiRequest = {
     contents: [
       {
@@ -121,10 +140,7 @@ export async function generateContent(params: {
         role: 'user',
       },
     ],
-    generationConfig: {
-      temperature,
-      maxOutputTokens,
-    },
+    generationConfig,
   }
 
   // 尝试使用主模型

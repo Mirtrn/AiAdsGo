@@ -11,6 +11,7 @@ interface GoogleAdsAccount {
   manager: boolean
   test_account: boolean
   status: string
+  account_balance?: number | null  // 账户余额（单位：微货币，即实际金额×1,000,000）
   parent_mcc?: string
   parent_mcc_name?: string
   db_account_id: number | null
@@ -200,6 +201,10 @@ export default function GoogleAdsPage() {
       case 'type':
         aValue = a.manager ? 'mcc' : a.test_account ? 'test' : 'normal'
         bValue = b.manager ? 'mcc' : b.test_account ? 'test' : 'normal'
+        break
+      case 'balance':
+        aValue = a.account_balance ?? 0
+        bValue = b.account_balance ?? 0
         break
       case 'status':
         aValue = a.status.toLowerCase()
@@ -393,6 +398,15 @@ export default function GoogleAdsPage() {
                           </th>
                           <th
                             className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => handleSort('balance')}
+                          >
+                            <div className="flex items-center">
+                              账户余额
+                              <SortIndicator column="balance" />
+                            </div>
+                          </th>
+                          <th
+                            className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                             onClick={() => handleSort('status')}
                           >
                             <div className="flex items-center">
@@ -461,6 +475,21 @@ export default function GoogleAdsPage() {
                                   <span className="text-sm text-gray-600">普通账户</span>
                                 )}
                               </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {account.account_balance !== null && account.account_balance !== undefined ? (
+                                <div className="text-sm">
+                                  <div className="font-medium text-gray-900">
+                                    {account.currency_code} {(account.account_balance / 1000000).toLocaleString('zh-CN', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2
+                                    })}
+                                  </div>
+                                  <div className="text-xs text-gray-500">余额</div>
+                                </div>
+                              ) : (
+                                <span className="text-sm text-gray-400">-</span>
+                              )}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               {(() => {
