@@ -2,12 +2,18 @@ import { getDatabase, getSQLiteDatabase } from './db'
 
 /**
  * 关键词搜索量数据
+ *
+ * 🎯 数据来源说明：
+ * - Historical Metrics API：精确匹配搜索量（优先使用）
+ * - Keyword Ideas API：关键词发现的估算值（已用精确值校准）
  */
 export interface KeywordWithVolume {
   keyword: string
-  searchVolume: number
+  searchVolume: number // 精确搜索量（来自Historical Metrics API）
   competition?: string
   competitionIndex?: number
+  source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
+  matchType?: 'EXACT' | 'BROAD' // 匹配类型（统一使用EXACT）
 }
 
 /**

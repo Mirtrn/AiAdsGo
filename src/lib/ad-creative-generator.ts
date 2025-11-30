@@ -10,13 +10,17 @@ import { creativeCache, generateCreativeCacheKey } from './cache'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { generateContent, getGeminiMode } from './gemini'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'  // 🎯 新增：导入token追踪函数
 
 // Keyword with search volume data
+// 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
 export interface KeywordWithVolume {
   keyword: string
-  searchVolume: number
+  searchVolume: number // 精确搜索量（来自Historical Metrics API）
   competition?: string
   competitionIndex?: number
+  source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
+  matchType?: 'EXACT' | 'BROAD' // 匹配类型
 }
 
 /**
@@ -1173,6 +1177,25 @@ export async function generateAdCreative(
   }, userId)
   console.timeEnd('⏱️ AI生成创意')
 
+  // 记录token使用
+  if (aiResponse.usage) {
+    const cost = estimateTokenCost(
+      aiResponse.model,
+      aiResponse.usage.inputTokens,
+      aiResponse.usage.outputTokens
+    )
+    await recordTokenUsage({
+      userId,
+      model: aiResponse.model,
+      operationType: 'ad_creative_generation_main',
+      inputTokens: aiResponse.usage.inputTokens,
+      outputTokens: aiResponse.usage.outputTokens,
+      totalTokens: aiResponse.usage.totalTokens,
+      cost,
+      apiType: aiResponse.apiType
+    })
+  }
+
   // 解析AI响应
   console.time('⏱️ 解析AI响应')
   const result: GeneratedAdCreativeData = parseAIResponse(aiResponse.text)
@@ -1198,7 +1221,7 @@ export async function generateAdCreative(
   console.log(`   - Descriptions: ${result.descriptions.length}个`)
   console.log(`   - Keywords: ${result.keywords.length}个`)
 
-  // Enrich keywords with search volume data
+  // 🔄 使用统一关键词服务获取精确搜索量
   console.time('⏱️ 获取关键词搜索量')
   let keywordsWithVolume: KeywordWithVolume[] = []
   try {
@@ -1208,16 +1231,26 @@ export async function generateAdCreative(
     const lang = targetLanguage.toLowerCase().substring(0, 2)
     const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
 
-    console.log(`🔍 获取关键词搜索量: ${result.keywords.length}个关键词, 国家=${country}, 语言=${language} (${targetLanguage})`)
-    const volumes = await getKeywordSearchVolumes(result.keywords, country, language, userId)
+    console.log(`🔍 获取关键词精确搜索量: ${result.keywords.length}个关键词, 国家=${country}, 语言=${language} (${targetLanguage})`)
 
-    keywordsWithVolume = volumes.map(v => ({
+    // 🎯 使用统一服务：确保所有搜索量来自Historical Metrics API（精确匹配）
+    const { getUnifiedKeywordData } = await import('@/lib/unified-keyword-service')
+    const unifiedData = await getUnifiedKeywordData({
+      baseKeywords: result.keywords,
+      enableExpansion: false, // 此阶段仅获取基础关键词数据
+      country,
+      language,
+      userId,
+      brandName
+    })
+
+    keywordsWithVolume = unifiedData.map(v => ({
       keyword: v.keyword,
-      searchVolume: v.avgMonthlySearches,
+      searchVolume: v.searchVolume,
       competition: v.competition,
       competitionIndex: v.competitionIndex
     }))
-    console.log(`✅ 关键词搜索量获取完成`)
+    console.log(`✅ 关键词精确搜索量获取完成（来源: Historical Metrics API）`)
   } catch (error) {
     console.warn('⚠️ 获取关键词搜索量失败，使用默认值:', error)
     keywordsWithVolume = result.keywords.map(kw => ({ keyword: kw, searchVolume: 0 }))
@@ -1368,36 +1401,33 @@ export async function generateAdCreative(
             console.log(`\n📍 第 ${roundInfo.round} 轮 [${roundInfo.name}] Keyword Planner 查询`)
             console.log(`   种子关键词 (${seedKeywords.length}个): ${seedKeywords.join(', ')}`)
 
-            // 调用Keyword Planner API获取关键词创意
-            const keywordIdeas = await getKeywordIdeas({
+            // 🎯 使用统一服务：扩展关键词并获取精确搜索量
+            const { getUnifiedKeywordData } = await import('@/lib/unified-keyword-service')
+            const roundKeywords = await getUnifiedKeywordData({
+              baseKeywords: [], // 扩展模式不需要基础关键词
+              enableExpansion: true,
+              expansionSeeds: seedKeywords,
+              country,
+              language,
               customerId: adsAccount.customer_id,
               refreshToken: credentials.refresh_token,
-              seedKeywords: seedKeywords,
-              targetCountry: country,
-              targetLanguage: language,
               accountId: adsAccount.id,
-              userId
+              userId,
+              brandName
             })
 
-            console.log(`   📊 返回 ${keywordIdeas.length} 个关键词创意`)
-
-            // 过滤：只保留搜索量 > 500 的新关键词
-            const expandedKeywords = keywordIdeas
-              .filter(idea => idea.avgMonthlySearches > 500)
-              .map(idea => ({
-                keyword: idea.text,
-                searchVolume: idea.avgMonthlySearches,
-                competition: idea.competition,
-                competitionIndex: idea.competitionIndex,
-                source: 'KEYWORD_EXPANSION'
-              }))
-
-            console.log(`   ✅ 筛选出 ${expandedKeywords.length} 个搜索量 > 500 的关键词`)
+            console.log(`   ✅ 获取 ${roundKeywords.length} 个扩展关键词（精确搜索量）`)
 
             // 去重：排除已存在的关键词
-            const newExpandedKeywords = expandedKeywords.filter(kw =>
-              !existingKeywordsSet.has(kw.keyword.toLowerCase())
-            )
+            const newExpandedKeywords = roundKeywords
+              .filter(kw => !existingKeywordsSet.has(kw.keyword.toLowerCase()))
+              .map(kw => ({
+                keyword: kw.keyword,
+                searchVolume: kw.searchVolume, // 已经是精确值
+                competition: kw.competition,
+                competitionIndex: kw.competitionIndex,
+                source: 'KEYWORD_EXPANSION'
+              }))
 
             if (newExpandedKeywords.length > 0) {
               console.log(`   🆕 添加 ${newExpandedKeywords.length} 个新的扩展关键词:`)
