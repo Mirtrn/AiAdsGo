@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const startDateStr = startDate.toISOString().split('T')[0]
     const endDateStr = endDate.toISOString().split('T')[0]
 
-    // 3. 查询每日趋势数据
+    // 3. 查询每日趋势数据（修复：使用正确的加权计算而非简单平均）
     const trends = db
       .prepare(
         `
@@ -41,9 +41,7 @@ export async function GET(request: NextRequest) {
         SUM(impressions) as impressions,
         SUM(clicks) as clicks,
         SUM(conversions) as conversions,
-        SUM(cost) as cost,
-        AVG(ctr) as ctr,
-        AVG(conversion_rate) as conversionRate
+        SUM(cost) as cost
       FROM campaign_performance
       WHERE user_id = ?
         AND date >= ?
@@ -54,17 +52,29 @@ export async function GET(request: NextRequest) {
       )
       .all(userId, startDateStr, endDateStr) as any[]
 
-    // 4. 格式化数据
-    const formattedTrends = trends.map((row) => ({
-      date: row.date,
-      impressions: row.impressions || 0,
-      clicks: row.clicks || 0,
-      conversions: row.conversions || 0,
-      cost: Math.round((row.cost || 0) * 100) / 100,
-      ctr: Math.round((row.ctr || 0) * 10000) / 100, // 转换为百分比
-      conversionRate: Math.round((row.conversionRate || 0) * 10000) / 100, // 转换为百分比
-      avgCpc: row.clicks > 0 ? Math.round((row.cost / row.clicks) * 100) / 100 : 0,
-    }))
+    // 4. 格式化数据（正确计算加权CTR/转化率/CPC/CPA）
+    const formattedTrends = trends.map((row) => {
+      const impressions = row.impressions || 0
+      const clicks = row.clicks || 0
+      const conversions = row.conversions || 0
+      const cost = row.cost || 0
+
+      return {
+        date: row.date,
+        impressions,
+        clicks,
+        conversions,
+        cost: Math.round(cost * 100) / 100,
+        // CTR = 点击数 / 展示数 * 100（正确的加权计算）
+        ctr: impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0,
+        // 转化率 = 转化数 / 点击数 * 100（正确的加权计算）
+        conversionRate: clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0,
+        // CPC = 花费 / 点击数
+        avgCpc: clicks > 0 ? Math.round((cost / clicks) * 100) / 100 : 0,
+        // CPA = 花费 / 转化数（新增）
+        avgCpa: conversions > 0 ? Math.round((cost / conversions) * 100) / 100 : 0,
+      }
+    })
 
     // 5. 返回结果
     return NextResponse.json({

@@ -27,11 +27,19 @@ export async function GET(request: NextRequest) {
 
     const db = getSQLiteDatabase()
 
-    // 2. Calculate date range
+    // 2. Calculate date range (current period)
     const endDate = new Date().toISOString().split('T')[0]
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - daysBack)
     const startDateStr = startDate.toISOString().split('T')[0]
+
+    // Calculate previous period date range (for comparison)
+    const prevEndDate = new Date(startDate)
+    prevEndDate.setDate(prevEndDate.getDate() - 1)
+    const prevStartDate = new Date(prevEndDate)
+    prevStartDate.setDate(prevStartDate.getDate() - daysBack + 1)
+    const prevStartDateStr = prevStartDate.toISOString().split('T')[0]
+    const prevEndDateStr = prevEndDate.toISOString().split('T')[0]
 
     // 3. Query campaigns with performance data
     const campaigns = db.prepare(`
@@ -110,16 +118,61 @@ export async function GET(request: NextRequest) {
       }
     }))
 
+    // 5. Calculate current period totals
+    const currentTotals = {
+      impressions: campaigns.reduce((sum, c) => sum + c.impressions, 0),
+      clicks: campaigns.reduce((sum, c) => sum + c.clicks, 0),
+      conversions: campaigns.reduce((sum, c) => sum + c.conversions, 0),
+      cost: campaigns.reduce((sum, c) => sum + c.cost, 0)
+    }
+
+    // 6. Query previous period totals for comparison
+    const prevPeriodData = db.prepare(`
+      SELECT
+        COALESCE(SUM(impressions), 0) as impressions,
+        COALESCE(SUM(clicks), 0) as clicks,
+        COALESCE(SUM(conversions), 0) as conversions,
+        COALESCE(SUM(cost), 0) as cost
+      FROM campaign_performance
+      WHERE user_id = ?
+        AND date >= ?
+        AND date <= ?
+    `).get(userId, prevStartDateStr, prevEndDateStr) as any
+
+    // 7. Calculate percentage changes (环比增长)
+    const calcChange = (current: number, previous: number): number | null => {
+      if (previous === 0) return current > 0 ? 100 : null
+      return Math.round(((current - previous) / previous) * 10000) / 100
+    }
+
+    const changes = {
+      impressions: calcChange(currentTotals.impressions, prevPeriodData?.impressions || 0),
+      clicks: calcChange(currentTotals.clicks, prevPeriodData?.clicks || 0),
+      conversions: calcChange(currentTotals.conversions, prevPeriodData?.conversions || 0),
+      cost: calcChange(currentTotals.cost, prevPeriodData?.cost || 0)
+    }
+
     return NextResponse.json({
       success: true,
       campaigns: formattedCampaigns,
       summary: {
         totalCampaigns: campaigns.length,
         activeCampaigns: campaigns.filter(c => c.status === 'ENABLED').length,
-        totalImpressions: campaigns.reduce((sum, c) => sum + c.impressions, 0),
-        totalClicks: campaigns.reduce((sum, c) => sum + c.clicks, 0),
-        totalConversions: campaigns.reduce((sum, c) => sum + c.conversions, 0),
-        totalCostUsd: campaigns.reduce((sum, c) => sum + c.cost, 0)
+        totalImpressions: currentTotals.impressions,
+        totalClicks: currentTotals.clicks,
+        totalConversions: currentTotals.conversions,
+        totalCostUsd: currentTotals.cost,
+        // 环比增长数据
+        changes: {
+          impressions: changes.impressions,
+          clicks: changes.clicks,
+          conversions: changes.conversions,
+          cost: changes.cost
+        },
+        comparisonPeriod: {
+          current: { start: startDateStr, end: endDate },
+          previous: { start: prevStartDateStr, end: prevEndDateStr }
+        }
       }
     })
 

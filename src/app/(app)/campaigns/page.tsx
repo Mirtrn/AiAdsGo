@@ -22,7 +22,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import {
   getCampaignStatusLabel,
@@ -67,6 +77,13 @@ interface PerformanceSummary {
   totalClicks: number
   totalConversions: number
   totalCostUsd: number
+  // 环比增长数据
+  changes?: {
+    impressions: number | null
+    clicks: number | null
+    conversions: number | null
+    cost: number | null
+  }
 }
 
 export default function CampaignsPage() {
@@ -85,10 +102,26 @@ export default function CampaignsPage() {
   const [creationStatusFilter, setCreationStatusFilter] = useState<string>('all')
   const [timeRange, setTimeRange] = useState<string>('7')
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+
+  // Sorting states
+  type SortField = 'campaignName' | 'budgetAmount' | 'impressions' | 'clicks' | 'ctr' | 'cpc' | 'conversions' | 'cost' | 'status' | 'creationStatus'
+  type SortDirection = 'asc' | 'desc' | null
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+
   // Trend data states
   const [trendsData, setTrendsData] = useState<TrendChartData[]>([])
   const [trendsLoading, setTrendsLoading] = useState(false)
   const [trendsError, setTrendsError] = useState<string | null>(null)
+
+  // Batch delete states
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<number>>(new Set())
+  const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false)
+  const [batchDeleting, setBatchDeleting] = useState(false)
+  const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchCampaigns()
@@ -123,8 +156,64 @@ export default function CampaignsPage() {
       result = result.filter((c) => c.creationStatus === creationStatusFilter)
     }
 
+    // Sorting
+    if (sortField && sortDirection) {
+      result = [...result].sort((a, b) => {
+        let aVal: number | string = 0
+        let bVal: number | string = 0
+
+        switch (sortField) {
+          case 'campaignName':
+            aVal = a.campaignName.toLowerCase()
+            bVal = b.campaignName.toLowerCase()
+            break
+          case 'budgetAmount':
+            aVal = a.budgetAmount
+            bVal = b.budgetAmount
+            break
+          case 'impressions':
+            aVal = a.performance?.impressions || 0
+            bVal = b.performance?.impressions || 0
+            break
+          case 'clicks':
+            aVal = a.performance?.clicks || 0
+            bVal = b.performance?.clicks || 0
+            break
+          case 'ctr':
+            aVal = a.performance?.ctr || 0
+            bVal = b.performance?.ctr || 0
+            break
+          case 'cpc':
+            aVal = a.performance?.cpcUsd || 0
+            bVal = b.performance?.cpcUsd || 0
+            break
+          case 'conversions':
+            aVal = a.performance?.conversions || 0
+            bVal = b.performance?.conversions || 0
+            break
+          case 'cost':
+            aVal = a.performance?.costUsd || 0
+            bVal = b.performance?.costUsd || 0
+            break
+          case 'status':
+            aVal = a.status
+            bVal = b.status
+            break
+          case 'creationStatus':
+            aVal = a.creationStatus
+            bVal = b.creationStatus
+            break
+        }
+
+        if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+        if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
+        return 0
+      })
+    }
+
     setFilteredCampaigns(result)
-  }, [campaigns, searchQuery, statusFilter, creationStatusFilter])
+    setCurrentPage(1) // Reset to first page when filters change
+  }, [campaigns, searchQuery, statusFilter, creationStatusFilter, sortField, sortDirection])
 
   const fetchCampaigns = async () => {
     try {
@@ -246,6 +335,84 @@ export default function CampaignsPage() {
     }
   }
 
+  // 批量删除处理函数
+  const handleBatchDelete = async () => {
+    if (selectedCampaignIds.size === 0) return
+
+    try {
+      setBatchDeleting(true)
+      setBatchDeleteError(null)
+
+      // 并行删除所有选中的campaigns
+      const deletePromises = Array.from(selectedCampaignIds).map(async (id) => {
+        const response = await fetch(`/api/campaigns/${id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+        const data = await response.json()
+        return { id, response, data }
+      })
+
+      const results = await Promise.allSettled(deletePromises)
+
+      // 收集所有错误
+      const errors: string[] = []
+
+      results.forEach((result) => {
+        if (result.status === 'rejected') {
+          errors.push(result.reason?.message || '网络错误')
+        } else if (result.status === 'fulfilled') {
+          const { response, data, id } = result.value
+          if (!response.ok) {
+            const campaignInfo = campaigns.find(c => c.id === id)?.campaignName || `ID:${id}`
+            errors.push(`${campaignInfo}: ${data.error || '删除失败'}`)
+          }
+        }
+      })
+
+      if (errors.length > 0) {
+        setBatchDeleteError(`${errors.length}/${selectedCampaignIds.size} 个广告系列删除失败：\n${errors.join('\n')}`)
+        await fetchCampaigns()
+        return
+      }
+
+      // 全部删除成功
+      await fetchCampaigns()
+      setSelectedCampaignIds(new Set())
+      setIsBatchDeleteDialogOpen(false)
+      setBatchDeleteError(null)
+      showSuccess('删除成功', `已删除 ${selectedCampaignIds.size} 个广告系列`)
+    } catch (err: any) {
+      setBatchDeleteError(err.message || '批量删除失败')
+    } finally {
+      setBatchDeleting(false)
+    }
+  }
+
+  // 获取当前页的广告系列
+  const paginatedCampaigns = filteredCampaigns.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  // 全选/取消全选
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allIds = new Set(paginatedCampaigns.map(c => c.id))
+      setSelectedCampaignIds(allIds)
+    } else {
+      setSelectedCampaignIds(new Set())
+    }
+  }
+
+  // 单选切换
+  const handleSelectCampaign = (campaignId: number, checked: boolean) => {
+    const newSelected = new Set(selectedCampaignIds)
+    if (checked) {
+      newSelected.add(campaignId)
+    } else {
+      newSelected.delete(campaignId)
+    }
+    setSelectedCampaignIds(newSelected)
+  }
+
   const getStatusBadge = (status: string) => {
     const configs = {
       ENABLED: { label: getCampaignStatusLabel('ENABLED'), variant: 'default' as const, icon: PlayCircle, className: 'bg-green-600 hover:bg-green-700' },
@@ -279,6 +446,42 @@ export default function CampaignsPage() {
     )
   }
 
+  // 排序处理函数
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // 如果点击的是当前排序字段，切换排序方向
+      if (sortDirection === 'asc') {
+        setSortDirection('desc')
+      } else if (sortDirection === 'desc') {
+        setSortDirection(null)
+        setSortField(null)
+      } else {
+        setSortDirection('asc')
+      }
+    } else {
+      // 如果点击的是新字段，设置为升序
+      setSortField(field)
+      setSortDirection('asc')
+    }
+  }
+
+  // 可排序表头组件
+  const SortableHeader = ({ field, children, className = '' }: { field: SortField; children: React.ReactNode; className?: string }) => {
+    const isActive = sortField === field
+    return (
+      <TableHead className={`cursor-pointer select-none hover:bg-gray-50 ${className}`} onClick={() => handleSort(field)}>
+        <div className="flex items-center gap-1">
+          {children}
+          {isActive ? (
+            sortDirection === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
+          ) : (
+            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+          )}
+        </div>
+      </TableHead>
+    )
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -303,6 +506,17 @@ export default function CampaignsPage() {
               </Badge>
             </div>
             <div className="flex items-center gap-3">
+              {/* 批量删除按钮 - 有选中项时显示 */}
+              {selectedCampaignIds.size > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setIsBatchDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  删除 ({selectedCampaignIds.size})
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={handleSyncData}
@@ -321,7 +535,7 @@ export default function CampaignsPage() {
       </div>
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        {/* Summary Statistics */}
+        {/* Summary Statistics with comparison */}
         {summary && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <Card>
@@ -332,6 +546,11 @@ export default function CampaignsPage() {
                     <p className="text-2xl font-bold text-gray-900 mt-1">
                       {(summary.totalImpressions ?? 0).toLocaleString()}
                     </p>
+                    {summary.changes?.impressions !== null && summary.changes?.impressions !== undefined && (
+                      <p className={`text-xs mt-1 ${summary.changes.impressions >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {summary.changes.impressions >= 0 ? '↑' : '↓'} {Math.abs(summary.changes.impressions).toFixed(1)}% 环比
+                      </p>
+                    )}
                   </div>
                   <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center">
                     <TrendingUp className="w-6 h-6 text-blue-600" />
@@ -348,6 +567,11 @@ export default function CampaignsPage() {
                     <p className="text-2xl font-bold text-gray-900 mt-1">
                       {(summary.totalClicks ?? 0).toLocaleString()}
                     </p>
+                    {summary.changes?.clicks !== null && summary.changes?.clicks !== undefined && (
+                      <p className={`text-xs mt-1 ${summary.changes.clicks >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {summary.changes.clicks >= 0 ? '↑' : '↓'} {Math.abs(summary.changes.clicks).toFixed(1)}% 环比
+                      </p>
+                    )}
                   </div>
                   <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
                     <CheckCircle2 className="w-6 h-6 text-green-600" />
@@ -364,6 +588,11 @@ export default function CampaignsPage() {
                     <p className="text-2xl font-bold text-gray-900 mt-1">
                       {(summary.totalConversions ?? 0).toLocaleString()}
                     </p>
+                    {summary.changes?.conversions !== null && summary.changes?.conversions !== undefined && (
+                      <p className={`text-xs mt-1 ${summary.changes.conversions >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {summary.changes.conversions >= 0 ? '↑' : '↓'} {Math.abs(summary.changes.conversions).toFixed(1)}% 环比
+                      </p>
+                    )}
                   </div>
                   <div className="h-12 w-12 bg-purple-100 rounded-full flex items-center justify-center">
                     <TrendingUp className="w-6 h-6 text-purple-600" />
@@ -380,6 +609,11 @@ export default function CampaignsPage() {
                     <p className="text-2xl font-bold text-gray-900 mt-1">
                       ${(summary.totalCostUsd ?? 0).toFixed(2)}
                     </p>
+                    {summary.changes?.cost !== null && summary.changes?.cost !== undefined && (
+                      <p className={`text-xs mt-1 ${summary.changes.cost <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {summary.changes.cost >= 0 ? '↑' : '↓'} {Math.abs(summary.changes.cost).toFixed(1)}% 环比
+                      </p>
+                    )}
                   </div>
                   <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
                     <DollarSign className="w-6 h-6 text-orange-600" />
@@ -390,24 +624,82 @@ export default function CampaignsPage() {
           </div>
         )}
 
-        {/* Trends Chart */}
+        {/* Trends Charts - 分组展示 */}
         <div className="mb-6">
-          <TrendChart
-            data={trendsData}
-            metrics={[
-              { key: 'impressions', label: '展示次数', color: 'hsl(var(--chart-1))' },
-              { key: 'clicks', label: '点击次数', color: 'hsl(var(--chart-2))' },
-              { key: 'conversions', label: '转化次数', color: 'hsl(var(--chart-4))' },
-            ]}
-            title="性能趋势"
-            description={`过去${timeRange}天的数据变化`}
-            loading={trendsLoading}
-            error={trendsError}
-            onRetry={fetchTrends}
-            selectedTimeRange={parseInt(timeRange)}
-            onTimeRangeChange={(days) => setTimeRange(days.toString())}
-            height={280}
-          />
+          {/* 统一的时间范围选择器 */}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">性能趋势</h3>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">时间范围:</span>
+              <div className="flex gap-1">
+                {[7, 30, 90].map((days) => (
+                  <button
+                    key={days}
+                    onClick={() => setTimeRange(days.toString())}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      timeRange === days.toString()
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {days}天
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* 绝对值指标：展示、点击、转化 */}
+            <TrendChart
+              data={trendsData}
+              metrics={[
+                { key: 'impressions', label: '展示', color: 'hsl(var(--chart-1))' },
+                { key: 'clicks', label: '点击', color: 'hsl(var(--chart-2))' },
+                { key: 'conversions', label: '转化', color: 'hsl(var(--chart-4))' },
+              ]}
+              title="流量趋势"
+              description="展示/点击/转化量"
+              loading={trendsLoading}
+              error={trendsError}
+              onRetry={fetchTrends}
+              height={220}
+              hideTimeRangeSelector={true}
+            />
+
+            {/* 效率指标：CTR、转化率 */}
+            <TrendChart
+              data={trendsData}
+              metrics={[
+                { key: 'ctr', label: 'CTR', color: 'hsl(var(--chart-2))', formatter: (v) => `${v.toFixed(2)}%` },
+                { key: 'conversionRate', label: '转化率', color: 'hsl(var(--chart-4))', formatter: (v) => `${v.toFixed(2)}%` },
+              ]}
+              title="效率趋势"
+              description="点击率/转化率"
+              loading={trendsLoading}
+              error={trendsError}
+              onRetry={fetchTrends}
+              height={220}
+              hideTimeRangeSelector={true}
+            />
+
+            {/* 成本指标：花费、CPC、CPA */}
+            <TrendChart
+              data={trendsData}
+              metrics={[
+                { key: 'cost', label: '花费', color: 'hsl(var(--chart-3))', formatter: (v) => `$${v.toFixed(2)}` },
+                { key: 'avgCpc', label: 'CPC', color: 'hsl(var(--chart-5))', formatter: (v) => `$${v.toFixed(2)}` },
+                { key: 'avgCpa', label: 'CPA', color: 'hsl(var(--chart-1))', formatter: (v) => `$${v.toFixed(2)}` },
+              ]}
+              title="成本趋势"
+              description="花费/CPC/CPA"
+              loading={trendsLoading}
+              error={trendsError}
+              onRetry={fetchTrends}
+              height={220}
+              hideTimeRangeSelector={true}
+            />
+          </div>
         </div>
 
         {/* Filters */}
@@ -501,22 +793,38 @@ export default function CampaignsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[200px]">广告系列名称</TableHead>
-                      <TableHead>预算</TableHead>
-                      <TableHead>展示次数(Impressions)</TableHead>
-                      <TableHead>点击次数(Clicks)</TableHead>
-                      <TableHead>点击率(CTR)</TableHead>
-                      <TableHead>每次点击费用(CPC)</TableHead>
-                      <TableHead>转化次数(Conversions)</TableHead>
-                      <TableHead>花费</TableHead>
-                      <TableHead>投放状态</TableHead>
-                      <TableHead>同步状态</TableHead>
+                      {/* 全选checkbox */}
+                      <TableHead className="w-[50px]">
+                        <Checkbox
+                          checked={paginatedCampaigns.length > 0 && paginatedCampaigns.every(c => selectedCampaignIds.has(c.id))}
+                          onCheckedChange={handleSelectAll}
+                          aria-label="全选"
+                        />
+                      </TableHead>
+                      <SortableHeader field="campaignName" className="w-[200px]">广告系列名称</SortableHeader>
+                      <SortableHeader field="budgetAmount">预算</SortableHeader>
+                      <SortableHeader field="impressions">展示次数</SortableHeader>
+                      <SortableHeader field="clicks">点击次数</SortableHeader>
+                      <SortableHeader field="ctr">点击率</SortableHeader>
+                      <SortableHeader field="cpc">点击费用</SortableHeader>
+                      <SortableHeader field="conversions">转化次数</SortableHeader>
+                      <SortableHeader field="cost">花费</SortableHeader>
+                      <SortableHeader field="status">投放状态</SortableHeader>
+                      <SortableHeader field="creationStatus">同步状态</SortableHeader>
                       <TableHead className="text-right">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                 <TableBody>
-                  {filteredCampaigns.map((campaign) => (
+                  {paginatedCampaigns.map((campaign) => (
                     <TableRow key={campaign.id} className="hover:bg-gray-50/50">
+                      {/* 选择checkbox */}
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedCampaignIds.has(campaign.id)}
+                          onCheckedChange={(checked) => handleSelectCampaign(campaign.id, checked as boolean)}
+                          aria-label={`选择 ${campaign.campaignName}`}
+                        />
+                      </TableCell>
                       <TableCell>
                         <div className="font-medium text-gray-900">
                           {campaign.campaignName}
@@ -618,10 +926,122 @@ export default function CampaignsPage() {
                 </TableBody>
               </Table>
               </div>
+              {/* Pagination Controls - Bottom */}
+              {filteredCampaigns.length > 0 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
+                  <div className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
+                    <span>每页</span>
+                    <Select value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
+                      <SelectTrigger className="w-16 h-7 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="10">10</SelectItem>
+                        <SelectItem value="20">20</SelectItem>
+                        <SelectItem value="50">50</SelectItem>
+                        <SelectItem value="100">100</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span>条，共 {filteredCampaigns.length} 条</span>
+                  </div>
+                  {filteredCampaigns.length > pageSize && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                        上一页
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.ceil(filteredCampaigns.length / pageSize) }, (_, i) => i + 1)
+                          .filter(page => {
+                            const totalPages = Math.ceil(filteredCampaigns.length / pageSize)
+                            if (totalPages <= 7) return true
+                            if (page === 1 || page === totalPages) return true
+                            if (Math.abs(page - currentPage) <= 1) return true
+                            if (page === 2 && currentPage <= 3) return true
+                            if (page === totalPages - 1 && currentPage >= totalPages - 2) return true
+                            return false
+                          })
+                          .map((page, index, arr) => (
+                            <span key={page}>
+                              {index > 0 && arr[index - 1] !== page - 1 && (
+                                <span className="px-2 text-gray-400">...</span>
+                              )}
+                              <Button
+                                variant={currentPage === page ? 'default' : 'outline'}
+                                size="sm"
+                                className="w-8 h-8 p-0"
+                                onClick={() => setCurrentPage(page)}
+                              >
+                                {page}
+                              </Button>
+                            </span>
+                          ))}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredCampaigns.length / pageSize), p + 1))}
+                        disabled={currentPage >= Math.ceil(filteredCampaigns.length / pageSize)}
+                      >
+                        下一页
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
       </main>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {
+        setIsBatchDeleteDialogOpen(open)
+        if (!open) setBatchDeleteError(null)
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量删除</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>您确定要删除选中的 <strong className="text-gray-900">{selectedCampaignIds.size}</strong> 个广告系列吗？</p>
+                {/* 批量删除错误提示 */}
+                {batchDeleteError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                    <p className="font-medium mb-1">删除失败</p>
+                    <p className="whitespace-pre-line">{batchDeleteError}</p>
+                  </div>
+                )}
+                {!batchDeleteError && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                    <p className="font-medium mb-1">⚠️ 重要提示：</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>已同步到Google Ads的广告系列无法删除</li>
+                      <li>此操作不可撤销</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchDeleting} onClick={() => setBatchDeleteError(null)}>取消</AlertDialogCancel>
+            <Button
+              onClick={handleBatchDelete}
+              disabled={batchDeleting}
+              variant="destructive"
+            >
+              {batchDeleting ? '删除中...' : batchDeleteError ? '重试删除' : '确认删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
