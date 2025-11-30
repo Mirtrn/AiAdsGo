@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { BatchUploadProgress } from '@/components/BatchUploadProgress'
 
 interface UploadResult {
   success: boolean
@@ -27,6 +28,8 @@ export default function BatchUploadOffersPage() {
     }
     results?: UploadResult[]
   } | null>(null)
+  const [uploadedOfferIds, setUploadedOfferIds] = useState<number[]>([])
+  const [showProgress, setShowProgress] = useState(false)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -100,6 +103,16 @@ export default function BatchUploadOffersPage() {
       }
 
       setResults(data)
+
+      // 提取成功创建的Offer IDs，启动进度显示
+      const offerIds = data.results
+        ?.filter((r: UploadResult) => r.success && r.offer?.id)
+        .map((r: UploadResult) => r.offer!.id) || []
+
+      if (offerIds.length > 0) {
+        setUploadedOfferIds(offerIds)
+        setShowProgress(true)
+      }
     } catch (err: any) {
       setError(err.message || '批量上传失败，请稍后重试')
     } finally {
@@ -332,6 +345,20 @@ https://www.amazon.com/stores/page/yyy,Anker,电子配件,US,,99.99,10,USD,充�
           )}
         </div>
       </main>
+
+      {/* 批量上传进度显示（浮动，不阻塞用户操作） */}
+      {showProgress && uploadedOfferIds.length > 0 && (
+        <BatchUploadProgress
+          offerIds={uploadedOfferIds}
+          onComplete={() => {
+            // 全部完成后，可以选择刷新结果或显示通知
+            console.log('批量上传全部完成！')
+          }}
+          onClose={() => {
+            setShowProgress(false)
+          }}
+        />
+      )}
     </div>
   )
 }

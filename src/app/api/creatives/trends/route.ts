@@ -43,10 +43,10 @@ export async function GET(request: NextRequest) {
       SELECT
         DATE(created_at) as date,
         COUNT(*) as newCreatives,
-        AVG(COALESCE(quality_score, 0)) as avgQualityScore,
-        SUM(CASE WHEN quality_score >= 80 THEN 1 ELSE 0 END) as highQuality,
-        SUM(CASE WHEN quality_score >= 60 AND quality_score < 80 THEN 1 ELSE 0 END) as mediumQuality,
-        SUM(CASE WHEN quality_score < 60 OR quality_score IS NULL THEN 1 ELSE 0 END) as lowQuality
+        AVG(COALESCE(score, 0)) as avgScore,
+        SUM(CASE WHEN score >= 80 THEN 1 ELSE 0 END) as highQuality,
+        SUM(CASE WHEN score >= 60 AND score < 80 THEN 1 ELSE 0 END) as mediumQuality,
+        SUM(CASE WHEN score < 60 OR score IS NULL THEN 1 ELSE 0 END) as lowQuality
       FROM ad_creatives
       WHERE user_id = ?
         AND DATE(created_at) >= ?
@@ -66,10 +66,10 @@ export async function GET(request: NextRequest) {
 
     const dailyTrends = db.prepare(dailyCreativesQuery).all(...params) as any[]
 
-    // 4. 查询创意状态分布（当前总量）
+    // 4. 查询创意状态分布（当前总量，使用creation_status字段）
     let statusQuery = `
       SELECT
-        status,
+        creation_status as status,
         COUNT(*) as count
       FROM ad_creatives
       WHERE user_id = ?
@@ -108,9 +108,9 @@ export async function GET(request: NextRequest) {
     let qualityQuery = `
       SELECT
         CASE
-          WHEN quality_score >= 90 THEN 'excellent'
-          WHEN quality_score >= 75 THEN 'good'
-          WHEN quality_score >= 60 THEN 'average'
+          WHEN score >= 90 THEN 'excellent'
+          WHEN score >= 75 THEN 'good'
+          WHEN score >= 60 THEN 'average'
           ELSE 'poor'
         END as quality_level,
         COUNT(*) as count
@@ -169,7 +169,7 @@ export async function GET(request: NextRequest) {
     const formattedTrends = dailyTrends.map((row) => ({
       date: row.date,
       newCreatives: row.newCreatives || 0,
-      avgQualityScore: Math.round((row.avgQualityScore || 0) * 10) / 10,
+      avgQualityScore: Math.round((row.avgScore || 0) * 10) / 10,
       highQuality: row.highQuality || 0,
       mediumQuality: row.mediumQuality || 0,
       lowQuality: row.lowQuality || 0,

@@ -53,6 +53,7 @@ export function saveGoogleAdsCredentials(
           access_token = ?,
           access_token_expires_at = ?,
           is_active = 1,
+          last_verified_at = datetime('now'),
           updated_at = datetime('now')
       WHERE user_id = ?
     `).run(
@@ -70,8 +71,9 @@ export function saveGoogleAdsCredentials(
     db.prepare(`
       INSERT INTO google_ads_credentials (
         user_id, client_id, client_secret, refresh_token,
-        developer_token, login_customer_id, access_token, access_token_expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        developer_token, login_customer_id, access_token, access_token_expires_at,
+        last_verified_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `).run(
       userId,
       credentials.client_id,

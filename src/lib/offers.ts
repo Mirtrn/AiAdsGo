@@ -183,6 +183,7 @@ export function listOffers(
     targetCountry?: string
     searchQuery?: string
     includeDeleted?: boolean
+    ids?: number[] // 批量查询特定ID的Offers
   }
 ): { offers: Offer[]; total: number } {
   const db = getSQLiteDatabase()
@@ -193,6 +194,13 @@ export function listOffers(
   // 默认排除已删除的Offer（需求25）
   if (!options?.includeDeleted) {
     whereConditions.push('(is_deleted = 0 OR is_deleted IS NULL)')
+  }
+
+  // 如果提供了ids参数，只查询特定ID的Offers（用于批量上传进度显示）
+  if (options?.ids && options.ids.length > 0) {
+    const placeholders = options.ids.map(() => '?').join(',')
+    whereConditions.push(`id IN (${placeholders})`)
+    params.push(...options.ids)
   }
 
   // 构建WHERE条件

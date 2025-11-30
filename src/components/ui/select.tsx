@@ -36,7 +36,7 @@ export function SelectItem({ children, ...props }: SelectItemProps) {
 }
 
 export function SelectTrigger({ children, className = '', ...props }: SelectTriggerProps) {
-  return children
+  return <>{children}</>
 }
 
 export function SelectValue({ placeholder }: SelectValueProps) {

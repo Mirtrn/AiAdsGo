@@ -57,11 +57,6 @@ export interface AdCreative {
   ai_model: string             // 使用的AI模型
   is_selected: number          // 是否被用户选中
 
-  // 审批信息
-  is_approved: number          // 是否已审批
-  approved_by?: number         // 审批人ID
-  approved_at?: string         // 审批时间
-
   // Google Ads同步信息
   ad_group_id?: number         // 关联的Ad Group ID
   ad_id?: string               // Google Ads中的Ad ID
@@ -531,7 +526,6 @@ export function updateAdCreative(
     path_2: string
     final_url: string
     score: number
-    is_approved: number
     ad_group_id: number
     ad_id: string
     creation_status: string
@@ -582,10 +576,6 @@ export function updateAdCreative(
     fields.push('score = ?')
     values.push(updates.score)
   }
-  if (updates.is_approved !== undefined) {
-    fields.push('is_approved = ?')
-    values.push(updates.is_approved)
-  }
   if (updates.ad_group_id !== undefined) {
     fields.push('ad_group_id = ?')
     values.push(updates.ad_group_id)
@@ -635,50 +625,6 @@ export function deleteAdCreative(id: number, userId: number): boolean {
   `).run(id, userId)
 
   return result.changes > 0
-}
-
-/**
- * 批准广告创意
- */
-export function approveAdCreative(id: number, userId: number, approvedByUserId: number): AdCreative | null {
-  const db = getSQLiteDatabase()
-
-  const result = db.prepare(`
-    UPDATE ad_creatives
-    SET is_approved = 1,
-        approved_by = ?,
-        approved_at = datetime('now'),
-        updated_at = datetime('now')
-    WHERE id = ? AND user_id = ?
-  `).run(approvedByUserId, id, userId)
-
-  if (result.changes === 0) {
-    return null
-  }
-
-  return findAdCreativeById(id, userId)
-}
-
-/**
- * 取消批准广告创意
- */
-export function unapproveAdCreative(id: number, userId: number): AdCreative | null {
-  const db = getSQLiteDatabase()
-
-  const result = db.prepare(`
-    UPDATE ad_creatives
-    SET is_approved = 0,
-        approved_by = NULL,
-        approved_at = NULL,
-        updated_at = datetime('now')
-    WHERE id = ? AND user_id = ?
-  `).run(id, userId)
-
-  if (result.changes === 0) {
-    return null
-  }
-
-  return findAdCreativeById(id, userId)
 }
 
 /**

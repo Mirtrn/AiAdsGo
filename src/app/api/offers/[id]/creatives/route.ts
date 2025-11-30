@@ -46,7 +46,7 @@ export async function GET(
           keywords: c.keywords,
           final_url: c.final_url,
           score: c.score,
-          is_approved: c.is_approved,
+          creation_status: c.creation_status,
           created_at: c.created_at,
         })),
       },

@@ -49,7 +49,8 @@ import {
   ChevronRight,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Package
 } from 'lucide-react'
 import { TrendChart, TrendChartData } from '@/components/charts/TrendChart'
 
@@ -767,125 +768,79 @@ export default function CreativesPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* 新增创意趋势 */}
-            <TrendChart
-              data={trendsData}
-              metrics={[
-                { key: 'newCreatives', label: '新增创意', color: 'hsl(var(--chart-1))' },
-              ]}
-              title="新增创意趋势"
-              description="每日新增创意数量"
-              loading={trendsLoading}
-              error={trendsError}
-              onRetry={fetchTrends}
-              height={220}
-              hideTimeRangeSelector={true}
-              chartType="bar"
-            />
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+            {/* 新增创意趋势 - 2/5 */}
+            <div className="lg:col-span-2">
+              <TrendChart
+                data={trendsData}
+                metrics={[
+                  { key: 'newCreatives', label: '新增创意', color: 'hsl(217, 91%, 60%)' },
+                ]}
+                title="新增创意趋势"
+                description="每日新增创意数量"
+                loading={trendsLoading}
+                error={trendsError}
+                onRetry={fetchTrends}
+                height={220}
+                hideTimeRangeSelector={true}
+                chartType="bar"
+              />
+            </div>
 
-            {/* 创意质量趋势 */}
-            <TrendChart
-              data={trendsData}
-              metrics={[
-                { key: 'highQuality', label: '高质量(≥80)', color: 'hsl(142, 76%, 36%)' },
-                { key: 'mediumQuality', label: '中等(60-79)', color: 'hsl(45, 93%, 47%)' },
-                { key: 'lowQuality', label: '低质量(<60)', color: 'hsl(0, 84%, 60%)' },
-              ]}
-              title="创意质量分布趋势"
-              description="按质量评分分类"
-              loading={trendsLoading}
-              error={trendsError}
-              onRetry={fetchTrends}
-              height={220}
-              hideTimeRangeSelector={true}
-            />
-          </div>
+            {/* 创意质量趋势 - 2/5 */}
+            <div className="lg:col-span-2">
+              <TrendChart
+                data={trendsData}
+                metrics={[
+                  { key: 'highQuality', label: '高质量(≥80)', color: 'hsl(142, 76%, 36%)' },
+                  { key: 'mediumQuality', label: '中等(60-79)', color: 'hsl(45, 93%, 47%)' },
+                  { key: 'lowQuality', label: '低质量(<60)', color: 'hsl(0, 84%, 60%)' },
+                ]}
+                title="创意质量分布趋势"
+                description="按质量评分分类"
+                loading={trendsLoading}
+                error={trendsError}
+                onRetry={fetchTrends}
+                height={220}
+                hideTimeRangeSelector={true}
+              />
+            </div>
 
-          {/* 分布统计卡片 */}
-          {distributions && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+            {/* 质量评分分布 + 创意使用情况 上下排列 - 1/5 */}
+            <div className="lg:col-span-1 flex flex-col gap-4">
               {/* 质量评分分布 */}
-              <Card>
-                <CardContent className="pt-4">
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">质量评分分布</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">优秀 (≥90)</span>
-                      <span className="text-sm font-semibold text-green-600">{distributions.quality.excellent || 0}</span>
+              {distributions && (
+                <Card>
+                  <CardContent className="pt-4 pb-4">
+                    <h4 className="text-sm font-medium text-gray-600 mb-3">质量评分分布</h4>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">优秀 (≥90)</span>
+                        <span className="text-sm font-semibold text-green-600">{distributions.quality.excellent || 0}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">良好 (75-89)</span>
+                        <span className="text-sm font-semibold text-blue-600">{distributions.quality.good || 0}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">一般 (60-74)</span>
+                        <span className="text-sm font-semibold text-yellow-600">{distributions.quality.average || 0}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">较差 (&lt;60)</span>
+                        <span className="text-sm font-semibold text-red-600">{distributions.quality.poor || 0}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">良好 (75-89)</span>
-                      <span className="text-sm font-semibold text-blue-600">{distributions.quality.good || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">一般 (60-74)</span>
-                      <span className="text-sm font-semibold text-yellow-600">{distributions.quality.average || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">较差 (&lt;60)</span>
-                      <span className="text-sm font-semibold text-red-600">{distributions.quality.poor || 0}</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
 
-              {/* Ad Strength分布 */}
-              <Card>
-                <CardContent className="pt-4">
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">广告强度分布</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">EXCELLENT</span>
-                      <span className="text-sm font-semibold text-green-600">{distributions.adStrength.EXCELLENT || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">GOOD</span>
-                      <span className="text-sm font-semibold text-blue-600">{distributions.adStrength.GOOD || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">AVERAGE</span>
-                      <span className="text-sm font-semibold text-yellow-600">{distributions.adStrength.AVERAGE || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">POOR/未知</span>
-                      <span className="text-sm font-semibold text-red-600">{(distributions.adStrength.POOR || 0) + (distributions.adStrength.UNKNOWN || 0)}</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 状态分布 */}
-              <Card>
-                <CardContent className="pt-4">
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">创意状态分布</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">已批准</span>
-                      <span className="text-sm font-semibold text-green-600">{distributions.status.approved || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">草稿</span>
-                      <span className="text-sm font-semibold text-gray-600">{distributions.status.draft || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">已拒绝</span>
-                      <span className="text-sm font-semibold text-red-600">{distributions.status.rejected || 0}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">已归档</span>
-                      <span className="text-sm font-semibold text-gray-400">{distributions.status.archived || 0}</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 使用情况 */}
-              <Card>
-                <CardContent className="pt-4">
-                  <h4 className="text-sm font-medium text-gray-600 mb-3">创意使用情况</h4>
-                  {usageStats && (
-                    <div className="space-y-3">
+              {/* 创意使用情况 */}
+              {usageStats && (
+                <Card>
+                  <CardContent className="pt-4 pb-4">
+                    <h4 className="text-sm font-medium text-gray-600 mb-3">创意使用情况</h4>
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500">总创意数</span>
                         <span className="text-sm font-semibold text-gray-900">{usageStats.total}</span>
@@ -899,18 +854,18 @@ export default function CreativesPage() {
                         <span className="text-sm font-semibold text-blue-600">{usageStats.usageRate}%</span>
                       </div>
                       {/* 使用率进度条 */}
-                      <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
                         <div
-                          className="bg-blue-600 h-2 rounded-full transition-all"
+                          className="bg-blue-600 h-1.5 rounded-full transition-all"
                           style={{ width: `${usageStats.usageRate}%` }}
                         />
                       </div>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         {/* Filters */}
@@ -1004,7 +959,7 @@ export default function CreativesPage() {
                       <SortableHeader field="score" className="w-[100px]">质量评分</SortableHeader>
                       <SortableHeader field="creation_status" className="w-[100px]">同步状态</SortableHeader>
                       <SortableHeader field="created_at" className="w-[150px]">创建时间</SortableHeader>
-                      <TableHead className="text-right w-[200px]">操作</TableHead>
+                      <TableHead className="w-[120px]">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1061,53 +1016,28 @@ export default function CreativesPage() {
                           {new Date(creative.created_at).toLocaleDateString('zh-CN')}
                         </TableCell>
                         <TableCell>
-                          <div className="flex justify-end items-center gap-1">
+                          <div className="flex items-center gap-1">
                             {/* View Detail */}
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => openDetailDialog(creative)}
                               className="text-blue-600 hover:text-blue-800"
+                              title="查看创意详情"
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
 
-                            {/* Assign Ad Group */}
-                            {!creative.ad_group_id && adGroups.length > 0 && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setAssigningCreative(creative)}
-                                className="text-purple-600 hover:text-purple-800"
-                              >
-                                <Link className="w-4 h-4" />
-                              </Button>
-                            )}
-
-                            {/* Sync to Google Ads */}
-                            {creative.ad_group_id && !creative.ad_id && creative.creation_status !== 'pending' && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleSyncToGoogleAds(creative)}
-                                disabled={syncingId === creative.id}
-                                className="text-indigo-600 hover:text-indigo-800"
-                              >
-                                <RefreshCw className={`w-4 h-4 ${syncingId === creative.id ? 'animate-spin' : ''}`} />
-                              </Button>
-                            )}
-
-                            {/* Launch Score */}
-                            {offerId && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => router.push(`/launch-score?offerId=${offerId}&creativeId=${creative.id}`)}
-                                className="text-orange-600 hover:text-orange-800"
-                              >
-                                <Wand2 className="w-4 h-4" />
-                              </Button>
-                            )}
+                            {/* View Offer Detail */}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => router.push(`/offers/${creative.offer_id}`)}
+                              className="text-green-600 hover:text-green-800"
+                              title="查看关联的Offer详情页"
+                            >
+                              <Package className="w-4 h-4" />
+                            </Button>
 
                             {/* Delete */}
                             {creative.ad_id === null && (
@@ -1116,6 +1046,7 @@ export default function CreativesPage() {
                                 variant="ghost"
                                 onClick={() => handleDelete(creative)}
                                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                title="删除创意"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>

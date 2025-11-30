@@ -2,89 +2,78 @@
  * Offer抓取触发器
  * 通过直接调用抓取逻辑触发抓取，避免HTTP请求的认证问题
  *
- * 核心原则：直接调用抓取逻辑，确保异步抓取和手动抓取行为一致
+ * 核心原则：直接调用统一的核心抓取函数，确保异步抓取和手动抓取行为一致
+ * 🔥 重构优化：调用 offer-scraping-core.ts 的统一抓取流程
+ * 🚀 队列管理：使用队列管理器控制并发，防止服务器过载
  */
 
-import { updateOfferScrapeStatus, findOfferById } from './offers'
-import { scrapeUrl } from './scraper'
-import { analyzeProductPage } from './ai'
-import { getProxyUrlForCountry, isProxyEnabled } from './settings'
+import { updateOfferScrapeStatus } from './offers'
+import { performScrapeAndAnalysis } from './offer-scraping-core'
+import { getQueueManager } from './scrape-queue-manager'
+import { getQueueConfig } from './queue-config'
 
 /**
  * 触发Offer抓取（异步，不阻塞）
  *
  * 此函数会立即返回，抓取在后台进行
- * 直接执行抓取逻辑，避免HTTP认证问题
+ * 调用统一的核心抓取函数，包含所有增强模块和scraped_products持久化
+ * 🚀 使用队列管理器控制并发，防止服务器过载
  *
  * @param offerId Offer ID
  * @param userId User ID
  * @param url 要抓取的URL
  * @param brand 品牌名称
+ * @param priority 优先级（1-10，数字越大优先级越高，默认5）
  */
 export function triggerOfferScraping(
   offerId: number,
   userId: number,
   url: string,
-  brand: string
+  brand: string,
+  priority: number = 5
 ): void {
   console.log(`[OfferScraping] 触发异步抓取 Offer #${offerId}`)
-  console.log(`[OfferScraping] URL: ${url}, Brand: ${brand}, UserId: ${userId}`)
+  console.log(`[OfferScraping] URL: ${url}, Brand: ${brand}, UserId: ${userId}, Priority: ${priority}`)
 
-  // 立即更新状态为 in_progress
-  updateOfferScrapeStatus(offerId, userId, 'in_progress')
-  console.log(`[OfferScraping] 状态已更新为 in_progress`)
+  // 立即更新状态为 pending（等待队列处理）
+  updateOfferScrapeStatus(offerId, userId, 'pending')
+  console.log(`[OfferScraping] 状态已更新为 pending（等待队列处理）`)
 
   // 使用 setImmediate 在下一个事件循环中执行，确保不阻塞当前请求
   setImmediate(async () => {
     try {
-      console.log(`[OfferScraping] 开始执行后台抓取任务...`)
+      // 🚀 获取队列管理器（加载用户配置）
+      const queueConfig = getQueueConfig(userId)
+      const queueManager = getQueueManager(queueConfig)
 
-      // 🔧 修复：直接执行简化的抓取逻辑，而不是导入route.ts中的函数
-      // 获取代理配置
-      const offer = findOfferById(offerId, userId)
-      const targetCountry = offer?.target_country || 'US'
-      const useProxy = isProxyEnabled(userId)
-      const proxyUrl = useProxy ? getProxyUrlForCountry(targetCountry, userId) : undefined
+      console.log(`[OfferScraping] 添加到队列: Offer #${offerId}`)
 
-      // 抓取网页内容
-      console.log(`[OfferScraping] 开始抓取: ${url}`)
-      const pageData = await scrapeUrl(url, proxyUrl)
+      // 添加到队列（会自动控制并发）
+      await queueManager.addTask(
+        {
+          userId,
+          offerId,
+          priority,
+        },
+        async () => {
+          // 更新状态为 in_progress（开始执行）
+          updateOfferScrapeStatus(offerId, userId, 'in_progress')
+          console.log(`[OfferScraping] 开始执行抓取任务 Offer #${offerId}`)
 
-      // AI分析
-      console.log(`[OfferScraping] 开始AI分析...`)
-      const analysis = await analyzeProductPage({
-        url,
-        brand,
-        title: pageData.title || '',
-        description: pageData.description || '',
-        text: pageData.text,
-        targetCountry,
-      }, userId)
+          // 🔥 重构优化：调用统一的核心抓取函数
+          // 包含完整的抓取流程：
+          // - 推广链接解析
+          // - 网页抓取（Amazon Store/Product/独立站）
+          // - AI分析
+          // - 评论分析
+          // - 竞品分析
+          // - 广告元素提取
+          // - scraped_products持久化
+          await performScrapeAndAnalysis(offerId, userId, url, brand)
 
-      // 更新Offer信息
-      const { getSQLiteDatabase } = await import('./db')
-      const db = getSQLiteDatabase()
-      const stmt = db.prepare(`
-        UPDATE offers
-        SET brand_description = ?,
-            unique_selling_points = ?,
-            product_highlights = ?,
-            target_audience = ?,
-            scrape_status = 'completed',
-            scraped_at = datetime('now'),
-            updated_at = datetime('now')
-        WHERE id = ? AND user_id = ?
-      `)
-      stmt.run(
-        analysis.brandDescription || null,
-        analysis.uniqueSellingPoints || null,
-        analysis.productHighlights || null,
-        analysis.targetAudience || null,
-        offerId,
-        userId
+          console.log(`[OfferScraping] ✅ 后台抓取任务完成 Offer #${offerId}`)
+        }
       )
-
-      console.log(`[OfferScraping] ✅ 后台抓取任务完成 Offer #${offerId}`)
     } catch (error: any) {
       console.error(`[OfferScraping] ❌ 后台抓取任务失败 Offer #${offerId}:`, error)
       console.error(`[OfferScraping] 错误类型: ${error.name}`)
@@ -103,5 +92,5 @@ export function triggerOfferScraping(
     }
   })
 
-  console.log(`[OfferScraping] 异步任务已排队，主流程继续执行`)
+  console.log(`[OfferScraping] 异步任务已添加到队列，主流程继续执行`)
 }

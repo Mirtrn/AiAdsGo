@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createOffer } from '@/lib/offers'
-import { triggerOfferExtraction } from '@/lib/offer-extraction'
+import { triggerOfferScraping } from '@/lib/offer-scraping'
 import { z } from 'zod'
 
 /**
@@ -188,14 +188,15 @@ export async function POST(request: NextRequest) {
           commission_payout: validationResult.data.commission_payout || undefined,
         })
 
-        // 🚀 自动触发异步提取（解析推广链接 + 识别品牌名称）
+        // 🚀 自动触发完整抓取流程（与手动创建保持一致）
+        // 包含：推广链接解析 + 网页抓取 + AI分析 + 评论分析 + 竞品分析 + 广告元素提取 + scraped_products持久化
         if (offer.scrape_status === 'pending') {
           setImmediate(() => {
-            triggerOfferExtraction(
+            triggerOfferScraping(
               offer.id,
               parseInt(userId, 10),
               validationResult.data.affiliate_link,
-              validationResult.data.target_country
+              offer.brand || '提取中...'
             )
           })
         }

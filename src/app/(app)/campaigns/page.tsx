@@ -32,7 +32,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, Package } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import {
   getCampaignStatusLabel,
@@ -649,56 +649,123 @@ export default function CampaignsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* 绝对值指标：展示、点击、转化 */}
-            <TrendChart
-              data={trendsData}
-              metrics={[
-                { key: 'impressions', label: '展示', color: 'hsl(var(--chart-1))' },
-                { key: 'clicks', label: '点击', color: 'hsl(var(--chart-2))' },
-                { key: 'conversions', label: '转化', color: 'hsl(var(--chart-4))' },
-              ]}
-              title="流量趋势"
-              description="展示/点击/转化量"
-              loading={trendsLoading}
-              error={trendsError}
-              onRetry={fetchTrends}
-              height={220}
-              hideTimeRangeSelector={true}
-            />
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+            {/* 流量趋势 - 2/5 (柱状图，双Y轴：展示在左轴，点击/转化在右轴) */}
+            <div className="lg:col-span-2">
+              <TrendChart
+                data={trendsData}
+                metrics={[
+                  { key: 'impressions', label: '展示', color: 'hsl(217, 91%, 60%)', yAxisId: 'left' },
+                  { key: 'clicks', label: '点击', color: 'hsl(142, 76%, 36%)', yAxisId: 'right' },
+                  { key: 'conversions', label: '转化', color: 'hsl(280, 87%, 65%)', yAxisId: 'right' },
+                ]}
+                title="流量趋势"
+                description="展示(左轴) / 点击·转化(右轴)"
+                loading={trendsLoading}
+                error={trendsError}
+                onRetry={fetchTrends}
+                height={220}
+                hideTimeRangeSelector={true}
+                chartType="bar"
+                dualYAxis={true}
+              />
+            </div>
 
-            {/* 效率指标：CTR、转化率 */}
-            <TrendChart
-              data={trendsData}
-              metrics={[
-                { key: 'ctr', label: 'CTR', color: 'hsl(var(--chart-2))', formatter: (v) => `${v.toFixed(2)}%` },
-                { key: 'conversionRate', label: '转化率', color: 'hsl(var(--chart-4))', formatter: (v) => `${v.toFixed(2)}%` },
-              ]}
-              title="效率趋势"
-              description="点击率/转化率"
-              loading={trendsLoading}
-              error={trendsError}
-              onRetry={fetchTrends}
-              height={220}
-              hideTimeRangeSelector={true}
-            />
+            {/* 成本趋势 - 2/5 (使用双Y轴：花费在左轴，CPC/CPA在右轴) */}
+            <div className="lg:col-span-2">
+              <TrendChart
+                data={trendsData}
+                metrics={[
+                  { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => `$${v.toFixed(2)}`, yAxisId: 'left' },
+                  { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => `$${v.toFixed(2)}`, yAxisId: 'right' },
+                  { key: 'avgCpa', label: 'CPA', color: 'hsl(0, 84%, 60%)', formatter: (v) => `$${v.toFixed(2)}`, yAxisId: 'right' },
+                ]}
+                title="成本趋势"
+                description="花费(左轴) / CPC·CPA(右轴)"
+                loading={trendsLoading}
+                error={trendsError}
+                onRetry={fetchTrends}
+                height={220}
+                hideTimeRangeSelector={true}
+                dualYAxis={true}
+              />
+            </div>
 
-            {/* 成本指标：花费、CPC、CPA */}
-            <TrendChart
-              data={trendsData}
-              metrics={[
-                { key: 'cost', label: '花费', color: 'hsl(var(--chart-3))', formatter: (v) => `$${v.toFixed(2)}` },
-                { key: 'avgCpc', label: 'CPC', color: 'hsl(var(--chart-5))', formatter: (v) => `$${v.toFixed(2)}` },
-                { key: 'avgCpa', label: 'CPA', color: 'hsl(var(--chart-1))', formatter: (v) => `$${v.toFixed(2)}` },
-              ]}
-              title="成本趋势"
-              description="花费/CPC/CPA"
-              loading={trendsLoading}
-              error={trendsError}
-              onRetry={fetchTrends}
-              height={220}
-              hideTimeRangeSelector={true}
-            />
+            {/* 效率指标卡片 + 状态分布卡片 - 1/5 */}
+            <div className="lg:col-span-1 flex flex-col gap-4">
+              {/* 效率指标卡片 */}
+              <Card>
+                <CardContent className="pt-4 pb-4">
+                  <h4 className="text-sm font-medium text-gray-600 mb-3">效率指标</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500">平均CTR</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {trendsData.length > 0
+                          ? `${(trendsData.reduce((sum, d) => sum + ((d.ctr as number) || 0), 0) / trendsData.length).toFixed(2)}%`
+                          : '0.00%'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500">平均CPC</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {trendsData.length > 0
+                          ? `$${(trendsData.reduce((sum, d) => sum + ((d.avgCpc as number) || 0), 0) / trendsData.length).toFixed(2)}`
+                          : '$0.00'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500">平均CPA</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {trendsData.length > 0
+                          ? `$${(trendsData.reduce((sum, d) => sum + ((d.avgCpa as number) || 0), 0) / trendsData.length).toFixed(2)}`
+                          : '$0.00'}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 状态分布卡片 */}
+              <Card>
+                <CardContent className="pt-4 pb-4">
+                  <h4 className="text-sm font-medium text-gray-600 mb-3">广告系列状态</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                        <span className="text-xs text-gray-600">投放中</span>
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {campaigns.filter(c => c.status === 'ENABLED').length}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+                        <span className="text-xs text-gray-600">已暂停</span>
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {campaigns.filter(c => c.status === 'PAUSED').length}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                        <span className="text-xs text-gray-600">已移除</span>
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {campaigns.filter(c => c.status === 'REMOVED').length}
+                      </span>
+                    </div>
+                    <div className="border-t pt-2 mt-2 flex justify-between items-center">
+                      <span className="text-xs font-medium text-gray-700">总计</span>
+                      <span className="text-sm font-bold text-gray-900">{campaigns.length}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
 
@@ -801,17 +868,17 @@ export default function CampaignsPage() {
                           aria-label="全选"
                         />
                       </TableHead>
-                      <SortableHeader field="campaignName" className="w-[200px]">广告系列名称</SortableHeader>
-                      <SortableHeader field="budgetAmount">预算</SortableHeader>
-                      <SortableHeader field="impressions">展示次数</SortableHeader>
-                      <SortableHeader field="clicks">点击次数</SortableHeader>
-                      <SortableHeader field="ctr">点击率</SortableHeader>
-                      <SortableHeader field="cpc">点击费用</SortableHeader>
-                      <SortableHeader field="conversions">转化次数</SortableHeader>
-                      <SortableHeader field="cost">花费</SortableHeader>
-                      <SortableHeader field="status">投放状态</SortableHeader>
-                      <SortableHeader field="creationStatus">同步状态</SortableHeader>
-                      <TableHead className="text-right">操作</TableHead>
+                      <SortableHeader field="campaignName" className="w-[200px]">系列名称</SortableHeader>
+                      <SortableHeader field="budgetAmount" className="w-[100px]">预算</SortableHeader>
+                      <SortableHeader field="impressions" className="w-[100px]">展示</SortableHeader>
+                      <SortableHeader field="clicks" className="w-[90px]">点击</SortableHeader>
+                      <SortableHeader field="ctr" className="w-[90px]">点击率</SortableHeader>
+                      <SortableHeader field="cpc" className="w-[90px]">CPC</SortableHeader>
+                      <SortableHeader field="conversions" className="w-[90px]">转化</SortableHeader>
+                      <SortableHeader field="cost" className="w-[100px]">花费</SortableHeader>
+                      <SortableHeader field="status" className="w-[110px]">投放状态</SortableHeader>
+                      <SortableHeader field="creationStatus" className="w-[110px]">同步状态</SortableHeader>
+                      <TableHead className="w-[140px]">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                 <TableBody>
@@ -885,36 +952,44 @@ export default function CampaignsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          {/* Sync/Retry Button */}
                           {(campaign.creationStatus === 'draft' || campaign.creationStatus === 'failed') && (
                             <Button
                               size="sm"
-                              variant="outline"
+                              variant="ghost"
                               onClick={() => handleSync(campaign.id)}
                               disabled={syncing === campaign.id}
-                              className={campaign.creationStatus === 'failed' ? 'text-orange-600 hover:text-orange-700' : 'text-indigo-600 hover:text-indigo-700'}
+                              className={campaign.creationStatus === 'failed' ? 'text-orange-600 hover:text-orange-800' : 'text-indigo-600 hover:text-indigo-800'}
+                              title={syncing === campaign.id ? '同步中...' : (campaign.creationStatus === 'failed' ? '重试同步' : '同步到Google Ads')}
                             >
-                              <RefreshCw className={`w-4 h-4 mr-1 ${syncing === campaign.id ? 'animate-spin' : ''}`} />
-                              {syncing === campaign.id ? '同步中' : (campaign.creationStatus === 'failed' ? '重试' : '同步')}
+                              {campaign.creationStatus === 'failed' ? (
+                                <RotateCcw className={`w-4 h-4 ${syncing === campaign.id ? 'animate-spin' : ''}`} />
+                              ) : (
+                                <RefreshCw className={`w-4 h-4 ${syncing === campaign.id ? 'animate-spin' : ''}`} />
+                              )}
                             </Button>
                           )}
 
+                          {/* View Offer Detail */}
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => router.push(`/offers/${campaign.offerId}`)}
-                            className="text-blue-600 hover:text-blue-800"
+                            className="text-green-600 hover:text-green-800"
+                            title="查看关联的Offer详情页"
                           >
-                            <ExternalLink className="w-4 h-4 mr-1" />
-                            Offer
+                            <Package className="w-4 h-4" />
                           </Button>
 
+                          {/* Delete Button */}
                           {campaign.creationStatus === 'draft' && (
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => handleDelete(campaign.id, campaign.campaignName)}
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              title="删除广告系列"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>

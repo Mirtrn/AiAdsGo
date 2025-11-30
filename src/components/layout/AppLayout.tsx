@@ -128,6 +128,12 @@ const adminNavigationItems: NavItem[] = [
     requireAdmin: true,
   },
   {
+    label: '队列配置与监控',
+    href: '/admin/queue',
+    icon: TrendingUp,
+    requireAdmin: true,
+  },
+  {
     label: '抓取与AI测试',
     href: '/admin/scrape-test',
     icon: Beaker,

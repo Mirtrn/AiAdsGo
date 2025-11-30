@@ -142,11 +142,40 @@ export async function GET(request: NextRequest) {
 
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
+    const idsParam = searchParams.get('ids') // 批量查询特定ID的Offers
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : undefined
     const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!, 10) : undefined
     const isActive = searchParams.get('isActive') === 'true' ? true : searchParams.get('isActive') === 'false' ? false : undefined
     const targetCountry = searchParams.get('targetCountry') || undefined
     const searchQuery = searchParams.get('search') || undefined
+
+    // 如果提供了ids参数，直接查询特定的Offers（用于批量上传进度显示）
+    if (idsParam) {
+      const ids = idsParam.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id))
+
+      if (ids.length === 0) {
+        return NextResponse.json({ error: '无效的IDs参数' }, { status: 400 })
+      }
+
+      // 批量查询不使用缓存，确保获取最新状态
+      const { offers } = listOffers(parseInt(userId, 10), {
+        ids, // 传递IDs参数
+        limit: ids.length, // 限制返回数量
+      })
+
+      return NextResponse.json({
+        success: true,
+        offers: offers.map(offer => ({
+          id: offer.id,
+          brand: offer.brand,
+          scrape_status: offer.scrape_status,
+          scrape_error: offer.scrape_error,
+          affiliate_link: offer.affiliate_link,
+          target_country: offer.target_country,
+        })),
+        total: offers.length,
+      })
+    }
 
     // 缓存键
     const cacheKey = generateCacheKey('offers', parseInt(userId, 10), {

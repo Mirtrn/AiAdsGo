@@ -26,6 +26,7 @@ export interface TrendChartMetric {
   label: string
   color: string
   formatter?: (value: number) => string
+  yAxisId?: 'left' | 'right' // 指定使用左侧还是右侧Y轴
 }
 
 export interface TrendChartProps {
@@ -44,6 +45,7 @@ export interface TrendChartProps {
   showLegend?: boolean
   className?: string
   hideTimeRangeSelector?: boolean
+  dualYAxis?: boolean // 是否启用双Y轴
 }
 
 const defaultTimeRangeOptions = [7, 14, 30]
@@ -64,6 +66,7 @@ export function TrendChart({
   showLegend = true,
   className = '',
   hideTimeRangeSelector = false,
+  dualYAxis = false,
 }: TrendChartProps) {
   // Loading state
   if (loading) {
@@ -182,9 +185,9 @@ export function TrendChart({
             </div>
           </div>
         ) : (
-          <ChartContainer config={chartConfig} style={{ height: `${height}px` }}>
+          <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: `${height}px` }}>
             {chartType === 'line' ? (
-              <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <LineChart data={data} margin={{ top: 5, right: dualYAxis ? 60 : 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
                   dataKey="date"
@@ -196,7 +199,9 @@ export function TrendChart({
                     return `${date.getMonth() + 1}/${date.getDate()}`
                   }}
                 />
+                {/* 左侧Y轴 */}
                 <YAxis
+                  yAxisId="left"
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
@@ -210,15 +215,42 @@ export function TrendChart({
                     return value.toString()
                   }}
                 />
+                {/* 右侧Y轴（仅在dualYAxis启用时显示） */}
+                {dualYAxis && (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tickFormatter={(value) => {
+                      if (value >= 1000000) {
+                        return `${(value / 1000000).toFixed(1)}M`
+                      }
+                      if (value >= 1000) {
+                        return `${(value / 1000).toFixed(1)}K`
+                      }
+                      return value.toString()
+                    }}
+                  />
+                )}
                 <ChartTooltip
                   content={
                     <ChartTooltipContent
-                      formatter={(value, name) => {
+                      formatter={(value, name, item, index, payload) => {
                         const metric = metrics.find(m => m.key === name)
-                        if (metric?.formatter) {
-                          return metric.formatter(value as number)
-                        }
-                        return value
+                        const label = metric?.label || name
+                        const formattedValue = metric?.formatter
+                          ? metric.formatter(value as number)
+                          : (value as number).toLocaleString()
+                        return (
+                          <div className="flex flex-1 justify-between items-center leading-none gap-4">
+                            <span className="text-muted-foreground">{label}</span>
+                            <span className="font-mono font-medium tabular-nums text-foreground">
+                              {formattedValue}
+                            </span>
+                          </div>
+                        )
                       }}
                     />
                   }
@@ -234,11 +266,12 @@ export function TrendChart({
                     dot={{ r: 4 }}
                     activeDot={{ r: 6 }}
                     name={metric.label}
+                    yAxisId={dualYAxis ? (metric.yAxisId || 'left') : 'left'}
                   />
                 ))}
               </LineChart>
             ) : (
-              <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <BarChart data={data} margin={{ top: 5, right: dualYAxis ? 60 : 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
                   dataKey="date"
@@ -250,8 +283,62 @@ export function TrendChart({
                     return `${date.getMonth() + 1}/${date.getDate()}`
                   }}
                 />
-                <YAxis tickLine={false} axisLine={false} tickMargin={8} />
-                <ChartTooltip content={<ChartTooltipContent />} />
+                {/* 左侧Y轴 */}
+                <YAxis
+                  yAxisId="left"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tickFormatter={(value) => {
+                    if (value >= 1000000) {
+                      return `${(value / 1000000).toFixed(1)}M`
+                    }
+                    if (value >= 1000) {
+                      return `${(value / 1000).toFixed(1)}K`
+                    }
+                    return value.toString()
+                  }}
+                />
+                {/* 右侧Y轴（仅在dualYAxis启用时显示） */}
+                {dualYAxis && (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tickFormatter={(value) => {
+                      if (value >= 1000000) {
+                        return `${(value / 1000000).toFixed(1)}M`
+                      }
+                      if (value >= 1000) {
+                        return `${(value / 1000).toFixed(1)}K`
+                      }
+                      return value.toString()
+                    }}
+                  />
+                )}
+                <ChartTooltip
+                  content={
+                    <ChartTooltipContent
+                      formatter={(value, name, item, index, payload) => {
+                        const metric = metrics.find(m => m.key === name)
+                        const label = metric?.label || name
+                        const formattedValue = metric?.formatter
+                          ? metric.formatter(value as number)
+                          : (value as number).toLocaleString()
+                        return (
+                          <div className="flex flex-1 justify-between items-center leading-none gap-4">
+                            <span className="text-muted-foreground">{label}</span>
+                            <span className="font-mono font-medium tabular-nums text-foreground">
+                              {formattedValue}
+                            </span>
+                          </div>
+                        )
+                      }}
+                    />
+                  }
+                />
                 {showLegend && <Legend />}
                 {metrics.map((metric) => (
                   <Bar
@@ -259,6 +346,7 @@ export function TrendChart({
                     dataKey={metric.key}
                     fill={metric.color}
                     name={metric.label}
+                    yAxisId={dualYAxis ? (metric.yAxisId || 'left') : 'left'}
                   />
                 ))}
               </BarChart>

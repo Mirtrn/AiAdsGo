@@ -112,6 +112,7 @@ export async function initializePostgreSQLSchema(): Promise<void> {
           score REAL,
           score_breakdown TEXT,
           score_explanation TEXT,
+          ad_strength TEXT DEFAULT 'UNKNOWN',
           generation_round INTEGER DEFAULT 1,
           theme TEXT,
           ai_model TEXT,
@@ -253,37 +254,7 @@ export async function initializePostgreSQLSchema(): Promise<void> {
       `
       console.log('✅ launch_scores表')
 
-      // 10. creatives表 - 旧版创意表（保持兼容性）
-      await tx`
-        CREATE TABLE IF NOT EXISTS creatives (
-          id SERIAL PRIMARY KEY,
-          user_id INTEGER NOT NULL,
-          offer_id INTEGER NOT NULL,
-          version INTEGER NOT NULL DEFAULT 1,
-          headline_1 TEXT NOT NULL,
-          headline_2 TEXT,
-          headline_3 TEXT,
-          description_1 TEXT NOT NULL,
-          description_2 TEXT,
-          final_url TEXT NOT NULL,
-          final_url_suffix TEXT,
-          path_1 TEXT,
-          path_2 TEXT,
-          ai_model TEXT NOT NULL,
-          generation_prompt TEXT,
-          quality_score REAL,
-          is_approved BOOLEAN NOT NULL DEFAULT FALSE,
-          approved_by INTEGER,
-          approved_at TIMESTAMP,
-          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-          FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE CASCADE,
-          FOREIGN KEY (approved_by) REFERENCES users(id)
-        )
-      `
-      console.log('✅ creatives表')
-
-      // 11. weekly_recommendations表 - 每周优化建议
+      // 10. weekly_recommendations表 - 每周优化建议
       await tx`
         CREATE TABLE IF NOT EXISTS weekly_recommendations (
           id SERIAL PRIMARY KEY,
@@ -480,26 +451,7 @@ export async function initializePostgreSQLSchema(): Promise<void> {
       `
       console.log('✅ link_check_history表')
 
-      // 20. creative_versions表 - 创意版本历史
-      await tx`
-        CREATE TABLE IF NOT EXISTS creative_versions (
-          id SERIAL PRIMARY KEY,
-          user_id INTEGER NOT NULL,
-          offer_id INTEGER NOT NULL,
-          creative_id INTEGER NOT NULL,
-          version INTEGER NOT NULL,
-          changes TEXT,
-          changed_by INTEGER NOT NULL,
-          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-          FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE CASCADE,
-          FOREIGN KEY (creative_id) REFERENCES creatives(id) ON DELETE CASCADE,
-          FOREIGN KEY (changed_by) REFERENCES users(id)
-        )
-      `
-      console.log('✅ creative_versions表')
-
-      // 21. sync_logs表 - 数据同步日志
+      // 20. sync_logs表 - 数据同步日志
       await tx`
         CREATE TABLE IF NOT EXISTS sync_logs (
           id SERIAL PRIMARY KEY,
@@ -795,7 +747,6 @@ export async function initializePostgreSQLSchema(): Promise<void> {
       await tx`CREATE INDEX IF NOT EXISTS idx_campaigns_offer_id ON campaigns(offer_id)`
       await tx`CREATE INDEX IF NOT EXISTS idx_campaigns_is_test_variant ON campaigns(is_test_variant)`
       await tx`CREATE INDEX IF NOT EXISTS idx_campaigns_ab_test_id ON campaigns(ab_test_id)`
-      await tx`CREATE INDEX IF NOT EXISTS idx_creatives_offer_id ON creatives(offer_id)`
       await tx`CREATE INDEX IF NOT EXISTS idx_performance_campaign_date ON campaign_performance(campaign_id, date)`
       await tx`CREATE INDEX IF NOT EXISTS idx_performance_user_date ON campaign_performance(user_id, date)`
       await tx`CREATE INDEX IF NOT EXISTS idx_risk_alerts_user_status ON risk_alerts(user_id, status)`
