@@ -1132,7 +1132,7 @@ export default function CreativesPage() {
                 <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
                   <div className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
                     <span>每页</span>
-                    <Select className="w-16 h-7 text-sm" value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
+                    <Select className="w-20 h-8 text-sm" value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
                       <option value="10">10</option>
                       <option value="20">20</option>
                       <option value="50">50</option>
