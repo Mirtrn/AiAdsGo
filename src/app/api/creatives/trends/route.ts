@@ -1,0 +1,228 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { verifyAuth } from '@/lib/auth'
+import { getSQLiteDatabase } from '@/lib/db'
+
+/**
+ * GET /api/creatives/trends
+ *
+ * 获取创意维度的统计趋势数据（按日期聚合）
+ * - 每日新增创意数量
+ * - 创意质量评分分布
+ * - 创意状态分布
+ * - Ad Strength分布
+ *
+ * Query Parameters:
+ * - daysBack: number (可选，默认7天)
+ * - offerId: number (可选，筛选特定Offer的创意)
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // 1. 验证用户身份
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || !authResult.user) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
+    const userId = authResult.user.userId
+    const { searchParams } = new URL(request.url)
+    const daysBack = parseInt(searchParams.get('daysBack') || '7')
+    const offerId = searchParams.get('offerId')
+
+    const db = getSQLiteDatabase()
+
+    // 2. 计算日期范围
+    const endDate = new Date()
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - daysBack)
+
+    const startDateStr = startDate.toISOString().split('T')[0]
+    const endDateStr = endDate.toISOString().split('T')[0]
+
+    // 3. 查询每日新增创意数量趋势
+    let dailyCreativesQuery = `
+      SELECT
+        DATE(created_at) as date,
+        COUNT(*) as newCreatives,
+        AVG(COALESCE(quality_score, 0)) as avgQualityScore,
+        SUM(CASE WHEN quality_score >= 80 THEN 1 ELSE 0 END) as highQuality,
+        SUM(CASE WHEN quality_score >= 60 AND quality_score < 80 THEN 1 ELSE 0 END) as mediumQuality,
+        SUM(CASE WHEN quality_score < 60 OR quality_score IS NULL THEN 1 ELSE 0 END) as lowQuality
+      FROM ad_creatives
+      WHERE user_id = ?
+        AND DATE(created_at) >= ?
+        AND DATE(created_at) <= ?
+    `
+    const params: any[] = [userId, startDateStr, endDateStr]
+
+    if (offerId) {
+      dailyCreativesQuery += ` AND offer_id = ?`
+      params.push(parseInt(offerId))
+    }
+
+    dailyCreativesQuery += `
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `
+
+    const dailyTrends = db.prepare(dailyCreativesQuery).all(...params) as any[]
+
+    // 4. 查询创意状态分布（当前总量）
+    let statusQuery = `
+      SELECT
+        status,
+        COUNT(*) as count
+      FROM ad_creatives
+      WHERE user_id = ?
+    `
+    const statusParams: any[] = [userId]
+
+    if (offerId) {
+      statusQuery += ` AND offer_id = ?`
+      statusParams.push(parseInt(offerId))
+    }
+
+    statusQuery += ` GROUP BY status`
+
+    const statusDistribution = db.prepare(statusQuery).all(...statusParams) as any[]
+
+    // 5. 查询Ad Strength分布（当前总量）
+    let adStrengthQuery = `
+      SELECT
+        COALESCE(ad_strength, 'UNKNOWN') as ad_strength,
+        COUNT(*) as count
+      FROM ad_creatives
+      WHERE user_id = ?
+    `
+    const adStrengthParams: any[] = [userId]
+
+    if (offerId) {
+      adStrengthQuery += ` AND offer_id = ?`
+      adStrengthParams.push(parseInt(offerId))
+    }
+
+    adStrengthQuery += ` GROUP BY ad_strength`
+
+    const adStrengthDistribution = db.prepare(adStrengthQuery).all(...adStrengthParams) as any[]
+
+    // 6. 查询质量评分分布（当前总量）
+    let qualityQuery = `
+      SELECT
+        CASE
+          WHEN quality_score >= 90 THEN 'excellent'
+          WHEN quality_score >= 75 THEN 'good'
+          WHEN quality_score >= 60 THEN 'average'
+          ELSE 'poor'
+        END as quality_level,
+        COUNT(*) as count
+      FROM ad_creatives
+      WHERE user_id = ?
+    `
+    const qualityParams: any[] = [userId]
+
+    if (offerId) {
+      qualityQuery += ` AND offer_id = ?`
+      qualityParams.push(parseInt(offerId))
+    }
+
+    qualityQuery += ` GROUP BY quality_level`
+
+    const qualityDistribution = db.prepare(qualityQuery).all(...qualityParams) as any[]
+
+    // 7. 查询主题分布
+    let themeQuery = `
+      SELECT
+        COALESCE(theme, 'unknown') as theme,
+        COUNT(*) as count
+      FROM ad_creatives
+      WHERE user_id = ?
+    `
+    const themeParams: any[] = [userId]
+
+    if (offerId) {
+      themeQuery += ` AND offer_id = ?`
+      themeParams.push(parseInt(offerId))
+    }
+
+    themeQuery += ` GROUP BY theme`
+
+    const themeDistribution = db.prepare(themeQuery).all(...themeParams) as any[]
+
+    // 8. 查询创意使用情况
+    let usageQuery = `
+      SELECT
+        SUM(CASE WHEN is_selected = 1 THEN 1 ELSE 0 END) as selected,
+        SUM(CASE WHEN is_selected = 0 OR is_selected IS NULL THEN 1 ELSE 0 END) as notSelected,
+        COUNT(*) as total
+      FROM ad_creatives
+      WHERE user_id = ?
+    `
+    const usageParams: any[] = [userId]
+
+    if (offerId) {
+      usageQuery += ` AND offer_id = ?`
+      usageParams.push(parseInt(offerId))
+    }
+
+    const usageStats = db.prepare(usageQuery).get(...usageParams) as any
+
+    // 9. 格式化趋势数据
+    const formattedTrends = dailyTrends.map((row) => ({
+      date: row.date,
+      newCreatives: row.newCreatives || 0,
+      avgQualityScore: Math.round((row.avgQualityScore || 0) * 10) / 10,
+      highQuality: row.highQuality || 0,
+      mediumQuality: row.mediumQuality || 0,
+      lowQuality: row.lowQuality || 0,
+    }))
+
+    // 10. 返回结果
+    return NextResponse.json({
+      success: true,
+      // 每日趋势数据
+      trends: formattedTrends,
+      // 分布统计
+      distributions: {
+        // 状态分布
+        status: statusDistribution.reduce((acc, item) => {
+          acc[item.status || 'unknown'] = item.count
+          return acc
+        }, {} as Record<string, number>),
+        // Ad Strength分布
+        adStrength: adStrengthDistribution.reduce((acc, item) => {
+          acc[item.ad_strength] = item.count
+          return acc
+        }, {} as Record<string, number>),
+        // 质量评分分布
+        quality: qualityDistribution.reduce((acc, item) => {
+          acc[item.quality_level] = item.count
+          return acc
+        }, {} as Record<string, number>),
+        // 主题分布
+        theme: themeDistribution.reduce((acc, item) => {
+          acc[item.theme] = item.count
+          return acc
+        }, {} as Record<string, number>),
+      },
+      // 使用统计
+      usage: {
+        selected: usageStats?.selected || 0,
+        notSelected: usageStats?.notSelected || 0,
+        total: usageStats?.total || 0,
+        usageRate: usageStats?.total > 0
+          ? Math.round((usageStats.selected / usageStats.total) * 100)
+          : 0,
+      },
+      dateRange: {
+        start: startDateStr,
+        end: endDateStr,
+        days: daysBack,
+      },
+    })
+  } catch (error: any) {
+    console.error('Get creatives trends error:', error)
+    return NextResponse.json(
+      { error: error.message || '获取趋势数据失败' },
+      { status: 500 }
+    )
+  }
+}
