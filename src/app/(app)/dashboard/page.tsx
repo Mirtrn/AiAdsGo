@@ -26,6 +26,7 @@ import {
 import { InsightsCard } from '@/components/dashboard/InsightsCard'
 import { ABTestProgressCard } from '@/components/dashboard/ABTestProgressCard'
 import { ApiQuotaChart } from '@/components/dashboard/ApiQuotaChart'
+import { AiTokenCostChart } from '@/components/dashboard/AiTokenCostChart'
 
 interface KPIData {
   current: {
@@ -164,38 +165,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 风险提示 - 优先显示 */}
-        {hasRisks && (
-          <Card className="mb-6 border-orange-200 bg-orange-50">
-            <CardContent className="py-4">
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-orange-100 rounded-lg">
-                  <AlertTriangle className="w-5 h-5 text-orange-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-orange-800">需要关注</h3>
-                    <Badge variant="outline" className="text-orange-600 border-orange-300">
-                      {risks.length} 项
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-orange-700 mt-1 truncate">
-                    {risks[0]?.message || '有问题需要处理'}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => router.push('/risk-alerts')}
-                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-100"
-                >
-                  查看
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* 核心KPI - 3个最重要的指标 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -288,76 +257,93 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* API配额 和 快速开始 - 同一行 */}
+        {/* API配额、AI Token成本 和 快速开始 - 新布局 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* API配额卡片 */}
           <ApiQuotaChart days={days} />
 
-          {/* 快速开始 - 占2列 */}
-          <Card className="md:col-span-2">
+          {/* AI Token成本卡片 */}
+          <AiTokenCostChart days={days} />
+
+          {/* 快速开始 - 占1列，最右侧 */}
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">快速开始</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-3">
                 <Button
                   variant="outline"
-                  className="h-auto py-4 justify-start gap-4 hover:border-blue-300 hover:bg-blue-50"
+                  className="w-full h-auto py-4 justify-start gap-3 hover:border-blue-300 hover:bg-blue-50"
                   onClick={() => router.push('/offers?action=create')}
                 >
                   <div className="p-2 bg-blue-100 rounded-lg">
-                    <Plus className="w-5 h-5 text-blue-600" />
+                    <Plus className="w-4 h-4 text-blue-600" />
                   </div>
-                  <div className="text-left">
-                    <div className="font-semibold">创建Offer</div>
-                    <div className="text-xs text-gray-500">添加新的推广产品</div>
+                  <div className="text-left flex-1">
+                    <div className="font-semibold text-sm">创建Offer</div>
+                    <div className="text-xs text-gray-500">添加新产品</div>
                   </div>
                 </Button>
 
                 <Button
                   variant="outline"
-                  className="h-auto py-4 justify-start gap-4 hover:border-green-300 hover:bg-green-50"
+                  className="w-full h-auto py-4 justify-start gap-3 hover:border-green-300 hover:bg-green-50"
                   onClick={() => router.push('/offers')}
                 >
                   <div className="p-2 bg-green-100 rounded-lg">
-                    <Rocket className="w-5 h-5 text-green-600" />
+                    <Rocket className="w-4 h-4 text-green-600" />
                   </div>
-                  <div className="text-left">
-                    <div className="font-semibold">一键上广告</div>
+                  <div className="text-left flex-1">
+                    <div className="font-semibold text-sm">一键上广告</div>
                     <div className="text-xs text-gray-500">
                       {offerSummary && offerSummary.total > 0
-                        ? `${offerSummary.total} 个Offer可投放`
+                        ? `${offerSummary.total}个可投放`
                         : '先创建Offer'}
                     </div>
                   </div>
                 </Button>
-              </div>
 
-              {/* 其他入口 - 文字链接形式 */}
-              <div className="flex items-center gap-4 mt-4 pt-4 border-t">
                 <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-gray-500 hover:text-gray-900"
+                  variant="outline"
+                  className="w-full h-auto py-4 justify-start gap-3 hover:border-indigo-300 hover:bg-indigo-50"
                   onClick={() => router.push('/campaigns')}
                 >
-                  广告系列
+                  <div className="p-2 bg-indigo-100 rounded-lg">
+                    <TrendingUp className="w-4 h-4 text-indigo-600" />
+                  </div>
+                  <div className="text-left flex-1">
+                    <div className="font-semibold text-sm">广告系列</div>
+                    <div className="text-xs text-gray-500">管理投放系列</div>
+                  </div>
                 </Button>
+
                 <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-gray-500 hover:text-gray-900"
+                  variant="outline"
+                  className="w-full h-auto py-4 justify-start gap-3 hover:border-orange-300 hover:bg-orange-50"
                   onClick={() => router.push('/google-ads')}
                 >
-                  Google Ads账号
+                  <div className="p-2 bg-orange-100 rounded-lg">
+                    <DollarSign className="w-4 h-4 text-orange-600" />
+                  </div>
+                  <div className="text-left flex-1">
+                    <div className="font-semibold text-sm">Google Ads账号</div>
+                    <div className="text-xs text-gray-500">账号管理</div>
+                  </div>
                 </Button>
+
                 <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-gray-500 hover:text-gray-900"
+                  variant="outline"
+                  className="w-full h-auto py-4 justify-start gap-3 hover:border-gray-300 hover:bg-gray-50"
                   onClick={() => router.push('/settings')}
                 >
-                  系统设置
+                  <div className="p-2 bg-gray-100 rounded-lg">
+                    <RefreshCw className="w-4 h-4 text-gray-600" />
+                  </div>
+                  <div className="text-left flex-1">
+                    <div className="font-semibold text-sm">系统设置</div>
+                    <div className="text-xs text-gray-500">配置参数</div>
+                  </div>
                 </Button>
               </div>
             </CardContent>

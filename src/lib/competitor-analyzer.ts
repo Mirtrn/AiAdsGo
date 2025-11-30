@@ -527,7 +527,7 @@ IMPORTANT: Focus on insights that will make advertising more effective and diffe
     if (!userId) {
       throw new Error('竞品分析需要用户ID，请确保已登录')
     }
-    const text = await generateContent({
+    const aiResponse = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.6,  // 平衡创造性和准确性
@@ -535,7 +535,7 @@ IMPORTANT: Focus on insights that will make advertising more effective and diffe
     }, userId)
 
     // 提取JSON内容
-    let jsonText = text.replace(/```json\s*/g, '').replace(/```\s*/g, '')
+    let jsonText = aiResponse.text.replace(/```json\s*/g, '').replace(/```\s*/g, '')
     const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
 
     if (!jsonMatch) {

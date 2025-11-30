@@ -441,6 +441,25 @@ const transaction = db.transaction(() => {
   `)
   console.log('✅ backup_logs表')
 
+  // 18. ai_token_usage表 - AI Token使用统计
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_token_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      model TEXT NOT NULL,
+      operation_type TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      cost REAL NOT NULL DEFAULT 0,
+      api_type TEXT NOT NULL DEFAULT 'gemini',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      date TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `)
+  console.log('✅ ai_token_usage表')
+
   console.log('\n📋 创建索引...\n')
 
   // 创建索引以提升查询性能
@@ -461,6 +480,10 @@ const transaction = db.transaction(() => {
     CREATE INDEX IF NOT EXISTS idx_creative_learning_user_id ON creative_learning_patterns(user_id);
     CREATE INDEX IF NOT EXISTS idx_backup_logs_created_at ON backup_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_backup_logs_status ON backup_logs(status);
+    CREATE INDEX IF NOT EXISTS idx_ai_token_usage_user_date ON ai_token_usage(user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_ai_token_usage_date ON ai_token_usage(date);
+    CREATE INDEX IF NOT EXISTS idx_ai_token_usage_model ON ai_token_usage(model);
+    CREATE INDEX IF NOT EXISTS idx_ai_token_usage_created_at ON ai_token_usage(created_at);
   `)
   console.log('✅ 索引创建完成')
 

@@ -367,9 +367,9 @@ async function generateHeadlinesWithAI(
       IMPORTANT: Return ONLY the raw JSON array, no markdown code blocks.
     `
 
-    const response = await generateContent({ prompt }, userId)
+    const aiResponse = await generateContent({ prompt }, userId)
     // 清理可能的markdown代码块
-    const cleanedResponse = response
+    const cleanedResponse = aiResponse.text
       .replace(/```json\s*/gi, '')
       .replace(/```\s*/g, '')
       .trim()
@@ -415,9 +415,9 @@ async function generateDescriptionsWithAI(
       IMPORTANT: Return ONLY the raw JSON array, no markdown code blocks.
     `
 
-    const response = await generateContent({ prompt }, userId)
+    const aiResponse = await generateContent({ prompt }, userId)
     // 清理可能的markdown代码块
-    const cleanedResponse = response
+    const cleanedResponse = aiResponse.text
       .replace(/```json\s*/gi, '')
       .replace(/```\s*/g, '')
       .trim()

@@ -438,12 +438,14 @@ IMPORTANT: Focus on actionable insights that can improve advertising creative qu
     if (!userId) {
       throw new Error('评论分析需要用户ID，请确保已登录')
     }
-    const text = await generateContent({
+    const aiResponse = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.5,  // 降低温度确保更准确的提取
       maxOutputTokens: 8192,  // 增加到8192以避免评论分析被截断
     }, userId)
+
+    const text = aiResponse.text
 
     // 提取JSON内容
     let jsonText = text.replace(/```json\s*/g, '').replace(/```\s*/g, '')

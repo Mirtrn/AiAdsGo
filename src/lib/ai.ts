@@ -1,4 +1,5 @@
 import { generateContent } from './gemini'
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 
 export interface ProductInfo {
   brandDescription: string
@@ -225,12 +226,33 @@ Requirements:
     if (!userId) {
       throw new Error('分析产品页面需要用户ID，请确保已登录')
     }
-    const text = await generateContent({
+    const result = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 6144,  // 增加到6144以容纳更丰富的数据维度
     }, userId)
+
+    const text = result.text
+
+    // 记录token使用
+    if (result.usage) {
+      const cost = estimateTokenCost(
+        result.model,
+        result.usage.inputTokens,
+        result.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: result.model,
+        operationType: 'product_analysis',
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        totalTokens: result.usage.totalTokens,
+        cost,
+        apiType: result.apiType
+      })
+    }
 
     // 提取JSON内容（改进版：处理markdown代码块和格式问题）
     let jsonText = text
@@ -266,46 +288,46 @@ Requirements:
     jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
 
     // 修复字符串中的实际换行符（使用状态机方式处理）
-    let result = ''
+    let cleanedJsonStr = ''
     let inString = false
     let escape = false
     for (let i = 0; i < jsonStr.length; i++) {
       const char = jsonStr[i]
 
       if (escape) {
-        result += char
+        cleanedJsonStr += char
         escape = false
         continue
       }
 
       if (char === '\\') {
         escape = true
-        result += char
+        cleanedJsonStr += char
         continue
       }
 
       if (char === '"') {
         inString = !inString
-        result += char
+        cleanedJsonStr += char
         continue
       }
 
       if (inString) {
         // 在字符串内部，转义控制字符
         if (char === '\n') {
-          result += '\\n'
+          cleanedJsonStr += '\\n'
         } else if (char === '\r') {
-          result += '\\r'
+          cleanedJsonStr += '\\r'
         } else if (char === '\t') {
-          result += '\\t'
+          cleanedJsonStr += '\\t'
         } else {
-          result += char
+          cleanedJsonStr += char
         }
       } else {
-        result += char
+        cleanedJsonStr += char
       }
     }
-    jsonStr = result
+    jsonStr = cleanedJsonStr
 
     // 4. 尝试修复截断的JSON
     let productInfo: ProductInfo
@@ -883,12 +905,33 @@ ${currentOrientation === 'brand' ? `
     if (!options?.userId) {
       throw new Error('AI页面分析需要用户ID，请确保已登录')
     }
-    const text = await generateContent({
+    const result = await generateContent({
       model: 'gemini-2.5-pro',
       prompt: basePrompt,
       temperature: 0.7,
       maxOutputTokens: 8192,  // 增加到8192以避免广告创意输出被截断
     }, options.userId)
+
+    const text = result.text
+
+    // 记录token使用
+    if (result.usage) {
+      const cost = estimateTokenCost(
+        result.model,
+        result.usage.inputTokens,
+        result.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId: options.userId,
+        model: result.model,
+        operationType: 'ad_creative_generation',
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        totalTokens: result.usage.totalTokens,
+        cost,
+        apiType: result.apiType
+      })
+    }
 
     // 提取JSON内容
     const jsonMatch = text.match(/\{[\s\S]*\}/)
@@ -981,7 +1024,27 @@ Extract the brand name now (ONLY the brand name, no explanation):`.trim()
       throw new Error('userId is required for brand extraction')
     }
 
-    const brandName = await generateContent({ prompt }, userId)
+    const result = await generateContent({ prompt }, userId)
+    const brandName = result.text
+
+    // 记录token使用
+    if (result.usage) {
+      const cost = estimateTokenCost(
+        result.model,
+        result.usage.inputTokens,
+        result.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: result.model,
+        operationType: 'brand_extraction',
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        totalTokens: result.usage.totalTokens,
+        cost,
+        apiType: result.apiType
+      })
+    }
 
     // 验证和清洗AI返回的品牌名
     const cleanedBrand = brandName

@@ -163,12 +163,14 @@ export async function generateKeywords(
 
   try {
     // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
-    const text = await generateContent({
+    const aiResponse = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,  // 增加到8192以避免关键词生成输出被截断
     }, userId)
+
+    const text = aiResponse.text
 
     // 提取JSON（尝试移除markdown代码块标记）
     let jsonText = text
@@ -437,14 +439,14 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
 
   try {
     // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
-    const text = await generateContent({
+    const aiResponse = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,
     }, userId)
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       throw new Error('AI返回的数据格式无效')
     }
@@ -504,14 +506,14 @@ ${baseKeywords.join(', ')}
 
   try {
     // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
-    const text = await generateContent({
+    const aiResponse = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,
     }, userId)
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       throw new Error('AI返回的数据格式无效')
     }

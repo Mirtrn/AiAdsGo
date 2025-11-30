@@ -28,6 +28,20 @@ export interface GeminiGenerateParams {
 }
 
 /**
+ * Gemini生成内容的返回结果接口
+ */
+export interface GeminiGenerateResult {
+  text: string
+  usage?: {
+    inputTokens: number
+    outputTokens: number
+    totalTokens: number
+  }
+  model: string
+  apiType: 'vertex-ai' | 'direct-api'
+}
+
+/**
  * 检查用户是否配置了Vertex AI（只检查用户级配置）
  * @param userId - 用户ID（必需）
  */
@@ -119,12 +133,12 @@ function configureVertexAI(userId: number): void {
  *
  * @param params - 生成参数
  * @param userId - 用户ID（必需，用于读取用户级配置）
- * @returns 生成的文本内容
+ * @returns 生成的文本内容和token使用信息
  */
 export async function generateContent(
   params: GeminiGenerateParams,
   userId: number
-): Promise<string> {
+): Promise<GeminiGenerateResult> {
   // 校验userId
   if (!userId || typeof userId !== 'number' || userId <= 0) {
     throw new Error('AI调用失败：缺少有效的用户ID。每个AI操作必须关联到具体用户。')
@@ -168,7 +182,12 @@ export async function generateContent(
       })
 
       console.log('✓ Vertex AI 调用成功')
-      return result
+      return {
+        text: result.text,
+        usage: result.usage,
+        model: result.model || model,
+        apiType: 'vertex-ai'
+      }
     } catch (error: any) {
       console.warn(`⚠️ Vertex AI 调用失败: ${error.message}`)
 
@@ -195,7 +214,7 @@ export async function generateContent(
 async function callDirectAPI(
   params: GeminiGenerateParams,
   userId: number
-): Promise<string> {
+): Promise<GeminiGenerateResult> {
   const { model, prompt, temperature, maxOutputTokens } = params
 
   // 检查用户的API密钥配置
@@ -209,12 +228,19 @@ async function callDirectAPI(
   // 使用代理模式调用（传递用户的API密钥）
   const { generateContent: axiosGenerate } = await import('./gemini-axios')
 
-  return await axiosGenerate({
+  const result = await axiosGenerate({
     model: model || 'gemini-2.5-pro',
     prompt,
     temperature,
     maxOutputTokens,
   }, userId)
+
+  return {
+    text: result.text,
+    usage: result.usage,
+    model: result.model || model || 'gemini-2.5-pro',
+    apiType: 'direct-api'
+  }
 }
 
 /**

@@ -9,6 +9,19 @@
 import { VertexAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai'
 import * as path from 'path'
 
+/**
+ * Vertex AI 生成结果接口
+ */
+export interface VertexAIGenerateResult {
+  text: string
+  usage?: {
+    inputTokens: number
+    outputTokens: number
+    totalTokens: number
+  }
+  model?: string
+}
+
 // 单例 VertexAI 客户端和当前配置
 let vertexAI: VertexAI | null = null
 let currentConfig: {
@@ -134,14 +147,14 @@ async function delay(ms: number): Promise<void> {
  * @param params.prompt - 提示词
  * @param params.temperature - 温度参数，默认 0.7
  * @param params.maxOutputTokens - 最大输出tokens，默认 8192
- * @returns 生成的文本内容
+ * @returns 生成的文本内容和token使用信息
  */
 export async function generateContent(params: {
   model?: string
   prompt: string
   temperature?: number
   maxOutputTokens?: number
-}): Promise<string> {
+}): Promise<VertexAIGenerateResult> {
   const {
     model = 'gemini-2.5-pro',
     prompt,
@@ -210,13 +223,23 @@ export async function generateContent(params: {
       console.log(`✓ Vertex AI 调用成功，返回 ${text.length} 字符`)
 
       // 记录token使用情况
+      let usage: VertexAIGenerateResult['usage']
       if (response.usageMetadata) {
-        console.log(`   Token使用: prompt=${response.usageMetadata.promptTokenCount}, ` +
-          `output=${response.usageMetadata.candidatesTokenCount}, ` +
-          `total=${response.usageMetadata.totalTokenCount}`)
+        usage = {
+          inputTokens: response.usageMetadata.promptTokenCount || 0,
+          outputTokens: response.usageMetadata.candidatesTokenCount || 0,
+          totalTokens: response.usageMetadata.totalTokenCount || 0
+        }
+        console.log(`   Token使用: prompt=${usage.inputTokens}, ` +
+          `output=${usage.outputTokens}, ` +
+          `total=${usage.totalTokens}`)
       }
 
-      return text
+      return {
+        text,
+        usage,
+        model
+      }
     } catch (error: any) {
       lastError = error
       console.warn(`⚠️ Vertex AI 调用失败 (尝试 ${attempt}/${maxRetries}): ${error.message}`)
@@ -298,7 +321,21 @@ export async function generateContent(params: {
 
         console.log(`✓ Vertex AI (fallback: ${fallbackModel}) 调用成功，返回 ${text.length} 字符`)
 
-        return text
+        // 记录token使用情况
+        let usage: VertexAIGenerateResult['usage']
+        if (response.usageMetadata) {
+          usage = {
+            inputTokens: response.usageMetadata.promptTokenCount || 0,
+            outputTokens: response.usageMetadata.candidatesTokenCount || 0,
+            totalTokens: response.usageMetadata.totalTokenCount || 0
+          }
+        }
+
+        return {
+          text,
+          usage,
+          model: fallbackModel
+        }
       } catch (fallbackError: any) {
         console.warn(`⚠️ Vertex AI (fallback) 调用失败 (尝试 ${attempt}/${maxRetries}): ${fallbackError.message}`)
 

@@ -741,6 +741,34 @@ async function generateWithGeminiAPI(
 }
 
 /**
+ * 规范化非ASCII数字为ASCII数字
+ * 将Bengali、Arabic、Devanagari等语言的数字转换为ASCII 0-9
+ */
+function normalizeDigits(text: string): string {
+  // 映射：非ASCII数字 → ASCII数字
+  const digitMap: Record<string, string> = {
+    // Bengali digits (০-৯)
+    '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
+    '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9',
+    // Arabic-Indic digits (٠-٩)
+    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+    // Persian/Extended Arabic-Indic digits (۰-۹)
+    '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+    '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+    // Devanagari digits (०-९)
+    '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+    '५': '5', '६': '6', '७': '7', '८': '8', '९': '9'
+  }
+
+  let normalized = text
+  for (const [nonAscii, ascii] of Object.entries(digitMap)) {
+    normalized = normalized.replace(new RegExp(nonAscii, 'g'), ascii)
+  }
+  return normalized
+}
+
+/**
  * 解析AI响应
  */
 function parseAIResponse(text: string): GeneratedAdCreativeData {
@@ -777,6 +805,8 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
   // 4. 移除JSON字符串值中的换行符（保留结构性换行）
   // 只处理字符串值内部的换行（字母/标点后跟换行再跟字母）
   jsonText = jsonText.replace(/([a-zA-Z,.])\s*\n\s*([a-zA-Z])/g, '$1 $2')
+  // 5. 规范化非ASCII数字为ASCII数字（修复Bengali等其他语言的数字）
+  jsonText = normalizeDigits(jsonText)
 
   console.log('🔍 修复后JSON前200字符:', jsonText.substring(0, 200))
 
@@ -1135,7 +1165,7 @@ export async function generateAdCreative(
   console.log(`🤖 使用统一AI入口生成广告创意 (${aiMode})...`)
 
   console.time('⏱️ AI生成创意')
-  const responseText = await generateContent({
+  const aiResponse = await generateContent({
     model: 'gemini-2.5-pro',  // 最优选择：稳定质量+最快速度（62秒）
     prompt,
     temperature: 0.9,
@@ -1145,8 +1175,8 @@ export async function generateAdCreative(
 
   // 解析AI响应
   console.time('⏱️ 解析AI响应')
-  const result: GeneratedAdCreativeData = parseAIResponse(responseText)
-  const aiModel = `${aiMode}:gemini-2.5-pro`
+  const result: GeneratedAdCreativeData = parseAIResponse(aiResponse.text)
+  const aiModel = `${aiMode}:${aiResponse.model}`
   console.timeEnd('⏱️ 解析AI响应')
 
   // 🔥 强制第一个headline为DKI品牌Official格式

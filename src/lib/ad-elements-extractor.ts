@@ -1226,7 +1226,7 @@ async function generateHeadlines(
 
   try {
     const response = await generateContent({ prompt }, userId)
-    const parsed = extractJsonFromResponse(response)
+    const parsed = extractJsonFromResponse(response.text)
 
     if (!parsed.headlines || !Array.isArray(parsed.headlines)) {
       throw new Error('AI响应格式错误：缺少headlines字段')
@@ -1478,7 +1478,7 @@ async function generateHeadlinesFromMultipleProducts(
 
   try {
     const response = await generateContent({ prompt }, userId)
-    const parsed = extractJsonFromResponse(response)
+    const parsed = extractJsonFromResponse(response.text)
     const validHeadlines = parsed.headlines
       .filter((h: string) => h && h.length <= 30)
       .slice(0, 15)
@@ -1845,7 +1845,7 @@ async function generateDescriptions(
 
   try {
     const response = await generateContent({ prompt }, userId)
-    const parsed = extractJsonFromResponse(response)
+    const parsed = extractJsonFromResponse(response.text)
     const validDescriptions = parsed.descriptions
       .filter((d: string) => d && d.length <= 90)
       .slice(0, 4)
@@ -2062,7 +2062,7 @@ async function generateDescriptionsFromMultipleProducts(
 
   try {
     const response = await generateContent({ prompt }, userId)
-    const parsed = extractJsonFromResponse(response)
+    const parsed = extractJsonFromResponse(response.text)
     const validDescriptions = parsed.descriptions
       .filter((d: string) => d && d.length <= 90)
       .slice(0, 4)

@@ -737,6 +737,25 @@ export async function initializePostgreSQLSchema(): Promise<void> {
       `
       console.log('✅ migration_history表')
 
+      // 34. ai_token_usage表 - AI模型token使用统计
+      await tx`
+        CREATE TABLE IF NOT EXISTS ai_token_usage (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          model TEXT NOT NULL,
+          operation_type TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0,
+          total_tokens INTEGER NOT NULL DEFAULT 0,
+          cost REAL NOT NULL DEFAULT 0,
+          api_type TEXT NOT NULL DEFAULT 'gemini',
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          date DATE NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `
+      console.log('✅ ai_token_usage表')
+
       console.log('\n📋 Creating indexes...\n')
 
       // 创建索引以提升查询性能
@@ -790,6 +809,10 @@ export async function initializePostgreSQLSchema(): Promise<void> {
       await tx`CREATE INDEX IF NOT EXISTS idx_conversion_feedback_user ON conversion_feedback(user_id)`
       await tx`CREATE INDEX IF NOT EXISTS idx_score_analysis_user ON score_analysis_history(user_id)`
       await tx`CREATE INDEX IF NOT EXISTS idx_score_analysis_industry ON score_analysis_history(industry_code)`
+      await tx`CREATE INDEX IF NOT EXISTS idx_ai_token_usage_user_date ON ai_token_usage(user_id, date)`
+      await tx`CREATE INDEX IF NOT EXISTS idx_ai_token_usage_date ON ai_token_usage(date)`
+      await tx`CREATE INDEX IF NOT EXISTS idx_ai_token_usage_model ON ai_token_usage(model)`
+      await tx`CREATE INDEX IF NOT EXISTS idx_ai_token_usage_created_at ON ai_token_usage(created_at)`
 
       console.log('✅ Indexes created')
 

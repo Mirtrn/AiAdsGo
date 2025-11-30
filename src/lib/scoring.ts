@@ -190,7 +190,7 @@ ${keywordsWithVolume.length > 0 ?
 6. 只返回JSON，不要其他内容`
 
     // 需求12：使用Gemini 2.5 Pro稳定版模型（带代理支持 + 自动降级）
-    const text = await generateContent({
+    const aiResponse = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.7,
@@ -198,7 +198,7 @@ ${keywordsWithVolume.length > 0 ?
     }, userId)
 
     // 提取JSON内容
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
       throw new Error('AI返回格式错误，未找到JSON')
     }
@@ -339,7 +339,7 @@ export async function calculateCreativeQualityScore(creative: {
     if (!userId) {
       throw new Error('创意质量评分需要用户ID，请确保已登录')
     }
-    const text = await generateContent({
+    const aiResponse = await generateContent({
       model: 'gemini-2.5-pro',
       prompt,
       temperature: 0.3, // 降低温度以获得更稳定的评分
@@ -347,7 +347,7 @@ export async function calculateCreativeQualityScore(creative: {
     }, userId)
 
     // 提取数字
-    const scoreMatch = text.trim().match(/\d+/)
+    const scoreMatch = aiResponse.text.trim().match(/\d+/)
     if (!scoreMatch) {
       throw new Error('AI返回格式错误，未找到评分数字')
     }

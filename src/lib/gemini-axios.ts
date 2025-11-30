@@ -48,6 +48,19 @@ export interface GeminiResponse {
 }
 
 /**
+ * Gemini生成结果接口
+ */
+export interface GeminiAxiosGenerateResult {
+  text: string
+  usage?: {
+    inputTokens: number
+    outputTokens: number
+    totalTokens: number
+  }
+  model: string
+}
+
+/**
  * 创建 axios 实例用于 Gemini API（直连，不使用代理）
  */
 export function createGeminiAxiosClient(): AxiosInstance {
@@ -81,7 +94,7 @@ export async function generateContent(params: {
   prompt: string
   temperature?: number
   maxOutputTokens?: number
-}, userId: number): Promise<string> {
+}, userId: number): Promise<GeminiAxiosGenerateResult> {
   const {
     model = 'gemini-2.5-pro',
     prompt,
@@ -141,7 +154,24 @@ export async function generateContent(params: {
     const text = response.data.candidates[0].content.parts[0].text
     console.log(`✓ Gemini API 调用成功，返回 ${text.length} 字符`)
 
-    return text
+    // 记录token使用情况
+    let usage: GeminiAxiosGenerateResult['usage']
+    if (response.data.usageMetadata) {
+      usage = {
+        inputTokens: response.data.usageMetadata.promptTokenCount || 0,
+        outputTokens: response.data.usageMetadata.candidatesTokenCount || 0,
+        totalTokens: response.data.usageMetadata.totalTokenCount || 0
+      }
+      console.log(`   Token使用: prompt=${usage.inputTokens}, ` +
+        `output=${usage.outputTokens}, ` +
+        `total=${usage.totalTokens}`)
+    }
+
+    return {
+      text,
+      usage,
+      model
+    }
   } catch (error: any) {
     // 检查是否是模型过载错误（503或overloaded消息）
     const isOverloaded =
@@ -176,7 +206,21 @@ export async function generateContent(params: {
         const text = fallbackResponse.data.candidates[0].content.parts[0].text
         console.log(`✓ Gemini API (fallback: gemini-2.5-flash) 调用成功，返回 ${text.length} 字符`)
 
-        return text
+        // 记录token使用情况
+        let usage: GeminiAxiosGenerateResult['usage']
+        if (fallbackResponse.data.usageMetadata) {
+          usage = {
+            inputTokens: fallbackResponse.data.usageMetadata.promptTokenCount || 0,
+            outputTokens: fallbackResponse.data.usageMetadata.candidatesTokenCount || 0,
+            totalTokens: fallbackResponse.data.usageMetadata.totalTokenCount || 0
+          }
+        }
+
+        return {
+          text,
+          usage,
+          model: 'gemini-2.5-flash'
+        }
       } catch (fallbackError: any) {
         // 降级模型也失败，抛出原始错误和降级错误
         throw new Error(
