@@ -342,23 +342,28 @@ class ScrapeQueueManager {
 
 // ========== 单例实例 ==========
 
-let queueManagerInstance: ScrapeQueueManager | null = null
+// 使用 global 对象防止热重载时重置
+declare global {
+  var __queueManagerInstance: ScrapeQueueManager | undefined
+}
 
 /**
  * 获取队列管理器实例（单例）
+ *
+ * 使用 global 对象存储实例，防止 Next.js 热重载时重新初始化
  */
 export function getQueueManager(config?: Partial<QueueConfig>): ScrapeQueueManager {
-  if (!queueManagerInstance) {
-    queueManagerInstance = new ScrapeQueueManager(config)
+  if (!global.__queueManagerInstance) {
+    global.__queueManagerInstance = new ScrapeQueueManager(config)
   } else if (config) {
-    queueManagerInstance.updateConfig(config)
+    global.__queueManagerInstance.updateConfig(config)
   }
-  return queueManagerInstance
+  return global.__queueManagerInstance
 }
 
 /**
  * 重置队列管理器（用于测试）
  */
 export function resetQueueManager(): void {
-  queueManagerInstance = null
+  global.__queueManagerInstance = undefined
 }

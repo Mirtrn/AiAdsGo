@@ -465,16 +465,19 @@ class UserIsolatedProxyPoolManager {
 
 // ============ Singleton Instance ============
 
-let userIsolatedProxyPoolInstance: UserIsolatedProxyPoolManager | null = null
+// 使用 global 对象防止热重载时重置
+declare global {
+  var __userIsolatedProxyPoolInstance: UserIsolatedProxyPoolManager | undefined
+}
 
 /**
  * 获取或创建用户隔离代理池管理器实例
  */
 export function getUserIsolatedProxyPoolManager(): UserIsolatedProxyPoolManager {
-  if (!userIsolatedProxyPoolInstance) {
-    userIsolatedProxyPoolInstance = new UserIsolatedProxyPoolManager()
+  if (!global.__userIsolatedProxyPoolInstance) {
+    global.__userIsolatedProxyPoolInstance = new UserIsolatedProxyPoolManager()
   }
-  return userIsolatedProxyPoolInstance
+  return global.__userIsolatedProxyPoolInstance
 }
 
 /**

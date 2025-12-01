@@ -292,16 +292,19 @@ class ProxyPoolManager {
 
 // ============ Singleton Instance ============
 
-let proxyPoolInstance: ProxyPoolManager | null = null
+// 使用 global 对象防止热重载时重置
+declare global {
+  var __proxyPoolManagerInstance: ProxyPoolManager | undefined
+}
 
 /**
  * Get or create the global proxy pool manager instance
  */
 export function getProxyPoolManager(): ProxyPoolManager {
-  if (!proxyPoolInstance) {
-    proxyPoolInstance = new ProxyPoolManager()
+  if (!global.__proxyPoolManagerInstance) {
+    global.__proxyPoolManagerInstance = new ProxyPoolManager()
   }
-  return proxyPoolInstance
+  return global.__proxyPoolManagerInstance
 }
 
 /**

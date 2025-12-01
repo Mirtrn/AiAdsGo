@@ -43,6 +43,16 @@ export function isProxyConnectionError(error: Error): boolean {
     return true
   }
 
+  // 🔥 新增：page.goto超时很可能是代理IP被Amazon封禁
+  // Amazon会立即封禁代理IP，导致page.goto永远无法完成（不是网络慢，而是被墙）
+  // 这种情况下应该立即换代理，而不是用同一代理重试3次
+  if (msg.includes('page.goto: Timeout') && msg.includes('exceeded')) {
+    // 检查URL是否为Amazon（避免误判其他站点的正常慢速加载）
+    if (msg.includes('amazon.')) {
+      return true  // Amazon超时 = 代理被封
+    }
+  }
+
   // 超时错误需要更明确的代理关键词
   if (msg.includes('Timeout') &&
       (msg.includes('proxy') || msg.includes('tunnel') || msg.includes('CONNECT'))) {
@@ -754,15 +764,18 @@ export async function scrapeAmazonProduct(
     try {
       if (proxyAttempt > 0) {
         console.log(`🔄 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
-        // 清理可能失效的连接池实例
+        // 🔥 关键优化：清理连接池实例，避免复用已被Amazon标记的代理IP
         const pool = getPlaywrightPool()
         await pool.clearIdleInstances()
+        // 🔥 额外等待，确保新代理IP被分配
+        await new Promise(resolve => setTimeout(resolve, 2000))
       }
 
+      // 🔥 P1优化：使用更短的超时进行快速失败检测
+      const quickTimeout = 30000  // 30秒快速检测，如果失败立即换代理
       const result = await scrapeUrlWithBrowser(url, effectiveProxyUrl, {
         waitForSelector: '#productTitle',
-        // 🔥 修复：使用动态超时，Amazon.it等国际站点使用120秒
-        waitForTimeout: getDynamicTimeout(url),
+        waitForTimeout: quickTimeout,  // 🔥 优先快速失败，避免等120秒
         targetCountry,  // 🌍 传入目标国家
       })
 

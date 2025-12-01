@@ -129,30 +129,34 @@ class PostgresAdapter implements DatabaseAdapter {
   }
 }
 
-// 全局单例实例
-let dbAdapter: DatabaseAdapter | null = null
+// 全局单例实例 - 使用 global 对象防止热重载时重置
+declare global {
+  var __dbAdapter: DatabaseAdapter | undefined
+}
 
 /**
  * 获取数据库适配器实例（单例模式）
  * 自动检测 DATABASE_URL（PostgreSQL）或 DATABASE_PATH（SQLite）
+ *
+ * 使用 global 对象存储实例，防止 Next.js 热重载时重新初始化
  */
 export function getDatabase(): DatabaseAdapter {
-  if (!dbAdapter) {
+  if (!global.__dbAdapter) {
     const databaseUrl = process.env.DATABASE_URL
 
     if (databaseUrl && (databaseUrl.startsWith('postgres://') || databaseUrl.startsWith('postgresql://'))) {
       // 使用 PostgreSQL
       console.log('🐘 Initializing PostgreSQL connection...')
-      dbAdapter = new PostgresAdapter(databaseUrl)
+      global.__dbAdapter = new PostgresAdapter(databaseUrl)
     } else {
       // 使用 SQLite
       const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
       console.log('📦 Initializing SQLite connection:', dbPath)
-      dbAdapter = new SQLiteAdapter(dbPath)
+      global.__dbAdapter = new SQLiteAdapter(dbPath)
     }
   }
 
-  return dbAdapter!
+  return global.__dbAdapter!
 }
 
 /**
@@ -171,9 +175,9 @@ export function getSQLiteDatabase(): Database.Database {
  * 关闭数据库连接
  */
 export function closeDatabase(): void {
-  if (dbAdapter) {
-    dbAdapter.close()
-    dbAdapter = null
+  if (global.__dbAdapter) {
+    global.__dbAdapter.close()
+    global.__dbAdapter = undefined
   }
 }
 

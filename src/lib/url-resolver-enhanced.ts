@@ -289,14 +289,16 @@ export class ProxyPoolManager {
   }
 }
 
-// 全局代理池实例
-let proxyPoolInstance: ProxyPoolManager | null = null
+// 全局代理池实例 - 使用 global 对象防止热重载时重置
+declare global {
+  var __proxyPoolInstance: ProxyPoolManager | undefined
+}
 
 export function getProxyPool(): ProxyPoolManager {
-  if (!proxyPoolInstance) {
-    proxyPoolInstance = new ProxyPoolManager()
+  if (!global.__proxyPoolInstance) {
+    global.__proxyPoolInstance = new ProxyPoolManager()
   }
-  return proxyPoolInstance
+  return global.__proxyPoolInstance
 }
 
 // ==================== Redis缓存管理 ====================
