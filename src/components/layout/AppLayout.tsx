@@ -23,7 +23,8 @@ import {
   EyeOff,
   Beaker,
   TrendingUp,
-  FileText
+  FileText,
+  Clock
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -123,9 +124,9 @@ const adminNavigationItems: NavItem[] = [
     requireAdmin: true,
   },
   {
-    label: '备份管理',
+    label: '备份与定时任务',
     href: '/admin/backups',
-    icon: Database,
+    icon: Clock,
     requireAdmin: true,
   },
   {
