@@ -397,9 +397,42 @@ export async function scrapeUrlWithBrowser(
 
       // Wait for specific selector if provided
       if (options.waitForSelector) {
-        await page.waitForSelector(options.waitForSelector, { timeout: 10000 }).catch(() => {
+        const selectorFound = await page.waitForSelector(options.waitForSelector, { timeout: 10000 })
+          .then(() => true)
+          .catch(() => false)
+
+        if (!selectorFound) {
           console.warn(`⚠️ 选择器未找到: ${options.waitForSelector}`)
-        })
+
+          // 🔥 检测是否遇到反爬虫保护页面
+          const pageTitle = await page.title().catch(() => '')
+          const pageUrl = page.url()
+
+          // Cloudflare Challenge检测
+          if (pageTitle.toLowerCase().includes('just a moment') ||
+              pageTitle.toLowerCase().includes('attention required') ||
+              pageTitle.toLowerCase().includes('please verify') ||
+              pageUrl.includes('captcha') ||
+              pageUrl.includes('challenge')) {
+            console.error(`🚫 检测到反爬虫保护页面: "${pageTitle}"`)
+            throw new Error(`遇到反爬虫保护页面: ${pageTitle}`)
+          }
+
+          // Amazon错误页面检测
+          if (pageTitle.toLowerCase().includes('page not found') ||
+              pageTitle.toLowerCase().includes('404') ||
+              pageTitle.toLowerCase().includes('sorry')) {
+            console.error(`📭 检测到Amazon错误页面: "${pageTitle}"`)
+            throw new Error(`Amazon错误页面: ${pageTitle}`)
+          }
+
+          // 获取部分HTML用于调试（前500个字符）
+          const htmlPreview = await page.content().then(html => html.substring(0, 500)).catch(() => '')
+          console.warn(`📄 页面预览: ${htmlPreview}...`)
+
+          // 如果没有明确的反爬虫特征，但选择器未找到，可能是页面结构变化
+          console.warn(`⚠️ 页面加载成功但选择器未找到，可能是页面结构变化或内容未加载`)
+        }
       } else {
         // 🔥 P1优化: 使用智能等待策略
         const waitStart = Date.now()
