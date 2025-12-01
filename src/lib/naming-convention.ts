@@ -49,11 +49,12 @@ function formatDate(date: Date = new Date()): string {
 }
 
 /**
- * 清理字符串中的特殊字符（Google Ads只允许字母、数字、下划线、连字符）
+ * 清理字符串中的特殊字符（Google Ads只允许字母、数字、下划线）
+ * 移除连字符、空格、特殊符号，只保留字母数字和下划线
  */
 function sanitize(text: string): string {
   return text
-    .replace(/[^a-zA-Z0-9_\-]/g, '') // 移除非法字符
+    .replace(/[^a-zA-Z0-9_]/g, '') // 移除所有非字母数字下划线的字符
     .replace(/_{2,}/g, '_') // 合并多个下划线
     .replace(/^_|_$/g, '') // 移除首尾下划线
 }

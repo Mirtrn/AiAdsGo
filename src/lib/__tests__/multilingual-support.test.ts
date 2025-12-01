@@ -234,9 +234,9 @@ describe('多语言支持 - 字符限制和格式验证', () => {
 
     it('应该正确计算多字节字符', () => {
       const testCases = [
-        { text: '扫地机器人官方旗舰店', charCount: 11, valid: true }, // 中文每个字 1 个字符
+        { text: '扫地机器人官方旗舰店', charCount: 10, valid: true }, // 中文每个字 1 个字符 (修复: 10字符)
         { text: 'Robot Vacuum Cleaner Official', charCount: 29, valid: true }, // 英文
-        { text: 'ロボット掃除機公式ストア', charCount: 13, valid: true }, // 日文
+        { text: 'ロボット掃除機公式ストア', charCount: 12, valid: true }, // 日文 (修复: 12字符)
       ]
 
       testCases.forEach(({ text, charCount, valid }) => {
@@ -266,17 +266,19 @@ describe('多语言支持 - 字符限制和格式验证', () => {
   })
 
   describe('关键词格式验证', () => {
-    it('关键词应该是 2-4 个单词', () => {
+    it('关键词应该是 2-4 个单词（拉丁语系）或 1+ 个词（CJK）', () => {
       const testKeywords = [
         { keyword: 'robot vacuum', lang: 'en', valid: true },
-        { keyword: 'smart robot vacuum cleaner', lang: 'en', valid: false }, // 5 个单词
-        { keyword: '扫地机器人', lang: 'zh', valid: true },
+        { keyword: 'smart robot vacuum cleaner', lang: 'en', valid: true }, // 4 个单词 (修复: valid=true)
+        { keyword: '扫地机器人', lang: 'zh', valid: true }, // 中文: 1个词（无空格）
         { keyword: 'aspirador robótico inteligente', lang: 'es', valid: true },
       ]
 
       testKeywords.forEach(({ keyword, lang, valid }) => {
         const wordCount = keyword.split(/\s+/).length
-        const isValid = wordCount >= 2 && wordCount <= 4
+        // 修复: CJK语言（中日韩）通常无空格，放宽为 >= 1
+        const isCJK = ['zh', 'ja', 'ko'].includes(lang)
+        const isValid = isCJK ? wordCount >= 1 : (wordCount >= 2 && wordCount <= 4)
         expect(isValid).toBe(valid)
         console.log(`${isValid ? '✅' : '❌'} [${lang}] "${keyword}" (${wordCount} 单词)`)
       })
@@ -321,7 +323,7 @@ describe('多语言支持 - 字符限制和格式验证', () => {
       const testTexts = [
         { text: 'Shop Now', valid: true },
         { text: '立即购买', valid: true },
-        { text: 'Compra Ahora en Oferta', valid: false }, // 超过 25 字符
+        { text: 'Compra Ahora en Oferta', valid: true }, // 22 字符 (修复: valid=true)
       ]
 
       testTexts.forEach(({ text, valid }) => {

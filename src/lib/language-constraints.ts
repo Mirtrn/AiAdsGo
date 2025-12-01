@@ -246,8 +246,35 @@ export function normalizeLanguageCode(language: string): string {
  * 检查语言是否支持
  */
 export function isSupportedLanguage(language: string): boolean {
-  const normalized = normalizeLanguageCode(language)
-  return normalized in LANGUAGE_CONSTRAINTS
+  const lower = language.toLowerCase().trim()
+
+  // 检查完整语言名称
+  const nameMap: Record<string, string> = {
+    english: 'en',
+    german: 'de',
+    italian: 'it',
+    spanish: 'es',
+    french: 'fr',
+    portuguese: 'pt',
+    japanese: 'ja',
+    korean: 'ko',
+    chinese: 'zh',
+    russian: 'ru',
+    arabic: 'ar',
+    swedish: 'sv',
+    'swiss german': 'de-ch'
+  }
+
+  if (nameMap[lower]) {
+    return true
+  }
+
+  // 检查语言代码
+  if ((lower.length === 2 || lower.length === 5) && lower in LANGUAGE_CONSTRAINTS) {
+    return true
+  }
+
+  return false
 }
 
 /**

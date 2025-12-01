@@ -134,9 +134,10 @@ export function classifyKeywordPriority(
     } else if (priority === 'Intent' && wordCount === 3) {
       priorityScore += 0.2
       priorityReasoning += 'Three-word keyword (Intent pattern). '
-    } else if (priority === 'LongTail' && wordCount >= 4) {
+    } else if (priority === 'LongTail' && wordCount >= 5) {
+      // LongTail 需要5+个词才加分，避免与4词Intent冲突
       priorityScore += 0.3
-      priorityReasoning += 'Long-tail keyword (4+ words). '
+      priorityReasoning += 'Long-tail keyword (5+ words). '
     }
 
     if (priorityScore > maxScore) {
@@ -259,27 +260,27 @@ export function suggestKeywordsForMissingPriority(
     switch (priority) {
       case 'Brand':
         suggestions.Brand = [
-          brandName,
-          `${brandName} official`,
-          `${brandName} store`,
-          `${brandName} shop`,
-          `buy ${brandName}`,
-          `${brandName} online`,
-          `${brandName} amazon`,
-          `${brandName} authentic`
+          brandName.toLowerCase(),
+          `${brandName.toLowerCase()} official`,
+          `${brandName.toLowerCase()} store`,
+          `${brandName.toLowerCase()} shop`,
+          `buy ${brandName.toLowerCase()}`,
+          `${brandName.toLowerCase()} online`,
+          `${brandName.toLowerCase()} amazon`,
+          `${brandName.toLowerCase()} authentic`
         ]
         break
 
       case 'Core':
         suggestions.Core = [
-          productCategory,
-          `${productCategory} online`,
-          `buy ${productCategory}`,
-          `${productCategory} store`,
-          `best ${productCategory}`,
-          `${productCategory} shop`,
-          `${productCategory} price`,
-          `${productCategory} sale`
+          productCategory.toLowerCase(),
+          `${productCategory.toLowerCase()} online`,
+          `buy ${productCategory.toLowerCase()}`,
+          `${productCategory.toLowerCase()} store`,
+          `best ${productCategory.toLowerCase()}`,
+          `${productCategory.toLowerCase()} shop`,
+          `${productCategory.toLowerCase()} price`,
+          `${productCategory.toLowerCase()} sale`
         ]
         break
 

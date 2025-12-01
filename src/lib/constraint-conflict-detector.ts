@@ -77,7 +77,9 @@ export function detectDiversityVsTypeCoverageConflict(
   const hasDiversityIssue = averageSimilarity > 0.15  // 接近20%限制
   const hasInsufficientHeadlines = headlines.length < 15
 
-  if (hasTypeCoverageFail && (hasDiversityIssue || hasInsufficientHeadlines)) {
+  // 只有当多样性确实是问题时，才报告冲突
+  // 如果多样性很低（<15%），数量不足不是多样性造成的，不应报冲突
+  if (hasTypeCoverageFail && hasDiversityIssue && hasInsufficientHeadlines) {
     return {
       type: 'diversity_vs_type_coverage',
       severity: 'critical',
