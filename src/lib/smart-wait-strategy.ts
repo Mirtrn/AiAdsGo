@@ -102,61 +102,78 @@ export async function smartWaitForLoad(
     console.warn('DOM加载超时')
   }
 
-  // 等待网络空闲（短超时）
-  try {
-    await page.waitForLoadState('networkidle', { timeout: complexity.estimatedLoadTime })
-    signals.push('network-idle')
-  } catch (error) {
-    // 网络空闲超时不是问题，继续检测其他信号
+  // 🔥 优化：并行检测多个完成信号，而不是串行等待
+  const checkPromises: Promise<string | null>[] = []
+
+  // 信号1: 网络空闲检测（短超时，不阻塞）
+  checkPromises.push(
+    page.waitForLoadState('networkidle', { timeout: Math.min(complexity.estimatedLoadTime, 3000) })
+      .then(() => 'network-idle' as string)
+      .catch(() => null)
+  )
+
+  // 信号2: 文档就绪状态 (快速检测)
+  checkPromises.push(
+    page.evaluate(() => {
+      return new Promise<string>((resolve) => {
+        if (document.readyState === 'complete') {
+          resolve('document-ready')
+        } else {
+          document.addEventListener('readystatechange', () => {
+            if (document.readyState === 'complete') resolve('document-ready')
+          })
+          // 超时保护
+          setTimeout(() => resolve('document-ready'), 2000)
+        }
+      })
+    }).catch(() => null)
+  )
+
+  // 信号3: 主要内容已渲染（轮询检测，但更积极）
+  checkPromises.push(
+    (async () => {
+      const endTime = startTime + Math.min(maxWaitTime, 3000)  // 🔥 最多轮询3秒
+      const shortInterval = 200  // 🔥 缩短检查间隔到200ms
+
+      while (Date.now() < endTime) {
+        try {
+          const hasContent = await page.evaluate(() => {
+            const body = document.body
+            // 🔥 降低内容长度要求，Amazon页面DOM加载后即可
+            return body && body.textContent && body.textContent.trim().length > 50
+          })
+
+          if (hasContent) {
+            return 'content-rendered' as string
+          }
+
+          await page.waitForTimeout(shortInterval)
+        } catch (error) {
+          return null
+        }
+      }
+      return null
+    })()
+  )
+
+  // 🔥 优化：等待任意一个信号完成即可，不需要全部完成
+  const firstSignal = await Promise.race(checkPromises).catch(() => null)
+  if (firstSignal) {
+    signals.push(firstSignal)
   }
 
-  // 动态检测页面加载完成的信号
-  let loadComplete = false
-  const endTime = startTime + maxWaitTime
+  // 给额外的500ms让其他资源加载（图片、CSS等）
+  await page.waitForTimeout(500)
 
-  while (Date.now() < endTime && !loadComplete) {
-    try {
-      // 检查1: 文档就绪状态
-      const readyState = await page.evaluate(() => document.readyState)
-      if (readyState === 'complete') {
-        signals.push('document-ready')
-        loadComplete = true
-        break
-      }
-
-      // 检查2: 没有pending的请求（简化版）
-      const pendingRequests = await page.evaluate(() => {
-        return (performance as any).getEntriesByType?.('resource')
-          .filter((r: any) => r.responseEnd === 0).length || 0
-      })
-
-      if (pendingRequests === 0) {
-        signals.push('no-pending-requests')
-        loadComplete = true
-        break
-      }
-
-      // 检查3: 主要内容已渲染（有body且有内容）
-      const hasContent = await page.evaluate(() => {
-        const body = document.body
-        return body && body.textContent && body.textContent.trim().length > 100
-      })
-
-      if (hasContent) {
-        signals.push('content-rendered')
-        // 内容已渲染，但给一点额外时间加载图片等资源
-        await page.waitForTimeout(500)
-        loadComplete = true
-        break
-      }
-
-      // 等待一小段时间后再次检查
-      await page.waitForTimeout(checkInterval)
-    } catch (error) {
-      console.warn('智能等待检测错误:', error)
-      break
+  // 收集所有已完成的信号（非阻塞）
+  const allSignals = await Promise.allSettled(checkPromises)
+  allSignals.forEach((result) => {
+    if (result.status === 'fulfilled' && result.value && !signals.includes(result.value)) {
+      signals.push(result.value)
     }
-  }
+  })
+
+  const loadComplete = signals.length > 0
 
   const waited = Date.now() - startTime
 
