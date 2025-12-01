@@ -17,33 +17,45 @@ export const maxDuration = 60; // 最长60秒
  * 融合关键词：Enhanced关键词 + 原始关键词，按搜索量排序去重
  */
 function mergeKeywords(
-  original: Array<{ keyword: string; searchVolume?: number; [key: string]: any }>,
-  enhanced: Array<{ keyword: string; searchVolume?: number; priority?: string; [key: string]: any }>
+  original: Array<{ keyword?: string; searchVolume?: number; [key: string]: any }>,
+  enhanced: Array<{ keyword?: string; searchVolume?: number; priority?: string; [key: string]: any }>
 ): Array<{ keyword: string; searchVolume?: number; [key: string]: any }> {
   const keywordMap = new Map<string, any>();
 
-  // 先添加Enhanced关键词（优先级更高）
-  for (const kw of enhanced) {
-    const normalizedKeyword = kw.keyword.toLowerCase().trim();
-    if (normalizedKeyword && !keywordMap.has(normalizedKeyword)) {
-      keywordMap.set(normalizedKeyword, {
-        ...kw,
-        source: 'enhanced',
-        // 根据priority设置排序权重
-        sortWeight: kw.priority === 'core' ? 100 : kw.priority === 'high' ? 80 : kw.priority === 'medium' ? 60 : 40,
-      });
+  // 安全处理增强关键词（优先级更高）
+  if (Array.isArray(enhanced)) {
+    for (const kw of enhanced) {
+      // 严格检查：kw存在且有有效的keyword属性
+      if (!kw || typeof kw.keyword !== 'string') continue;
+
+      const normalizedKeyword = kw.keyword.toLowerCase().trim();
+      if (normalizedKeyword.length > 0 && !keywordMap.has(normalizedKeyword)) {
+        keywordMap.set(normalizedKeyword, {
+          ...kw,
+          keyword: kw.keyword, // 保留原始大小写
+          source: 'enhanced',
+          // 根据priority设置排序权重
+          sortWeight: kw.priority === 'core' ? 100 : kw.priority === 'high' ? 80 : kw.priority === 'medium' ? 60 : 40,
+        });
+      }
     }
   }
 
-  // 再添加原始关键词（如果不重复）
-  for (const kw of original) {
-    const normalizedKeyword = kw.keyword.toLowerCase().trim();
-    if (normalizedKeyword && !keywordMap.has(normalizedKeyword)) {
-      keywordMap.set(normalizedKeyword, {
-        ...kw,
-        source: 'original',
-        sortWeight: 30, // 原始关键词权重较低
-      });
+  // 安全处理原始关键词（如果不重复）
+  if (Array.isArray(original)) {
+    for (const kw of original) {
+      // 严格检查：kw存在且有有效的keyword属性
+      if (!kw || typeof kw.keyword !== 'string') continue;
+
+      const normalizedKeyword = kw.keyword.toLowerCase().trim();
+      if (normalizedKeyword.length > 0 && !keywordMap.has(normalizedKeyword)) {
+        keywordMap.set(normalizedKeyword, {
+          ...kw,
+          keyword: kw.keyword, // 保留原始大小写
+          source: 'original',
+          sortWeight: 30, // 原始关键词权重较低
+        });
+      }
     }
   }
 
@@ -65,33 +77,45 @@ function mergeKeywords(
  * 融合标题/描述：Enhanced + 原始，去重并按质量评分排序
  */
 function mergeHeadlinesOrDescriptions(
-  original: Array<{ text: string; [key: string]: any }>,
-  enhanced: Array<{ text: string; relevance?: number; confidence?: number; [key: string]: any }>
+  original: Array<{ text?: string; [key: string]: any }>,
+  enhanced: Array<{ text?: string; relevance?: number; confidence?: number; [key: string]: any }>
 ): Array<{ text: string; [key: string]: any }> {
   const textMap = new Map<string, any>();
 
-  // 先添加Enhanced内容（质量更高）
-  for (const item of enhanced) {
-    const normalizedText = item.text?.toLowerCase().trim();
-    if (normalizedText && normalizedText.length > 0 && !textMap.has(normalizedText)) {
-      textMap.set(normalizedText, {
-        ...item,
-        source: 'enhanced',
-        // 计算综合质量分数
-        qualityScore: ((item.relevance || 0.5) + (item.confidence || 0.5)) / 2,
-      });
+  // 安全处理增强内容（质量更高）
+  if (Array.isArray(enhanced)) {
+    for (const item of enhanced) {
+      // 严格检查：item存在且有有效的text属性
+      if (!item || typeof item.text !== 'string') continue;
+
+      const normalizedText = item.text.toLowerCase().trim();
+      if (normalizedText.length > 0 && !textMap.has(normalizedText)) {
+        textMap.set(normalizedText, {
+          ...item,
+          text: item.text, // 保留原始大小写
+          source: 'enhanced',
+          // 计算综合质量分数
+          qualityScore: ((item.relevance || 0.5) + (item.confidence || 0.5)) / 2,
+        });
+      }
     }
   }
 
-  // 再添加原始内容（如果不重复）
-  for (const item of original) {
-    const normalizedText = item.text?.toLowerCase().trim();
-    if (normalizedText && normalizedText.length > 0 && !textMap.has(normalizedText)) {
-      textMap.set(normalizedText, {
-        ...item,
-        source: 'original',
-        qualityScore: 0.3, // 原始内容默认质量分
-      });
+  // 安全处理原始内容（如果不重复）
+  if (Array.isArray(original)) {
+    for (const item of original) {
+      // 严格检查：item存在且有有效的text属性
+      if (!item || typeof item.text !== 'string') continue;
+
+      const normalizedText = item.text.toLowerCase().trim();
+      if (normalizedText.length > 0 && !textMap.has(normalizedText)) {
+        textMap.set(normalizedText, {
+          ...item,
+          text: item.text, // 保留原始大小写
+          source: 'original',
+          qualityScore: 0.3, // 原始内容默认质量分
+        });
+      }
     }
   }
 
