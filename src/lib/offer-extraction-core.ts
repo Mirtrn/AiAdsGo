@@ -461,14 +461,18 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         debug: {
           scrapedDataAvailable: !!scrapedData,
           brandAutoDetected: !!brandName,
-          isAmazonStore: !!storeData,
-          isAmazonProductPage: !!amazonProductData,
-          isIndependentStore: !!independentStoreData,
+          isAmazonStore: pageTypeByFinalUrl.isAmazonStore,  // ✅ 修复：基于URL模式判断
+          isAmazonProductPage: pageTypeByFinalUrl.isAmazonProductPage,  // ✅ 修复：基于URL模式判断
+          isIndependentStore: !pageTypeByFinalUrl.isAmazonStore && !pageTypeByFinalUrl.isAmazonProductPage,  // ✅ 修复：基于URL模式判断
           productsExtracted: productCount,
           scrapeMethod: isAmazonStore ? 'playwright-store' :
                         amazonProductData ? 'playwright-product' :
                         independentStoreData ? 'playwright-independent' : 'axios-cheerio',
           scrapingError: scrapingError || undefined,  // 🔥 新增：包含抓取错误信息
+          // 🆕 新增：数据抓取成功标志（用于诊断）
+          amazonProductDataExtracted: !!amazonProductData,
+          storeDataExtracted: !!storeData,
+          independentStoreDataExtracted: !!independentStoreData,
         },
       } as ExtractOfferResult['data'],
     }
