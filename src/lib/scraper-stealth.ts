@@ -1114,22 +1114,28 @@ export async function scrapeAmazonProduct(
 
     } catch (error: any) {
       lastError = error
-      console.error(`❌ 抓取尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+      console.error(`❌ 抓取尝试 ${proxyAttempt + 1}/${maxProxyRetries + 1} 失败: ${error.message?.substring(0, 100)}`)
 
       // 如果是代理连接错误，尝试换新代理
-      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
-        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
-        // 短暂延迟后重试
-        await new Promise(resolve => setTimeout(resolve, 2000))
-        continue
+      if (isProxyConnectionError(error)) {
+        if (proxyAttempt < maxProxyRetries) {
+          console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+          // 短暂延迟后重试
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          continue  // ✅ 进入下一次代理重试循环
+        } else {
+          console.error(`❌ 已用尽所有代理重试次数 (${maxProxyRetries + 1}次)`)
+          // ❌ 不要在这里throw，让循环自然结束，在外面统一抛出lastError
+        }
+      } else {
+        // 🔥 非代理错误：立即失败，不继续重试
+        console.error(`❌ 非代理错误，停止重试: ${error.message?.substring(0, 100)}`)
+        throw error
       }
-
-      // 其他错误或已用尽重试次数
-      throw error
     }
   }
 
-  // 所有重试都失败
+  // 所有代理重试都失败
   throw lastError || new Error('Amazon产品抓取失败：已用尽所有代理重试')
 }
 
@@ -1945,20 +1951,27 @@ export async function scrapeAmazonStore(
 
     } catch (error: any) {
       lastError = error
-      console.error(`❌ Amazon Store抓取尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+      console.error(`❌ Amazon Store抓取尝试 ${proxyAttempt + 1}/${maxProxyRetries + 1} 失败: ${error.message?.substring(0, 100)}`)
 
       // 如果是代理连接错误，尝试换新代理
-      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
-        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
-        continue
+      if (isProxyConnectionError(error)) {
+        if (proxyAttempt < maxProxyRetries) {
+          console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          continue  // ✅ 进入下一次代理重试循环
+        } else {
+          console.error(`❌ 已用尽所有代理重试次数 (${maxProxyRetries + 1}次)`)
+          // ❌ 不要在这里throw，让循环自然结束
+        }
+      } else {
+        // 🔥 非代理错误：立即失败，不继续重试
+        console.error(`❌ 非代理错误，停止重试: ${error.message?.substring(0, 100)}`)
+        throw error
       }
-
-      // 其他错误或已用尽重试次数
-      throw error
     }
   }
 
-  // 所有重试都失败
+  // 所有代理重试都失败
   throw lastError || new Error('Amazon Store抓取失败：已用尽所有代理重试')
 }
 
@@ -2201,19 +2214,26 @@ export async function scrapeIndependentStore(
 
     } catch (error: any) {
       lastError = error
-      console.error(`❌ 独立站抓取尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+      console.error(`❌ 独立站抓取尝试 ${proxyAttempt + 1}/${maxProxyRetries + 1} 失败: ${error.message?.substring(0, 100)}`)
 
       // 如果是代理连接错误，尝试换新代理
-      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
-        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
-        continue
+      if (isProxyConnectionError(error)) {
+        if (proxyAttempt < maxProxyRetries) {
+          console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          continue  // ✅ 进入下一次代理重试循环
+        } else {
+          console.error(`❌ 已用尽所有代理重试次数 (${maxProxyRetries + 1}次)`)
+          // ❌ 不要在这里throw，让循环自然结束
+        }
+      } else {
+        // 🔥 非代理错误：立即失败，不继续重试
+        console.error(`❌ 非代理错误，停止重试: ${error.message?.substring(0, 100)}`)
+        throw error
       }
-
-      // 其他错误或已用尽重试次数
-      throw error
     }
   }
 
-  // 所有重试都失败
+  // 所有代理重试都失败
   throw lastError || new Error('独立站抓取失败：已用尽所有代理重试')
 }
