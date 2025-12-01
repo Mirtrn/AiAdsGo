@@ -135,9 +135,12 @@ export async function triggerOfferExtraction(
     if (aiEnabled) {
       try {
         console.log(`[OfferExtraction] #${offerId} 开始AI分析...`)
+        const startTime = Date.now()
 
         const targetLanguage = getTargetLanguage(tCountry)
 
+        // ========== 阶段1: 基础AI分析（必须先执行）==========
+        const phase1Start = Date.now()
         aiAnalysisResult = await executeAIAnalysis({
           extractResult: result.data!,
           targetCountry: tCountry,
@@ -147,13 +150,23 @@ export async function triggerOfferExtraction(
           enableCompetitorAnalysis,
           enableAdExtraction,
         })
+        const phase1Duration = ((Date.now() - phase1Start) / 1000).toFixed(2)
+        console.log(`[OfferExtraction] #${offerId} ✅ 阶段1完成: 基础AI分析 (${phase1Duration}s)`)
 
-        console.log(`[OfferExtraction] #${offerId} AI分析完成`)
+        // ========== 阶段2: 并行执行所有增强分析 ==========
+        const phase2Start = Date.now()
+        console.log(`[OfferExtraction] #${offerId} 🚀 开始阶段2: 6个增强分析并行执行...`)
 
-        // 【P0优化】执行增强的关键词提取
-        try {
-          console.log(`[OfferExtraction] #${offerId} 开始增强的关键词提取...`)
-          enhancedKeywords = await extractKeywordsEnhanced({
+        const [
+          keywordsResult,
+          productInfoResult,
+          reviewAnalysisResult,
+          headlineDescResult,
+          competitorResult,
+          brandResult
+        ] = await Promise.allSettled([
+          // P0-1: 增强关键词提取
+          extractKeywordsEnhanced({
             productName: result.data!.productName || normalizedBrandName,
             brandName: normalizedBrandName,
             category: aiAnalysisResult?.aiProductInfo?.category || 'General',
@@ -164,16 +177,10 @@ export async function triggerOfferExtraction(
             competitors: [],
             targetCountry: tCountry,
             targetLanguage,
-          }, uid)
-          console.log(`[OfferExtraction] #${offerId} 增强的关键词提取完成，共${enhancedKeywords?.length || 0}个关键词`)
-        } catch (keywordError: any) {
-          console.warn(`[OfferExtraction] #${offerId} 增强的关键词提取失败（不影响主流程）:`, keywordError.message)
-        }
+          }, uid),
 
-        // 【P0优化】执行增强的产品信息提取
-        try {
-          console.log(`[OfferExtraction] #${offerId} 开始增强的产品信息提取...`)
-          enhancedProductInfo = await extractProductInfoEnhanced({
+          // P0-2: 增强产品信息提取
+          extractProductInfoEnhanced({
             url: result.data!.finalUrl,
             pageTitle: result.data!.pageTitle || '',
             pageDescription: result.data!.productDescription || '',
@@ -181,39 +188,17 @@ export async function triggerOfferExtraction(
             pageData: result.data!,
             targetCountry: tCountry,
             targetLanguage,
-          }, uid)
-          console.log(`[OfferExtraction] #${offerId} 增强的产品信息提取完成`)
-        } catch (productError: any) {
-          console.warn(`[OfferExtraction] #${offerId} 增强的产品信息提取失败（不影响主流程）:`, productError.message)
-        }
+          }, uid),
 
-        // 【P0优化】执行增强的评论分析
-        try {
-          console.log(`[OfferExtraction] #${offerId} 开始增强的评论分析...`)
-          enhancedReviewAnalysis = await analyzeReviewsEnhanced(
+          // P0-3: 增强评论分析
+          analyzeReviewsEnhanced(
             (result.data as any)?.reviews || [],
             targetLanguage,
             uid
-          )
-          console.log(`[OfferExtraction] #${offerId} 增强的评论分析完成`)
-        } catch (reviewError: any) {
-          console.warn(`[OfferExtraction] #${offerId} 增强的评论分析失败（不影响主流程）:`, reviewError.message)
-        }
+          ),
 
-        // 【P0优化】计算提取质量评分
-        if (enhancedKeywords || enhancedProductInfo || enhancedReviewAnalysis) {
-          extractionQualityScore = calculateExtractionQualityScore({
-            keywords: enhancedKeywords,
-            productInfo: enhancedProductInfo,
-            reviewAnalysis: enhancedReviewAnalysis,
-          })
-          console.log(`[OfferExtraction] #${offerId} 提取质量评分: ${extractionQualityScore}/100`)
-        }
-
-        // 【P1优化】执行增强的标题和描述提取
-        try {
-          console.log(`[OfferExtraction] #${offerId} 开始增强的标题和描述提取...`)
-          const { headlines, descriptions } = await extractHeadlinesAndDescriptionsEnhanced({
+          // P1: 增强标题和描述提取
+          extractHeadlinesAndDescriptionsEnhanced({
             productName: result.data!.productName || normalizedBrandName,
             brandName: normalizedBrandName,
             category: aiAnalysisResult?.aiProductInfo?.category || 'General',
@@ -225,18 +210,10 @@ export async function triggerOfferExtraction(
             reviews: (result.data as any)?.reviews || [],
             competitors: [],
             targetLanguage,
-          }, uid)
-          enhancedHeadlines = headlines
-          enhancedDescriptions = descriptions
-          console.log(`[OfferExtraction] #${offerId} 增强的标题和描述提取完成，共${headlines.length}个标题，${descriptions.length}个描述`)
-        } catch (headlineError: any) {
-          console.warn(`[OfferExtraction] #${offerId} 增强的标题和描述提取失败（不影响主流程）:`, headlineError.message)
-        }
+          }, uid),
 
-        // 【P2优化】执行增强的竞品分析
-        try {
-          console.log(`[OfferExtraction] #${offerId} 开始增强的竞品分析...`)
-          competitorAnalysis = await analyzeCompetitorsEnhanced({
+          // P2-1: 增强竞品分析
+          analyzeCompetitorsEnhanced({
             productName: result.data!.productName || normalizedBrandName,
             brandName: normalizedBrandName,
             category: aiAnalysisResult?.aiProductInfo?.category || 'General',
@@ -247,34 +224,10 @@ export async function triggerOfferExtraction(
             reviewCount: 1000,
             targetCountry: tCountry,
             targetLanguage,
-          }, uid)
-          console.log(`[OfferExtraction] #${offerId} 增强的竞品分析完成`)
-        } catch (competitorError: any) {
-          console.warn(`[OfferExtraction] #${offerId} 增强的竞品分析失败（不影响主流程）:`, competitorError.message)
-        }
+          }, uid),
 
-        // 【P2优化】执行增强的本地化适配
-        try {
-          console.log(`[OfferExtraction] #${offerId} 开始增强的本地化适配...`)
-          localizationAdapt = await adaptForLanguageAndRegionEnhanced({
-            productName: result.data!.productName || normalizedBrandName,
-            brandName: normalizedBrandName,
-            category: aiAnalysisResult?.aiProductInfo?.category || 'General',
-            description: result.data!.productDescription || '',
-            keywords: enhancedKeywords?.map(k => k.keyword) || [],
-            basePrice: 99.99,
-            targetCountry: tCountry,
-            targetLanguage,
-          }, uid)
-          console.log(`[OfferExtraction] #${offerId} 增强的本地化适配完成`)
-        } catch (localizationError: any) {
-          console.warn(`[OfferExtraction] #${offerId} 增强的本地化适配失败（不影响主流程）:`, localizationError.message)
-        }
-
-        // 【P3优化】执行增强的品牌识别
-        try {
-          console.log(`[OfferExtraction] #${offerId} 开始增强的品牌识别...`)
-          brandAnalysis = await identifyBrandEnhanced({
+          // P3: 品牌识别
+          identifyBrandEnhanced({
             brandName: normalizedBrandName,
             website: result.data!.finalUrl,
             description: result.data!.productDescription || '',
@@ -285,10 +238,89 @@ export async function triggerOfferExtraction(
             targetCountry: tCountry,
             targetLanguage,
           }, uid)
-          console.log(`[OfferExtraction] #${offerId} 增强的品牌识别完成`)
-        } catch (brandError: any) {
-          console.warn(`[OfferExtraction] #${offerId} 增强的品牌识别失败（不影响主流程）:`, brandError.message)
+        ])
+
+        const phase2Duration = ((Date.now() - phase2Start) / 1000).toFixed(2)
+        console.log(`[OfferExtraction] #${offerId} ✅ 阶段2完成: 并行增强分析 (${phase2Duration}s)`)
+
+        // 处理并行结果
+        if (keywordsResult.status === 'fulfilled') {
+          enhancedKeywords = keywordsResult.value
+          console.log(`[OfferExtraction] #${offerId}   ✓ 增强关键词: ${enhancedKeywords?.length || 0}个`)
+        } else {
+          console.warn(`[OfferExtraction] #${offerId}   ✗ 增强关键词失败:`, keywordsResult.reason?.message)
         }
+
+        if (productInfoResult.status === 'fulfilled') {
+          enhancedProductInfo = productInfoResult.value
+          console.log(`[OfferExtraction] #${offerId}   ✓ 增强产品信息`)
+        } else {
+          console.warn(`[OfferExtraction] #${offerId}   ✗ 增强产品信息失败:`, productInfoResult.reason?.message)
+        }
+
+        if (reviewAnalysisResult.status === 'fulfilled') {
+          enhancedReviewAnalysis = reviewAnalysisResult.value
+          console.log(`[OfferExtraction] #${offerId}   ✓ 增强评论分析`)
+        } else {
+          console.warn(`[OfferExtraction] #${offerId}   ✗ 增强评论分析失败:`, reviewAnalysisResult.reason?.message)
+        }
+
+        if (headlineDescResult.status === 'fulfilled') {
+          const { headlines, descriptions } = headlineDescResult.value
+          enhancedHeadlines = headlines
+          enhancedDescriptions = descriptions
+          console.log(`[OfferExtraction] #${offerId}   ✓ 增强标题描述: ${headlines.length}个标题, ${descriptions.length}个描述`)
+        } else {
+          console.warn(`[OfferExtraction] #${offerId}   ✗ 增强标题描述失败:`, headlineDescResult.reason?.message)
+        }
+
+        if (competitorResult.status === 'fulfilled') {
+          competitorAnalysis = competitorResult.value
+          console.log(`[OfferExtraction] #${offerId}   ✓ 增强竞品分析`)
+        } else {
+          console.warn(`[OfferExtraction] #${offerId}   ✗ 增强竞品分析失败:`, competitorResult.reason?.message)
+        }
+
+        if (brandResult.status === 'fulfilled') {
+          brandAnalysis = brandResult.value
+          console.log(`[OfferExtraction] #${offerId}   ✓ 品牌识别`)
+        } else {
+          console.warn(`[OfferExtraction] #${offerId}   ✗ 品牌识别失败:`, brandResult.reason?.message)
+        }
+
+        // ========== 阶段3: 本地化适配（依赖关键词）==========
+        if (enhancedKeywords) {
+          const phase3Start = Date.now()
+          try {
+            localizationAdapt = await adaptForLanguageAndRegionEnhanced({
+              productName: result.data!.productName || normalizedBrandName,
+              brandName: normalizedBrandName,
+              category: aiAnalysisResult?.aiProductInfo?.category || 'General',
+              description: result.data!.productDescription || '',
+              keywords: enhancedKeywords?.map(k => k.keyword) || [],
+              basePrice: 99.99,
+              targetCountry: tCountry,
+              targetLanguage,
+            }, uid)
+            const phase3Duration = ((Date.now() - phase3Start) / 1000).toFixed(2)
+            console.log(`[OfferExtraction] #${offerId} ✅ 阶段3完成: 本地化适配 (${phase3Duration}s)`)
+          } catch (localizationError: any) {
+            console.warn(`[OfferExtraction] #${offerId} 阶段3失败: 本地化适配 -`, localizationError.message)
+          }
+        }
+
+        // 计算提取质量评分
+        if (enhancedKeywords || enhancedProductInfo || enhancedReviewAnalysis) {
+          extractionQualityScore = calculateExtractionQualityScore({
+            keywords: enhancedKeywords,
+            productInfo: enhancedProductInfo,
+            reviewAnalysis: enhancedReviewAnalysis,
+          })
+          console.log(`[OfferExtraction] #${offerId} 📊 提取质量评分: ${extractionQualityScore}/100`)
+        }
+
+        const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2)
+        console.log(`[OfferExtraction] #${offerId} 🎉 AI分析全部完成！总耗时: ${totalDuration}s`)
 
       } catch (aiError: any) {
         console.error(`[OfferExtraction] #${offerId} AI分析失败（不影响主流程）:`, aiError.message)
@@ -355,7 +387,7 @@ export async function triggerOfferExtraction(
 
     // 【P2优化】保存竞品分析和本地化适配结果
     if (competitorAnalysis) {
-      updateData.competitor_analysis_enhanced = JSON.stringify(competitorAnalysis)
+      updateData.competitor_analysis = JSON.stringify(competitorAnalysis)
     }
     if (localizationAdapt) {
       updateData.localization_adapt = JSON.stringify(localizationAdapt)

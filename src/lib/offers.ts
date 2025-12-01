@@ -94,6 +94,22 @@ export interface UpdateOfferInput {
   final_url?: string
   final_url_suffix?: string
   is_active?: boolean
+  // AI分析结果字段
+  competitor_analysis?: string
+  review_analysis?: string
+  extracted_keywords?: string
+  extracted_headlines?: string
+  extracted_descriptions?: string
+  // P0/P1/P2/P3优化：增强提取字段
+  enhanced_keywords?: string
+  enhanced_product_info?: string
+  enhanced_review_analysis?: string
+  extraction_quality_score?: number
+  extraction_enhanced_at?: string
+  enhanced_headlines?: string
+  enhanced_descriptions?: string
+  localization_adapt?: string
+  brand_analysis?: string
 }
 
 /**
@@ -339,6 +355,64 @@ export function updateOffer(id: number, userId: number, input: UpdateOfferInput)
   if (input.is_active !== undefined) {
     updates.push('is_active = ?')
     params.push(input.is_active ? 1 : 0)
+  }
+  // AI分析结果字段
+  if (input.competitor_analysis !== undefined) {
+    updates.push('competitor_analysis = ?')
+    params.push(input.competitor_analysis)
+  }
+  if (input.review_analysis !== undefined) {
+    updates.push('review_analysis = ?')
+    params.push(input.review_analysis)
+  }
+  if (input.extracted_keywords !== undefined) {
+    updates.push('extracted_keywords = ?')
+    params.push(input.extracted_keywords)
+  }
+  if (input.extracted_headlines !== undefined) {
+    updates.push('extracted_headlines = ?')
+    params.push(input.extracted_headlines)
+  }
+  if (input.extracted_descriptions !== undefined) {
+    updates.push('extracted_descriptions = ?')
+    params.push(input.extracted_descriptions)
+  }
+  // P0/P1/P2/P3优化：增强提取字段
+  if (input.enhanced_keywords !== undefined) {
+    updates.push('enhanced_keywords = ?')
+    params.push(input.enhanced_keywords)
+  }
+  if (input.enhanced_product_info !== undefined) {
+    updates.push('enhanced_product_info = ?')
+    params.push(input.enhanced_product_info)
+  }
+  if (input.enhanced_review_analysis !== undefined) {
+    updates.push('enhanced_review_analysis = ?')
+    params.push(input.enhanced_review_analysis)
+  }
+  if (input.extraction_quality_score !== undefined) {
+    updates.push('extraction_quality_score = ?')
+    params.push(input.extraction_quality_score)
+  }
+  if (input.extraction_enhanced_at !== undefined) {
+    updates.push('extraction_enhanced_at = ?')
+    params.push(input.extraction_enhanced_at)
+  }
+  if (input.enhanced_headlines !== undefined) {
+    updates.push('enhanced_headlines = ?')
+    params.push(input.enhanced_headlines)
+  }
+  if (input.enhanced_descriptions !== undefined) {
+    updates.push('enhanced_descriptions = ?')
+    params.push(input.enhanced_descriptions)
+  }
+  if (input.localization_adapt !== undefined) {
+    updates.push('localization_adapt = ?')
+    params.push(input.localization_adapt)
+  }
+  if (input.brand_analysis !== undefined) {
+    updates.push('brand_analysis = ?')
+    params.push(input.brand_analysis)
   }
 
   if (updates.length === 0) {

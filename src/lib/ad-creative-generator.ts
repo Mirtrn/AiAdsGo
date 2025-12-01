@@ -240,6 +240,12 @@ function buildAdCreativePrompt(
     keywords?: Array<{ keyword: string; searchVolume: number; source: string; priority: string }>
     headlines?: string[]
     descriptions?: string[]
+    // 🎯 P0/P1/P2/P3优化：增强数据字段
+    productInfo?: { features?: string[]; benefits?: string[]; useCases?: string[] }
+    reviewAnalysis?: { sentiment?: string; themes?: string[]; insights?: string[] }
+    localization?: { currency?: string; culturalNotes?: string[]; localKeywords?: string[] }
+    brandAnalysis?: { positioning?: string; voice?: string; competitors?: string[] }
+    qualityScore?: number
   }
 ): string {
   // 基础产品信息（精简格式）
@@ -255,6 +261,50 @@ USPs: ${offer.unique_selling_points || offer.product_highlights || 'Premium qual
 AUDIENCE: ${offer.target_audience || 'General'}
 COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
 `
+
+  // 🎯 P0优化：使用增强产品信息
+  if (extractedElements?.productInfo) {
+    const { features, benefits, useCases } = extractedElements.productInfo
+    if (features && features.length > 0) {
+      prompt += `\n**✨ ENHANCED FEATURES**: ${features.slice(0, 5).join(', ')}`
+    }
+    if (benefits && benefits.length > 0) {
+      prompt += `\n**✨ KEY BENEFITS**: ${benefits.slice(0, 3).join(', ')}`
+    }
+    if (useCases && useCases.length > 0) {
+      prompt += `\n**✨ USE CASES**: ${useCases.slice(0, 3).join(', ')}`
+    }
+  }
+
+  // 🎯 P2优化：使用本地化适配数据
+  if (extractedElements?.localization) {
+    const { currency, culturalNotes, localKeywords } = extractedElements.localization
+    if (currency) {
+      prompt += `\n**🌍 LOCAL CURRENCY**: ${currency}`
+    }
+    if (culturalNotes && culturalNotes.length > 0) {
+      prompt += `\n**🌍 CULTURAL NOTES**: ${culturalNotes.join('; ')}`
+    }
+    if (localKeywords && localKeywords.length > 0) {
+      prompt += `\n**🌍 LOCAL KEYWORDS**: ${localKeywords.slice(0, 5).join(', ')}`
+    }
+  }
+
+  // 🎯 P3优化：使用品牌分析数据
+  if (extractedElements?.brandAnalysis) {
+    const { positioning, voice, competitors } = extractedElements.brandAnalysis
+    if (positioning) {
+      prompt += `\n**🏷️ BRAND POSITIONING**: ${positioning}`
+    }
+    if (voice) {
+      prompt += `\n**🏷️ BRAND VOICE**: ${voice}`
+    }
+    if (competitors && competitors.length > 0) {
+      prompt += `\n**🏷️ KEY COMPETITORS**: ${competitors.slice(0, 3).join(', ')}`
+    }
+  }
+
+  prompt += '\n'
 
   // 🔥 P0优化：增强数据 - 添加真实折扣、促销、排名、徽章等爬虫抓取的数据
   const extras: string[] = []
@@ -355,6 +405,7 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
   let totalReviews: number = 0
   let averageRating: number = 0
 
+  // 🎯 合并基础和增强评论分析数据
   if (offer.review_analysis) {
     try {
       const reviewAnalysis = JSON.parse(offer.review_analysis)
@@ -377,6 +428,29 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
       totalReviews = reviewAnalysis.totalReviews || 0
       averageRating = reviewAnalysis.averageRating || 0
     } catch {}
+  }
+
+  // 🎯 P1优化：合并增强评论分析数据（如果有）
+  if (extractedElements?.reviewAnalysis) {
+    const enhanced = extractedElements.reviewAnalysis
+    if (enhanced.themes && enhanced.themes.length > 0) {
+      // themes 作为额外的洞察合并到 commonPraises
+      commonPraises = [...new Set([...commonPraises, ...enhanced.themes])]
+    }
+    if (enhanced.insights && enhanced.insights.length > 0) {
+      // insights 作为额外的购买理由
+      purchaseReasons = [...new Set([...purchaseReasons, ...enhanced.insights])]
+    }
+    // sentiment 可以补充 sentimentDistribution
+    if (enhanced.sentiment && !sentimentDistribution) {
+      // 简单映射：positive/negative/neutral
+      const sentimentMap: any = {
+        positive: { positive: 70, neutral: 20, negative: 10 },
+        negative: { positive: 10, neutral: 20, negative: 70 },
+        neutral: { positive: 30, neutral: 50, negative: 20 }
+      }
+      sentimentDistribution = sentimentMap[enhanced.sentiment.toLowerCase()] || null
+    }
   }
 
   // 将深度评论分析数据添加到Prompt
@@ -1235,6 +1309,18 @@ export async function generateAdCreative(
     descriptions?: string[]
   } = {}
 
+  // 🎯 P0/P1/P2/P3优化: 读取AI增强的提取数据
+  let enhancedData: {
+    keywords?: Array<{ keyword: string; volume: number; competition: string; score: number }>
+    productInfo?: { features?: string[]; benefits?: string[]; useCases?: string[] }
+    reviewAnalysis?: { sentiment?: string; themes?: string[]; insights?: string[] }
+    qualityScore?: number
+    headlines?: string[]
+    descriptions?: string[]
+    localization?: { currency?: string; culturalNotes?: string[]; localKeywords?: string[] }
+    brandAnalysis?: { positioning?: string; voice?: string; competitors?: string[] }
+  } = {}
+
   try {
     if ((offer as any).extracted_keywords) {
       extractedElements.keywords = JSON.parse((offer as any).extracted_keywords)
@@ -1248,17 +1334,94 @@ export async function generateAdCreative(
       extractedElements.descriptions = JSON.parse((offer as any).extracted_descriptions)
       console.log(`📦 读取到 ${extractedElements.descriptions?.length || 0} 个提取的描述`)
     }
+
+    // 🎯 读取增强数据（优先使用，因为质量更高）
+    if ((offer as any).enhanced_keywords) {
+      enhancedData.keywords = JSON.parse((offer as any).enhanced_keywords)
+      console.log(`✨ 读取到 ${enhancedData.keywords?.length || 0} 个增强关键词`)
+    }
+    if ((offer as any).enhanced_product_info) {
+      enhancedData.productInfo = JSON.parse((offer as any).enhanced_product_info)
+      console.log(`✨ 读取到增强产品信息`)
+    }
+    if ((offer as any).enhanced_review_analysis) {
+      enhancedData.reviewAnalysis = JSON.parse((offer as any).enhanced_review_analysis)
+      console.log(`✨ 读取到增强评论分析`)
+    }
+    if ((offer as any).extraction_quality_score) {
+      enhancedData.qualityScore = (offer as any).extraction_quality_score
+      console.log(`✨ 提取质量评分: ${enhancedData.qualityScore}/100`)
+    }
+    if ((offer as any).enhanced_headlines) {
+      enhancedData.headlines = JSON.parse((offer as any).enhanced_headlines)
+      console.log(`✨ 读取到 ${enhancedData.headlines?.length || 0} 个增强标题`)
+    }
+    if ((offer as any).enhanced_descriptions) {
+      enhancedData.descriptions = JSON.parse((offer as any).enhanced_descriptions)
+      console.log(`✨ 读取到 ${enhancedData.descriptions?.length || 0} 个增强描述`)
+    }
+    if ((offer as any).localization_adapt) {
+      enhancedData.localization = JSON.parse((offer as any).localization_adapt)
+      console.log(`✨ 读取到本地化适配数据`)
+    }
+    if ((offer as any).brand_analysis) {
+      enhancedData.brandAnalysis = JSON.parse((offer as any).brand_analysis)
+      console.log(`✨ 读取到品牌分析数据`)
+    }
   } catch (parseError: any) {
     console.warn('⚠️ 解析提取的广告元素失败，将使用AI全新生成:', parseError.message)
   }
 
-  // 构建Prompt（传入提取的元素作为参考）
+  // 🎯 合并数据：将enhanced和extracted数据合并（去重）
+  // 统一关键词格式为extracted格式（因为buildAdCreativePrompt期望这个格式）
+  const normalizedEnhancedKeywords = (enhancedData.keywords || []).map(kw => ({
+    keyword: kw.keyword,
+    searchVolume: kw.volume || 0,
+    source: 'AI_ENHANCED',
+    priority: kw.score > 80 ? 'HIGH' : kw.score > 60 ? 'MEDIUM' : 'LOW'
+  }))
+
+  const mergedKeywords = [...normalizedEnhancedKeywords, ...(extractedElements.keywords || [])]
+  const mergedHeadlines = [...(enhancedData.headlines || []), ...(extractedElements.headlines || [])]
+  const mergedDescriptions = [...(enhancedData.descriptions || []), ...(extractedElements.descriptions || [])]
+
+  // 关键词去重（基于keyword字段）
+  const uniqueKeywords = Array.from(
+    new Map(
+      mergedKeywords.map(kw => [kw.keyword, kw])
+    ).values()
+  )
+
+  // 标题和描述去重
+  const uniqueHeadlines = [...new Set(mergedHeadlines)]
+  const uniqueDescriptions = [...new Set(mergedDescriptions)]
+
+  const mergedData = {
+    keywords: uniqueKeywords,
+    headlines: uniqueHeadlines,
+    descriptions: uniqueDescriptions,
+    productInfo: enhancedData.productInfo,
+    reviewAnalysis: enhancedData.reviewAnalysis,
+    localization: enhancedData.localization,
+    brandAnalysis: enhancedData.brandAnalysis,
+    qualityScore: enhancedData.qualityScore
+  }
+
+  console.log('📊 合并后的数据:')
+  console.log(`   - 关键词: ${mergedData.keywords?.length || 0}个 (基础${extractedElements.keywords?.length || 0} + 增强${enhancedData.keywords?.length || 0})`)
+  console.log(`   - 标题: ${mergedData.headlines?.length || 0}个 (基础${extractedElements.headlines?.length || 0} + 增强${enhancedData.headlines?.length || 0})`)
+  console.log(`   - 描述: ${mergedData.descriptions?.length || 0}个 (基础${extractedElements.descriptions?.length || 0} + 增强${enhancedData.descriptions?.length || 0})`)
+  console.log(`   - 产品信息: ${mergedData.productInfo ? '有✨' : '无'}`)
+  console.log(`   - 本地化: ${mergedData.localization ? '有✨' : '无'}`)
+  console.log(`   - 品牌分析: ${mergedData.brandAnalysis ? '有✨' : '无'}`)
+
+  // 构建Prompt（传入合并后的数据）
   const prompt = buildAdCreativePrompt(
     offer,
     options?.theme,
     options?.referencePerformance,
     options?.excludeKeywords,
-    extractedElements  // 🎯 新增：传入提取的元素
+    mergedData  // 🎯 传入合并后的增强数据
   )
 
   // 使用统一AI入口（优先Vertex AI，自动降级到Gemini API）
