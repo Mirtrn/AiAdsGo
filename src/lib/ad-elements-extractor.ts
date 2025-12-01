@@ -15,6 +15,7 @@ import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { getHighIntentKeywords } from './google-suggestions'
 import { getHeadlineLanguageInstructions, getDescriptionLanguageInstructions } from './ad-elements-language-instructions'
+import { loadPrompt } from './prompt-loader'
 import type { AmazonProductData, AmazonStoreData } from './scraper-stealth'
 
 // Type alias for Store Product (extracted from AmazonStoreData.products)
@@ -873,345 +874,33 @@ async function extractFromStore(
     }
   }
 }
-
 /**
- * 生成语言特定的提示词（Headline生成）
+ * 生成广告标题的提示词（从数据库加载版本管理）
  */
-function getHeadlinePrompt(
+async function getHeadlinePrompt(
   product: ProductInfo,
   topKeywords: Array<{ keyword: string; searchVolume: number }>,
   targetLanguage: string
-): string {
-  const languageInstructions = {
-    'English': {
-      intro: 'You are a professional Google Ads copywriter. Based on the following product information, generate 15 Google Search ad headlines.',
-      productInfo: 'Product Information:',
-      productName: 'Product Name',
-      brand: 'Brand',
-      unknown: 'Unknown',
-      rating: 'Rating',
-      reviews: 'reviews',
-      aboutItem: 'About this item',
-      features: 'Product Features',
-      notProvided: 'Not provided',
-      keywords: 'High-Volume Keywords:',
-      searchVolume: 'Search Volume',
-      requirements: 'Requirements:',
-      req1: '1. Generate 15 headlines, each with a maximum of 30 characters (including spaces)',
-      req2: '2. First 3 headlines must include brand name and core product name (e.g., "Teslong Inspection Camera")',
-      req3: '3. Middle 5 headlines should incorporate high-volume keywords',
-      req4: '4. Last 7 headlines should emphasize product features, benefits, promotions',
-      req5: '5. Use high-intent purchase language (buy, shop, official, store, sale, discount, etc.)',
-      req6: '6. Avoid using DKI dynamic insertion syntax',
-      outputFormat: 'Output Format (JSON):',
-      strictFormat: 'Please strictly follow JSON format and ensure 15 headlines.'
-    },
-    'German': {
-      intro: 'Sie sind ein professioneller Google Ads-Texter. Basierend auf den folgenden Produktinformationen generieren Sie 15 Google-Suchanzeigen-Überschriften.',
-      productInfo: 'Produktinformationen:',
-      productName: 'Produktname',
-      brand: 'Marke',
-      unknown: 'Unbekannt',
-      rating: 'Bewertung',
-      reviews: 'Bewertungen',
-      aboutItem: 'Über diesen Artikel',
-      features: 'Produktmerkmale',
-      notProvided: 'Nicht angegeben',
-      keywords: 'Hochvolumen-Keywords:',
-      searchVolume: 'Suchvolumen',
-      requirements: 'Anforderungen:',
-      req1: '1. Generieren Sie 15 Überschriften mit jeweils maximal 30 Zeichen (einschließlich Leerzeichen)',
-      req2: '2. Die ersten 3 Überschriften müssen Markennamen und Kernproduktname enthalten (z. B. "Teslong Inspection Camera")',
-      req3: '3. Die mittleren 5 Überschriften sollten hochvolumige Keywords enthalten',
-      req4: '4. Die letzten 7 Überschriften sollten Produktmerkmale, Vorteile und Aktionen hervorheben',
-      req5: '5. Verwenden Sie kaufintensiven Wortschatz (kaufen, shop, offiziell, store, sale, rabatt usw.)',
-      req6: '6. Vermeiden Sie die Verwendung von DKI-Dynamik-Syntax',
-      outputFormat: 'Ausgabeformat (JSON):',
-      strictFormat: 'Bitte halten Sie sich strikt an das JSON-Format und stellen Sie 15 Überschriften sicher.'
-    },
-    'Chinese': {
-      intro: '你是专业的Google Ads文案专家。请基于以下商品信息，生成15个Google搜索广告标题（Headlines）。',
-      productInfo: '商品信息：',
-      productName: '商品名称',
-      brand: '品牌',
-      unknown: '未知',
-      rating: '评分',
-      reviews: '条评论',
-      aboutItem: 'About this item',
-      features: '商品特性',
-      notProvided: '未提供',
-      keywords: '高搜索量关键词：',
-      searchVolume: '搜索量',
-      requirements: '要求：',
-      req1: '1. 生成15个标题，每个最多30个字符（包含空格）',
-      req2: '2. 前3个标题必须包含品牌名和核心商品名（如"Teslong Inspection Camera"）',
-      req3: '3. 中间5个标题融入高搜索量关键词',
-      req4: '4. 后7个标题强调商品特性、优势、促销',
-      req5: '5. 使用购买意图强烈的词汇（buy, shop, official, store, sale, discount等）',
-      req6: '6. 避免使用DKI动态插入语法',
-      outputFormat: '输出格式（JSON）：',
-      strictFormat: '请严格遵循JSON格式输出，确保15个标题。'
-    },
-    'Japanese': {
-      intro: 'あなたはプロのGoogle広告コピーライターです。以下の商品情報に基づいて、15個のGoogle検索広告の見出しを生成してください。',
-      productInfo: '商品情報：',
-      productName: '商品名',
-      brand: 'ブランド',
-      unknown: '不明',
-      rating: '評価',
-      reviews: 'レビュー',
-      aboutItem: 'この商品について',
-      features: '商品の特徴',
-      notProvided: '提供されていません',
-      keywords: '高検索ボリュームキーワード：',
-      searchVolume: '検索ボリューム',
-      requirements: '要件：',
-      req1: '1. 15個の見出しを生成し、それぞれ最大30文字（スペースを含む）',
-      req2: '2. 最初の3つの見出しにはブランド名と主要商品名を含める（例："Teslong Inspection Camera"）',
-      req3: '3. 中間の5つの見出しには高検索ボリュームキーワードを組み込む',
-      req4: '4. 最後の7つの見出しでは商品の特徴、メリット、プロモーションを強調',
-      req5: '5. 購買意欲の高い言葉を使用（購入、ショップ、公式、ストア、セール、割引など）',
-      req6: '6. DKI動的挿入構文の使用を避ける',
-      outputFormat: '出力形式（JSON）：',
-      strictFormat: 'JSON形式に厳密に従い、15個の見出しを確保してください。'
-    },
-    'Italian': {
-      intro: 'Sei un copywriter professionista di Google Ads. In base alle seguenti informazioni sul prodotto, genera 15 titoli per gli annunci di ricerca di Google.',
-      productInfo: 'Informazioni sul prodotto：',
-      productName: 'Nome del prodotto',
-      brand: 'Marca',
-      unknown: 'Sconosciuto',
-      rating: 'Valutazione',
-      reviews: 'recensioni',
-      aboutItem: 'Informazioni su questo articolo',
-      features: 'Caratteristiche del prodotto',
-      notProvided: 'Non fornito',
-      keywords: 'Parole chiave ad alto volume：',
-      searchVolume: 'Volume di ricerca',
-      requirements: 'Requisiti：',
-      req1: '1. Genera 15 titoli, ciascuno con un massimo di 30 caratteri (spazi inclusi)',
-      req2: '2. I primi 3 titoli devono includere il nome del brand e il nome del prodotto principale (es. "Teslong Inspection Camera")',
-      req3: '3. I 5 titoli centrali dovrebbero incorporare parole chiave ad alto volume',
-      req4: '4. Gli ultimi 7 titoli dovrebbero enfatizzare caratteristiche del prodotto, vantaggi, promozioni',
-      req5: '5. Utilizza un linguaggio ad alta intenzione d\'acquisto (acquista, negozio, ufficiale, store, saldi, sconto, ecc.)',
-      req6: '6. Evita di utilizzare la sintassi di inserimento dinamico DKI',
-      outputFormat: 'Formato di output (JSON)：',
-      strictFormat: 'Si prega di seguire rigorosamente il formato JSON e assicurarsi di avere 15 titoli.'
-    },
-    'Korean': {
-      intro: '당신은 전문 Google Ads 카피라이터입니다. 다음 제품 정보를 기반으로 15개의 Google 검색 광고 헤드라인을 생성하세요.',
-      productInfo: '제품 정보：',
-      productName: '제품명',
-      brand: '브랜드',
-      unknown: '알 수 없음',
-      rating: '평점',
-      reviews: '리뷰',
-      aboutItem: '제품 설명',
-      features: '제품 특징',
-      notProvided: '제공되지 않음',
-      keywords: '높은 검색량 키워드：',
-      searchVolume: '검색량',
-      requirements: '요구사항：',
-      req1: '1. 15개의 헤드라인을 생성하고, 각각 최대 30자（공백 포함）',
-      req2: '2. 처음 3개의 헤드라인에는 브랜드명과 핵심 제품명을 포함해야 합니다（예： "Teslong Inspection Camera"）',
-      req3: '3. 중간 5개의 헤드라인에는 높은 검색량 키워드를 포함해야 합니다',
-      req4: '4. 마지막 7개의 헤드라인은 제품 특징, 이점, 프로모션을 강조해야 합니다',
-      req5: '5. 구매 의도가 높은 언어 사용（구매, 쇼핑, 공식, 스토어, 세일, 할인 등）',
-      req6: '6. DKI 동적 삽입 구문 사용 피하기',
-      outputFormat: '출력 형식（JSON）：',
-      strictFormat: 'JSON 형식을 엄격히 따르고 15개의 헤드라인을 확보하세요.'
-    },
-    'French': {
-      intro: 'Vous êtes un rédacteur professionnel Google Ads. En vous basant sur les informations produit suivantes, générez 15 titres d\'annonces de recherche Google.',
-      productInfo: 'Informations sur le produit：',
-      productName: 'Nom du produit',
-      brand: 'Marque',
-      unknown: 'Inconnu',
-      rating: 'Note',
-      reviews: 'avis',
-      aboutItem: 'À propos de cet article',
-      features: 'Caractéristiques du produit',
-      notProvided: 'Non fourni',
-      keywords: 'Mots-clés à fort volume：',
-      searchVolume: 'Volume de recherche',
-      requirements: 'Exigences：',
-      req1: '1. Générez 15 titres, chacun avec un maximum de 30 caractères (espaces inclus)',
-      req2: '2. Les 3 premiers titres doivent inclure le nom de la marque et le nom du produit principal (ex： "Teslong Inspection Camera")',
-      req3: '3. Les 5 titres du milieu doivent incorporer des mots-clés à fort volume',
-      req4: '4. Les 7 derniers titres doivent mettre en avant les caractéristiques, avantages et promotions du produit',
-      req5: '5. Utilisez un langage à forte intention d\'achat (acheter, boutique, officiel, magasin, soldes, réduction, etc.)',
-      req6: '6. Évitez d\'utiliser la syntaxe d\'insertion dynamique DKI',
-      outputFormat: 'Format de sortie (JSON)：',
-      strictFormat: 'Veuillez suivre strictement le format JSON et assurer 15 titres.'
-    },
-    'Swedish': {
-      intro: 'Du är en professionell Google Ads-copywriter. Baserat på följande produktinformation, generera 15 Google sökannons-rubriker.',
-      productInfo: 'Produktinformation：',
-      productName: 'Produktnamn',
-      brand: 'Varumärke',
-      unknown: 'Okänd',
-      rating: 'Betyg',
-      reviews: 'recensioner',
-      aboutItem: 'Om denna artikel',
-      features: 'Produktegenskaper',
-      notProvided: 'Ej tillhandahållet',
-      keywords: 'Höga sökvolymer nyckelord：',
-      searchVolume: 'Sökvolym',
-      requirements: 'Krav：',
-      req1: '1. Generera 15 rubriker, var och en med maximalt 30 tecken (inklusive mellanslag)',
-      req2: '2. De första 3 rubrikerna måste innehålla varumärkesnamn och kärnproduktnamn (t.ex. "Teslong Inspection Camera")',
-      req3: '3. De mittersta 5 rubrikerna bör inkorporera nyckelord med hög sökvolym',
-      req4: '4. De sista 7 rubrikerna bör betona produktegenskaper, fördelar, kampanjer',
-      req5: '5. Använd språk med hög köpintention (köp, butik, officiell, store, rea, rabatt, etc.)',
-      req6: '6. Undvik att använda DKI dynamisk insättningssyntax',
-      outputFormat: 'Utdataformat (JSON)：',
-      strictFormat: 'Följ strikt JSON-formatet och säkerställ 15 rubriker.'
-    },
-    'Swiss German': {
-      intro: 'Sie sind ein professioneller Google Ads-Texter. Basierend auf den folgenden Produktinformationen generieren Sie 15 Google-Suchanzeigen-Überschriften.',
-      productInfo: 'Produktinformationen：',
-      productName: 'Produktname',
-      brand: 'Marke',
-      unknown: 'Unbekannt',
-      rating: 'Bewertung',
-      reviews: 'Bewertungen',
-      aboutItem: 'Über diesen Artikel',
-      features: 'Produktmerkmale',
-      notProvided: 'Nicht angegeben',
-      keywords: 'Hochvolumen-Keywords：',
-      searchVolume: 'Suchvolumen',
-      requirements: 'Anforderungen：',
-      req1: '1. Generieren Sie 15 Überschriften mit jeweils maximal 30 Zeichen (einschließlich Leerzeichen)',
-      req2: '2. Die ersten 3 Überschriften müssen Markennamen und Kernproduktname enthalten (z. B. "Teslong Inspection Camera")',
-      req3: '3. Die mittleren 5 Überschriften sollten hochvolumige Keywords enthalten',
-      req4: '4. Die letzten 7 Überschriften sollten Produktmerkmale, Vorteile und Aktionen hervorheben',
-      req5: '5. Verwenden Sie kaufintensiven Wortschatz (kaufen, shop, offiziell, store, sale, rabatt usw.)',
-      req6: '6. Vermeiden Sie die Verwendung von DKI-Dynamik-Syntax',
-      outputFormat: 'Ausgabeformat (JSON)：',
-      strictFormat: 'Bitte halten Sie sich strikt an das JSON-Format und stellen Sie 15 Überschriften sicher.'
-    },
-    'Spanish': {
-      intro: 'Eres un redactor profesional de Google Ads. Basándote en la siguiente información del producto, genera 15 títulos de anuncios de búsqueda de Google.',
-      productInfo: 'Información del producto：',
-      productName: 'Nombre del producto',
-      brand: 'Marca',
-      unknown: 'Desconocido',
-      rating: 'Calificación',
-      reviews: 'reseñas',
-      aboutItem: 'Acerca de este artículo',
-      features: 'Características del producto',
-      notProvided: 'No proporcionado',
-      keywords: 'Palabras clave de alto volumen：',
-      searchVolume: 'Volumen de búsqueda',
-      requirements: 'Requisitos：',
-      req1: '1. Genera 15 títulos, cada uno con un máximo de 30 caracteres (incluidos espacios)',
-      req2: '2. Los primeros 3 títulos deben incluir el nombre de la marca y el nombre del producto principal (por ejemplo, "Teslong Inspection Camera")',
-      req3: '3. Los 5 títulos del medio deben incorporar palabras clave de alto volumen',
-      req4: '4. Los últimos 7 títulos deben enfatizar características del producto, beneficios, promociones',
-      req5: '5. Utiliza lenguaje de alta intención de compra (comprar, tienda, oficial, venta, descuento, etc.)',
-      req6: '6. Evita usar la sintaxis de inserción dinámica DKI',
-      outputFormat: 'Formato de salida (JSON)：',
-      strictFormat: 'Por favor, sigue estrictamente el formato JSON y asegura 15 títulos.'
-    },
-    'Portuguese': {
-      intro: 'Você é um redator profissional de Google Ads. Com base nas seguintes informações do produto, gere 15 títulos de anúncios de pesquisa do Google.',
-      productInfo: 'Informações do produto：',
-      productName: 'Nome do produto',
-      brand: 'Marca',
-      unknown: 'Desconhecido',
-      rating: 'Classificação',
-      reviews: 'avaliações',
-      aboutItem: 'Sobre este item',
-      features: 'Características do produto',
-      notProvided: 'Não fornecido',
-      keywords: 'Palavras-chave de alto volume：',
-      searchVolume: 'Volume de pesquisa',
-      requirements: 'Requisitos：',
-      req1: '1. Gere 15 títulos, cada um com no máximo 30 caracteres (incluindo espaços)',
-      req2: '2. Os primeiros 3 títulos devem incluir o nome da marca e o nome do produto principal (por exemplo, "Teslong Inspection Camera")',
-      req3: '3. Os 5 títulos do meio devem incorporar palavras-chave de alto volume',
-      req4: '4. Os últimos 7 títulos devem enfatizar características do produto, benefícios, promoções',
-      req5: '5. Use linguagem de alta intenção de compra (comprar, loja, oficial, venda, desconto, etc.)',
-      req6: '6. Evite usar a sintaxe de inserção dinâmica DKI',
-      outputFormat: 'Formato de saída (JSON)：',
-      strictFormat: 'Por favor, siga rigorosamente o formato JSON e garanta 15 títulos.'
-    },
-    'Russian': {
-      intro: 'Вы профессиональный копирайтер Google Ads. На основе следующей информации о продукте создайте 15 заголовков объявлений поиска Google.',
-      productInfo: 'Информация о продукте：',
-      productName: 'Название продукта',
-      brand: 'Бренд',
-      unknown: 'Неизвестно',
-      rating: 'Рейтинг',
-      reviews: 'отзывы',
-      aboutItem: 'Об этом товаре',
-      features: 'Характеристики продукта',
-      notProvided: 'Не предоставлено',
-      keywords: 'Ключевые слова с высоким объемом：',
-      searchVolume: 'Объем поиска',
-      requirements: 'Требования：',
-      req1: '1. Создайте 15 заголовков, каждый максимум 30 символов (включая пробелы)',
-      req2: '2. Первые 3 заголовка должны включать название бренда и основное название продукта (например, "Teslong Inspection Camera")',
-      req3: '3. Средние 5 заголовков должны содержать ключевые слова с высоким объемом',
-      req4: '4. Последние 7 заголовков должны подчеркивать особенности продукта, преимущества, акции',
-      req5: '5. Используйте язык с высоким намерением покупки (купить, магазин, официальный, продажа, скидка и т. д.)',
-      req6: '6. Избегайте использования синтаксиса динамической вставки DKI',
-      outputFormat: 'Формат вывода (JSON)：',
-      strictFormat: 'Пожалуйста, строго следуйте формату JSON и обеспечьте 15 заголовков.'
-    },
-    'Arabic': {
-      intro: 'أنت كاتب إعلانات احترافي في Google. بناءً على معلومات المنتج التالية، قم بإنشاء 15 عنوان إعلان بحث Google.',
-      productInfo: 'معلومات المنتج：',
-      productName: 'اسم المنتج',
-      brand: 'العلامة التجارية',
-      unknown: 'غير معروف',
-      rating: 'التقييم',
-      reviews: 'تقييمات',
-      aboutItem: 'حول هذا العنصر',
-      features: 'ميزات المنتج',
-      notProvided: 'لم يتم توفيره',
-      keywords: 'الكلمات الرئيسية عالية الحجم：',
-      searchVolume: 'حجم البحث',
-      requirements: 'المتطلبات：',
-      req1: '1. قم بإنشاء 15 عنوان، كل منها بحد أقصى 30 حرف (بما في ذلك المسافات)',
-      req2: '2. يجب أن تتضمن أول 3 عناوين اسم العلامة التجارية واسم المنتج الأساسي (على سبيل المثال، "Teslong Inspection Camera")',
-      req3: '3. يجب أن تتضمن 5 عناوين في المنتصف كلمات رئيسية عالية الحجم',
-      req4: '4. يجب أن تؤكد آخر 7 عناوين على ميزات المنتج والفوائد والعروض الترويجية',
-      req5: '5. استخدم لغة ذات نية شراء عالية (شراء، متجر، رسمي، بيع، خصم، إلخ)',
-      req6: '6. تجنب استخدام بناء جملة الإدراج الديناميكي DKI',
-      outputFormat: 'تنسيق الإخراج (JSON)：',
-      strictFormat: 'يرجى اتباع تنسيق JSON بدقة وضمان 15 عنوان.'
-    }
-  }
-
-  const lang = languageInstructions[targetLanguage as keyof typeof languageInstructions] || languageInstructions['English']
-
-  return `${lang.intro}
-
-**${lang.productInfo}**
-- ${lang.productName}：${product.name}
-- ${lang.brand}：${product.brand || lang.unknown}
-- ${lang.rating}：${product.rating || 'N/A'} (${product.reviewCount || 'N/A'}${lang.reviews})
-- ${lang.aboutItem}：${product.aboutThisItem?.slice(0, 5).join('; ') || lang.notProvided}
-- ${lang.features}：${product.features?.slice(0, 5).join('; ') || lang.notProvided}
-
-**${lang.keywords}**
-${topKeywords.map(k => `- ${k.keyword} (${lang.searchVolume}: ${k.searchVolume})`).join('\n')}
-
-**${lang.requirements}**
-${lang.req1}
-${lang.req2}
-${lang.req3}
-${lang.req4}
-${lang.req5}
-${lang.req6}
-
-**${lang.outputFormat}**
-{
-  "headlines": ["headline1", "headline2", ..., "headline15"]
-}
-
-${lang.strictFormat}`
+): Promise<string> {
+  // 📦 从数据库加载prompt模板 (版本管理)
+  const promptTemplate = await loadPrompt('ad_elements_headlines')
+  
+  // 🎨 准备模板变量
+  const aboutThisItemText = product.aboutThisItem?.slice(0, 5).join('; ') || 'Not provided'
+  const featuresText = product.features?.slice(0, 5).join('; ') || 'Not provided'
+  const topKeywordsText = topKeywords.map(k => `- ${k.keyword} (Search Volume: ${k.searchVolume})`).join('\n')
+  
+  // 🎨 插值替换模板变量
+  const prompt = promptTemplate
+    .replace('{{product.name}}', product.name)
+    .replace('{{product.brand}}', product.brand || 'Unknown')
+    .replace('{{product.rating}}', product.rating?.toString() || 'N/A')
+    .replace('{{product.reviewCount}}', product.reviewCount?.toString() || 'N/A')
+    .replace('{{product.aboutThisItem}}', aboutThisItemText)
+    .replace('{{product.features}}', featuresText)
+    .replace('{{topKeywords}}', topKeywordsText)
+  
+  return prompt
 }
 
 /**
@@ -1223,7 +912,7 @@ async function generateHeadlines(
   targetLanguage: string,
   userId: number
 ): Promise<string[]> {
-  const prompt = getHeadlinePrompt(product, topKeywords, targetLanguage)
+  const prompt = await getHeadlinePrompt(product, topKeywords, targetLanguage)
 
   // 🆕 Token优化：定义结构化JSON schema（确保AI输出符合预期格式）
   const responseSchema = {
@@ -1578,339 +1267,30 @@ async function generateHeadlinesFromMultipleProducts(
 }
 
 /**
- * 生成语言特定的提示词（Description生成 - 单商品）
+ * 生成广告描述的提示词（从数据库加载版本管理）
  */
-function getDescriptionPrompt(product: ProductInfo, targetLanguage: string): string {
-  const languageInstructions = {
-    'English': {
-      intro: 'You are a professional Google Ads copywriter. Based on the following product information, generate 4 Google Search ad descriptions.',
-      productInfo: 'Product Information:',
-      productName: 'Product Name',
-      brand: 'Brand',
-      unknown: 'Unknown',
-      rating: 'Rating',
-      reviews: 'reviews',
-      description: 'Product Description',
-      aboutItem: 'About this item',
-      features: 'Product Features',
-      notProvided: 'Not provided',
-      requirements: 'Requirements:',
-      req1: '1. Generate 4 descriptions, each with a maximum of 90 characters (including spaces)',
-      req2: '2. Description 1: Highlight core selling points and user value',
-      req3: '3. Description 2: Emphasize product features and advantages',
-      req4: '4. Description 3: Promotional information or social proof (high ratings, best-selling, etc.)',
-      req5: '5. Description 4: Call to action (CTA) and purchase channel',
-      req6: '6. Extract information from product description and features, express concisely',
-      req7: '7. Use high-intent purchase language',
-      outputFormat: 'Output Format (JSON):',
-      strictFormat: 'Please strictly follow JSON format.'
-    },
-    'German': {
-      intro: 'Sie sind ein professioneller Google Ads-Texter. Basierend auf den folgenden Produktinformationen generieren Sie 4 Google-Suchanzeigen-Beschreibungen.',
-      productInfo: 'Produktinformationen:',
-      productName: 'Produktname',
-      brand: 'Marke',
-      unknown: 'Unbekannt',
-      rating: 'Bewertung',
-      reviews: 'Bewertungen',
-      description: 'Produktbeschreibung',
-      aboutItem: 'Über diesen Artikel',
-      features: 'Produktmerkmale',
-      notProvided: 'Nicht angegeben',
-      requirements: 'Anforderungen:',
-      req1: '1. Generieren Sie 4 Beschreibungen mit jeweils maximal 90 Zeichen (einschließlich Leerzeichen)',
-      req2: '2. Beschreibung 1: Kernverkaufsargumente und Nutzerwert hervorheben',
-      req3: '3. Beschreibung 2: Produktmerkmale und Vorteile betonen',
-      req4: '4. Beschreibung 3: Aktionsinformationen oder Social Proof (hohe Bewertungen, Bestseller, etc.)',
-      req5: '5. Beschreibung 4: Call-to-Action (CTA) und Kaufkanal',
-      req6: '6. Informationen aus Produktbeschreibung und Merkmalen extrahieren, prägnant ausdrücken',
-      req7: '7. Kaufintensive Sprache verwenden',
-      outputFormat: 'Ausgabeformat (JSON):',
-      strictFormat: 'Bitte halten Sie sich strikt an das JSON-Format.'
-    },
-    'Chinese': {
-      intro: '你是专业的Google Ads文案专家。请基于以下商品信息，生成4个Google搜索广告描述（Descriptions）。',
-      productInfo: '商品信息：',
-      productName: '商品名称',
-      brand: '品牌',
-      unknown: '未知',
-      rating: '评分',
-      reviews: '条评论',
-      description: '商品描述',
-      aboutItem: 'About this item',
-      features: '商品特性',
-      notProvided: '未提供',
-      requirements: '要求：',
-      req1: '1. 生成4个描述，每个最多90个字符（包含空格）',
-      req2: '2. 第1个描述：突出核心卖点和用户价值',
-      req3: '3. 第2个描述：强调商品特性和优势',
-      req4: '4. 第3个描述：促销信息或社会证明（高评分、畅销等）',
-      req5: '5. 第4个描述：行动号召（CTA）和购买渠道',
-      req6: '6. 从商品描述和特性中提取信息，精炼表达',
-      req7: '7. 使用购买意图强烈的语言',
-      outputFormat: '输出格式（JSON）：',
-      strictFormat: '请严格遵循JSON格式输出。'
-    },
-    'Japanese': {
-      intro: 'あなたはプロのGoogle広告コピーライターです。以下の商品情報に基づいて、4つのGoogle検索広告の説明文を生成してください。',
-      productInfo: '商品情報：',
-      productName: '商品名',
-      brand: 'ブランド',
-      unknown: '不明',
-      rating: '評価',
-      reviews: 'レビュー',
-      description: '商品説明',
-      aboutItem: 'この商品について',
-      features: '商品の特徴',
-      notProvided: '提供されていません',
-      requirements: '要件：',
-      req1: '1. 4つの説明文を生成し、それぞれ最大90文字（スペースを含む）',
-      req2: '2. 説明文1：主要なセールスポイントとユーザー価値を強調',
-      req3: '3. 説明文2：商品の特徴とメリットを強調',
-      req4: '4. 説明文3：プロモーション情報または社会的証明（高評価、ベストセラーなど）',
-      req5: '5. 説明文4：行動喚起（CTA）と購入チャネル',
-      req6: '6. 商品説明と特徴から情報を抽出し、簡潔に表現',
-      req7: '7. 購買意欲の高い言葉を使用',
-      outputFormat: '出力形式（JSON）：',
-      strictFormat: 'JSON形式に厳密に従ってください。'
-    },
-    'Italian': {
-      intro: 'Sei un copywriter professionista di Google Ads. In base alle seguenti informazioni sul prodotto, genera 4 descrizioni per gli annunci di ricerca di Google.',
-      productInfo: 'Informazioni sul prodotto：',
-      productName: 'Nome del prodotto',
-      brand: 'Marca',
-      unknown: 'Sconosciuto',
-      rating: 'Valutazione',
-      reviews: 'recensioni',
-      description: 'Descrizione del prodotto',
-      aboutItem: 'Informazioni su questo articolo',
-      features: 'Caratteristiche del prodotto',
-      notProvided: 'Non fornito',
-      requirements: 'Requisiti：',
-      req1: '1. Genera 4 descrizioni, ciascuna con un massimo di 90 caratteri (spazi inclusi)',
-      req2: '2. Descrizione 1: Evidenzia i punti di vendita principali e il valore per l\'utente',
-      req3: '3. Descrizione 2: Enfatizza le caratteristiche e i vantaggi del prodotto',
-      req4: '4. Descrizione 3: Informazioni promozionali o prova sociale (valutazioni elevate, più venduto, ecc.)',
-      req5: '5. Descrizione 4: Chiamata all\'azione (CTA) e canale di acquisto',
-      req6: '6. Estrai informazioni dalla descrizione e dalle caratteristiche del prodotto, esprimi in modo conciso',
-      req7: '7. Utilizza un linguaggio ad alta intenzione d\'acquisto',
-      outputFormat: 'Formato di output (JSON)：',
-      strictFormat: 'Si prega di seguire rigorosamente il formato JSON.'
-    },
-    'Korean': {
-      intro: '당신은 전문 Google Ads 카피라이터입니다. 다음 제품 정보를 기반으로 4개의 Google 검색 광고 설명을 생성하세요.',
-      productInfo: '제품 정보：',
-      productName: '제품명',
-      brand: '브랜드',
-      unknown: '알 수 없음',
-      rating: '평점',
-      reviews: '리뷰',
-      description: '제품 설명',
-      aboutItem: '제품 설명',
-      features: '제품 특징',
-      notProvided: '제공되지 않음',
-      requirements: '요구사항：',
-      req1: '1. 4개의 설명을 생성하고, 각각 최대 90자（공백 포함）',
-      req2: '2. 설명 1: 핵심 판매 포인트와 사용자 가치를 강조',
-      req3: '3. 설명 2: 제품 특징과 장점을 강조',
-      req4: '4. 설명 3: 프로모션 정보 또는 사회적 증거（높은 평점, 베스트셀러 등）',
-      req5: '5. 설명 4: 행동 유도（CTA）와 구매 채널',
-      req6: '6. 제품 설명과 특징에서 정보를 추출하여 간결하게 표현',
-      req7: '7. 구매 의도가 높은 언어 사용',
-      outputFormat: '출력 형식（JSON）：',
-      strictFormat: 'JSON 형식을 엄격히 따르세요.'
-    },
-    'French': {
-      intro: 'Vous êtes un rédacteur professionnel Google Ads. En vous basant sur les informations produit suivantes, générez 4 descriptions d\'annonces de recherche Google.',
-      productInfo: 'Informations sur le produit：',
-      productName: 'Nom du produit',
-      brand: 'Marque',
-      unknown: 'Inconnu',
-      rating: 'Note',
-      reviews: 'avis',
-      description: 'Description du produit',
-      aboutItem: 'À propos de cet article',
-      features: 'Caractéristiques du produit',
-      notProvided: 'Non fourni',
-      requirements: 'Exigences：',
-      req1: '1. Générez 4 descriptions, chacune avec un maximum de 90 caractères (espaces inclus)',
-      req2: '2. Description 1: Mettez en avant les arguments de vente principaux et la valeur pour l\'utilisateur',
-      req3: '3. Description 2: Soulignez les caractéristiques et avantages du produit',
-      req4: '4. Description 3: Informations promotionnelles ou preuve sociale (notes élevées, best-seller, etc.)',
-      req5: '5. Description 4: Appel à l\'action (CTA) et canal d\'achat',
-      req6: '6. Extrayez des informations de la description et des caractéristiques du produit, exprimez de manière concise',
-      req7: '7. Utilisez un langage à forte intention d\'achat',
-      outputFormat: 'Format de sortie (JSON)：',
-      strictFormat: 'Veuillez suivre strictement le format JSON.'
-    },
-    'Swedish': {
-      intro: 'Du är en professionell Google Ads-copywriter. Baserat på följande produktinformation, generera 4 Google sökannons-beskrivningar.',
-      productInfo: 'Produktinformation：',
-      productName: 'Produktnamn',
-      brand: 'Varumärke',
-      unknown: 'Okänd',
-      rating: 'Betyg',
-      reviews: 'recensioner',
-      description: 'Produktbeskrivning',
-      aboutItem: 'Om denna artikel',
-      features: 'Produktegenskaper',
-      notProvided: 'Ej tillhandahållet',
-      requirements: 'Krav：',
-      req1: '1. Generera 4 beskrivningar, var och en med maximalt 90 tecken (inklusive mellanslag)',
-      req2: '2. Beskrivning 1: Lyft fram huvudsakliga försäljningsargument och användarvärde',
-      req3: '3. Beskrivning 2: Betona produktegenskaper och fördelar',
-      req4: '4. Beskrivning 3: Kampanjinformation eller socialt bevis (höga betyg, bästsäljare, etc.)',
-      req5: '5. Beskrivning 4: Uppmaning till handling (CTA) och köpkanal',
-      req6: '6. Extrahera information från produktbeskrivning och egenskaper, uttryck koncist',
-      req7: '7. Använd språk med hög köpintention',
-      outputFormat: 'Utdataformat (JSON)：',
-      strictFormat: 'Följ strikt JSON-formatet.'
-    },
-    'Swiss German': {
-      intro: 'Sie sind ein professioneller Google Ads-Texter. Basierend auf den folgenden Produktinformationen generieren Sie 4 Google-Suchanzeigen-Beschreibungen.',
-      productInfo: 'Produktinformationen：',
-      productName: 'Produktname',
-      brand: 'Marke',
-      unknown: 'Unbekannt',
-      rating: 'Bewertung',
-      reviews: 'Bewertungen',
-      description: 'Produktbeschreibung',
-      aboutItem: 'Über diesen Artikel',
-      features: 'Produktmerkmale',
-      notProvided: 'Nicht angegeben',
-      requirements: 'Anforderungen：',
-      req1: '1. Generieren Sie 4 Beschreibungen mit jeweils maximal 90 Zeichen (einschließlich Leerzeichen)',
-      req2: '2. Beschreibung 1: Kernverkaufsargumente und Nutzerwert hervorheben',
-      req3: '3. Beschreibung 2: Produktmerkmale und Vorteile betonen',
-      req4: '4. Beschreibung 3: Aktionsinformationen oder Social Proof (hohe Bewertungen, Bestseller, etc.)',
-      req5: '5. Beschreibung 4: Call-to-Action (CTA) und Kaufkanal',
-      req6: '6. Informationen aus Produktbeschreibung und Merkmalen extrahieren, prägnant ausdrücken',
-      req7: '7. Kaufintensive Sprache verwenden',
-      outputFormat: 'Ausgabeformat (JSON)：',
-      strictFormat: 'Bitte halten Sie sich strikt an das JSON-Format.'
-    },
-    'Spanish': {
-      intro: 'Eres un redactor profesional de Google Ads. Basándote en la siguiente información del producto, genera 4 descripciones de anuncios de búsqueda de Google.',
-      productInfo: 'Información del producto：',
-      productName: 'Nombre del producto',
-      brand: 'Marca',
-      unknown: 'Desconocido',
-      rating: 'Calificación',
-      reviews: 'reseñas',
-      description: 'Descripción del producto',
-      aboutItem: 'Acerca de este artículo',
-      features: 'Características del producto',
-      notProvided: 'No proporcionado',
-      requirements: 'Requisitos：',
-      req1: '1. Genera 4 descripciones, cada una con un máximo de 90 caracteres (incluidos espacios)',
-      req2: '2. Descripción 1: Destaca los puntos de venta principales y el valor para el usuario',
-      req3: '3. Descripción 2: Enfatiza las características y ventajas del producto',
-      req4: '4. Descripción 3: Información promocional o prueba social (calificaciones altas, más vendido, etc.)',
-      req5: '5. Descripción 4: Llamada a la acción (CTA) y canal de compra',
-      req6: '6. Extrae información de la descripción y características del producto, expresa de forma concisa',
-      req7: '7. Utiliza lenguaje de alta intención de compra',
-      outputFormat: 'Formato de salida (JSON)：',
-      strictFormat: 'Por favor, sigue estrictamente el formato JSON.'
-    },
-    'Portuguese': {
-      intro: 'Você é um redator profissional de Google Ads. Com base nas seguintes informações do produto, gere 4 descrições de anúncios de pesquisa do Google.',
-      productInfo: 'Informações do produto：',
-      productName: 'Nome do produto',
-      brand: 'Marca',
-      unknown: 'Desconhecido',
-      rating: 'Classificação',
-      reviews: 'avaliações',
-      description: 'Descrição do produto',
-      aboutItem: 'Sobre este item',
-      features: 'Características do produto',
-      notProvided: 'Não fornecido',
-      requirements: 'Requisitos：',
-      req1: '1. Gere 4 descrições, cada uma com no máximo 90 caracteres (incluindo espaços)',
-      req2: '2. Descrição 1: Destaque os principais pontos de venda e o valor para o usuário',
-      req3: '3. Descrição 2: Enfatize as características e vantagens do produto',
-      req4: '4. Descrição 3: Informações promocionais ou prova social (classificações altas, mais vendido, etc.)',
-      req5: '5. Descrição 4: Chamada para ação (CTA) e canal de compra',
-      req6: '6. Extraia informações da descrição e características do produto, expresse de forma concisa',
-      req7: '7. Use linguagem de alta intenção de compra',
-      outputFormat: 'Formato de saída (JSON)：',
-      strictFormat: 'Por favor, siga rigorosamente o formato JSON.'
-    },
-    'Russian': {
-      intro: 'Вы профессиональный копирайтер Google Ads. На основе следующей информации о продукте создайте 4 описания объявлений поиска Google.',
-      productInfo: 'Информация о продукте：',
-      productName: 'Название продукта',
-      brand: 'Бренд',
-      unknown: 'Неизвестно',
-      rating: 'Рейтинг',
-      reviews: 'отзывы',
-      description: 'Описание продукта',
-      aboutItem: 'Об этом товаре',
-      features: 'Характеристики продукта',
-      notProvided: 'Не предоставлено',
-      requirements: 'Требования：',
-      req1: '1. Создайте 4 описания, каждое максимум 90 символов (включая пробелы)',
-      req2: '2. Описание 1: Выделите основные аргументы продажи и ценность для пользователя',
-      req3: '3. Описание 2: Подчеркните характеристики и преимущества продукта',
-      req4: '4. Описание 3: Информация о продвижении или социальное доказательство (высокие рейтинги, бестселлер и т. д.)',
-      req5: '5. Описание 4: Призыв к действию (CTA) и канал покупки',
-      req6: '6. Извлеките информацию из описания и характеристик продукта, выразите кратко',
-      req7: '7. Используйте язык с высоким намерением покупки',
-      outputFormat: 'Формат вывода (JSON)：',
-      strictFormat: 'Пожалуйста, строго следуйте формату JSON.'
-    },
-    'Arabic': {
-      intro: 'أنت كاتب إعلانات احترافي في Google. بناءً على معلومات المنتج التالية، قم بإنشاء 4 أوصاف إعلان بحث Google.',
-      productInfo: 'معلومات المنتج：',
-      productName: 'اسم المنتج',
-      brand: 'العلامة التجارية',
-      unknown: 'غير معروف',
-      rating: 'التقييم',
-      reviews: 'تقييمات',
-      description: 'وصف المنتج',
-      aboutItem: 'حول هذا العنصر',
-      features: 'ميزات المنتج',
-      notProvided: 'لم يتم توفيره',
-      requirements: 'المتطلبات：',
-      req1: '1. قم بإنشاء 4 أوصاف، كل منها بحد أقصى 90 حرف (بما في ذلك المسافات)',
-      req2: '2. الوصف 1: ركز على نقاط البيع الرئيسية والقيمة للمستخدم',
-      req3: '3. الوصف 2: أكد على ميزات وفوائد المنتج',
-      req4: '4. الوصف 3: معلومات ترويجية أو إثبات اجتماعي (تقييمات عالية، الأكثر مبيعاً، إلخ)',
-      req5: '5. الوصف 4: دعوة للعمل (CTA) وقناة الشراء',
-      req6: '6. استخرج المعلومات من وصف المنتج والميزات، عبر بإيجاز',
-      req7: '7. استخدم لغة ذات نية شراء عالية',
-      outputFormat: 'تنسيق الإخراج (JSON)：',
-      strictFormat: 'يرجى اتباع تنسيق JSON بدقة.'
-    }
-  }
-
-  const lang = languageInstructions[targetLanguage as keyof typeof languageInstructions] || languageInstructions['English']
-
-  return `${lang.intro}
-
-**${lang.productInfo}**
-- ${lang.productName}：${product.name}
-- ${lang.brand}：${product.brand || lang.unknown}
-- ${lang.rating}：${product.rating || 'N/A'} (${product.reviewCount || 'N/A'}${lang.reviews})
-- ${lang.description}：${product.description?.slice(0, 500) || lang.notProvided}
-- ${lang.aboutItem}：${product.aboutThisItem?.slice(0, 10).join('; ') || lang.notProvided}
-- ${lang.features}：${product.features?.slice(0, 10).join('; ') || lang.notProvided}
-
-**${lang.requirements}**
-${lang.req1}
-${lang.req2}
-${lang.req3}
-${lang.req4}
-${lang.req5}
-${lang.req6}
-${lang.req7}
-
-**${lang.outputFormat}**
-{
-  "descriptions": ["description1", "description2", "description3", "description4"]
+async function getDescriptionPrompt(product: ProductInfo, targetLanguage: string): Promise<string> {
+  // 📦 从数据库加载prompt模板 (版本管理)
+  const promptTemplate = await loadPrompt('ad_elements_descriptions')
+  
+  // 🎨 准备模板变量
+  const descriptionText = product.description?.slice(0, 500) || 'Not provided'
+  const aboutThisItemText = product.aboutThisItem?.slice(0, 10).join('; ') || 'Not provided'
+  const featuresText = product.features?.slice(0, 10).join('; ') || 'Not provided'
+  
+  // 🎨 插值替换模板变量
+  const prompt = promptTemplate
+    .replace('{{product.name}}', product.name)
+    .replace('{{product.brand}}', product.brand || 'Unknown')
+    .replace('{{product.rating}}', product.rating?.toString() || 'N/A')
+    .replace('{{product.reviewCount}}', product.reviewCount?.toString() || 'N/A')
+    .replace('{{product.description}}', descriptionText)
+    .replace('{{product.aboutThisItem}}', aboutThisItemText)
+    .replace('{{product.features}}', featuresText)
+  
+  return prompt
 }
 
-${lang.strictFormat}`
-}
 
 /**
  * 使用AI从单个商品生成4个广告描述
@@ -1920,7 +1300,7 @@ async function generateDescriptions(
   targetLanguage: string,
   userId: number
 ): Promise<string[]> {
-  const prompt = getDescriptionPrompt(product, targetLanguage)
+  const prompt = await getDescriptionPrompt(product, targetLanguage)
 
   // 🆕 Token优化：定义结构化JSON schema
   const responseSchema = {

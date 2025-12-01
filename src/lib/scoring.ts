@@ -1,5 +1,6 @@
 import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
+import { loadPrompt, interpolateTemplate } from './prompt-loader'
 import type { ScoreAnalysis } from './launch-scores'
 import type { Offer } from './offers'
 import type { AdCreative, HeadlineAsset, DescriptionAsset } from './ad-creative'
@@ -46,149 +47,39 @@ export async function calculateLaunchScore(
     const negativeKeywords = (creative as any).negativeKeywords || []  // 否定关键词列表
     const keywordsWithVolume = (creative as any).keywordsWithVolume || []  // 带搜索量和竞争度的关键词
 
-    const prompt = `你是一个专业的Google Ads投放评估专家。请分析以下广告投放计划，并从5个维度进行评分。
+    // 📦 从数据库加载prompt模板 (版本管理)
+    const promptTemplate = await loadPrompt('launch_score_evaluation')
 
-# 产品信息
-品牌名称：${offer.brand}
-目标国家：${offer.target_country}
-产品分类：${offer.category || '未知'}
-品牌描述：${offer.brand_description || '无'}
-独特卖点：${offer.unique_selling_points || '无'}
-产品亮点：${offer.product_highlights || '无'}
-目标受众：${offer.target_audience || '无'}
-着陆页URL：${offer.url}
-联盟链接：${offer.affiliate_link || '无'}
+    // 🔧 准备模板变量
+    const keywordsWithVolumeText = keywordsWithVolume.length > 0
+      ? `关键词竞争度数据（0-100，数值越高竞争越激烈）：\n${
+          keywordsWithVolume.slice(0, 10).map((kw: any) =>
+            `- ${kw.keyword}: 搜索量${kw.searchVolume || 0}/月, 竞争度${kw.competitionIndex || 0}, 竞争级别${kw.competition || '未知'}`
+          ).join('\n')
+        }`
+      : '⚠️ 缺少关键词竞争度数据'
 
-# 广告创意
-标题列表：${creative.headlines.slice(0, 3).join(', ')}
-描述列表：${creative.descriptions.join(', ')}
-关键词：${creativeKeywords.join(', ')}
-否定关键词：${negativeKeywords.length > 0 ? negativeKeywords.join(', ') : '❌ 未设置（重要缺失！）'}
-最终URL：${creative.final_url}
+    const negativeKeywordsText = negativeKeywords.length > 0
+      ? negativeKeywords.join(', ')
+      : '❌ 未设置（重要缺失！）'
 
-# 关键词数据分析
-${keywordsWithVolume.length > 0 ?
-  `关键词竞争度数据（0-100，数值越高竞争越激烈）：\n${
-    keywordsWithVolume.slice(0, 10).map((kw: any) =>
-      `- ${kw.keyword}: 搜索量${kw.searchVolume || 0}/月, 竞争度${kw.competitionIndex || 0}, 竞争级别${kw.competition || '未知'}`
-    ).join('\n')
-  }`
-  : '⚠️ 缺少关键词竞争度数据'
-}
-
-# 评分要求
-请从以下5个维度进行评分（总分100分）：
-
-## 1. 关键词质量评分（30分满分）
-评估要点：
-- 标题和描述中关键词的相关性和匹配度
-- 关键词的搜索意图匹配
-- 长尾关键词vs热门关键词的平衡
-- **🎯 是否设置了否定关键词（重要！）**
-  - 未设置否定关键词扣5-10分
-  - 否定关键词数量不足（<10个）扣3-5分
-
-**注意：关键词竞争度仅作为参考信息，不影响评分。高竞争度的核心关键词是正常现象。**
-
-## 2. 市场契合度评分（25分满分）
-评估要点：
-- 产品与目标国家市场的匹配度
-- 目标受众定位的准确性
-- **🎯 跨境域名判断（重要！）**
-  - Amazon、eBay等大型电商平台的跨境域名（如.ca、.co.uk、.de等）是正常现象
-  - 例如：美国目标市场使用amazon.ca域名是合理的，不应视为地理位置错配
-  - 只有明显不合理的地理错配才扣分（如中文网站投放英文市场）
-- 季节性和时效性因素
-
-## 3. 着陆页质量评分（20分满分）
-评估要点：
-- URL的可信度和专业性
-- 预估的页面加载速度（基于URL结构）
-- 域名的可信度（品牌官网 vs 第三方平台）
-- 移动端优化预估
-
-## 4. 预算合理性评分（15分满分）
-评估要点：
-- 预估的CPC成本合理性
-- **🎯 关键词竞争度与预算的匹配**
-  - 高竞争度关键词需要更高预算
-  - 低竞争度关键词可降低预算
-- 投放目标的现实性
-- ROI潜力预估
-
-## 5. 内容创意质量评分（10分满分）
-评估要点：
-- 标题的吸引力和清晰度
-- 描述的说服力和行动召唤
-- 创意与产品的一致性
-- 创意的独特性和差异化
-
-# 输出格式
-请严格按照以下JSON格式输出评分结果：
-
-{
-  "keywordAnalysis": {
-    "score": 0-30之间的整数,
-    "relevance": 0-100,
-    "competition": "低|中|高",
-    "issues": [
-      ${negativeKeywords.length === 0 ? '"❌ 缺少否定关键词列表，可能导致广告展示给意图不符的用户（如搜索\\"维修\\"、\\"评论\\"、\\"免费\\"等）",' : ''}
-      "其他问题..."
-    ],
-    "suggestions": [
-      ${negativeKeywords.length === 0 ? '"建议添加否定关键词：free, repair, review, broken, crack, torrent, download等",' : ''}
-      "其他建议..."
-    ]
-  },
-  "marketFitAnalysis": {
-    "score": 0-25之间的整数,
-    "targetAudienceMatch": 0-100,
-    "geographicRelevance": 0-100,
-    "competitorPresence": "少|中|多",
-    "issues": ["问题1", "问题2"],
-    "suggestions": ["建议1", "建议2"]
-  },
-  "landingPageAnalysis": {
-    "score": 0-20之间的整数,
-    "loadSpeed": 0-100,
-    "mobileOptimization": true/false,
-    "contentRelevance": 0-100,
-    "callToAction": true/false,
-    "trustSignals": 0-100,
-    "issues": ["问题1", "问题2"],
-    "suggestions": ["建议1", "建议2"]
-  },
-  "budgetAnalysis": {
-    "score": 0-15之间的整数,
-    "estimatedCpc": 估算的CPC（美元）,
-    "competitiveness": "低|中|高",
-    "roi": 预估ROI百分比,
-    "issues": ["问题1", "问题2"],
-    "suggestions": ["建议1", "建议2"]
-  },
-  "contentAnalysis": {
-    "score": 0-10之间的整数,
-    "headlineQuality": 0-100,
-    "descriptionQuality": 0-100,
-    "keywordAlignment": 0-100,
-    "uniqueness": 0-100,
-    "issues": ["问题1", "问题2"],
-    "suggestions": ["建议1", "建议2"]
-  },
-  "overallRecommendations": [
-    "总体建议1",
-    "总体建议2",
-    "总体建议3"
-  ]
-}
-
-要求：
-1. 评分必须客观、基于实际分析
-2. **🎯 必须严格检查否定关键词，这是评分的关键因素（注意：关键词竞争度不扣分，仅供参考）**
-3. 每个维度都要给出具体的问题和改进建议
-4. 总体建议要具有可操作性
-5. 所有文字使用中文
-6. 只返回JSON，不要其他内容`
+    // 🎨 插值替换模板变量
+    const prompt = promptTemplate
+      .replace('{{offer.brand}}', offer.brand)
+      .replace('{{offer.target_country}}', offer.target_country)
+      .replace('{{offer.category}}', offer.category || '未知')
+      .replace('{{offer.brand_description}}', offer.brand_description || '无')
+      .replace('{{offer.unique_selling_points}}', offer.unique_selling_points || '无')
+      .replace('{{offer.product_highlights}}', offer.product_highlights || '无')
+      .replace('{{offer.target_audience}}', offer.target_audience || '无')
+      .replace('{{offer.url}}', offer.url)
+      .replace('{{offer.affiliate_link}}', offer.affiliate_link || '无')
+      .replace('{{creative.headlines}}', creative.headlines.slice(0, 3).join(', '))
+      .replace('{{creative.descriptions}}', creative.descriptions.join(', '))
+      .replace('{{creative.keywords}}', creativeKeywords.join(', '))
+      .replace('{{creative.negativeKeywords}}', negativeKeywordsText)
+      .replace('{{creative.final_url}}', creative.final_url)
+      .replace('{{keywordsWithVolume}}', keywordsWithVolumeText)
 
     // 需求12：使用Gemini 2.5 Pro稳定版模型（带代理支持 + 自动降级）
     const aiResponse = await generateContent({
@@ -223,10 +114,29 @@ ${keywordsWithVolume.length > 0 ?
       throw new Error('AI返回格式错误，未找到JSON')
     }
 
-    const rawAnalysis = JSON.parse(jsonMatch[0]) as ScoreAnalysis
+    // Sanitize JSON: remove trailing commas, fix common JSON errors
+    let jsonString = jsonMatch[0]
+      .replace(/,(\s*[}\]])/g, '$1')  // Remove trailing commas
+      .replace(/\r?\n/g, ' ')          // Remove newlines
+      .replace(/\s+/g, ' ')            // Normalize whitespace
+
+    const rawAnalysis = JSON.parse(jsonString) as ScoreAnalysis
 
     // 验证评分范围
     validateScores(rawAnalysis)
+
+    // 🎯 Post-processing: Add negative keyword warnings if missing
+    if (negativeKeywords.length === 0) {
+      // Prepend critical warning to keyword analysis
+      rawAnalysis.keywordAnalysis.issues = [
+        '❌ 缺少否定关键词列表，可能导致广告展示给意图不符的用户（如搜索"维修"、"评论"、"免费"等）',
+        ...(rawAnalysis.keywordAnalysis.issues || [])
+      ]
+      rawAnalysis.keywordAnalysis.suggestions = [
+        '建议添加否定关键词：free, repair, review, broken, crack, torrent, download等',
+        ...(rawAnalysis.keywordAnalysis.suggestions || [])
+      ]
+    }
 
     // 🎯 转换为route.ts期望的格式
     const totalScore =
@@ -314,46 +224,23 @@ export async function calculateCreativeQualityScore(creative: {
   orientation: 'brand' | 'product' | 'promo'
 }, userId?: number): Promise<number> {
   try {
-    const prompt = `你是一个专业的Google Ads广告创意评估专家。请评估以下广告创意的质量，给出0-100分的评分。
+    // 📦 从数据库加载prompt模板 (版本管理)
+    const promptTemplate = await loadPrompt('creative_quality_scoring')
 
-# 广告创意信息
-品牌名称：${creative.brand}
-广告导向：${creative.orientation === 'brand' ? '品牌导向' : creative.orientation === 'product' ? '产品导向' : '促销导向'}
+    // 🎨 准备模板变量
+    const orientationText = creative.orientation === 'brand' ? '品牌导向'
+      : creative.orientation === 'product' ? '产品导向'
+      : '促销导向'
 
-标题1：${creative.headline1}
-标题2：${creative.headline2}
-标题3：${creative.headline3}
-
-描述1：${creative.description1}
-描述2：${creative.description2}
-
-# 评分标准（总分100分）
-
-## 1. 标题质量（40分）
-- 标题是否吸引眼球、简洁有力（15分）
-- 标题长度是否符合Google Ads规范（最多30个字符）（10分）
-- 三个标题之间是否有差异化和互补性（10分）
-- 标题中关键词使用是否自然（5分）
-
-## 2. 描述质量（30分）
-- 描述是否清晰、有说服力（15分）
-- 描述长度是否符合Google Ads规范（最多90个字符）（10分）
-- 描述是否包含有效的行动召唤（5分）
-
-## 3. 整体吸引力（20分）
-- 创意是否符合广告导向（品牌/产品/促销）（10分）
-- 创意是否能引起目标受众兴趣（10分）
-
-## 4. 符合规范（10分）
-- 是否避免使用夸张、误导性语言（5分）
-- 是否避免违反Google Ads政策的内容（5分）
-
-# 输出格式
-请只返回一个0-100之间的整数，代表这个广告创意的质量评分。
-不要返回其他任何文字，只返回数字。
-
-例如：
-92`
+    // 🎨 插值替换模板变量
+    const prompt = promptTemplate
+      .replace('{{creative.brand}}', creative.brand)
+      .replace('{{creative.orientationText}}', orientationText)
+      .replace('{{creative.headline1}}', creative.headline1)
+      .replace('{{creative.headline2}}', creative.headline2)
+      .replace('{{creative.headline3}}', creative.headline3)
+      .replace('{{creative.description1}}', creative.description1)
+      .replace('{{creative.description2}}', creative.description2)
 
     // 使用Gemini 2.5 Pro进行评分（优先Vertex AI）
     if (!userId) {

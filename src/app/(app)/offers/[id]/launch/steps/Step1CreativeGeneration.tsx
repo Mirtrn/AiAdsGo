@@ -94,6 +94,8 @@ interface Creative {
       completeness: { score: number; weight: number; details: any }
       quality: { score: number; weight: number; details: any }
       compliance: { score: number; weight: number; details: any }
+      brandSearchVolume?: { score: number; weight: number; details: any }
+      competitivePositioning?: { score: number; weight: number; details: any }
     }
     suggestions: string[]
   }
@@ -740,14 +742,18 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                               relevance: creative.adStrength.dimensions.relevance.score,
                               engagement: creative.adStrength.dimensions.completeness.score,
                               quality: creative.adStrength.dimensions.quality.score,
-                              clarity: creative.adStrength.dimensions.compliance.score
+                              clarity: creative.adStrength.dimensions.compliance.score,
+                              brandSearchVolume: creative.adStrength.dimensions.brandSearchVolume?.score,
+                              competitivePositioning: creative.adStrength.dimensions.competitivePositioning?.score
                             }}
                             maxScores={{
-                              diversity: 25,
-                              relevance: 25,
-                              engagement: 20,
-                              quality: 20,
-                              clarity: 10
+                              diversity: 18,
+                              relevance: 18,
+                              engagement: 14,
+                              quality: 14,
+                              clarity: 8,
+                              brandSearchVolume: 18,
+                              competitivePositioning: 10
                             }}
                             size="sm"
                           />

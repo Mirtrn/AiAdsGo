@@ -1,5 +1,6 @@
 import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
+import { loadPrompt } from './prompt-loader'
 
 export interface ProductInfo {
   brandDescription: string
@@ -73,152 +74,47 @@ export async function analyzeProductPage(
     let prompt: string
 
     if (pageType === 'store') {
-      // 店铺页面专用prompt
-      // 🎯 Phase 4优化：添加热销商品优先分析指令和数据权重说明
-      prompt = `You are a professional brand analyst. Please analyze the following BRAND STORE PAGE content and extract key brand information.
+      // 店铺页面专用prompt(从数据库加载)
+      // 📦 从数据库加载prompt模板(版本管理)
+      const promptTemplate = await loadPrompt('brand_analysis_store')
 
-Webpage URL: ${pageData.url}
-Brand Name: ${pageData.brand}
-Store Title: ${pageData.title}
-Store Description: ${pageData.description}
+      // 🎨 准备模板变量
+      const pageDataUrl = pageData.url
+      const pageDataBrand = pageData.brand
+      const pageDataTitle = pageData.title
+      const pageDataDescription = pageData.description
+      const pageDataText = pageData.text.slice(0, 10000)
 
-Store Content (first 10000 characters):
-${pageData.text}
-
-🎯 IMPORTANT: This is a BRAND STORE PAGE showing multiple products from the same brand, not a single product page.
-
-🔥 CRITICAL - HOT-SELLING PRODUCTS ANALYSIS:
-
-This store data includes HOT-SELLING PRODUCTS information with intelligent ranking.
-
-📊 Hot Score Formula: Rating × log10(Review Count + 1)
-- Higher score = More popular product with proven customer satisfaction
-- Products marked with 🔥 = TOP 5 HOT-SELLING products (proven winners)
-- Products marked with ✅ = Other best-selling products (good performers)
-
-✅ Analysis Priority (focus on these in order):
-1. 🔥 TOP 5 HOT-SELLING products (highest Hot Scores)
-2. Products with quality badges (Amazon's Choice, Best Seller, #1 in Category)
-3. Products with Prime eligibility (✓ Prime)
-4. Products with active promotions (💰 deals/discounts)
-5. Products with significant review counts (500+ reviews)
-
-🎯 Focus your brand analysis on:
-- Common features and patterns across TOP hot-selling products
-- Price range and market positioning of best sellers
-- Customer satisfaction signals (high ratings + many reviews)
-- Unique selling propositions that appear in multiple top products
-- Brand strengths evident from hot-selling product characteristics
-
-⚠️ Do NOT give equal weight to all products:
-- Prioritize information from products with HIGHEST Hot Scores
-- De-emphasize products with low ratings or few reviews
-- Focus on PROVEN WINNERS, not the full product catalog
-
-💡 When describing brand value proposition:
-- Extract patterns from TOP 5 hot sellers (these represent what customers actually want)
-- Highlight features that appear consistently in high-scoring products
-- Emphasize price-to-value ratio if hot sellers have competitive pricing
-
-Please return the following information in JSON format:
-{
-  "brandDescription": "Overall positioning and value proposition of the ${pageData.brand} BRAND. Describe what the brand stands for, its mission, product range, and market positioning (150-250 words, in ${langName})",
-  "uniqueSellingPoints": "Key advantages and differentiators of the ${pageData.brand} BRAND across its product line (3-5 points, 30-60 words each, in ${langName})",
-  "productHighlights": "Overview of the brand's product categories, bestsellers, and featured product lines mentioned on the store page (3-5 product lines/categories, 30-60 words each, in ${langName})",
-  "targetAudience": "Who shops from this ${pageData.brand} brand? Describe the typical customer profile, their needs, lifestyles, and shopping behaviors (80-150 words, in ${langName})",
-  "category": "Main product category/industry of this brand (e.g., ${categoryExamples}, in ${langName})"
-}
-
-Requirements:
-1. All content MUST be written in ${langName}
-2. Focus on the BRAND and its overall product line, not individual products
-3. 🔥 PRIORITIZE information from TOP HOT-SELLING products (highest Hot Scores)
-4. Synthesize patterns from proven best sellers, not the entire catalog
-5. Include any brand story, mission statements, or unique brand features
-6. Emphasize features that appear consistently in high-rated, high-review products
-7. Descriptions should be professional, accurate, and brand-focused
-8. Return ONLY the JSON object, no other text or markdown
-9. Ensure the JSON is complete and properly formatted`
+      // 🎨 插值替换模板变量
+      prompt = promptTemplate
+        .replace(/\{\{pageData\.url\}\}/g, pageDataUrl)
+        .replace(/\{\{pageData\.brand\}\}/g, pageDataBrand)
+        .replace('{{pageData.title}}', pageDataTitle)
+        .replace('{{pageData.description}}', pageDataDescription)
+        .replace('{{pageData.text}}', pageDataText)
+        .replace(/\{\{langName\}\}/g, langName)
+        .replace(/\{\{categoryExamples\}\}/g, categoryExamples)
     } else {
-      // 单品页面专用prompt（增强版：包含价格、评价、促销等维度）
-      // 🎯 Phase 4优化：添加核心产品识别和推荐区域排除指令
-      prompt = `You are a professional product analyst. Please analyze the following webpage content and extract comprehensive information about THIS SPECIFIC PRODUCT for advertising campaign creation.
+      // 单品页面专用prompt(从数据库加载)
+      // 📦 从数据库加载prompt模板(版本管理)
+      const promptTemplate = await loadPrompt('product_analysis_single')
 
-Webpage URL: ${pageData.url}
-Brand Name: ${pageData.brand}
-Page Title: ${pageData.title}
-Page Description: ${pageData.description}
+      // 🎨 准备模板变量
+      const pageDataUrl = pageData.url
+      const pageDataBrand = pageData.brand
+      const pageDataTitle = pageData.title
+      const pageDataDescription = pageData.description
+      const pageDataText = pageData.text.slice(0, 10000)
 
-Page Text Content (first 10000 characters):
-${pageData.text}
-
-🚨 CRITICAL: Focus ONLY on the MAIN PRODUCT on this page.
-
-⛔ IGNORE the following recommendation sections (these are NOT the main product):
-- "Customers also bought" sections
-- "Frequently bought together" sections
-- "Related products" sections
-- "Customers who viewed this also viewed" sections
-- "Compare with similar items" sections
-- ONLY analyze the PRIMARY PRODUCT being sold on this page
-
-✅ Verification Checklist (use these to identify the main product):
-□ Product name appears in the page title
-□ Product has dedicated feature bullets/specifications section
-□ Product has primary image gallery
-□ Product has "Add to Cart" or "Buy Now" button
-□ Product has main price display
-
-⚠️ If multiple products appear on the page:
-- Focus on the one with the LARGEST product title
-- Focus on the one with the MOST DETAILED feature bullets
-- Focus on the one with the PRIMARY "Add to Cart" button
-- Focus on the one that matches the page title and URL
-
-Please return the following information in JSON format:
-{
-  "brandDescription": "Description of THIS SPECIFIC PRODUCT and how the brand positions it. Include the specific model name, what problem it solves, and its key differentiators compared to similar products (100-200 words, in ${langName})",
-  "uniqueSellingPoints": "Unique selling points and core advantages of THIS SPECIFIC PRODUCT, not the brand in general (3-5 points, 20-50 words each, in ${langName})",
-  "productHighlights": "Main features and functional highlights of THIS SPECIFIC PRODUCT, including technical specifications, capacity, performance metrics (3-5 points, 20-50 words each, in ${langName})",
-  "targetAudience": "Who would benefit from THIS SPECIFIC PRODUCT? Describe their needs, use cases, and scenarios (50-100 words, in ${langName})",
-  "category": "Product category of THIS SPECIFIC PRODUCT (e.g., ${categoryExamples}, in ${langName})",
-
-  "pricing": {
-    "currentPrice": "Current price with currency (e.g., '299.99 USD'), extract from page if available",
-    "originalPrice": "Original price if discounted (e.g., '399.99 USD'), null if no discount",
-    "discountPercentage": "Discount percentage as integer (e.g., 25), null if no discount",
-    "competitiveness": "Price competitiveness assessment: 'budget' / 'mid-range' / 'premium', based on product category and features (in ${langName})"
-  },
-
-  "reviews": {
-    "rating": "Star rating as number 0-5 (e.g., 4.6), extract from page if available, null if not found",
-    "reviewCount": "Number of reviews as integer (e.g., 1523), extract from page if available, null if not found",
-    "keyPositives": "Top 3-5 positive aspects from reviews (e.g., ['clear image', 'easy setup', 'reliable']), extract keywords if reviews visible, otherwise infer from product description",
-    "keyConcerns": "Top 1-3 concerns or negatives (e.g., ['wifi dependency', 'app issues']), null if cannot determine",
-    "typicalUseCases": "2-4 typical use cases mentioned (e.g., ['home security', 'small business monitoring']), infer from product description and target audience"
-  },
-
-  "promotions": {
-    "activeDeals": "Array of active deals/discounts (e.g., ['25% off limited time', 'Buy 2 Get 10% Off']), null if none",
-    "urgencyIndicators": "Array of urgency signals (e.g., ['Sale ends in 3 days', 'Only 5 left in stock']), null if none",
-    "freeShipping": "Boolean: true if free shipping mentioned, false otherwise"
-  },
-
-  "competitiveEdges": {
-    "badges": "Array of quality badges (e.g., ['Amazon\\'s Choice', 'Best Seller', '#1 in Category']), null if none",
-    "stockStatus": "Stock availability (e.g., 'In Stock', 'Limited Stock', 'Pre-Order'), extract if available",
-    "popularityIndicators": "Array of popularity signals (e.g., ['10K+ bought in past month', 'Top rated in Security Cameras']), null if none"
-  }
-}
-
-Requirements:
-1. All content MUST be written in ${langName}
-2. Focus on the SPECIFIC PRODUCT on this page, not general brand information
-3. Include model numbers, specifications, and technical details when available
-4. If the page shows multiple products, focus on the main/featured product
-5. Descriptions should be professional, accurate, and concise
-6. Return ONLY the JSON object, no other text or markdown
-7. Ensure the JSON is complete and properly formatted`
+      // 🎨 插值替换模板变量
+      prompt = promptTemplate
+        .replace('{{pageData.url}}', pageDataUrl)
+        .replace('{{pageData.brand}}', pageDataBrand)
+        .replace('{{pageData.title}}', pageDataTitle)
+        .replace('{{pageData.description}}', pageDataDescription)
+        .replace('{{pageData.text}}', pageDataText)
+        .replace(/\{\{langName\}\}/g, langName)
+        .replace('{{categoryExamples}}', categoryExamples)
     }
 
     // 需求12：使用Gemini 2.5 Pro稳定版模型（优先Vertex AI，带代理支持 + 自动降级）
@@ -997,28 +893,22 @@ export async function extractBrandFromContent(
   userId?: number
 ): Promise<string> {
   try {
-    const prompt = `You are a brand name extraction expert. Extract the brand name from the following product information.
+    // 📦 从数据库加载prompt模板(版本管理)
+    const promptTemplate = await loadPrompt('brand_name_extraction')
 
-**CRITICAL RULES**:
-1. Return ONLY the brand name, nothing else
-2. Brand name must be 2-30 characters
-3. If multiple brands mentioned, return the PRIMARY product brand
-4. Remove suffixes like "Store", "Official", "Shop"
-5. If uncertain, extract from the product title (usually the first capitalized word/phrase)
+    // 🎨 准备模板变量
+    const pageDataUrl = pageData.url
+    const pageDataTitle = pageData.title
+    const pageDataDescription = pageData.description
+    const pageDataTextPreview = pageData.text.substring(0, 500)
 
-**Product Information**:
-URL: ${pageData.url}
-Title: ${pageData.title}
-Description: ${pageData.description}
-Content Preview: ${pageData.text.substring(0, 500)}
-
-**Examples of correct extraction**:
-- "Reolink 4K Security Camera..." → "Reolink"
-- "Amazon.com: BAGSMART Store" → "BAGSMART"
-- "Anker PowerCore 20000mAh..." → "Anker"
-- "Apple iPhone 15 Pro Max..." → "Apple"
-
-Extract the brand name now (ONLY the brand name, no explanation):`.trim()
+    // 🎨 插值替换模板变量
+    const prompt = promptTemplate
+      .replace('{{pageData.url}}', pageDataUrl)
+      .replace('{{pageData.title}}', pageDataTitle)
+      .replace('{{pageData.description}}', pageDataDescription)
+      .replace('{{pageData.textPreview}}', pageDataTextPreview)
+      .trim()
 
     if (!userId) {
       throw new Error('userId is required for brand extraction')

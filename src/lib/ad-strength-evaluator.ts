@@ -1,13 +1,14 @@
 /**
  * Ad Strength评估器 - 本地评估算法
  *
- * 基于Google Ads Ad Strength标准的6维度评分系统：
- * 1. Diversity (20%) - 资产多样性
- * 2. Relevance (20%) - 关键词相关性
- * 3. Brand Search Volume (20%) - 品牌搜索量
- * 4. Completeness (15%) - 资产完整性
- * 5. Quality (15%) - 内容质量
- * 6. Compliance (10%) - 政策合规性
+ * 基于Google Ads Ad Strength标准的7维度评分系统（优化版）：
+ * 1. Diversity (18%) - 资产多样性
+ * 2. Relevance (18%) - 关键词相关性
+ * 3. Brand Search Volume (18%) - 品牌搜索量
+ * 4. Completeness (14%) - 资产完整性
+ * 5. Quality (14%) - 内容质量
+ * 6. Compliance (8%) - 政策合规性
+ * 7. Competitive Positioning (10%) - 竞争定位 [NEW]
  *
  * 输出：0-100分 + POOR/AVERAGE/GOOD/EXCELLENT评级
  */
@@ -36,55 +37,65 @@ export interface AdStrengthEvaluation {
   // 各维度得分
   dimensions: {
     diversity: {
-      score: number // 0-20
-      weight: 0.20
+      score: number // 0-18
+      weight: 0.18
       details: {
-        typeDistribution: number // 0-8 资产类型分布
-        lengthDistribution: number // 0-8 长度梯度
-        textUniqueness: number // 0-4 文本独特性
+        typeDistribution: number // 0-7.2 资产类型分布
+        lengthDistribution: number // 0-7.2 长度梯度
+        textUniqueness: number // 0-3.6 文本独特性
       }
     }
     relevance: {
-      score: number // 0-20
-      weight: 0.20
+      score: number // 0-18
+      weight: 0.18
       details: {
-        keywordCoverage: number // 0-12 关键词覆盖率
-        keywordNaturalness: number // 0-8 关键词自然度
+        keywordCoverage: number // 0-10.8 关键词覆盖率
+        keywordNaturalness: number // 0-7.2 关键词自然度
       }
     }
     completeness: {
-      score: number // 0-15
-      weight: 0.15
+      score: number // 0-14
+      weight: 0.14
       details: {
-        assetCount: number // 0-9 资产数量
-        characterCompliance: number // 0-6 字符合规性
+        assetCount: number // 0-8.4 资产数量
+        characterCompliance: number // 0-5.6 字符合规性
       }
     }
     quality: {
-      score: number // 0-15
-      weight: 0.15
+      score: number // 0-14
+      weight: 0.14
       details: {
-        numberUsage: number // 0-4 数字使用
-        ctaPresence: number // 0-4 CTA存在
-        urgencyExpression: number // 0-3 紧迫感表达
-        differentiation: number // 0-4 差异化表达（NEW）
+        numberUsage: number // 0-3.73 数字使用
+        ctaPresence: number // 0-3.73 CTA存在
+        urgencyExpression: number // 0-2.8 紧迫感表达
+        differentiation: number // 0-3.73 差异化表达
       }
     }
     compliance: {
-      score: number // 0-10
-      weight: 0.10
+      score: number // 0-8
+      weight: 0.08
       details: {
-        policyAdherence: number // 0-6 政策遵守
-        noSpamWords: number // 0-4 无垃圾词汇
+        policyAdherence: number // 0-4.8 政策遵守
+        noSpamWords: number // 0-3.2 无垃圾词汇
       }
     }
     brandSearchVolume: {
-      score: number // 0-20
-      weight: 0.20
+      score: number // 0-18
+      weight: 0.18
       details: {
         monthlySearchVolume: number // 月均搜索量
         volumeLevel: 'micro' | 'small' | 'medium' | 'large' | 'xlarge' // 流量级别
         dataSource: 'keyword_planner' | 'cached' | 'database' | 'unavailable' // 数据来源
+      }
+    }
+    competitivePositioning: {
+      score: number // 0-10
+      weight: 0.10
+      details: {
+        priceAdvantage: number // 0-3 价格优势量化
+        uniqueMarketPosition: number // 0-3 独特市场定位
+        competitiveComparison: number // 0-2 竞品对比暗示
+        valueEmphasis: number // 0-2 性价比强调
       }
     }
   }
@@ -255,37 +266,70 @@ export async function evaluateAdStrength(
   }
 ): Promise<AdStrengthEvaluation> {
 
-  // 1. Diversity维度 (25%)
-  const diversity = calculateDiversity(headlines, descriptions)
+  // 1. Diversity维度 (18%)
+  const diversityRaw = calculateDiversity(headlines, descriptions)
+  const diversity = {
+    score: Math.round(diversityRaw.score * 0.9), // 20分 * 0.9 = 18分
+    weight: 0.18 as const,
+    details: diversityRaw.details
+  }
 
-  // 2. Relevance维度 (25%)
-  const relevance = calculateRelevance(headlines, descriptions, keywords)
+  // 2. Relevance维度 (18%)
+  const relevanceRaw = calculateRelevance(headlines, descriptions, keywords)
+  const relevance = {
+    score: Math.round(relevanceRaw.score * 0.9), // 20分 * 0.9 = 18分
+    weight: 0.18 as const,
+    details: relevanceRaw.details
+  }
 
-  // 3. Completeness维度 (20%)
-  const completeness = calculateCompleteness(headlines, descriptions)
+  // 3. Completeness维度 (14%)
+  const completenessRaw = calculateCompleteness(headlines, descriptions)
+  const completeness = {
+    score: Math.round(completenessRaw.score * 0.933), // 15分 * 0.933 = 14分
+    weight: 0.14 as const,
+    details: completenessRaw.details
+  }
 
-  // 4. Quality维度 (20%)
-  const quality = calculateQuality(headlines, descriptions, options?.brandName)
+  // 4. Quality维度 (14%)
+  const qualityRaw = calculateQuality(headlines, descriptions, options?.brandName)
+  const quality = {
+    score: Math.round(qualityRaw.score * 0.933), // 15分 * 0.933 = 14分
+    weight: 0.14 as const,
+    details: qualityRaw.details
+  }
 
-  // 5. Compliance维度 (10%)
-  const compliance = calculateCompliance(headlines, descriptions)
+  // 5. Compliance维度 (8%)
+  const complianceRaw = calculateCompliance(headlines, descriptions)
+  const compliance = {
+    score: Math.round(complianceRaw.score * 0.8), // 10分 * 0.8 = 8分
+    weight: 0.08 as const,
+    details: complianceRaw.details
+  }
 
-  // 6. Brand Search Volume维度 (20%)
-  const brandSearchVolume = await calculateBrandSearchVolume(
+  // 6. Brand Search Volume维度 (18%)
+  const brandSearchVolumeRaw = await calculateBrandSearchVolume(
     options?.brandName,
     options?.targetCountry || 'US',
     options?.targetLanguage || 'en',
     options?.userId
   )
+  const brandSearchVolume = {
+    score: Math.round(brandSearchVolumeRaw.score * 0.9), // 20分 * 0.9 = 18分
+    weight: 0.18 as const,
+    details: brandSearchVolumeRaw.details
+  }
+
+  // 7. Competitive Positioning维度 (10%) - 新增
+  const competitivePositioning = await calculateCompetitivePositioning(headlines, descriptions, options?.userId)
 
   // 计算总分（100分制）
-  const overallScore = diversity.score + relevance.score + completeness.score + quality.score + compliance.score + brandSearchVolume.score
+  const overallScore = diversity.score + relevance.score + completeness.score + quality.score + compliance.score + brandSearchVolume.score + competitivePositioning.score
 
   // 确定评级
   const rating = scoreToRating(overallScore)
 
   // 生成改进建议
-  const suggestions = generateSuggestions(diversity, relevance, completeness, quality, compliance, brandSearchVolume, rating)
+  const suggestions = generateSuggestions(diversity, relevance, completeness, quality, compliance, brandSearchVolume, competitivePositioning, rating)
 
   return {
     overallScore: Math.round(overallScore),
@@ -296,7 +340,8 @@ export async function evaluateAdStrength(
       completeness,
       quality,
       compliance,
-      brandSearchVolume
+      brandSearchVolume,
+      competitivePositioning
     },
     suggestions
   }
@@ -577,7 +622,436 @@ function calculateDifferentiation(
 }
 
 /**
- * 6. 计算Brand Search Volume（品牌搜索量）- 20分
+ * 5. 计算Competitive Positioning（竞争定位）- 10分
+ *
+ * 【方案B：混合架构 - 支持全球所有语言】
+ *
+ * 第一层：快速通用检测（0成本，支持所有语言）
+ *   - 通用货币符号 + 数字检测（支持€£$¥₹₽฿元等）
+ *   - 常见独特性词汇（20+语言）
+ *   - 对比关键词（replace, substitute等）
+ *
+ * 第二层：AI增强分析（按需触发）
+ *   - 当快速检测分数 > 6分时触发
+ *   - 使用Gemini进行深度语义分析
+ *   - 结果缓存避免重复调用
+ *
+ * 评估广告文案中的竞品差异化和市场定位表达
+ */
+async function calculateCompetitivePositioning(
+  headlines: HeadlineAsset[],
+  descriptions: DescriptionAsset[],
+  userId?: number
+): Promise<{
+  score: number
+  weight: 0.10
+  details: {
+    priceAdvantage: number
+    uniqueMarketPosition: number
+    competitiveComparison: number
+    valueEmphasis: number
+  }
+}> {
+  const allTexts = [...headlines.map(h => h.text), ...descriptions.map(d => d.text)].join(' ')
+  const allTextsLower = allTexts.toLowerCase()
+
+  let priceAdvantage = 0
+  let uniqueMarketPosition = 0
+  let competitiveComparison = 0
+  let valueEmphasis = 0
+
+  console.log('🎯 评估竞争定位维度 (混合方案 - 全语言支持):')
+
+  // ========================================
+  // 第一层：快速通用检测（支持所有语言）
+  // ========================================
+
+  // 1. 价格优势量化检测 (0-3分)
+  // 通用货币符号 + 数字模式（支持全球所有货币）
+  const universalCurrencyPattern = /(?:€|£|\$|¥|₹|₽|฿|₪|₩|元|円|圓|บาท|रु|руб)\s*\d+|\d+\s*(?:€|£|\$|¥|₹|₽|฿|₪|₩|元|円|圓|บาท|रु|руб)/
+
+  // 常见"节省"关键词（20+语言）
+  const savingsKeywords = /(?:save|risparmia|ahorra|économise?|sparen|economize|bespaar|сэкономить|節約|절약|ประหยัด|توفير|חסוך|tasarruf|spara|gem|חיסכון|tiết kiệm|menjimat|save|discount|sconto|descuento|réduction|rabatt|desconto|korting|скидка|割引|할인|ส่วนลด|خصم|הנחה|indirim|rabat|छूट|giảm giá|diskaun)/i
+
+  const hasQuantifiedSavings = universalCurrencyPattern.test(allTexts) && savingsKeywords.test(allTextsLower)
+
+  if (hasQuantifiedSavings) {
+    priceAdvantage = 3
+    console.log('   ✅ 价格优势量化（通用检测） (+3分)')
+  } else if (savingsKeywords.test(allTextsLower) || /best value|affordable|budget|cheap|economic|便宜|实惠|划算|お得|저렴|ราคาถูก|رخيص|זול|ucuz|billig|goedkoop|дешевый|barato|bon marché|economico|सस्ता|rẻ|murah/i.test(allTextsLower)) {
+    priceAdvantage = 1.5
+    console.log('   ⚠️ 价格优势非量化（通用检测） (+1.5分)')
+  } else {
+    console.log('   ❌ 无价格优势表达 (+0分)')
+  }
+
+  // 2. 独特市场定位检测 (0-3分)
+  // 常见"唯一/独特"关键词（20+语言）
+  const uniquenessKeywords = /(?:only|unique|exclusive|first|sole|unico|unica|único|única|einzig|exclusivo|exclusiva|seul|seule|единственный|唯一|独家|専用|のみ|유일|독점|เท่านั้น|พิเศษ|الوحيد|حصري|יחיד|בלעדי|tek|sadece|एकमात्र|विशेष|duy nhất|độc quyền|eksklusif|tunggal|exclusief|eneste|unik|ainoa|enda|μόνο|μοναδικό|jedyny|wyłączny)/i
+
+  // 常见"第一/领先"关键词
+  const leadershipKeywords = /#1|numero\s*1|number\s*one|第一|ナンバーワン|넘버원|อันดับ\s*1|رقم\s*1|מספר\s*1|1\s*numaralı|नंबर\s*1|số\s*1|nombor\s*1|primeiro|primero|erste|premier|première|первый|πρώτο|pierwszy/i
+
+  const hasUniqueness = uniquenessKeywords.test(allTexts) || leadershipKeywords.test(allTexts)
+
+  if (hasUniqueness) {
+    uniqueMarketPosition = 3
+    console.log('   ✅ 独特市场定位（通用检测） (+3分)')
+  } else if (/top|best|leading|premier|superior|migliore|mejor|meilleur|beste|лучший|最好|最高|ベスト|최고|ดีที่สุด|الأفضل|הטוב|en iyi|सर्वश्रेष्ठ|tốt nhất|terbaik|beste|paras|bästa|καλύτερο|najlepszy/i.test(allTextsLower)) {
+    uniqueMarketPosition = 1.5
+    console.log('   ⚠️ 隐含独特性（通用检测） (+1.5分)')
+  } else {
+    console.log('   ❌ 无独特定位声明 (+0分)')
+  }
+
+  // 3. 竞品对比暗示检测 (0-2分)
+  // 常见"对比/替换"关键词（20+语言）
+  const comparisonKeywords = /(?:vs|versus|compared?|comparison|replace|substitute|switch|sostituisci|rimpiazza|reemplazar|sustituir|remplacer|substituer|ersetzen|austauschen|substituir|trocar|vervangen|замени|比較|比较|取代|代替|比べる|交換|비교|교체|เปรียบเทียบ|แทนที่|مقارنة|استبدال|השווה|החלף|karşılaştır|değiştir|तुलना|बदलें|so sánh|thay thế|bandingkan|ganti|vergelijken|sammenlign|bytt|vertaa|vaihda|jämför|byt|σύγκριση|αντικατάσταση|porównaj|wymień)/i
+
+  const hasComparison = comparisonKeywords.test(allTextsLower)
+
+  if (hasComparison) {
+    competitiveComparison = 2
+    console.log('   ✅ 明确竞品对比（通用检测） (+2分)')
+  } else if (/better|superior|outperform|migliore|mejor|meilleur|besser|melhor|beter|лучше|更好|优于|より良い|더 좋은|ดีกว่า|أفضل من|טוב יותר|daha iyi|बेहतर|tốt hơn|lebih baik|bedre|parempi|bättre|καλύτερο|lepszy/i.test(allTextsLower)) {
+    competitiveComparison = 1
+    console.log('   ⚠️ 隐含对比（通用检测） (+1分)')
+  } else {
+    console.log('   ❌ 无竞品对比暗示 (+0分)')
+  }
+
+  // 4. 性价比强调检测 (0-2分)
+  // 常见"性价比/价值"关键词（20+语言）
+  const valueKeywords = /(?:value\s+for\s+money|worth|bang\s+for|rapporto\s+qualità|qualità.prezzo|relación\s+calidad|calidad.precio|rapport\s+qualité|qualité.prix|preis.leistung|custo.benefício|prijs.kwaliteit|соотношение|价值|性价比|コスパ|가성비|คุ้มค่า|قيمة مقابل|ערך תמורה|fiyat performans|मूल्य के लिए|giá trị|nilai untuk wang|waarde voor|verdi for|arvo|värde för|αξία για|stosunek)/i
+
+  const hasValue = valueKeywords.test(allTextsLower)
+
+  if (hasValue) {
+    valueEmphasis = 2
+    console.log('   ✅ 性价比强调 (+2分)')
+  } else if (/great\s+deal|special\s+offer|offerta\s+speciale|ottim[ao]\s+prezzo/i.test(allTextsLower)) {
+    valueEmphasis = 1
+    console.log('   ⚠️ 隐含性价比 (+1分)')
+  } else {
+    console.log('   ❌ 无性价比强调 (+0分)')
+  }
+
+  const totalScore = priceAdvantage + uniqueMarketPosition + competitiveComparison + valueEmphasis
+  console.log(`   🎯 竞争定位总分（第一层）: ${totalScore.toFixed(1)}/10`)
+
+  // ========================================
+  // 第二层：AI增强分析（按需触发）
+  // ========================================
+  // 触发条件：快速检测分数 > 6分（说明有较强的竞争定位元素，值得深度分析）
+  const AI_ENHANCEMENT_THRESHOLD = 6
+
+  if (totalScore > AI_ENHANCEMENT_THRESHOLD) {
+    console.log(`   🤖 触发AI增强分析（分数${totalScore.toFixed(1)} > ${AI_ENHANCEMENT_THRESHOLD}）`)
+
+    const aiEnhancedScore = await enhanceCompetitivePositioningWithAI(allTexts, {
+      priceAdvantage,
+      uniqueMarketPosition,
+      competitiveComparison,
+      valueEmphasis
+    }, userId)
+
+    if (aiEnhancedScore) {
+      console.log(`   ✨ AI增强后总分: ${aiEnhancedScore.score.toFixed(1)}/10`)
+      return aiEnhancedScore
+    }
+  }
+
+  return {
+    score: Math.min(10, Math.max(0, totalScore)),
+    weight: 0.10 as const,
+    details: {
+      priceAdvantage: Math.round(priceAdvantage * 10) / 10,
+      uniqueMarketPosition: Math.round(uniqueMarketPosition * 10) / 10,
+      competitiveComparison: Math.round(competitiveComparison * 10) / 10,
+      valueEmphasis: Math.round(valueEmphasis * 10) / 10
+    }
+  }
+}
+
+// ========================================
+// 缓存机制（Redis优先，内存降级）
+// ========================================
+interface CachedResult {
+  score: number
+  weight: 0.10
+  details: {
+    priceAdvantage: number
+    uniqueMarketPosition: number
+    competitiveComparison: number
+    valueEmphasis: number
+    aiConfidence: number
+  }
+  timestamp: number
+}
+
+// 内存缓存（Redis不可用时的降级方案）
+const memoryCache = new Map<string, CachedResult>()
+const CACHE_TTL_SECONDS = 60 * 60 * 24 // 24小时（Redis用秒）
+const CACHE_TTL_MS = CACHE_TTL_SECONDS * 1000 // 24小时（内存用毫秒）
+const REDIS_KEY_PREFIX = process.env.REDIS_KEY_PREFIX || 'autoads:'
+
+// Redis可用性状态（避免频繁检查）
+let redisAvailable: boolean | null = null
+let lastRedisCheck = 0
+const REDIS_CHECK_INTERVAL = 60 * 1000 // 60秒检查一次
+
+/**
+ * 检查Redis是否可用
+ */
+async function isRedisAvailable(): Promise<boolean> {
+  const now = Date.now()
+
+  // 如果60秒内检查过，直接返回缓存结果
+  if (redisAvailable !== null && now - lastRedisCheck < REDIS_CHECK_INTERVAL) {
+    return redisAvailable
+  }
+
+  try {
+    const { getRedisClient } = await import('./redis')
+    const client = getRedisClient()
+    await client.ping()
+    redisAvailable = true
+    lastRedisCheck = now
+    return true
+  } catch (error) {
+    redisAvailable = false
+    lastRedisCheck = now
+    return false
+  }
+}
+
+/**
+ * 生成缓存key
+ */
+function generateCacheKey(text: string): string {
+  // 使用简单的哈希函数生成缓存key
+  let hash = 0
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  return `${REDIS_KEY_PREFIX}cp:${Math.abs(hash).toString(36)}`
+}
+
+/**
+ * 从缓存获取结果（Redis优先，内存降级）
+ */
+async function getCachedResult(adCopyText: string): Promise<CachedResult | null> {
+  const key = generateCacheKey(adCopyText)
+
+  // 尝试从Redis获取
+  if (await isRedisAvailable()) {
+    try {
+      const { getRedisClient } = await import('./redis')
+      const client = getRedisClient()
+      const data = await client.get(key)
+
+      if (data) {
+        console.log('   📦 Redis缓存命中')
+        return JSON.parse(data)
+      }
+    } catch (error: any) {
+      console.warn(`   ⚠️ Redis读取失败: ${error.message}，尝试内存缓存`)
+    }
+  }
+
+  // 降级到内存缓存
+  const cached = memoryCache.get(key)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    console.log('   📦 内存缓存命中')
+    return cached
+  }
+
+  // 过期则删除
+  if (cached) {
+    memoryCache.delete(key)
+  }
+
+  return null
+}
+
+/**
+ * 保存结果到缓存（Redis优先，内存降级）
+ */
+async function setCachedResult(adCopyText: string, result: CachedResult) {
+  const key = generateCacheKey(adCopyText)
+  const resultWithTimestamp = { ...result, timestamp: Date.now() }
+
+  // 尝试保存到Redis
+  if (await isRedisAvailable()) {
+    try {
+      const { getRedisClient } = await import('./redis')
+      const client = getRedisClient()
+      await client.setex(key, CACHE_TTL_SECONDS, JSON.stringify(resultWithTimestamp))
+      console.log('   💾 已缓存到Redis（TTL: 24小时）')
+      return
+    } catch (error: any) {
+      console.warn(`   ⚠️ Redis写入失败: ${error.message}，降级到内存缓存`)
+    }
+  }
+
+  // 降级到内存缓存
+  memoryCache.set(key, resultWithTimestamp)
+
+  // 内存缓存清理：超过1000条时删除最旧的500条
+  if (memoryCache.size > 1000) {
+    const entries = Array.from(memoryCache.entries())
+    entries.sort((a, b) => a[1].timestamp - b[1].timestamp)
+    entries.slice(0, 500).forEach(([k]) => memoryCache.delete(k))
+    console.log('   🗑️ 内存缓存清理：删除500条旧记录')
+  }
+
+  console.log('   💾 已缓存到内存（TTL: 24小时）')
+}
+
+/**
+ * 🤖 AI增强的竞争定位分析（第二层）
+ *
+ * 使用Gemini进行深度语义分析，支持所有语言
+ * 仅在第一层检测分数 > 6分时触发
+ */
+async function enhanceCompetitivePositioningWithAI(
+  adCopyText: string,
+  fastDetectionScores: {
+    priceAdvantage: number
+    uniqueMarketPosition: number
+    competitiveComparison: number
+    valueEmphasis: number
+  },
+  userId?: number
+): Promise<{
+  score: number
+  weight: 0.10
+  details: {
+    priceAdvantage: number
+    uniqueMarketPosition: number
+    competitiveComparison: number
+    valueEmphasis: number
+    aiConfidence: number
+  }
+} | null> {
+  try {
+    // 如果没有userId，无法调用AI，直接返回null
+    if (!userId) {
+      console.log('   ⚠️ 无用户ID，跳过AI增强分析')
+      return null
+    }
+
+    // 检查是否有缓存
+    const cached = await getCachedResult(adCopyText)
+    if (cached) {
+      console.log('   📦 使用缓存结果（AI增强）')
+      return {
+        score: cached.score,
+        weight: cached.weight,
+        details: cached.details
+      }
+    }
+
+    const { generateContent } = await import('./gemini')
+
+    const prompt = `
+You are an expert in Google Ads competitive positioning analysis. Analyze the following ad copy for competitive positioning elements in ANY language.
+
+Ad Copy:
+${adCopyText}
+
+Initial Fast Detection Scores (0-max):
+- Price Advantage: ${fastDetectionScores.priceAdvantage}/3
+- Unique Market Position: ${fastDetectionScores.uniqueMarketPosition}/3
+- Competitive Comparison: ${fastDetectionScores.competitiveComparison}/2
+- Value Emphasis: ${fastDetectionScores.valueEmphasis}/2
+
+Task: Perform deep semantic analysis to refine these scores. Return JSON with:
+
+{
+  "priceAdvantage": 0-3,     // Quantified savings (e.g., "Save €170", "节省170€", "170€ توفير")
+  "uniqueMarketPosition": 0-3, // Uniqueness claims (e.g., "Only", "唯一", "الوحيد", "เท่านั้น")
+  "competitiveComparison": 0-2, // Competitor comparison (e.g., "Replace", "取代", "استبدل", "แทนที่")
+  "valueEmphasis": 0-2,       // Value proposition (e.g., "Best value", "性价比", "أفضل قيمة", "คุ้มค่า")
+  "confidence": 0.0-1.0       // Confidence level (0.8+ means high confidence)
+}
+
+Rules:
+- Detect patterns in ANY language (not just English/Italian/Spanish)
+- Score based on clarity and strength of claims
+- Consider cultural context (e.g., Asian markets emphasize "value", Western markets emphasize "savings")
+- If initial score is accurate, return same score
+- Only increase score if you find clear evidence that was missed
+- Return 0 if element not present
+- Confidence: 1.0 = certain, 0.8 = high confidence, 0.6 = moderate, <0.5 = uncertain
+`.trim()
+
+    const result = await generateContent({
+      prompt,
+      model: 'gemini-2.0-flash-exp', // 使用Flash模型（性价比最高）
+      temperature: 0.3, // 低温度确保一致性
+      maxOutputTokens: 500,
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          priceAdvantage: { type: 'NUMBER', description: 'Score 0-3' },
+          uniqueMarketPosition: { type: 'NUMBER', description: 'Score 0-3' },
+          competitiveComparison: { type: 'NUMBER', description: 'Score 0-2' },
+          valueEmphasis: { type: 'NUMBER', description: 'Score 0-2' },
+          confidence: { type: 'NUMBER', description: 'Confidence 0.0-1.0' }
+        },
+        required: ['priceAdvantage', 'uniqueMarketPosition', 'competitiveComparison', 'valueEmphasis', 'confidence']
+      },
+      responseMimeType: 'application/json',
+      enableAutoModelSelection: false // 明确使用Flash模型
+    }, userId)
+
+    const aiScores = JSON.parse(result.text)
+
+    console.log(`   🤖 AI分析结果 (置信度: ${(aiScores.confidence * 100).toFixed(0)}%):`)
+    console.log(`      价格优势: ${fastDetectionScores.priceAdvantage} → ${aiScores.priceAdvantage}`)
+    console.log(`      独特定位: ${fastDetectionScores.uniqueMarketPosition} → ${aiScores.uniqueMarketPosition}`)
+    console.log(`      竞品对比: ${fastDetectionScores.competitiveComparison} → ${aiScores.competitiveComparison}`)
+    console.log(`      性价比: ${fastDetectionScores.valueEmphasis} → ${aiScores.valueEmphasis}`)
+
+    // 只有当置信度 >= 0.6 时才使用AI增强结果
+    if (aiScores.confidence < 0.6) {
+      console.log(`   ⚠️ AI置信度过低 (${(aiScores.confidence * 100).toFixed(0)}%)，使用快速检测结果`)
+      return null
+    }
+
+    const totalScore = aiScores.priceAdvantage + aiScores.uniqueMarketPosition +
+                      aiScores.competitiveComparison + aiScores.valueEmphasis
+
+    const enhancedResult = {
+      score: Math.min(10, Math.max(0, totalScore)),
+      weight: 0.10 as const,
+      details: {
+        priceAdvantage: Math.round(aiScores.priceAdvantage * 10) / 10,
+        uniqueMarketPosition: Math.round(aiScores.uniqueMarketPosition * 10) / 10,
+        competitiveComparison: Math.round(aiScores.competitiveComparison * 10) / 10,
+        valueEmphasis: Math.round(aiScores.valueEmphasis * 10) / 10,
+        aiConfidence: Math.round(aiScores.confidence * 100) / 100
+      }
+    }
+
+    // 缓存结果（24小时）
+    setCachedResult(adCopyText, { ...enhancedResult, timestamp: Date.now() })
+    console.log(`   💾 结果已缓存（TTL: 24小时）`)
+
+    return enhancedResult
+
+  } catch (error: any) {
+    console.error(`   ❌ AI增强分析失败: ${error.message}`)
+    console.error(`   → 降级使用快速检测结果`)
+    return null // 失败时返回null，使用快速检测结果
+  }
+}
+
+/**
+ * 6. 计算Brand Search Volume（品牌搜索量）- 18分
  */
 async function calculateBrandSearchVolume(
   brandName: string | undefined,
@@ -729,6 +1203,7 @@ function generateSuggestions(
   quality: any,
   compliance: any,
   brandSearchVolume: any,
+  competitivePositioning: any,
   rating: AdStrengthRating
 ): string[] {
   const suggestions: string[] = []
@@ -794,6 +1269,20 @@ function generateSuggestions(
     suggestions.push('📊 品牌具备一定影响力：可以适当增加品牌类创意资产比例')
   }
   // large和xlarge级别无需建议，已经有足够品牌影响力
+
+  // Competitive Positioning建议 (新增)
+  if (competitivePositioning.details.priceAdvantage < 2) {
+    suggestions.push('🎯 强化价格优势：量化节省金额（如"Save €170"）提升竞争力')
+  }
+  if (competitivePositioning.details.uniqueMarketPosition < 2) {
+    suggestions.push('🎯 突出独特定位：使用"L\'unica"、"The Only"等表述建立市场差异化')
+  }
+  if (competitivePositioning.details.competitiveComparison < 1) {
+    suggestions.push('🎯 暗示竞品对比：通过"Sostituisci il vecchio"等表述引导替换竞品')
+  }
+  if (competitivePositioning.details.valueEmphasis < 1) {
+    suggestions.push('🎯 强调性价比：使用"Rapporto Qualità-Prezzo"等表述增强价值感知')
+  }
 
   return suggestions
 }

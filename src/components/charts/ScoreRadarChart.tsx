@@ -15,6 +15,7 @@ interface ScoreRadarChartProps {
     diversity: number        // 多样性
     clarity: number          // 清晰度/合规性
     brandSearchVolume?: number  // 品牌搜索量（可选，支持旧数据兼容）
+    competitivePositioning?: number  // 竞争定位（可选，7维度新增）
   }
   size?: 'sm' | 'md' | 'lg'
   // 新增：支持自定义最大值（用于适配Ad Strength评分体系）
@@ -25,6 +26,7 @@ interface ScoreRadarChartProps {
     diversity: number
     clarity: number
     brandSearchVolume?: number  // 品牌搜索量（可选）
+    competitivePositioning?: number  // 竞争定位（可选）
   }
 }
 
@@ -36,14 +38,16 @@ export default function ScoreRadarChart({ scoreBreakdown, size = 'md', maxScores
     engagement: 25,
     diversity: 10,
     clarity: 10,
-    brandSearchVolume: 20  // 新Ad Strength系统默认
+    brandSearchVolume: 20,  // 新Ad Strength系统默认
+    competitivePositioning: 10  // 7维度系统默认
   }
 
   // 使用自定义最大值或默认最大值
   const maxValues = maxScores || defaultMaxScores
 
-  // 检测是否有品牌搜索量数据
+  // 检测是否有品牌搜索量数据和竞争定位数据
   const hasBrandVolume = scoreBreakdown.brandSearchVolume !== undefined
+  const hasCompetitivePositioning = scoreBreakdown.competitivePositioning !== undefined
 
   // 转换为百分比以便在雷达图上显示（防御性处理：clamp到100%）
   const data = [
@@ -93,6 +97,18 @@ export default function ScoreRadarChart({ scoreBreakdown, size = 'md', maxScores
       fullMark: 100,
       actual: Math.min(brandMax, scoreBreakdown.brandSearchVolume),
       max: brandMax
+    })
+  }
+
+  // 如果有竞争定位数据，添加第7个维度
+  if (hasCompetitivePositioning && scoreBreakdown.competitivePositioning !== undefined) {
+    const compMax = maxValues.competitivePositioning || 10
+    data.push({
+      dimension: '竞争定位',
+      score: Math.min(100, (scoreBreakdown.competitivePositioning / compMax) * 100),
+      fullMark: 100,
+      actual: Math.min(compMax, scoreBreakdown.competitivePositioning),
+      max: compMax
     })
   }
 

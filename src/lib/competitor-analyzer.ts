@@ -19,6 +19,7 @@ import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getLanguageNameForCountry } from './language-country-codes'
 import { compressCompetitors, type CompetitorInfo as CompressorCompetitorInfo } from './competitor-compressor'
 import { withCache, type CacheOptions } from './ai-cache'
+import { loadPrompt } from './prompt-loader'
 
 // ==================== 数据结构定义 ====================
 
@@ -130,7 +131,294 @@ export interface CompetitorAnalysisResult {
   analyzedAt: string
 }
 
-// ==================== 竞品抓取逻辑 ====================
+// ==================== AI驱动的竞品发现逻辑 ====================
+
+/**
+ * 从产品名称中提取核心产品类型关键词
+ * 用于品类验证，确保推断的竞品与原产品在同一类目
+ */
+function extractCoreProductType(productNameLower: string): string[] {
+  const keywords: string[] = []
+
+  // 常见产品类型关键词（按优先级排序）
+  const productTypes = [
+    // 家电类
+    'robot vacuum', 'vacuum cleaner', 'air purifier', 'humidifier', 'dehumidifier',
+    'robot aspirapolvere', 'aspirapolvere', 'purificatore', 'umidificatore',
+
+    // 电子产品
+    'wireless earbuds', 'earbuds', 'headphones', 'speaker', 'soundbar',
+    'auricolari', 'cuffie', 'altoparlante',
+
+    // 智能设备
+    'security camera', 'smart camera', 'doorbell', 'smart lock', 'smart display',
+    'videocamera', 'telecamera', 'citofono', 'serratura intelligente',
+
+    // 健康美容
+    'electric toothbrush', 'hair dryer', 'trimmer', 'shaver',
+    'spazzolino elettrico', 'asciugacapelli', 'rasoio',
+
+    // 厨房电器
+    'coffee maker', 'blender', 'air fryer', 'microwave',
+    'macchina caffè', 'frullatore', 'friggitrice',
+  ]
+
+  // 提取匹配的产品类型关键词
+  for (const type of productTypes) {
+    if (productNameLower.includes(type)) {
+      keywords.push(type)
+    }
+  }
+
+  // 如果没有匹配到预定义类型，尝试提取核心名词短语
+  if (keywords.length === 0) {
+    // 提取最后2-3个有意义的词作为产品类型
+    const words = productNameLower.split(/\s+/)
+    const meaningfulWords = words.filter(w =>
+      w.length > 3 &&
+      !['with', 'and', 'the', 'for', 'con', 'per', 'alla'].includes(w)
+    )
+
+    if (meaningfulWords.length >= 2) {
+      // 取最后2-3个词作为产品类型
+      const lastWords = meaningfulWords.slice(-3).join(' ')
+      keywords.push(lastWords)
+    }
+  }
+
+  return keywords
+}
+
+/**
+ * 使用AI推断竞品搜索关键词
+ *
+ * @param productInfo 产品基本信息
+ * @param userId 用户ID（用于token计费）
+ * @returns 竞品搜索关键词数组
+ */
+export async function inferCompetitorKeywords(
+  productInfo: {
+    name: string
+    brand: string | null
+    category: string
+    price: number | null
+    targetCountry: string
+  },
+  userId: number
+): Promise<string[]> {
+  console.log(`🤖 AI推断竞品搜索关键词...`)
+
+  // 根据目标国家确定分析语言
+  const langName = getLanguageNameForCountry(productInfo.targetCountry)
+
+  // 📦 从数据库加载prompt模板 (版本管理)
+  const promptTemplate = await loadPrompt('competitor_keyword_inference')
+
+  // 🎨 插值替换模板变量
+  const prompt = promptTemplate
+    .replace('{{productInfo.name}}', productInfo.name)
+    .replace('{{productInfo.brand}}', productInfo.brand || 'Unknown')
+    .replace('{{productInfo.category}}', productInfo.category)
+    .replace('{{productInfo.price}}', productInfo.price ? `Around $${productInfo.price}` : 'Not specified')
+    .replace('{{productInfo.targetCountry}}', productInfo.targetCountry)
+
+  try {
+    const aiResponse = await generateContent({
+      model: 'gemini-2.0-flash-exp',  // 使用快速模型，降低成本
+      prompt,
+      temperature: 0.3,  // 低温度保证稳定输出
+      maxOutputTokens: 500,
+    }, userId)
+
+    // 记录token使用
+    if (aiResponse.usage) {
+      const cost = estimateTokenCost(
+        aiResponse.model,
+        aiResponse.usage.inputTokens,
+        aiResponse.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: aiResponse.model,
+        operationType: 'competitor_keyword_inference',
+        inputTokens: aiResponse.usage.inputTokens,
+        outputTokens: aiResponse.usage.outputTokens,
+        totalTokens: aiResponse.usage.totalTokens,
+        cost,
+        apiType: aiResponse.apiType
+      })
+    }
+
+    // 提取JSON
+    let jsonText = aiResponse.text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+    const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
+
+    if (!jsonMatch) {
+      console.warn('⚠️ AI返回格式错误，使用通用搜索词')
+      // 降级方案：基于类目的通用搜索
+      return [`${productInfo.category} ${productInfo.targetCountry}`]
+    }
+
+    const result = JSON.parse(jsonMatch[0])
+    let searchTerms = result.searchTerms || []
+
+    // 🔍 品类验证：提取产品名称中的核心类型关键词
+    const productNameLower = productInfo.name.toLowerCase()
+    const coreTypeKeywords = extractCoreProductType(productNameLower)
+
+    if (coreTypeKeywords.length > 0 && searchTerms.length > 0) {
+      // 验证每个搜索词是否包含核心类型关键词
+      const validatedTerms = searchTerms.filter((term: string) => {
+        const termLower = term.toLowerCase()
+        // 检查是否至少包含一个核心类型关键词
+        return coreTypeKeywords.some(keyword => termLower.includes(keyword))
+      })
+
+      if (validatedTerms.length < searchTerms.length) {
+        console.warn(`⚠️ 品类验证：过滤掉${searchTerms.length - validatedTerms.length}个跨品类搜索词`)
+        console.warn(`   原始搜索词: ${searchTerms.join(', ')}`)
+        console.warn(`   核心类型: ${coreTypeKeywords.join(', ')}`)
+        console.warn(`   验证后: ${validatedTerms.join(', ')}`)
+      }
+
+      searchTerms = validatedTerms.length > 0 ? validatedTerms : searchTerms
+    }
+
+    console.log(`✅ AI推断了${searchTerms.length}个搜索词: ${searchTerms.join(', ')}`)
+    return searchTerms
+
+  } catch (error: any) {
+    console.error('❌ AI推断失败:', error.message)
+    // 降级方案
+    return [`${productInfo.category} ${productInfo.targetCountry}`]
+  }
+}
+
+/**
+ * 在Amazon上搜索验证竞品
+ *
+ * @param searchTerms AI推断的搜索关键词
+ * @param page Playwright页面对象
+ * @param targetCountry 目标国家
+ * @param limit 每个搜索词提取的产品数量
+ * @returns 验证后的真实竞品数组
+ */
+export async function searchCompetitorsOnAmazon(
+  searchTerms: string[],
+  page: any,
+  targetCountry: string,
+  limit: number = 2
+): Promise<CompetitorProduct[]> {
+  console.log(`🔍 开始Amazon搜索验证竞品，搜索词数量: ${searchTerms.length}`)
+
+  const competitors: CompetitorProduct[] = []
+  const domain = getAmazonDomain(targetCountry)
+
+  for (const term of searchTerms.slice(0, 5)) { // 最多搜索5次
+    console.log(`   搜索: "${term}"`)
+
+    try {
+      const searchUrl = `https://www.${domain}/s?k=${encodeURIComponent(term)}`
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+
+      // 等待搜索结果加载
+      await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 5000 })
+        .catch(() => null)
+
+      // 提取搜索结果
+      const results = await page.evaluate((maxItems: number) => {
+        const items: any[] = []
+        const resultElements = document.querySelectorAll('[data-component-type="s-search-result"]')
+
+        for (let i = 0; i < Math.min(maxItems, resultElements.length); i++) {
+          const el = resultElements[i]
+
+          const asin = el.getAttribute('data-asin')
+          if (!asin) continue
+
+          const nameEl = el.querySelector('h2 a span, h2 span')
+          const name = nameEl?.textContent?.trim() || ''
+
+          const priceEl = el.querySelector('.a-price .a-offscreen')
+          const priceText = priceEl?.textContent?.trim() || null
+
+          const ratingEl = el.querySelector('.a-icon-star-small .a-icon-alt')
+          const ratingText = ratingEl?.textContent?.trim() || null
+          const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
+
+          const reviewEl = el.querySelector('[aria-label*="stars"]')
+          const reviewText = reviewEl?.getAttribute('aria-label') || null
+          const reviewCount = reviewText ? parseInt(reviewText.replace(/\D/g, '')) : null
+
+          const imageEl = el.querySelector('.s-image') as HTMLImageElement | null
+          const imageUrl = imageEl?.src || null
+
+          if (name && priceText) {
+            items.push({
+              asin,
+              name,
+              brand: null,  // 可以从名称中提取
+              priceText,
+              price: parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')),
+              rating,
+              reviewCount,
+              imageUrl,
+              source: 'amazon_search'
+            })
+          }
+        }
+
+        return items
+      }, limit)
+
+      if (results.length > 0) {
+        console.log(`   ✅ 找到${results.length}个产品`)
+        competitors.push(...results)
+      } else {
+        console.log(`   ⚠️ 未找到结果`)
+      }
+
+      // 达到目标数量就停止
+      if (competitors.length >= 10) {
+        console.log(`   已收集足够竞品，停止搜索`)
+        break
+      }
+
+    } catch (error: any) {
+      console.warn(`   ⚠️ 搜索"${term}"失败: ${error.message}`)
+      continue
+    }
+  }
+
+  // 去重
+  const uniqueCompetitors = deduplicateCompetitors(competitors)
+  console.log(`✅ 搜索验证完成，共找到${uniqueCompetitors.length}个真实竞品`)
+
+  return uniqueCompetitors
+}
+
+/**
+ * 根据国家代码获取Amazon域名
+ */
+function getAmazonDomain(countryCode: string): string {
+  const domainMap: Record<string, string> = {
+    'US': 'amazon.com',
+    'UK': 'amazon.co.uk',
+    'DE': 'amazon.de',
+    'FR': 'amazon.fr',
+    'IT': 'amazon.it',
+    'ES': 'amazon.es',
+    'JP': 'amazon.co.jp',
+    'CA': 'amazon.ca',
+    'AU': 'amazon.com.au',
+    'IN': 'amazon.in',
+    'MX': 'amazon.com.mx',
+    'BR': 'amazon.com.br',
+  }
+  return domainMap[countryCode] || 'amazon.com'
+}
+
+// ==================== 竞品抓取逻辑（保留作为补充数据源）====================
 
 /**
  * 从Playwright页面对象中抓取Amazon竞品信息
@@ -160,7 +448,16 @@ export async function scrapeAmazonCompetitors(
       competitors.push(...compareTableCompetitors)
     }
 
-    // 策略2: 如果数量不足，从"Customers also viewed"抓取
+    // 策略2: 如果数量不足，从"Related to items you've viewed"抓取
+    if (competitors.length < limit) {
+      const relatedCompetitors = await scrapeRelatedToItemsYouViewed(page, limit - competitors.length)
+      if (relatedCompetitors.length > 0) {
+        console.log(`✅ 从Related to items you've viewed抓取到${relatedCompetitors.length}个竞品`)
+        competitors.push(...relatedCompetitors)
+      }
+    }
+
+    // 策略3: 如果数量不足，从"Customers also viewed"抓取
     if (competitors.length < limit) {
       const alsoViewedCompetitors = await scrapeAlsoViewed(page, limit - competitors.length)
       if (alsoViewedCompetitors.length > 0) {
@@ -169,7 +466,7 @@ export async function scrapeAmazonCompetitors(
       }
     }
 
-    // 策略3: 如果还是不足，从"Similar items"抓取
+    // 策略4: 如果还是不足，从"Similar items"抓取
     if (competitors.length < limit) {
       const similarCompetitors = await scrapeSimilarItems(page, limit - competitors.length)
       if (similarCompetitors.length > 0) {
@@ -255,6 +552,113 @@ async function scrapeCompareTable(page: any, limit: number): Promise<CompetitorP
     }, limit)
 
     return competitors.filter((c: any) => c.name && c.name !== 'Unknown')
+
+  } catch (error) {
+    return []
+  }
+}
+
+/**
+ * 从"Related to items you've viewed"区域抓取竞品
+ *
+ * 这是Amazon产品页上常见的竞品推荐区域，通常包含相关竞品
+ */
+async function scrapeRelatedToItemsYouViewed(page: any, limit: number): Promise<CompetitorProduct[]> {
+  try {
+    const competitors = await page.evaluate((maxItems: number) => {
+      const items: any[] = []
+
+      // "Related to items you've viewed" 区域选择器
+      // 这个区域通常使用不同的carousel widget ID
+      const selectors = [
+        '[cel_widget_id*="AVD"] .a-carousel-card',
+        '[cel_widget_id*="AVD-desktop"] .a-carousel-card',
+        '[data-a-carousel-options*="AVD"] .a-carousel-card',
+        '#rhf .a-carousel-card',
+        '[aria-label*="Related to items you"] .a-carousel-card',
+        '[aria-label*="Related"] .a-carousel-card',
+        // 备选：通用carousel，如果上面的都找不到
+        '.a-carousel-container .a-carousel-card'
+      ]
+
+      for (const selector of selectors) {
+        const elements = document.querySelectorAll(selector)
+        if (elements.length > 0) {
+          console.log(`✅ 找到Related区域: ${selector}, 共${elements.length}个商品`)
+
+          elements.forEach((el, idx) => {
+            if (idx >= maxItems) return
+
+            const linkEl = el.querySelector('a[href*="/dp/"]') as HTMLAnchorElement | null
+            const asin = linkEl?.href?.match(/\/dp\/([A-Z0-9]{10})/)?.[1] || null
+
+            // 策略1：从产品链接的aria-label或title属性获取名称
+            let name = linkEl?.getAttribute('aria-label')?.trim() ||
+                      linkEl?.getAttribute('title')?.trim() ||
+                      linkEl?.querySelector('img')?.getAttribute('alt')?.trim() || ''
+
+            // 策略2：如果没有，尝试从文本元素获取（排除<style>标签）
+            if (!name || name === 'Unknown') {
+              const textElements = el.querySelectorAll('.a-truncate-full, .p13n-sc-truncated, .a-link-normal')
+              for (const textEl of Array.from(textElements)) {
+                const text = textEl.textContent?.trim() || ''
+                // 排除包含CSS代码的文本
+                if (text && !text.includes('{') && !text.includes('position:') && text.length > 5) {
+                  name = text
+                  break
+                }
+              }
+            }
+
+            // 策略3：清理名称中的CSS/JS代码
+            if (name && (name.includes('{') || name.includes('position:'))) {
+              // 尝试提取实际产品名（通常在CSS代码之后）
+              const cleanMatch = name.match(/([A-Z][A-Za-z\s\d,.()+-]+?)(?:,\s*\.\.\.|$)/);
+              if (cleanMatch) {
+                name = cleanMatch[1].trim();
+              } else {
+                name = 'Unknown';
+              }
+            }
+
+            if (!name) name = 'Unknown'
+
+            const priceEl = el.querySelector('.a-price .a-offscreen, .p13n-sc-price, .a-price-whole')
+            const priceText = priceEl?.textContent?.trim() || null
+
+            const ratingEl = el.querySelector('.a-icon-star-small, .a-icon-star, [class*="a-star"]')
+            const ratingText = ratingEl?.getAttribute('aria-label') || ratingEl?.textContent || null
+            const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
+
+            const reviewEl = el.querySelector('[aria-label*="ratings"]')
+            const reviewText = reviewEl?.getAttribute('aria-label') || null
+            const reviewCount = reviewText ? parseInt(reviewText.replace(/[^0-9]/g, '')) : null
+
+            const imageEl = el.querySelector('img')
+            const imageUrl = imageEl?.src || imageEl?.getAttribute('data-src') || null
+
+            if (name !== 'Unknown') {
+              items.push({
+                asin,
+                name,
+                brand: null,
+                priceText,
+                price: priceText ? parseFloat(priceText.replace(/[^0-9.]/g, '')) : null,
+                rating,
+                reviewCount,
+                imageUrl,
+                source: 'amazon_also_viewed'  // 使用相同source标识
+              })
+            }
+          })
+          break
+        }
+      }
+
+      return items
+    }, limit)
+
+    return competitors
 
   } catch (error) {
     return []
@@ -449,21 +853,21 @@ export async function analyzeCompetitorsWithAI(
     return getEmptyCompetitorAnalysis()
   }
 
-  console.log(`🤖 开始AI竞品分析，我们的产品vs ${competitors.length}个竞品...`)
+  console.log(`🤖 开始AI竞品分析,我们的产品vs ${competitors.length}个竞品...`)
 
-  // 根据目标国家确定分析语言（使用全局语言映射）
+  // 根据目标国家确定分析语言(使用全局语言映射)
   const langName = getLanguageNameForCountry(targetCountry)
 
   // 计算基础竞争力指标
   const pricePosition = calculatePricePosition(ourProduct, competitors)
   const ratingPosition = calculateRatingPosition(ourProduct, competitors)
 
-  // 准备竞品数据（支持压缩优化）
+  // 准备竞品数据(支持压缩优化)
   let competitorSummaries: string
   let compressionStats: any = null
 
   if (options?.enableCompression) {
-    // 🆕 Token优化：使用压缩格式（40-50%减少）
+    // 🆕 Token优化:使用压缩格式(40-50%减少)
     console.log('🗜️ 启用竞品数据压缩优化...')
     const compressorInput: CompressorCompetitorInfo[] = competitors.slice(0, 10).map(c => ({
       name: c.name,
@@ -479,9 +883,9 @@ export async function analyzeCompetitorsWithAI(
     const compressed = compressCompetitors(compressorInput, 20)
     competitorSummaries = compressed.compressed
     compressionStats = compressed.stats
-    console.log(`   压缩率: ${compressionStats.compressionRatio}（${compressionStats.originalChars} → ${compressionStats.compressedChars}字符）`)
+    console.log(`   压缩率: ${compressionStats.compressionRatio}(${compressionStats.originalChars} → ${compressionStats.compressedChars}字符)`)
   } else {
-    // 原始格式（保持向后兼容）
+    // 原始格式(保持向后兼容)
     competitorSummaries = competitors.slice(0, 10).map((c, idx) => {
       return `Competitor ${idx + 1}:
 - Name: ${c.name}
@@ -493,72 +897,40 @@ export async function analyzeCompetitorsWithAI(
     }).join('\n\n')
   }
 
-  // 构建AI分析prompt
-  const prompt = `You are a professional competitive analysis expert. Please analyze the following product vs competitors to identify competitive advantages and unique selling points.
+  // 📦 从数据库加载prompt模板(版本管理)
+  const promptTemplate = await loadPrompt('competitor_analysis')
 
-**Our Product:**
-- Name: ${ourProduct.name}
-- Price: ${ourProduct.price ? `$${ourProduct.price.toFixed(2)}` : 'N/A'}
-- Rating: ${ourProduct.rating || 'N/A'} stars (${ourProduct.reviewCount || 0} reviews)
-- Key Features: ${ourProduct.features.slice(0, 10).join('; ') || 'Not specified'}
+  // 🎨 准备模板变量
+  const ourProductName = ourProduct.name
+  const ourProductPrice = ourProduct.price ? `$${ourProduct.price.toFixed(2)}` : 'N/A'
+  const ourProductRating = `${ourProduct.rating || 'N/A'} stars (${ourProduct.reviewCount || 0} reviews)`
+  const ourProductFeatures = ourProduct.features.slice(0, 10).join('; ') || 'Not specified'
 
-**Price Position:** ${pricePosition?.priceAdvantage || 'unknown'} (${pricePosition?.pricePercentile || 0}th percentile)
-**Rating Position:** ${ratingPosition?.ratingAdvantage || 'unknown'} (${ratingPosition?.ratingPercentile || 0}th percentile)
+  const priceAdvantage = pricePosition?.priceAdvantage || 'unknown'
+  const pricePercentile = pricePosition?.pricePercentile?.toString() || '0'
+  const ratingAdvantage = ratingPosition?.ratingAdvantage || 'unknown'
+  const ratingPercentile = ratingPosition?.ratingPercentile?.toString() || '0'
 
-**Competitors (${competitors.length} total):**
-${competitorSummaries}
+  const totalCompetitorsText = competitors.length.toString()
 
-Please return the following analysis in JSON format:
-{
-  "featureComparison": [
-    {
-      "feature": "4K Resolution",
-      "weHave": true,
-      "competitorsHave": 3,
-      "ourAdvantage": false
-    }
-    // Top 5-8 key features to compare
-  ],
-
-  "uniqueSellingPoints": [
-    {
-      "usp": "Only solar-powered camera in this price range",
-      "differentiator": "No battery replacement needed, eco-friendly, cost-saving",
-      "competitorCount": 0,
-      "significance": "high"
-    }
-    // Top 2-4 unique advantages we have
-  ],
-
-  "competitorAdvantages": [
-    {
-      "advantage": "Includes 1-year cloud storage subscription",
-      "competitor": "Competitor 2",
-      "howToCounter": "Emphasize our no-subscription model saves $120/year, local storage included"
-    }
-    // Top 2-3 competitor advantages we need to address
-  ],
-
-  "overallCompetitiveness": 75
-  // 0-100 score based on price, rating, features, uniqueness
-}
-
-Analysis Requirements:
-1. ALL text outputs (USPs, differentiators, counter-strategies) MUST be in ${langName}
-2. Feature comparison should focus on IMPORTANT differentiators, not trivial differences
-3. USPs must be genuinely unique or rare (competitorCount should be very low)
-4. Competitor advantages must be REAL threats, not minor differences
-5. Counter-strategies should be specific and actionable
-6. Overall competitiveness score should objectively reflect our position (0-100)
-7. If price/rating data is missing, focus on feature-based analysis
-8. Return ONLY the JSON object, no other text or markdown
-
-IMPORTANT: Focus on insights that will make advertising more effective and differentiated.`
+  // 🎨 插值替换模板变量
+  const prompt = promptTemplate
+    .replace('{{ourProduct.name}}', ourProductName)
+    .replace('{{ourProduct.price}}', ourProductPrice)
+    .replace('{{ourProduct.rating}}', ourProductRating)
+    .replace('{{ourProduct.features}}', ourProductFeatures)
+    .replace('{{pricePosition.priceAdvantage}}', priceAdvantage)
+    .replace('{{pricePosition.pricePercentile}}', pricePercentile)
+    .replace('{{ratingPosition.ratingAdvantage}}', ratingAdvantage)
+    .replace('{{ratingPosition.ratingPercentile}}', ratingPercentile)
+    .replace('{{totalCompetitors}}', totalCompetitorsText)
+    .replace('{{competitorSummaries}}', competitorSummaries)
+    .replace('{{targetLanguage}}', langName)
 
   try {
     // 使用Gemini AI进行分析
     if (!userId) {
-      throw new Error('竞品分析需要用户ID，请确保已登录')
+      throw new Error('竞品分析需要用户ID,请确保已登录')
     }
 
     // 🆕 Token优化：支持缓存（3天TTL）

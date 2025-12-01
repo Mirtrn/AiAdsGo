@@ -51,6 +51,15 @@ export async function GET(request: NextRequest) {
     params.push(status === 'active' ? 1 : 0)
   }
 
+  // Package type filter
+  const packageType = searchParams.get('package')
+  if (packageType && packageType !== 'all') {
+    const packageCondition = ` AND package_type = ?`
+    query += packageCondition
+    countQuery += packageCondition
+    params.push(packageType)
+  }
+
   // Pagination
   query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
 

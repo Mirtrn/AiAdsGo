@@ -105,14 +105,20 @@ export function saveQueueConfig(
       settings.push({ key: 'enable_priority', value: config.enablePriority.toString() })
     }
 
-    // 保存到数据库
+    // 保存到数据库（使用DELETE+INSERT替代UPSERT，因为表没有唯一约束）
     for (const setting of settings) {
+      // 1. 先删除已存在的配置
+      db.prepare(`
+        DELETE FROM system_settings
+        WHERE category = 'queue'
+          AND config_key = ?
+          AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))
+      `).run(setting.key, userId || null, userId || null)
+
+      // 2. 插入新配置
       db.prepare(`
         INSERT INTO system_settings (category, config_key, config_value, user_id)
         VALUES ('queue', ?, ?, ?)
-        ON CONFLICT(category, config_key, user_id) DO UPDATE SET
-          config_value = excluded.config_value,
-          updated_at = CURRENT_TIMESTAMP
       `).run(setting.key, setting.value, userId || null)
     }
 

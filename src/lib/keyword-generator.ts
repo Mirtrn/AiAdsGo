@@ -2,6 +2,7 @@ import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getKeywordSearchVolumes, getKeywordSuggestions } from './keyword-planner'
 import type { Offer } from './offers'
+import { loadPrompt } from './prompt-loader'
 
 /**
  * 获取否定关键词的语言指令
@@ -131,36 +132,16 @@ export async function generateKeywords(
   const filterByIntent = options?.filterByIntent ?? true
   const smartMatchType = options?.smartMatchType ?? true
 
-  const prompt = `你是一个专业的Google Ads关键词策略专家。请基于以下产品信息，生成高质量的搜索广告关键词列表。
+  // 📦 从数据库加载prompt模板 (版本管理)
+  const promptTemplate = await loadPrompt('keywords_generation')
 
-# 产品信息
-品牌名称：${offer.brand}
-品牌描述：${offer.brand_description || '未提供'}
-目标国家：${offer.target_country}
-产品类别：${offer.category || '未分类'}
-
-# 输出要求
-请生成30个高质量关键词，返回标准JSON格式。每个关键词包含：keyword（关键词）、matchType（BROAD/PHRASE/EXACT）、priority（HIGH/MEDIUM/LOW）、category（品牌词/产品词/解决方案词/长尾词）。
-
-**重要：只生成购买意图关键词**
-- ✅ 包含：buy, shop, store, price, sale, discount, amazon, online, official
-- ❌ 排除：review, vs, comparison, alternative, how to, guide, tutorial, reddit, forum
-
-示例JSON格式（请严格遵循）：
-{
-  "keywords": [
-    {"keyword": "buy bagsmart backpack", "matchType": "PHRASE", "priority": "HIGH", "category": "品牌词", "searchIntent": "transactional"}
-  ],
-  "estimatedBudget": {"minDaily": 50, "maxDaily": 200, "currency": "USD"},
-  "recommendations": ["建议1", "建议2"]
-}
-
-重要：
-1. 只返回JSON，不要有其他文字
-2. 关键词需符合${offer.target_country}语言习惯
-3. 确保JSON语法正确（注意逗号、引号）
-4. 所有关键词必须是购买意图，searchIntent必须是transactional
-`
+  // 🎨 插值替换模板变量
+  const prompt = promptTemplate
+    .replace('{{offer.brand}}', offer.brand)
+    .replace('{{offer.brand_description}}', offer.brand_description || '未提供')
+    .replace('{{offer.target_country}}', offer.target_country)
+    .replace(/\{\{offer\.target_country\}\}/g, offer.target_country) // 替换所有出现的地方
+    .replace('{{offer.category}}', offer.category || '未分类')
 
   // 🆕 Token优化：定义结构化JSON schema
   const responseSchema = {

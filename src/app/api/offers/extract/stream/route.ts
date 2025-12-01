@@ -394,135 +394,122 @@ export async function POST(request: NextRequest) {
           sendProgress(controller, 'ai_analysis', 'in_progress', `正在分析${pageTypeLabel}竞品对比...`);
           console.log(`🏆 开始竞品对比分析 (${pageTypeLabel})...`);
 
-          const { scrapeAmazonCompetitors, analyzeCompetitorsWithAI } = await import(
+          const { inferCompetitorKeywords, searchCompetitorsOnAmazon, scrapeAmazonCompetitors, analyzeCompetitorsWithAI } = await import(
             '@/lib/competitor-analyzer'
           );
 
           let competitors: any[] = [];
 
-          // 🆕 独立站策略：使用AI推断竞品（无需实际抓取）
-          if (debug.isIndependentStore) {
-            console.log('🤖 独立站检测：使用AI推断竞品...');
+          // 🆕 统一策略：AI推断关键词 + Amazon搜索验证（适用所有页面类型）
+          console.log('🤖 使用AI推断竞品搜索关键词...');
 
-            // 基于产品信息生成模拟竞品
-            competitorAnalysis = {
-              summary: `基于${brandName || 'Unknown'}产品特性的AI竞品分析`,
-              pricePosition: null,
-              ratingPosition: null,
-              uniqueSellingPoints: [{
-                usp: '独立站品牌，专注产品质量',
-                differentiator: '相比Amazon通用品牌，提供更专业的服务',
-                competitorCount: 0,
-                significance: 'medium' as const
-              }],
-              competitorAdvantages: [],
-              strategicRecommendations: [
-                '强调品牌专业性和直销优势',
-                '突出产品质量和售后服务',
-                '提供独家优惠或捆绑销售'
-              ],
-              metadata: {
-                competitorSource: 'ai_inference',
-                analysisDate: new Date().toISOString(),
-                targetCountry: target_country,
-                competitorsAnalyzed: 0,
-                aiModel: 'gemini-inference'
-              }
-            };
+          // 构建产品信息用于AI推断
+          const productInfoForAI = {
+            name: brandName || pageTitle || 'Unknown Product',
+            brand: brandName || null,
+            category: aiProductInfo?.category || 'Unknown',
+            price: extractedPrice ? parseFloat(extractedPrice.replace(/[^0-9.]/g, '')) : null,
+            targetCountry: target_country
+          };
 
-            competitorAnalysisSuccess = true;
-            console.log('✅ 独立站AI竞品推断完成（无实际抓取）');
+          try {
+            // Step 1: AI推断竞品搜索词
+            const searchTerms = await inferCompetitorKeywords(productInfoForAI, userIdNum);
 
-          } else {
-            // Amazon产品页/店铺页：使用Playwright抓取竞品
-            const { chromium } = await import('playwright');
-
-            const browser = await chromium.launch({ headless: true });
-            const context = await browser.newContext({
-              userAgent:
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-            });
-
-            const competitorPage = await context.newPage();
-
-            try {
-              await competitorPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-              // 🆕 店铺页策略：针对TOP热销产品抓取竞品
-              if (debug.isAmazonStore && products && products.length > 0) {
-              console.log(`📦 Amazon店铺页检测到${products.length}个产品，针对TOP 3热销品抓取竞品...`);
-
-              // 取前3个热销产品
-              const topProducts = products.slice(0, 3);
-              const allCompetitors: any[] = [];
-
-              for (const product of topProducts) {
-                console.log(`  🔍 正在抓取产品"${product.name}"的竞品...`);
-                // TODO: 为每个热销品搜索竞品（需要实现基于产品名称的搜索）
-                // 当前先使用店铺页本身的推荐区域
-              }
-
-              // 当前降级方案：直接抓取店铺页的推荐竞品
-              competitors = await scrapeAmazonCompetitors(competitorPage, 10);
-              console.log(`✅ 店铺页抓取到${competitors.length}个竞品`);
-
+            if (searchTerms.length === 0) {
+              console.log('⚠️ AI未推断出有效搜索词，跳过竞品分析');
             } else {
-              // 产品页：使用原有逻辑
-              competitors = await scrapeAmazonCompetitors(competitorPage, 10);
-            }
+              // Step 2: 使用Playwright在Amazon搜索验证竞品
+              const { chromium } = await import('playwright');
+              const browser = await chromium.launch({ headless: true });
+              const context = await browser.newContext({
+                userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+              });
+              const competitorPage = await context.newPage();
 
-            if (competitors.length > 0) {
-              console.log(`✅ 抓取到${competitors.length}个竞品，开始AI对比分析...`);
+              try {
+                // 搜索验证竞品（真实Amazon搜索结果）
+                competitors = await searchCompetitorsOnAmazon(
+                  searchTerms,
+                  competitorPage,
+                  target_country,
+                  2  // 每个搜索词提取2个产品
+                );
 
-              const priceStr = extractedPrice;
-              const priceNum = priceStr ? parseFloat(priceStr.replace(/[^0-9.]/g, '')) : null;
+                // 🔄 补充策略：如果AI搜索结果不足，尝试页面抓取补充（仅Amazon页面）
+                if (competitors.length < 5 && !debug.isIndependentStore) {
+                  console.log(`⚠️ AI搜索仅找到${competitors.length}个竞品，尝试页面抓取补充...`);
 
-              // 安全提取productHighlights（可能是字符串、字符串数组或对象数组）
-              const extractFeatures = (highlights: any): string[] => {
-                if (!highlights) return [];
-                if (typeof highlights === 'string') {
-                  return highlights.split('\n').filter((f: string) => f.trim());
+                  try {
+                    await competitorPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                    const pageCompetitors = await scrapeAmazonCompetitors(competitorPage, 10 - competitors.length);
+
+                    if (pageCompetitors.length > 0) {
+                      console.log(`   ✅ 页面抓取补充了${pageCompetitors.length}个竞品`);
+                      competitors.push(...pageCompetitors);
+                    }
+                  } catch (scrapeError: any) {
+                    console.warn(`   ⚠️ 页面抓取失败: ${scrapeError.message}`);
+                  }
                 }
-                if (Array.isArray(highlights)) {
-                  return highlights.map((item: any) => {
-                    if (typeof item === 'string') return item;
-                    return item?.line || item?.highlight || item?.description || String(item);
-                  }).filter((f: string) => f.trim());
+
+                // Step 3: AI对比分析
+                if (competitors.length > 0) {
+                  console.log(`✅ 找到${competitors.length}个竞品，开始AI对比分析...`);
+
+                  const priceStr = extractedPrice;
+                  const priceNum = priceStr ? parseFloat(priceStr.replace(/[^0-9.]/g, '')) : null;
+
+                  // 安全提取productHighlights（可能是字符串、字符串数组或对象数组）
+                  const extractFeatures = (highlights: any): string[] => {
+                    if (!highlights) return [];
+                    if (typeof highlights === 'string') {
+                      return highlights.split('\n').filter((f: string) => f.trim());
+                    }
+                    if (Array.isArray(highlights)) {
+                      return highlights.map((item: any) => {
+                        if (typeof item === 'string') return item;
+                        return item?.line || item?.highlight || item?.description || String(item);
+                      }).filter((f: string) => f.trim());
+                    }
+                    return [];
+                  };
+
+                  const ourProduct = {
+                    name: brandName || 'Unknown',
+                    price: priceNum,
+                    rating: null,
+                    reviewCount: null,
+                    features: extractFeatures(aiProductInfo?.productHighlights),
+                  };
+
+                  // 🆕 Token优化：竞品压缩灰度发布（10%）
+                  const enableCompression = isCompetitorCompressionEnabled(userIdNum, FEATURE_FLAGS.competitorCompression.rolloutPercentage);
+                  const enableCache = isCompetitorCacheEnabled(userIdNum, FEATURE_FLAGS.competitorCache.rolloutPercentage);
+                  logFeatureFlag('competitorCompression', userIdNum, enableCompression);
+                  logFeatureFlag('competitorCache', userIdNum, enableCache);
+
+                  competitorAnalysis = await analyzeCompetitorsWithAI(
+                    ourProduct,
+                    competitors,
+                    target_country,
+                    userIdNum,
+                    { enableCompression, enableCache }
+                  );
+
+                  competitorAnalysisSuccess = true;
+                  console.log(`✅ ${pageTypeLabel}竞品对比分析完成`);
+                } else {
+                  console.log(`⚠️ ${pageTypeLabel}未找到竞品，跳过AI对比分析`);
                 }
-                return [];
-              };
 
-              const ourProduct = {
-                name: brandName || 'Unknown',
-                price: priceNum,
-                rating: null,
-                reviewCount: null,
-                features: extractFeatures(aiProductInfo?.productHighlights),
-              };
-
-              // 🆕 Token优化：竞品压缩灰度发布（10%）
-              const enableCompression = isCompetitorCompressionEnabled(userIdNum, FEATURE_FLAGS.competitorCompression.rolloutPercentage);
-              const enableCache = isCompetitorCacheEnabled(userIdNum, FEATURE_FLAGS.competitorCache.rolloutPercentage);
-              logFeatureFlag('competitorCompression', userIdNum, enableCompression);
-              logFeatureFlag('competitorCache', userIdNum, enableCache);
-
-              competitorAnalysis = await analyzeCompetitorsWithAI(
-                ourProduct,
-                competitors,
-                target_country,
-                userIdNum,
-                { enableCompression, enableCache }
-              );
-
-                competitorAnalysisSuccess = true;
-                console.log(`✅ ${pageTypeLabel}竞品对比分析完成`);
-              } else {
-                console.log(`⚠️ ${pageTypeLabel}未抓取到竞品，跳过AI对比分析`);
+              } finally {
+                await competitorPage.close();
+                await browser.close();
               }
-            } finally {
-              await competitorPage.close();
-              await browser.close();
             }
+          } catch (aiError: any) {
+            console.error('❌ AI推断竞品失败:', aiError.message);
           }
         } catch (competitorError: any) {
           console.warn('⚠️ 竞品对比分析失败（不影响主流程）:', competitorError.message);

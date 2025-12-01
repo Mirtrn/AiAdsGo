@@ -17,6 +17,7 @@ import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getLanguageNameForCountry } from './language-country-codes'
 import { compressReviews, type RawReview as CompressorRawReview } from './review-compressor'
 import { withCache, type CacheOptions } from './ai-cache'
+import { loadPrompt } from './prompt-loader'
 
 // ==================== 数据结构定义 ====================
 
@@ -344,116 +345,19 @@ export async function analyzeReviewsWithAI(
     }).join('\n\n---\n\n')
   }
 
-  // 构建AI分析prompt
-  const prompt = `You are a professional user review analyst. Please analyze the following Amazon product reviews to extract key insights for advertising creative generation.
+  // 📦 从数据库加载prompt模板(版本管理)
+  const promptTemplate = await loadPrompt('review_analysis')
 
-Product Name: ${productName}
-Total Reviews to Analyze: ${reviews.length}
-Target Language: ${langName}
+  // 🎨 准备模板变量
+  const productNameVar = productName
+  const totalReviewsVar = reviews.length.toString()
 
-Review Data:
-${reviewTexts}
-
-Please perform deep analysis and return results in JSON format:
-{
-  "sentimentDistribution": {
-    "positive": 75,  // Percentage of 4-5 star reviews (0-100)
-    "neutral": 15,   // Percentage of 3 star reviews (0-100)
-    "negative": 10   // Percentage of 1-2 star reviews (0-100)
-  },
-
-  "topPositiveKeywords": [
-    {
-      "keyword": "easy setup",
-      "frequency": 15,
-      "sentiment": "positive",
-      "context": "Many users praised the quick and simple setup process"
-    },
-    {
-      "keyword": "clear image",
-      "frequency": 23,
-      "sentiment": "positive",
-      "context": "Image quality is consistently rated as excellent"
-    }
-    // Include top 5-8 positive keywords
-  ],
-
-  "topNegativeKeywords": [
-    {
-      "keyword": "wifi drops",
-      "frequency": 8,
-      "sentiment": "negative",
-      "context": "Some users experienced intermittent WiFi connectivity issues"
-    }
-    // Include top 3-5 negative keywords (if any exist)
-  ],
-
-  "realUseCases": [
-    {
-      "scenario": "home security monitoring",
-      "mentions": 35,
-      "examples": ["monitoring backyard", "front door surveillance", "driveway security"]
-    },
-    {
-      "scenario": "baby monitoring",
-      "mentions": 12,
-      "examples": ["nursery camera", "checking on baby while sleeping"]
-    }
-    // Include top 3-5 real use cases extracted from reviews
-  ],
-
-  "purchaseReasons": [
-    {
-      "reason": "upgrade from old camera",
-      "frequency": 18
-    },
-    {
-      "reason": "recommended by friend",
-      "frequency": 9
-    }
-    // Include top 3-5 purchase motivations
-  ],
-
-  "userProfiles": [
-    {
-      "profile": "tech-savvy homeowner",
-      "indicators": ["mentions router settings", "understands IP cameras", "discusses technical specs"]
-    },
-    {
-      "profile": "non-technical user",
-      "indicators": ["values simplicity", "needs help from family", "focuses on ease of use"]
-    }
-    // Include 2-4 distinct user profiles
-  ],
-
-  "commonPainPoints": [
-    {
-      "issue": "app occasionally crashes",
-      "severity": "moderate",
-      "affectedUsers": 12,
-      "workarounds": ["reinstall app", "restart phone", "clear cache"]
-    },
-    {
-      "issue": "subscription required for cloud storage",
-      "severity": "minor",
-      "affectedUsers": 8,
-      "workarounds": ["use SD card instead", "local storage option"]
-    }
-    // Include top 3-5 pain points (if any)
-  ]
-}
-
-Analysis Requirements:
-1. ALL text outputs (context, scenarios, issues, etc.) MUST be in ${langName}
-2. Extract insights ONLY from the actual review content provided, do not fabricate
-3. Prioritize high-frequency keywords and scenarios (mentioned by multiple users)
-4. Pain points must be based on real negative reviews, with accurate severity assessment
-5. User profiles should be based on language style and needs expressed in reviews
-6. Sentiment distribution should accurately reflect the star rating distribution
-7. If negative keywords or pain points are minimal or absent, return empty arrays
-8. Return ONLY the JSON object, no other text or markdown formatting
-
-IMPORTANT: Focus on actionable insights that can improve advertising creative quality.`
+  // 🎨 插值替换模板变量
+  const prompt = promptTemplate
+    .replace('{{productName}}', productNameVar)
+    .replace('{{totalReviews}}', totalReviewsVar)
+    .replace(/\{\{langName\}\}/g, langName)
+    .replace('{{reviewTexts}}', reviewTexts)
 
   try {
     // 使用Gemini AI进行分析

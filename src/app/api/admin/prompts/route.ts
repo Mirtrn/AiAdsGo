@@ -44,6 +44,12 @@ export async function GET(request: NextRequest) {
       if (!promptsByCategory[prompt.category]) {
         promptsByCategory[prompt.category] = []
       }
+
+      // Convert Buffer to string if needed
+      const promptContent = typeof prompt.prompt_content === 'string'
+        ? prompt.prompt_content
+        : prompt.prompt_content?.toString('utf-8') || ''
+
       promptsByCategory[prompt.category].push({
         id: prompt.id,
         promptId: prompt.prompt_id,
@@ -53,7 +59,7 @@ export async function GET(request: NextRequest) {
         description: prompt.description,
         filePath: prompt.file_path,
         functionName: prompt.function_name,
-        promptPreview: prompt.prompt_content.substring(0, 200) + '...',
+        promptPreview: promptContent.substring(0, 200) + '...',
         language: prompt.language,
         createdBy: prompt.created_by_name,
         createdAt: prompt.created_at,
@@ -66,23 +72,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        prompts: activePrompts.map(p => ({
-          id: p.id,
-          promptId: p.prompt_id,
-          version: p.version,
-          category: p.category,
-          name: p.name,
-          description: p.description,
-          filePath: p.file_path,
-          functionName: p.function_name,
-          promptPreview: p.prompt_content.substring(0, 200) + '...',
-          language: p.language,
-          createdBy: p.created_by_name,
-          createdAt: p.created_at,
-          versionCount: p.version_count || 0,
-          totalCalls: p.total_calls || 0,
-          totalCost: p.total_cost || 0,
-        })),
+        prompts: activePrompts.map(p => {
+          // Convert Buffer to string if needed
+          const promptContent = typeof p.prompt_content === 'string'
+            ? p.prompt_content
+            : p.prompt_content?.toString('utf-8') || ''
+
+          return {
+            id: p.id,
+            promptId: p.prompt_id,
+            version: p.version,
+            category: p.category,
+            name: p.name,
+            description: p.description,
+            filePath: p.file_path,
+            functionName: p.function_name,
+            promptPreview: promptContent.substring(0, 200) + '...',
+            language: p.language,
+            createdBy: p.created_by_name,
+            createdAt: p.created_at,
+            versionCount: p.version_count || 0,
+            totalCalls: p.total_calls || 0,
+            totalCost: p.total_cost || 0,
+          }
+        }),
         promptsByCategory,
         categories: Array.from(categories),
         totalPrompts: activePrompts.length,

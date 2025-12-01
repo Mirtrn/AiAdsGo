@@ -31,6 +31,8 @@ export interface AdStrengthData {
     completeness: { score: number; weight: number; details: any }
     quality: { score: number; weight: number; details: any }
     compliance: { score: number; weight: number; details: any }
+    brandSearchVolume: { score: number; weight: number; details: any }
+    competitivePositioning: { score: number; weight: number; details: any }
   }
   suggestions: string[]
 }
@@ -180,14 +182,14 @@ export function AdStrengthDisplay({
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Target className="h-5 w-5" />
-                5维度评分详情
+                7维度评分详情
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <DimensionScore
                 name="多样性 (Diversity)"
                 score={dimensions.diversity.score}
-                maxScore={25}
+                maxScore={18}
                 weight={dimensions.diversity.weight}
                 description="资产类型、长度分布、文本独特性"
                 details={dimensions.diversity.details}
@@ -195,7 +197,7 @@ export function AdStrengthDisplay({
               <DimensionScore
                 name="相关性 (Relevance)"
                 score={dimensions.relevance.score}
-                maxScore={25}
+                maxScore={18}
                 weight={dimensions.relevance.weight}
                 description="关键词覆盖率、自然度"
                 details={dimensions.relevance.details}
@@ -203,7 +205,7 @@ export function AdStrengthDisplay({
               <DimensionScore
                 name="完整性 (Completeness)"
                 score={dimensions.completeness.score}
-                maxScore={20}
+                maxScore={14}
                 weight={dimensions.completeness.weight}
                 description="资产数量、字符合规性"
                 details={dimensions.completeness.details}
@@ -211,18 +213,34 @@ export function AdStrengthDisplay({
               <DimensionScore
                 name="质量 (Quality)"
                 score={dimensions.quality.score}
-                maxScore={20}
+                maxScore={14}
                 weight={dimensions.quality.weight}
-                description="数字使用、CTA、紧迫感"
+                description="数字使用、CTA、紧迫感、差异化"
                 details={dimensions.quality.details}
               />
               <DimensionScore
                 name="合规性 (Compliance)"
                 score={dimensions.compliance.score}
-                maxScore={10}
+                maxScore={8}
                 weight={dimensions.compliance.weight}
                 description="政策遵守、无违规词汇"
                 details={dimensions.compliance.details}
+              />
+              <DimensionScore
+                name="品牌影响力 (Brand Search Volume)"
+                score={dimensions.brandSearchVolume.score}
+                maxScore={18}
+                weight={dimensions.brandSearchVolume.weight}
+                description="品牌月均搜索量"
+                details={dimensions.brandSearchVolume.details}
+              />
+              <DimensionScore
+                name="竞争定位 (Competitive Positioning)"
+                score={dimensions.competitivePositioning.score}
+                maxScore={10}
+                weight={dimensions.competitivePositioning.weight}
+                description="价格优势、独特定位、竞品对比、性价比"
+                details={dimensions.competitivePositioning.details}
               />
             </CardContent>
           </Card>

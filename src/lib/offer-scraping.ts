@@ -13,6 +13,18 @@ import { getQueueManager } from './scrape-queue-manager'
 import { getQueueConfig } from './queue-config'
 
 /**
+ * 🎯 优化: Offer抓取优先级枚举
+ * 用于区分不同场景的重要性，优化用户体验
+ */
+export enum OfferScrapingPriority {
+  URGENT = 10,        // 用户手动创建（立即需要，最高优先级）
+  HIGH = 7,           // SSE流式创建（用户等待中）
+  NORMAL = 5,         // 默认优先级
+  LOW = 3,            // 批量导入（后台慢慢处理）
+  BACKGROUND = 1      // 定期重新抓取或系统任务
+}
+
+/**
  * 触发Offer抓取（异步，不阻塞）
  *
  * 此函数会立即返回，抓取在后台进行
@@ -30,7 +42,7 @@ export function triggerOfferScraping(
   userId: number,
   url: string,
   brand: string,
-  priority: number = 5
+  priority: number = OfferScrapingPriority.NORMAL
 ): void {
   console.log(`[OfferScraping] 触发异步抓取 Offer #${offerId}`)
   console.log(`[OfferScraping] URL: ${url}, Brand: ${brand}, UserId: ${userId}, Priority: ${priority}`)

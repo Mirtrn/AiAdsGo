@@ -85,10 +85,15 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 })
     }
 
-    // Check if user exists
-    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId)
+    // Check if user exists and get status
+    const user = db.prepare('SELECT id, username, is_active FROM users WHERE id = ?').get(userId) as { id: number; username: string; is_active: number } | undefined
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    // Prevent deleting active users
+    if (user.is_active === 1) {
+      return NextResponse.json({ error: '无法删除启用状态的用户，请先禁用该用户' }, { status: 400 })
     }
 
     // Hard delete - permanently remove user from database

@@ -456,6 +456,70 @@ export default function SettingsPage() {
     setSaving(true)
 
     try {
+      // AI配置验证
+      if (category === 'ai') {
+        const aiMode = formData.ai?.['use_vertex_ai'] || 'false'
+
+        // 1. AI模式必填
+        if (!aiMode) {
+          toast.error('请选择AI模式')
+          setSaving(false)
+          return
+        }
+
+        // 2. Gemini API模式验证
+        if (aiMode === 'false') {
+          const geminiApiKey = formData.ai?.['gemini_api_key']
+          if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
+            toast.error('使用Gemini API模式时，必须填写Gemini API密钥')
+            setSaving(false)
+            return
+          }
+        }
+
+        // 3. Vertex AI模式验证
+        if (aiMode === 'true') {
+          const gcpRegion = formData.ai?.['gcp_location']
+          const gcpProjectId = formData.ai?.['gcp_project_id']
+          const serviceAccountJson = formData.ai?.['gcp_service_account_json']
+
+          if (!gcpRegion || gcpRegion.trim() === '') {
+            toast.error('使用Vertex AI模式时，必须选择GCP区域')
+            setSaving(false)
+            return
+          }
+
+          if (!gcpProjectId || gcpProjectId.trim() === '' || gcpProjectId === '············') {
+            toast.error('使用Vertex AI模式时，必须填写GCP项目ID')
+            setSaving(false)
+            return
+          }
+
+          if (!serviceAccountJson || serviceAccountJson.trim() === '' || serviceAccountJson === '············') {
+            toast.error('使用Vertex AI模式时，必须填写Service Account JSON')
+            setSaving(false)
+            return
+          }
+        }
+      }
+
+      // 代理配置验证
+      if (category === 'proxy') {
+        const validProxyUrls = proxyUrls.filter(item =>
+          item &&
+          typeof item.url === 'string' &&
+          typeof item.country === 'string' &&
+          item.url.trim() !== '' &&
+          item.country.trim() !== ''
+        )
+
+        if (validProxyUrls.length === 0) {
+          toast.error('代理设置至少需要配置一个代理URL')
+          setSaving(false)
+          return
+        }
+      }
+
       let updates: Array<{ category: string; key: string; value: string }>
 
       // 特殊处理代理配置
@@ -763,7 +827,11 @@ export default function SettingsPage() {
         </Card>
 
         <div className="space-y-6">
-          {Object.entries(settings).map(([category, categorySettings]) => {
+          {/* 定义分类显示顺序：Google Ads → AI引擎 → 代理设置 → 系统设置 */}
+          {['google_ads', 'ai', 'proxy', 'system'].map((category) => {
+            const categorySettings = settings[category]
+            if (!categorySettings) return null
+
             const config = CATEGORY_CONFIG[category] || {
               label: category,
               icon: SettingsIcon,
@@ -964,10 +1032,17 @@ export default function SettingsPage() {
                 ) : category === 'proxy' ? (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label className="label-text">代理URL配置</Label>
+                      <Label className="label-text flex items-center gap-2">
+                        代理URL配置
+                        <span className="text-caption text-red-500">*必填</span>
+                      </Label>
                       <p className="helper-text flex items-start gap-1">
                         <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                        配置不同国家的代理URL，第一个URL将作为未配置国家的默认兜底值。只要配置了有效的代理URL即代表启用代理。
+                        配置不同国家的代理URL，第一个URL将作为未配置国家的默认兜底值。必须至少配置一个有效的代理URL。
+                      </p>
+                      <p className="text-xs text-blue-600 flex items-center gap-1">
+                        <Info className="w-3 h-3 flex-shrink-0" />
+                        当前已支持IPRocket代理，更多代理支持开发中
                       </p>
                     </div>
 
@@ -1103,12 +1178,26 @@ export default function SettingsPage() {
                           }
                         }
 
+                      // 动态必填逻辑
+                      const isRequired = (() => {
+                        if (category === 'ai') {
+                          const useVertexAI = formData.ai?.use_vertex_ai === 'true'
+                          // AI模式始终必填
+                          if (setting.key === 'use_vertex_ai') return true
+                          // Gemini API模式：gemini_api_key必填
+                          if (!useVertexAI && setting.key === 'gemini_api_key') return true
+                          // Vertex AI模式：gcp_location, gcp_project_id, gcp_service_account_json必填
+                          if (useVertexAI && ['gcp_location', 'gcp_project_id', 'gcp_service_account_json'].includes(setting.key)) return true
+                        }
+                        return setting.isRequired
+                      })()
+
                       return (
                         <div key={setting.key} className="space-y-2">
                           <div className="flex items-center justify-between">
                             <Label className="label-text flex items-center gap-2">
                               {metadata?.label || setting.key}
-                              {setting.isRequired && (
+                              {isRequired && (
                                 <span className="text-caption text-red-500">*必填</span>
                               )}
                               {setting.validationStatus && (

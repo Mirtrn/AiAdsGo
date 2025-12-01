@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, MoreVertical, Edit, Trash, User as UserIcon, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Filter } from 'lucide-react'
+import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check } from 'lucide-react'
 import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,12 +14,6 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
     Dialog,
     DialogContent,
@@ -78,6 +72,7 @@ export default function UserManagementPage() {
     const [searchQuery, setSearchQuery] = useState('')
     const [roleFilter, setRoleFilter] = useState('all')
     const [statusFilter, setStatusFilter] = useState('all')
+    const [packageFilter, setPackageFilter] = useState('all')
 
     const [isCreateOpen, setIsCreateOpen] = useState(false)
     const [isEditOpen, setIsEditOpen] = useState(false)
@@ -156,12 +151,34 @@ export default function UserManagementPage() {
     const [editExpiry, setEditExpiry] = useState('')
     const [editStatus, setEditStatus] = useState(1)
 
+    // Reset password dialog
+    const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false)
+    const [resetPasswordData, setResetPasswordData] = useState<{username: string, password: string} | null>(null)
+    const [copied, setCopied] = useState(false)
+
+    // Confirmation dialogs
+    const [confirmDialog, setConfirmDialog] = useState<{
+        open: boolean
+        title: string
+        description: string
+        onConfirm: () => void
+        confirmText?: string
+        variant?: 'default' | 'destructive'
+    }>({
+        open: false,
+        title: '',
+        description: '',
+        onConfirm: () => {},
+        confirmText: '确认',
+        variant: 'default'
+    })
+
     useEffect(() => {
         const timer = setTimeout(() => {
             fetchUsers(1)
         }, 300)
         return () => clearTimeout(timer)
-    }, [searchQuery, roleFilter, statusFilter])
+    }, [searchQuery, roleFilter, statusFilter, packageFilter])
 
     useEffect(() => {
         fetchUsers(pagination.page)
@@ -175,7 +192,8 @@ export default function UserManagementPage() {
                 limit: pagination.limit.toString(),
                 search: searchQuery,
                 role: roleFilter,
-                status: statusFilter
+                status: statusFilter,
+                package: packageFilter
             })
 
             const res = await fetch(`/api/admin/users?${params}`)
@@ -254,45 +272,118 @@ export default function UserManagementPage() {
         }
     }
 
-    const handleDisableUser = async (userId: number, username: string, currentStatus: number) => {
+    const handleDisableUser = (userId: number, username: string, currentStatus: number) => {
         const action = currentStatus === 1 ? '禁用' : '启用'
-        if (!confirm(`确定要${action}用户 "${username}" 吗？`)) return
+        setConfirmDialog({
+            open: true,
+            title: `${action}用户`,
+            description: `确定要${action}用户 "${username}" 吗？`,
+            confirmText: action,
+            variant: currentStatus === 1 ? 'destructive' : 'default',
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`/api/admin/users/${userId}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            isActive: currentStatus === 1 ? 0 : 1
+                        })
+                    })
 
-        try {
-            const res = await fetch(`/api/admin/users/${userId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    isActive: currentStatus === 1 ? 0 : 1
-                })
-            })
+                    const data = await res.json()
+                    if (!res.ok) throw new Error(data.error)
 
-            const data = await res.json()
-            if (!res.ok) throw new Error(data.error)
-
-            toast.success(`用户已${action}`)
-            fetchUsers(pagination.page)
-        } catch (error: any) {
-            toast.error(error.message)
-        }
+                    toast.success(`用户已${action}`)
+                    fetchUsers(pagination.page)
+                } catch (error: any) {
+                    toast.error(error.message)
+                }
+                setConfirmDialog(prev => ({ ...prev, open: false }))
+            }
+        })
     }
 
-    const handleDeleteUser = async (userId: number, username: string) => {
-        if (!confirm(`⚠️ 确定要永久删除用户 "${username}" 吗？\n\n此操作不可恢复！所有相关数据将被删除。`)) return
-
-        try {
-            const res = await fetch(`/api/admin/users/${userId}`, {
-                method: 'DELETE'
-            })
-
-            const data = await res.json()
-            if (!res.ok) throw new Error(data.error)
-
-            toast.success('用户已永久删除')
-            fetchUsers(pagination.page)
-        } catch (error: any) {
-            toast.error(error.message)
+    const handleDeleteUser = (userId: number, username: string, isActive: number) => {
+        // 检查用户是否处于启用状态
+        if (isActive === 1) {
+            toast.error('无法删除启用状态的用户，请先禁用该用户')
+            return
         }
+
+        setConfirmDialog({
+            open: true,
+            title: '⚠️ 删除用户',
+            description: `确定要永久删除用户 "${username}" 吗？\n\n此操作不可恢复！所有相关数据将被删除。`,
+            confirmText: '永久删除',
+            variant: 'destructive',
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`/api/admin/users/${userId}`, {
+                        method: 'DELETE'
+                    })
+
+                    const data = await res.json()
+                    if (!res.ok) throw new Error(data.error)
+
+                    toast.success('用户已永久删除')
+                    fetchUsers(pagination.page)
+                } catch (error: any) {
+                    toast.error(error.message)
+                }
+                setConfirmDialog(prev => ({ ...prev, open: false }))
+            }
+        })
+    }
+
+    const handleResetPassword = (userId: number, username: string) => {
+        setConfirmDialog({
+            open: true,
+            title: '重置密码',
+            description: `确定要重置用户 "${username}" 的密码吗？\n\n用户下次登录时需要修改密码。`,
+            confirmText: '重置密码',
+            variant: 'default',
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`/api/admin/users/${userId}/reset-password`, {
+                        method: 'POST'
+                    })
+
+                    const data = await res.json()
+                    if (!res.ok) throw new Error(data.error)
+
+                    setResetPasswordData({
+                        username: data.username,
+                        password: data.newPassword
+                    })
+                    setIsResetPasswordOpen(true)
+                    setCopied(false)
+
+                } catch (error: any) {
+                    toast.error(error.message || '密码重置失败')
+                }
+                setConfirmDialog(prev => ({ ...prev, open: false }))
+            }
+        })
+    }
+
+    const copyToClipboard = () => {
+        if (!resetPasswordData) return
+
+        const domain = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://www.autoads.dev'
+        const text = `【AutoAds登录信息】
+访问地址: ${domain}
+登录用户名: ${resetPasswordData.username}
+登录密码: ${resetPasswordData.password}
+
+首次登录需要修改密码。`
+
+        navigator.clipboard.writeText(text).then(() => {
+            setCopied(true)
+            toast.success('已复制到剪贴板')
+            setTimeout(() => setCopied(false), 2000)
+        }).catch(() => {
+            toast.error('复制失败')
+        })
     }
 
     const openEditModal = (user: User) => {
@@ -319,9 +410,9 @@ export default function UserManagementPage() {
 
             <Card>
                 <CardHeader>
-                    <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="flex flex-row flex-wrap items-center gap-3">
                         {/* Search */}
-                        <div className="flex-1 relative">
+                        <div className="flex-1 min-w-[280px] relative">
                             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input
                                 placeholder="搜索用户名或邮箱..."
@@ -332,28 +423,48 @@ export default function UserManagementPage() {
                         </div>
 
                         {/* Role Filter */}
-                        <Select value={roleFilter} onValueChange={setRoleFilter}>
-                            <SelectTrigger className="w-[150px]">
-                                <SelectValue placeholder="角色" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">所有角色</SelectItem>
-                                <SelectItem value="admin">管理员</SelectItem>
-                                <SelectItem value="user">普通用户</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <div className="shrink-0">
+                            <Select value={roleFilter} onValueChange={setRoleFilter}>
+                                <SelectTrigger className="w-[150px]">
+                                    <SelectValue placeholder="角色" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">所有角色</SelectItem>
+                                    <SelectItem value="admin">管理员</SelectItem>
+                                    <SelectItem value="user">普通用户</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {/* Package Filter */}
+                        <div className="shrink-0">
+                            <Select value={packageFilter} onValueChange={setPackageFilter}>
+                                <SelectTrigger className="w-[150px]">
+                                    <SelectValue placeholder="套餐" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">所有套餐</SelectItem>
+                                    <SelectItem value="trial">试用版</SelectItem>
+                                    <SelectItem value="annual">年度会员</SelectItem>
+                                    <SelectItem value="lifetime">终身会员</SelectItem>
+                                    <SelectItem value="enterprise">私有化部署</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
 
                         {/* Status Filter */}
-                        <Select value={statusFilter} onValueChange={setStatusFilter}>
-                            <SelectTrigger className="w-[150px]">
-                                <SelectValue placeholder="状态" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">所有状态</SelectItem>
-                                <SelectItem value="active">正常</SelectItem>
-                                <SelectItem value="disabled">禁用</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <div className="shrink-0">
+                            <Select value={statusFilter} onValueChange={setStatusFilter}>
+                                <SelectTrigger className="w-[150px]">
+                                    <SelectValue placeholder="状态" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">所有状态</SelectItem>
+                                    <SelectItem value="active">正常</SelectItem>
+                                    <SelectItem value="disabled">禁用</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
                 </CardHeader>
                 <CardContent>
@@ -365,14 +476,15 @@ export default function UserManagementPage() {
                                     <TableHead>角色</TableHead>
                                     <TableHead>套餐</TableHead>
                                     <TableHead>有效期</TableHead>
+                                    <TableHead>创建时间</TableHead>
                                     <TableHead>状态</TableHead>
-                                    <TableHead className="text-right">操作</TableHead>
+                                    <TableHead className="text-center">操作</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {users.length === 0 && !loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                                             未找到用户
                                         </TableCell>
                                     </TableRow>
@@ -399,51 +511,63 @@ export default function UserManagementPage() {
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant="outline" className="capitalize">
-                                                    {user.package_type}
+                                                    {user.package_type === 'trial' ? '试用版' :
+                                                     user.package_type === 'annual' ? '年度会员' :
+                                                     user.package_type === 'lifetime' ? '终身会员' : '私有化部署'}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
-                                                {user.package_expires_at ? new Date(user.package_expires_at).toLocaleDateString() : '永久'}
+                                                {user.package_expires_at ? new Date(user.package_expires_at).toLocaleDateString('zh-CN') : '永久'}
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
+                                                {new Date(user.created_at).toLocaleDateString('zh-CN')}
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant={user.is_active ? 'outline' : 'destructive'} className={user.is_active ? 'text-green-600 border-green-600' : ''}>
                                                     {user.is_active ? '正常' : '禁用'}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="text-right">
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <Button variant="ghost" size="icon">
-                                                            <MoreVertical className="w-4 h-4" />
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end">
-                                                        <DropdownMenuItem onClick={() => openEditModal(user)}>
-                                                            <Edit className="w-4 h-4 mr-2" />
-                                                            编辑
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuItem
-                                                            className={user.is_active ? 'text-orange-600' : 'text-green-600'}
-                                                            onClick={() => handleDisableUser(user.id, user.username, user.is_active)}
-                                                        >
-                                                            {user.is_active ? (
-                                                                <>
-                                                                    <XCircle className="w-4 h-4 mr-2" />
-                                                                    禁用
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <CheckCircle className="w-4 h-4 mr-2" />
-                                                                    启用
-                                                                </>
-                                                            )}
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteUser(user.id, user.username)}>
-                                                            <Trash className="w-4 h-4 mr-2" />
-                                                            删除
-                                                        </DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
+                                            <TableCell>
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => openEditModal(user)}
+                                                        title="编辑"
+                                                    >
+                                                        <Edit className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => handleResetPassword(user.id, user.username)}
+                                                        title="重置密码"
+                                                    >
+                                                        <Key className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className={user.is_active ? 'text-orange-600 hover:text-orange-700' : 'text-green-600 hover:text-green-700'}
+                                                        onClick={() => handleDisableUser(user.id, user.username, user.is_active)}
+                                                        title={user.is_active ? '禁用' : '启用'}
+                                                    >
+                                                        {user.is_active ? (
+                                                            <XCircle className="w-4 h-4" />
+                                                        ) : (
+                                                            <CheckCircle className="w-4 h-4" />
+                                                        )}
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="text-red-600 hover:text-red-700"
+                                                        onClick={() => handleDeleteUser(user.id, user.username, user.is_active)}
+                                                        title="删除"
+                                                    >
+                                                        <Trash className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     ))
@@ -453,12 +577,35 @@ export default function UserManagementPage() {
                     </div>
 
                     {/* Pagination */}
-                    {pagination.totalPages > 1 && (
-                        <div className="flex items-center justify-between mt-4">
-                            <div className="text-sm text-muted-foreground">
-                                显示 {(pagination.page - 1) * pagination.limit + 1} - {Math.min(pagination.page * pagination.limit, pagination.total)} 条，共 {pagination.total} 条
+                    {pagination.total > 0 && (
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4">
+                            <div className="flex items-center flex-wrap gap-3">
+                                <div className="flex items-center gap-1.5 flex-nowrap">
+                                    <span className="text-sm text-muted-foreground whitespace-nowrap">每页显示</span>
+                                    <Select
+                                        value={String(pagination.limit)}
+                                        onValueChange={(value) => {
+                                            setPagination(prev => ({ ...prev, limit: Number(value), page: 1 }))
+                                            fetchUsers(1)
+                                        }}
+                                    >
+                                        <SelectTrigger className="w-[70px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="10">10</SelectItem>
+                                            <SelectItem value="20">20</SelectItem>
+                                            <SelectItem value="50">50</SelectItem>
+                                            <SelectItem value="100">100</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <span className="text-sm text-muted-foreground whitespace-nowrap">条</span>
+                                </div>
+                                <div className="text-sm text-muted-foreground whitespace-nowrap">
+                                    显示 {(pagination.page - 1) * pagination.limit + 1} - {Math.min(pagination.page * pagination.limit, pagination.total)} 条，共 {pagination.total} 条
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-nowrap">
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -468,6 +615,9 @@ export default function UserManagementPage() {
                                     <ChevronLeft className="w-4 h-4 mr-1" />
                                     上一页
                                 </Button>
+                                <div className="text-sm text-muted-foreground whitespace-nowrap">
+                                    第 {pagination.page} / {pagination.totalPages} 页
+                                </div>
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -569,6 +719,15 @@ export default function UserManagementPage() {
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="space-y-2">
+                            <Label>用户名</Label>
+                            <Input
+                                value={selectedUser?.username || ''}
+                                disabled
+                                className="bg-muted cursor-not-allowed"
+                            />
+                            <p className="text-caption text-muted-foreground">用户名不可修改</p>
+                        </div>
+                        <div className="space-y-2">
                             <Label>邮箱地址 <span className="text-caption text-muted-foreground">(可选)</span></Label>
                             <Input
                                 type="email"
@@ -615,6 +774,69 @@ export default function UserManagementPage() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsEditOpen(false)}>取消</Button>
                         <Button onClick={handleEditUser}>保存更改</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Reset Password Modal */}
+            <Dialog open={isResetPasswordOpen} onOpenChange={setIsResetPasswordOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>密码重置成功</DialogTitle>
+                        <DialogDescription>
+                            请将以下登录信息发送给用户，用户首次登录需修改密码。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="p-4 bg-muted rounded-lg space-y-2 font-mono text-sm">
+                            <div>【AutoAds登录信息】</div>
+                            <div>访问地址: {typeof window !== 'undefined' && (window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://www.autoads.dev')}</div>
+                            <div>登录用户名: {resetPasswordData?.username}</div>
+                            <div>登录密码: <span className="font-bold text-indigo-600">{resetPasswordData?.password}</span></div>
+                            <div className="text-muted-foreground text-xs">首次登录需要修改密码。</div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsResetPasswordOpen(false)}>关闭</Button>
+                        <Button onClick={copyToClipboard}>
+                            {copied ? (
+                                <>
+                                    <Check className="w-4 h-4 mr-2" />
+                                    已复制
+                                </>
+                            ) : (
+                                <>
+                                    <Copy className="w-4 h-4 mr-2" />
+                                    复制
+                                </>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Confirmation Dialog */}
+            <Dialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{confirmDialog.title}</DialogTitle>
+                        <DialogDescription className="whitespace-pre-line">
+                            {confirmDialog.description}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+                        >
+                            取消
+                        </Button>
+                        <Button
+                            variant={confirmDialog.variant}
+                            onClick={confirmDialog.onConfirm}
+                        >
+                            {confirmDialog.confirmText}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

@@ -457,6 +457,59 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
     extras.push(`STORE HOT PRODUCTS: ${topProducts.slice(0, 3).join(', ')} (Avg: ${hotInsights.avgRating.toFixed(1)}⭐, ${hotInsights.avgReviews} reviews)`)
   }
 
+  // 🔥 P0优化：竞品分析数据（差异化定位关键）
+  if (offer.competitor_analysis) {
+    try {
+      const compAnalysis = JSON.parse(offer.competitor_analysis)
+
+      // 1. 价格优势（vs竞品的节省金额）
+      if (compAnalysis.pricePosition) {
+        const pricePos = compAnalysis.pricePosition
+        if (pricePos.savingsVsAvg) {
+          extras.push(`COMPETITIVE PRICE: ${pricePos.savingsVsAvg}`)
+        }
+        if (pricePos.priceAdvantage === 'below_average') {
+          const percentile = pricePos.pricePercentile || 0
+          extras.push(`PRICE POSITION: Top ${percentile}% most affordable`)
+        }
+      }
+
+      // 2. 独特卖点（竞品没有的优势）
+      if (compAnalysis.uniqueSellingPoints && compAnalysis.uniqueSellingPoints.length > 0) {
+        const highSignificanceUSPs = compAnalysis.uniqueSellingPoints
+          .filter((u: any) => u.significance === 'high')
+          .map((u: any) => u.usp)
+        if (highSignificanceUSPs.length > 0) {
+          extras.push(`UNIQUE ADVANTAGES: ${highSignificanceUSPs.join('; ')}`)
+        }
+      }
+
+      // 3. 如何应对竞品优势（定位策略）
+      if (compAnalysis.competitorAdvantages && compAnalysis.competitorAdvantages.length > 0) {
+        const counterStrategies = compAnalysis.competitorAdvantages
+          .slice(0, 2) // 只取前2个最重要的
+          .map((a: any) => a.howToCounter)
+        if (counterStrategies.length > 0) {
+          extras.push(`POSITIONING STRATEGY: ${counterStrategies.join('; ')}`)
+        }
+      }
+
+      // 4. 我们有且竞品也有的功能（强化竞争力）
+      if (compAnalysis.featureComparison && compAnalysis.featureComparison.length > 0) {
+        const ourAdvantages = compAnalysis.featureComparison
+          .filter((f: any) => f.weHave && f.ourAdvantage)
+          .map((f: any) => f.feature)
+        if (ourAdvantages.length > 0) {
+          extras.push(`COMPETITIVE FEATURES: ${ourAdvantages.slice(0, 3).join(', ')}`)
+        }
+      }
+
+      console.log('✅ 已加载竞品分析数据到Prompt')
+    } catch (parseError: any) {
+      console.warn('⚠️ 解析竞品分析数据失败（非致命错误）:', parseError.message)
+    }
+  }
+
   if (extras.length) prompt += '\n' + extras.join(' | ') + '\n'
 
   // 主题要求（精简版）
@@ -589,7 +642,54 @@ Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarit
 - ✓ Each has a DIFFERENT emotional trigger
 - ✓ Maximum 20% similarity between any two descriptions
 **LEVERAGE DATA**:${reviewHighlights.length > 0 ? ` Review insights: ${reviewHighlights.slice(0, 3).join(', ')}` : ''}${commonPraises.length > 0 ? ` User praises: ${commonPraises.slice(0, 2).join(', ')}` : ''}${topPositiveKeywords.length > 0 ? ` Positive keywords: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}` : ''}${commonPainPoints.length > 0 ? ` (Address pain points indirectly - don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}` : ''}
+`
 
+  // 🔥 P0优化：添加竞品分析利用指导（仅当有竞品分析数据时）
+  if (offer.competitor_analysis) {
+    try {
+      const compAnalysis = JSON.parse(offer.competitor_analysis)
+      let competitiveGuidance = '\n**🎯 COMPETITIVE POSITIONING GUIDANCE (CRITICAL - Use competitor analysis data)**:\n'
+
+      // 价格优势指导
+      if (compAnalysis.pricePosition && compAnalysis.pricePosition.priceAdvantage === 'below_average') {
+        competitiveGuidance += `- **PRICE ADVANTAGE**: Emphasize value and affordability. Use phrases like "Best Value", "Affordable Premium", "Save vs Competitors"\n`
+      }
+
+      // 独特卖点指导
+      if (compAnalysis.uniqueSellingPoints && compAnalysis.uniqueSellingPoints.length > 0) {
+        const usps = compAnalysis.uniqueSellingPoints.filter((u: any) => u.significance === 'high')
+        if (usps.length > 0) {
+          competitiveGuidance += `- **UNIQUE ADVANTAGES**: Highlight these differentiators that competitors DON'T have:\n`
+          usps.forEach((u: any) => {
+            competitiveGuidance += `  * "${u.usp}" - ${u.differentiator}\n`
+          })
+        }
+      }
+
+      // 应对策略指导
+      if (compAnalysis.competitorAdvantages && compAnalysis.competitorAdvantages.length > 0) {
+        competitiveGuidance += `- **COUNTER COMPETITOR STRENGTHS**: Apply these positioning strategies:\n`
+        compAnalysis.competitorAdvantages.slice(0, 2).forEach((a: any) => {
+          competitiveGuidance += `  * vs "${a.advantage}" → ${a.howToCounter}\n`
+        })
+      }
+
+      // 竞争特性指导
+      if (compAnalysis.featureComparison) {
+        const ourAdvantages = compAnalysis.featureComparison.filter((f: any) => f.weHave && f.ourAdvantage)
+        if (ourAdvantages.length > 0) {
+          competitiveGuidance += `- **COMPETITIVE FEATURES**: Emphasize these features where we lead:\n`
+          ourAdvantages.slice(0, 3).forEach((f: any) => {
+            competitiveGuidance += `  * ${f.feature}\n`
+          })
+        }
+      }
+
+      prompt += competitiveGuidance
+    } catch {}
+  }
+
+  prompt += `
 
 ### KEYWORDS (20-30 required)
 **🎯 关键词生成策略（重要！确保高搜索量关键词优先）**:
