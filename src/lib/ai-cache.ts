@@ -2,9 +2,8 @@
  * AI结果缓存管理器
  *
  * 支持的缓存后端：
- * 1. Vercel KV (推荐，生产环境)
- * 2. Redis (自托管)
- * 3. Memory (开发/测试)
+ * 1. Redis (推荐，生产环境)
+ * 2. Memory (开发/测试，降级方案)
  *
  * 缓存策略：
  * - 评论分析：7天TTL
@@ -16,10 +15,10 @@
  * - 竞品分析命中率：30-40% → 节省$240/年
  */
 
-import { kv } from '@vercel/kv'
+import { getRedisClient } from './redis-client'
 
 export interface CacheOptions {
-  ttl?: number // 缓存时间（毫秒），默认使用operationType的默认TTL
+  ttl?: number // 缓存时间（秒），默认使用operationType的默认TTL
   forceRefresh?: boolean // 强制刷新，跳过缓存
   version?: string // 缓存版本号（用于失效旧缓存）
 }
@@ -39,12 +38,12 @@ const CACHE_CONFIG: Record<
   { ttl: number; enabled: boolean; avgCost: number }
 > = {
   review_analysis: {
-    ttl: 7 * 24 * 60 * 60 * 1000, // 7天
+    ttl: 7 * 24 * 60 * 60, // 7天（秒）
     enabled: true,
     avgCost: 0.08, // 平均成本
   },
   competitor_analysis: {
-    ttl: 3 * 24 * 60 * 60 * 1000, // 3天
+    ttl: 3 * 24 * 60 * 60, // 3天（秒）
     enabled: true,
     avgCost: 0.05,
   },
@@ -92,6 +91,49 @@ function simpleHash(str: string): string {
  */
 export class AICacheManager {
   private stats: Map<string, CacheStats> = new Map()
+  private memoryCache: Map<string, { value: unknown; expireAt: number }> =
+    new Map()
+
+  /**
+   * 获取Redis客户端（如果可用）
+   */
+  private getRedis() {
+    return getRedisClient()
+  }
+
+  /**
+   * 从内存缓存获取
+   */
+  private getFromMemory<T>(key: string): T | null {
+    const cached = this.memoryCache.get(key)
+    if (!cached) return null
+
+    // 检查是否过期
+    if (Date.now() > cached.expireAt) {
+      this.memoryCache.delete(key)
+      return null
+    }
+
+    return cached.value as T
+  }
+
+  /**
+   * 存储到内存缓存
+   */
+  private setToMemory<T>(key: string, value: T, ttlSeconds: number): void {
+    const expireAt = Date.now() + ttlSeconds * 1000
+    this.memoryCache.set(key, { value, expireAt })
+
+    // 清理过期项（简单实现）
+    if (this.memoryCache.size > 1000) {
+      const now = Date.now()
+      for (const [k, v] of this.memoryCache.entries()) {
+        if (now > v.expireAt) {
+          this.memoryCache.delete(k)
+        }
+      }
+    }
+  }
 
   /**
    * 获取缓存
@@ -120,15 +162,29 @@ export class AICacheManager {
         options.version
       )
 
-      // 尝试从Vercel KV获取
-      const cached = await kv.get<T>(cacheKey)
+      const redis = this.getRedis()
 
-      if (cached) {
-        this.recordHit(operationType, config.avgCost)
-        console.log(
-          `✅ 缓存命中: ${operationType} (节省成本: $${config.avgCost.toFixed(4)})`
-        )
-        return cached
+      // 优先使用Redis
+      if (redis && redis.status === 'ready') {
+        const cached = await redis.get(cacheKey)
+        if (cached) {
+          const parsed = JSON.parse(cached) as T
+          this.recordHit(operationType, config.avgCost)
+          console.log(
+            `✅ 缓存命中(Redis): ${operationType} (节省成本: ¥${config.avgCost.toFixed(4)})`
+          )
+          return parsed
+        }
+      } else {
+        // 降级到内存缓存
+        const cached = this.getFromMemory<T>(cacheKey)
+        if (cached) {
+          this.recordHit(operationType, config.avgCost)
+          console.log(
+            `✅ 缓存命中(Memory): ${operationType} (节省成本: ¥${config.avgCost.toFixed(4)})`
+          )
+          return cached
+        }
       }
 
       this.recordMiss(operationType)
@@ -167,12 +223,21 @@ export class AICacheManager {
       )
       const ttl = options.ttl || config.ttl
 
-      // 存储到Vercel KV
-      await kv.set(cacheKey, value, { px: ttl })
+      const redis = this.getRedis()
 
-      console.log(
-        `💾 缓存已设置: ${operationType} (TTL: ${(ttl / 1000 / 60 / 60).toFixed(1)}小时)`
-      )
+      // 优先使用Redis
+      if (redis && redis.status === 'ready') {
+        await redis.set(cacheKey, JSON.stringify(value), 'EX', ttl)
+        console.log(
+          `💾 缓存已设置(Redis): ${operationType} (TTL: ${(ttl / 60 / 60).toFixed(1)}小时)`
+        )
+      } else {
+        // 降级到内存缓存
+        this.setToMemory(cacheKey, value, ttl)
+        console.log(
+          `💾 缓存已设置(Memory): ${operationType} (TTL: ${(ttl / 60 / 60).toFixed(1)}小时)`
+        )
+      }
     } catch (error) {
       console.warn(`缓存写入失败: ${operationType}`, error)
     }
@@ -192,7 +257,13 @@ export class AICacheManager {
         simpleHash(contentKey),
         options.version
       )
-      await kv.del(cacheKey)
+
+      const redis = this.getRedis()
+      if (redis && redis.status === 'ready') {
+        await redis.del(cacheKey)
+      }
+
+      this.memoryCache.delete(cacheKey)
       console.log(`🗑️ 缓存已删除: ${operationType}`)
     } catch (error) {
       console.warn(`缓存删除失败: ${operationType}`, error)
@@ -204,10 +275,32 @@ export class AICacheManager {
    */
   async deleteByOperationType(operationType: string): Promise<void> {
     try {
-      // 使用扫描删除（注意：Vercel KV可能有限制）
-      const pattern = `ai_cache:${operationType}:*`
-      // 注意：实际实现需要使用KV的scan功能
-      console.log(`🗑️ 批量删除缓存: ${pattern}`)
+      const redis = this.getRedis()
+      if (redis && redis.status === 'ready') {
+        const pattern = `ai_cache:${operationType}:*`
+        const stream = redis.scanStream({
+          match: pattern,
+          count: 100,
+        })
+
+        stream.on('data', async (keys: string[]) => {
+          if (keys.length > 0) {
+            await redis.del(...keys)
+          }
+        })
+
+        stream.on('end', () => {
+          console.log(`🗑️ 批量删除缓存完成: ${pattern}`)
+        })
+      }
+
+      // 清理内存缓存
+      const prefix = `ai_cache:${operationType}:`
+      for (const key of this.memoryCache.keys()) {
+        if (key.startsWith(prefix)) {
+          this.memoryCache.delete(key)
+        }
+      }
     } catch (error) {
       console.warn(`批量删除缓存失败: ${operationType}`, error)
     }
@@ -272,7 +365,7 @@ export class AICacheManager {
       console.log(`  命中: ${stats.hits}`)
       console.log(`  未命中: ${stats.misses}`)
       console.log(`  命中率: ${(stats.hitRate * 100).toFixed(1)}%`)
-      console.log(`  节省成本: $${stats.totalSavings.toFixed(4)}\n`)
+      console.log(`  节省成本: ¥${stats.totalSavings.toFixed(4)}\n`)
     })
   }
 }
