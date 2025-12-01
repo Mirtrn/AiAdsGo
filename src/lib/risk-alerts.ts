@@ -438,34 +438,85 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
 
   const accounts = accountsStmt.all(userId) as any[]
 
+  if (accounts.length === 0) {
+    return {
+      totalChecked: 0,
+      activeAccounts: 0,
+      problemAccounts: 0,
+      newAlerts: 0
+    }
+  }
+
+  // ⚡ P0性能优化: 修复N+1查询问题
+  // 原问题: 循环N个accounts，每个执行3次查询 = 3N次查询
+  // 优化后: 3次批量查询，使用Map分组 = 3次查询（与accounts数量无关）
+
+  const accountIds = accounts.map(a => a.id)
+  const placeholders = accountIds.map(() => '?').join(',')
+
+  // 批量查询1: 所有账号的campaigns count（单次查询）
+  const campaignCountStmt = db.prepare(`
+    SELECT
+      google_ads_account_id,
+      COUNT(*) as count
+    FROM campaigns
+    WHERE google_ads_account_id IN (${placeholders})
+      AND user_id = ?
+      AND status IN ('ENABLED', 'PAUSED')
+    GROUP BY google_ads_account_id
+  `)
+  const campaignCounts = campaignCountStmt.all(...accountIds, userId) as any[]
+  const campaignCountMap = new Map<number, number>()
+  for (const row of campaignCounts) {
+    campaignCountMap.set(row.google_ads_account_id, row.count)
+  }
+
+  // 批量查询2: 所有账号的sync errors count（单次查询）
+  const syncErrorsStmt = db.prepare(`
+    SELECT
+      google_ads_account_id,
+      COUNT(*) as count
+    FROM sync_logs
+    WHERE google_ads_account_id IN (${placeholders})
+      AND user_id = ?
+      AND status = 'failed'
+      AND started_at >= datetime('now', '-7 days')
+    GROUP BY google_ads_account_id
+  `)
+  const syncErrorsData = syncErrorsStmt.all(...accountIds, userId) as any[]
+  const syncErrorsMap = new Map<number, number>()
+  for (const row of syncErrorsData) {
+    syncErrorsMap.set(row.google_ads_account_id, row.count)
+  }
+
+  // 批量查询3: 所有账号的last sync time（单次查询）
+  const lastSyncStmt = db.prepare(`
+    SELECT
+      google_ads_account_id,
+      MAX(completed_at) as lastSync
+    FROM sync_logs
+    WHERE google_ads_account_id IN (${placeholders})
+      AND user_id = ?
+      AND status = 'success'
+    GROUP BY google_ads_account_id
+  `)
+  const lastSyncData = lastSyncStmt.all(...accountIds, userId) as any[]
+  const lastSyncMap = new Map<number, string | null>()
+  for (const row of lastSyncData) {
+    lastSyncMap.set(row.google_ads_account_id, row.lastSync)
+  }
+
   let totalChecked = 0
   let activeAccounts = 0
   let problemAccounts = 0
   let newAlerts = 0
 
+  // 循环处理每个账号（基于预查询的Map，无额外查询）
   for (const account of accounts) {
     totalChecked++
 
-    // 检查账号是否有关联的活跃campaigns
-    const campaignsStmt = db.prepare(`
-      SELECT COUNT(*) as count
-      FROM campaigns
-      WHERE google_ads_account_id = ?
-        AND user_id = ?
-        AND status IN ('ENABLED', 'PAUSED')
-    `)
-    const campaignCount = (campaignsStmt.get(account.id, userId) as any).count
-
-    // 检查最近是否有同步错误
-    const syncErrorsStmt = db.prepare(`
-      SELECT COUNT(*) as count
-      FROM sync_logs
-      WHERE google_ads_account_id = ?
-        AND user_id = ?
-        AND status = 'failed'
-        AND started_at >= datetime('now', '-7 days')
-    `)
-    const syncErrors = (syncErrorsStmt.get(account.id, userId) as any).count
+    const campaignCount = campaignCountMap.get(account.id) || 0
+    const syncErrors = syncErrorsMap.get(account.id) || 0
 
     if (syncErrors > 3) {
       problemAccounts++
@@ -491,14 +542,7 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
     }
 
     // 检查账号是否长时间未同步
-    const lastSyncStmt = db.prepare(`
-      SELECT MAX(completed_at) as lastSync
-      FROM sync_logs
-      WHERE google_ads_account_id = ?
-        AND user_id = ?
-        AND status = 'success'
-    `)
-    const lastSync = (lastSyncStmt.get(account.id, userId) as any).lastSync
+    const lastSync = lastSyncMap.get(account.id)
 
     if (lastSync) {
       const daysSinceSync = Math.floor(
