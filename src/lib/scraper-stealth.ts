@@ -43,6 +43,13 @@ export function isProxyConnectionError(error: Error): boolean {
     return true
   }
 
+  // 🔥 新增：ERR_EMPTY_RESPONSE 通常表示服务器立即拒绝代理连接
+  // Amazon检测到代理IP后会快速关闭连接，返回空响应
+  // 这种情况必须立即换代理，重试同一代理必定失败
+  if (msg.includes('ERR_EMPTY_RESPONSE')) {
+    return true  // 服务器拒绝 = 代理被封或被标记
+  }
+
   // 🔥 新增：page.goto超时很可能是代理IP被Amazon封禁
   // Amazon会立即封禁代理IP，导致page.goto永远无法完成（不是网络慢，而是被墙）
   // 这种情况下应该立即换代理，而不是用同一代理重试3次
@@ -464,11 +471,19 @@ export async function scrapeUrlWithBrowser(
       // 🔥 增强人类行为模拟：导航前随机延迟
       await randomDelay(500, 1500)
 
-      // Navigate with timeout
-      const response = await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: options.waitForTimeout || getDynamicTimeout(url), // 🔥 P1优化: 动态超时
-      })
+      // 🔥 P1修复: 两阶段智能等待策略
+      // 阶段1: 快速提交导航，不等待完整加载（避免被第三方资源阻塞）
+      let response: any
+      try {
+        response = await page.goto(url, {
+          waitUntil: 'commit',  // 最快策略，导航提交后立即返回
+          timeout: 10000,  // 10秒足够建立连接
+        })
+      } catch (commitError: any) {
+        // 如果commit也失败，说明根本连不上，直接抛出
+        console.error(`❌ 导航提交失败: ${commitError.message}`)
+        throw commitError
+      }
 
       if (!response) {
         throw new Error('No response received')
@@ -485,25 +500,43 @@ export async function scrapeUrlWithBrowser(
         throw new Error(`HTTP ${status} error`)
       }
 
-      // 🔥 增强人类行为模拟：页面加载后模拟鼠标活动
-      await page.mouse.move(
-        Math.floor(Math.random() * 200) + 100,
-        Math.floor(Math.random() * 200) + 100
-      ).catch(() => {})
-
-      // 🔥 模拟滚动行为（人类浏览习惯）
-      await page.evaluate(() => {
-        window.scrollTo(0, Math.floor(Math.random() * 500))
-      }).catch(() => {})
-
-      // Wait for specific selector if provided
+      // 阶段2: 等待关键元素出现（Amazon产品页面的核心内容）
       if (options.waitForSelector) {
-        const selectorFound = await page.waitForSelector(options.waitForSelector, { timeout: 10000 })
-          .then(() => true)
-          .catch(() => false)
+        console.log(`⏳ 等待关键元素: ${options.waitForSelector}`)
+
+        // 🔥 多选择器容错策略：尝试多个可能的选择器
+        const productSelectors = [
+          '#productTitle',  // 美国/英国站常用
+          'span[id="productTitle"]',  // 精确匹配
+          'h1[id="title"]',  // 意大利站可能的变体
+          '[data-feature-name="title"]',  // 数据属性选择器
+          'h1.product-title-word-break',  // 类名选择器
+          '#dp-container',  // 产品容器，最宽松的备选
+        ]
+
+        let selectorFound = false
+        let foundSelector = ''
+
+        for (const selector of productSelectors) {
+          const found = await page.waitForSelector(selector, {
+            timeout: 3000,  // 每个选择器尝试3秒
+            state: 'visible'
+          }).then(() => true).catch(() => false)
+
+          if (found) {
+            selectorFound = true
+            foundSelector = selector
+            console.log(`✅ 找到元素: ${selector}`)
+            break
+          }
+        }
 
         if (!selectorFound) {
-          console.warn(`⚠️ 选择器未找到: ${options.waitForSelector}`)
+          selectorFound = false
+        }
+
+        if (!selectorFound) {
+          console.warn(`⚠️ 关键元素未找到: ${options.waitForSelector}`)
 
           // 🔥 检测是否遇到反爬虫保护页面
           const pageTitle = await page.title().catch(() => '')
@@ -533,7 +566,19 @@ export async function scrapeUrlWithBrowser(
 
           // 如果没有明确的反爬虫特征，但选择器未找到，可能是页面结构变化
           console.warn(`⚠️ 页面加载成功但选择器未找到，可能是页面结构变化或内容未加载`)
+        } else {
+          console.log(`✅ 关键元素已加载: ${foundSelector || options.waitForSelector}`)
         }
+
+        // 🔥 增强人类行为模拟：页面加载后模拟鼠标活动和滚动
+        await page.mouse.move(
+          Math.floor(Math.random() * 200) + 100,
+          Math.floor(Math.random() * 200) + 100
+        ).catch(() => {})
+
+        await page.evaluate(() => {
+          window.scrollTo(0, Math.floor(Math.random() * 500))
+        }).catch(() => {})
       } else {
         // 🔥 P1优化: 使用智能等待策略
         const waitStart = Date.now()
@@ -625,6 +670,10 @@ export async function resolveAffiliateLink(
         console.log(`🔄 链接解析 - 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
         const pool = getPlaywrightPool()
         await pool.clearIdleInstances()
+        // 🔥 清理代理IP缓存，强制获取新IP
+        const { clearProxyCache } = await import('./proxy/fetch-proxy-ip')
+        clearProxyCache(effectiveProxyUrl)
+        console.log(`🧹 已清理代理IP缓存: ${effectiveProxyUrl}`)
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
 
@@ -767,6 +816,10 @@ export async function scrapeAmazonProduct(
         // 🔥 关键优化：清理连接池实例，避免复用已被Amazon标记的代理IP
         const pool = getPlaywrightPool()
         await pool.clearIdleInstances()
+        // 🔥 清理代理IP缓存，强制获取新IP
+        const { clearProxyCache } = await import('./proxy/fetch-proxy-ip')
+        clearProxyCache(effectiveProxyUrl)
+        console.log(`🧹 已清理代理IP缓存: ${effectiveProxyUrl}`)
         // 🔥 额外等待，确保新代理IP被分配
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
@@ -1195,6 +1248,10 @@ export async function scrapeAmazonStore(
         console.log(`🔄 Amazon Store抓取 - 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
         const pool = getPlaywrightPool()
         await pool.clearIdleInstances()
+        // 🔥 清理代理IP缓存，强制获取新IP
+        const { clearProxyCache } = await import('./proxy/fetch-proxy-ip')
+        clearProxyCache(effectiveProxyUrl)
+        console.log(`🧹 已清理代理IP缓存: ${effectiveProxyUrl}`)
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
 
@@ -2016,6 +2073,10 @@ export async function scrapeIndependentStore(
         console.log(`🔄 独立站抓取 - 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
         const pool = getPlaywrightPool()
         await pool.clearIdleInstances()
+        // 🔥 清理代理IP缓存，强制获取新IP
+        const { clearProxyCache } = await import('./proxy/fetch-proxy-ip')
+        clearProxyCache(effectiveProxyUrl)
+        console.log(`🧹 已清理代理IP缓存: ${effectiveProxyUrl}`)
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
 

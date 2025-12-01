@@ -362,7 +362,8 @@ class PlaywrightPool {
       // 如果提供了代理URL，获取代理凭证并在launch时配置
       const { getProxyIp } = await import('./proxy/fetch-proxy-ip')
       // 🔥 严禁降级为直连，代理获取失败应该抛出错误（需求10）
-      proxy = await getProxyIp(proxyUrl, false) // forceRefresh=false 使用缓存
+      // 🔥 P1修复: 每次都获取新IP，避免重复使用被封禁的代理
+      proxy = await getProxyIp(proxyUrl, true) // forceRefresh=true 总是获取新IP
       console.log(`🔒 [独立] 使用代理: ${proxy.host}:${proxy.port}`)
     }
 
