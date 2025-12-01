@@ -173,32 +173,100 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // 聚合每个Campaign的性能数据
+    // ⚡ P0性能优化: 修复N+1查询问题
+    // 原问题: 循环N个campaigns，每个执行2次查询 = 2N次查询
+    // 优化后: 2次批量查询，使用Map分组 = 2次查询（与campaigns数量无关）
+
+    // 计算真实转化价值（提前计算，避免在循环中重复解析）
+    let conversionValue = 50 // 默认值$50
+    if (offer.product_price && offer.commission_payout) {
+      try {
+        const priceMatch = offer.product_price.match(/[\d.]+/)
+        const price = priceMatch ? parseFloat(priceMatch[0]) : 0
+
+        const payoutMatch = offer.commission_payout.match(/[\d.]+/)
+        const payout = payoutMatch ? parseFloat(payoutMatch[0]) / 100 : 0
+
+        if (price > 0 && payout > 0) {
+          conversionValue = price * payout
+        }
+      } catch (error) {
+        console.warn(`计算转化价值失败，使用默认值$50: ${error}`)
+      }
+    }
+
+    // 批量查询1: 所有campaigns的聚合指标（单次查询）
+    const campaignIds = campaigns.map(c => c.id)
+    const placeholders = campaignIds.map(() => '?').join(',')
+
+    const aggregateStmt = db.prepare(`
+      SELECT
+        campaign_id,
+        COALESCE(SUM(impressions), 0) as impressions,
+        COALESCE(SUM(clicks), 0) as clicks,
+        COALESCE(SUM(cost), 0) as cost,
+        COALESCE(SUM(conversions), 0) as conversions
+      FROM campaign_performance
+      WHERE campaign_id IN (${placeholders})
+        AND user_id = ?
+        AND date >= ?
+        AND date <= ?
+      GROUP BY campaign_id
+    `)
+
+    const aggregates = aggregateStmt.all(...campaignIds, auth.user!.userId, startDateStr, endDateStr) as any[]
+
+    // 建立Map: campaign_id → aggregate data
+    const aggregateMap = new Map<number, any>()
+    for (const agg of aggregates) {
+      aggregateMap.set(agg.campaign_id, agg)
+    }
+
+    // 批量查询2: 所有campaigns的每日趋势（单次查询）
+    const dailyStmt = db.prepare(`
+      SELECT
+        campaign_id,
+        date,
+        COALESCE(SUM(impressions), 0) as impressions,
+        COALESCE(SUM(clicks), 0) as clicks,
+        COALESCE(SUM(cost), 0) as cost
+      FROM campaign_performance
+      WHERE campaign_id IN (${placeholders})
+        AND user_id = ?
+        AND date >= ?
+        AND date <= ?
+      GROUP BY campaign_id, date
+      ORDER BY campaign_id, date ASC
+    `)
+
+    const dailyData = dailyStmt.all(...campaignIds, auth.user!.userId, startDateStr, endDateStr) as any[]
+
+    // 建立Map: campaign_id → daily trends array
+    const dailyMap = new Map<number, any[]>()
+    for (const row of dailyData) {
+      if (!dailyMap.has(row.campaign_id)) {
+        dailyMap.set(row.campaign_id, [])
+      }
+      dailyMap.get(row.campaign_id)!.push({
+        date: row.date,
+        impressions: row.impressions,
+        clicks: row.clicks,
+        ctr: row.impressions > 0 ? row.clicks / row.impressions : 0,
+        cost: row.cost
+      })
+    }
+
+    // 聚合每个Campaign的性能数据（基于预查询的Map，无额外查询）
     const campaignPerformances: CampaignPerformance[] = []
 
     for (const campaign of campaigns) {
-      // 聚合总计指标
-      const aggregateStmt = db.prepare(`
-        SELECT
-          COALESCE(SUM(impressions), 0) as impressions,
-          COALESCE(SUM(clicks), 0) as clicks,
-          COALESCE(SUM(cost), 0) as cost,
-          COALESCE(SUM(conversions), 0) as conversions
-        FROM campaign_performance
-        WHERE campaign_id = ?
-          AND user_id = ?
-          AND date >= ?
-          AND date <= ?
-      `)
+      const aggregate = aggregateMap.get(campaign.id) || {
+        impressions: 0,
+        clicks: 0,
+        cost: 0,
+        conversions: 0
+      }
 
-      const aggregate = aggregateStmt.get(
-        campaign.id,
-        auth.user!.userId,
-        startDateStr,
-        endDateStr
-      ) as any
-
-      // 计算衍生指标
       const impressions = aggregate.impressions || 0
       const clicks = aggregate.clicks || 0
       const cost = aggregate.cost || 0
@@ -208,59 +276,9 @@ export async function GET(request: NextRequest) {
       const cpc = clicks > 0 ? cost / clicks : 0
       const cpa = conversions > 0 ? cost / conversions : 0
       const conversionRate = clicks > 0 ? conversions / clicks : 0
-
-      // 计算真实转化价值（基于产品价格和佣金比例）
-      let conversionValue = 50 // 默认值$50（降级方案）
-      if (offer.product_price && offer.commission_payout) {
-        try {
-          // 解析产品价格（移除货币符号）
-          const priceMatch = offer.product_price.match(/[\d.]+/)
-          const price = priceMatch ? parseFloat(priceMatch[0]) : 0
-
-          // 解析佣金比例（移除%符号）
-          const payoutMatch = offer.commission_payout.match(/[\d.]+/)
-          const payout = payoutMatch ? parseFloat(payoutMatch[0]) / 100 : 0
-
-          if (price > 0 && payout > 0) {
-            conversionValue = price * payout
-          }
-        } catch (error) {
-          console.warn(`计算转化价值失败，使用默认值$50: ${error}`)
-        }
-      }
-
       const roi = cost > 0 ? (conversions * conversionValue - cost) / cost : 0
 
-      // 获取每日趋势
-      const dailyStmt = db.prepare(`
-        SELECT
-          date,
-          COALESCE(SUM(impressions), 0) as impressions,
-          COALESCE(SUM(clicks), 0) as clicks,
-          COALESCE(SUM(cost), 0) as cost
-        FROM campaign_performance
-        WHERE campaign_id = ?
-          AND user_id = ?
-          AND date >= ?
-          AND date <= ?
-        GROUP BY date
-        ORDER BY date ASC
-      `)
-
-      const dailyData = dailyStmt.all(
-        campaign.id,
-        auth.user!.userId,
-        startDateStr,
-        endDateStr
-      ) as any[]
-
-      const dailyTrends = dailyData.map(row => ({
-        date: row.date,
-        impressions: row.impressions,
-        clicks: row.clicks,
-        ctr: row.impressions > 0 ? row.clicks / row.impressions : 0,
-        cost: row.cost
-      }))
+      const dailyTrends = dailyMap.get(campaign.id) || []
 
       campaignPerformances.push({
         campaignId: campaign.id,
