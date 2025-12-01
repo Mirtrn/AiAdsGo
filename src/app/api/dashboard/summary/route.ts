@@ -4,7 +4,7 @@
  * 添加服务端缓存，提升响应速度
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { getUserIdFromToken } from '@/lib/auth'
+import { verifyAuth } from '@/lib/auth'
 import { apiCache, generateCacheKey } from '@/lib/api-cache'
 
 // 从现有API导入逻辑
@@ -119,10 +119,13 @@ async function getTopOffers(userId: number, limit: number = 5) {
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = await getUserIdFromToken(request)
-    if (!userId) {
+    // 验证用户身份
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
+
+    const userId = authResult.user.userId
 
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
