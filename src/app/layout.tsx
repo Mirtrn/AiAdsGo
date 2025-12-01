@@ -3,8 +3,9 @@ import { Inter } from 'next/font/google'
 import { ToasterProvider } from '@/components/ToasterProvider'
 import './globals.css'
 
-// 强制动态渲染，避免静态生成时的 Context 错误
-export const dynamic = 'force-dynamic'
+// ⚡ P0性能优化: 移除全局force-dynamic，按需在各页面单独设置
+// 这允许静态页面（如登录页、文档页）使用Next.js静态优化
+// 实时数据页面（dashboard、offers等）在各自的page.tsx中设置dynamic='force-dynamic'
 
 const inter = Inter({ subsets: ['latin'] })
 
