@@ -283,15 +283,16 @@ async function releaseBrowser(result: StealthBrowserResult): Promise<void> {
 
 /**
  * Configure page with stealth settings
+ * 🔥 增强反爬虫规避：更多浏览器指纹伪装和行为模拟
  */
 async function configureStealthPage(page: Page): Promise<void> {
   const userAgent = getRandomUserAgent()
 
-  // Set user agent
+  // Set user agent with realistic headers
   await page.setExtraHTTPHeaders({
     'User-Agent': userAgent,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Language': 'en-US,en;q=0.9,it-IT,it;q=0.8',  // 🔥 添加意大利语支持（Amazon.it）
     'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
     'Upgrade-Insecure-Requests': '1',
@@ -300,22 +301,59 @@ async function configureStealthPage(page: Page): Promise<void> {
     'Sec-Fetch-Site': 'none',
     'Sec-Fetch-User': '?1',
     'Cache-Control': 'max-age=0',
+    // 🔥 添加DNT和真实Referer
+    'DNT': '1',
+    'Sec-CH-UA': '"Chromium";v="131", "Not_A Brand";v="24"',
+    'Sec-CH-UA-Mobile': '?0',
+    'Sec-CH-UA-Platform': '"Windows"',
   })
 
-  // Override navigator.webdriver
+  // 🔥 增强浏览器指纹伪装
   await page.addInitScript(() => {
+    // Override navigator.webdriver
     Object.defineProperty(navigator, 'webdriver', {
       get: () => undefined,
     })
 
-    // Override plugins
+    // 🔥 伪装Chrome运行时
+    const win = window as any
+    win.chrome = {
+      runtime: {},
+      loadTimes: function() {},
+      csi: function() {},
+      app: {}
+    }
+
+    // Override plugins with realistic values
     Object.defineProperty(navigator, 'plugins', {
-      get: () => [1, 2, 3, 4, 5],
+      get: () => [
+        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+        { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+      ],
     })
 
-    // Override languages
+    // Override languages with Italian support
     Object.defineProperty(navigator, 'languages', {
-      get: () => ['en-US', 'en'],
+      get: () => ['en-US', 'en', 'it-IT', 'it'],
+    })
+
+    // 🔥 伪装真实屏幕分辨率和颜色深度
+    Object.defineProperty(screen, 'colorDepth', {
+      get: () => 24,
+    })
+    Object.defineProperty(screen, 'pixelDepth', {
+      get: () => 24,
+    })
+
+    // 🔥 伪装真实硬件并发数
+    Object.defineProperty(navigator, 'hardwareConcurrency', {
+      get: () => 8,
+    })
+
+    // 🔥 伪装设备内存
+    Object.defineProperty(navigator, 'deviceMemory', {
+      get: () => 8,
     })
 
     // Override permissions
@@ -324,10 +362,33 @@ async function configureStealthPage(page: Page): Promise<void> {
       parameters.name === 'notifications'
         ? Promise.resolve({ state: Notification.permission } as PermissionStatus)
         : originalQuery(parameters)
+
+    // 🔥 伪装Battery API
+    Object.defineProperty(navigator, 'getBattery', {
+      value: () => Promise.resolve({
+        charging: true,
+        chargingTime: 0,
+        dischargingTime: Infinity,
+        level: 1.0,
+      })
+    })
+
+    // 🔥 伪装Connection API
+    Object.defineProperty(navigator, 'connection', {
+      get: () => ({
+        effectiveType: '4g',
+        downlink: 10,
+        rtt: 50,
+        saveData: false,
+      })
+    })
   })
 
-  // Set viewport to common desktop resolution
+  // 🔥 设置真实的viewport和屏幕分辨率
   await page.setViewportSize({ width: 1920, height: 1080 })
+
+  // 🔥 模拟鼠标移动（人类行为）
+  await page.mouse.move(Math.random() * 100, Math.random() * 100)
 }
 
 /**
@@ -371,7 +432,7 @@ export async function scrapeUrlWithBrowser(
 
       console.log(`🌐 访问URL: ${url}`)
 
-      // Add random delay before navigation (human-like)
+      // 🔥 增强人类行为模拟：导航前随机延迟
       await randomDelay(500, 1500)
 
       // Navigate with timeout
@@ -394,6 +455,17 @@ export async function scrapeUrlWithBrowser(
       if (status >= 400) {
         throw new Error(`HTTP ${status} error`)
       }
+
+      // 🔥 增强人类行为模拟：页面加载后模拟鼠标活动
+      await page.mouse.move(
+        Math.floor(Math.random() * 200) + 100,
+        Math.floor(Math.random() * 200) + 100
+      ).catch(() => {})
+
+      // 🔥 模拟滚动行为（人类浏览习惯）
+      await page.evaluate(() => {
+        window.scrollTo(0, Math.floor(Math.random() * 500))
+      }).catch(() => {})
 
       // Wait for specific selector if provided
       if (options.waitForSelector) {
