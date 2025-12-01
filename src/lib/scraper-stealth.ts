@@ -24,13 +24,32 @@ const PROXY_URL = process.env.PROXY_URL || ''
  */
 export function isProxyConnectionError(error: Error): boolean {
   const msg = error.message || ''
-  return msg.includes('Proxy connection ended') ||
-         msg.includes('ECONNRESET') ||
-         msg.includes('ECONNREFUSED') ||
-         msg.includes('ETIMEDOUT') ||
-         msg.includes('net::ERR_PROXY') ||
-         msg.includes('ERR_TUNNEL_CONNECTION_FAILED') ||
-         msg.includes('Timeout') // 代理超时也重试
+
+  // 明确的代理连接错误（保留）
+  if (msg.includes('Proxy connection ended') ||
+      msg.includes('net::ERR_PROXY') ||
+      msg.includes('ERR_TUNNEL_CONNECTION_FAILED')) {
+    return true
+  }
+
+  // TCP连接错误（但需要包含proxy关键词才算代理问题）
+  if ((msg.includes('ECONNRESET') || msg.includes('ECONNREFUSED')) &&
+      msg.toLowerCase().includes('proxy')) {
+    return true
+  }
+
+  // ETIMEDOUT只在明确与代理相关时才算代理错误
+  if (msg.includes('ETIMEDOUT') && msg.toLowerCase().includes('proxy')) {
+    return true
+  }
+
+  // 超时错误需要更明确的代理关键词
+  if (msg.includes('Timeout') &&
+      (msg.includes('proxy') || msg.includes('tunnel') || msg.includes('CONNECT'))) {
+    return true
+  }
+
+  return false
 }
 
 /**
