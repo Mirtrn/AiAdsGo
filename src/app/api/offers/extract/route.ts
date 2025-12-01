@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createError, AppError } from '@/lib/errors'
 import { extractOffer } from '@/lib/offer-extraction-core'
 
-export const maxDuration = 60 // 最长60秒
+export const maxDuration = 120 // 最长120秒（从60秒增加，适应复杂页面抓取）
 
 export async function POST(request: NextRequest) {
   try {

@@ -295,7 +295,118 @@ export async function inferCompetitorKeywords(
 }
 
 /**
+ * 🔥 优化：从长搜索词中提取简短版本
+ * "Hikvision telecamera di sorveglianza bullet" → ["Hikvision", "Hikvision camera"]
+ */
+function generateSearchVariants(term: string): string[] {
+  const variants: string[] = [term]  // 原始搜索词
+
+  // 提取品牌名（通常是第一个单词）
+  const words = term.trim().split(/\s+/)
+  if (words.length > 0) {
+    const brand = words[0]
+
+    // 品牌名单独作为搜索词
+    if (brand.length >= 3 && brand.length <= 20) {
+      variants.push(brand)
+    }
+
+    // 品牌+通用类型关键词（camera, vacuum等）
+    const genericTypes = [
+      'camera', 'telecamera', 'videocamera',  // 摄像机
+      'vacuum', 'aspirapolvere',               // 吸尘器
+      'earbuds', 'auricolari', 'cuffie',      // 耳机
+      'speaker', 'altoparlante',               // 音箱
+      'router', 'modem',                       // 路由器
+      'watch', 'orologio',                     // 手表
+      'phone', 'telefono',                     // 手机
+    ]
+
+    const termLower = term.toLowerCase()
+    for (const type of genericTypes) {
+      if (termLower.includes(type)) {
+        variants.push(`${brand} ${type}`)
+        break
+      }
+    }
+  }
+
+  // 去重并返回
+  return [...new Set(variants)]
+}
+
+/**
+ * 🔥 优化：执行单次Amazon搜索，提取结果
+ */
+async function executeAmazonSearch(
+  page: any,
+  searchTerm: string,
+  domain: string,
+  limit: number
+): Promise<CompetitorProduct[]> {
+  const searchUrl = `https://www.${domain}/s?k=${encodeURIComponent(searchTerm)}`
+  await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+
+  // 等待搜索结果加载
+  await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 5000 })
+    .catch(() => null)
+
+  // 提取搜索结果
+  const results = await page.evaluate((maxItems: number) => {
+    const items: any[] = []
+    const resultElements = document.querySelectorAll('[data-component-type="s-search-result"]')
+
+    for (let i = 0; i < Math.min(maxItems, resultElements.length); i++) {
+      const el = resultElements[i]
+
+      const asin = el.getAttribute('data-asin')
+      if (!asin) continue
+
+      const nameEl = el.querySelector('h2 a span, h2 span')
+      const name = nameEl?.textContent?.trim() || ''
+
+      const priceEl = el.querySelector('.a-price .a-offscreen')
+      const priceText = priceEl?.textContent?.trim() || null
+
+      const ratingEl = el.querySelector('.a-icon-star-small .a-icon-alt')
+      const ratingText = ratingEl?.textContent?.trim() || null
+      const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
+
+      const reviewEl = el.querySelector('[aria-label*="stars"]')
+      const reviewText = reviewEl?.getAttribute('aria-label') || null
+      const reviewCount = reviewText ? parseInt(reviewText.replace(/\D/g, '')) : null
+
+      const imageEl = el.querySelector('.s-image') as HTMLImageElement | null
+      const imageUrl = imageEl?.src || null
+
+      if (name && priceText) {
+        items.push({
+          asin,
+          name,
+          brand: null,
+          priceText,
+          price: parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')),
+          rating,
+          reviewCount,
+          imageUrl,
+          source: 'amazon_search'
+        })
+      }
+    }
+
+    return items
+  }, limit)
+
+  return results
+}
+
+/**
  * 在Amazon上搜索验证竞品
+ *
+ * 🔥 优化：智能搜索策略
+ * 1. 先尝试完整搜索词
+ * 2. 如果无结果，自动降级到简短搜索词（仅品牌名或品牌+通用类型）
+ * 3. 记录搜索效果，用于后续优化
  *
  * @param searchTerms AI推断的搜索关键词
  * @param page Playwright页面对象
@@ -313,69 +424,37 @@ export async function searchCompetitorsOnAmazon(
 
   const competitors: CompetitorProduct[] = []
   const domain = getAmazonDomain(targetCountry)
+  const searchStats = { total: 0, success: 0, fallback: 0 }
 
   for (const term of searchTerms.slice(0, 5)) { // 最多搜索5次
+    searchStats.total++
     console.log(`   搜索: "${term}"`)
 
     try {
-      const searchUrl = `https://www.${domain}/s?k=${encodeURIComponent(term)}`
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      // 🔥 生成搜索变体（原始词 + 简短版本）
+      const variants = generateSearchVariants(term)
+      let foundResults = false
 
-      // 等待搜索结果加载
-      await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 5000 })
-        .catch(() => null)
-
-      // 提取搜索结果
-      const results = await page.evaluate((maxItems: number) => {
-        const items: any[] = []
-        const resultElements = document.querySelectorAll('[data-component-type="s-search-result"]')
-
-        for (let i = 0; i < Math.min(maxItems, resultElements.length); i++) {
-          const el = resultElements[i]
-
-          const asin = el.getAttribute('data-asin')
-          if (!asin) continue
-
-          const nameEl = el.querySelector('h2 a span, h2 span')
-          const name = nameEl?.textContent?.trim() || ''
-
-          const priceEl = el.querySelector('.a-price .a-offscreen')
-          const priceText = priceEl?.textContent?.trim() || null
-
-          const ratingEl = el.querySelector('.a-icon-star-small .a-icon-alt')
-          const ratingText = ratingEl?.textContent?.trim() || null
-          const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
-
-          const reviewEl = el.querySelector('[aria-label*="stars"]')
-          const reviewText = reviewEl?.getAttribute('aria-label') || null
-          const reviewCount = reviewText ? parseInt(reviewText.replace(/\D/g, '')) : null
-
-          const imageEl = el.querySelector('.s-image') as HTMLImageElement | null
-          const imageUrl = imageEl?.src || null
-
-          if (name && priceText) {
-            items.push({
-              asin,
-              name,
-              brand: null,  // 可以从名称中提取
-              priceText,
-              price: parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')),
-              rating,
-              reviewCount,
-              imageUrl,
-              source: 'amazon_search'
-            })
-          }
+      for (const variant of variants) {
+        const isOriginal = variant === term
+        if (!isOriginal) {
+          console.log(`     ↳ 降级搜索: "${variant}"`)
         }
 
-        return items
-      }, limit)
+        const results = await executeAmazonSearch(page, variant, domain, limit)
 
-      if (results.length > 0) {
-        console.log(`   ✅ 找到${results.length}个产品`)
-        competitors.push(...results)
-      } else {
-        console.log(`   ⚠️ 未找到结果`)
+        if (results.length > 0) {
+          console.log(`   ✅ 找到${results.length}个产品${!isOriginal ? ' (简短搜索词)' : ''}`)
+          competitors.push(...results)
+          foundResults = true
+          searchStats.success++
+          if (!isOriginal) searchStats.fallback++
+          break  // 找到结果就停止尝试变体
+        }
+      }
+
+      if (!foundResults) {
+        console.log(`   ⚠️ 未找到结果（已尝试${variants.length}个变体）`)
       }
 
       // 达到目标数量就停止
@@ -393,6 +472,7 @@ export async function searchCompetitorsOnAmazon(
   // 去重
   const uniqueCompetitors = deduplicateCompetitors(competitors)
   console.log(`✅ 搜索验证完成，共找到${uniqueCompetitors.length}个真实竞品`)
+  console.log(`   📊 搜索统计: ${searchStats.success}/${searchStats.total}成功，${searchStats.fallback}次使用降级搜索`)
 
   return uniqueCompetitors
 }

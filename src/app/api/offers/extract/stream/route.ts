@@ -9,7 +9,7 @@ import { createSSEStream, sendProgress, sendComplete, sendError } from '@/lib/ss
 import { extractOffer } from '@/lib/offer-extraction-core';
 import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from '@/lib/feature-flags';
 
-export const maxDuration = 60; // 最长60秒
+export const maxDuration = 120; // 最长120秒（从60秒增加，适应复杂页面抓取）
 
 // ========== 数据融合辅助函数 ==========
 

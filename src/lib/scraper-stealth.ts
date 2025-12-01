@@ -4,6 +4,7 @@
  *
  * P0优化: 集成playwright连接池，减少80-90%启动时间
  * P1优化: 智能等待策略，减少30%等待时间
+ * P1优化: 代理失败快速失败+换新代理重试
  */
 import { chromium, Browser, BrowserContext, Page } from 'playwright'
 import { getProxyIp, ProxyCredentials } from './proxy/fetch-proxy-ip'
@@ -17,6 +18,64 @@ const USE_POOL = true
 
 const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true'
 const PROXY_URL = process.env.PROXY_URL || ''
+
+/**
+ * 🔥 P1优化：判断是否为代理连接错误（全局可用）
+ */
+export function isProxyConnectionError(error: Error): boolean {
+  const msg = error.message || ''
+  return msg.includes('Proxy connection ended') ||
+         msg.includes('ECONNRESET') ||
+         msg.includes('ECONNREFUSED') ||
+         msg.includes('ETIMEDOUT') ||
+         msg.includes('net::ERR_PROXY') ||
+         msg.includes('ERR_TUNNEL_CONNECTION_FAILED') ||
+         msg.includes('Timeout') // 代理超时也重试
+}
+
+/**
+ * 🔥 P1优化：带代理换新重试的执行包装器
+ * 当代理连接失败时，清理连接池并获取新代理重试
+ *
+ * @param fn - 需要执行的异步函数
+ * @param maxProxyRetries - 最大代理重试次数（默认2）
+ * @param operationName - 操作名称（用于日志）
+ */
+export async function withProxyRetry<T>(
+  fn: () => Promise<T>,
+  maxProxyRetries: number = 2,
+  operationName: string = '操作'
+): Promise<T> {
+  let lastError: Error | undefined
+
+  for (let proxyAttempt = 0; proxyAttempt <= maxProxyRetries; proxyAttempt++) {
+    try {
+      if (proxyAttempt > 0) {
+        console.log(`🔄 ${operationName} - 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池...`)
+        const pool = getPlaywrightPool()
+        await pool.clearIdleInstances()
+        // 短暂延迟后重试
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
+      return await fn()
+    } catch (error: any) {
+      lastError = error
+      console.error(`❌ ${operationName} 尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+
+      // 如果是代理连接错误，尝试换新代理
+      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
+        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+        continue
+      }
+
+      // 其他错误或已用尽重试次数
+      throw error
+    }
+  }
+
+  throw lastError || new Error(`${operationName}失败：已用尽所有代理重试`)
+}
 
 /**
  * User-Agent rotation pool (2024 browsers)
@@ -56,6 +115,7 @@ function getDynamicTimeout(url: string): number {
 
 /**
  * Exponential backoff retry logic
+ * 🔥 P1优化：添加代理连接失败的快速失败逻辑
  */
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
@@ -69,9 +129,25 @@ async function retryWithBackoff<T>(
       return await fn()
     } catch (error: any) {
       lastError = error
+      const errorMsg = error.message || ''
 
-      // Don't retry on certain errors
-      if (error.message.includes('404') || error.message.includes('403')) {
+      // 🔥 不重试的错误类型：
+      // 1. HTTP 404/403 错误（页面不存在/被禁止）
+      // 2. 代理连接失败（需要换代理，重试同一个代理无意义）
+      if (errorMsg.includes('404') || errorMsg.includes('403')) {
+        console.log(`❌ HTTP错误，不重试: ${errorMsg}`)
+        throw error
+      }
+
+      // 🔥 P1优化：代理连接失败时快速失败，不进行无效重试
+      // 因为retryWithBackoff使用同一个browserResult（同一代理），重试是无效的
+      if (errorMsg.includes('Proxy connection ended') ||
+          errorMsg.includes('ECONNRESET') ||
+          errorMsg.includes('ECONNREFUSED') ||
+          errorMsg.includes('ETIMEDOUT') ||
+          errorMsg.includes('net::ERR_PROXY') ||
+          errorMsg.includes('ERR_TUNNEL_CONNECTION_FAILED')) {
+        console.log(`❌ 代理连接失败，跳过无效重试: ${errorMsg.substring(0, 100)}`)
         throw error
       }
 
@@ -376,11 +452,13 @@ export async function scrapeUrlWithBrowser(
  * Resolve affiliate link redirects
  * P0优化: 使用连接池减少启动时间
  * P0优化: 集成代理IP池预热缓存
+ * P1优化: 代理失败时自动换新代理重试
  */
 export async function resolveAffiliateLink(
   affiliateLink: string,
   customProxyUrl?: string,
-  targetCountry?: string
+  targetCountry?: string,
+  maxProxyRetries: number = 2  // 代理失败最多重试2次
 ): Promise<{
   finalUrl: string
   finalUrlSuffix: string
@@ -389,7 +467,19 @@ export async function resolveAffiliateLink(
 }> {
   console.log(`🔗 解析推广链接: ${affiliateLink}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
 
-  const browserResult = await createStealthBrowser(customProxyUrl, targetCountry)
+  let lastError: Error | undefined
+  const effectiveProxyUrl = customProxyUrl || PROXY_URL
+
+  for (let proxyAttempt = 0; proxyAttempt <= maxProxyRetries; proxyAttempt++) {
+    try {
+      if (proxyAttempt > 0) {
+        console.log(`🔄 链接解析 - 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
+        const pool = getPlaywrightPool()
+        await pool.clearIdleInstances()
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
+  const browserResult = await createStealthBrowser(effectiveProxyUrl, targetCountry)
 
   try {
     return await retryWithBackoff(async () => {
@@ -458,6 +548,24 @@ export async function resolveAffiliateLink(
   } finally {
     await releaseBrowser(browserResult)
   }
+
+    } catch (error: any) {
+      lastError = error
+      console.error(`❌ 链接解析尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+
+      // 如果是代理连接错误，尝试换新代理
+      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
+        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+        continue
+      }
+
+      // 其他错误或已用尽重试次数
+      throw error
+    }
+  }
+
+  // 所有重试都失败
+  throw lastError || new Error('推广链接解析失败：已用尽所有代理重试')
 }
 
 /**
@@ -489,22 +597,36 @@ export interface AmazonProductData {
 /**
  * Scrape Amazon product page with enhanced anti-bot bypass
  * Extracts comprehensive data for AI creative generation
+ * 🔥 P1优化：代理失败时自动换新代理重试
  */
 export async function scrapeAmazonProduct(
   url: string,
-  customProxyUrl?: string
+  customProxyUrl?: string,
+  maxProxyRetries: number = 2  // 代理失败最多重试2次
 ): Promise<AmazonProductData> {
   console.log(`🛒 抓取Amazon产品: ${url}`)
 
-  const result = await scrapeUrlWithBrowser(url, customProxyUrl, {
-    waitForSelector: '#productTitle',
-    // 🔥 修复：使用动态超时，Amazon.it等国际站点使用120秒
-    waitForTimeout: getDynamicTimeout(url),
-  })
+  let lastError: Error | undefined
+  const effectiveProxyUrl = customProxyUrl || PROXY_URL
 
-  // Parse HTML with cheerio
-  const { load } = await import('cheerio')
-  const $ = load(result.html)
+  for (let proxyAttempt = 0; proxyAttempt <= maxProxyRetries; proxyAttempt++) {
+    try {
+      if (proxyAttempt > 0) {
+        console.log(`🔄 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
+        // 清理可能失效的连接池实例
+        const pool = getPlaywrightPool()
+        await pool.clearIdleInstances()
+      }
+
+      const result = await scrapeUrlWithBrowser(url, effectiveProxyUrl, {
+        waitForSelector: '#productTitle',
+        // 🔥 修复：使用动态超时，Amazon.it等国际站点使用120秒
+        waitForTimeout: getDynamicTimeout(url),
+      })
+
+      // Parse HTML with cheerio
+      const { load } = await import('cheerio')
+      const $ = load(result.html)
 
   // 🎯 核心优化：限定选择器范围到核心产品区域，避免抓取推荐商品
   // 推荐商品区域关键词
@@ -834,6 +956,26 @@ export async function scrapeAmazonProduct(
   console.log(`⭐ 评分: ${rating || 'N/A'}, 评论数: ${reviewCount || 'N/A'}, 销量排名: ${salesRank || 'N/A'}`)
 
   return productData
+
+    } catch (error: any) {
+      lastError = error
+      console.error(`❌ 抓取尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+
+      // 如果是代理连接错误，尝试换新代理
+      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
+        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+        // 短暂延迟后重试
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        continue
+      }
+
+      // 其他错误或已用尽重试次数
+      throw error
+    }
+  }
+
+  // 所有重试都失败
+  throw lastError || new Error('Amazon产品抓取失败：已用尽所有代理重试')
 }
 
 /**
@@ -872,15 +1014,29 @@ export interface AmazonStoreData {
  * Scrape Amazon Store page with multiple products
  * Extracts store info and product listings for AI creative generation
  * P0优化: 使用连接池减少启动时间
+ * P1优化: 代理失败时自动换新代理重试
  */
 export async function scrapeAmazonStore(
   url: string,
-  customProxyUrl?: string
+  customProxyUrl?: string,
+  maxProxyRetries: number = 2  // 代理失败最多重试2次
 ): Promise<AmazonStoreData> {
   console.log(`📦 抓取Amazon Store: ${url}`)
 
+  let lastError: Error | undefined
+  const effectiveProxyUrl = customProxyUrl || PROXY_URL
+
+  for (let proxyAttempt = 0; proxyAttempt <= maxProxyRetries; proxyAttempt++) {
+    try {
+      if (proxyAttempt > 0) {
+        console.log(`🔄 Amazon Store抓取 - 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
+        const pool = getPlaywrightPool()
+        await pool.clearIdleInstances()
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
   // P0优化: 使用连接池获取浏览器实例
-  const browserResult = await createStealthBrowser(customProxyUrl)
+  const browserResult = await createStealthBrowser(effectiveProxyUrl)
 
   try {
     const page = await browserResult.context.newPage()
@@ -1024,41 +1180,40 @@ export async function scrapeAmazonStore(
     console.log(`⏱️ Store页面等待: ${waitResult.waited}ms, 信号: ${waitResult.signals.join(', ')}`)
     recordWaitOptimization(15000, waitResult.waited)
 
-    // 🔥 优化：等待skeleton消失，真实产品内容渲染（关键修复）
-    console.log('⏳ 等待产品skeleton消失，真实内容渲染...')
+    // 🔥 P1优化：减少等待时间，从55-65秒降低到25-30秒
+    console.log('⏳ 等待产品内容渲染（优化版）...')
 
-    // 策略1: 滚动页面多次触发懒加载
+    // 策略1: 快速滚动页面触发懒加载（减少次数和间隔）
     console.log('🔄 滚动页面触发懒加载...')
-    for (let i = 0; i < 8; i++) {  // 从5次增加到8次
+    for (let i = 0; i < 4; i++) {  // 从8次减少到4次
       await page.evaluate(() => window.scrollBy(0, window.innerHeight))
-      await randomDelay(1500, 2000)  // 增加滚动间隔，从800-1200ms增加到1500-2000ms
+      await randomDelay(800, 1200)  // 从1500-2000ms减少到800-1200ms
     }
 
-    // 策略2: 滚回顶部，再次触发
+    // 策略2: 滚回顶部
     await page.evaluate(() => window.scrollTo(0, 0))
-    await randomDelay(2000, 3000)  // 等待2-3秒
+    await randomDelay(1000, 1500)  // 从2000-3000ms减少到1000-1500ms
 
-    // 策略3: 再次滚动一遍
-    console.log('🔄 二次滚动确保所有懒加载触发...')
-    for (let i = 0; i < 5; i++) {
+    // 策略3: 再滚动一遍（减少次数）
+    console.log('🔄 二次滚动...')
+    for (let i = 0; i < 3; i++) {  // 从5次减少到3次
       await page.evaluate(() => window.scrollBy(0, window.innerHeight))
-      await randomDelay(1500, 2000)
+      await randomDelay(800, 1200)  // 从1500-2000ms减少到800-1200ms
     }
 
-    // 策略4: 等待skeleton class消失或产品图片加载
-    // Amazon Store的真实产品会有img标签，而skeleton只有pulse动画
+    // 策略4: 等待产品图片加载（减少超时）
     console.log('⏳ 等待产品图片渲染...')
-    await page.waitForSelector('img[src*="images-amazon"]', { timeout: 15000 }).catch(() => {
+    await page.waitForSelector('img[src*="images-amazon"]', { timeout: 8000 }).catch(() => {
       console.warn('⚠️ 产品图片加载超时，继续处理')
     })
 
-    // 策略5: 额外等待，确保JavaScript完成DOM更新
-    console.log('⏳ 额外等待JavaScript完成DOM更新...')
-    await randomDelay(3000, 5000)
+    // 策略5: 短暂等待JavaScript完成（大幅减少）
+    console.log('⏳ 等待JavaScript完成...')
+    await randomDelay(1500, 2500)  // 从3000-5000ms减少到1500-2500ms
 
     // Scroll back to top
     await page.evaluate(() => window.scrollTo(0, 0))
-    await randomDelay(500, 1000)
+    await randomDelay(300, 500)  // 从500-1000ms减少到300-500ms
 
     const finalUrl = page.url()
     console.log(`✅ 最终URL: ${finalUrl}`)
@@ -1630,6 +1785,24 @@ export async function scrapeAmazonStore(
   } finally {
     await releaseBrowser(browserResult)
   }
+
+    } catch (error: any) {
+      lastError = error
+      console.error(`❌ Amazon Store抓取尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+
+      // 如果是代理连接错误，尝试换新代理
+      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
+        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+        continue
+      }
+
+      // 其他错误或已用尽重试次数
+      throw error
+    }
+  }
+
+  // 所有重试都失败
+  throw lastError || new Error('Amazon Store抓取失败：已用尽所有代理重试')
 }
 
 /**
@@ -1653,14 +1826,28 @@ export interface IndependentStoreData {
  * Scrape independent e-commerce store page
  * Extracts brand info and product listings for AI creative generation
  * P0优化: 使用连接池减少启动时间
+ * P1优化: 代理失败时自动换新代理重试
  */
 export async function scrapeIndependentStore(
   url: string,
-  customProxyUrl?: string
+  customProxyUrl?: string,
+  maxProxyRetries: number = 2  // 代理失败最多重试2次
 ): Promise<IndependentStoreData> {
   console.log(`🏪 抓取独立站店铺: ${url}`)
 
-  const browserResult = await createStealthBrowser(customProxyUrl)
+  let lastError: Error | undefined
+  const effectiveProxyUrl = customProxyUrl || PROXY_URL
+
+  for (let proxyAttempt = 0; proxyAttempt <= maxProxyRetries; proxyAttempt++) {
+    try {
+      if (proxyAttempt > 0) {
+        console.log(`🔄 独立站抓取 - 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
+        const pool = getPlaywrightPool()
+        await pool.clearIdleInstances()
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
+  const browserResult = await createStealthBrowser(effectiveProxyUrl)
 
   try {
     const page = await browserResult.context.newPage()
@@ -1852,4 +2039,22 @@ export async function scrapeIndependentStore(
   } finally {
     await releaseBrowser(browserResult)
   }
+
+    } catch (error: any) {
+      lastError = error
+      console.error(`❌ 独立站抓取尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+
+      // 如果是代理连接错误，尝试换新代理
+      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
+        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+        continue
+      }
+
+      // 其他错误或已用尽重试次数
+      throw error
+    }
+  }
+
+  // 所有重试都失败
+  throw lastError || new Error('独立站抓取失败：已用尽所有代理重试')
 }

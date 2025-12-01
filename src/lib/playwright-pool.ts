@@ -254,6 +254,49 @@ class PlaywrightPool {
   }
 
   /**
+   * 🔥 P1优化：作废并关闭指定实例（用于代理失效场景）
+   * 当检测到代理连接问题时调用此方法，强制关闭失效实例
+   */
+  async invalidate(instanceId: string): Promise<void> {
+    const instance = this.instances.get(instanceId)
+    if (instance) {
+      console.log(`🗑️ 作废并关闭失效实例: ${instanceId}`)
+      try {
+        await instance.context?.close().catch(() => {})
+        await instance.browser?.close().catch(() => {})
+      } catch (e) {
+        // 忽略关闭错误
+      }
+      this.instances.delete(instanceId)
+    }
+  }
+
+  /**
+   * 🔥 P1优化：清理所有空闲实例（public方法，用于代理重试场景）
+   */
+  async clearIdleInstances(): Promise<number> {
+    let clearedCount = 0
+    const idleInstances = Array.from(this.instances.entries())
+      .filter(([_, instance]) => !instance.inUse)
+
+    for (const [key, instance] of idleInstances) {
+      try {
+        await instance.context?.close().catch(() => {})
+        await instance.browser?.close().catch(() => {})
+        this.instances.delete(key)
+        clearedCount++
+      } catch (e) {
+        // 忽略关闭错误
+      }
+    }
+
+    if (clearedCount > 0) {
+      console.log(`🧹 清理了 ${clearedCount} 个空闲实例`)
+    }
+    return clearedCount
+  }
+
+  /**
    * 处理等待队列
    */
   private async processWaitingQueue(): Promise<void> {

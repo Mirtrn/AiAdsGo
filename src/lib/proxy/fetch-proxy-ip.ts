@@ -22,19 +22,91 @@ export interface HealthCheckResult {
 }
 
 /**
- * 🔥 P0优化：测试代理IP健康状态（非阻塞版本）
- * 通过快速HTTP请求测试代理IP的连通性和响应时间
+ * 🔥 P1优化：快速TCP连接测试
+ * 使用纯TCP连接测试代理IP的连通性，比HTTP请求快5-10倍
+ *
+ * @param host - 代理服务器地址
+ * @param port - 代理服务器端口
+ * @param timeoutMs - 超时时间（默认2秒）
+ * @returns 连接耗时（毫秒），失败返回-1
+ */
+export async function tcpPing(host: string, port: number, timeoutMs = 2000): Promise<number> {
+  const net = await import('net')
+
+  return new Promise((resolve) => {
+    const startTime = Date.now()
+    const socket = new net.Socket()
+
+    socket.setTimeout(timeoutMs)
+
+    socket.on('connect', () => {
+      const elapsed = Date.now() - startTime
+      socket.destroy()
+      resolve(elapsed)
+    })
+
+    socket.on('timeout', () => {
+      socket.destroy()
+      resolve(-1)
+    })
+
+    socket.on('error', () => {
+      socket.destroy()
+      resolve(-1)
+    })
+
+    socket.connect(port, host)
+  })
+}
+
+/**
+ * 🔥 P0优化：测试代理IP健康状态
+ * 支持两种模式：
+ * - 快速模式（默认）：仅TCP连接测试，耗时1-2秒
+ * - 完整模式：HTTP请求测试，耗时3-10秒
  *
  * @param credentials - 代理凭证
  * @param timeoutMs - 测试超时时间（默认3秒）
+ * @param fullCheck - 是否进行完整HTTP检查（默认false，仅TCP测试）
  * @returns 健康状态对象
  */
 export async function testProxyHealth(
   credentials: ProxyCredentials,
-  timeoutMs = 3000
+  timeoutMs = 3000,
+  fullCheck = false
 ): Promise<HealthCheckResult> {
   const startTime = Date.now()
 
+  // 🔥 快速模式：仅TCP连接测试
+  if (!fullCheck) {
+    const tcpTime = await tcpPing(credentials.host, credentials.port, timeoutMs)
+    const responseTime = Date.now() - startTime
+
+    if (tcpTime === -1) {
+      console.warn(`❌ 代理TCP连接失败: ${credentials.fullAddress} (${responseTime}ms)`)
+      return {
+        healthy: false,
+        responseTime,
+        error: 'TCP connection failed',
+      }
+    }
+
+    // TCP连接成功，响应时间小于阈值则认为健康
+    const healthy = tcpTime < 3000 // TCP连接小于3秒认为健康
+
+    if (healthy) {
+      console.log(`✅ 代理TCP测试通过: ${credentials.fullAddress} (${tcpTime}ms)`)
+    } else {
+      console.warn(`⚠️ 代理TCP响应慢: ${credentials.fullAddress} (${tcpTime}ms)`)
+    }
+
+    return {
+      healthy,
+      responseTime: tcpTime,
+    }
+  }
+
+  // 完整模式：HTTP请求测试
   try {
     // 🔥 使用Amazon本身测试，因为我们的目标就是访问Amazon
     // 使用robots.txt作为测试端点（轻量级，无反爬虫）
@@ -440,6 +512,98 @@ interface CachedProxy {
 
 const proxyCache = new Map<string, CachedProxy>()
 const CACHE_DURATION = 5 * 60 * 1000 // 5分钟
+
+/**
+ * 🔥 P1优化：并行获取多个代理IP并选择最快的
+ * 同时获取N个代理IP，通过TCP ping测试选择响应最快的
+ *
+ * @param proxyUrl - 代理服务商API URL
+ * @param concurrency - 并行获取数量（默认3）
+ * @param timeoutMs - TCP ping超时（默认2000ms）
+ * @returns 最快的代理凭证，如果全部失败则抛出错误
+ */
+export async function fetchFastestProxy(
+  proxyUrl: string,
+  concurrency = 3,
+  timeoutMs = 2000
+): Promise<ProxyCredentials> {
+  console.log(`\n🚀 并行获取 ${concurrency} 个代理IP，选择最快的...`)
+  const startTime = Date.now()
+
+  // 并行获取多个代理IP（跳过健康检查，后面统一测试）
+  const fetchPromises: Promise<ProxyCredentials | null>[] = []
+  for (let i = 0; i < concurrency; i++) {
+    fetchPromises.push(
+      fetchProxyIp(proxyUrl, 1, true)  // 单次尝试，跳过健康检查
+        .then((creds) => {
+          console.log(`✅ [${i + 1}] 获取成功: ${creds.fullAddress}`)
+          return creds
+        })
+        .catch((err) => {
+          console.warn(`⚠️ [${i + 1}] 获取失败: ${err.message}`)
+          return null
+        })
+    )
+  }
+
+  // 等待所有获取完成
+  const results = await Promise.all(fetchPromises)
+  const validCredentials = results.filter((c): c is ProxyCredentials => c !== null)
+
+  if (validCredentials.length === 0) {
+    throw new Error(`获取代理IP失败：${concurrency}个并行请求全部失败`)
+  }
+
+  console.log(`📊 成功获取 ${validCredentials.length}/${concurrency} 个代理IP`)
+
+  // 如果只有1个，直接返回
+  if (validCredentials.length === 1) {
+    const creds = validCredentials[0]
+    // 做一次快速健康检查
+    const health = await testProxyHealth(creds, timeoutMs, false)
+    if (!health.healthy) {
+      throw new Error(`唯一的代理IP健康检查失败: ${health.error}`)
+    }
+    console.log(`✅ 代理IP选中: ${creds.fullAddress} (${health.responseTime}ms)`)
+    return creds
+  }
+
+  // 并行TCP ping测试所有代理
+  console.log(`🏃 并行测试 ${validCredentials.length} 个代理IP的响应速度...`)
+  const pingPromises = validCredentials.map(async (creds) => {
+    const pingTime = await tcpPing(creds.host, creds.port, timeoutMs)
+    return { creds, pingTime }
+  })
+
+  const pingResults = await Promise.all(pingPromises)
+
+  // 过滤健康的代理并按响应时间排序
+  const healthyProxies = pingResults
+    .filter((r) => r.pingTime > 0)
+    .sort((a, b) => a.pingTime - b.pingTime)
+
+  if (healthyProxies.length === 0) {
+    throw new Error(`所有代理IP的TCP连接测试均失败`)
+  }
+
+  // 选择最快的
+  const fastest = healthyProxies[0]
+  const totalTime = Date.now() - startTime
+
+  console.log(`\n🏆 最快代理IP: ${fastest.creds.fullAddress}`)
+  console.log(`   - TCP响应: ${fastest.pingTime}ms`)
+  console.log(`   - 总耗时: ${totalTime}ms`)
+  console.log(`   - 淘汰: ${validCredentials.length - healthyProxies.length} 个慢速/失败`)
+
+  // 输出所有测试结果
+  pingResults.forEach((r, i) => {
+    const status = r.pingTime > 0 ? `${r.pingTime}ms` : '❌失败'
+    const selected = r === fastest ? ' 👈 选中' : ''
+    console.log(`   [${i + 1}] ${r.creds.fullAddress}: ${status}${selected}`)
+  })
+
+  return fastest.creds
+}
 
 /**
  * 获取代理IP（默认不使用缓存）

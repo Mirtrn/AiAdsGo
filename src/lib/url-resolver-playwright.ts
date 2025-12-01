@@ -1,6 +1,7 @@
 import { Browser, BrowserContext, Page } from 'playwright'
 import { getPlaywrightPool } from './playwright-pool'
 import { smartWaitForLoad, assessPageComplexity, recordWaitOptimization } from './smart-wait-strategy'
+import { isProxyConnectionError, withProxyRetry } from './scraper-stealth'
 
 /**
  * User-Agent rotation pool (2024 browsers)
@@ -246,6 +247,11 @@ export async function resolveAffiliateLinkWithPlaywright(
       statusCode,
     }
   } catch (error: any) {
+    // 🔥 P1优化：检测代理连接错误，提供更清晰的错误信息
+    if (isProxyConnectionError(error)) {
+      console.error('❌ Playwright解析失败 - 代理连接问题:', error.message?.substring(0, 100))
+      throw new Error(`Playwright解析失败（代理连接问题，建议重试）: ${error.message}`)
+    }
     console.error('Playwright解析失败:', error)
     throw new Error(`Playwright解析失败: ${error.message}`)
   } finally {
@@ -323,7 +329,12 @@ export async function verifyBrandInFinalUrl(
 
     return { found, score, matches }
   } catch (error: any) {
-    console.error('品牌验证失败:', error)
+    // 🔥 P1优化：检测代理连接错误
+    if (isProxyConnectionError(error)) {
+      console.error('❌ 品牌验证失败 - 代理连接问题:', error.message?.substring(0, 100))
+    } else {
+      console.error('品牌验证失败:', error)
+    }
     return { found: false, score: 0, matches: [] }
   } finally {
     if (page) await page.close().catch(() => {})
@@ -368,6 +379,11 @@ export async function captureScreenshot(
 
     console.log(`截图已保存: ${outputPath}`)
   } catch (error: any) {
+    // 🔥 P1优化：检测代理连接错误
+    if (isProxyConnectionError(error)) {
+      console.error('❌ 截图失败 - 代理连接问题:', error.message?.substring(0, 100))
+      throw new Error(`截图失败（代理连接问题）: ${error.message}`)
+    }
     console.error('截图失败:', error)
     throw new Error(`截图失败: ${error.message}`)
   } finally {
