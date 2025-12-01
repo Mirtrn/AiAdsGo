@@ -284,15 +284,31 @@ async function releaseBrowser(result: StealthBrowserResult): Promise<void> {
 /**
  * Configure page with stealth settings
  * 🔥 增强反爬虫规避：更多浏览器指纹伪装和行为模拟
+ * 🌍 支持根据目标国家动态配置语言
  */
-async function configureStealthPage(page: Page): Promise<void> {
+async function configureStealthPage(page: Page, targetCountry?: string): Promise<void> {
   const userAgent = getRandomUserAgent()
+
+  // 🌍 根据目标国家动态生成 Accept-Language
+  let acceptLanguage = 'en-US,en;q=0.9'  // 默认英语
+  let navigatorLanguages = ['en-US', 'en']  // 默认语言列表
+
+  if (targetCountry) {
+    const { getLanguageCodeForCountry, getAcceptLanguageHeader } = await import('./language-country-codes')
+    const langCode = getLanguageCodeForCountry(targetCountry)
+    acceptLanguage = getAcceptLanguageHeader(langCode)
+
+    // 从 Accept-Language 解析出语言列表
+    navigatorLanguages = acceptLanguage.split(',').map(lang => lang.split(';')[0].trim())
+
+    console.log(`🌍 目标国家: ${targetCountry}, Accept-Language: ${acceptLanguage}`)
+  }
 
   // Set user agent with realistic headers
   await page.setExtraHTTPHeaders({
     'User-Agent': userAgent,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9,it-IT,it;q=0.8',  // 🔥 添加意大利语支持（Amazon.it）
+    'Accept-Language': acceptLanguage,  // 🌍 动态语言支持
     'Accept-Encoding': 'gzip, deflate, br',
     'Connection': 'keep-alive',
     'Upgrade-Insecure-Requests': '1',
@@ -308,8 +324,9 @@ async function configureStealthPage(page: Page): Promise<void> {
     'Sec-CH-UA-Platform': '"Windows"',
   })
 
-  // 🔥 增强浏览器指纹伪装
-  await page.addInitScript(() => {
+  // 🔥 增强浏览器指纹伪装（需要将动态语言传入脚本）
+  const languagesForScript = navigatorLanguages
+  await page.addInitScript((langs: string[]) => {
     // Override navigator.webdriver
     Object.defineProperty(navigator, 'webdriver', {
       get: () => undefined,
@@ -333,9 +350,9 @@ async function configureStealthPage(page: Page): Promise<void> {
       ],
     })
 
-    // Override languages with Italian support
+    // 🌍 动态语言列表（根据目标国家）
     Object.defineProperty(navigator, 'languages', {
-      get: () => ['en-US', 'en', 'it-IT', 'it'],
+      get: () => langs,
     })
 
     // 🔥 伪装真实屏幕分辨率和颜色深度
@@ -382,7 +399,7 @@ async function configureStealthPage(page: Page): Promise<void> {
         saveData: false,
       })
     })
-  })
+  }, languagesForScript)  // 🌍 将动态语言列表传入脚本
 
   // 🔥 设置真实的viewport和屏幕分辨率
   await page.setViewportSize({ width: 1920, height: 1080 })
@@ -394,6 +411,7 @@ async function configureStealthPage(page: Page): Promise<void> {
 /**
  * Scrape URL with JavaScript rendering and stealth mode
  * P0优化: 使用连接池减少启动时间
+ * 🌍 支持根据目标国家动态配置语言
  */
 export async function scrapeUrlWithBrowser(
   url: string,
@@ -402,6 +420,7 @@ export async function scrapeUrlWithBrowser(
     waitForSelector?: string
     waitForTimeout?: number
     followRedirects?: boolean
+    targetCountry?: string  // 🌍 目标国家参数
   } = {}
 ): Promise<{
   html: string
@@ -416,7 +435,7 @@ export async function scrapeUrlWithBrowser(
     return await retryWithBackoff(async () => {
       // 连接池模式已有context，独立模式需要创建
       const page = await browserResult.context.newPage()
-      await configureStealthPage(page)
+      await configureStealthPage(page, options.targetCountry)  // 🌍 传入目标国家
 
       // Track redirects
       const redirectChain: string[] = [url]
@@ -604,7 +623,7 @@ export async function resolveAffiliateLink(
   try {
     return await retryWithBackoff(async () => {
       const page = await browserResult.context.newPage()
-      await configureStealthPage(page)
+      await configureStealthPage(page, targetCountry)  // 🌍 传入目标国家
 
       const redirectChain: string[] = [affiliateLink]
 
@@ -718,13 +737,15 @@ export interface AmazonProductData {
  * Scrape Amazon product page with enhanced anti-bot bypass
  * Extracts comprehensive data for AI creative generation
  * 🔥 P1优化：代理失败时自动换新代理重试
+ * 🌍 支持根据目标国家动态配置语言
  */
 export async function scrapeAmazonProduct(
   url: string,
   customProxyUrl?: string,
+  targetCountry?: string,  // 🌍 目标国家参数
   maxProxyRetries: number = 2  // 代理失败最多重试2次
 ): Promise<AmazonProductData> {
-  console.log(`🛒 抓取Amazon产品: ${url}`)
+  console.log(`🛒 抓取Amazon产品: ${url}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
 
   let lastError: Error | undefined
   const effectiveProxyUrl = customProxyUrl || PROXY_URL
@@ -742,6 +763,7 @@ export async function scrapeAmazonProduct(
         waitForSelector: '#productTitle',
         // 🔥 修复：使用动态超时，Amazon.it等国际站点使用120秒
         waitForTimeout: getDynamicTimeout(url),
+        targetCountry,  // 🌍 传入目标国家
       })
 
       // Parse HTML with cheerio
@@ -1135,13 +1157,15 @@ export interface AmazonStoreData {
  * Extracts store info and product listings for AI creative generation
  * P0优化: 使用连接池减少启动时间
  * P1优化: 代理失败时自动换新代理重试
+ * 🌍 支持根据目标国家动态配置语言
  */
 export async function scrapeAmazonStore(
   url: string,
   customProxyUrl?: string,
+  targetCountry?: string,  // 🌍 目标国家参数
   maxProxyRetries: number = 2  // 代理失败最多重试2次
 ): Promise<AmazonStoreData> {
-  console.log(`📦 抓取Amazon Store: ${url}`)
+  console.log(`📦 抓取Amazon Store: ${url}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
 
   let lastError: Error | undefined
   const effectiveProxyUrl = customProxyUrl || PROXY_URL
@@ -1156,11 +1180,11 @@ export async function scrapeAmazonStore(
       }
 
   // P0优化: 使用连接池获取浏览器实例
-  const browserResult = await createStealthBrowser(effectiveProxyUrl)
+  const browserResult = await createStealthBrowser(effectiveProxyUrl, targetCountry)
 
   try {
     const page = await browserResult.context.newPage()
-    await configureStealthPage(page)
+    await configureStealthPage(page, targetCountry)  // 🌍 传入目标国家
 
     // 🔥 策略A优化：监听网络请求，提取Amazon Store API数据
     const apiProducts: Array<{
@@ -1947,13 +1971,15 @@ export interface IndependentStoreData {
  * Extracts brand info and product listings for AI creative generation
  * P0优化: 使用连接池减少启动时间
  * P1优化: 代理失败时自动换新代理重试
+ * 🌍 支持根据目标国家动态配置语言
  */
 export async function scrapeIndependentStore(
   url: string,
   customProxyUrl?: string,
+  targetCountry?: string,  // 🌍 目标国家参数
   maxProxyRetries: number = 2  // 代理失败最多重试2次
 ): Promise<IndependentStoreData> {
-  console.log(`🏪 抓取独立站店铺: ${url}`)
+  console.log(`🏪 抓取独立站店铺: ${url}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
 
   let lastError: Error | undefined
   const effectiveProxyUrl = customProxyUrl || PROXY_URL
@@ -1967,11 +1993,11 @@ export async function scrapeIndependentStore(
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
 
-  const browserResult = await createStealthBrowser(effectiveProxyUrl)
+  const browserResult = await createStealthBrowser(effectiveProxyUrl, targetCountry)
 
   try {
     const page = await browserResult.context.newPage()
-    await configureStealthPage(page)
+    await configureStealthPage(page, targetCountry)  // 🌍 传入目标国家
 
     console.log(`🌐 访问URL: ${url}`)
     await randomDelay(500, 1500)

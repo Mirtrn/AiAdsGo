@@ -300,7 +300,7 @@ export async function performScrapeAndAnalysis(
               // Amazon Store页面专用抓取 - 🔧 修复：使用完整URL
               console.log('📦 检测到Amazon Store页面，使用Store抓取模式...')
               const { scrapeAmazonStore } = await import('@/lib/scraper-stealth')
-              const storeData = await scrapeAmazonStore(urlForScraping, proxyUrl)
+              const storeData = await scrapeAmazonStore(urlForScraping, proxyUrl, targetCountry)  // 🌍 传入目标国家
 
               // 🔥 优化：构建突出热销商品的文本信息供AI分析（国际化版本）
               // 🌍 国际化文本配置
@@ -476,7 +476,7 @@ export async function performScrapeAndAnalysis(
             } else if (isAmazon) {
               // Amazon产品页面专用抓取 - 增强版 - 🔧 修复：使用完整URL
               const { scrapeAmazonProduct } = await import('@/lib/scraper-stealth')
-              const productData = await scrapeAmazonProduct(urlForScraping, proxyUrl)
+              const productData = await scrapeAmazonProduct(urlForScraping, proxyUrl, targetCountry)  // 🌍 传入目标国家
 
               // 🎯 P0优化: 保存原始爬虫数据
               rawScrapedData = productData
@@ -540,7 +540,7 @@ export async function performScrapeAndAnalysis(
               // 独立站店铺页面抓取 - 🔧 修复：使用完整URL
               console.log('🏪 检测到独立站店铺页面，使用店铺抓取模式...')
               const { scrapeIndependentStore } = await import('@/lib/scraper-stealth')
-              const storeData = await scrapeIndependentStore(urlForScraping, proxyUrl)
+              const storeData = await scrapeIndependentStore(urlForScraping, proxyUrl, targetCountry)  // 🌍 传入目标国家
 
               // 构建丰富的文本信息供AI分析
               const productSummaries = storeData.products.slice(0, 20).map((p, i) => {
@@ -584,6 +584,7 @@ export async function performScrapeAndAnalysis(
               const { scrapeUrlWithBrowser } = await import('@/lib/scraper-stealth')
               const result = await scrapeUrlWithBrowser(urlForScraping, proxyUrl, {
                 waitForTimeout: 30000,
+                targetCountry,  // 🌍 传入目标国家
               })
 
               pageData = {
