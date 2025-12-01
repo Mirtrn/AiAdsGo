@@ -160,12 +160,8 @@ async function retryWithBackoff<T>(
 
       // 🔥 P1优化：代理连接失败时快速失败，不进行无效重试
       // 因为retryWithBackoff使用同一个browserResult（同一代理），重试是无效的
-      if (errorMsg.includes('Proxy connection ended') ||
-          errorMsg.includes('ECONNRESET') ||
-          errorMsg.includes('ECONNREFUSED') ||
-          errorMsg.includes('ETIMEDOUT') ||
-          errorMsg.includes('net::ERR_PROXY') ||
-          errorMsg.includes('ERR_TUNNEL_CONNECTION_FAILED')) {
+      // 使用统一的isProxyConnectionError()函数判断
+      if (isProxyConnectionError(error)) {
         console.log(`❌ 代理连接失败，跳过无效重试: ${errorMsg.substring(0, 100)}`)
         throw error
       }
