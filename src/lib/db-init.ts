@@ -475,6 +475,8 @@ export async function initializeDatabase(): Promise<void> {
 
   if (isInitialized) {
     console.log('✅ Database already initialized, skipping initialization')
+    // 数据库已初始化，检查未完成的队列任务
+    await checkUnfinishedQueueTasks()
     return
   }
 
@@ -486,5 +488,89 @@ export async function initializeDatabase(): Promise<void> {
     await initializeSQLite()
   } else {
     await initializePostgreSQL()
+  }
+}
+
+// 全局标记：是否需要恢复队列任务（声明在全局作用域）
+declare global {
+  // eslint-disable-next-line no-var
+  var __queueRecoveryPending: boolean | undefined
+  // eslint-disable-next-line no-var
+  var __queueRecoveryData: Array<{
+    id: number
+    user_id: number
+    url: string
+    brand: string | null
+  }> | undefined
+}
+
+/**
+ * 检查未完成的队列任务
+ *
+ * 场景：服务重启时，内存队列中的任务会丢失
+ * 解决：从数据库查询 pending/in_progress 状态的Offer，标记为待恢复
+ *
+ * 注意：这里只做查询，实际恢复在首次API请求时触发
+ * 原因：instrumentation阶段无法安全导入复杂模块（offer-scraping有复杂依赖）
+ *
+ * 恢复执行：由 @/lib/queue-recovery.ts 的 executeQueueRecoveryIfNeeded() 函数完成
+ */
+async function checkUnfinishedQueueTasks(): Promise<void> {
+  const db = getDatabase()
+
+  // 只支持 SQLite（PostgreSQL 暂不支持）
+  if (db.type !== 'sqlite') {
+    return
+  }
+
+  try {
+    // 查询未完成的任务（7天内的，排除已删除的）
+    const unfinishedOffers = await db.query<{
+      id: number
+      user_id: number
+      url: string
+      brand: string | null
+      scrape_status: string
+      created_at: string
+    }>(`
+      SELECT id, user_id, url, brand, scrape_status, created_at
+      FROM offers
+      WHERE scrape_status IN ('pending', 'in_progress')
+        AND created_at > datetime('now', '-7 days')
+        AND deleted_at IS NULL
+      ORDER BY
+        CASE scrape_status
+          WHEN 'in_progress' THEN 1
+          WHEN 'pending' THEN 2
+        END,
+        created_at ASC
+    `)
+
+    if (unfinishedOffers.length === 0) {
+      console.log('✅ 队列恢复：没有未完成的任务需要恢复')
+      global.__queueRecoveryPending = false
+      return
+    }
+
+    // 统计信息
+    const inProgressCount = unfinishedOffers.filter(o => o.scrape_status === 'in_progress').length
+    const pendingCount = unfinishedOffers.filter(o => o.scrape_status === 'pending').length
+
+    console.log(`📋 队列恢复：发现 ${unfinishedOffers.length} 个未完成任务`)
+    console.log(`   - in_progress: ${inProgressCount}`)
+    console.log(`   - pending: ${pendingCount}`)
+    console.log(`   (将在首次API请求时自动恢复)`)
+
+    // 存储待恢复数据到全局变量
+    global.__queueRecoveryPending = true
+    global.__queueRecoveryData = unfinishedOffers.map(o => ({
+      id: o.id,
+      user_id: o.user_id,
+      url: o.url,
+      brand: o.brand
+    }))
+  } catch (error) {
+    console.error('❌ 检查队列任务失败:', error)
+    global.__queueRecoveryPending = false
   }
 }
