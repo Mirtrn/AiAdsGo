@@ -20,6 +20,7 @@ import type {
 } from './ad-creative'
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { normalizeLanguageCode } from './language-country-codes'
+import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 
 /**
  * Ad Strength评级标准
@@ -1007,6 +1008,25 @@ Rules:
       responseMimeType: 'application/json',
       enableAutoModelSelection: false // 明确使用Flash模型
     }, userId)
+
+    // 记录token使用
+    if (result.usage) {
+      const cost = estimateTokenCost(
+        result.model,
+        result.usage.inputTokens,
+        result.usage.outputTokens
+      )
+      await recordTokenUsage({
+        userId,
+        model: result.model,
+        operationType: 'competitive_positioning_analysis',
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        totalTokens: result.usage.totalTokens,
+        cost,
+        apiType: result.apiType
+      })
+    }
 
     const aiScores = JSON.parse(result.text)
 
