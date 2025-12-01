@@ -337,67 +337,103 @@ function generateSearchVariants(term: string): string[] {
 
 /**
  * 🔥 优化：执行单次Amazon搜索，提取结果
+ *
+ * @param page Playwright页面对象
+ * @param searchTerm 搜索关键词
+ * @param domain Amazon域名（如amazon.it）
+ * @param limit 提取产品数量上限
+ * @param maxRetries 最大重试次数（默认2）
+ * @returns 竞品产品数组
  */
 async function executeAmazonSearch(
   page: any,
   searchTerm: string,
   domain: string,
-  limit: number
+  limit: number,
+  maxRetries: number = 2
 ): Promise<CompetitorProduct[]> {
   const searchUrl = `https://www.${domain}/s?k=${encodeURIComponent(searchTerm)}`
-  await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 15000 })
 
-  // 等待搜索结果加载
-  await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 5000 })
-    .catch(() => null)
+  let lastError: Error | undefined
 
-  // 提取搜索结果
-  const results = await page.evaluate((maxItems: number) => {
-    const items: any[] = []
-    const resultElements = document.querySelectorAll('[data-component-type="s-search-result"]')
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`     ↳ 重试 ${attempt}/${maxRetries}...`)
+        // 等待后重试
+        await new Promise(resolve => setTimeout(resolve, 2000 * attempt))
+      }
 
-    for (let i = 0; i < Math.min(maxItems, resultElements.length); i++) {
-      const el = resultElements[i]
+      // 🔥 修复：使用动态超时，国际站点需要更长时间
+      // Amazon搜索页面复杂度较高，统一使用60秒超时
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 })
 
-      const asin = el.getAttribute('data-asin')
-      if (!asin) continue
+      // 等待搜索结果加载（增加超时时间）
+      await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 10000 })
+        .catch(() => null)
 
-      const nameEl = el.querySelector('h2 a span, h2 span')
-      const name = nameEl?.textContent?.trim() || ''
+      // 提取搜索结果
+      const results = await page.evaluate((maxItems: number) => {
+        const items: any[] = []
+        const resultElements = document.querySelectorAll('[data-component-type="s-search-result"]')
 
-      const priceEl = el.querySelector('.a-price .a-offscreen')
-      const priceText = priceEl?.textContent?.trim() || null
+        for (let i = 0; i < Math.min(maxItems, resultElements.length); i++) {
+          const el = resultElements[i]
 
-      const ratingEl = el.querySelector('.a-icon-star-small .a-icon-alt')
-      const ratingText = ratingEl?.textContent?.trim() || null
-      const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
+          const asin = el.getAttribute('data-asin')
+          if (!asin) continue
 
-      const reviewEl = el.querySelector('[aria-label*="stars"]')
-      const reviewText = reviewEl?.getAttribute('aria-label') || null
-      const reviewCount = reviewText ? parseInt(reviewText.replace(/\D/g, '')) : null
+          const nameEl = el.querySelector('h2 a span, h2 span')
+          const name = nameEl?.textContent?.trim() || ''
 
-      const imageEl = el.querySelector('.s-image') as HTMLImageElement | null
-      const imageUrl = imageEl?.src || null
+          const priceEl = el.querySelector('.a-price .a-offscreen')
+          const priceText = priceEl?.textContent?.trim() || null
 
-      if (name && priceText) {
-        items.push({
-          asin,
-          name,
-          brand: null,
-          priceText,
-          price: parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')),
-          rating,
-          reviewCount,
-          imageUrl,
-          source: 'amazon_search'
-        })
+          const ratingEl = el.querySelector('.a-icon-star-small .a-icon-alt')
+          const ratingText = ratingEl?.textContent?.trim() || null
+          const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
+
+          const reviewEl = el.querySelector('[aria-label*="stars"]')
+          const reviewText = reviewEl?.getAttribute('aria-label') || null
+          const reviewCount = reviewText ? parseInt(reviewText.replace(/\D/g, '')) : null
+
+          const imageEl = el.querySelector('.s-image') as HTMLImageElement | null
+          const imageUrl = imageEl?.src || null
+
+          if (name && priceText) {
+            items.push({
+              asin,
+              name,
+              brand: null,
+              priceText,
+              price: parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')),
+              rating,
+              reviewCount,
+              imageUrl,
+              source: 'amazon_search'
+            })
+          }
+        }
+
+        return items
+      }, limit)
+
+      // 成功提取结果，返回
+      return results
+
+    } catch (error: any) {
+      lastError = error
+      console.warn(`     ✗ 搜索失败 (尝试 ${attempt + 1}/${maxRetries + 1}): ${error.message?.substring(0, 100)}`)
+
+      // 如果不是最后一次重试，继续
+      if (attempt < maxRetries) {
+        continue
       }
     }
+  }
 
-    return items
-  }, limit)
-
-  return results
+  // 所有重试都失败，抛出最后的错误
+  throw lastError || new Error('Amazon搜索失败：已用尽所有重试')
 }
 
 /**
