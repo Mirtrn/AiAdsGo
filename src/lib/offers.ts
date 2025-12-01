@@ -255,36 +255,69 @@ export function listOffers(
 
   const offers = db.prepare(listQuery).all(...params) as Offer[]
 
-  // P1-11: 为每个offer查询关联的Google Ads账号信息
+  // ⚡ P0性能优化: 使用单次JOIN查询关联账号，避免N+1查询问题
+  // 为每个offer查询关联的Google Ads账号信息
   // 只显示活跃的campaigns（排除REMOVED状态），且排除MCC账号
   // ⚠️ 修复：忽略未成功发布到Google Ads的campaigns(google_campaign_id为空)
-  const offersWithAccounts = offers.map(offer => {
-    const linkedAccounts = db.prepare(`
-      SELECT DISTINCT
-        gaa.id as account_id,
-        gaa.account_name as account_name,
-        gaa.customer_id,
-        0 as campaign_count
-      FROM campaigns c
-      INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
-      WHERE c.offer_id = ?
-        AND c.user_id = ?
-        AND c.status != 'REMOVED'
-        AND gaa.is_manager_account = 0
-        AND c.google_campaign_id IS NOT NULL
-        AND c.google_campaign_id != ''
-    `).all(offer.id, userId) as Array<{
-      account_id: number
-      account_name: string | null
-      customer_id: string
-      campaign_count: number
-    }>
 
-    return {
-      ...offer,
-      linked_accounts: linkedAccounts.length > 0 ? linkedAccounts : undefined
+  if (offers.length === 0) {
+    return { offers: [], total: count }
+  }
+
+  // 构建offer IDs的占位符
+  const offerIds = offers.map(o => o.id)
+  const placeholders = offerIds.map(() => '?').join(',')
+
+  // 一次性查询所有offers的关联账号
+  const linkedAccountsQuery = `
+    SELECT DISTINCT
+      c.offer_id,
+      gaa.id as account_id,
+      gaa.account_name,
+      gaa.customer_id
+    FROM campaigns c
+    INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+    WHERE c.offer_id IN (${placeholders})
+      AND c.user_id = ?
+      AND c.status != 'REMOVED'
+      AND gaa.is_manager_account = 0
+      AND c.google_campaign_id IS NOT NULL
+      AND c.google_campaign_id != ''
+    ORDER BY c.offer_id, gaa.account_name
+  `
+
+  const allLinkedAccounts = db.prepare(linkedAccountsQuery).all(...offerIds, userId) as Array<{
+    offer_id: number
+    account_id: number
+    account_name: string | null
+    customer_id: string
+  }>
+
+  // 按offer_id分组关联账号
+  const accountsByOfferId = new Map<number, Array<{
+    account_id: number
+    account_name: string | null
+    customer_id: string
+    campaign_count: number
+  }>>()
+
+  for (const account of allLinkedAccounts) {
+    if (!accountsByOfferId.has(account.offer_id)) {
+      accountsByOfferId.set(account.offer_id, [])
     }
-  })
+    accountsByOfferId.get(account.offer_id)!.push({
+      account_id: account.account_id,
+      account_name: account.account_name,
+      customer_id: account.customer_id,
+      campaign_count: 0
+    })
+  }
+
+  // 合并关联账号到offers
+  const offersWithAccounts = offers.map(offer => ({
+    ...offer,
+    linked_accounts: accountsByOfferId.get(offer.id)
+  }))
 
   return {
     offers: offersWithAccounts,

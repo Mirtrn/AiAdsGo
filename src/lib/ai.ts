@@ -1,6 +1,7 @@
 import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { loadPrompt } from './prompt-loader'
+import { logger } from './logger'
 
 export interface ProductInfo {
   brandDescription: string
@@ -152,29 +153,29 @@ export async function analyzeProductPage(
 
     // 提取JSON内容（改进版：处理markdown代码块和格式问题）
     let jsonText = text
-    console.log('🔍 AI原始返回长度:', text.length, '字符')
+    logger.debug('🔍 AI原始返回长度:', text.length, '字符')
 
     // 1. 移除markdown代码块标记
     jsonText = jsonText.replace(/```json\s*/g, '').replace(/```\s*/g, '')
-    console.log('🔍 移除markdown后长度:', jsonText.length, '字符')
+    logger.debug('🔍 移除markdown后长度:', jsonText.length, '字符')
 
     // 2. 尝试找到JSON对象
     let jsonMatch = jsonText.match(/\{[\s\S]*\}/)
 
     // 如果没有找到完整的 {...}，尝试找到截断的JSON（只有开头的 {）
     if (!jsonMatch) {
-      console.log('⚠️ 未找到完整JSON对象，尝试匹配截断的JSON...')
+      logger.debug('⚠️ 未找到完整JSON对象，尝试匹配截断的JSON...')
       const truncatedMatch = jsonText.match(/\{[\s\S]*/)
       if (truncatedMatch) {
-        console.log('✅ 检测到截断的JSON，长度:', truncatedMatch[0].length)
+        logger.debug('✅ 检测到截断的JSON，长度:', truncatedMatch[0].length)
         jsonMatch = truncatedMatch
       } else {
-        console.error('❌ 无法找到任何JSON结构')
-        console.error('AI原始返回:', text.substring(0, 500))
+        logger.error('❌ 无法找到任何JSON结构')
+        logger.error('AI原始返回:', text.substring(0, 500))
         throw new Error('AI返回格式错误，未找到JSON')
       }
     } else {
-      console.log('✅ 找到完整JSON对象，长度:', jsonMatch[0].length)
+      logger.debug('✅ 找到完整JSON对象，长度:', jsonMatch[0].length)
     }
 
     let jsonStr = jsonMatch[0]
@@ -230,9 +231,9 @@ export async function analyzeProductPage(
     try {
       productInfo = JSON.parse(jsonStr) as ProductInfo
     } catch (parseError: any) {
-      console.log('首次解析失败，尝试修复截断的JSON...', parseError.message)
-      console.log('原始JSON前200字符:', jsonStr.substring(0, 200))
-      console.log('原始JSON后200字符:', jsonStr.substring(Math.max(0, jsonStr.length - 200)))
+      logger.debug('首次解析失败，尝试修复截断的JSON...', parseError.message)
+      logger.debug('原始JSON前200字符:', jsonStr.substring(0, 200))
+      logger.debug('原始JSON后200字符:', jsonStr.substring(Math.max(0, jsonStr.length - 200)))
 
       // 更激进的JSON修复策略
       let repairedJson = jsonStr
@@ -260,7 +261,7 @@ export async function analyzeProductPage(
 
       // 如果找到完整的属性，截断到那里
       if (lastCompleteIndex > 0 && lastCompleteIndex < repairedJson.length) {
-        console.log(`截断JSON到最后一个完整属性位置: ${lastCompleteIndex}`)
+        logger.debug(`截断JSON到最后一个完整属性位置: ${lastCompleteIndex}`)
         repairedJson = repairedJson.substring(0, lastCompleteIndex)
 
         // 移除尾部逗号
@@ -301,12 +302,12 @@ export async function analyzeProductPage(
 
       // 如果还在字符串内，说明字符串被截断了，关闭它
       if (inString) {
-        console.log('检测到未关闭的字符串，添加闭合引号')
+        logger.debug('检测到未关闭的字符串，添加闭合引号')
         repairedJson += '"'
       }
 
       // 添加缺失的闭合括号
-      console.log(`需要添加: ${openBrackets}个], ${openBraces}个}`)
+      logger.debug(`需要添加: ${openBrackets}个], ${openBraces}个}`)
 
       for (let i = 0; i < openBrackets; i++) {
         repairedJson += ']'
@@ -315,16 +316,16 @@ export async function analyzeProductPage(
         repairedJson += '}'
       }
 
-      console.log('修复后的JSON长度:', repairedJson.length)
-      console.log('修复后的JSON末尾:', repairedJson.substring(Math.max(0, repairedJson.length - 100)))
+      logger.debug('修复后的JSON长度:', repairedJson.length)
+      logger.debug('修复后的JSON末尾:', repairedJson.substring(Math.max(0, repairedJson.length - 100)))
 
       try {
         productInfo = JSON.parse(repairedJson) as ProductInfo
-        console.log('✅ JSON修复成功')
+        logger.debug('✅ JSON修复成功')
       } catch (repairError: any) {
         // 最后尝试: 使用正则提取各字段
-        console.log('⚠️ JSON修复失败，尝试正则提取字段...')
-        console.log('修复后仍失败:', repairError.message)
+        logger.debug('⚠️ JSON修复失败，尝试正则提取字段...')
+        logger.debug('修复后仍失败:', repairError.message)
 
         // 更强大的字段提取函数，支持多种格式
         const extractStringField = (fieldName: string, source: string): string => {
@@ -366,21 +367,21 @@ export async function analyzeProductPage(
           category: extractStringField('category', repairedJson),
         }
 
-        console.log('📋 提取到的字段:')
-        console.log('  - brandDescription:', productInfo.brandDescription ? `${productInfo.brandDescription.length}字符` : '无')
-        console.log('  - uniqueSellingPoints:', productInfo.uniqueSellingPoints ? `${productInfo.uniqueSellingPoints.length}字符` : '无')
-        console.log('  - productHighlights:', productInfo.productHighlights ? `${productInfo.productHighlights.length}字符` : '无')
-        console.log('  - targetAudience:', productInfo.targetAudience ? `${productInfo.targetAudience.length}字符` : '无')
-        console.log('  - category:', productInfo.category || '无')
+        logger.debug('📋 提取到的字段:')
+        logger.debug('  - brandDescription:', productInfo.brandDescription ? `${productInfo.brandDescription.length}字符` : '无')
+        logger.debug('  - uniqueSellingPoints:', productInfo.uniqueSellingPoints ? `${productInfo.uniqueSellingPoints.length}字符` : '无')
+        logger.debug('  - productHighlights:', productInfo.productHighlights ? `${productInfo.productHighlights.length}字符` : '无')
+        logger.debug('  - targetAudience:', productInfo.targetAudience ? `${productInfo.targetAudience.length}字符` : '无')
+        logger.debug('  - category:', productInfo.category || '无')
 
         // 如果所有字段都为空，则抛出错误
         if (!productInfo.brandDescription && !productInfo.uniqueSellingPoints) {
-          console.error('❌ 无法提取任何有效字段')
-          console.error('尝试解析的JSON:', jsonStr.substring(0, 500))
+          logger.error('❌ 无法提取任何有效字段')
+          logger.error('尝试解析的JSON:', jsonStr.substring(0, 500))
           throw new Error(`AI返回格式错误: ${parseError.message}`)
         }
 
-        console.log('✅ 使用正则提取的字段')
+        logger.debug('✅ 使用正则提取的字段')
       }
     }
 
@@ -403,7 +404,7 @@ export async function analyzeProductPage(
       category: productInfo.category,
     }
   } catch (error: any) {
-    console.error('AI分析失败:', error)
+    logger.error('AI分析失败:', error)
     throw new Error(`AI分析失败: ${error.message}`)
   }
 }
@@ -505,9 +506,9 @@ export async function generateAdCreatives(
         realServices = servicesToWhitelist(services)
         servicesValidated = realServices.length > 0
 
-        console.log(`✅ 提取到${realServices.length}个真实服务:`, realServices)
+        logger.debug(`✅ 提取到${realServices.length}个真实服务:`, realServices)
       } catch (error) {
-        console.warn('提取品牌服务失败，使用通用生成:', error)
+        logger.warn('提取品牌服务失败，使用通用生成:', error)
         // 继续使用通用生成，不中断流程
       }
     }
@@ -775,7 +776,7 @@ ${currentOrientation === 'brand' ? `
           usedLearning = true
         }
       } catch (learningError) {
-        console.warn('创意学习模块加载失败，使用基础Prompt:', learningError)
+        logger.warn('创意学习模块加载失败，使用基础Prompt:', learningError)
         // 继续使用基础Prompt
       }
     }
@@ -788,10 +789,10 @@ ${currentOrientation === 'brand' ? `
         if (optimizedPrompt !== basePrompt) {
           basePrompt = optimizedPrompt
           usedOptimizations = true
-          console.log('✅ 已应用投放数据优化规则')
+          logger.debug('✅ 已应用投放数据优化规则')
         }
       } catch (optimizationError) {
-        console.warn('优化规则应用失败:', optimizationError)
+        logger.warn('优化规则应用失败:', optimizationError)
         // 继续使用基础Prompt
       }
     }
@@ -852,11 +853,11 @@ ${currentOrientation === 'brand' ? `
 
       // 如果有无效的callout，记录警告（但不阻止流程）
       if (validation.invalid.length > 0) {
-        console.warn('⚠️ 发现无法验证的Callouts:', validation.invalid)
+        logger.warn('⚠️ 发现无法验证的Callouts:', validation.invalid)
         // 可以选择过滤掉无效callouts，或保留（这里保留，让用户决定）
       }
 
-      console.log('✅ Callouts验证通过:', validation.valid)
+      logger.debug('✅ Callouts验证通过:', validation.valid)
     }
 
     return {
@@ -874,7 +875,7 @@ ${currentOrientation === 'brand' ? `
       prompt: basePrompt // 返回实际使用的Prompt
     }
   } catch (error: any) {
-    console.error('生成广告创意失败:', error)
+    logger.error('生成广告创意失败:', error)
     throw new Error(`生成广告创意失败: ${error.message}`)
   }
 }
@@ -955,11 +956,11 @@ export async function extractBrandFromContent(
       throw new Error(`品牌名包含无效词汇: ${cleanedBrand}`)
     }
 
-    console.log(`✅ AI品牌提取: "${brandName}" → 清洗后: "${cleanedBrand}"`)
+    logger.debug(`✅ AI品牌提取: "${brandName}" → 清洗后: "${cleanedBrand}"`)
     return cleanedBrand
 
   } catch (error: any) {
-    console.error('AI品牌提取失败:', error)
+    logger.error('AI品牌提取失败:', error)
     throw new Error(`AI品牌提取失败: ${error.message}`)
   }
 }

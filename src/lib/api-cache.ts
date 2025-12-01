@@ -12,6 +12,9 @@ interface CacheEntry<T> {
 class ApiCache {
   private cache: Map<string, CacheEntry<any>> = new Map()
   private defaultTTL: number = 5 * 60 * 1000 // 默认5分钟
+  // ⚡ P0性能优化: 添加LRU缓存限制，防止内存泄漏
+  private maxSize: number = 1000 // 最大1000条缓存
+  private accessOrder: string[] = [] // LRU访问顺序跟踪
 
   /**
    * 获取缓存数据
@@ -26,8 +29,12 @@ class ApiCache {
     // 检查是否过期
     if (Date.now() > entry.expiresAt) {
       this.cache.delete(key)
+      this.removeFromAccessOrder(key)
       return null
     }
+
+    // 更新LRU访问顺序
+    this.updateAccessOrder(key)
 
     return entry.data as T
   }
@@ -36,6 +43,11 @@ class ApiCache {
    * 设置缓存数据
    */
   set<T>(key: string, data: T, ttl?: number): void {
+    // 如果超过maxSize，删除最旧的条目(LRU驱逐)
+    if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
+      this.evictOldest()
+    }
+
     const actualTTL = ttl || this.defaultTTL
     const entry: CacheEntry<T> = {
       data,
@@ -43,6 +55,41 @@ class ApiCache {
       expiresAt: Date.now() + actualTTL,
     }
     this.cache.set(key, entry)
+
+    // 更新LRU访问顺序
+    this.updateAccessOrder(key)
+  }
+
+  /**
+   * 更新LRU访问顺序
+   */
+  private updateAccessOrder(key: string): void {
+    // 从旧位置移除
+    this.removeFromAccessOrder(key)
+    // 添加到末尾（最近访问）
+    this.accessOrder.push(key)
+  }
+
+  /**
+   * 从访问顺序中移除key
+   */
+  private removeFromAccessOrder(key: string): void {
+    const index = this.accessOrder.indexOf(key)
+    if (index > -1) {
+      this.accessOrder.splice(index, 1)
+    }
+  }
+
+  /**
+   * 驱逐最旧的缓存条目
+   */
+  private evictOldest(): void {
+    if (this.accessOrder.length === 0) return
+
+    const oldestKey = this.accessOrder.shift()
+    if (oldestKey) {
+      this.cache.delete(oldestKey)
+    }
   }
 
   /**
@@ -50,6 +97,7 @@ class ApiCache {
    */
   delete(key: string): void {
     this.cache.delete(key)
+    this.removeFromAccessOrder(key)
   }
 
   /**
@@ -62,7 +110,10 @@ class ApiCache {
         keysToDelete.push(key)
       }
     }
-    keysToDelete.forEach((key) => this.cache.delete(key))
+    keysToDelete.forEach((key) => {
+      this.cache.delete(key)
+      this.removeFromAccessOrder(key)
+    })
   }
 
   /**
@@ -70,6 +121,7 @@ class ApiCache {
    */
   clear(): void {
     this.cache.clear()
+    this.accessOrder = []
   }
 
   /**
@@ -112,7 +164,10 @@ class ApiCache {
       }
     }
 
-    keysToDelete.forEach((key) => this.cache.delete(key))
+    keysToDelete.forEach((key) => {
+      this.cache.delete(key)
+      this.removeFromAccessOrder(key)
+    })
   }
 
   /**
