@@ -42,9 +42,10 @@ describe('字符限制验证', () => {
       ]
 
       const truncated = callouts.map(c => c.substring(0, 25))
-      expect(truncated[0]).toBe('Free Shipping Worldwide ')
+      // 修复: substring(0, 25) 的实际结果
+      expect(truncated[0]).toBe('Free Shipping Worldwide T')
       expect(truncated[0].length).toBe(25)
-      expect(truncated[1]).toBe('Money Back Guarantee Fo')
+      expect(truncated[1]).toBe('Money Back Guarantee Fore')
       expect(truncated[1].length).toBe(25)
     })
 
@@ -120,8 +121,9 @@ describe('字符限制验证', () => {
 
       expect(truncated[0].text).toBe('Compra Ahora en Oferta Es')
       expect(truncated[0].text.length).toBe(25)
-      expect(truncated[0].description).toBe('Entrega gratuita en 2 días')
-      expect(truncated[0].description.length).toBe(26) // 实际长度
+      // 修复: 'Entrega gratuita en 2 días para miembros Prime'.substring(0, 35) 的实际结果
+      expect(truncated[0].description).toBe('Entrega gratuita en 2 días para mie')
+      expect(truncated[0].description.length).toBe(35)
     })
 
     test('应该处理空 sitelinks', () => {
@@ -198,12 +200,13 @@ describe('字符限制验证', () => {
       ]
 
       const validKeywords = keywords.filter(k => {
-        if (!k) return false
+        if (!k || !k.trim()) return false  // 修复: 先检查trim后是否为空
         const wordCount = k.trim().split(/\s+/).length
         return wordCount >= 1 && wordCount <= 4
       })
 
       expect(validKeywords).toHaveLength(2)
+      expect(validKeywords).toEqual(['Samsung', 'Galaxy S24'])
     })
 
     test('应该处理多语言关键词', () => {

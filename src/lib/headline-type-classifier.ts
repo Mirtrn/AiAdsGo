@@ -111,8 +111,8 @@ export function classifyHeadline(headline: string): HeadlineClassification {
       typeReasoning += `Patterns: ${matchedPatterns.length} matched. `
     }
 
-    // 如果得分超过阈值，添加到类型列表
-    if (typeScore > 0.3) {
+    // 如果得分达到阈值，添加到类型列表
+    if (typeScore >= 0.3) {  // 修复: 从 > 改为 >=，允许刚好0.3的分数
       types.push(type as HeadlineType)
       if (typeScore > maxConfidence) {
         maxConfidence = typeScore
