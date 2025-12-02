@@ -111,7 +111,7 @@ const SETTING_METADATA: Record<string, {
   },
   'ai.gemini_model': {
     label: 'Gemini模型（Pro级别）',
-    description: '选择复杂任务（关键词生成、创意生成、Launch Score计算等）使用的Pro模型版本。简单任务（元素提取、评分等）将自动使用Flash模型以节省成本',
+    description: '用于复杂任务的Pro模型。简单任务将自动使用Flash模型以节省成本',
     options: [
       { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（默认，稳定版）' },
       { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview（实验性，最新功能）' }
