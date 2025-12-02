@@ -6,12 +6,12 @@ import { getDatabase, getSQLiteDatabase } from './db'
 export interface GoogleAdsCredentials {
   id: number
   user_id: number
-  client_id: string
-  client_secret: string
+  client_id?: string | null  // 选填，可使用平台共享配置
+  client_secret?: string | null  // 选填，可使用平台共享配置
   refresh_token: string
   access_token?: string
-  developer_token: string
-  login_customer_id?: string
+  developer_token?: string | null  // 选填，可使用平台共享配置
+  login_customer_id: string  // 必填，MCC账户ID
   access_token_expires_at?: string
   is_active: number
   last_verified_at?: string
@@ -25,11 +25,11 @@ export interface GoogleAdsCredentials {
 export function saveGoogleAdsCredentials(
   userId: number,
   credentials: {
-    client_id: string
-    client_secret: string
+    client_id?: string | null  // 选填，可使用平台共享配置
+    client_secret?: string | null  // 选填，可使用平台共享配置
     refresh_token: string
-    developer_token: string
-    login_customer_id?: string
+    developer_token?: string | null  // 选填，可使用平台共享配置
+    login_customer_id: string  // 必填，MCC账户ID
     access_token?: string
     access_token_expires_at?: string
   }
@@ -133,14 +133,23 @@ export async function refreshAccessToken(userId: number): Promise<{
     throw new Error('Google Ads凭证不存在')
   }
 
+  // 获取 client_id 和 client_secret（用户配置优先，否则使用平台共享配置）
+  const { getSetting } = await import('./settings')
+  const clientId = credentials.client_id || getSetting('google_ads', 'client_id')?.value
+  const clientSecret = credentials.client_secret || getSetting('google_ads', 'client_secret')?.value
+
+  if (!clientId || !clientSecret) {
+    throw new Error('缺少 Client ID 或 Client Secret（未配置用户凭证且平台共享配置不可用）')
+  }
+
   const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({
-      client_id: credentials.client_id,
-      client_secret: credentials.client_secret,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: credentials.refresh_token,
       grant_type: 'refresh_token',
     }),

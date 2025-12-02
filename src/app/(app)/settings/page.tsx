@@ -69,8 +69,8 @@ const SETTING_METADATA: Record<string, {
 }> = {
   // Google Ads
   'google_ads.login_customer_id': {
-    label: 'Login Customer ID (MCC账户ID)',
-    description: '您的MCC管理账户ID，用于访问您管理的广告账户。格式：10位数字（不含连字符）',
+    label: 'Login Customer ID (MCC账户ID) *',  // 添加必填标记
+    description: '您的MCC管理账户ID，用于访问您管理的广告账户。格式：10位数字（不含连字符）【必填】',
     placeholder: '例如: 1234567890'
   },
   'google_ads.client_id': {
@@ -474,6 +474,16 @@ export default function SettingsPage() {
     setSaving(true)
 
     try {
+      // Google Ads配置验证
+      if (category === 'google_ads') {
+        const loginCustomerId = formData.google_ads?.['login_customer_id']
+        if (!loginCustomerId || loginCustomerId.trim() === '') {
+          toast.error('Login Customer ID (MCC账户ID) 是必填项')
+          setSaving(false)
+          return
+        }
+      }
+
       // AI配置验证
       if (category === 'ai') {
         const aiMode = formData.ai?.['use_vertex_ai'] || 'false'
