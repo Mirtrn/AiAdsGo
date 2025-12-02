@@ -1901,20 +1901,31 @@ export async function scrapeAmazonStore(
     '[data-asin]'
   ]
 
-  // 🔥 如果上述策略已经获取到足够产品，跳过原有的selector遍历逻辑
-  if (products.length >= 5) {
-    console.log(`✅ 已通过混合策略获取 ${products.length} 个产品，跳过selector遍历`)
+  // 🔥 检查是否存在占位符名称需要更新
+  const placeholderProducts = products.filter(p => /^Product [A-Z0-9]{10}$/.test(p.name))
+  const hasPlaceholders = placeholderProducts.length > 0
+
+  // 🔥 如果上述策略已经获取到足够产品且没有占位符，跳过selector遍历
+  if (products.length >= 5 && !hasPlaceholders) {
+    console.log(`✅ 已通过混合策略获取 ${products.length} 个产品（无占位符），跳过selector遍历`)
   } else {
-    console.log(`⚠️ 产品数量不足(${products.length}个)，尝试原有selector策略...`)
+    if (hasPlaceholders) {
+      console.log(`⚠️ 存在 ${placeholderProducts.length} 个占位符产品，运行selector更新名称...`)
+    } else {
+      console.log(`⚠️ 产品数量不足(${products.length}个)，尝试原有selector策略...`)
+    }
 
   for (const selector of productSelectors) {
-    if (products.length >= 5) break // If we found some products, stop trying more selectors
+    // 🔥 修复：如果存在占位符，继续遍历selector更新名称；否则有足够产品就跳过
+    if (products.length >= 5 && !hasPlaceholders) break
 
     const matchCount = $(selector).length
     console.log(`🔍 尝试选择器"${selector}": 匹配${matchCount}个元素`)
 
     $(selector).each((i, el) => {
-      if (products.length >= 30) return false // Limit to 30 products
+      // 🔥 修复：更新占位符不计入产品数量限制
+      const newProductCount = products.filter(p => !/^Product [A-Z0-9]{10}$/.test(p.name)).length
+      if (newProductCount >= 30 && !hasPlaceholders) return false // Limit to 30 non-placeholder products
 
       const $el = $(el)
 
@@ -2034,18 +2045,22 @@ export async function scrapeAmazonStore(
   // Enhanced fallback已被移除：Google Search Ads不展示图片，不需要从img[alt]提取产品
   } // 🔥 关闭 else 块
 
-  // 🔥 过滤掉占位符名称的产品
+  // 🔥 修复：过滤掉占位符名称的产品（在selector策略之后才过滤）
   console.log(`📊 原始产品数量: ${products.length}`)
   const validProducts = products.filter(p => {
-    // 过滤条件：名称不能是占位符格式 "Product BXXXXXXX"
+    // 🔥 修复：只过滤完全无效的占位符（名称和价格都为空或占位符）
+    // 如果有价格数据（来自A0b），即使名称是占位符也保留，让后续处理
     const isPlaceholder = /^Product [A-Z0-9]{10}$/.test(p.name)
-    if (isPlaceholder) {
-      console.log(`  ⊗ 过滤占位符产品: ${p.name} (ASIN: ${p.asin})`)
+    const hasPrice = p.price && p.price !== 'null'
+
+    // 保留条件：1) 名称不是占位符 OR 2) 有价格数据
+    if (isPlaceholder && !hasPrice) {
+      console.log(`  ⊗ 过滤无效占位符: ${p.name} (ASIN: ${p.asin}, 无价格)`)
       return false
     }
     return true
   })
-  console.log(`📊 过滤后产品数量: ${validProducts.length} (移除 ${products.length - validProducts.length} 个占位符)`)
+  console.log(`📊 过滤后产品数量: ${validProducts.length} (移除 ${products.length - validProducts.length} 个无效占位符)`)
 
   // 🔥 热销商品筛选逻辑
   // 计算热销分数：score = rating × log(reviewCount + 1)
