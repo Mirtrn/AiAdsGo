@@ -114,6 +114,10 @@ debug_*.log
 temp_*.sh
 temp_*.ts
 
+# storage目录 - 包含调试文件、测试脚本、临时数据
+storage/
+!storage/.gitkeep
+
 # 临时分析报告文件
 ANALYSIS_SUMMARY.md
 COMPETITOR_ANALYSIS_CODE_REFERENCE.md
