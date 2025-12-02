@@ -3,15 +3,25 @@
  *
  * 用途：
  * - 集中管理所有敏感配置
- * - 启动时验证必需的环境变量
+ * - 运行时验证必需的环境变量（延迟加载）
  * - 确保密钥强度符合安全标准
+ *
+ * 注意：构建时不验证，只在运行时验证
  */
+
+// 标记是否为构建阶段
+const IS_BUILD_TIME = process.env.NEXT_PHASE === 'phase-production-build'
 
 /**
  * 获取必需的环境变量，未设置则抛出错误
  */
 function getRequiredEnvVar(name: string, minLength?: number): string {
   const value = process.env[name]
+
+  // 构建时返回占位符，避免构建失败
+  if (IS_BUILD_TIME) {
+    return 'build-time-placeholder'.padEnd(minLength || 32, '0')
+  }
 
   if (!value) {
     throw new Error(
@@ -48,11 +58,6 @@ export const ENCRYPTION_IV_LENGTH = parseInt(getOptionalEnvVar('ENCRYPTION_IV_LE
 // ==================== 密码哈希配置 ====================
 export const BCRYPT_SALT_ROUNDS = parseInt(getOptionalEnvVar('BCRYPT_SALT_ROUNDS', '12'), 10)
 
-// 验证bcrypt强度
-if (BCRYPT_SALT_ROUNDS < 10) {
-  throw new Error('❌ SECURITY ERROR: BCRYPT_SALT_ROUNDS must be at least 10')
-}
-
 // ==================== 数据库配置 ====================
 export const DATABASE_TYPE = getOptionalEnvVar('DATABASE_TYPE', 'sqlite')
 export const SQLITE_DB_PATH = getOptionalEnvVar('SQLITE_DB_PATH', './data/autoads.db')
@@ -65,56 +70,62 @@ export const NODE_ENV = getOptionalEnvVar('NODE_ENV', 'development')
 export const IS_PRODUCTION = NODE_ENV === 'production'
 export const IS_DEVELOPMENT = NODE_ENV === 'development'
 
-// ==================== 启动时验证 ====================
+// ==================== 运行时验证（仅在非构建时执行） ====================
+if (!IS_BUILD_TIME) {
+  // 验证bcrypt强度
+  if (BCRYPT_SALT_ROUNDS < 10) {
+    throw new Error('❌ SECURITY ERROR: BCRYPT_SALT_ROUNDS must be at least 10')
+  }
 
-// 验证ENCRYPTION_KEY格式（必须是64个十六进制字符）
-if (!/^[0-9a-fA-F]{64}$/.test(ENCRYPTION_KEY)) {
-  throw new Error(
-    '❌ SECURITY ERROR: ENCRYPTION_KEY must be exactly 64 hexadecimal characters (32 bytes)\n' +
-    'Generate a new key with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"\n' +
-    `Current value format is invalid: ${ENCRYPTION_KEY.substring(0, 10)}...`
-  )
-}
-
-// 生产环境额外验证
-if (IS_PRODUCTION) {
-  // 生产环境禁止使用弱密钥
-  const weakSecrets = [
-    'default-secret-please-change-in-production',
-    '0000000000000000000000000000000000000000000000000000000000000000',
-    '1111111111111111111111111111111111111111111111111111111111111111',
-  ]
-
-  if (weakSecrets.includes(JWT_SECRET)) {
+  // 验证ENCRYPTION_KEY格式（必须是64个十六进制字符）
+  if (!/^[0-9a-fA-F]{64}$/.test(ENCRYPTION_KEY)) {
     throw new Error(
-      '❌ PRODUCTION SECURITY ERROR: JWT_SECRET is using a default/weak value\n' +
-      'Please generate a strong random secret for production deployment.'
+      '❌ SECURITY ERROR: ENCRYPTION_KEY must be exactly 64 hexadecimal characters (32 bytes)\n' +
+      'Generate a new key with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"\n' +
+      `Current value format is invalid: ${ENCRYPTION_KEY.substring(0, 10)}...`
     )
   }
 
-  if (weakSecrets.includes(ENCRYPTION_KEY)) {
-    throw new Error(
-      '❌ PRODUCTION SECURITY ERROR: ENCRYPTION_KEY is using a default/weak value\n' +
-      'Please generate a strong random key for production deployment.'
-    )
+  // 生产环境额外验证
+  if (IS_PRODUCTION) {
+    // 生产环境禁止使用弱密钥
+    const weakSecrets = [
+      'default-secret-please-change-in-production',
+      '0000000000000000000000000000000000000000000000000000000000000000',
+      '1111111111111111111111111111111111111111111111111111111111111111',
+    ]
+
+    if (weakSecrets.includes(JWT_SECRET)) {
+      throw new Error(
+        '❌ PRODUCTION SECURITY ERROR: JWT_SECRET is using a default/weak value\n' +
+        'Please generate a strong random secret for production deployment.'
+      )
+    }
+
+    if (weakSecrets.includes(ENCRYPTION_KEY)) {
+      throw new Error(
+        '❌ PRODUCTION SECURITY ERROR: ENCRYPTION_KEY is using a default/weak value\n' +
+        'Please generate a strong random key for production deployment.'
+      )
+    }
+
+    // 生产环境bcrypt强度建议12+
+    if (BCRYPT_SALT_ROUNDS < 12) {
+      console.warn(
+        '⚠️  WARNING: BCRYPT_SALT_ROUNDS is below recommended value for production (12+)\n' +
+        `Current: ${BCRYPT_SALT_ROUNDS}, Recommended: 12-14`
+      )
+    }
   }
 
-  // 生产环境bcrypt强度建议12+
-  if (BCRYPT_SALT_ROUNDS < 12) {
-    console.warn(
-      '⚠️  WARNING: BCRYPT_SALT_ROUNDS is below recommended value for production (12+)\n' +
-      `Current: ${BCRYPT_SALT_ROUNDS}, Recommended: 12-14`
-    )
+  // ==================== 配置摘要（启动日志） ====================
+  if (IS_DEVELOPMENT) {
+    console.log('\n✅ Security configuration loaded successfully:')
+    console.log(`   - JWT_SECRET: ${JWT_SECRET.substring(0, 10)}... (${JWT_SECRET.length} chars)`)
+    console.log(`   - JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}`)
+    console.log(`   - ENCRYPTION_KEY: ${ENCRYPTION_KEY.substring(0, 10)}... (${ENCRYPTION_KEY.length} chars)`)
+    console.log(`   - BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS}`)
+    console.log(`   - NODE_ENV: ${NODE_ENV}`)
+    console.log(`   - DATABASE_TYPE: ${DATABASE_TYPE}\n`)
   }
-}
-
-// ==================== 配置摘要（启动日志） ====================
-if (IS_DEVELOPMENT) {
-  console.log('\n✅ Security configuration loaded successfully:')
-  console.log(`   - JWT_SECRET: ${JWT_SECRET.substring(0, 10)}... (${JWT_SECRET.length} chars)`)
-  console.log(`   - JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}`)
-  console.log(`   - ENCRYPTION_KEY: ${ENCRYPTION_KEY.substring(0, 10)}... (${ENCRYPTION_KEY.length} chars)`)
-  console.log(`   - BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS}`)
-  console.log(`   - NODE_ENV: ${NODE_ENV}`)
-  console.log(`   - DATABASE_TYPE: ${DATABASE_TYPE}\n`)
 }
