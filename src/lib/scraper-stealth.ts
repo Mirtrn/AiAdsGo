@@ -1593,9 +1593,9 @@ export async function scrapeAmazonStore(
     const jsonMatch = html.match(/liveFlagshipStates\["amazonlive-react-shopping-carousel-data"\]\s*=\s*JSON\.parse\(("(?:[^"\\]|\\.)*")\)/);
 
     if (jsonMatch && jsonMatch[1]) {
-      // 解析双重编码的JSON字符串
+      // 🔥 修复：JSON是单层编码，不是双重编码
       const jsonStr = JSON.parse(jsonMatch[1])
-      const carouselData = JSON.parse(jsonStr)
+      const carouselData = jsonStr  // 直接使用，不需要再次JSON.parse()
 
       console.log(`📊 找到嵌入的产品数据对象`)
 
@@ -1618,7 +1618,58 @@ export async function scrapeAmazonStore(
         console.log(`  ✅ 提取产品: ${productData.title?.substring(0, 50)}... (${asin})`)
       }
 
-      console.log(`📊 策略A0成功: 从JavaScript JSON提取 ${products.length} 个产品`)
+      console.log(`📊 策略A0成功: 从preloadProducts提取 ${products.length} 个产品`)
+
+      // 🔥 新增A0c：从segments数组中提取所有ASIN（比preloadProducts更全面）
+      const segments = carouselData.segments || []
+      let segmentAsinCount = 0
+      for (const segment of segments) {
+        const segmentItems = segment.segmentItems || []
+        for (const item of segmentItems) {
+          if (item.type === 'PRODUCT' && item.asin) {
+            const asin = item.asin
+            // 检查是否已经添加过
+            if (!productAsins.has(asin)) {
+              // 尝试从preloadProducts获取详细信息
+              const productData = preloadProducts[asin]
+              if (productData) {
+                products.push({
+                  name: productData.title || '',
+                  price: productData.formattedPriceV2 || null,
+                  rating: productData.ratingValue ? String(productData.ratingValue) : null,
+                  reviewCount: productData.totalReviewCount ? String(productData.totalReviewCount) : null,
+                  asin: asin,
+                  promotion: productData.dealBadge?.messageText || null,
+                  badge: productData.dealBadge?.labelText || null,
+                  isPrime: productData.eligibleForPrimeShipping || false
+                })
+                productAsins.add(asin)
+                segmentAsinCount++
+                console.log(`  ✅ A0c补充产品: ${productData.title?.substring(0, 50)}... (${asin})`)
+              } else {
+                // 占位符，等待selector更新名称
+                products.push({
+                  name: `Product ${asin}`,
+                  price: null,
+                  rating: null,
+                  reviewCount: null,
+                  asin: asin,
+                  promotion: null,
+                  badge: null,
+                  isPrime: false
+                })
+                productAsins.add(asin)
+                segmentAsinCount++
+                console.log(`  ✅ A0c补充ASIN: ${asin} (待selector更新)`)
+              }
+            }
+          }
+        }
+      }
+
+      if (segmentAsinCount > 0) {
+        console.log(`📊 A0c成功: 从segments补充 ${segmentAsinCount} 个产品`)
+      }
 
       // 🔥 策略A0b：逐个提取deals数据（处理转义JSON）
       // 匹配转义的JSON格式: \"B0CM39K7CB\":{\"dealType\":\"BEST_DEAL\",...,\"dealPrice\":{\"wholeValue\":125,\"fractionalValue\":99,\"currencySymbol\":\"$\"},...}
@@ -1879,11 +1930,12 @@ export async function scrapeAmazonStore(
                    null
 
       // Try multiple name extraction methods
-      // 如果是链接元素，优先从img alt或aria-label提取
+      // 🔥 优化：如果是链接元素，优先从title或aria-label提取（适配Overlay__overlay__LloCU结构）
       let name = ''
       if ($el.is('a')) {
-        name = $el.find('img[alt]').first().attr('alt')?.trim() ||
-               $el.attr('aria-label')?.trim() ||
+        name = $el.attr('title')?.trim() ||          // 🔥 新增：优先使用title属性
+               $el.attr('aria-label')?.trim() ||      // 🔥 aria-label也包含完整产品名
+               $el.find('img[alt]').first().attr('alt')?.trim() ||
                $el.find('[class*="Title"]').text().trim() ||
                ''
       } else {
