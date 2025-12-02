@@ -10,7 +10,6 @@
  */
 
 import { getDatabase } from './db'
-import { initializePostgreSQLSchema } from './db-schema-pg'
 import { hashPassword } from './crypto'
 import fs from 'fs'
 import path from 'path'
@@ -96,18 +95,25 @@ async function isDatabaseInitialized(): Promise<boolean> {
 async function initializeSQLite(): Promise<void> {
   console.log('📦 Initializing SQLite database...')
 
-  // SQLite 初始化逻辑由现有的 scripts/init-database.ts 处理
-  // 这里我们只需要确保数据库文件存在
+  // SQLite 初始化需要先通过命令行脚本完成
+  // 因为 better-sqlite3 的 exec 方法可以执行多条 SQL 语句
   const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
   const dataDir = path.dirname(dbPath)
+  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema.sqlite.sql')
 
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true })
     console.log(`✅ Created data directory: ${dataDir}`)
   }
 
+  if (!fs.existsSync(sqlPath)) {
+    console.log('⚠️  SQLite schema file not found.')
+    console.log('   Please run: npm run db:schema && npm run db:init')
+    return
+  }
+
   console.log('⚠️  SQLite database needs manual initialization.')
-  console.log('   Please run: npm run init-db')
+  console.log('   Please run: npm run db:init')
 }
 
 /**
@@ -117,8 +123,21 @@ async function initializePostgreSQL(): Promise<void> {
   console.log('🐘 Initializing PostgreSQL database...')
 
   try {
-    // 1. 创建表结构
-    await initializePostgreSQLSchema()
+    // 1. 从生成的SQL文件创建表结构
+    const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema.pg.sql')
+    if (!fs.existsSync(sqlPath)) {
+      throw new Error(`PostgreSQL schema file not found: ${sqlPath}. Please run: npm run db:schema`)
+    }
+
+    const sqlContent = fs.readFileSync(sqlPath, 'utf-8')
+    const db = getDatabase()
+    const sql = (db as any).getRawConnection()
+
+    console.log('\n📋 Creating database tables...')
+    await sql.begin(async (tx: any) => {
+      await tx.unsafe(sqlContent)
+    })
+    console.log('✅ Schema created from migrations/000_init_schema.pg.sql')
 
     // 2. 创建默认管理员账号
     await createDefaultAdmin()

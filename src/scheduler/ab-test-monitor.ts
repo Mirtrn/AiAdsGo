@@ -557,15 +557,6 @@ export async function runABTestMonitor() {
   }
 }
 
-// 如果直接运行此文件，执行一次监控
-if (require.main === module) {
-  runABTestMonitor()
-    .then(() => {
-      console.log('\n✅ 监控任务执行完成')
-      process.exit(0)
-    })
-    .catch((error) => {
-      console.error('\n❌ 监控任务执行失败:', error)
-      process.exit(1)
-    })
-}
+// 注意：移除了 require.main === module 的自动执行逻辑
+// 原因：esbuild bundle后该条件会意外触发，导致scheduler启动时立即执行并退出
+// 如需手动测试，请使用：npx ts-node src/scheduler/ab-test-monitor.ts

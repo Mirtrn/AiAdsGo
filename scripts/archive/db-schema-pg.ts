@@ -513,7 +513,7 @@ export async function initializePostgreSQLSchema(): Promise<void> {
           offer_id INTEGER NOT NULL,
           test_name TEXT NOT NULL,
           test_description TEXT,
-          test_type TEXT NOT NULL CHECK(test_type IN ('headline', 'description', 'cta', 'image', 'full_creative')),
+          test_type TEXT NOT NULL CHECK(test_type IN ('headline', 'description', 'keyword', 'callout', 'sitelink', 'full_creative')),
           status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'running', 'paused', 'completed', 'cancelled')),
           start_date TIMESTAMP,
           end_date TIMESTAMP,
@@ -521,6 +521,10 @@ export async function initializePostgreSQLSchema(): Promise<void> {
           statistical_confidence REAL,
           min_sample_size INTEGER DEFAULT 100,
           confidence_level REAL DEFAULT 0.95,
+          is_auto_test BOOLEAN DEFAULT TRUE,
+          test_mode TEXT DEFAULT 'manual' CHECK(test_mode IN ('launch_multi_variant', 'optimization_challenge', 'manual')),
+          parent_campaign_id INTEGER REFERENCES campaigns(id) ON DELETE SET NULL,
+          test_dimension TEXT DEFAULT 'creative' CHECK(test_dimension IN ('creative', 'strategy')),
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -528,6 +532,9 @@ export async function initializePostgreSQLSchema(): Promise<void> {
         )
       `
       console.log('✅ ab_tests表')
+
+      // 添加ab_tests表索引
+      await tx`CREATE INDEX IF NOT EXISTS idx_ab_tests_parent_campaign ON ab_tests(parent_campaign_id)`
 
       // 25. ab_test_variants表 - A/B测试变体
       await tx`
