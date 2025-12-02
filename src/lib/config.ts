@@ -6,11 +6,13 @@
  * - 运行时验证必需的环境变量（延迟加载）
  * - 确保密钥强度符合安全标准
  *
- * 注意：构建时不验证，只在运行时验证
+ * 注意：构建时和测试时不验证，只在运行时验证
  */
 
-// 标记是否为构建阶段
+// 标记是否为构建阶段或测试环境
 const IS_BUILD_TIME = process.env.NEXT_PHASE === 'phase-production-build'
+const IS_TEST_ENV = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true'
+const SKIP_VALIDATION = IS_BUILD_TIME || IS_TEST_ENV
 
 /**
  * 获取必需的环境变量，未设置则抛出错误
@@ -18,9 +20,9 @@ const IS_BUILD_TIME = process.env.NEXT_PHASE === 'phase-production-build'
 function getRequiredEnvVar(name: string, minLength?: number): string {
   const value = process.env[name]
 
-  // 构建时返回占位符，避免构建失败
-  if (IS_BUILD_TIME) {
-    return 'build-time-placeholder'.padEnd(minLength || 32, '0')
+  // 构建时或测试时返回占位符，避免失败
+  if (SKIP_VALIDATION) {
+    return 'placeholder-for-build-or-test'.padEnd(minLength || 32, '0')
   }
 
   if (!value) {
@@ -70,8 +72,8 @@ export const NODE_ENV = getOptionalEnvVar('NODE_ENV', 'development')
 export const IS_PRODUCTION = NODE_ENV === 'production'
 export const IS_DEVELOPMENT = NODE_ENV === 'development'
 
-// ==================== 运行时验证（仅在非构建时执行） ====================
-if (!IS_BUILD_TIME) {
+// ==================== 运行时验证（仅在非构建/测试时执行） ====================
+if (!SKIP_VALIDATION) {
   // 验证bcrypt强度
   if (BCRYPT_SALT_ROUNDS < 10) {
     throw new Error('❌ SECURITY ERROR: BCRYPT_SALT_ROUNDS must be at least 10')
