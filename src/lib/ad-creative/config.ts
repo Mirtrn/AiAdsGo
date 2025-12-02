@@ -78,7 +78,7 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
 
   // 6. 检查Gemini API配置（无需use_vertex_ai标志）
   const geminiApiKey = userSettings['gemini_api_key'] || globalSettings['GEMINI_API_KEY']
-  const geminiModel = userSettings['gemini_model'] || globalSettings['GEMINI_MODEL'] || 'gemini-1.5-flash'
+  const geminiModel = userSettings['gemini_model'] || globalSettings['GEMINI_MODEL'] || 'gemini-2.5-flash'
 
   if (geminiApiKey) {
     console.log(`🤖 使用Gemini API: 模型=${geminiModel}`)

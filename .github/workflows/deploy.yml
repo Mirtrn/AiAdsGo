@@ -91,7 +91,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.prod
+          file: ./Dockerfile.single
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -101,9 +101,16 @@ jobs:
             NODE_ENV=production
 
   # ============================================
-  # 部署说明
+  # 部署说明（单容器架构）
   # ============================================
   # 镜像构建完成后，需要手动拉取并部署到ClawCloud
+  #
+  # 🏗️ 架构说明：
+  # - 单容器集成：Nginx + Next.js + Scheduler
+  # - 进程管理：使用 supervisord 管理所有服务
+  # - 对外端口：80（Nginx监听）
+  # - 内部端口：3000（Next.js）
+  # - 定时任务：调度器自动运行
   #
   # 手动部署步骤：
   # 1. SSH登录到ClawCloud服务器
@@ -112,11 +119,26 @@ jobs:
   #    或指定版本：
   #    docker pull ghcr.io/xxrenzhe/autobb:prod-3.0.0
   # 3. 重启服务：
-  #    docker-compose -f docker-compose.prod.yml up -d
-  # 4. 清理旧镜像：
+  #    docker stop autoads && docker rm autoads
+  #    docker run -d --name autoads \
+  #      -p 80:80 \
+  #      -v /path/to/data:/app/data \
+  #      -v /path/to/logs:/app/logs \
+  #      --env-file .env.prod \
+  #      ghcr.io/xxrenzhe/autobb:prod-latest
+  # 4. 验证服务：
+  #    docker logs -f autoads
+  #    curl http://localhost/api/health
+  # 5. 清理旧镜像：
   #    docker system prune -f
   #
   # 可用的镜像标签：
   # - prod-latest: main分支最新版本
   # - prod-[commitid]: 特定commit版本（如 prod-a1b2c3d）
   # - prod-[version]: 特定发布版本（如 prod-3.0.0）
+  #
+  # 注意事项：
+  # - 确保服务器防火墙开放80端口
+  # - 数据持久化需要挂载 /app/data 目录
+  # - 日志持久化需要挂载 /app/logs 目录
+  # - 环境变量通过 .env.prod 文件注入

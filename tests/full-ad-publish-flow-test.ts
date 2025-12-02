@@ -228,7 +228,7 @@ async function runFullPublishFlowTest() {
       ...creativeData,
       final_url: offer.final_url || offer.url,  // 优先使用解析后的final_url
       final_url_suffix: offer.final_url_suffix || undefined,
-      ai_model: creativeData.ai_model || 'gemini-2.0-flash-exp'
+      ai_model: creativeData.ai_model || 'gemini-2.5-flash'
     })
 
     console.log(`✅ 创意已保存，ID: ${creative.id}`)
