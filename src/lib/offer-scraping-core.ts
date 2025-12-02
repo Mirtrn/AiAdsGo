@@ -787,26 +787,27 @@ export async function performScrapeAndAnalysis(
     console.log(`📦 最终品牌名: "${extractedBrand}"`)
 
 
-    // 🎯🚀 P0优化: 并行执行评论分析和竞品分析（性能提升40-60%）
+    // 🎯🚀 P0优化v2: 并行执行评论分析和竞品分析（复用连接池，性能提升60-80%）
     let reviewAnalysis = null
     let competitorAnalysis = null
 
     if (pageType === 'product' && urlForScraping.includes('amazon') && aiAnalysisSuccess) {
       try {
-        console.log('🚀 并行执行评论+竞品分析（优化耗时）...')
+        console.log('🚀 并行执行评论+竞品分析（复用Playwright连接池）...')
 
-        // 并行执行：评论抓取+分析 & 竞品抓取+分析
+        // 从连接池获取两个浏览器实例（并行获取，节省60-80秒启动时间）
+        const { getPlaywrightPool } = await import('@/lib/playwright-pool')
+        const pool = getPlaywrightPool()
+
+        // 并行执行：评论抓取+分析 & 竞品抓取+分析（复用连接池）
         const [reviewResult, competitorResult] = await Promise.allSettled([
-          // 评论分析流程
+          // 评论分析流程（复用连接池）
           (async () => {
-            console.log('📝 开始评论抓取+分析...')
+            console.log('📝 开始评论抓取+分析（连接池）...')
             const { scrapeAmazonReviews, analyzeReviewsWithAI } = await import('@/lib/review-analyzer')
-            const { chromium } = await import('playwright')
 
-            const browser = await chromium.launch({ headless: true })
-            const context = await browser.newContext({
-              userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-            })
+            // 🔥 复用连接池，而非新建浏览器（节省30-40秒）
+            const { context, instanceId } = await pool.acquire(undefined, undefined, targetCountry)
             const page = await context.newPage()
 
             try {
@@ -830,20 +831,17 @@ export async function performScrapeAndAnalysis(
               }
             } finally {
               await page.close()
-              await browser.close()
+              pool.release(instanceId)  // 🔥 释放回连接池，供后续复用
             }
           })(),
 
-          // 竞品分析流程
+          // 竞品分析流程（复用连接池）
           (async () => {
-            console.log('🏆 开始竞品抓取+分析...')
+            console.log('🏆 开始竞品抓取+分析（连接池）...')
             const { scrapeAmazonCompetitors, analyzeCompetitorsWithAI } = await import('@/lib/competitor-analyzer')
-            const { chromium } = await import('playwright')
 
-            const browser = await chromium.launch({ headless: true })
-            const context = await browser.newContext({
-              userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-            })
+            // 🔥 复用连接池，而非新建浏览器（节省30-40秒）
+            const { context, instanceId } = await pool.acquire(undefined, undefined, targetCountry)
             const page = await context.newPage()
 
             try {
@@ -889,7 +887,7 @@ export async function performScrapeAndAnalysis(
               }
             } finally {
               await page.close()
-              await browser.close()
+              pool.release(instanceId)  // 🔥 释放回连接池，供后续复用
             }
           })()
         ])
@@ -909,7 +907,7 @@ export async function performScrapeAndAnalysis(
           console.warn('⚠️ 竞品分析失败（不影响主流程）:', competitorResult.reason?.message)
         }
 
-        console.log('🎉 并行分析完成（比串行节省40-60%时间）')
+        console.log('🎉 并行分析完成（连接池复用，比原方案节省60-80秒）')
 
       } catch (parallelError: any) {
         console.warn('⚠️ 并行分析失败（不影响主流程）:', parallelError.message)

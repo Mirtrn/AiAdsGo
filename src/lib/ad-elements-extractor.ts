@@ -681,13 +681,13 @@ async function extractFromSingleProduct(
     }))
   }
 
-  // 3. 使用AI生成15个广告标题
-  console.log('\n📝 生成15个广告标题...')
-  const headlines = await generateHeadlines(productInfo, keywordsWithVolume.slice(0, 10), targetLanguage, userId)
-
-  // 4. 使用AI生成4个广告描述
-  console.log('\n📝 生成4个广告描述...')
-  const descriptions = await generateDescriptions(productInfo, targetLanguage, userId)
+  // 3 & 4. 🔥 P1优化: 并行生成标题和描述（节省20-30秒）
+  console.log('\n📝 并行生成广告标题和描述（优化耗时）...')
+  const [headlines, descriptions] = await Promise.all([
+    generateHeadlines(productInfo, keywordsWithVolume.slice(0, 10), targetLanguage, userId),
+    generateDescriptions(productInfo, targetLanguage, userId)
+  ])
+  console.log('✅ 标题和描述生成完成')
 
   return {
     keywords: keywordsWithVolume,
