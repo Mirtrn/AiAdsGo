@@ -162,11 +162,12 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
     throw error
   }
 
-  // 确保代理列表中有default标记
-  const proxiesWithDefault = proxyUrls.map((p, i) => ({
+  // 🔥 修复：所有代理都不设置为 default（emergency）优先级
+  // 代理池会自动将第一个代理作为兜底代理（如果需要）
+  const proxiesWithDefault = proxyUrls.map(p => ({
     url: p.url,
     country: p.country,
-    is_default: i === 0, // 第一个代理作为默认代理
+    is_default: false, // 不自动设置兜底代理，让代理池自行管理
   }))
 
   console.log(`🔍 [initializeProxyPool] 准备加载${proxiesWithDefault.length}个代理到代理池`)
