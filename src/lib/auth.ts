@@ -429,3 +429,104 @@ export async function verifyAuth(request: NextRequest): Promise<AuthResult> {
     }
   }
 }
+
+/**
+ * 认证用户信息接口
+ */
+export interface AuthenticatedUser {
+  userId: number
+  email: string
+  role: string
+  packageType: string
+}
+
+/**
+ * API处理函数类型
+ */
+export type AuthenticatedHandler = (
+  request: NextRequest,
+  user: AuthenticatedUser,
+  context?: { params?: Record<string, string> }
+) => Promise<Response>
+
+/**
+ * withAuth 高阶函数 - 统一API认证检查
+ *
+ * 用法:
+ * ```typescript
+ * export const GET = withAuth(async (request, user) => {
+ *   // user.userId, user.email, user.role, user.packageType 可用
+ *   return NextResponse.json({ data: 'success' })
+ * })
+ *
+ * // 需要管理员权限
+ * export const POST = withAuth(async (request, user) => {
+ *   return NextResponse.json({ data: 'admin only' })
+ * }, { requireAdmin: true })
+ * ```
+ */
+export function withAuth(
+  handler: AuthenticatedHandler,
+  options?: {
+    requireAdmin?: boolean
+  }
+) {
+  return async (request: NextRequest, context?: { params?: Record<string, string> }): Promise<Response> => {
+    const { NextResponse } = await import('next/server')
+
+    const authResult = await verifyAuth(request)
+
+    if (!authResult.authenticated || !authResult.user) {
+      return NextResponse.json(
+        { error: authResult.error || '未授权' },
+        { status: 401 }
+      )
+    }
+
+    // 检查管理员权限
+    if (options?.requireAdmin && authResult.user.role !== 'admin') {
+      return NextResponse.json(
+        { error: '需要管理员权限' },
+        { status: 403 }
+      )
+    }
+
+    try {
+      return await handler(request, authResult.user, context)
+    } catch (error: any) {
+      console.error('API处理错误:', error)
+      return NextResponse.json(
+        { error: error.message || '服务器内部错误' },
+        { status: 500 }
+      )
+    }
+  }
+}
+
+/**
+ * getUserIdFromRequest - 从请求中快速获取用户ID
+ *
+ * 优先从中间件注入的header获取，降级到verifyAuth
+ * 用于不需要完整用户信息的场景
+ */
+export function getUserIdFromRequest(request: NextRequest): number | null {
+  const userIdHeader = request.headers.get('x-user-id')
+  if (userIdHeader) {
+    const userId = parseInt(userIdHeader, 10)
+    if (!isNaN(userId)) {
+      return userId
+    }
+  }
+  return null
+}
+
+/**
+ * requireUserId - 获取用户ID，未登录则抛出错误
+ */
+export function requireUserId(request: NextRequest): number {
+  const userId = getUserIdFromRequest(request)
+  if (!userId) {
+    throw new Error('未授权，请先登录')
+  }
+  return userId
+}
