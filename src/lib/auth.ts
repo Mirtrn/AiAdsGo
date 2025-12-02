@@ -2,6 +2,12 @@ import { NextRequest } from 'next/server'
 import { getDatabase, getSQLiteDatabase } from './db'
 import { hashPassword, verifyPassword } from './crypto'
 import { generateToken, JWTPayload, verifyToken } from './jwt'
+import {
+  checkAccountLockout,
+  recordFailedLogin,
+  resetFailedAttempts,
+  logLoginAttempt,
+} from './auth-security'
 
 export interface User {
   id: number
@@ -19,6 +25,10 @@ export interface User {
   last_login_at: string | null
   created_at: string
   updated_at: string
+  // P0安全增强字段
+  failed_login_count: number
+  locked_until: string | null
+  last_failed_login: string | null
 }
 
 export interface CreateUserInput {
@@ -184,20 +194,37 @@ export function updateLastLogin(userId: number): void {
 }
 
 /**
- * 用户名/邮箱密码登录
+ * 用户名/邮箱密码登录（增强安全版本）
+ *
+ * @param usernameOrEmail 用户名或邮箱
+ * @param password 密码
+ * @param ipAddress 客户端IP地址（用于日志记录）
+ * @param userAgent 客户端User-Agent（用于日志记录）
  */
-export async function loginWithPassword(usernameOrEmail: string, password: string): Promise<LoginResponse> {
+export async function loginWithPassword(
+  usernameOrEmail: string,
+  password: string,
+  ipAddress: string = 'unknown',
+  userAgent: string = 'unknown'
+): Promise<LoginResponse> {
   const user = findUserByUsernameOrEmail(usernameOrEmail)
 
+  // P1修复：统一错误消息，防止账户枚举
   if (!user) {
-    throw new Error('用户不存在')
+    await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, false, '用户不存在')
+    throw new Error('用户名或密码错误')
   }
 
+  // P0：检查账户锁定状态
+  await checkAccountLockout(user)
+
   if (!user.password_hash) {
+    await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, false, '未设置密码')
     throw new Error('该账户未设置密码')
   }
 
   if (!user.is_active) {
+    await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, false, '账户已禁用')
     throw new Error('账户已被禁用')
   }
 
@@ -205,14 +232,24 @@ export async function loginWithPassword(usernameOrEmail: string, password: strin
   if (user.package_expires_at) {
     const expiryDate = new Date(user.package_expires_at)
     if (expiryDate < new Date()) {
+      await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, false, '套餐已过期')
       throw new Error('套餐已过期，请购买或升级套餐')
     }
   }
 
+  // 验证密码
   const isValid = await verifyPassword(password, user.password_hash)
   if (!isValid) {
-    throw new Error('密码错误')
+    // P0：记录失败登录，并在达到阈值时锁定账户
+    await recordFailedLogin(user.id, ipAddress, userAgent)
+    await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, false, '密码错误')
+    // P1修复：统一错误消息
+    throw new Error('用户名或密码错误')
   }
+
+  // 登录成功 - P0：重置失败计数
+  resetFailedAttempts(user.id)
+  await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, true)
 
   // 更新最后登录时间
   updateLastLogin(user.id)

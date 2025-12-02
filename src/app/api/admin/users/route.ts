@@ -17,8 +17,9 @@ export async function GET(request: NextRequest) {
   const db = getSQLiteDatabase()
 
   let query = `
-      SELECT id, username, email, display_name, role, package_type, package_expires_at, is_active, last_login_at, created_at 
-      FROM users 
+      SELECT id, username, email, display_name, role, package_type, package_expires_at, is_active, last_login_at, created_at,
+             locked_until, failed_login_count
+      FROM users
       WHERE 1=1
     `
   let countQuery = `SELECT COUNT(*) as count FROM users WHERE 1=1`

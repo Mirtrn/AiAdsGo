@@ -1,12 +1,24 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { Loader2, CheckCircle2, ArrowRight, ShieldCheck, TrendingUp, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+
+// Cloudflare Turnstile types
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (container: string | HTMLElement, options: any) => string
+      reset: (widgetId: string) => void
+      remove: (widgetId: string) => void
+      getResponse: (widgetId: string) => string
+    }
+  }
+}
 
 function LoginForm() {
   const router = useRouter()
@@ -15,6 +27,10 @@ function LoginForm() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showCaptcha, setShowCaptcha] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const turnstileWidgetId = useRef<string | null>(null)
+  const turnstileLoaded = useRef(false)
 
   useEffect(() => {
     const errorParam = searchParams?.get('error')
@@ -23,23 +39,87 @@ function LoginForm() {
     }
   }, [searchParams])
 
+  // Load Cloudflare Turnstile script
+  useEffect(() => {
+    if (showCaptcha && !turnstileLoaded.current) {
+      const script = document.createElement('script')
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+      script.async = true
+      script.defer = true
+      script.onload = () => {
+        turnstileLoaded.current = true
+        renderTurnstile()
+      }
+      document.body.appendChild(script)
+    }
+  }, [showCaptcha])
+
+  const renderTurnstile = () => {
+    if (window.turnstile && !turnstileWidgetId.current) {
+      const container = document.getElementById('turnstile-container')
+      if (container) {
+        turnstileWidgetId.current = window.turnstile.render(container, {
+          sitekey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+          callback: (token: string) => {
+            setCaptchaToken(token)
+          },
+          'error-callback': () => {
+            setError('验证码加载失败，请刷新页面重试')
+          },
+          theme: 'light',
+        })
+      }
+    }
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
     try {
+      const requestBody: { username: string; password: string; captchaToken?: string } = {
+        username,
+        password,
+      }
+
+      // 如果需要CAPTCHA，添加token
+      if (showCaptcha && captchaToken) {
+        requestBody.captchaToken = captchaToken
+      }
+
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify(requestBody),
       })
 
       const data = await response.json()
 
       if (!response.ok) {
+        // 检查是否需要CAPTCHA
+        if (data.errorType === 'captcha_required') {
+          setShowCaptcha(true)
+          setError(data.error || '请完成验证码验证')
+          // 给Turnstile一些时间加载和渲染
+          setTimeout(() => {
+            if (turnstileLoaded.current) {
+              renderTurnstile()
+            }
+          }, 100)
+          return
+        }
+
+        // CAPTCHA验证失败，重置widget
+        if (data.errorType === 'captcha_invalid') {
+          if (turnstileWidgetId.current && window.turnstile) {
+            window.turnstile.reset(turnstileWidgetId.current)
+          }
+          setCaptchaToken(null)
+        }
+
         throw new Error(data.error || '登录失败')
       }
 
@@ -214,10 +294,24 @@ function LoginForm() {
               </div>
             </div>
 
+            {/* Cloudflare Turnstile CAPTCHA (条件显示) */}
+            {showCaptcha && (
+              <div className="space-y-2">
+                <Label htmlFor="turnstile-container">安全验证</Label>
+                <div
+                  id="turnstile-container"
+                  className="flex justify-center items-center min-h-[65px] bg-slate-50 rounded-lg border border-slate-200"
+                />
+                <p className="text-xs text-slate-500 text-center">
+                  为了您的账户安全，请完成验证后继续登录
+                </p>
+              </div>
+            )}
+
             <Button
               type="submit"
-              disabled={loading}
-              className="w-full h-12 text-base font-medium bg-slate-900 hover:bg-slate-800 transition-all duration-200"
+              disabled={loading || (showCaptcha && !captchaToken)}
+              className="w-full h-12 text-base font-medium bg-slate-900 hover:bg-slate-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <>

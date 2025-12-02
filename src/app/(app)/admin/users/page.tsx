@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check } from 'lucide-react'
+import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock } from 'lucide-react'
 import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,6 +49,8 @@ interface User {
     package_expires_at: string | null
     is_active: number
     created_at: string
+    locked_until: string | null
+    failed_login_count: number
 }
 
 interface Pagination {
@@ -56,6 +58,18 @@ interface Pagination {
     page: number
     limit: number
     totalPages: number
+}
+
+interface LoginRecord {
+    type: 'login_attempt' | 'audit_log'
+    id: number
+    success?: boolean
+    ipAddress: string
+    userAgent: string
+    failureReason?: string
+    eventType?: string
+    details?: any
+    timestamp: string
 }
 
 export default function UserManagementPage() {
@@ -155,6 +169,12 @@ export default function UserManagementPage() {
     const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false)
     const [resetPasswordData, setResetPasswordData] = useState<{username: string, password: string} | null>(null)
     const [copied, setCopied] = useState(false)
+
+    // Login history dialog
+    const [isLoginHistoryOpen, setIsLoginHistoryOpen] = useState(false)
+    const [loginHistoryUser, setLoginHistoryUser] = useState<User | null>(null)
+    const [loginRecords, setLoginRecords] = useState<LoginRecord[]>([])
+    const [loadingHistory, setLoadingHistory] = useState(false)
 
     // Confirmation dialogs
     const [confirmDialog, setConfirmDialog] = useState<{
@@ -366,6 +386,32 @@ export default function UserManagementPage() {
         })
     }
 
+    const handleUnlockAccount = (userId: number, username: string) => {
+        setConfirmDialog({
+            open: true,
+            title: '解锁账户',
+            description: `确定要立即解锁用户 "${username}" 吗？\n\n解锁后用户可以立即登录。`,
+            confirmText: '立即解锁',
+            variant: 'default',
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`/api/admin/users/${userId}/unlock`, {
+                        method: 'POST'
+                    })
+
+                    const data = await res.json()
+                    if (!res.ok) throw new Error(data.error)
+
+                    toast.success(`用户 "${username}" 已解锁`)
+                    fetchUsers(pagination.page)
+                } catch (error: any) {
+                    toast.error(error.message || '解锁失败')
+                }
+                setConfirmDialog(prev => ({ ...prev, open: false }))
+            }
+        })
+    }
+
     const copyToClipboard = () => {
         if (!resetPasswordData) return
 
@@ -393,6 +439,58 @@ export default function UserManagementPage() {
         setEditExpiry(user.package_expires_at ? new Date(user.package_expires_at).toISOString().split('T')[0] : '')
         setEditStatus(user.is_active)
         setIsEditOpen(true)
+    }
+
+    const handleViewLoginHistory = async (user: User) => {
+        setLoginHistoryUser(user)
+        setIsLoginHistoryOpen(true)
+        setLoadingHistory(true)
+        setLoginRecords([])
+
+        try {
+            const res = await fetch(`/api/admin/users/${user.id}/login-history?limit=50`)
+            if (!res.ok) throw new Error('获取登录记录失败')
+
+            const data = await res.json()
+            setLoginRecords(data.records)
+        } catch (error: any) {
+            toast.error(error.message || '获取登录记录失败')
+        } finally {
+            setLoadingHistory(false)
+        }
+    }
+
+    const formatTimestamp = (timestamp: string) => {
+        const date = new Date(timestamp)
+        return date.toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+        })
+    }
+
+    const getBrowserFromUserAgent = (userAgent: string) => {
+        if (userAgent.includes('Chrome')) return 'Chrome'
+        if (userAgent.includes('Firefox')) return 'Firefox'
+        if (userAgent.includes('Safari')) return 'Safari'
+        if (userAgent.includes('Edge')) return 'Edge'
+        return 'Unknown'
+    }
+
+    const isUserLocked = (user: User) => {
+        if (!user.locked_until) return false
+        return new Date(user.locked_until) > new Date()
+    }
+
+    const calculateRemainingMinutes = (lockedUntil: string) => {
+        const now = new Date()
+        const lockEnd = new Date(lockedUntil)
+        const diffMs = lockEnd.getTime() - now.getTime()
+        const diffMinutes = Math.ceil(diffMs / 60000)
+        return diffMinutes > 0 ? diffMinutes : 0
     }
 
     return (
@@ -523,12 +621,41 @@ export default function UserManagementPage() {
                                                 {new Date(user.created_at).toLocaleDateString('zh-CN')}
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant={user.is_active ? 'outline' : 'destructive'} className={user.is_active ? 'text-green-600 border-green-600' : ''}>
-                                                    {user.is_active ? '正常' : '禁用'}
-                                                </Badge>
+                                                {user.is_active === 0 ? (
+                                                    <Badge variant="destructive">
+                                                        🚫 已禁用
+                                                    </Badge>
+                                                ) : isUserLocked(user) ? (
+                                                    <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+                                                        ⏳ 已锁定（还剩{calculateRemainingMinutes(user.locked_until!)}分钟）
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge variant="outline" className="text-green-600 border-green-600">
+                                                        ✅ 正常
+                                                    </Badge>
+                                                )}
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex items-center justify-center gap-1">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => handleViewLoginHistory(user)}
+                                                        title="查看登录记录"
+                                                    >
+                                                        <History className="w-4 h-4" />
+                                                    </Button>
+                                                    {isUserLocked(user) && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            onClick={() => handleUnlockAccount(user.id, user.username)}
+                                                            title="立即解锁"
+                                                            className="text-blue-600 hover:text-blue-700"
+                                                        >
+                                                            <Unlock className="w-4 h-4" />
+                                                        </Button>
+                                                    )}
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
@@ -836,6 +963,99 @@ export default function UserManagementPage() {
                             onClick={confirmDialog.onConfirm}
                         >
                             {confirmDialog.confirmText}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Login History Dialog */}
+            <Dialog open={isLoginHistoryOpen} onOpenChange={setIsLoginHistoryOpen}>
+                <DialogContent className="max-w-4xl max-h-[80vh]">
+                    <DialogHeader>
+                        <DialogTitle>登录记录</DialogTitle>
+                        <DialogDescription>
+                            {loginHistoryUser?.username} ({loginHistoryUser?.email || '无邮箱'}) 的登录历史
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4 overflow-y-auto max-h-[60vh]">
+                        {loadingHistory ? (
+                            <div className="text-center py-8 text-muted-foreground">
+                                加载中...
+                            </div>
+                        ) : loginRecords.length === 0 ? (
+                            <div className="text-center py-8 text-muted-foreground">
+                                暂无登录记录
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {loginRecords.map((record) => (
+                                    <div
+                                        key={`${record.type}-${record.id}`}
+                                        className={`p-4 rounded-lg border ${
+                                            record.success === true || record.eventType === 'login_success'
+                                                ? 'bg-green-50 border-green-200'
+                                                : record.eventType === 'account_locked'
+                                                ? 'bg-red-50 border-red-200'
+                                                : 'bg-orange-50 border-orange-200'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <Badge
+                                                        variant={
+                                                            record.success === true || record.eventType === 'login_success'
+                                                                ? 'default'
+                                                                : 'destructive'
+                                                        }
+                                                    >
+                                                        {record.success === true || record.eventType === 'login_success'
+                                                            ? '✅ 登录成功'
+                                                            : record.eventType === 'account_locked'
+                                                            ? '🔒 账户被锁定'
+                                                            : '❌ 登录失败'}
+                                                    </Badge>
+                                                    {record.failureReason && (
+                                                        <span className="text-sm text-muted-foreground">
+                                                            原因: {record.failureReason}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                                                    <div>
+                                                        <span className="text-muted-foreground">时间: </span>
+                                                        <span className="font-mono">{formatTimestamp(record.timestamp)}</span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-muted-foreground">IP: </span>
+                                                        <span className="font-mono">{record.ipAddress}</span>
+                                                    </div>
+                                                    <div className="col-span-2">
+                                                        <span className="text-muted-foreground">浏览器: </span>
+                                                        <span className="text-xs font-mono text-muted-foreground">
+                                                            {getBrowserFromUserAgent(record.userAgent)} - {record.userAgent.substring(0, 80)}
+                                                            {record.userAgent.length > 80 ? '...' : ''}
+                                                        </span>
+                                                    </div>
+                                                    {record.details && (
+                                                        <div className="col-span-2">
+                                                            <span className="text-muted-foreground">详情: </span>
+                                                            <span className="text-xs">
+                                                                {JSON.stringify(record.details)}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsLoginHistoryOpen(false)}>
+                            关闭
                         </Button>
                     </DialogFooter>
                 </DialogContent>

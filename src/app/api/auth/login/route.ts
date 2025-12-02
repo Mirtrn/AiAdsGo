@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loginWithPassword } from '@/lib/auth'
+import { loginWithPassword, findUserByUsernameOrEmail } from '@/lib/auth'
+import { checkRateLimit } from '@/lib/rate-limiter'
+import { verifyCaptcha, shouldRequireCaptcha } from '@/lib/captcha'
 import { z } from 'zod'
 
 const loginSchema = z.object({
   username: z.string().min(1, '用户名不能为空'),
   password: z.string().min(1, '密码不能为空'),
+  captchaToken: z.string().optional(), // Cloudflare Turnstile token
 })
 
 export async function POST(request: NextRequest) {
   try {
+    // P0：获取IP和User-Agent用于安全日志
+    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+                      request.headers.get('x-real-ip') ||
+                      'unknown'
+    const userAgent = request.headers.get('user-agent') || 'unknown'
+
     const body = await request.json()
 
     // 验证输入
@@ -23,10 +32,49 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { username, password } = validationResult.data
+    const { username, password, captchaToken } = validationResult.data
 
-    // 登录 (支持用户名或邮箱)
-    const result = await loginWithPassword(username, password)
+    // P0：速率限制检查（IP级别 + 用户名级别）
+    try {
+      checkRateLimit(`ip:${ipAddress}`)
+      checkRateLimit(`user:${username}`)
+    } catch (rateLimitError: any) {
+      return NextResponse.json(
+        { error: rateLimitError.message },
+        { status: 429 } // 429 Too Many Requests
+      )
+    }
+
+    // CAPTCHA验证：检查是否需要CAPTCHA（失败次数>=3）
+    const user = findUserByUsernameOrEmail(username)
+    if (user && shouldRequireCaptcha(user.failed_login_count)) {
+      // 需要CAPTCHA验证
+      if (!captchaToken) {
+        return NextResponse.json(
+          {
+            error: '请完成验证码验证',
+            errorType: 'captcha_required',
+            failedLoginCount: user.failed_login_count,
+          },
+          { status: 400 }
+        )
+      }
+
+      // 验证CAPTCHA token
+      const captchaValid = await verifyCaptcha(captchaToken, ipAddress)
+      if (!captchaValid) {
+        return NextResponse.json(
+          {
+            error: '验证码验证失败，请重试',
+            errorType: 'captcha_invalid',
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    // 登录 (支持用户名或邮箱，增强安全版本)
+    const result = await loginWithPassword(username, password, ipAddress, userAgent)
 
     // 创建响应（需求20：包含must_change_password标识）
     const response = NextResponse.json({
@@ -53,12 +101,17 @@ export async function POST(request: NextRequest) {
     console.error('登录失败:', error)
 
     // 根据错误类型返回不同的状态码
-    const status =
-      error.message === '用户不存在' || error.message === '密码错误'
-        ? 401
-        : error.message === '账户已被禁用'
-        ? 403
-        : 500
+    let status = 500
+
+    if (error.message.includes('用户名或密码错误')) {
+      status = 401 // Unauthorized
+    } else if (error.message.includes('账户已被锁定')) {
+      status = 429 // Too Many Requests (账户锁定)
+    } else if (error.message.includes('账户已被禁用')) {
+      status = 403 // Forbidden
+    } else if (error.message.includes('套餐已过期')) {
+      status = 402 // Payment Required
+    }
 
     return NextResponse.json(
       {
