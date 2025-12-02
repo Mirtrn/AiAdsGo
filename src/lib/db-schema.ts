@@ -131,12 +131,16 @@ export const TABLES: TableDef[] = [
       { name: 'extracted_descriptions', type: 'TEXT' },
       { name: 'extraction_metadata', type: 'TEXT' },
       { name: 'extracted_at', type: 'TIMESTAMP' },
+      { name: 'is_deleted', type: 'BOOLEAN', notNull: true, default: false },  // 软删除标记
+      { name: 'deleted_at', type: 'TIMESTAMP' },  // 删除时间
       { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
       { name: 'updated_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
     ],
     indexes: [
       { name: 'idx_offers_user_id', columns: ['user_id'] },
       { name: 'idx_offers_offer_name', columns: ['offer_name'] },
+      { name: 'idx_offers_is_deleted', columns: ['is_deleted'] },
+      { name: 'idx_offers_deleted_at', columns: ['deleted_at'] },
     ],
   },
 
@@ -742,12 +746,12 @@ export const TABLES: TableDef[] = [
     columns: [
       { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
       { name: 'user_id', type: 'INTEGER', notNull: true, unique: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'client_id', type: 'TEXT', notNull: true },
-      { name: 'client_secret', type: 'TEXT', notNull: true },
+      { name: 'client_id', type: 'TEXT' },  // 选填，可使用平台共享配置
+      { name: 'client_secret', type: 'TEXT' },  // 选填，可使用平台共享配置
       { name: 'refresh_token', type: 'TEXT', notNull: true },
       { name: 'access_token', type: 'TEXT' },
-      { name: 'developer_token', type: 'TEXT', notNull: true },
-      { name: 'login_customer_id', type: 'TEXT' },
+      { name: 'developer_token', type: 'TEXT' },  // 选填，可使用平台共享配置
+      { name: 'login_customer_id', type: 'TEXT', notNull: true },  // 必填，MCC账户ID
       { name: 'access_token_expires_at', type: 'TIMESTAMP' },
       { name: 'is_active', type: 'BOOLEAN', default: true },
       { name: 'last_verified_at', type: 'TIMESTAMP' },
