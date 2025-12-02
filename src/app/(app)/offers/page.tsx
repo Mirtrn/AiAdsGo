@@ -839,10 +839,7 @@ export default function OffersPage() {
               {/* 分页组件 */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between px-6 py-4 border-t">
-                  <div className="flex items-center gap-4 flex-wrap">
-                    <div className="text-sm text-gray-500 whitespace-nowrap">
-                      显示第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredOffers.length)} 条，共 {filteredOffers.length} 条
-                    </div>
+                  <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2 whitespace-nowrap">
                       <span className="text-sm text-gray-500">每页</span>
                       <Select
@@ -862,6 +859,9 @@ export default function OffersPage() {
                         </SelectContent>
                       </Select>
                       <span className="text-sm text-gray-500">条</span>
+                    </div>
+                    <div className="text-sm text-gray-500 whitespace-nowrap">
+                      显示第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredOffers.length)} 条，共 {filteredOffers.length} 条
                     </div>
                   </div>
                   <Pagination>
