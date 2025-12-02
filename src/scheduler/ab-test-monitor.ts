@@ -14,7 +14,7 @@
  * 执行频率：每小时一次
  */
 
-import { getDatabase, getSQLiteDatabase } from '../lib/db'
+import { getDatabase, DatabaseAdapter } from '../lib/db'
 import { updateGoogleAdsCampaignStatus, updateGoogleAdsCampaignBudget } from '../lib/google-ads-api'
 
 // Z-test计算（判断统计显著性）
@@ -86,13 +86,13 @@ function normalCDF(x: number): number {
  * 主监控函数
  */
 export async function monitorActiveABTests() {
-  const db = getSQLiteDatabase()
+  const db = getDatabase()
 
   try {
     console.log('🔍 开始A/B测试监控任务...')
 
     // 1. 获取所有运行中的自动测试（包括creative和strategy维度）
-    const activeTests = db.prepare(`
+    const activeTests = await db.query<any>(`
       SELECT
         t.id,
         t.user_id,
@@ -109,22 +109,22 @@ export async function monitorActiveABTests() {
       FROM ab_tests t
       WHERE t.is_auto_test = 1
         AND t.status = 'running'
-    `).all() as any[]
+    `)
 
     console.log(`📊 找到 ${activeTests.length} 个运行中的A/B测试 (创意+策略)`)
 
     for (const test of activeTests) {
       try {
-        await processTest(test)
+        await processTest(db, test)
       } catch (error: any) {
         console.error(`❌ 处理测试 ${test.id} 失败:`, error.message)
 
         // 记录错误但继续处理其他测试
-        db.prepare(`
+        await db.exec(`
           UPDATE ab_tests
           SET updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(test.id)
+        `, [test.id])
       }
     }
 
@@ -139,14 +139,12 @@ export async function monitorActiveABTests() {
 /**
  * 处理单个测试
  */
-async function processTest(test: any) {
-  const db = getSQLiteDatabase()
-
+async function processTest(db: DatabaseAdapter, test: any) {
   const dimensionLabel = test.test_dimension === 'creative' ? '创意测试' : '策略测试'
   console.log(`\n📋 处理测试: ${test.test_name} (ID: ${test.id}, 维度: ${dimensionLabel})`)
 
   // 1. 获取该测试的所有Campaign变体
-  const campaigns = db.prepare(`
+  const campaigns = await db.query<any>(`
     SELECT
       c.id,
       c.google_campaign_id,
@@ -162,7 +160,7 @@ async function processTest(test: any) {
     WHERE c.ab_test_id = ?
       AND c.is_test_variant = 1
       AND c.creation_status = 'synced'
-  `).all(test.id) as any[]
+  `, [test.id])
 
   if (campaigns.length < 2) {
     console.log(`⚠️ 测试 ${test.id} 的有效变体不足2个，跳过`)
@@ -173,7 +171,7 @@ async function processTest(test: any) {
   const variantMetrics: any[] = []
 
   for (const campaign of campaigns) {
-    const metrics = db.prepare(`
+    const metrics = await db.queryOne<any>(`
       SELECT
         SUM(impressions) as impressions,
         SUM(clicks) as clicks,
@@ -181,7 +179,7 @@ async function processTest(test: any) {
         SUM(cost) as cost
       FROM campaign_performance
       WHERE campaign_id = ?
-    `).get(campaign.id) as any
+    `, [campaign.id])
 
     const impressions = metrics?.impressions || 0
     const clicks = metrics?.clicks || 0
@@ -214,7 +212,7 @@ async function processTest(test: any) {
 
   // 3. 更新ab_test_variants表
   for (const metrics of variantMetrics) {
-    db.prepare(`
+    await db.exec(`
       UPDATE ab_test_variants
       SET
         impressions = ?,
@@ -227,7 +225,7 @@ async function processTest(test: any) {
         last_updated_at = CURRENT_TIMESTAMP,
         updated_at = CURRENT_TIMESTAMP
       WHERE ab_test_id = ? AND ad_creative_id = ?
-    `).run(
+    `, [
       metrics.impressions,
       metrics.clicks,
       metrics.conversions,
@@ -237,7 +235,7 @@ async function processTest(test: any) {
       metrics.cpa,
       test.id,
       metrics.ad_creative_id
-    )
+    ])
   }
 
   console.log(`📊 变体性能:`)
@@ -255,7 +253,7 @@ async function processTest(test: any) {
   }
 
   // 4. CPC自适应调整（防止曝光不足）
-  await checkAndAdjustCPC(test, variantMetrics)
+  await checkAndAdjustCPC(db, test, variantMetrics)
 
   // 5. 统计分析
   const analysis = analyzeTestResults(test, variantMetrics)
@@ -263,7 +261,7 @@ async function processTest(test: any) {
   // 6. 判断是否可以得出结论
   if (analysis.hasWinner && analysis.isSignificant) {
     console.log(`🏆 测试有明确胜出者: Variant ${analysis.winnerIndex}`)
-    await switchToWinner(test, campaigns, variantMetrics, analysis)
+    await switchToWinner(db, test, campaigns, variantMetrics, analysis)
   } else {
     console.log(`⏳ 测试继续进行中... (样本量: ${analysis.totalSampleSize}/${test.min_sample_size}, 置信度: ${(analysis.confidence * 100).toFixed(1)}%)`)
   }
@@ -272,9 +270,7 @@ async function processTest(test: any) {
 /**
  * CPC自适应调整
  */
-async function checkAndAdjustCPC(test: any, variantMetrics: any[]) {
-  const db = getSQLiteDatabase()
-
+async function checkAndAdjustCPC(db: DatabaseAdapter, test: any, variantMetrics: any[]) {
   // 计算测试运行时长（小时）
   const startTime = new Date(test.start_date || test.created_at).getTime()
   const now = Date.now()
@@ -291,11 +287,11 @@ async function checkAndAdjustCPC(test: any, variantMetrics: any[]) {
     for (const metrics of variantMetrics) {
       try {
         // 获取当前Campaign配置
-        const campaign = db.prepare(`
+        const campaign = await db.queryOne<any>(`
           SELECT campaign_config, budget_amount
           FROM campaigns
           WHERE id = ?
-        `).get(metrics.campaign_id) as any
+        `, [metrics.campaign_id])
 
         const config = JSON.parse(campaign.campaign_config)
         const newCpcBid = config.maxCpcBid * 1.2
@@ -306,13 +302,13 @@ async function checkAndAdjustCPC(test: any, variantMetrics: any[]) {
 
         config.maxCpcBid = newCpcBid
 
-        db.prepare(`
+        await db.exec(`
           UPDATE campaigns
           SET
             campaign_config = ?,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(JSON.stringify(config), metrics.campaign_id)
+        `, [JSON.stringify(config), metrics.campaign_id])
 
         console.log(`  📈 Campaign ${metrics.campaign_name}: CPC ${config.maxCpcBid} → ${newCpcBid}`)
 
@@ -442,13 +438,12 @@ function analyzeTestResults(test: any, variantMetrics: any[]) {
  * 切换到胜出创意
  */
 async function switchToWinner(
+  db: DatabaseAdapter,
   test: any,
   campaigns: any[],
   variantMetrics: any[],
   analysis: any
 ) {
-  const db = getSQLiteDatabase()
-
   const winner = variantMetrics[analysis.winnerIndex]
 
   console.log(`🎯 执行切换操作...`)
@@ -471,13 +466,13 @@ async function switchToWinner(
           userId: metrics.user_id
         })
 
-        db.prepare(`
+        await db.exec(`
           UPDATE campaigns
           SET
             status = 'PAUSED',
             updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(campaign.id)
+        `, [campaign.id])
 
         console.log(`  ⏸️ 暂停失败变体: ${campaign.campaign_name}`)
 
@@ -501,14 +496,14 @@ async function switchToWinner(
         userId: winner.user_id
       })
 
-      db.prepare(`
+      await db.exec(`
         UPDATE campaigns
         SET
           budget_amount = ?,
           traffic_allocation = 1.0,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(totalBudget, winnerCampaign.id)
+      `, [totalBudget, winnerCampaign.id])
 
       console.log(`  💰 胜出Campaign预算恢复100%: ${totalBudget}`)
 
@@ -517,12 +512,12 @@ async function switchToWinner(
     }
 
     // 3. 更新A/B测试状态为完成
-    const winnerVariant = db.prepare(`
+    const winnerVariant = await db.queryOne<any>(`
       SELECT id FROM ab_test_variants
       WHERE ab_test_id = ? AND ad_creative_id = ?
-    `).get(test.id, winner.ad_creative_id) as any
+    `, [test.id, winner.ad_creative_id])
 
-    db.prepare(`
+    await db.exec(`
       UPDATE ab_tests
       SET
         status = 'completed',
@@ -530,16 +525,16 @@ async function switchToWinner(
         statistical_confidence = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(winnerVariant?.id, analysis.confidence, test.id)
+    `, [winnerVariant?.id, analysis.confidence, test.id])
 
     // 4. 标记胜出创意
-    db.prepare(`
+    await db.exec(`
       UPDATE ad_creatives
       SET
         is_selected = 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(winner.ad_creative_id)
+    `, [winner.ad_creative_id])
 
     console.log(`✅ 测试完成，已切换到胜出创意 (置信度: ${(analysis.confidence * 100).toFixed(1)}%)`)
     console.log(`📧 应通知用户: 创意测试完成，Variant ${String.fromCharCode(65 + analysis.winnerIndex)} 胜出`)

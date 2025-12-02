@@ -33,28 +33,58 @@ const CONFIG_EXPORT_PATH = path.join(process.cwd(), 'secrets', 'admin-config-exp
 
 /**
  * 检查数据库是否已初始化
+ *
+ * 检查多个关键表是否存在，而不仅仅是 users 表
+ * 只有当所有关键表都存在时，才认为数据库已初始化
  */
 async function isDatabaseInitialized(): Promise<boolean> {
   const db = getDatabase()
 
+  // 定义关键表列表 - 这些表必须全部存在才认为数据库已初始化
+  const criticalTables = [
+    'users',              // 用户表
+    'offers',             // Offer 表
+    'campaigns',          // Campaign 表
+    'system_settings',    // 系统设置表
+    'industry_benchmarks' // 行业基准表
+  ]
+
   if (db.type === 'sqlite') {
-    // SQLite: 检查 users 表是否存在
+    // SQLite: 检查所有关键表是否存在
     try {
-      const result = await db.query<{ count: number }>(
-        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='users'"
-      )
-      return result[0].count > 0
+      for (const table of criticalTables) {
+        const result = await db.query<{ count: number }>(
+          "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name=?",
+          [table]
+        )
+        if (result[0].count === 0) {
+          console.log(`⚠️ 数据库初始化检查: 缺少关键表 '${table}'`)
+          return false
+        }
+      }
+      console.log('✅ 数据库初始化检查: 所有关键表都存在')
+      return true
     } catch (error) {
+      console.error('❌ 数据库初始化检查失败:', error)
       return false
     }
   } else {
-    // PostgreSQL: 检查 users 表是否存在
+    // PostgreSQL: 检查所有关键表是否存在
     try {
-      const result = await db.query<{ exists: boolean }>(
-        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')"
-      )
-      return result[0].exists
+      for (const table of criticalTables) {
+        const result = await db.query<{ exists: boolean }>(
+          "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)",
+          [table]
+        )
+        if (!result[0].exists) {
+          console.log(`⚠️ 数据库初始化检查: 缺少关键表 '${table}'`)
+          return false
+        }
+      }
+      console.log('✅ 数据库初始化检查: 所有关键表都存在')
+      return true
     } catch (error) {
+      console.error('❌ 数据库初始化检查失败:', error)
       return false
     }
   }
