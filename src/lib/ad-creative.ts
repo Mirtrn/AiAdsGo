@@ -129,6 +129,7 @@ export interface GeneratedAdCreativeData {
   }>
   theme: string
   explanation: string           // 创意说明
+  ai_model?: string              // 🎯 新增：实际使用的AI模型
 
   // 新增：带标注的资产（可选，用于Ad Strength评估）
   headlinesWithMetadata?: HeadlineAsset[]
@@ -196,7 +197,7 @@ export function createAdCreative(
     scoreResult.explanation,
     data.generation_round || 1,
     data.theme,
-    data.ai_model || 'gemini-2.0-flash-exp'
+    data.ai_model || 'gemini-2.5-flash'
   )
 
   const creative = findAdCreativeById(result.lastInsertRowid as number, userId)

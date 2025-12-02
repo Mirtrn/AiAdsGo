@@ -3,8 +3,9 @@ import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
 
 // Middleware在Edge Runtime中运行，使用jose库进行JWT验证
+// 注意：Edge Runtime不支持直接import config.ts，需要直接读取环境变量
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'default-secret-please-change-in-production'
+  process.env.JWT_SECRET!
 )
 
 /**

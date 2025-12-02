@@ -234,7 +234,8 @@ export async function POST(
         diversity: bestEvaluation.localEvaluation.dimensions.diversity.score,
         clarity: bestEvaluation.localEvaluation.dimensions.compliance.score
       },
-      generation_round: attempts // 传入实际的尝试次数
+      generation_round: attempts, // 传入实际的尝试次数
+      ai_model: bestCreative.ai_model // 传入实际使用的AI模型
     })
 
     console.log(`✅ 广告创意已保存到数据库 (ID: ${savedCreative.id})`)

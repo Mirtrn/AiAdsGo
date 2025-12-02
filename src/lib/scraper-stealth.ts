@@ -1486,6 +1486,53 @@ export async function scrapeAmazonStore(
       await randomDelay(800, 1200)  // 从1500-2000ms减少到800-1200ms
     }
 
+    // 🔥 新增策略3.5: 针对懒加载productgrid widget的特殊处理
+    console.log('🔍 检测懒加载productgrid widget...')
+    const hasLazyProductGrid = await page.evaluate(() => {
+      const lazyWidgets = document.querySelectorAll('.stores-widget-btf[id*=""], div[class*="productgrid"]')
+      return lazyWidgets.length > 0
+    })
+
+    if (hasLazyProductGrid) {
+      console.log('✅ 发现懒加载widget，滚动到widget位置并等待加载...')
+
+      // 滚动到productgrid widget的位置
+      await page.evaluate(() => {
+        const widget = document.querySelector('.stores-widget-btf, div[class*="productgrid"]')
+        if (widget) {
+          widget.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          return true
+        }
+        return false
+      })
+
+      // 等待AJAX请求触发和完成
+      await randomDelay(3000, 5000)
+
+      // 尝试等待产品DOM渲染（多个选择器）
+      const productSelectors = [
+        'div[data-asin]:not([data-asin=""])',
+        'a[href*="/dp/"][class*="product"]',
+        'div[class*="ProductCard"]',
+        'div[class*="product-card"]',
+      ]
+
+      for (const selector of productSelectors) {
+        try {
+          await page.waitForSelector(selector, { timeout: 8000 })
+          console.log(`✅ 产品DOM已渲染: ${selector}`)
+          break
+        } catch (e) {
+          console.log(`⏳ 选择器 ${selector} 未找到，尝试下一个...`)
+        }
+      }
+
+      // 再等待一会儿确保所有产品渲染完成
+      await randomDelay(2000, 3000)
+    } else {
+      console.log('ℹ️ 未检测到懒加载widget，使用标准等待策略')
+    }
+
     // 策略4: 等待产品图片加载（减少超时）
     console.log('⏳ 等待产品图片渲染...')
     await page.waitForSelector('img[src*="images-amazon"]', { timeout: 8000 }).catch(() => {

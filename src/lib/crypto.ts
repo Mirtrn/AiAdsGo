@@ -1,9 +1,8 @@
 import crypto from 'crypto'
 import bcrypt from 'bcrypt'
+import { ENCRYPTION_KEY, ENCRYPTION_IV_LENGTH, BCRYPT_SALT_ROUNDS } from './config'
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '0'.repeat(64) // 32 bytes hex = 64 chars
-const IV_LENGTH = parseInt(process.env.ENCRYPTION_IV_LENGTH || '16', 10)
-const BCRYPT_SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS || '10', 10)
+const IV_LENGTH = ENCRYPTION_IV_LENGTH
 
 /**
  * 使用AES-256-GCM加密敏感数据

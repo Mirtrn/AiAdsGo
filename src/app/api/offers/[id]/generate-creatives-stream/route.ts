@@ -249,7 +249,8 @@ export async function POST(
             diversity: bestEvaluation.localEvaluation.dimensions.diversity.score,
             clarity: bestEvaluation.localEvaluation.dimensions.compliance.score
           },
-          generation_round: attempts
+          generation_round: attempts,
+          ai_model: bestCreative.ai_model // 传入实际使用的AI模型
         })
         const saveTime = endTimer('save')
 
