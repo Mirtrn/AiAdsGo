@@ -182,19 +182,19 @@ const SETTING_METADATA: Record<string, {
   },
   'system.link_check_enabled': {
     label: '启用链接检查',
-    description: '是否定期检查Offer链接的有效性',
+    description: '是否每日自动检查Offer链接的有效性',
     options: [
-      { value: 'true', label: '是' },
-      { value: 'false', label: '否' }
+      { value: 'true', label: '启用' },
+      { value: 'false', label: '禁用' }
     ],
     defaultValue: 'true'
   },
   'system.link_check_time': {
-    label: '检查时间',
-    description: '每日执行链接检查的时间（24小时制）',
+    label: '链接检查时间',
+    description: '每日链接检查的执行时间（24小时制）',
     placeholder: '例如: 02:00',
     defaultValue: '02:00'
-  }
+  },
 }
 
 // 分类配置
