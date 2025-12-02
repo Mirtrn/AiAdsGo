@@ -32,6 +32,9 @@ export default function MarketingHome() {
               <a href="#testimonials" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 客户案例
               </a>
+              <a href="https://www.urlchecker.dev/batchopen" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
+                免费补点击
+              </a>
             </nav>
             <div className="flex items-center gap-4">
               <a href="/login" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
