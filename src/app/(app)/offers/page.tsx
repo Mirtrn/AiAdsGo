@@ -1,11 +1,13 @@
 'use client'
 
 /**
- * Offer列表页 - P1-2优化版 + P2-2导出功能 + 分页 + 批量删除 + 强制重新编译
+ * Offer列表页 - P1-2优化版 + P2-2导出功能 + 分页 + 批量删除
  * 使用shadcn/ui Table组件 + 筛选器 + CSV导出
+ *
+ * 优化：使用usePagination Hook统一分页逻辑
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { exportOffers, type OfferExportData } from '@/lib/export-utils'
 import {
@@ -46,11 +48,9 @@ import {
 import AdjustCpcModal from '@/components/AdjustCpcModal'
 import LaunchScoreModal from '@/components/LaunchScoreModal'
 import CreateOfferModalV2 from '@/components/CreateOfferModalV2'
-// 移除移动端视图，统一使用表格视图
-// import { MobileOfferCard } from '@/components/MobileOfferCard'
-import { SortableTableHead } from '@/components/SortableTableHead' // P2-5: 可排序表头
-import { NoOffersState, NoResultsState } from '@/components/ui/empty-state' // P2-7: 统一空状态
-// import { useIsMobile } from '@/hooks/useMediaQuery'
+import { SortableTableHead } from '@/components/SortableTableHead'
+import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
+import { usePagination } from '@/hooks'
 import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, CheckSquare, Square } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -63,28 +63,10 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination'
 import { getScrapeStatusLabel, type ScrapeStatus } from '@/lib/i18n-constants'
+import type { OfferListItem, UnlinkTarget } from './types'
 
-interface Offer {
-  id: number
-  url: string
-  brand: string
-  category: string | null
-  targetCountry: string
-  affiliateLink: string | null
-  brandDescription: string | null
-  scrape_status: string
-  isActive: boolean
-  createdAt: string
-  offerName: string | null
-  targetLanguage: string | null
-  productPrice?: string | null
-  commissionPayout?: string | null
-  // P1-11: 关联的Google Ads账号信息（只显示非MCC账号）
-  linkedAccounts?: Array<{
-    account_id: number
-    customer_id: string
-  }>
-}
+// 使用类型别名保持兼容性
+type Offer = OfferListItem
 
 export default function OffersPage() {
   const router = useRouter()
@@ -111,10 +93,21 @@ export default function OffersPage() {
   const [batchDeleting, setBatchDeleting] = useState(false)
   const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null)
 
-  // 分页状态
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10) // 每页显示条数，可选：10/20/50/100
-  const [paginatedOffers, setPaginatedOffers] = useState<Offer[]>([])
+  // 分页状态 - 使用统一的usePagination Hook
+  const {
+    currentPage,
+    pageSize,
+    setPage,
+    setPageSize,
+    offset,
+    getTotalPages,
+    pageSizeOptions,
+  } = usePagination({ initialPageSize: 10 })
+
+  // 计算分页后的数据
+  const paginatedOffers = useMemo(() => {
+    return filteredOffers.slice(offset, offset + pageSize)
+  }, [filteredOffers, offset, pageSize])
 
   // Modals
   const [isAdjustCpcModalOpen, setIsAdjustCpcModalOpen] = useState(false)
@@ -129,11 +122,7 @@ export default function OffersPage() {
 
   // P1-11: 解除关联状态
   const [isUnlinkDialogOpen, setIsUnlinkDialogOpen] = useState(false)
-  const [offerToUnlink, setOfferToUnlink] = useState<{
-    offer: Offer
-    accountId: number
-    accountName: string
-  } | null>(null)
+  const [offerToUnlink, setOfferToUnlink] = useState<UnlinkTarget | null>(null)
   const [unlinking, setUnlinking] = useState(false)
 
   useEffect(() => {
@@ -212,16 +201,9 @@ export default function OffersPage() {
 
     setFilteredOffers(filtered)
 
-    // 重置到第一页当筛选条件改变时
-    setCurrentPage(1)
-  }, [offers, searchQuery, countryFilter, statusFilter, sortBy, sortOrder])
-
-  // 计算分页数据
-  useEffect(() => {
-    const startIndex = (currentPage - 1) * pageSize
-    const endIndex = startIndex + pageSize
-    setPaginatedOffers(filteredOffers.slice(startIndex, endIndex))
-  }, [filteredOffers, currentPage, pageSize])
+    // 重置到第一页当筛选条件改变时（使用usePagination的setPage）
+    setPage(1)
+  }, [offers, searchQuery, countryFilter, statusFilter, sortBy, sortOrder, setPage])
 
   // P2-5: 排序处理函数
   const handleSort = (field: string) => {
@@ -867,18 +849,16 @@ export default function OffersPage() {
                         value={pageSize.toString()}
                         onValueChange={(value) => {
                           const newPageSize = parseInt(value)
-                          setPageSize(newPageSize)
-                          setCurrentPage(1) // 重置到第一页
+                          setPageSize(newPageSize) // usePagination会自动重置到第一页
                         }}
                       >
                         <SelectTrigger className="w-[80px] h-8">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="10">10</SelectItem>
-                          <SelectItem value="20">20</SelectItem>
-                          <SelectItem value="50">50</SelectItem>
-                          <SelectItem value="100">100</SelectItem>
+                          {pageSizeOptions.map(size => (
+                            <SelectItem key={size} value={size.toString()}>{size}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <span className="text-sm text-gray-500">条</span>
@@ -888,7 +868,7 @@ export default function OffersPage() {
                     <PaginationContent>
                       <PaginationItem>
                         <PaginationPrevious
-                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          onClick={() => setPage(Math.max(1, currentPage - 1))}
                           className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                         />
                       </PaginationItem>
@@ -904,7 +884,7 @@ export default function OffersPage() {
                           return (
                             <PaginationItem key={page}>
                               <PaginationLink
-                                onClick={() => setCurrentPage(page)}
+                                onClick={() => setPage(page)}
                                 isActive={page === currentPage}
                                 className="cursor-pointer"
                               >
@@ -920,7 +900,7 @@ export default function OffersPage() {
 
                       <PaginationItem>
                         <PaginationNext
-                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                          onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                           className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                         />
                       </PaginationItem>
