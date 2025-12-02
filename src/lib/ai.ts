@@ -124,7 +124,7 @@ export async function analyzeProductPage(
       throw new Error('分析产品页面需要用户ID，请确保已登录')
     }
     const result = await generateContent({
-      model: 'gemini-2.5-pro',
+      operationType: 'product_page_analysis',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 6144,  // 增加到6144以容纳更丰富的数据维度
@@ -803,7 +803,7 @@ ${currentOrientation === 'brand' ? `
       throw new Error('AI页面分析需要用户ID，请确保已登录')
     }
     const result = await generateContent({
-      model: 'gemini-2.5-pro',
+      operationType: 'ad_creative_generation_main',
       prompt: basePrompt,
       temperature: 0.7,
       maxOutputTokens: 8192,  // 增加到8192以避免广告创意输出被截断
@@ -915,7 +915,10 @@ export async function extractBrandFromContent(
       throw new Error('userId is required for brand extraction')
     }
 
-    const result = await generateContent({ prompt }, userId)
+    const result = await generateContent({
+      operationType: 'brand_extraction',
+      prompt,
+    }, userId)
     const brandName = result.text
 
     // 记录token使用

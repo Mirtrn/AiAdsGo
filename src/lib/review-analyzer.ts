@@ -369,7 +369,7 @@ export async function analyzeReviewsWithAI(
     const cacheKey = options?.cacheKey || productName
     const performAnalysis = async () => {
       const aiResponse = await generateContent({
-        model: 'gemini-2.5-pro',
+        operationType: 'review_analysis',
         prompt,
         temperature: 0.5,  // 降低温度确保更准确的提取
         maxOutputTokens: 8192,  // 增加到8192以避免评论分析被截断

@@ -224,7 +224,7 @@ export async function inferCompetitorKeywords(
 
   try {
     const aiResponse = await generateContent({
-      model: 'gemini-2.0-flash-exp',  // 使用快速模型，降低成本
+      operationType: 'competitor_summary',
       prompt,
       temperature: 0.3,  // 低温度保证稳定输出
       maxOutputTokens: 500,
@@ -1052,8 +1052,9 @@ export async function analyzeCompetitorsWithAI(
     // 🆕 Token优化：支持缓存（3天TTL）
     const cacheKey = options?.cacheKey || `${ourProduct.name}:${competitors.length}competitors`
     const performAnalysis = async () => {
+      // 智能模型选择：竞品分析使用Pro模型（复杂分析任务）
       const aiResponse = await generateContent({
-        model: 'gemini-2.5-pro',
+        operationType: 'competitor_analysis',
         prompt,
         temperature: 0.6,  // 平衡创造性和准确性
         maxOutputTokens: 8192,  // 恢复原始值，确保JSON不被截断

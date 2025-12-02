@@ -534,8 +534,8 @@ export async function validateGeminiConfig(
     }
   }
 
-  // Step 2: 验证模型名称
-  const validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3-pro-preview-11-2025']
+  // Step 2: 验证模型名称（仅支持Pro模型，Flash任务由系统自动选择）
+  const validModels = ['gemini-2.5-pro', 'gemini-3-pro-preview']
   if (!validModels.includes(model)) {
     return {
       valid: false,

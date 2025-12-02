@@ -989,9 +989,10 @@ Rules:
 - Confidence: 1.0 = certain, 0.8 = high confidence, 0.6 = moderate, <0.5 = uncertain
 `.trim()
 
+    // 智能模型选择：广告强度评估使用Flash模型（简单评分任务）
     const result = await generateContent({
+      operationType: 'ad_strength_evaluation',
       prompt,
-      model: 'gemini-2.0-flash-exp', // 使用Flash模型（性价比最高）
       temperature: 0.3, // 低温度确保一致性
       maxOutputTokens: 500,
       responseSchema: {

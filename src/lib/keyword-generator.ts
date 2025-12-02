@@ -180,9 +180,9 @@ export async function generateKeywords(
   }
 
   try {
-    // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
+    // 智能模型选择：关键词生成使用Pro模型
     const aiResponse = await generateContent({
-      model: 'gemini-2.5-pro',
+      operationType: 'keyword_generation',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,  // 增加到8192以避免关键词生成输出被截断
@@ -492,9 +492,9 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
   }
 
   try {
-    // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
+    // 智能模型选择：关键词扩展使用Pro模型
     const aiResponse = await generateContent({
-      model: 'gemini-2.5-pro',
+      operationType: 'keyword_expansion',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,
@@ -580,9 +580,9 @@ ${baseKeywords.join(', ')}
 `
 
   try {
-    // 统一使用Gemini 2.5 Pro模型（使用用户级AI配置）
+    // 智能模型选择：否定关键词生成使用Flash模型（简单列表任务）
     const aiResponse = await generateContent({
-      model: 'gemini-2.5-pro',
+      operationType: 'negative_keyword_generation',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,

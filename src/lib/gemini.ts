@@ -172,25 +172,28 @@ export async function generateContent(
   }
 
   const {
-    model: requestedModel = 'gemini-2.5-pro',
+    model: requestedModel,
     prompt,
     temperature = 0.7,
     maxOutputTokens = 8192,
     operationType,
-    enableAutoModelSelection = false, // 默认false，零破坏性
+    enableAutoModelSelection = true, // 默认true，启用智能模型选择
     responseSchema,  // 🆕 Token优化：结构化JSON输出
     responseMimeType,  // 🆕 配合schema使用
   } = params
 
-  // 智能模型选择（仅当启用时）
-  let finalModel = requestedModel
+  // 智能模型选择（默认启用，可通过enableAutoModelSelection=false禁用）
+  let finalModel = requestedModel || 'gemini-2.5-pro'
   if (enableAutoModelSelection && operationType) {
-    const selection = selectOptimalModel(operationType)
+    const selection = selectOptimalModel(operationType, userId) // 传递userId获取用户模型偏好
     finalModel = selection.model
-    console.log(`🤖 智能模型选择: ${operationType} → ${finalModel} (${selection.reason})`)
+    console.log(`🤖 智能模型选择 (User ${userId}): ${operationType} → ${finalModel} (${selection.reason})`)
+  } else if (requestedModel) {
+    // 如果显式指定model，则使用指定的模型
+    console.log(`📝 使用显式指定模型: ${finalModel}`)
   } else {
-    // 保持原有行为（向后兼容）
-    console.log(`📝 使用指定模型: ${finalModel}`)
+    // 没有operationType且没有指定model，使用Pro（向后兼容）
+    console.log(`⚠️ 未指定operationType，默认使用Pro模型`)
   }
 
   // 检查用户是否配置了任何AI

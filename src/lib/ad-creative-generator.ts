@@ -1432,8 +1432,9 @@ export async function generateAdCreative(
   console.log(`🤖 使用统一AI入口生成广告创意 (${aiMode})...`)
 
   console.time('⏱️ AI生成创意')
+  // 智能模型选择：广告创意生成使用Pro模型（核心创意任务）
   const aiResponse = await generateContent({
-    model: 'gemini-2.5-pro',  // 最优选择：稳定质量+最快速度（62秒）
+    operationType: 'ad_creative_generation_main',
     prompt,
     temperature: 0.9,
     maxOutputTokens: 16384,  // 增加以容纳完整创意（含完整metadata）

@@ -81,9 +81,9 @@ export async function calculateLaunchScore(
       .replace('{{creative.final_url}}', creative.final_url)
       .replace('{{keywordsWithVolume}}', keywordsWithVolumeText)
 
-    // 需求12：使用Gemini 2.5 Pro稳定版模型（带代理支持 + 自动降级）
+    // 智能模型选择：Launch Score计算使用Pro模型
     const aiResponse = await generateContent({
-      model: 'gemini-2.5-pro',
+      operationType: 'launch_score_calculation',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192, // 增加到8192以确保完整的JSON响应
@@ -246,8 +246,9 @@ export async function calculateCreativeQualityScore(creative: {
     if (!userId) {
       throw new Error('创意质量评分需要用户ID，请确保已登录')
     }
+    // 智能模型选择：创意质量评分使用Flash模型（简单评分任务）
     const aiResponse = await generateContent({
-      model: 'gemini-2.5-pro',
+      operationType: 'creative_quality_scoring',
       prompt,
       temperature: 0.3, // 降低温度以获得更稳定的评分
       maxOutputTokens: 256, // 增加以容纳Gemini 2.5的思考tokens + 实际输出

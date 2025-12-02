@@ -110,12 +110,11 @@ const SETTING_METADATA: Record<string, {
     helpLink: 'https://makersuite.google.com/app/apikey'
   },
   'ai.gemini_model': {
-    label: 'Gemini模型',
-    description: '选择用于创意生成的Gemini模型版本',
+    label: 'Gemini模型（Pro级别）',
+    description: '选择复杂任务（关键词生成、创意生成、Launch Score计算等）使用的Pro模型版本。简单任务（元素提取、评分等）将自动使用Flash模型以节省成本',
     options: [
-      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（默认，最强）' },
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（快速）' },
-      { value: 'gemini-3-pro-preview-11-2025', label: 'Gemini 3 Pro Preview（最新）' }
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（默认，稳定版）' },
+      { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview（实验性，最新功能）' }
     ],
     defaultValue: 'gemini-2.5-pro'
   },
@@ -339,7 +338,17 @@ export default function SettingsPage() {
 
   // 代理URL操作函数
   const addProxyUrl = () => {
-    setProxyUrls(prev => [...prev, { country: 'US', url: '' }])
+    // 🔥 检查是否所有支持的国家都已配置
+    const usedCountries = new Set(proxyUrls.map(p => p.country))
+    const availableCountries = SUPPORTED_COUNTRIES.filter(c => !usedCountries.has(c.code))
+
+    if (availableCountries.length === 0) {
+      toast.error('所有支持的国家都已配置代理URL，无法添加更多')
+      return
+    }
+
+    // 使用第一个未配置的国家
+    setProxyUrls(prev => [...prev, { country: availableCountries[0].code, url: '' }])
   }
 
   const removeProxyUrl = (index: number) => {
@@ -347,6 +356,15 @@ export default function SettingsPage() {
   }
 
   const updateProxyUrl = (index: number, field: 'country' | 'url', value: string) => {
+    // 🔥 如果是修改国家，检查该国家是否已被其他配置使用
+    if (field === 'country') {
+      const isDuplicate = proxyUrls.some((item, i) => i !== index && item.country === value)
+      if (isDuplicate) {
+        toast.error(`国家 ${value} 已经配置过代理URL，一个国家只能配置一个代理`)
+        return
+      }
+    }
+
     setProxyUrls(prev => prev.map((item, i) =>
       i === index ? { ...item, [field]: value } : item
     ))

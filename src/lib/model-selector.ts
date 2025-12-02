@@ -1,15 +1,27 @@
 /**
- * 智能模型选择器
+ * 智能模型选择器（V2：支持用户Pro模型选择）
  *
  * 核心原则：
- * 1. 结构化任务（JSON输出）→ Flash（5x cheaper）
- * 2. 复杂分析任务 → Pro（高质量）
- * 3. 关键词生成 → Pro（必须保持maxOutputTokens）
+ * 1. 用户在/settings选择的"Gemini模型"决定Pro任务使用哪个高质量模型
+ * 2. Flash任务始终使用gemini-2.5-flash（不受用户选择影响）
+ * 3. 根据operationType智能路由到Pro或Flash
+ *
+ * 用户选择逻辑（仅影响Pro任务）：
+ * - 用户选"Gemini 2.5 Pro"        → Pro任务用2.5-pro, Flash任务用2.5-flash
+ * - 用户选"Gemini 3 Pro Preview"  → Pro任务用3-pro-preview, Flash任务用2.5-flash
+ *
+ * 注意：移除了"Gemini 2.5 Flash"选项（全Flash模式会降低广告创意质量）
  *
  * 必须通过A/B测试验证Flash质量 ≥ 85%相似度
  */
 
-export type ModelType = 'gemini-2.5-pro' | 'gemini-2.5-flash'
+import { getUserOnlySetting } from './settings'
+
+// 支持的Gemini Pro模型（Flash任务固定使用gemini-2.5-flash）
+export type ModelType =
+  | 'gemini-2.5-pro'
+  | 'gemini-2.5-flash'
+  | 'gemini-3-pro-preview'
 
 export interface ModelSelection {
   model: ModelType
@@ -40,11 +52,6 @@ const FLASH_OPERATIONS = new Set<string>([
   'ad_description_extraction_single',
   'ad_description_extraction_store',
 
-  // 🟢 标题描述增强提取（2个函数）- Flash
-  // 输出固定JSON格式
-  'headline_generation',
-  'description_generation',
-
   // 🟢 否定关键词生成 - Flash
   // 简单的排除词列表
   'negative_keyword_generation',
@@ -52,6 +59,22 @@ const FLASH_OPERATIONS = new Set<string>([
   // 🟢 Admin优化建议 - Flash
   // 格式化的优化建议
   'admin_prompt_optimization',
+
+  // 🟢 品牌名提取 - Flash
+  // 简单的实体提取任务
+  'brand_extraction',
+
+  // 🟢 竞品快速摘要 - Flash
+  // 简单的格式化输出
+  'competitor_summary',
+
+  // 🟢 广告强度评估 - Flash
+  // 结构化评分输出
+  'ad_strength_evaluation',
+
+  // 🟢 连接测试 - Flash
+  // 简单的ping测试
+  'connection_test',
 ])
 
 const PRO_OPERATIONS = new Set<string>([
@@ -64,6 +87,11 @@ const PRO_OPERATIONS = new Set<string>([
   'competitor_analysis',          // 复杂的对比分析
   'launch_score_calculation',     // 多维度综合评估
   'ad_creative_generation_main',  // 核心创意生成
+  'product_page_analysis',        // 产品页面深度分析
+
+  // 🔴 创意生成任务 - Pro
+  'headline_generation',          // 标题创意生成（需要准确性和创造力）
+  'description_generation',       // 描述创意生成（需要准确性和创造力）
 
   // 🔴 Admin分析 - Pro
   'admin_performance_analysis',   // 复杂数据分析和洞察
@@ -71,48 +99,79 @@ const PRO_OPERATIONS = new Set<string>([
 ])
 
 /**
- * 选择最优模型
+ * 获取用户选择的Pro模型（仅影响Pro任务）
+ *
+ * @param userId - 用户ID
+ * @returns 用户选择的Pro级别模型
+ */
+export function getUserProModel(userId?: number): ModelType {
+  if (!userId) {
+    return 'gemini-2.5-pro' // 默认Pro模型
+  }
+
+  try {
+    const modelSetting = getUserOnlySetting('ai', 'gemini_model', userId)
+    const selectedModel = modelSetting?.value
+
+    // 用户选择的模型决定Pro任务使用哪个模型
+    if (selectedModel === 'gemini-3-pro-preview') {
+      return 'gemini-3-pro-preview' // 使用最新预览版
+    } else {
+      return 'gemini-2.5-pro' // 默认Pro模型
+    }
+  } catch (error) {
+    console.warn('⚠️ 获取用户Pro模型失败，使用默认:', error)
+    return 'gemini-2.5-pro'
+  }
+}
+
+/**
+ * 选择最优模型（V2：支持用户Pro模型选择）
  *
  * @param operationType - 操作类型（来自recordTokenUsage）
+ * @param userId - 用户ID（用于获取用户模型偏好）
  * @param forceProForTesting - 强制使用Pro（用于A/B测试）
  * @returns 模型选择结果
  */
 export function selectOptimalModel(
   operationType: string,
+  userId?: number,
   forceProForTesting: boolean = false
 ): ModelSelection {
-  // A/B测试期间：强制使用Pro作为对照组
+  const userProModel = getUserProModel(userId)
+
+  // A/B测试期间：强制使用用户的Pro模型作为对照组
   if (forceProForTesting) {
     return {
-      model: 'gemini-2.5-pro',
+      model: userProModel,
       reason: 'A/B测试对照组',
       testingRequired: true,
     }
   }
 
-  // Flash适用场景
+  // Flash适用场景：简单任务固定使用Flash（不受用户选择影响）
   if (FLASH_OPERATIONS.has(operationType)) {
     return {
       model: 'gemini-2.5-flash',
-      reason: '结构化输出任务，Flash已通过A/B测试验证',
-      testingRequired: false, // 生产环境已验证
-    }
-  }
-
-  // Pro保留场景
-  if (PRO_OPERATIONS.has(operationType)) {
-    return {
-      model: 'gemini-2.5-pro',
-      reason: '复杂分析任务或关键词生成，必须使用Pro',
+      reason: '结构化输出任务，使用Flash节省成本',
       testingRequired: false,
     }
   }
 
-  // 未知operationType：默认Pro（安全第一）
-  console.warn(`Unknown operationType: ${operationType}, defaulting to Pro`)
+  // Pro保留场景：复杂任务使用用户选择的Pro模型
+  if (PRO_OPERATIONS.has(operationType)) {
+    return {
+      model: userProModel,
+      reason: `复杂分析任务，使用用户选择的Pro模型: ${userProModel}`,
+      testingRequired: false,
+    }
+  }
+
+  // 未知operationType：默认使用用户的Pro模型（安全第一）
+  console.warn(`⚠️ Unknown operationType: ${operationType}, defaulting to user's Pro model: ${userProModel}`)
   return {
-    model: 'gemini-2.5-pro',
-    reason: '未知操作类型，默认Pro确保质量',
+    model: userProModel,
+    reason: '未知操作类型，使用用户Pro模型确保质量',
     testingRequired: false,
   }
 }

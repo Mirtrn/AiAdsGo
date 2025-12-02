@@ -368,7 +368,11 @@ async function generateHeadlinesWithAI(
       IMPORTANT: Return ONLY the raw JSON array, no markdown code blocks.
     `
 
-    const aiResponse = await generateContent({ prompt }, userId)
+    // 智能模型选择：标题创意生成使用Pro模型（需要创造力）
+    const aiResponse = await generateContent({
+      operationType: 'headline_generation',
+      prompt
+    }, userId)
 
     // 记录token使用
     if (aiResponse.usage) {
@@ -436,7 +440,11 @@ async function generateDescriptionsWithAI(
       IMPORTANT: Return ONLY the raw JSON array, no markdown code blocks.
     `
 
-    const aiResponse = await generateContent({ prompt }, userId)
+    // 智能模型选择：描述创意生成使用Pro模型（需要创造力）
+    const aiResponse = await generateContent({
+      operationType: 'description_generation',
+      prompt
+    }, userId)
 
     // 记录token使用
     if (aiResponse.usage) {

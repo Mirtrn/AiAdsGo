@@ -930,7 +930,9 @@ async function generateHeadlines(
   }
 
   try {
+    // 智能模型选择：单个产品标题提取使用Flash模型（简单提取任务）
     const response = await generateContent({
+      operationType: 'ad_headline_extraction_single',
       prompt,
       responseSchema,  // 🆕 传递JSON schema约束
       responseMimeType: 'application/json'  // 🆕 强制JSON输出
@@ -1221,7 +1223,9 @@ async function generateHeadlinesFromMultipleProducts(
   }
 
   try {
+    // 智能模型选择：商店标题提取使用Flash模型（简单提取任务）
     const response = await generateContent({
+      operationType: 'ad_headline_extraction_store',
       prompt,
       responseSchema,  // 🆕 传递JSON schema约束
       responseMimeType: 'application/json'  // 🆕 强制JSON输出
@@ -1318,7 +1322,9 @@ async function generateDescriptions(
   }
 
   try {
+    // 智能模型选择：单个产品描述提取使用Flash模型（简单提取任务）
     const response = await generateContent({
+      operationType: 'ad_description_extraction_single',
       prompt,
       responseSchema,  // 🆕 传递JSON schema约束
       responseMimeType: 'application/json'  // 🆕 强制JSON输出
@@ -1574,7 +1580,9 @@ async function generateDescriptionsFromMultipleProducts(
   }
 
   try {
+    // 智能模型选择：商店描述提取使用Flash模型（简单提取任务）
     const response = await generateContent({
+      operationType: 'ad_description_extraction_store',
       prompt,
       responseSchema,  // 🆕 传递JSON schema约束
       responseMimeType: 'application/json'  // 🆕 强制JSON输出
