@@ -14,7 +14,6 @@ import { getOptimalResolver, extractDomain } from './resolver-domains'
 export interface ProxyConfig {
   url: string
   country: string
-  priority: 'primary' | 'fallback' | 'emergency'
   failureCount: number
   lastFailureTime: number | null
   successCount: number
@@ -58,20 +57,14 @@ export class ProxyPoolManager {
    */
   async loadProxies(settingsProxies: Array<{ url: string; country: string; is_default: boolean }>): Promise<void> {
     console.log(`🔍 [loadProxies] 开始加载代理，输入代理数量: ${settingsProxies.length}`)
-    console.log(`🔍 [loadProxies] 输入代理详情:`, settingsProxies.map(p => ({ country: p.country, is_default: p.is_default, url: p.url.substring(0, 50) + '...' })))
+    console.log(`🔍 [loadProxies] 输入代理详情:`, settingsProxies.map(p => ({ country: p.country, url: p.url.substring(0, 50) + '...' })))
 
     this.proxies.clear()
-
-    // 分类代理：主代理、备用代理、兜底代理
-    const primaryProxies: ProxyConfig[] = []
-    const fallbackProxies: ProxyConfig[] = []
-    let defaultProxy: ProxyConfig | null = null
 
     for (const proxy of settingsProxies) {
       const config: ProxyConfig = {
         url: proxy.url,
         country: proxy.country,
-        priority: 'fallback',
         failureCount: 0,
         lastFailureTime: null,
         successCount: 0,
@@ -79,50 +72,35 @@ export class ProxyPoolManager {
         isHealthy: true,
       }
 
-      if (proxy.is_default) {
-        config.priority = 'emergency'
-        defaultProxy = config
-        console.log(`   🔹 设置兜底代理: ${config.country}`)
-      } else {
-        primaryProxies.push(config)
-        console.log(`   🔹 添加主代理: ${config.country}`)
-      }
-
       this.proxies.set(proxy.url, config)
-    }
-
-    // 🔥 如果没有明确的兜底代理，使用最后一个代理作为兜底
-    if (!defaultProxy && settingsProxies.length > 0) {
-      const lastProxy = settingsProxies[settingsProxies.length - 1]
-      const lastProxyConfig = this.proxies.get(lastProxy.url)
-      if (lastProxyConfig) {
-        lastProxyConfig.priority = 'emergency'
-        defaultProxy = lastProxyConfig
-        console.log(`   🔹 自动设置兜底代理（最后一个）: ${defaultProxy.country}`)
-      }
+      console.log(`   🔹 添加代理: ${config.country}`)
     }
 
     console.log(`✅ [loadProxies] 代理池已加载: ${this.proxies.size}个代理`)
-    console.log(`   - 主代理: ${primaryProxies.length}个`)
-    console.log(`   - 兜底代理: ${defaultProxy ? `${defaultProxy.country}` : '无'}`)
+    if (settingsProxies.length > 0) {
+      console.log(`   - 默认代理（第一个）: ${settingsProxies[0].country}`)
+    }
   }
 
   /**
    * 根据国家获取最佳代理
+   * 优先级：目标国家健康代理 > 目标国家不健康代理 > 其他国家健康代理 > 第一个代理（默认）
    */
   getBestProxyForCountry(targetCountry: string): ProxyConfig | null {
     console.log(`🔍 [getBestProxyForCountry] 查找目标国家代理: ${targetCountry}`)
     console.log(`🔍 [getBestProxyForCountry] 代理池中共有 ${this.proxies.size} 个代理`)
 
+    const allProxies = Array.from(this.proxies.values())
+
     // 🔥 调试：打印所有代理的状态
     console.log(`🔍 [getBestProxyForCountry] 所有代理状态:`)
-    Array.from(this.proxies.values()).forEach((p, i) => {
-      console.log(`   ${i + 1}. ${p.country} - healthy:${p.isHealthy}, priority:${p.priority}, failures:${p.failureCount}, url:${p.url.substring(0, 50)}...`)
+    allProxies.forEach((p, i) => {
+      console.log(`   ${i + 1}. ${p.country} - healthy:${p.isHealthy}, failures:${p.failureCount}, url:${p.url.substring(0, 50)}...`)
     })
 
     // 1. 优先使用目标国家的健康代理
-    const countryProxies = Array.from(this.proxies.values())
-      .filter(p => p.country === targetCountry && p.isHealthy && p.priority !== 'emergency')
+    const countryProxies = allProxies
+      .filter(p => p.country === targetCountry && p.isHealthy)
       .sort((a, b) => a.failureCount - b.failureCount || a.avgResponseTime - b.avgResponseTime)
 
     console.log(`🔍 [getBestProxyForCountry] 目标国家(${targetCountry})健康代理数量: ${countryProxies.length}`)
@@ -132,24 +110,19 @@ export class ProxyPoolManager {
       return countryProxies[0]
     }
 
-    // 🔥 新增：如果没有健康的目标国家代理，尝试使用不健康的（但失败次数较少的）
-    const unhealthyCountryProxies = Array.from(this.proxies.values())
-      .filter(p => p.country === targetCountry && p.priority !== 'emergency')
+    // 2. 尝试使用目标国家的不健康代理（失败次数较少的）
+    const unhealthyCountryProxies = allProxies
+      .filter(p => p.country === targetCountry && !p.isHealthy)
       .sort((a, b) => a.failureCount - b.failureCount)
-
-    console.log(`🔍 [getBestProxyForCountry] 目标国家(${targetCountry})不健康代理数量: ${unhealthyCountryProxies.length}`)
-    if (unhealthyCountryProxies.length > 0) {
-      console.log(`   - 最佳不健康代理失败次数: ${unhealthyCountryProxies[0].failureCount}`)
-    }
 
     if (unhealthyCountryProxies.length > 0 && unhealthyCountryProxies[0].failureCount < 10) {
       console.log(`⚠️ 目标国家(${targetCountry})代理不健康，但尝试使用 (失败次数: ${unhealthyCountryProxies[0].failureCount})`)
       return unhealthyCountryProxies[0]
     }
 
-    // 2. 使用其他健康代理
-    const healthyProxies = Array.from(this.proxies.values())
-      .filter(p => p.isHealthy && p.priority !== 'emergency')
+    // 3. 使用其他国家的健康代理
+    const healthyProxies = allProxies
+      .filter(p => p.isHealthy)
       .sort((a, b) => a.failureCount - b.failureCount || a.avgResponseTime - b.avgResponseTime)
 
     console.log(`🔍 [getBestProxyForCountry] 其他国家健康代理数量: ${healthyProxies.length}`)
@@ -159,14 +132,39 @@ export class ProxyPoolManager {
       return healthyProxies[0]
     }
 
-    // 3. 使用兜底代理
-    const emergencyProxy = Array.from(this.proxies.values()).find(p => p.priority === 'emergency')
-    if (emergencyProxy) {
-      console.log(`⚠️ 使用兜底代理: ${emergencyProxy.country}`)
-    } else {
-      console.log(`❌ 没有可用的代理（包括兜底代理）`)
+    // 4. 使用第一个代理作为最后的兜底
+    if (allProxies.length > 0) {
+      console.log(`⚠️ 所有代理都不健康，使用第一个代理作为兜底: ${allProxies[0].country}`)
+      return allProxies[0]
     }
-    return emergencyProxy || null
+
+    console.log(`❌ 没有可用的代理`)
+    return null
+  }
+
+  /**
+   * 检查目标国家是否有可用的代理
+   * @returns 如果目标国家有代理返回 true，否则返回 false
+   */
+  hasProxyForCountry(targetCountry: string): boolean {
+    const allProxies = Array.from(this.proxies.values())
+    return allProxies.some(p => p.country === targetCountry)
+  }
+
+  /**
+   * 获取将被使用的代理信息（不改变代理状态）
+   * @returns 代理信息，包括是否匹配目标国家
+   */
+  getProxyInfo(targetCountry: string): { proxy: ProxyConfig | null; isTargetCountryMatch: boolean; usedCountry: string | null } {
+    const proxy = this.getBestProxyForCountry(targetCountry)
+    if (!proxy) {
+      return { proxy: null, isTargetCountryMatch: false, usedCountry: null }
+    }
+    return {
+      proxy,
+      isTargetCountryMatch: proxy.country === targetCountry,
+      usedCountry: proxy.country,
+    }
   }
 
   /**
@@ -566,7 +564,7 @@ export async function resolveAffiliateLink(
       }
 
       console.log(`🔄 尝试解析 (${attempt + 1}/${retryConfig.maxRetries + 1}): ${affiliateLink}`)
-      console.log(`   使用代理: ${proxy.country} (${proxy.priority})`)
+      console.log(`   使用代理: ${proxy.country}`)
 
       const startTime = Date.now()
 

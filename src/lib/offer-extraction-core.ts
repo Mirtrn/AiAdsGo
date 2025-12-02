@@ -8,7 +8,7 @@
  * 3. 批量创建Offer（Worker）：batch-worker → extractOffer({batchMode: true})
  */
 
-import { resolveAffiliateLink, BATCH_MODE_RETRY_CONFIG } from '@/lib/url-resolver-enhanced'
+import { resolveAffiliateLink, BATCH_MODE_RETRY_CONFIG, getProxyPool } from '@/lib/url-resolver-enhanced'
 import { extractProductInfo } from '@/lib/scraper'
 import {
   scrapeAmazonStore,
@@ -148,7 +148,28 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
 
     try {
       await initializeProxyPool(userId, targetCountry)
-      trackStageProgress(progressCallback, fetchingProxyStartTime, 'fetching_proxy', 'completed', '代理池初始化完成')
+
+      // 🔥 检查代理国家是否匹配目标国家
+      const proxyPool = getProxyPool()
+      const proxyInfo = proxyPool.getProxyInfo(targetCountry)
+
+      const proxyCountryMismatch = proxyInfo.proxy && !proxyInfo.isTargetCountryMatch
+      const completedMessage = proxyCountryMismatch
+        ? `代理池初始化完成（使用${proxyInfo.usedCountry}代理）`
+        : '代理池初始化完成'
+
+      trackStageProgress(
+        progressCallback,
+        fetchingProxyStartTime,
+        'fetching_proxy',
+        'completed',
+        completedMessage,
+        proxyCountryMismatch ? {
+          proxyCountryMismatch: true,
+          targetCountry: targetCountry,
+          usedProxyCountry: proxyInfo.usedCountry || undefined,
+        } : undefined
+      )
     } catch (error: any) {
       const errorMessage = error instanceof AppError ? error.message : '代理池初始化失败'
       trackStageProgress(progressCallback, fetchingProxyStartTime, 'fetching_proxy', 'error', errorMessage)

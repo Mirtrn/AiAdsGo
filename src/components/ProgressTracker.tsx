@@ -64,6 +64,19 @@ export default function ProgressTracker({
     return completedEvent?.duration;
   };
 
+  // 从事件中提取代理国家不匹配警告信息
+  const getProxyMismatchInfo = (stage: ProgressStage): { targetCountry?: string; usedProxyCountry?: string } | null => {
+    if (stage !== 'fetching_proxy') return null;
+    const completedEvent = events.find(
+      (e) => e.stage === 'fetching_proxy' && e.status === 'completed' && e.details?.proxyCountryMismatch
+    );
+    if (!completedEvent?.details?.proxyCountryMismatch) return null;
+    return {
+      targetCountry: completedEvent.details.targetCountry,
+      usedProxyCountry: completedEvent.details.usedProxyCountry,
+    };
+  };
+
   // 格式化耗时显示
   const formatDuration = (ms: number): string => {
     if (ms < 1000) {
@@ -213,6 +226,7 @@ export default function ProgressTracker({
           const isActive = stage === currentStage;
           const stageDuration = getStageDuration(stage);
           const isInProgress = status === 'in_progress';
+          const proxyMismatchInfo = getProxyMismatchInfo(stage);
 
           return (
             <div
@@ -246,6 +260,12 @@ export default function ProgressTracker({
                   {isInProgress && currentDuration !== undefined && (
                     <span className="text-xs font-mono text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded animate-pulse">
                       {formatDuration(currentDuration)}...
+                    </span>
+                  )}
+                  {/* 代理国家不匹配警告 */}
+                  {status === 'completed' && proxyMismatchInfo && (
+                    <span className="text-xs text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">
+                      ⚠️ 无{proxyMismatchInfo.targetCountry}代理，使用{proxyMismatchInfo.usedProxyCountry}代理
                     </span>
                   )}
                 </div>

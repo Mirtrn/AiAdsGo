@@ -31,6 +31,10 @@ export interface ProgressEvent {
     errorMessage?: string;
     retryCount?: number;
     elapsedTime?: number; // 已用时间（毫秒）
+    // 代理国家不匹配警告信息
+    proxyCountryMismatch?: boolean; // 是否存在国家不匹配
+    targetCountry?: string; // 目标国家
+    usedProxyCountry?: string; // 实际使用的代理国家
   };
 }
 
