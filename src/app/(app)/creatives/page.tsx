@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Select } from '@/components/ui/select'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -1063,11 +1063,16 @@ export default function CreativesPage() {
                 <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
                   <div className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
                     <span>每页</span>
-                    <Select className="w-20 h-8 text-sm" value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
-                      <option value="10">10</option>
-                      <option value="20">20</option>
-                      <option value="50">50</option>
-                      <option value="100">100</option>
+                    <Select value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
+                      <SelectTrigger className="w-16 h-7 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="10">10</SelectItem>
+                        <SelectItem value="20">20</SelectItem>
+                        <SelectItem value="50">50</SelectItem>
+                        <SelectItem value="100">100</SelectItem>
+                      </SelectContent>
                     </Select>
                     <span>条，共 {filteredCreatives.length} 条</span>
                   </div>
