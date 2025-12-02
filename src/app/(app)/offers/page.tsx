@@ -849,7 +849,7 @@ export default function OffersPage() {
                           setPageSize(newPageSize) // usePagination会自动重置到第一页
                         }}
                       >
-                        <SelectTrigger className="w-[80px] h-8">
+                        <SelectTrigger className="w-[70px] h-8">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -864,7 +864,8 @@ export default function OffersPage() {
                       显示第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredOffers.length)} 条，共 {filteredOffers.length} 条
                     </div>
                   </div>
-                  <Pagination>
+                  <div className="flex justify-end">
+                    <Pagination>
                     <PaginationContent>
                       <PaginationItem>
                         <PaginationPrevious
@@ -906,6 +907,7 @@ export default function OffersPage() {
                       </PaginationItem>
                     </PaginationContent>
                   </Pagination>
+                  </div>
                 </div>
               )}
             </CardContent>
