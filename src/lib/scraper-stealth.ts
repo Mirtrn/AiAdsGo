@@ -500,6 +500,15 @@ export async function scrapeUrlWithBrowser(
         throw new Error(`HTTP ${status} error`)
       }
 
+      // 🔥 P0修复: commit后等待DOM开始加载,否则页面可能是空壳HTML
+      // Amazon反爬策略:返回200状态但HTML为空,需等待JavaScript执行渲染DOM
+      try {
+        await page.waitForLoadState('domcontentloaded', { timeout: 5000 })
+        console.log(`✅ DOM加载完成`)
+      } catch (e) {
+        console.warn(`⚠️ DOM加载超时,但继续执行`)
+      }
+
       // 阶段2: 等待关键元素出现（Amazon产品页面的核心内容）
       if (options.waitForSelector) {
         console.log(`⏳ 等待关键元素: ${options.waitForSelector}`)
