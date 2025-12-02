@@ -87,7 +87,7 @@ COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 
 # 创建必要的目录
 RUN mkdir -p /var/log/nginx /var/lib/nginx/tmp /var/run && \
-    chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run/nginx.pid && \
+    chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run && \
     chown -R nextjs:nodejs /app
 
 # 暴露80端口（Nginx）
