@@ -42,6 +42,7 @@ interface BrowserInstance {
  */
 interface WaitingRequest {
   proxyKey: string
+  targetCountry?: string  // 🌍 增加目标国家字段
   resolve: (result: { browser: Browser; context: BrowserContext; instanceId: string }) => void
   reject: (error: Error) => void
   timeout: NodeJS.Timeout
@@ -69,23 +70,85 @@ class PlaywrightPool {
   }
 
   /**
-   * 🔥 为context添加stealth脚本（与scraper-stealth.ts一致）
+   * 🔥 为context添加stealth脚本（与scraper-stealth.ts完全一致）
+   * P0修复: 之前的plugins=[1,2,3,4,5]是严重错误，导致Amazon检测到机器人
    */
-  private async addStealthScripts(context: BrowserContext): Promise<void> {
-    await context.addInitScript(() => {
+  private async addStealthScripts(context: BrowserContext, targetCountry?: string): Promise<void> {
+    // 🌍 根据目标国家动态生成语言配置
+    let navigatorLanguages = ['en-US', 'en']  // 默认英语
+
+    if (targetCountry) {
+      const countryLanguageMap: Record<string, string[]> = {
+        'US': ['en-US', 'en'],
+        'GB': ['en-GB', 'en'],
+        'UK': ['en-GB', 'en'],
+        'DE': ['de-DE', 'de', 'en'],
+        'FR': ['fr-FR', 'fr', 'en'],
+        'IT': ['it-IT', 'it', 'en'],
+        'ES': ['es-ES', 'es', 'en'],
+        'JP': ['ja-JP', 'ja', 'en'],
+        'CA': ['en-CA', 'en', 'fr'],
+        'AU': ['en-AU', 'en'],
+        'NL': ['nl-NL', 'nl', 'en'],
+        'BR': ['pt-BR', 'pt', 'en'],
+        'MX': ['es-MX', 'es', 'en'],
+        'IN': ['en-IN', 'en', 'hi'],
+        'PL': ['pl-PL', 'pl', 'en'],
+        'SE': ['sv-SE', 'sv', 'en'],
+        'BE': ['nl-BE', 'fr-BE', 'nl', 'fr', 'en'],
+        'AT': ['de-AT', 'de', 'en'],
+        'CH': ['de-CH', 'fr-CH', 'it-CH', 'de', 'fr', 'it', 'en'],
+      }
+      navigatorLanguages = countryLanguageMap[targetCountry.toUpperCase()] || ['en-US', 'en']
+    }
+
+    const languagesForScript = navigatorLanguages
+
+    await context.addInitScript((langs: string[]) => {
       // Override navigator.webdriver
       Object.defineProperty(navigator, 'webdriver', {
         get: () => undefined,
       })
 
-      // Override plugins
+      // 🔥 伪装Chrome运行时（关键！）
+      const win = window as any
+      win.chrome = {
+        runtime: {},
+        loadTimes: function() {},
+        csi: function() {},
+        app: {}
+      }
+
+      // 🔥 P0修复: 使用真实的plugins对象结构（之前是[1,2,3,4,5]是严重错误）
       Object.defineProperty(navigator, 'plugins', {
-        get: () => [1, 2, 3, 4, 5],
+        get: () => [
+          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+          { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+        ],
       })
 
-      // Override languages
+      // 🌍 动态语言列表（根据目标国家）
       Object.defineProperty(navigator, 'languages', {
-        get: () => ['en-US', 'en'],
+        get: () => langs,
+      })
+
+      // 🔥 伪装真实屏幕分辨率和颜色深度
+      Object.defineProperty(screen, 'colorDepth', {
+        get: () => 24,
+      })
+      Object.defineProperty(screen, 'pixelDepth', {
+        get: () => 24,
+      })
+
+      // 🔥 伪装真实硬件并发数
+      Object.defineProperty(navigator, 'hardwareConcurrency', {
+        get: () => 8,
+      })
+
+      // 🔥 伪装设备内存
+      Object.defineProperty(navigator, 'deviceMemory', {
+        get: () => 8,
       })
 
       // Override permissions
@@ -94,7 +157,27 @@ class PlaywrightPool {
         parameters.name === 'notifications'
           ? Promise.resolve({ state: Notification.permission } as PermissionStatus)
           : originalQuery(parameters)
-    })
+
+      // 🔥 伪装Battery API
+      Object.defineProperty(navigator, 'getBattery', {
+        value: () => Promise.resolve({
+          charging: true,
+          chargingTime: 0,
+          dischargingTime: Infinity,
+          level: 1.0,
+        })
+      })
+
+      // 🔥 伪装Connection API
+      Object.defineProperty(navigator, 'connection', {
+        get: () => ({
+          effectiveType: '4g',
+          downlink: 10,
+          rtt: 50,
+          saveData: false,
+        })
+      })
+    }, languagesForScript)
   }
 
   /**
@@ -126,8 +209,9 @@ class PlaywrightPool {
    * 获取或创建浏览器实例
    * @param proxyUrl - 代理API URL（会调用getProxyIp获取凭证）
    * @param proxyCredentials - 直接传入的代理凭证（来自代理池缓存，跳过API调用）
+   * @param targetCountry - 目标国家（用于动态语言配置）
    */
-  async acquire(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
+  async acquire(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }, targetCountry?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
     // 生成proxyKey用于实例匹配
     const proxyKey = proxyCredentials
       ? `${proxyCredentials.host}:${proxyCredentials.port}`
@@ -144,8 +228,8 @@ class PlaywrightPool {
           await existing.context.close().catch(() => {})
           const newContext = await existing.browser.newContext(existing.contextOptions)
 
-          // 🔥 关键：为复用的context添加stealth脚本
-          await this.addStealthScripts(newContext)
+          // 🔥 关键：为复用的context添加stealth脚本（传入targetCountry）
+          await this.addStealthScripts(newContext, targetCountry)
 
           existing.context = newContext
           existing.inUse = true
@@ -170,7 +254,7 @@ class PlaywrightPool {
 
     if (canCreateForProxy && canCreateGlobal) {
       // 直接创建新实例
-      return await this.createAndRegisterInstance(proxyUrl, proxyCredentials)
+      return await this.createAndRegisterInstance(proxyUrl, proxyCredentials, targetCountry)
     }
 
     // 3. 尝试清理空闲实例腾出空间
@@ -178,13 +262,13 @@ class PlaywrightPool {
       await this.cleanupIdleInstances()
 
       if (this.instances.size < POOL_CONFIG.maxInstances) {
-        return await this.createAndRegisterInstance(proxyUrl)
+        return await this.createAndRegisterInstance(proxyUrl, undefined, targetCountry)
       }
 
       // 清理最旧的实例
       await this.cleanupOldestInstance()
       if (this.instances.size < POOL_CONFIG.maxInstances) {
-        return await this.createAndRegisterInstance(proxyUrl)
+        return await this.createAndRegisterInstance(proxyUrl, undefined, targetCountry)
       }
     }
 
@@ -201,6 +285,7 @@ class PlaywrightPool {
 
       this.waitingQueue.push({
         proxyKey,
+        targetCountry,  // 🌍 保存目标国家信息
         resolve,
         reject,
         timeout,
@@ -211,14 +296,14 @@ class PlaywrightPool {
   /**
    * 创建并注册新实例
    */
-  private async createAndRegisterInstance(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
+  private async createAndRegisterInstance(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }, targetCountry?: string): Promise<{ browser: Browser; context: BrowserContext; instanceId: string }> {
     const proxyKey = proxyCredentials
       ? `${proxyCredentials.host}:${proxyCredentials.port}`
       : (proxyUrl || 'no-proxy')
     const instanceId = this.generateInstanceId()
 
     console.log(`🚀 创建新Playwright实例: ${instanceId} (${proxyKey})`)
-    const { browser, context, contextOptions } = await this.createInstance(proxyUrl, proxyCredentials)
+    const { browser, context, contextOptions } = await this.createInstance(proxyUrl, proxyCredentials, targetCountry)
 
     const instance: BrowserInstance = {
       id: instanceId,
@@ -317,8 +402,8 @@ class PlaywrightPool {
           await idleInstance.context.close().catch(() => {})
           const newContext = await idleInstance.browser.newContext(idleInstance.contextOptions)
 
-          // 🔥 关键：为复用的context添加stealth脚本
-          await this.addStealthScripts(newContext)
+          // 🔥 关键：为复用的context添加stealth脚本（传入targetCountry）
+          await this.addStealthScripts(newContext, waiting.targetCountry)
 
           idleInstance.context = newContext
           idleInstance.inUse = true
@@ -337,7 +422,7 @@ class PlaywrightPool {
   /**
    * 创建新的浏览器实例
    */
-  private async createInstance(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }): Promise<{ browser: Browser; context: BrowserContext; contextOptions: any }> {
+  private async createInstance(proxyUrl?: string, proxyCredentials?: { host: string; port: number; username: string; password: string }, targetCountry?: string): Promise<{ browser: Browser; context: BrowserContext; contextOptions: any }> {
     // 🔥 代理必须在browser.launch时配置，无法在newContext时动态配置
     let launchOptions: any = {
       headless: true,
@@ -390,17 +475,51 @@ class PlaywrightPool {
     ]
     const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
 
+    // 🌍 根据目标国家动态配置locale和timezone
+    let locale = 'en-US'
+    let timezoneId = 'America/New_York'
+
+    if (targetCountry) {
+      const countryConfig: Record<string, { locale: string; timezone: string }> = {
+        'US': { locale: 'en-US', timezone: 'America/New_York' },
+        'GB': { locale: 'en-GB', timezone: 'Europe/London' },
+        'UK': { locale: 'en-GB', timezone: 'Europe/London' },
+        'DE': { locale: 'de-DE', timezone: 'Europe/Berlin' },
+        'FR': { locale: 'fr-FR', timezone: 'Europe/Paris' },
+        'IT': { locale: 'it-IT', timezone: 'Europe/Rome' },
+        'ES': { locale: 'es-ES', timezone: 'Europe/Madrid' },
+        'JP': { locale: 'ja-JP', timezone: 'Asia/Tokyo' },
+        'CA': { locale: 'en-CA', timezone: 'America/Toronto' },
+        'AU': { locale: 'en-AU', timezone: 'Australia/Sydney' },
+        'NL': { locale: 'nl-NL', timezone: 'Europe/Amsterdam' },
+        'BR': { locale: 'pt-BR', timezone: 'America/Sao_Paulo' },
+        'MX': { locale: 'es-MX', timezone: 'America/Mexico_City' },
+        'IN': { locale: 'en-IN', timezone: 'Asia/Kolkata' },
+        'PL': { locale: 'pl-PL', timezone: 'Europe/Warsaw' },
+        'SE': { locale: 'sv-SE', timezone: 'Europe/Stockholm' },
+        'BE': { locale: 'nl-BE', timezone: 'Europe/Brussels' },
+        'AT': { locale: 'de-AT', timezone: 'Europe/Vienna' },
+        'CH': { locale: 'de-CH', timezone: 'Europe/Zurich' },
+      }
+      const config = countryConfig[targetCountry.toUpperCase()]
+      if (config) {
+        locale = config.locale
+        timezoneId = config.timezone
+        console.log(`🌍 目标国家: ${targetCountry}, locale: ${locale}, timezone: ${timezoneId}`)
+      }
+    }
+
     let contextOptions: any = {
       userAgent: randomUserAgent,
       viewport: { width: 1920, height: 1080 },
-      locale: 'en-US',
-      timezoneId: 'America/New_York',
+      locale: locale,
+      timezoneId: timezoneId,
     }
 
     const context = await browser.newContext(contextOptions)
 
-    // 🔥 关键：添加stealth脚本到context（与scraper-stealth.ts一致）
-    await this.addStealthScripts(context)
+    // 🔥 关键：添加stealth脚本到context（传入targetCountry支持动态语言）
+    await this.addStealthScripts(context, targetCountry)
 
     return { browser, context, contextOptions }
   }

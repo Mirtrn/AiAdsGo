@@ -218,11 +218,11 @@ async function createStealthBrowser(proxyUrl?: string, targetCountry?: string): 
     throw new Error('❌ 代理配置缺失：根据需求10，必须配置代理URL(PROXY_URL环境变量或传入customProxyUrl参数)，不允许直连访问')
   }
 
-  // 🔥 P0优化: 使用连接池获取实例
+  // 🔥 P0优化: 使用连接池获取实例（传入targetCountry支持动态语言配置）
   if (USE_POOL) {
     try {
       const pool = getPlaywrightPool()
-      const { browser, context, instanceId } = await pool.acquire(effectiveProxyUrl)
+      const { browser, context, instanceId } = await pool.acquire(effectiveProxyUrl, undefined, targetCountry)
       console.log(`🔄 [连接池] 获取Playwright实例: ${instanceId}`)
       return { browser, context, instanceId, fromPool: true }
     } catch (poolError: any) {
@@ -507,6 +507,36 @@ export async function scrapeUrlWithBrowser(
         console.log(`✅ DOM加载完成`)
       } catch (e) {
         console.warn(`⚠️ DOM加载超时,但继续执行`)
+      }
+
+      // 🔥 P1修复: 检测Amazon的a-no-js标记，表示JavaScript未执行完成
+      // 如果检测到a-no-js，需要额外等待JavaScript渲染
+      try {
+        const hasNoJsClass = await page.evaluate(() => {
+          return document.documentElement.classList.contains('a-no-js') ||
+                 document.body?.classList.contains('a-no-js')
+        })
+
+        if (hasNoJsClass) {
+          console.log(`🔄 检测到a-no-js标记，等待JavaScript渲染...`)
+          // 等待a-no-js变为a-js，或者等待networkidle
+          try {
+            await Promise.race([
+              // 等待class变化（a-no-js → a-js）
+              page.waitForFunction(() => {
+                const html = document.documentElement
+                return !html.classList.contains('a-no-js') || html.classList.contains('a-js')
+              }, { timeout: 8000 }),
+              // 或者等待网络空闲
+              page.waitForLoadState('networkidle', { timeout: 8000 }),
+            ])
+            console.log(`✅ JavaScript渲染完成`)
+          } catch (waitError) {
+            console.warn(`⚠️ JavaScript渲染等待超时，继续执行`)
+          }
+        }
+      } catch (evalError) {
+        console.warn(`⚠️ a-no-js检测失败: ${(evalError as Error).message}`)
       }
 
       // 阶段2: 等待关键元素出现（Amazon产品页面的核心内容）
