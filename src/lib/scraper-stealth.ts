@@ -560,12 +560,35 @@ export async function scrapeUrlWithBrowser(
             throw new Error(`Amazon错误页面: ${pageTitle}`)
           }
 
+          // 🔥 P0增强调试: 提取页面中所有可能的标题元素
+          try {
+            const debugInfo = await page.evaluate(() => {
+              const h1s = Array.from(document.querySelectorAll('h1')).map(el => ({
+                tag: 'h1',
+                id: el.id,
+                class: el.className,
+                text: el.textContent?.substring(0, 100) || ''
+              }))
+              const spans = Array.from(document.querySelectorAll('span[id*="title"], span[class*="title"]')).slice(0, 5).map(el => ({
+                tag: 'span',
+                id: el.id,
+                class: el.className,
+                text: el.textContent?.substring(0, 100) || ''
+              }))
+              return { h1s, spans, bodyClass: document.body?.className || '' }
+            })
+            console.warn(`🔍 页面结构调试:`, JSON.stringify(debugInfo, null, 2))
+          } catch (e) {
+            console.warn('调试信息提取失败')
+          }
+
           // 获取部分HTML用于调试（前500个字符）
           const htmlPreview = await page.content().then(html => html.substring(0, 500)).catch(() => '')
           console.warn(`📄 页面预览: ${htmlPreview}...`)
 
           // 如果没有明确的反爬虫特征，但选择器未找到，可能是页面结构变化
-          console.warn(`⚠️ 页面加载成功但选择器未找到，可能是页面结构变化或内容未加载`)
+          // 🔥 P0修复: 不再抛出错误，而是继续处理（允许降级抓取）
+          console.warn(`⚠️ 页面加载成功但关键选择器未找到，将尝试降级提取数据`)
         } else {
           console.log(`✅ 关键元素已加载: ${foundSelector || options.waitForSelector}`)
         }
@@ -621,7 +644,10 @@ export async function scrapeUrlWithBrowser(
       // Take screenshot for debugging (optional)
       let screenshot: Buffer | undefined
       try {
-        screenshot = await page.screenshot({ fullPage: false })
+        screenshot = await page.screenshot({
+          fullPage: false,
+          timeout: 10000  // 🔥 P0修复: 设置10秒超时，避免等待字体加载卡死
+        })
       } catch (error) {
         console.warn('⚠️ 截图失败:', error)
       }
