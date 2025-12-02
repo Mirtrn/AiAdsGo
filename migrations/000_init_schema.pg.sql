@@ -79,12 +79,16 @@ CREATE TABLE IF NOT EXISTS offers (
   extracted_descriptions TEXT,
   extraction_metadata TEXT,
   extracted_at TIMESTAMP,
+  is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+  deleted_at TIMESTAMP DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_offers_user_id ON offers(user_id);
 CREATE INDEX IF NOT EXISTS idx_offers_offer_name ON offers(offer_name);
+CREATE INDEX IF NOT EXISTS idx_offers_is_deleted ON offers(is_deleted);
+CREATE INDEX IF NOT EXISTS idx_offers_deleted_at ON offers(deleted_at);
 
 -- ad_creatives
 CREATE TABLE IF NOT EXISTS ad_creatives (

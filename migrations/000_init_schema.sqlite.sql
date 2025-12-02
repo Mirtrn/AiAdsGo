@@ -81,12 +81,16 @@ CREATE TABLE IF NOT EXISTS offers (
   extracted_descriptions TEXT,
   extraction_metadata TEXT,
   extracted_at TEXT,
+  is_deleted INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT DEFAULT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_offers_user_id ON offers(user_id);
 CREATE INDEX IF NOT EXISTS idx_offers_offer_name ON offers(offer_name);
+CREATE INDEX IF NOT EXISTS idx_offers_is_deleted ON offers(is_deleted);
+CREATE INDEX IF NOT EXISTS idx_offers_deleted_at ON offers(deleted_at);
 
 -- ad_creatives
 CREATE TABLE IF NOT EXISTS ad_creatives (
