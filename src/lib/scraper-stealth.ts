@@ -1242,17 +1242,20 @@ export async function scrapeAmazonProduct(
       brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+/i, '')
       brand = brand.replace(/^(Store|Negozio)\s+(di\s+)?/i, '')
 
-      // French (FR, BE, CA-FR): "Visitez la boutique Brand"
-      brand = brand.replace(/^Visitez\s+(la|le|les)\s+boutique\s+(de\s+)?/i, '')
+      // French (FR, BE, CA-FR): "Visitez la boutique de Brand", "Visitez la Boutique de Brand"
+      brand = brand.replace(/^Visitez\s+(la|le|les)\s+/i, '')
+      brand = brand.replace(/^Boutique\s+(de\s+)?/i, '')
 
       // German (DE, AT, CH): "Besuchen Sie den Brand-Shop"
       brand = brand.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '').replace(/-Shop$/i, '')
 
-      // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda (de) Brand"
-      brand = brand.replace(/^Visita\s+(la|el)\s+tienda\s+(de\s+)?/i, '')
+      // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda de Brand", "Visita la Tienda de Brand"
+      brand = brand.replace(/^Visita\s+(la|el)\s+/i, '')
+      brand = brand.replace(/^Tienda\s+(de\s+)?/i, '')
 
-      // Portuguese (BR, PT): "Visite a loja Brand"
-      brand = brand.replace(/^Visite\s+a\s+loja\s+(da\s+)?/i, '')
+      // Portuguese (BR, PT): "Visite a loja da Brand", "Visite a Loja da Brand"
+      brand = brand.replace(/^Visite\s+a\s+/i, '')
+      brand = brand.replace(/^Loja\s+(da\s+)?/i, '')
 
       // Japanese (JP): "ブランド 出品者のストアにアクセス"
       brand = brand.replace(/\s*出品者のストアにアクセス$/i, '')
@@ -1261,8 +1264,9 @@ export async function scrapeAmazonProduct(
       // Dutch (NL, BE-NL): "Bezoek de Brand-winkel"
       brand = brand.replace(/^Bezoek\s+de\s+/i, '').replace(/-winkel$/i, '')
 
-      // Polish (PL): "Odwiedź sklep Brand"
-      brand = brand.replace(/^Odwiedź\s+sklep\s+/i, '')
+      // Polish (PL): "Odwiedź sklep Brand", "Odwiedź Sklep Brand"
+      brand = brand.replace(/^Odwiedź\s+/i, '')
+      brand = brand.replace(/^Sklep\s+/i, '')
 
       // Turkish (TR): "Brand Mağazasını ziyaret edin"
       brand = brand.replace(/\s+Mağazasını\s+ziyaret\s+edin$/i, '')

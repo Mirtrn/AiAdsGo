@@ -310,17 +310,20 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
   bylineInfo = bylineInfo.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+/i, '')
   bylineInfo = bylineInfo.replace(/^(Store|Negozio)\s+(di\s+)?/i, '')
 
-  // French (FR, BE, CA-FR): "Visitez la boutique Brand"
-  bylineInfo = bylineInfo.replace(/^Visitez\s+(la|le|les)\s+boutique\s+(de\s+)?/i, '')
+  // French (FR, BE, CA-FR): "Visitez la boutique de Brand", "Visitez la Boutique de Brand"
+  bylineInfo = bylineInfo.replace(/^Visitez\s+(la|le|les)\s+/i, '')
+  bylineInfo = bylineInfo.replace(/^Boutique\s+(de\s+)?/i, '')
 
   // German (DE, AT, CH): "Besuchen Sie den Brand-Shop"
   bylineInfo = bylineInfo.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '').replace(/-Shop$/i, '')
 
-  // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda (de) Brand"
-  bylineInfo = bylineInfo.replace(/^Visita\s+(la|el)\s+tienda\s+(de\s+)?/i, '')
+  // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda de Brand", "Visita la Tienda de Brand"
+  bylineInfo = bylineInfo.replace(/^Visita\s+(la|el)\s+/i, '')
+  bylineInfo = bylineInfo.replace(/^Tienda\s+(de\s+)?/i, '')
 
-  // Portuguese (BR, PT): "Visite a loja Brand"
-  bylineInfo = bylineInfo.replace(/^Visite\s+a\s+loja\s+(da\s+)?/i, '')
+  // Portuguese (BR, PT): "Visite a loja da Brand", "Visite a Loja da Brand"
+  bylineInfo = bylineInfo.replace(/^Visite\s+a\s+/i, '')
+  bylineInfo = bylineInfo.replace(/^Loja\s+(da\s+)?/i, '')
 
   // Japanese (JP): "ブランド 出品者のストアにアクセス"
   bylineInfo = bylineInfo.replace(/\s*出品者のストアにアクセス$/i, '')
@@ -329,8 +332,9 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
   // Dutch (NL, BE-NL): "Bezoek de Brand-winkel"
   bylineInfo = bylineInfo.replace(/^Bezoek\s+de\s+/i, '').replace(/-winkel$/i, '')
 
-  // Polish (PL): "Odwiedź sklep Brand"
-  bylineInfo = bylineInfo.replace(/^Odwiedź\s+sklep\s+/i, '')
+  // Polish (PL): "Odwiedź sklep Brand", "Odwiedź Sklep Brand"
+  bylineInfo = bylineInfo.replace(/^Odwiedź\s+/i, '')
+  bylineInfo = bylineInfo.replace(/^Sklep\s+/i, '')
 
   // Turkish (TR): "Brand Mağazasını ziyaret edin"
   bylineInfo = bylineInfo.replace(/\s+Mağazasını\s+ziyaret\s+edin$/i, '')
