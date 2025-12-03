@@ -464,6 +464,14 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           price: scrapedData.price,
         }),
 
+        // Amazon单品页评论数据（复用已抓取数据，避免重复请求）
+        ...(amazonProductData && {
+          rating: amazonProductData.rating,
+          reviewCount: amazonProductData.reviewCount,
+          reviewHighlights: amazonProductData.reviewHighlights,
+          topReviews: amazonProductData.topReviews,
+        }),
+
         // Amazon Store专属数据（可选）
         ...(storeData && {
           productCount,

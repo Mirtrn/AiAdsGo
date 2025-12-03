@@ -207,6 +207,11 @@ export async function POST(request: NextRequest) {
         platform,
         productName: extractedProductName,
         price: extractedPrice,
+        // 🆕 复用已抓取的评论数据（避免重复请求）
+        rating: extractedRating,
+        reviewCount: extractedReviewCount,
+        reviewHighlights: extractedReviewHighlights,
+        topReviews: extractedTopReviews,
         debug,
       } = extractResult.data;
 
@@ -338,62 +343,100 @@ export async function POST(request: NextRequest) {
 
       if (debug.isAmazonProductPage && aiAnalysisSuccess) {
         try {
-          sendProgress(controller, 'ai_analysis', 'in_progress', '正在抓取用户评论进行AI分析...');
+          sendProgress(controller, 'ai_analysis', 'in_progress', '正在分析用户评论...');
           console.log('📝 开始P0评论分析...');
 
-          const { scrapeAmazonReviews, analyzeReviewsWithAI } = await import('@/lib/review-analyzer');
-          const { chromium } = await import('playwright');
-          const { getProxyUrlForCountry } = await import('@/lib/settings');
-          const { getProxyIp } = await import('@/lib/proxy/fetch-proxy-ip');
+          const { analyzeReviewsWithAI } = await import('@/lib/review-analyzer');
 
-          // 🔧 修复：使用代理访问Amazon（与核心提取保持一致）
-          const proxyUrl = getProxyUrlForCountry(target_country, userIdNum);
-          let browserOptions: any = { headless: true };
+          // 🔧 方案B优化：优先复用核心提取已抓取的评论数据，避免重复请求
+          let reviews: Array<{ title: string; text: string; rating: number }> = [];
 
-          if (proxyUrl) {
+          // 检查是否有已抓取的评论数据
+          if (extractedTopReviews && extractedTopReviews.length > 0) {
+            console.log(`♻️ 复用核心提取的${extractedTopReviews.length}条评论数据（避免重复请求）`);
+
+            // 转换已有评论为分析所需格式
+            reviews = extractedTopReviews.map((review: string) => {
+              // 解析格式: "4.5 stars - Title: Review text..."
+              const ratingMatch = review.match(/^([\d.]+)\s*(stars?|out of|\/)/i);
+              const rating = ratingMatch ? parseFloat(ratingMatch[1]) : 4.0;
+
+              // 尝试分离标题和正文
+              const titleMatch = review.match(/[-–:]\s*([^:]+?):\s*(.+)/);
+              const title = titleMatch ? titleMatch[1].trim() : '';
+              const text = titleMatch ? titleMatch[2].trim() : review;
+
+              return { title, text, rating };
+            });
+
+            // 如果有reviewHighlights，也加入分析
+            if (extractedReviewHighlights && extractedReviewHighlights.length > 0) {
+              console.log(`♻️ 补充${extractedReviewHighlights.length}条评论摘要`);
+              extractedReviewHighlights.forEach((highlight: string) => {
+                if (highlight && highlight.length > 10) {
+                  reviews.push({ title: 'Highlight', text: highlight, rating: 4.0 });
+                }
+              });
+            }
+          } else {
+            // 🔄 降级方案：如果核心提取没有评论数据，才重新请求
+            console.log('⚠️ 核心提取无评论数据，尝试重新抓取...');
+
+            const { scrapeAmazonReviews } = await import('@/lib/review-analyzer');
+            const { chromium } = await import('playwright');
+            const { getProxyUrlForCountry } = await import('@/lib/settings');
+            const { getProxyIp } = await import('@/lib/proxy/fetch-proxy-ip');
+
+            const proxyUrl = getProxyUrlForCountry(target_country, userIdNum);
+            let browserOptions: any = { headless: true };
+
+            if (proxyUrl) {
+              try {
+                const proxyCredentials = await getProxyIp(proxyUrl);
+                browserOptions.proxy = {
+                  server: `http://${proxyCredentials.host}:${proxyCredentials.port}`,
+                  username: proxyCredentials.username,
+                  password: proxyCredentials.password,
+                };
+                console.log(`🔒 P0评论分析使用代理: ${proxyCredentials.host}:${proxyCredentials.port}`);
+              } catch (proxyError: any) {
+                console.warn(`⚠️ 获取代理失败，尝试直连: ${proxyError.message}`);
+              }
+            }
+
+            const browser = await chromium.launch(browserOptions);
+            const context = await browser.newContext({
+              userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            });
+
+            const reviewPage = await context.newPage();
+
             try {
-              const proxyCredentials = await getProxyIp(proxyUrl);
-              browserOptions.proxy = {
-                server: `http://${proxyCredentials.host}:${proxyCredentials.port}`,
-                username: proxyCredentials.username,
-                password: proxyCredentials.password,
-              };
-              console.log(`🔒 P0评论分析使用代理: ${proxyCredentials.host}:${proxyCredentials.port}`);
-            } catch (proxyError: any) {
-              console.warn(`⚠️ 获取代理失败，尝试直连: ${proxyError.message}`);
+              await reviewPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+              reviews = await scrapeAmazonReviews(reviewPage, 50);
+              console.log(`✅ 降级方案抓取到${reviews.length}条评论`);
+            } finally {
+              await reviewPage.close();
+              await browser.close();
             }
           }
 
-          const browser = await chromium.launch(browserOptions);
-          const context = await browser.newContext({
-            userAgent:
-              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-          });
+          // AI分析评论
+          if (reviews.length > 0) {
+            console.log(`✅ 共${reviews.length}条评论，开始AI分析...`);
 
-          const reviewPage = await context.newPage();
+            reviewAnalysis = await analyzeReviewsWithAI(
+              reviews,
+              brandName || 'Unknown',
+              target_country,
+              userIdNum
+            );
 
-          try {
-            await reviewPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-            const reviews = await scrapeAmazonReviews(reviewPage, 50);
-
-            if (reviews.length > 0) {
-              console.log(`✅ 抓取到${reviews.length}条评论，开始AI分析...`);
-
-              reviewAnalysis = await analyzeReviewsWithAI(
-                reviews,
-                brandName || 'Unknown',
-                target_country,
-                userIdNum
-              );
-
-              reviewAnalysisSuccess = true;
-              console.log('✅ P0评论分析完成');
-            } else {
-              console.log('⚠️ 未抓取到评论，跳过AI分析');
-            }
-          } finally {
-            await reviewPage.close();
-            await browser.close();
+            reviewAnalysisSuccess = true;
+            console.log('✅ P0评论分析完成');
+          } else {
+            console.log('⚠️ 无评论数据，跳过AI分析');
           }
         } catch (reviewError: any) {
           console.warn('⚠️ P0评论分析失败（不影响主流程）:', reviewError.message);
