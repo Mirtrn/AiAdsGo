@@ -149,6 +149,45 @@ function configureVertexAI(userId: number): void {
 }
 
 /**
+ * ✅ Token使用率监控：防止输出截断
+ * 检查实际输出tokens是否接近maxOutputTokens限制
+ * - 利用率 > 80%: 警告（可能需要增加限制）
+ * - 利用率 = 100%: 错误（发生截断，必须增加限制）
+ */
+function checkTokenUtilization(
+  outputTokens: number,
+  maxOutputTokens: number,
+  operationType?: string
+): void {
+  if (!outputTokens || !maxOutputTokens) return
+
+  const utilization = outputTokens / maxOutputTokens
+  const percentage = (utilization * 100).toFixed(1)
+
+  if (utilization >= 1.0) {
+    // 100%利用率 = 输出被截断，严重错误
+    console.error(
+      `🚨 Token截断错误: ${operationType || 'unknown'} ` +
+      `输出${outputTokens}/${maxOutputTokens} tokens (${percentage}%) - 内容被截断！\n` +
+      `⚠️ 必须增加maxOutputTokens配置以避免输出不完整`
+    )
+  } else if (utilization >= 0.8) {
+    // 80%以上利用率 = 接近截断风险
+    console.warn(
+      `⚠️ Token高使用率警告: ${operationType || 'unknown'} ` +
+      `输出${outputTokens}/${maxOutputTokens} tokens (${percentage}%) - 接近限制\n` +
+      `💡 建议: 考虑适当增加maxOutputTokens配置`
+    )
+  } else {
+    // 正常范围，记录日志
+    console.log(
+      `✅ Token使用正常: ${operationType || 'unknown'} ` +
+      `输出${outputTokens}/${maxOutputTokens} tokens (${percentage}%)`
+    )
+  }
+}
+
+/**
  * 统一的Gemini内容生成接口
  *
  * 路由逻辑（只使用用户级配置）：
@@ -229,6 +268,12 @@ export async function generateContent(
       })
 
       console.log('✓ Vertex AI 调用成功')
+
+      // ✅ Token使用率监控
+      if (result.usage?.outputTokens) {
+        checkTokenUtilization(result.usage.outputTokens, maxOutputTokens, operationType)
+      }
+
       return {
         text: result.text,
         usage: result.usage,
@@ -241,7 +286,7 @@ export async function generateContent(
       // 如果用户也配置了Gemini API，则降级
       if (hasGeminiAPI) {
         console.log('🔄 降级到用户的 Gemini 直接 API 模式...')
-        return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, responseSchema, responseMimeType }, userId)
+        return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, operationType, responseSchema, responseMimeType }, userId)
       } else {
         // 用户只配置了Vertex AI，没有降级选项
         throw new Error(`Vertex AI 调用失败，且用户未配置 Gemini API 作为备选: ${error.message}`)
@@ -251,7 +296,7 @@ export async function generateContent(
 
   // 使用 Gemini API（用户没有配置Vertex AI）
   console.log(`🌐 使用用户(ID=${userId})的 Gemini 直接 API 配置`)
-  return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, responseSchema, responseMimeType }, userId)
+  return await callDirectAPI({ model: finalModel, prompt, temperature, maxOutputTokens, operationType, responseSchema, responseMimeType }, userId)
 }
 
 /**
@@ -262,7 +307,7 @@ async function callDirectAPI(
   params: GeminiGenerateParams,
   userId: number
 ): Promise<GeminiGenerateResult> {
-  const { model, prompt, temperature, maxOutputTokens, responseSchema, responseMimeType } = params
+  const { model, prompt, temperature, maxOutputTokens, operationType, responseSchema, responseMimeType } = params
 
   // 检查用户的API密钥配置
   const apiKey = getUserOnlySetting('ai', 'gemini_api_key', userId)
@@ -283,6 +328,11 @@ async function callDirectAPI(
     responseSchema,  // 🆕 传递JSON schema约束
     responseMimeType,  // 🆕 传递MIME类型
   }, userId)
+
+  // ✅ Token使用率监控
+  if (result.usage?.outputTokens) {
+    checkTokenUtilization(result.usage.outputTokens, maxOutputTokens || 8192, operationType)
+  }
 
   return {
     text: result.text,

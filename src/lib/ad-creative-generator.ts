@@ -939,7 +939,7 @@ async function generateWithVertexAI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 16384,  // 增加以容纳完整创意（含完整metadata）
+      maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
     },
   })
 
@@ -973,7 +973,7 @@ async function generateWithGeminiAPI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 16384,  // 增加以容纳完整创意（含完整metadata）
+      maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
     },
   })
 
@@ -1330,10 +1330,12 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
 
 /**
  * 主函数：生成广告创意（带缓存）
+ *
+ * ✅ 安全修复：userId改为必需参数，确保用户只能访问自己的Offer
  */
 export async function generateAdCreative(
   offerId: number,
-  userId?: number,
+  userId: number,  // ✅ 修复：改为必需参数
   options?: {
     theme?: string
     referencePerformance?: any
@@ -1358,13 +1360,13 @@ export async function generateAdCreative(
 
   const db = getSQLiteDatabase()
 
-  // 获取Offer数据（包含提取的广告元素）
+  // ✅ 安全修复：获取Offer数据时验证user_id，防止跨用户访问
   const offer = db.prepare(`
-    SELECT * FROM offers WHERE id = ?
-  `).get(offerId)
+    SELECT * FROM offers WHERE id = ? AND user_id = ?
+  `).get(offerId, userId)
 
   if (!offer) {
-    throw new Error('Offer不存在')
+    throw new Error('Offer不存在或无权访问')
   }
 
   // 🎯 需求34: 读取已提取的广告元素（从爬虫阶段保存的数据）
@@ -1502,7 +1504,7 @@ export async function generateAdCreative(
     operationType: 'ad_creative_generation_main',
     prompt,
     temperature: 0.9,
-    maxOutputTokens: 16384,  // 增加以容纳完整创意（含完整metadata）
+    maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
   }, userId)
   console.timeEnd('⏱️ AI生成创意')
 
@@ -2047,14 +2049,17 @@ export async function generateAdCreative(
 /**
  * 并行生成多个广告创意（优化延迟）
  *
+ * ✅ 安全修复：userId改为必需参数
+ *
  * @param offerId Offer ID
+ * @param userId 用户ID（必需）
  * @param count 生成数量（1-3个）
  * @param options 生成选项
  * @returns 生成的创意数组
  */
 export async function generateAdCreativesBatch(
   offerId: number,
-  userId?: number,
+  userId: number,  // ✅ 修复：改为必需参数
   count: number = 3,
   options?: {
     theme?: string
@@ -2351,10 +2356,12 @@ function calculateCreativeKeywordSimilarity(
 /**
  * 生成多个创意，确保多样性
  * 如果相似度过高，自动重新生成
+ *
+ * ✅ 安全修复：userId改为必需参数
  */
 export async function generateMultipleCreativesWithDiversityCheck(
   offerId: number,
-  userId?: number,
+  userId: number,  // ✅ 修复：改为必需参数
   count: number = 3,
   maxSimilarity: number = 0.2,
   maxRetries: number = 3,

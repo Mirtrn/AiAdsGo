@@ -585,7 +585,7 @@ ${baseKeywords.join(', ')}
       operationType: 'negative_keyword_generation',
       prompt,
       temperature: 0.7,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 2048,  // ✅ 优化：输出20-50个否定关键词约500-1000 tokens,2048足够(原8192浪费75%)
     }, userId)
 
     // 记录token使用

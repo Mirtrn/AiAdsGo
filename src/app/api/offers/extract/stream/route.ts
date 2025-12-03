@@ -256,13 +256,22 @@ export async function POST(request: NextRequest) {
             })
             .join('\n');
 
+          // ✅ 增强：补充 hotInsights、logoUrl、platform 等数据
           const textContent = [
             `Store Name: ${storeName || brandName || 'Unknown'}`,
             `Total Products: ${productCount}`,
             productDescription ? `Description: ${productDescription}` : '',
+            hotInsights ? `\n=== HOT INSIGHTS ===\n${hotInsights}` : '',  // 🆕 新增热销洞察
+            logoUrl ? `Logo: ${logoUrl}` : '',  // 🆕 新增店铺logo（独立站）
+            platform ? `Platform: ${platform}` : '',  // 🆕 新增平台信息（独立站）
             '\n=== HOT-SELLING PRODUCTS (Top 15) ===',
             productSummaries,
-          ].join('\n');
+          ].filter(Boolean).join('\n');
+
+          console.log(`   📊 Store页面AI分析数据增强:`);
+          console.log(`      - 热销洞察: ${hotInsights ? '有' : '无'}`);
+          console.log(`      - Logo URL: ${logoUrl ? '有' : '无'}`);
+          console.log(`      - 平台信息: ${platform || 'N/A'}`);
 
           pageData = {
             title: storeName || brandName || 'Unknown Store',
@@ -387,26 +396,36 @@ export async function POST(request: NextRequest) {
           console.log('📝 开始P0评论分析...');
 
           const { analyzeReviewsWithAI } = await import('@/lib/review-analyzer');
+          // 从 review-analyzer 导入类型
+          type RawReview = {
+            rating: string | null;
+            title: string | null;
+            body: string | null;
+            helpful: string | null;
+            verified: boolean;
+            date?: string | null;
+            author?: string | null;
+          };
 
           // 🔧 方案B优化：优先复用核心提取已抓取的评论数据，避免重复请求
-          let reviews: Array<{ title: string; text: string; rating: number }> = [];
+          let reviews: RawReview[] = [];
 
           // 检查是否有已抓取的评论数据
           if (extractedTopReviews && extractedTopReviews.length > 0) {
             console.log(`♻️ 复用核心提取的${extractedTopReviews.length}条评论数据（避免重复请求）`);
 
-            // 转换已有评论为分析所需格式
-            reviews = extractedTopReviews.map((review: string) => {
-              // 解析格式: "4.5 stars - Title: Review text..."
-              const ratingMatch = review.match(/^([\d.]+)\s*(stars?|out of|\/)/i);
-              const rating = ratingMatch ? parseFloat(ratingMatch[1]) : 4.0;
+            // 转换已有评论为 RawReview 格式（供AI分析）
+            reviews = extractedTopReviews.map((reviewStr: string) => {
+              // 解析格式: "4.5 out of 5 stars - Title: Review text..."
+              const ratingMatch = reviewStr.match(/^([\d.]+)\s*(out of \d+\s*)?(stars?)/i);
+              const rating = ratingMatch ? `${ratingMatch[1]} out of 5 stars` : null;
 
               // 尝试分离标题和正文
-              const titleMatch = review.match(/[-–:]\s*([^:]+?):\s*(.+)/);
-              const title = titleMatch ? titleMatch[1].trim() : '';
-              const text = titleMatch ? titleMatch[2].trim() : review;
+              const titleMatch = reviewStr.match(/[-–]\s*([^:]+?):\s*(.+)/);
+              const title = titleMatch ? titleMatch[1].trim() : null;
+              const body = titleMatch ? titleMatch[2].trim() : reviewStr;
 
-              return { title, text, rating };
+              return { rating, title, body, helpful: null, verified: false };
             });
 
             // 如果有reviewHighlights，也加入分析
@@ -414,7 +433,7 @@ export async function POST(request: NextRequest) {
               console.log(`♻️ 补充${extractedReviewHighlights.length}条评论摘要`);
               extractedReviewHighlights.forEach((highlight: string) => {
                 if (highlight && highlight.length > 10) {
-                  reviews.push({ title: 'Highlight', text: highlight, rating: 4.0 });
+                  reviews.push({ rating: '4.0 out of 5 stars', title: 'Highlight', body: highlight, helpful: null, verified: false });
                 }
               });
             }
@@ -506,14 +525,30 @@ export async function POST(request: NextRequest) {
           // 🆕 统一策略：AI推断关键词 + Amazon搜索验证（适用所有页面类型）
           console.log('🤖 使用AI推断竞品搜索关键词...');
 
-          // 构建产品信息用于AI推断
+          // 构建产品信息用于AI推断（🔧 增强版：传递完整产品上下文）
           const productInfoForAI = {
-            name: brandName || pageTitle || 'Unknown Product',
+            // 基础信息
+            name: extractedProductName || pageTitle || brandName || 'Unknown Product',
             brand: brandName || null,
-            category: aiProductInfo?.category || 'Unknown',
+            category: aiProductInfo?.category || extractedCategory || 'Unknown',
             price: extractedPrice ? parseFloat(extractedPrice.replace(/[^0-9.]/g, '')) : null,
-            targetCountry: target_country
+            targetCountry: target_country,
+            // 🆕 增强信息：帮助AI更准确地推断竞品搜索词
+            features: extractedFeatures || [],
+            aboutThisItem: extractedAboutThisItem || [],
+            // ✅ 修复：使用uniqueSellingPoints字段,并转换为数组格式
+            sellingPoints: aiProductInfo?.uniqueSellingPoints
+              ? aiProductInfo.uniqueSellingPoints.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean)
+              : [],
+            productDescription: productDescription || aiProductInfo?.brandDescription || ''
           };
+
+          // 🔍 日志：输出传递给AI的产品信息摘要
+          console.log(`   产品名称: ${productInfoForAI.name}`);
+          console.log(`   品牌: ${productInfoForAI.brand || 'Unknown'}`);
+          console.log(`   品类: ${productInfoForAI.category}`);
+          console.log(`   特性数量: ${productInfoForAI.features.length + productInfoForAI.aboutThisItem.length}`);
+          console.log(`   描述长度: ${productInfoForAI.productDescription.length}字符`);
 
           try {
             // Step 1: AI推断竞品搜索词
@@ -578,13 +613,26 @@ export async function POST(request: NextRequest) {
                     return [];
                   };
 
+                  // ✅ 修复：构建完整的 ourProduct 对象（传递所有可用数据）
                   const ourProduct = {
-                    name: brandName || 'Unknown',
+                    name: extractedProductName || brandName || 'Unknown',
+                    brand: brandName || null,
                     price: priceNum,
-                    rating: null,
-                    reviewCount: null,
+                    // ✅ 修复：传递实际的评分和评论数（不再是 null）
+                    rating: extractedRating ? parseFloat(extractedRating.replace(/[^\d.]/g, '')) : null,
+                    reviewCount: extractedReviewCount ? parseInt(extractedReviewCount.replace(/[^\d]/g, '')) : null,
                     features: extractFeatures(aiProductInfo?.productHighlights),
+                    // ✅ 修复：传递卖点信息
+                    sellingPoints: aiProductInfo?.uniqueSellingPoints || '',
                   };
+
+                  // 🔍 日志：输出传递给竞品分析的产品信息
+                  console.log(`   我们的产品: ${ourProduct.name}`);
+                  console.log(`   品牌: ${ourProduct.brand || 'Unknown'}`);
+                  console.log(`   价格: $${ourProduct.price?.toFixed(2) || 'N/A'}`);
+                  console.log(`   评分: ${ourProduct.rating || 'N/A'} (${ourProduct.reviewCount || 0} 评论)`);
+                  console.log(`   特性数量: ${ourProduct.features.length}`);
+                  console.log(`   卖点: ${ourProduct.sellingPoints ? '有' : '无'}`);
 
                   // 🆕 Token优化：竞品压缩灰度发布（10%）
                   const enableCompression = isCompetitorCompressionEnabled(userIdNum, FEATURE_FLAGS.competitorCompression.rolloutPercentage);
@@ -679,13 +727,21 @@ export async function POST(request: NextRequest) {
               return [];
             };
 
+            // ✅ 修复：传递更完整的产品数据（增加 price、rating、description 等）
             const extractionResult = await extractAdElements(
               {
                 pageType: 'product',
                 product: {
                   productName: extractedProductName || brandName || 'Unknown',
+                  productDescription: productDescription || aiProductInfo?.brandDescription || null,
+                  productPrice: extractedPrice || null,
                   brandName: brandName || 'Unknown',
-                  features: extractFeaturesForAd(aiProductInfo.productHighlights),
+                  // 优先使用抓取的 features，fallback 到 AI 分析的 productHighlights
+                  features: (extractedFeatures && extractedFeatures.length > 0) ? extractedFeatures : extractFeaturesForAd(aiProductInfo.productHighlights),
+                  aboutThisItem: extractedAboutThisItem || [],
+                  rating: extractedRating || null,
+                  reviewCount: extractedReviewCount || null,
+                  imageUrls: extractedImageUrls || [],
                 } as any,
               },
               brandName || 'Unknown',
@@ -693,6 +749,14 @@ export async function POST(request: NextRequest) {
               targetLanguage,
               userIdNum
             );
+
+            console.log(`   📦 传递给广告元素提取的产品数据:`);
+            console.log(`      - 产品名: ${extractedProductName || brandName}`);
+            console.log(`      - 价格: ${extractedPrice || 'N/A'}`);
+            console.log(`      - 评分: ${extractedRating || 'N/A'}`);
+            console.log(`      - 特性: ${extractedFeatures?.length || 0} 个`);
+            console.log(`      - 描述: ${productDescription ? '有' : '无'}`);
+
 
             extractedKeywords = extractionResult.keywords;
             extractedHeadlines = extractionResult.headlines;

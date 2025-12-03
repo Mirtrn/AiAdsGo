@@ -74,6 +74,25 @@ export interface ExtractOfferResult {
     productName?: string
     price?: string
 
+    // Amazon单品页详细数据（可选）
+    // 注意：rating/reviewCount 存储为字符串，保持与 AmazonProductData 一致
+    rating?: string | null
+    reviewCount?: string | null
+    reviewHighlights?: string[]
+    // topReviews 存储为字符串数组，格式："4.5 stars - Title: Review text..."
+    topReviews?: string[]
+    features?: string[]
+    aboutThisItem?: string[]
+    technicalDetails?: Record<string, string>
+    imageUrls?: string[]
+    originalPrice?: string | null
+    discount?: string | null
+    salesRank?: string | null
+    availability?: string | null
+    primeEligible?: boolean
+    asin?: string | null
+    category?: string | null
+
     // Amazon Store专属数据（可选）
     productCount?: number
     products?: any[]
@@ -100,6 +119,10 @@ export interface ExtractOfferResult {
       isIndependentStore: boolean
       productsExtracted: number
       scrapeMethod: string
+      scrapingError?: string
+      amazonProductDataExtracted?: boolean
+      storeDataExtracted?: boolean
+      independentStoreDataExtracted?: boolean
     }
   }
   error?: {

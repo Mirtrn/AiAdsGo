@@ -9,6 +9,9 @@ export interface ProductInfo {
   productHighlights: string
   targetAudience: string
   category?: string
+  // 🆕 增强字段：用于竞品搜索词推断
+  sellingPoints?: string[]           // 产品卖点列表
+  productDescription?: string        // 产品描述（完整文本）
   // 增强数据维度（用于精准广告创意生成）
   pricing?: {
     currentPrice?: string

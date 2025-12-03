@@ -192,7 +192,7 @@ function extractCoreProductType(productNameLower: string): string[] {
 /**
  * 使用AI推断竞品搜索关键词
  *
- * @param productInfo 产品基本信息
+ * @param productInfo 产品基本信息（增强版：包含features、sellingPoints等）
  * @param userId 用户ID（用于token计费）
  * @returns 竞品搜索关键词数组
  */
@@ -203,6 +203,11 @@ export async function inferCompetitorKeywords(
     category: string
     price: number | null
     targetCountry: string
+    // 🆕 增强字段：提供更多上下文帮助AI推断更准确的搜索词
+    features?: string[]           // 产品特性列表
+    aboutThisItem?: string[]      // 关于此商品
+    sellingPoints?: string[]      // 卖点
+    productDescription?: string   // 产品描述
   },
   userId: number
 ): Promise<string[]> {
@@ -214,11 +219,20 @@ export async function inferCompetitorKeywords(
   // 📦 从数据库加载prompt模板 (版本管理)
   const promptTemplate = await loadPrompt('competitor_keyword_inference')
 
+  // 🆕 构建产品特性文本（用于AI更好地理解产品类型）
+  const featuresText = [
+    ...(productInfo.features || []),
+    ...(productInfo.aboutThisItem || []),
+    ...(productInfo.sellingPoints || [])
+  ].slice(0, 10).join('\n- ') || 'Not provided'
+
   // 🎨 插值替换模板变量
   const prompt = promptTemplate
     .replace('{{productInfo.name}}', productInfo.name)
     .replace('{{productInfo.brand}}', productInfo.brand || 'Unknown')
     .replace('{{productInfo.category}}', productInfo.category)
+    .replace('{{productInfo.features}}', featuresText)
+    .replace('{{productInfo.description}}', productInfo.productDescription || 'Not provided')
     .replace('{{productInfo.price}}', productInfo.price ? `Around $${productInfo.price}` : 'Not specified')
     .replace('{{productInfo.targetCountry}}', productInfo.targetCountry)
 
@@ -227,7 +241,7 @@ export async function inferCompetitorKeywords(
       operationType: 'competitor_summary',
       prompt,
       temperature: 0.3,  // 低温度保证稳定输出
-      maxOutputTokens: 8192,  // 🔴 Pro模型统一使用8192
+      maxOutputTokens: 512,  // ✅ 优化：竞品关键词推断只需输出3-5个词,512足够(原8192浪费93.75%)
     }, userId)
 
     // 记录token使用
@@ -949,10 +963,12 @@ function deduplicateCompetitors(competitors: CompetitorProduct[]): CompetitorPro
 export async function analyzeCompetitorsWithAI(
   ourProduct: {
     name: string
+    brand?: string | null           // 🆕 品牌名
     price: number | null
     rating: number | null
     reviewCount: number | null
     features: string[]
+    sellingPoints?: string          // 🆕 卖点描述
   },
   competitors: CompetitorProduct[],
   targetCountry: string = 'US',
@@ -1016,32 +1032,25 @@ export async function analyzeCompetitorsWithAI(
   // 📦 从数据库加载prompt模板(版本管理)
   const promptTemplate = await loadPrompt('competitor_analysis')
 
-  // 🎨 准备模板变量
-  const ourProductName = ourProduct.name
-  const ourProductPrice = ourProduct.price ? `$${ourProduct.price.toFixed(2)}` : 'N/A'
-  const ourProductRating = `${ourProduct.rating || 'N/A'} stars (${ourProduct.reviewCount || 0} reviews)`
-  const ourProductFeatures = ourProduct.features.slice(0, 10).join('; ') || 'Not specified'
+  // 🎨 准备模板变量（匹配 prompt 模板中的变量名）
+  const productName = ourProduct.name
+  const brand = ourProduct.brand || 'Unknown'
+  const price = ourProduct.price ? `$${ourProduct.price.toFixed(2)}` : 'N/A'
+  const rating = `${ourProduct.rating || 'N/A'}`
+  const reviewCount = `${ourProduct.reviewCount || 0}`
+  const features = ourProduct.features.slice(0, 10).join('; ') || 'Not specified'
+  const sellingPoints = ourProduct.sellingPoints || 'Not specified'
 
-  const priceAdvantage = pricePosition?.priceAdvantage || 'unknown'
-  const pricePercentile = pricePosition?.pricePercentile?.toString() || '0'
-  const ratingAdvantage = ratingPosition?.ratingAdvantage || 'unknown'
-  const ratingPercentile = ratingPosition?.ratingPercentile?.toString() || '0'
-
-  const totalCompetitorsText = competitors.length.toString()
-
-  // 🎨 插值替换模板变量
+  // 🎨 插值替换模板变量（✅ 修复：变量名与 prompt 模板一致）
   const prompt = promptTemplate
-    .replace('{{ourProduct.name}}', ourProductName)
-    .replace('{{ourProduct.price}}', ourProductPrice)
-    .replace('{{ourProduct.rating}}', ourProductRating)
-    .replace('{{ourProduct.features}}', ourProductFeatures)
-    .replace('{{pricePosition.priceAdvantage}}', priceAdvantage)
-    .replace('{{pricePosition.pricePercentile}}', pricePercentile)
-    .replace('{{ratingPosition.ratingAdvantage}}', ratingAdvantage)
-    .replace('{{ratingPosition.ratingPercentile}}', ratingPercentile)
-    .replace('{{totalCompetitors}}', totalCompetitorsText)
-    .replace('{{competitorSummaries}}', competitorSummaries)
-    .replace('{{targetLanguage}}', langName)
+    .replace('{{productName}}', productName)
+    .replace('{{brand}}', brand)
+    .replace('{{price}}', price)
+    .replace('{{rating}}', rating)
+    .replace('{{reviewCount}}', reviewCount)
+    .replace('{{features}}', features)
+    .replace('{{sellingPoints}}', sellingPoints)
+    .replace('{{competitorsList}}', competitorSummaries)
 
   try {
     // 使用Gemini AI进行分析
