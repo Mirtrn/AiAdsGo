@@ -3,26 +3,27 @@
 ## ⚡ 一键自动化更新（推荐）
 
 ```bash
-# 1. 准备Prompt内容文件
-echo "你的prompt内容" > prompts/ad_creative_v3.txt
+# 前提：在开发环境数据库中手动修改和测试好Prompt
 
-# 2. 运行自动化脚本（一条命令完成所有操作）
-./scripts/update-prompt.sh ad_creative_generation v3.0 prompts/ad_creative_v3.txt
+# 运行自动化脚本（从数据库导出并生成迁移文件）
+./scripts/update-prompt.sh ad_creative_generation v3.0
 
 # 脚本会自动完成：
-# ✅ 查询当前版本信息
-# ✅ 读取新Prompt内容
+# ✅ 从数据库读取当前活跃的Prompt内容
 # ✅ 交互式输入变更说明
-# ✅ 生成迁移文件
-# ✅ 备份数据库
-# ✅ 执行迁移
+# ✅ 生成迁移文件（包含完整Prompt内容）
 # ✅ Git提交和推送
+# ✅ 生产环境部署后自动执行迁移
 ```
 
 **参数说明**:
 - `<prompt_id>`: Prompt唯一标识（如：ad_creative_generation）
 - `<new_version>`: 新版本号（如：v3.0）
-- `<prompt_file>`: Prompt内容文件路径（如：prompts/ad_creative_v3.txt）
+
+**工作流程**:
+1. 开发环境：在数据库中直接修改和测试Prompt
+2. 生成迁移：运行脚本从数据库导出内容到迁移文件
+3. 生产同步：Git推送后，生产环境自动执行迁移
 
 ---
 
