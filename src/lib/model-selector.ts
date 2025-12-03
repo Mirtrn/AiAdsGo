@@ -64,10 +64,6 @@ const FLASH_OPERATIONS = new Set<string>([
   // 简单的实体提取任务
   'brand_extraction',
 
-  // 🟢 竞品快速摘要 - Flash
-  // 简单的格式化输出
-  'competitor_summary',
-
   // 🟢 广告强度评估 - Flash
   // 结构化评分输出
   'ad_strength_evaluation',
@@ -85,6 +81,7 @@ const PRO_OPERATIONS = new Set<string>([
   // 🔴 复杂分析任务 - Pro
   'review_analysis',              // 深度情感和语义分析
   'competitor_analysis',          // 复杂的对比分析
+  'competitor_summary',           // 🔴 竞品摘要 - 需要Pro模型准确理解和总结
   'launch_score_calculation',     // 多维度综合评估
   'ad_creative_generation_main',  // 核心创意生成
   'product_page_analysis',        // 产品页面深度分析
