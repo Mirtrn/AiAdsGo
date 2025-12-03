@@ -1233,31 +1233,68 @@ export async function scrapeAmazonProduct(
     if ($el.length > 0 && !isInRecommendationArea($el[0])) {
       let brand = $el.text().trim()
 
-      // 多语言品牌店铺文本清理
-      // English: "Visit the Brand Store"
+      // 🌍 多语言品牌店铺文本清理 - 支持所有Amazon主要市场
+
+      // English (US, CA, AU, GB, IN, SG): "Visit the Brand Store"
       brand = brand.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
 
-      // Italian: "Visita lo di Brand", "Visita il Brand"
+      // Italian (IT): "Visita lo di Brand", "Visita il/la/le/i/gli Brand"
       brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+(di\s+)?/i, '')
 
-      // French: "Visitez la boutique Brand"
-      brand = brand.replace(/^Visitez\s+(la|le|les)\s+boutique\s+/i, '')
+      // French (FR, BE, CA-FR): "Visitez la boutique Brand"
+      brand = brand.replace(/^Visitez\s+(la|le|les)\s+boutique\s+(de\s+)?/i, '')
 
-      // German: "Besuchen Sie den Brand-Shop"
+      // German (DE, AT, CH): "Besuchen Sie den Brand-Shop"
       brand = brand.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '').replace(/-Shop$/i, '')
 
-      // Spanish: "Visita la tienda Brand"
+      // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda (de) Brand"
       brand = brand.replace(/^Visita\s+(la|el)\s+tienda\s+(de\s+)?/i, '')
 
-      // Japanese: "ブランド 出品者のストアにアクセス"
-      brand = brand.replace(/\s*出品者のストアにアクセス$/i, '')
+      // Portuguese (BR, PT): "Visite a loja Brand"
+      brand = brand.replace(/^Visite\s+a\s+loja\s+(da\s+)?/i, '')
 
-      // General cleanup
+      // Japanese (JP): "ブランド 出品者のストアにアクセス"
+      brand = brand.replace(/\s*出品者のストアにアクセス$/i, '')
+      brand = brand.replace(/のストアを表示$/i, '') // Alternative: "Show Brand's store"
+
+      // Dutch (NL, BE-NL): "Bezoek de Brand-winkel"
+      brand = brand.replace(/^Bezoek\s+de\s+/i, '').replace(/-winkel$/i, '')
+
+      // Polish (PL): "Odwiedź sklep Brand"
+      brand = brand.replace(/^Odwiedź\s+sklep\s+/i, '')
+
+      // Turkish (TR): "Brand Mağazasını ziyaret edin"
+      brand = brand.replace(/\s+Mağazasını\s+ziyaret\s+edin$/i, '')
+
+      // Swedish (SE): "Besök Brand-butiken"
+      brand = brand.replace(/^Besök\s+/i, '').replace(/-butiken$/i, '')
+
+      // Arabic (AE, SA, EG): RTL text patterns
+      brand = brand.replace(/زيارة\s+متجر\s+/i, '') // "Visit Brand store"
+      brand = brand.replace(/\s+متجر$/i, '') // "Brand store"
+
+      // Chinese (CN): "访问 Brand 店铺"
+      brand = brand.replace(/^访问\s+/i, '').replace(/\s+店铺$/i, '')
+      brand = brand.replace(/^查看\s+/i, '').replace(/\s+品牌店$/i, '')
+
+      // Korean (KR): "Brand 스토어 방문하기"
+      brand = brand.replace(/\s+스토어\s+방문하기$/i, '')
+
+      // Hindi (IN): "Brand स्टोर पर जाएं"
+      brand = brand.replace(/\s+स्टोर\s+पर\s+जाएं$/i, '')
+
+      // General cleanup for "Brand:" labels in multiple languages
       brand = brand.replace(/^Brand:\s*/i, '')
-        .replace(/^品牌:\s*/i, '')
-        .replace(/^Marca:\s*/i, '')  // Spanish/Italian
-        .replace(/^Marque:\s*/i, '')  // French
-        .replace(/^Marke:\s*/i, '')   // German
+        .replace(/^品牌:\s*/i, '')      // Chinese
+        .replace(/^Marca:\s*/i, '')      // Spanish/Italian/Portuguese
+        .replace(/^Marque:\s*/i, '')     // French
+        .replace(/^Marke:\s*/i, '')      // German
+        .replace(/^Merk:\s*/i, '')       // Dutch
+        .replace(/^Marka:\s*/i, '')      // Polish/Turkish
+        .replace(/^Märke:\s*/i, '')      // Swedish
+        .replace(/^ブランド:\s*/i, '')   // Japanese
+        .replace(/^브랜드:\s*/i, '')      // Korean
+        .replace(/^العلامة التجارية:\s*/i, '') // Arabic
 
       if (brand && brand.length > 1 && brand.length < 50) {
         brandName = brand

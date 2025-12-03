@@ -292,7 +292,7 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
                  $('.priceToPay .a-offscreen').text().trim() ||       // 支付价格
                  null
 
-  // 🔥 增强品牌提取逻辑 - 支持Amazon Store页面和多语言
+  // 🔥 增强品牌提取逻辑 - 支持Amazon Store页面和所有主要市场语言
   let bylineInfo = $('#bylineInfo').text().trim()
   const dataBrand = $('[data-brand]').attr('data-brand')
   const poBrand = $('.po-brand .a-size-base').text().trim()
@@ -301,31 +301,68 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
   console.log(`🔍 [extractAmazonData] [data-brand]: "${dataBrand || '(空)'}"`)
   console.log(`🔍 [extractAmazonData] .po-brand: "${poBrand}"`)
 
-  // 多语言品牌店铺文本清理
-  // English: "Visit the Brand Store"
+  // 🌍 多语言品牌店铺文本清理 - 支持所有Amazon主要市场
+
+  // English (US, CA, AU, GB, IN, SG): "Visit the Brand Store"
   bylineInfo = bylineInfo.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
 
-  // Italian: "Visita lo di Brand", "Visita il Brand"
+  // Italian (IT): "Visita lo di Brand", "Visita il/la/le/i/gli Brand"
   bylineInfo = bylineInfo.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+(di\s+)?/i, '')
 
-  // French: "Visitez la boutique Brand"
-  bylineInfo = bylineInfo.replace(/^Visitez\s+(la|le|les)\s+boutique\s+/i, '')
+  // French (FR, BE, CA-FR): "Visitez la boutique Brand"
+  bylineInfo = bylineInfo.replace(/^Visitez\s+(la|le|les)\s+boutique\s+(de\s+)?/i, '')
 
-  // German: "Besuchen Sie den Brand-Shop"
+  // German (DE, AT, CH): "Besuchen Sie den Brand-Shop"
   bylineInfo = bylineInfo.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '').replace(/-Shop$/i, '')
 
-  // Spanish: "Visita la tienda Brand"
+  // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda (de) Brand"
   bylineInfo = bylineInfo.replace(/^Visita\s+(la|el)\s+tienda\s+(de\s+)?/i, '')
 
-  // Japanese: "ブランド 出品者のストアにアクセス"
-  bylineInfo = bylineInfo.replace(/\s*出品者のストアにアクセス$/i, '')
+  // Portuguese (BR, PT): "Visite a loja Brand"
+  bylineInfo = bylineInfo.replace(/^Visite\s+a\s+loja\s+(da\s+)?/i, '')
 
-  // General cleanup
+  // Japanese (JP): "ブランド 出品者のストアにアクセス"
+  bylineInfo = bylineInfo.replace(/\s*出品者のストアにアクセス$/i, '')
+  bylineInfo = bylineInfo.replace(/のストアを表示$/i, '') // Alternative: "Show Brand's store"
+
+  // Dutch (NL, BE-NL): "Bezoek de Brand-winkel"
+  bylineInfo = bylineInfo.replace(/^Bezoek\s+de\s+/i, '').replace(/-winkel$/i, '')
+
+  // Polish (PL): "Odwiedź sklep Brand"
+  bylineInfo = bylineInfo.replace(/^Odwiedź\s+sklep\s+/i, '')
+
+  // Turkish (TR): "Brand Mağazasını ziyaret edin"
+  bylineInfo = bylineInfo.replace(/\s+Mağazasını\s+ziyaret\s+edin$/i, '')
+
+  // Swedish (SE): "Besök Brand-butiken"
+  bylineInfo = bylineInfo.replace(/^Besök\s+/i, '').replace(/-butiken$/i, '')
+
+  // Arabic (AE, SA, EG): RTL text patterns
+  bylineInfo = bylineInfo.replace(/زيارة\s+متجر\s+/i, '') // "Visit Brand store"
+  bylineInfo = bylineInfo.replace(/\s+متجر$/i, '') // "Brand store"
+
+  // Chinese (CN): "访问 Brand 店铺"
+  bylineInfo = bylineInfo.replace(/^访问\s+/i, '').replace(/\s+店铺$/i, '')
+  bylineInfo = bylineInfo.replace(/^查看\s+/i, '').replace(/\s+品牌店$/i, '')
+
+  // Korean (KR): "Brand 스토어 방문하기"
+  bylineInfo = bylineInfo.replace(/\s+스토어\s+방문하기$/i, '')
+
+  // Hindi (IN): "Brand स्टोर पर जाएं"
+  bylineInfo = bylineInfo.replace(/\s+स्टोर\s+पर\s+जाएं$/i, '')
+
+  // General cleanup for "Brand:" labels in multiple languages
   bylineInfo = bylineInfo.replace(/^Brand:\s*/i, '')
-    .replace(/^品牌:\s*/i, '')
-    .replace(/^Marca:\s*/i, '')  // Spanish/Italian
-    .replace(/^Marque:\s*/i, '')  // French
-    .replace(/^Marke:\s*/i, '')   // German
+    .replace(/^品牌:\s*/i, '')      // Chinese
+    .replace(/^Marca:\s*/i, '')      // Spanish/Italian/Portuguese
+    .replace(/^Marque:\s*/i, '')     // French
+    .replace(/^Marke:\s*/i, '')      // German
+    .replace(/^Merk:\s*/i, '')       // Dutch
+    .replace(/^Marka:\s*/i, '')      // Polish/Turkish
+    .replace(/^Märke:\s*/i, '')      // Swedish
+    .replace(/^ブランド:\s*/i, '')   // Japanese
+    .replace(/^브랜드:\s*/i, '')      // Korean
+    .replace(/^العلامة التجارية:\s*/i, '') // Arabic
 
   let brandName = bylineInfo ||
                   dataBrand ||
