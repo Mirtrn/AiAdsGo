@@ -87,6 +87,8 @@ export const TABLES: TableDef[] = [
       { name: 'timezone', type: 'TEXT', notNull: true, default: 'Asia/Shanghai' },
       { name: 'is_manager_account', type: 'BOOLEAN', notNull: true, default: false },
       { name: 'is_active', type: 'BOOLEAN', notNull: true, default: true },
+      { name: 'parent_mcc_id', type: 'TEXT' },  // 父级MCC账户ID（用于账户层级关系）
+      { name: 'test_account', type: 'BOOLEAN', notNull: true, default: false },  // 标识是否为测试账户
       { name: 'access_token', type: 'TEXT' },
       { name: 'refresh_token', type: 'TEXT' },
       { name: 'token_expires_at', type: 'TIMESTAMP' },
@@ -134,6 +136,9 @@ export const TABLES: TableDef[] = [
       { name: 'extracted_descriptions', type: 'TEXT' },
       { name: 'extraction_metadata', type: 'TEXT' },
       { name: 'extracted_at', type: 'TIMESTAMP' },
+      { name: 'pricing', type: 'TEXT' },  // 产品定价信息（JSON格式）
+      { name: 'promotions', type: 'TEXT' },  // 促销活动信息（JSON格式）
+      { name: 'scraped_data', type: 'TEXT' },  // 爬取的原始数据（JSON格式）
       { name: 'is_deleted', type: 'BOOLEAN', notNull: true, default: false },  // 软删除标记
       { name: 'deleted_at', type: 'TIMESTAMP' },  // 删除时间
       { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
@@ -172,6 +177,11 @@ export const TABLES: TableDef[] = [
       { name: 'ai_model', type: 'TEXT' },
       { name: 'is_selected', type: 'BOOLEAN', default: false },
       { name: 'ab_test_variant_id', type: 'INTEGER' },
+      { name: 'google_campaign_id', type: 'TEXT' },  // Google Ads Campaign ID（用于性能数据同步）
+      { name: 'industry_code', type: 'TEXT' },  // 行业分类代码（如ecom_fashion, saas等）
+      { name: 'orientation', type: 'TEXT' },  // 创意导向类型（brand/product/promotion）
+      { name: 'brand', type: 'TEXT' },  // 品牌名称（从offer复制用于评分）
+      { name: 'url', type: 'TEXT' },  // 产品URL或落地页URL
       { name: 'created_at', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
       { name: 'updated_at', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
     ],
