@@ -343,8 +343,28 @@ export async function POST(request: NextRequest) {
 
           const { scrapeAmazonReviews, analyzeReviewsWithAI } = await import('@/lib/review-analyzer');
           const { chromium } = await import('playwright');
+          const { getProxyUrlForCountry } = await import('@/lib/settings');
+          const { getProxyIp } = await import('@/lib/proxy/fetch-proxy-ip');
 
-          const browser = await chromium.launch({ headless: true });
+          // 🔧 修复：使用代理访问Amazon（与核心提取保持一致）
+          const proxyUrl = getProxyUrlForCountry(target_country, userIdNum);
+          let browserOptions: any = { headless: true };
+
+          if (proxyUrl) {
+            try {
+              const proxyCredentials = await getProxyIp(proxyUrl);
+              browserOptions.proxy = {
+                server: `http://${proxyCredentials.host}:${proxyCredentials.port}`,
+                username: proxyCredentials.username,
+                password: proxyCredentials.password,
+              };
+              console.log(`🔒 P0评论分析使用代理: ${proxyCredentials.host}:${proxyCredentials.port}`);
+            } catch (proxyError: any) {
+              console.warn(`⚠️ 获取代理失败，尝试直连: ${proxyError.message}`);
+            }
+          }
+
+          const browser = await chromium.launch(browserOptions);
           const context = await browser.newContext({
             userAgent:
               'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
@@ -353,7 +373,7 @@ export async function POST(request: NextRequest) {
           const reviewPage = await context.newPage();
 
           try {
-            await reviewPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await reviewPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
             const reviews = await scrapeAmazonReviews(reviewPage, 50);
 
             if (reviews.length > 0) {
