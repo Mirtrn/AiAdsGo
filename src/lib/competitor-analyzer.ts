@@ -227,7 +227,7 @@ export async function inferCompetitorKeywords(
       operationType: 'competitor_summary',
       prompt,
       temperature: 0.3,  // 低温度保证稳定输出
-      maxOutputTokens: 2000,  // 增加到2000以避免截断（Pro模型可以生成更详细的摘要）
+      maxOutputTokens: 8192,  // 🔴 Pro模型统一使用8192
     }, userId)
 
     // 记录token使用

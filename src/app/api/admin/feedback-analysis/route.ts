@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       model: 'gemini-2.5-pro',
       prompt: conversationContext,
       temperature: 0.8,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 8192,  // 🔴 Pro模型统一使用8192
     }, parseInt(userId, 10))
 
     // 记录token使用
