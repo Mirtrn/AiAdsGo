@@ -330,16 +330,46 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
     extras.push(`ORIGINAL: ${originalPrice} | DISCOUNT: ${discount}`)
   }
 
-  // 促销信息（优先使用爬虫数据）
-  let promotion = null
+  // 🔥 促销信息（优化版 - 完整提取active数组）
+  interface PromotionItem {
+    description: string
+    code?: string | null
+    validUntil?: string | null
+    conditions?: string | null
+  }
+  let activePromotions: PromotionItem[] = []
+
   if (offer.promotions) {
     try {
       const promos = JSON.parse(offer.promotions)
-      promotion = promos.current
-    } catch {}
+      if (promos.active && Array.isArray(promos.active) && promos.active.length > 0) {
+        activePromotions = promos.active
+      }
+    } catch (error) {
+      console.warn('Failed to parse promotions:', error)
+    }
   }
-  if (promotion) {
-    extras.push(`PROMOTION: ${promotion}`)
+
+  // 在extras中展示主促销
+  if (activePromotions.length > 0) {
+    const mainPromo = activePromotions[0]
+    let promoText = `PROMO: ${mainPromo.description}`
+    if (mainPromo.code) {
+      promoText += ` | CODE: ${mainPromo.code}`
+    }
+    if (mainPromo.validUntil) {
+      promoText += ` | VALID UNTIL: ${mainPromo.validUntil}`
+    }
+    if (mainPromo.conditions) {
+      promoText += ` | ${mainPromo.conditions}`
+    }
+    extras.push(promoText)
+
+    // 次要促销
+    if (activePromotions.length > 1) {
+      const secondaryPromo = activePromotions[1]
+      extras.push(`EXTRA PROMO: ${secondaryPromo.description}`)
+    }
   }
 
   // 🔥 P0-2: 销售排名和徽章（社会证明）
@@ -586,6 +616,41 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
 
   if (extras.length) prompt += '\n' + extras.join(' | ') + '\n'
 
+  // 🔥 构建促销信息section（v2.1新增）
+  if (activePromotions.length > 0) {
+    const mainPromo = activePromotions[0]
+    prompt += `\n🔥 **CRITICAL PROMOTION EMPHASIS**:
+This product has ${activePromotions.length} active promotion(s). YOU MUST highlight these in your creative:
+
+**MAIN PROMOTION**: ${mainPromo.description}${mainPromo.code ? ` (Code: ${mainPromo.code})` : ''}
+${mainPromo.validUntil ? `**VALID UNTIL**: ${mainPromo.validUntil}` : ''}
+${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
+
+**REQUIREMENTS**:
+✅ Include promotion in at least 3-5 headlines (e.g., "20% Off Today", "Use Code ${mainPromo.code || 'SAVE20'}", "Limited Time Offer")
+✅ Mention promotion in 2-3 descriptions with urgency (e.g., "Don't miss out", "Offer ends soon")
+✅ Add promotion-related keywords (e.g., "discount", "sale", "promo code", "limited offer")
+✅ Use callouts to emphasize savings (e.g., "20% Off First Order", "Free Shipping Available")
+`
+
+    if (activePromotions.length > 1) {
+      const secondaryPromo = activePromotions[1]
+      prompt += `\n**SECONDARY PROMOTION**: ${secondaryPromo.description}${secondaryPromo.code ? ` (Code: ${secondaryPromo.code})` : ''}\n`
+    }
+
+    prompt += `
+**PROMOTION CREATIVE EXAMPLES**:
+- Headline: "Get 20% Off - Use Code ${mainPromo.code || 'SAVE20'} | ${offer.brand}"
+- Headline: "${offer.brand} - Limited Time Offer | Shop Now"
+- Headline: "Save on ${offer.brand_description || offer.brand} - Deal Ends Soon"
+- Description: "Shop now and save with code ${mainPromo.code || 'SAVE20'}. ${mainPromo.description}. Limited time!"
+- Description: "${offer.brand_description || offer.brand} at special price. ${mainPromo.description}${offer.final_url ? '. Free shipping available.' : ''}"
+- Callout: "${mainPromo.description}"
+- Callout: "Limited Time Deal"
+
+`
+  }
+
   // 主题要求（精简版）
   if (theme) {
     prompt += `\n**THEME: ${theme}** - All content must reflect this theme. 60%+ headlines should directly embody theme.\n`
@@ -655,7 +720,7 @@ Remaining 14 headlines - Types (must cover all 5):
   * Example 4: "Eco-Friendly Design" (sustainability)
   * ❌ AVOID: "4K Display", "4K Resolution", "High Resolution" (too similar)
 
-- Promo (3): ${discount || promotion ? `MUST use real DISCOUNT/PROMOTION data: ${discount ? `"${discount}"` : ''}${promotion ? ` or "${promotion}"` : ''}` : 'Numbers/% required - "Save 40%", "$50 Off"'}
+- Promo (3): ${discount || activePromotions.length > 0 ? `MUST use real DISCOUNT/PROMOTION data: ${discount ? `"${discount}"` : ''}${activePromotions.length > 0 ? ` or "${activePromotions[0].description}"` : ''}` : 'Numbers/% required - "Save 40%", "$50 Off"'}
   * IMPORTANT: Each promo headline must use a DIFFERENT promotional angle
   * Example 1: "Save 40% Today" (discount focus)
   * Example 2: "$100 Off This Week" (amount focus)
