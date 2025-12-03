@@ -543,8 +543,18 @@ export const TABLES: TableDef[] = [
       { name: 'detected_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
       { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
       { name: 'updated_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+      // 代码使用的字段（保持向后兼容）
+      { name: 'alert_type', type: 'TEXT' }, // 对应 risk_type
+      { name: 'resource_type', type: 'TEXT' }, // 对应 related_type
+      { name: 'resource_id', type: 'INTEGER' }, // 对应 related_id
+      { name: 'details', type: 'TEXT' }, // JSON格式的额外详情
+      { name: 'acknowledged_at', type: 'TIMESTAMP' }, // 确认时间
     ],
-    indexes: [{ name: 'idx_risk_alerts_user_status', columns: ['user_id', 'status'] }],
+    indexes: [
+      { name: 'idx_risk_alerts_user_status', columns: ['user_id', 'status'] },
+      { name: 'idx_risk_alerts_alert_type', columns: ['alert_type'] },
+      { name: 'idx_risk_alerts_resource', columns: ['resource_type', 'resource_id'] },
+    ],
   },
 
   // -------------------------------------------------------------------------
