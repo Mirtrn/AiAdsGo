@@ -186,12 +186,72 @@ class PlaywrightPool {
       }
 
       // 🔥 P0修复: 使用真实的plugins对象结构（之前是[1,2,3,4,5]是严重错误）
+      // 🔥 P0增强: 添加完整的Plugin对象属性、length、item()、namedItem()方法
+      const pluginsArray: any[] = [
+        {
+          0: { type: "application/pdf", suffixes: "pdf", description: "Portable Document Format" },
+          description: "Portable Document Format",
+          filename: "internal-pdf-viewer",
+          length: 1,
+          name: "Chrome PDF Plugin",
+          item: function(index: number) { return index === 0 ? this[0] : null; },
+        },
+        {
+          0: { type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format" },
+          description: "Portable Document Format",
+          filename: "internal-pdf-viewer",
+          length: 1,
+          name: "Chrome PDF Viewer",
+          item: function(index: number) { return index === 0 ? this[0] : null; },
+        },
+        {
+          0: { type: "application/x-nacl", suffixes: "", description: "Native Client Executable" },
+          1: { type: "application/x-pnacl", suffixes: "", description: "Portable Native Client Executable" },
+          description: "Native Client",
+          filename: "internal-nacl-plugin",
+          length: 2,
+          name: "Native Client",
+          item: function(index: number) {
+            if (index === 0) return this[0];
+            if (index === 1) return this[1];
+            return null;
+          },
+        },
+      ];
+
+      // 添加PluginArray的length属性
+      Object.defineProperty(pluginsArray, 'length', {
+        get: () => 3,
+        configurable: true,
+      });
+
+      // 添加PluginArray的item()方法
+      Object.defineProperty(pluginsArray, 'item', {
+        value: function(index: number) {
+          return this[index] || null;
+        },
+        configurable: true,
+      });
+
+      // 添加PluginArray的namedItem()方法
+      Object.defineProperty(pluginsArray, 'namedItem', {
+        value: function(name: string) {
+          return this.find((p: any) => p.name === name) || null;
+        },
+        configurable: true,
+      });
+
+      // 添加PluginArray的refresh()方法（兼容性）
+      Object.defineProperty(pluginsArray, 'refresh', {
+        value: function() {
+          // 空实现，保持兼容性
+        },
+        configurable: true,
+      });
+
       Object.defineProperty(navigator, 'plugins', {
-        get: () => [
-          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
-          { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
-        ],
+        get: () => pluginsArray,
+        configurable: true,
       })
 
       // 🌍 动态语言列表（根据目标国家）
