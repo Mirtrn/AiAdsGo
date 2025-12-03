@@ -225,31 +225,18 @@ EOF
 echo "$PROMPT_LIST" | while IFS='|' read -r prompt_id current_version current_name; do
     print_info "  处理 ${prompt_id}..."
 
-    # 从数据库读取该Prompt的完整信息
-    PROMPT_INFO=$(sqlite3 "$DB_PATH" "
-    SELECT
-        category,
-        name,
-        file_path,
-        function_name,
-        prompt_content,
-        description
-    FROM prompt_versions
-    WHERE prompt_id = '$prompt_id' AND is_active = 1;
-    ")
+    # 从数据库分别读取每个字段（避免prompt_content中的|干扰解析）
+    CATEGORY=$(sqlite3 "$DB_PATH" "SELECT category FROM prompt_versions WHERE prompt_id = '$prompt_id' AND is_active = 1;")
+    CURRENT_NAME=$(sqlite3 "$DB_PATH" "SELECT name FROM prompt_versions WHERE prompt_id = '$prompt_id' AND is_active = 1;")
+    FILE_PATH=$(sqlite3 "$DB_PATH" "SELECT file_path FROM prompt_versions WHERE prompt_id = '$prompt_id' AND is_active = 1;")
+    FUNCTION_NAME=$(sqlite3 "$DB_PATH" "SELECT function_name FROM prompt_versions WHERE prompt_id = '$prompt_id' AND is_active = 1;")
+    PROMPT_CONTENT=$(sqlite3 "$DB_PATH" "SELECT prompt_content FROM prompt_versions WHERE prompt_id = '$prompt_id' AND is_active = 1;")
+    DESCRIPTION=$(sqlite3 "$DB_PATH" "SELECT description FROM prompt_versions WHERE prompt_id = '$prompt_id' AND is_active = 1;")
 
-    if [ -z "$PROMPT_INFO" ]; then
+    if [ -z "$CATEGORY" ]; then
         print_warning "跳过 ${prompt_id}（未找到活跃版本）"
         continue
     fi
-
-    # 解析Prompt信息
-    CATEGORY=$(echo "$PROMPT_INFO" | cut -d'|' -f1)
-    CURRENT_NAME=$(echo "$PROMPT_INFO" | cut -d'|' -f2)
-    FILE_PATH=$(echo "$PROMPT_INFO" | cut -d'|' -f3)
-    FUNCTION_NAME=$(echo "$PROMPT_INFO" | cut -d'|' -f4)
-    PROMPT_CONTENT=$(echo "$PROMPT_INFO" | cut -d'|' -f5)
-    DESCRIPTION=$(echo "$PROMPT_INFO" | cut -d'|' -f6)
 
     # 转义单引号
     ESCAPED_CONTENT=$(echo "$PROMPT_CONTENT" | sed "s/'/''/g")
