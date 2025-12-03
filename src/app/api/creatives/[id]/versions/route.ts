@@ -26,7 +26,7 @@ export async function GET(
 
     // 验证Creative所有权
     const creative = db
-      .prepare('SELECT user_id FROM creatives WHERE id = ?')
+      .prepare('SELECT user_id FROM ad_creatives WHERE id = ?')
       .get(creativeId) as { user_id: number } | undefined
 
     if (!creative) {
@@ -195,7 +195,7 @@ export async function POST(
 
     // 验证Creative所有权
     const creative = db
-      .prepare('SELECT user_id FROM creatives WHERE id = ?')
+      .prepare('SELECT user_id FROM ad_creatives WHERE id = ?')
       .get(creativeId) as { user_id: number } | undefined
 
     if (!creative) {

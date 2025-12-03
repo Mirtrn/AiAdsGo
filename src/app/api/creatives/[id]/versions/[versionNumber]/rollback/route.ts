@@ -31,7 +31,7 @@ export async function POST(
 
     // 验证Creative所有权
     const creative = db
-      .prepare('SELECT user_id FROM creatives WHERE id = ?')
+      .prepare('SELECT user_id FROM ad_creatives WHERE id = ?')
       .get(creativeId) as { user_id: number } | undefined
 
     if (!creative) {
@@ -125,33 +125,25 @@ export async function POST(
         `回滚到版本 ${versionNumber}`
       )
 
-    // 同时更新creatives表的当前内容
+    // 同时更新ad_creatives表的当前内容
     db.prepare(
       `
-      UPDATE creatives
+      UPDATE ad_creatives
       SET
-        headline_1 = ?,
-        headline_2 = ?,
-        headline_3 = ?,
-        description_1 = ?,
-        description_2 = ?,
+        headlines = ?,
+        descriptions = ?,
         final_url = ?,
-        path_1 = ?,
-        path_2 = ?,
-        quality_score = ?,
+        final_url_suffix = ?,
         updated_at = datetime('now')
       WHERE id = ?
     `
     ).run(
-      headlines[0] || '',
-      headlines[1] || null,
-      headlines[2] || null,
-      descriptions[0] || '',
-      descriptions[1] || null,
+      JSON.stringify(headlines),
+      JSON.stringify(descriptions),
       targetVersion.final_url,
-      targetVersion.path_1,
-      targetVersion.path_2,
-      targetVersion.quality_score,
+      targetVersion.path_1 && targetVersion.path_2
+        ? `${targetVersion.path_1}/${targetVersion.path_2}`
+        : (targetVersion.path_1 || null),
       creativeId
     )
 
