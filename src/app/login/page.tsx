@@ -32,6 +32,9 @@ function LoginForm() {
   const turnstileWidgetId = useRef<string | null>(null)
   const turnstileLoaded = useRef(false)
 
+  // 检查CAPTCHA功能是否启用
+  const captchaEnabled = process.env.NEXT_PUBLIC_CAPTCHA_ENABLED === 'true'
+
   useEffect(() => {
     const errorParam = searchParams?.get('error')
     if (errorParam) {
@@ -41,7 +44,7 @@ function LoginForm() {
 
   // Load Cloudflare Turnstile script
   useEffect(() => {
-    if (showCaptcha && !turnstileLoaded.current) {
+    if (captchaEnabled && showCaptcha && !turnstileLoaded.current) {
       const script = document.createElement('script')
       script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
       script.async = true
@@ -52,7 +55,7 @@ function LoginForm() {
       }
       document.body.appendChild(script)
     }
-  }, [showCaptcha])
+  }, [captchaEnabled, showCaptcha])
 
   const renderTurnstile = () => {
     if (window.turnstile && !turnstileWidgetId.current) {
