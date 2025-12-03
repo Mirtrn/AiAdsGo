@@ -7,8 +7,11 @@ export interface Offer {
   user_id: number
   url: string
   brand: string
+  product_name: string | null  // 产品名称（数据库字段，之前遗漏）
   category: string | null
   target_country: string
+  target_language: string | null
+  offer_name: string | null
   affiliate_link: string | null
   brand_description: string | null
   unique_selling_points: string | null
@@ -17,23 +20,14 @@ export interface Offer {
   // Final URL字段：存储解析后的最终落地页URL
   final_url: string | null
   final_url_suffix: string | null
+  // 需求28：产品价格和佣金比例
+  product_price: string | null
+  commission_payout: string | null
   scrape_status: string
   scrape_error: string | null
   scraped_at: string | null
   is_active: number
-  created_at: string
-  updated_at: string
-  // 新增字段（需求1和需求5）
-  offer_name: string | null
-  target_language: string | null
-  // 需求28：产品价格和佣金比例
-  product_price: string | null
-  commission_payout: string | null
-  // 增强数据字段（JSON格式存储）
-  pricing: string | null
-  reviews: string | null
-  promotions: string | null
-  competitive_edges: string | null
+  industry_code: string | null  // 行业代码（数据库字段，之前遗漏）
   // P0优化: 分析结果字段
   review_analysis: string | null
   competitor_analysis: string | null
@@ -44,9 +38,15 @@ export interface Offer {
   extracted_descriptions: string | null
   extraction_metadata: string | null
   extracted_at: string | null
-  // P0优化: 原始爬虫数据（包含discount, salesRank, badge等所有字段）
-  scraped_data: string | null
-  // P1-11: 关联的Google Ads账号信息
+  created_at: string
+  updated_at: string
+  deleted_at: string | null  // 软删除时间戳（数据库字段，之前遗漏）
+  is_deleted: number  // 软删除标记（数据库字段，之前遗漏）
+  // 增强数据字段（JSON格式存储）
+  pricing: string | null  // 价格信息JSON（从product_price解析）
+  promotions: string | null  // 促销信息JSON
+  scraped_data: string | null  // 原始爬虫数据（包含discount, salesRank, badge, reviews等所有字段）
+  // P1-11: 关联的Google Ads账号信息（运行时计算字段，非数据库字段）
   linked_accounts?: Array<{
     account_id: number
     account_name: string | null
