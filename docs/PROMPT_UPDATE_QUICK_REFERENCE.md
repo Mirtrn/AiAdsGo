@@ -3,36 +3,56 @@
 ## ⚡ 一键批量更新（推荐）
 
 ```bash
-# 前提：在开发环境数据库中手动修改和测试好所有Prompt
+# 前提：在开发环境数据库中手动修改和测试好Prompt
 
-# 运行自动化脚本（批量导出所有Prompt并生成迁移文件）
-./scripts/update-prompt.sh v3.0
+# 运行自动化脚本（版本号自动递增）
+./scripts/update-prompt.sh          # 默认minor递增 v2.0 → v2.1
+./scripts/update-prompt.sh minor    # minor递增 v2.0 → v2.1
+./scripts/update-prompt.sh major    # major递增 v2.0 → v3.0
 
 # 脚本会自动完成：
+# ✅ 查询当前版本号并自动递增（防止版本号冲突）
 # ✅ 从数据库读取所有活跃Prompt内容
 # ✅ 交互式输入变更说明
-# ✅ 生成包含所有Prompt的迁移文件（一个文件包含所有更新）
+# ✅ 生成包含所有Prompt的迁移文件
 # ✅ Git提交和推送
 # ✅ 生产环境部署后自动执行迁移
 ```
 
 **参数说明**:
-- `<new_version>`: 新版本号（如：v3.0）
+- `major`: 主版本号递增（如：v2.0 → v3.0），用于重大更新
+- `minor`: 次版本号递增（如：v2.0 → v2.1，默认），用于常规更新
+- 无参数：默认minor递增
+
+**版本号规则**:
+- ✅ **自动递增**：脚本自动基于当前最高版本号递增
+- ✅ **冲突检测**：如果新版本号已存在，会报错并建议下一版本
+- ✅ **统一版本**：所有Prompt更新到相同版本号
 
 **工作流程**:
-1. 开发环境：在数据库中直接修改和测试所有需要更新的Prompt
-2. 批量导出：运行脚本从数据库一次性导出所有Prompt到迁移文件
-3. 生产同步：Git推送后，生产环境自动执行迁移，所有Prompt统一更新
+1. 开发环境：在数据库中直接修改和测试需要更新的Prompt
+2. 自动递增：运行脚本，自动计算下一个版本号（v2.0 → v2.1）
+3. 批量导出：从数据库一次性导出所有Prompt到迁移文件
+4. 生产同步：Git推送后，生产环境自动执行迁移
 
 **示例场景**:
 ```bash
-# 场景：修改了3个Prompt（ad_creative_generation, competitor_analysis, launch_score_evaluation）
-# 1. 在开发环境数据库中分别修改和测试
-# 2. 运行脚本一次性导出所有Prompt
-./scripts/update-prompt.sh v3.0
-# 3. 输入变更说明（如：增强情感化表达）
-# 4. 生成包含所有6个Prompt的迁移文件
-# 5. Git提交推送，生产环境自动同步
+# 场景：修改了2个Prompt（当前所有Prompt版本号为v2.0）
+# 1. 在开发环境数据库中修改ad_creative_generation和competitor_analysis
+# 2. 运行脚本（自动递增到v2.1）
+./scripts/update-prompt.sh
+#
+# 输出：
+# ✅ 当前版本: v2.0
+# ✅ 新版本: v2.1 (minor递增)
+# ℹ️  找到 6 个活跃的Prompt
+#   - ad_creative_generation (v2.0)
+#   - competitor_analysis (v2.0)
+#   - ... (其他4个)
+#
+# 3. 输入变更说明
+# 4. 生成 041_update_all_prompts_v2.1.sql（包含所有6个Prompt）
+# 5. Git提交推送，生产环境所有Prompt统一更新到v2.1
 ```
 
 ---

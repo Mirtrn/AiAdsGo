@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Prompt版本批量更新自动化脚本（从数据库导出所有Prompt）
-# 用法: ./scripts/update-prompt.sh <new_version>
-# 示例: ./scripts/update-prompt.sh v3.0
+# Prompt版本批量更新自动化脚本（自动递增版本号）
+# 用法: ./scripts/update-prompt.sh [major|minor]
+# 示例: ./scripts/update-prompt.sh          # 自动minor递增 v2.0 → v2.1
+#       ./scripts/update-prompt.sh minor    # minor递增 v2.0 → v2.1
+#       ./scripts/update-prompt.sh major    # major递增 v2.0 → v3.0
 
 set -e  # 遇到错误立即退出
 
@@ -30,27 +32,55 @@ print_error() {
     echo -e "${RED}❌ $1${NC}"
 }
 
+# 解析版本号并递增
+increment_version() {
+    local version=$1
+    local increment_type=${2:-minor}  # 默认minor递增
+
+    # 去除v前缀
+    version=${version#v}
+
+    # 解析主版本号和次版本号
+    local major=$(echo "$version" | cut -d'.' -f1)
+    local minor=$(echo "$version" | cut -d'.' -f2)
+
+    if [ "$increment_type" = "major" ]; then
+        # major递增：v2.0 → v3.0
+        major=$((major + 1))
+        minor=0
+    else
+        # minor递增：v2.0 → v2.1
+        minor=$((minor + 1))
+    fi
+
+    echo "v${major}.${minor}"
+}
+
 # 检查参数
-if [ "$#" -ne 1 ]; then
+INCREMENT_TYPE=${1:-minor}
+if [ "$INCREMENT_TYPE" != "major" ] && [ "$INCREMENT_TYPE" != "minor" ]; then
     print_error "参数错误"
     echo ""
-    echo "用法: $0 <new_version>"
+    echo "用法: $0 [major|minor]"
     echo ""
     echo "参数说明:"
-    echo "  new_version  - 新版本号（如: v3.0）"
+    echo "  major  - 主版本号递增（如: v2.0 → v3.0）"
+    echo "  minor  - 次版本号递增（如: v2.0 → v2.1，默认）"
     echo ""
     echo "示例:"
-    echo "  $0 v3.0"
+    echo "  $0           # 自动minor递增"
+    echo "  $0 minor     # minor递增 v2.0 → v2.1"
+    echo "  $0 major     # major递增 v2.0 → v3.0"
     echo ""
     echo "工作流程:"
-    echo "  1. 从开发环境数据库读取所有活跃Prompt内容"
-    echo "  2. 生成包含所有Prompt的迁移文件"
-    echo "  3. Git提交迁移文件"
-    echo "  4. 生产环境部署后自动执行迁移"
+    echo "  1. 查询当前所有Prompt的版本号"
+    echo "  2. 自动计算下一个版本号"
+    echo "  3. 从开发环境数据库读取所有Prompt内容"
+    echo "  4. 生成包含所有Prompt的迁移文件"
+    echo "  5. Git提交迁移文件"
+    echo "  6. 生产环境部署后自动执行迁移"
     exit 1
 fi
-
-NEW_VERSION=$1
 
 # 获取脚本所在目录的父目录（项目根目录）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,8 +106,65 @@ fi
 print_success "环境检查通过"
 echo ""
 
-# 1. 从数据库读取所有活跃的Prompt列表
-print_info "步骤1: 从数据库读取所有活跃Prompt"
+# 1. 查询当前版本号并自动递增
+print_info "步骤1: 查询当前版本号并自动计算下一版本"
+
+# 获取当前所有活跃Prompt的版本号（去重）
+CURRENT_VERSIONS=$(sqlite3 "$DB_PATH" "
+SELECT DISTINCT version
+FROM prompt_versions
+WHERE is_active = 1
+ORDER BY version DESC;
+")
+
+if [ -z "$CURRENT_VERSIONS" ]; then
+    print_error "数据库中没有找到活跃的Prompt"
+    exit 1
+fi
+
+# 获取最高版本号
+CURRENT_VERSION=$(echo "$CURRENT_VERSIONS" | head -1)
+
+# 检查是否所有Prompt版本号一致
+VERSION_COUNT=$(echo "$CURRENT_VERSIONS" | wc -l | tr -d ' ')
+if [ "$VERSION_COUNT" -gt 1 ]; then
+    print_warning "当前Prompt版本号不一致:"
+    echo "$CURRENT_VERSIONS" | while read ver; do
+        count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prompt_versions WHERE is_active = 1 AND version = '$ver';")
+        echo "  ${ver}: ${count} 个Prompt"
+    done
+    echo ""
+    print_info "将基于最高版本号 ${CURRENT_VERSION} 进行递增"
+fi
+
+# 自动递增版本号
+NEW_VERSION=$(increment_version "$CURRENT_VERSION" "$INCREMENT_TYPE")
+
+print_success "当前版本: ${CURRENT_VERSION}"
+print_success "新版本: ${NEW_VERSION} (${INCREMENT_TYPE}递增)"
+echo ""
+
+# 验证新版本号是否已存在
+EXISTING_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prompt_versions WHERE version = '$NEW_VERSION';")
+if [ "$EXISTING_COUNT" -gt 0 ]; then
+    print_error "版本号 ${NEW_VERSION} 已存在于数据库中"
+    echo ""
+    echo "建议:"
+    if [ "$INCREMENT_TYPE" = "minor" ]; then
+        SUGGESTED_VERSION=$(increment_version "$NEW_VERSION" "minor")
+        echo "  1. 使用下一个minor版本: ./scripts/update-prompt.sh minor"
+        echo "     (将生成 ${SUGGESTED_VERSION})"
+    else
+        SUGGESTED_VERSION=$(increment_version "$NEW_VERSION" "major")
+        echo "  1. 使用下一个major版本: ./scripts/update-prompt.sh major"
+        echo "     (将生成 ${SUGGESTED_VERSION})"
+    fi
+    echo "  2. 手动清理数据库中的 ${NEW_VERSION} 版本"
+    exit 1
+fi
+
+# 2. 从数据库读取所有活跃的Prompt列表
+print_info "步骤2: 从数据库读取所有活跃Prompt"
 PROMPT_LIST=$(sqlite3 "$DB_PATH" "
 SELECT prompt_id, version, name
 FROM prompt_versions
@@ -99,8 +186,8 @@ echo "$PROMPT_LIST" | while IFS='|' read -r pid ver name; do
 done
 echo ""
 
-# 2. 请求用户输入变更说明
-print_info "步骤2: 请输入此次批量更新的变更说明"
+# 3. 请求用户输入变更说明
+print_info "步骤3: 请输入此次批量更新的变更说明"
 echo "请描述此次更新的主要变更（按Enter结束每一行，输入空行结束）:"
 echo ""
 
@@ -124,8 +211,8 @@ echo ""
 print_success "变更说明已记录"
 echo ""
 
-# 3. 获取下一个迁移文件编号
-print_info "步骤3: 生成迁移文件"
+# 4. 获取下一个迁移文件编号
+print_info "步骤4: 生成迁移文件"
 LAST_MIGRATION=$(ls -1 "$MIGRATIONS_DIR" | grep -E '^[0-9]{3}_.*\.sql$' | grep -v '\.pg\.sql$' | tail -1)
 if [ -z "$LAST_MIGRATION" ]; then
     NEXT_NUMBER="001"
@@ -140,14 +227,15 @@ MIGRATION_PATH="${MIGRATIONS_DIR}/${MIGRATION_FILENAME}"
 print_success "迁移文件名: $MIGRATION_FILENAME"
 echo ""
 
-# 4. 生成迁移文件内容
-print_info "步骤4: 生成迁移SQL（从数据库导出所有Prompt内容）"
+# 5. 生成迁移文件内容
+print_info "步骤5: 生成迁移SQL（从数据库导出所有Prompt内容）"
 
 # 初始化迁移文件
 cat > "$MIGRATION_PATH" << EOF
 -- Migration: ${NEXT_NUMBER}_update_all_prompts_${NEW_VERSION}
 -- Description: 批量更新所有Prompt到 ${NEW_VERSION} 版本
 -- Created: $(date +%Y-%m-%d)
+-- Version: ${CURRENT_VERSION} → ${NEW_VERSION}
 -- Prompts: ${PROMPT_COUNT} 个
 
 EOF
@@ -236,33 +324,36 @@ done
 print_success "迁移文件已生成: $MIGRATION_PATH"
 echo ""
 
-# 5. 显示迁移文件统计
-print_info "步骤5: 迁移文件统计"
+# 6. 显示迁移文件统计
+print_info "步骤6: 迁移文件统计"
 MIGRATION_LINES=$(wc -l < "$MIGRATION_PATH" | tr -d ' ')
 MIGRATION_SIZE=$(ls -lh "$MIGRATION_PATH" | awk '{print $5}')
+echo "  版本变更: ${CURRENT_VERSION} → ${NEW_VERSION}"
 echo "  Prompt数量: ${PROMPT_COUNT}"
 echo "  总行数: ${MIGRATION_LINES}"
 echo "  文件大小: ${MIGRATION_SIZE}"
 echo ""
 
-# 6. 预览迁移文件
-print_info "步骤6: 预览迁移文件（前50行）"
+# 7. 预览迁移文件
+print_info "步骤7: 预览迁移文件（前50行）"
 echo "----------------------------------------"
 head -50 "$MIGRATION_PATH"
 echo "..."
 echo "----------------------------------------"
 echo ""
 
-# 7. 询问是否Git提交
+# 8. 询问是否Git提交
 read -p "是否Git提交此迁移文件？(y/n): " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    print_info "步骤7: Git提交"
+    print_info "步骤8: Git提交"
 
     cd "$PROJECT_ROOT"
     git add "$MIGRATION_PATH"
 
     COMMIT_MESSAGE="feat: 批量更新所有Prompt到${NEW_VERSION}
+
+版本变更: ${CURRENT_VERSION} → ${NEW_VERSION}
 
 更新的Prompt:
 $(echo "$PROMPT_LIST" | while IFS='|' read -r pid ver name; do echo "  - ${pid} (${ver} → ${NEW_VERSION})"; done)
@@ -305,6 +396,7 @@ echo "2. 如果未推送，执行: git push origin main"
 echo "3. 生产环境验证: docker logs autoads-prod | grep '$MIGRATION_FILENAME'"
 echo ""
 echo "工作原理:"
+echo "  ✅ 版本自动递增: ${CURRENT_VERSION} → ${NEW_VERSION}"
 echo "  ✅ 开发环境: 数据库中的所有Prompt已是最新版本"
 echo "  ✅ 迁移文件: 包含从开发数据库导出的所有Prompt完整内容"
 echo "  ✅ 生产环境: 应用启动时自动执行迁移，所有Prompt同步到最新版本"
