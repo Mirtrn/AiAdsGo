@@ -589,6 +589,12 @@ export async function scrapeUrlWithBrowser(
       try {
         await page.waitForLoadState('domcontentloaded', { timeout: 5000 })
         console.log(`✅ DOM加载完成`)
+
+        // ✅ 方案2修复: DOM加载后立即添加延迟，给JavaScript执行时间
+        // Amazon的JavaScript可能在DOM加载后1-2秒才开始执行
+        const initialWait = 1000 + Math.random() * 2000  // 1-3秒
+        console.log(`⏰ DOM加载后等待: ${Math.round(initialWait)}ms`)
+        await new Promise(resolve => setTimeout(resolve, initialWait))
       } catch (e) {
         console.warn(`⚠️ DOM加载超时,但继续执行`)
       }
@@ -611,6 +617,25 @@ export async function scrapeUrlWithBrowser(
 
         if (pageStatus.hasNoJsClass) {
           console.log(`🔄 检测到a-no-js标记，等待JavaScript渲染...`)
+
+          // ✅ 修复1: 添加随机延迟（模拟人类阅读时间）
+          const humanDelay = 2000 + Math.random() * 3000  // 2-5秒
+          console.log(`⏰ 模拟人类行为延迟: ${Math.round(humanDelay)}ms`)
+          await new Promise(resolve => setTimeout(resolve, humanDelay))
+
+          // ✅ 修复2: 模拟鼠标移动和滚动
+          try {
+            await page.mouse.move(
+              Math.random() * 800 + 100,  // x: 100-900
+              Math.random() * 400 + 100   // y: 100-500
+            )
+            await page.mouse.wheel(0, Math.random() * 300 + 100)  // 滚动100-400px
+            console.log(`🖱️ 已模拟鼠标移动和滚动`)
+          } catch (e) {
+            console.warn(`⚠️ 鼠标模拟失败，继续执行`)
+          }
+
+          // ✅ 修复3: 增加超时时间 8秒 → 15秒
           // 等待a-no-js变为a-js，或者等待networkidle
           try {
             await Promise.race([
@@ -618,13 +643,17 @@ export async function scrapeUrlWithBrowser(
               page.waitForFunction(() => {
                 const html = document.documentElement
                 return !html.classList.contains('a-no-js') || html.classList.contains('a-js')
-              }, { timeout: 8000 }),
+              }, { timeout: 15000 }),  // ✅ 8秒 → 15秒
               // 或者等待网络空闲
-              page.waitForLoadState('networkidle', { timeout: 8000 }),
+              page.waitForLoadState('networkidle', { timeout: 15000 }),  // ✅ 8秒 → 15秒
             ])
             console.log(`✅ JavaScript渲染完成`)
           } catch (waitError) {
             console.warn(`⚠️ JavaScript渲染等待超时，继续执行`)
+
+            // ✅ 修复4: 超时后再等待一次（给Amazon最后机会）
+            console.log(`🔄 最后尝试：再等待5秒...`)
+            await new Promise(resolve => setTimeout(resolve, 5000))
           }
         }
 

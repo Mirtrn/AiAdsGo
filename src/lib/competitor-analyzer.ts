@@ -241,7 +241,7 @@ export async function inferCompetitorKeywords(
       operationType: 'competitor_summary',
       prompt,
       temperature: 0.3,  // 低温度保证稳定输出
-      maxOutputTokens: 512,  // ✅ 优化：竞品关键词推断只需输出3-5个词,512足够(原8192浪费93.75%)
+      maxOutputTokens: 1024,  // ✅ 修复：从512增加到1024，防止JSON格式输出被截断
     }, userId)
 
     // 记录token使用
@@ -268,9 +268,35 @@ export async function inferCompetitorKeywords(
     const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
 
     if (!jsonMatch) {
-      console.warn('⚠️ AI返回格式错误，使用通用搜索词')
-      // 降级方案：基于类目的通用搜索
-      return [`${productInfo.category} ${productInfo.targetCountry}`]
+      console.warn('⚠️ AI返回格式错误，使用智能降级方案')
+      console.warn(`   AI原始返回: ${aiResponse.text.substring(0, 200)}...`)
+
+      // ✅ 改进降级方案：结合产品名称和品类生成搜索词
+      const fallbackTerms = []
+
+      // 1. 如果有产品名称（不是Unknown），使用产品名称的核心词
+      if (productInfo.name && productInfo.name !== 'Unknown Product') {
+        // 移除品牌名，提取产品类型词
+        const nameWithoutBrand = productInfo.brand
+          ? productInfo.name.replace(new RegExp(productInfo.brand, 'gi'), '').trim()
+          : productInfo.name
+        if (nameWithoutBrand.length > 2) {
+          fallbackTerms.push(nameWithoutBrand)
+        }
+      }
+
+      // 2. 如果有品类（不是Unknown），使用品类词
+      if (productInfo.category && productInfo.category !== 'Unknown' && productInfo.category !== 'Dati non disponibili') {
+        fallbackTerms.push(productInfo.category)
+      }
+
+      // 3. 如果前两个都失败，至少返回一个通用搜索词
+      if (fallbackTerms.length === 0) {
+        fallbackTerms.push(`products ${productInfo.targetCountry}`)
+      }
+
+      console.warn(`   降级搜索词: ${fallbackTerms.join(', ')}`)
+      return fallbackTerms.slice(0, 3)  // 最多返回3个
     }
 
     const result = JSON.parse(jsonMatch[0])

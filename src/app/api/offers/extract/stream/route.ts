@@ -529,7 +529,7 @@ export async function POST(request: NextRequest) {
           const productInfoForAI = {
             // 基础信息
             name: extractedProductName || pageTitle || brandName || 'Unknown Product',
-            brand: brandName || null,
+            brand: brandName || 'Unknown',  // ✅ 修复：确保brand不为null
             category: aiProductInfo?.category || extractedCategory || 'Unknown',
             price: extractedPrice ? parseFloat(extractedPrice.replace(/[^0-9.]/g, '')) : null,
             targetCountry: target_country,
@@ -540,7 +540,9 @@ export async function POST(request: NextRequest) {
             sellingPoints: aiProductInfo?.uniqueSellingPoints
               ? aiProductInfo.uniqueSellingPoints.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean)
               : [],
-            productDescription: productDescription || aiProductInfo?.brandDescription || ''
+            productDescription: productDescription || aiProductInfo?.brandDescription || '',
+            // 🆕 补充：当基础字段为空时，从pageTitle提取关键信息
+            pageTitle: pageTitle || ''
           };
 
           // 🔍 日志：输出传递给AI的产品信息摘要
