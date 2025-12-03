@@ -1,6 +1,32 @@
 # Prompt更新快速参考
 
-## 🚀 5步更新Prompt
+## ⚡ 一键自动化更新（推荐）
+
+```bash
+# 1. 准备Prompt内容文件
+echo "你的prompt内容" > prompts/ad_creative_v3.txt
+
+# 2. 运行自动化脚本（一条命令完成所有操作）
+./scripts/update-prompt.sh ad_creative_generation v3.0 prompts/ad_creative_v3.txt
+
+# 脚本会自动完成：
+# ✅ 查询当前版本信息
+# ✅ 读取新Prompt内容
+# ✅ 交互式输入变更说明
+# ✅ 生成迁移文件
+# ✅ 备份数据库
+# ✅ 执行迁移
+# ✅ Git提交和推送
+```
+
+**参数说明**:
+- `<prompt_id>`: Prompt唯一标识（如：ad_creative_generation）
+- `<new_version>`: 新版本号（如：v3.0）
+- `<prompt_file>`: Prompt内容文件路径（如：prompts/ad_creative_v3.txt）
+
+---
+
+## 📋 手动更新流程（备用）
 
 ```bash
 # 1. 查看当前版本
