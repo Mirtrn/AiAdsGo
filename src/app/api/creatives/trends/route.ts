@@ -66,10 +66,13 @@ export async function GET(request: NextRequest) {
 
     const dailyTrends = db.prepare(dailyCreativesQuery).all(...params) as any[]
 
-    // 4. 查询创意状态分布（当前总量，使用creation_status字段）
+    // 4. 查询创意是否被选中的分布（使用is_selected字段）
     let statusQuery = `
       SELECT
-        creation_status as status,
+        CASE
+          WHEN is_selected = 1 THEN 'selected'
+          ELSE 'draft'
+        END as status,
         COUNT(*) as count
       FROM ad_creatives
       WHERE user_id = ?

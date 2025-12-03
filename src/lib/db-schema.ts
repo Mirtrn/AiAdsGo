@@ -597,13 +597,28 @@ export const TABLES: TableDef[] = [
     name: 'creative_versions',
     columns: [
       { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
-      { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'ad_creative_id', type: 'INTEGER', notNull: true, references: { table: 'ad_creatives', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'version', type: 'INTEGER', notNull: true },
-      { name: 'changes', type: 'TEXT' },
-      { name: 'changed_by', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id' } },
-      { name: 'snapshot_data', type: 'TEXT', notNull: true },
+      { name: 'creative_id', type: 'INTEGER', notNull: true, references: { table: 'ad_creatives', column: 'id', onDelete: 'CASCADE' } },
+      { name: 'version_number', type: 'INTEGER', notNull: true },
+      { name: 'headlines', type: 'TEXT', notNull: true },  // JSON格式: ["H1", "H2", "H3"]
+      { name: 'descriptions', type: 'TEXT', notNull: true },  // JSON格式: ["D1", "D2"]
+      { name: 'final_url', type: 'TEXT', notNull: true },
+      { name: 'path_1', type: 'TEXT' },
+      { name: 'path_2', type: 'TEXT' },
+      { name: 'quality_score', type: 'INTEGER' },
+      { name: 'quality_details', type: 'TEXT' },  // JSON格式
+      { name: 'budget_amount', type: 'REAL' },
+      { name: 'clicks', type: 'INTEGER', default: 0 },
+      { name: 'impressions', type: 'INTEGER', default: 0 },
+      { name: 'conversions', type: 'INTEGER', default: 0 },
+      { name: 'cost', type: 'REAL', default: 0 },
+      { name: 'created_by', type: 'TEXT', notNull: true },  // 用户标识（字符串）
+      { name: 'creation_method', type: 'TEXT', notNull: true },  // inline_edit, ai_generation, rollback等
+      { name: 'change_summary', type: 'TEXT' },  // 变更说明
       { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+    ],
+    indexes: [
+      { name: 'idx_creative_versions_creative_id', columns: ['creative_id'] },
+      { name: 'idx_creative_versions_version', columns: ['creative_id', 'version_number'] },
     ],
   },
 
