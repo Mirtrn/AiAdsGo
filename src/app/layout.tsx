@@ -45,7 +45,7 @@ export const metadata: Metadata = {
     siteName: 'AutoAds',
     images: [
       {
-        url: '/logo.png', // P2-1: 临时使用logo.png，建议创建专门的og-image.png (1200x630)
+        url: '/assets/marketing/hero-demo.png', // P2-1: 使用 Hero Demo 作为 OG 图片
         width: 1200,
         height: 630,
         alt: 'AutoAds - Google Ads AI广告自动化投放系统',
@@ -58,7 +58,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'AutoAds - Google Ads AI广告自动化投放系统',
     description: '自动化Offer管理、AI广告文案生成、真实关键词数据，最大化投放ROI',
-    images: ['/logo.png'], // P2-1: 临时使用logo.png
+    images: ['/assets/marketing/hero-demo.png'],
   },
   robots: {
     index: true,
@@ -72,9 +72,9 @@ export const metadata: Metadata = {
     },
   },
   icons: {
-    icon: '/favicon.ico',
-    shortcut: '/favicon.ico',
-    apple: '/apple-touch-icon.png',
+    icon: '/logo-icon.svg',
+    shortcut: '/logo-icon.svg',
+    apple: '/logo-icon.svg', // iOS usually prefers PNG, but SVG might work in some contexts or fallback
   },
 }
 

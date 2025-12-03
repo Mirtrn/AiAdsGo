@@ -35,6 +35,7 @@ interface Scenario {
     };
   };
   gifPlaceholder: string;
+  image?: string;
 }
 
 const scenarios: Scenario[] = [
@@ -69,6 +70,7 @@ const scenarios: Scenario[] = [
       },
     },
     gifPlaceholder: "🌙 周五晚上悠闲操作演示",
+    image: "/assets/marketing/scenario-new-product.jpg?v=2",
   },
   {
     id: "batch",
@@ -101,6 +103,7 @@ const scenarios: Scenario[] = [
       },
     },
     gifPlaceholder: "📦 批量导入操作演示",
+    image: "/assets/marketing/scenario-seasonal.png",
   },
   {
     id: "global",
@@ -133,6 +136,7 @@ const scenarios: Scenario[] = [
       },
     },
     gifPlaceholder: "🌍 多国投放操作演示",
+    image: "/assets/marketing/scenario-multi-language.jpg",
   },
 ];
 
@@ -149,17 +153,15 @@ function TimelineStep({
 }) {
   return (
     <div
-      className={`flex items-start gap-3 transition-all duration-500 ${
-        isVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
-      }`}
+      className={`flex items-start gap-3 transition-all duration-500 ${isVisible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
+        }`}
       style={{ transitionDelay: `${index * 150}ms` }}
     >
       <div
-        className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
-          isTraditional
-            ? "bg-red-100 text-red-500"
-            : "bg-emerald-100 text-emerald-500"
-        }`}
+        className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${isTraditional
+          ? "bg-red-100 text-red-500"
+          : "bg-emerald-100 text-emerald-500"
+          }`}
       >
         {isTraditional ? (
           <span className="text-xs font-bold">{index + 1}</span>
@@ -187,26 +189,32 @@ function ScenarioContent({
     <div className="grid lg:grid-cols-2 gap-8">
       {/* 左侧：GIF占位 */}
       <div
-        className={`aspect-video lg:aspect-square rounded-3xl bg-gradient-to-br ${scenario.gradient} flex items-center justify-center text-white shadow-xl transition-all duration-700 ${
-          isVisible ? "opacity-100 scale-100" : "opacity-0 scale-95"
-        }`}
+        className={`aspect-video lg:aspect-square rounded-3xl bg-gradient-to-br ${scenario.gradient} flex items-center justify-center text-white shadow-xl transition-all duration-700 overflow-hidden relative ${isVisible ? "opacity-100 scale-100" : "opacity-0 scale-95"
+          }`}
       >
-        <div className="text-center p-8">
-          <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-6">
-            <Play className="w-10 h-10" />
+        {scenario.image ? (
+          <img
+            src={scenario.image}
+            alt={scenario.title}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="text-center p-8">
+            <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-6">
+              <Play className="w-10 h-10" />
+            </div>
+            <p className="text-lg font-medium opacity-90">{scenario.gifPlaceholder}</p>
+            <p className="text-sm opacity-70 mt-2">GIF/视频演示区域</p>
           </div>
-          <p className="text-lg font-medium opacity-90">{scenario.gifPlaceholder}</p>
-          <p className="text-sm opacity-70 mt-2">GIF/视频演示区域</p>
-        </div>
+        )}
       </div>
 
       {/* 右侧：故事对比 */}
       <div className="space-y-6">
         {/* 场景描述 */}
         <div
-          className={`bg-slate-100 rounded-2xl p-4 transition-all duration-500 ${
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-          }`}
+          className={`bg-slate-100 rounded-2xl p-4 transition-all duration-500 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+            }`}
         >
           <div className="flex items-center gap-2 text-slate-600 mb-2">
             <scenario.icon className={`w-5 h-5 ${scenario.color}`} />
@@ -219,9 +227,8 @@ function ScenarioContent({
         <div className="grid sm:grid-cols-2 gap-4">
           {/* 传统方式 */}
           <div
-            className={`bg-red-50 rounded-2xl p-5 border border-red-100 transition-all duration-500 ${
-              isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-            }`}
+            className={`bg-red-50 rounded-2xl p-5 border border-red-100 transition-all duration-500 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+              }`}
             style={{ transitionDelay: "200ms" }}
           >
             <div className="flex items-center gap-2 mb-4">
@@ -254,9 +261,8 @@ function ScenarioContent({
 
           {/* 用 AutoAds */}
           <div
-            className={`bg-emerald-50 rounded-2xl p-5 border border-emerald-100 transition-all duration-500 ${
-              isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-            }`}
+            className={`bg-emerald-50 rounded-2xl p-5 border border-emerald-100 transition-all duration-500 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+              }`}
             style={{ transitionDelay: "400ms" }}
           >
             <div className="flex items-center gap-2 mb-4">
@@ -290,9 +296,8 @@ function ScenarioContent({
 
         {/* CTA */}
         <div
-          className={`transition-all duration-500 ${
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-          }`}
+          className={`transition-all duration-500 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+            }`}
           style={{ transitionDelay: "600ms" }}
         >
           <a
@@ -360,11 +365,10 @@ export function ScenarioTabs() {
             <button
               key={scenario.id}
               onClick={() => setActiveTab(index)}
-              className={`flex items-center gap-2 px-6 py-3 rounded-full font-medium transition-all duration-300 ${
-                activeTab === index
-                  ? `bg-gradient-to-r ${scenario.gradient} text-white shadow-lg`
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+              className={`flex items-center gap-2 px-6 py-3 rounded-full font-medium transition-all duration-300 ${activeTab === index
+                ? `bg-gradient-to-r ${scenario.gradient} text-white shadow-lg`
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
             >
               <scenario.icon className="w-5 h-5" />
               <span className="hidden sm:inline">{scenario.title}</span>
@@ -378,9 +382,8 @@ export function ScenarioTabs() {
           {scenarios.map((_, index) => (
             <div
               key={index}
-              className={`h-1 rounded-full transition-all duration-300 ${
-                index === activeTab ? "w-8 bg-slate-900" : "w-2 bg-slate-300"
-              }`}
+              className={`h-1 rounded-full transition-all duration-300 ${index === activeTab ? "w-8 bg-slate-900" : "w-2 bg-slate-300"
+                }`}
             />
           ))}
         </div>

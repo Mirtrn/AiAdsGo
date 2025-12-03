@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
-import { ArrowRight, CheckCircle2, Zap, Star, Clock, Wand2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, Star, Clock, Wand2 } from "lucide-react";
 
 import { HolidayCountdown } from "@/components/marketing/HolidayCountdown";
 import { StatsCounter } from "@/components/marketing/StatsCounter";
@@ -19,12 +19,7 @@ export default function MarketingHome() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <Zap className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-700">
-                AutoAds
-              </span>
+              <img src="/logo.svg" alt="AutoAds" className="h-8 w-auto" />
             </div>
             <nav className="hidden md:flex space-x-8">
               <a href="#value" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
@@ -38,6 +33,9 @@ export default function MarketingHome() {
               </a>
               <a href="#testimonials" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 客户案例
+              </a>
+              <a href="https://www.urlchecker.dev/batchopen" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
+                免费补点击
               </a>
             </nav>
             <div className="flex items-center gap-4">
@@ -127,57 +125,52 @@ export default function MarketingHome() {
 
             {/* Right: Visual Demo */}
             <div className="relative animate-in fade-in slide-in-from-right-8 duration-700 delay-300">
-              <div className="relative aspect-[4/3] rounded-3xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 shadow-2xl overflow-hidden">
-                {/* Mock Dashboard */}
-                <div className="absolute inset-4 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20">
-                  <div className="p-6">
-                    {/* Header Bar */}
-                    <div className="flex items-center gap-2 mb-6">
-                      <div className="w-3 h-3 rounded-full bg-red-400" />
-                      <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                      <div className="w-3 h-3 rounded-full bg-green-400" />
-                    </div>
+              <div className="relative aspect-[4/3] rounded-3xl shadow-2xl overflow-visible">
+                {/* Background Image with rounded corners */}
+                <div className="relative w-full h-full rounded-3xl overflow-hidden">
+                  <img
+                    src="/assets/marketing/hero-demo.png"
+                    alt="AutoAds 产品演示"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
 
-                    {/* URL Input */}
-                    <div className="bg-white/90 rounded-xl p-4 mb-4 shadow-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                          <Zap className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-xs text-slate-500 mb-1">粘贴产品链接</div>
-                          <div className="text-sm text-slate-900 font-mono">https://example.com/product...</div>
-                        </div>
-                      </div>
+                {/* Floating Card - Top Right: 15个标题已生成 */}
+                <div className="absolute -right-6 top-[20%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                     </div>
-
-                    {/* AI Generating Animation */}
-                    <div className="bg-white/90 rounded-xl p-4 shadow-lg">
-                      <div className="flex items-center gap-3 mb-3">
-                        <Wand2 className="w-5 h-5 text-purple-600 animate-pulse" />
-                        <span className="text-sm font-semibold text-slate-900">AI 正在生成广告...</span>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="h-2 bg-gradient-to-r from-blue-200 to-purple-200 rounded-full animate-pulse" />
-                        <div className="h-2 bg-gradient-to-r from-blue-200 to-purple-200 rounded-full w-4/5 animate-pulse" />
-                        <div className="h-2 bg-gradient-to-r from-blue-200 to-purple-200 rounded-full w-3/5 animate-pulse" />
-                      </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">15个标题</div>
+                      <div className="text-xs text-slate-500">已生成</div>
                     </div>
                   </div>
                 </div>
 
-                {/* Floating Elements */}
-                <div className="absolute -right-4 top-1/4 bg-white rounded-2xl shadow-xl p-4 animate-bounce-slow">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                    <span className="text-sm font-semibold text-slate-900">15个标题已生成</span>
+                {/* Floating Card - Left: 20+关键词推荐 */}
+                <div className="absolute -left-6 top-[45%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100" style={{ animationDelay: '0.3s' }}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                      <CheckCircle2 className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">20+ 关键词</div>
+                      <div className="text-xs text-slate-500">智能推荐</div>
+                    </div>
                   </div>
                 </div>
 
-                <div className="absolute -left-4 bottom-1/4 bg-white rounded-2xl shadow-xl p-4 animate-bounce-slow delay-500">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                    <span className="text-sm font-semibold text-slate-900">20+关键词推荐</span>
+                {/* Floating Card - Bottom Right: 4个描述文案 */}
+                <div className="absolute -right-4 bottom-[15%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100" style={{ animationDelay: '0.6s' }}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                      <Wand2 className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">4个描述文案</div>
+                      <div className="text-xs text-purple-600 font-medium">AI 生成中...</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -226,6 +219,7 @@ export default function MarketingHome() {
                 author: "Alex Chen",
                 role: "资深 Media Buyer",
                 initials: "AC",
+                avatar: "/assets/marketing/avatar-1.png",
                 gradient: "from-blue-500 to-cyan-500",
                 metric: "节省时间 99%"
               },
@@ -234,6 +228,7 @@ export default function MarketingHome() {
                 author: "Sarah Li",
                 role: "独立站站长",
                 initials: "SL",
+                avatar: "/assets/marketing/avatar-2.png",
                 gradient: "from-purple-500 to-pink-500",
                 metric: "效率提升 10x"
               },
@@ -242,6 +237,7 @@ export default function MarketingHome() {
                 author: "Mike Wang",
                 role: "新手玩家",
                 initials: "MW",
+                avatar: "/assets/marketing/avatar-3.png",
                 gradient: "from-orange-500 to-red-500",
                 metric: "广告通过率 95%"
               },
@@ -265,8 +261,13 @@ export default function MarketingHome() {
                   "{testimonial.content}"
                 </p>
                 <div className="flex items-center gap-4 border-t border-slate-200 pt-6">
-                  <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${testimonial.gradient} flex items-center justify-center text-white font-bold text-sm shadow-md`}>
-                    {testimonial.initials}
+                  <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${testimonial.gradient} flex items-center justify-center text-white font-bold text-sm shadow-md overflow-hidden`}>
+                    {/* @ts-ignore */}
+                    {testimonial.avatar ? (
+                      <img src={testimonial.avatar} alt={testimonial.author} className="w-full h-full object-cover" />
+                    ) : (
+                      testimonial.initials
+                    )}
                   </div>
                   <div>
                     <div className="font-bold text-slate-900">
@@ -399,10 +400,7 @@ export default function MarketingHome() {
             {/* Brand Column */}
             <div className="col-span-1 md:col-span-1">
               <div className="flex items-center gap-2 mb-6">
-                <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                  <Zap className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-xl font-bold text-white">AutoAds</span>
+                <img src="/logo-white.svg" alt="AutoAds" className="h-8 w-auto" />
               </div>
               <p className="text-sm leading-relaxed mb-6">
                 专为 Affiliate Marketer 打造的 Google Ads
