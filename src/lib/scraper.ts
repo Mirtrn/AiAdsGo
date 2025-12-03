@@ -3,7 +3,7 @@ import { load } from 'cheerio'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import { getProxyIp, ProxyCredentials } from './proxy/fetch-proxy-ip'
 import { normalizeBrandName } from './offer-utils'
-import { getAcceptLanguageHeader } from './language-country-codes'
+import { getAcceptLanguageHeader, getLanguageCodeForCountry } from './language-country-codes'
 
 const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true'
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -159,17 +159,31 @@ export interface ScrapedProductData {
 /**
  * Extract structured product data from a landing page
  * Supports Amazon, Shopify, and generic e-commerce sites
+ * @param url - 产品页面URL
+ * @param customProxyUrl - 自定义代理URL
+ * @param targetCountry - 目标国家（用于动态Accept-Language配置）
  */
-export async function scrapeProductData(url: string, customProxyUrl?: string): Promise<ScrapedProductData> {
+export async function scrapeProductData(
+  url: string,
+  customProxyUrl?: string,
+  targetCountry?: string
+): Promise<ScrapedProductData> {
   try {
     const proxyAgent = await getProxyAgent(customProxyUrl)
+
+    // 🌍 根据目标国家动态生成Accept-Language
+    let acceptLanguage = 'en-US,en;q=0.5'  // 默认英语
+    if (targetCountry) {
+      const langCode = getLanguageCodeForCountry(targetCountry)
+      acceptLanguage = getAcceptLanguageHeader(langCode)
+    }
 
     const response = await axios.get(url, {
       timeout: 30000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Language': acceptLanguage,  // 🌍 动态语言支持
       },
       ...(proxyAgent && { httpsAgent: proxyAgent, httpAgent: proxyAgent as any }),
     })
@@ -463,6 +477,8 @@ function extractGenericData($: any, url: string): ScrapedProductData {
 /**
  * Extract product info (simplified interface for legacy compatibility)
  * This function wraps scrapeProductData and returns a simplified format
+ * @param url - 产品页面URL
+ * @param targetCountry - 目标国家（用于动态语言配置）
  */
 export async function extractProductInfo(
   url: string,
@@ -475,7 +491,8 @@ export async function extractProductInfo(
   imageUrls: string[]  // 🔥 P1优化：添加图片URL数组
 }> {
   try {
-    const productData = await scrapeProductData(url)
+    // 🌍 传入targetCountry到scrapeProductData
+    const productData = await scrapeProductData(url, undefined, targetCountry)
 
     return {
       brand: productData.brandName,

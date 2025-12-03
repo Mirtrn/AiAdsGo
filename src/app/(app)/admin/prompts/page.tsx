@@ -167,6 +167,7 @@ export default function PromptsManagementPage() {
   // 过滤Prompts
   const filteredPrompts = prompts.filter(prompt => {
     const matchesSearch = searchQuery === '' ||
+      prompt.promptId.toLowerCase().includes(searchQuery.toLowerCase()) ||
       prompt.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       prompt.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       prompt.filePath.toLowerCase().includes(searchQuery.toLowerCase())
@@ -246,7 +247,7 @@ export default function PromptsManagementPage() {
           <div className="flex items-center gap-3">
             <Search className="w-5 h-5 text-slate-400" />
             <Input
-              placeholder="搜索Prompt名称、描述或文件路径..."
+              placeholder="搜索Prompt ID、名称、描述或文件路径..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="flex-1 border-0 shadow-none focus-visible:ring-0"
@@ -279,6 +280,9 @@ export default function PromptsManagementPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-semibold text-slate-900">{prompt.name}</h3>
+                        <Badge variant="outline" className="text-xs font-mono bg-slate-50 text-slate-700">
+                          {prompt.promptId}
+                        </Badge>
                         <Badge variant="outline" className="text-xs">
                           {prompt.category}
                         </Badge>

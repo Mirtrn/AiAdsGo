@@ -57,9 +57,68 @@ class PlaywrightPool {
   private cleanupInterval: NodeJS.Timeout | null = null
   private instanceCounter = 0
 
+  // 🔥 User-Agent池，供contextOptions生成使用
+  private static readonly USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
+  ]
+
+  // 🌍 国家配置映射
+  private static readonly COUNTRY_CONFIG: Record<string, { locale: string; timezone: string }> = {
+    'US': { locale: 'en-US', timezone: 'America/New_York' },
+    'GB': { locale: 'en-GB', timezone: 'Europe/London' },
+    'UK': { locale: 'en-GB', timezone: 'Europe/London' },
+    'DE': { locale: 'de-DE', timezone: 'Europe/Berlin' },
+    'FR': { locale: 'fr-FR', timezone: 'Europe/Paris' },
+    'IT': { locale: 'it-IT', timezone: 'Europe/Rome' },
+    'ES': { locale: 'es-ES', timezone: 'Europe/Madrid' },
+    'JP': { locale: 'ja-JP', timezone: 'Asia/Tokyo' },
+    'CA': { locale: 'en-CA', timezone: 'America/Toronto' },
+    'AU': { locale: 'en-AU', timezone: 'Australia/Sydney' },
+    'NL': { locale: 'nl-NL', timezone: 'Europe/Amsterdam' },
+    'BR': { locale: 'pt-BR', timezone: 'America/Sao_Paulo' },
+    'MX': { locale: 'es-MX', timezone: 'America/Mexico_City' },
+    'IN': { locale: 'en-IN', timezone: 'Asia/Kolkata' },
+    'PL': { locale: 'pl-PL', timezone: 'Europe/Warsaw' },
+    'SE': { locale: 'sv-SE', timezone: 'Europe/Stockholm' },
+    'BE': { locale: 'nl-BE', timezone: 'Europe/Brussels' },
+    'AT': { locale: 'de-AT', timezone: 'Europe/Vienna' },
+    'CH': { locale: 'de-CH', timezone: 'Europe/Zurich' },
+  }
+
   constructor() {
     // 启动定期清理任务
     this.startCleanupTask()
+  }
+
+  /**
+   * 🔥 根据目标国家动态生成contextOptions
+   * P0修复: 复用实例时必须使用当前targetCountry生成新的配置
+   */
+  private generateContextOptions(targetCountry?: string): any {
+    const randomUserAgent = PlaywrightPool.USER_AGENTS[Math.floor(Math.random() * PlaywrightPool.USER_AGENTS.length)]
+
+    let locale = 'en-US'
+    let timezoneId = 'America/New_York'
+
+    if (targetCountry) {
+      const config = PlaywrightPool.COUNTRY_CONFIG[targetCountry.toUpperCase()]
+      if (config) {
+        locale = config.locale
+        timezoneId = config.timezone
+        console.log(`🌍 [contextOptions] 目标国家: ${targetCountry}, locale: ${locale}, timezone: ${timezoneId}`)
+      }
+    }
+
+    return {
+      userAgent: randomUserAgent,
+      viewport: { width: 1920, height: 1080 },
+      locale: locale,
+      timezoneId: timezoneId,
+    }
   }
 
   /**
@@ -70,8 +129,9 @@ class PlaywrightPool {
   }
 
   /**
-   * 🔥 为context添加stealth脚本（与scraper-stealth.ts完全一致）
+   * 🔥 为context添加stealth脚本（增强版：Canvas/WebGL指纹混淆）
    * P0修复: 之前的plugins=[1,2,3,4,5]是严重错误，导致Amazon检测到机器人
+   * P0增强: 添加Canvas/WebGL/AudioContext指纹混淆，防止高级反爬虫检测
    */
   private async addStealthScripts(context: BrowserContext, targetCountry?: string): Promise<void> {
     // 🌍 根据目标国家动态生成语言配置
@@ -102,9 +162,15 @@ class PlaywrightPool {
       navigatorLanguages = countryLanguageMap[targetCountry.toUpperCase()] || ['en-US', 'en']
     }
 
+    // 🎲 P0优化: 随机化硬件参数（避免所有请求使用相同值）
+    const hardwareConcurrency = [4, 8, 16][Math.floor(Math.random() * 3)]
+    const deviceMemory = [4, 8, 16][Math.floor(Math.random() * 3)]
+
     const languagesForScript = navigatorLanguages
 
-    await context.addInitScript((langs: string[]) => {
+    await context.addInitScript((langs: string[], hwConcurrency: number, devMemory: number) => {
+      // ===== 基础反检测 =====
+
       // Override navigator.webdriver
       Object.defineProperty(navigator, 'webdriver', {
         get: () => undefined,
@@ -133,6 +199,8 @@ class PlaywrightPool {
         get: () => langs,
       })
 
+      // ===== 硬件参数伪装 =====
+
       // 🔥 伪装真实屏幕分辨率和颜色深度
       Object.defineProperty(screen, 'colorDepth', {
         get: () => 24,
@@ -141,17 +209,33 @@ class PlaywrightPool {
         get: () => 24,
       })
 
-      // 🔥 伪装真实硬件并发数
+      // 🎲 P0优化: 随机化硬件并发数（4/8/16核）
       Object.defineProperty(navigator, 'hardwareConcurrency', {
-        get: () => 8,
+        get: () => hwConcurrency,
       })
 
-      // 🔥 伪装设备内存
+      // 🎲 P0优化: 随机化设备内存（4/8/16GB）
       Object.defineProperty(navigator, 'deviceMemory', {
-        get: () => 8,
+        get: () => devMemory,
       })
 
-      // Override permissions
+      // ===== P1增强: 完善Screen对象 =====
+
+      Object.defineProperty(screen, 'width', {
+        get: () => 1920,
+      })
+      Object.defineProperty(screen, 'height', {
+        get: () => 1080,
+      })
+      Object.defineProperty(screen, 'availWidth', {
+        get: () => 1920,
+      })
+      Object.defineProperty(screen, 'availHeight', {
+        get: () => 1040,  // 减去任务栏高度
+      })
+
+      // ===== Permissions API =====
+
       const originalQuery = window.navigator.permissions.query
       window.navigator.permissions.query = (parameters: any) =>
         parameters.name === 'notifications'
@@ -177,7 +261,91 @@ class PlaywrightPool {
           saveData: false,
         })
       })
-    }, languagesForScript)
+
+      // ===== P1增强: 主动屏蔽WebRTC =====
+
+      Object.defineProperty(navigator, 'mediaDevices', {
+        get: () => undefined,
+      })
+
+      // ===== P0增强: Canvas指纹混淆 =====
+
+      const getImageData = HTMLCanvasElement.prototype.toDataURL
+      HTMLCanvasElement.prototype.toDataURL = function(type?: string) {
+        // 🎲 添加随机噪声混淆Canvas指纹
+        const context = this.getContext('2d')
+        if (context) {
+          const originalImageData = context.getImageData(0, 0, this.width, this.height)
+          // 在随机像素点添加微小噪声（人眼不可见）
+          for (let i = 0; i < originalImageData.data.length; i += Math.floor(Math.random() * 10) + 1) {
+            originalImageData.data[i] = Math.min(255, originalImageData.data[i] + Math.floor(Math.random() * 5) - 2)
+          }
+          context.putImageData(originalImageData, 0, 0)
+        }
+        return getImageData.call(this, type)
+      }
+
+      // ===== P0增强: WebGL指纹混淆 =====
+
+      const getParameter = WebGLRenderingContext.prototype.getParameter
+      WebGLRenderingContext.prototype.getParameter = function(parameter: number) {
+        // 🎭 伪装关键WebGL参数
+        if (parameter === 37445) {  // UNMASKED_VENDOR_WEBGL
+          return 'Intel Inc.'
+        }
+        if (parameter === 37446) {  // UNMASKED_RENDERER_WEBGL
+          return 'Intel Iris OpenGL Engine'
+        }
+        return getParameter.call(this, parameter)
+      }
+
+      // WebGL2也需要处理
+      if (typeof WebGL2RenderingContext !== 'undefined') {
+        const getParameter2 = WebGL2RenderingContext.prototype.getParameter
+        WebGL2RenderingContext.prototype.getParameter = function(parameter: number) {
+          if (parameter === 37445) return 'Intel Inc.'
+          if (parameter === 37446) return 'Intel Iris OpenGL Engine'
+          return getParameter2.call(this, parameter)
+        }
+      }
+
+      // ===== P0增强: AudioContext指纹混淆 =====
+
+      const AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext
+      if (AudioContext) {
+        const originalCreateAnalyser = AudioContext.prototype.createAnalyser
+        AudioContext.prototype.createAnalyser = function() {
+          const analyser = originalCreateAnalyser.call(this)
+          const originalGetFloatFrequencyData = analyser.getFloatFrequencyData
+          analyser.getFloatFrequencyData = function(array: Float32Array) {
+            originalGetFloatFrequencyData.call(this, array)
+            // 🎲 添加微小噪声混淆AudioContext指纹
+            for (let i = 0; i < array.length; i++) {
+              array[i] += (Math.random() - 0.5) * 0.0001
+            }
+            return array
+          }
+          return analyser
+        }
+      }
+
+      // ===== P2增强: 其他反检测措施 =====
+
+      // 隐藏iframe contentWindow检测
+      Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+        get: function() {
+          const win = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow')
+          return win ? win.get?.call(this) : null
+        }
+      })
+
+      // 隐藏console.debug特征
+      const originalDebug = console.debug
+      console.debug = function() {
+        // 静默处理，不输出
+      }
+
+    }, languagesForScript, hardwareConcurrency, deviceMemory)
   }
 
   /**
@@ -224,9 +392,13 @@ class PlaywrightPool {
         // 验证实例是否仍然有效
         const isConnected = existing.browser.isConnected()
         if (isConnected) {
+          // 🔥 P0修复: 复用实例时，必须根据当前targetCountry动态生成contextOptions
+          // 不能使用existing.contextOptions，因为它可能包含旧的locale/timezone配置
+          const dynamicContextOptions = this.generateContextOptions(targetCountry)
+
           // 关闭旧context，创建新context（避免状态污染）
           await existing.context.close().catch(() => {})
-          const newContext = await existing.browser.newContext(existing.contextOptions)
+          const newContext = await existing.browser.newContext(dynamicContextOptions)
 
           // 🔥 关键：为复用的context添加stealth脚本（传入targetCountry）
           await this.addStealthScripts(newContext, targetCountry)
@@ -465,56 +637,8 @@ class PlaywrightPool {
 
     const browser = await chromium.launch(launchOptions)
 
-    // 🔥 关键：使用与scraper-stealth.ts相同的User-Agent轮换池
-    const USER_AGENTS = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
-    ]
-    const randomUserAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
-
-    // 🌍 根据目标国家动态配置locale和timezone
-    let locale = 'en-US'
-    let timezoneId = 'America/New_York'
-
-    if (targetCountry) {
-      const countryConfig: Record<string, { locale: string; timezone: string }> = {
-        'US': { locale: 'en-US', timezone: 'America/New_York' },
-        'GB': { locale: 'en-GB', timezone: 'Europe/London' },
-        'UK': { locale: 'en-GB', timezone: 'Europe/London' },
-        'DE': { locale: 'de-DE', timezone: 'Europe/Berlin' },
-        'FR': { locale: 'fr-FR', timezone: 'Europe/Paris' },
-        'IT': { locale: 'it-IT', timezone: 'Europe/Rome' },
-        'ES': { locale: 'es-ES', timezone: 'Europe/Madrid' },
-        'JP': { locale: 'ja-JP', timezone: 'Asia/Tokyo' },
-        'CA': { locale: 'en-CA', timezone: 'America/Toronto' },
-        'AU': { locale: 'en-AU', timezone: 'Australia/Sydney' },
-        'NL': { locale: 'nl-NL', timezone: 'Europe/Amsterdam' },
-        'BR': { locale: 'pt-BR', timezone: 'America/Sao_Paulo' },
-        'MX': { locale: 'es-MX', timezone: 'America/Mexico_City' },
-        'IN': { locale: 'en-IN', timezone: 'Asia/Kolkata' },
-        'PL': { locale: 'pl-PL', timezone: 'Europe/Warsaw' },
-        'SE': { locale: 'sv-SE', timezone: 'Europe/Stockholm' },
-        'BE': { locale: 'nl-BE', timezone: 'Europe/Brussels' },
-        'AT': { locale: 'de-AT', timezone: 'Europe/Vienna' },
-        'CH': { locale: 'de-CH', timezone: 'Europe/Zurich' },
-      }
-      const config = countryConfig[targetCountry.toUpperCase()]
-      if (config) {
-        locale = config.locale
-        timezoneId = config.timezone
-        console.log(`🌍 目标国家: ${targetCountry}, locale: ${locale}, timezone: ${timezoneId}`)
-      }
-    }
-
-    let contextOptions: any = {
-      userAgent: randomUserAgent,
-      viewport: { width: 1920, height: 1080 },
-      locale: locale,
-      timezoneId: timezoneId,
-    }
+    // 🔥 使用统一的方法生成contextOptions（复用与首次创建保持一致）
+    const contextOptions = this.generateContextOptions(targetCountry)
 
     const context = await browser.newContext(contextOptions)
 

@@ -364,14 +364,14 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
 
       if (isAmazonStore) {
         console.log('🏪 检测到Amazon Store页面，使用非Crawlee方案抓取...')
-        storeData = await scrapeAmazonStore(fullTargetUrl, proxyApiUrl)
+        storeData = await scrapeAmazonStore(fullTargetUrl, proxyApiUrl, targetCountry)
         brandName = storeData.brandName || storeData.storeName
         productDescription = storeData.storeDescription
         productCount = storeData.totalProducts
         console.log(`✅ Amazon Store识别成功: ${brandName}, 产品数: ${productCount}`)
       } else if (isAmazonProductPage) {
         console.log('📦 检测到Amazon单品页面，使用非Crawlee方案抓取...')
-        amazonProductData = await scrapeAmazonProduct(fullTargetUrl, proxyApiUrl)
+        amazonProductData = await scrapeAmazonProduct(fullTargetUrl, proxyApiUrl, targetCountry)
         brandName = amazonProductData.brandName
         productDescription = amazonProductData.productDescription
         scrapedData = {
@@ -383,7 +383,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         console.log(`✅ Amazon单品识别成功: ${brandName || 'Unknown'}`)
       } else if (isIndependentStore) {
         console.log('🏬 检测到独立站首页，使用非Crawlee方案抓取...')
-        independentStoreData = await scrapeIndependentStore(fullTargetUrl, proxyApiUrl)
+        independentStoreData = await scrapeIndependentStore(fullTargetUrl, proxyApiUrl, targetCountry)
         brandName = independentStoreData.storeName
         productDescription = independentStoreData.storeDescription
         productCount = independentStoreData.totalProducts

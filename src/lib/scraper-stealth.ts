@@ -218,6 +218,9 @@ async function createStealthBrowser(proxyUrl?: string, targetCountry?: string): 
     throw new Error('❌ 代理配置缺失：根据需求10，必须配置代理URL(PROXY_URL环境变量或传入customProxyUrl参数)，不允许直连访问')
   }
 
+  // 🔥 P0增强: 明确记录targetCountry配置状态
+  console.log(`🌍 createStealthBrowser: targetCountry=${targetCountry || '(未指定，使用默认en-US)'}, proxyUrl=${effectiveProxyUrl.substring(0, 50)}...`)
+
   // 🔥 P0优化: 使用连接池获取实例（传入targetCountry支持动态语言配置）
   if (USE_POOL) {
     try {
@@ -341,9 +344,66 @@ async function configureStealthPage(page: Page, targetCountry?: string): Promise
     'Sec-CH-UA-Platform': '"Windows"',
   })
 
+  // 🎲 P0优化: 随机化硬件参数（避免所有请求使用相同值）
+  const hardwareConcurrency = [4, 8, 16][Math.floor(Math.random() * 3)]
+  const deviceMemory = [4, 8, 16][Math.floor(Math.random() * 3)]
+
   // 🔥 增强浏览器指纹伪装（需要将动态语言传入脚本）
   const languagesForScript = navigatorLanguages
-  await page.addInitScript((langs: string[]) => {
+  await page.addInitScript((langs: string[], hwConcurrency: number, devMemory: number) => {
+    // ===== P0优化: Canvas指纹混淆 =====
+    const getImageData = HTMLCanvasElement.prototype.toDataURL
+    HTMLCanvasElement.prototype.toDataURL = function(type?: string) {
+      const context = this.getContext('2d')
+      if (context) {
+        const originalImageData = context.getImageData(0, 0, this.width, this.height)
+        // 在随机像素点添加微小噪声（人眼不可见）
+        for (let i = 0; i < originalImageData.data.length; i += Math.floor(Math.random() * 10) + 1) {
+          originalImageData.data[i] = Math.min(255, originalImageData.data[i] + Math.floor(Math.random() * 5) - 2)
+        }
+        context.putImageData(originalImageData, 0, 0)
+      }
+      return getImageData.call(this, type)
+    }
+
+    // ===== P0优化: WebGL指纹混淆 =====
+    const getParameter = WebGLRenderingContext.prototype.getParameter
+    WebGLRenderingContext.prototype.getParameter = function(parameter: number) {
+      // 伪装GPU供应商和渲染器（最常见的检测点）
+      if (parameter === 37445) return 'Intel Inc.'  // UNMASKED_VENDOR_WEBGL
+      if (parameter === 37446) return 'Intel Iris OpenGL Engine'  // UNMASKED_RENDERER_WEBGL
+      return getParameter.call(this, parameter)
+    }
+
+    // WebGL2也需要处理
+    if (typeof WebGL2RenderingContext !== 'undefined') {
+      const getParameter2 = WebGL2RenderingContext.prototype.getParameter
+      WebGL2RenderingContext.prototype.getParameter = function(parameter: number) {
+        if (parameter === 37445) return 'Intel Inc.'
+        if (parameter === 37446) return 'Intel Iris OpenGL Engine'
+        return getParameter2.call(this, parameter)
+      }
+    }
+
+    // ===== P0优化: AudioContext指纹混淆 =====
+    const AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext
+    if (AudioContext) {
+      const originalCreateAnalyser = AudioContext.prototype.createAnalyser
+      AudioContext.prototype.createAnalyser = function() {
+        const analyser = originalCreateAnalyser.call(this)
+        const originalGetFloatFrequencyData = analyser.getFloatFrequencyData
+        analyser.getFloatFrequencyData = function(array: Float32Array) {
+          originalGetFloatFrequencyData.call(this, array)
+          // 添加微小随机噪声混淆音频指纹
+          for (let i = 0; i < array.length; i++) {
+            array[i] += (Math.random() - 0.5) * 0.0001
+          }
+          return array
+        }
+        return analyser
+      }
+    }
+
     // Override navigator.webdriver
     Object.defineProperty(navigator, 'webdriver', {
       get: () => undefined,
@@ -372,23 +432,20 @@ async function configureStealthPage(page: Page, targetCountry?: string): Promise
       get: () => langs,
     })
 
-    // 🔥 伪装真实屏幕分辨率和颜色深度
-    Object.defineProperty(screen, 'colorDepth', {
-      get: () => 24,
-    })
-    Object.defineProperty(screen, 'pixelDepth', {
-      get: () => 24,
-    })
+    // ===== P1优化: 完善Screen对象 =====
+    Object.defineProperty(screen, 'width', { get: () => 1920 })
+    Object.defineProperty(screen, 'height', { get: () => 1080 })
+    Object.defineProperty(screen, 'availWidth', { get: () => 1920 })
+    Object.defineProperty(screen, 'availHeight', { get: () => 1040 })  // 减去任务栏
+    Object.defineProperty(screen, 'colorDepth', { get: () => 24 })
+    Object.defineProperty(screen, 'pixelDepth', { get: () => 24 })
 
-    // 🔥 伪装真实硬件并发数
-    Object.defineProperty(navigator, 'hardwareConcurrency', {
-      get: () => 8,
-    })
+    // ===== P1优化: 主动屏蔽WebRTC =====
+    Object.defineProperty(navigator, 'mediaDevices', { get: () => undefined })
 
-    // 🔥 伪装设备内存
-    Object.defineProperty(navigator, 'deviceMemory', {
-      get: () => 8,
-    })
+    // ===== P0优化: 随机化硬件参数 =====
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => hwConcurrency })
+    Object.defineProperty(navigator, 'deviceMemory', { get: () => devMemory })
 
     // Override permissions
     const originalQuery = window.navigator.permissions.query
@@ -416,7 +473,31 @@ async function configureStealthPage(page: Page, targetCountry?: string): Promise
         saveData: false,
       })
     })
-  }, languagesForScript)  // 🌍 将动态语言列表传入脚本
+
+    // ===== P2优化: 隐藏iframe contentWindow =====
+    try {
+      const originalContentWindowGetter = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow')?.get
+      if (originalContentWindowGetter) {
+        Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+          get: function() {
+            const win = originalContentWindowGetter.call(this)
+            if (win) {
+              try {
+                win.navigator.webdriver = undefined
+              } catch (e) {}
+            }
+            return win
+          }
+        })
+      }
+    } catch (e) {}
+
+    // ===== P2优化: 隐藏console.debug =====
+    const consoleDebug = console.debug
+    console.debug = function() {
+      return null
+    }
+  }, languagesForScript, hardwareConcurrency, deviceMemory)  // 🌍 传入动态语言和随机硬件参数
 
   // 🔥 设置真实的viewport和屏幕分辨率
   await page.setViewportSize({ width: 1920, height: 1080 })
@@ -446,7 +527,10 @@ export async function scrapeUrlWithBrowser(
   redirectChain: string[]
   screenshot?: Buffer
 }> {
-  const browserResult = await createStealthBrowser(customProxyUrl)
+  // 🔥 P0修复: 必须传入targetCountry到createStealthBrowser
+  // 之前漏传导致浏览器locale/timezone/languages使用默认en-US配置
+  // 这会触发Amazon反爬虫检测（访问amazon.it但浏览器是英语配置）
+  const browserResult = await createStealthBrowser(customProxyUrl, options.targetCountry)
 
   try {
     return await retryWithBackoff(async () => {
@@ -512,12 +596,20 @@ export async function scrapeUrlWithBrowser(
       // 🔥 P1修复: 检测Amazon的a-no-js标记，表示JavaScript未执行完成
       // 如果检测到a-no-js，需要额外等待JavaScript渲染
       try {
-        const hasNoJsClass = await page.evaluate(() => {
-          return document.documentElement.classList.contains('a-no-js') ||
-                 document.body?.classList.contains('a-no-js')
+        // 🔥 P0增强: 同时获取页面语言信息用于诊断
+        const pageStatus = await page.evaluate(() => {
+          const html = document.documentElement
+          return {
+            hasNoJsClass: html.classList.contains('a-no-js') || document.body?.classList.contains('a-no-js'),
+            hasJsClass: html.classList.contains('a-js'),
+            htmlLang: html.getAttribute('lang') || '(未设置)',
+            htmlClass: html.className.substring(0, 100),
+          }
         })
 
-        if (hasNoJsClass) {
+        console.log(`🔍 页面状态: lang=${pageStatus.htmlLang}, a-js=${pageStatus.hasJsClass}, a-no-js=${pageStatus.hasNoJsClass}`)
+
+        if (pageStatus.hasNoJsClass) {
           console.log(`🔄 检测到a-no-js标记，等待JavaScript渲染...`)
           // 等待a-no-js变为a-js，或者等待networkidle
           try {
@@ -533,6 +625,17 @@ export async function scrapeUrlWithBrowser(
             console.log(`✅ JavaScript渲染完成`)
           } catch (waitError) {
             console.warn(`⚠️ JavaScript渲染等待超时，继续执行`)
+          }
+        }
+
+        // 🔥 P0增强: 如果页面语言与目标国家不匹配，记录警告
+        if (options.targetCountry && pageStatus.htmlLang) {
+          const { getLanguageCodeForCountry } = await import('./language-country-codes')
+          const expectedLangCode = getLanguageCodeForCountry(options.targetCountry)
+          const actualLang = pageStatus.htmlLang.toLowerCase().split('-')[0]  // 'en-gb' -> 'en'
+
+          if (expectedLangCode !== actualLang) {
+            console.warn(`⚠️ 语言不匹配: 目标国家${options.targetCountry}期望语言${expectedLangCode}，但页面lang=${pageStatus.htmlLang}，可能代理IP不在目标国家`)
           }
         }
       } catch (evalError) {
