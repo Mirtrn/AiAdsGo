@@ -1038,11 +1038,42 @@ export async function scrapeAmazonProduct(
 
       // 🔥 P1优化：使用更短的超时进行快速失败检测
       const quickTimeout = 30000  // 30秒快速检测，如果失败立即换代理
-      const result = await scrapeUrlWithBrowser(url, effectiveProxyUrl, {
+      let result = await scrapeUrlWithBrowser(url, effectiveProxyUrl, {
         waitForSelector: '#productTitle',
         waitForTimeout: quickTimeout,  // 🔥 优先快速失败，避免等120秒
         targetCountry,  // 🌍 传入目标国家
       })
+
+      // ✅ 方案4修复: 如果检测到a-no-js失败，清理池并重试一次
+      if (result.html && (result.html.includes('a-no-js') || result.html.includes('class="a-no-js"'))) {
+        console.warn(`⚠️ 检测到a-no-js未清除，页面JavaScript未正常执行`)
+
+        // 只在第一次尝试时重试（避免无限循环）
+        if (proxyAttempt === 0) {
+          console.warn(`🔄 清理连接池并立即重试（a-no-js修复）...`)
+          const pool = getPlaywrightPool()
+          await pool.clearIdleInstances()
+
+          // 等待5-10秒再重试（给系统重置时间）
+          const retryDelay = 5000 + Math.random() * 5000
+          console.log(`⏰ 等待${Math.round(retryDelay)}ms后重试...`)
+          await new Promise(resolve => setTimeout(resolve, retryDelay))
+
+          // 重新抓取
+          result = await scrapeUrlWithBrowser(url, effectiveProxyUrl, {
+            waitForSelector: '#productTitle',
+            waitForTimeout: quickTimeout,
+            targetCountry,
+          })
+
+          // 如果重试后仍然有a-no-js，记录但继续执行
+          if (result.html && (result.html.includes('a-no-js') || result.html.includes('class="a-no-js"'))) {
+            console.error(`🚨 重试后仍检测到a-no-js，Amazon反爬虫可能升级，继续尝试解析...`)
+          } else {
+            console.log(`✅ 重试成功，a-no-js已清除`)
+          }
+        }
+      }
 
       // Parse HTML with cheerio
       const { load } = await import('cheerio')
