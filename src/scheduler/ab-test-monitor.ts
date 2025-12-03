@@ -107,7 +107,7 @@ export async function monitorActiveABTests() {
         t.confidence_level,
         t.created_at
       FROM ab_tests t
-      WHERE t.is_auto_test = 1
+      WHERE t.is_auto_test = true
         AND t.status = 'running'
     `)
 
@@ -158,7 +158,7 @@ async function processTest(db: DatabaseAdapter, test: any) {
     FROM campaigns c
     JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     WHERE c.ab_test_id = ?
-      AND c.is_test_variant = 1
+      AND c.is_test_variant = true
       AND c.creation_status = 'synced'
   `, [test.id])
 
@@ -531,7 +531,7 @@ async function switchToWinner(
     await db.exec(`
       UPDATE ad_creatives
       SET
-        is_selected = 1,
+        is_selected = true,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [winner.ad_creative_id])
