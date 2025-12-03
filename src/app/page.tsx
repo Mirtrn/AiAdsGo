@@ -1,9 +1,13 @@
-import Image from "next/image";
 import Link from "next/link";
 import { pageMetadata } from "@/lib/seo";
-import { ArrowRight, CheckCircle2, Zap, TrendingUp, Shield, BarChart3, Users, Star } from "lucide-react";
+import { ArrowRight, CheckCircle2, Zap, Star, Clock, Wand2 } from "lucide-react";
 
 import { HolidayCountdown } from "@/components/marketing/HolidayCountdown";
+import { StatsCounter } from "@/components/marketing/StatsCounter";
+import { ValueCards } from "@/components/marketing/ValueCards";
+import { WorkflowTimeline } from "@/components/marketing/WorkflowTimeline";
+import { ComparisonChart } from "@/components/marketing/ComparisonChart";
+import { ScenarioTabs } from "@/components/marketing/ScenarioTabs";
 
 export const metadata = pageMetadata.home;
 
@@ -23,17 +27,17 @@ export default function MarketingHome() {
               </span>
             </div>
             <nav className="hidden md:flex space-x-8">
-              <a href="#features" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-                功能特性
+              <a href="#value" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
+                核心价值
+              </a>
+              <a href="#workflow" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
+                使用流程
               </a>
               <a href="#pricing" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 价格方案
               </a>
               <a href="#testimonials" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 客户案例
-              </a>
-              <a href="https://www.urlchecker.dev/batchopen" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
-                免费补点击
               </a>
             </nav>
             <div className="flex items-center gap-4">
@@ -63,183 +67,204 @@ export default function MarketingHome() {
           <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-purple-400/10 blur-[100px]" />
         </div>
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center pt-6 pb-20 lg:pb-32">
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-16 lg:pb-24">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left: Text Content */}
+            <div className="text-center lg:text-left">
+              {/* Badge */}
+              <div className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50/50 backdrop-blur-sm px-3 py-1 text-sm font-medium text-blue-700 mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <span className="flex h-2 w-2 rounded-full bg-blue-600 mr-2 animate-pulse"></span>
+                AutoAds 2.0 全新发布
+              </div>
 
-          {/* Badge */}
-          <div className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50/50 backdrop-blur-sm px-3 py-1 text-sm font-medium text-blue-700 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <span className="flex h-2 w-2 rounded-full bg-blue-600 mr-2 animate-pulse"></span>
-            AutoAds 2.0 全新发布
-          </div>
+              {/* Main Heading */}
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-slate-900 mb-6 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150">
+                <span className="text-blue-600">10分钟</span>搞定
+                <br />
+                Google Ads 投放
+              </h1>
 
-          {/* Main Heading */}
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-slate-900 mb-8 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-150">
-            Google Ads <br className="hidden md:block" />
-            <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent pb-2">
-              极速测试与智能优化
-            </span>
-          </h1>
+              {/* Subheading */}
+              <p className="text-lg md:text-xl text-slate-600 mb-8 leading-relaxed animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300">
+                告别熬夜写广告、告别高额测试费、告别复杂的操作
+                <br className="hidden md:block" />
+                <span className="font-semibold text-slate-900">粘贴链接 → AI生成 → 一键发布</span>
+              </p>
 
-          {/* Subheading */}
-          <p className="mt-6 text-xl text-slate-600 max-w-3xl mx-auto mb-12 leading-relaxed animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300">
-            全生命周期自动化管理：
-            <span className="font-semibold text-slate-900">Offer筛选</span> →
-            <span className="font-semibold text-slate-900"> 广告投放</span> →
-            <span className="font-semibold text-slate-900"> 效果优化</span>
-            <br />
-            打造属于你自己的"印钞机"系统
-          </p>
-
-          {/* CTAs */}
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center animate-in fade-in slide-in-from-bottom-8 duration-700 delay-500">
-            <a
-              href="/login"
-              className="group relative px-8 py-4 bg-slate-900 text-white text-lg font-semibold rounded-full hover:bg-slate-800 shadow-xl shadow-slate-900/20 hover:shadow-2xl hover:shadow-slate-900/30 hover:-translate-y-1 transition-all duration-300 flex items-center justify-center"
-            >
-              <span>立即开始</span>
-              <ArrowRight className="inline-block ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
-            </a>
-            <a
-              href="#pricing"
-              className="px-8 py-4 bg-white text-slate-900 text-lg font-semibold rounded-full border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all duration-300 shadow-sm hover:shadow-md"
-            >
-              查看价格
-            </a>
-          </div>
-
-          {/* Trust Indicators */}
-          <div className="mt-16 flex flex-wrap justify-center gap-x-8 gap-y-4 text-sm font-medium text-slate-500 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-700">
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/50 border border-slate-100 backdrop-blur-sm">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              <span>AI 智能文案</span>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/50 border border-slate-100 backdrop-blur-sm">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              <span>真实关键词数据</span>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/50 border border-slate-100 backdrop-blur-sm">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              <span>数据驱动增长</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="py-24 bg-white relative">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl mb-4">
-              为什么选择 AutoAds?
-            </h2>
-            <p className="text-xl text-slate-600">
-              四大核心能力，助你构建高效的 Google Ads 投放体系
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {[
-              {
-                icon: Zap,
-                title: "AI 智能文案",
-                desc: "自动生成并评分高质量广告文案，确保只有最佳广告上线",
-                color: "blue",
-                gradient: "from-blue-500 to-indigo-500"
-              },
-              {
-                icon: BarChart3,
-                title: "真实数据源",
-                desc: "直接接入 Google Keyword Planner 真实搜索量数据，告别噪音",
-                color: "emerald",
-                gradient: "from-emerald-500 to-teal-500"
-              },
-              {
-                icon: TrendingUp,
-                title: "自动优化",
-                desc: "AI 分析投放数据，持续优化文案策略，提升 CTR 并降低 CPC",
-                color: "purple",
-                gradient: "from-purple-500 to-pink-500"
-              },
-              {
-                icon: Shield,
-                title: "增长飞轮",
-                desc: "实现 'Offer筛选 → 广告投放 → 效果优化' 闭环，打造收益引擎",
-                color: "orange",
-                gradient: "from-orange-500 to-red-500"
-              },
-            ].map((feature, idx) => (
-              <div
-                key={idx}
-                className="group relative p-8 bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden"
-              >
-                <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500`} />
-                <div className="relative z-10">
-                  <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center mb-6 shadow-lg shadow-${feature.color}-500/20 group-hover:scale-110 transition-transform duration-300`}>
-                    <feature.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-3">
-                    {feature.title}
-                  </h3>
-                  <p className="text-slate-600 leading-relaxed text-sm">
-                    {feature.desc}
-                  </p>
+              {/* Key Benefits */}
+              <div className="flex flex-wrap justify-center lg:justify-start gap-4 mb-8 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-400">
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 border border-emerald-200">
+                  <Clock className="w-4 h-4 text-emerald-600" />
+                  <span className="text-sm font-medium text-emerald-700">省99%时间</span>
+                </div>
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 border border-purple-200">
+                  <Wand2 className="w-4 h-4 text-purple-600" />
+                  <span className="text-sm font-medium text-purple-700">省75%成本</span>
+                </div>
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-orange-50 border border-orange-200">
+                  <CheckCircle2 className="w-4 h-4 text-orange-600" />
+                  <span className="text-sm font-medium text-orange-700">零门槛</span>
                 </div>
               </div>
-            ))}
+
+              {/* CTAs */}
+              <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start animate-in fade-in slide-in-from-bottom-8 duration-700 delay-500">
+                <a
+                  href="/login"
+                  className="group relative px-8 py-4 bg-slate-900 text-white text-lg font-semibold rounded-full hover:bg-slate-800 shadow-xl shadow-slate-900/20 hover:shadow-2xl hover:shadow-slate-900/30 hover:-translate-y-1 transition-all duration-300 flex items-center justify-center"
+                >
+                  <span>免费试用</span>
+                  <ArrowRight className="inline-block ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
+                </a>
+                <a
+                  href="#workflow"
+                  className="px-8 py-4 bg-white text-slate-900 text-lg font-semibold rounded-full border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all duration-300 shadow-sm hover:shadow-md"
+                >
+                  看看怎么用
+                </a>
+              </div>
+            </div>
+
+            {/* Right: Visual Demo */}
+            <div className="relative animate-in fade-in slide-in-from-right-8 duration-700 delay-300">
+              <div className="relative aspect-[4/3] rounded-3xl bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 shadow-2xl overflow-hidden">
+                {/* Mock Dashboard */}
+                <div className="absolute inset-4 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20">
+                  <div className="p-6">
+                    {/* Header Bar */}
+                    <div className="flex items-center gap-2 mb-6">
+                      <div className="w-3 h-3 rounded-full bg-red-400" />
+                      <div className="w-3 h-3 rounded-full bg-yellow-400" />
+                      <div className="w-3 h-3 rounded-full bg-green-400" />
+                    </div>
+
+                    {/* URL Input */}
+                    <div className="bg-white/90 rounded-xl p-4 mb-4 shadow-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                          <Zap className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-xs text-slate-500 mb-1">粘贴产品链接</div>
+                          <div className="text-sm text-slate-900 font-mono">https://example.com/product...</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* AI Generating Animation */}
+                    <div className="bg-white/90 rounded-xl p-4 shadow-lg">
+                      <div className="flex items-center gap-3 mb-3">
+                        <Wand2 className="w-5 h-5 text-purple-600 animate-pulse" />
+                        <span className="text-sm font-semibold text-slate-900">AI 正在生成广告...</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="h-2 bg-gradient-to-r from-blue-200 to-purple-200 rounded-full animate-pulse" />
+                        <div className="h-2 bg-gradient-to-r from-blue-200 to-purple-200 rounded-full w-4/5 animate-pulse" />
+                        <div className="h-2 bg-gradient-to-r from-blue-200 to-purple-200 rounded-full w-3/5 animate-pulse" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Floating Elements */}
+                <div className="absolute -right-4 top-1/4 bg-white rounded-2xl shadow-xl p-4 animate-bounce-slow">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    <span className="text-sm font-semibold text-slate-900">15个标题已生成</span>
+                  </div>
+                </div>
+
+                <div className="absolute -left-4 bottom-1/4 bg-white rounded-2xl shadow-xl p-4 animate-bounce-slow delay-500">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    <span className="text-sm font-semibold text-slate-900">20+关键词推荐</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
+      {/* Stats Counter */}
+      <StatsCounter />
+
+      {/* Value Cards Section */}
+      <section id="value">
+        <ValueCards />
+      </section>
+
+      {/* Workflow Timeline Section */}
+      <section id="workflow">
+        <WorkflowTimeline />
+      </section>
+
+      {/* Comparison Chart Section */}
+      <ComparisonChart />
+
+      {/* Scenario Tabs Section */}
+      <ScenarioTabs />
+
       {/* Testimonials Section */}
-      <section id="testimonials" className="py-24 bg-slate-50 relative overflow-hidden">
+      <section id="testimonials" className="py-24 bg-white relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-blue-100/40 via-transparent to-transparent" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto mb-16">
             <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl mb-4">
-              深受顶尖 Affiliate Marketer 信赖
+              深受 1000+ 专业玩家信赖
             </h2>
             <p className="text-xl text-slate-600">
-              看看他们如何使用 AutoAds 实现 ROI 翻倍
+              看看他们如何用 AutoAds 实现效率革命
             </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
             {[
               {
-                content: "AutoAds 的 AI 文案生成简直是神技！以前我需要花几个小时写广告语，现在几秒钟就能搞定，而且 CTR 提升了 30% 以上",
+                content: "以前周五接单周一要交付，整个周末都在熬夜写广告。现在用 AutoAds，10分钟搞定，周末照样出去玩！",
                 author: "Alex Chen",
                 role: "资深 Media Buyer",
                 initials: "AC",
-                gradient: "from-blue-500 to-cyan-500"
+                gradient: "from-blue-500 to-cyan-500",
+                metric: "节省时间 99%"
               },
               {
-                content: "真实关键词数据功能帮我避开了无数个坑。能够直接看到 Google 官方的数据，让我对投放策略充满了信心",
+                content: "同时跟20个Offer不再是梦！批量导入功能太强了，以前一个个测，现在可以同时追10倍的Offer。",
                 author: "Sarah Li",
                 role: "独立站站长",
                 initials: "SL",
-                gradient: "from-purple-500 to-pink-500"
+                gradient: "from-purple-500 to-pink-500",
+                metric: "效率提升 10x"
               },
               {
-                content: "从 Offer 筛选到广告投放的闭环流程非常顺滑。这是我用过的最高效的 Affiliate Marketing 工具，没有之一",
+                content: "完全不懂Google Ads也能用，零门槛上手。AI生成的文案质量很高，通过率比我自己写的还好！",
                 author: "Mike Wang",
-                role: "工作室负责人",
+                role: "新手玩家",
                 initials: "MW",
-                gradient: "from-orange-500 to-red-500"
+                gradient: "from-orange-500 to-red-500",
+                metric: "广告通过率 95%"
               },
             ].map((testimonial, idx) => (
               <div
                 key={idx}
-                className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
+                className="bg-slate-50 p-8 rounded-3xl shadow-sm border border-slate-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
               >
-                <div className="flex items-center gap-1 mb-6">
+                <div className="flex items-center gap-1 mb-4">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <Star key={star} className="w-4 h-4 text-yellow-400 fill-current" />
                   ))}
                 </div>
-                <p className="text-slate-600 mb-8 leading-relaxed text-lg">
+
+                {/* Metric Badge */}
+                <div className={`inline-flex items-center px-3 py-1 rounded-full bg-gradient-to-r ${testimonial.gradient} text-white text-xs font-bold mb-4`}>
+                  {testimonial.metric}
+                </div>
+
+                <p className="text-slate-600 mb-8 leading-relaxed">
                   "{testimonial.content}"
                 </p>
-                <div className="flex items-center gap-4 border-t border-slate-100 pt-6">
+                <div className="flex items-center gap-4 border-t border-slate-200 pt-6">
                   <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${testimonial.gradient} flex items-center justify-center text-white font-bold text-sm shadow-md`}>
                     {testimonial.initials}
                   </div>
@@ -259,7 +284,7 @@ export default function MarketingHome() {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="py-24 bg-white">
+      <section id="pricing" className="py-24 bg-slate-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
             <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl mb-4">
@@ -343,21 +368,25 @@ export default function MarketingHome() {
       {/* CTA Section */}
       <section className="relative py-24 overflow-hidden">
         <div className="absolute inset-0 bg-slate-900">
-          <div className="absolute inset-0 bg-[url('/dashboard-dark.webp')] bg-cover bg-center opacity-10 mix-blend-overlay" />
           <div className="absolute inset-0 bg-gradient-to-br from-blue-900/50 to-purple-900/50" />
         </div>
         <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl font-bold text-white mb-6 sm:text-4xl">
-            开始构建你的"印钞机"组合
+            10分钟后，你的广告就能上线
           </h2>
-          <p className="text-xl text-slate-300 mb-10">
-            Offer筛选 → 广告投放 → 效果优化 → 持续增长
+          <p className="text-xl text-slate-300 mb-4">
+            别再熬夜写广告了，让 AI 帮你搞定一切
           </p>
+          <div className="flex flex-wrap justify-center gap-6 text-slate-400 mb-10">
+            <span>✓ 免费试用</span>
+            <span>✓ 无需信用卡</span>
+            <span>✓ 随时取消</span>
+          </div>
           <a
             href="/login"
             className="inline-flex items-center px-10 py-4 bg-white text-slate-900 text-lg font-semibold rounded-full hover:bg-blue-50 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
           >
-            <span>立即开始</span>
+            <span>立即免费试用</span>
             <ArrowRight className="ml-2 w-5 h-5" />
           </a>
         </div>
@@ -377,7 +406,7 @@ export default function MarketingHome() {
               </div>
               <p className="text-sm leading-relaxed mb-6">
                 专为 Affiliate Marketer 打造的 Google Ads
-                自动化投放与优化平台。让每一分预算都发挥最大价值
+                自动化投放平台。10分钟搞定投放，让每一分预算都发挥最大价值
               </p>
             </div>
 
@@ -385,10 +414,10 @@ export default function MarketingHome() {
             <div>
               <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">产品</h3>
               <ul className="space-y-3">
-                <li><a href="#features" className="text-sm hover:text-white transition-colors">功能特性</a></li>
+                <li><a href="#value" className="text-sm hover:text-white transition-colors">核心价值</a></li>
+                <li><a href="#workflow" className="text-sm hover:text-white transition-colors">使用流程</a></li>
                 <li><a href="#pricing" className="text-sm hover:text-white transition-colors">价格方案</a></li>
                 <li><a href="#" className="text-sm hover:text-white transition-colors">更新日志</a></li>
-                <li><a href="#" className="text-sm hover:text-white transition-colors">API 文档</a></li>
               </ul>
             </div>
 
@@ -397,7 +426,7 @@ export default function MarketingHome() {
               <ul className="space-y-3">
                 <li><a href="#" className="text-sm hover:text-white transition-colors">帮助中心</a></li>
                 <li><a href="#" className="text-sm hover:text-white transition-colors">投放教程</a></li>
-                <li><a href="#" className="text-sm hover:text-white transition-colors">案例分析</a></li>
+                <li><a href="#testimonials" className="text-sm hover:text-white transition-colors">客户案例</a></li>
                 <li><a href="#" className="text-sm hover:text-white transition-colors">社区论坛</a></li>
               </ul>
             </div>
