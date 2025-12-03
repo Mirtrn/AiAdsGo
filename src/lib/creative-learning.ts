@@ -75,6 +75,10 @@ export interface SuccessFeatures {
 
 /**
  * 查询高表现历史创意
+ *
+ * 注意：creative_versions 表使用 JSON 格式存储 headlines 和 descriptions
+ * - headlines: JSON数组 ["H1", "H2", "H3"]
+ * - descriptions: JSON数组 ["D1", "D2"]
  */
 export function queryHighPerformingCreatives(
   userId: number,
@@ -85,40 +89,70 @@ export function queryHighPerformingCreatives(
   const db = getSQLiteDatabase()
 
   // 查询高CTR的创意及其性能数据
+  // 使用 creative_versions 表的 JSON 字段，在代码中解析
   const stmt = db.prepare(`
     SELECT
       c.id as creativeId,
-      c.headline1,
-      c.headline2,
-      c.headline3,
-      c.description1,
-      c.description2,
-      COALESCE(SUM(cp.clicks), 0) as clicks,
-      COALESCE(SUM(cp.impressions), 0) as impressions,
-      COALESCE(SUM(cp.conversions), 0) as conversions,
+      c.headlines,
+      c.descriptions,
+      c.clicks,
+      c.impressions,
+      c.conversions,
+      c.cost,
       CASE
-        WHEN SUM(cp.impressions) > 0
-        THEN CAST(SUM(cp.clicks) AS REAL) / SUM(cp.impressions)
+        WHEN c.impressions > 0
+        THEN CAST(c.clicks AS REAL) / c.impressions
         ELSE 0
       END as ctr,
       CASE
-        WHEN SUM(cp.clicks) > 0
-        THEN CAST(SUM(cp.conversions) AS REAL) / SUM(cp.clicks)
+        WHEN c.clicks > 0
+        THEN CAST(c.conversions AS REAL) / c.clicks
         ELSE 0
       END as conversionRate
     FROM creative_versions c
-    LEFT JOIN campaigns camp ON c.id = camp.current_creative_id
-    LEFT JOIN campaign_performance cp ON camp.id = cp.campaign_id
     WHERE c.user_id = ?
       AND c.version_number > 0
-    GROUP BY c.id
-    HAVING SUM(cp.clicks) >= ?
-      AND ctr >= ?
+      AND c.clicks >= ?
     ORDER BY ctr DESC, conversionRate DESC
     LIMIT ?
   `)
 
-  return stmt.all(userId, minClicks, minCtr, limit) as HistoricalCreative[]
+  const rows = stmt.all(userId, minClicks, limit) as any[]
+
+  // 解析 JSON 字段并过滤 CTR 阈值
+  return rows
+    .filter(row => row.ctr >= minCtr)
+    .map(row => {
+      // 解析 headlines JSON
+      let headlines: string[] = []
+      try {
+        headlines = JSON.parse(row.headlines || '[]')
+      } catch {
+        headlines = []
+      }
+
+      // 解析 descriptions JSON
+      let descriptions: string[] = []
+      try {
+        descriptions = JSON.parse(row.descriptions || '[]')
+      } catch {
+        descriptions = []
+      }
+
+      return {
+        creativeId: row.creativeId,
+        headline1: headlines[0] || '',
+        headline2: headlines[1] || null,
+        headline3: headlines[2] || null,
+        description1: descriptions[0] || '',
+        description2: descriptions[1] || null,
+        ctr: row.ctr,
+        clicks: row.clicks,
+        impressions: row.impressions,
+        conversions: row.conversions,
+        conversionRate: row.conversionRate
+      } as HistoricalCreative
+    })
 }
 
 /**
@@ -539,30 +573,28 @@ export function scoreCreativePerformance(
   const db = getSQLiteDatabase()
 
   // 查询创意的性能数据
+  // 使用 creative_versions 表内置的性能字段
   const stmt = db.prepare(`
     SELECT
       c.id as creativeId,
-      c.headline1,
-      camp.budget_amount as budget,
-      COALESCE(SUM(cp.clicks), 0) as clicks,
-      COALESCE(SUM(cp.impressions), 0) as impressions,
-      COALESCE(SUM(cp.conversions), 0) as conversions,
-      COALESCE(SUM(cp.cost), 0) as cost,
+      c.headlines,
+      c.budget_amount as budget,
+      c.clicks,
+      c.impressions,
+      c.conversions,
+      c.cost,
       CASE
-        WHEN SUM(cp.impressions) > 0
-        THEN CAST(SUM(cp.clicks) AS REAL) / SUM(cp.impressions)
+        WHEN c.impressions > 0
+        THEN CAST(c.clicks AS REAL) / c.impressions
         ELSE 0
       END as ctr,
       CASE
-        WHEN SUM(cp.clicks) > 0
-        THEN CAST(SUM(cp.cost) AS REAL) / SUM(cp.clicks)
+        WHEN c.clicks > 0
+        THEN CAST(c.cost AS REAL) / c.clicks
         ELSE 0
       END as cpc
     FROM creative_versions c
-    LEFT JOIN campaigns camp ON c.id = camp.current_creative_id
-    LEFT JOIN campaign_performance cp ON camp.id = cp.campaign_id
     WHERE c.id = ? AND c.user_id = ?
-    GROUP BY c.id
   `)
 
   const data = stmt.get(creativeId, userId) as any
@@ -571,7 +603,9 @@ export function scoreCreativePerformance(
     return null // 没有数据或曝光不足
   }
 
-  const { ctr, cpc, clicks, conversions, budget, cost, impressions } = data
+  const { ctr, cpc, clicks, conversions, cost, impressions } = data
+  // budget 可能为 null，使用默认值
+  const budget = data.budget || 100
   const reasons: string[] = []
 
   // 初始化评分
@@ -752,14 +786,12 @@ export function scoreCreativePerformance(
 export function scoreAllCreatives(userId: number): CreativePerformanceScore[] {
   const db = getSQLiteDatabase()
 
-  // 获取所有有性能数据的创意
+  // 获取所有有性能数据的创意（使用 creative_versions 内置字段）
   const creativeIds = db.prepare(`
     SELECT DISTINCT c.id
     FROM creative_versions c
-    JOIN campaigns camp ON c.id = camp.current_creative_id
-    JOIN campaign_performance cp ON camp.id = cp.campaign_id
     WHERE c.user_id = ?
-      AND cp.impressions > 100
+      AND c.impressions > 100
   `).all(userId) as { id: number }[]
 
   const scores: CreativePerformanceScore[] = []
@@ -941,37 +973,43 @@ export function runCreativeOptimizationLoop(userId: number): {
   let featuresUpdated = false
   if (highPerformers.length >= 5) {
     // 将评分转换为HistoricalCreative格式
+    // 使用 creative_versions 的 JSON 字段
     const db = getSQLiteDatabase()
     const stmt = db.prepare(`
       SELECT
         c.id as creativeId,
-        c.headline1,
-        c.headline2,
-        c.headline3,
-        c.description1,
-        c.description2,
-        ? as ctr,
-        ? as clicks,
-        0 as impressions,
-        ? as conversions,
-        0 as conversionRate
+        c.headlines,
+        c.descriptions
       FROM creative_versions c
       WHERE c.id = ?
     `)
 
     const historicalCreatives: HistoricalCreative[] = highPerformers.map(s => {
-      const creative = stmt.get(
-        s.metrics.ctr,
-        s.metrics.clicks,
-        s.metrics.conversions,
-        s.creativeId
-      ) as any
+      const creative = stmt.get(s.creativeId) as any
+
+      // 解析 JSON 字段
+      let headlines: string[] = []
+      let descriptions: string[] = []
+      try {
+        headlines = JSON.parse(creative?.headlines || '[]')
+        descriptions = JSON.parse(creative?.descriptions || '[]')
+      } catch {
+        // 使用默认空数组
+      }
 
       return {
-        ...creative,
+        creativeId: s.creativeId,
+        headline1: headlines[0] || '',
+        headline2: headlines[1] || null,
+        headline3: headlines[2] || null,
+        description1: descriptions[0] || '',
+        description2: descriptions[1] || null,
+        ctr: s.metrics.ctr,
+        clicks: s.metrics.clicks,
         impressions: s.metrics.clicks / (s.metrics.ctr || 0.01),
+        conversions: s.metrics.conversions,
         conversionRate: s.metrics.conversions / (s.metrics.clicks || 1)
-      }
+      } as HistoricalCreative
     })
 
     // 分析成功特征
