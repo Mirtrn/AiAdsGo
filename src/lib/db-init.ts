@@ -603,11 +603,9 @@ async function runPendingMigrations(): Promise<void> {
   // 获取已执行的迁移
   const executedMigrations = await getExecutedMigrations()
 
-  // 过滤出未执行的迁移
+  // 过滤出未执行的迁移（已执行集合已包含所有可能的变体）
   const pendingMigrations = migrationFiles.filter(file => {
-    // 使用基础名称进行匹配（去掉 .pg 后缀进行标准化）
-    const baseName = file.replace('.pg.sql', '.sql')
-    return !executedMigrations.has(file) && !executedMigrations.has(baseName)
+    return !executedMigrations.has(file)
   })
 
   if (pendingMigrations.length === 0) {
@@ -684,22 +682,31 @@ async function getExecutedMigrations(): Promise<Set<string>> {
   const executed = new Set<string>()
 
   try {
-    if (db.type === 'sqlite') {
-      const results = db.query<{ migration_name: string }>(
-        'SELECT migration_name FROM migration_history'
-      )
-      // SQLite 的 query 返回数组
-      if (Array.isArray(results)) {
-        results.forEach(row => executed.add(row.migration_name))
+    // 注意：db.query() 返回 Promise<T[]>，需要 await
+    const results = await db.query<{ migration_name: string }>(
+      'SELECT migration_name FROM migration_history'
+    )
+
+    // 标准化所有迁移名称（处理历史记录中可能存在的不同格式）
+    results.forEach(row => {
+      const name = row.migration_name
+      executed.add(name)
+      // 标准化：同时添加基础名称（去除 .sql 和 .pg.sql 后缀）
+      const baseName = name.replace(/\.(pg\.)?sql$/, '')
+      if (baseName !== name) {
+        // 如果原始记录有后缀，也添加不带后缀和带其他后缀的版本
+        executed.add(baseName)
+        executed.add(baseName + '.sql')
+        executed.add(baseName + '.pg.sql')
+      } else {
+        // 如果原始记录没有后缀，添加带后缀的版本
+        executed.add(name + '.sql')
+        executed.add(name + '.pg.sql')
       }
-    } else {
-      const results = await db.query<{ migration_name: string }>(
-        'SELECT migration_name FROM migration_history'
-      )
-      results.forEach(row => executed.add(row.migration_name))
-    }
-  } catch {
+    })
+  } catch (error) {
     // 表可能不存在，返回空集合
+    console.error('⚠️ Failed to get executed migrations:', error)
   }
 
   return executed
