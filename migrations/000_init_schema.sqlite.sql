@@ -1,7 +1,7 @@
 -- ==========================================
 -- SQLite Schema Initialization
 -- Version: 1.0.0
--- Generated: 2025-12-02
+-- Generated: 2025-12-03
 -- Tables: 38
 -- ==========================================
 
@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS users (
   package_expires_at TEXT,
   must_change_password INTEGER NOT NULL DEFAULT 1,
   is_active INTEGER NOT NULL DEFAULT 1,
+  failed_login_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TEXT,
+  last_failed_login TEXT,
   last_login_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

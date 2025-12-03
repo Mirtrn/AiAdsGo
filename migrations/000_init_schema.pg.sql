@@ -1,7 +1,7 @@
 -- ==========================================
 -- PostgreSQL Schema Initialization
 -- Version: 1.0.0
--- Generated: 2025-12-02
+-- Generated: 2025-12-03
 -- Tables: 38
 -- ==========================================
 
@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS users (
   package_expires_at TIMESTAMP,
   must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  failed_login_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TIMESTAMP,
+  last_failed_login TIMESTAMP,
   last_login_at TIMESTAMP,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
