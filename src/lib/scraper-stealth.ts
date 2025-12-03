@@ -1045,8 +1045,14 @@ export async function scrapeAmazonProduct(
       })
 
       // ✅ 方案4修复: 如果检测到a-no-js失败，清理池并重试一次
-      if (result.html && (result.html.includes('a-no-js') || result.html.includes('class="a-no-js"'))) {
-        console.warn(`⚠️ 检测到a-no-js未清除，页面JavaScript未正常执行`)
+      // 🔥 Bug修复: 使用正则表达式精确匹配<html>标签中的class属性，避免匹配JS/CSS中的字符串
+      const htmlTagMatch = result.html?.match(/<html[^>]*class="([^"]*)"/)
+      const htmlClasses = htmlTagMatch ? htmlTagMatch[1] : ''
+      const hasRealNoJs = htmlClasses.includes('a-no-js') && !htmlClasses.includes('a-js')
+
+      if (result.html && hasRealNoJs) {
+        console.warn(`⚠️ 检测到<html>标签中有a-no-js类，页面JavaScript未正常执行`)
+        console.warn(`🔍 <html>标签classes: ${htmlClasses.substring(0, 100)}...`)
 
         // 只在第一次尝试时重试（避免无限循环）
         if (proxyAttempt === 0) {
@@ -1066,11 +1072,17 @@ export async function scrapeAmazonProduct(
             targetCountry,
           })
 
+          // 🔥 Bug修复: 重试后同样使用正则精确匹配<html>标签中的class
+          const retryHtmlTagMatch = result.html?.match(/<html[^>]*class="([^"]*)"/)
+          const retryHtmlClasses = retryHtmlTagMatch ? retryHtmlTagMatch[1] : ''
+          const retryHasNoJs = retryHtmlClasses.includes('a-no-js') && !retryHtmlClasses.includes('a-js')
+
           // 如果重试后仍然有a-no-js，记录但继续执行
-          if (result.html && (result.html.includes('a-no-js') || result.html.includes('class="a-no-js"'))) {
-            console.error(`🚨 重试后仍检测到a-no-js，Amazon反爬虫可能升级，继续尝试解析...`)
+          if (result.html && retryHasNoJs) {
+            console.error(`🚨 重试后<html>标签仍有a-no-js类，Amazon反爬虫可能升级，继续尝试解析...`)
+            console.error(`🔍 重试后<html>标签classes: ${retryHtmlClasses.substring(0, 100)}...`)
           } else {
-            console.log(`✅ 重试成功，a-no-js已清除`)
+            console.log(`✅ 重试成功，<html>标签已正确包含a-js类`)
           }
         }
       }
