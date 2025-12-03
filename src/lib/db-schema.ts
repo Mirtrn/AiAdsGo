@@ -136,9 +136,23 @@ export const TABLES: TableDef[] = [
       { name: 'extracted_descriptions', type: 'TEXT' },
       { name: 'extraction_metadata', type: 'TEXT' },
       { name: 'extracted_at', type: 'TIMESTAMP' },
+      // P0 优化字段 - 增强提取数据
+      { name: 'enhanced_keywords', type: 'TEXT' },  // 增强的关键词（JSON格式）
+      { name: 'enhanced_product_info', type: 'TEXT' },  // 增强的产品信息（JSON格式）
+      { name: 'enhanced_review_analysis', type: 'TEXT' },  // 增强的评论分析（JSON格式）
+      { name: 'extraction_quality_score', type: 'INTEGER' },  // 提取质量评分（0-100）
+      { name: 'extraction_enhanced_at', type: 'TIMESTAMP' },  // 增强提取时间
+      // P1 优化字段 - 增强标题和描述
+      { name: 'enhanced_headlines', type: 'TEXT' },  // 增强的标题（JSON格式）
+      { name: 'enhanced_descriptions', type: 'TEXT' },  // 增强的描述（JSON格式）
+      // P2/P3 优化字段 - 本地化和品牌分析
+      { name: 'localization_adapt', type: 'TEXT' },  // 本地化适配数据（JSON格式）
+      { name: 'brand_analysis', type: 'TEXT' },  // 品牌分析数据（JSON格式）
+      // 原有字段
       { name: 'pricing', type: 'TEXT' },  // 产品定价信息（JSON格式）
       { name: 'promotions', type: 'TEXT' },  // 促销活动信息（JSON格式）
       { name: 'scraped_data', type: 'TEXT' },  // 爬取的原始数据（JSON格式）
+      { name: 'product_currency', type: 'TEXT', default: 'USD' },  // 产品货币单位
       { name: 'is_deleted', type: 'BOOLEAN', notNull: true, default: false },  // 软删除标记
       { name: 'deleted_at', type: 'TIMESTAMP' },  // 删除时间
       { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
