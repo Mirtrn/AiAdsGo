@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Prompt版本更新自动化脚本（从数据库导出）
-# 用法: ./scripts/update-prompt.sh <prompt_id> <new_version>
-# 示例: ./scripts/update-prompt.sh ad_creative_generation v3.0
+# Prompt版本批量更新自动化脚本（从数据库导出所有Prompt）
+# 用法: ./scripts/update-prompt.sh <new_version>
+# 示例: ./scripts/update-prompt.sh v3.0
 
 set -e  # 遇到错误立即退出
 
@@ -31,28 +31,26 @@ print_error() {
 }
 
 # 检查参数
-if [ "$#" -ne 2 ]; then
+if [ "$#" -ne 1 ]; then
     print_error "参数错误"
     echo ""
-    echo "用法: $0 <prompt_id> <new_version>"
+    echo "用法: $0 <new_version>"
     echo ""
     echo "参数说明:"
-    echo "  prompt_id    - Prompt唯一标识（如: ad_creative_generation）"
     echo "  new_version  - 新版本号（如: v3.0）"
     echo ""
     echo "示例:"
-    echo "  $0 ad_creative_generation v3.0"
+    echo "  $0 v3.0"
     echo ""
     echo "工作流程:"
-    echo "  1. 从开发环境数据库读取当前活跃的Prompt内容"
-    echo "  2. 生成迁移文件（包含完整Prompt内容）"
+    echo "  1. 从开发环境数据库读取所有活跃Prompt内容"
+    echo "  2. 生成包含所有Prompt的迁移文件"
     echo "  3. Git提交迁移文件"
     echo "  4. 生产环境部署后自动执行迁移"
     exit 1
 fi
 
-PROMPT_ID=$1
-NEW_VERSION=$2
+NEW_VERSION=$1
 
 # 获取脚本所在目录的父目录（项目根目录）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,7 +58,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DB_PATH="${PROJECT_ROOT}/data/autoads.db"
 MIGRATIONS_DIR="${PROJECT_ROOT}/migrations"
 
-print_info "开始Prompt迁移文件生成流程..."
+print_info "开始批量Prompt迁移文件生成流程..."
 echo ""
 
 # 检查数据库是否存在
@@ -78,51 +76,31 @@ fi
 print_success "环境检查通过"
 echo ""
 
-# 1. 从数据库读取当前活跃的Prompt完整信息
-print_info "步骤1: 从数据库读取当前Prompt信息"
-CURRENT_INFO=$(sqlite3 "$DB_PATH" "
-SELECT
-    prompt_id,
-    version,
-    category,
-    name,
-    file_path,
-    function_name,
-    prompt_content,
-    description
+# 1. 从数据库读取所有活跃的Prompt列表
+print_info "步骤1: 从数据库读取所有活跃Prompt"
+PROMPT_LIST=$(sqlite3 "$DB_PATH" "
+SELECT prompt_id, version, name
 FROM prompt_versions
-WHERE prompt_id = '$PROMPT_ID' AND is_active = 1;
+WHERE is_active = 1
+ORDER BY prompt_id;
 ")
 
-if [ -z "$CURRENT_INFO" ]; then
-    print_error "Prompt ID '$PROMPT_ID' 不存在或未激活"
-    echo ""
-    echo "可用的Prompt ID列表:"
-    sqlite3 "$DB_PATH" "SELECT prompt_id, version, name FROM prompt_versions WHERE is_active = 1;"
+if [ -z "$PROMPT_LIST" ]; then
+    print_error "数据库中没有找到活跃的Prompt"
     exit 1
 fi
 
-# 解析当前信息
-CURRENT_VERSION=$(echo "$CURRENT_INFO" | cut -d'|' -f2)
-CATEGORY=$(echo "$CURRENT_INFO" | cut -d'|' -f3)
-CURRENT_NAME=$(echo "$CURRENT_INFO" | cut -d'|' -f4)
-FILE_PATH=$(echo "$CURRENT_INFO" | cut -d'|' -f5)
-FUNCTION_NAME=$(echo "$CURRENT_INFO" | cut -d'|' -f6)
-PROMPT_CONTENT=$(echo "$CURRENT_INFO" | cut -d'|' -f7)
-DESCRIPTION=$(echo "$CURRENT_INFO" | cut -d'|' -f8)
-
-CONTENT_LENGTH=$(echo -n "$PROMPT_CONTENT" | wc -c | tr -d ' ')
-
-print_success "当前版本: $CURRENT_VERSION"
-echo "  类别: $CATEGORY"
-echo "  名称: $CURRENT_NAME"
-echo "  文件路径: $FILE_PATH"
-echo "  函数名: $FUNCTION_NAME"
-echo "  内容长度: ${CONTENT_LENGTH} 字符"
+# 统计Prompt数量
+PROMPT_COUNT=$(echo "$PROMPT_LIST" | wc -l | tr -d ' ')
+print_success "找到 ${PROMPT_COUNT} 个活跃的Prompt"
+echo ""
+echo "$PROMPT_LIST" | while IFS='|' read -r pid ver name; do
+    echo "  - ${pid} (${ver}): ${name}"
+done
 echo ""
 
 # 2. 请求用户输入变更说明
-print_info "步骤2: 请输入版本变更说明"
+print_info "步骤2: 请输入此次批量更新的变更说明"
 echo "请描述此次更新的主要变更（按Enter结束每一行，输入空行结束）:"
 echo ""
 
@@ -139,7 +117,7 @@ done
 
 if [ $CHANGE_COUNT -eq 0 ]; then
     print_warning "未输入变更说明，使用默认说明"
-    CHANGE_NOTES="1. 更新Prompt内容\n"
+    CHANGE_NOTES="1. 批量更新所有Prompt到${NEW_VERSION}\n"
 fi
 
 echo ""
@@ -156,32 +134,73 @@ else
     NEXT_NUMBER=$(printf "%03d" $((10#$LAST_NUMBER + 1)))
 fi
 
-MIGRATION_FILENAME="${NEXT_NUMBER}_update_$(echo $PROMPT_ID | tr '_' '-')_${NEW_VERSION}.sql"
+MIGRATION_FILENAME="${NEXT_NUMBER}_update_all_prompts_${NEW_VERSION}.sql"
 MIGRATION_PATH="${MIGRATIONS_DIR}/${MIGRATION_FILENAME}"
 
 print_success "迁移文件名: $MIGRATION_FILENAME"
 echo ""
 
 # 4. 生成迁移文件内容
-print_info "步骤4: 生成迁移SQL（从数据库导出内容）"
+print_info "步骤4: 生成迁移SQL（从数据库导出所有Prompt内容）"
 
-# 转义Prompt内容中的单引号
-ESCAPED_CONTENT=$(echo "$PROMPT_CONTENT" | sed "s/'/''/g")
-
-# 生成新名称
-NEW_NAME="${CURRENT_NAME%%v*}${NEW_VERSION}"
-
+# 初始化迁移文件
 cat > "$MIGRATION_PATH" << EOF
--- Migration: ${NEXT_NUMBER}_update_$(echo $PROMPT_ID | tr '_' '-')_${NEW_VERSION}
--- Description: 更新 ${PROMPT_ID} 到 ${NEW_VERSION} 版本
+-- Migration: ${NEXT_NUMBER}_update_all_prompts_${NEW_VERSION}
+-- Description: 批量更新所有Prompt到 ${NEW_VERSION} 版本
 -- Created: $(date +%Y-%m-%d)
+-- Prompts: ${PROMPT_COUNT} 个
+
+EOF
+
+# 遍历所有Prompt，生成UPDATE和INSERT语句
+echo "$PROMPT_LIST" | while IFS='|' read -r prompt_id current_version current_name; do
+    print_info "  处理 ${prompt_id}..."
+
+    # 从数据库读取该Prompt的完整信息
+    PROMPT_INFO=$(sqlite3 "$DB_PATH" "
+    SELECT
+        category,
+        name,
+        file_path,
+        function_name,
+        prompt_content,
+        description
+    FROM prompt_versions
+    WHERE prompt_id = '$prompt_id' AND is_active = 1;
+    ")
+
+    if [ -z "$PROMPT_INFO" ]; then
+        print_warning "跳过 ${prompt_id}（未找到活跃版本）"
+        continue
+    fi
+
+    # 解析Prompt信息
+    CATEGORY=$(echo "$PROMPT_INFO" | cut -d'|' -f1)
+    CURRENT_NAME=$(echo "$PROMPT_INFO" | cut -d'|' -f2)
+    FILE_PATH=$(echo "$PROMPT_INFO" | cut -d'|' -f3)
+    FUNCTION_NAME=$(echo "$PROMPT_INFO" | cut -d'|' -f4)
+    PROMPT_CONTENT=$(echo "$PROMPT_INFO" | cut -d'|' -f5)
+    DESCRIPTION=$(echo "$PROMPT_INFO" | cut -d'|' -f6)
+
+    # 转义单引号
+    ESCAPED_CONTENT=$(echo "$PROMPT_CONTENT" | sed "s/'/''/g")
+
+    # 生成新名称
+    NEW_NAME="${CURRENT_NAME%%v*}${NEW_VERSION}"
+
+    # 追加到迁移文件
+    cat >> "$MIGRATION_PATH" << EOF
+
+-- ========================================
+-- ${prompt_id}: ${current_version} → ${NEW_VERSION}
+-- ========================================
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
 SET is_active = 0
-WHERE prompt_id = '$PROMPT_ID' AND is_active = 1;
+WHERE prompt_id = '$prompt_id' AND is_active = 1;
 
--- 2. 插入新版本（内容从开发环境数据库导出）
+-- 2. 插入新版本
 INSERT INTO prompt_versions (
   prompt_id,
   version,
@@ -195,7 +214,7 @@ INSERT INTO prompt_versions (
   is_active,
   change_notes
 ) VALUES (
-  '$PROMPT_ID',
+  '$prompt_id',
   '$NEW_VERSION',
   '$CATEGORY',
   '$NEW_NAME',
@@ -210,37 +229,43 @@ $NEW_VERSION 更新内容:
 $(echo -e "$CHANGE_NOTES")
 '
 );
+
 EOF
+done
 
 print_success "迁移文件已生成: $MIGRATION_PATH"
 echo ""
 
-# 5. 预览迁移文件
-print_info "步骤5: 预览迁移文件（前30行）"
-echo "----------------------------------------"
-head -30 "$MIGRATION_PATH"
-echo "..."
-echo "----------------------------------------"
-echo ""
-
-# 6. 显示内容统计
+# 5. 显示迁移文件统计
+print_info "步骤5: 迁移文件统计"
 MIGRATION_LINES=$(wc -l < "$MIGRATION_PATH" | tr -d ' ')
 MIGRATION_SIZE=$(ls -lh "$MIGRATION_PATH" | awk '{print $5}')
-print_info "迁移文件统计"
+echo "  Prompt数量: ${PROMPT_COUNT}"
 echo "  总行数: ${MIGRATION_LINES}"
 echo "  文件大小: ${MIGRATION_SIZE}"
+echo ""
+
+# 6. 预览迁移文件
+print_info "步骤6: 预览迁移文件（前50行）"
+echo "----------------------------------------"
+head -50 "$MIGRATION_PATH"
+echo "..."
+echo "----------------------------------------"
 echo ""
 
 # 7. 询问是否Git提交
 read -p "是否Git提交此迁移文件？(y/n): " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    print_info "步骤6: Git提交"
+    print_info "步骤7: Git提交"
 
     cd "$PROJECT_ROOT"
     git add "$MIGRATION_PATH"
 
-    COMMIT_MESSAGE="feat: 更新${PROMPT_ID} Prompt到${NEW_VERSION}
+    COMMIT_MESSAGE="feat: 批量更新所有Prompt到${NEW_VERSION}
+
+更新的Prompt:
+$(echo "$PROMPT_LIST" | while IFS='|' read -r pid ver name; do echo "  - ${pid} (${ver} → ${NEW_VERSION})"; done)
 
 变更说明:
 $(echo -e "$CHANGE_NOTES")
@@ -266,12 +291,12 @@ else
     print_info "手动提交命令:"
     echo "  cd $PROJECT_ROOT"
     echo "  git add $MIGRATION_PATH"
-    echo "  git commit -m \"feat: 更新${PROMPT_ID} Prompt到${NEW_VERSION}\""
+    echo "  git commit -m \"feat: 批量更新所有Prompt到${NEW_VERSION}\""
 fi
 
 echo ""
 echo "======================================"
-print_success "🎉 迁移文件生成完成！"
+print_success "🎉 批量迁移文件生成完成！"
 echo "======================================"
 echo ""
 echo "下一步:"
@@ -280,7 +305,7 @@ echo "2. 如果未推送，执行: git push origin main"
 echo "3. 生产环境验证: docker logs autoads-prod | grep '$MIGRATION_FILENAME'"
 echo ""
 echo "工作原理:"
-echo "  ✅ 开发环境: 数据库中的Prompt已是最新版本"
-echo "  ✅ 迁移文件: 包含从开发数据库导出的完整内容"
-echo "  ✅ 生产环境: 应用启动时自动执行迁移，同步到最新版本"
+echo "  ✅ 开发环境: 数据库中的所有Prompt已是最新版本"
+echo "  ✅ 迁移文件: 包含从开发数据库导出的所有Prompt完整内容"
+echo "  ✅ 生产环境: 应用启动时自动执行迁移，所有Prompt同步到最新版本"
 echo ""

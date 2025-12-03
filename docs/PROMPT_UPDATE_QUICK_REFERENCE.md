@@ -1,29 +1,39 @@
 # Prompt更新快速参考
 
-## ⚡ 一键自动化更新（推荐）
+## ⚡ 一键批量更新（推荐）
 
 ```bash
-# 前提：在开发环境数据库中手动修改和测试好Prompt
+# 前提：在开发环境数据库中手动修改和测试好所有Prompt
 
-# 运行自动化脚本（从数据库导出并生成迁移文件）
-./scripts/update-prompt.sh ad_creative_generation v3.0
+# 运行自动化脚本（批量导出所有Prompt并生成迁移文件）
+./scripts/update-prompt.sh v3.0
 
 # 脚本会自动完成：
-# ✅ 从数据库读取当前活跃的Prompt内容
+# ✅ 从数据库读取所有活跃Prompt内容
 # ✅ 交互式输入变更说明
-# ✅ 生成迁移文件（包含完整Prompt内容）
+# ✅ 生成包含所有Prompt的迁移文件（一个文件包含所有更新）
 # ✅ Git提交和推送
 # ✅ 生产环境部署后自动执行迁移
 ```
 
 **参数说明**:
-- `<prompt_id>`: Prompt唯一标识（如：ad_creative_generation）
 - `<new_version>`: 新版本号（如：v3.0）
 
 **工作流程**:
-1. 开发环境：在数据库中直接修改和测试Prompt
-2. 生成迁移：运行脚本从数据库导出内容到迁移文件
-3. 生产同步：Git推送后，生产环境自动执行迁移
+1. 开发环境：在数据库中直接修改和测试所有需要更新的Prompt
+2. 批量导出：运行脚本从数据库一次性导出所有Prompt到迁移文件
+3. 生产同步：Git推送后，生产环境自动执行迁移，所有Prompt统一更新
+
+**示例场景**:
+```bash
+# 场景：修改了3个Prompt（ad_creative_generation, competitor_analysis, launch_score_evaluation）
+# 1. 在开发环境数据库中分别修改和测试
+# 2. 运行脚本一次性导出所有Prompt
+./scripts/update-prompt.sh v3.0
+# 3. 输入变更说明（如：增强情感化表达）
+# 4. 生成包含所有6个Prompt的迁移文件
+# 5. Git提交推送，生产环境自动同步
+```
 
 ---
 
