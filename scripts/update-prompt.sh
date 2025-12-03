@@ -186,29 +186,10 @@ echo "$PROMPT_LIST" | while IFS='|' read -r pid ver name; do
 done
 echo ""
 
-# 3. 请求用户输入变更说明
-print_info "步骤3: 请输入此次批量更新的变更说明"
-echo "请描述此次更新的主要变更（按Enter结束每一行，输入空行结束）:"
-echo ""
-
-CHANGE_NOTES=""
-CHANGE_COUNT=0
-while true; do
-    read -p "变更点 $((CHANGE_COUNT + 1)): " line
-    if [ -z "$line" ]; then
-        break
-    fi
-    CHANGE_COUNT=$((CHANGE_COUNT + 1))
-    CHANGE_NOTES="${CHANGE_NOTES}${CHANGE_COUNT}. ${line}\n"
-done
-
-if [ $CHANGE_COUNT -eq 0 ]; then
-    print_warning "未输入变更说明，使用默认说明"
-    CHANGE_NOTES="1. 批量更新所有Prompt到${NEW_VERSION}\n"
-fi
-
-echo ""
-print_success "变更说明已记录"
+# 3. 自动生成变更说明
+print_info "步骤3: 生成变更说明"
+CHANGE_NOTES="1. 批量更新所有Prompt到${NEW_VERSION}\n2. 从开发环境数据库导出最新Prompt内容\n"
+print_success "使用默认变更说明"
 echo ""
 
 # 4. 获取下一个迁移文件编号
