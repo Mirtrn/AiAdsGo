@@ -49,6 +49,19 @@ function formatDate(date: Date = new Date()): string {
 }
 
 /**
+ * 格式化日期时间为YYYYMMDDHHmmss（用于确保唯一性）
+ */
+function formatDateTime(date: Date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+  return `${year}${month}${day}${hours}${minutes}${seconds}`
+}
+
+/**
  * 清理字符串中的特殊字符（Google Ads只允许字母、数字、下划线）
  * 移除连字符、空格、特殊符号，只保留字母数字和下划线
  */
@@ -110,7 +123,7 @@ export function generateCampaignName(params: {
     category ? sanitize(category) : 'General',
     `${Math.round(budgetAmount)}${NAMING_CONFIG.BUDGET_TYPE[budgetType]}`,
     NAMING_CONFIG.BIDDING_STRATEGY[biddingStrategy as keyof typeof NAMING_CONFIG.BIDDING_STRATEGY] || sanitize(biddingStrategy.substring(0, 6).toUpperCase()),
-    formatDate(date),
+    formatDateTime(date), // 使用完整日期时间确保唯一性
     `O${offerId}`
   ]
 
