@@ -1,86 +1,164 @@
 /**
- * 客户端价格计算工具函数
- * 不依赖任何服务端代码（数据库、文件系统等）
+ * 价格解析和处理工具函数
+ * 用于将product_price字符串解析为结构化的pricing JSON
  */
 
-/**
- * 计算建议的最大CPC
- * 计算公式：maxCPC = (产品价格 × 佣金比例) ÷ 点击转化率
- *
- * @param productPrice - 产品价格（支持货币符号，如 "$699.00" 或 "¥5999.00"）
- * @param commissionPayout - 佣金比例（支持百分号，如 "6.75%"）
- * @param targetCurrency - 目标货币（默认USD）
- * @param clicksPerConversion - 点击转化率：多少个点击出一单（默认50，可配置）
- */
-export function calculateSuggestedMaxCPC(
-  productPrice: string,
-  commissionPayout: string,
-  targetCurrency: string = 'USD',
-  clicksPerConversion: number = 50
-): { amount: number; currency: string; formatted: string } | null {
-  try {
-    // 解析价格（去除货币符号和其他非数字字符，保留小数点）
-    const priceMatch = productPrice.match(/[\d.]+/)
-    if (!priceMatch) return null
-    const price = parseFloat(priceMatch[0])
-
-    if (isNaN(price) || price <= 0) return null
-
-    // 解析佣金比例（去除%符号）
-    const payoutMatch = commissionPayout.match(/[\d.]+/)
-    if (!payoutMatch) return null
-    const payout = parseFloat(payoutMatch[0]) / 100 // 转换为小数（6.75% → 0.0675）
-
-    if (isNaN(payout) || payout <= 0 || payout > 1) return null
-
-    // 验证点击转化率
-    if (clicksPerConversion <= 0) {
-      console.warn(`无效的点击转化率: ${clicksPerConversion}，使用默认值50`)
-      clicksPerConversion = 50
-    }
-
-    // 计算最大CPC（使用可配置的点击转化率）
-    const maxCPC = (price * payout) / clicksPerConversion
-
-    // 货币符号映射
-    const currencySymbol: Record<string, string> = {
-      USD: '$',
-      CNY: '¥',
-      EUR: '€',
-      GBP: '£',
-      JPY: '¥',
-      CAD: 'C$',
-      AUD: 'A$',
-    }
-
-    const symbol = currencySymbol[targetCurrency] || '$'
-    const formatted = `${symbol}${maxCPC.toFixed(2)}`
-
-    return {
-      amount: maxCPC,
-      currency: targetCurrency,
-      formatted,
-    }
-  } catch (error) {
-    console.error('计算最大CPC失败:', error)
-    return null
+export interface ParsedPrice {
+  original: string
+  current: string
+  currency: string
+  discount?: {
+    type: 'percentage' | 'fixed'
+    value: number
+    label: string
   }
 }
 
 /**
- * 格式化货币金额
+ * 货币符号到货币代码的映射
  */
-export function formatCurrency(amount: number, currency: string = 'USD'): string {
-  const currencySymbol: Record<string, string> = {
-    USD: '$',
-    CNY: '¥',
-    EUR: '€',
-    GBP: '£',
-    JPY: '¥',
-    CAD: 'C$',
-    AUD: 'A$',
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  '$': 'USD',
+  '€': 'EUR',
+  '£': 'GBP',
+  '¥': 'JPY',
+  '₹': 'INR',
+  'A$': 'AUD',
+  'C$': 'CAD',
+  'CHF': 'CHF',
+  'kr': 'SEK',
+  'R$': 'BRL',
+}
+
+/**
+ * 解析产品价格字符串
+ * 支持格式:
+ * - "$99.99"
+ * - "€79.99"
+ * - "$99.99 (20% OFF)"
+ * - "$119.99 → $99.99" (折扣价格)
+ * - "¥599"
+ *
+ * @param productPrice - 价格字符串
+ * @returns 解析后的价格对象，如果无法解析则返回null
+ */
+export function parseProductPrice(productPrice: string | null | undefined): ParsedPrice | null {
+  if (!productPrice || !productPrice.trim()) {
+    return null
   }
 
-  const symbol = currencySymbol[currency] || '$'
-  return `${symbol}${amount.toFixed(2)}`
+  const trimmed = productPrice.trim()
+
+  // 提取货币符号
+  const currencyMatch = trimmed.match(/^([A-Z]{3}|[A-Z]\$|[$€£¥₹])/)
+  const currencySymbol = currencyMatch ? currencyMatch[1] : '$'
+  const currency = CURRENCY_SYMBOLS[currencySymbol] || 'USD'
+
+  // 情况1: 检查是否有折扣箭头 "原价 → 现价" 或 "原价 - 现价"
+  const arrowMatch = trimmed.match(/([^\s→-]+)\s*[→-]\s*([^\s(]+)/)
+  if (arrowMatch) {
+    const originalPrice = arrowMatch[1].trim()
+    const currentPrice = arrowMatch[2].trim()
+
+    // 提取数值用于计算折扣
+    const originalValue = parseFloat(originalPrice.replace(/[^0-9.]/g, ''))
+    const currentValue = parseFloat(currentPrice.replace(/[^0-9.]/g, ''))
+
+    if (!isNaN(originalValue) && !isNaN(currentValue) && originalValue > currentValue) {
+      const discountPercent = Math.round(((originalValue - currentValue) / originalValue) * 100)
+
+      return {
+        original: originalPrice,
+        current: currentPrice,
+        currency,
+        discount: {
+          type: 'percentage',
+          value: discountPercent,
+          label: discountPercent + '% OFF',
+        },
+      }
+    }
+  }
+
+  // 情况2: 检查是否有括号中的折扣信息 "$99.99 (20% OFF)"
+  const discountMatch = trimmed.match(/([^\s(]+)\s*\(([^)]+)\)/)
+  if (discountMatch) {
+    const currentPrice = discountMatch[1].trim()
+    const discountLabel = discountMatch[2].trim()
+
+    // 提取折扣百分比
+    const percentMatch = discountLabel.match(/(\d+)%/)
+    if (percentMatch) {
+      const discountPercent = parseInt(percentMatch[1], 10)
+      const currentValue = parseFloat(currentPrice.replace(/[^0-9.]/g, ''))
+
+      if (!isNaN(currentValue) && !isNaN(discountPercent)) {
+        // 反推原价
+        const originalValue = currentValue / (1 - discountPercent / 100)
+        const originalPrice = currencySymbol + originalValue.toFixed(2)
+
+        return {
+          original: originalPrice,
+          current: currentPrice,
+          currency,
+          discount: {
+            type: 'percentage',
+            value: discountPercent,
+            label: discountLabel,
+          },
+        }
+      }
+    }
+  }
+
+  // 情况3: 仅有单一价格 "$99.99"
+  return {
+    original: trimmed,
+    current: trimmed,
+    currency,
+  }
+}
+
+/**
+ * 生成pricing JSON字符串
+ * @param productPrice - 价格字符串
+ * @returns JSON字符串，如果无法解析则返回null
+ */
+export function generatePricingJSON(productPrice: string | null | undefined): string | null {
+  const parsed = parseProductPrice(productPrice)
+  if (!parsed) {
+    return null
+  }
+
+  return JSON.stringify(parsed, null, 2)
+}
+
+/**
+ * 初始化空的promotions JSON结构
+ */
+export function initializePromotionsJSON(): string {
+  return JSON.stringify({
+    active: [],
+  })
+}
+
+/**
+ * 初始化空的scraped_data JSON结构
+ * @param productPrice - 可选的价格字符串，用于填充price字段
+ */
+export function initializeScrapedDataJSON(productPrice?: string | null): string {
+  const parsed = productPrice ? parseProductPrice(productPrice) : null
+
+  return JSON.stringify({
+    price: parsed ? {
+      original: parsed.original,
+      current: parsed.current,
+      discount: parsed.discount?.label || null,
+    } : null,
+    reviews: null,
+    salesRank: null,
+    badge: null,
+    availability: null,
+    shipping: null,
+  })
 }

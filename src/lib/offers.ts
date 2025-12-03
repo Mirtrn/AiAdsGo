@@ -1,5 +1,6 @@
 import { getDatabase, getSQLiteDatabase } from './db'
 import { generateOfferName, getTargetLanguage } from './offer-utils'
+import { generatePricingJSON, initializePromotionsJSON, initializeScrapedDataJSON } from './pricing-utils'
 
 export interface Offer {
   id: number
@@ -115,6 +116,7 @@ export interface UpdateOfferInput {
 /**
  * 创建新Offer
  * 需求1: 自动生成offer_name和target_language
+ * 增强功能: 自动生成pricing、promotions、scraped_data JSON
  */
 export function createOffer(userId: number, input: CreateOfferInput): Offer {
   const db = getSQLiteDatabase()
@@ -129,6 +131,16 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
   // 根据国家或用户输入自动映射推广语言（如 US→English, DE→German）
   const targetLanguage = input.target_language || getTargetLanguage(input.target_country)
 
+  // ========== 自动生成pricing、promotions、scraped_data JSON ==========
+  // 1. 如果有product_price，自动解析并生成pricing JSON
+  const pricingJSON = input.product_price ? generatePricingJSON(input.product_price) : null
+
+  // 2. 初始化空的promotions JSON结构
+  const promotionsJSON = initializePromotionsJSON()
+
+  // 3. 初始化scraped_data JSON（包含price信息）
+  const scrapedDataJSON = initializeScrapedDataJSON(input.product_price)
+
   const result = db.prepare(`
     INSERT INTO offers (
       user_id, url, brand, category, target_country, affiliate_link,
@@ -136,10 +148,11 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
       target_audience, final_url, final_url_suffix, scrape_status,
       offer_name, target_language,
       product_price, commission_payout,
+      pricing, promotions, scraped_data,
       review_analysis, competitor_analysis,
       extracted_keywords, extracted_headlines, extracted_descriptions, extraction_metadata,
       extracted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     input.url,
@@ -157,6 +170,10 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
     targetLanguage,  // 自动生成
     input.product_price || null,  // 需求28
     input.commission_payout || null,  // 需求28
+    // 自动生成的JSON字段
+    pricingJSON,      // 从product_price解析
+    promotionsJSON,   // 初始化空结构
+    scrapedDataJSON,  // 包含price信息的初始结构
     // AI分析结果字段
     input.review_analysis || null,
     input.competitor_analysis || null,
