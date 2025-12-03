@@ -292,8 +292,8 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
                  $('.priceToPay .a-offscreen').text().trim() ||       // 支付价格
                  null
 
-  // 🔥 增强品牌提取逻辑 - 支持Amazon Store页面
-  const bylineInfo = $('#bylineInfo').text().trim()
+  // 🔥 增强品牌提取逻辑 - 支持Amazon Store页面和多语言
+  let bylineInfo = $('#bylineInfo').text().trim()
   const dataBrand = $('[data-brand]').attr('data-brand')
   const poBrand = $('.po-brand .a-size-base').text().trim()
 
@@ -301,7 +301,33 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
   console.log(`🔍 [extractAmazonData] [data-brand]: "${dataBrand || '(空)'}"`)
   console.log(`🔍 [extractAmazonData] .po-brand: "${poBrand}"`)
 
-  let brandName = bylineInfo.replace('Visit the ', '').replace(' Store', '') ||
+  // 多语言品牌店铺文本清理
+  // English: "Visit the Brand Store"
+  bylineInfo = bylineInfo.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
+
+  // Italian: "Visita lo di Brand", "Visita il Brand"
+  bylineInfo = bylineInfo.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+(di\s+)?/i, '')
+
+  // French: "Visitez la boutique Brand"
+  bylineInfo = bylineInfo.replace(/^Visitez\s+(la|le|les)\s+boutique\s+/i, '')
+
+  // German: "Besuchen Sie den Brand-Shop"
+  bylineInfo = bylineInfo.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '').replace(/-Shop$/i, '')
+
+  // Spanish: "Visita la tienda Brand"
+  bylineInfo = bylineInfo.replace(/^Visita\s+(la|el)\s+tienda\s+(de\s+)?/i, '')
+
+  // Japanese: "ブランド 出品者のストアにアクセス"
+  bylineInfo = bylineInfo.replace(/\s*出品者のストアにアクセス$/i, '')
+
+  // General cleanup
+  bylineInfo = bylineInfo.replace(/^Brand:\s*/i, '')
+    .replace(/^品牌:\s*/i, '')
+    .replace(/^Marca:\s*/i, '')  // Spanish/Italian
+    .replace(/^Marque:\s*/i, '')  // French
+    .replace(/^Marke:\s*/i, '')   // German
+
+  let brandName = bylineInfo ||
                   dataBrand ||
                   poBrand.replace(/^Brand/, '') || // 备用选择器
                   null

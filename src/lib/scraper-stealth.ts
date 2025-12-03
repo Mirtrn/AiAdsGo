@@ -1231,11 +1231,34 @@ export async function scrapeAmazonProduct(
   for (const selector of brandSelectors) {
     const $el = $(selector)
     if ($el.length > 0 && !isInRecommendationArea($el[0])) {
-      const brand = $el.text().trim()
-        .replace('Visit the ', '')
-        .replace(' Store', '')
-        .replace(/^Brand:\s*/i, '')
+      let brand = $el.text().trim()
+
+      // 多语言品牌店铺文本清理
+      // English: "Visit the Brand Store"
+      brand = brand.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
+
+      // Italian: "Visita lo di Brand", "Visita il Brand"
+      brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+(di\s+)?/i, '')
+
+      // French: "Visitez la boutique Brand"
+      brand = brand.replace(/^Visitez\s+(la|le|les)\s+boutique\s+/i, '')
+
+      // German: "Besuchen Sie den Brand-Shop"
+      brand = brand.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '').replace(/-Shop$/i, '')
+
+      // Spanish: "Visita la tienda Brand"
+      brand = brand.replace(/^Visita\s+(la|el)\s+tienda\s+(de\s+)?/i, '')
+
+      // Japanese: "ブランド 出品者のストアにアクセス"
+      brand = brand.replace(/\s*出品者のストアにアクセス$/i, '')
+
+      // General cleanup
+      brand = brand.replace(/^Brand:\s*/i, '')
         .replace(/^品牌:\s*/i, '')
+        .replace(/^Marca:\s*/i, '')  // Spanish/Italian
+        .replace(/^Marque:\s*/i, '')  // French
+        .replace(/^Marke:\s*/i, '')   // German
+
       if (brand && brand.length > 1 && brand.length < 50) {
         brandName = brand
         console.log(`✅ 策略1成功: 从选择器${selector}提取品牌 "${brandName}"`)
