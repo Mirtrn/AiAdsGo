@@ -306,8 +306,9 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
   // English (US, CA, AU, GB, IN, SG): "Visit the Brand Store"
   bylineInfo = bylineInfo.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
 
-  // Italian (IT): "Visita lo di Brand", "Visita il/la/le/i/gli Brand"
-  bylineInfo = bylineInfo.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+(di\s+)?/i, '')
+  // Italian (IT): "Visita lo Store di Brand", "Visita il/la/le/i/gli Brand"
+  bylineInfo = bylineInfo.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+/i, '')
+  bylineInfo = bylineInfo.replace(/^(Store|Negozio)\s+(di\s+)?/i, '')
 
   // French (FR, BE, CA-FR): "Visitez la boutique Brand"
   bylineInfo = bylineInfo.replace(/^Visitez\s+(la|le|les)\s+boutique\s+(de\s+)?/i, '')

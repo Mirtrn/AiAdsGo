@@ -1238,8 +1238,9 @@ export async function scrapeAmazonProduct(
       // English (US, CA, AU, GB, IN, SG): "Visit the Brand Store"
       brand = brand.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
 
-      // Italian (IT): "Visita lo di Brand", "Visita il/la/le/i/gli Brand"
-      brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+(di\s+)?/i, '')
+      // Italian (IT): "Visita lo Store di Brand", "Visita il/la/le/i/gli Brand"
+      brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+/i, '')
+      brand = brand.replace(/^(Store|Negozio)\s+(di\s+)?/i, '')
 
       // French (FR, BE, CA-FR): "Visitez la boutique Brand"
       brand = brand.replace(/^Visitez\s+(la|le|les)\s+boutique\s+(de\s+)?/i, '')
