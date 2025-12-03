@@ -168,7 +168,7 @@ class PlaywrightPool {
 
     const languagesForScript = navigatorLanguages
 
-    await context.addInitScript((langs: string[], hwConcurrency: number, devMemory: number) => {
+    await context.addInitScript(({ langs, hwConcurrency, devMemory }: { langs: string[], hwConcurrency: number, devMemory: number }) => {
       // ===== 基础反检测 =====
 
       // Override navigator.webdriver
@@ -345,7 +345,7 @@ class PlaywrightPool {
         // 静默处理，不输出
       }
 
-    }, languagesForScript, hardwareConcurrency, deviceMemory)
+    }, { langs: languagesForScript, hwConcurrency: hardwareConcurrency, devMemory: deviceMemory })
   }
 
   /**

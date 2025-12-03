@@ -350,7 +350,7 @@ async function configureStealthPage(page: Page, targetCountry?: string): Promise
 
   // 🔥 增强浏览器指纹伪装（需要将动态语言传入脚本）
   const languagesForScript = navigatorLanguages
-  await page.addInitScript((langs: string[], hwConcurrency: number, devMemory: number) => {
+  await page.addInitScript(({ langs, hwConcurrency, devMemory }: { langs: string[], hwConcurrency: number, devMemory: number }) => {
     // ===== P0优化: Canvas指纹混淆 =====
     const getImageData = HTMLCanvasElement.prototype.toDataURL
     HTMLCanvasElement.prototype.toDataURL = function(type?: string) {
@@ -497,7 +497,7 @@ async function configureStealthPage(page: Page, targetCountry?: string): Promise
     console.debug = function() {
       return null
     }
-  }, languagesForScript, hardwareConcurrency, deviceMemory)  // 🌍 传入动态语言和随机硬件参数
+  }, { langs: languagesForScript, hwConcurrency: hardwareConcurrency, devMemory: deviceMemory })  // 🌍 传入动态语言和随机硬件参数
 
   // 🔥 设置真实的viewport和屏幕分辨率
   await page.setViewportSize({ width: 1920, height: 1080 })
