@@ -1,4 +1,4 @@
--- Migration: 036_add_status_balance_to_google_ads_accounts
+-- Migration: 042_add_status_balance_to_google_ads_accounts
 -- Description: 添加status和account_balance列到google_ads_accounts表
 -- Created: 2025-12-03
 -- Reason: 代码需要存储Google Ads API返回的账户状态和余额信息
@@ -27,16 +27,13 @@ BEGIN
   END IF;
 END $$;
 
--- 验证列已添加
-SELECT
-  name,
-  type,
-  dflt_value
-FROM pragma_table_info('google_ads_accounts')
-WHERE name IN ('status', 'account_balance');
+-- 验证列已添加 (PostgreSQL版本)
+-- SELECT column_name, data_type, column_default
+-- FROM information_schema.columns
+-- WHERE table_name = 'google_ads_accounts' AND column_name IN ('status', 'account_balance');
 
 
 -- 记录迁移历史
 INSERT INTO migration_history (migration_name)
-VALUES ('036_add_status_balance_to_google_ads_accounts.pg')
+VALUES ('042_add_status_balance_to_google_ads_accounts.pg')
 ON CONFLICT (migration_name) DO NOTHING;
