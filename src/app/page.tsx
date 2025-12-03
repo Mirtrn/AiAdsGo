@@ -132,13 +132,16 @@ export default function MarketingHome() {
                     src="/assets/marketing/hero-demo.png"
                     alt="AutoAds 产品演示"
                     className="w-full h-full object-cover"
+                    fetchPriority="high"
+                    width={800}
+                    height={600}
                   />
                 </div>
 
                 {/* Floating Card - Top Right: 15个标题已生成 */}
-                <div className="absolute -right-6 top-[20%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100">
+                <div className="absolute -right-6 top-[20%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100 w-[180px] h-[74px]">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
                       <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                     </div>
                     <div>
@@ -149,9 +152,9 @@ export default function MarketingHome() {
                 </div>
 
                 {/* Floating Card - Left: 20+关键词推荐 */}
-                <div className="absolute -left-6 top-[45%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100" style={{ animationDelay: '0.3s' }}>
+                <div className="absolute -left-6 top-[45%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100 w-[200px] h-[74px]" style={{ animationDelay: '0.3s' }}>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                       <CheckCircle2 className="w-5 h-5 text-blue-600" />
                     </div>
                     <div>
@@ -162,9 +165,9 @@ export default function MarketingHome() {
                 </div>
 
                 {/* Floating Card - Bottom Right: 4个描述文案 */}
-                <div className="absolute -right-4 bottom-[15%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100" style={{ animationDelay: '0.6s' }}>
+                <div className="absolute -right-4 bottom-[15%] bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 animate-bounce-slow z-20 border border-slate-100 w-[210px] h-[74px]" style={{ animationDelay: '0.6s' }}>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center flex-shrink-0">
                       <Wand2 className="w-5 h-5 text-white" />
                     </div>
                     <div>
