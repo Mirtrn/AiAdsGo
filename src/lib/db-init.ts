@@ -7,6 +7,7 @@
  * 3. 创建默认管理员账号
  * 4. 导入管理员配置（PostgreSQL 生产环境）
  * 5. 插入默认系统配置
+ * 6. 自动执行增量迁移（新增）
  */
 
 import { getDatabase } from './db'
@@ -523,8 +524,10 @@ export async function initializeDatabase(): Promise<void> {
   const isInitialized = await isDatabaseInitialized()
 
   if (isInitialized) {
-    console.log('✅ Database already initialized, skipping initialization')
-    // 数据库已初始化，检查未完成的队列任务
+    console.log('✅ Database already initialized, checking for pending migrations...')
+    // 数据库已初始化，执行增量迁移
+    await runPendingMigrations()
+    // 检查未完成的队列任务
     await checkUnfinishedQueueTasks()
     return
   }
@@ -538,6 +541,259 @@ export async function initializeDatabase(): Promise<void> {
   } else {
     await initializePostgreSQL()
   }
+
+  // 初始化完成后也执行迁移（确保所有增量迁移都被应用）
+  await runPendingMigrations()
+}
+
+/**
+ * 自动执行增量迁移
+ *
+ * 核心功能：
+ * 1. 扫描 migrations/ 目录下的所有 .sql 文件
+ * 2. 检查 migration_history 表，跳过已执行的迁移
+ * 3. 按文件名顺序执行未执行的迁移
+ * 4. 记录执行结果到 migration_history 表
+ *
+ * 迁移文件命名规范：
+ * - SQLite: {编号}_{描述}.sql (如 037_add_keywords.sql)
+ * - PostgreSQL: {编号}_{描述}.pg.sql (如 037_add_keywords.pg.sql)
+ * - 000 开头的是初始化 schema，不参与增量迁移
+ */
+async function runPendingMigrations(): Promise<void> {
+  const db = getDatabase()
+  const migrationsDir = path.join(process.cwd(), 'migrations')
+
+  // 检查迁移目录是否存在
+  if (!fs.existsSync(migrationsDir)) {
+    console.log('⚠️  Migrations directory not found, skipping migrations')
+    return
+  }
+
+  // 确保 migration_history 表存在
+  await ensureMigrationHistoryTable()
+
+  // 获取所有迁移文件
+  const allFiles = fs.readdirSync(migrationsDir)
+
+  // 根据数据库类型选择对应的迁移文件
+  const fileExtension = db.type === 'postgres' ? '.pg.sql' : '.sql'
+  const excludeExtension = db.type === 'postgres' ? '.sql' : '.pg.sql'
+
+  const migrationFiles = allFiles
+    .filter(file => {
+      // 排除 README 和其他非 SQL 文件
+      if (!file.endsWith('.sql')) return false
+      // 排除初始化 schema（000 开头）
+      if (file.startsWith('000_')) return false
+      // PostgreSQL: 只选择 .pg.sql 文件
+      if (db.type === 'postgres') {
+        return file.endsWith('.pg.sql')
+      }
+      // SQLite: 排除 .pg.sql 文件，选择普通 .sql 文件
+      return !file.endsWith('.pg.sql')
+    })
+    .sort() // 按文件名排序
+
+  if (migrationFiles.length === 0) {
+    console.log('📋 No migration files found')
+    return
+  }
+
+  // 获取已执行的迁移
+  const executedMigrations = await getExecutedMigrations()
+
+  // 过滤出未执行的迁移
+  const pendingMigrations = migrationFiles.filter(file => {
+    // 使用基础名称进行匹配（去掉 .pg 后缀进行标准化）
+    const baseName = file.replace('.pg.sql', '.sql')
+    return !executedMigrations.has(file) && !executedMigrations.has(baseName)
+  })
+
+  if (pendingMigrations.length === 0) {
+    console.log('✅ All migrations are up to date')
+    return
+  }
+
+  console.log(`\n📦 Found ${pendingMigrations.length} pending migrations:`)
+  pendingMigrations.forEach(f => console.log(`   - ${f}`))
+  console.log('')
+
+  // 执行每个迁移
+  let successCount = 0
+  let failCount = 0
+
+  for (const migrationFile of pendingMigrations) {
+    const filePath = path.join(migrationsDir, migrationFile)
+    const sqlContent = fs.readFileSync(filePath, 'utf-8')
+
+    console.log(`🔄 Executing: ${migrationFile}`)
+
+    try {
+      await executeMigration(migrationFile, sqlContent)
+      await recordMigration(migrationFile)
+      console.log(`✅ Completed: ${migrationFile}`)
+      successCount++
+    } catch (error) {
+      console.error(`❌ Failed: ${migrationFile}`)
+      console.error(`   Error:`, error instanceof Error ? error.message : error)
+      failCount++
+      // 继续执行其他迁移，不中断流程
+      // 但记录错误，让运维人员知道需要手动处理
+    }
+  }
+
+  console.log(`\n📊 Migration summary:`)
+  console.log(`   ✅ Success: ${successCount}`)
+  if (failCount > 0) {
+    console.log(`   ❌ Failed: ${failCount}`)
+    console.log(`   ⚠️  Please check failed migrations and fix manually`)
+  }
+}
+
+/**
+ * 确保 migration_history 表存在
+ */
+async function ensureMigrationHistoryTable(): Promise<void> {
+  const db = getDatabase()
+
+  if (db.type === 'sqlite') {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS migration_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        migration_name TEXT NOT NULL UNIQUE,
+        executed_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `)
+  } else {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS migration_history (
+        id SERIAL PRIMARY KEY,
+        migration_name TEXT NOT NULL UNIQUE,
+        executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+  }
+}
+
+/**
+ * 获取已执行的迁移列表
+ */
+async function getExecutedMigrations(): Promise<Set<string>> {
+  const db = getDatabase()
+  const executed = new Set<string>()
+
+  try {
+    if (db.type === 'sqlite') {
+      const results = db.query<{ migration_name: string }>(
+        'SELECT migration_name FROM migration_history'
+      )
+      // SQLite 的 query 返回数组
+      if (Array.isArray(results)) {
+        results.forEach(row => executed.add(row.migration_name))
+      }
+    } else {
+      const results = await db.query<{ migration_name: string }>(
+        'SELECT migration_name FROM migration_history'
+      )
+      results.forEach(row => executed.add(row.migration_name))
+    }
+  } catch {
+    // 表可能不存在，返回空集合
+  }
+
+  return executed
+}
+
+/**
+ * 执行单个迁移
+ */
+async function executeMigration(name: string, sql: string): Promise<void> {
+  const db = getDatabase()
+
+  // 分割多个 SQL 语句（按分号分割，但忽略字符串中的分号）
+  const statements = splitSqlStatements(sql)
+
+  if (db.type === 'sqlite') {
+    // SQLite: 逐条执行
+    for (const stmt of statements) {
+      if (stmt.trim()) {
+        try {
+          db.exec(stmt)
+        } catch (error) {
+          // 忽略 "column already exists" 等幂等性错误
+          const errorMsg = error instanceof Error ? error.message : String(error)
+          if (
+            errorMsg.includes('duplicate column name') ||
+            errorMsg.includes('already exists')
+          ) {
+            console.log(`   ⏭️  Skipped (already exists): ${stmt.substring(0, 60)}...`)
+          } else {
+            throw error
+          }
+        }
+      }
+    }
+  } else {
+    // PostgreSQL: 使用事务
+    const rawSql = (db as any).getRawConnection()
+    await rawSql.begin(async (tx: any) => {
+      for (const stmt of statements) {
+        if (stmt.trim()) {
+          try {
+            await tx.unsafe(stmt)
+          } catch (error) {
+            // 忽略 "column already exists" 等幂等性错误
+            const errorMsg = error instanceof Error ? error.message : String(error)
+            if (
+              errorMsg.includes('already exists') ||
+              errorMsg.includes('duplicate')
+            ) {
+              console.log(`   ⏭️  Skipped (already exists): ${stmt.substring(0, 60)}...`)
+            } else {
+              throw error
+            }
+          }
+        }
+      }
+    })
+  }
+}
+
+/**
+ * 记录迁移执行历史
+ */
+async function recordMigration(name: string): Promise<void> {
+  const db = getDatabase()
+
+  if (db.type === 'sqlite') {
+    db.exec(
+      'INSERT OR IGNORE INTO migration_history (migration_name) VALUES (?)',
+      [name]
+    )
+  } else {
+    await db.query(
+      'INSERT INTO migration_history (migration_name) VALUES ($1) ON CONFLICT DO NOTHING',
+      [name]
+    )
+  }
+}
+
+/**
+ * 分割 SQL 语句（简单实现，按分号分割）
+ */
+function splitSqlStatements(sql: string): string[] {
+  // 移除注释
+  const withoutComments = sql
+    .split('\n')
+    .filter(line => !line.trim().startsWith('--'))
+    .join('\n')
+
+  // 按分号分割
+  return withoutComments
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0)
 }
 
 // 全局标记：是否需要恢复队列任务（声明在全局作用域）
