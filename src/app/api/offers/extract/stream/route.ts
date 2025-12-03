@@ -212,6 +212,18 @@ export async function POST(request: NextRequest) {
         reviewCount: extractedReviewCount,
         reviewHighlights: extractedReviewHighlights,
         topReviews: extractedTopReviews,
+        // 🆕 补充的产品详情字段
+        features: extractedFeatures,
+        aboutThisItem: extractedAboutThisItem,
+        technicalDetails: extractedTechnicalDetails,
+        imageUrls: extractedImageUrls,
+        originalPrice: extractedOriginalPrice,
+        discount: extractedDiscount,
+        salesRank: extractedSalesRank,
+        availability: extractedAvailability,
+        primeEligible: extractedPrimeEligible,
+        asin: extractedAsin,
+        category: extractedCategory,
         debug,
       } = extractResult.data;
 
@@ -261,11 +273,39 @@ export async function POST(request: NextRequest) {
           // Amazon产品页面
           pageType = 'product';
 
+          // 🆕 增强AI分析数据：使用所有已抓取的产品详情
+          const featuresText = extractedFeatures && extractedFeatures.length > 0
+            ? `\n=== PRODUCT FEATURES ===\n${extractedFeatures.join('\n')}`
+            : '';
+
+          const aboutText = extractedAboutThisItem && extractedAboutThisItem.length > 0
+            ? `\n=== ABOUT THIS ITEM ===\n${extractedAboutThisItem.join('\n')}`
+            : '';
+
+          const technicalText = extractedTechnicalDetails && Object.keys(extractedTechnicalDetails).length > 0
+            ? `\n=== TECHNICAL DETAILS ===\n${Object.entries(extractedTechnicalDetails).map(([k, v]) => `${k}: ${v}`).join('\n')}`
+            : '';
+
+          const priceInfo = [
+            extractedPrice ? `Current Price: ${extractedPrice}` : '',
+            extractedOriginalPrice ? `Original Price: ${extractedOriginalPrice}` : '',
+            extractedDiscount ? `Discount: ${extractedDiscount}` : '',
+          ].filter(Boolean).join(' | ');
+
           const textContent = [
             `Product: ${extractedProductName || 'Unknown'}`,
             `Brand: ${brandName || 'Unknown'}`,
-            `Price: ${extractedPrice || 'N/A'}`,
+            priceInfo || `Price: N/A`,
+            extractedRating ? `Rating: ${extractedRating} stars (${extractedReviewCount || 0} reviews)` : '',
+            extractedSalesRank ? `Sales Rank: ${extractedSalesRank}` : '',
+            extractedAvailability ? `Availability: ${extractedAvailability}` : '',
+            extractedPrimeEligible ? `Prime Eligible: Yes` : '',
+            extractedCategory ? `Category: ${extractedCategory}` : '',
+            extractedAsin ? `ASIN: ${extractedAsin}` : '',
             productDescription ? `\nDescription:\n${productDescription}` : '',
+            featuresText,
+            aboutText,
+            technicalText,
           ]
             .filter(Boolean)
             .join('\n');

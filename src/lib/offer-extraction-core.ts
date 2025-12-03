@@ -470,6 +470,18 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           reviewCount: amazonProductData.reviewCount,
           reviewHighlights: amazonProductData.reviewHighlights,
           topReviews: amazonProductData.topReviews,
+          // 🆕 补充缺失的重要字段
+          features: amazonProductData.features,
+          aboutThisItem: amazonProductData.aboutThisItem,
+          technicalDetails: amazonProductData.technicalDetails,
+          imageUrls: amazonProductData.imageUrls,
+          originalPrice: amazonProductData.originalPrice,
+          discount: amazonProductData.discount,
+          salesRank: amazonProductData.salesRank,
+          availability: amazonProductData.availability,
+          primeEligible: amazonProductData.primeEligible,
+          asin: amazonProductData.asin,
+          category: amazonProductData.category,
         }),
 
         // Amazon Store专属数据（可选）
