@@ -89,40 +89,39 @@ export function queryHighPerformingCreatives(
   const db = getSQLiteDatabase()
 
   // 查询高CTR的创意及其性能数据
-  // 使用 creative_versions 表的 JSON 字段，在代码中解析
+  // 从ad_creative_performance表获取性能数据，JOIN ad_creatives获取最新创意内容
   const stmt = db.prepare(`
     SELECT
-      c.id as creativeId,
-      c.headlines,
-      c.descriptions,
-      c.clicks,
-      c.impressions,
-      c.conversions,
-      c.cost,
+      ac.id as creativeId,
+      ac.headlines,
+      ac.descriptions,
+      SUM(acp.clicks) as clicks,
+      SUM(acp.impressions) as impressions,
+      SUM(acp.conversions) as conversions,
+      SUM(acp.cost) as cost,
       CASE
-        WHEN c.impressions > 0
-        THEN CAST(c.clicks AS REAL) / c.impressions
+        WHEN SUM(acp.impressions) > 0
+        THEN CAST(SUM(acp.clicks) AS REAL) / SUM(acp.impressions)
         ELSE 0
       END as ctr,
       CASE
-        WHEN c.clicks > 0
-        THEN CAST(c.conversions AS REAL) / c.clicks
+        WHEN SUM(acp.clicks) > 0
+        THEN CAST(SUM(acp.conversions) AS REAL) / SUM(acp.clicks)
         ELSE 0
       END as conversionRate
-    FROM creative_versions c
-    WHERE c.user_id = ?
-      AND c.version_number > 0
-      AND c.clicks >= ?
+    FROM ad_creatives ac
+    INNER JOIN ad_creative_performance acp ON ac.id = acp.ad_creative_id
+    WHERE ac.user_id = ?
+    GROUP BY ac.id
+    HAVING SUM(acp.clicks) >= ? AND ctr >= ?
     ORDER BY ctr DESC, conversionRate DESC
     LIMIT ?
   `)
 
-  const rows = stmt.all(userId, minClicks, limit) as any[]
+  const rows = stmt.all(userId, minClicks, minCtr, limit) as any[]
 
-  // 解析 JSON 字段并过滤 CTR 阈值
-  return rows
-    .filter(row => row.ctr >= minCtr)
-    .map(row => {
+  // 解析 JSON 字段
+  return rows.map(row => {
       // 解析 headlines JSON
       let headlines: string[] = []
       try {
@@ -573,28 +572,30 @@ export function scoreCreativePerformance(
   const db = getSQLiteDatabase()
 
   // 查询创意的性能数据
-  // 使用 creative_versions 表内置的性能字段
+  // 从ad_creative_performance获取聚合性能数据
   const stmt = db.prepare(`
     SELECT
-      c.id as creativeId,
-      c.headlines,
-      c.budget_amount as budget,
-      c.clicks,
-      c.impressions,
-      c.conversions,
-      c.cost,
+      ac.id as creativeId,
+      ac.headlines,
+      ac.budget_amount as budget,
+      SUM(acp.clicks) as clicks,
+      SUM(acp.impressions) as impressions,
+      SUM(acp.conversions) as conversions,
+      SUM(acp.cost) as cost,
       CASE
-        WHEN c.impressions > 0
-        THEN CAST(c.clicks AS REAL) / c.impressions
+        WHEN SUM(acp.impressions) > 0
+        THEN CAST(SUM(acp.clicks) AS REAL) / SUM(acp.impressions)
         ELSE 0
       END as ctr,
       CASE
-        WHEN c.clicks > 0
-        THEN CAST(c.cost AS REAL) / c.clicks
+        WHEN SUM(acp.clicks) > 0
+        THEN CAST(SUM(acp.cost) AS REAL) / SUM(acp.clicks)
         ELSE 0
       END as cpc
-    FROM creative_versions c
-    WHERE c.id = ? AND c.user_id = ?
+    FROM ad_creatives ac
+    LEFT JOIN ad_creative_performance acp ON ac.id = acp.ad_creative_id
+    WHERE ac.id = ? AND ac.user_id = ?
+    GROUP BY ac.id
   `)
 
   const data = stmt.get(creativeId, userId) as any
@@ -786,12 +787,14 @@ export function scoreCreativePerformance(
 export function scoreAllCreatives(userId: number): CreativePerformanceScore[] {
   const db = getSQLiteDatabase()
 
-  // 获取所有有性能数据的创意（使用 creative_versions 内置字段）
+  // 获取所有有性能数据的创意（从ad_creative_performance聚合）
   const creativeIds = db.prepare(`
-    SELECT DISTINCT c.id
-    FROM creative_versions c
-    WHERE c.user_id = ?
-      AND c.impressions > 100
+    SELECT DISTINCT ac.id
+    FROM ad_creatives ac
+    INNER JOIN ad_creative_performance acp ON ac.id = acp.ad_creative_id
+    WHERE ac.user_id = ?
+    GROUP BY ac.id
+    HAVING SUM(acp.impressions) > 100
   `).all(userId) as { id: number }[]
 
   const scores: CreativePerformanceScore[] = []
@@ -973,15 +976,15 @@ export function runCreativeOptimizationLoop(userId: number): {
   let featuresUpdated = false
   if (highPerformers.length >= 5) {
     // 将评分转换为HistoricalCreative格式
-    // 使用 creative_versions 的 JSON 字段
+    // 从ad_creatives获取创意内容
     const db = getSQLiteDatabase()
     const stmt = db.prepare(`
       SELECT
-        c.id as creativeId,
-        c.headlines,
-        c.descriptions
-      FROM creative_versions c
-      WHERE c.id = ?
+        ac.id as creativeId,
+        ac.headlines,
+        ac.descriptions
+      FROM ad_creatives ac
+      WHERE ac.id = ?
     `)
 
     const historicalCreatives: HistoricalCreative[] = highPerformers.map(s => {

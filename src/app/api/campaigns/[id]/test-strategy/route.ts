@@ -107,7 +107,7 @@ export async function POST(
         gaa.customer_id,
         gaa.refresh_token
       FROM campaigns c
-      JOIN ad_creatives ac ON c.ad_creative_id = ac.id
+      LEFT JOIN ad_creatives ac ON c.ad_creative_id = ac.id
       JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       WHERE c.id = ? AND c.user_id = ?
     `).get(originalCampaignId, userId) as any
@@ -115,6 +115,17 @@ export async function POST(
     if (!originalCampaign) {
       const error = createError.campaignNotFound({ campaignId: originalCampaignId })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
+    }
+
+    // 检查是否有关联的创意
+    if (!originalCampaign.ad_creative_id) {
+      return NextResponse.json(
+        {
+          error: '该广告活动没有关联的创意，无法创建测试',
+          code: 'CAMPAIGN_NO_CREATIVE'
+        },
+        { status: 400 }
+      )
     }
 
     // 5. 验证是否适合进行策略测试
