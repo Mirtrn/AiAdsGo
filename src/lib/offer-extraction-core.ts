@@ -304,10 +304,16 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     let scrapingError: string | null = null  // 🔥 新增：记录抓取错误
 
     try {
+      // 🔥 验证finalUrl有效性
+      if (!resolvedData.finalUrl || resolvedData.finalUrl === 'null/' || resolvedData.finalUrl === 'null') {
+        throw new Error('Invalid finalUrl: URL解析返回了无效的URL')
+      }
+
       // 检测是否为独立站店铺首页
       const isIndependentStore = !isAmazonStore && !isAmazonProductPage && (() => {
-        const urlObj = new URL(resolvedData.finalUrl)
-        const pathname = urlObj.pathname
+        try {
+          const urlObj = new URL(resolvedData.finalUrl)
+          const pathname = urlObj.pathname
 
         // 排除明确的单品页面路径
         const isSingleProductPage =
@@ -324,6 +330,10 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           pathname.split('/').filter(Boolean).length <= 1
 
         return !isSingleProductPage && isStorePage
+        } catch (urlError) {
+          console.warn('⚠️ URL解析失败，默认判断为非独立站:', urlError)
+          return false
+        }
       })()
 
       // 获取用户代理配置
