@@ -7,7 +7,7 @@
  * 2. 每天凌晨2点备份数据库
  * 3. 每天凌晨3点清理90天前的数据
  * 4. 每天凌晨2点检查链接可用性和账号状态（需求20优化）
- * 5. 每小时监控A/B测试并自动优化（CPC调整、胜出切换）
+ * 5. [已禁用] A/B测试监控 - 当前业务场景未使用，暂时禁用以减少日志噪音
  */
 
 import cron from 'node-cron'
@@ -15,7 +15,8 @@ import { getDatabase, getSQLiteDatabase } from './lib/db'
 import { dataSyncService } from './lib/data-sync-service'
 import { backupDatabase } from './lib/backup'
 import { dailyLinkCheck } from './lib/risk-alerts'
-import { runABTestMonitor } from './scheduler/ab-test-monitor'
+// [已禁用] A/B测试功能当前未使用，暂时注释以避免无意义的定时任务执行
+// import { runABTestMonitor } from './scheduler/ab-test-monitor'
 import fs from 'fs'
 import path from 'path'
 
@@ -211,7 +212,7 @@ function startScheduler() {
   log('  - 数据库备份: 每天凌晨2点')
   log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
   log('  - 数据清理: 每天凌晨3点')
-  log('  - A/B测试监控: 每小时')
+  log('  - A/B测试监控: [已禁用] 当前业务未使用')
 
   // 任务1: 每6小时同步数据 (0, 6, 12, 18点)
   cron.schedule('0 */6 * * *', async () => {
@@ -254,7 +255,11 @@ function startScheduler() {
     timezone: 'Asia/Shanghai'
   })
 
-  // 任务5: 每小时监控A/B测试（CPC调整、自动切换胜出创意）
+  // [已禁用] 任务5: A/B测试监控
+  // 原因：当前业务场景未使用A/B测试功能，数据库中无测试记录
+  // 禁用以避免无意义的定时任务执行和日志噪音
+  // 如需重新启用，取消以下注释并恢复顶部的import语句
+  /*
   cron.schedule('0 * * * *', async () => {
     try {
       log('🔬 开始A/B测试监控任务...')
@@ -267,6 +272,7 @@ function startScheduler() {
     scheduled: true,
     timezone: 'Asia/Shanghai'
   })
+  */
 
   log('✅ 所有定时任务已启动')
 
