@@ -788,10 +788,25 @@ export async function scrapeUrlWithBrowser(
       try {
         screenshot = await page.screenshot({
           fullPage: false,
-          timeout: 10000  // 🔥 P0修复: 设置10秒超时，避免等待字体加载卡死
+          timeout: 30000,  // 🔥 修复: 增加到30秒超时（代理网络可能较慢）
+          animations: 'disabled',  // 禁用动画加速截图
         })
       } catch (error) {
         console.warn('⚠️ 截图失败:', error)
+        // 尝试第二次截图，不等待字体加载
+        try {
+          screenshot = await page.screenshot({
+            fullPage: false,
+            timeout: 15000,
+            animations: 'disabled',
+            // 不等待字体，直接截图
+          }).catch(() => undefined)
+          if (screenshot) {
+            console.log('✅ 第二次尝试截图成功（未等待字体加载）')
+          }
+        } catch (retryError) {
+          console.warn('⚠️ 第二次截图也失败，跳过截图继续执行')
+        }
       }
 
       // 关闭页面（context由releaseBrowser处理）
@@ -1669,7 +1684,12 @@ export async function scrapeAmazonStore(
       const screenshotFile = path.join(storageDir, `debug-store-${timestamp}.png`)
 
       fs.writeFileSync(htmlFile, html)
-      await page.screenshot({ path: screenshotFile, fullPage: true })
+      await page.screenshot({
+        path: screenshotFile,
+        fullPage: true,
+        timeout: 30000,  // 增加超时避免字体加载卡死
+        animations: 'disabled'
+      })
 
       console.log(`📁 调试文件已保存:`)
       console.log(`  - HTML: ${htmlFile}`)
