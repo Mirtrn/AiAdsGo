@@ -84,6 +84,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist
 
 # 复制数据库迁移文件（初始化需要）
 COPY --from=builder --chown=nextjs:nodejs /app/migrations ./migrations
+COPY --from=builder --chown=nextjs:nodejs /app/pg-migrations ./pg-migrations
+
+# 复制启动脚本
+COPY --from=builder --chown=root:root /app/scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 复制生产依赖（调度器需要better-sqlite3等原生模块）
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
@@ -100,5 +105,5 @@ EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=40s \
     CMD wget --no-verbose --tries=1 --spider http://localhost/api/health || exit 1
 
-# 使用supervisord启动所有服务
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
+# 使用入口脚本启动（先初始化数据库，再启动supervisord）
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

@@ -1,6 +1,6 @@
 /**
- * 调度器打包脚本
- * 使用esbuild将scheduler.ts打包为单个JS文件，包含所有依赖
+ * 调度器和数据库初始化脚本打包
+ * 使用esbuild将TypeScript文件打包为单个JS文件
  */
 
 const esbuild = require('esbuild')
@@ -37,4 +37,38 @@ async function buildScheduler() {
   }
 }
 
-buildScheduler()
+async function buildDbInit() {
+  console.log('📦 开始打包数据库初始化脚本...')
+
+  try {
+    await esbuild.build({
+      entryPoints: [path.join(__dirname, 'scripts', 'db-init.ts')],
+      bundle: true,
+      platform: 'node',
+      target: 'node20',
+      outfile: path.join(__dirname, 'dist', 'db-init.js'),
+      external: [
+        // 排除需要原生模块的依赖
+        'better-sqlite3',
+        'bcrypt',
+      ],
+      minify: false,
+      sourcemap: false,
+      logLevel: 'info',
+    })
+
+    console.log('✅ 数据库初始化脚本打包完成: dist/db-init.js')
+  } catch (error) {
+    console.error('❌ 数据库初始化脚本打包失败:', error)
+    process.exit(1)
+  }
+}
+
+async function main() {
+  await buildScheduler()
+  await buildDbInit()
+  console.log('')
+  console.log('🎉 所有脚本打包完成！')
+}
+
+main()

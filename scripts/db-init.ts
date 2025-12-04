@@ -1,0 +1,179 @@
+#!/usr/bin/env node
+/**
+ * Docker 容器启动时的数据库初始化脚本
+ * 检查数据库是否已初始化，如果没有则执行初始化
+ */
+
+import postgres from 'postgres';
+import { readFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
+import { hashPassword } from '../src/lib/crypto.js';
+
+const DATABASE_URL = process.env.DATABASE_URL;
+const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD;
+
+if (!DATABASE_URL) {
+  console.error('❌ 错误: DATABASE_URL 环境变量未设置');
+  process.exit(1);
+}
+
+async function waitForDatabase(sql: ReturnType<typeof postgres>, maxRetries = 30): Promise<boolean> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await sql`SELECT 1`;
+      return true;
+    } catch (error) {
+      console.log(`⏳ 等待数据库就绪... (${i + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  return false;
+}
+
+async function checkDatabaseInitialized(sql: ReturnType<typeof postgres>): Promise<boolean> {
+  try {
+    // 检查多个核心表是否存在，确保数据库完整初始化
+    const coreTables = ['users', 'offers', 'ad_creatives', 'campaigns', 'prompt_versions'];
+
+    const result = await sql`
+      SELECT COUNT(*) as count
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = ANY(${coreTables})
+    `;
+
+    const existingTables = parseInt(result[0].count);
+    const allTablesExist = existingTables === coreTables.length;
+
+    if (existingTables > 0 && !allTablesExist) {
+      console.log(`⚠️  数据库部分初始化: ${existingTables}/${coreTables.length} 核心表存在`);
+    }
+
+    return allTablesExist;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function initializeDatabase(sql: ReturnType<typeof postgres>): Promise<void> {
+  // 支持本地开发和 Docker 容器两种路径
+  const possiblePaths = [
+    resolve('/app/pg-migrations/000_init_schema_consolidated.pg.sql'),  // Docker 容器
+    resolve(__dirname, '../pg-migrations/000_init_schema_consolidated.pg.sql'),  // 本地开发
+    resolve(process.cwd(), 'pg-migrations/000_init_schema_consolidated.pg.sql'),  // 当前目录
+  ];
+
+  let migrationPath = '';
+  for (const path of possiblePaths) {
+    if (existsSync(path)) {
+      migrationPath = path;
+      break;
+    }
+  }
+
+  if (!migrationPath) {
+    throw new Error(`找不到迁移文件，尝试过以下路径:\n${possiblePaths.join('\n')}`);
+  }
+
+  console.log(`📄 使用迁移文件: ${migrationPath}`);
+
+  const migration = readFileSync(migrationPath, 'utf8');
+  await sql.unsafe(migration);
+
+  console.log('✅ 数据库初始化完成');
+}
+
+async function ensureAdminAccount(sql: ReturnType<typeof postgres>): Promise<void> {
+  if (!DEFAULT_ADMIN_PASSWORD) {
+    console.log('⚠️  警告: DEFAULT_ADMIN_PASSWORD 未设置，跳过管理员账号初始化');
+    return;
+  }
+
+  console.log('👤 检查管理员账号...');
+
+  // 检查管理员是否存在
+  const existingAdmin = await sql`
+    SELECT id, username, email FROM users WHERE username = 'autoads'
+  `;
+
+  const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+
+  if (existingAdmin.length === 0) {
+    // 创建新管理员
+    console.log('➕ 管理员账号不存在，正在创建...');
+
+    await sql`
+      INSERT INTO users (
+        username, email, password_hash, display_name, role,
+        package_type, package_expires_at, must_change_password,
+        is_active, created_at, updated_at
+      ) VALUES (
+        'autoads', 'admin@autoads.com', ${passwordHash}, 'AutoAds Administrator', 'admin',
+        'lifetime', '2099-12-31 23:59:59', false,
+        true, NOW(), NOW()
+      )
+    `;
+
+    console.log('✅ 管理员账号创建成功');
+    console.log('   用户名: autoads');
+    console.log('   邮箱: admin@autoads.com');
+  } else {
+    // 重置密码
+    console.log('🔄 管理员账号已存在，正在重置密码...');
+
+    await sql`
+      UPDATE users SET password_hash = ${passwordHash}, updated_at = NOW()
+      WHERE username = 'autoads'
+    `;
+
+    console.log('✅ 管理员密码已重置');
+  }
+}
+
+async function main() {
+  console.log('========================================');
+  console.log('🚀 AutoAds 数据库初始化');
+  console.log('========================================');
+  console.log('');
+  console.log('📦 数据库类型: PostgreSQL');
+  console.log('🔗 连接中...');
+
+  const sql = postgres(DATABASE_URL);
+
+  try {
+    // 等待数据库可用
+    const connected = await waitForDatabase(sql);
+    if (!connected) {
+      console.error('❌ 错误: 无法连接到数据库');
+      process.exit(1);
+    }
+    console.log('✅ 数据库连接成功');
+
+    // 检查数据库是否已初始化
+    console.log('🔍 检查数据库状态...');
+    const initialized = await checkDatabaseInitialized(sql);
+
+    if (!initialized) {
+      console.log('📋 数据库未初始化，开始初始化...');
+      await initializeDatabase(sql);
+    } else {
+      console.log('✅ 数据库已初始化');
+    }
+
+    // 确保管理员账号存在
+    await ensureAdminAccount(sql);
+
+    console.log('');
+    console.log('========================================');
+    console.log('✅ 数据库初始化完成');
+    console.log('========================================');
+
+  } catch (error) {
+    console.error('❌ 初始化失败:', (error as Error).message);
+    process.exit(1);
+  } finally {
+    await sql.end();
+  }
+}
+
+main();
