@@ -122,14 +122,14 @@ export async function GET(request: NextRequest) {
         AND cp.date <= ?
         AND c.budget_amount > 0
       GROUP BY c.id, c.campaign_name, c.budget_amount
-      HAVING spend_rate IS NOT NULL AND spend_rate > 120
+      HAVING ROUND(SUM(cp.cost) / NULLIF(c.budget_amount, 0) / ? * 100, 2) > 120
       ORDER BY spend_rate DESC
       LIMIT 3
     `
 
     const highCostCampaigns = await db.query(
       highCostQuery,
-      [days, userId, formatDate(startDate), formatDate(endDate)]
+      [days, userId, formatDate(startDate), formatDate(endDate), days]
     ) as Array<{
       id: number
       campaign_name: string
@@ -271,19 +271,34 @@ export async function GET(request: NextRequest) {
     })
 
     // 规则5: 检查长期未更新的Campaign
-    const staleQuery = `
-      SELECT
-        c.id,
-        c.campaign_name,
-        c.updated_at,
-        julianday('now') - julianday(c.updated_at) as days_since_update
-      FROM campaigns c
-      WHERE c.user_id = ?
-        AND c.status IN ('ENABLED', 'ACTIVE')
-        AND days_since_update > 30
-      ORDER BY days_since_update DESC
-      LIMIT 2
-    `
+    // 使用数据库兼容的日期计算方式
+    const staleQuery = db.type === 'postgres'
+      ? `
+        SELECT
+          c.id,
+          c.campaign_name,
+          c.updated_at,
+          EXTRACT(DAY FROM (CURRENT_TIMESTAMP - c.updated_at::timestamp)) as days_since_update
+        FROM campaigns c
+        WHERE c.user_id = ?
+          AND c.status IN ('ENABLED', 'ACTIVE')
+          AND EXTRACT(DAY FROM (CURRENT_TIMESTAMP - c.updated_at::timestamp)) > 30
+        ORDER BY days_since_update DESC
+        LIMIT 2
+      `
+      : `
+        SELECT
+          c.id,
+          c.campaign_name,
+          c.updated_at,
+          julianday('now') - julianday(c.updated_at) as days_since_update
+        FROM campaigns c
+        WHERE c.user_id = ?
+          AND c.status IN ('ENABLED', 'ACTIVE')
+          AND days_since_update > 30
+        ORDER BY days_since_update DESC
+        LIMIT 2
+      `
 
     const staleCampaigns = await db.query(staleQuery, [userId]) as Array<{
       id: number
