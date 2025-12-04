@@ -21,6 +21,7 @@
     "db:backup": "tsx scripts/backup-database.ts",
     "db:verify-settings": "tsx scripts/verify-database-settings.ts",
     "db:clean-settings": "tsx scripts/clean-database-settings.ts",
+    "admin:ensure": "tsx scripts/ensure-admin-account.ts",
     "validate-schema": "tsx scripts/validate-db-schema.ts",
     "type-check": "tsc --noEmit",
     "verify:google-ads": "tsx scripts/verify-google-ads-config.ts",
