@@ -11,6 +11,7 @@ import { getKeywordSearchVolumes } from './keyword-planner'
 import { generateContent, getGeminiMode } from './gemini'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'  // 🎯 新增：导入token追踪函数
+import { loadPrompt } from './prompt-loader'  // 🎯 v3.0: 导入数据库prompt加载函数
 
 // Keyword with search volume data
 // 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
@@ -230,8 +231,16 @@ Do NOT use English words or mix languages. Every single word must be in Swiss Ge
 /**
  * 生成广告创意的Prompt（优化版 - 减少40%+ token消耗）
  * 🎯 需求34: 新增 extractedElements 参数，包含从爬虫阶段提取的关键词、标题、描述
+ *
+ * @version v2.8 (2025-12-04)
+ * @changes P3优化 - badge徽章突出展示
+ *   - Headlines Brand: badge优先级提升，明确指令使用完整badge文本
+ *   - Callouts: badge改为P3 CRITICAL级别（与P2促销同级）
+ * @previous v2.7 - P2 promotion促销强化
+ *
+ * @previous v2.6 - P1优化（availability紧迫感 + primeEligible验证）
  */
-function buildAdCreativePrompt(
+async function buildAdCreativePrompt(
   offer: any,
   theme?: string,
   referencePerformance?: any,
@@ -247,32 +256,42 @@ function buildAdCreativePrompt(
     brandAnalysis?: { positioning?: string; voice?: string; competitors?: string[] }
     qualityScore?: number
   }
-): string {
-  // 基础产品信息（精简格式）
+): Promise<string> {
+  // 🎯 v3.0 REFACTOR: Load template from database (migration 056)
+  const promptTemplate = await loadPrompt('ad_creative_generation')
+
+  // Build variables map for simple substitution
+  // Build variables map for basic product information
   const targetLanguage = offer.target_language || 'English'
   const languageInstruction = getLanguageInstruction(targetLanguage)
 
-  let prompt = `${languageInstruction}
+  const variables: Record<string, string> = {
+    language_instruction: languageInstruction,
+    brand: offer.brand,
+    category: offer.category || 'product',
+    product_description: offer.brand_description || offer.unique_selling_points || 'Quality product',
+    unique_selling_points: offer.unique_selling_points || offer.product_highlights || 'Premium quality',
+    target_audience: offer.target_audience || 'General',
+    target_country: offer.target_country,
+    target_language: targetLanguage
+  }
 
-Generate Google Ads creative for ${offer.brand} (${offer.category || 'product'}).
-
-PRODUCT: ${offer.brand_description || offer.unique_selling_points || 'Quality product'}
-USPs: ${offer.unique_selling_points || offer.product_highlights || 'Premium quality'}
-AUDIENCE: ${offer.target_audience || 'General'}
-COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
-`
+  // Build conditional sections as complete strings
+  let enhanced_features_section = ''
+  let localization_section = ''
+  let brand_analysis_section = ''
 
   // 🎯 P0优化：使用增强产品信息
   if (extractedElements?.productInfo) {
     const { features, benefits, useCases } = extractedElements.productInfo
     if (features && features.length > 0) {
-      prompt += `\n**✨ ENHANCED FEATURES**: ${features.slice(0, 5).join(', ')}`
+      enhanced_features_section += `\n**✨ ENHANCED FEATURES**: ${features.slice(0, 5).join(', ')}`
     }
     if (benefits && benefits.length > 0) {
-      prompt += `\n**✨ KEY BENEFITS**: ${benefits.slice(0, 3).join(', ')}`
+      enhanced_features_section += `\n**✨ KEY BENEFITS**: ${benefits.slice(0, 3).join(', ')}`
     }
     if (useCases && useCases.length > 0) {
-      prompt += `\n**✨ USE CASES**: ${useCases.slice(0, 3).join(', ')}`
+      enhanced_features_section += `\n**✨ USE CASES**: ${useCases.slice(0, 3).join(', ')}`
     }
   }
 
@@ -280,13 +299,13 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
   if (extractedElements?.localization) {
     const { currency, culturalNotes, localKeywords } = extractedElements.localization
     if (currency) {
-      prompt += `\n**🌍 LOCAL CURRENCY**: ${currency}`
+      localization_section += `\n**🌍 LOCAL CURRENCY**: ${currency}`
     }
     if (culturalNotes && culturalNotes.length > 0) {
-      prompt += `\n**🌍 CULTURAL NOTES**: ${culturalNotes.join('; ')}`
+      localization_section += `\n**🌍 CULTURAL NOTES**: ${culturalNotes.join('; ')}`
     }
     if (localKeywords && localKeywords.length > 0) {
-      prompt += `\n**🌍 LOCAL KEYWORDS**: ${localKeywords.slice(0, 5).join(', ')}`
+      localization_section += `\n**🌍 LOCAL KEYWORDS**: ${localKeywords.slice(0, 5).join(', ')}`
     }
   }
 
@@ -294,17 +313,15 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
   if (extractedElements?.brandAnalysis) {
     const { positioning, voice, competitors } = extractedElements.brandAnalysis
     if (positioning) {
-      prompt += `\n**🏷️ BRAND POSITIONING**: ${positioning}`
+      brand_analysis_section += `\n**🏷️ BRAND POSITIONING**: ${positioning}`
     }
     if (voice) {
-      prompt += `\n**🏷️ BRAND VOICE**: ${voice}`
+      brand_analysis_section += `\n**🏷️ BRAND VOICE**: ${voice}`
     }
     if (competitors && competitors.length > 0) {
-      prompt += `\n**🏷️ KEY COMPETITORS**: ${competitors.slice(0, 3).join(', ')}`
+      brand_analysis_section += `\n**🏷️ KEY COMPETITORS**: ${competitors.slice(0, 3).join(', ')}`
     }
   }
-
-  prompt += '\n'
 
   // 🔥 P0优化：增强数据 - 添加真实折扣、促销、排名、徽章等爬虫抓取的数据
   const extras: string[] = []
@@ -314,12 +331,13 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
   let originalPrice = null
   let discount = null
 
-  if (offer.pricing) {
+  // 🔧 修复: 从scraped_data提取价格和折扣（offer.pricing已删除）
+  if (offer.scraped_data) {
     try {
-      const pricing = JSON.parse(offer.pricing)
-      currentPrice = pricing.current || pricing.price
-      originalPrice = pricing.original
-      discount = pricing.discount
+      const scrapedData = JSON.parse(offer.scraped_data)
+      currentPrice = scrapedData.productPrice
+      originalPrice = scrapedData.originalPrice
+      discount = scrapedData.discount
     } catch {}
   }
 
@@ -420,6 +438,19 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
   }
   if (reviewHighlights.length > 0) {
     extras.push(`REVIEW INSIGHTS: ${reviewHighlights.slice(0, 5).join(', ')}`)
+  }
+
+  // 🎯 P0优化: topReviews热门评论（真实用户引用）
+  let topReviews: string[] = []
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+      topReviews = scrapedData.topReviews || []
+    } catch {}
+  }
+  if (topReviews.length > 0) {
+    // 只使用前2条最优质评论（避免prompt过长）
+    extras.push(`TOP REVIEWS (Use for credibility): ${topReviews.slice(0, 2).join(' | ')}`)
   }
 
   // 🔥 P1-1+: 用户评论深度分析（增强版 - 充分利用所有评论分析字段）
@@ -614,12 +645,14 @@ COUNTRY: ${offer.target_country} | LANGUAGE: ${targetLanguage}
     }
   }
 
-  if (extras.length) prompt += '\n' + extras.join(' | ') + '\n'
+  // Build extras_data section
+  variables.extras_data = extras.length ? '\n' + extras.join(' | ') + '\n' : ''
 
-  // 🔥 构建促销信息section（v2.1新增）
+  // 🔥 Build promotion_section（v2.1新增）
+  let promotion_section = ''
   if (activePromotions.length > 0) {
     const mainPromo = activePromotions[0]
-    prompt += `\n🔥 **CRITICAL PROMOTION EMPHASIS**:
+    promotion_section = `\n🔥 **CRITICAL PROMOTION EMPHASIS**:
 This product has ${activePromotions.length} active promotion(s). YOU MUST highlight these in your creative:
 
 **MAIN PROMOTION**: ${mainPromo.description}${mainPromo.code ? ` (Code: ${mainPromo.code})` : ''}
@@ -635,10 +668,10 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 
     if (activePromotions.length > 1) {
       const secondaryPromo = activePromotions[1]
-      prompt += `\n**SECONDARY PROMOTION**: ${secondaryPromo.description}${secondaryPromo.code ? ` (Code: ${secondaryPromo.code})` : ''}\n`
+      promotion_section += `\n**SECONDARY PROMOTION**: ${secondaryPromo.description}${secondaryPromo.code ? ` (Code: ${secondaryPromo.code})` : ''}\n`
     }
 
-    prompt += `
+    promotion_section += `
 **PROMOTION CREATIVE EXAMPLES**:
 - Headline: "Get 20% Off - Use Code ${mainPromo.code || 'SAVE20'} | ${offer.brand}"
 - Headline: "${offer.brand} - Limited Time Offer | Shop Now"
@@ -650,23 +683,29 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 
 `
   }
+  variables.promotion_section = promotion_section
 
-  // 主题要求（精简版）
+  // Build theme_section
+  let theme_section = ''
   if (theme) {
-    prompt += `\n**THEME: ${theme}** - All content must reflect this theme. 60%+ headlines should directly embody theme.\n`
+    theme_section = `\n**THEME: ${theme}** - All content must reflect this theme. 60%+ headlines should directly embody theme.\n`
   }
+  variables.theme_section = theme_section
 
-  // 历史表现参考（精简版）
+  // Build reference_performance_section
+  let reference_performance_section = ''
   if (referencePerformance) {
     if (referencePerformance.best_headlines?.length) {
-      prompt += `TOP HEADLINES: ${referencePerformance.best_headlines.slice(0, 3).join(', ')}\n`
+      reference_performance_section += `TOP HEADLINES: ${referencePerformance.best_headlines.slice(0, 3).join(', ')}\n`
     }
     if (referencePerformance.top_keywords?.length) {
-      prompt += `TOP KEYWORDS: ${referencePerformance.top_keywords.slice(0, 5).join(', ')}\n`
+      reference_performance_section += `TOP KEYWORDS: ${referencePerformance.top_keywords.slice(0, 5).join(', ')}\n`
     }
   }
+  variables.reference_performance_section = reference_performance_section
 
-  // 🎯 需求34: 提取的广告元素作为参考（从爬虫阶段获取）
+  // 🎯 Build extracted_elements_section
+  let extracted_elements_section = ''
   if (extractedElements) {
     if (extractedElements.keywords && extractedElements.keywords.length > 0) {
       const topKeywords = extractedElements.keywords
@@ -674,314 +713,261 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
         .slice(0, 10)
         .map(k => `"${k.keyword}" (${k.searchVolume}/mo, ${k.source})`)
       if (topKeywords.length > 0) {
-        prompt += `\n**EXTRACTED KEYWORDS** (from product data, validated by Keyword Planner):\n${topKeywords.join(', ')}\n`
+        extracted_elements_section += `\n**EXTRACTED KEYWORDS** (from product data, validated by Keyword Planner):\n${topKeywords.join(', ')}\n`
       }
     }
 
     if (extractedElements.headlines && extractedElements.headlines.length > 0) {
-      prompt += `\n**EXTRACTED HEADLINES** (from product titles, ≤30 chars):\n${extractedElements.headlines.slice(0, 5).join(', ')}\n`
+      extracted_elements_section += `\n**EXTRACTED HEADLINES** (from product titles, ≤30 chars):\n${extractedElements.headlines.slice(0, 5).join(', ')}\n`
     }
 
     if (extractedElements.descriptions && extractedElements.descriptions.length > 0) {
-      prompt += `\n**EXTRACTED DESCRIPTIONS** (from product features, ≤90 chars):\n${extractedElements.descriptions.slice(0, 2).join('; ')}\n`
+      extracted_elements_section += `\n**EXTRACTED DESCRIPTIONS** (from product features, ≤90 chars):\n${extractedElements.descriptions.slice(0, 2).join('; ')}\n`
     }
 
-    prompt += `\n**INSTRUCTION**: Use above extracted elements as reference. You can refine, expand, or create variations, but prioritize extracted keywords (they have real search volume). Generate complete 15 headlines and 4 descriptions as required.\n`
+    extracted_elements_section += `\n**INSTRUCTION**: Use above extracted elements as reference. You can refine, expand, or create variations, but prioritize extracted keywords (they have real search volume). Generate complete 15 headlines and 4 descriptions as required.\n`
   }
+  variables.extracted_elements_section = extracted_elements_section
 
-  // 核心要求（增强版 - 指导如何使用真实数据）
-  prompt += `
-## REQUIREMENTS (Target: EXCELLENT Ad Strength)
+  // Build all dynamic guidance sections
+  variables.headline_brand_guidance = buildHeadlineBrandGuidance(badge, salesRank, offer, hotInsights, topProducts, sentimentDistribution, averageRating)
+  variables.headline_feature_guidance = buildHeadlineFeatureGuidance(technicalDetails, reviewHighlights, commonPraises, topPositiveKeywords)
+  variables.headline_promo_guidance = buildHeadlinePromoGuidance(discount, activePromotions)
+  variables.headline_cta_guidance = buildHeadlineCTAGuidance(primeEligible, purchaseReasons)
+  variables.headline_urgency_guidance = buildHeadlineUrgencyGuidance(availability)
 
-### HEADLINES (15 required, ≤30 chars each)
-**FIRST HEADLINE (MANDATORY)**: "{KeyWord:${offer.brand}} Official" - If this exceeds 30 characters, use "{KeyWord:${offer.brand}}" without "Official"
-**⚠️ CRITICAL**: ONLY the first headline can use {KeyWord:...} format. All other 14 headlines MUST NOT contain {KeyWord:...} or any DKI syntax.
+  variables.description_1_guidance = buildDescription1Guidance(badge, salesRank)
+  variables.description_2_guidance = buildDescription2Guidance(primeEligible, activePromotions)
+  variables.description_3_guidance = buildDescription3Guidance(useCases, userProfiles)
+  variables.description_4_guidance = buildDescription4Guidance(topReviews, hotInsights, topProducts, sentimentDistribution, totalReviews, averageRating)
 
-**🎯 DIVERSITY REQUIREMENT (CRITICAL)**:
-- Maximum 20% text similarity between ANY two headlines
-- Each headline must have a UNIQUE angle, focus, or emotional trigger
-- NO headline should repeat more than 2 words from another headline
-- Each headline should use DIFFERENT primary keywords or features
-- Vary sentence structure: statements, questions, commands, exclamations
-- Use DIFFERENT emotional triggers: trust, urgency, value, curiosity, exclusivity, social proof
+  variables.review_data_summary = buildReviewDataSummary(reviewHighlights, commonPraises, topPositiveKeywords, commonPainPoints)
 
-Remaining 14 headlines - Types (must cover all 5):
-- Brand (2): ${badge ? `Use BADGE if available (e.g., "${badge} Brand")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: For stores with hot products, create "Best Seller Collection" headlines featuring top products (e.g., "Best ${topProducts[0]?.split(' ').slice(0, 2).join(' ')} Collection")` : ''}${sentimentDistribution && sentimentDistribution.positive >= 80 ? `. **SOCIAL PROOF**: Use high approval rate: "${sentimentDistribution.positive}% Love It", "Rated ${averageRating} Stars"` : ''}
+  variables.callout_guidance = buildCalloutGuidance(salesRank, primeEligible, availability, badge, activePromotions)
+  variables.exclude_keywords_section = excludeKeywords?.length ? `- 已用关键词: ${excludeKeywords.slice(0, 10).join(', ')}` : ''
+
+  // Build competitive_guidance_section
+  let competitive_guidance_section = ''
+  if (offer.competitor_analysis) {
+    try {
+      const compAnalysis = JSON.parse(offer.competitor_analysis)
+      competitive_guidance_section = buildCompetitiveGuidance(compAnalysis)
+    } catch {}
+  }
+  variables.competitive_guidance_section = competitive_guidance_section
+
+  // Substitute all placeholders and return
+  return substitutePlaceholders(promptTemplate, variables)
+}
+
+/**
+ * Helper functions to build dynamic guidance sections
+ */
+function buildHeadlineBrandGuidance(badge: string | null, salesRank: string | null, offer: any, hotInsights: any, topProducts: string[], sentimentDistribution: any, averageRating: number): string {
+  return `- Brand (2): ${badge ? `🎯 **P3 CRITICAL - MUST use complete BADGE text**: "${badge}" (e.g., "${badge} | ${offer.brand}", "${badge} - Trusted Quality")` : '"Trusted Brand"'}, ${salesRank ? `Use SALES RANK if available (e.g., "#1 Best Seller")` : `"#1 ${offer.category || 'Choice'}"`}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: For stores with hot products, create "Best Seller Collection" headlines featuring top products (e.g., "Best ${topProducts[0]?.split(' ').slice(0, 2).join(' ')} Collection")` : ''}${sentimentDistribution && sentimentDistribution.positive >= 80 ? `. **SOCIAL PROOF**: Use high approval rate: "${sentimentDistribution.positive}% Love It", "Rated ${averageRating} Stars"` : ''}
   * IMPORTANT: Make these 2 brand headlines COMPLETELY DIFFERENT in focus and wording
   * Example 1: "Official ${offer.brand} Store" (trust focus)
   * Example 2: "#1 Trusted ${offer.brand}" (social proof focus)
   * ❌ AVOID: "Official ${offer.brand}", "Official ${offer.brand} Brand" (too similar)
+`
+}
 
-- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}${commonPraises.length > 0 ? `. **USER PRAISES**: Use authentic features: ${commonPraises.slice(0, 2).join(', ')}` : ''}${topPositiveKeywords.length > 0 ? `. **POSITIVE KEYWORDS**: Incorporate high-frequency praise words: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}` : ''}
+function buildHeadlineFeatureGuidance(technicalDetails: Record<string, string>, reviewHighlights: string[], commonPraises: string[], topPositiveKeywords: Array<{keyword: string; frequency: number}>): string {
+  return `- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}${commonPraises.length > 0 ? `. **USER PRAISES**: Use authentic features: ${commonPraises.slice(0, 2).join(', ')}` : ''}${topPositiveKeywords.length > 0 ? `. **POSITIVE KEYWORDS**: Incorporate high-frequency praise words: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}` : ''}
   * IMPORTANT: Each of the 4 feature headlines must focus on a DIFFERENT feature or benefit
   * Example 1: "4K Resolution Display" (technical spec)
   * Example 2: "Extended Battery Life" (performance benefit)
   * Example 3: "Smart Navigation System" (functionality)
   * Example 4: "Eco-Friendly Design" (sustainability)
   * ❌ AVOID: "4K Display", "4K Resolution", "High Resolution" (too similar)
+`
+}
 
-- Promo (3): ${discount || activePromotions.length > 0 ? `MUST use real DISCOUNT/PROMOTION data: ${discount ? `"${discount}"` : ''}${activePromotions.length > 0 ? ` or "${activePromotions[0].description}"` : ''}` : 'Numbers/% required - "Save 40%", "$50 Off"'}
+function buildHeadlinePromoGuidance(discount: string | null, activePromotions: any[]): string {
+  return `- Promo (3): ${discount ? `🎯 **P0 OPTIMIZATION**: MUST use real DISCOUNT in headline: "${discount}" ${(() => { const match = discount.match(/(\d+)%/); return match && parseInt(match[1]) > 15 ? '(>15% discount - MUST highlight in headline!)' : ''; })()}` : ''}${activePromotions.length > 0 ? ` MUST use PROMO: "${activePromotions[0].description}"` : discount ? '' : 'Numbers/% required - "Save 40%", "$50 Off"'}
+  * 🎯 **P0 CRITICAL**: If discount >15%, at least ONE headline MUST explicitly mention the discount percentage
   * IMPORTANT: Each promo headline must use a DIFFERENT promotional angle
   * Example 1: "Save 40% Today" (discount focus)
   * Example 2: "$100 Off This Week" (amount focus)
   * Example 3: "Limited Time Offer" (urgency focus)
   * ❌ AVOID: "Save 40%", "40% Off", "40% Discount" (too similar)
+`
+}
 
-- CTA (3): "Shop Now", "Get Yours Today"${primeEligible ? ', "Prime Eligible"' : ''}${purchaseReasons.length > 0 ? `. **WHY BUY**: Incorporate purchase motivations: ${purchaseReasons.slice(0, 2).join(', ')}` : ''}
+function buildHeadlineCTAGuidance(primeEligible: boolean, purchaseReasons: string[]): string {
+  return `- CTA (3): "Shop Now", "Get Yours Today"${primeEligible ? ', "Prime Eligible"' : ''}${purchaseReasons.length > 0 ? `. **WHY BUY**: Incorporate purchase motivations: ${purchaseReasons.slice(0, 2).join(', ')}` : ''}
   * IMPORTANT: Each CTA headline must use a DIFFERENT call-to-action verb or angle
   * Example 1: "Shop Now" (direct action)
   * Example 2: "Get Yours Today" (possession focus)
   * Example 3: "Claim Your Deal" (exclusivity focus)
   * ❌ AVOID: "Shop Now", "Shop Today", "Buy Now" (too similar)
+`
+}
 
-- Urgency (2): ${availability && availability.includes('left') ? `Use real STOCK data: "${availability}"` : '"Limited Time", "Ends Soon"'}
+function buildHeadlineUrgencyGuidance(availability: string | null): string {
+  let urgencyText = '"Limited Time", "Ends Soon"'
+  if (availability) {
+    const stockMatch = availability.match(/(\d+)\s*left/i)
+    if (stockMatch) {
+      const stockLevel = parseInt(stockMatch[1])
+      if (stockLevel < 10) {
+        urgencyText = `🎯 **P1 CRITICAL - MUST use real STOCK data**: "${availability}" (Low stock detected: ${stockLevel} units)`
+      }
+    }
+    const lowStockKeywords = ['low stock', 'limited quantity', 'almost gone', 'running low', 'few left']
+    const hasLowStockKeyword = lowStockKeywords.some(kw => availability.toLowerCase().includes(kw))
+    if (hasLowStockKeyword) {
+      urgencyText = `🎯 **P1 CRITICAL - MUST use URGENCY**: "${availability}" or "Limited Stock - Act Fast"`
+    }
+  }
+
+  return `- Urgency (2): ${urgencyText}
+  * 🎯 **P1 CRITICAL**: If stock < 10 units OR low stock keywords detected, at least ONE headline MUST create urgency
   * IMPORTANT: Each urgency headline must use a DIFFERENT urgency signal
-  * Example 1: "Only 5 Left in Stock" (scarcity focus)
-  * Example 2: "Ends Tomorrow" (time limit focus)
+  * Example 1: "Only 5 Left in Stock" (scarcity focus - numeric stock)
+  * Example 2: "Limited Stock - Act Fast" (urgency focus - low stock keyword)
+  * Example 3: "Ends Tomorrow" (time limit focus - fallback)
   * ❌ AVOID: "Limited Stock", "Limited Time", "Limited Offer" (too similar)
+`
+}
 
-Length distribution: 5 short(10-20), 5 medium(20-25), 5 long(25-30)
-Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarity between ANY two headlines
-
-### DESCRIPTIONS (4 required, ≤90 chars each)
-**UNIQUENESS REQUIREMENT**: Each description MUST be DISTINCT in focus and wording
-**🎯 DIVERSITY REQUIREMENT (CRITICAL)**:
-- Maximum 20% text similarity between ANY two descriptions
-- Each description must have a COMPLETELY DIFFERENT focus and angle
-- NO description should repeat more than 2 words from another description
-- Use DIFFERENT emotional triggers and value propositions
-- Vary the structure: benefit-focused, action-focused, feature-focused, proof-focused
-
-- **Description 1 (Value-Driven)**: Lead with the PRIMARY benefit or competitive advantage${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}
+function buildDescription1Guidance(badge: string | null, salesRank: string | null): string {
+  return `- **Description 1 (Value-Driven)**: Lead with the PRIMARY benefit or competitive advantage${badge ? `. MUST mention BADGE: "${badge}"` : ''}${salesRank ? `. MUST mention SALES RANK` : ''}
   * Focus: What makes this product/brand special (unique value proposition)
   * Example: "Award-Winning Tech. Rated 4.8 stars by 50K+ Happy Customers."
   * ❌ AVOID: Repeating "shop", "buy", "get" from other descriptions
+`
+}
 
-- **Description 2 (Action-Oriented)**: Strong CTA with immediate incentive${primeEligible ? ' + Prime eligibility' : ''}
+function buildDescription2Guidance(primeEligible: boolean, activePromotions: any[]): string {
+  return `- **Description 2 (Action-Oriented)**: Strong CTA with immediate incentive${primeEligible ? ' + Prime eligibility' : ''}${activePromotions.length > 0 ? `. 🎯 **P2 CRITICAL**: MUST mention promotion "${activePromotions[0].description}"${activePromotions[0].code ? ` with code "${activePromotions[0].code}"` : ''}. Example: "Save ${activePromotions[0].description} - Shop Now!"` : ''}
   * Focus: Urgency + convenience + trust signal (action-focused)
   * Example: "Shop Now for Fast, Free Delivery. Easy Returns Guaranteed."
   * ❌ AVOID: Using the same CTA verb as Description 1 or 3
+`
+}
 
-- **Description 3 (Feature-Rich)**: Specific product features or use cases${useCases.length > 0 ? `. **USE CASES**: Reference real scenarios: ${useCases.slice(0, 2).join(', ')}` : ''}${userProfiles.length > 0 ? `. **TARGET PERSONAS**: Speak to: ${userProfiles.slice(0, 2).map(p => p.profile).join(', ')}` : ''}
+function buildDescription3Guidance(useCases: string[], userProfiles: Array<{profile: string; indicators?: string[]}>): string {
+  return `- **Description 3 (Feature-Rich)**: Specific product features or use cases${useCases.length > 0 ? `. **USE CASES**: Reference real scenarios: ${useCases.slice(0, 2).join(', ')}` : ''}${userProfiles.length > 0 ? `. **TARGET PERSONAS**: Speak to: ${userProfiles.slice(0, 2).map(p => p.profile).join(', ')}` : ''}
   * Focus: Technical specs, capabilities, or versatility (feature-focused)
   * Example: "4K Resolution. Solar Powered. Works Rain or Shine."
   * ❌ AVOID: Mentioning "award", "rated", "trusted" from other descriptions
-
-- **Description 4 (Trust + Social Proof)**: Customer validation or support${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)} stars from ${hotInsights.avgReviews}+ reviews)` : ''}${sentimentDistribution && totalReviews > 0 ? `. **SOCIAL PROOF DATA**: ${sentimentDistribution.positive}% positive from ${totalReviews} reviews${averageRating ? `, ${averageRating} stars` : ''}` : ''}
-  * Focus: Reviews, ratings, guarantees, customer service (proof-focused)
-  * Example: "Trusted by 100K+ Buyers. 30-Day Money-Back Promise."
-  * ❌ AVOID: Repeating "fast", "free", "easy" from other descriptions
-
-**CRITICAL DIVERSITY CHECKLIST**:
-- ✓ Description 1 focuses on VALUE (what makes it special)
-- ✓ Description 2 focuses on ACTION (what to do now)
-- ✓ Description 3 focuses on FEATURES (what it can do)
-- ✓ Description 4 focuses on PROOF (why to trust it)
-- ✓ Each uses DIFFERENT keywords and phrases
-- ✓ Each has a DIFFERENT emotional trigger
-- ✓ Maximum 20% similarity between any two descriptions
-**LEVERAGE DATA**:${reviewHighlights.length > 0 ? ` Review insights: ${reviewHighlights.slice(0, 3).join(', ')}` : ''}${commonPraises.length > 0 ? ` User praises: ${commonPraises.slice(0, 2).join(', ')}` : ''}${topPositiveKeywords.length > 0 ? ` Positive keywords: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}` : ''}${commonPainPoints.length > 0 ? ` (Address pain points indirectly - don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}` : ''}
 `
+}
 
-  // 🔥 P0优化：添加竞品分析利用指导（仅当有竞品分析数据时）
-  if (offer.competitor_analysis) {
-    try {
-      const compAnalysis = JSON.parse(offer.competitor_analysis)
-      let competitiveGuidance = '\n**🎯 COMPETITIVE POSITIONING GUIDANCE (CRITICAL - Use competitor analysis data)**:\n'
+function buildDescription4Guidance(topReviews: string[], hotInsights: any, topProducts: string[], sentimentDistribution: any, totalReviews: number, averageRating: number): string {
+  return `- **Description 4 (Trust + Social Proof)**: Customer validation or support${topReviews.length > 0 ? `. 🎯 **P0 OPTIMIZATION - TOP REVIEWS**: MUST quote 1-2 real customer reviews for credibility: ${topReviews.slice(0, 2).map(r => `"${r.length > 50 ? r.substring(0, 47) + '...' : r}"`).join(' or ')}` : ''}${hotInsights && topProducts.length > 0 ? `. **STORE SPECIAL**: Mention product variety and quality (Avg: ${hotInsights.avgRating.toFixed(1)} stars from ${hotInsights.avgReviews}+ reviews)` : ''}${sentimentDistribution && totalReviews > 0 ? `. **SOCIAL PROOF DATA**: ${sentimentDistribution.positive}% positive from ${totalReviews} reviews${averageRating ? `, ${averageRating} stars` : ''}` : ''}
+  * 🎯 **P0 CRITICAL**: If TOP REVIEWS available, incorporate authentic customer quotes for credibility (keep ≤90 chars)
+  * Focus: Reviews, ratings, guarantees, customer service (proof-focused)
+  * Example with review: "Works perfectly!" - 5★ Review. Trusted by 10K+ Buyers.
+  * Example without review: "Trusted by 100K+ Buyers. 30-Day Money-Back Promise."
+  * ❌ AVOID: Repeating "fast", "free", "easy" from other descriptions
+`
+}
 
-      // 价格优势指导
-      if (compAnalysis.pricePosition && compAnalysis.pricePosition.priceAdvantage === 'below_average') {
-        competitiveGuidance += `- **PRICE ADVANTAGE**: Emphasize value and affordability. Use phrases like "Best Value", "Affordable Premium", "Save vs Competitors"\n`
+function buildReviewDataSummary(reviewHighlights: string[], commonPraises: string[], topPositiveKeywords: Array<{keyword: string; frequency: number}>, commonPainPoints: string[]): string {
+  const parts: string[] = []
+  if (reviewHighlights.length > 0) parts.push(`Review insights: ${reviewHighlights.slice(0, 3).join(', ')}`)
+  if (commonPraises.length > 0) parts.push(`User praises: ${commonPraises.slice(0, 2).join(', ')}`)
+  if (topPositiveKeywords.length > 0) parts.push(`Positive keywords: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}`)
+  if (commonPainPoints.length > 0) parts.push(`(Address pain points indirectly - don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}`)
+  return parts.length > 0 ? parts.join('; ') : ''
+}
+
+function buildCalloutGuidance(salesRank: string | null, primeEligible: boolean, availability: string | null, badge: string | null, activePromotions: any[]): string {
+  const parts: string[] = []
+
+  if (salesRank) {
+    const rankMatch = salesRank.match(/#(\d+,?\d*)/)
+    if (rankMatch) {
+      const rankNum = parseInt(rankMatch[1].replace(/,/g, ''))
+      if (rankNum < 100) {
+        parts.push(`- 🎯 **P0 CRITICAL - MUST include**: "Best Seller" or "#1 in Category" or "Top Rated" (salesRank ${salesRank} indicates top product)`)
       }
-
-      // 独特卖点指导
-      if (compAnalysis.uniqueSellingPoints && compAnalysis.uniqueSellingPoints.length > 0) {
-        const usps = compAnalysis.uniqueSellingPoints.filter((u: any) => u.significance === 'high')
-        if (usps.length > 0) {
-          competitiveGuidance += `- **UNIQUE ADVANTAGES**: Highlight these differentiators that competitors DON'T have:\n`
-          usps.forEach((u: any) => {
-            competitiveGuidance += `  * "${u.usp}" - ${u.differentiator}\n`
-          })
-        }
-      }
-
-      // 应对策略指导
-      if (compAnalysis.competitorAdvantages && compAnalysis.competitorAdvantages.length > 0) {
-        competitiveGuidance += `- **COUNTER COMPETITOR STRENGTHS**: Apply these positioning strategies:\n`
-        compAnalysis.competitorAdvantages.slice(0, 2).forEach((a: any) => {
-          competitiveGuidance += `  * vs "${a.advantage}" → ${a.howToCounter}\n`
-        })
-      }
-
-      // 竞争特性指导
-      if (compAnalysis.featureComparison) {
-        const ourAdvantages = compAnalysis.featureComparison.filter((f: any) => f.weHave && f.ourAdvantage)
-        if (ourAdvantages.length > 0) {
-          competitiveGuidance += `- **COMPETITIVE FEATURES**: Emphasize these features where we lead:\n`
-          ourAdvantages.slice(0, 3).forEach((f: any) => {
-            competitiveGuidance += `  * ${f.feature}\n`
-          })
-        }
-      }
-
-      prompt += competitiveGuidance
-    } catch {}
+    }
   }
 
-  prompt += `
+  parts.push(primeEligible ? '- **MUST include**: "Prime Free Shipping"' : '- Free Shipping')
 
-### KEYWORDS (20-30 required)
-**🎯 关键词生成策略（重要！确保高搜索量关键词优先）**:
-**⚠️ 强制约束：所有关键词必须使用目标语言 ${offer.target_language || 'English'}，不能使用英文！**
+  if (availability && !availability.toLowerCase().includes('out of stock')) {
+    parts.push('- **MUST include**: "In Stock Now"')
+  }
 
-**第一优先级 - 品牌短尾词 (必须生成8-10个)**:
-- 格式: [品牌名] + [产品核心词]（2-3个单词）
-- ✅ 必须包含的品牌短尾词（基于 ${offer.brand}）:
-  - "${offer.brand} ${offer.category || 'products'}"（品牌+品类）
-  - "${offer.brand} official"（品牌+官方）
-  - "${offer.brand} store"（品牌+商店）
-  - "${offer.brand} [型号/系列]"（如有型号信息）
-  - "${offer.brand} buy"（品牌+购买）
-  - "${offer.brand} price"（品牌+价格）
-  - "${offer.brand} review"（品牌+评测）
-  - "${offer.brand} [主要特性]"（品牌+特性）
-- ✅ 示例 (英文): "eufy robot vacuum", "eufy c20", "eufy cleaner", "eufy official", "eufy buy", "eufy price"
-- ✅ 示例 (意大利语): "eufy robot aspirapolvere", "eufy c20", "eufy pulitore", "eufy ufficiale", "eufy acquista", "eufy prezzo"
-- ❌ 避免: 仅品牌名单词（过于宽泛）
+  if (badge) {
+    parts.push(`- 🎯 **P3 CRITICAL - MUST include**: "${badge}"`)
+  }
 
-**第二优先级 - 产品核心词 (必须生成6-8个)**:
-- 格式: [产品功能] + [类别]（2-3个单词）
-- ✅ 示例 (英文): "robot vacuum mop", "self emptying vacuum", "cordless vacuum cleaner", "smart vacuum", "app controlled vacuum"
-- ✅ 示例 (意大利语): "robot aspirapolvere e lavapavimenti", "aspirapolvere svuotamento automatico", "aspirapolvere senza fili", "aspirapolvere intelligente", "aspirapolvere controllata da app"
-- ✅ 为什么优秀: 高搜索量（通常5000-50000/月），匹配用户搜索意图
+  if (activePromotions.length > 0) {
+    parts.push(`- 🎯 **P2 CRITICAL - MUST include**: Promotion callout (e.g., "${activePromotions[0].description.substring(0, 22)}..." or "Limited Deal")`)
+  }
 
-**第三优先级 - 购买意图词 (必须生成3-5个)**:
-- 格式: [购买动词] + [品牌/产品]
-- ✅ 示例 (英文): "buy ${offer.brand}", "shop ${offer.brand}", "best ${offer.brand} price", "${offer.brand} deals", "where to buy ${offer.brand}"
-- ✅ 示例 (意大利语): "acquista ${offer.brand}", "negozio ${offer.brand}", "miglior prezzo ${offer.brand}", "offerte ${offer.brand}", "dove acquistare ${offer.brand}"
+  parts.push('- 24/7 Support, Money Back Guarantee, etc.')
 
-**第四优先级 - 长尾精准词 (必须生成3-7个)**:
-- 格式: [具体场景] + [产品]（3-5个单词）
-- ✅ 示例 (英文): "best robot vacuum for pet hair", "robot vacuum for hardwood floors", "quiet robot vacuum", "robot vacuum with mop"
-- ✅ 示例 (意大利语): "miglior aspirapolvere per peli di animali", "aspirapolvere per pavimenti in legno", "aspirapolvere silenzioso", "aspirapolvere con funzione lavapavimenti"
-- ⚠️ 注意: 长尾词可以超过总关键词数的25%
+  return parts.join('\n')
+}
 
-**🔴 强制语言要求**:
-- 关键词必须使用目标语言 ${offer.target_language || 'English'}
-- 如果目标语言是意大利语，所有关键词必须是意大利语
-- 如果目标语言是西班牙语，所有关键词必须是西班牙语
-- 不能混合使用英文和目标语言
-- 不能使用英文关键词
-**质量要求**:
-- 每个关键词2-4个单词（最优搜索量范围）
-- 关键词总数: 20-30个
-- 搜索量目标: 品牌词>1000/月，核心词>500/月，长尾词>100/月
-**🚫 禁止**:
-- 无意义词: "unknown", "null", "undefined"
-- 单一通用词: "camera", "phone", "vacuum"
-- 与${offer.brand}无关的关键词
-${excludeKeywords?.length ? `- 已用关键词: ${excludeKeywords.slice(0, 10).join(', ')}` : ''}
+function buildCompetitiveGuidance(compAnalysis: any): string {
+  let guidance = '\n**🎯 COMPETITIVE POSITIONING GUIDANCE (CRITICAL - Use competitor analysis data)**:\n'
 
-### CALLOUTS (4-6, ≤25 chars)
-${primeEligible ? '- **MUST include**: "Prime Free Shipping"' : '- Free Shipping'}
-${availability && !availability.toLowerCase().includes('out of stock') ? '- **MUST include**: "In Stock Now"' : ''}
-${badge ? `- **MUST include**: "${badge}"` : ''}
-- 24/7 Support, Money Back Guarantee, etc.
+  if (compAnalysis.pricePosition && compAnalysis.pricePosition.priceAdvantage === 'below_average') {
+    guidance += `- **PRICE ADVANTAGE**: Emphasize value and affordability. Use phrases like "Best Value", "Affordable Premium", "Save vs Competitors"\n`
+  }
 
-### SITELINKS (6): text≤25, desc≤35, url="/" (auto-replaced)
-- **REQUIREMENT**: Each sitelink must have a UNIQUE, compelling description
-- Focus on different product features, benefits, or use cases
-- Avoid repeating similar phrases across sitelinks
-- Examples: "Free 2-Day Prime Delivery", "30-Day Money Back Promise", "Expert Tech Support 24/7"
+  if (compAnalysis.uniqueSellingPoints && compAnalysis.uniqueSellingPoints.length > 0) {
+    const usps = compAnalysis.uniqueSellingPoints.filter((u: any) => u.significance === 'high')
+    if (usps.length > 0) {
+      guidance += `- **UNIQUE ADVANTAGES**: Highlight these differentiators that competitors DON'T have:\n`
+      usps.forEach((u: any) => {
+        guidance += `  * "${u.usp}" - ${u.differentiator}\n`
+      })
+    }
+  }
 
-## FORBIDDEN CONTENT:
-**❌ Prohibited Words**: "100%", "best", "guarantee", "miracle", ALL CAPS abuse
-**❌ Prohibited Symbols (Google Ads Policy)**: ★ ☆ ⭐ 🌟 ✨ © ® ™ • ● ◆ ▪ → ← ↑ ↓ ✓ ✔ ✗ ✘ ❤ ♥ ⚡ 🔥 💎 👍 👎
-  * Use text alternatives instead: "stars" or "star rating" instead of ★
-  * Use "Rated 4.8 stars" NOT "4.8★"
-  * Use "Top Choice" NOT "Top Choice ✓"
-**❌ Excessive Punctuation**: "!!!", "???", "...", repeated exclamation marks
+  if (compAnalysis.competitorAdvantages && compAnalysis.competitorAdvantages.length > 0) {
+    guidance += `- **COUNTER COMPETITOR STRENGTHS**: Apply these positioning strategies:\n`
+    compAnalysis.competitorAdvantages.slice(0, 2).forEach((a: any) => {
+      guidance += `  * vs "${a.advantage}" → ${a.howToCounter}\n`
+    })
+  }
 
-## OUTPUT (JSON only, no markdown):
-{
-  "headlines": [{"text":"...", "type":"brand|feature|promo|cta|urgency", "length":N, "keywords":[], "hasNumber":bool, "hasUrgency":bool}...],
-  "descriptions": [{"text":"...", "type":"value|cta", "length":N, "hasCTA":bool, "keywords":[]}...],
-  "keywords": ["..."],
-  "callouts": ["..."],
-  "sitelinks": [{"text":"...", "url":"/", "description":"..."}],
-  "theme": "...",
-  "quality_metrics": {"headline_diversity_score":N, "keyword_relevance_score":N, "estimated_ad_strength":"EXCELLENT"}
-}`
+  if (compAnalysis.featureComparison) {
+    const ourAdvantages = compAnalysis.featureComparison.filter((f: any) => f.weHave && f.ourAdvantage)
+    if (ourAdvantages.length > 0) {
+      guidance += `- **COMPETITIVE FEATURES**: Emphasize these features where we lead:\n`
+      ourAdvantages.slice(0, 3).forEach((f: any) => {
+        guidance += `  * ${f.feature}\n`
+      })
+    }
+  }
 
-  return prompt
+  return guidance
 }
 
 /**
- * 使用Vertex AI生成广告创意
+ * Substitute placeholders in template with actual values
  */
-async function generateWithVertexAI(
-  config: NonNullable<AIConfig['vertexAI']>,
-  prompt: string
-): Promise<GeneratedAdCreativeData> {
-  const { VertexAI } = await import('@google-cloud/vertexai')
-
-  const vertexAI = new VertexAI({
-    project: config.projectId,
-    location: config.location,
-  })
-
-  const model = vertexAI.getGenerativeModel({
-    model: config.model,
-  })
-
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.9,
-      topP: 0.95,
-      maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
-    },
-  })
-
-  const response = result.response
-  const text = response.candidates?.[0]?.content?.parts?.[0]?.text || ''
-
-  // 调试信息：检查响应是否被截断
-  const finishReason = response.candidates?.[0]?.finishReason
-  console.log(`🔍 Vertex AI finishReason: ${finishReason}`)
-  if (finishReason === 'MAX_TOKENS') {
-    console.warn('⚠️ 响应因达到token上限而被截断!')
+function substitutePlaceholders(template: string, variables: Record<string, string>): string {
+  let result = template
+  for (const [key, value] of Object.entries(variables)) {
+    const placeholder = `{{${key}}}`
+    result = result.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value)
   }
-
-  return parseAIResponse(text)
+  return result
 }
 
 /**
- * 使用Gemini API生成广告创意
+ * AI广告创意生成器原有函数继续
+ * 以下是 parseAIResponse 及其他函数...
  */
-async function generateWithGeminiAPI(
-  config: NonNullable<AIConfig['geminiAPI']>,
-  prompt: string
-): Promise<GeneratedAdCreativeData> {
-  const { GoogleGenerativeAI } = await import('@google/generative-ai')
-
-  const genAI = new GoogleGenerativeAI(config.apiKey)
-  const model = genAI.getGenerativeModel({ model: config.model })
-
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.9,
-      topP: 0.95,
-      maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
-    },
-  })
-
-  const response = result.response
-  const text = response.text()
-
-  return parseAIResponse(text)
+async function oldBuildAdCreativePrompt_DELETED_v2_8(offer: any, theme?: string, referencePerformance?: any, excludeKeywords?: string[], extractedElements?: any): Promise<string> {
+  // 这个函数已经被重构为上面的 buildAdCreativePrompt，这里保留注释说明历史版本
+  // v2.0-v2.8: 硬编码在源代码中（违反架构规则）
+  // v3.0: 数据库模板 + 占位符替换系统
+  throw new Error('This function has been replaced by buildAdCreativePrompt v3.0')
 }
+
+// 删除旧的hardcoded prompt代码（lines 732-989）
+// 以下代码已被上面的helper functions替换
 
 /**
  * 规范化非ASCII数字为ASCII数字
@@ -1327,6 +1313,73 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
     throw new Error(`AI响应解析失败: ${error instanceof Error ? error.message : '未知错误'}`)
   }
 }
+/**
+ * 使用Vertex AI生成广告创意
+ */
+async function generateWithVertexAI(
+  config: NonNullable<AIConfig['vertexAI']>,
+  prompt: string
+): Promise<GeneratedAdCreativeData> {
+  const { VertexAI } = await import('@google-cloud/vertexai')
+
+  const vertexAI = new VertexAI({
+    project: config.projectId,
+    location: config.location,
+  })
+
+  const model = vertexAI.getGenerativeModel({
+    model: config.model,
+  })
+
+  const result = await model.generateContent({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.9,
+      topP: 0.95,
+      maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
+    },
+  })
+
+  const response = result.response
+  const text = response.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+  // 调试信息：检查响应是否被截断
+  const finishReason = response.candidates?.[0]?.finishReason
+  console.log(`🔍 Vertex AI finishReason: ${finishReason}`)
+  if (finishReason === 'MAX_TOKENS') {
+    console.warn('⚠️ 响应因达到token上限而被截断!')
+  }
+
+  return parseAIResponse(text)
+}
+
+/**
+ * 使用Gemini API生成广告创意
+ */
+async function generateWithGeminiAPI(
+  config: NonNullable<AIConfig['geminiAPI']>,
+  prompt: string
+): Promise<GeneratedAdCreativeData> {
+  const { GoogleGenerativeAI } = await import('@google/generative-ai')
+
+  const genAI = new GoogleGenerativeAI(config.apiKey)
+  const model = genAI.getGenerativeModel({ model: config.model })
+
+  const result = await model.generateContent({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.9,
+      topP: 0.95,
+      maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
+    },
+  })
+
+  const response = result.response
+  const text = response.text()
+
+  return parseAIResponse(text)
+}
+
 
 /**
  * 主函数：生成广告创意（带缓存）
@@ -1483,7 +1536,7 @@ export async function generateAdCreative(
   console.log(`   - 品牌分析: ${mergedData.brandAnalysis ? '有✨' : '无'}`)
 
   // 构建Prompt（传入合并后的数据）
-  const prompt = buildAdCreativePrompt(
+  const prompt = await buildAdCreativePrompt(
     offer,
     options?.theme,
     options?.referencePerformance,
