@@ -62,14 +62,14 @@ export async function GET(request: NextRequest) {
         c.campaign_name,
         SUM(cp.impressions) as impressions,
         SUM(cp.clicks) as clicks,
-        ROUND(SUM(cp.clicks) * 100.0 / NULLIF(SUM(cp.impressions), 0), 2) as ctr
+        ROUND(CAST(SUM(cp.clicks) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.impressions), 0), 2) as ctr
       FROM campaigns c
       INNER JOIN campaign_performance cp ON c.id = cp.campaign_id
       WHERE c.user_id = ?
         AND cp.date >= ?
         AND cp.date <= ?
       GROUP BY c.id, c.campaign_name
-      HAVING SUM(cp.impressions) > 100 AND ctr < 1.0
+      HAVING SUM(cp.impressions) > 100 AND ROUND(CAST(SUM(cp.clicks) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.impressions), 0), 2) < 1.0
       ORDER BY ctr ASC
       LIMIT 3
     `
@@ -167,14 +167,14 @@ export async function GET(request: NextRequest) {
         c.campaign_name,
         SUM(cp.clicks) as clicks,
         SUM(cp.conversions) as conversions,
-        ROUND(SUM(cp.conversions) * 100.0 / NULLIF(SUM(cp.clicks), 0), 2) as conversion_rate
+        ROUND(CAST(SUM(cp.conversions) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.clicks), 0), 2) as conversion_rate
       FROM campaigns c
       INNER JOIN campaign_performance cp ON c.id = cp.campaign_id
       WHERE c.user_id = ?
         AND cp.date >= ?
         AND cp.date <= ?
       GROUP BY c.id, c.campaign_name
-      HAVING SUM(cp.clicks) > 50 AND conversion_rate < 2.0
+      HAVING SUM(cp.clicks) > 50 AND ROUND(CAST(SUM(cp.conversions) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.clicks), 0), 2) < 2.0
       ORDER BY conversion_rate ASC
       LIMIT 3
     `
@@ -220,16 +220,18 @@ export async function GET(request: NextRequest) {
         SUM(cp.impressions) as impressions,
         SUM(cp.clicks) as clicks,
         SUM(cp.conversions) as conversions,
-        ROUND(SUM(cp.clicks) * 100.0 / NULLIF(SUM(cp.impressions), 0), 2) as ctr,
-        ROUND(SUM(cp.conversions) * 100.0 / NULLIF(SUM(cp.clicks), 0), 2) as conversion_rate
+        ROUND(CAST(SUM(cp.clicks) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.impressions), 0), 2) as ctr,
+        ROUND(CAST(SUM(cp.conversions) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.clicks), 0), 2) as conversion_rate
       FROM campaigns c
       INNER JOIN campaign_performance cp ON c.id = cp.campaign_id
       WHERE c.user_id = ?
         AND cp.date >= ?
         AND cp.date <= ?
       GROUP BY c.id, c.campaign_name
-      HAVING SUM(cp.impressions) > 100 AND ctr > 3.0 AND conversion_rate > 5.0
-      ORDER BY (ctr + conversion_rate) DESC
+      HAVING SUM(cp.impressions) > 100
+        AND ROUND(CAST(SUM(cp.clicks) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.impressions), 0), 2) > 3.0
+        AND ROUND(CAST(SUM(cp.conversions) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.clicks), 0), 2) > 5.0
+      ORDER BY (ROUND(CAST(SUM(cp.clicks) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.impressions), 0), 2) + ROUND(CAST(SUM(cp.conversions) AS NUMERIC) * 100.0 / NULLIF(SUM(cp.clicks), 0), 2)) DESC
       LIMIT 2
     `
 

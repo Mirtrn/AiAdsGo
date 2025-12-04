@@ -55,6 +55,9 @@ export async function trackApiUsage(record: ApiUsageRecord): Promise<void> {
     const db = getDatabase()
     const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
 
+    // PostgreSQL需要true/false，SQLite需要1/0
+    const isSuccessValue = db.type === 'postgres' ? record.isSuccess : (record.isSuccess ? 1 : 0)
+
     await db.exec(`
       INSERT INTO google_ads_api_usage (
         user_id,
@@ -74,7 +77,7 @@ export async function trackApiUsage(record: ApiUsageRecord): Promise<void> {
       record.customerId || null,
       record.requestCount || 1,
       record.responseTimeMs || null,
-      record.isSuccess ? 1 : 0,
+      isSuccessValue,
       record.errorMessage || null,
       today
     ])
