@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/optimization/top-creatives
@@ -18,11 +18,11 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const limit = parseInt(searchParams.get('limit') || '5', 10)
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 获取表现最好的创意（基于performance数据和score）
     // 使用ad_creative_performance表聚合最近30天数据
-    const topCreatives = db.prepare(`
+    const topCreatives = await db.query(`
       SELECT
         ac.id as creativeId,
         ac.headlines,
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
         END DESC,
         COALESCE(SUM(acp.impressions), 0) DESC
       LIMIT ?
-    `).all(parseInt(userId, 10), limit) as any[]
+    `, [parseInt(userId, 10), limit]) as any[]
 
     // 转换为前端需要的格式
     const creatives = topCreatives.map((creative) => {

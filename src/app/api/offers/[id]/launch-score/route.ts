@@ -34,7 +34,7 @@ export async function POST(
     }
 
     // 验证Offer存在且属于当前用户
-    const offer = findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!offer) {
       return NextResponse.json(
@@ -56,7 +56,7 @@ export async function POST(
     }
 
     // 验证Creative存在且属于当前Offer
-    const creative = findAdCreativeById(creativeId, parseInt(userId, 10))
+    const creative = await findAdCreativeById(creativeId, parseInt(userId, 10))
 
     if (!creative) {
       return NextResponse.json(
@@ -80,7 +80,7 @@ export async function POST(
     const analysis = await calculateLaunchScore(offer, creative, parseInt(userId, 10))
 
     // 保存到数据库 - 使用scoreAnalysis字段
-    const launchScore = createLaunchScore(parseInt(userId, 10), offer.id, analysis.scoreAnalysis)
+    const launchScore = await createLaunchScore(parseInt(userId, 10), offer.id, analysis.scoreAnalysis)
 
     return NextResponse.json({
       success: true,
@@ -120,7 +120,7 @@ export async function GET(
     }
 
     // 验证Offer存在且属于当前用户
-    const offer = findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!offer) {
       return NextResponse.json(
@@ -132,7 +132,7 @@ export async function GET(
     }
 
     // 获取最新的Launch Score
-    let launchScore = findLatestLaunchScore(offer.id, parseInt(userId, 10))
+    let launchScore = await findLatestLaunchScore(offer.id, parseInt(userId, 10))
 
     // 如果没有Launch Score且启用自动计算
     if (!launchScore && autoCalculate) {
@@ -147,7 +147,7 @@ export async function GET(
       }
 
       // 查找该Offer的最新创意
-      const creatives = findAdCreativesByOfferId(offer.id, parseInt(userId, 10))
+      const creatives = await findAdCreativesByOfferId(offer.id, parseInt(userId, 10))
       if (creatives.length === 0) {
         return NextResponse.json({
           success: true,
@@ -158,13 +158,13 @@ export async function GET(
       }
 
       // 使用评分最高的创意自动计算
-      const bestCreative = creatives.reduce((best, current) =>
+      const bestCreative = creatives.reduce((best: any, current: any) =>
         (current.score || 0) > (best.score || 0) ? current : best
       )
 
       // 计算Launch Score
       const analysis = await calculateLaunchScore(offer, bestCreative, parseInt(userId, 10))
-      launchScore = createLaunchScore(parseInt(userId, 10), offer.id, analysis.scoreAnalysis)
+      launchScore = await createLaunchScore(parseInt(userId, 10), offer.id, analysis.scoreAnalysis)
 
       return NextResponse.json({
         success: true,
@@ -176,8 +176,8 @@ export async function GET(
 
     if (!launchScore) {
       // 检查是否可以自动计算
-      const canAutoCalculate = offer.scrape_status === 'completed' &&
-        findAdCreativesByOfferId(offer.id, parseInt(userId, 10)).length > 0
+      const creatives = await findAdCreativesByOfferId(offer.id, parseInt(userId, 10))
+      const canAutoCalculate = offer.scrape_status === 'completed' && creatives.length > 0
 
       return NextResponse.json({
         success: true,

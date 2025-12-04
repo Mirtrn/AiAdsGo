@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50')
 
     // 查询高表现创意
-    const highPerformers = queryHighPerformingCreatives(
+    const highPerformers = await queryHighPerformingCreatives(
       auth.user!.userId,
       minCtr,
       minClicks,
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     const features = analyzeSuccessFeatures(highPerformers)
 
     // 返回前5个样本创意
-    const sampleCreatives = highPerformers.slice(0, 5).map(c => ({
+    const sampleCreatives = highPerformers.slice(0, 5).map((c: any) => ({
       creativeId: c.creativeId,
       headline1: c.headline1,
       description1: c.description1,

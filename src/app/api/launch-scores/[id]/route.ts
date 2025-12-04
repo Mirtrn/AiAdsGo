@@ -18,7 +18,7 @@ export async function GET(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const launchScore = findLaunchScoreById(parseInt(id, 10), parseInt(userId, 10))
+    const launchScore = await findLaunchScoreById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!launchScore) {
       return NextResponse.json(

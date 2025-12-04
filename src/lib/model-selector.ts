@@ -101,13 +101,13 @@ const PRO_OPERATIONS = new Set<string>([
  * @param userId - 用户ID
  * @returns 用户选择的Pro级别模型
  */
-export function getUserProModel(userId?: number): ModelType {
+export async function getUserProModel(userId?: number): Promise<ModelType> {
   if (!userId) {
     return 'gemini-2.5-pro' // 默认Pro模型
   }
 
   try {
-    const modelSetting = getUserOnlySetting('ai', 'gemini_model', userId)
+    const modelSetting = await getUserOnlySetting('ai', 'gemini_model', userId)
     const selectedModel = modelSetting?.value
 
     // 用户选择的模型决定Pro任务使用哪个模型
@@ -130,12 +130,12 @@ export function getUserProModel(userId?: number): ModelType {
  * @param forceProForTesting - 强制使用Pro（用于A/B测试）
  * @returns 模型选择结果
  */
-export function selectOptimalModel(
+export async function selectOptimalModel(
   operationType: string,
   userId?: number,
   forceProForTesting: boolean = false
-): ModelSelection {
-  const userProModel = getUserProModel(userId)
+): Promise<ModelSelection> {
+  const userProModel = await getUserProModel(userId)
 
   // A/B测试期间：强制使用用户的Pro模型作为对照组
   if (forceProForTesting) {

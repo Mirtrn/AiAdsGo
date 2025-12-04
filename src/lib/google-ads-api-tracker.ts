@@ -8,10 +8,7 @@
  * - Report/Search操作权重较低
  */
 
-import Database from 'better-sqlite3'
-import path from 'path'
-
-const DB_PATH = path.join(process.cwd(), 'data', 'autoads.db')
+import { getDatabase } from './db'
 
 /**
  * API操作类型
@@ -53,12 +50,12 @@ export interface ApiUsageRecord {
 /**
  * 记录API调用
  */
-export function trackApiUsage(record: ApiUsageRecord): void {
+export async function trackApiUsage(record: ApiUsageRecord): Promise<void> {
   try {
-    const db = new Database(DB_PATH)
+    const db = getDatabase()
     const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
 
-    const stmt = db.prepare(`
+    await db.exec(`
       INSERT INTO google_ads_api_usage (
         user_id,
         operation_type,
@@ -70,9 +67,7 @@ export function trackApiUsage(record: ApiUsageRecord): void {
         error_message,
         date
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-
-    stmt.run(
+    `, [
       record.userId,
       record.operationType,
       record.endpoint,
@@ -82,9 +77,7 @@ export function trackApiUsage(record: ApiUsageRecord): void {
       record.isSuccess ? 1 : 0,
       record.errorMessage || null,
       today
-    )
-
-    db.close()
+    ])
   } catch (error) {
     // 不阻塞主流程，但记录错误
     console.error('Failed to track API usage:', error)
@@ -110,59 +103,64 @@ export interface DailyUsageStats {
   }
 }
 
-export function getDailyUsageStats(userId: number, date?: string): DailyUsageStats {
-  const db = new Database(DB_PATH, { readonly: true })
+export async function getDailyUsageStats(userId: number, date?: string): Promise<DailyUsageStats> {
+  const db = getDatabase()
   const targetDate = date || new Date().toISOString().split('T')[0]
 
-  try {
-    // 获取汇总统计
-    const summary = db.prepare(`
-      SELECT
-        SUM(request_count) as total_requests,
-        COUNT(*) as total_operations,
-        SUM(CASE WHEN is_success = 1 THEN 1 ELSE 0 END) as successful_operations,
-        SUM(CASE WHEN is_success = 0 THEN 1 ELSE 0 END) as failed_operations,
-        AVG(response_time_ms) as avg_response_time_ms,
-        MAX(response_time_ms) as max_response_time_ms
-      FROM google_ads_api_usage
-      WHERE user_id = ? AND date = ?
-    `).get(userId, targetDate) as any
+  // 根据数据库类型调整 SQL（PostgreSQL 使用 BOOLEAN，SQLite 使用 INTEGER）
+  const isSuccessCondition = db.type === 'postgres'
+    ? "CASE WHEN is_success = true THEN 1 ELSE 0 END"
+    : "CASE WHEN is_success = 1 THEN 1 ELSE 0 END"
 
-    // 获取操作类型分布
-    const breakdownRows = db.prepare(`
-      SELECT
-        operation_type,
-        SUM(request_count) as count
-      FROM google_ads_api_usage
-      WHERE user_id = ? AND date = ?
-      GROUP BY operation_type
-    `).all(userId, targetDate) as any[]
+  const isFailureCondition = db.type === 'postgres'
+    ? "CASE WHEN is_success = false THEN 1 ELSE 0 END"
+    : "CASE WHEN is_success = 0 THEN 1 ELSE 0 END"
 
-    const operationBreakdown: { [key: string]: number } = {}
-    breakdownRows.forEach(row => {
-      operationBreakdown[row.operation_type] = row.count || 0
-    })
+  // 获取汇总统计
+  const summary = await db.queryOne(`
+    SELECT
+      SUM(request_count) as total_requests,
+      COUNT(*) as total_operations,
+      SUM(${isSuccessCondition}) as successful_operations,
+      SUM(${isFailureCondition}) as failed_operations,
+      AVG(response_time_ms) as avg_response_time_ms,
+      MAX(response_time_ms) as max_response_time_ms
+    FROM google_ads_api_usage
+    WHERE user_id = ? AND date = ?
+  `, [userId, targetDate]) as any
 
-    const totalRequests = summary?.total_requests || 0
-    const quotaLimit = 15000 // 每天基础配额
-    const quotaUsagePercent = (totalRequests / quotaLimit) * 100
-    const quotaRemaining = Math.max(0, quotaLimit - totalRequests)
+  // 获取操作类型分布
+  const breakdownRows = await db.query(`
+    SELECT
+      operation_type,
+      SUM(request_count) as count
+    FROM google_ads_api_usage
+    WHERE user_id = ? AND date = ?
+    GROUP BY operation_type
+  `, [userId, targetDate]) as any[]
 
-    return {
-      date: targetDate,
-      totalRequests,
-      totalOperations: summary?.total_operations || 0,
-      successfulOperations: summary?.successful_operations || 0,
-      failedOperations: summary?.failed_operations || 0,
-      avgResponseTimeMs: summary?.avg_response_time_ms || null,
-      maxResponseTimeMs: summary?.max_response_time_ms || null,
-      quotaUsagePercent,
-      quotaLimit,
-      quotaRemaining,
-      operationBreakdown
-    }
-  } finally {
-    db.close()
+  const operationBreakdown: { [key: string]: number } = {}
+  breakdownRows.forEach(row => {
+    operationBreakdown[row.operation_type] = Number(row.count) || 0
+  })
+
+  const totalRequests = Number(summary?.total_requests) || 0
+  const quotaLimit = 15000 // 每天基础配额
+  const quotaUsagePercent = (totalRequests / quotaLimit) * 100
+  const quotaRemaining = Math.max(0, quotaLimit - totalRequests)
+
+  return {
+    date: targetDate,
+    totalRequests,
+    totalOperations: Number(summary?.total_operations) || 0,
+    successfulOperations: Number(summary?.successful_operations) || 0,
+    failedOperations: Number(summary?.failed_operations) || 0,
+    avgResponseTimeMs: summary?.avg_response_time_ms ? Number(summary.avg_response_time_ms) : null,
+    maxResponseTimeMs: summary?.max_response_time_ms ? Number(summary.max_response_time_ms) : null,
+    quotaUsagePercent,
+    quotaLimit,
+    quotaRemaining,
+    operationBreakdown
   }
 }
 
@@ -175,43 +173,49 @@ export interface UsageTrend {
   successRate: number
 }
 
-export function getUsageTrend(userId: number, days: number = 7): UsageTrend[] {
-  const db = new Database(DB_PATH, { readonly: true })
+export async function getUsageTrend(userId: number, days: number = 7): Promise<UsageTrend[]> {
+  const db = getDatabase()
 
-  try {
-    const rows = db.prepare(`
-      SELECT
-        date,
-        SUM(request_count) as total_requests,
-        SUM(CASE WHEN is_success = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as success_rate
-      FROM google_ads_api_usage
-      WHERE user_id = ?
-        AND date >= date('now', '-${days} days')
-      GROUP BY date
-      ORDER BY date DESC
-    `).all(userId) as any[]
+  // 根据数据库类型调整 SQL
+  const isSuccessCondition = db.type === 'postgres'
+    ? "CASE WHEN is_success = true THEN 1 ELSE 0 END"
+    : "CASE WHEN is_success = 1 THEN 1 ELSE 0 END"
 
-    return rows.map(row => ({
-      date: row.date,
-      totalRequests: row.total_requests || 0,
-      successRate: row.success_rate || 0
-    }))
-  } finally {
-    db.close()
-  }
+  // PostgreSQL 和 SQLite 的日期函数不同
+  const dateCondition = db.type === 'postgres'
+    ? `date >= CURRENT_DATE - INTERVAL '${days} days'`
+    : `date >= date('now', '-${days} days')`
+
+  const rows = await db.query(`
+    SELECT
+      date,
+      SUM(request_count) as total_requests,
+      SUM(${isSuccessCondition}) * 100.0 / COUNT(*) as success_rate
+    FROM google_ads_api_usage
+    WHERE user_id = ?
+      AND ${dateCondition}
+    GROUP BY date
+    ORDER BY date DESC
+  `, [userId]) as any[]
+
+  return rows.map(row => ({
+    date: row.date,
+    totalRequests: Number(row.total_requests) || 0,
+    successRate: Number(row.success_rate) || 0
+  }))
 }
 
 /**
  * 检查是否接近配额限制
  */
-export function checkQuotaLimit(userId: number, warningThreshold: number = 0.8): {
+export async function checkQuotaLimit(userId: number, warningThreshold: number = 0.8): Promise<{
   isNearLimit: boolean
   isOverLimit: boolean
   currentUsage: number
   limit: number
   percentUsed: number
-} {
-  const stats = getDailyUsageStats(userId)
+}> {
+  const stats = await getDailyUsageStats(userId)
   const percentUsed = stats.quotaUsagePercent / 100
 
   return {

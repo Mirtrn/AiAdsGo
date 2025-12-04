@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 // PATCH: Update user details
 export async function PATCH(
@@ -17,7 +17,7 @@ export async function PATCH(
     const body = await request.json()
     const { email, packageType, packageExpiresAt, isActive } = body
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // Build update query dynamically
     const updates: string[] = []
@@ -47,17 +47,17 @@ export async function PATCH(
     updates.push('updated_at = datetime(\'now\')')
     values.push(userId)
 
-    const result = db.prepare(`
-      UPDATE users 
-      SET ${updates.join(', ')} 
+    const result = await db.exec(`
+      UPDATE users
+      SET ${updates.join(', ')}
       WHERE id = ?
-    `).run(...values)
+    `, values)
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    const updatedUser = db.prepare('SELECT id, username, email, package_type, package_expires_at, is_active FROM users WHERE id = ?').get(userId)
+    const updatedUser = await db.queryOne('SELECT id, username, email, package_type, package_expires_at, is_active FROM users WHERE id = ?', [userId])
 
     return NextResponse.json({ success: true, user: updatedUser })
 
@@ -78,7 +78,7 @@ export async function DELETE(
 
   try {
     const userId = parseInt(params.id)
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // Prevent deleting self
     if (auth.user?.userId === userId) {
@@ -86,7 +86,7 @@ export async function DELETE(
     }
 
     // Check if user exists and get status
-    const user = db.prepare('SELECT id, username, is_active FROM users WHERE id = ?').get(userId) as { id: number; username: string; is_active: number } | undefined
+    const user = await db.queryOne('SELECT id, username, is_active FROM users WHERE id = ?', [userId]) as { id: number; username: string; is_active: number } | undefined
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
@@ -97,7 +97,7 @@ export async function DELETE(
     }
 
     // Hard delete - permanently remove user from database
-    const result = db.prepare('DELETE FROM users WHERE id = ?').run(userId)
+    const result = await db.exec('DELETE FROM users WHERE id = ?', [userId])
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 })

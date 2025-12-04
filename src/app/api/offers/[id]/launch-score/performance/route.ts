@@ -31,7 +31,7 @@ export async function GET(
     const offerId = parseInt(params.id)
 
     // 2. 验证Offer存在且属于当前用户
-    const offer = findOfferById(offerId, userId)
+    const offer = await findOfferById(offerId, userId)
     if (!offer) {
       return NextResponse.json(
         { error: 'Offer不存在或无权访问' },
@@ -47,7 +47,7 @@ export async function GET(
       : undefined
 
     // 4. 获取最新的Launch Score
-    const launchScore = findLatestLaunchScore(offerId, userId)
+    const launchScore = await findLatestLaunchScore(offerId, userId)
 
     if (!launchScore) {
       return NextResponse.json(
@@ -62,7 +62,7 @@ export async function GET(
     }
 
     // 5. 获取性能增强的分析结果
-    const enhancedAnalysis = getPerformanceEnhancedAnalysis(
+    const enhancedAnalysis = await getPerformanceEnhancedAnalysis(
       launchScore,
       userId,
       daysBack,

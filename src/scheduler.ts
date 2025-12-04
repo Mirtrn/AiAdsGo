@@ -38,20 +38,19 @@ function logError(message: string, error: any) {
 async function syncDataTask() {
   log('📊 开始执行数据同步任务...')
 
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   try {
     // 获取所有活跃用户
-    const activeUsers = db
-      .prepare(
-        `
-        SELECT DISTINCT u.id, u.username, u.email
-        FROM users u
-        INNER JOIN google_ads_accounts ga ON u.id = ga.user_id
-        WHERE u.is_active = 1 AND ga.is_active = 1
+    const activeUsers = await db.query<{ id: number; username: string; email: string | null }>(
       `
-      )
-      .all() as Array<{ id: number; username: string; email: string | null }>
+      SELECT DISTINCT u.id, u.username, u.email
+      FROM users u
+      INNER JOIN google_ads_accounts ga ON u.id = ga.user_id
+      WHERE u.is_active = ? AND ga.is_active = ?
+      `,
+      [true, true]
+    )
 
     log(`找到 ${activeUsers.length} 个活跃用户需要同步数据`)
 
@@ -111,7 +110,7 @@ async function backupDatabaseTask() {
 async function cleanupOldDataTask() {
   log('🗑️ 开始执行数据清理任务...')
 
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   try {
     // 计算90天前的日期
@@ -120,14 +119,16 @@ async function cleanupOldDataTask() {
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0]
 
     // 清理campaign_performance表
-    const deletedCampaignRows = db
-      .prepare('DELETE FROM campaign_performance WHERE date < ?')
-      .run(cutoffDateStr)
+    const deletedCampaignRows = await db.exec(
+      'DELETE FROM campaign_performance WHERE date < ?',
+      [cutoffDateStr]
+    )
 
     // 清理sync_logs表
-    const deletedSyncLogs = db
-      .prepare('DELETE FROM sync_logs WHERE started_at < ?')
-      .run(cutoffDateStr)
+    const deletedSyncLogs = await db.exec(
+      'DELETE FROM sync_logs WHERE started_at < ?',
+      [cutoffDateStr]
+    )
 
     log(
       `✅ 数据清理完成 - 删除 ${deletedCampaignRows.changes} 条性能数据, ${deletedSyncLogs.changes} 条同步日志`

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import bcrypt from 'bcrypt'
 
 // POST: Reset user password
@@ -15,10 +15,10 @@ export async function POST(
 
   try {
     const userId = parseInt(params.id)
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // Check if user exists
-    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId) as { id: number; username: string } | undefined
+    const user = await db.queryOne('SELECT id, username FROM users WHERE id = ?', [userId]) as { id: number; username: string } | undefined
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
@@ -34,11 +34,11 @@ export async function POST(
     const hashedPassword = await bcrypt.hash(newPassword, 10)
 
     // Update user password and set must_change_password flag
-    const result = db.prepare(`
+    const result = await db.exec(`
       UPDATE users
       SET password_hash = ?, must_change_password = 1, updated_at = datetime('now')
       WHERE id = ?
-    `).run(hashedPassword, userId)
+    `, [hashedPassword, userId])
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Failed to reset password' }, { status: 500 })

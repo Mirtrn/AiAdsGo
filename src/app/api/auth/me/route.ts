@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 获取用户信息
-    const user = findUserById(payload.userId)
+    const user = await findUserById(payload.userId)
     if (!user) {
       return NextResponse.json(
         { error: '用户不存在' },

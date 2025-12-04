@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * 智能洞察
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     console.log(`[Insights API] days=${days}, startDate=${formatDate(startDate)}, endDate=${formatDate(endDate)}`)
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     const insights: Insight[] = []
 
@@ -74,9 +74,10 @@ export async function GET(request: NextRequest) {
       LIMIT 3
     `
 
-    const lowCtrCampaigns = db
-      .prepare(lowCtrQuery)
-      .all(userId, formatDate(startDate), formatDate(endDate)) as Array<{
+    const lowCtrCampaigns = await db.query(
+      lowCtrQuery,
+      [userId, formatDate(startDate), formatDate(endDate)]
+    ) as Array<{
       id: number
       campaign_name: string
       impressions: number
@@ -126,9 +127,10 @@ export async function GET(request: NextRequest) {
       LIMIT 3
     `
 
-    const highCostCampaigns = db
-      .prepare(highCostQuery)
-      .all(days, userId, formatDate(startDate), formatDate(endDate)) as Array<{
+    const highCostCampaigns = await db.query(
+      highCostQuery,
+      [days, userId, formatDate(startDate), formatDate(endDate)]
+    ) as Array<{
       id: number
       campaign_name: string
       budget_amount: number
@@ -177,9 +179,10 @@ export async function GET(request: NextRequest) {
       LIMIT 3
     `
 
-    const lowConversionCampaigns = db
-      .prepare(lowConversionQuery)
-      .all(userId, formatDate(startDate), formatDate(endDate)) as Array<{
+    const lowConversionCampaigns = await db.query(
+      lowConversionQuery,
+      [userId, formatDate(startDate), formatDate(endDate)]
+    ) as Array<{
       id: number
       campaign_name: string
       clicks: number
@@ -230,9 +233,10 @@ export async function GET(request: NextRequest) {
       LIMIT 2
     `
 
-    const topCampaigns = db
-      .prepare(topPerformingQuery)
-      .all(userId, formatDate(startDate), formatDate(endDate)) as Array<{
+    const topCampaigns = await db.query(
+      topPerformingQuery,
+      [userId, formatDate(startDate), formatDate(endDate)]
+    ) as Array<{
       id: number
       campaign_name: string
       impressions: number
@@ -279,7 +283,7 @@ export async function GET(request: NextRequest) {
       LIMIT 2
     `
 
-    const staleCampaigns = db.prepare(staleQuery).all(userId) as Array<{
+    const staleCampaigns = await db.query(staleQuery, [userId]) as Array<{
       id: number
       campaign_name: string
       updated_at: string

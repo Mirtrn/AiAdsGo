@@ -29,7 +29,7 @@ export async function GET(
     }
 
     // 获取所有历史评分
-    const scores = findLaunchScoresByOfferId(offerId, parseInt(userId, 10))
+    const scores = await findLaunchScoresByOfferId(offerId, parseInt(userId, 10))
 
     // 转换为前端需要的格式
     const history = scores.map(score => {

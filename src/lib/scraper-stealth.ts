@@ -599,6 +599,18 @@ export async function scrapeUrlWithBrowser(
         console.warn(`⚠️ DOM加载超时,但继续执行`)
       }
 
+      // 🔧 修复: Amazon 欧洲站点需要等待网络空闲才能完整渲染内容
+      // 特别是 IT/DE/FR/ES 站点，JavaScript 加载较慢
+      if (url.includes('amazon.it') || url.includes('amazon.de') || url.includes('amazon.fr') || url.includes('amazon.es')) {
+        console.log(`🇪🇺 Amazon欧洲站点检测到 (${url.match(/amazon\.(it|de|fr|es)/)?.[1]?.toUpperCase()}), 等待网络空闲...`)
+        try {
+          await page.waitForLoadState('networkidle', { timeout: 15000 })
+          console.log(`✅ 网络空闲等待完成`)
+        } catch (networkError) {
+          console.warn(`⚠️ Network idle timeout (15s), continuing...`)
+        }
+      }
+
       // 🔥 P1修复: 检测Amazon的a-no-js标记，表示JavaScript未执行完成
       // 如果检测到a-no-js，需要额外等待JavaScript渲染
       try {
@@ -685,12 +697,16 @@ export async function scrapeUrlWithBrowser(
           '#dp-container',  // 产品容器，最宽松的备选
         ]
 
+        // 🔧 修复: Amazon IT/DE/FR/ES 需要更长的等待时间
+        const isEuropeanAmazon = url.includes('amazon.it') || url.includes('amazon.de') || url.includes('amazon.fr') || url.includes('amazon.es')
+        const selectorTimeout = isEuropeanAmazon ? 8000 : 3000  // 欧洲站点8秒，其他3秒
+
         let selectorFound = false
         let foundSelector = ''
 
         for (const selector of productSelectors) {
           const found = await page.waitForSelector(selector, {
-            timeout: 3000,  // 每个选择器尝试3秒
+            timeout: selectorTimeout,  // 🔧 根据地区动态调整超时时间
             state: 'visible'
           }).then(() => true).catch(() => false)
 
@@ -1542,6 +1558,20 @@ export interface AmazonStoreData {
     avgReviews: number
     topProductsCount: number
   }
+  // 🔥 新增：深度抓取结果（热销商品详情页数据）
+  deepScrapeResults?: {
+    topProducts: Array<{
+      asin: string
+      productData: AmazonProductData | null
+      reviews: string[]           // 评价摘要
+      competitorAsins: string[]   // 竞品ASIN列表
+      scrapeStatus: 'success' | 'failed' | 'skipped'
+      error?: string
+    }>
+    totalScraped: number
+    successCount: number
+    failedCount: number
+  }
 }
 
 /**
@@ -2099,13 +2129,38 @@ export async function scrapeAmazonStore(
     }
   }
 
-  // 🔥 阶段2：批量抓取产品详情页（临时禁用，因为A0策略已提供完整数据且访问详情页经常超时）
+  // 🔥 阶段2：批量抓取产品详情页
+  // 🔧 修复: 重新启用阶段2，但限制为前10个产品以提高速度
+  // 原因: 策略A0在某些Store页面失败，策略A1只提取ASIN不提取产品信息
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`)
-  console.log(`📦 阶段2: 批量抓取产品详情页 (已禁用，使用A0策略数据)`)
-  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
 
-  if (false) { // 临时禁用阶段2
-  for (const asin of Array.from(productAsins).slice(0, 30)) {
+  // 🔧 只在策略A0失败时才启用阶段2
+  const needPhase2 = products.length === 0 && productAsins.size > 0
+
+  // 🔍 诊断日志: 详细记录Phase 2决策过程
+  console.log(`🔍 Phase 2检查:`)
+  console.log(`   - products.length: ${products.length}`)
+  console.log(`   - productAsins.size: ${productAsins.size}`)
+  console.log(`   - needPhase2: ${needPhase2}`)
+  if (productAsins.size > 0) {
+    console.log(`   - ASINs (前5个): ${Array.from(productAsins).slice(0, 5).join(', ')}`)
+  }
+
+  if (needPhase2) {
+    console.log(`📦 阶段2: 批量抓取产品详情页 (策略A0失败，抓取前10个产品)`)
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
+  } else {
+    console.log(`⏩ 跳过阶段2:`)
+    if (products.length > 0) {
+      console.log(`   理由: 策略A0已成功提取 ${products.length} 个产品`)
+    } else if (productAsins.size === 0) {
+      console.log(`   理由: 未找到任何产品ASIN`)
+    }
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
+  }
+
+  if (needPhase2) {
+  for (const asin of Array.from(productAsins).slice(0, 10)) {  // 🔧 限制为10个产品
     try {
       const productUrl = `https://www.amazon.com/dp/${asin}`
       console.log(`🛒 抓取产品 ${products.length + 1}/${Math.min(productAsins.size, 30)}: ${asin}`)
@@ -2184,7 +2239,10 @@ export async function scrapeAmazonStore(
       continue
     }
   }
-  } // 临时禁用阶段2的闭合大括号
+  } else {
+    console.log(`📦 阶段2: 跳过详情抓取 (策略A0已提取${products.length}个产品)`)
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`)
+  }
 
   console.log(`\n✅ 产品数据提取完成: ${products.length} 个产品`)
 
@@ -2469,6 +2527,137 @@ export async function scrapeAmazonStore(
 
   // 所有代理重试都失败
   throw lastError || new Error('Amazon Store抓取失败：已用尽所有代理重试')
+}
+
+/**
+ * 🔥 新增：店铺深度抓取 - 对热销商品进入详情页获取评价和竞品数据
+ *
+ * 功能：
+ * 1. 复用 scrapeAmazonStore 获取店铺基础数据
+ * 2. 筛选前N个热销商品
+ * 3. 并行调用 scrapeAmazonProduct 抓取每个商品详情页
+ * 4. 聚合评价数据和竞品数据
+ *
+ * @param storeUrl - 店铺URL
+ * @param topN - 抓取前N个热销商品（默认5个）
+ * @param customProxyUrl - 自定义代理URL
+ * @param targetCountry - 目标国家代码
+ * @param maxConcurrency - 最大并发数（默认3，避免过载）
+ * @returns 包含深度抓取结果的店铺数据
+ */
+export async function scrapeAmazonStoreDeep(
+  storeUrl: string,
+  topN: number = 5,
+  customProxyUrl?: string,
+  targetCountry?: string,
+  maxConcurrency: number = 3
+): Promise<AmazonStoreData> {
+  console.log(`🔍 店铺深度抓取开始: ${storeUrl}, 目标抓取 ${topN} 个热销商品`)
+
+  // 步骤1: 调用现有函数获取店铺基础数据
+  const storeData = await scrapeAmazonStore(storeUrl, customProxyUrl, targetCountry)
+
+  // 步骤2: 筛选热销商品（优先isHot=true，否则按rank排序取前N个）
+  const hotProducts = storeData.products
+    .filter(p => p.asin) // 必须有ASIN
+    .filter(p => p.isHot || (p.rank && p.rank <= topN))
+    .slice(0, topN)
+
+  console.log(`📊 筛选出 ${hotProducts.length} 个热销商品准备深度抓取`)
+
+  if (hotProducts.length === 0) {
+    console.warn('⚠️ 未找到热销商品，跳过深度抓取')
+    return storeData
+  }
+
+  // 步骤3: 并行抓取商品详情页（限制并发数）
+  const deepResults: NonNullable<AmazonStoreData['deepScrapeResults']> = {
+    topProducts: [],
+    totalScraped: hotProducts.length,
+    successCount: 0,
+    failedCount: 0
+  }
+
+  // 分批并行处理，避免过载
+  for (let i = 0; i < hotProducts.length; i += maxConcurrency) {
+    const batch = hotProducts.slice(i, i + maxConcurrency)
+    console.log(`🔄 处理批次 ${Math.floor(i / maxConcurrency) + 1}: ${batch.length} 个商品`)
+
+    const batchResults = await Promise.allSettled(
+      batch.map(async (product) => {
+        const asin = product.asin!
+        const productUrl = `https://www.amazon.com/dp/${asin}`
+
+        console.log(`  🛒 抓取商品详情: ${product.name?.substring(0, 50)}... (${asin})`)
+
+        try {
+          // 复用单品抓取函数
+          const productData = await scrapeAmazonProduct(
+            productUrl,
+            customProxyUrl,
+            targetCountry,
+            2 // 代理重试次数
+          )
+
+          // 从产品页面提取竞品ASIN（从"Customers also viewed"等区域）
+          const competitorAsins = extractCompetitorAsinsFromProductData(productData)
+
+          return {
+            asin: asin,
+            productData: productData,
+            reviews: productData.topReviews || [],
+            competitorAsins: competitorAsins,
+            scrapeStatus: 'success' as const
+          }
+        } catch (error: any) {
+          console.error(`  ❌ 商品详情抓取失败 (${asin}): ${error.message}`)
+          return {
+            asin: asin,
+            productData: null,
+            reviews: [],
+            competitorAsins: [],
+            scrapeStatus: 'failed' as const,
+            error: error.message
+          }
+        }
+      })
+    )
+
+    // 处理批次结果
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        deepResults.topProducts.push(result.value)
+        if (result.value.scrapeStatus === 'success') {
+          deepResults.successCount++
+          console.log(`  ✅ 成功: ${result.value.asin}, 评价数: ${result.value.reviews.length}, 竞品数: ${result.value.competitorAsins.length}`)
+        } else {
+          deepResults.failedCount++
+        }
+      } else {
+        deepResults.failedCount++
+        console.error(`  ❌ Promise失败: ${result.reason}`)
+      }
+    }
+  }
+
+  console.log(`📊 深度抓取完成: 成功 ${deepResults.successCount}/${deepResults.totalScraped}`)
+
+  // 步骤4: 返回增强后的店铺数据
+  return {
+    ...storeData,
+    deepScrapeResults: deepResults
+  }
+}
+
+/**
+ * 辅助函数：从产品数据中提取竞品ASIN
+ * 注意：当前 AmazonProductData 接口中没有竞品字段，这里先返回空数组
+ * 未来可以扩展 scrapeAmazonProduct 函数抓取 "Customers also viewed" 区域
+ */
+function extractCompetitorAsinsFromProductData(productData: AmazonProductData): string[] {
+  // TODO: 从产品页面的 "Customers also viewed", "Compare with similar items" 等区域提取竞品
+  // 当前先返回空数组，后续可以扩展
+  return []
 }
 
 /**

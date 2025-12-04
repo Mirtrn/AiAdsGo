@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const days = parseInt(searchParams.get('days') || '7', 10)
 
-    const db = getDatabase()
+    const db = await getDatabase()
     const today = new Date().toISOString().split('T')[0]
 
     // 获取今日数据

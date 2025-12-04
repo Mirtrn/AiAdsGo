@@ -50,6 +50,9 @@ export async function analyzeProductPage(
     text: string
     targetCountry?: string
     pageType?: 'product' | 'store'  // 新增：页面类型
+    // 🎯 P1优化：新增字段用于增强AI分析
+    technicalDetails?: Record<string, string>  // 技术规格
+    reviewHighlights?: string[]  // 评论摘要
   },
   userId?: number
 ): Promise<ProductInfo> {
@@ -89,6 +92,17 @@ export async function analyzeProductPage(
       const pageDataDescription = pageData.description
       const pageDataText = pageData.text.slice(0, 10000)
 
+      // 🎯 P1优化: 格式化technicalDetails和reviewHighlights供AI使用（店铺页面通常无单品数据）
+      const technicalDetailsText = pageData.technicalDetails && Object.keys(pageData.technicalDetails).length > 0
+        ? Object.entries(pageData.technicalDetails)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join('\n')
+        : 'Not available (store page)'
+
+      const reviewHighlightsText = pageData.reviewHighlights && pageData.reviewHighlights.length > 0
+        ? '- ' + pageData.reviewHighlights.join('\n- ')
+        : 'Not available (store page)'
+
       // 🎨 插值替换模板变量
       prompt = promptTemplate
         .replace(/\{\{pageData\.url\}\}/g, pageDataUrl)
@@ -96,6 +110,8 @@ export async function analyzeProductPage(
         .replace('{{pageData.title}}', pageDataTitle)
         .replace('{{pageData.description}}', pageDataDescription)
         .replace('{{pageData.text}}', pageDataText)
+        .replace('{{technicalDetails}}', technicalDetailsText)
+        .replace('{{reviewHighlights}}', reviewHighlightsText)
         .replace(/\{\{langName\}\}/g, langName)
         .replace(/\{\{categoryExamples\}\}/g, categoryExamples)
     } else {
@@ -110,6 +126,17 @@ export async function analyzeProductPage(
       const pageDataDescription = pageData.description
       const pageDataText = pageData.text.slice(0, 10000)
 
+      // 🎯 P1优化: 格式化technicalDetails和reviewHighlights供AI使用
+      const technicalDetailsText = pageData.technicalDetails && Object.keys(pageData.technicalDetails).length > 0
+        ? Object.entries(pageData.technicalDetails)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join('\n')
+        : 'Not available'
+
+      const reviewHighlightsText = pageData.reviewHighlights && pageData.reviewHighlights.length > 0
+        ? '- ' + pageData.reviewHighlights.join('\n- ')
+        : 'Not available'
+
       // 🎨 插值替换模板变量
       prompt = promptTemplate
         .replace('{{pageData.url}}', pageDataUrl)
@@ -117,6 +144,8 @@ export async function analyzeProductPage(
         .replace('{{pageData.title}}', pageDataTitle)
         .replace('{{pageData.description}}', pageDataDescription)
         .replace('{{pageData.text}}', pageDataText)
+        .replace('{{technicalDetails}}', technicalDetailsText)
+        .replace('{{reviewHighlights}}', reviewHighlightsText)
         .replace(/\{\{langName\}\}/g, langName)
         .replace('{{categoryExamples}}', categoryExamples)
     }
@@ -399,12 +428,16 @@ export async function analyzeProductPage(
       return String(value)
     }
 
+    // 🔧 P0修复：字段名映射兼容（Prompt返回字段名 → 代码期望字段名）
+    // Prompt返回: productDescription, sellingPoints, technicalHighlights
+    // 代码期望: brandDescription, uniqueSellingPoints, productHighlights
+    const pi = productInfo as any
     return {
-      brandDescription: ensureString(productInfo.brandDescription),
-      uniqueSellingPoints: ensureString(productInfo.uniqueSellingPoints),
-      productHighlights: ensureString(productInfo.productHighlights),
-      targetAudience: ensureString(productInfo.targetAudience),
-      category: productInfo.category,
+      brandDescription: ensureString(pi.brandDescription || pi.productDescription),
+      uniqueSellingPoints: ensureString(pi.uniqueSellingPoints || pi.sellingPoints),
+      productHighlights: ensureString(pi.productHighlights || pi.technicalHighlights),
+      targetAudience: ensureString(pi.targetAudience),
+      category: pi.category,
     }
   } catch (error: any) {
     logger.error('AI分析失败:', error)
@@ -773,7 +806,7 @@ ${currentOrientation === 'brand' ? `
     if (options?.userId) {
       try {
         const { getUserOptimizedPrompt } = await import('./creative-learning')
-        const optimizedPrompt = getUserOptimizedPrompt(options.userId, basePrompt)
+        const optimizedPrompt = await getUserOptimizedPrompt(options.userId, basePrompt)
         if (optimizedPrompt !== basePrompt) {
           basePrompt = optimizedPrompt
           usedLearning = true

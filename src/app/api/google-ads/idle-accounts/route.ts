@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const idleAccounts = getIdleAdsAccounts(parseInt(userId, 10))
+    const idleAccounts = await getIdleAdsAccounts(parseInt(userId, 10))
 
     return NextResponse.json({
       success: true,

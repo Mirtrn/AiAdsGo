@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/campaigns/performance
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '7')
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 2. Calculate date range (current period)
     const endDate = new Date().toISOString().split('T')[0]
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     const prevEndDateStr = prevEndDate.toISOString().split('T')[0]
 
     // 3. Query campaigns with performance data
-    const campaigns = db.prepare(`
+    const campaigns = await db.query(`
       SELECT
         c.id,
         c.campaign_name,
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
         c.google_campaign_id, c.google_ads_account_id, c.budget_amount,
         c.budget_type, c.last_sync_at, c.created_at, o.brand, o.url
       ORDER BY c.created_at DESC
-    `).all(startDateStr, endDate, userId) as any[]
+    `, [startDateStr, endDate, userId]) as any[]
 
     // 4. Format response
     const formattedCampaigns = campaigns.map(c => ({
@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 6. Query previous period totals for comparison
-    const prevPeriodData = db.prepare(`
+    const prevPeriodData = await db.queryOne(`
       SELECT
         COALESCE(SUM(impressions), 0) as impressions,
         COALESCE(SUM(clicks), 0) as clicks,
@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
       WHERE user_id = ?
         AND date >= ?
         AND date <= ?
-    `).get(userId, prevStartDateStr, prevEndDateStr) as any
+    `, [userId, prevStartDateStr, prevEndDateStr]) as any
 
     // 7. Calculate percentage changes (环比增长)
     const calcChange = (current: number, previous: number): number | null => {

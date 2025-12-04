@@ -29,7 +29,7 @@ export async function POST(
     }
 
     // 验证创意存在且属于当前用户
-    const creative = findAdCreativeById(creativeId, authResult.user.userId)
+    const creative = await findAdCreativeById(creativeId, authResult.user.userId)
     if (!creative) {
       return NextResponse.json(
         { error: '广告创意不存在或无权访问' },

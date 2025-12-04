@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { verifyPassword, hashPassword } from '@/lib/crypto'
 import { verifyToken } from '@/lib/jwt'
 
@@ -47,12 +47,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 查询用户
-    const user = db.prepare(
-      'SELECT * FROM users WHERE id = ?'
-    ).get(payload.userId) as any
+    const user = await db.queryOne(
+      'SELECT * FROM users WHERE id = ?',
+      [payload.userId]
+    ) as any
 
     if (!user) {
       return NextResponse.json(
@@ -81,13 +82,13 @@ export async function POST(request: NextRequest) {
     const newPasswordHash = await hashPassword(newPassword)
 
     // 更新密码并将must_change_password设为0
-    db.prepare(`
+    await db.exec(`
       UPDATE users
       SET password_hash = ?,
           must_change_password = 0,
           updated_at = datetime('now')
       WHERE id = ?
-    `).run(newPasswordHash, payload.userId)
+    `, [newPasswordHash, payload.userId])
 
     return NextResponse.json(
       {

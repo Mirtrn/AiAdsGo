@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/campaigns/trends
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '7')
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 2. 计算日期范围
     const endDate = new Date()
@@ -33,9 +33,8 @@ export async function GET(request: NextRequest) {
     const endDateStr = endDate.toISOString().split('T')[0]
 
     // 3. 查询每日趋势数据（修复：使用正确的加权计算而非简单平均）
-    const trends = db
-      .prepare(
-        `
+    const trends = await db.query<any>(
+      `
       SELECT
         DATE(date) as date,
         SUM(impressions) as impressions,
@@ -48,9 +47,9 @@ export async function GET(request: NextRequest) {
         AND date <= ?
       GROUP BY DATE(date)
       ORDER BY date ASC
-    `
-      )
-      .all(userId, startDateStr, endDateStr) as any[]
+      `,
+      [userId, startDateStr, endDateStr]
+    )
 
     // 4. 格式化数据（正确计算加权CTR/转化率/CPC/CPA）
     const formattedTrends = trends.map((row) => {

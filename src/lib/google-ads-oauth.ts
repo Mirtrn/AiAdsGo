@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 /**
  * Google Ads OAuth凭证接口
@@ -22,7 +22,7 @@ export interface GoogleAdsCredentials {
 /**
  * 保存或更新Google Ads凭证
  */
-export function saveGoogleAdsCredentials(
+export async function saveGoogleAdsCredentials(
   userId: number,
   credentials: {
     client_id?: string | null  // 选填，可使用平台共享配置
@@ -33,17 +33,17 @@ export function saveGoogleAdsCredentials(
     access_token?: string
     access_token_expires_at?: string
   }
-): GoogleAdsCredentials {
-  const db = getSQLiteDatabase()
+): Promise<GoogleAdsCredentials> {
+  const db = await getDatabase()
 
   // 检查是否已存在
-  const existing = db.prepare(`
+  const existing = await db.queryOne<GoogleAdsCredentials>(`
     SELECT * FROM google_ads_credentials WHERE user_id = ?
-  `).get(userId) as GoogleAdsCredentials | undefined
+  `, [userId])
 
   if (existing) {
     // 更新现有记录
-    db.prepare(`
+    await db.exec(`
       UPDATE google_ads_credentials
       SET client_id = ?,
           client_secret = ?,
@@ -56,7 +56,7 @@ export function saveGoogleAdsCredentials(
           last_verified_at = datetime('now'),
           updated_at = datetime('now')
       WHERE user_id = ?
-    `).run(
+    `, [
       credentials.client_id,
       credentials.client_secret,
       credentials.refresh_token,
@@ -65,16 +65,16 @@ export function saveGoogleAdsCredentials(
       credentials.access_token || null,
       credentials.access_token_expires_at || null,
       userId
-    )
+    ])
   } else {
     // 插入新记录
-    db.prepare(`
+    await db.exec(`
       INSERT INTO google_ads_credentials (
         user_id, client_id, client_secret, refresh_token,
         developer_token, login_customer_id, access_token, access_token_expires_at,
         last_verified_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `).run(
+    `, [
       userId,
       credentials.client_id,
       credentials.client_secret,
@@ -83,10 +83,10 @@ export function saveGoogleAdsCredentials(
       credentials.login_customer_id || null,
       credentials.access_token || null,
       credentials.access_token_expires_at || null
-    )
+    ])
   }
 
-  const updated = getGoogleAdsCredentials(userId)
+  const updated = await getGoogleAdsCredentials(userId)
   if (!updated) {
     throw new Error('保存Google Ads凭证失败')
   }
@@ -97,13 +97,13 @@ export function saveGoogleAdsCredentials(
 /**
  * 获取用户的Google Ads凭证
  */
-export function getGoogleAdsCredentials(userId: number): GoogleAdsCredentials | null {
-  const db = getSQLiteDatabase()
+export async function getGoogleAdsCredentials(userId: number): Promise<GoogleAdsCredentials | null> {
+  const db = await getDatabase()
 
-  const credentials = db.prepare(`
+  const credentials = await db.queryOne<GoogleAdsCredentials>(`
     SELECT * FROM google_ads_credentials
     WHERE user_id = ? AND is_active = 1
-  `).get(userId) as GoogleAdsCredentials | undefined
+  `, [userId])
 
   return credentials || null
 }
@@ -111,14 +111,14 @@ export function getGoogleAdsCredentials(userId: number): GoogleAdsCredentials | 
 /**
  * 删除Google Ads凭证
  */
-export function deleteGoogleAdsCredentials(userId: number): void {
-  const db = getSQLiteDatabase()
+export async function deleteGoogleAdsCredentials(userId: number): Promise<void> {
+  const db = await getDatabase()
 
-  db.prepare(`
+  await db.exec(`
     UPDATE google_ads_credentials
     SET is_active = 0, updated_at = datetime('now')
     WHERE user_id = ?
-  `).run(userId)
+  `, [userId])
 }
 
 /**
@@ -128,15 +128,15 @@ export async function refreshAccessToken(userId: number): Promise<{
   access_token: string
   expires_at: string
 }> {
-  const credentials = getGoogleAdsCredentials(userId)
+  const credentials = await getGoogleAdsCredentials(userId)
   if (!credentials) {
     throw new Error('Google Ads凭证不存在')
   }
 
   // 获取 client_id 和 client_secret（用户配置优先，否则使用平台共享配置）
   const { getSetting } = await import('./settings')
-  const clientId = credentials.client_id || getSetting('google_ads', 'client_id')?.value
-  const clientSecret = credentials.client_secret || getSetting('google_ads', 'client_secret')?.value
+  const clientId = credentials.client_id || (await getSetting('google_ads', 'client_id'))?.value
+  const clientSecret = credentials.client_secret || (await getSetting('google_ads', 'client_secret'))?.value
 
   if (!clientId || !clientSecret) {
     throw new Error('缺少 Client ID 或 Client Secret（未配置用户凭证且平台共享配置不可用）')
@@ -164,14 +164,14 @@ export async function refreshAccessToken(userId: number): Promise<{
   const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString()
 
   // 更新数据库
-  const db = getSQLiteDatabase()
-  db.prepare(`
+  const db = await getDatabase()
+  await db.exec(`
     UPDATE google_ads_credentials
     SET access_token = ?,
         access_token_expires_at = ?,
         updated_at = datetime('now')
     WHERE user_id = ?
-  `).run(data.access_token, expiresAt, userId)
+  `, [data.access_token, expiresAt, userId])
 
   return {
     access_token: data.access_token,
@@ -183,7 +183,7 @@ export async function refreshAccessToken(userId: number): Promise<{
  * 获取有效的Access Token（如果过期则自动刷新）
  */
 export async function getValidAccessToken(userId: number): Promise<string> {
-  const credentials = getGoogleAdsCredentials(userId)
+  const credentials = await getGoogleAdsCredentials(userId)
   if (!credentials) {
     throw new Error('Google Ads凭证不存在')
   }
@@ -215,7 +215,7 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
   error?: string
 }> {
   try {
-    const credentials = getGoogleAdsCredentials(userId)
+    const credentials = await getGoogleAdsCredentials(userId)
     if (!credentials) {
       return { valid: false, error: '凭证不存在' }
     }
@@ -242,13 +242,13 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
     const firstCustomerId = resourceNames[0].split('/').pop() || ''
 
     // 更新验证时间
-    const db = getSQLiteDatabase()
-    db.prepare(`
+    const db = await getDatabase()
+    await db.exec(`
       UPDATE google_ads_credentials
       SET last_verified_at = datetime('now'),
           updated_at = datetime('now')
       WHERE user_id = ?
-    `).run(userId)
+    `, [userId])
 
     return {
       valid: true,

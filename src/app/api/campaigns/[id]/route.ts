@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const campaign = findCampaignById(parseInt(id, 10), parseInt(userId, 10))
+    const campaign = await findCampaignById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!campaign) {
       return NextResponse.json(
@@ -78,7 +78,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (startDate !== undefined) updates.startDate = startDate
     if (endDate !== undefined) updates.endDate = endDate
 
-    const campaign = updateCampaign(parseInt(id, 10), parseInt(userId, 10), updates)
+    const campaign = await updateCampaign(parseInt(id, 10), parseInt(userId, 10), updates)
 
     if (!campaign) {
       return NextResponse.json(
@@ -119,7 +119,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const success = deleteCampaign(parseInt(id, 10), parseInt(userId, 10))
+    const success = await deleteCampaign(parseInt(id, 10), parseInt(userId, 10))
 
     if (!success) {
       return NextResponse.json(

@@ -20,6 +20,7 @@ import { getLanguageNameForCountry } from './language-country-codes'
 import { compressCompetitors, type CompetitorInfo as CompressorCompetitorInfo } from './competitor-compressor'
 import { withCache, type CacheOptions } from './ai-cache'
 import { loadPrompt } from './prompt-loader'
+import { parsePrice } from './pricing-utils'
 
 // ==================== 数据结构定义 ====================
 
@@ -241,7 +242,7 @@ export async function inferCompetitorKeywords(
       operationType: 'competitor_summary',
       prompt,
       temperature: 0.3,  // 低温度保证稳定输出
-      maxOutputTokens: 1024,  // ✅ 修复：从512增加到1024，防止JSON格式输出被截断
+      maxOutputTokens: 8192,  // ✅ 修复：增加到8192，确保复杂产品的JSON输出完整
     }, userId)
 
     // 记录token使用
@@ -302,6 +303,30 @@ export async function inferCompetitorKeywords(
     const result = JSON.parse(jsonMatch[0])
     let searchTerms = result.searchTerms || []
 
+    // ✅ 修复: 确保searchTerms是字符串数组，处理AI返回对象的情况
+    if (!Array.isArray(searchTerms)) {
+      console.warn(`⚠️ AI返回的searchTerms不是数组，尝试修复...`)
+      searchTerms = []
+    }
+
+    // 过滤并转换为字符串数组
+    searchTerms = searchTerms
+      .map((term: any) => {
+        // 如果是对象（例如 {term: "xxx", type: "xxx"}），提取term字段
+        if (typeof term === 'object' && term !== null) {
+          return term.term || term.value || term.name || String(term)
+        }
+        // 如果是字符串，直接使用
+        if (typeof term === 'string') {
+          return term
+        }
+        // 其他类型转换为字符串
+        return String(term)
+      })
+      .filter((term: string) => term && term.trim().length > 0)  // 过滤空字符串
+
+    console.log(`🔍 AI返回了${searchTerms.length}个搜索词，类型检查通过`)
+
     // 🔍 品类验证：提取产品名称中的核心类型关键词
     const productNameLower = productInfo.name.toLowerCase()
     const coreTypeKeywords = extractCoreProductType(productNameLower)
@@ -339,6 +364,12 @@ export async function inferCompetitorKeywords(
  * "Hikvision telecamera di sorveglianza bullet" → ["Hikvision", "Hikvision camera"]
  */
 function generateSearchVariants(term: string): string[] {
+  // ✅ 修复: 确保term是字符串
+  if (typeof term !== 'string' || !term) {
+    console.warn(`⚠️ generateSearchVariants收到非字符串参数: ${typeof term}`)
+    return []
+  }
+
   const variants: string[] = [term]  // 原始搜索词
 
   // 提取品牌名（通常是第一个单词）
@@ -446,7 +477,7 @@ async function executeAmazonSearch(
               name,
               brand: null,
               priceText,
-              price: parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')),
+              price: parsePrice(priceText),
               rating,
               reviewCount,
               imageUrl,
@@ -693,7 +724,7 @@ async function scrapeCompareTable(page: any, limit: number): Promise<CompetitorP
               name,
               brand: null,
               priceText,
-              price: priceText ? parseFloat(priceText.replace(/[^0-9.]/g, '')) : null,
+              price: parsePrice(priceText),
               rating,
               reviewCount,
               imageUrl,
@@ -799,7 +830,7 @@ async function scrapeRelatedToItemsYouViewed(page: any, limit: number): Promise<
                 name,
                 brand: null,
                 priceText,
-                price: priceText ? parseFloat(priceText.replace(/[^0-9.]/g, '')) : null,
+                price: parsePrice(priceText),
                 rating,
                 reviewCount,
                 imageUrl,
@@ -869,7 +900,7 @@ async function scrapeAlsoViewed(page: any, limit: number): Promise<CompetitorPro
                 name,
                 brand: null,
                 priceText,
-                price: priceText ? parseFloat(priceText.replace(/[^0-9.]/g, '')) : null,
+                price: parsePrice(priceText),
                 rating,
                 reviewCount,
                 imageUrl,
@@ -934,7 +965,7 @@ async function scrapeSimilarItems(page: any, limit: number): Promise<CompetitorP
                 name,
                 brand: null,
                 priceText,
-                price: priceText ? parseFloat(priceText.replace(/[^0-9.]/g, '')) : null,
+                price: parsePrice(priceText),
                 rating,
                 reviewCount: null,
                 imageUrl,

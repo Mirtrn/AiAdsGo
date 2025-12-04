@@ -3,7 +3,7 @@
  * 自动同步广告创意效果数据用于加分计算
  */
 
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import { saveCreativePerformance, PerformanceData } from './bonus-score-calculator'
 import { GoogleAdsApi } from 'google-ads-api'
 import { refreshAccessToken } from './google-ads-oauth'
@@ -25,10 +25,10 @@ export async function syncCreativePerformance(
   customerID: string
 ): Promise<boolean> {
   try {
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 获取广告创意和关联的campaign/ad_group信息
-    const creative = db.prepare(`
+    const creative = await db.queryOne<any>(`
       SELECT
         ac.id,
         ac.offer_id,
@@ -39,7 +39,7 @@ export async function syncCreativePerformance(
       LEFT JOIN campaigns c ON ac.offer_id = c.offer_id AND c.status = 'ACTIVE'
       LEFT JOIN offers o ON ac.offer_id = o.id
       WHERE ac.id = ?
-    `).get(adCreativeId) as any
+    `, [adCreativeId])
 
     if (!creative || !creative.google_campaign_id) {
       console.warn(`Creative ${adCreativeId} has no active campaign`)
@@ -132,14 +132,14 @@ export async function syncAllCreativesPerformance(
   googleAdsClient: GoogleAdsApi,
   customerID: string
 ): Promise<SyncResult> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
   const syncDate = new Date().toISOString().split('T')[0]
   const errors: string[] = []
   let syncedCount = 0
 
   try {
     // 获取所有有活跃campaign的ad creatives
-    const creatives = db.prepare(`
+    const creatives = await db.query<any>(`
       SELECT DISTINCT
         ac.id,
         ac.offer_id,
@@ -150,7 +150,7 @@ export async function syncAllCreativesPerformance(
       WHERE c.status = 'ACTIVE'
         AND o.user_id = ?
         AND c.google_campaign_id IS NOT NULL
-    `).all(userId) as any[]
+    `, [userId])
 
     for (const creative of creatives) {
       const success = await syncCreativePerformance(
@@ -206,15 +206,15 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!
     })
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // Get user's Google Ads account
-    const account = db.prepare(`
+    const account = await db.queryOne<any>(`
       SELECT customer_id
       FROM google_ads_accounts
       WHERE user_id = ? AND is_active = 1
       LIMIT 1
-    `).get(userId) as any
+    `, [userId])
 
     if (!account) {
       throw new Error('No active Google Ads account found')

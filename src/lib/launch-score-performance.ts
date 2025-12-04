@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import type { LaunchScore, ScoreAnalysis } from './launch-scores'
 
 /**
@@ -42,19 +42,19 @@ export interface PerformanceEnhancedAnalysis {
 /**
  * 获取Offer的实际性能数据
  */
-export function getPerformanceDataForOffer(
+export async function getPerformanceDataForOffer(
   offerId: number,
   userId: number,
   daysBack: number = 30
-): PerformanceData | null {
-  const db = getSQLiteDatabase()
+): Promise<PerformanceData | null> {
+  const db = await getDatabase()
 
   const cutoffDate = new Date()
   cutoffDate.setDate(cutoffDate.getDate() - daysBack)
   const cutoffDateStr = cutoffDate.toISOString().split('T')[0]
   const today = new Date().toISOString().split('T')[0]
 
-  const result = db.prepare(`
+  const result = await db.queryOne(`
     SELECT
       SUM(impressions) as total_impressions,
       SUM(clicks) as total_clicks,
@@ -67,7 +67,7 @@ export function getPerformanceDataForOffer(
       AND user_id = ?
       AND date >= ?
       AND date <= ?
-  `).get(offerId, userId, cutoffDateStr, today) as any
+  `, [offerId, userId, cutoffDateStr, today]) as any
 
   if (!result || result.total_impressions === null || result.total_impressions === 0) {
     return null // 没有性能数据
@@ -318,14 +318,14 @@ export function generatePerformanceAdjustedRecommendations(
 /**
  * 获取性能增强的Launch Score分析
  */
-export function getPerformanceEnhancedAnalysis(
+export async function getPerformanceEnhancedAnalysis(
   launchScore: LaunchScore,
   userId: number,
   daysBack: number = 30,
   avgOrderValue?: number
-): PerformanceEnhancedAnalysis {
+): Promise<PerformanceEnhancedAnalysis> {
   // 获取实际性能数据
-  const performanceData = getPerformanceDataForOffer(
+  const performanceData = await getPerformanceDataForOffer(
     launchScore.offerId,
     userId,
     daysBack

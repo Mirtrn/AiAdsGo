@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { encrypt } from '@/lib/crypto'
 import { z } from 'zod'
 
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { settings } = validationResult.data
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 不允许导入的敏感配置（安全考虑）
     const blockedKeys = [
@@ -80,41 +80,41 @@ export async function POST(request: NextRequest) {
 
         try {
           // 检查配置是否已存在
-          const existing = db.prepare(`
+          const existing = await db.queryOne<any>(`
             SELECT id, is_sensitive FROM system_settings
             WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?)
             ORDER BY user_id DESC LIMIT 1
-          `).get(category, configKey, userIdNum) as any
+          `, [category, configKey, userIdNum])
 
           const isSensitive = config.isSensitive || existing?.is_sensitive === 1
 
           if (existing) {
             // 更新现有配置
             if (isSensitive) {
-              db.prepare(`
+              await db.exec(`
                 UPDATE system_settings
                 SET encrypted_value = ?, config_value = NULL, updated_at = datetime('now')
                 WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?)
-              `).run(encrypt(config.value), category, configKey, userIdNum)
+              `, [encrypt(config.value), category, configKey, userIdNum])
             } else {
-              db.prepare(`
+              await db.exec(`
                 UPDATE system_settings
                 SET config_value = ?, updated_at = datetime('now')
                 WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?)
-              `).run(config.value, category, configKey, userIdNum)
+              `, [config.value, category, configKey, userIdNum])
             }
           } else {
             // 插入新配置（用户级别）
             if (isSensitive) {
-              db.prepare(`
+              await db.exec(`
                 INSERT INTO system_settings (user_id, category, config_key, encrypted_value, data_type, is_sensitive, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
-              `).run(userIdNum, category, configKey, encrypt(config.value), config.dataType || 'string')
+              `, [userIdNum, category, configKey, encrypt(config.value), config.dataType || 'string'])
             } else {
-              db.prepare(`
+              await db.exec(`
                 INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
-              `).run(userIdNum, category, configKey, config.value, config.dataType || 'string')
+              `, [userIdNum, category, configKey, config.value, config.dataType || 'string'])
             }
           }
 

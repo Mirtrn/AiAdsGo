@@ -20,7 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Creative
-    const creative = findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
+    const creative = await findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
     if (!creative) {
       return NextResponse.json(
         {
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Ad Group
-    const adGroup = findAdGroupById(creative.ad_group_id, parseInt(userId, 10))
+    const adGroup = await findAdGroupById(creative.ad_group_id, parseInt(userId, 10))
     if (!adGroup) {
       return NextResponse.json(
         {
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Campaign
-    const campaign = findCampaignById(adGroup.campaignId, parseInt(userId, 10))
+    const campaign = await findCampaignById(adGroup.campaignId, parseInt(userId, 10))
     if (!campaign) {
       return NextResponse.json(
         {
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Google Ads账号
-    const googleAdsAccount = findGoogleAdsAccountById(
+    const googleAdsAccount = await findGoogleAdsAccountById(
       campaign.googleAdsAccountId,
       parseInt(userId, 10)
     )

@@ -6,7 +6,7 @@
  * them according to the configured interval.
  */
 
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import { dataSyncService } from './data-sync-service'
 
 export interface SyncSchedulerConfig {
@@ -93,13 +93,12 @@ export class SyncScheduler {
     }
 
     try {
-      const db = getSQLiteDatabase()
+      const db = await getDatabase()
       const now = new Date().toISOString()
 
       // Find users with auto sync enabled and next sync time has passed
-      const pendingSyncs = db
-        .prepare(
-          `
+      const pendingSyncs = await db.query(
+        `
         SELECT
           sc.user_id,
           sc.sync_interval_hours,
@@ -119,9 +118,9 @@ export class SyncScheduler {
             sc.consecutive_failures < sc.max_retry_attempts
             OR sc.max_retry_attempts = 0
           )
-      `
-        )
-        .all(now) as Array<{
+      `,
+        [now]
+      ) as Array<{
         user_id: number
         sync_interval_hours: number
         max_retry_attempts: number
@@ -162,7 +161,7 @@ export class SyncScheduler {
     notification_email: string | null
   }) {
     const { user_id, sync_interval_hours, consecutive_failures } = syncConfig
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     try {
       console.log(`🔄 Starting auto sync for user ${user_id}...`)
@@ -179,7 +178,7 @@ export class SyncScheduler {
       nextSync.setHours(nextSync.getHours() + sync_interval_hours)
 
       // Update config: reset failures, set next sync time
-      db.prepare(
+      await db.exec(
         `
         UPDATE sync_config
         SET
@@ -188,8 +187,9 @@ export class SyncScheduler {
           consecutive_failures = 0,
           updated_at = datetime('now')
         WHERE user_id = ?
-      `
-      ).run(new Date().toISOString(), nextSync.toISOString(), user_id)
+      `,
+        [new Date().toISOString(), nextSync.toISOString(), user_id]
+      )
 
       // Send success notification if enabled
       if (syncConfig.notify_on_success && syncConfig.notification_email) {
@@ -224,7 +224,7 @@ export class SyncScheduler {
       }
 
       // Update config: increment failures, set next retry time
-      db.prepare(
+      await db.exec(
         `
         UPDATE sync_config
         SET
@@ -232,8 +232,9 @@ export class SyncScheduler {
           next_scheduled_sync_at = ?,
           updated_at = datetime('now')
         WHERE user_id = ?
-      `
-      ).run(newFailureCount, nextRetryTime, user_id)
+      `,
+        [newFailureCount, nextRetryTime, user_id]
+      )
 
       // Send failure notification if enabled
       if (syncConfig.notify_on_failure && syncConfig.notification_email) {

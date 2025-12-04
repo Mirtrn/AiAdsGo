@@ -88,18 +88,33 @@ class PostgresAdapter implements DatabaseAdapter {
     })
   }
 
+  // 转换 SQLite 风格的 ? 占位符为 PostgreSQL 风格的 $1, $2...
+  private convertPlaceholders(sql: string): string {
+    let index = 1
+    return sql.replace(/\?/g, () => `$${index++}`)
+  }
+
   async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-    const result = await this.sql.unsafe(sql, params)
+    const pgSql = this.convertPlaceholders(sql)
+    // PostgreSQL driver doesn't allow undefined values, convert to null
+    const cleanParams = params.map(p => p === undefined ? null : p)
+    const result = await this.sql.unsafe(pgSql, cleanParams)
     return result as unknown as T[]
   }
 
   async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
-    const result = await this.sql.unsafe(sql, params)
+    const pgSql = this.convertPlaceholders(sql)
+    // PostgreSQL driver doesn't allow undefined values, convert to null
+    const cleanParams = params.map(p => p === undefined ? null : p)
+    const result = await this.sql.unsafe(pgSql, cleanParams)
     return result[0] as T | undefined
   }
 
   async exec(sql: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: number }> {
-    const result = await this.sql.unsafe(sql, params)
+    const pgSql = this.convertPlaceholders(sql)
+    // PostgreSQL driver doesn't allow undefined values, convert to null
+    const cleanParams = params.map(p => p === undefined ? null : p)
+    const result = await this.sql.unsafe(pgSql, cleanParams)
     return {
       changes: result.count || 0,
       lastInsertRowid: result[0]?.id
@@ -199,6 +214,6 @@ export function transaction<T>(fn: (db: Database.Database) => T): T {
  * 执行异步数据库事务（支持 PostgreSQL 和 SQLite）
  */
 export async function asyncTransaction<T>(fn: () => Promise<T>): Promise<T> {
-  const db = getDatabase()
+  const db = await getDatabase()
   return await db.transaction(fn)
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomer } from '@/lib/google-ads-api'
 import { findGoogleAdsAccountById, findActiveGoogleAdsAccounts } from '@/lib/google-ads-accounts'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/offers/:id/campaigns
@@ -21,7 +21,7 @@ export async function GET(
     }
 
     // 获取用户的激活Google Ads账号
-    const googleAdsAccounts = findActiveGoogleAdsAccounts(parseInt(userId, 10))
+    const googleAdsAccounts = await findActiveGoogleAdsAccounts(parseInt(userId, 10))
 
     if (googleAdsAccounts.length === 0) {
       return NextResponse.json({
@@ -96,13 +96,12 @@ export async function GET(
     })
 
     // 从数据库获取该Offer关联的campaign_id列表
-    const db = getSQLiteDatabase()
-    const campaignIdsStmt = db.prepare(`
+    const db = await getDatabase()
+    const localCampaigns = await db.query(`
       SELECT campaign_id
       FROM campaigns
       WHERE offer_id = ? AND user_id = ?
-    `)
-    const localCampaigns = campaignIdsStmt.all(id, parseInt(userId, 10)) as Array<{ campaign_id: string }>
+    `, [id, parseInt(userId, 10)]) as Array<{ campaign_id: string }>
     const offerCampaignIds = new Set(localCampaigns.map(c => c.campaign_id))
 
     // 过滤出属于该Offer的广告系列（基于数据库映射关系）

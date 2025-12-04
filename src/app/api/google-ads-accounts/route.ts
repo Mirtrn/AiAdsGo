@@ -21,8 +21,8 @@ export async function GET(request: NextRequest) {
     const activeOnly = searchParams.get('activeOnly') === 'true'
 
     const accounts = activeOnly
-      ? findActiveGoogleAdsAccounts(parseInt(userId, 10))
-      : findGoogleAdsAccountsByUserId(parseInt(userId, 10))
+      ? await findActiveGoogleAdsAccounts(parseInt(userId, 10))
+      : await findGoogleAdsAccountsByUserId(parseInt(userId, 10))
 
     return NextResponse.json({
       success: true,
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 创建账号
-    const account = createGoogleAdsAccount({
+    const account = await createGoogleAdsAccount({
       userId: parseInt(userId, 10),
       customerId,
       accountName,

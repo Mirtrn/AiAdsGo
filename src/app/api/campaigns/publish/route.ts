@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import {
   createGoogleAdsCampaign,
   createGoogleAdsAdGroup,
@@ -98,14 +98,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 4. 验证Offer归属
-    const offer = db.prepare(`
+    const offer = await db.queryOne(`
       SELECT id, url, brand, target_country, target_language, scrape_status
       FROM offers
       WHERE id = ? AND user_id = ?
-    `).get(offer_id, userId) as any
+    `, [offer_id, userId]) as any
 
     if (!offer) {
       const error = createError.offerNotFound({ offerId: offer_id, userId })
@@ -126,13 +126,13 @@ export async function POST(request: NextRequest) {
 
     if (enable_smart_optimization) {
       // 智能优化模式：选择多个最优创意
-      creatives = db.prepare(`
+      creatives = await db.query(`
         SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score
         FROM ad_creatives
         WHERE offer_id = ? AND user_id = ?
         ORDER BY launch_score DESC, created_at DESC
         LIMIT ?
-      `).all(offer_id, userId, variant_count) as any[]
+      `, [offer_id, userId, variant_count]) as any[]
 
       if (creatives.length < variant_count) {
         const error = createError.invalidParameter({
@@ -143,11 +143,11 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // 单创意模式：验证指定的创意
-      const creative = db.prepare(`
+      const creative = await db.queryOne(`
         SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected
         FROM ad_creatives
         WHERE id = ? AND offer_id = ? AND user_id = ?
-      `).get(ad_creative_id, offer_id, userId) as any
+      `, [ad_creative_id, offer_id, userId]) as any
 
       if (!creative) {
         const error = createError.creativeNotFound({ creativeId: ad_creative_id })
@@ -169,11 +169,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 6. 获取Google Ads账号信息（customer_id）
-    const adsAccount = db.prepare(`
+    const adsAccount = await db.queryOne(`
       SELECT id, customer_id, is_active
       FROM google_ads_accounts
       WHERE id = ? AND user_id = ? AND is_active = 1
-    `).get(google_ads_account_id, userId) as any
+    `, [google_ads_account_id, userId]) as any
 
     if (!adsAccount) {
       const error = createError.gadsAccountNotActive({
@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 6.1 获取全局OAuth凭证（refresh_token存储在google_ads_credentials表）
-    const credentials = getGoogleAdsCredentials(userId)
+    const credentials = await getGoogleAdsCredentials(userId)
     if (!credentials || !credentials.refresh_token) {
       const error = new AppError(ErrorCode.GADS_CREDENTIALS_INVALID, {
         userId,
@@ -195,11 +195,11 @@ export async function POST(request: NextRequest) {
 
     // 7. 暂停旧广告系列（如果请求）
     if (pause_old_campaigns) {
-      const oldCampaigns = db.prepare(`
+      const oldCampaigns = await db.query(`
         SELECT id, google_campaign_id
         FROM campaigns
         WHERE offer_id = ? AND user_id = ? AND status = 'ENABLED' AND google_campaign_id IS NOT NULL
-      `).all(offer_id, userId) as any[]
+      `, [offer_id, userId]) as any[]
 
       for (const oldCampaign of oldCampaigns) {
         try {
@@ -213,11 +213,11 @@ export async function POST(request: NextRequest) {
           })
 
           // 更新数据库状态
-          db.prepare(`
+          await db.exec(`
             UPDATE campaigns
             SET status = 'PAUSED', updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-          `).run(oldCampaign.id)
+          `, [oldCampaign.id])
         } catch (error: any) {
           console.error(`Failed to pause campaign ${oldCampaign.id}:`, error.message)
           // 继续处理，不中断流程
@@ -336,7 +336,7 @@ export async function POST(request: NextRequest) {
     let abTestId: number | null = null
     if (enable_smart_optimization) {
       const now = new Date().toISOString()
-      const abTestInsert = db.prepare(`
+      const abTestInsert = await db.exec(`
         INSERT INTO ab_tests (
           user_id,
           offer_id,
@@ -352,14 +352,12 @@ export async function POST(request: NextRequest) {
           created_at,
           updated_at
         ) VALUES (?, ?, ?, ?, 'full_creative', 'creative', 'launch_multi_variant', 1, 'running', 100, 0.95, ?, ?)
-      `).run(
-        userId,
+      `, [userId,
         offer_id,
         `智能优化 - ${campaign_config.campaignName}`,
         `自动测试${variant_count}个创意变体，流量分配：均匀分布`,
         now,
-        now
-      )
+        now])
 
       abTestId = Number(abTestInsert.lastInsertRowid)
       console.log(`✅ 创建A/B测试记录: ${abTestId}`)
@@ -408,7 +406,7 @@ export async function POST(request: NextRequest) {
 
       console.log(`📝 生成命名: Campaign=${naming.campaignName}, AdGroup=${naming.adGroupName}, Ad=${naming.adName}`)
 
-      const campaignInsert = db.prepare(`
+      const campaignInsert = await db.exec(`
         INSERT INTO campaigns (
           user_id,
           offer_id,
@@ -427,7 +425,7 @@ export async function POST(request: NextRequest) {
           created_at,
           updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, 'ENABLED', 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `, [
         userId,
         offer_id,
         google_ads_account_id,
@@ -442,7 +440,7 @@ export async function POST(request: NextRequest) {
         trafficAllocations[i],
         now,
         now
-      )
+      ])
 
       const campaignId = Number(campaignInsert.lastInsertRowid)
       createdCampaigns.push({
@@ -624,7 +622,7 @@ export async function POST(request: NextRequest) {
           }
 
           // 更新数据库记录
-          db.prepare(`
+          await db.exec(`
             UPDATE campaigns
             SET
               google_campaign_id = ?,
@@ -635,7 +633,7 @@ export async function POST(request: NextRequest) {
               last_sync_at = CURRENT_TIMESTAMP,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-          `).run(googleCampaignId, googleAdGroupId, googleAdId, campaignId)
+          `, [googleCampaignId, googleAdGroupId, googleAdId, campaignId])
 
           publishResults.push({
             id: campaignId,
@@ -670,14 +668,14 @@ export async function POST(request: NextRequest) {
           console.error(`❌ Campaign ${campaignId} 发布失败:`, errorMessage)
           console.error('完整错误对象:', variantError)
 
-          db.prepare(`
+          await db.exec(`
             UPDATE campaigns
             SET
               creation_status = 'failed',
               creation_error = ?,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-          `).run(errorMessage, campaignId)
+          `, [errorMessage, campaignId])
 
           failedCampaigns.push({
             id: campaignId,
@@ -707,7 +705,7 @@ export async function POST(request: NextRequest) {
           const result = publishResults[i]
           const creative = creatives[i]
 
-          db.prepare(`
+          await db.exec(`
             INSERT INTO ab_test_variants (
               ab_test_id,
               variant_name,
@@ -718,14 +716,13 @@ export async function POST(request: NextRequest) {
               created_at,
               updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          `).run(
-            abTestId,
+          `, [abTestId,
             result.variant_name,
             `Variant ${result.variant_name}`,
             creative.id,
             trafficAllocations[i],
             i === 0 ? 1 : 0  // 第一个作为对照组
-          )
+          ])
         }
       }
 
@@ -749,14 +746,14 @@ export async function POST(request: NextRequest) {
       for (const { campaignId } of createdCampaigns) {
         const alreadySucceeded = publishResults.some(r => r.id === campaignId)
         if (!alreadySucceeded) {
-          db.prepare(`
+          await db.exec(`
             UPDATE campaigns
             SET
               creation_status = 'failed',
               creation_error = ?,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-          `).run(error.message, campaignId)
+          `, [error.message, campaignId])
         }
       }
 

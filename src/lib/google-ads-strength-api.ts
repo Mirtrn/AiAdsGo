@@ -11,7 +11,7 @@
  */
 
 import { getCustomer } from './google-ads-api'
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import type { AdStrengthRating } from './ad-strength-evaluator'
 
 /**
@@ -76,11 +76,12 @@ export async function getAdStrength(
 ): Promise<GoogleAdStrengthResponse | null> {
   try {
     // 从数据库获取refresh_token
-    const db = getSQLiteDatabase()
-    const account = db.prepare(
+    const db = await getDatabase()
+    const account = await db.queryOne(
       `SELECT refresh_token FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`
-    ).get([userId, customerId]) as any
+       WHERE user_id = ? AND customer_id = ?`,
+      [userId, customerId]
+    ) as any
 
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')
@@ -151,11 +152,12 @@ export async function getAdStrengthRecommendations(
   userId: number
 ): Promise<AdStrengthRecommendation[]> {
   try {
-    const db = getSQLiteDatabase()
-    const account = db.prepare(
+    const db = await getDatabase()
+    const account = await db.queryOne(
       `SELECT refresh_token FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`
-    ).get([userId, customerId]) as any
+       WHERE user_id = ? AND customer_id = ?`,
+      [userId, customerId]
+    ) as any
 
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')
@@ -223,11 +225,12 @@ export async function getAssetPerformance(
   userId: number
 ): Promise<AssetPerformanceData[]> {
   try {
-    const db = getSQLiteDatabase()
-    const account = db.prepare(
+    const db = await getDatabase()
+    const account = await db.queryOne(
       `SELECT refresh_token FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`
-    ).get([userId, customerId]) as any
+       WHERE user_id = ? AND customer_id = ?`,
+      [userId, customerId]
+    ) as any
 
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')

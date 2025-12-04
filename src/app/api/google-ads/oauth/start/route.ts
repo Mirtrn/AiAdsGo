@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
     const autoadsUserId = 1
 
     // 获取用户的OAuth配置（getSetting已自动解密敏感字段）
-    const userClientId = getSetting('google_ads', 'client_id', userId)?.value || ''
-    const userClientSecret = getSetting('google_ads', 'client_secret', userId)?.value || ''
-    const userDeveloperToken = getSetting('google_ads', 'developer_token', userId)?.value || ''
+    const userClientId = (await getSetting('google_ads', 'client_id', userId))?.value || ''
+    const userClientSecret = (await getSetting('google_ads', 'client_secret', userId))?.value || ''
+    const userDeveloperToken = (await getSetting('google_ads', 'developer_token', userId))?.value || ''
 
     // 检查用户是否有完整的OAuth配置
     const hasFullOAuthConfig = !!(userClientId && userClientSecret && userDeveloperToken)
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
       console.log(`🔐 用户 ${userId} 使用自己的OAuth配置`)
     } else {
       // 用户没有配置完整凭证，使用平台共享配置
-      clientId = getSetting('google_ads', 'client_id', autoadsUserId)?.value || process.env.GOOGLE_ADS_CLIENT_ID || ''
+      clientId = (await getSetting('google_ads', 'client_id', autoadsUserId))?.value || process.env.GOOGLE_ADS_CLIENT_ID || ''
       useOwnConfig = false
       console.log(`🔐 用户 ${userId} 使用平台共享OAuth配置`)
     }

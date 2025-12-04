@@ -7,7 +7,7 @@
  * - 每日自动检查
  */
 
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { proxyHead } from './proxy-axios'
 
 export interface RiskAlert {
@@ -128,16 +128,17 @@ export async function checkLink(
 /**
  * 保存链接检查结果
  */
-export function saveLinkCheckResult(
+export async function saveLinkCheckResult(
   userId: number,
   offerId: number,
   url: string,
   result: Awaited<ReturnType<typeof checkLink>>,
   country: string = 'US'
-): number {
-  const db = getSQLiteDatabase()
+): Promise<number> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const info = await db.exec(
+    `
     INSERT INTO link_check_history (
       user_id,
       offer_id,
@@ -150,19 +151,19 @@ export function saveLinkCheckResult(
       check_country,
       error_message
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  const info = stmt.run(
-    userId,
-    offerId,
-    url,
-    result.statusCode,
-    result.responseTime,
-    result.isAccessible ? 1 : 0,
-    result.isRedirected ? 1 : 0,
-    result.finalUrl,
-    country,
-    result.errorMessage
+  `,
+    [
+      userId,
+      offerId,
+      url,
+      result.statusCode,
+      result.responseTime,
+      result.isAccessible ? 1 : 0,
+      result.isRedirected ? 1 : 0,
+      result.finalUrl,
+      country,
+      result.errorMessage,
+    ]
   )
 
   return info.lastInsertRowid as number
@@ -171,7 +172,7 @@ export function saveLinkCheckResult(
 /**
  * 创建风险提示
  */
-export function createRiskAlert(
+export async function createRiskAlert(
   userId: number,
   alertType: string,
   severity: 'critical' | 'warning' | 'info',
@@ -182,24 +183,25 @@ export function createRiskAlert(
     resourceId?: number
     details?: Record<string, any>
   }
-): number {
-  const db = getSQLiteDatabase()
+): Promise<number> {
+  const db = await getDatabase()
 
   // 检查是否已存在相同的活跃提示（避免重复）
-  const existingStmt = db.prepare(`
+  const existing = await db.queryOne(
+    `
     SELECT id FROM risk_alerts
     WHERE user_id = ?
       AND alert_type = ?
       AND status = 'active'
       AND (resource_id = ? OR (resource_id IS NULL AND ? IS NULL))
       AND created_at >= date('now', '-1 day')
-  `)
-
-  const existing = existingStmt.get(
-    userId,
-    alertType,
-    options?.resourceId || null,
-    options?.resourceId || null
+  `,
+    [
+      userId,
+      alertType,
+      options?.resourceId || null,
+      options?.resourceId || null,
+    ]
   )
 
   if (existing) {
@@ -208,7 +210,8 @@ export function createRiskAlert(
   }
 
   // 创建新提示
-  const stmt = db.prepare(`
+  const info = await db.exec(
+    `
     INSERT INTO risk_alerts (
       user_id,
       alert_type,
@@ -219,17 +222,17 @@ export function createRiskAlert(
       message,
       details
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  const info = stmt.run(
-    userId,
-    alertType,
-    severity,
-    options?.resourceType || null,
-    options?.resourceId || null,
-    title,
-    message,
-    options?.details ? JSON.stringify(options.details) : null
+  `,
+    [
+      userId,
+      alertType,
+      severity,
+      options?.resourceType || null,
+      options?.resourceId || null,
+      title,
+      message,
+      options?.details ? JSON.stringify(options.details) : null,
+    ]
   )
 
   return info.lastInsertRowid as number
@@ -238,11 +241,11 @@ export function createRiskAlert(
 /**
  * 获取用户的风险提示列表
  */
-export function getUserRiskAlerts(
+export async function getUserRiskAlerts(
   userId: number,
   status?: 'active' | 'acknowledged' | 'resolved'
-): RiskAlert[] {
-  const db = getSQLiteDatabase()
+): Promise<RiskAlert[]> {
+  const db = await getDatabase()
 
   let query = `
     SELECT * FROM risk_alerts
@@ -265,8 +268,7 @@ export function getUserRiskAlerts(
     created_at DESC
   `
 
-  const stmt = db.prepare(query)
-  const alerts = stmt.all(...params) as any[]
+  const alerts = await db.query(query, params) as any[]
 
   return alerts.map(a => ({
     id: a.id,
@@ -289,24 +291,24 @@ export function getUserRiskAlerts(
 /**
  * 更新风险提示状态
  */
-export function updateAlertStatus(
+export async function updateAlertStatus(
   alertId: number,
   userId: number,
   status: 'acknowledged' | 'resolved',
   note?: string
-): boolean {
-  const db = getSQLiteDatabase()
+): Promise<boolean> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const stmt = `
     UPDATE risk_alerts
     SET status = ?,
         ${status === 'acknowledged' ? 'acknowledged_at = datetime("now")' : ''},
         ${status === 'resolved' ? 'resolved_at = datetime("now")' : ''},
         resolution_note = ?
     WHERE id = ? AND user_id = ?
-  `)
+  `
 
-  const result = stmt.run(status, note || null, alertId, userId)
+  const result = await db.exec(stmt, [status, note || null, alertId, userId])
   return result.changes > 0
 }
 
@@ -321,19 +323,20 @@ export async function checkAllUserLinks(userId: number): Promise<{
   redirected: number
   newAlerts: number
 }> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 获取用户的所有活跃Offers（包含目标国家）
-  const offersStmt = db.prepare(`
+  const offers = await db.query(
+    `
     SELECT id, affiliate_link, url, brand, target_country
     FROM offers
     WHERE user_id = ?
       AND affiliate_link IS NOT NULL
       AND affiliate_link != ''
       AND (is_deleted = 0 OR is_deleted IS NULL)
-  `)
-
-  const offers = offersStmt.all(userId) as any[]
+  `,
+    [userId]
+  ) as any[]
 
   let totalChecked = 0
   let accessible = 0
@@ -350,7 +353,7 @@ export async function checkAllUserLinks(userId: number): Promise<{
     const result = await checkLink(url, country, 10000)
 
     // 保存检查结果
-    saveLinkCheckResult(userId, offer.id, url, result, country)
+    await saveLinkCheckResult(userId, offer.id, url, result, country)
 
     totalChecked++
 
@@ -360,7 +363,7 @@ export async function checkAllUserLinks(userId: number): Promise<{
         redirected++
 
         // 创建重定向提示
-        createRiskAlert(
+        await createRiskAlert(
           userId,
           'link_redirect',
           'warning',
@@ -386,7 +389,7 @@ export async function checkAllUserLinks(userId: number): Promise<{
         ? 'warning'
         : 'critical'
 
-      createRiskAlert(
+      await createRiskAlert(
         userId,
         result.errorMessage?.includes('timeout') ? 'link_timeout' : 'link_broken',
         severity,
@@ -426,17 +429,18 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
   problemAccounts: number
   newAlerts: number
 }> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 获取用户的所有活跃Ads账号
-  const accountsStmt = db.prepare(`
+  const accounts = await db.query(
+    `
     SELECT id, customer_id, account_name, is_active
     FROM google_ads_accounts
     WHERE user_id = ?
       AND is_active = 1
-  `)
-
-  const accounts = accountsStmt.all(userId) as any[]
+  `,
+    [userId]
+  ) as any[]
 
   if (accounts.length === 0) {
     return {
@@ -455,7 +459,8 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
   const placeholders = accountIds.map(() => '?').join(',')
 
   // 批量查询1: 所有账号的campaigns count（单次查询）
-  const campaignCountStmt = db.prepare(`
+  const campaignCounts = await db.query(
+    `
     SELECT
       google_ads_account_id,
       COUNT(*) as count
@@ -464,15 +469,17 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
       AND user_id = ?
       AND status IN ('ENABLED', 'PAUSED')
     GROUP BY google_ads_account_id
-  `)
-  const campaignCounts = campaignCountStmt.all(...accountIds, userId) as any[]
+  `,
+    [...accountIds, userId]
+  ) as any[]
   const campaignCountMap = new Map<number, number>()
   for (const row of campaignCounts) {
     campaignCountMap.set(row.google_ads_account_id, row.count)
   }
 
   // 批量查询2: 所有账号的sync errors count（单次查询）
-  const syncErrorsStmt = db.prepare(`
+  const syncErrorsData = await db.query(
+    `
     SELECT
       google_ads_account_id,
       COUNT(*) as count
@@ -482,15 +489,17 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
       AND status = 'failed'
       AND started_at >= datetime('now', '-7 days')
     GROUP BY google_ads_account_id
-  `)
-  const syncErrorsData = syncErrorsStmt.all(...accountIds, userId) as any[]
+  `,
+    [...accountIds, userId]
+  ) as any[]
   const syncErrorsMap = new Map<number, number>()
   for (const row of syncErrorsData) {
     syncErrorsMap.set(row.google_ads_account_id, row.count)
   }
 
   // 批量查询3: 所有账号的last sync time（单次查询）
-  const lastSyncStmt = db.prepare(`
+  const lastSyncData = await db.query(
+    `
     SELECT
       google_ads_account_id,
       MAX(completed_at) as lastSync
@@ -499,8 +508,9 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
       AND user_id = ?
       AND status = 'success'
     GROUP BY google_ads_account_id
-  `)
-  const lastSyncData = lastSyncStmt.all(...accountIds, userId) as any[]
+  `,
+    [...accountIds, userId]
+  ) as any[]
   const lastSyncMap = new Map<number, string | null>()
   for (const row of lastSyncData) {
     lastSyncMap.set(row.google_ads_account_id, row.lastSync)
@@ -520,7 +530,7 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
 
     if (syncErrors > 3) {
       problemAccounts++
-      createRiskAlert(
+      await createRiskAlert(
         userId,
         'account_sync_error',
         'warning',
@@ -550,7 +560,7 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
       )
 
       if (daysSinceSync > 7) {
-        createRiskAlert(
+        await createRiskAlert(
           userId,
           'account_stale_data',
           'info',
@@ -593,18 +603,19 @@ export async function dailyLinkCheck(): Promise<{
   }
   results: Record<number, Awaited<ReturnType<typeof checkAllUserLinks>>>
 }> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 获取所有有Offers的用户
-  const usersStmt = db.prepare(`
+  const users = await db.query(
+    `
     SELECT DISTINCT user_id
     FROM offers
     WHERE affiliate_link IS NOT NULL
       AND affiliate_link != ''
       AND (is_deleted = 0 OR is_deleted IS NULL)
-  `)
-
-  const users = usersStmt.all() as { user_id: number }[]
+  `,
+    []
+  ) as { user_id: number }[]
 
   const results: Record<number, Awaited<ReturnType<typeof checkAllUserLinks>>> = {}
   let totalLinks = 0
@@ -641,12 +652,12 @@ export async function dailyLinkCheck(): Promise<{
 /**
  * 获取链接检查历史
  */
-export function getLinkCheckHistory(
+export async function getLinkCheckHistory(
   userId: number,
   offerId?: number,
   limit: number = 50
-): LinkCheckResult[] {
-  const db = getSQLiteDatabase()
+): Promise<LinkCheckResult[]> {
+  const db = await getDatabase()
 
   let query = `
     SELECT * FROM link_check_history
@@ -663,8 +674,7 @@ export function getLinkCheckHistory(
   query += ` ORDER BY checked_at DESC LIMIT ?`
   params.push(limit)
 
-  const stmt = db.prepare(query)
-  const history = stmt.all(...params) as any[]
+  const history = await db.query(query, params) as any[]
 
   return history.map(h => ({
     id: h.id,
@@ -684,17 +694,18 @@ export function getLinkCheckHistory(
 /**
  * 获取风险统计
  */
-export function getRiskStatistics(userId: number): {
+export async function getRiskStatistics(userId: number): Promise<{
   total: number
   active: number
   critical: number
   warning: number
   info: number
   byType: Record<string, number>
-} {
-  const db = getSQLiteDatabase()
+}> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const rows = await db.query(
+    `
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
@@ -707,9 +718,9 @@ export function getRiskStatistics(userId: number): {
     WHERE user_id = ?
       AND created_at >= date('now', '-30 days')
     GROUP BY alert_type
-  `)
-
-  const rows = stmt.all(userId) as any[]
+  `,
+    [userId]
+  ) as any[]
 
   const byType: Record<string, number> = {}
   let total = 0

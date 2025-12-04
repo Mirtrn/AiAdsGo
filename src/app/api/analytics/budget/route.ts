@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/analytics/budget
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('end_date')
     const campaignId = searchParams.get('campaign_id')
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 构建查询条件
     let whereConditions = ['cp.user_id = ?']
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) || 1
 
     // 1. 整体预算使用情况
-    const overallBudget = db.prepare(`
+    const overallBudget = await db.queryOne(`
       SELECT
         SUM(c.budget_amount) as total_budget,
         SUM(cp.cost) as total_spent,
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         AND ${whereConditions.map(w => w.replace('cp.user_id', 'c.user_id')).join(' AND ')}
       WHERE c.user_id = ? AND c.status = 'ENABLED'
-    `).get(authResult.user.userId) as any
+    `, [authResult.user.userId]) as any
 
     const totalBudget = overallBudget.total_budget || 0
     const totalSpent = overallBudget.total_spent || 0
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     const projectedTotalSpend = dailyAvgSpend * 30 // 预测30天花费
 
     // 2. 按Campaign的预算使用
-    const campaignBudgets = db.prepare(`
+    const campaignBudgets = await db.query(`
       SELECT
         c.id,
         c.campaign_name,
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
       WHERE c.user_id = ? AND c.status = 'ENABLED'
       GROUP BY c.id, c.campaign_name, c.budget_amount, c.budget_type, o.brand
       ORDER BY c.budget_amount DESC
-    `).all(authResult.user.userId) as any[]
+    `, [authResult.user.userId]) as any[]
 
     const campaignBudgetData = campaignBudgets.map((row) => {
       const budget = row.budget_amount || 0
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
     })
 
     // 3. 预算使用趋势（按日）
-    const budgetTrend = db.prepare(`
+    const budgetTrend = await db.query(`
       SELECT
         DATE(cp.date) as date,
         SUM(cp.cost) as daily_spent
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
       WHERE ${whereConditions.join(' AND ')}
       GROUP BY DATE(cp.date)
       ORDER BY date ASC
-    `).all(...params) as any[]
+    `, params) as any[]
 
     let cumulativeSpent = 0
     const budgetTrendData = budgetTrend.map((row) => {
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
     })
 
     // 4. 预算分配分析（按Offer）
-    const budgetByOffer = db.prepare(`
+    const budgetByOffer = await db.query(`
       SELECT
         o.id,
         o.brand,
@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
       HAVING SUM(cp.cost) > 0
       ORDER BY spent DESC
       LIMIT 10
-    `).all(authResult.user.userId) as any[]
+    `, [authResult.user.userId]) as any[]
 
     const budgetByOfferData = budgetByOffer.map((row) => {
       const allocatedBudget = row.allocated_budget || 0

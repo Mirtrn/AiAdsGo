@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findUserById } from '@/lib/auth'
 import { verifyPassword, hashPassword } from '@/lib/crypto'
 import { verifyToken } from '@/lib/jwt'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * PUT /api/user/password
@@ -29,7 +29,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // 获取用户信息
-    const user = findUserById(payload.userId)
+    const user = await findUserById(payload.userId)
     if (!user) {
       return NextResponse.json(
         { error: '用户不存在' },
@@ -93,12 +93,12 @@ export async function PUT(request: NextRequest) {
     const newPasswordHash = await hashPassword(newPassword)
 
     // 更新密码，同时取消首次修改密码标记
-    const db = getSQLiteDatabase()
-    db.prepare(`
+    const db = await getDatabase()
+    await db.exec(`
       UPDATE users
       SET password_hash = ?, must_change_password = 0, updated_at = datetime('now')
       WHERE id = ?
-    `).run(newPasswordHash, user.id)
+    `, [newPasswordHash, user.id])
 
     console.log(`用户 ${user.email} (ID: ${user.id}) 修改了密码`)
 

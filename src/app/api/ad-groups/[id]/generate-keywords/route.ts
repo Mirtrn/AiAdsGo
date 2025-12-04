@@ -23,7 +23,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const { includeNegativeKeywords = false } = body
 
     // 查找Ad Group
-    const adGroup = findAdGroupById(parseInt(id, 10), parseInt(userId, 10))
+    const adGroup = await findAdGroupById(parseInt(id, 10), parseInt(userId, 10))
     if (!adGroup) {
       return NextResponse.json(
         {
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Campaign
-    const campaign = findCampaignById(adGroup.campaignId, parseInt(userId, 10))
+    const campaign = await findCampaignById(adGroup.campaignId, parseInt(userId, 10))
     if (!campaign) {
       return NextResponse.json(
         {
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Offer
-    const offer = findOfferById(campaign.offerId, parseInt(userId, 10))
+    const offer = await findOfferById(campaign.offerId, parseInt(userId, 10))
     if (!offer) {
       return NextResponse.json(
         {
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 批量创建关键词
-    const createdKeywords = createKeywordsBatch(keywordsToCreate)
+    const createdKeywords = await createKeywordsBatch(keywordsToCreate)
 
     return NextResponse.json({
       success: true,

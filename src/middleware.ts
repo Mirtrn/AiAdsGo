@@ -4,19 +4,37 @@ import { jwtVerify } from 'jose'
 
 // Middleware在Edge Runtime中运行，使用jose库进行JWT验证
 // 注意：Edge Runtime不支持直接import config.ts，需要直接读取环境变量
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET!
-)
+// 🔴 重要：必须验证环境变量存在，否则会静默失败导致所有用户被登出
+const JWT_SECRET_RAW = process.env.JWT_SECRET
+if (!JWT_SECRET_RAW) {
+  console.error('❌ CRITICAL: JWT_SECRET environment variable is not defined in Edge Runtime!')
+  console.error('   This will cause ALL authenticated requests to fail.')
+  console.error('   Please ensure JWT_SECRET is set in .env file and restart the server.')
+}
+const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_RAW || '')
 
 /**
  * 验证JWT Token（Edge Runtime兼容）
  */
 async function verifyTokenEdge(token: string): Promise<any | null> {
+  // 🔴 检查 JWT_SECRET 是否正确加载
+  if (JWT_SECRET.length === 0) {
+    console.error('❌ JWT_SECRET is empty! Token verification will fail.')
+    console.error('   JWT_SECRET_RAW:', JWT_SECRET_RAW ? `${JWT_SECRET_RAW.substring(0, 10)}... (${JWT_SECRET_RAW.length} chars)` : 'UNDEFINED')
+    return null
+  }
+
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET)
     return payload
-  } catch (error) {
-    console.error('JWT验证失败:', error)
+  } catch (error: any) {
+    // 详细的错误日志帮助诊断
+    console.error('❌ JWT验证失败:', {
+      errorName: error?.name,
+      errorMessage: error?.message,
+      tokenPreview: token ? `${token.substring(0, 20)}...` : 'NO_TOKEN',
+      secretLength: JWT_SECRET.length,
+    })
     return null
   }
 }

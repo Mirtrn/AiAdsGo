@@ -213,7 +213,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       progressCallback?.('proxy_warmup', 'in_progress', '正在进行推广链接预热...', undefined, 0)
 
       try {
-        const targetProxyUrl = getProxyUrlForCountry(targetCountry, userId)
+        const targetProxyUrl = await getProxyUrlForCountry(targetCountry, userId)
 
         if (!targetProxyUrl) {
           console.warn('⚠️ 未配置代理URL，跳过预热步骤')
@@ -360,7 +360,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       })()
 
       // 获取用户代理配置
-      const proxyApiUrl = getProxyUrlForCountry(targetCountry, userId)
+      const proxyApiUrl = await getProxyUrlForCountry(targetCountry, userId)
       if (!proxyApiUrl) {
         trackStageProgress(progressCallback, accessingPageStartTime, 'accessing_page', 'error', `用户 ${userId} 未配置${targetCountry}国家的代理URL`)
         throw new Error(`用户 ${userId} 未配置${targetCountry}国家的代理URL`)

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/ad-strength/analytics
@@ -16,10 +16,10 @@ export async function GET(request: NextRequest) {
     const days = parseInt(searchParams.get('days') || '30')
     const offerId = searchParams.get('offerId')
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 1. 各评级的平均转化率
-    const ratingPerformance = db.prepare(`
+    const ratingPerformance = await db.query(`
       SELECT
         rating,
         COUNT(*) as count,
@@ -44,10 +44,10 @@ export async function GET(request: NextRequest) {
           WHEN 'POOR' THEN 4
           ELSE 5
         END
-    `).all(offerId ? [userId, days, offerId] : [userId, days])
+    `, [offerId ? [userId, days, offerId] : [userId, days]])
 
     // 2. 评分与转化率的相关性
-    const scoreCorrelation = db.prepare(`
+    const scoreCorrelation = await db.query(`
       SELECT
         CASE
           WHEN overall_score >= 90 THEN '90-100'
@@ -65,10 +65,10 @@ export async function GET(request: NextRequest) {
         AND impressions > 100
       GROUP BY score_range
       ORDER BY score_range DESC
-    `).all([userId, days])
+    `, [[userId, days]])
 
     // 3. 各维度对转化率的影响
-    const dimensionImpact = db.prepare(`
+    const dimensionImpact = await db.query(`
       SELECT
         'diversity' as dimension,
         CASE
@@ -111,10 +111,10 @@ export async function GET(request: NextRequest) {
       FROM ad_strength_history
       WHERE user_id = ? AND impressions > 100
       GROUP BY level
-    `).all([userId, userId, userId])
+    `, [[userId, userId, userId]])
 
     // 4. 资产特征对转化的影响
-    const featureImpact = db.prepare(`
+    const featureImpact = await db.query(`
       SELECT
         'has_numbers' as feature,
         has_numbers as has_feature,
@@ -145,10 +145,10 @@ export async function GET(request: NextRequest) {
       FROM ad_strength_history
       WHERE user_id = ? AND impressions > 100
       GROUP BY has_urgency
-    `).all([userId, userId, userId])
+    `, [[userId, userId, userId]])
 
     // 5. 时间趋势（按周）
-    const weeklyTrend = db.prepare(`
+    const weeklyTrend = await db.query(`
       SELECT
         strftime('%Y-%W', evaluated_at) as week,
         COUNT(*) as count,
@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
         AND evaluated_at >= datetime('now', '-' || ? || ' days')
       GROUP BY week
       ORDER BY week
-    `).all([userId, days])
+    `, [[userId, days]])
 
     // 6. 计算关键洞察
     const insights = generateInsights(ratingPerformance, scoreCorrelation, featureImpact)
@@ -281,10 +281,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 插入历史记录
-    const result = db.prepare(`
+    const result = await db.exec(`
       INSERT INTO ad_strength_history (
         user_id, offer_id, creative_id, campaign_id,
         rating, overall_score,
@@ -293,7 +293,7 @@ export async function POST(request: NextRequest) {
         has_numbers, has_cta, has_urgency,
         avg_headline_length, avg_description_length
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run([
+    `, [[
       userId,
       offerId,
       creativeId || null,
@@ -313,7 +313,7 @@ export async function POST(request: NextRequest) {
       creativeData?.hasUrgency ? 1 : 0,
       creativeData?.avgHeadlineLength || null,
       creativeData?.avgDescriptionLength || null
-    ])
+    ]])
 
     return NextResponse.json({
       success: true,

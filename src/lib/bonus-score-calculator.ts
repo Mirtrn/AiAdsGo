@@ -3,7 +3,7 @@
  * 基于实际广告效果计算20分加分
  */
 
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import { getIndustryBenchmark, IndustryBenchmark } from './industry-classifier'
 
 export interface PerformanceData {
@@ -231,13 +231,13 @@ export async function saveCreativePerformance(
   industryCode: string,
   syncDate: string
 ): Promise<BonusScoreResult> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 计算加分
   const bonusResult = await calculateBonusScore(performance, industryCode)
 
   // 插入或更新效果数据
-  db.prepare(`
+  await db.exec(`
     INSERT INTO ad_creative_performance (
       ad_creative_id, offer_id, user_id,
       impressions, clicks, ctr, cost, cpc,
@@ -257,7 +257,7 @@ export async function saveCreativePerformance(
       bonus_breakdown = excluded.bonus_breakdown,
       min_clicks_reached = excluded.min_clicks_reached,
       updated_at = CURRENT_TIMESTAMP
-  `).run(
+  `, [
     adCreativeId,
     offerId,
     userId,
@@ -274,7 +274,7 @@ export async function saveCreativePerformance(
     JSON.stringify(bonusResult.breakdown),
     bonusResult.minClicksReached ? 1 : 0,
     syncDate
-  )
+  ])
 
   return bonusResult
 }
@@ -287,9 +287,9 @@ export async function getCreativePerformance(adCreativeId: number): Promise<{
   bonusScore: BonusScoreResult
   syncDate: string
 } | null> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
-  const row = db.prepare(`
+  const row = await db.queryOne(`
     SELECT
       clicks, ctr, cpc, conversions, conversion_rate,
       bonus_score, bonus_breakdown, min_clicks_reached,
@@ -298,7 +298,7 @@ export async function getCreativePerformance(adCreativeId: number): Promise<{
     WHERE ad_creative_id = ?
     ORDER BY sync_date DESC
     LIMIT 1
-  `).get(adCreativeId) as any
+  `, [adCreativeId])
 
   if (!row) {
     return null
@@ -334,18 +334,18 @@ export async function getUserBonusStats(userId: string): Promise<{
   averageBonus: number
   topPerformers: { adCreativeId: number; bonusScore: number; industryLabel: string }[]
 }> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
-  const stats = db.prepare(`
+  const stats = await db.queryOne(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN min_clicks_reached = 1 THEN 1 ELSE 0 END) as with_bonus,
       AVG(CASE WHEN min_clicks_reached = 1 THEN bonus_score ELSE NULL END) as avg_bonus
     FROM ad_creative_performance
     WHERE user_id = ?
-  `).get(userId) as any
+  `, [userId])
 
-  const topPerformers = db.prepare(`
+  const topPerformers = await db.query(`
     SELECT
       acp.ad_creative_id,
       acp.bonus_score,
@@ -355,12 +355,12 @@ export async function getUserBonusStats(userId: string): Promise<{
     WHERE acp.user_id = ? AND acp.min_clicks_reached = 1
     ORDER BY acp.bonus_score DESC
     LIMIT 5
-  `).all(userId) as any[]
+  `, [userId])
 
   return {
-    totalCreatives: stats.total || 0,
-    creativesWithBonus: stats.with_bonus || 0,
-    averageBonus: stats.avg_bonus ? Math.round(stats.avg_bonus * 10) / 10 : 0,
+    totalCreatives: stats?.total || 0,
+    creativesWithBonus: stats?.with_bonus || 0,
+    averageBonus: stats?.avg_bonus ? Math.round(stats.avg_bonus * 10) / 10 : 0,
     topPerformers: topPerformers.map(p => ({
       adCreativeId: p.ad_creative_id,
       bonusScore: p.bonus_score,

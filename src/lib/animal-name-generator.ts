@@ -5,7 +5,7 @@
  * 示例: swiftelephant12, bravepenguin456
  */
 
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 // 形容词列表
 const ADJECTIVES = [
@@ -41,9 +41,9 @@ function generateSingleName(): string {
 /**
  * 检查用户名是否已存在
  */
-function isUsernameExists(username: string): boolean {
-  const db = getSQLiteDatabase()
-  const user = db.prepare('SELECT id FROM users WHERE username = ?').get(username)
+async function isUsernameExists(username: string): Promise<boolean> {
+  const db = await getDatabase()
+  const user = await db.queryOne('SELECT id FROM users WHERE username = ?', [username])
   return !!user
 }
 
@@ -53,12 +53,12 @@ function isUsernameExists(username: string): boolean {
  * @returns 唯一的用户名
  * @throws Error 如果超过最大尝试次数仍无法生成唯一用户名
  */
-export function generateAnimalUsername(maxAttempts: number = 10): string {
+export async function generateAnimalUsername(maxAttempts: number = 10): Promise<string> {
   for (let i = 0; i < maxAttempts; i++) {
     const username = generateSingleName()
 
     // 检查是否已存在
-    if (!isUsernameExists(username)) {
+    if (!(await isUsernameExists(username))) {
       return username
     }
   }
@@ -72,7 +72,7 @@ export function generateAnimalUsername(maxAttempts: number = 10): string {
  * @param count 生成数量,默认5个
  * @returns 用户名数组
  */
-export function generateBatchUsernames(count: number = 5): string[] {
+export async function generateBatchUsernames(count: number = 5): Promise<string[]> {
   const usernames: string[] = []
   const usedNames = new Set<string>()
 
@@ -84,7 +84,7 @@ export function generateBatchUsernames(count: number = 5): string[] {
     attempts++
 
     // 检查是否在本批次中重复或数据库中存在
-    if (!usedNames.has(username) && !isUsernameExists(username)) {
+    if (!usedNames.has(username) && !(await isUsernameExists(username))) {
       usernames.push(username)
       usedNames.add(username)
     }

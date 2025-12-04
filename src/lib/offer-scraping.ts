@@ -55,7 +55,7 @@ export function triggerOfferScraping(
   setImmediate(async () => {
     try {
       // 🚀 获取队列管理器（加载用户配置）
-      const queueConfig = getQueueConfig(userId)
+      const queueConfig = await getQueueConfig(userId)
       const queueManager = getQueueManager(queueConfig)
 
       console.log(`[OfferScraping] 添加到队列: Offer #${offerId}`)

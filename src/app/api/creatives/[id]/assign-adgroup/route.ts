@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Creative
-    const creative = findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
+    const creative = await findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
     if (!creative) {
       return NextResponse.json(
         {
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 验证Ad Group存在并且属于当前用户
-    const adGroup = findAdGroupById(parseInt(adGroupId, 10), parseInt(userId, 10))
+    const adGroup = await findAdGroupById(parseInt(adGroupId, 10), parseInt(userId, 10))
     if (!adGroup) {
       return NextResponse.json(
         {

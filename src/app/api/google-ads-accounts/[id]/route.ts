@@ -22,7 +22,7 @@ export async function GET(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const account = findGoogleAdsAccountById(parseInt(id, 10), parseInt(userId, 10))
+    const account = await findGoogleAdsAccountById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!account) {
       return NextResponse.json(
@@ -79,7 +79,7 @@ export async function PUT(
     } = body
 
     // 验证账号存在且属于当前用户
-    const existingAccount = findGoogleAdsAccountById(parseInt(id, 10), parseInt(userId, 10))
+    const existingAccount = await findGoogleAdsAccountById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!existingAccount) {
       return NextResponse.json(
@@ -102,7 +102,7 @@ export async function PUT(
     if (lastSyncAt !== undefined) updates.lastSyncAt = lastSyncAt
 
     // 更新账号
-    const updatedAccount = updateGoogleAdsAccount(parseInt(id, 10), parseInt(userId, 10), updates)
+    const updatedAccount = await updateGoogleAdsAccount(parseInt(id, 10), parseInt(userId, 10), updates)
 
     return NextResponse.json({
       success: true,
@@ -138,7 +138,7 @@ export async function DELETE(
     }
 
     // 验证账号存在且属于当前用户
-    const existingAccount = findGoogleAdsAccountById(parseInt(id, 10), parseInt(userId, 10))
+    const existingAccount = await findGoogleAdsAccountById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!existingAccount) {
       return NextResponse.json(

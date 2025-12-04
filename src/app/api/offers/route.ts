@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const offer = createOffer(parseInt(userId, 10), validationResult.data)
+    const offer = await createOffer(parseInt(userId, 10), validationResult.data)
 
     // 使缓存失效
     invalidateOfferCache(parseInt(userId, 10))
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
         // SSE已完成基础提取（品牌、Final URL），直接标记为completed
         // 即使AI分析失败，基础信息已足够使用
         console.log(`✅ Offer ${offer.id} 已通过SSE完成基础提取，标记为completed`)
-        updateOfferScrapeStatus(offer.id, parseInt(userId, 10), 'completed')
+        await updateOfferScrapeStatus(offer.id, parseInt(userId, 10), 'completed')
       } else {
         // 手动创建场景：final_url为空，需要触发完整抓取
         // 🎯 优化: 使用URGENT优先级，确保用户手动创建的Offer优先处理
@@ -165,7 +165,7 @@ export async function GET(request: NextRequest) {
       }
 
       // 批量查询不使用缓存，确保获取最新状态
-      const { offers } = listOffers(parseInt(userId, 10), {
+      const { offers } = await listOffers(parseInt(userId, 10), {
         ids, // 传递IDs参数
         limit: ids.length, // 限制返回数量
       })
@@ -199,7 +199,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(cached)
     }
 
-    const { offers, total } = listOffers(parseInt(userId, 10), {
+    const { offers, total } = await listOffers(parseInt(userId, 10), {
       limit,
       offset,
       isActive,

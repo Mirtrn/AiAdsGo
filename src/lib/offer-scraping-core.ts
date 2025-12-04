@@ -12,63 +12,58 @@ import { scrapeUrl } from './scraper'
 import { analyzeProductPage, ProductInfo } from './ai'
 import { getProxyUrlForCountry, isProxyEnabled } from './settings'
 import { SeoData } from './redis'
-import { getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import { getLanguageCodeForCountry } from './language-country-codes'
 import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from './feature-flags'
 
 async function saveScrapedProducts(
   offerId: number,
+  userId: number,
   products: any[],
   source: 'amazon_store' | 'independent_store' | 'amazon_product'
 ): Promise<void> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
-  // 删除该Offer之前的产品数据（更新场景）
-  const deleteStmt = db.prepare('DELETE FROM scraped_products WHERE offer_id = ?')
-  deleteStmt.run(offerId)
+  // 删除该Offer之前的产品数据（更新场景）- 添加用户隔离
+  await db.exec('DELETE FROM scraped_products WHERE offer_id = ? AND user_id = ?', [offerId, userId])
 
   // 批量插入新的产品数据
-  const insertStmt = db.prepare(`
-    INSERT INTO scraped_products (
-      offer_id, name, asin, price, rating, review_count, image_url,
-      promotion, badge, is_prime,
-      hot_score, rank, is_hot, hot_label,
-      scrape_source, created_at, updated_at
-    ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?,
-      ?, ?, ?, ?,
-      ?, datetime('now'), datetime('now')
-    )
-  `)
-
-  const insertMany = db.transaction((products: any[]) => {
-    for (const product of products) {
-      insertStmt.run(
-        offerId,
-        product.name,
-        product.asin || null,
-        product.price || null,
-        product.rating || null,
-        product.reviewCount || null,
-        product.imageUrl || null,
-        // Phase 3 fields
-        product.promotion || null,
-        product.badge || null,
-        product.isPrime ? 1 : 0,
-        // Phase 2 fields
-        product.hotScore || null,
-        product.rank || null,
-        product.isHot ? 1 : 0,
-        product.hotLabel || null,
-        source
+  for (const product of products) {
+    await db.exec(`
+      INSERT INTO scraped_products (
+        user_id, offer_id, name, asin, price, rating, review_count, image_url,
+        promotion, badge, is_prime,
+        hot_score, rank, is_hot, hot_label,
+        scrape_source, created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, datetime('now'), datetime('now')
       )
-    }
-  })
+    `, [
+      userId,
+      offerId,
+      product.name,
+      product.asin || null,
+      product.price || null,
+      product.rating || null,
+      product.reviewCount || null,
+      product.imageUrl || null,
+      // Phase 3 fields
+      product.promotion || null,
+      product.badge || null,
+      product.isPrime ? 1 : 0,
+      // Phase 2 fields
+      product.hotScore || null,
+      product.rank || null,
+      product.isHot ? 1 : 0,
+      product.hotLabel || null,
+      source
+    ])
+  }
 
-  insertMany(products)
-
-  console.log(`📊 Phase 3持久化: 已保存${products.length}个产品到数据库`)
+  console.log(`📊 Phase 3持久化: 已保存${products.length}个产品到数据库 (user_id=${userId})`)
 }
 
 /**
@@ -178,10 +173,10 @@ export async function performScrapeAndAnalysis(
 
   try {
     // 获取代理配置
-    const offer = findOfferById(offerId, userId)
+    const offer = await findOfferById(offerId, userId)
     const targetCountry = offer?.target_country || 'US'
-    const useProxy = isProxyEnabled(userId)
-    const proxyUrl = useProxy ? getProxyUrlForCountry(targetCountry, userId) : undefined
+    const useProxy = await isProxyEnabled(userId)
+    const proxyUrl = useProxy ? await getProxyUrlForCountry(targetCountry, userId) : undefined
 
     // 自动检测并解析推广链接
     let actualUrl = url
@@ -298,9 +293,15 @@ export async function performScrapeAndAnalysis(
       try {
           if (isAmazon && isStorePage) {
               // Amazon Store页面专用抓取 - 🔧 修复：使用完整URL
-              console.log('📦 检测到Amazon Store页面，使用Store抓取模式...')
-              const { scrapeAmazonStore } = await import('@/lib/scraper-stealth')
-              const storeData = await scrapeAmazonStore(urlForScraping, proxyUrl, targetCountry)  // 🌍 传入目标国家
+              // 🔥 新增：使用深度抓取模式（进入热销商品详情页获取评价和竞品数据）
+              console.log('📦 检测到Amazon Store页面，使用深度抓取模式...')
+              const { scrapeAmazonStoreDeep } = await import('@/lib/scraper-stealth')
+              const storeData = await scrapeAmazonStoreDeep(
+                urlForScraping,
+                5,  // 抓取前5个热销商品的详情页
+                proxyUrl,
+                targetCountry
+              )
 
               // 🔥 优化：构建突出热销商品的文本信息供AI分析（国际化版本）
               // 🌍 国际化文本配置
@@ -468,7 +469,7 @@ export async function performScrapeAndAnalysis(
 
               // 🎯 Phase 3持久化：保存产品数据到数据库
               try {
-                await saveScrapedProducts(offerId, storeData.products, 'amazon_store')
+                await saveScrapedProducts(offerId, userId, storeData.products, 'amazon_store')
                 console.log(`✅ 产品数据已保存到数据库: ${storeData.products.length}个产品`)
               } catch (saveError: any) {
                 console.error('⚠️ 保存产品数据失败（不影响主流程）:', saveError.message)
@@ -480,6 +481,13 @@ export async function performScrapeAndAnalysis(
 
               // 🎯 P0优化: 保存原始爬虫数据
               rawScrapedData = productData
+              console.log(`🔍 抓取数据已保存到rawScrapedData，包含${Object.keys(productData).length}个字段`)
+              console.log(`   - productName: ${productData.productName || 'N/A'}`)
+              console.log(`   - asin: ${productData.asin || 'N/A'}`)
+              console.log(`   - productPrice: ${productData.productPrice || 'N/A'}`)
+              console.log(`   - rating: ${productData.rating || 'N/A'}`)
+              console.log(`   - features: ${productData.features?.length || 0}个`)
+              console.log(`   - technicalDetails: ${Object.keys(productData.technicalDetails || {}).length}个`)
 
               // 构建全面的文本信息供AI创意生成
               const textParts = [
@@ -574,7 +582,7 @@ export async function performScrapeAndAnalysis(
 
               // 🎯 Phase 3持久化：保存产品数据到数据库
               try {
-                await saveScrapedProducts(offerId, storeData.products, 'independent_store')
+                await saveScrapedProducts(offerId, userId, storeData.products, 'independent_store')
                 console.log(`✅ 产品数据已保存到数据库: ${storeData.products.length}个产品`)
               } catch (saveError: any) {
                 console.error('⚠️ 保存产品数据失败（不影响主流程）:', saveError.message)
@@ -637,6 +645,12 @@ export async function performScrapeAndAnalysis(
     console.log(`🔍 页面类型: ${pageType} (${expectedIsStorePage ? '店铺页面' : '单品页面'})`)
 
     try {
+      // 🎯 P1优化：从rawScrapedData提取technicalDetails和reviewHighlights供AI使用
+      const technicalDetails = rawScrapedData?.technicalDetails || {}
+      const reviewHighlights = rawScrapedData?.reviewHighlights || []
+
+      console.log(`📊 传递给AI分析: ${Object.keys(technicalDetails).length}个技术规格, ${reviewHighlights.length}条评论摘要`)
+
       productInfo = await analyzeProductPage({
         url: urlForScraping,  // 🔧 修复：使用完整URL
         brand,
@@ -645,6 +659,9 @@ export async function performScrapeAndAnalysis(
         text: pageData.text,
         targetCountry,
         pageType,  // 传递页面类型
+        // 🎯 P1优化：传递技术规格和评论摘要
+        technicalDetails,
+        reviewHighlights,
       }, userId)  // 传递 userId 以使用用户级别的 AI 配置（优先 Vertex AI）
       console.log(`✅ AI分析完成:`, productInfo)
     } catch (aiError: any) {
@@ -791,13 +808,13 @@ export async function performScrapeAndAnalysis(
     let reviewAnalysis = null
     let competitorAnalysis = null
 
+    // 初始化连接池（在条件块外，供所有分支使用）
+    const { getPlaywrightPool } = await import('@/lib/playwright-pool')
+    const pool = getPlaywrightPool()
+
     if (pageType === 'product' && urlForScraping.includes('amazon') && aiAnalysisSuccess) {
       try {
         console.log('🚀 并行执行评论+竞品分析（复用Playwright连接池）...')
-
-        // 从连接池获取两个浏览器实例（并行获取，节省60-80秒启动时间）
-        const { getPlaywrightPool } = await import('@/lib/playwright-pool')
-        const pool = getPlaywrightPool()
 
         // 并行执行：评论抓取+分析 & 竞品抓取+分析（复用连接池）
         const [reviewResult, competitorResult] = await Promise.allSettled([
@@ -852,8 +869,14 @@ export async function performScrapeAndAnalysis(
               if (competitors.length > 0) {
                 console.log(`✅ 抓取${competitors.length}个竞品，AI分析中...`)
 
+                // 🔧 修复: 使用parsePrice智能解析欧洲/美国价格格式
                 const priceStr = productInfo.pricing?.currentPrice
-                const priceNum = priceStr ? parseFloat(priceStr.replace(/[^0-9.]/g, '')) : null
+                let priceNum: number | null = null
+                if (priceStr) {
+                  // 导入价格解析工具（使用智能解析函数）
+                  const { parsePrice } = await import('@/lib/pricing-utils')
+                  priceNum = parsePrice(priceStr)
+                }
 
                 const ourProduct = {
                   name: extractedBrand || brand,
@@ -913,7 +936,61 @@ export async function performScrapeAndAnalysis(
         console.warn('⚠️ 并行分析失败（不影响主流程）:', parallelError.message)
       }
     } else if (pageType === 'store') {
-      console.log('ℹ️ 店铺页面跳过评论+竞品分析')
+      console.log('📦 店铺页面：跳过评论分析，执行竞品分析...')
+
+      // 🔥 修复: Store页面也应该执行竞品分析
+      try {
+        const { scrapeAmazonCompetitors, analyzeCompetitorsWithAI } = await import('@/lib/competitor-analyzer')
+
+        // 🔥 复用连接池，而非新建浏览器（节省30-40秒）
+        const { context, instanceId } = await pool.acquire(undefined, undefined, targetCountry)
+        const page = await context.newPage()
+
+        try {
+          await page.goto(urlForScraping, { waitUntil: 'domcontentloaded', timeout: 30000 })
+          // 🎯 优化: 5个竞品（原10个）
+          const competitors = await scrapeAmazonCompetitors(page, 5)
+
+          if (competitors.length > 0) {
+            console.log(`✅ Store页面抓取${competitors.length}个竞品，AI分析中...`)
+
+            // 🔥 使用品牌信息作为"我们的产品"
+            // Store页面无统一价格/评分，使用品牌名称作为产品标识
+            const ourProduct = {
+              name: extractedBrand || brand || 'Store Products',
+              price: null,  // Store页面无统一价格
+              rating: null,
+              reviewCount: null,
+              features: []  // Store页面无统一特性列表
+            }
+
+            const enableCompression = isCompetitorCompressionEnabled(userId, FEATURE_FLAGS.competitorCompression.rolloutPercentage)
+            const enableCache = isCompetitorCacheEnabled(userId, FEATURE_FLAGS.competitorCache.rolloutPercentage)
+            logFeatureFlag('competitorCompression', userId, enableCompression)
+            logFeatureFlag('competitorCache', userId, enableCache)
+
+            const analysis = await analyzeCompetitorsWithAI(
+              ourProduct,
+              competitors,
+              targetCountry,
+              userId,
+              { enableCompression, enableCache }
+            )
+
+            if (analysis) {
+              competitorAnalysis = analysis
+              console.log(`✅ Store页面竞品分析完成: ${competitorAnalysis.totalCompetitors}个竞品，竞争力${competitorAnalysis.overallCompetitiveness}/100`)
+            }
+          } else {
+            console.log('⚠️ Store页面未找到竞品数据')
+          }
+        } finally {
+          await page.close()
+          pool.release(instanceId)  // 🔥 释放回连接池，供后续复用
+        }
+      } catch (storeCompetitorError: any) {
+        console.warn('⚠️ Store页面竞品分析失败（不影响主流程）:', storeCompetitorError.message)
+      }
     } else if (!urlForScraping.includes('amazon')) {
       console.log('ℹ️ 非Amazon页面暂不支持评论+竞品分析')
     }
@@ -1071,19 +1148,19 @@ export async function performScrapeAndAnalysis(
             hotLabel: '🔥 主推商品'
           }]
 
-          await saveScrapedProducts(offerId, productData, 'amazon_product')
+          await saveScrapedProducts(offerId, userId, productData, 'amazon_product')
           console.log('✅ 单品数据已保存到scraped_products表')
         }
       } else if (pageType === 'store') {
         // 店铺场景：从数据库读取已保存的产品数据
-        const db = getSQLiteDatabase()
-        const products = db.prepare(`
+        const db = await getDatabase()
+        const products = await db.query(`
           SELECT name, rating, review_count, hot_score
           FROM scraped_products
-          WHERE offer_id = ?
+          WHERE offer_id = ? AND user_id = ?
           ORDER BY hot_score DESC
           LIMIT 5
-        `).all(offerId) as Array<{
+        `, [offerId, userId]) as Array<{
           name: string
           rating: string | null
           review_count: string | null
@@ -1161,6 +1238,17 @@ export async function performScrapeAndAnalysis(
       // 🎯 P0优化: 原始爬虫数据（包含discount, salesRank, badge, primeEligible等字段）
       scraped_data: rawScrapedData ? formatFieldForDB(rawScrapedData) : undefined,
     })
+
+    // 🔍 诊断日志：验证scraped_data存储
+    if (rawScrapedData) {
+      const dataKeys = Object.keys(rawScrapedData)
+      console.log(`✅ scraped_data已保存，包含${dataKeys.length}个字段:`, dataKeys.slice(0, 10).join(', '))
+      if (rawScrapedData.productName) console.log(`   产品名称: ${rawScrapedData.productName}`)
+      if (rawScrapedData.productPrice) console.log(`   价格: ${rawScrapedData.productPrice}`)
+      if (rawScrapedData.asin) console.log(`   ASIN: ${rawScrapedData.asin}`)
+    } else {
+      console.warn(`⚠️ rawScrapedData为空，未保存原始抓取数据`)
+    }
 
     console.log(`Offer ${offerId} 抓取和分析完成`)
   } catch (error: any) {

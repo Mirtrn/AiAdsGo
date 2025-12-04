@@ -24,7 +24,6 @@ import {
   RefreshCw
 } from 'lucide-react'
 import { InsightsCard } from '@/components/dashboard/InsightsCard'
-import { ABTestProgressCard } from '@/components/dashboard/ABTestProgressCard'
 import { ApiQuotaChart } from '@/components/dashboard/ApiQuotaChart'
 import { AiTokenCostChart } from '@/components/dashboard/AiTokenCostChart'
 
@@ -350,10 +349,9 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Insights 和 AB测试进度 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+        {/* Insights */}
+        <div className="mt-6">
           <InsightsCard days={days} />
-          <ABTestProgressCard />
         </div>
       </div>
     </div>

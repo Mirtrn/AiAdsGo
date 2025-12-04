@@ -38,7 +38,7 @@ const CONFIG_EXPORT_PATH = path.join(process.cwd(), 'secrets', 'admin-config-exp
  * 只有当所有关键表都存在时，才认为数据库已初始化
  */
 async function isDatabaseInitialized(): Promise<boolean> {
-  const db = getDatabase()
+  const db = await getDatabase()
 
   // 定义关键表列表 - 这些表必须全部存在才认为数据库已初始化
   const criticalTables = [
@@ -131,7 +131,7 @@ async function initializePostgreSQL(): Promise<void> {
     }
 
     const sqlContent = fs.readFileSync(sqlPath, 'utf-8')
-    const db = getDatabase()
+    const db = await getDatabase()
     const sql = (db as any).getRawConnection()
 
     console.log('\n📋 Creating database tables...')
@@ -165,7 +165,7 @@ async function initializePostgreSQL(): Promise<void> {
 async function createDefaultAdmin(): Promise<void> {
   console.log('\n👤 Creating default admin account...')
 
-  const db = getDatabase()
+  const db = await getDatabase()
   const asyncDb = db.type === 'postgres' ? getDatabase() : null
 
   try {
@@ -261,7 +261,7 @@ async function createDefaultAdmin(): Promise<void> {
 async function insertDefaultSystemSettings(): Promise<void> {
   console.log('\n⚙️  Inserting default system settings...')
 
-  const db = getDatabase()
+  const db = await getDatabase()
   const asyncDb = db.type === 'postgres' ? getDatabase() : null
 
   const defaultSettings = [
@@ -353,7 +353,7 @@ async function insertDefaultSystemSettings(): Promise<void> {
  */
 async function importAdminConfig(): Promise<void> {
   // 只在 PostgreSQL 生产环境导入
-  const db = getDatabase()
+  const db = await getDatabase()
   if (db.type !== 'postgres') {
     return
   }
@@ -434,7 +434,7 @@ async function importAdminConfig(): Promise<void> {
 async function insertIndustryBenchmarks(): Promise<void> {
   console.log('\n📊 Inserting industry benchmarks...')
 
-  const db = getDatabase()
+  const db = await getDatabase()
   const asyncDb = db.type === 'postgres' ? getDatabase() : null
 
   // 行业基准数据（30个二级分类）
@@ -534,7 +534,7 @@ export async function initializeDatabase(): Promise<void> {
 
   console.log('⚠️  Database not initialized, starting initialization...\n')
 
-  const db = getDatabase()
+  const db = await getDatabase()
 
   if (db.type === 'sqlite') {
     await initializeSQLite()
@@ -561,7 +561,7 @@ export async function initializeDatabase(): Promise<void> {
  * - 000 开头的是初始化 schema，不参与增量迁移
  */
 async function runPendingMigrations(): Promise<void> {
-  const db = getDatabase()
+  const db = await getDatabase()
   const migrationsDir = path.join(process.cwd(), 'migrations')
 
   // 检查迁移目录是否存在
@@ -653,7 +653,7 @@ async function runPendingMigrations(): Promise<void> {
  * 确保 migration_history 表存在
  */
 async function ensureMigrationHistoryTable(): Promise<void> {
-  const db = getDatabase()
+  const db = await getDatabase()
 
   if (db.type === 'sqlite') {
     db.exec(`
@@ -678,7 +678,7 @@ async function ensureMigrationHistoryTable(): Promise<void> {
  * 获取已执行的迁移列表
  */
 async function getExecutedMigrations(): Promise<Set<string>> {
-  const db = getDatabase()
+  const db = await getDatabase()
   const executed = new Set<string>()
 
   try {
@@ -716,7 +716,7 @@ async function getExecutedMigrations(): Promise<Set<string>> {
  * 执行单个迁移
  */
 async function executeMigration(name: string, sql: string): Promise<void> {
-  const db = getDatabase()
+  const db = await getDatabase()
 
   // 分割多个 SQL 语句（按分号分割，但忽略字符串中的分号）
   const statements = splitSqlStatements(sql)
@@ -771,7 +771,7 @@ async function executeMigration(name: string, sql: string): Promise<void> {
  * 记录迁移执行历史
  */
 async function recordMigration(name: string): Promise<void> {
-  const db = getDatabase()
+  const db = await getDatabase()
 
   if (db.type === 'sqlite') {
     db.exec(
@@ -911,7 +911,7 @@ declare global {
  * 恢复执行：由 @/lib/queue-recovery.ts 的 executeQueueRecoveryIfNeeded() 函数完成
  */
 async function checkUnfinishedQueueTasks(): Promise<void> {
-  const db = getDatabase()
+  const db = await getDatabase()
 
   // 只支持 SQLite（PostgreSQL 暂不支持）
   if (db.type !== 'sqlite') {

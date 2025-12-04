@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 对比广告创意
-    const result = compareAdCreatives(creative_ids, authResult.user.userId)
+    const result = await compareAdCreatives(creative_ids, authResult.user.userId)
 
     console.log(`📊 对比广告创意: ${creative_ids.join(', ')}`)
     console.log(`   推荐: #${result.comparison.best_overall}`)

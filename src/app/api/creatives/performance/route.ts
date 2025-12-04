@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/creatives/performance
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get('sortBy') || 'score'
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 2. 获取所有Ad Creatives及其基本信息
     let creativesQuery = `
@@ -69,16 +69,16 @@ export async function GET(request: NextRequest) {
       creativesQuery += ` LIMIT ${limit}`
     }
 
-    const creatives = db.prepare(creativesQuery).all(userId) as any[]
+    const creatives = await db.query(creativesQuery, [userId]) as any[]
 
     // 4. 为每个Creative获取关联Campaign的性能数据
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - daysBack)
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0]
 
-    const creativesWithPerformance = creatives.map((creative) => {
+    const creativesWithPerformance = await Promise.all(creatives.map(async (creative) => {
       // 获取该Offer下所有Campaign的性能数据
-      const performanceData = db.prepare(`
+      const performanceData = await db.queryOne(`
         SELECT
           SUM(impressions) as impressions,
           SUM(clicks) as clicks,
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
         WHERE offer_id = ?
           AND user_id = ?
           AND date >= ?
-      `).get(creative.offer_id, userId, cutoffDateStr) as any
+      `, [creative.offer_id, userId, cutoffDateStr]) as any
 
       // 计算平均CPC
       const avgCpc = performanceData?.clicks > 0
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
           conversionRate: performanceData?.conversion_rate || 0,
         }
       }
-    })
+    }))
 
     // 5. 如果按performance排序，现在进行排序
     if (sortBy === 'performance') {

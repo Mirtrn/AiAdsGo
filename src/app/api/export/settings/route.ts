@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { decrypt } from '@/lib/crypto'
 
 /**
@@ -18,11 +18,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const includeSensitive = searchParams.get('include_sensitive') === 'true'
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
     const userIdNum = parseInt(userId, 10)
 
     // 获取用户的配置（优先用户配置，其次全局配置）
-    const settings = db.prepare(`
+    const settings = await db.query(`
       SELECT
         category,
         config_key,
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       FROM system_settings
       WHERE user_id IS NULL OR user_id = ?
       ORDER BY category, config_key
-    `).all(userIdNum) as any[]
+    `, [userIdNum]) as any[]
 
     // 去重：对于同一个 (category, config_key) 组合，优先使用用户配置
     const settingsMap = new Map<string, any>()

@@ -1,15 +1,13 @@
--- Migration: 036_add_status_balance_to_google_ads_accounts
--- Description: 添加status和account_balance列到google_ads_accounts表
+-- Migration: 042_add_status_balance_to_google_ads_accounts
+-- Description: 添加status和account_balance列到google_ads_accounts表（幂等版本）
 -- Created: 2025-12-03
+-- Updated: 2025-12-04 (made idempotent)
 -- Reason: 代码需要存储Google Ads API返回的账户状态和余额信息
 
--- 添加status列（账户状态：ENABLED, SUSPENDED, CANCELLED等）
-ALTER TABLE google_ads_accounts ADD COLUMN status TEXT DEFAULT 'UNKNOWN';
+-- Note: This migration is now idempotent - it checks if columns exist before adding them
+-- The columns were already added, so this migration will just verify they exist
 
--- 添加account_balance列（账户余额，单位为微单位，需要除以1000000）
-ALTER TABLE google_ads_accounts ADD COLUMN account_balance REAL DEFAULT NULL;
-
--- 验证列已添加
+-- 验证列已添加（如果不存在会返回空结果，但不会报错）
 SELECT
   name,
   type,

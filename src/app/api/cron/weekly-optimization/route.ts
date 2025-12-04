@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateWeeklyOptimizationTasks, cleanupOldTasks } from '@/lib/optimization-tasks'
 import { runCreativeOptimizationLoop } from '@/lib/creative-learning'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,20 +28,19 @@ export async function POST(request: NextRequest) {
     console.log('[Cron] Starting weekly optimization tasks generation...')
 
     // 生成Campaign层面的优化任务
-    const campaignResult = generateWeeklyOptimizationTasks()
+    const campaignResult = await generateWeeklyOptimizationTasks()
 
     console.log('[Cron] Generated campaign optimization tasks:', campaignResult)
 
     // 运行创意优化闭环（P0-1: 迭代优化机制）
     console.log('[Cron] Starting creative optimization loop...')
 
-    const db = getSQLiteDatabase()
-    const usersStmt = db.prepare(`
+    const db = await getDatabase()
+    const users = await db.query<{ user_id: number }>(`
       SELECT DISTINCT user_id
       FROM campaigns
       WHERE status IN ('ENABLED', 'PAUSED')
     `)
-    const users = usersStmt.all() as { user_id: number }[]
 
     const creativeResults: Record<number, {
       totalCreatives: number
@@ -56,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     for (const user of users) {
       try {
-        const result = runCreativeOptimizationLoop(user.user_id)
+        const result = await runCreativeOptimizationLoop(user.user_id)
         creativeResults[user.user_id] = result
 
         totalCreativesScored += result.totalCreatives
@@ -79,7 +78,7 @@ export async function POST(request: NextRequest) {
     })
 
     // 清理过期任务
-    const cleanedCount = cleanupOldTasks()
+    const cleanedCount = await cleanupOldTasks()
 
     console.log('[Cron] Cleaned up old tasks:', cleanedCount)
 

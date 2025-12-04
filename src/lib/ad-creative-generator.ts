@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import type {
   GeneratedAdCreativeData,
   HeadlineAsset,
@@ -46,18 +46,18 @@ interface AIConfig {
  * 优先级：用户配置 > 全局配置
  */
 async function getAIConfig(userId?: number): Promise<AIConfig> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 1. 先尝试获取用户特定配置（优先级最高）
   let userSettings: Record<string, string> = {}
   if (userId) {
-    const userRows = db.prepare(`
+    const userRows = await db.query(`
       SELECT config_key, config_value FROM system_settings
       WHERE user_id = ? AND config_key IN (
         'vertex_ai_model', 'gcp_project_id', 'gcp_location',
         'gemini_api_key', 'gemini_model', 'use_vertex_ai'
       )
-    `).all(userId) as Array<{ config_key: string; config_value: string }>
+    `, [userId]) as Array<{ config_key: string; config_value: string }>
 
     userSettings = userRows.reduce((acc, { config_key, config_value }) => {
       acc[config_key] = config_value
@@ -66,18 +66,18 @@ async function getAIConfig(userId?: number): Promise<AIConfig> {
   }
 
   // 2. 获取全局配置（作为备选）
-  const globalRows = db.prepare(`
+  const globalRows = await db.query(`
     SELECT config_key, config_value FROM system_settings
     WHERE user_id IS NULL AND config_key IN (
       'VERTEX_AI_PROJECT_ID', 'VERTEX_AI_LOCATION', 'VERTEX_AI_MODEL',
       'GEMINI_API_KEY', 'GEMINI_MODEL'
     )
-  `).all() as Array<{ config_key: string; config_value: string }>
+  `, []) as Array<{ config_key: string; config_value: string }>
 
   const globalSettings = globalRows.reduce((acc, { config_key, config_value }) => {
     acc[config_key] = config_value
     return acc
-  }, {} as Record<string, string>)
+  }, {} as Record<string, string >)
 
   // 3. 检查用户是否配置了使用Vertex AI
   const useVertexAI = userSettings['use_vertex_ai'] === 'true'
@@ -1358,12 +1358,12 @@ export async function generateAdCreative(
     }
   }
 
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // ✅ 安全修复：获取Offer数据时验证user_id，防止跨用户访问
-  const offer = db.prepare(`
+  const offer = await db.queryOne(`
     SELECT * FROM offers WHERE id = ? AND user_id = ?
-  `).get(offerId, userId)
+  `, [offerId, userId])
 
   if (!offer) {
     throw new Error('Offer不存在或无权访问')
@@ -1495,7 +1495,7 @@ export async function generateAdCreative(
   if (!userId) {
     throw new Error('生成广告创意需要用户ID，请确保已登录')
   }
-  const aiMode = getGeminiMode(userId)
+  const aiMode = await getGeminiMode(userId)
   console.log(`🤖 使用统一AI入口生成广告创意 (${aiMode})...`)
 
   console.time('⏱️ AI生成创意')
@@ -1656,16 +1656,16 @@ export async function generateAdCreative(
       // 获取Google Ads账号信息
       const { getKeywordIdeas } = await import('@/lib/google-ads-keyword-planner')
       const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
-      const { getSQLiteDatabase } = await import('@/lib/db')
-      const db = getSQLiteDatabase()
+      const { getDatabase } = await import('@/lib/db')
+      const db = await getDatabase()
 
       // 查询用户的Google Ads账号
-      const adsAccount = db.prepare(`
+      const adsAccount = await db.queryOne(`
         SELECT id, customer_id FROM google_ads_accounts
         WHERE user_id = ? AND is_active = 1
         ORDER BY created_at DESC
         LIMIT 1
-      `).get(userId) as { id: number; customer_id: string } | undefined
+      `, [userId]) as { id: number; customer_id: string } | undefined
 
       if (adsAccount) {
         // 获取OAuth凭证
@@ -1870,21 +1870,20 @@ export async function generateAdCreative(
     let brandSearchVolume = 0
 
     try {
-      const { getSQLiteDatabase } = await import('./db')
-      const db = getSQLiteDatabase()
+      const { getDatabase } = await import('./db')
+      const db = await getDatabase()
       const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
       const langCode = targetLanguage.toLowerCase().substring(0, 2)
 
       // 步骤1: 尝试从全局缓存查询（不区分大小写）
       console.log(`   📦 步骤1: 查询全局缓存...`)
-      const stmt = db.prepare(`
+      const row = await db.queryOne(`
         SELECT keyword, search_volume
         FROM global_keywords
         WHERE LOWER(keyword) = LOWER(?) AND country = ?
         ORDER BY search_volume DESC
         LIMIT 1
-      `)
-      const row = stmt.get(offerBrand, targetCountry) as { keyword: string; search_volume: number } | undefined
+      `, [offerBrand, targetCountry]) as { keyword: string; search_volume: number } | undefined
 
       if (row && row.search_volume > 0) {
         brandSearchVolume = row.search_volume

@@ -29,7 +29,7 @@ export async function POST(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const offer = findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!offer) {
       return NextResponse.json(
@@ -41,14 +41,14 @@ export async function POST(
     }
 
     // 更新状态为抓取中
-    updateOfferScrapeStatus(offer.id, parseInt(userId, 10), 'in_progress')
+    await updateOfferScrapeStatus(offer.id, parseInt(userId, 10), 'in_progress')
 
     // 🔥 重构优化：调用统一的核心抓取函数
     // 启动后台抓取任务（不等待完成）
     performScrapeAndAnalysis(offer.id, parseInt(userId, 10), offer.url, offer.brand)
-      .catch(error => {
+      .catch(async (error) => {
         console.error('后台抓取任务失败:', error)
-        updateOfferScrapeStatus(
+        await updateOfferScrapeStatus(
           offer.id,
           parseInt(userId, 10),
           'failed',

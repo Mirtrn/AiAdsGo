@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/optimization/metrics
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 获取过去7天和前7天的性能数据进行对比
     const today = new Date()
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const fourteenDaysAgoStr = fourteenDaysAgo.toISOString().split('T')[0]
 
     // 获取最近7天的汇总数据
-    const recentStats = db.prepare(`
+    const recentStats = await db.queryOne(`
       SELECT
         COALESCE(SUM(cp.clicks), 0) as clicks,
         COALESCE(SUM(cp.impressions), 0) as impressions,
@@ -48,10 +48,10 @@ export async function GET(request: NextRequest) {
       WHERE c.user_id = ?
         AND cp.date >= ?
         AND cp.date <= ?
-    `).get(parseInt(userId, 10), sevenDaysAgoStr, todayStr) as any
+    `, [parseInt(userId, 10), sevenDaysAgoStr, todayStr]) as any
 
     // 获取前7天的汇总数据
-    const previousStats = db.prepare(`
+    const previousStats = await db.queryOne(`
       SELECT
         COALESCE(SUM(cp.clicks), 0) as clicks,
         COALESCE(SUM(cp.impressions), 0) as impressions,
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       WHERE c.user_id = ?
         AND cp.date >= ?
         AND cp.date < ?
-    `).get(parseInt(userId, 10), fourteenDaysAgoStr, sevenDaysAgoStr) as any
+    `, [parseInt(userId, 10), fourteenDaysAgoStr, sevenDaysAgoStr]) as any
 
     // 计算变化率
     const calcChange = (recent: number, previous: number): number => {
@@ -85,13 +85,13 @@ export async function GET(request: NextRequest) {
     const clicksChange = calcChange(recentStats?.clicks || 0, previousStats?.clicks || 0)
 
     // 获取优化任务统计（user_id 隔离）
-    const taskStats = db.prepare(`
+    const taskStats = await db.queryOne(`
       SELECT
         COUNT(CASE WHEN status = 'pending' OR status = 'in_progress' THEN 1 END) as pending_tasks,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_tasks
       FROM optimization_tasks
       WHERE user_id = ?
-    `).get(parseInt(userId, 10)) as any
+    `, [parseInt(userId, 10)]) as any
 
     // 计算成本节省（基于CPC下降）
     const costSavings = cpcChange < 0 ? Math.abs(cpcChange) * (recentStats?.cost || 0) / 100 : 0

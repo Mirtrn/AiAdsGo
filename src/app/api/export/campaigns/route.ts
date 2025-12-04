@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/export/campaigns
@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const format = searchParams.get('format') || 'json'
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 获取用户的所有Campaigns（包含Offer和Account信息）
-    const campaigns = db.prepare(`
+    const campaigns = await db.query(`
       SELECT
         c.id,
         c.google_campaign_id,
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN google_ads_accounts ga ON c.google_ads_account_id = ga.id
       WHERE c.user_id = ?
       ORDER BY c.created_at DESC
-    `).all(parseInt(userId, 10)) as any[]
+    `, [parseInt(userId, 10)]) as any[]
 
     if (format === 'csv') {
       // 生成CSV

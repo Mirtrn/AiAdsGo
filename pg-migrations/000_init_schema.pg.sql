@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS offers (
   category TEXT,
   target_country TEXT NOT NULL,
   target_language TEXT,
-  offer_name TEXT UNIQUE,
+  offer_name TEXT,  -- 用户级别唯一，通过 UNIQUE(user_id, offer_name) 约束实现
   affiliate_link TEXT,
   brand_description TEXT,
   unique_selling_points TEXT,
@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS offers (
   deleted_at TIMESTAMP,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE(user_id, offer_name)  -- 用户级别唯一，不同用户可以有相同的 offer_name
 );
 CREATE INDEX IF NOT EXISTS idx_offers_user_id ON offers(user_id);
 CREATE INDEX IF NOT EXISTS idx_offers_offer_name ON offers(offer_name);

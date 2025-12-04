@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 /**
  * Offer Performance Analytics
@@ -61,12 +61,12 @@ export interface OfferROI {
  * @param daysBack - Number of days to look back (default: 30)
  * @returns OfferPerformanceSummary
  */
-export function getOfferPerformanceSummary(
+export async function getOfferPerformanceSummary(
   offerId: number,
   userId: number,
   daysBack: number = 30
-): OfferPerformanceSummary {
-  const db = getSQLiteDatabase()
+): Promise<OfferPerformanceSummary> {
+  const db = await getDatabase()
 
   // Calculate date range
   const endDate = new Date()
@@ -77,9 +77,7 @@ export function getOfferPerformanceSummary(
   const endDateStr = endDate.toISOString().split('T')[0]
 
   // Get aggregated performance data
-  const summary = db
-    .prepare(
-      `
+  const summary = await db.queryOne(`
     SELECT
       COUNT(DISTINCT campaign_id) as campaign_count,
       SUM(impressions) as impressions,
@@ -94,9 +92,7 @@ export function getOfferPerformanceSummary(
       AND user_id = ?
       AND date >= ?
       AND date <= ?
-  `
-    )
-    .get(offerId, userId, startDateStr, endDateStr) as any
+  `, [offerId, userId, startDateStr, endDateStr]) as any
 
   return {
     offer_id: offerId,
@@ -123,12 +119,12 @@ export function getOfferPerformanceSummary(
  * @param daysBack - Number of days to look back (default: 30)
  * @returns Array of OfferPerformanceTrend
  */
-export function getOfferPerformanceTrend(
+export async function getOfferPerformanceTrend(
   offerId: number,
   userId: number,
   daysBack: number = 30
-): OfferPerformanceTrend[] {
-  const db = getSQLiteDatabase()
+): Promise<OfferPerformanceTrend[]> {
+  const db = await getDatabase()
 
   // Calculate date range
   const endDate = new Date()
@@ -139,9 +135,7 @@ export function getOfferPerformanceTrend(
   const endDateStr = endDate.toISOString().split('T')[0]
 
   // Get daily trend data
-  const trends = db
-    .prepare(
-      `
+  const trends = await db.query(`
     SELECT
       DATE(date) as date,
       SUM(impressions) as impressions,
@@ -157,9 +151,7 @@ export function getOfferPerformanceTrend(
       AND date <= ?
     GROUP BY DATE(date)
     ORDER BY date ASC
-  `
-    )
-    .all(offerId, userId, startDateStr, endDateStr) as any[]
+  `, [offerId, userId, startDateStr, endDateStr]) as any[]
 
   return trends.map((row) => ({
     date: row.date,
@@ -180,12 +172,12 @@ export function getOfferPerformanceTrend(
  * @param daysBack - Number of days to look back (default: 30)
  * @returns Array of CampaignPerformanceComparison
  */
-export function getCampaignPerformanceComparison(
+export async function getCampaignPerformanceComparison(
   offerId: number,
   userId: number,
   daysBack: number = 30
-): CampaignPerformanceComparison[] {
-  const db = getSQLiteDatabase()
+): Promise<CampaignPerformanceComparison[]> {
+  const db = await getDatabase()
 
   // Calculate date range
   const endDate = new Date()
@@ -196,9 +188,7 @@ export function getCampaignPerformanceComparison(
   const endDateStr = endDate.toISOString().split('T')[0]
 
   // Get per-campaign aggregated data
-  const campaigns = db
-    .prepare(
-      `
+  const campaigns = await db.query(`
     SELECT
       ap.campaign_id,
       c.campaign_name,
@@ -218,9 +208,7 @@ export function getCampaignPerformanceComparison(
       AND ap.date <= ?
     GROUP BY ap.campaign_id, c.campaign_name, c.google_campaign_id
     ORDER BY SUM(ap.conversions) DESC, SUM(ap.clicks) DESC
-  `
-    )
-    .all(offerId, userId, startDateStr, endDateStr) as any[]
+  `, [offerId, userId, startDateStr, endDateStr]) as any[]
 
   return campaigns.map((row) => ({
     campaign_id: row.campaign_id,
@@ -245,13 +233,13 @@ export function getCampaignPerformanceComparison(
  * @param daysBack - Number of days to look back (default: 30)
  * @returns OfferROI
  */
-export function calculateOfferROI(
+export async function calculateOfferROI(
   offerId: number,
   userId: number,
   avgOrderValue: number,
   daysBack: number = 30
-): OfferROI {
-  const db = getSQLiteDatabase()
+): Promise<OfferROI> {
+  const db = await getDatabase()
 
   // Calculate date range
   const endDate = new Date()
@@ -262,9 +250,7 @@ export function calculateOfferROI(
   const endDateStr = endDate.toISOString().split('T')[0]
 
   // Get total cost and conversions
-  const data = db
-    .prepare(
-      `
+  const data = await db.queryOne(`
     SELECT
       SUM(cost_micros) as total_cost_micros,
       SUM(conversions) as total_conversions
@@ -273,9 +259,7 @@ export function calculateOfferROI(
       AND user_id = ?
       AND date >= ?
       AND date <= ?
-  `
-    )
-    .get(offerId, userId, startDateStr, endDateStr) as any
+  `, [offerId, userId, startDateStr, endDateStr]) as any
 
   const totalCostUsd = (data?.total_cost_micros || 0) / 1000000
   const totalConversions = data?.total_conversions || 0

@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
         }
 
         // 创建Offer（使用推广链接作为临时URL，品牌名称待提取）
-        const offer = createOffer(parseInt(userId, 10), {
+        const offer = await createOffer(parseInt(userId, 10), {
           url: validationResult.data.affiliate_link, // 临时使用推广链接，后续会更新为Final URL
           brand: '提取中...', // 临时品牌名，后续会更新
           target_country: validationResult.data.target_country,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/export/offers
@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const format = searchParams.get('format') || 'json'
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 获取用户的所有Offers
-    const offers = db.prepare(`
+    const offers = await db.query(`
       SELECT
         id,
         product_name,
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       FROM offers
       WHERE user_id = ?
       ORDER BY created_at DESC
-    `).all(parseInt(userId, 10)) as any[]
+    `, [parseInt(userId, 10)]) as any[]
 
     if (format === 'csv') {
       // 生成CSV

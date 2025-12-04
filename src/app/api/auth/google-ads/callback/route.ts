@@ -76,12 +76,12 @@ export async function GET(request: NextRequest) {
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
 
     // 检查账号是否已存在
-    const existingAccount = findGoogleAdsAccountByCustomerId(customerId, parseInt(userId, 10))
+    const existingAccount = await findGoogleAdsAccountByCustomerId(customerId, parseInt(userId, 10))
 
     if (existingAccount) {
       // 更新现有账号的tokens
       const { updateGoogleAdsAccount } = await import('@/lib/google-ads-accounts')
-      updateGoogleAdsAccount(existingAccount.id, parseInt(userId, 10), {
+      await updateGoogleAdsAccount(existingAccount.id, parseInt(userId, 10), {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         tokenExpiresAt: expiresAt,

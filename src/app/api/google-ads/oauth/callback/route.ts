@@ -68,20 +68,20 @@ export async function GET(request: NextRequest) {
     // getSetting已自动解密敏感字段，直接使用.value即可
     if (useOwnConfig) {
       // 用户使用自己的OAuth凭证
-      clientId = getSetting('google_ads', 'client_id', userId)?.value || ''
-      clientSecret = getSetting('google_ads', 'client_secret', userId)?.value || ''
-      developerToken = getSetting('google_ads', 'developer_token', userId)?.value || ''
+      clientId = (await getSetting('google_ads', 'client_id', userId))?.value || ''
+      clientSecret = (await getSetting('google_ads', 'client_secret', userId))?.value || ''
+      developerToken = (await getSetting('google_ads', 'developer_token', userId))?.value || ''
       console.log(`🔐 OAuth回调: 用户 ${userId} 使用自己的OAuth配置`)
     } else {
       // 使用平台共享的OAuth凭证（autoads用户的配置）
-      clientId = getSetting('google_ads', 'client_id', autoadsUserId)?.value || process.env.GOOGLE_ADS_CLIENT_ID || ''
-      clientSecret = getSetting('google_ads', 'client_secret', autoadsUserId)?.value || process.env.GOOGLE_ADS_CLIENT_SECRET || ''
-      developerToken = getSetting('google_ads', 'developer_token', autoadsUserId)?.value || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || ''
+      clientId = (await getSetting('google_ads', 'client_id', autoadsUserId))?.value || process.env.GOOGLE_ADS_CLIENT_ID || ''
+      clientSecret = (await getSetting('google_ads', 'client_secret', autoadsUserId))?.value || process.env.GOOGLE_ADS_CLIENT_SECRET || ''
+      developerToken = (await getSetting('google_ads', 'developer_token', autoadsUserId))?.value || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || ''
       console.log(`🔐 OAuth回调: 用户 ${userId} 使用平台共享OAuth配置`)
     }
 
     // 获取用户的login_customer_id（始终使用用户自己的）
-    const loginCustomerId = getSetting('google_ads', 'login_customer_id', userId)?.value || ''
+    const loginCustomerId = (await getSetting('google_ads', 'login_customer_id', userId))?.value || ''
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
 
     // 保存凭证到当前用户的记录（无论使用哪套OAuth配置，refresh_token都保存到用户自己的记录）
-    const savedCredentials = saveGoogleAdsCredentials(userId, {
+    const savedCredentials = await saveGoogleAdsCredentials(userId, {
       client_id: clientId,
       client_secret: clientSecret,
       refresh_token: tokens.refresh_token,

@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 const BACKUP_DIR = path.join(process.cwd(), 'backups')
 
@@ -9,27 +9,24 @@ if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true })
 }
 
-export function performBackup() {
+export async function performBackup() {
   try {
     const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const backupPath = path.join(BACKUP_DIR, `autoads-backup-${timestamp}.db`)
 
-    // Use SQLite's backup API if available, or file copy
-    // Better-sqlite3 has a backup method
-    const db = getSQLiteDatabase()
-    db.backup(backupPath)
-      .then(() => {
-        console.log(`✅ Database backup created at ${backupPath}`)
-        // Clean up old backups (keep last 7 days)
-        cleanOldBackups()
-      })
-      .catch((err) => {
-        console.error('❌ Backup failed:', err)
-      })
-
+    // For SQLite, perform file copy; For PostgreSQL, use pg_dump or other backup methods
+    // Note: This simple file copy works for SQLite but needs different approach for PostgreSQL
+    if (dbPath.endsWith('.db')) {
+      fs.copyFileSync(dbPath, backupPath)
+      console.log(`✅ Database backup created at ${backupPath}`)
+      // Clean up old backups (keep last 7 days)
+      cleanOldBackups()
+    } else {
+      console.log('⚠️ performBackup() only supports SQLite file copy. Use backupDatabase() for full support.')
+    }
   } catch (error) {
-    console.error('❌ Backup initiation failed:', error)
+    console.error('❌ Backup failed:', error)
   }
 }
 
@@ -40,7 +37,7 @@ export async function backupDatabase(backupType: 'manual' | 'auto', createdBy?: 
   backupPath?: string;
   fileSizeBytes?: number;
 }> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   try {
     const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
@@ -48,7 +45,12 @@ export async function backupDatabase(backupType: 'manual' | 'auto', createdBy?: 
     const backupFilename = `autoads-backup-${backupType}-${timestamp}.db`
     const backupPath = path.join(BACKUP_DIR, backupFilename)
 
-    await db.backup(backupPath)
+    // For SQLite, use file copy; For PostgreSQL, this would need pg_dump
+    if (dbPath.endsWith('.db')) {
+      fs.copyFileSync(dbPath, backupPath)
+    } else {
+      throw new Error('Database backup for PostgreSQL not yet implemented')
+    }
 
     console.log(`✅ Database backup created at ${backupPath}`)
     cleanOldBackups()
@@ -57,10 +59,10 @@ export async function backupDatabase(backupType: 'manual' | 'auto', createdBy?: 
     const stats = fs.statSync(backupPath)
 
     // Log to backup_logs table
-    db.prepare(`
+    await db.exec(`
       INSERT INTO backup_logs (backup_type, status, backup_filename, backup_path, file_size_bytes, created_by)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(backupType, 'success', backupFilename, backupPath, stats.size, createdBy || null)
+    `, [backupType, 'success', backupFilename, backupPath, stats.size, createdBy || null])
 
     return {
       success: true,
@@ -74,10 +76,10 @@ export async function backupDatabase(backupType: 'manual' | 'auto', createdBy?: 
 
     // Log failure to backup_logs table
     try {
-      db.prepare(`
+      await db.exec(`
         INSERT INTO backup_logs (backup_type, status, error_message, created_by)
         VALUES (?, ?, ?, ?)
-      `).run(backupType, 'failed', errorMessage, createdBy || null)
+      `, [backupType, 'failed', errorMessage, createdBy || null])
     } catch (logError) {
       console.error('Failed to log backup failure:', logError)
     }

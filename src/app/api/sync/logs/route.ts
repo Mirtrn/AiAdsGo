@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20', 10)
 
     // 获取同步日志
-    const logs = dataSyncService.getSyncLogs(userId, limit)
+    const logs = await dataSyncService.getSyncLogs(userId, limit)
 
     return NextResponse.json({
       success: true,

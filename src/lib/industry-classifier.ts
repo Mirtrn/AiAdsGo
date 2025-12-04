@@ -3,7 +3,7 @@
  * 根据Offer信息自动分类到二级行业类别
  */
 
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 export interface IndustryBenchmark {
   id: number
@@ -78,24 +78,24 @@ const KEYWORD_MAPPINGS: Record<string, string[]> = {
  * 获取所有行业基准数据
  */
 export async function getAllIndustryBenchmarks(): Promise<IndustryBenchmark[]> {
-  const db = getSQLiteDatabase()
-  return db.prepare(`
+  const db = await getDatabase()
+  return await db.query(`
     SELECT id, industry_l1, industry_l2, industry_code, avg_ctr, avg_cpc, avg_conversion_rate
     FROM industry_benchmarks
     ORDER BY industry_l1, industry_l2
-  `).all() as IndustryBenchmark[]
+  `, []) as IndustryBenchmark[]
 }
 
 /**
  * 根据行业代码获取基准数据
  */
 export async function getIndustryBenchmark(industryCode: string): Promise<IndustryBenchmark | null> {
-  const db = getSQLiteDatabase()
-  return db.prepare(`
+  const db = await getDatabase()
+  return await db.queryOne(`
     SELECT id, industry_l1, industry_l2, industry_code, avg_ctr, avg_cpc, avg_conversion_rate
     FROM industry_benchmarks
     WHERE industry_code = ?
-  `).get(industryCode) as IndustryBenchmark | null
+  `, [industryCode]) as IndustryBenchmark | null
 }
 
 /**

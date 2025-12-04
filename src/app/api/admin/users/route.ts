@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth, createUser, generateUniqueUsername } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 // GET: List all users (paginated)
 export async function GET(request: NextRequest) {
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(searchParams.get('limit') || '10')
   const offset = (page - 1) * limit
 
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   let query = `
       SELECT id, username, email, display_name, role, package_type, package_expires_at, is_active, last_login_at, created_at,
@@ -65,10 +65,10 @@ export async function GET(request: NextRequest) {
   query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
 
   // Get total count
-  const total = db.prepare(countQuery).get(...params) as { count: number }
+  const total = await db.queryOne(countQuery, [...params]) as { count: number }
 
   // Get users
-  const users = db.prepare(query).all(...params, limit, offset)
+  const users = await db.query(query, [...params, limit, offset])
 
   return NextResponse.json({
     users,
@@ -101,8 +101,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if username already exists
-    const db = getSQLiteDatabase()
-    const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(username)
+    const db = await getDatabase()
+    const existingUser = await db.queryOne('SELECT id FROM users WHERE username = ?', [username])
     if (existingUser) {
       return NextResponse.json({ error: '用户名已存在，请重新生成' }, { status: 400 })
     }

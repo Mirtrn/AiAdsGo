@@ -50,7 +50,7 @@ export async function POST(
 
     for (const creativeId of creativeIds) {
       // 验证Creative存在且属于该用户
-      const creative = findAdCreativeById(creativeId, parseInt(userId, 10))
+      const creative = await findAdCreativeById(creativeId, parseInt(userId, 10))
 
       if (!creative || creative.offer_id !== offerId) {
         return NextResponse.json(
@@ -61,7 +61,7 @@ export async function POST(
 
       // 获取该Creative的最新Launch Score
       // 注意：实际应用中可能需要根据creativeId查询，这里简化为使用offerId的最新评分
-      const score = findLatestLaunchScore(offerId, parseInt(userId, 10))
+      const score = await findLatestLaunchScore(offerId, parseInt(userId, 10))
 
       if (score) {
         const analysis = parseLaunchScoreAnalysis(score)

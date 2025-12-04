@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const keyword = findKeywordById(parseInt(id, 10), parseInt(userId, 10))
+    const keyword = await findKeywordById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!keyword) {
       return NextResponse.json(
@@ -67,7 +67,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (finalUrl !== undefined) updates.finalUrl = finalUrl
     if (isNegative !== undefined) updates.isNegative = isNegative
 
-    const keyword = updateKeyword(parseInt(id, 10), parseInt(userId, 10), updates)
+    const keyword = await updateKeyword(parseInt(id, 10), parseInt(userId, 10), updates)
 
     if (!keyword) {
       return NextResponse.json(
@@ -108,7 +108,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const success = deleteKeyword(parseInt(id, 10), parseInt(userId, 10))
+    const success = await deleteKeyword(parseInt(id, 10), parseInt(userId, 10))
 
     if (!success) {
       return NextResponse.json(

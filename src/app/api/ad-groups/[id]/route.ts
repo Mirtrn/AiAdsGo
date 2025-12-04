@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const adGroup = findAdGroupById(parseInt(id, 10), parseInt(userId, 10))
+    const adGroup = await findAdGroupById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!adGroup) {
       return NextResponse.json(
@@ -64,7 +64,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (status !== undefined) updates.status = status
     if (cpcBidMicros !== undefined) updates.cpcBidMicros = cpcBidMicros
 
-    const adGroup = updateAdGroup(parseInt(id, 10), parseInt(userId, 10), updates)
+    const adGroup = await updateAdGroup(parseInt(id, 10), parseInt(userId, 10), updates)
 
     if (!adGroup) {
       return NextResponse.json(
@@ -105,7 +105,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const success = deleteAdGroup(parseInt(id, 10), parseInt(userId, 10))
+    const success = await deleteAdGroup(parseInt(id, 10), parseInt(userId, 10))
 
     if (!success) {
       return NextResponse.json(

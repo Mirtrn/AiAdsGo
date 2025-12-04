@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { calculateBonusScore, saveCreativePerformance } from '@/lib/bonus-score-calculator'
 import { getIndustryBenchmark } from '@/lib/industry-classifier'
 import { verifyAuth } from '@/lib/auth'
@@ -45,27 +45,27 @@ export async function POST(
       return NextResponse.json({ error: 'Period start and end dates are required' }, { status: 400 })
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 验证广告创意存在
-    const creative = db.prepare(`
+    const creative = await db.queryOne<any>(`
       SELECT ac.id, ac.offer_id, o.industry_code
       FROM ad_creatives ac
       JOIN offers o ON ac.offer_id = o.id
       WHERE ac.id = ?
-    `).get(adCreativeId) as any
+    `, [adCreativeId])
 
     if (!creative) {
       return NextResponse.json({ error: 'Ad creative not found' }, { status: 404 })
     }
 
     // 保存转化反馈
-    const result = db.prepare(`
+    const result = await db.exec(`
       INSERT INTO conversion_feedback (
         ad_creative_id, user_id, conversions, conversion_value,
         period_start, period_end, feedback_note
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       adCreativeId,
       userId,
       conversions,
@@ -73,15 +73,15 @@ export async function POST(
       periodStart,
       periodEnd,
       feedbackNote || null
-    )
+    ])
 
     // 获取现有效果数据并更新转化信息
-    const existingPerformance = db.prepare(`
+    const existingPerformance = await db.queryOne<any>(`
       SELECT * FROM ad_creative_performance
       WHERE ad_creative_id = ?
       ORDER BY sync_date DESC
       LIMIT 1
-    `).get(adCreativeId) as any
+    `, [adCreativeId])
 
     if (existingPerformance && existingPerformance.clicks >= 100) {
       // 计算转化率
@@ -100,7 +100,7 @@ export async function POST(
       )
 
       // 更新数据库
-      db.prepare(`
+      await db.exec(`
         UPDATE ad_creative_performance
         SET conversions = ?,
             conversion_rate = ?,
@@ -109,14 +109,14 @@ export async function POST(
             bonus_breakdown = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(
+      `, [
         conversions,
         conversionRate,
         conversionValue,
         bonusResult.totalBonus,
         JSON.stringify(bonusResult.breakdown),
         existingPerformance.id
-      )
+      ])
 
       return NextResponse.json({
         success: true,
@@ -153,10 +153,10 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid ad creative ID' }, { status: 400 })
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 获取所有转化反馈
-    const feedbacks = db.prepare(`
+    const feedbacks = await db.query<any>(`
       SELECT
         id, conversions, conversion_value,
         period_start, period_end, feedback_note,
@@ -164,24 +164,24 @@ export async function GET(
       FROM conversion_feedback
       WHERE ad_creative_id = ?
       ORDER BY created_at DESC
-    `).all(adCreativeId)
+    `, [adCreativeId])
 
     // 获取汇总统计
-    const summary = db.prepare(`
+    const summary = await db.queryOne<any>(`
       SELECT
         SUM(conversions) as total_conversions,
         SUM(conversion_value) as total_value,
         COUNT(*) as feedback_count
       FROM conversion_feedback
       WHERE ad_creative_id = ?
-    `).get(adCreativeId) as any
+    `, [adCreativeId])
 
     return NextResponse.json({
       feedbacks,
       summary: {
-        totalConversions: summary.total_conversions || 0,
-        totalValue: summary.total_value || 0,
-        feedbackCount: summary.feedback_count || 0
+        totalConversions: summary?.total_conversions || 0,
+        totalValue: summary?.total_value || 0,
+        feedbackCount: summary?.feedback_count || 0
       }
     })
   } catch (error) {

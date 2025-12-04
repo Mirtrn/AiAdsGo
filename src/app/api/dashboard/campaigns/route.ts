@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * Campaign性能数据
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 构建查询条件
     const conditions: string[] = ['c.user_id = ?']
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
 
     params.unshift(formatDate(startDate), formatDate(endDate))
 
-    const rawData = db.prepare(query).all(...params) as Array<{
+    const rawData = await db.query(query, [...params]) as Array<{
       campaignId: number
       campaignName: string
       status: string

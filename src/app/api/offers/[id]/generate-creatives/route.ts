@@ -38,7 +38,7 @@ export async function POST(
     } = body
 
     // 验证Offer存在且属于当前用户
-    const offer = findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!offer) {
       return NextResponse.json(
@@ -214,7 +214,7 @@ export async function POST(
 
 
     // 保存到数据库
-    const savedCreative = createAdCreative(parseInt(userId, 10), parseInt(id, 10), {
+    const savedCreative = await createAdCreative(parseInt(userId, 10), parseInt(id, 10), {
       headlines: bestCreative.headlines,
       descriptions: bestCreative.descriptions,
       keywords: bestCreative.keywords,

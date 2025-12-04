@@ -20,7 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Ad Group
-    const adGroup = findAdGroupById(parseInt(id, 10), parseInt(userId, 10))
+    const adGroup = await findAdGroupById(parseInt(id, 10), parseInt(userId, 10))
     if (!adGroup) {
       return NextResponse.json(
         {
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Campaign
-    const campaign = findCampaignById(adGroup.campaignId, parseInt(userId, 10))
+    const campaign = await findCampaignById(adGroup.campaignId, parseInt(userId, 10))
     if (!campaign) {
       return NextResponse.json(
         {
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Google Ads账号
-    const googleAdsAccount = findGoogleAdsAccountById(
+    const googleAdsAccount = await findGoogleAdsAccountById(
       campaign.googleAdsAccountId,
       parseInt(userId, 10)
     )
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 更新状态为pending
-    updateAdGroup(adGroup.id, parseInt(userId, 10), {
+    await updateAdGroup(adGroup.id, parseInt(userId, 10), {
       creationStatus: 'pending',
       creationError: null,
     })
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       })
 
       // 更新Ad Group，标记为已同步
-      updateAdGroup(adGroup.id, parseInt(userId, 10), {
+      await updateAdGroup(adGroup.id, parseInt(userId, 10), {
         adGroupId: adGroupResult.adGroupId,
         creationStatus: 'synced',
         creationError: null,
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       })
 
       // 查找Ad Group的所有Keywords
-      const keywords = findKeywordsByAdGroupId(adGroup.id, parseInt(userId, 10))
+      const keywords = await findKeywordsByAdGroupId(adGroup.id, parseInt(userId, 10))
 
       let syncedKeywordsCount = 0
 
@@ -142,7 +142,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           const keywordResult = keywordResults[i]
           const keyword = keywords[i]
 
-          updateKeyword(keyword.id, parseInt(userId, 10), {
+          await updateKeyword(keyword.id, parseInt(userId, 10), {
             keywordId: keywordResult.keywordId,
             creationStatus: 'synced',
             lastSyncAt: new Date().toISOString(),
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       })
     } catch (error: any) {
       // 同步失败，更新错误状态
-      updateAdGroup(adGroup.id, parseInt(userId, 10), {
+      await updateAdGroup(adGroup.id, parseInt(userId, 10), {
         creationStatus: 'failed',
         creationError: error.message || '同步到Google Ads失败',
       })

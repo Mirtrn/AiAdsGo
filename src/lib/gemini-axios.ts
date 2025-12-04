@@ -109,7 +109,7 @@ export async function generateContent(params: {
   } = params
 
   // 从用户配置获取API密钥（不使用全局配置）
-  const apiKeySetting = getUserOnlySetting('ai', 'gemini_api_key', userId)
+  const apiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userId)
   const apiKey = apiKeySetting?.value
   if (!apiKey) {
     throw new Error(`用户(ID=${userId})未配置 Gemini API 密钥。请在设置页面配置您自己的 API 密钥。`)

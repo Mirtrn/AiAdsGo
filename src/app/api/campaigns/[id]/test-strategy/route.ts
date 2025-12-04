@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import {
   createGoogleAdsCampaign,
   createGoogleAdsAdGroup,
@@ -82,10 +82,10 @@ export async function POST(
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 4. 验证原Campaign
-    const originalCampaign = db.prepare(`
+    const originalCampaign = await db.queryOne<any>(`
       SELECT
         c.id,
         c.user_id,
@@ -110,7 +110,7 @@ export async function POST(
       LEFT JOIN ad_creatives ac ON c.ad_creative_id = ac.id
       JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       WHERE c.id = ? AND c.user_id = ?
-    `).get(originalCampaignId, userId) as any
+    `, [originalCampaignId, userId])
 
     if (!originalCampaign) {
       const error = createError.campaignNotFound({ campaignId: originalCampaignId })
@@ -130,7 +130,7 @@ export async function POST(
 
     // 5. 验证是否适合进行策略测试
     // 理想情况：原Campaign是Phase 1的胜出者
-    const isPhase1Winner = db.prepare(`
+    const isPhase1Winner = await db.queryOne<any>(`
       SELECT COUNT(*) as count
       FROM ab_tests
       WHERE winner_variant_id IN (
@@ -138,7 +138,7 @@ export async function POST(
       )
       AND test_dimension = 'creative'
       AND status = 'completed'
-    `).get(originalCampaign.ad_creative_id) as any
+    `, [originalCampaign.ad_creative_id])
 
     if (isPhase1Winner.count === 0) {
       console.log(`⚠️ Campaign ${originalCampaignId} 的创意不是Phase 1胜出者，但允许继续测试`)
@@ -151,7 +151,7 @@ export async function POST(
     const testName = `策略优化 - ${originalCampaign.campaign_name} - ${test_dimension}`
     const testDescription = `测试${strategies.length}种${getDimensionLabel(test_dimension)}策略，使用相同创意`
 
-    const abTestInsert = db.prepare(`
+    const abTestInsert = await db.exec(`
       INSERT INTO ab_tests (
         user_id,
         offer_id,
@@ -170,7 +170,7 @@ export async function POST(
         created_at,
         updated_at
       ) VALUES (?, ?, ?, ?, ?, 'strategy', 'optimization_challenge', 1, ?, 'running', ?, ?, 200, 0.95, ?, ?)
-    `).run(
+    `, [
       userId,
       originalCampaign.offer_id,
       testName,
@@ -181,7 +181,7 @@ export async function POST(
       endDate,
       now,
       now
-    )
+    ])
 
     const abTestId = Number(abTestInsert.lastInsertRowid)
 
@@ -212,7 +212,7 @@ export async function POST(
         userId
       })
 
-      db.prepare(`
+      await db.exec(`
         UPDATE campaigns
         SET
           budget_amount = ?,
@@ -220,13 +220,13 @@ export async function POST(
           ab_test_id = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(newOriginalBudget, trafficAllocations[0], abTestId, originalCampaignId)
+      `, [newOriginalBudget, trafficAllocations[0], abTestId, originalCampaignId])
 
       console.log(`✅ 原Campaign预算调整为 ${newOriginalBudget} (${(trafficAllocations[0] * 100).toFixed(0)}%)`)
 
     } catch (budgetError: any) {
       console.error('❌ 调整原Campaign预算失败:', budgetError.message)
-      db.prepare('DELETE FROM ab_tests WHERE id = ?').run(abTestId)
+      await db.exec('DELETE FROM ab_tests WHERE id = ?', [abTestId])
 
       const error = createError.campaignUpdateFailed({
         campaignId: originalCampaignId,
@@ -254,7 +254,7 @@ export async function POST(
       )
 
       // 创建Campaign到数据库
-      const campaignInsert = db.prepare(`
+      const campaignInsert = await db.exec(`
         INSERT INTO campaigns (
           user_id,
           offer_id,
@@ -272,7 +272,7 @@ export async function POST(
           created_at,
           updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, 'ENABLED', 'pending', ?, ?, 1, ?, ?, ?, ?)
-      `).run(
+      `, [
         userId,
         originalCampaign.offer_id,
         originalCampaign.google_ads_account_id,
@@ -285,7 +285,7 @@ export async function POST(
         trafficAllocations[i + 1],
         now,
         now
-      )
+      ])
 
       const campaignId = Number(campaignInsert.lastInsertRowid)
 
@@ -368,7 +368,7 @@ export async function POST(
         })
 
         // 更新数据库
-        db.prepare(`
+        await db.exec(`
           UPDATE campaigns
           SET
             google_campaign_id = ?,
@@ -378,7 +378,7 @@ export async function POST(
             last_sync_at = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(googleCampaignId, googleAdGroupId, googleAdId, campaignId)
+        `, [googleCampaignId, googleAdGroupId, googleAdId, campaignId])
 
         createdCampaigns.push({
           id: campaignId,
@@ -393,11 +393,11 @@ export async function POST(
       } catch (error: any) {
         console.error(`❌ Strategy ${variantName} 创建失败:`, error.message)
 
-        db.prepare(`
+        await db.exec(`
           UPDATE campaigns
           SET creation_status = 'failed', creation_error = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `).run(error.message, campaignId)
+        `, [error.message, campaignId])
 
         failedCampaigns.push({
           id: campaignId,
@@ -410,7 +410,7 @@ export async function POST(
 
     // 10. 创建ab_test_variants记录
     // 原Campaign作为对照组
-    db.prepare(`
+    await db.exec(`
       INSERT INTO ab_test_variants (
         ab_test_id,
         variant_name,
@@ -421,12 +421,12 @@ export async function POST(
         created_at,
         updated_at
       ) VALUES (?, 'A', 'Original', ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(abTestId, originalCampaign.ad_creative_id, trafficAllocations[0])
+    `, [abTestId, originalCampaign.ad_creative_id, trafficAllocations[0]])
 
     // 策略测试变体
     for (let i = 0; i < createdCampaigns.length; i++) {
       const campaign = createdCampaigns[i]
-      db.prepare(`
+      await db.exec(`
         INSERT INTO ab_test_variants (
           ab_test_id,
           variant_name,
@@ -437,13 +437,13 @@ export async function POST(
           created_at,
           updated_at
         ) VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      `).run(
+      `, [
         abTestId,
         campaign.variant_name,
         campaign.strategy_name,
         originalCampaign.ad_creative_id,
         trafficAllocations[i + 1]
-      )
+      ])
     }
 
     return NextResponse.json({

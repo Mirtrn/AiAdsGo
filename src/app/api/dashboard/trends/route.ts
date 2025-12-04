@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/dashboard/trends
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     startDate.setDate(startDate.getDate() - days)
 
     // 获取数据库实例
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 查询每日表现数据
     const query = `
@@ -45,13 +45,11 @@ export async function GET(request: NextRequest) {
       ORDER BY date ASC
     `
 
-    const rows = db
-      .prepare(query)
-      .all(
-        userId,
-        startDate.toISOString().split('T')[0],
-        endDate.toISOString().split('T')[0]
-      ) as Array<{
+    const rows = await db.query(query, [
+      userId,
+      startDate.toISOString().split('T')[0],
+      endDate.toISOString().split('T')[0]
+    ]) as Array<{
       date: string
       impressions: number
       clicks: number

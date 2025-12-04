@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { updateTaskStatus } from '@/lib/optimization-tasks'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * PATCH - 更新任务状态
@@ -44,7 +44,7 @@ export async function PATCH(
     }
 
     // 更新任务
-    const updated = updateTaskStatus(taskId, auth.user!.userId, status, note)
+    const updated = await updateTaskStatus(taskId, auth.user!.userId, status, note)
 
     if (!updated) {
       return NextResponse.json(
@@ -91,13 +91,11 @@ export async function DELETE(
       )
     }
 
-    const db = getSQLiteDatabase()
-    const stmt = db.prepare(`
+    const db = await getDatabase()
+    const result = await db.exec(`
       DELETE FROM optimization_tasks
       WHERE id = ? AND user_id = ?
-    `)
-
-    const result = stmt.run(taskId, auth.user!.userId)
+    `, [taskId, auth.user!.userId])
 
     if (result.changes === 0) {
       return NextResponse.json(

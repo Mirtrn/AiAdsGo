@@ -23,20 +23,20 @@ export async function GET(request: NextRequest) {
     const currentUserId = parseInt(userId, 10)
 
     // 检查用户是否配置了自己的Google Ads API凭证
-    const userCredentials = getGoogleAdsCredentials(currentUserId)
+    const userCredentials = await getGoogleAdsCredentials(currentUserId)
 
     // 如果用户有自己的凭证，使用用户ID；否则使用autoads管理员ID（userId=1）
     const targetUserId = userCredentials ? currentUserId : 1
     const isUsingSharedCredentials = !userCredentials
 
     // 获取今天的使用统计
-    const todayStats = getDailyUsageStats(targetUserId)
+    const todayStats = await getDailyUsageStats(targetUserId)
 
     // 获取最近N天的趋势
-    const trend = getUsageTrend(targetUserId, days)
+    const trend = await getUsageTrend(targetUserId, days)
 
     // 检查配额限制
-    const quotaCheck = checkQuotaLimit(targetUserId, 0.8)
+    const quotaCheck = await checkQuotaLimit(targetUserId, 0.8)
 
     return NextResponse.json({
       success: true,

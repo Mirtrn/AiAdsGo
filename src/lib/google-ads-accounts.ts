@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 export interface GoogleAdsAccount {
   id: number
@@ -35,18 +35,16 @@ export interface CreateGoogleAdsAccountInput {
 /**
  * 创建Google Ads账号
  */
-export function createGoogleAdsAccount(input: CreateGoogleAdsAccountInput): GoogleAdsAccount {
-  const db = getSQLiteDatabase()
+export async function createGoogleAdsAccount(input: CreateGoogleAdsAccountInput): Promise<GoogleAdsAccount> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(`
     INSERT INTO google_ads_accounts (
       user_id, customer_id, account_name,
       currency, timezone, is_manager_account,
       access_token, refresh_token, token_expires_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  const info = stmt.run(
+  `, [
     input.userId,
     input.customerId,
     input.accountName || null,
@@ -56,22 +54,21 @@ export function createGoogleAdsAccount(input: CreateGoogleAdsAccountInput): Goog
     input.accessToken || null,
     input.refreshToken || null,
     input.tokenExpiresAt || null
-  )
+  ])
 
-  return findGoogleAdsAccountById(info.lastInsertRowid as number, input.userId)!
+  return (await findGoogleAdsAccountById(result.lastInsertRowid as number, input.userId))!
 }
 
 /**
  * 查找Google Ads账号（带权限验证）
  */
-export function findGoogleAdsAccountById(id: number, userId: number): GoogleAdsAccount | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findGoogleAdsAccountById(id: number, userId: number): Promise<GoogleAdsAccount | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM google_ads_accounts
     WHERE id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(id, userId) as any
+  `, [id, userId]) as any
 
   if (!row) {
     return null
@@ -83,17 +80,16 @@ export function findGoogleAdsAccountById(id: number, userId: number): GoogleAdsA
 /**
  * 根据customer_id查找账号
  */
-export function findGoogleAdsAccountByCustomerId(
+export async function findGoogleAdsAccountByCustomerId(
   customerId: string,
   userId: number
-): GoogleAdsAccount | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+): Promise<GoogleAdsAccount | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM google_ads_accounts
     WHERE customer_id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(customerId, userId) as any
+  `, [customerId, userId]) as any
 
   if (!row) {
     return null
@@ -105,15 +101,15 @@ export function findGoogleAdsAccountByCustomerId(
 /**
  * 查找用户的所有Google Ads账号
  */
-export function findGoogleAdsAccountsByUserId(userId: number): GoogleAdsAccount[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findGoogleAdsAccountsByUserId(userId: number): Promise<GoogleAdsAccount[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ?
     ORDER BY created_at DESC
-  `)
+  `, [userId]) as any[]
 
-  const rows = stmt.all(userId) as any[]
   return rows.map(mapRowToGoogleAdsAccount)
 }
 
@@ -122,40 +118,40 @@ export function findGoogleAdsAccountsByUserId(userId: number): GoogleAdsAccount[
  * 注意：这会返回所有is_active=1的账号，包括DISABLED状态的
  * 如果需要可用于API调用的账号，请使用 findEnabledGoogleAdsAccounts
  */
-export function findActiveGoogleAdsAccounts(userId: number): GoogleAdsAccount[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findActiveGoogleAdsAccounts(userId: number): Promise<GoogleAdsAccount[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ? AND is_active = 1
     ORDER BY created_at DESC
-  `)
+  `, [userId]) as any[]
 
-  const rows = stmt.all(userId) as any[]
   return rows.map(mapRowToGoogleAdsAccount)
 }
 
 /**
  * 查找用户可用于API调用的账号（ENABLED状态，非Manager账号）
  */
-export function findEnabledGoogleAdsAccounts(userId: number): GoogleAdsAccount[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findEnabledGoogleAdsAccounts(userId: number): Promise<GoogleAdsAccount[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ?
       AND is_active = 1
       AND status = 'ENABLED'
       AND is_manager_account = 0
     ORDER BY created_at DESC
-  `)
+  `, [userId]) as any[]
 
-  const rows = stmt.all(userId) as any[]
   return rows.map(mapRowToGoogleAdsAccount)
 }
 
 /**
  * 更新Google Ads账号
  */
-export function updateGoogleAdsAccount(
+export async function updateGoogleAdsAccount(
   id: number,
   userId: number,
   updates: Partial<
@@ -171,11 +167,11 @@ export function updateGoogleAdsAccount(
       | 'lastSyncAt'
     >
   >
-): GoogleAdsAccount | null {
-  const db = getSQLiteDatabase()
+): Promise<GoogleAdsAccount | null> {
+  const db = await getDatabase()
 
   // 验证权限
-  const account = findGoogleAdsAccountById(id, userId)
+  const account = await findGoogleAdsAccountById(id, userId)
   if (!account) {
     return null
   }
@@ -223,60 +219,50 @@ export function updateGoogleAdsAccount(
   fields.push("updated_at = datetime('now')")
   values.push(id, userId)
 
-  const stmt = db.prepare(`
+  await db.exec(`
     UPDATE google_ads_accounts
     SET ${fields.join(', ')}
     WHERE id = ? AND user_id = ?
-  `)
+  `, values)
 
-  stmt.run(...values)
-
-  return findGoogleAdsAccountById(id, userId)
+  return await findGoogleAdsAccountById(id, userId)
 }
 
 /**
  * 删除Google Ads账号
  */
-export function deleteGoogleAdsAccount(id: number, userId: number): boolean {
-  const db = getSQLiteDatabase()
+export async function deleteGoogleAdsAccount(id: number, userId: number): Promise<boolean> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(`
     DELETE FROM google_ads_accounts
     WHERE id = ? AND user_id = ?
-  `)
+  `, [id, userId])
 
-  const info = stmt.run(id, userId)
-  return info.changes > 0
+  return result.changes > 0
 }
 
 /**
  * 设置默认激活账号（将其他账号设为不激活）
  */
-export function setActiveGoogleAdsAccount(id: number, userId: number): boolean {
-  const db = getSQLiteDatabase()
+export async function setActiveGoogleAdsAccount(id: number, userId: number): Promise<boolean> {
+  const db = await getDatabase()
 
-  // 开始事务
-  const setActive = db.transaction((accountId: number, uid: number) => {
-    // 将所有账号设为不激活
-    db.prepare(`
-      UPDATE google_ads_accounts
-      SET is_active = 0
-      WHERE user_id = ?
-    `).run(uid)
+  // 将所有账号设为不激活
+  await db.exec(`
+    UPDATE google_ads_accounts
+    SET is_active = 0
+    WHERE user_id = ?
+  `, [userId])
 
-    // 将指定账号设为激活
-    const info = db
-      .prepare(`
-      UPDATE google_ads_accounts
-      SET is_active = 1, updated_at = datetime('now')
-      WHERE id = ? AND user_id = ?
-    `)
-      .run(accountId, uid)
+  // 将指定账号设为激活
+  const result = await db.exec(`
+    UPDATE google_ads_accounts
+    SET is_active = 1, updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `, [id, userId])
 
-    return info.changes > 0
-  })
-
-  return setActive(id, userId)
+  return result.changes > 0
 }
 
 /**
@@ -293,7 +279,7 @@ export async function getDecryptedCredentials(
   clientId?: string
   clientSecret?: string
 } | null> {
-  const account = findGoogleAdsAccountById(accountId, userId)
+  const account = await findGoogleAdsAccountById(accountId, userId)
 
   if (!account) {
     return null

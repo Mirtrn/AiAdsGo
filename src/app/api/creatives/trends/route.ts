@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/creatives/trends
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const daysBack = parseInt(searchParams.get('daysBack') || '7')
     const offerId = searchParams.get('offerId')
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 2. 计算日期范围
     const endDate = new Date()
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       ORDER BY date ASC
     `
 
-    const dailyTrends = db.prepare(dailyCreativesQuery).all(...params) as any[]
+    const dailyTrends = await db.query(dailyCreativesQuery, params) as any[]
 
     // 4. 查询创意是否被选中的分布（使用is_selected字段）
     let statusQuery = `
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
 
     statusQuery += ` GROUP BY status`
 
-    const statusDistribution = db.prepare(statusQuery).all(...statusParams) as any[]
+    const statusDistribution = await db.query(statusQuery, statusParams) as any[]
 
     // 5. 查询Ad Strength分布（当前总量）
     let adStrengthQuery = `
@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
 
     adStrengthQuery += ` GROUP BY ad_strength`
 
-    const adStrengthDistribution = db.prepare(adStrengthQuery).all(...adStrengthParams) as any[]
+    const adStrengthDistribution = await db.query(adStrengthQuery, adStrengthParams) as any[]
 
     // 6. 查询质量评分分布（当前总量）
     let qualityQuery = `
@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
 
     qualityQuery += ` GROUP BY quality_level`
 
-    const qualityDistribution = db.prepare(qualityQuery).all(...qualityParams) as any[]
+    const qualityDistribution = await db.query(qualityQuery, qualityParams) as any[]
 
     // 7. 查询主题分布
     let themeQuery = `
@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
 
     themeQuery += ` GROUP BY theme`
 
-    const themeDistribution = db.prepare(themeQuery).all(...themeParams) as any[]
+    const themeDistribution = await db.query(themeQuery, themeParams) as any[]
 
     // 8. 查询创意使用情况
     let usageQuery = `
@@ -166,7 +166,7 @@ export async function GET(request: NextRequest) {
       usageParams.push(parseInt(offerId))
     }
 
-    const usageStats = db.prepare(usageQuery).get(...usageParams) as any
+    const usageStats = await db.queryOne(usageQuery, usageParams) as any
 
     // 9. 格式化趋势数据
     const formattedTrends = dailyTrends.map((row) => ({

@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     // CAPTCHA验证：检查是否需要CAPTCHA（失败次数>=3）
-    const user = findUserByUsernameOrEmail(username)
+    const user = await findUserByUsernameOrEmail(username)
     if (user && shouldRequireCaptcha(user.failed_login_count)) {
       // 需要CAPTCHA验证
       if (!captchaToken) {

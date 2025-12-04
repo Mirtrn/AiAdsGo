@@ -21,7 +21,7 @@ export async function POST(
     }
 
     // 验证Offer存在且属于当前用户
-    const offer = findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!offer) {
       return NextResponse.json(
@@ -34,7 +34,7 @@ export async function POST(
     const userIdNum = parseInt(userId, 10)
     const targetCountry = offer.target_country || 'US'
 
-    const proxySettings = getAllProxyUrls(userIdNum)
+    const proxySettings = await getAllProxyUrls(userIdNum)
     if (!proxySettings || proxySettings.length === 0) {
       return NextResponse.json(
         { error: '未配置代理，无法解析推广链接' },
@@ -44,7 +44,7 @@ export async function POST(
 
     // 加载代理到代理池
     const proxyPool = getProxyPool()
-    const proxiesWithDefault = proxySettings.map((p, index) => ({
+    const proxiesWithDefault = proxySettings.map((p: any, index: number) => ({
       url: p.url,
       country: p.country,
       is_default: index === proxySettings.length - 1,  // 最后一个作为默认代理

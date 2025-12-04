@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import {
   createGoogleAdsCampaign,
   createGoogleAdsAdGroup,
@@ -63,10 +63,10 @@ export async function POST(
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 4. 验证原Campaign归属
-    const originalCampaign = db.prepare(`
+    const originalCampaign = await db.queryOne<any>(`
       SELECT
         c.id,
         c.user_id,
@@ -85,7 +85,7 @@ export async function POST(
       FROM campaigns c
       JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       WHERE c.id = ? AND c.user_id = ?
-    `).get(original_campaign_id, userId) as any
+    `, [original_campaign_id, userId])
 
     if (!originalCampaign) {
       const error = createError.campaignNotFound({
@@ -95,11 +95,11 @@ export async function POST(
     }
 
     // 5. 验证挑战者创意
-    const challengerCreative = db.prepare(`
+    const challengerCreative = await db.queryOne<any>(`
       SELECT id, headlines, descriptions, keywords, callouts, sitelinks, final_url, launch_score
       FROM ad_creatives
       WHERE id = ? AND offer_id = ? AND user_id = ?
-    `).get(challengerCreativeId, originalCampaign.offer_id, userId) as any
+    `, [challengerCreativeId, originalCampaign.offer_id, userId])
 
     if (!challengerCreative) {
       const error = createError.creativeNotFound({
@@ -112,7 +112,7 @@ export async function POST(
     const now = new Date().toISOString()
     const endDate = new Date(Date.now() + test_duration_days * 24 * 60 * 60 * 1000).toISOString()
 
-    const abTestInsert = db.prepare(`
+    const abTestInsert = await db.exec(`
       INSERT INTO ab_tests (
         user_id,
         offer_id,
@@ -131,7 +131,7 @@ export async function POST(
         created_at,
         updated_at
       ) VALUES (?, ?, ?, ?, 'full_creative', 'creative', 'optimization_challenge', 1, ?, 'running', ?, ?, 100, 0.95, ?, ?)
-    `).run(
+    `, [
       userId,
       originalCampaign.offer_id,
       `挑战者测试 - ${originalCampaign.campaign_name}`,
@@ -141,7 +141,7 @@ export async function POST(
       endDate,
       now,
       now
-    )
+    ])
 
     const abTestId = Number(abTestInsert.lastInsertRowid)
 
@@ -161,7 +161,7 @@ export async function POST(
       })
 
       // 更新数据库中的预算和流量分配
-      db.prepare(`
+      await db.exec(`
         UPDATE campaigns
         SET
           budget_amount = ?,
@@ -169,7 +169,7 @@ export async function POST(
           ab_test_id = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(newOriginalBudget, originalTraffic, abTestId, original_campaign_id)
+      `, [newOriginalBudget, originalTraffic, abTestId, original_campaign_id])
 
       console.log(`✅ 原Campaign预算调整为 ${newOriginalBudget} (${Math.round(originalTraffic * 100)}%)`)
 
@@ -177,7 +177,7 @@ export async function POST(
       console.error('❌ 调整原Campaign预算失败:', budgetError.message)
 
       // 删除A/B测试记录
-      db.prepare('DELETE FROM ab_tests WHERE id = ?').run(abTestId)
+      await db.exec('DELETE FROM ab_tests WHERE id = ?', [abTestId])
 
       const error = createError.campaignUpdateFailed({
         campaignId: original_campaign_id,
@@ -191,7 +191,7 @@ export async function POST(
     const challengerBudget = originalCampaign.budget_amount * challenger_traffic
     const campaignConfig = JSON.parse(originalCampaign.campaign_config)
 
-    const challengerCampaignInsert = db.prepare(`
+    const challengerCampaignInsert = await db.exec(`
       INSERT INTO campaigns (
         user_id,
         offer_id,
@@ -209,7 +209,7 @@ export async function POST(
         created_at,
         updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, 'ENABLED', 'pending', ?, ?, 1, ?, ?, ?, ?)
-    `).run(
+    `, [
       userId,
       originalCampaign.offer_id,
       originalCampaign.google_ads_account_id,
@@ -222,7 +222,7 @@ export async function POST(
       challenger_traffic,
       now,
       now
-    )
+    ])
 
     const challengerCampaignId = Number(challengerCampaignInsert.lastInsertRowid)
 
@@ -284,7 +284,7 @@ export async function POST(
       })
 
       // 更新挑战者Campaign数据库记录
-      db.prepare(`
+      await db.exec(`
         UPDATE campaigns
         SET
           google_campaign_id = ?,
@@ -294,10 +294,10 @@ export async function POST(
           last_sync_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(googleCampaignId, googleAdGroupId, googleAdId, challengerCampaignId)
+      `, [googleCampaignId, googleAdGroupId, googleAdId, challengerCampaignId])
 
       // 10. 创建ab_test_variants记录
-      db.prepare(`
+      await db.exec(`
         INSERT INTO ab_test_variants (
           ab_test_id,
           variant_name,
@@ -310,10 +310,10 @@ export async function POST(
         ) VALUES
           (?, 'A', 'Original', ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
           (?, 'B', 'Challenger', ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      `).run(
+      `, [
         abTestId, originalCampaign.ad_creative_id, originalTraffic,
         abTestId, challengerCreativeId, challenger_traffic
-      )
+      ])
 
       return NextResponse.json({
         success: true,
@@ -337,11 +337,11 @@ export async function POST(
       console.error('❌ 创建挑战者Campaign失败:', error.message)
 
       // 标记失败
-      db.prepare(`
+      await db.exec(`
         UPDATE campaigns
         SET creation_status = 'failed', creation_error = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(error.message, challengerCampaignId)
+      `, [error.message, challengerCampaignId])
 
       // 回滚原Campaign预算（尽力而为）
       try {
@@ -355,11 +355,11 @@ export async function POST(
           userId
         })
 
-        db.prepare(`
+        await db.exec(`
           UPDATE campaigns
           SET budget_amount = ?, traffic_allocation = 1.0, ab_test_id = NULL
           WHERE id = ?
-        `).run(originalCampaign.budget_amount, original_campaign_id)
+        `, [originalCampaign.budget_amount, original_campaign_id])
       } catch (rollbackError) {
         console.error('⚠️ 回滚原Campaign预算失败:', rollbackError)
       }

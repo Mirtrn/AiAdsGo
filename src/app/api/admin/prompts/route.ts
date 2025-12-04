@@ -7,7 +7,7 @@ import { getDatabase } from '@/lib/db'
  */
 export async function GET(request: NextRequest) {
   try {
-    const db = getDatabase()
+    const db = await getDatabase()
 
     // 获取所有激活的Prompt版本
     const activePrompts = await db.query<any>(`
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const db = getDatabase()
+    const db = await getDatabase()
 
     // 检查版本是否已存在
     const existing = await db.queryOne<any>(

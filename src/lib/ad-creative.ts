@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 /**
  * 关键词搜索量数据
@@ -140,7 +140,7 @@ export interface GeneratedAdCreativeData {
 /**
  * 创建广告创意记录
  */
-export function createAdCreative(
+export async function createAdCreative(
   userId: number,
   offerId: number,
   data: GeneratedAdCreativeData & {
@@ -159,8 +159,8 @@ export function createAdCreative(
       brandSearchVolume?: number  // 品牌搜索量维度（可选）
     }
   }
-): AdCreative {
-  const db = getSQLiteDatabase()
+): Promise<AdCreative> {
+  const db = await getDatabase()
 
   // 如果外部传入了score，优先使用（来自Ad Strength评估）
   // 否则使用旧的评分算法计算（向后兼容）
@@ -170,9 +170,9 @@ export function createAdCreative(
         breakdown: data.score_breakdown,
         explanation: data.explanation || '由Ad Strength评估系统生成'
       }
-    : calculateAdCreativeScore(data, offerId)
+    : await calculateAdCreativeScore(data, offerId)
 
-  const result = db.prepare(`
+  const result = await db.exec(`
     INSERT INTO ad_creatives (
       offer_id, user_id,
       headlines, descriptions, keywords, keywords_with_volume, negative_keywords, callouts, sitelinks,
@@ -180,7 +180,7 @@ export function createAdCreative(
       score, score_breakdown, score_explanation,
       generation_round, theme, ai_model
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `, [
     offerId,
     userId,
     JSON.stringify(data.headlines),
@@ -198,9 +198,9 @@ export function createAdCreative(
     data.generation_round || 1,
     data.theme,
     data.ai_model || 'gemini-2.5-flash'
-  )
+  ])
 
-  const creative = findAdCreativeById(result.lastInsertRowid as number, userId)
+  const creative = await findAdCreativeById(result.lastInsertRowid!, userId)
   if (!creative) {
     throw new Error('广告创意创建失败')
   }
@@ -211,12 +211,12 @@ export function createAdCreative(
 /**
  * 查找广告创意
  */
-export function findAdCreativeById(id: number, userId: number): AdCreative | null {
-  const db = getSQLiteDatabase()
-  const row = db.prepare(`
+export async function findAdCreativeById(id: number, userId: number): Promise<AdCreative | null> {
+  const db = await getDatabase()
+  const row = await db.queryOne(`
     SELECT * FROM ad_creatives
     WHERE id = ? AND user_id = ?
-  `).get(id, userId) as any
+  `, [id, userId]) as any
 
   if (!row) return null
 
@@ -228,7 +228,7 @@ export function findAdCreativeById(id: number, userId: number): AdCreative | nul
  *
  * @param lightweight - 如果为true，只返回核心字段（用于列表展示）以提升性能
  */
-export function listAdCreativesByOffer(
+export async function listAdCreativesByOffer(
   offerId: number,
   userId: number,
   options?: {
@@ -236,8 +236,8 @@ export function listAdCreativesByOffer(
     is_selected?: boolean
     lightweight?: boolean  // 🔥 新增：轻量级模式
   }
-): AdCreative[] {
-  const db = getSQLiteDatabase()
+): Promise<AdCreative[]> {
+  const db = await getDatabase()
 
   let whereConditions = ['offer_id = ?', 'user_id = ?']
   const params: any[] = [offerId, userId]
@@ -257,11 +257,11 @@ export function listAdCreativesByOffer(
     ? 'id, offer_id, user_id, headlines, descriptions, keywords, keywords_with_volume, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, score, score_breakdown, theme, created_at, is_selected'
     : '*'
 
-  const rows = db.prepare(`
+  const rows = await db.query(`
     SELECT ${selectFields} FROM ad_creatives
     WHERE ${whereConditions.join(' AND ')}
     ORDER BY score DESC, created_at DESC
-  `).all(...params) as any[]
+  `, params) as any[]
 
   return rows.map(parseAdCreativeRow)
 }
@@ -269,29 +269,29 @@ export function listAdCreativesByOffer(
 /**
  * 标记广告创意为已选中
  */
-export function selectAdCreative(id: number, userId: number): void {
-  const db = getSQLiteDatabase()
+export async function selectAdCreative(id: number, userId: number): Promise<void> {
+  const db = await getDatabase()
 
   // 先取消该Offer的其他已选中创意
-  const creative = findAdCreativeById(id, userId)
+  const creative = await findAdCreativeById(id, userId)
   if (!creative) {
     throw new Error('广告创意不存在')
   }
 
-  db.prepare(`
+  await db.exec(`
     UPDATE ad_creatives
     SET is_selected = 0,
         updated_at = datetime('now')
     WHERE offer_id = ? AND user_id = ? AND is_selected = 1
-  `).run(creative.offer_id, userId)
+  `, [creative.offer_id, userId])
 
   // 标记当前创意为已选中
-  db.prepare(`
+  await db.exec(`
     UPDATE ad_creatives
     SET is_selected = 1,
         updated_at = datetime('now')
     WHERE id = ? AND user_id = ?
-  `).run(id, userId)
+  `, [id, userId])
 }
 
 /**
@@ -324,10 +324,10 @@ function parseAdCreativeRow(row: any): AdCreative {
  * 4. 多样性 (10分) - Headlines和Descriptions的多样性
  * 5. 清晰度 (10分) - 信息传达的清晰程度
  */
-export function calculateAdCreativeScore(
+export async function calculateAdCreativeScore(
   data: GeneratedAdCreativeData & { final_url: string },
   offerId: number
-): {
+): Promise<{
   total_score: number
   breakdown: {
     relevance: number
@@ -337,18 +337,18 @@ export function calculateAdCreativeScore(
     clarity: number
   }
   explanation: string
-} {
+}> {
   // 警告：旧评分算法已废弃
   console.warn('⚠️ calculateAdCreativeScore已废弃，建议使用Ad Strength评估系统 (evaluateCreativeAdStrength)')
 
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 获取Offer数据用于相关性评分
-  const offer = db.prepare(`
+  const offer = await db.queryOne(`
     SELECT brand, category, brand_description, unique_selling_points,
            product_highlights, target_audience
     FROM offers WHERE id = ?
-  `).get(offerId) as any
+  `, [offerId]) as any
 
   // 1. 相关性评分 (0-30分)
   let relevanceScore = 0
@@ -466,7 +466,7 @@ export function calculateAdCreativeScore(
 /**
  * 对比多个广告创意
  */
-export function compareAdCreatives(creativeIds: number[], userId: number): {
+export async function compareAdCreatives(creativeIds: number[], userId: number): Promise<{
   creatives: AdCreative[]
   comparison: {
     best_overall: number          // 综合得分最高的ID
@@ -474,10 +474,11 @@ export function compareAdCreatives(creativeIds: number[], userId: number): {
     best_engagement: number       // 吸引力最高的ID
     recommendation: string        // 推荐说明
   }
-} {
-  const creatives = creativeIds
-    .map(id => findAdCreativeById(id, userId))
-    .filter(c => c !== null) as AdCreative[]
+}> {
+  const creativesResults = await Promise.all(
+    creativeIds.map(id => findAdCreativeById(id, userId))
+  )
+  const creatives = creativesResults.filter(c => c !== null) as AdCreative[]
 
   if (creatives.length === 0) {
     throw new Error('未找到有效的广告创意')
@@ -521,7 +522,7 @@ export function compareAdCreatives(creativeIds: number[], userId: number): {
 /**
  * 更新广告创意
  */
-export function updateAdCreative(
+export async function updateAdCreative(
   id: number,
   userId: number,
   updates: Partial<{
@@ -539,11 +540,11 @@ export function updateAdCreative(
     creation_error: string
     last_sync_at: string
   }>
-): AdCreative | null {
-  const db = getSQLiteDatabase()
+): Promise<AdCreative | null> {
+  const db = await getDatabase()
 
   // 验证权限
-  const creative = findAdCreativeById(id, userId)
+  const creative = await findAdCreativeById(id, userId)
   if (!creative) {
     return null
   }
@@ -611,25 +612,25 @@ export function updateAdCreative(
   fields.push('updated_at = datetime(\'now\')')
   values.push(id, userId)
 
-  db.prepare(`
+  await db.exec(`
     UPDATE ad_creatives
     SET ${fields.join(', ')}
     WHERE id = ? AND user_id = ?
-  `).run(...values)
+  `, values)
 
-  return findAdCreativeById(id, userId)
+  return await findAdCreativeById(id, userId)
 }
 
 /**
  * 删除广告创意
  */
-export function deleteAdCreative(id: number, userId: number): boolean {
-  const db = getSQLiteDatabase()
+export async function deleteAdCreative(id: number, userId: number): Promise<boolean> {
+  const db = await getDatabase()
 
-  const result = db.prepare(`
+  const result = await db.exec(`
     DELETE FROM ad_creatives
     WHERE id = ? AND user_id = ?
-  `).run(id, userId)
+  `, [id, userId])
 
   return result.changes > 0
 }
@@ -637,15 +638,15 @@ export function deleteAdCreative(id: number, userId: number): boolean {
 /**
  * 获取Offer的所有创意（兼容creatives.ts API）
  */
-export function findAdCreativesByOfferId(offerId: number, userId: number): AdCreative[] {
-  return listAdCreativesByOffer(offerId, userId)
+export async function findAdCreativesByOfferId(offerId: number, userId: number): Promise<AdCreative[]> {
+  return await listAdCreativesByOffer(offerId, userId)
 }
 
 /**
  * 获取用户的所有创意（兼容creatives.ts API）
  */
-export function findAdCreativesByUserId(userId: number, limit?: number): AdCreative[] {
-  const db = getSQLiteDatabase()
+export async function findAdCreativesByUserId(userId: number, limit?: number): Promise<AdCreative[]> {
+  const db = await getDatabase()
 
   let sql = `
     SELECT * FROM ad_creatives
@@ -657,6 +658,6 @@ export function findAdCreativesByUserId(userId: number, limit?: number): AdCreat
     sql += ` LIMIT ${limit}`
   }
 
-  const rows = db.prepare(sql).all(userId) as any[]
+  const rows = await db.query(sql, [userId]) as any[]
   return rows.map(parseAdCreativeRow)
 }

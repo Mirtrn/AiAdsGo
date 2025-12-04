@@ -1,5 +1,5 @@
 import { getCustomer } from './google-ads-api'
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import { enums } from 'google-ads-api'
 
 /**
@@ -94,7 +94,7 @@ export class DataSyncService {
     userId: number,
     syncType: 'manual' | 'auto' = 'manual'
   ): Promise<SyncLog> {
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
     const startTime = Date.now()
     const startedAt = new Date().toISOString()
 
@@ -113,15 +113,14 @@ export class DataSyncService {
 
     try {
       // 1. 获取用户的所有Google Ads账户
-      const accounts = db
-        .prepare(
-          `
+      const accounts = await db.query(
+        `
         SELECT id, customer_id, refresh_token, user_id
         FROM google_ads_accounts
         WHERE user_id = ? AND is_active = 1
-      `
-        )
-        .all(userId) as Array<{
+      `,
+        [userId]
+      ) as Array<{
         id: number
         customer_id: string
         refresh_token: string
@@ -135,30 +134,28 @@ export class DataSyncService {
       // 2. 为每个账户同步数据
       for (const account of accounts) {
         // 创建同步日志记录
-        const logResult = db
-          .prepare(
-            `
+        const logResult = await db.exec(
+          `
           INSERT INTO sync_logs (
             user_id, google_ads_account_id, sync_type, status,
             record_count, duration_ms, started_at
           ) VALUES (?, ?, ?, 'running', 0, 0, ?)
-        `
-          )
-          .run(userId, account.id, syncType, startedAt)
+        `,
+          [userId, account.id, syncType, startedAt]
+        )
 
         syncLogId = logResult.lastInsertRowid as number
 
         // 查询该账户下的所有Campaigns
-        const campaigns = db
-          .prepare(
-            `
+        const campaigns = await db.query(
+          `
           SELECT c.id, c.campaign_id, c.campaign_name
           FROM campaigns c
           WHERE c.user_id = ? AND c.google_ads_account_id = ?
             AND c.campaign_id IS NOT NULL
-        `
-          )
-          .all(userId, account.id) as Array<{
+        `,
+          [userId, account.id]
+        ) as Array<{
           id: number
           campaign_id: string
           campaign_name: string
@@ -182,25 +179,9 @@ export class DataSyncService {
         })
 
         // 4. 批量写入数据库（使用upsert处理重复）
-        const insertStmt = db.prepare(`
-          INSERT INTO campaign_performance (
-            user_id, campaign_id, date,
-            impressions, clicks, conversions, cost,
-            ctr, cpc, cpa, conversion_rate
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(campaign_id, date) DO UPDATE SET
-            impressions = excluded.impressions,
-            clicks = excluded.clicks,
-            conversions = excluded.conversions,
-            cost = excluded.cost,
-            ctr = excluded.ctr,
-            cpc = excluded.cpc,
-            cpa = excluded.cpa,
-            conversion_rate = excluded.conversion_rate
-        `)
-
-        const transaction = db.transaction((records: CampaignPerformanceData[]) => {
-          for (const record of records) {
+        // Note: 使用事务确保数据一致性
+        await db.transaction(async () => {
+          for (const record of performanceData) {
             // 查找本地campaign_id
             const campaign = campaigns.find(
               (c) => c.campaign_id === record.campaign_id
@@ -213,42 +194,60 @@ export class DataSyncService {
             const cpa =
               record.conversions > 0 ? record.cost / record.conversions : 0
 
-            insertStmt.run(
-              userId,
-              campaign.id,
-              record.date,
-              record.impressions,
-              record.clicks,
-              record.conversions,
-              record.cost,
-              record.ctr,
-              record.cpc,
-              cpa,
-              record.conversion_rate
+            await db.exec(
+              `
+              INSERT INTO campaign_performance (
+                user_id, campaign_id, date,
+                impressions, clicks, conversions, cost,
+                ctr, cpc, cpa, conversion_rate
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(campaign_id, date) DO UPDATE SET
+                impressions = excluded.impressions,
+                clicks = excluded.clicks,
+                conversions = excluded.conversions,
+                cost = excluded.cost,
+                ctr = excluded.ctr,
+                cpc = excluded.cpc,
+                cpa = excluded.cpa,
+                conversion_rate = excluded.conversion_rate
+            `,
+              [
+                userId,
+                campaign.id,
+                record.date,
+                record.impressions,
+                record.clicks,
+                record.conversions,
+                record.cost,
+                record.ctr,
+                record.cpc,
+                cpa,
+                record.conversion_rate,
+              ]
             )
             recordCount++
           }
         })
 
-        transaction(performanceData)
-
         // 更新账户的last_sync_at
-        db.prepare(
-          `UPDATE google_ads_accounts SET last_sync_at = ? WHERE id = ?`
-        ).run(new Date().toISOString(), account.id)
+        await db.exec(
+          `UPDATE google_ads_accounts SET last_sync_at = ? WHERE id = ?`,
+          [new Date().toISOString(), account.id]
+        )
       }
 
       // 5. 同步成功，更新日志
       const duration = Date.now() - startTime
       const completedAt = new Date().toISOString()
 
-      db.prepare(
+      await db.exec(
         `
         UPDATE sync_logs
         SET status = 'success', record_count = ?, duration_ms = ?, completed_at = ?
         WHERE id = ?
-      `
-      ).run(recordCount, duration, completedAt, syncLogId)
+      `,
+        [recordCount, duration, completedAt, syncLogId]
+      )
 
       // 更新同步状态
       this.syncStatus.set(userId, {
@@ -279,13 +278,14 @@ export class DataSyncService {
 
       // 更新日志为失败
       if (syncLogId) {
-        db.prepare(
+        await db.exec(
           `
           UPDATE sync_logs
           SET status = 'failed', error_message = ?, duration_ms = ?, completed_at = ?
           WHERE id = ?
-        `
-        ).run(errorMessage, duration, completedAt, syncLogId)
+        `,
+          [errorMessage, duration, completedAt, syncLogId]
+        )
       }
 
       // 更新同步状态
@@ -376,19 +376,18 @@ export class DataSyncService {
    * 清理90天之前的数据
    */
   async cleanupOldData(): Promise<number> {
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - 90)
 
-    const result = db
-      .prepare(
-        `
+    const result = await db.exec(
+      `
       DELETE FROM campaign_performance
       WHERE date < ?
-    `
-      )
-      .run(this.formatDate(cutoffDate))
+    `,
+      [this.formatDate(cutoffDate)]
+    )
 
     return result.changes
   }
@@ -396,20 +395,19 @@ export class DataSyncService {
   /**
    * 获取同步日志
    */
-  getSyncLogs(userId: number, limit: number = 20): SyncLog[] {
-    const db = getSQLiteDatabase()
+  async getSyncLogs(userId: number, limit: number = 20): Promise<SyncLog[]> {
+    const db = await getDatabase()
 
-    return db
-      .prepare(
-        `
+    return await db.query(
+      `
       SELECT *
       FROM sync_logs
       WHERE user_id = ?
       ORDER BY started_at DESC
       LIMIT ?
-    `
-      )
-      .all(userId, limit) as SyncLog[]
+    `,
+      [userId, limit]
+    ) as SyncLog[]
   }
 
   /**

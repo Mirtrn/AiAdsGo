@@ -14,6 +14,7 @@
  */
 
 import { generateContent } from './gemini'
+import { parsePrice } from './pricing-utils'
 
 export interface ProductFeatures {
   technical: string[]
@@ -293,11 +294,11 @@ function extractPricingInfo(
 
   // 从页面数据中提取价格
   if (pageData?.price) {
-    pricing.current = parseFloat(pageData.price)
+    pricing.current = parsePrice(pageData.price) || 0
   }
 
   if (pageData?.originalPrice) {
-    pricing.original = parseFloat(pageData.originalPrice)
+    pricing.original = parsePrice(pageData.originalPrice) || 0
   }
 
   if (pageData?.discount) {
@@ -308,7 +309,7 @@ function extractPricingInfo(
   if (pricing.current === 0) {
     const priceMatch = pageText.match(/\$(\d+\.?\d*)/i)
     if (priceMatch) {
-      pricing.current = parseFloat(priceMatch[1])
+      pricing.current = parsePrice(priceMatch[0]) || 0
     }
   }
 

@@ -17,7 +17,7 @@ export async function GET(
     const userId = request.headers.get('x-user-id')
     const userIdNum = userId ? parseInt(userId, 10) : undefined
 
-    const setting = getSetting(category, key, userIdNum)
+    const setting = await getSetting(category, key, userIdNum)
 
     if (!setting) {
       return NextResponse.json(

@@ -27,11 +27,11 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'adGroupId必须是数字' }, { status: 400 })
       }
 
-      keywords = findKeywordsByAdGroupId(adGroupId, parseInt(userId, 10))
+      keywords = await findKeywordsByAdGroupId(adGroupId, parseInt(userId, 10))
     } else {
       // 获取用户的所有Keywords
       const limit = limitParam ? parseInt(limitParam, 10) : undefined
-      keywords = findKeywordsByUserId(parseInt(userId, 10), limit)
+      keywords = await findKeywordsByUserId(parseInt(userId, 10), limit)
     }
 
     return NextResponse.json({
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证Ad Group存在且属于当前用户
-    const adGroup = findAdGroupById(adGroupId, parseInt(userId, 10))
+    const adGroup = await findAdGroupById(adGroupId, parseInt(userId, 10))
     if (!adGroup) {
       return NextResponse.json(
         {
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 创建Keyword
-    const keyword = createKeyword({
+    const keyword = await createKeyword({
       userId: parseInt(userId, 10),
       adGroupId,
       keywordText,

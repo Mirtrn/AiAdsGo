@@ -10,15 +10,15 @@ import { apiCache, generateCacheKey } from '@/lib/api-cache'
 // 从现有API导入逻辑
 async function getKPIs(userId: number, days: number = 30) {
   // 这里调用kpis API的核心逻辑
-  const { getSQLiteDatabase } = await import('@/lib/db')
-  const db = getSQLiteDatabase()
+  const { getDatabase } = await import('@/lib/db')
+  const db = await getDatabase()
 
   const startDate = new Date()
   startDate.setDate(startDate.getDate() - days)
   const startDateStr = startDate.toISOString().split('T')[0]
 
   // 获取基础KPI数据
-  const result = db.prepare(`
+  const result = await db.queryOne(`
     SELECT
       COUNT(DISTINCT c.id) as total_campaigns,
       COUNT(DISTINCT o.id) as total_offers,
@@ -34,7 +34,7 @@ async function getKPIs(userId: number, days: number = 30) {
     WHERE c.user_id = ?
       AND c.status != 'REMOVED'
       AND o.is_deleted = 0
-  `).get(startDateStr, userId) as any
+  `, [startDateStr, userId]) as any
 
   return {
     totalCampaigns: result?.total_campaigns || 0,
@@ -50,11 +50,11 @@ async function getKPIs(userId: number, days: number = 30) {
 }
 
 async function getRiskAlerts(userId: number, limit: number = 3) {
-  const { getSQLiteDatabase } = await import('@/lib/db')
-  const db = getSQLiteDatabase()
+  const { getDatabase } = await import('@/lib/db')
+  const db = await getDatabase()
 
   // 获取最近7天的风险警报
-  const alerts = db.prepare(`
+  const alerts = await db.query(`
     SELECT
       c.id as campaign_id,
       c.name as campaign_name,
@@ -86,7 +86,7 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
       )
     ORDER BY cp.date DESC, cp.cost DESC
     LIMIT ?
-  `).all(userId, limit) as any[]
+  `, [userId, limit]) as any[]
 
   return alerts.map(alert => ({
     campaignId: alert.campaign_id,
@@ -109,7 +109,7 @@ async function getRiskAlerts(userId: number, limit: number = 3) {
 async function getTopOffers(userId: number, limit: number = 5) {
   const { listOffers } = await import('@/lib/offers')
 
-  const result = listOffers(userId, {
+  const result = await listOffers(userId, {
     limit,
     isActive: true
   })

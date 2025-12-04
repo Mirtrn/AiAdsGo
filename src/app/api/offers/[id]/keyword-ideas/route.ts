@@ -41,7 +41,7 @@ export async function POST(
     } = body
 
     // 验证Offer存在且属于当前用户
-    const offer = findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!offer) {
       return NextResponse.json(
@@ -51,7 +51,7 @@ export async function POST(
     }
 
     // 获取用户的激活Google Ads账号
-    const googleAdsAccounts = findActiveGoogleAdsAccounts(parseInt(userId, 10))
+    const googleAdsAccounts = await findActiveGoogleAdsAccounts(parseInt(userId, 10))
 
     if (googleAdsAccounts.length === 0) {
       return NextResponse.json(

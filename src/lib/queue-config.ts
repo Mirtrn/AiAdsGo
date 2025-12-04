@@ -5,24 +5,24 @@
  * 支持全局配置和用户级配置
  */
 
-import { getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import { QueueConfig } from './scrape-queue-manager'
 
 /**
  * 获取队列配置（优先级：用户配置 > 全局配置 > 默认配置）
  */
-export function getQueueConfig(userId?: number): Partial<QueueConfig> {
-  const db = getSQLiteDatabase()
+export async function getQueueConfig(userId?: number): Promise<Partial<QueueConfig>> {
+  const db = await getDatabase()
   const config: Partial<QueueConfig> = {}
 
   try {
     // 1. 读取全局配置
-    const globalSettings = db.prepare(`
+    const globalSettings = await db.query(`
       SELECT config_key, config_value
       FROM system_settings
       WHERE category = 'queue'
         AND user_id IS NULL
-    `).all() as Array<{ config_key: string; config_value: string }>
+    `, []) as Array<{ config_key: string; config_value: string }>
 
     for (const setting of globalSettings) {
       switch (setting.config_key) {
@@ -46,12 +46,12 @@ export function getQueueConfig(userId?: number): Partial<QueueConfig> {
 
     // 2. 如果提供了userId，读取用户级配置（覆盖全局配置）
     if (userId !== undefined) {
-      const userSettings = db.prepare(`
+      const userSettings = await db.query(`
         SELECT config_key, config_value
         FROM system_settings
         WHERE category = 'queue'
           AND user_id = ?
-      `).all(userId) as Array<{ config_key: string; config_value: string }>
+      `, [userId]) as Array<{ config_key: string; config_value: string }>
 
       for (const setting of userSettings) {
         switch (setting.config_key) {
@@ -76,11 +76,11 @@ export function getQueueConfig(userId?: number): Partial<QueueConfig> {
 /**
  * 保存队列配置
  */
-export function saveQueueConfig(
+export async function saveQueueConfig(
   config: Partial<QueueConfig>,
   userId?: number
-): void {
-  const db = getSQLiteDatabase()
+): Promise<void> {
+  const db = await getDatabase()
 
   try {
     const settings: Array<{ key: string; value: string }> = []
@@ -108,18 +108,18 @@ export function saveQueueConfig(
     // 保存到数据库（使用DELETE+INSERT替代UPSERT，因为表没有唯一约束）
     for (const setting of settings) {
       // 1. 先删除已存在的配置
-      db.prepare(`
+      await db.exec(`
         DELETE FROM system_settings
         WHERE category = 'queue'
           AND config_key = ?
           AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))
-      `).run(setting.key, userId || null, userId || null)
+      `, [setting.key, userId || null, userId || null])
 
       // 2. 插入新配置
-      db.prepare(`
+      await db.exec(`
         INSERT INTO system_settings (category, config_key, config_value, user_id)
         VALUES ('queue', ?, ?, ?)
-      `).run(setting.key, setting.value, userId || null)
+      `, [setting.key, setting.value, userId || null])
     }
 
     console.log(`[QueueConfig] 保存配置成功 (userId=${userId}):`, config)
@@ -132,16 +132,16 @@ export function saveQueueConfig(
 /**
  * 初始化默认配置（如果不存在）
  */
-export function initializeDefaultQueueConfig(): void {
-  const db = getSQLiteDatabase()
+export async function initializeDefaultQueueConfig(): Promise<void> {
+  const db = await getDatabase()
 
   try {
     // 检查是否已有配置
-    const existing = db.prepare(`
+    const existing = await db.queryOne(`
       SELECT COUNT(*) as count
       FROM system_settings
       WHERE category = 'queue'
-    `).get() as { count: number }
+    `, []) as { count: number }
 
     if (existing.count > 0) {
       console.log('[QueueConfig] 配置已存在，跳过初始化')
@@ -158,10 +158,10 @@ export function initializeDefaultQueueConfig(): void {
     ]
 
     for (const setting of defaultSettings) {
-      db.prepare(`
+      await db.exec(`
         INSERT INTO system_settings (category, config_key, config_value, user_id, description)
         VALUES ('queue', ?, ?, NULL, ?)
-      `).run(setting.key, setting.value, setting.description)
+      `, [setting.key, setting.value, setting.description])
     }
 
     console.log('[QueueConfig] 默认配置初始化成功')

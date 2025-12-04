@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/admin/scheduled-tasks
@@ -26,14 +26,14 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') || 'all'
     const limit = parseInt(searchParams.get('limit') || '50')
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 根据类型获取不同的任务日志
     let backups: any[] = []
     let syncLogs: any[] = []
 
     if (type === 'all' || type === 'backup') {
-      backups = db.prepare(`
+      backups = await db.query(`
         SELECT
           id,
           backup_filename,
@@ -47,11 +47,11 @@ export async function GET(request: NextRequest) {
         FROM backup_logs
         ORDER BY created_at DESC
         LIMIT ?
-      `).all(limit) as any[]
+      `, [limit]) as any[]
     }
 
     if (type === 'all' || type === 'sync') {
-      syncLogs = db.prepare(`
+      syncLogs = await db.query(`
         SELECT
           sl.id,
           sl.user_id,
@@ -71,11 +71,11 @@ export async function GET(request: NextRequest) {
         LEFT JOIN google_ads_accounts ga ON sl.google_ads_account_id = ga.id
         ORDER BY sl.started_at DESC
         LIMIT ?
-      `).all(limit) as any[]
+      `, [limit]) as any[]
     }
 
     // 统计信息
-    const backupStats = db.prepare(`
+    const backupStats = await db.queryOne(`
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
@@ -83,9 +83,9 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN status = 'success' THEN file_size_bytes ELSE 0 END) as total_size_bytes,
         MAX(created_at) as last_run
       FROM backup_logs
-    `).get() as any
+    `) as any
 
-    const syncStats = db.prepare(`
+    const syncStats = await db.queryOne(`
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
         AVG(duration_ms) as avg_duration,
         MAX(started_at) as last_run
       FROM sync_logs
-    `).get() as any
+    `) as any
 
     // 定时任务配置信息
     const scheduledTasks = [

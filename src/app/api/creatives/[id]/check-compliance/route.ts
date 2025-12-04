@@ -32,7 +32,7 @@ export async function POST(
     }
 
     // 获取Creative信息
-    const creative = findAdCreativeById(creativeId, auth.user!.userId)
+    const creative = await findAdCreativeById(creativeId, auth.user!.userId)
     if (!creative) {
       return NextResponse.json(
         { error: 'Creative not found' },
@@ -41,7 +41,7 @@ export async function POST(
     }
 
     // 获取Offer信息（用于品牌名）
-    const offer = findOfferById(creative.offer_id, auth.user!.userId)
+    const offer = await findOfferById(creative.offer_id, auth.user!.userId)
     if (!offer) {
       return NextResponse.json(
         { error: 'Associated offer not found' },

@@ -2,7 +2,7 @@
  * ⚡ P0重构: AI配置管理模块
  * 从ad-creative-generator.ts拆分出AI配置相关逻辑
  */
-import { getSQLiteDatabase } from '../db'
+import { getDatabase } from '../db'
 
 export interface AIConfig {
   type: 'vertex-ai' | 'gemini-api' | null
@@ -22,18 +22,18 @@ export interface AIConfig {
  * 优先级：用户配置 > 全局配置
  */
 export async function getAIConfig(userId?: number): Promise<AIConfig> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 1. 先尝试获取用户特定配置（优先级最高）
   let userSettings: Record<string, string> = {}
   if (userId) {
-    const userRows = db.prepare(`
+    const userRows = await db.query(`
       SELECT config_key, config_value FROM system_settings
       WHERE user_id = ? AND config_key IN (
         'vertex_ai_model', 'gcp_project_id', 'gcp_location',
         'gemini_api_key', 'gemini_model', 'use_vertex_ai'
       )
-    `).all(userId) as Array<{ config_key: string; config_value: string }>
+    `, [userId]) as Array<{ config_key: string; config_value: string }>
 
     userSettings = userRows.reduce((acc, { config_key, config_value }) => {
       acc[config_key] = config_value
@@ -42,13 +42,13 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
   }
 
   // 2. 获取全局配置（作为备选）
-  const globalRows = db.prepare(`
+  const globalRows = await db.query(`
     SELECT config_key, config_value FROM system_settings
     WHERE user_id IS NULL AND config_key IN (
       'VERTEX_AI_PROJECT_ID', 'VERTEX_AI_LOCATION', 'VERTEX_AI_MODEL',
       'GEMINI_API_KEY', 'GEMINI_MODEL'
     )
-  `).all() as Array<{ config_key: string; config_value: string }>
+  `) as Array<{ config_key: string; config_value: string }>
 
   const globalSettings = globalRows.reduce((acc, { config_key, config_value }) => {
     acc[config_key] = config_value

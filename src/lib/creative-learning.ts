@@ -8,7 +8,7 @@
  * - 提供个性化创意建议
  */
 
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 export interface HistoricalCreative {
   creativeId: number
@@ -80,17 +80,17 @@ export interface SuccessFeatures {
  * - headlines: JSON数组 ["H1", "H2", "H3"]
  * - descriptions: JSON数组 ["D1", "D2"]
  */
-export function queryHighPerformingCreatives(
+export async function queryHighPerformingCreatives(
   userId: number,
   minCtr: number = 0.03, // 3%
   minClicks: number = 100,
   limit: number = 50
-): HistoricalCreative[] {
-  const db = getSQLiteDatabase()
+): Promise<HistoricalCreative[]> {
+  const db = await getDatabase()
 
   // 查询高CTR的创意及其性能数据
   // 从ad_creative_performance表获取性能数据，JOIN ad_creatives获取最新创意内容
-  const stmt = db.prepare(`
+  const rows = await db.query(`
     SELECT
       ac.id as creativeId,
       ac.headlines,
@@ -116,9 +116,7 @@ export function queryHighPerformingCreatives(
     HAVING SUM(acp.clicks) >= ? AND ctr >= ?
     ORDER BY ctr DESC, conversionRate DESC
     LIMIT ?
-  `)
-
-  const rows = stmt.all(userId, minClicks, minCtr, limit) as any[]
+  `, [userId, minClicks, minCtr, limit]) as any[]
 
   // 解析 JSON 字段
   return rows.map(row => {
@@ -565,15 +563,15 @@ export interface CreativePerformanceScore {
  * - Average: 50-69分（普通创意）
  * - Poor: 0-49分（待优化创意）
  */
-export function scoreCreativePerformance(
+export async function scoreCreativePerformance(
   creativeId: number,
   userId: number
-): CreativePerformanceScore | null {
-  const db = getSQLiteDatabase()
+): Promise<CreativePerformanceScore | null> {
+  const db = await getDatabase()
 
   // 查询创意的性能数据
   // 从ad_creative_performance获取聚合性能数据
-  const stmt = db.prepare(`
+  const data = await db.queryOne(`
     SELECT
       ac.id as creativeId,
       ac.headlines,
@@ -596,9 +594,7 @@ export function scoreCreativePerformance(
     LEFT JOIN ad_creative_performance acp ON ac.id = acp.ad_creative_id
     WHERE ac.id = ? AND ac.user_id = ?
     GROUP BY ac.id
-  `)
-
-  const data = stmt.get(creativeId, userId) as any
+  `, [creativeId, userId]) as any
 
   if (!data || data.impressions === 0) {
     return null // 没有数据或曝光不足
@@ -784,27 +780,27 @@ export function scoreCreativePerformance(
 /**
  * 批量评分所有创意（供定时任务使用）
  */
-export function scoreAllCreatives(userId: number): CreativePerformanceScore[] {
-  const db = getSQLiteDatabase()
+export async function scoreAllCreatives(userId: number): Promise<CreativePerformanceScore[]> {
+  const db = await getDatabase()
 
   // 获取所有有性能数据的创意（从ad_creative_performance聚合）
-  const creativeIds = db.prepare(`
+  const creativeIds = await db.query(`
     SELECT DISTINCT ac.id
     FROM ad_creatives ac
     INNER JOIN ad_creative_performance acp ON ac.id = acp.ad_creative_id
     WHERE ac.user_id = ?
     GROUP BY ac.id
     HAVING SUM(acp.impressions) > 100
-  `).all(userId) as { id: number }[]
+  `, [userId]) as { id: number }[]
 
   const scores: CreativePerformanceScore[] = []
 
-  creativeIds.forEach(({ id }) => {
-    const score = scoreCreativePerformance(id, userId)
+  for (const { id } of creativeIds) {
+    const score = await scoreCreativePerformance(id, userId)
     if (score) {
       scores.push(score)
     }
-  })
+  }
 
   // 按评分降序排序
   return scores.sort((a, b) => b.score - a.score)
@@ -813,26 +809,25 @@ export function scoreAllCreatives(userId: number): CreativePerformanceScore[] {
 /**
  * 将成功特征持久化到数据库
  */
-export function saveSuccessFeatures(
+export async function saveSuccessFeatures(
   userId: number,
   features: SuccessFeatures,
   totalCreatives: number
-): void {
-  const db = getSQLiteDatabase()
+): Promise<void> {
+  const db = await getDatabase()
 
   // 将SuccessFeatures对象序列化为JSON
   const featuresJson = JSON.stringify(features)
 
   // 检查是否已存在该用户的学习模式
-  const existingStmt = db.prepare(`
+  const existing = await db.queryOne(`
     SELECT id FROM creative_learning_patterns
     WHERE user_id = ?
-  `)
-  const existing = existingStmt.get(userId) as { id: number } | undefined
+  `, [userId]) as { id: number } | undefined
 
   if (existing) {
     // 更新现有记录
-    const updateStmt = db.prepare(`
+    await db.exec(`
       UPDATE creative_learning_patterns
       SET success_features = ?,
           total_creatives_analyzed = ?,
@@ -841,18 +836,17 @@ export function saveSuccessFeatures(
           min_ctr_threshold = ?,
           updated_at = datetime('now')
       WHERE user_id = ?
-    `)
-    updateStmt.run(
+    `, [
       featuresJson,
       totalCreatives,
       features.benchmarks.avgCtr,
       features.benchmarks.avgConversionRate,
       features.benchmarks.minCtr,
       userId
-    )
+    ])
   } else {
     // 插入新记录
-    const insertStmt = db.prepare(`
+    await db.exec(`
       INSERT INTO creative_learning_patterns (
         user_id,
         success_features,
@@ -861,33 +855,30 @@ export function saveSuccessFeatures(
         avg_conversion_rate,
         min_ctr_threshold
       ) VALUES (?, ?, ?, ?, ?, ?)
-    `)
-    insertStmt.run(
+    `, [
       userId,
       featuresJson,
       totalCreatives,
       features.benchmarks.avgCtr,
       features.benchmarks.avgConversionRate,
       features.benchmarks.minCtr
-    )
+    ])
   }
 }
 
 /**
  * 从数据库加载成功特征
  */
-export function loadSuccessFeatures(userId: number): SuccessFeatures | null {
-  const db = getSQLiteDatabase()
+export async function loadSuccessFeatures(userId: number): Promise<SuccessFeatures | null> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.queryOne(`
     SELECT success_features
     FROM creative_learning_patterns
     WHERE user_id = ?
     ORDER BY updated_at DESC
     LIMIT 1
-  `)
-
-  const result = stmt.get(userId) as { success_features: string } | undefined
+  `, [userId]) as { success_features: string } | undefined
 
   if (!result) {
     return null
@@ -904,13 +895,13 @@ export function loadSuccessFeatures(userId: number): SuccessFeatures | null {
 /**
  * 保存创意评分到数据库
  */
-export function saveCreativeScore(
+export async function saveCreativeScore(
   userId: number,
   score: CreativePerformanceScore
-): void {
-  const db = getSQLiteDatabase()
+): Promise<void> {
+  const db = await getDatabase()
 
-  const insertStmt = db.prepare(`
+  await db.exec(`
     INSERT INTO creative_performance_scores (
       user_id,
       creative_id,
@@ -920,9 +911,7 @@ export function saveCreativeScore(
       metrics_snapshot,
       reasons
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  insertStmt.run(
+  `, [
     userId,
     score.creativeId,
     score.score,
@@ -930,7 +919,7 @@ export function saveCreativeScore(
     score.isGood ? 1 : 0,
     JSON.stringify(score.metrics),
     JSON.stringify(score.reasons)
-  )
+  ])
 }
 
 /**
@@ -944,14 +933,14 @@ export function saveCreativeScore(
  *
  * @returns 分析报告
  */
-export function runCreativeOptimizationLoop(userId: number): {
+export async function runCreativeOptimizationLoop(userId: number): Promise<{
   totalCreatives: number
   highPerformers: number
   featuresUpdated: boolean
   avgScore: number
-} {
+}> {
   // Step 1: 评分所有创意
-  const scores = scoreAllCreatives(userId)
+  const scores = await scoreAllCreatives(userId)
 
   if (scores.length === 0) {
     return {
@@ -963,9 +952,9 @@ export function runCreativeOptimizationLoop(userId: number): {
   }
 
   // 保存评分结果到数据库
-  scores.forEach(score => {
-    saveCreativeScore(userId, score)
-  })
+  for (const score of scores) {
+    await saveCreativeScore(userId, score)
+  }
 
   // Step 2: 筛选高表现创意（excellent 或 good）
   const highPerformers = scores.filter(s => s.isGood)
@@ -977,18 +966,19 @@ export function runCreativeOptimizationLoop(userId: number): {
   if (highPerformers.length >= 5) {
     // 将评分转换为HistoricalCreative格式
     // 从ad_creatives获取创意内容
-    const db = getSQLiteDatabase()
-    const stmt = db.prepare(`
-      SELECT
-        ac.id as creativeId,
-        ac.headlines,
-        ac.descriptions
-      FROM ad_creatives ac
-      WHERE ac.id = ?
-    `)
+    const db = await getDatabase()
 
-    const historicalCreatives: HistoricalCreative[] = highPerformers.map(s => {
-      const creative = stmt.get(s.creativeId) as any
+    const historicalCreatives: HistoricalCreative[] = []
+
+    for (const s of highPerformers) {
+      const creative = await db.queryOne(`
+        SELECT
+          ac.id as creativeId,
+          ac.headlines,
+          ac.descriptions
+        FROM ad_creatives ac
+        WHERE ac.id = ?
+      `, [s.creativeId]) as any
 
       // 解析 JSON 字段
       let headlines: string[] = []
@@ -1000,7 +990,7 @@ export function runCreativeOptimizationLoop(userId: number): {
         // 使用默认空数组
       }
 
-      return {
+      historicalCreatives.push({
         creativeId: s.creativeId,
         headline1: headlines[0] || '',
         headline2: headlines[1] || null,
@@ -1012,14 +1002,14 @@ export function runCreativeOptimizationLoop(userId: number): {
         impressions: s.metrics.clicks / (s.metrics.ctr || 0.01),
         conversions: s.metrics.conversions,
         conversionRate: s.metrics.conversions / (s.metrics.clicks || 1)
-      } as HistoricalCreative
-    })
+      })
+    }
 
     // 分析成功特征
     const features = analyzeSuccessFeatures(historicalCreatives)
 
     // 持久化到数据库
-    saveSuccessFeatures(userId, features, highPerformers.length)
+    await saveSuccessFeatures(userId, features, highPerformers.length)
     featuresUpdated = true
   }
 
@@ -1035,16 +1025,16 @@ export function runCreativeOptimizationLoop(userId: number): {
  * 获取用户的个性化AI Prompt（增强版）
  * 优先从数据库加载持久化的成功特征
  */
-export function getUserOptimizedPrompt(
+export async function getUserOptimizedPrompt(
   userId: number,
   basePrompt: string
-): string {
+): Promise<string> {
   // 优先从数据库加载持久化的特征
-  let features = loadSuccessFeatures(userId)
+  let features = await loadSuccessFeatures(userId)
 
   if (!features) {
     // 数据库中没有，尝试实时分析
-    const highPerformers = queryHighPerformingCreatives(userId, 0.02, 50, 50)
+    const highPerformers = await queryHighPerformingCreatives(userId, 0.02, 50, 50)
 
     if (highPerformers.length < 5) {
       // 数据不足，返回基础Prompt
@@ -1055,7 +1045,7 @@ export function getUserOptimizedPrompt(
     features = analyzeSuccessFeatures(highPerformers)
 
     // 保存到数据库以供后续使用
-    saveSuccessFeatures(userId, features, highPerformers.length)
+    await saveSuccessFeatures(userId, features, highPerformers.length)
   }
 
   // 生成增强Prompt

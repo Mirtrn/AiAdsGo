@@ -22,7 +22,7 @@ export async function GET(
     const offerId = parseInt(id, 10)
 
     // 验证Offer存在且属于当前用户
-    const offer = findOfferById(offerId, parseInt(userId, 10))
+    const offer = await findOfferById(offerId, parseInt(userId, 10))
     if (!offer) {
       return NextResponse.json(
         { error: 'Offer不存在或无权访问' },
@@ -31,14 +31,14 @@ export async function GET(
     }
 
     // 获取所有创意
-    const creatives = findAdCreativesByOfferId(offerId, parseInt(userId, 10))
+    const creatives = await findAdCreativesByOfferId(offerId, parseInt(userId, 10))
 
     return NextResponse.json({
       success: true,
       data: {
         offerId,
         total: creatives.length,
-        creatives: creatives.map(c => ({
+        creatives: creatives.map((c: any) => ({
           id: c.id,
           version: c.version,
           headlines: c.headlines,

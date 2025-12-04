@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 export interface AdGroup {
   id: number
@@ -26,38 +26,35 @@ export interface CreateAdGroupInput {
 /**
  * 创建Ad Group
  */
-export function createAdGroup(input: CreateAdGroupInput): AdGroup {
-  const db = getSQLiteDatabase()
+export async function createAdGroup(input: CreateAdGroupInput): Promise<AdGroup> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(`
     INSERT INTO ad_groups (
       user_id, campaign_id, ad_group_name,
       status, cpc_bid_micros
     ) VALUES (?, ?, ?, ?, ?)
-  `)
-
-  const info = stmt.run(
+  `, [
     input.userId,
     input.campaignId,
     input.adGroupName,
     input.status || 'PAUSED',
     input.cpcBidMicros || null
-  )
+  ])
 
-  return findAdGroupById(info.lastInsertRowid as number, input.userId)!
+  return (await findAdGroupById(result.lastInsertRowid as number, input.userId))!
 }
 
 /**
  * 查找Ad Group（带权限验证）
  */
-export function findAdGroupById(id: number, userId: number): AdGroup | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findAdGroupById(id: number, userId: number): Promise<AdGroup | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM ad_groups
     WHERE id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(id, userId) as any
+  `, [id, userId])
 
   if (!row) {
     return null
@@ -69,14 +66,13 @@ export function findAdGroupById(id: number, userId: number): AdGroup | null {
 /**
  * 根据Google Ads ad_group_id查找
  */
-export function findAdGroupByGoogleId(adGroupId: string, userId: number): AdGroup | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findAdGroupByGoogleId(adGroupId: string, userId: number): Promise<AdGroup | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM ad_groups
     WHERE ad_group_id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(adGroupId, userId) as any
+  `, [adGroupId, userId])
 
   if (!row) {
     return null
@@ -88,23 +84,23 @@ export function findAdGroupByGoogleId(adGroupId: string, userId: number): AdGrou
 /**
  * 查找Campaign的所有Ad Groups
  */
-export function findAdGroupsByCampaignId(campaignId: number, userId: number): AdGroup[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findAdGroupsByCampaignId(campaignId: number, userId: number): Promise<AdGroup[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM ad_groups
     WHERE campaign_id = ? AND user_id = ?
     ORDER BY created_at DESC
-  `)
+  `, [campaignId, userId])
 
-  const rows = stmt.all(campaignId, userId) as any[]
   return rows.map(mapRowToAdGroup)
 }
 
 /**
  * 查找用户的所有Ad Groups
  */
-export function findAdGroupsByUserId(userId: number, limit?: number): AdGroup[] {
-  const db = getSQLiteDatabase()
+export async function findAdGroupsByUserId(userId: number, limit?: number): Promise<AdGroup[]> {
+  const db = await getDatabase()
   let sql = `
     SELECT * FROM ad_groups
     WHERE user_id = ?
@@ -115,15 +111,14 @@ export function findAdGroupsByUserId(userId: number, limit?: number): AdGroup[] 
     sql += ` LIMIT ${limit}`
   }
 
-  const stmt = db.prepare(sql)
-  const rows = stmt.all(userId) as any[]
+  const rows = await db.query(sql, [userId])
   return rows.map(mapRowToAdGroup)
 }
 
 /**
  * 更新Ad Group
  */
-export function updateAdGroup(
+export async function updateAdGroup(
   id: number,
   userId: number,
   updates: Partial<
@@ -138,11 +133,11 @@ export function updateAdGroup(
       | 'lastSyncAt'
     >
   >
-): AdGroup | null {
-  const db = getSQLiteDatabase()
+): Promise<AdGroup | null> {
+  const db = await getDatabase()
 
   // 验证权限
-  const adGroup = findAdGroupById(id, userId)
+  const adGroup = await findAdGroupById(id, userId)
   if (!adGroup) {
     return null
   }
@@ -186,57 +181,48 @@ export function updateAdGroup(
   fields.push('updated_at = datetime("now")')
   values.push(id, userId)
 
-  const stmt = db.prepare(`
+  await db.exec(`
     UPDATE ad_groups
     SET ${fields.join(', ')}
     WHERE id = ? AND user_id = ?
-  `)
+  `, values)
 
-  stmt.run(...values)
-
-  return findAdGroupById(id, userId)
+  return await findAdGroupById(id, userId)
 }
 
 /**
  * 删除Ad Group
  */
-export function deleteAdGroup(id: number, userId: number): boolean {
-  const db = getSQLiteDatabase()
+export async function deleteAdGroup(id: number, userId: number): Promise<boolean> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(`
     DELETE FROM ad_groups
     WHERE id = ? AND user_id = ?
-  `)
+  `, [id, userId])
 
-  const info = stmt.run(id, userId)
-  return info.changes > 0
+  return result.changes > 0
 }
 
 /**
  * 更新Ad Group状态
  */
-export function updateAdGroupStatus(id: number, userId: number, status: string): AdGroup | null {
-  return updateAdGroup(id, userId, { status })
+export async function updateAdGroupStatus(id: number, userId: number, status: string): Promise<AdGroup | null> {
+  return await updateAdGroup(id, userId, { status })
 }
 
 /**
  * 批量创建Ad Groups
  */
-export function createAdGroupsBatch(adGroups: CreateAdGroupInput[]): AdGroup[] {
-  const db = getSQLiteDatabase()
+export async function createAdGroupsBatch(adGroups: CreateAdGroupInput[]): Promise<AdGroup[]> {
+  const results: AdGroup[] = []
 
-  const transaction = db.transaction((groups: CreateAdGroupInput[]) => {
-    const results: AdGroup[] = []
+  for (const group of adGroups) {
+    const adGroup = await createAdGroup(group)
+    results.push(adGroup)
+  }
 
-    for (const group of groups) {
-      const adGroup = createAdGroup(group)
-      results.push(adGroup)
-    }
-
-    return results
-  })
-
-  return transaction(adGroups)
+  return results
 }
 
 /**

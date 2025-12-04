@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import { hashPassword, verifyPassword } from './crypto'
 import { generateToken, JWTPayload, verifyToken } from './jwt'
 import {
@@ -61,58 +61,58 @@ export interface LoginResponse {
 /**
  * 通过邮箱查找用户
  */
-export function findUserByEmail(email: string): User | null {
-  const db = getSQLiteDatabase()
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as User | undefined
+export async function findUserByEmail(email: string): Promise<User | null> {
+  const db = await getDatabase()
+  const user = await db.queryOne<User>('SELECT * FROM users WHERE email = ?', [email])
   return user || null
 }
 
 /**
  * 通过用户名查找用户
  */
-export function findUserByUsername(username: string): User | null {
-  const db = getSQLiteDatabase()
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined
+export async function findUserByUsername(username: string): Promise<User | null> {
+  const db = await getDatabase()
+  const user = await db.queryOne<User>('SELECT * FROM users WHERE username = ?', [username])
   return user || null
 }
 
 /**
  * 通过用户名或邮箱查找用户
  */
-export function findUserByUsernameOrEmail(usernameOrEmail: string): User | null {
-  const db = getSQLiteDatabase()
-  const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(usernameOrEmail, usernameOrEmail) as User | undefined
+export async function findUserByUsernameOrEmail(usernameOrEmail: string): Promise<User | null> {
+  const db = await getDatabase()
+  const user = await db.queryOne<User>('SELECT * FROM users WHERE username = ? OR email = ?', [usernameOrEmail, usernameOrEmail])
   return user || null
 }
 
 /**
  * 通过Google ID查找用户
  */
-export function findUserByGoogleId(googleId: string): User | null {
-  const db = getSQLiteDatabase()
-  const user = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId) as User | undefined
+export async function findUserByGoogleId(googleId: string): Promise<User | null> {
+  const db = await getDatabase()
+  const user = await db.queryOne<User>('SELECT * FROM users WHERE google_id = ?', [googleId])
   return user || null
 }
 
 /**
  * 通过ID查找用户
  */
-export function findUserById(id: number): User | null {
-  const db = getSQLiteDatabase()
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined
+export async function findUserById(id: number): Promise<User | null> {
+  const db = await getDatabase()
+  const user = await db.queryOne<User>('SELECT * FROM users WHERE id = ?', [id])
   return user || null
 }
 
 /**
  * 生成唯一的动物用户名 (8-12位)
  */
-export function generateUniqueUsername(): string {
+export async function generateUniqueUsername(): Promise<string> {
   const animals = ['panda', 'tiger', 'lion', 'eagle', 'shark', 'wolf', 'bear', 'hawk', 'fox', 'owl', 'deer', 'cat', 'dog', 'fish']
   const adjectives = ['fast', 'brave', 'wise', 'calm', 'wild', 'cool', 'kind', 'bold', 'epic', 'rare']
 
   let username = ''
   let isUnique = false
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   while (!isUnique) {
     const animal = animals[Math.floor(Math.random() * animals.length)]
@@ -131,7 +131,7 @@ export function generateUniqueUsername(): string {
 
     username = temp.substring(0, 12) // truncate to max 12
 
-    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username)
+    const existing = await db.queryOne('SELECT id FROM users WHERE username = ?', [username])
     if (!existing) {
       isUnique = true
     }
@@ -143,10 +143,10 @@ export function generateUniqueUsername(): string {
  * 创建新用户
  */
 export async function createUser(input: CreateUserInput): Promise<User> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 检查邮箱是否已存在
-  const existingUser = findUserByEmail(input.email)
+  const existingUser = await findUserByEmail(input.email)
   if (existingUser) {
     throw new Error('该邮箱已被注册')
   }
@@ -158,13 +158,13 @@ export async function createUser(input: CreateUserInput): Promise<User> {
   }
 
   // 如果没有提供用户名，自动生成
-  const username = input.username || generateUniqueUsername()
+  const username = input.username || await generateUniqueUsername()
 
-  const result = db.prepare(`
+  const result = await db.exec(`
     INSERT INTO users (
       username, email, password_hash, display_name, google_id, profile_picture, role, package_type, package_expires_at, must_change_password
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `, [
     username,
     input.email,
     passwordHash,
@@ -175,9 +175,9 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     input.packageType || 'trial',
     input.packageExpiresAt || null,
     input.mustChangePassword !== undefined ? input.mustChangePassword : 1
-  )
+  ])
 
-  const user = findUserById(result.lastInsertRowid as number)
+  const user = await findUserById(result.lastInsertRowid as number)
   if (!user) {
     throw new Error('用户创建失败')
   }
@@ -188,9 +188,11 @@ export async function createUser(input: CreateUserInput): Promise<User> {
 /**
  * 更新用户最后登录时间
  */
-export function updateLastLogin(userId: number): void {
-  const db = getSQLiteDatabase()
-  db.prepare('UPDATE users SET last_login_at = datetime(\'now\') WHERE id = ?').run(userId)
+export async function updateLastLogin(userId: number): Promise<void> {
+  const db = await getDatabase()
+  const db_type = db.type
+  const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime(\'now\')'
+  await db.exec(`UPDATE users SET last_login_at = ${nowFunc} WHERE id = ?`, [userId])
 }
 
 /**
@@ -207,7 +209,7 @@ export async function loginWithPassword(
   ipAddress: string = 'unknown',
   userAgent: string = 'unknown'
 ): Promise<LoginResponse> {
-  const user = findUserByUsernameOrEmail(usernameOrEmail)
+  const user = await findUserByUsernameOrEmail(usernameOrEmail)
 
   // P1修复：统一错误消息，防止账户枚举
   if (!user) {
@@ -248,11 +250,11 @@ export async function loginWithPassword(
   }
 
   // 登录成功 - P0：重置失败计数
-  resetFailedAttempts(user.id)
+  await resetFailedAttempts(user.id)
   await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, true)
 
   // 更新最后登录时间
-  updateLastLogin(user.id)
+  await updateLastLogin(user.id)
 
   // 生成JWT token
   const token = generateToken({
@@ -286,22 +288,24 @@ export async function loginWithGoogle(googleProfile: {
   name?: string
   picture?: string
 }): Promise<LoginResponse> {
-  let user = findUserByGoogleId(googleProfile.id)
+  let user = await findUserByGoogleId(googleProfile.id)
 
   // 如果用户不存在，创建新用户
   if (!user) {
     // 检查邮箱是否已被其他账户使用
-    const existingUser = findUserByEmail(googleProfile.email)
+    const existingUser = await findUserByEmail(googleProfile.email)
     if (existingUser) {
       // 绑定Google ID到现有账户
-      const db = getSQLiteDatabase()
-      db.prepare(`
+      const db = await getDatabase()
+      const db_type = db.type
+      const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime(\'now\')'
+      await db.exec(`
         UPDATE users
-        SET google_id = ?, profile_picture = ?, updated_at = datetime('now')
+        SET google_id = ?, profile_picture = ?, updated_at = ${nowFunc}
         WHERE id = ?
-      `).run(googleProfile.id, googleProfile.picture || null, existingUser.id)
+      `, [googleProfile.id, googleProfile.picture || null, existingUser.id])
 
-      user = findUserById(existingUser.id)
+      user = await findUserById(existingUser.id)
     } else {
       // 创建新用户
       user = await createUser({
@@ -331,7 +335,7 @@ export async function loginWithGoogle(googleProfile: {
   }
 
   // 更新最后登录时间
-  updateLastLogin(user.id)
+  await updateLastLogin(user.id)
 
   // 生成JWT token
   const token = generateToken({
@@ -419,7 +423,7 @@ export async function verifyAuth(request: NextRequest): Promise<AuthResult> {
     }
 
     // 验证用户是否存在且激活
-    const user = findUserById(payload.userId)
+    const user = await findUserById(payload.userId)
     if (!user) {
       return {
         authenticated: false,

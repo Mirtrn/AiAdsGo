@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth'
-import { getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/admin/users/:id/login-history
@@ -14,7 +14,7 @@ export const GET = withAuth(
         return NextResponse.json({ error: '无效的用户ID' }, { status: 400 })
       }
 
-      const db = getSQLiteDatabase()
+      const db = await getDatabase()
 
       // 获取登录尝试记录（成功和失败）
       const { searchParams } = new URL(request.url)
@@ -22,14 +22,14 @@ export const GET = withAuth(
       const offset = parseInt(searchParams.get('offset') || '0', 10)
 
       // 获取用户信息
-      const targetUser = db.prepare('SELECT username, email FROM users WHERE id = ?').get(userId) as { username: string; email: string } | undefined
+      const targetUser = await db.queryOne('SELECT username, email FROM users WHERE id = ?', [userId]) as { username: string; email: string } | undefined
 
       if (!targetUser) {
         return NextResponse.json({ error: '用户不存在' }, { status: 404 })
       }
 
       // 查询登录尝试记录（使用username或email匹配）
-      const loginAttempts = db.prepare(`
+      const loginAttempts = await db.query(`
         SELECT
           id,
           username_or_email,
@@ -42,17 +42,17 @@ export const GET = withAuth(
         WHERE username_or_email IN (?, ?)
         ORDER BY attempted_at DESC
         LIMIT ? OFFSET ?
-      `).all(targetUser.username, targetUser.email || targetUser.username, limit, offset) as any[]
+      `, [targetUser.username, targetUser.email || targetUser.username, limit, offset]) as any[]
 
       // 获取总记录数
-      const totalResult = db.prepare(`
+      const totalResult = await db.queryOne(`
         SELECT COUNT(*) as total
         FROM login_attempts
         WHERE username_or_email IN (?, ?)
-      `).get(targetUser.username, targetUser.email || targetUser.username) as { total: number }
+      `, [targetUser.username, targetUser.email || targetUser.username]) as { total: number }
 
       // 获取审计日志中的登录成功记录
-      const auditLogs = db.prepare(`
+      const auditLogs = await db.query(`
         SELECT
           id,
           event_type,
@@ -65,7 +65,7 @@ export const GET = withAuth(
           AND event_type IN ('login_success', 'login_failed', 'account_locked')
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
-      `).all(userId, limit, offset) as any[]
+      `, [userId, limit, offset]) as any[]
 
       // 合并并排序记录
       const combinedRecords = [

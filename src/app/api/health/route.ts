@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/health
@@ -8,8 +8,8 @@ import { getDatabase, getSQLiteDatabase } from '@/lib/db'
 export async function GET() {
   try {
     // 检查数据库连接
-    const db = getSQLiteDatabase()
-    const result = db.prepare('SELECT 1 as health').get() as { health: number }
+    const db = await getDatabase()
+    const result = await db.queryOne('SELECT 1 as health', []) as { health: number }
 
     if (result.health !== 1) {
       throw new Error('数据库健康检查失败')

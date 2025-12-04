@@ -1,5 +1,5 @@
-import { getDatabase, getSQLiteDatabase } from './db'
-import { generateOfferName, getTargetLanguage } from './offer-utils'
+import { getDatabase } from './db'
+import { generateOfferName, getTargetLanguage, isOfferNameUnique } from './offer-utils'
 import { generatePricingJSON, initializePromotionsJSON, initializeScrapedDataJSON } from './pricing-utils'
 
 export interface Offer {
@@ -118,18 +118,29 @@ export interface UpdateOfferInput {
  * 需求1: 自动生成offer_name和target_language
  * 增强功能: 自动生成pricing、promotions、scraped_data JSON
  */
-export function createOffer(userId: number, input: CreateOfferInput): Offer {
-  const db = getSQLiteDatabase()
+export async function createOffer(userId: number, input: CreateOfferInput): Promise<Offer> {
+  const db = await getDatabase()
 
   // ========== 需求1和需求5: 自动生成字段 ==========
   // 如果没有提供brand，使用临时值"Unknown"，等抓取完成后更新
   const brandValue = input.brand || 'Unknown'
 
   // 生成offer_name: 品牌名称_推广国家_序号（如 Reolink_US_01）
-  const offerName = generateOfferName(brandValue, input.target_country, userId)
+  const offerName = await generateOfferName(brandValue, input.target_country, userId)
+
+  // Debug logging for PostgreSQL
+  if (process.env.DEBUG_OFFERS) {
+    console.log('[DEBUG] offerName:', offerName)
+    console.log('[DEBUG] offerName type:', typeof offerName)
+  }
 
   // 根据国家或用户输入自动映射推广语言（如 US→English, DE→German）
   const targetLanguage = input.target_language || getTargetLanguage(input.target_country)
+
+  if (process.env.DEBUG_OFFERS) {
+    console.log('[DEBUG] targetLanguage:', targetLanguage)
+    console.log('[DEBUG] targetLanguage type:', typeof targetLanguage)
+  }
 
   // ========== 自动生成pricing、promotions、scraped_data JSON ==========
   // 1. 如果有product_price，自动解析并生成pricing JSON
@@ -141,19 +152,7 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
   // 3. 初始化scraped_data JSON（包含price信息）
   const scrapedDataJSON = initializeScrapedDataJSON(input.product_price)
 
-  const result = db.prepare(`
-    INSERT INTO offers (
-      user_id, url, brand, category, target_country, affiliate_link,
-      brand_description, unique_selling_points, product_highlights,
-      target_audience, final_url, final_url_suffix, scrape_status,
-      offer_name, target_language,
-      product_price, commission_payout,
-      pricing, promotions, scraped_data,
-      review_analysis, competitor_analysis,
-      extracted_keywords, extracted_headlines, extracted_descriptions, extraction_metadata,
-      extracted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  const params = [
     userId,
     input.url,
     brandValue, // 使用临时值或用户提供的值
@@ -181,10 +180,34 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
     input.extracted_headlines || null,
     input.extracted_descriptions || null,
     input.extraction_metadata || null,
-    input.review_analysis || input.competitor_analysis ? new Date().toISOString() : null  // 如果有AI分析结果，记录提取时间
-  )
+    (input.review_analysis || input.competitor_analysis) ? new Date().toISOString() : null  // 如果有AI分析结果，记录提取时间
+  ]
 
-  const offer = findOfferById(result.lastInsertRowid as number, userId)
+  // Debug: Check for undefined values
+  if (db.type === 'postgres') {
+    const undefinedIndices = params.map((p, i) => p === undefined ? i : -1).filter(i => i !== -1)
+    if (undefinedIndices.length > 0) {
+      console.error('❌ Found undefined parameters at indices:', undefinedIndices)
+      console.error('Parameters:', params)
+      throw new Error(`Cannot insert with undefined values at indices: ${undefinedIndices.join(', ')}`)
+    }
+  }
+
+  const result = await db.exec(`
+    INSERT INTO offers (
+      user_id, url, brand, category, target_country, affiliate_link,
+      brand_description, unique_selling_points, product_highlights,
+      target_audience, final_url, final_url_suffix, scrape_status,
+      offer_name, target_language,
+      product_price, commission_payout,
+      pricing, promotions, scraped_data,
+      review_analysis, competitor_analysis,
+      extracted_keywords, extracted_headlines, extracted_descriptions, extraction_metadata,
+      extracted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, params)
+
+  const offer = await findOfferById(result.lastInsertRowid as number, userId)
   if (!offer) {
     throw new Error('Offer创建失败')
   }
@@ -195,19 +218,24 @@ export function createOffer(userId: number, input: CreateOfferInput): Offer {
 /**
  * 通过ID查找Offer（包含用户验证，排除已删除）
  */
-export function findOfferById(id: number, userId: number): Offer | null {
-  const db = getSQLiteDatabase()
-  const offer = db.prepare(`
+export async function findOfferById(id: number, userId: number): Promise<Offer | null> {
+  const db = await getDatabase()
+  const db_type = db.type
+  const deletedCondition = db_type === 'postgres'
+    ? '(is_deleted = false OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  const offer = await db.queryOne(`
     SELECT * FROM offers
-    WHERE id = ? AND user_id = ? AND (is_deleted = 0 OR is_deleted IS NULL)
-  `).get(id, userId) as Offer | undefined
+    WHERE id = ? AND user_id = ? AND ${deletedCondition}
+  `, [id, userId]) as Offer | undefined
   return offer || null
 }
 
 /**
  * 获取用户的所有Offer列表
  */
-export function listOffers(
+export async function listOffers(
   userId: number,
   options?: {
     limit?: number
@@ -218,15 +246,20 @@ export function listOffers(
     includeDeleted?: boolean
     ids?: number[] // 批量查询特定ID的Offers
   }
-): { offers: Offer[]; total: number } {
-  const db = getSQLiteDatabase()
+): Promise<{ offers: Offer[]; total: number }> {
+  const db = await getDatabase()
 
   let whereConditions = ['user_id = ?']
   const params: any[] = [userId]
 
   // 默认排除已删除的Offer（需求25）
   if (!options?.includeDeleted) {
-    whereConditions.push('(is_deleted = 0 OR is_deleted IS NULL)')
+    const db_type = db.type
+    if (db_type === 'postgres') {
+      whereConditions.push('(is_deleted = false OR is_deleted IS NULL)')
+    } else {
+      whereConditions.push('(is_deleted = 0 OR is_deleted IS NULL)')
+    }
   }
 
   // 如果提供了ids参数，只查询特定ID的Offers（用于批量上传进度显示）
@@ -239,7 +272,12 @@ export function listOffers(
   // 构建WHERE条件
   if (options?.isActive !== undefined) {
     whereConditions.push('is_active = ?')
-    params.push(options.isActive ? 1 : 0)
+    const db_type = db.type
+    if (db_type === 'postgres') {
+      params.push(options.isActive) // PostgreSQL uses boolean
+    } else {
+      params.push(options.isActive ? 1 : 0) // SQLite uses integer
+    }
   }
 
   if (options?.targetCountry) {
@@ -257,7 +295,7 @@ export function listOffers(
 
   // 获取总数
   const countQuery = `SELECT COUNT(*) as count FROM offers WHERE ${whereClause}`
-  const { count } = db.prepare(countQuery).get(...params) as { count: number }
+  const { count } = await db.queryOne(countQuery, params) as { count: number }
 
   // 获取列表
   let listQuery = `SELECT * FROM offers WHERE ${whereClause} ORDER BY created_at DESC`
@@ -270,7 +308,7 @@ export function listOffers(
     listQuery += ` OFFSET ${options.offset}`
   }
 
-  const offers = db.prepare(listQuery).all(...params) as Offer[]
+  const offers = await db.query(listQuery, params) as Offer[]
 
   // ⚡ P0性能优化: 使用单次JOIN查询关联账号，避免N+1查询问题
   // 为每个offer查询关联的Google Ads账号信息
@@ -303,7 +341,7 @@ export function listOffers(
     ORDER BY c.offer_id, gaa.account_name
   `
 
-  const allLinkedAccounts = db.prepare(linkedAccountsQuery).all(...offerIds, userId) as Array<{
+  const allLinkedAccounts = await db.query(linkedAccountsQuery, [...offerIds, userId]) as Array<{
     offer_id: number
     account_id: number
     account_name: string | null
@@ -345,11 +383,11 @@ export function listOffers(
 /**
  * 更新Offer
  */
-export function updateOffer(id: number, userId: number, input: UpdateOfferInput): Offer {
-  const db = getSQLiteDatabase()
+export async function updateOffer(id: number, userId: number, input: UpdateOfferInput): Promise<Offer> {
+  const db = await getDatabase()
 
   // 验证Offer存在且属于该用户
-  const existing = findOfferById(id, userId)
+  const existing = await findOfferById(id, userId)
   if (!existing) {
     throw new Error('Offer不存在或无权访问')
   }
@@ -404,7 +442,12 @@ export function updateOffer(id: number, userId: number, input: UpdateOfferInput)
   }
   if (input.is_active !== undefined) {
     updates.push('is_active = ?')
-    params.push(input.is_active ? 1 : 0)
+    const db_type = db.type
+    if (db_type === 'postgres') {
+      params.push(input.is_active) // PostgreSQL uses boolean
+    } else {
+      params.push(input.is_active ? 1 : 0) // SQLite uses integer
+    }
   }
   // AI分析结果字段
   if (input.competitor_analysis !== undefined) {
@@ -478,9 +521,9 @@ export function updateOffer(id: number, userId: number, input: UpdateOfferInput)
   `
 
   params.push(id, userId)
-  db.prepare(updateQuery).run(...params)
+  await db.exec(updateQuery, params)
 
-  const updated = findOfferById(id, userId)
+  const updated = await findOfferById(id, userId)
   if (!updated) {
     throw new Error('Offer更新失败')
   }
@@ -492,11 +535,11 @@ export function updateOffer(id: number, userId: number, input: UpdateOfferInput)
  * 删除Offer（软删除）
  * 需求25: 保留历史数据，解除Ads账号关联
  */
-export function deleteOffer(id: number, userId: number): void {
-  const db = getSQLiteDatabase()
+export async function deleteOffer(id: number, userId: number): Promise<void> {
+  const db = await getDatabase()
 
   // 验证Offer存在且属于该用户
-  const existing = findOfferById(id, userId)
+  const existing = await findOfferById(id, userId)
   if (!existing) {
     throw new Error('Offer不存在或无权访问')
   }
@@ -504,7 +547,7 @@ export function deleteOffer(id: number, userId: number): void {
   // 检查是否有关联的Ads账号
   // 使用INNER JOIN确保只检查有效账号，忽略孤儿campaigns
   // ⚠️ 修复：忽略未成功发布到Google Ads的campaigns(google_campaign_id为空)
-  const associatedAccounts = db.prepare(`
+  const associatedAccounts = await db.queryOne(`
     SELECT COUNT(DISTINCT gaa.id) as account_count, COUNT(*) as campaign_count
     FROM campaigns c
     INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
@@ -513,117 +556,80 @@ export function deleteOffer(id: number, userId: number): void {
       AND c.status != 'REMOVED'
       AND c.google_campaign_id IS NOT NULL
       AND c.google_campaign_id != ''
-  `).get(id, userId) as { account_count: number; campaign_count: number }
+  `, [id, userId]) as { account_count: number; campaign_count: number }
 
   if (associatedAccounts.account_count > 0) {
     throw new Error(`无法删除Offer：该Offer关联了 ${associatedAccounts.account_count} 个Ads账号。请先在"关联Ads账号"列中解除所有账号的关联后再删除。`)
   }
 
-  // 使用事务确保数据一致性
-  const transaction = db.transaction(() => {
-    // 软删除Offer（保留历史数据）
-    // 注意：此时已经确认没有关联的活跃Campaigns，可以安全删除
-    db.prepare(`
-      UPDATE offers
-      SET is_deleted = 1,
-          deleted_at = datetime('now'),
-          is_active = 0,
-          updated_at = datetime('now')
-      WHERE id = ? AND user_id = ?
-    `).run(id, userId)
+  // 软删除Offer（保留历史数据）
+  // 注意：此时已经确认没有关联的活跃Campaigns，可以安全删除
+  await db.exec(`
+    UPDATE offers
+    SET is_deleted = 1,
+        deleted_at = datetime('now'),
+        is_active = 0,
+        updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `, [id, userId])
 
-    // 注意：不再自动更新Campaigns状态，用户必须先手动解除关联
-    // 此时应该不存在任何活跃的Campaigns关联（已在上面验证）
+  // 注意：不再自动更新Campaigns状态，用户必须先手动解除关联
+  // 此时应该不存在任何活跃的Campaigns关联（已在上面验证）
 
-    // TODO: 检查并标记闲置的Ads账号
-    // TODO: 实现闲置账号标记功能（需要先添加 is_idle 列到 google_ads_accounts 表）
-    // 找到该Offer关联的所有Ads账号
-    // const accounts = db.prepare(`
-    //   SELECT DISTINCT google_ads_account_id
-    //   FROM campaigns
-    //   WHERE offer_id = ? AND user_id = ?
-    // `).all(id, userId) as { google_ads_account_id: number }[]
-
-    // for (const account of accounts) {
-    //   // 检查该账号是否还有其他活跃的Offer关联
-    //   const activeOffers = db.prepare(`
-    //     SELECT COUNT(*) as count
-    //     FROM campaigns c
-    //     JOIN offers o ON c.offer_id = o.id
-    //     WHERE c.google_ads_account_id = ?
-    //       AND c.user_id = ?
-    //       AND o.is_deleted = 0
-    //       AND c.status != 'REMOVED'
-    //   `).get(account.google_ads_account_id, userId) as { count: number }
-
-    //   // 如果没有活跃Offer，标记账号为闲置
-    //   if (activeOffers.count === 0) {
-    //     db.prepare(`
-    //       UPDATE google_ads_accounts
-    //       SET is_idle = 1, updated_at = datetime('now')
-    //       WHERE id = ? AND user_id = ?
-    //     `).run(account.google_ads_account_id, userId)
-    //   }
-    // }
-  })
-
-  transaction()
+  // TODO: 检查并标记闲置的Ads账号
+  // TODO: 实现闲置账号标记功能（需要先添加 is_idle 列到 google_ads_accounts 表）
 }
 
 /**
  * 解除Offer与Ads账号的关联
  * 需求25: 手动解除关联功能
  */
-export function unlinkOfferFromAccount(
+export async function unlinkOfferFromAccount(
   offerId: number,
   accountId: number,
   userId: number
-): { unlinkedCount: number } {
-  const db = getSQLiteDatabase()
+): Promise<{ unlinkedCount: number }> {
+  const db = await getDatabase()
 
   // 验证Offer存在
-  const existing = findOfferById(offerId, userId)
+  const existing = await findOfferById(offerId, userId)
   if (!existing) {
     throw new Error('Offer不存在或无权访问')
   }
 
-  const transaction = db.transaction(() => {
-    // 将该Offer在该账号下的Campaigns标记为已移除
-    const result = db.prepare(`
-      UPDATE campaigns
-      SET status = 'REMOVED',
-          updated_at = datetime('now')
-      WHERE offer_id = ?
-        AND google_ads_account_id = ?
-        AND user_id = ?
-        AND status != 'REMOVED'
-    `).run(offerId, accountId, userId)
+  // 将该Offer在该账号下的Campaigns标记为已移除
+  const result = await db.exec(`
+    UPDATE campaigns
+    SET status = 'REMOVED',
+        updated_at = datetime('now')
+    WHERE offer_id = ?
+      AND google_ads_account_id = ?
+      AND user_id = ?
+      AND status != 'REMOVED'
+  `, [offerId, accountId, userId])
 
-    // TODO: 实现闲置账号标记功能（需要先添加 is_idle 列到 google_ads_accounts 表）
-    // 检查该账号是否还有其他活跃关联
-    // const activeCount = db.prepare(`
-    //   SELECT COUNT(*) as count
-    //   FROM campaigns c
-    //   JOIN offers o ON c.offer_id = o.id
-    //   WHERE c.google_ads_account_id = ?
-    //     AND c.user_id = ?
-    //     AND o.is_deleted = 0
-    //     AND c.status != 'REMOVED'
-    // `).get(accountId, userId) as { count: number }
+  // TODO: 实现闲置账号标记功能（需要先添加 is_idle 列到 google_ads_accounts 表）
+  // 检查该账号是否还有其他活跃关联
+  // const activeCount = await db.queryOne(`
+  //   SELECT COUNT(*) as count
+  //   FROM campaigns c
+  //   JOIN offers o ON c.offer_id = o.id
+  //   WHERE c.google_ads_account_id = ?
+  //     AND c.user_id = ?
+  //     AND o.is_deleted = 0
+  //     AND c.status != 'REMOVED'
+  // `, [accountId, userId]) as { count: number }
 
-    // // 如果没有活跃关联，标记账号为闲置
-    // if (activeCount.count === 0) {
-    //   db.prepare(`
-    //     UPDATE google_ads_accounts
-    //     SET is_idle = 1, updated_at = datetime('now')
-    //     WHERE id = ? AND user_id = ?
-    //   `).run(accountId, userId)
-    // }
+  // // 如果没有活跃关联，标记账号为闲置
+  // if (activeCount.count === 0) {
+  //   await db.exec(`
+  //     UPDATE google_ads_accounts
+  //     SET is_idle = 1, updated_at = datetime('now')
+  //     WHERE id = ? AND user_id = ?
+  //   `, [accountId, userId])
+  // }
 
-    return result.changes
-  })
-
-  return { unlinkedCount: transaction() }
+  return { unlinkedCount: result.changes }
 }
 
 /**
@@ -631,11 +637,11 @@ export function unlinkOfferFromAccount(
  * 需求25: 便于其他Offer建立关联关系
  * 只返回ENABLED状态且非Manager的账号，且没有关联任何活跃Campaigns的账号
  */
-export function getIdleAdsAccounts(userId: number): any[] {
-  const db = getSQLiteDatabase()
+export async function getIdleAdsAccounts(userId: number): Promise<any[]> {
+  const db = await getDatabase()
 
   // 通过子查询判断账号是否闲置（没有活跃的Campaign关联）
-  return db.prepare(`
+  return await db.query(`
     SELECT gaa.*
     FROM google_ads_accounts gaa
     WHERE gaa.user_id = ?
@@ -652,13 +658,13 @@ export function getIdleAdsAccounts(userId: number): any[] {
           AND c.status != 'REMOVED'
       )
     ORDER BY gaa.updated_at DESC
-  `).all(userId)
+  `, [userId])
 }
 
 /**
  * 更新Offer抓取状态
  */
-export function updateOfferScrapeStatus(
+export async function updateOfferScrapeStatus(
   id: number,
   userId: number,
   status: 'pending' | 'in_progress' | 'completed' | 'failed',
@@ -689,15 +695,15 @@ export function updateOfferScrapeStatus(
     // 🎯 P0优化: 原始爬虫数据（JSON格式存储所有scraped字段）
     scraped_data?: string
   }
-): void {
-  const db = getSQLiteDatabase()
+): Promise<void> {
+  const db = await getDatabase()
 
   if (status === 'completed' && scrapedData) {
     // 🔧 修复：当品牌名更新时，同步更新offer_name
     // 需要先查询当前的offer_name以提取序号
-    const currentOffer = db.prepare(`
+    const currentOffer = await db.queryOne(`
       SELECT offer_name, target_country FROM offers WHERE id = ? AND user_id = ?
-    `).get(id, userId) as { offer_name: string; target_country: string } | undefined
+    `, [id, userId]) as { offer_name: string; target_country: string } | undefined
 
     let newOfferName = currentOffer?.offer_name || null
 
@@ -706,10 +712,19 @@ export function updateOfferScrapeStatus(
       // 从旧的offer_name中提取序号（格式：Brand_Country_序号）
       const parts = currentOffer.offer_name.split('_')
       const sequenceNumber = parts.length >= 3 ? parts[parts.length - 1] : '01'
-      newOfferName = `${scrapedData.brand}_${currentOffer.target_country}_${sequenceNumber}`
+      const proposedOfferName = `${scrapedData.brand}_${currentOffer.target_country}_${sequenceNumber}`
+
+      // 🔧 修复：检查新offer_name是否已被占用，如果是则重新生成唯一名称
+      const isUnique = await isOfferNameUnique(proposedOfferName, userId, id)
+      if (isUnique) {
+        newOfferName = proposedOfferName
+      } else {
+        // 已被占用，使用generateOfferName生成新的唯一名称
+        newOfferName = await generateOfferName(scrapedData.brand, currentOffer.target_country, userId)
+      }
     }
 
-    db.prepare(`
+    await db.exec(`
       UPDATE offers
       SET scrape_status = ?,
           scraped_at = datetime('now'),
@@ -736,7 +751,7 @@ export function updateOfferScrapeStatus(
           scraped_data = COALESCE(?, scraped_data),
           updated_at = datetime('now')
       WHERE id = ? AND user_id = ?
-    `).run(
+    `, [
       status,
       scrapedData.brand || null,
       newOfferName,
@@ -761,15 +776,15 @@ export function updateOfferScrapeStatus(
       scrapedData.scraped_data || null,
       id,
       userId
-    )
+    ])
   } else {
-    db.prepare(`
+    await db.exec(`
       UPDATE offers
       SET scrape_status = ?,
           scrape_error = ?,
           scraped_at = CASE WHEN ? = 'completed' THEN datetime('now') ELSE scraped_at END,
           updated_at = datetime('now')
       WHERE id = ? AND user_id = ?
-    `).run(status, error || null, status, id, userId)
+    `, [status, error || null, status, id, userId])
   }
 }

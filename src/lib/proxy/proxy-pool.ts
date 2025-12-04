@@ -8,17 +8,17 @@
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import type { ProxyIP } from './types'
 import { getProxyIp, fetchProxyIp } from './fetch-proxy-ip'
-import { getSQLiteDatabase } from '../db'
+import { getDatabase } from '../db'
 
 // 临时实现：批量获取代理IP
 async function fetchHealthyProxyIPs(country: string, count: number): Promise<ProxyIP[]> {
   try {
     // 从数据库中读取代理配置
-    const db = getSQLiteDatabase()
-    const setting = db.prepare(`
+    const db = await getDatabase()
+    const setting = await db.queryOne(`
       SELECT config_value FROM system_settings
       WHERE category = 'proxy' AND config_key = 'urls'
-    `).get() as { config_value: string } | undefined
+    `) as { config_value: string } | undefined
 
     if (!setting) {
       console.warn(`⚠️  未找到代理配置`)

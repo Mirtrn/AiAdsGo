@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 export interface Keyword {
   id: number
@@ -37,45 +37,45 @@ export interface CreateKeywordInput {
 /**
  * 创建Keyword
  */
-export function createKeyword(input: CreateKeywordInput): Keyword {
-  const db = getSQLiteDatabase()
+export async function createKeyword(input: CreateKeywordInput): Promise<Keyword> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(
+    `
     INSERT INTO keywords (
       user_id, ad_group_id, keyword_text,
       match_type, status, cpc_bid_micros,
       final_url, is_negative, ai_generated,
       generation_source
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  const info = stmt.run(
-    input.userId,
-    input.adGroupId,
-    input.keywordText,
-    input.matchType || 'BROAD',
-    input.status || 'PAUSED',
-    input.cpcBidMicros || null,
-    input.finalUrl || null,
-    input.isNegative ? 1 : 0,
-    input.aiGenerated ? 1 : 0,
-    input.generationSource || null
+  `,
+    [
+      input.userId,
+      input.adGroupId,
+      input.keywordText,
+      input.matchType || 'BROAD',
+      input.status || 'PAUSED',
+      input.cpcBidMicros || null,
+      input.finalUrl || null,
+      input.isNegative ? 1 : 0,
+      input.aiGenerated ? 1 : 0,
+      input.generationSource || null,
+    ]
   )
 
-  return findKeywordById(info.lastInsertRowid as number, input.userId)!
+  return (await findKeywordById(result.lastInsertRowid as number, input.userId))!
 }
 
 /**
  * 查找Keyword（带权限验证）
  */
-export function findKeywordById(id: number, userId: number): Keyword | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findKeywordById(id: number, userId: number): Promise<Keyword | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM keywords
     WHERE id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(id, userId) as any
+  `, [id, userId])
 
   if (!row) {
     return null
@@ -87,14 +87,13 @@ export function findKeywordById(id: number, userId: number): Keyword | null {
 /**
  * 根据Google Ads keyword_id查找
  */
-export function findKeywordByGoogleId(keywordId: string, userId: number): Keyword | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findKeywordByGoogleId(keywordId: string, userId: number): Promise<Keyword | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM keywords
     WHERE keyword_id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(keywordId, userId) as any
+  `, [keywordId, userId])
 
   if (!row) {
     return null
@@ -106,23 +105,23 @@ export function findKeywordByGoogleId(keywordId: string, userId: number): Keywor
 /**
  * 查找Ad Group的所有Keywords
  */
-export function findKeywordsByAdGroupId(adGroupId: number, userId: number): Keyword[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findKeywordsByAdGroupId(adGroupId: number, userId: number): Promise<Keyword[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM keywords
     WHERE ad_group_id = ? AND user_id = ?
     ORDER BY created_at DESC
-  `)
+  `, [adGroupId, userId])
 
-  const rows = stmt.all(adGroupId, userId) as any[]
   return rows.map(mapRowToKeyword)
 }
 
 /**
  * 查找用户的所有Keywords
  */
-export function findKeywordsByUserId(userId: number, limit?: number): Keyword[] {
-  const db = getSQLiteDatabase()
+export async function findKeywordsByUserId(userId: number, limit?: number): Promise<Keyword[]> {
+  const db = await getDatabase()
   let sql = `
     SELECT * FROM keywords
     WHERE user_id = ?
@@ -133,30 +132,29 @@ export function findKeywordsByUserId(userId: number, limit?: number): Keyword[] 
     sql += ` LIMIT ${limit}`
   }
 
-  const stmt = db.prepare(sql)
-  const rows = stmt.all(userId) as any[]
+  const rows = await db.query(sql, [userId])
   return rows.map(mapRowToKeyword)
 }
 
 /**
  * 查找AI生成的Keywords
  */
-export function findAIGeneratedKeywords(adGroupId: number, userId: number): Keyword[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findAIGeneratedKeywords(adGroupId: number, userId: number): Promise<Keyword[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM keywords
     WHERE ad_group_id = ? AND user_id = ? AND ai_generated = 1
     ORDER BY created_at DESC
-  `)
+  `, [adGroupId, userId])
 
-  const rows = stmt.all(adGroupId, userId) as any[]
   return rows.map(mapRowToKeyword)
 }
 
 /**
  * 更新Keyword
  */
-export function updateKeyword(
+export async function updateKeyword(
   id: number,
   userId: number,
   updates: Partial<
@@ -175,11 +173,11 @@ export function updateKeyword(
       | 'lastSyncAt'
     >
   >
-): Keyword | null {
-  const db = getSQLiteDatabase()
+): Promise<Keyword | null> {
+  const db = await getDatabase()
 
   // 验证权限
-  const keyword = findKeywordById(id, userId)
+  const keyword = await findKeywordById(id, userId)
   if (!keyword) {
     return null
   }
@@ -239,91 +237,75 @@ export function updateKeyword(
   fields.push('updated_at = datetime("now")')
   values.push(id, userId)
 
-  const stmt = db.prepare(`
+  await db.exec(`
     UPDATE keywords
     SET ${fields.join(', ')}
     WHERE id = ? AND user_id = ?
-  `)
+  `, values)
 
-  stmt.run(...values)
-
-  return findKeywordById(id, userId)
+  return await findKeywordById(id, userId)
 }
 
 /**
  * 删除Keyword
  */
-export function deleteKeyword(id: number, userId: number): boolean {
-  const db = getSQLiteDatabase()
+export async function deleteKeyword(id: number, userId: number): Promise<boolean> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(`
     DELETE FROM keywords
     WHERE id = ? AND user_id = ?
-  `)
+  `, [id, userId])
 
-  const info = stmt.run(id, userId)
-  return info.changes > 0
+  return result.changes > 0
 }
 
 /**
  * 批量创建Keywords
  */
-export function createKeywordsBatch(keywords: CreateKeywordInput[]): Keyword[] {
-  const db = getSQLiteDatabase()
+export async function createKeywordsBatch(keywords: CreateKeywordInput[]): Promise<Keyword[]> {
+  const results: Keyword[] = []
 
-  const transaction = db.transaction((kws: CreateKeywordInput[]) => {
-    const results: Keyword[] = []
+  for (const kw of keywords) {
+    const keyword = await createKeyword(kw)
+    results.push(keyword)
+  }
 
-    for (const kw of kws) {
-      const keyword = createKeyword(kw)
-      results.push(keyword)
-    }
-
-    return results
-  })
-
-  return transaction(keywords)
+  return results
 }
 
 /**
  * 批量更新Keywords状态
  */
-export function updateKeywordsStatus(
+export async function updateKeywordsStatus(
   keywordIds: number[],
   userId: number,
   status: string
-): number {
-  const db = getSQLiteDatabase()
+): Promise<number> {
+  let updateCount = 0
 
-  const transaction = db.transaction((ids: number[], uid: number, newStatus: string) => {
-    let updateCount = 0
-
-    for (const id of ids) {
-      const result = updateKeyword(id, uid, { status: newStatus })
-      if (result) {
-        updateCount++
-      }
+  for (const id of keywordIds) {
+    const result = await updateKeyword(id, userId, { status })
+    if (result) {
+      updateCount++
     }
+  }
 
-    return updateCount
-  })
-
-  return transaction(keywordIds, userId, status)
+  return updateCount
 }
 
 /**
  * 删除Ad Group的所有Keywords
  */
-export function deleteKeywordsByAdGroupId(adGroupId: number, userId: number): number {
-  const db = getSQLiteDatabase()
+export async function deleteKeywordsByAdGroupId(adGroupId: number, userId: number): Promise<number> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(`
     DELETE FROM keywords
     WHERE ad_group_id = ? AND user_id = ?
-  `)
+  `, [adGroupId, userId])
 
-  const info = stmt.run(adGroupId, userId)
-  return info.changes
+  return result.changes
 }
 
 /**

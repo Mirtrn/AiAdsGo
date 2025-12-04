@@ -18,7 +18,7 @@ export async function GET(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const creative = findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
+    const creative = await findAdCreativeById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!creative) {
       return NextResponse.json(

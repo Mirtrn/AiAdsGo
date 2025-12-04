@@ -38,7 +38,7 @@ export async function recordTokenUsage(params: RecordTokenUsageParams): Promise<
   } = params
 
   try {
-    const db = getDatabase()
+    const db = await getDatabase()
     const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD格式
 
     await db.exec(

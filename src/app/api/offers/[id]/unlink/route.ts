@@ -28,7 +28,7 @@ export async function POST(
     }
 
     // 执行解除关联
-    const result = unlinkOfferFromAccount(
+    const result = await unlinkOfferFromAccount(
       parseInt(id, 10),
       parseInt(accountId, 10),
       parseInt(userId, 10)

@@ -38,16 +38,16 @@ export async function GET(request: NextRequest) {
     }
 
     // 批量评分
-    const scores = scoreAllCreatives(userId)
+    const scores = await scoreAllCreatives(userId)
 
     return NextResponse.json({
       success: true,
       data: {
         total: scores.length,
-        excellent: scores.filter(s => s.rating === 'excellent').length,
-        good: scores.filter(s => s.rating === 'good').length,
-        average: scores.filter(s => s.rating === 'average').length,
-        poor: scores.filter(s => s.rating === 'poor').length,
+        excellent: scores.filter((s: any) => s.rating === 'excellent').length,
+        good: scores.filter((s: any) => s.rating === 'good').length,
+        average: scores.filter((s: any) => s.rating === 'average').length,
+        poor: scores.filter((s: any) => s.rating === 'poor').length,
         scores
       }
     })

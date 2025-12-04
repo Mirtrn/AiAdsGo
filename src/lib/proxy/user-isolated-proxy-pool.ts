@@ -13,7 +13,6 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 import os from 'os'
 import type { ProxyIP } from './types'
 import { fetchProxyIp } from './fetch-proxy-ip'
-import { getSQLiteDatabase } from '../db'
 import { getUserOnlySetting } from '../settings'
 
 // ============ Types ============
@@ -296,7 +295,7 @@ class UserIsolatedProxyPoolManager {
    */
   private async getUserProxyConfigs(userId: number): Promise<ProxyConfig[]> {
     try {
-      const setting = getUserOnlySetting('proxy', 'urls', userId)
+      const setting = await getUserOnlySetting('proxy', 'urls', userId)
 
       if (!setting || !setting.value) {
         console.warn(`⚠️  用户${userId}没有代理配置`)

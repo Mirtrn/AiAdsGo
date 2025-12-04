@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * Sync configuration interface
@@ -36,30 +36,31 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = authResult.user.userId
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 2. Get sync config (create default if not exists)
-    let config = db
-      .prepare('SELECT * FROM sync_config WHERE user_id = ?')
-      .get(userId) as SyncConfig | undefined
+    let config = await db.queryOne(
+      'SELECT * FROM sync_config WHERE user_id = ?',
+      [userId]
+    ) as SyncConfig | undefined
 
     if (!config) {
       // Create default config
-      const result = db
-        .prepare(
-          `
+      const result = await db.exec(
+        `
           INSERT INTO sync_config (
             user_id, auto_sync_enabled, sync_interval_hours,
             max_retry_attempts, retry_delay_minutes,
             notify_on_success, notify_on_failure
           ) VALUES (?, 0, 6, 3, 15, 0, 1)
-        `
-        )
-        .run(userId)
+        `,
+        [userId]
+      )
 
-      config = db
-        .prepare('SELECT * FROM sync_config WHERE id = ?')
-        .get(result.lastInsertRowid) as SyncConfig
+      config = await db.queryOne(
+        'SELECT * FROM sync_config WHERE id = ?',
+        [result.lastInsertRowid]
+      ) as SyncConfig
     }
 
     // 3. Convert integer booleans to actual booleans
@@ -151,7 +152,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 3. Build update query dynamically
     const updates: string[] = []
@@ -181,9 +182,10 @@ export async function PUT(request: NextRequest) {
       values.push(sync_interval_hours)
 
       // Recalculate next sync time if auto sync is enabled
-      const currentConfig = db
-        .prepare('SELECT auto_sync_enabled FROM sync_config WHERE user_id = ?')
-        .get(userId) as { auto_sync_enabled: number } | undefined
+      const currentConfig = await db.queryOne(
+        'SELECT auto_sync_enabled FROM sync_config WHERE user_id = ?',
+        [userId]
+      ) as { auto_sync_enabled: number } | undefined
 
       if (currentConfig?.auto_sync_enabled) {
         const nextSync = new Date()
@@ -230,12 +232,13 @@ export async function PUT(request: NextRequest) {
     values.push(userId)
     const query = `UPDATE sync_config SET ${updates.join(', ')} WHERE user_id = ?`
 
-    db.prepare(query).run(...values)
+    await db.exec(query, [...values])
 
     // 5. Get updated config
-    const updatedConfig = db
-      .prepare('SELECT * FROM sync_config WHERE user_id = ?')
-      .get(userId) as SyncConfig
+    const updatedConfig = await db.queryOne(
+      'SELECT * FROM sync_config WHERE user_id = ?',
+      [userId]
+    ) as SyncConfig
 
     const formattedConfig = {
       ...updatedConfig,

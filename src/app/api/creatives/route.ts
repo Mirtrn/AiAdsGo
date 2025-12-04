@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      creatives = findAdCreativesByOfferId(offerId, parseInt(userId, 10))
+      creatives = await findAdCreativesByOfferId(offerId, parseInt(userId, 10))
     } else {
       // 获取用户的所有创意
       const limit = limitParam ? parseInt(limitParam, 10) : undefined
-      creatives = findAdCreativesByUserId(parseInt(userId, 10), limit)
+      creatives = await findAdCreativesByUserId(parseInt(userId, 10), limit)
     }
 
     return NextResponse.json({

@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { updateGoogleAdsCampaignStatus } from '@/lib/google-ads-api'
 import { getDecryptedCredentials } from '@/lib/google-ads-accounts'
 
@@ -34,14 +34,14 @@ export async function POST(
       )
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 1. 获取Offer信息和用户ID
-    const offer = db.prepare(`
+    const offer = await db.queryOne(`
       SELECT id, user_id, offer_name
       FROM offers
       WHERE id = ?
-    `).get(offerId) as { id: number; user_id: number; offer_name: string } | undefined
+    `, [offerId]) as { id: number; user_id: number; offer_name: string } | undefined
 
     if (!offer) {
       return NextResponse.json(
@@ -51,7 +51,7 @@ export async function POST(
     }
 
     // 2. 查询该Offer的所有已启用广告系列
-    const campaigns = db.prepare(`
+    const campaigns = await db.query(`
       SELECT
         c.id,
         c.campaign_id,
@@ -65,7 +65,7 @@ export async function POST(
         AND c.status = 'ENABLED'
         AND c.google_campaign_id IS NOT NULL
       ORDER BY c.created_at DESC
-    `).all(offerId, offer.user_id) as Array<{
+    `, [offerId, offer.user_id]) as Array<{
       id: number
       campaign_id: string | null
       campaign_name: string
@@ -142,12 +142,12 @@ export async function POST(
             })
 
             // 更新数据库状态
-            db.prepare(`
+            await db.exec(`
               UPDATE campaigns
               SET status = 'PAUSED',
                   updated_at = datetime('now')
               WHERE id = ?
-            `).run(campaign.id)
+            `, [campaign.id])
 
             results.push({
               campaign_id: campaign.id,

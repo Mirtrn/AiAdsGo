@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 import { encrypt, decrypt } from './crypto'
 
 export interface SystemSetting {
@@ -37,15 +37,15 @@ export interface SettingValue {
  * 获取所有系统配置（包括全局和用户级）
  * 优先级：用户配置 > 全局配置
  */
-export function getAllSettings(userId?: number): SettingValue[] {
-  const db = getSQLiteDatabase()
+export async function getAllSettings(userId?: number): Promise<SettingValue[]> {
+  const db = await getDatabase()
 
   const query = userId
     ? 'SELECT * FROM system_settings WHERE user_id IS NULL OR user_id = ? ORDER BY category, config_key'
     : 'SELECT * FROM system_settings WHERE user_id IS NULL ORDER BY category, config_key'
 
   const params = userId ? [userId] : []
-  const settings = db.prepare(query).all(...params) as SystemSetting[]
+  const settings = await db.query(query, params) as SystemSetting[]
 
   // 去重：对于同一个 (category, config_key) 组合，优先使用用户配置
   const settingsMap = new Map<string, SystemSetting>()
@@ -80,15 +80,15 @@ export function getAllSettings(userId?: number): SettingValue[] {
  * 获取指定分类的配置
  * 优先级：用户配置 > 全局配置
  */
-export function getSettingsByCategory(category: string, userId?: number): SettingValue[] {
-  const db = getSQLiteDatabase()
+export async function getSettingsByCategory(category: string, userId?: number): Promise<SettingValue[]> {
+  const db = await getDatabase()
 
   const query = userId
     ? 'SELECT * FROM system_settings WHERE category = ? AND (user_id IS NULL OR user_id = ?) ORDER BY config_key'
     : 'SELECT * FROM system_settings WHERE category = ? AND user_id IS NULL ORDER BY config_key'
 
   const params = userId ? [category, userId] : [category]
-  const settings = db.prepare(query).all(...params) as SystemSetting[]
+  const settings = await db.query(query, params) as SystemSetting[]
 
   // 去重：对于同一个 config_key，优先使用用户配置
   const settingsMap = new Map<string, SystemSetting>()
@@ -121,15 +121,15 @@ export function getSettingsByCategory(category: string, userId?: number): Settin
 /**
  * 获取单个配置项
  */
-export function getSetting(category: string, key: string, userId?: number): SettingValue | null {
-  const db = getSQLiteDatabase()
+export async function getSetting(category: string, key: string, userId?: number): Promise<SettingValue | null> {
+  const db = await getDatabase()
 
   const query = userId
     ? 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC LIMIT 1'
     : 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND user_id IS NULL LIMIT 1'
 
   const params = userId ? [category, key, userId] : [category, key]
-  const setting = db.prepare(query).get(...params) as SystemSetting | undefined
+  const setting = await db.queryOne(query, params) as SystemSetting | undefined
 
   if (!setting) return null
 
@@ -160,12 +160,12 @@ export function getSetting(category: string, key: string, userId?: number): Sett
  * @param userId - 用户ID（必需）
  * @returns 用户级配置值，如果用户没有配置则返回 null
  */
-export function getUserOnlySetting(category: string, key: string, userId: number): SettingValue | null {
+export async function getUserOnlySetting(category: string, key: string, userId: number): Promise<SettingValue | null> {
   if (!userId || userId <= 0) {
     throw new Error('getUserOnlySetting requires a valid userId')
   }
 
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   // 只查询用户级配置，不包含全局配置（user_id IS NULL）
   const query = 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND user_id = ? LIMIT 1'
@@ -173,7 +173,7 @@ export function getUserOnlySetting(category: string, key: string, userId: number
 
   console.log(`SELECT * FROM system_settings WHERE category = '${category}' AND config_key = '${key}' AND user_id = ${userId} LIMIT 1`)
 
-  const setting = db.prepare(query).get(...params) as SystemSetting | undefined
+  const setting = await db.queryOne(query, params) as SystemSetting | undefined
 
   if (!setting) return null
 
@@ -196,20 +196,20 @@ export function getUserOnlySetting(category: string, key: string, userId: number
 /**
  * 更新配置项
  */
-export function updateSetting(
+export async function updateSetting(
   category: string,
   key: string,
   value: string,
   userId?: number
-): void {
-  const db = getSQLiteDatabase()
+): Promise<void> {
+  const db = await getDatabase()
 
   // 获取配置元数据
-  const metadata = db.prepare(`
+  const metadata = await db.queryOne(`
     SELECT * FROM system_settings
     WHERE category = ? AND config_key = ? AND user_id IS NULL
     LIMIT 1
-  `).get(category, key) as SystemSetting | undefined
+  `, [category, key]) as SystemSetting | undefined
 
   if (!metadata) {
     throw new Error(`配置项不存在: ${category}.${key}`)
@@ -222,21 +222,21 @@ export function updateSetting(
 
   // 检查是否已存在用户级配置
   if (userId) {
-    const userSetting = db.prepare(`
+    const userSetting = await db.queryOne(`
       SELECT id FROM system_settings
       WHERE category = ? AND config_key = ? AND user_id = ?
-    `).get(category, key, userId) as { id: number } | undefined
+    `, [category, key, userId]) as { id: number } | undefined
 
     if (userSetting) {
       // 更新现有用户配置
-      db.prepare(`
+      await db.exec(`
         UPDATE system_settings
         SET config_value = ?, encrypted_value = ?, updated_at = datetime('now')
         WHERE id = ?
-      `).run(configValue, encryptedValue, userSetting.id)
+      `, [configValue, encryptedValue, userSetting.id])
     } else {
       // 创建新的用户配置
-      db.prepare(`
+      await db.exec(`
         INSERT INTO system_settings (
           user_id, category, config_key, config_value, encrypted_value,
           data_type, is_sensitive, is_required, description
@@ -244,47 +244,43 @@ export function updateSetting(
         SELECT ?, category, config_key, ?, ?, data_type, is_sensitive, is_required, description
         FROM system_settings
         WHERE category = ? AND config_key = ? AND user_id IS NULL
-      `).run(userId, configValue, encryptedValue, category, key)
+      `, [userId, configValue, encryptedValue, category, key])
     }
   } else {
     // 更新全局配置
-    db.prepare(`
+    await db.exec(`
       UPDATE system_settings
       SET config_value = ?, encrypted_value = ?, updated_at = datetime('now')
       WHERE category = ? AND config_key = ? AND user_id IS NULL
-    `).run(configValue, encryptedValue, category, key)
+    `, [configValue, encryptedValue, category, key])
   }
 }
 
 /**
  * 批量更新配置
  */
-export function updateSettings(
+export async function updateSettings(
   updates: Array<{ category: string; key: string; value: string }>,
   userId?: number
-): void {
-  const db = getSQLiteDatabase()
-
-  const transaction = db.transaction(() => {
-    for (const update of updates) {
-      updateSetting(update.category, update.key, update.value, userId)
-    }
-  })
-
-  transaction()
+): Promise<void> {
+  // Note: Without native transaction support in the abstraction, we execute sequentially
+  // Consider adding transaction support to the database abstraction layer if needed
+  for (const update of updates) {
+    await updateSetting(update.category, update.key, update.value, userId)
+  }
 }
 
 /**
  * 更新配置验证状态
  */
-export function updateValidationStatus(
+export async function updateValidationStatus(
   category: string,
   key: string,
   status: 'valid' | 'invalid' | 'pending',
   message?: string,
   userId?: number
-): void {
-  const db = getSQLiteDatabase()
+): Promise<void> {
+  const db = await getDatabase()
 
   const query = userId
     ? `UPDATE system_settings
@@ -298,7 +294,7 @@ export function updateValidationStatus(
     ? [status, message || null, category, key, userId]
     : [status, message || null, category, key]
 
-  db.prepare(query).run(...params)
+  await db.exec(query, params)
 }
 
 /**
@@ -753,8 +749,8 @@ interface ProxyUrlConfig {
  * @param userId - 用户ID
  * @returns 代理URL或undefined（如果未配置代理）
  */
-export function getProxyUrlForCountry(targetCountry: string, userId?: number): string | undefined {
-  const setting = getSetting('proxy', 'urls', userId)
+export async function getProxyUrlForCountry(targetCountry: string, userId?: number): Promise<string | undefined> {
+  const setting = await getSetting('proxy', 'urls', userId)
 
   if (!setting?.value) {
     return undefined
@@ -791,8 +787,8 @@ export function getProxyUrlForCountry(targetCountry: string, userId?: number): s
  * @param userId - 用户ID
  * @returns 是否启用代理
  */
-export function isProxyEnabled(userId?: number): boolean {
-  const setting = getSetting('proxy', 'urls', userId)
+export async function isProxyEnabled(userId?: number): Promise<boolean> {
+  const setting = await getSetting('proxy', 'urls', userId)
 
   if (!setting?.value) {
     return false
@@ -812,8 +808,8 @@ export function isProxyEnabled(userId?: number): boolean {
  * @param userId - 用户ID
  * @returns 代理URL配置列表
  */
-export function getAllProxyUrls(userId?: number): ProxyUrlConfig[] {
-  const setting = getSetting('proxy', 'urls', userId)
+export async function getAllProxyUrls(userId?: number): Promise<ProxyUrlConfig[]> {
+  const setting = await getSetting('proxy', 'urls', userId)
 
   if (!setting?.value) {
     return []
@@ -835,7 +831,7 @@ export function getAllProxyUrls(userId?: number): ProxyUrlConfig[] {
  * @returns GoogleGenerativeAI实例
  */
 export async function getGeminiModel(userId?: number) {
-  const apiKeySetting = getSetting('ai', 'gemini_api_key', userId)
+  const apiKeySetting = await getSetting('ai', 'gemini_api_key', userId)
 
   if (!apiKeySetting?.value) {
     throw new Error(

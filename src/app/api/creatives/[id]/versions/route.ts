@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/creatives/:id/versions
@@ -21,13 +21,14 @@ export async function GET(
       return NextResponse.json({ error: '无效的Creative ID' }, { status: 400 })
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
     const userId = authResult.user.userId
 
     // 验证Creative所有权
-    const creative = db
-      .prepare('SELECT user_id FROM ad_creatives WHERE id = ?')
-      .get(creativeId) as { user_id: number } | undefined
+    const creative = await db.queryOne<{ user_id: number }>(
+      'SELECT user_id FROM ad_creatives WHERE id = ?',
+      [creativeId]
+    )
 
     if (!creative) {
       return NextResponse.json({ error: 'Creative不存在' }, { status: 404 })
@@ -38,30 +39,7 @@ export async function GET(
     }
 
     // 获取所有版本（按版本号降序）
-    const versions = db
-      .prepare(
-        `
-        SELECT
-          id,
-          creative_id,
-          version_number,
-          headlines,
-          descriptions,
-          final_url,
-          path_1,
-          path_2,
-          quality_score,
-          quality_details,
-          created_by,
-          creation_method,
-          change_summary,
-          created_at
-        FROM creative_versions
-        WHERE creative_id = ?
-        ORDER BY version_number DESC
-      `
-      )
-      .all(creativeId) as Array<{
+    const versions = await db.query<{
       id: number
       creative_id: number
       version_number: number
@@ -76,7 +54,29 @@ export async function GET(
       creation_method: string
       change_summary: string | null
       created_at: string
-    }>
+    }>(
+      `
+      SELECT
+        id,
+        creative_id,
+        version_number,
+        headlines,
+        descriptions,
+        final_url,
+        path_1,
+        path_2,
+        quality_score,
+        quality_details,
+        created_by,
+        creation_method,
+        change_summary,
+        created_at
+      FROM creative_versions
+      WHERE creative_id = ?
+      ORDER BY version_number DESC
+      `,
+      [creativeId]
+    )
 
     // 解析JSON字段
     const parsedVersions = versions.map((v) => ({
@@ -190,13 +190,14 @@ export async function POST(
       }
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
     const userId = authResult.user.userId
 
     // 验证Creative所有权
-    const creative = db
-      .prepare('SELECT user_id FROM ad_creatives WHERE id = ?')
-      .get(creativeId) as { user_id: number } | undefined
+    const creative = await db.queryOne<{ user_id: number }>(
+      'SELECT user_id FROM ad_creatives WHERE id = ?',
+      [creativeId]
+    )
 
     if (!creative) {
       return NextResponse.json({ error: 'Creative不存在' }, { status: 404 })
@@ -207,35 +208,32 @@ export async function POST(
     }
 
     // 获取当前最大版本号
-    const maxVersionRow = db
-      .prepare(
-        'SELECT MAX(version_number) as max_version FROM creative_versions WHERE creative_id = ?'
-      )
-      .get(creativeId) as { max_version: number | null }
+    const maxVersionRow = await db.queryOne<{ max_version: number | null }>(
+      'SELECT MAX(version_number) as max_version FROM creative_versions WHERE creative_id = ?',
+      [creativeId]
+    )
 
-    const newVersionNumber = (maxVersionRow.max_version || 0) + 1
+    const newVersionNumber = (maxVersionRow?.max_version || 0) + 1
 
     // 插入新版本
-    const result = db
-      .prepare(
-        `
-        INSERT INTO creative_versions (
-          creative_id,
-          version_number,
-          headlines,
-          descriptions,
-          final_url,
-          path_1,
-          path_2,
-          quality_score,
-          quality_details,
-          created_by,
-          creation_method,
-          change_summary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    const result = await db.exec(
       `
-      )
-      .run(
+      INSERT INTO creative_versions (
+        creative_id,
+        version_number,
+        headlines,
+        descriptions,
+        final_url,
+        path_1,
+        path_2,
+        quality_score,
+        quality_details,
+        created_by,
+        creation_method,
+        change_summary
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
         creativeId,
         newVersionNumber,
         JSON.stringify(headlines),
@@ -248,12 +246,14 @@ export async function POST(
         userId.toString(),
         creationMethod,
         changeSummary || null
-      )
+      ]
+    )
 
     // 获取新创建的版本
-    const newVersion = db
-      .prepare('SELECT * FROM creative_versions WHERE id = ?')
-      .get(result.lastInsertRowid) as any
+    const newVersion = await db.queryOne<any>(
+      'SELECT * FROM creative_versions WHERE id = ?',
+      [result.lastInsertRowid]
+    )
 
     return NextResponse.json({
       success: true,

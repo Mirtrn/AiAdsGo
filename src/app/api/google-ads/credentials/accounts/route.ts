@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 
 // Google Ads CustomerStatus 枚举值映射
@@ -75,22 +75,22 @@ interface CachedAccount {
 /**
  * 从数据库获取缓存的账号列表
  */
-function getCachedAccounts(userId: number): CachedAccount[] {
-  const db = getSQLiteDatabase()
-  return db.prepare(`
+async function getCachedAccounts(userId: number): Promise<CachedAccount[]> {
+  const db = await getDatabase()
+  return await db.query(`
     SELECT id, customer_id, account_name, currency, timezone,
            is_manager_account, is_active, status, test_account,
            account_balance, parent_mcc_id, last_sync_at
     FROM google_ads_accounts
     WHERE user_id = ?
     ORDER BY is_manager_account DESC, account_name ASC
-  `).all(userId) as CachedAccount[]
+  `, [userId]) as CachedAccount[]
 }
 
 /**
  * 保存或更新账号到数据库
  */
-function upsertAccount(userId: number, account: {
+async function upsertAccount(userId: number, account: {
   customer_id: string
   descriptive_name: string
   currency_code: string
@@ -100,18 +100,18 @@ function upsertAccount(userId: number, account: {
   status: string
   account_balance?: number | null
   parent_mcc?: string
-}): number {
-  const db = getSQLiteDatabase()
+}): Promise<number> {
+  const db = await getDatabase()
 
   // 检查是否已存在
-  const existing = db.prepare(`
+  const existing = await db.queryOne(`
     SELECT id FROM google_ads_accounts
     WHERE user_id = ? AND customer_id = ?
-  `).get(userId, account.customer_id) as { id: number } | undefined
+  `, [userId, account.customer_id]) as { id: number } | undefined
 
   if (existing) {
     // 更新
-    db.prepare(`
+    await db.exec(`
       UPDATE google_ads_accounts
       SET account_name = ?,
           currency = ?,
@@ -124,7 +124,7 @@ function upsertAccount(userId: number, account: {
           last_sync_at = datetime('now'),
           updated_at = datetime('now')
       WHERE id = ?
-    `).run(
+    `, [
       account.descriptive_name,
       account.currency_code,
       account.time_zone,
@@ -134,16 +134,16 @@ function upsertAccount(userId: number, account: {
       account.account_balance ?? null,
       account.parent_mcc || null,
       existing.id
-    )
+    ])
     return existing.id
   } else {
     // 插入
-    const result = db.prepare(`
+    const result = await db.exec(`
       INSERT INTO google_ads_accounts (
         user_id, customer_id, account_name, currency, timezone,
         is_manager_account, test_account, status, account_balance, parent_mcc_id, last_sync_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    `).run(
+    `, [
       userId,
       account.customer_id,
       account.descriptive_name,
@@ -154,7 +154,7 @@ function upsertAccount(userId: number, account: {
       account.status,
       account.account_balance ?? null,
       account.parent_mcc || null
-    )
+    ])
     return result.lastInsertRowid as number
   }
 }
@@ -420,7 +420,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权访问' }, { status: 401 })
     }
 
-    const credentials = getGoogleAdsCredentials(authResult.user.userId)
+    const credentials = await getGoogleAdsCredentials(authResult.user.userId)
     if (!credentials) {
       return NextResponse.json({ error: '未配置Google Ads凭证' }, { status: 404 })
     }
@@ -436,7 +436,7 @@ export async function GET(request: NextRequest) {
     let allAccounts: any[]
 
     // 检查缓存
-    const cachedAccounts = getCachedAccounts(authResult.user.userId)
+    const cachedAccounts = await getCachedAccounts(authResult.user.userId)
     console.log(`📦 缓存中有 ${cachedAccounts.length} 个账号`)
 
     if (!forceRefresh && cachedAccounts.length > 0) {
@@ -463,14 +463,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 查询关联的 Offer 信息
-    const db = getSQLiteDatabase()
-    const accountsWithOffers = allAccounts.map(account => {
+    const db = await getDatabase()
+    const accountsWithOffers = await Promise.all(allAccounts.map(async (account) => {
       const dbAccountId = account.db_account_id
       if (!dbAccountId) {
         return { ...account, linked_offers: [] }
       }
 
-      const linkedOffers = db.prepare(`
+      const linkedOffers = await db.query(`
         SELECT DISTINCT
           o.id,
           o.offer_name,
@@ -485,10 +485,10 @@ export async function GET(request: NextRequest) {
           AND (o.is_deleted = 0 OR o.is_deleted IS NULL)
           AND c.status != 'REMOVED'
         GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_active
-      `).all(dbAccountId, authResult.user!.userId)
+      `, [dbAccountId, authResult.user!.userId])
 
       return { ...account, linked_offers: linkedOffers }
-    })
+    }))
 
     return NextResponse.json({
       success: true,

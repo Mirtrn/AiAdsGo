@@ -72,11 +72,11 @@ export interface GeminiGenerateResult {
  * 检查用户是否配置了Vertex AI（只检查用户级配置）
  * @param userId - 用户ID（必需）
  */
-function isVertexAIConfigured(userId: number): boolean {
+async function isVertexAIConfigured(userId: number): Promise<boolean> {
   try {
-    const useVertexAI = getUserOnlySetting('ai', 'use_vertex_ai', userId)
-    const gcpProjectId = getUserOnlySetting('ai', 'gcp_project_id', userId)
-    const gcpServiceAccountJson = getUserOnlySetting('ai', 'gcp_service_account_json', userId)
+    const useVertexAI = await getUserOnlySetting('ai', 'use_vertex_ai', userId)
+    const gcpProjectId = await getUserOnlySetting('ai', 'gcp_project_id', userId)
+    const gcpServiceAccountJson = await getUserOnlySetting('ai', 'gcp_service_account_json', userId)
 
     // 调试日志
     console.log(`🔍 Vertex AI配置检查 (用户ID: ${userId}):`)
@@ -102,9 +102,9 @@ function isVertexAIConfigured(userId: number): boolean {
  * 检查用户是否配置了Gemini API（只检查用户级配置）
  * @param userId - 用户ID（必需）
  */
-function isGeminiAPIConfigured(userId: number): boolean {
+async function isGeminiAPIConfigured(userId: number): Promise<boolean> {
   try {
-    const apiKey = getUserOnlySetting('ai', 'gemini_api_key', userId)
+    const apiKey = await getUserOnlySetting('ai', 'gemini_api_key', userId)
     return !!apiKey?.value
   } catch (error) {
     return false
@@ -115,13 +115,13 @@ function isGeminiAPIConfigured(userId: number): boolean {
  * 配置Vertex AI环境变量（从用户配置动态设置）
  * @param userId - 用户ID（必需）
  */
-function configureVertexAI(userId: number): void {
+async function configureVertexAI(userId: number): Promise<void> {
   // 重置Vertex AI客户端以确保使用最新配置
   resetVertexAIClient()
 
-  const gcpProjectId = getUserOnlySetting('ai', 'gcp_project_id', userId)?.value
-  const gcpLocation = getUserOnlySetting('ai', 'gcp_location', userId)?.value || 'us-central1'
-  const gcpServiceAccountJson = getUserOnlySetting('ai', 'gcp_service_account_json', userId)?.value
+  const gcpProjectId = (await getUserOnlySetting('ai', 'gcp_project_id', userId))?.value
+  const gcpLocation = (await getUserOnlySetting('ai', 'gcp_location', userId))?.value || 'us-central1'
+  const gcpServiceAccountJson = (await getUserOnlySetting('ai', 'gcp_service_account_json', userId))?.value
 
   if (!gcpProjectId || !gcpServiceAccountJson) {
     throw new Error('Vertex AI配置不完整：缺少项目ID或Service Account JSON')
@@ -224,7 +224,7 @@ export async function generateContent(
   // 智能模型选择（默认启用，可通过enableAutoModelSelection=false禁用）
   let finalModel = requestedModel || 'gemini-2.5-pro'
   if (enableAutoModelSelection && operationType) {
-    const selection = selectOptimalModel(operationType, userId) // 传递userId获取用户模型偏好
+    const selection = await selectOptimalModel(operationType, userId) // 传递userId获取用户模型偏好
     finalModel = selection.model
     console.log(`🤖 智能模型选择 (User ${userId}): ${operationType} → ${finalModel} (${selection.reason})`)
   } else if (requestedModel) {
@@ -236,8 +236,8 @@ export async function generateContent(
   }
 
   // 检查用户是否配置了任何AI
-  const hasVertexAI = isVertexAIConfigured(userId)
-  const hasGeminiAPI = isGeminiAPIConfigured(userId)
+  const hasVertexAI = await isVertexAIConfigured(userId)
+  const hasGeminiAPI = await isGeminiAPIConfigured(userId)
 
   if (!hasVertexAI && !hasGeminiAPI) {
     throw new Error(
@@ -253,7 +253,7 @@ export async function generateContent(
       console.log(`🚀 使用用户(ID=${userId})的 Vertex AI 配置`)
 
       // 动态配置Vertex AI环境
-      configureVertexAI(userId)
+      await configureVertexAI(userId)
 
       // 使用Vertex AI
       const { generateContent: vertexGenerate } = await import('./gemini-vertex')
@@ -310,7 +310,7 @@ async function callDirectAPI(
   const { model, prompt, temperature, maxOutputTokens, operationType, responseSchema, responseMimeType } = params
 
   // 检查用户的API密钥配置
-  const apiKey = getUserOnlySetting('ai', 'gemini_api_key', userId)
+  const apiKey = await getUserOnlySetting('ai', 'gemini_api_key', userId)
   if (!apiKey?.value) {
     throw new Error(
       `用户(ID=${userId})未配置 Gemini API 密钥。请在设置页面配置您自己的 Gemini API 密钥。`
@@ -370,11 +370,11 @@ export async function checkGeminiConnection(userId: number): Promise<boolean> {
  * @param userId - 用户ID（必需）
  * @returns 'vertex-ai' | 'direct-api' | 'none'
  */
-export function getGeminiMode(userId: number): 'vertex-ai' | 'direct-api' | 'none' {
-  if (isVertexAIConfigured(userId)) {
+export async function getGeminiMode(userId: number): Promise<'vertex-ai' | 'direct-api' | 'none'> {
+  if (await isVertexAIConfigured(userId)) {
     return 'vertex-ai'
   }
-  if (isGeminiAPIConfigured(userId)) {
+  if (await isGeminiAPIConfigured(userId)) {
     return 'direct-api'
   }
   return 'none'

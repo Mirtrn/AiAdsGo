@@ -16,7 +16,7 @@ export const POST = withAuth(
       }
 
       // 执行解锁
-      unlockAccount(userId)
+      await unlockAccount(userId)
 
       // 记录审计日志
       const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'

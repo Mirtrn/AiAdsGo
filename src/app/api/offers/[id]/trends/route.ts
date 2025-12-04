@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { findOfferById } from '@/lib/offers'
 
 /**
@@ -26,7 +26,7 @@ export async function GET(
     const offerId = parseInt(params.id)
 
     // 2. 验证Offer存在且属于当前用户
-    const offer = findOfferById(offerId, userId)
+    const offer = await findOfferById(offerId, userId)
     if (!offer) {
       return NextResponse.json(
         { error: 'Offer不存在或无权访问' },
@@ -38,7 +38,7 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '30')
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 4. 计算日期范围
     const endDate = new Date()
@@ -49,9 +49,8 @@ export async function GET(
     const endDateStr = endDate.toISOString().split('T')[0]
 
     // 5. 查询每日趋势数据
-    const trends = db
-      .prepare(
-        `
+    const trends = await db.query(
+      `
       SELECT
         DATE(date) as date,
         SUM(impressions) as impressions,
@@ -67,9 +66,9 @@ export async function GET(
         AND date <= ?
       GROUP BY DATE(date)
       ORDER BY date ASC
-    `
-      )
-      .all(offerId, userId, startDateStr, endDateStr) as any[]
+    `,
+      [offerId, userId, startDateStr, endDateStr]
+    ) as any[]
 
     // 6. 格式化数据
     const formattedTrends = trends.map((row) => {

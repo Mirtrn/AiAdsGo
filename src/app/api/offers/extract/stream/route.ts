@@ -8,6 +8,7 @@ import { createError, AppError } from '@/lib/errors';
 import { createSSEStream, sendProgress, sendComplete, sendError } from '@/lib/sse-helper';
 import { extractOffer } from '@/lib/offer-extraction-core';
 import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from '@/lib/feature-flags';
+import { parsePrice } from '@/lib/pricing-utils';
 
 export const maxDuration = 120; // 最长120秒（从60秒增加，适应复杂页面抓取）
 
@@ -446,7 +447,7 @@ export async function POST(request: NextRequest) {
             const { getProxyUrlForCountry } = await import('@/lib/settings');
             const { getProxyIp } = await import('@/lib/proxy/fetch-proxy-ip');
 
-            const proxyUrl = getProxyUrlForCountry(target_country, userIdNum);
+            const proxyUrl = await getProxyUrlForCountry(target_country, userIdNum);
             let browserOptions: any = { headless: true };
 
             if (proxyUrl) {
@@ -531,7 +532,7 @@ export async function POST(request: NextRequest) {
             name: extractedProductName || pageTitle || brandName || 'Unknown Product',
             brand: brandName || 'Unknown',  // ✅ 修复：确保brand不为null
             category: aiProductInfo?.category || extractedCategory || 'Unknown',
-            price: extractedPrice ? parseFloat(extractedPrice.replace(/[^0-9.]/g, '')) : null,
+            price: parsePrice(extractedPrice),
             targetCountry: target_country,
             // 🆕 增强信息：帮助AI更准确地推断竞品搜索词
             features: extractedFeatures || [],
@@ -597,8 +598,7 @@ export async function POST(request: NextRequest) {
                 if (competitors.length > 0) {
                   console.log(`✅ 找到${competitors.length}个竞品，开始AI对比分析...`);
 
-                  const priceStr = extractedPrice;
-                  const priceNum = priceStr ? parseFloat(priceStr.replace(/[^0-9.]/g, '')) : null;
+                  const priceNum = parsePrice(extractedPrice);
 
                   // 安全提取productHighlights（可能是字符串、字符串数组或对象数组）
                   const extractFeatures = (highlights: any): string[] => {

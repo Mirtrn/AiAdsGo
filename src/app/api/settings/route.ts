@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
 
     // 根据category参数决定返回全部还是指定分类
     const settings = category
-      ? getSettingsByCategory(category, userIdNum)
-      : getAllSettings(userIdNum)
+      ? await getSettingsByCategory(category, userIdNum)
+      : await getAllSettings(userIdNum)
 
     // 按分类分组配置
     const groupedSettings: Record<string, any[]> = {}

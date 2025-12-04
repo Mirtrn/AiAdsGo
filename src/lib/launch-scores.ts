@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 export interface LaunchScore {
   id: number
@@ -73,22 +73,12 @@ export interface ScoreAnalysis {
 /**
  * 创建Launch Score记录
  */
-export function createLaunchScore(
+export async function createLaunchScore(
   userId: number,
   offerId: number,
   analysis: ScoreAnalysis
-): LaunchScore {
-  const db = getSQLiteDatabase()
-
-  const stmt = db.prepare(`
-    INSERT INTO launch_scores (
-      user_id, offer_id,
-      total_score,
-      keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
-      keyword_analysis_data, market_analysis_data, landing_page_analysis_data,
-      budget_analysis_data, content_analysis_data, recommendations
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
+): Promise<LaunchScore> {
+  const db = await getDatabase()
 
   const totalScore =
     analysis.keywordAnalysis.score +
@@ -97,7 +87,15 @@ export function createLaunchScore(
     analysis.budgetAnalysis.score +
     analysis.contentAnalysis.score
 
-  const info = stmt.run(
+  const info = await db.exec(`
+    INSERT INTO launch_scores (
+      user_id, offer_id,
+      total_score,
+      keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
+      keyword_analysis_data, market_analysis_data, landing_page_analysis_data,
+      budget_analysis_data, content_analysis_data, recommendations
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
     userId,
     offerId,
     totalScore,
@@ -112,22 +110,21 @@ export function createLaunchScore(
     JSON.stringify(analysis.budgetAnalysis),
     JSON.stringify(analysis.contentAnalysis),
     JSON.stringify(analysis.overallRecommendations)
-  )
+  ])
 
-  return findLaunchScoreById(info.lastInsertRowid as number, userId)!
+  return (await findLaunchScoreById(info.lastInsertRowid as number, userId))!
 }
 
 /**
  * 查找Launch Score（带权限验证）
  */
-export function findLaunchScoreById(id: number, userId: number): LaunchScore | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findLaunchScoreById(id: number, userId: number): Promise<LaunchScore | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM launch_scores
     WHERE id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(id, userId) as any
+  `, [id, userId]) as any
 
   if (!row) {
     return null
@@ -139,31 +136,30 @@ export function findLaunchScoreById(id: number, userId: number): LaunchScore | n
 /**
  * 查找Offer的所有Launch Scores
  */
-export function findLaunchScoresByOfferId(offerId: number, userId: number): LaunchScore[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findLaunchScoresByOfferId(offerId: number, userId: number): Promise<LaunchScore[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM launch_scores
     WHERE offer_id = ? AND user_id = ?
     ORDER BY calculated_at DESC
-  `)
+  `, [offerId, userId]) as any[]
 
-  const rows = stmt.all(offerId, userId) as any[]
   return rows.map(mapRowToLaunchScore)
 }
 
 /**
  * 查找Offer的最新Launch Score
  */
-export function findLatestLaunchScore(offerId: number, userId: number): LaunchScore | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findLatestLaunchScore(offerId: number, userId: number): Promise<LaunchScore | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM launch_scores
     WHERE offer_id = ? AND user_id = ?
     ORDER BY calculated_at DESC
     LIMIT 1
-  `)
-
-  const row = stmt.get(offerId, userId) as any
+  `, [offerId, userId]) as any
 
   if (!row) {
     return null
@@ -175,15 +171,14 @@ export function findLatestLaunchScore(offerId: number, userId: number): LaunchSc
 /**
  * 删除Launch Score
  */
-export function deleteLaunchScore(id: number, userId: number): boolean {
-  const db = getSQLiteDatabase()
+export async function deleteLaunchScore(id: number, userId: number): Promise<boolean> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const info = await db.exec(`
     DELETE FROM launch_scores
     WHERE id = ? AND user_id = ?
-  `)
+  `, [id, userId])
 
-  const info = stmt.run(id, userId)
   return info.changes > 0
 }
 

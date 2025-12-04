@@ -57,7 +57,7 @@ export async function loadPrompt(promptId: string): Promise<string> {
   }
 
   // 2. 从数据库加载active版本
-  const db = getDatabase()
+  const db = await getDatabase()
   const prompt = await db.queryOne<{
     prompt_content: string | Buffer
     version: string

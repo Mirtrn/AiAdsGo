@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { apiCache, generateCacheKey } from '@/lib/api-cache'
 
 /**
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     const previousStartDate = new Date(previousEndDate)
     previousStartDate.setDate(previousStartDate.getDate() - days)
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 查询当前周期数据
     const currentPeriodQuery = `
@@ -86,13 +86,14 @@ export async function GET(request: NextRequest) {
         AND date <= ?
     `
 
-    const currentData = db
-      .prepare(currentPeriodQuery)
-      .get(
+    const currentData = await db.queryOne(
+      currentPeriodQuery,
+      [
         userId,
         formatDate(startDate),
         formatDate(endDate)
-      ) as {
+      ]
+    ) as {
       impressions: number | null
       clicks: number | null
       cost: number | null
@@ -100,13 +101,14 @@ export async function GET(request: NextRequest) {
     } | undefined
 
     // 查询上个周期数据（用于环比）
-    const previousData = db
-      .prepare(currentPeriodQuery)
-      .get(
+    const previousData = await db.queryOne(
+      currentPeriodQuery,
+      [
         userId,
         formatDate(previousStartDate),
         formatDate(previousEndDate)
-      ) as {
+      ]
+    ) as {
       impressions: number | null
       clicks: number | null
       cost: number | null

@@ -7,8 +7,9 @@
  * - 追踪任务完成情况
  */
 
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { createOptimizationEngine, type CampaignMetrics, type OptimizationRecommendation } from './optimization-rules'
+import { parsePrice } from '@/lib/pricing-utils'
 
 export interface OptimizationTask {
   id: number
@@ -35,12 +36,13 @@ export interface OptimizationTaskWithCampaign extends OptimizationTask {
 /**
  * 为单个用户生成优化任务
  */
-export function generateOptimizationTasksForUser(userId: number): number {
-  const db = getSQLiteDatabase()
+export async function generateOptimizationTasksForUser(userId: number): Promise<number> {
+  const db = await getDatabase()
   const engine = createOptimizationEngine()
 
   // 获取用户的所有活跃Campaigns（JOIN offers获取转化价值）
-  const campaignsStmt = db.prepare(`
+  const campaigns = await db.query(
+    `
     SELECT
       c.id as campaignId,
       c.campaign_name as campaignName,
@@ -52,9 +54,9 @@ export function generateOptimizationTasksForUser(userId: number): number {
     LEFT JOIN offers o ON c.offer_id = o.id
     WHERE c.user_id = ?
       AND c.status IN ('ENABLED', 'PAUSED')
-  `)
-
-  const campaigns = campaignsStmt.all(userId) as any[]
+  `,
+    [userId]
+  ) as any[]
 
   if (campaigns.length === 0) {
     return 0
@@ -70,7 +72,8 @@ export function generateOptimizationTasksForUser(userId: number): number {
 
   for (const campaign of campaigns) {
     // 聚合性能数据
-    const performanceStmt = db.prepare(`
+    const perf = await db.queryOne(
+      `
       SELECT
         COALESCE(SUM(impressions), 0) as impressions,
         COALESCE(SUM(clicks), 0) as clicks,
@@ -81,13 +84,8 @@ export function generateOptimizationTasksForUser(userId: number): number {
         AND user_id = ?
         AND date >= ?
         AND date <= ?
-    `)
-
-    const perf = performanceStmt.get(
-      campaign.campaignId,
-      userId,
-      startDate,
-      endDate
+    `,
+      [campaign.campaignId, userId, startDate, endDate]
     ) as any
 
     // 计算衍生指标
@@ -105,9 +103,8 @@ export function generateOptimizationTasksForUser(userId: number): number {
     let conversionValue = 50 // 默认值$50（降级方案）
     if (campaign.product_price && campaign.commission_payout) {
       try {
-        // 解析产品价格（移除货币符号）
-        const priceMatch = campaign.product_price.match(/[\d.]+/)
-        const price = priceMatch ? parseFloat(priceMatch[0]) : 0
+        // 解析产品价格（使用智能价格解析）
+        const price = parsePrice(campaign.product_price) || 0
 
         // 解析佣金比例（移除%符号）
         const payoutMatch = campaign.commission_payout.match(/[\d.]+/)
@@ -150,33 +147,22 @@ export function generateOptimizationTasksForUser(userId: number): number {
   const recommendations = engine.generateBatchRecommendations(campaignMetrics)
 
   // 过滤掉已存在的pending任务（避免重复）
-  const existingTasksStmt = db.prepare(`
+  const existingTasks = await db.query(
+    `
     SELECT campaign_id, task_type
     FROM optimization_tasks
     WHERE user_id = ?
       AND status = 'pending'
       AND created_at >= date('now', '-7 days')
-  `)
-  const existingTasks = existingTasksStmt.all(userId) as any[]
+  `,
+    [userId]
+  ) as any[]
 
   const existingTaskKeys = new Set(
     existingTasks.map(t => `${t.campaign_id}_${t.task_type}`)
   )
 
   // 插入新任务
-  const insertStmt = db.prepare(`
-    INSERT INTO optimization_tasks (
-      user_id,
-      campaign_id,
-      task_type,
-      priority,
-      reason,
-      action,
-      expected_impact,
-      metrics_snapshot
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
   let insertedCount = 0
 
   for (const rec of recommendations) {
@@ -205,15 +191,29 @@ export function generateOptimizationTasksForUser(userId: number): number {
       snapshotDate: endDate
     })
 
-    insertStmt.run(
-      userId,
-      rec.campaignId,
-      rec.type,
-      rec.priority,
-      rec.reason,
-      rec.action,
-      rec.expectedImpact,
-      metricsSnapshot
+    await db.exec(
+      `
+      INSERT INTO optimization_tasks (
+        user_id,
+        campaign_id,
+        task_type,
+        priority,
+        reason,
+        action,
+        expected_impact,
+        metrics_snapshot
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+      [
+        userId,
+        rec.campaignId,
+        rec.type,
+        rec.priority,
+        rec.reason,
+        rec.action,
+        rec.expectedImpact,
+        metricsSnapshot,
+      ]
     )
 
     insertedCount++
@@ -225,27 +225,28 @@ export function generateOptimizationTasksForUser(userId: number): number {
 /**
  * 为所有用户生成优化任务（每周定时任务）
  */
-export function generateWeeklyOptimizationTasks(): {
+export async function generateWeeklyOptimizationTasks(): Promise<{
   totalUsers: number
   totalTasks: number
   userTasks: Record<number, number>
-} {
-  const db = getSQLiteDatabase()
+}> {
+  const db = await getDatabase()
 
   // 获取所有有活跃Campaign的用户
-  const usersStmt = db.prepare(`
+  const users = await db.query(
+    `
     SELECT DISTINCT user_id
     FROM campaigns
     WHERE status IN ('ENABLED', 'PAUSED')
-  `)
-
-  const users = usersStmt.all() as { user_id: number }[]
+  `,
+    []
+  ) as { user_id: number }[]
 
   const userTasks: Record<number, number> = {}
   let totalTasks = 0
 
   for (const user of users) {
-    const taskCount = generateOptimizationTasksForUser(user.user_id)
+    const taskCount = await generateOptimizationTasksForUser(user.user_id)
     userTasks[user.user_id] = taskCount
     totalTasks += taskCount
   }
@@ -260,11 +261,11 @@ export function generateWeeklyOptimizationTasks(): {
 /**
  * 获取用户的优化任务列表
  */
-export function getUserOptimizationTasks(
+export async function getUserOptimizationTasks(
   userId: number,
   status?: 'pending' | 'in_progress' | 'completed' | 'dismissed'
-): OptimizationTaskWithCampaign[] {
-  const db = getSQLiteDatabase()
+): Promise<OptimizationTaskWithCampaign[]> {
+  const db = await getDatabase()
 
   let query = `
     SELECT
@@ -292,8 +293,7 @@ export function getUserOptimizationTasks(
     t.created_at DESC
   `
 
-  const stmt = db.prepare(query)
-  const tasks = stmt.all(...params) as any[]
+  const tasks = await db.query(query, params) as any[]
 
   return tasks.map(t => ({
     id: t.id,
@@ -318,13 +318,13 @@ export function getUserOptimizationTasks(
 /**
  * 更新任务状态
  */
-export function updateTaskStatus(
+export async function updateTaskStatus(
   taskId: number,
   userId: number,
   status: 'in_progress' | 'completed' | 'dismissed',
   note?: string
-): boolean {
-  const db = getSQLiteDatabase()
+): Promise<boolean> {
+  const db = await getDatabase()
 
   let query = `
     UPDATE optimization_tasks
@@ -340,8 +340,7 @@ export function updateTaskStatus(
   else params.push(null)
   params.push(taskId, userId)
 
-  const stmt = db.prepare(query)
-  const result = stmt.run(...params)
+  const result = await db.exec(query, params)
 
   return result.changes > 0
 }
@@ -349,13 +348,13 @@ export function updateTaskStatus(
 /**
  * 批量更新任务状态（按Campaign）
  */
-export function updateCampaignTasks(
+export async function updateCampaignTasks(
   campaignId: number,
   userId: number,
   status: 'completed' | 'dismissed',
   note?: string
-): number {
-  const db = getSQLiteDatabase()
+): Promise<number> {
+  const db = await getDatabase()
 
   const query = `
     UPDATE optimization_tasks
@@ -368,8 +367,7 @@ export function updateCampaignTasks(
       AND status = 'pending'
   `
 
-  const stmt = db.prepare(query)
-  const result = stmt.run(status, note || null, campaignId, userId)
+  const result = await db.exec(query, [status, note || null, campaignId, userId])
 
   return result.changes
 }
@@ -377,7 +375,7 @@ export function updateCampaignTasks(
 /**
  * 获取任务统计
  */
-export function getTaskStatistics(userId: number): {
+export async function getTaskStatistics(userId: number): Promise<{
   total: number
   pending: number
   inProgress: number
@@ -388,10 +386,11 @@ export function getTaskStatistics(userId: number): {
     medium: number
     low: number
   }
-} {
-  const db = getSQLiteDatabase()
+}> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const stats = await db.queryOne(
+    `
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
@@ -404,9 +403,9 @@ export function getTaskStatistics(userId: number): {
     FROM optimization_tasks
     WHERE user_id = ?
       AND created_at >= date('now', '-30 days')
-  `)
-
-  const stats = stmt.get(userId) as any
+  `,
+    [userId]
+  ) as any
 
   return {
     total: stats.total || 0,
@@ -425,18 +424,20 @@ export function getTaskStatistics(userId: number): {
 /**
  * 清理过期任务（30天前的已完成/已忽略任务）
  */
-export function cleanupOldTasks(): number {
-  const db = getSQLiteDatabase()
+export async function cleanupOldTasks(): Promise<number> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(
+    `
     DELETE FROM optimization_tasks
     WHERE status IN ('completed', 'dismissed')
       AND (
         completed_at < date('now', '-30 days')
         OR dismissed_at < date('now', '-30 days')
       )
-  `)
+  `,
+    []
+  )
 
-  const result = stmt.run()
   return result.changes
 }

@@ -7,7 +7,7 @@
  * - 提供查询和分析接口
  */
 
-import { getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 /**
  * 审计事件类型枚举
@@ -63,22 +63,22 @@ export interface AuditLogEntry {
  * @param entry 审计日志条目
  */
 export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
-  const db = getSQLiteDatabase()
+  const db = await getDatabase()
 
   try {
     const timestamp = entry.timestamp || new Date()
 
-    db.prepare(`
+    await db.exec(`
       INSERT INTO audit_logs (user_id, event_type, ip_address, user_agent, details, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       entry.userId || null,
       entry.eventType,
       entry.ipAddress,
       entry.userAgent,
       entry.details ? JSON.stringify(entry.details) : null,
       timestamp.toISOString()
-    )
+    ])
   } catch (error) {
     console.error('[AuditLogger] Failed to log audit event:', error)
     // 不抛出错误，避免影响业务流程
@@ -111,8 +111,8 @@ export interface AuditLogResult {
 /**
  * 查询审计日志（支持多条件过滤）
  */
-export function queryAuditLogs(options: QueryAuditLogsOptions = {}): AuditLogResult[] {
-  const db = getSQLiteDatabase()
+export async function queryAuditLogs(options: QueryAuditLogsOptions = {}): Promise<AuditLogResult[]> {
+  const db = await getDatabase()
 
   let query = 'SELECT * FROM audit_logs WHERE 1=1'
   const params: any[] = []
@@ -159,17 +159,17 @@ export function queryAuditLogs(options: QueryAuditLogsOptions = {}): AuditLogRes
     params.push(options.offset)
   }
 
-  return db.prepare(query).all(...params) as AuditLogResult[]
+  return await db.query(query, params) as AuditLogResult[]
 }
 
 /**
  * 获取最近的可疑活动（用于安全监控）
  */
-export function getRecentSuspiciousActivity(hours: number = 24, limit: number = 50): AuditLogResult[] {
+export async function getRecentSuspiciousActivity(hours: number = 24, limit: number = 50): Promise<AuditLogResult[]> {
   const startDate = new Date()
   startDate.setHours(startDate.getHours() - hours)
 
-  return queryAuditLogs({
+  return await queryAuditLogs({
     eventType: [
       AuditEventType.SUSPICIOUS_ACTIVITY,
       AuditEventType.RATE_LIMIT_EXCEEDED,
@@ -184,8 +184,8 @@ export function getRecentSuspiciousActivity(hours: number = 24, limit: number = 
 /**
  * 获取用户的审计历史（用于用户行为分析）
  */
-export function getUserAuditHistory(userId: number, limit: number = 100): AuditLogResult[] {
-  return queryAuditLogs({
+export async function getUserAuditHistory(userId: number, limit: number = 100): Promise<AuditLogResult[]> {
+  return await queryAuditLogs({
     userId,
     limit,
   })
@@ -194,11 +194,11 @@ export function getUserAuditHistory(userId: number, limit: number = 100): AuditL
 /**
  * 获取特定IP的活动历史（用于IP行为分析）
  */
-export function getIpActivityHistory(ipAddress: string, hours: number = 24): AuditLogResult[] {
+export async function getIpActivityHistory(ipAddress: string, hours: number = 24): Promise<AuditLogResult[]> {
   const startDate = new Date()
   startDate.setHours(startDate.getHours() - hours)
 
-  return queryAuditLogs({
+  return await queryAuditLogs({
     ipAddress,
     startDate,
   })
@@ -215,30 +215,30 @@ export interface AuditEventStats {
 /**
  * 获取事件类型统计（最近N小时）
  */
-export function getEventTypeStats(hours: number = 24): AuditEventStats[] {
-  const db = getSQLiteDatabase()
+export async function getEventTypeStats(hours: number = 24): Promise<AuditEventStats[]> {
+  const db = await getDatabase()
 
-  return db.prepare(`
+  return await db.query(`
     SELECT event_type, COUNT(*) as count
     FROM audit_logs
     WHERE created_at > datetime('now', '-${hours} hours')
     GROUP BY event_type
     ORDER BY count DESC
-  `).all() as AuditEventStats[]
+  `, []) as AuditEventStats[]
 }
 
 /**
  * 清理旧的审计日志（保留策略：默认保留90天）
  */
-export function cleanupOldAuditLogs(retentionDays: number = 90): number {
-  const db = getSQLiteDatabase()
+export async function cleanupOldAuditLogs(retentionDays: number = 90): Promise<number> {
+  const db = await getDatabase()
 
-  const result = db.prepare(`
+  const result = await db.exec(`
     DELETE FROM audit_logs
     WHERE created_at < datetime('now', '-${retentionDays} days')
-  `).run()
+  `, [])
 
-  const deletedCount = result.changes
+  const deletedCount = result.changes || 0
 
   if (deletedCount > 0) {
     console.log(`[AuditLogger] Cleaned up ${deletedCount} audit logs older than ${retentionDays} days`)
@@ -250,8 +250,8 @@ export function cleanupOldAuditLogs(retentionDays: number = 90): number {
 /**
  * 导出审计日志（CSV格式，用于离线分析）
  */
-export function exportAuditLogsToCSV(options: QueryAuditLogsOptions = {}): string {
-  const logs = queryAuditLogs(options)
+export async function exportAuditLogsToCSV(options: QueryAuditLogsOptions = {}): Promise<string> {
+  const logs = await queryAuditLogs(options)
 
   const headers = ['ID', 'User ID', 'Event Type', 'IP Address', 'User Agent', 'Details', 'Created At']
   const rows = logs.map(log => [

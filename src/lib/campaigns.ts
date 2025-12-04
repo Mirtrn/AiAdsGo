@@ -1,4 +1,4 @@
-import { getDatabase, getSQLiteDatabase } from './db'
+import { getDatabase } from './db'
 
 export interface Campaign {
   id: number
@@ -38,19 +38,17 @@ export interface CreateCampaignInput {
 /**
  * 创建广告系列
  */
-export function createCampaign(input: CreateCampaignInput): Campaign {
-  const db = getSQLiteDatabase()
+export async function createCampaign(input: CreateCampaignInput): Promise<Campaign> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(`
     INSERT INTO campaigns (
       user_id, offer_id, google_ads_account_id,
       campaign_name, budget_amount, budget_type,
       target_cpa, max_cpc, status,
       start_date, end_date
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  const info = stmt.run(
+  `, [
     input.userId,
     input.offerId,
     input.googleAdsAccountId,
@@ -62,22 +60,21 @@ export function createCampaign(input: CreateCampaignInput): Campaign {
     input.status || 'PAUSED',
     input.startDate || null,
     input.endDate || null
-  )
+  ])
 
-  return findCampaignById(info.lastInsertRowid as number, input.userId)!
+  return (await findCampaignById(result.lastInsertRowid as number, input.userId))!
 }
 
 /**
  * 查找广告系列（带权限验证）
  */
-export function findCampaignById(id: number, userId: number): Campaign | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findCampaignById(id: number, userId: number): Promise<Campaign | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM campaigns
     WHERE id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(id, userId) as any
+  `, [id, userId]) as any
 
   if (!row) {
     return null
@@ -89,14 +86,13 @@ export function findCampaignById(id: number, userId: number): Campaign | null {
 /**
  * 根据Google Ads campaign_id查找
  */
-export function findCampaignByGoogleId(campaignId: string, userId: number): Campaign | null {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findCampaignByGoogleId(campaignId: string, userId: number): Promise<Campaign | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
     SELECT * FROM campaigns
     WHERE campaign_id = ? AND user_id = ?
-  `)
-
-  const row = stmt.get(campaignId, userId) as any
+  `, [campaignId, userId]) as any
 
   if (!row) {
     return null
@@ -108,23 +104,23 @@ export function findCampaignByGoogleId(campaignId: string, userId: number): Camp
 /**
  * 查找Offer的所有广告系列
  */
-export function findCampaignsByOfferId(offerId: number, userId: number): Campaign[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+export async function findCampaignsByOfferId(offerId: number, userId: number): Promise<Campaign[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM campaigns
     WHERE offer_id = ? AND user_id = ?
     ORDER BY created_at DESC
-  `)
+  `, [offerId, userId]) as any[]
 
-  const rows = stmt.all(offerId, userId) as any[]
   return rows.map(mapRowToCampaign)
 }
 
 /**
  * 查找用户的所有广告系列
  */
-export function findCampaignsByUserId(userId: number, limit?: number): Campaign[] {
-  const db = getSQLiteDatabase()
+export async function findCampaignsByUserId(userId: number, limit?: number): Promise<Campaign[]> {
+  const db = await getDatabase()
   let sql = `
     SELECT * FROM campaigns
     WHERE user_id = ?
@@ -135,33 +131,32 @@ export function findCampaignsByUserId(userId: number, limit?: number): Campaign[
     sql += ` LIMIT ${limit}`
   }
 
-  const stmt = db.prepare(sql)
-  const rows = stmt.all(userId) as any[]
+  const rows = await db.query(sql, [userId]) as any[]
   return rows.map(mapRowToCampaign)
 }
 
 /**
  * 查找Google Ads账号的所有广告系列
  */
-export function findCampaignsByAccountId(
+export async function findCampaignsByAccountId(
   googleAdsAccountId: number,
   userId: number
-): Campaign[] {
-  const db = getSQLiteDatabase()
-  const stmt = db.prepare(`
+): Promise<Campaign[]> {
+  const db = await getDatabase()
+
+  const rows = await db.query(`
     SELECT * FROM campaigns
     WHERE google_ads_account_id = ? AND user_id = ?
     ORDER BY created_at DESC
-  `)
+  `, [googleAdsAccountId, userId]) as any[]
 
-  const rows = stmt.all(googleAdsAccountId, userId) as any[]
   return rows.map(mapRowToCampaign)
 }
 
 /**
  * 更新广告系列
  */
-export function updateCampaign(
+export async function updateCampaign(
   id: number,
   userId: number,
   updates: Partial<
@@ -181,11 +176,11 @@ export function updateCampaign(
       | 'lastSyncAt'
     >
   >
-): Campaign | null {
-  const db = getSQLiteDatabase()
+): Promise<Campaign | null> {
+  const db = await getDatabase()
 
   // 验证权限
-  const campaign = findCampaignById(id, userId)
+  const campaign = await findCampaignById(id, userId)
   if (!campaign) {
     return null
   }
@@ -246,16 +241,17 @@ export function updateCampaign(
     return campaign
   }
 
-  fields.push('updated_at = datetime("now")')
+  // 🔧 修复: PostgreSQL兼容性 - 使用NOW()而非datetime('now')
+  const db_type = db.type
+  const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime("now")'
+  fields.push(`updated_at = ${nowFunc}`)
   values.push(id, userId)
 
-  const stmt = db.prepare(`
+  await db.exec(`
     UPDATE campaigns
     SET ${fields.join(', ')}
     WHERE id = ? AND user_id = ?
-  `)
-
-  stmt.run(...values)
+  `, values)
 
   return findCampaignById(id, userId)
 }
@@ -263,26 +259,25 @@ export function updateCampaign(
 /**
  * 删除广告系列
  */
-export function deleteCampaign(id: number, userId: number): boolean {
-  const db = getSQLiteDatabase()
+export async function deleteCampaign(id: number, userId: number): Promise<boolean> {
+  const db = await getDatabase()
 
-  const stmt = db.prepare(`
+  const result = await db.exec(`
     DELETE FROM campaigns
     WHERE id = ? AND user_id = ?
-  `)
+  `, [id, userId])
 
-  const info = stmt.run(id, userId)
-  return info.changes > 0
+  return result.changes > 0
 }
 
 /**
  * 更新广告系列状态
  */
-export function updateCampaignStatus(
+export async function updateCampaignStatus(
   id: number,
   userId: number,
   status: string
-): Campaign | null {
+): Promise<Campaign | null> {
   return updateCampaign(id, userId, { status })
 }
 

@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     console.log(`   Developer Token: ${developer_token.substring(0, 10)}...`)
 
     // 保存凭证
-    const credentials = saveGoogleAdsCredentials(authResult.user.userId, {
+    const credentials = await saveGoogleAdsCredentials(authResult.user.userId, {
       client_id,
       client_secret,
       refresh_token,
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const credentials = getGoogleAdsCredentials(authResult.user.userId)
+    const credentials = await getGoogleAdsCredentials(authResult.user.userId)
 
     if (!credentials) {
       return NextResponse.json({

@@ -27,11 +27,11 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'campaignId必须是数字' }, { status: 400 })
       }
 
-      adGroups = findAdGroupsByCampaignId(campaignId, parseInt(userId, 10))
+      adGroups = await findAdGroupsByCampaignId(campaignId, parseInt(userId, 10))
     } else {
       // 获取用户的所有Ad Groups
       const limit = limitParam ? parseInt(limitParam, 10) : undefined
-      adGroups = findAdGroupsByUserId(parseInt(userId, 10), limit)
+      adGroups = await findAdGroupsByUserId(parseInt(userId, 10), limit)
     }
 
     return NextResponse.json({
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证Campaign存在且属于当前用户
-    const campaign = findCampaignById(campaignId, parseInt(userId, 10))
+    const campaign = await findCampaignById(campaignId, parseInt(userId, 10))
     if (!campaign) {
       return NextResponse.json(
         {
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 创建Ad Group
-    const adGroup = createAdGroup({
+    const adGroup = await createAdGroup({
       userId: parseInt(userId, 10),
       campaignId,
       adGroupName,

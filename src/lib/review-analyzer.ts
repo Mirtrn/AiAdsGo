@@ -305,6 +305,12 @@ export async function analyzeReviewsWithAI(
     return getEmptyAnalysisResult()
   }
 
+  // 🔧 P1优化: 评论数量少（<5条）时，直接使用简化分析而非调用AI（节省API成本+避免超时）
+  if (reviews.length < 5) {
+    console.log(`⚠️ 评论数量较少(${reviews.length}条)，使用简化分析...`)
+    return generateSimplifiedAnalysis(reviews)
+  }
+
   console.log(`🤖 开始AI分析${reviews.length}条评论...`)
 
   // 根据目标国家确定分析语言（使用全局语言映射）
@@ -458,6 +464,69 @@ function getEmptyAnalysisResult(): ReviewAnalysisResult {
     commonPainPoints: [],
     analyzedReviewCount: 0,
     verifiedReviewCount: 0,
+  }
+}
+
+/**
+ * 🔧 P1优化: 为评论数量少（<5条）的产品生成简化分析
+ * 直接从原始评论中提取基础统计，而非调用AI
+ *
+ * 优势：
+ * - 节省AI API成本
+ * - 避免超时问题
+ * - 仍能提供有价值的基础洞察
+ */
+function generateSimplifiedAnalysis(reviews: RawReview[]): ReviewAnalysisResult {
+  // 计算基础统计
+  const verifiedCount = reviews.filter(r => r.verified).length
+  const ratingsArray = reviews
+    .map(r => parseFloat(r.rating?.match(/[\d.]+/)?.[0] || '0'))
+    .filter(rating => rating > 0)
+  const avgRating = ratingsArray.length > 0
+    ? ratingsArray.reduce((sum, r) => sum + r, 0) / ratingsArray.length
+    : 0
+
+  // 计算情感分布
+  const positiveCount = ratingsArray.filter(r => r >= 4).length
+  const neutralCount = ratingsArray.filter(r => r === 3).length
+  const negativeCount = ratingsArray.filter(r => r <= 2).length
+  const total = ratingsArray.length || 1
+
+  // 从评论标题提取关键词（简化版）
+  const positiveTitles = reviews
+    .filter(r => parseFloat(r.rating?.match(/[\d.]+/)?.[0] || '0') >= 4 && r.title)
+    .map(r => r.title!)
+
+  const negativeTitles = reviews
+    .filter(r => parseFloat(r.rating?.match(/[\d.]+/)?.[0] || '0') <= 2 && r.title)
+    .map(r => r.title!)
+
+  console.log(`✅ 简化分析完成: ${reviews.length}条评论, 平均评分${avgRating.toFixed(1)}星`)
+
+  return {
+    totalReviews: reviews.length,
+    averageRating: parseFloat(avgRating.toFixed(1)),
+    sentimentDistribution: {
+      positive: Math.round((positiveCount / total) * 100),
+      neutral: Math.round((neutralCount / total) * 100),
+      negative: Math.round((negativeCount / total) * 100),
+    },
+    topPositiveKeywords: positiveTitles.slice(0, 3).map(title => ({
+      keyword: title.substring(0, 50),
+      frequency: 1,
+      sentiment: 'positive' as const,
+    })),
+    topNegativeKeywords: negativeTitles.slice(0, 3).map(title => ({
+      keyword: title.substring(0, 50),
+      frequency: 1,
+      sentiment: 'negative' as const,
+    })),
+    realUseCases: [],  // 需要AI分析才能提取
+    purchaseReasons: [], // 需要AI分析才能提取
+    userProfiles: [], // 需要AI分析才能提取
+    commonPainPoints: [], // 需要AI分析才能提取
+    analyzedReviewCount: reviews.length,
+    verifiedReviewCount: verifiedCount,
   }
 }
 

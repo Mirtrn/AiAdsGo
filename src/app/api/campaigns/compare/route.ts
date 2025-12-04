@@ -11,8 +11,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { createOptimizationEngine, type CampaignMetrics } from '@/lib/optimization-rules'
+import { parsePrice } from '@/lib/pricing-utils'
 
 interface CampaignPerformance {
   campaignId: number
@@ -124,15 +125,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 获取Offer信息
-    const offerStmt = db.prepare(`
+    const offer = await db.queryOne<any>(`
       SELECT id, offer_name
       FROM offers
       WHERE id = ? AND user_id = ?
-    `)
-    const offer = offerStmt.get(offerId, auth.user!.userId) as any
+    `, [offerId, auth.user!.userId])
 
     if (!offer) {
       return NextResponse.json(
@@ -150,12 +150,11 @@ export async function GET(request: NextRequest) {
     const endDateStr = endDate.toISOString().split('T')[0]
 
     // 获取该Offer的所有Campaigns
-    const campaignsStmt = db.prepare(`
+    const campaigns = await db.query<any>(`
       SELECT id, campaign_name, status
       FROM campaigns
       WHERE offer_id = ? AND user_id = ?
-    `)
-    const campaigns = campaignsStmt.all(offerId, auth.user!.userId) as any[]
+    `, [offerId, auth.user!.userId])
 
     if (campaigns.length === 0) {
       return NextResponse.json({
@@ -181,8 +180,7 @@ export async function GET(request: NextRequest) {
     let conversionValue = 50 // 默认值$50
     if (offer.product_price && offer.commission_payout) {
       try {
-        const priceMatch = offer.product_price.match(/[\d.]+/)
-        const price = priceMatch ? parseFloat(priceMatch[0]) : 0
+        const price = parsePrice(offer.product_price) || 0
 
         const payoutMatch = offer.commission_payout.match(/[\d.]+/)
         const payout = payoutMatch ? parseFloat(payoutMatch[0]) / 100 : 0
@@ -199,7 +197,7 @@ export async function GET(request: NextRequest) {
     const campaignIds = campaigns.map(c => c.id)
     const placeholders = campaignIds.map(() => '?').join(',')
 
-    const aggregateStmt = db.prepare(`
+    const aggregates = await db.query<any>(`
       SELECT
         campaign_id,
         COALESCE(SUM(impressions), 0) as impressions,
@@ -212,9 +210,7 @@ export async function GET(request: NextRequest) {
         AND date >= ?
         AND date <= ?
       GROUP BY campaign_id
-    `)
-
-    const aggregates = aggregateStmt.all(...campaignIds, auth.user!.userId, startDateStr, endDateStr) as any[]
+    `, [...campaignIds, auth.user!.userId, startDateStr, endDateStr])
 
     // 建立Map: campaign_id → aggregate data
     const aggregateMap = new Map<number, any>()
@@ -223,7 +219,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 批量查询2: 所有campaigns的每日趋势（单次查询）
-    const dailyStmt = db.prepare(`
+    const dailyData = await db.query<any>(`
       SELECT
         campaign_id,
         date,
@@ -237,9 +233,7 @@ export async function GET(request: NextRequest) {
         AND date <= ?
       GROUP BY campaign_id, date
       ORDER BY campaign_id, date ASC
-    `)
-
-    const dailyData = dailyStmt.all(...campaignIds, auth.user!.userId, startDateStr, endDateStr) as any[]
+    `, [...campaignIds, auth.user!.userId, startDateStr, endDateStr])
 
     // 建立Map: campaign_id → daily trends array
     const dailyMap = new Map<number, any[]>()

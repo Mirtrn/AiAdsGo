@@ -18,7 +18,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Campaign
-    const campaign = findCampaignById(parseInt(id, 10), parseInt(userId, 10))
+    const campaign = await findCampaignById(parseInt(id, 10), parseInt(userId, 10))
     if (!campaign) {
       return NextResponse.json(
         {
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 查找Google Ads账号
-    const googleAdsAccount = findGoogleAdsAccountById(
+    const googleAdsAccount = await findGoogleAdsAccountById(
       campaign.googleAdsAccountId,
       parseInt(userId, 10)
     )
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 更新状态为pending
-    updateCampaign(campaign.id, parseInt(userId, 10), {
+    await updateCampaign(campaign.id, parseInt(userId, 10), {
       creationStatus: 'pending',
       creationError: null,
     })
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       })
 
       // 更新Campaign，标记为已同步
-      const updatedCampaign = updateCampaign(campaign.id, parseInt(userId, 10), {
+      const updatedCampaign = await updateCampaign(campaign.id, parseInt(userId, 10), {
         campaignId: result.campaignId,
         creationStatus: 'synced',
         creationError: null,
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       })
     } catch (error: any) {
       // 同步失败，更新错误状态
-      updateCampaign(campaign.id, parseInt(userId, 10), {
+      await updateCampaign(campaign.id, parseInt(userId, 10), {
         creationStatus: 'failed',
         creationError: error.message || '同步到Google Ads失败',
       })

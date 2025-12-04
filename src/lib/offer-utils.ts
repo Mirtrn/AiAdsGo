@@ -1,7 +1,8 @@
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 import { getAllProxyUrls } from '@/lib/settings'
 import { getProxyPool } from '@/lib/url-resolver-enhanced'
 import { getLanguageNameForCountry, getSupportedCountries, getCountryChineseName } from '@/lib/language-country-codes'
+import { parsePrice } from '@/lib/pricing-utils'
 
 /**
  * Offer相关的辅助函数库
@@ -150,7 +151,7 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
   console.log(`   - 之前初始化用户: ${proxyPoolInitializedForUser || '无'}`)
 
   // 获取用户配置的代理URL列表
-  const proxyUrls = getAllProxyUrls(userId)
+  const proxyUrls = await getAllProxyUrls(userId)
 
   console.log(`🔍 [initializeProxyPool] getAllProxyUrls返回:`, proxyUrls)
 
@@ -162,9 +163,9 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
     throw error
   }
 
-  // 🔥 修复：所有代理都不设置为 default（emergency）优先级
+  // 🔥 修复:所有代理都不设置为 default（emergency）优先级
   // 代理池会自动将第一个代理作为兜底代理（如果需要）
-  const proxiesWithDefault = proxyUrls.map(p => ({
+  const proxiesWithDefault = proxyUrls.map((p: any) => ({
     url: p.url,
     country: p.country,
     is_default: false, // 不自动设置兜底代理，让代理池自行管理
@@ -235,26 +236,25 @@ export function normalizeBrandName(brand: string): string {
  *
  * 需求1: 自动生成的字段
  */
-export function generateOfferName(
+export async function generateOfferName(
   brandName: string,
   countryCode: string,
   userId: number
-): string {
-  const db = getSQLiteDatabase()
+): Promise<string> {
+  const db = await getDatabase()
 
   // 查询该用户下同品牌同国家的Offer数量
-  const result = db
-    .prepare(
-      `
+  const result = await db.queryOne<{ count: number }>(
+    `
     SELECT COUNT(*) as count
     FROM offers
     WHERE user_id = ? AND brand = ? AND target_country = ?
-  `
-    )
-    .get(userId, brandName, countryCode) as { count: number }
+  `,
+    [userId, brandName, countryCode]
+  )
 
   // 序号从01开始，格式化为2位数字
-  const sequence = String(result.count + 1).padStart(2, '0')
+  const sequence = String((result?.count || 0) + 1).padStart(2, '0')
 
   // 组合生成offer_name: 品牌_国家_序号
   return `${brandName}_${countryCode}_${sequence}`
@@ -315,12 +315,9 @@ export function calculateSuggestedMaxCPC(
   targetCurrency: string = 'USD'
 ): { amount: number; currency: string; formatted: string } | null {
   try {
-    // 解析价格（去除货币符号和其他非数字字符，保留小数点）
-    const priceMatch = productPrice.match(/[\d.]+/)
-    if (!priceMatch) return null
-    const price = parseFloat(priceMatch[0])
-
-    if (isNaN(price) || price <= 0) return null
+    // 解析价格（使用智能价格解析，支持欧洲/美国格式）
+    const price = parsePrice(productPrice)
+    if (!price || price <= 0) return null
 
     // 解析佣金比例（去除%符号）
     const payoutMatch = commissionPayout.match(/[\d.]+/)
@@ -371,8 +368,8 @@ export function getCountryList(): Array<{ code: string; name: string; language: 
 /**
  * 验证Offer名称是否唯一
  */
-export function isOfferNameUnique(offerName: string, userId: number, excludeOfferId?: number): boolean {
-  const db = getSQLiteDatabase()
+export async function isOfferNameUnique(offerName: string, userId: number, excludeOfferId?: number): Promise<boolean> {
+  const db = await getDatabase()
 
   const query = excludeOfferId
     ? `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND offer_name = ? AND id != ?`
@@ -380,9 +377,9 @@ export function isOfferNameUnique(offerName: string, userId: number, excludeOffe
 
   const params = excludeOfferId ? [userId, offerName, excludeOfferId] : [userId, offerName]
 
-  const result = db.prepare(query).get(...params) as { count: number }
+  const result = await db.queryOne<{ count: number }>(query, params)
 
-  return result.count === 0
+  return (result?.count || 0) === 0
 }
 
 /**

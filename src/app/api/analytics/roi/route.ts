@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { getDatabase, getSQLiteDatabase } from '@/lib/db'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/analytics/roi
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const campaignId = searchParams.get('campaign_id')
     const offerId = searchParams.get('offer_id')
 
-    const db = getSQLiteDatabase()
+    const db = await getDatabase()
 
     // 构建查询条件
     let whereConditions = ['cp.user_id = ?']
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     `.trim()
 
     // 1. 整体ROI分析
-    const overallRoi = db.prepare(`
+    const overallRoi = await db.queryOne(`
       SELECT
         SUM(cp.cost) as total_cost,
         SUM(cp.conversions) as total_conversions,
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       INNER JOIN campaigns c ON cp.campaign_id = c.id
       LEFT JOIN offers o ON c.offer_id = o.id
       WHERE ${whereConditions.join(' AND ')}
-    `).get(...params) as any
+    `, params) as any
 
     const totalCost = overallRoi.total_cost || 0
     const totalRevenue = overallRoi.total_revenue || 0
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     const overallRoiPercentage = totalCost > 0 ? ((totalRevenue - totalCost) / totalCost) * 100 : 0
 
     // 2. 按日期的ROI趋势
-    const roiTrend = db.prepare(`
+    const roiTrend = await db.query(`
       SELECT
         DATE(cp.date) as date,
         SUM(cp.cost) as cost,
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       WHERE ${whereConditions.join(' AND ')}
       GROUP BY DATE(cp.date)
       ORDER BY date ASC
-    `).all(...params) as any[]
+    `, params) as any[]
 
     const roiTrendData = roiTrend.map((row) => ({
       date: row.date,
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
     }))
 
     // 3. 按Campaign的ROI排名
-    const campaignRoi = db.prepare(`
+    const campaignRoi = await db.query(`
       SELECT
         c.id,
         c.campaign_name,
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
       HAVING SUM(cp.conversions) > 0
       ORDER BY revenue DESC
       LIMIT 10
-    `).all(...params) as any[]
+    `, params) as any[]
 
     const campaignRoiData = campaignRoi.map((row) => {
       const cost = row.cost || 0
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
     })
 
     // 4. 按Offer的ROI分析
-    const offerRoi = db.prepare(`
+    const offerRoi = await db.query(`
       SELECT
         o.id,
         o.brand,
@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
       HAVING SUM(cp.conversions) > 0
       ORDER BY revenue DESC
       LIMIT 10
-    `).all(...params) as any[]
+    `, params) as any[]
 
     const offerRoiData = offerRoi.map((row) => {
       const cost = row.cost || 0

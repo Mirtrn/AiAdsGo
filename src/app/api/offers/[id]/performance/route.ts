@@ -45,18 +45,18 @@ export async function GET(
     const avgOrderValue = parseFloat(searchParams.get('avgOrderValue') || '0')
 
     // 2. 获取Offer性能汇总
-    const summary = getOfferPerformanceSummary(offerId, userId, daysBack)
+    const summary = await getOfferPerformanceSummary(offerId, userId, daysBack)
 
     // 3. 获取趋势数据
-    const trend = getOfferPerformanceTrend(offerId, userId, daysBack)
+    const trend = await getOfferPerformanceTrend(offerId, userId, daysBack)
 
     // 4. 获取Campaign对比数据
-    const campaigns = getCampaignPerformanceComparison(offerId, userId, daysBack)
+    const campaigns = await getCampaignPerformanceComparison(offerId, userId, daysBack)
 
     // 5. 计算ROI（如果提供了avgOrderValue）
     let roi = null
     if (avgOrderValue > 0) {
-      roi = calculateOfferROI(offerId, userId, avgOrderValue, daysBack)
+      roi = await calculateOfferROI(offerId, userId, avgOrderValue, daysBack)
     }
 
     // 6. 格式化返回数据

@@ -102,8 +102,8 @@ async function initPostgres() {
   const postgres = (await import('postgres')).default
   const { hashPassword } = await import('../src/lib/crypto')
 
-  // 读取 SQL 文件
-  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema.pg.sql')
+  // 读取 SQL 文件（从 pg-migrations 目录）
+  const sqlPath = path.join(process.cwd(), 'pg-migrations', '000_init_schema.pg.sql')
   if (!fs.existsSync(sqlPath)) {
     console.error('❌ PostgreSQL Schema 文件不存在:', sqlPath)
     console.log('💡 请先运行: npx tsx scripts/generate-schema.ts')

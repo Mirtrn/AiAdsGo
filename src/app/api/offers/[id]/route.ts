@@ -20,7 +20,7 @@ export async function GET(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    const offer = findOfferById(parseInt(id, 10), parseInt(userId, 10))
+    const offer = await findOfferById(parseInt(id, 10), parseInt(userId, 10))
 
     if (!offer) {
       return NextResponse.json(
@@ -115,7 +115,7 @@ export async function PUT(
       )
     }
 
-    const offer = updateOffer(parseInt(id, 10), parseInt(userId, 10), {
+    const offer = await updateOffer(parseInt(id, 10), parseInt(userId, 10), {
       url: validationResult.data.url,
       brand: validationResult.data.brand,
       category: validationResult.data.category,
@@ -183,7 +183,7 @@ export async function DELETE(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    deleteOffer(parseInt(id, 10), parseInt(userId, 10))
+    await deleteOffer(parseInt(id, 10), parseInt(userId, 10))
 
     // 使缓存失效
     invalidateOfferCache(parseInt(userId, 10), parseInt(id, 10))

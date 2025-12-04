@@ -32,7 +32,7 @@ export async function POST(
     }
 
     // 验证Offer存在且属于当前用户
-    const offer = findOfferById(offerId, authResult.user.userId)
+    const offer = await findOfferById(offerId, authResult.user.userId)
     if (!offer) {
       const error = createError.offerNotFound({ offerId, userId: authResult.user.userId })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
@@ -68,7 +68,7 @@ export async function POST(
     } = body
 
     // 检查是否已达到生成次数上限（最多3次）
-    const existingCreatives = listAdCreativesByOffer(offerId, authResult.user.userId, {
+    const existingCreatives = await listAdCreativesByOffer(offerId, authResult.user.userId, {
       generation_round
     })
 
@@ -193,7 +193,7 @@ export async function POST(
       console.log(`📊 创意评估: ${evaluation.finalRating} (${evaluation.finalScore}分)`)
 
       // 保存到数据库（传入Ad Strength评分）
-      const adCreative = createAdCreative(userId, offerId, {
+      const adCreative = await createAdCreative(userId, offerId, {
         ...generatedData,
         final_url: offer.final_url || offer.url,
         final_url_suffix: offer.final_url_suffix || undefined,
@@ -268,7 +268,7 @@ export async function GET(
     }
 
     // 验证Offer存在且属于当前用户
-    const offer = findOfferById(offerId, authResult.user.userId)
+    const offer = await findOfferById(offerId, authResult.user.userId)
     if (!offer) {
       const error = createError.offerNotFound({ offerId, userId: authResult.user.userId })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
@@ -280,7 +280,7 @@ export async function GET(
     const isSelected = searchParams.get('is_selected')
 
     // 🔥 性能优化：默认使用轻量级模式快速返回
-    const creatives = listAdCreativesByOffer(offerId, authResult.user.userId, {
+    const creatives = await listAdCreativesByOffer(offerId, authResult.user.userId, {
       generation_round: generationRound ? parseInt(generationRound) : undefined,
       is_selected: isSelected === 'true' ? true : isSelected === 'false' ? false : undefined,
       lightweight: true  // 只返回核心字段，提升加载速度
