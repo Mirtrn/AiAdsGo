@@ -87,6 +87,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DB_PATH="${PROJECT_ROOT}/data/autoads.db"
 MIGRATIONS_DIR="${PROJECT_ROOT}/migrations"
+PG_MIGRATIONS_DIR="${PROJECT_ROOT}/pg-migrations"
 
 print_info "开始批量Prompt迁移文件生成流程..."
 echo ""
@@ -204,20 +205,35 @@ fi
 
 MIGRATION_FILENAME="${NEXT_NUMBER}_update_all_prompts_${NEW_VERSION}.sql"
 MIGRATION_PATH="${MIGRATIONS_DIR}/${MIGRATION_FILENAME}"
+PG_MIGRATION_FILENAME="${NEXT_NUMBER}_update_all_prompts_${NEW_VERSION}.pg.sql"
+PG_MIGRATION_PATH="${PG_MIGRATIONS_DIR}/${PG_MIGRATION_FILENAME}"
 
-print_success "迁移文件名: $MIGRATION_FILENAME"
+print_success "SQLite迁移文件: $MIGRATION_FILENAME"
+print_success "PostgreSQL迁移文件: $PG_MIGRATION_FILENAME"
 echo ""
 
 # 5. 生成迁移文件内容
 print_info "步骤5: 生成迁移SQL（从数据库导出所有Prompt内容）"
 
-# 初始化迁移文件
+# 初始化SQLite迁移文件
 cat > "$MIGRATION_PATH" << EOF
 -- Migration: ${NEXT_NUMBER}_update_all_prompts_${NEW_VERSION}
 -- Description: 批量更新所有Prompt到 ${NEW_VERSION} 版本
 -- Created: $(date +%Y-%m-%d)
 -- Version: ${CURRENT_VERSION} → ${NEW_VERSION}
 -- Prompts: ${PROMPT_COUNT} 个
+-- Database: SQLite
+
+EOF
+
+# 初始化PostgreSQL迁移文件
+cat > "$PG_MIGRATION_PATH" << EOF
+-- Migration: ${NEXT_NUMBER}_update_all_prompts_${NEW_VERSION}
+-- Description: 批量更新所有Prompt到 ${NEW_VERSION} 版本
+-- Created: $(date +%Y-%m-%d)
+-- Version: ${CURRENT_VERSION} → ${NEW_VERSION}
+-- Prompts: ${PROMPT_COUNT} 个
+-- Database: PostgreSQL
 
 EOF
 
@@ -244,7 +260,7 @@ echo "$PROMPT_LIST" | while IFS='|' read -r prompt_id current_version current_na
     # 生成新名称
     NEW_NAME="${CURRENT_NAME%%v*}${NEW_VERSION}"
 
-    # 追加到迁移文件
+    # 追加到SQLite迁移文件
     cat >> "$MIGRATION_PATH" << EOF
 
 -- ========================================
@@ -287,19 +303,72 @@ $(echo -e "$CHANGE_NOTES")
 );
 
 EOF
+
+    # 追加到PostgreSQL迁移文件（is_active使用TRUE/FALSE）
+    cat >> "$PG_MIGRATION_PATH" << EOF
+
+-- ========================================
+-- ${prompt_id}: ${current_version} → ${NEW_VERSION}
+-- ========================================
+
+-- 1. 将当前活跃版本设为非活跃
+UPDATE prompt_versions
+SET is_active = FALSE
+WHERE prompt_id = '$prompt_id' AND is_active = TRUE;
+
+-- 2. 插入新版本
+INSERT INTO prompt_versions (
+  prompt_id,
+  version,
+  category,
+  name,
+  description,
+  file_path,
+  function_name,
+  prompt_content,
+  language,
+  is_active,
+  change_notes
+) VALUES (
+  '$prompt_id',
+  '$NEW_VERSION',
+  '$CATEGORY',
+  '$NEW_NAME',
+  '$DESCRIPTION',
+  '$FILE_PATH',
+  '$FUNCTION_NAME',
+  '$ESCAPED_CONTENT',
+  'Chinese',
+  TRUE,
+  '
+$NEW_VERSION 更新内容:
+$(echo -e "$CHANGE_NOTES")
+'
+);
+
+EOF
 done
 
-print_success "迁移文件已生成: $MIGRATION_PATH"
+print_success "SQLite迁移文件已生成: $MIGRATION_PATH"
+print_success "PostgreSQL迁移文件已生成: $PG_MIGRATION_PATH"
 echo ""
 
 # 6. 显示迁移文件统计
 print_info "步骤6: 迁移文件统计"
 MIGRATION_LINES=$(wc -l < "$MIGRATION_PATH" | tr -d ' ')
 MIGRATION_SIZE=$(ls -lh "$MIGRATION_PATH" | awk '{print $5}')
+PG_MIGRATION_LINES=$(wc -l < "$PG_MIGRATION_PATH" | tr -d ' ')
+PG_MIGRATION_SIZE=$(ls -lh "$PG_MIGRATION_PATH" | awk '{print $5}')
 echo "  版本变更: ${CURRENT_VERSION} → ${NEW_VERSION}"
 echo "  Prompt数量: ${PROMPT_COUNT}"
-echo "  总行数: ${MIGRATION_LINES}"
-echo "  文件大小: ${MIGRATION_SIZE}"
+echo ""
+echo "  SQLite迁移:"
+echo "    总行数: ${MIGRATION_LINES}"
+echo "    文件大小: ${MIGRATION_SIZE}"
+echo ""
+echo "  PostgreSQL迁移:"
+echo "    总行数: ${PG_MIGRATION_LINES}"
+echo "    文件大小: ${PG_MIGRATION_SIZE}"
 echo ""
 
 # 7. 预览迁移文件
@@ -317,7 +386,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     print_info "步骤8: Git提交"
 
     cd "$PROJECT_ROOT"
-    git add "$MIGRATION_PATH"
+    git add "$MIGRATION_PATH" "$PG_MIGRATION_PATH"
 
     COMMIT_MESSAGE="feat: 批量更新所有Prompt到${NEW_VERSION}
 
@@ -328,6 +397,10 @@ $(echo "$PROMPT_LIST" | while IFS='|' read -r pid ver name; do echo "  - ${pid} 
 
 变更说明:
 $(echo -e "$CHANGE_NOTES")
+
+文件:
+  - SQLite: ${MIGRATION_FILENAME}
+  - PostgreSQL: ${PG_MIGRATION_FILENAME}
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
@@ -349,7 +422,7 @@ else
     print_warning "跳过Git提交"
     print_info "手动提交命令:"
     echo "  cd $PROJECT_ROOT"
-    echo "  git add $MIGRATION_PATH"
+    echo "  git add $MIGRATION_PATH $PG_MIGRATION_PATH"
     echo "  git commit -m \"feat: 批量更新所有Prompt到${NEW_VERSION}\""
 fi
 
@@ -366,6 +439,7 @@ echo ""
 echo "工作原理:"
 echo "  ✅ 版本自动递增: ${CURRENT_VERSION} → ${NEW_VERSION}"
 echo "  ✅ 开发环境: 数据库中的所有Prompt已是最新版本"
-echo "  ✅ 迁移文件: 包含从开发数据库导出的所有Prompt完整内容"
-echo "  ✅ 生产环境: 应用启动时自动执行迁移，所有Prompt同步到最新版本"
+echo "  ✅ SQLite迁移: ${MIGRATION_FILENAME}"
+echo "  ✅ PostgreSQL迁移: ${PG_MIGRATION_FILENAME}"
+echo "  ✅ 生产环境: 应用启动时自动执行对应数据库的迁移"
 echo ""
