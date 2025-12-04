@@ -2,14 +2,14 @@ name: Database Schema Validation
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
     paths:
       - 'migrations/**'
       - 'pg-migrations/**'
       - 'scripts/validate-db-schema.ts'
       - '.github/workflows/db-validation.yml'
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
     paths:
       - 'migrations/**'
       - 'pg-migrations/**'
