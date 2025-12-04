@@ -1,0 +1,96 @@
+name: Database Schema Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'migrations/**'
+      - 'pg-migrations/**'
+      - 'scripts/validate-db-schema.ts'
+      - '.github/workflows/db-validation.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'migrations/**'
+      - 'pg-migrations/**'
+      - 'scripts/validate-db-schema.ts'
+
+jobs:
+  validate-schema:
+    name: Validate Database Schema
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install SQLite
+        run: sudo apt-get update && sudo apt-get install -y sqlite3
+
+      - name: Initialize test database
+        run: |
+          mkdir -p data
+          sqlite3 data/autoads.db < migrations/000_init_schema_consolidated.sqlite.sql
+
+      - name: Run schema validation
+        run: npm run validate-schema
+
+      - name: Check table count
+        run: |
+          TABLE_COUNT=$(sqlite3 data/autoads.db "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+          echo "Table count: $TABLE_COUNT"
+          if [ "$TABLE_COUNT" -ne 40 ]; then
+            echo "❌ Expected 40 tables, got $TABLE_COUNT"
+            exit 1
+          fi
+          echo "✅ Table count correct: 40 tables"
+
+      - name: Check prompt versions
+        run: |
+          PROMPT_COUNT=$(sqlite3 data/autoads.db "SELECT COUNT(*) FROM prompt_versions WHERE is_active = 1;")
+          echo "Active prompts: $PROMPT_COUNT"
+          if [ "$PROMPT_COUNT" -ne 12 ]; then
+            echo "❌ Expected 12 active prompts, got $PROMPT_COUNT"
+            exit 1
+          fi
+          echo "✅ Prompt count correct: 12 active prompts"
+
+      - name: Check foreign keys enabled
+        run: |
+          FK_STATUS=$(sqlite3 data/autoads.db "PRAGMA foreign_keys;")
+          echo "Foreign keys: $FK_STATUS"
+          if [ "$FK_STATUS" -ne 1 ]; then
+            echo "❌ Foreign keys not enabled"
+            exit 1
+          fi
+          echo "✅ Foreign keys enabled"
+
+      - name: Validation summary
+        if: success()
+        run: |
+          echo "======================================"
+          echo "✅ All database validations passed!"
+          echo "======================================"
+          echo "- Schema initialized successfully"
+          echo "- 40 tables created"
+          echo "- 12 active prompt versions"
+          echo "- Foreign keys enabled"
+          echo "======================================"
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-report
+          path: |
+            data/autoads.db
+          retention-days: 7

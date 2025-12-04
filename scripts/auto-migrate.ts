@@ -99,8 +99,8 @@ async function initSQLite() {
     console.log('✅ 创建数据目录:', dataDir)
   }
 
-  // 读取 SQL 文件
-  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema.sqlite.sql')
+  // 读取整合 SQL 文件
+  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema_consolidated.sqlite.sql')
   if (!fs.existsSync(sqlPath)) {
     throw new Error(`Schema 文件不存在: ${sqlPath}`)
   }
@@ -135,8 +135,8 @@ async function initPostgres() {
   const postgres = (await import('postgres')).default
   const { hashPassword } = await import('../src/lib/crypto')
 
-  // 读取 SQL 文件
-  const sqlPath = path.join(process.cwd(), 'pg-migrations', '000_init_schema.pg.sql')
+  // 读取整合 SQL 文件
+  const sqlPath = path.join(process.cwd(), 'pg-migrations', '000_init_schema_consolidated.pg.sql')
   if (!fs.existsSync(sqlPath)) {
     throw new Error(`Schema 文件不存在: ${sqlPath}`)
   }
@@ -188,11 +188,17 @@ async function migrateSQLite() {
         .map((row: any) => row.migration_name)
     )
 
-    // 读取迁移文件
+    // 读取迁移文件（跳过整合Schema和归档文件）
     const migrationsPath = path.join(process.cwd(), MIGRATIONS_DIR)
     const migrationFiles = fs.readdirSync(migrationsPath)
       .filter(f => f.endsWith('.sql') && !f.endsWith('.pg.sql'))
-      .filter(f => !f.includes('000_init_schema')) // 跳过初始化文件
+      .filter(f => !f.includes('000_init_schema')) // 跳过所有初始化文件
+      .filter(f => !f.startsWith('archive')) // 跳过归档目录
+      .filter(f => {
+        // 跳过归档目录中的文件
+        const fullPath = path.join(migrationsPath, f)
+        return !fullPath.includes('/archive/')
+      })
       .sort()
 
     let executedCount = 0
@@ -247,11 +253,17 @@ async function migratePostgres() {
     const appliedRows = await sql`SELECT migration_name FROM migration_history`
     const appliedMigrations = new Set(appliedRows.map(row => row.migration_name))
 
-    // 读取迁移文件
+    // 读取迁移文件（跳过整合Schema和归档文件）
     const migrationsPath = path.join(process.cwd(), MIGRATIONS_DIR)
     const migrationFiles = fs.readdirSync(migrationsPath)
       .filter(f => f.endsWith('.pg.sql'))
-      .filter(f => !f.includes('000_init_schema')) // 跳过初始化文件
+      .filter(f => !f.includes('000_init_schema')) // 跳过所有初始化文件
+      .filter(f => !f.startsWith('archive')) // 跳过归档目录
+      .filter(f => {
+        // 跳过归档目录中的文件
+        const fullPath = path.join(migrationsPath, f)
+        return !fullPath.includes('/archive/')
+      })
       .sort()
 
     let executedCount = 0
