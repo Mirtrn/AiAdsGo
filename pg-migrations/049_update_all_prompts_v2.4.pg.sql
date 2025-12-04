@@ -1,4 +1,4 @@
--- Migration: 050_update_all_prompts_v2.4
+-- Migration: 049_update_all_prompts_v2.4
 -- Description: 批量更新所有Prompt到 v2.4 版本
 -- Created: 2025-12-04
 -- Version: v2.3 → v2.4
@@ -11,8 +11,8 @@
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'ad_creative_generation' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'ad_creative_generation' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -116,8 +116,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'ad_elements_descriptions' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'ad_elements_descriptions' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -216,8 +216,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'ad_elements_headlines' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'ad_elements_headlines' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -324,8 +324,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'brand_analysis_store' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'brand_analysis_store' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -451,8 +451,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'brand_name_extraction' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'brand_name_extraction' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -505,8 +505,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'competitor_analysis' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'competitor_analysis' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -612,8 +612,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'competitor_keyword_inference' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'competitor_keyword_inference' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -720,8 +720,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'creative_quality_scoring' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'creative_quality_scoring' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -837,8 +837,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'keywords_generation' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'keywords_generation' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -963,8 +963,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'launch_score_evaluation' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'launch_score_evaluation' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -1141,8 +1141,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'product_analysis_single' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'product_analysis_single' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
@@ -1283,8 +1283,8 @@ v2.4 更新内容:
 
 -- 1. 将当前活跃版本设为非活跃
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'review_analysis' AND is_active = 1;
+SET is_active = FALSE
+WHERE prompt_id = 'review_analysis' AND is_active = TRUE;
 
 -- 2. 插入新版本
 INSERT INTO prompt_versions (
