@@ -181,7 +181,7 @@ CREATE TABLE ad_creatives (
   score_breakdown TEXT,
   score_explanation TEXT,
   ad_strength TEXT DEFAULT 'UNKNOWN',
-  generation_round BOOLEAN DEFAULT TRUE,
+  generation_round INTEGER DEFAULT 1,
   theme TEXT,
   ai_model TEXT,
   is_selected BOOLEAN DEFAULT FALSE,
@@ -599,7 +599,7 @@ CREATE TABLE google_ads_api_usage (
   customer_id TEXT,
   request_count INTEGER DEFAULT 1,
   response_time_ms INTEGER,
-  is_success BOOLEAN DEFAULT TRUE,
+  is_success INTEGER DEFAULT 1,
   error_message TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   date TEXT NOT NULL,
@@ -1297,7 +1297,7 @@ CREATE INDEX idx_offers_target_country ON offers(target_country);
 
 
 -- Index: idx_offers_user_brand_unique (on table: offers)
-CREATE UNIQUE INDEX idx_offers_user_brand_unique ON offers(user_id, brand) WHERE is_deleted = 0;
+CREATE UNIQUE INDEX idx_offers_user_brand_unique ON offers(user_id, brand) WHERE is_deleted = FALSE;
 
 
 -- Index: idx_offers_user_id (on table: offers)

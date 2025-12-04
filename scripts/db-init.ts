@@ -17,6 +17,41 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
+/**
+ * 从 DATABASE_URL 中提取数据库名和基础连接字符串
+ * 例如: postgresql://user:pass@host:port/autoads -> { dbName: 'autoads', baseUrl: 'postgresql://user:pass@host:port/postgres' }
+ */
+function parseDatabaseUrl(url: string): { dbName: string; baseUrl: string } {
+  const match = url.match(/^(postgresql?:\/\/[^/]+)\/([^?]+)(\?.*)?$/);
+  if (!match) {
+    throw new Error('无效的 DATABASE_URL 格式');
+  }
+  const [, baseWithoutDb, dbName, queryString = ''] = match;
+  return {
+    dbName,
+    baseUrl: `${baseWithoutDb}/postgres${queryString}`, // 连接到默认的 postgres 数据库
+  };
+}
+
+/**
+ * 检查目标数据库是否存在
+ */
+async function checkDatabaseExists(sql: ReturnType<typeof postgres>, dbName: string): Promise<boolean> {
+  const result = await sql`
+    SELECT 1 FROM pg_database WHERE datname = ${dbName}
+  `;
+  return result.length > 0;
+}
+
+/**
+ * 创建目标数据库
+ */
+async function createDatabase(sql: ReturnType<typeof postgres>, dbName: string): Promise<void> {
+  console.log(`📦 创建数据库: ${dbName}...`);
+  await sql.unsafe(`CREATE DATABASE "${dbName}"`);
+  console.log(`✅ 数据库 ${dbName} 创建成功`);
+}
+
 async function waitForDatabase(sql: ReturnType<typeof postgres>, maxRetries = 30): Promise<boolean> {
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -136,28 +171,58 @@ async function main() {
   console.log('========================================');
   console.log('');
   console.log('📦 数据库类型: PostgreSQL');
-  console.log('🔗 连接中...');
 
-  const sql = postgres(DATABASE_URL);
+  // 解析 DATABASE_URL 获取数据库名
+  const { dbName, baseUrl } = parseDatabaseUrl(DATABASE_URL!);
+  console.log(`🎯 目标数据库: ${dbName}`);
+  console.log('🔗 连接到 PostgreSQL 服务器...');
+
+  // 首先连接到默认的 postgres 数据库，检查目标数据库是否存在
+  const adminSql = postgres(baseUrl);
 
   try {
-    // 等待数据库可用
+    // 等待数据库服务器可用
+    const serverReady = await waitForDatabase(adminSql);
+    if (!serverReady) {
+      console.error('❌ 错误: 无法连接到 PostgreSQL 服务器');
+      process.exit(1);
+    }
+    console.log('✅ PostgreSQL 服务器连接成功');
+
+    // 检查目标数据库是否存在
+    console.log(`🔍 检查数据库 ${dbName} 是否存在...`);
+    const dbExists = await checkDatabaseExists(adminSql, dbName);
+
+    if (!dbExists) {
+      await createDatabase(adminSql, dbName);
+    } else {
+      console.log(`✅ 数据库 ${dbName} 已存在`);
+    }
+
+    // 关闭管理连接
+    await adminSql.end();
+
+    // 连接到目标数据库
+    console.log(`🔗 连接到数据库 ${dbName}...`);
+    const sql = postgres(DATABASE_URL!);
+
+    // 等待目标数据库可用
     const connected = await waitForDatabase(sql);
     if (!connected) {
-      console.error('❌ 错误: 无法连接到数据库');
+      console.error('❌ 错误: 无法连接到目标数据库');
       process.exit(1);
     }
     console.log('✅ 数据库连接成功');
 
     // 检查数据库是否已初始化
-    console.log('🔍 检查数据库状态...');
+    console.log('🔍 检查数据库表结构...');
     const initialized = await checkDatabaseInitialized(sql);
 
     if (!initialized) {
       console.log('📋 数据库未初始化，开始初始化...');
       await initializeDatabase(sql);
     } else {
-      console.log('✅ 数据库已初始化');
+      console.log('✅ 数据库表结构已初始化');
     }
 
     // 确保管理员账号存在
@@ -168,11 +233,11 @@ async function main() {
     console.log('✅ 数据库初始化完成');
     console.log('========================================');
 
+    await sql.end();
+
   } catch (error) {
     console.error('❌ 初始化失败:', (error as Error).message);
     process.exit(1);
-  } finally {
-    await sql.end();
   }
 }
 
