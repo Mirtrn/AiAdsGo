@@ -11,6 +11,9 @@ import { ScenarioTabs } from "@/components/marketing/ScenarioTabs";
 
 export const metadata = pageMetadata.home;
 
+// Force dynamic rendering for client components with state
+export const dynamic = 'force-dynamic';
+
 export default function MarketingHome() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans selection:bg-blue-100 selection:text-blue-900">

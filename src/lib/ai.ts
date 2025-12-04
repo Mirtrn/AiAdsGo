@@ -13,28 +13,14 @@ export interface ProductInfo {
   sellingPoints?: string[]           // 产品卖点列表
   productDescription?: string        // 产品描述（完整文本）
   // 增强数据维度（用于精准广告创意生成）
-  pricing?: {
-    currentPrice?: string
-    originalPrice?: string
-    discountPercentage?: number
-    competitiveness?: string
-  }
-  reviews?: {
-    rating?: number
-    reviewCount?: number
-    keyPositives?: string[]
-    keyConcerns?: string[]
-    typicalUseCases?: string[]
-  }
+  // ❌ 已删除冗余字段（2025-12-04）:
+  // - pricing: 与 scraped_data 重复
+  // - reviews: 与 review_analysis 重复
+  // - competitiveEdges: 与 competitor_analysis 重复
   promotions?: {
     activeDeals?: string[]
     urgencyIndicators?: string[]
     freeShipping?: boolean
-  }
-  competitiveEdges?: {
-    badges?: string[]
-    stockStatus?: string
-    popularityIndicators?: string[]
   }
 }
 

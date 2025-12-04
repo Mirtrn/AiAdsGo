@@ -1011,6 +1011,7 @@ export interface AmazonProductData {
   rating: string | null
   reviewCount: string | null
   salesRank: string | null
+  badge: string | null  // 🎯 P3优化: Amazon trust badges (Amazon's Choice, Best Seller等)
   availability: string | null
   primeEligible: boolean
   reviewHighlights: string[]
@@ -1185,6 +1186,53 @@ export async function scrapeAmazonProduct(
                         $('#SalesRank').text().trim() ||
                         $('th:contains("Best Sellers Rank")').next().text().trim()
   const salesRank = salesRankText ? salesRankText.match(/#[\d,]+/)?.[0] || null : null
+
+  // 🎯 P3优化: Extract badge (Amazon's Choice, Best Seller, etc.)
+  // Badge通常显示在产品标题附近，是Amazon平台最强的trust signal
+  let badge: string | null = null
+
+  // Strategy 1: Amazon's Choice badge (最常见)
+  const amazonChoiceBadge = $('.ac-badge-wrapper .ac-badge-text-primary').text().trim() ||
+                            $('span.a-badge-text:contains("Amazon\'s Choice")').text().trim() ||
+                            $('[data-a-badge-color="sx-gulfstream"] span.a-badge-text').text().trim()
+
+  // Strategy 2: Best Seller badge (从多个位置检测)
+  const bestSellerBadge = $('#zeitgeist-module .a-badge-text').text().trim() ||
+                          $('.badge-wrapper .badge-text:contains("Best Seller")').text().trim() ||
+                          $('span:contains("#1 Best Seller")').first().text().trim()
+
+  // Strategy 3: Generic badge detection (捕获其他badge)
+  const genericBadge = $('.a-badge-text').first().text().trim() ||
+                       $('i.a-icon-addon-badge').parent().text().trim()
+
+  // 优先级: Amazon's Choice > Best Seller > Generic
+  if (amazonChoiceBadge) {
+    badge = amazonChoiceBadge.includes("Amazon's Choice") ? "Amazon's Choice" : amazonChoiceBadge
+  } else if (bestSellerBadge) {
+    // 规范化Best Seller badge文本
+    if (bestSellerBadge.match(/#\d+\s+Best Seller/i)) {
+      const match = bestSellerBadge.match(/(#\d+\s+Best Seller)/i)
+      badge = match ? match[1] : "Best Seller"
+    } else if (bestSellerBadge.toLowerCase().includes('best seller')) {
+      badge = "Best Seller"
+    }
+  } else if (genericBadge && genericBadge.length > 0 && genericBadge.length <= 25) {
+    // Generic badge限制长度≤25字符（符合Google Ads Callouts要求）
+    badge = genericBadge
+  }
+
+  // 验证badge质量（移除噪音）
+  if (badge) {
+    badge = badge.trim()
+    // 移除category信息（如"Amazon's Choice for security cameras" → "Amazon's Choice"）
+    if (badge.includes(' for ') || badge.includes(' in ')) {
+      badge = badge.split(' for ')[0].split(' in ')[0].trim()
+    }
+    // 最终长度验证
+    if (badge.length > 25 || badge.length === 0) {
+      badge = null
+    }
+  }
 
   // Extract availability
   const availability = $('#availability span').text().trim() ||
@@ -1487,6 +1535,7 @@ export async function scrapeAmazonProduct(
     rating,
     reviewCount,
     salesRank,
+    badge,  // 🎯 P3优化: Amazon trust badge
     availability,
     primeEligible,
     reviewHighlights: reviewHighlights.slice(0, 10),
@@ -1498,6 +1547,7 @@ export async function scrapeAmazonProduct(
 
   console.log(`✅ 抓取成功: ${productData.productName || 'Unknown'}`)
   console.log(`⭐ 评分: ${rating || 'N/A'}, 评论数: ${reviewCount || 'N/A'}, 销量排名: ${salesRank || 'N/A'}`)
+  console.log(`🎯 P3 Badge: ${badge || 'None'}`)  // P3优化: 显示badge提取结果
 
   return productData
 
@@ -1557,6 +1607,18 @@ export interface AmazonStoreData {
     avgRating: number
     avgReviews: number
     topProductsCount: number
+  }
+  // 🆕 Phase 2: 产品分类（全局店铺理解）
+  productCategories?: {
+    primaryCategories: Array<{
+      name: string
+      count: number
+      url?: string
+    }>
+    categoryTree?: {
+      [parentCategory: string]: string[]
+    }
+    totalCategories: number
   }
   // 🔥 新增：深度抓取结果（热销商品详情页数据）
   deepScrapeResults?: {
@@ -2489,6 +2551,18 @@ export async function scrapeAmazonStore(
     hotInsights,
   }
 
+  // 🆕 Phase 2: 抓取产品分类（建立全局理解）
+  try {
+    const productCategories = await scrapeStoreCategories(page)
+    if (productCategories.totalCategories > 0) {
+      storeData.productCategories = productCategories
+      console.log(`✅ 成功抓取 ${productCategories.totalCategories} 个产品分类`)
+    }
+  } catch (error: any) {
+    console.warn(`⚠️ 类别抓取失败（非致命错误）: ${error.message}`)
+    // 类别抓取失败不影响整体流程，继续执行
+  }
+
   console.log(`✅ Store抓取成功: ${storeName}`)
   console.log(`📊 热销商品筛选: ${products.length} → ${enhancedProducts.length}`)
   if (hotInsights) {
@@ -2658,6 +2732,100 @@ function extractCompetitorAsinsFromProductData(productData: AmazonProductData): 
   // TODO: 从产品页面的 "Customers also viewed", "Compare with similar items" 等区域提取竞品
   // 当前先返回空数组，后续可以扩展
   return []
+}
+
+/**
+ * 🆕 Phase 2: 从Amazon店铺页面抓取产品分类
+ * 帮助建立对店铺产品的全局理解，提升广告创意的相关性和多样性
+ *
+ * @param page - Playwright页面对象
+ * @returns 产品分类信息
+ */
+async function scrapeStoreCategories(
+  page: any
+): Promise<NonNullable<AmazonStoreData['productCategories']>> {
+  console.log('🔍 开始抓取店铺产品分类...')
+
+  const categories: Array<{ name: string; count: number; url?: string }> = []
+
+  // Amazon Store页面的类别导航选择器（按优先级尝试）
+  const categorySelectors = [
+    // 方法1: 主导航栏中的类别链接
+    'nav[aria-label*="categor"] a, nav[aria-label*="Categor"] a',
+    // 方法2: 侧边栏类别导航
+    '#nav-subnav a[href*="/s?"]',
+    '.store-nav-category a, .store-categories a',
+    // 方法3: 店铺特定的类别容器
+    '[class*="StoreNav"] a, [class*="store-nav"] a',
+    '[data-component-type="category-link"]',
+    // 方法4: 通用类别链接模式
+    'a[href*="node="], a[href*="rh="]'
+  ]
+
+  for (const selector of categorySelectors) {
+    try {
+      const elements = await page.$$(selector)
+
+      if (elements.length === 0) {
+        console.log(`  ⊗ 选择器 "${selector}" 未匹配到元素`)
+        continue
+      }
+
+      console.log(`  ✓ 选择器 "${selector}" 匹配到 ${elements.length} 个元素`)
+
+      for (const el of elements) {
+        try {
+          const name = await el.textContent()
+          const href = await el.getAttribute('href')
+
+          // 过滤无效类别名称
+          if (!name || name.trim().length === 0) continue
+          const trimmedName = name.trim()
+
+          // 跳过常见的非类别链接
+          const skipKeywords = ['all products', 'shop now', 'view all', 'see more', 'home', 'back']
+          if (skipKeywords.some(keyword => trimmedName.toLowerCase().includes(keyword))) {
+            continue
+          }
+
+          // 检查是否已存在（大小写不敏感去重）
+          if (categories.some(c => c.name.toLowerCase() === trimmedName.toLowerCase())) {
+            continue
+          }
+
+          categories.push({
+            name: trimmedName,
+            count: 0,  // 产品数量需要访问类别页面才能获取，暂时设为0
+            url: href || undefined
+          })
+
+          console.log(`    ✅ 添加类别: "${trimmedName}"`)
+        } catch (err) {
+          // 单个元素处理失败不影响整体
+          continue
+        }
+      }
+
+      // 如果找到了类别，停止尝试其他选择器
+      if (categories.length > 0) {
+        console.log(`✅ 成功抓取 ${categories.length} 个产品类别`)
+        break
+      }
+    } catch (error: any) {
+      console.log(`  ⊗ 选择器 "${selector}" 执行失败: ${error.message}`)
+      continue
+    }
+  }
+
+  // 如果所有选择器都没有找到类别
+  if (categories.length === 0) {
+    console.warn('⚠️ 未能识别到店铺产品分类，可能是页面结构变化或非标准店铺页面')
+  }
+
+  return {
+    primaryCategories: categories,
+    totalCategories: categories.length
+  }
 }
 
 /**

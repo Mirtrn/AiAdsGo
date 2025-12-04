@@ -43,7 +43,7 @@ export interface Offer {
   deleted_at: string | null  // 软删除时间戳（数据库字段，之前遗漏）
   is_deleted: number  // 软删除标记（数据库字段，之前遗漏）
   // 增强数据字段（JSON格式存储）
-  pricing: string | null  // 价格信息JSON（从product_price解析）
+  // ❌ 已删除冗余字段（2025-12-04）: pricing (与scraped_data重复)
   promotions: string | null  // 促销信息JSON
   scraped_data: string | null  // 原始爬虫数据（包含discount, salesRank, badge, reviews等所有字段）
   // P1-11: 关联的Google Ads账号信息（运行时计算字段，非数据库字段）
@@ -694,6 +694,8 @@ export async function updateOfferScrapeStatus(
     extracted_at?: string
     // 🎯 P0优化: 原始爬虫数据（JSON格式存储所有scraped字段）
     scraped_data?: string
+    // 🆕 Phase 2: 产品分类元数据（Store Metadata Enhancement）
+    product_categories?: string
   }
 ): Promise<void> {
   const db = await getDatabase()
@@ -749,6 +751,7 @@ export async function updateOfferScrapeStatus(
           extraction_metadata = COALESCE(?, extraction_metadata),
           extracted_at = COALESCE(?, extracted_at),
           scraped_data = COALESCE(?, scraped_data),
+          product_categories = COALESCE(?, product_categories),
           updated_at = datetime('now')
       WHERE id = ? AND user_id = ?
     `, [
@@ -774,6 +777,7 @@ export async function updateOfferScrapeStatus(
       scrapedData.extraction_metadata || null,
       scrapedData.extracted_at || null,
       scrapedData.scraped_data || null,
+      scrapedData.product_categories || null,
       id,
       userId
     ])

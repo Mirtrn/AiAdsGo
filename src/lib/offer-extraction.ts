@@ -460,7 +460,7 @@ function calculateExtractionQualityScore(data: {
     if (data.productInfo.description) productScore += 5
     if (data.productInfo.features) productScore += 5
     if (data.productInfo.specifications) productScore += 5
-    if (data.productInfo.pricing) productScore += 5
+    // ❌ 已删除 pricing 字段检查（2025-12-04）
     if (data.productInfo.socialProof) productScore += 5
     score += Math.min(35, productScore)
     components++

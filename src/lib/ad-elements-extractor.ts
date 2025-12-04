@@ -21,6 +21,23 @@ import type { AmazonProductData, AmazonStoreData } from './scraper-stealth'
 // Type alias for Store Product (extracted from AmazonStoreData.products)
 type StoreProduct = AmazonStoreData['products'][number]
 
+// 🔥 扩展的Store Product类型（包含深度数据）
+type EnrichedStoreProduct = {
+  name: string
+  asin?: string | null
+  price?: string | null
+  rating?: string | null
+  reviewCount?: string | null
+  imageUrl?: string | null
+  hotScore?: number
+  hasDeepData?: boolean
+  // 🔥 深度数据字段
+  productData?: AmazonProductData | null
+  reviewAnalysis?: any | null
+  competitorAnalysis?: any | null
+  productInfo?: any | null  // 🆕 AI产品分析结果
+}
+
 /**
  * 从AI响应中提取JSON（处理markdown代码块等格式）
  */
@@ -160,6 +177,11 @@ interface ProductInfo {
   brand?: string
   rating?: string | null
   reviewCount?: string | null
+  // 🔥 Deep analysis fields from productInfo
+  uniqueSellingPoints?: string
+  targetAudience?: string
+  productHighlights?: string
+  brandDescription?: string
 }
 
 /**
@@ -843,17 +865,21 @@ async function extractFromStore(
 
   // 3. 从多个热销商品生成15个广告标题
   console.log('\n📝 从TOP 5热销商品生成15个广告标题...')
-  const productInfos: ProductInfo[] = topProducts.map(p => ({
-    name: p.name,
-    brand: brand,
-    rating: p.rating,
-    reviewCount: p.reviewCount
-  }))
-  const headlines = await generateHeadlinesFromMultipleProducts(productInfos, keywordsWithVolume.slice(0, 10), targetLanguage, userId)
+  // 🔥 传递完整的EnrichedStoreProduct数据（包含深度分析字段）
+  const headlines = await generateHeadlinesFromMultipleProducts(topProducts, keywordsWithVolume.slice(0, 10), targetLanguage, userId, brand)
 
   // 4. 从多个热销商品生成4个广告描述
   console.log('\n📝 从TOP 5热销商品生成4个广告描述...')
-  const descriptions = await generateDescriptionsFromMultipleProducts(productInfos, targetLanguage, userId)
+  const descriptions = await generateDescriptionsFromMultipleProducts(
+    topProducts.map(p => ({
+      name: p.name,
+      brand: brand,
+      rating: p.rating,
+      reviewCount: p.reviewCount
+    })),
+    targetLanguage,
+    userId
+  )
 
   return {
     keywords: keywordsWithVolume,
@@ -876,6 +902,7 @@ async function extractFromStore(
 }
 /**
  * 生成广告标题的提示词（从数据库加载版本管理）
+ * 🔥 Enhanced to utilize productInfo deep analysis fields
  */
 async function getHeadlinePrompt(
   product: ProductInfo,
@@ -884,12 +911,18 @@ async function getHeadlinePrompt(
 ): Promise<string> {
   // 📦 从数据库加载prompt模板 (版本管理)
   const promptTemplate = await loadPrompt('ad_elements_headlines')
-  
+
   // 🎨 准备模板变量
   const aboutThisItemText = product.aboutThisItem?.slice(0, 5).join('; ') || 'Not provided'
   const featuresText = product.features?.slice(0, 5).join('; ') || 'Not provided'
   const topKeywordsText = topKeywords.map(k => `- ${k.keyword} (Search Volume: ${k.searchVolume})`).join('\n')
-  
+
+  // 🔥 Add deep analysis fields if available
+  const uniqueSellingPointsText = product.uniqueSellingPoints || 'Not provided'
+  const targetAudienceText = product.targetAudience || 'Not provided'
+  const productHighlightsText = product.productHighlights || 'Not provided'
+  const brandDescriptionText = product.brandDescription || 'Not provided'
+
   // 🎨 插值替换模板变量
   const prompt = promptTemplate
     .replace('{{product.name}}', product.name)
@@ -899,7 +932,12 @@ async function getHeadlinePrompt(
     .replace('{{product.aboutThisItem}}', aboutThisItemText)
     .replace('{{product.features}}', featuresText)
     .replace('{{topKeywords}}', topKeywordsText)
-  
+    // 🔥 Add new template variables for deep analysis
+    .replace('{{product.uniqueSellingPoints}}', uniqueSellingPointsText)
+    .replace('{{product.targetAudience}}', targetAudienceText)
+    .replace('{{product.productHighlights}}', productHighlightsText)
+    .replace('{{product.brandDescription}}', brandDescriptionText)
+
   return prompt
 }
 
@@ -988,11 +1026,13 @@ async function generateHeadlines(
 
 /**
  * 生成语言特定的提示词（Headline生成 - 多商品店铺）
+ * 🔥 Enhanced to utilize deep analysis data: productInfo, reviewAnalysis, competitorAnalysis
  */
 function getMultipleProductHeadlinePrompt(
-  products: ProductInfo[],
+  products: EnrichedStoreProduct[],  // 🔥 Changed from ProductInfo[] to access deep analysis
   topKeywords: Array<{ keyword: string; searchVolume: number }>,
-  targetLanguage: string
+  targetLanguage: string,
+  brand: string  // 🔥 New parameter for consistent brand reference
 ): string {
   const languageInstructions = {
     'English': {
@@ -1170,12 +1210,52 @@ function getMultipleProductHeadlinePrompt(
 
   const lang = languageInstructions[targetLanguage as keyof typeof languageInstructions] || languageInstructions['English']
 
+  // 🔥 Build enriched product descriptions with deep analysis data
+  const enrichedProductDescriptions = products.map((p, i) => {
+    const parts = [
+      `${i + 1}. **${p.name}**`,
+      `   - ${lang.rating}: ${p.rating || 'N/A'}⭐ (${p.reviewCount || 'N/A'} ${lang.reviews})`
+    ]
+
+    // Add AI product analysis if available
+    if (p.productInfo) {
+      const info = typeof p.productInfo === 'string' ? JSON.parse(p.productInfo) : p.productInfo
+      if (info.uniqueSellingPoints) {
+        parts.push(`   - Unique Selling Points: ${info.uniqueSellingPoints}`)
+      }
+      if (info.targetAudience) {
+        parts.push(`   - Target Audience: ${info.targetAudience}`)
+      }
+    }
+
+    // Add review analysis insights if available
+    if (p.reviewAnalysis) {
+      const analysis = typeof p.reviewAnalysis === 'string' ? JSON.parse(p.reviewAnalysis) : p.reviewAnalysis
+      if (analysis.topPositiveKeywords && analysis.topPositiveKeywords.length > 0) {
+        parts.push(`   - Customer Praise: ${analysis.topPositiveKeywords.slice(0, 3).join(', ')}`)
+      }
+      if (analysis.realUseCases && analysis.realUseCases.length > 0) {
+        parts.push(`   - Use Cases: ${analysis.realUseCases.slice(0, 2).join(', ')}`)
+      }
+    }
+
+    // Add competitive advantages if available
+    if (p.competitorAnalysis) {
+      const compAnalysis = typeof p.competitorAnalysis === 'string' ? JSON.parse(p.competitorAnalysis) : p.competitorAnalysis
+      if (compAnalysis.uniqueSellingPoints && compAnalysis.uniqueSellingPoints.length > 0) {
+        parts.push(`   - Competitive Edge: ${compAnalysis.uniqueSellingPoints.slice(0, 2).join(', ')}`)
+      }
+    }
+
+    return parts.join('\n')
+  }).join('\n\n')
+
   return `${lang.intro}
 
-**${lang.topProducts}**
-${products.map((p, i) => `${i + 1}. ${p.name} (${lang.rating}${p.rating}, ${p.reviewCount}${lang.reviews})`).join('\n')}
+**${lang.brand}:** ${brand}
 
-**${lang.brand}:** ${products[0]?.brand || lang.unknown}
+**${lang.topProducts}**
+${enrichedProductDescriptions}
 
 **${lang.keywords}**
 ${topKeywords.map(k => `- ${k.keyword} (${lang.searchVolume}: ${k.searchVolume})`).join('\n')}
@@ -1187,6 +1267,8 @@ ${lang.req3}
 ${lang.req4}
 ${lang.req5}
 ${lang.req6}
+
+**IMPORTANT**: Use the customer insights, use cases, and competitive advantages above to create compelling, relevant headlines that resonate with the target audience.
 
 **${lang.outputFormat}**
 {
@@ -1200,12 +1282,13 @@ ${lang.strictFormat}`
  * 使用AI从多个商品生成15个广告标题（店铺场景）
  */
 async function generateHeadlinesFromMultipleProducts(
-  products: ProductInfo[],
+  products: EnrichedStoreProduct[],  // 🔥 Changed from ProductInfo[] to utilize deep analysis
   topKeywords: Array<{ keyword: string; searchVolume: number }>,
   targetLanguage: string,
-  userId: number
+  userId: number,
+  brand: string  // 🔥 New parameter for brand context
 ): Promise<string[]> {
-  const prompt = getMultipleProductHeadlinePrompt(products, topKeywords, targetLanguage)
+  const prompt = getMultipleProductHeadlinePrompt(products, topKeywords, targetLanguage, brand)
 
   // 🆕 Token优化：定义结构化JSON schema
   const responseSchema = {
@@ -1272,16 +1355,23 @@ async function generateHeadlinesFromMultipleProducts(
 
 /**
  * 生成广告描述的提示词（从数据库加载版本管理）
+ * 🔥 Enhanced to utilize productInfo deep analysis fields
  */
 async function getDescriptionPrompt(product: ProductInfo, targetLanguage: string): Promise<string> {
   // 📦 从数据库加载prompt模板 (版本管理)
   const promptTemplate = await loadPrompt('ad_elements_descriptions')
-  
+
   // 🎨 准备模板变量
   const descriptionText = product.description?.slice(0, 500) || 'Not provided'
   const aboutThisItemText = product.aboutThisItem?.slice(0, 10).join('; ') || 'Not provided'
   const featuresText = product.features?.slice(0, 10).join('; ') || 'Not provided'
-  
+
+  // 🔥 Add deep analysis fields if available
+  const uniqueSellingPointsText = product.uniqueSellingPoints || 'Not provided'
+  const targetAudienceText = product.targetAudience || 'Not provided'
+  const productHighlightsText = product.productHighlights || 'Not provided'
+  const brandDescriptionText = product.brandDescription || 'Not provided'
+
   // 🎨 插值替换模板变量
   const prompt = promptTemplate
     .replace('{{product.name}}', product.name)
@@ -1291,7 +1381,12 @@ async function getDescriptionPrompt(product: ProductInfo, targetLanguage: string
     .replace('{{product.description}}', descriptionText)
     .replace('{{product.aboutThisItem}}', aboutThisItemText)
     .replace('{{product.features}}', featuresText)
-  
+    // 🔥 Add new template variables for deep analysis
+    .replace('{{product.uniqueSellingPoints}}', uniqueSellingPointsText)
+    .replace('{{product.targetAudience}}', targetAudienceText)
+    .replace('{{product.productHighlights}}', productHighlightsText)
+    .replace('{{product.brandDescription}}', brandDescriptionText)
+
   return prompt
 }
 
@@ -1658,10 +1753,15 @@ function generateFallbackHeadlines(
  * 降级方案：手动生成基础标题（多商品）
  */
 function generateFallbackHeadlinesFromMultiple(
-  products: ProductInfo[],
+  products: EnrichedStoreProduct[],  // 🔥 Updated to match main function signature
   topKeywords: Array<{ keyword: string }>
 ): string[] {
-  const brand = products[0]?.brand || 'Brand'
+  // Extract brand from first product or enriched data
+  const brand = products[0]?.productInfo
+    ? (typeof products[0].productInfo === 'string'
+        ? JSON.parse(products[0].productInfo).brandDescription?.split(' ')[0]
+        : products[0].productInfo.brandDescription?.split(' ')[0]) || 'Brand'
+    : 'Brand'
 
   const headlines = [
     ...products.slice(0, 5).map(p => extractBrandProductName(p.name, brand).slice(0, 30)),
@@ -1710,6 +1810,69 @@ function generateFallbackDescriptionsFromMultiple(products: ProductInfo[]): stri
 }
 
 /**
+ * 🔥 Helper Function: Expand Product Data for Prompt Inclusion
+ *
+ * Formats deep analysis data (productInfo, reviewAnalysis, competitorAnalysis)
+ * into structured text for AI prompt context enrichment.
+ *
+ * @param product - EnrichedStoreProduct with deep analysis fields
+ * @returns Formatted multi-line string with all available analysis data
+ */
+function expandProductDataForPrompt(product: EnrichedStoreProduct): string {
+  const parts = []
+
+  // Basic information
+  parts.push(`Product: ${product.name}`)
+  if (product.rating) parts.push(`Rating: ${product.rating}⭐ (${product.reviewCount || 'N/A'} reviews)`)
+  if (product.price) parts.push(`Price: ${product.price}`)
+
+  // AI product analysis (productInfo)
+  if (product.productInfo) {
+    const info = typeof product.productInfo === 'string' ? JSON.parse(product.productInfo) : product.productInfo
+    parts.push(`\nProduct Analysis:`)
+    if (info.brandDescription) parts.push(`- Brand: ${info.brandDescription}`)
+    if (info.uniqueSellingPoints) parts.push(`- USP: ${info.uniqueSellingPoints}`)
+    if (info.targetAudience) parts.push(`- Target: ${info.targetAudience}`)
+    if (info.productHighlights) parts.push(`- Highlights: ${info.productHighlights}`)
+    if (info.category) parts.push(`- Category: ${info.category}`)
+  }
+
+  // Review analysis (reviewAnalysis)
+  if (product.reviewAnalysis) {
+    const analysis = typeof product.reviewAnalysis === 'string' ? JSON.parse(product.reviewAnalysis) : product.reviewAnalysis
+    parts.push(`\nCustomer Insights:`)
+    if (analysis.sentimentDistribution) {
+      parts.push(`- Sentiment: Positive ${analysis.sentimentDistribution.positive}%, Neutral ${analysis.sentimentDistribution.neutral}%, Negative ${analysis.sentimentDistribution.negative}%`)
+    }
+    if (analysis.topPositiveKeywords && analysis.topPositiveKeywords.length > 0) {
+      parts.push(`- Praise: ${analysis.topPositiveKeywords.slice(0, 5).join(', ')}`)
+    }
+    if (analysis.topNegativeKeywords && analysis.topNegativeKeywords.length > 0) {
+      parts.push(`- Complaints: ${analysis.topNegativeKeywords.slice(0, 3).join(', ')}`)
+    }
+    if (analysis.realUseCases && analysis.realUseCases.length > 0) {
+      parts.push(`- Use Cases: ${analysis.realUseCases.slice(0, 3).join(', ')}`)
+    }
+  }
+
+  // Competitive analysis (competitorAnalysis)
+  if (product.competitorAnalysis) {
+    const compAnalysis = typeof product.competitorAnalysis === 'string' ? JSON.parse(product.competitorAnalysis) : product.competitorAnalysis
+    parts.push(`\nCompetitive Position:`)
+    if (compAnalysis.pricePosition) parts.push(`- Price: ${compAnalysis.pricePosition}`)
+    if (compAnalysis.ratingPosition) parts.push(`- Rating: ${compAnalysis.ratingPosition}`)
+    if (compAnalysis.uniqueSellingPoints && compAnalysis.uniqueSellingPoints.length > 0) {
+      parts.push(`- Advantages: ${compAnalysis.uniqueSellingPoints.slice(0, 3).join(', ')}`)
+    }
+    if (compAnalysis.overallCompetitiveness !== undefined) {
+      parts.push(`- Competitiveness Score: ${compAnalysis.overallCompetitiveness}/100`)
+    }
+  }
+
+  return parts.join('\n')
+}
+
+/**
  * 主入口：提取广告元素
  *
  * @param scraped - 爬虫数据（单商品或店铺）
@@ -1722,7 +1885,8 @@ export async function extractAdElements(
   scraped: {
     pageType: 'product' | 'store' | 'unknown'
     product?: AmazonProductData
-    storeProducts?: StoreProduct[]
+    storeProducts?: (StoreProduct | EnrichedStoreProduct)[]  // 🔥 支持普通和深度产品数据
+    hasDeepData?: boolean  // 🔥 标记是否包含深度数据
   },
   brand: string,
   targetCountry: string,
@@ -1745,7 +1909,10 @@ export async function extractAdElements(
     )
   } else if (scraped.pageType === 'store' && scraped.storeProducts && scraped.storeProducts.length > 0) {
     return await extractFromStore(
-      scraped.storeProducts,
+      scraped.storeProducts.map(p => ({
+        ...p,
+        price: p.price ?? null
+      })) as StoreProduct[],
       brand,
       targetCountry,
       targetLanguage,
