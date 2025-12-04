@@ -599,7 +599,7 @@ CREATE TABLE google_ads_api_usage (
   customer_id TEXT,
   request_count INTEGER DEFAULT 1,
   response_time_ms INTEGER,
-  is_success INTEGER DEFAULT 1,
+  is_success BOOLEAN DEFAULT true,
   error_message TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   date TEXT NOT NULL,
