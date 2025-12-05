@@ -116,8 +116,12 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # 复制生产依赖（调度器需要better-sqlite3等原生模块）
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 
+# 设置Playwright缓存目录到应用目录
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
+
 # 安装Playwright浏览器（使用node_modules中的playwright）
-RUN node ./node_modules/playwright/cli.js install chromium --with-deps
+RUN node ./node_modules/playwright/cli.js install chromium --with-deps && \
+    chown -R nextjs:nodejs /app/.playwright
 
 # 创建必要的目录
 RUN mkdir -p /var/log/nginx /var/lib/nginx/tmp /var/run && \
