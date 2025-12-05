@@ -166,11 +166,14 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
   console.log(`🔄 从 Google Ads API 同步账号...`)
 
   // 使用用户的凭证创建客户端
-  const client = getGoogleAdsClient({
-    client_id: credentials.client_id,
-    client_secret: credentials.client_secret,
-    developer_token: credentials.developer_token,
-  })
+  // 如果用户未配置这3个参数，credentials中会是null，getGoogleAdsClient会回退到环境变量
+  const client = credentials.client_id && credentials.client_secret && credentials.developer_token
+    ? getGoogleAdsClient({
+        client_id: credentials.client_id,
+        client_secret: credentials.client_secret,
+        developer_token: credentials.developer_token,
+      })
+    : getGoogleAdsClient() // 回退到环境变量配置（管理员autoads的配置）
 
   const response = await client.listAccessibleCustomers(credentials.refresh_token)
   const resourceNames = response.resource_names || []
