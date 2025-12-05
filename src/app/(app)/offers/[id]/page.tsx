@@ -440,7 +440,7 @@ export default function OfferDetailPage() {
                           </div>
                         </div>
                         <p className="text-xs text-gray-500 mt-2">
-                          CTR: {performanceSummary.ctr.toFixed(2)}%
+                          CTR: {(Number(performanceSummary.ctr) || 0).toFixed(2)}%
                         </p>
                       </CardContent>
                     </Card>
@@ -459,7 +459,7 @@ export default function OfferDetailPage() {
                           </div>
                         </div>
                         <p className="text-xs text-gray-500 mt-2">
-                          平均CPC: ${performanceSummary.avgCpcUsd.toFixed(2)}
+                          平均CPC: ${(Number(performanceSummary.avgCpcUsd) || 0).toFixed(2)}
                         </p>
                       </CardContent>
                     </Card>
@@ -478,7 +478,7 @@ export default function OfferDetailPage() {
                           </div>
                         </div>
                         <p className="text-xs text-gray-500 mt-2">
-                          转化率: {performanceSummary.conversionRate.toFixed(2)}%
+                          转化率: {(Number(performanceSummary.conversionRate) || 0).toFixed(2)}%
                         </p>
                       </CardContent>
                     </Card>
@@ -489,7 +489,7 @@ export default function OfferDetailPage() {
                           <div>
                             <p className="text-sm font-medium text-gray-600">总花费</p>
                             <p className="text-2xl font-bold text-gray-900 mt-1">
-                              ${performanceSummary.costUsd.toFixed(2)}
+                              ${(Number(performanceSummary.costUsd) || 0).toFixed(2)}
                             </p>
                           </div>
                           <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
@@ -511,22 +511,22 @@ export default function OfferDetailPage() {
                         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                           <div>
                             <p className="text-sm text-gray-600">总花费</p>
-                            <p className="text-lg font-bold text-gray-900">${roi.totalCostUsd.toFixed(2)}</p>
+                            <p className="text-lg font-bold text-gray-900">${(Number(roi.totalCostUsd) || 0).toFixed(2)}</p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-600">总收入</p>
-                            <p className="text-lg font-bold text-gray-900">${roi.totalRevenueUsd.toFixed(2)}</p>
+                            <p className="text-lg font-bold text-gray-900">${(Number(roi.totalRevenueUsd) || 0).toFixed(2)}</p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-600">利润</p>
                             <p className={`text-lg font-bold ${roi.profitUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              ${roi.profitUsd.toFixed(2)}
+                              ${(Number(roi.profitUsd) || 0).toFixed(2)}
                             </p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-600">ROI</p>
                             <p className={`text-lg font-bold ${roi.roiPercentage >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {roi.roiPercentage.toFixed(0)}%
+                              {(Number(roi.roiPercentage) || 0).toFixed(0)}%
                             </p>
                           </div>
                           <div>

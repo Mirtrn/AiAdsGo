@@ -317,7 +317,7 @@ export default function PromptsManagementPage() {
                       </div>
                       <div className="flex items-center gap-1.5 text-xs text-slate-600">
                         <DollarSign className="w-3.5 h-3.5" />
-                        <span>¥{prompt.totalCost.toFixed(2)}</span>
+                        <span>¥{(Number(prompt.totalCost) || 0).toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
@@ -493,7 +493,7 @@ export default function PromptsManagementPage() {
                         <div className="text-xs text-slate-600 space-y-1">
                           <div>创建者: {version.createdBy || '系统'}</div>
                           <div>创建时间: {new Date(version.createdAt).toLocaleString('zh-CN')}</div>
-                          <div>调用次数: {version.totalCalls.toLocaleString()} | 成本: ¥{version.totalCost.toFixed(2)}</div>
+                          <div>调用次数: {version.totalCalls.toLocaleString()} | 成本: ¥{(Number(version.totalCost) || 0).toFixed(2)}</div>
                         </div>
                         {version.changeNotes && (
                           <p className="text-sm text-slate-700 mt-2">{version.changeNotes}</p>
