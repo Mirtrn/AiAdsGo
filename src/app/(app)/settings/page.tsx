@@ -197,6 +197,60 @@ const SETTING_METADATA: Record<string, {
   },
 }
 
+// 定义每个分类包含的字段及其属性
+// 这确保即使数据库中没有数据，前端仍能显示所有配置字段
+const CATEGORY_FIELDS: Record<string, {
+  key: string
+  dataType: string
+  isSensitive: boolean
+  isRequired: boolean
+}[]> = {
+  google_ads: [
+    { key: 'login_customer_id', dataType: 'string', isSensitive: false, isRequired: true },
+    { key: 'client_id', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'client_secret', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: false },
+  ],
+  ai: [
+    { key: 'use_vertex_ai', dataType: 'boolean', isSensitive: false, isRequired: false },
+    { key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'gcp_project_id', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'gcp_location', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'gcp_service_account_json', dataType: 'text', isSensitive: true, isRequired: false },
+  ],
+  proxy: [
+    { key: 'urls', dataType: 'json', isSensitive: false, isRequired: false },
+  ],
+  system: [
+    { key: 'currency', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'language', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'sync_interval_hours', dataType: 'number', isSensitive: false, isRequired: false },
+    { key: 'link_check_enabled', dataType: 'boolean', isSensitive: false, isRequired: false },
+    { key: 'link_check_time', dataType: 'string', isSensitive: false, isRequired: false },
+  ],
+}
+
+// 合并后端数据和前端定义的字段，确保所有字段都能显示
+const getMergedCategorySettings = (category: string, backendSettings: Setting[]): Setting[] => {
+  const definedFields = CATEGORY_FIELDS[category] || []
+  const backendMap = new Map(backendSettings.map(s => [s.key, s]))
+
+  return definedFields.map(field => {
+    const backendSetting = backendMap.get(field.key)
+    return {
+      key: field.key,
+      value: backendSetting?.value || null,
+      dataType: field.dataType,
+      isSensitive: field.isSensitive,
+      isRequired: field.isRequired,
+      validationStatus: backendSetting?.validationStatus || null,
+      validationMessage: backendSetting?.validationMessage || null,
+      description: backendSetting?.description || null,
+    }
+  })
+}
+
 // 分类配置
 const CATEGORY_CONFIG: Record<string, {
   label: string
@@ -295,26 +349,34 @@ export default function SettingsPage() {
       const data = await response.json()
       setSettings(data.settings)
 
-      // 初始化表单数据，使用默认值
+      // 初始化表单数据，基于CATEGORY_FIELDS定义，确保所有字段都能显示
       const initialFormData: Record<string, Record<string, string>> = {}
-      for (const [category, categorySettings] of Object.entries(data.settings)) {
+
+      // 遍历所有分类
+      for (const category of ['google_ads', 'ai', 'proxy', 'system']) {
         initialFormData[category] = {}
-        for (const setting of categorySettings as Setting[]) {
-          const metaKey = `${category}.${setting.key}`
+        const backendSettings = data.settings[category] || []
+        const backendMap = new Map(backendSettings.map((s: Setting) => [s.key, s]))
+
+        // 遍历该分类定义的所有字段
+        const definedFields = CATEGORY_FIELDS[category] || []
+        for (const field of definedFields) {
+          const metaKey = `${category}.${field.key}`
           const metadata = SETTING_METADATA[metaKey]
+          const backendSetting = backendMap.get(field.key)
 
           // 特殊处理代理URL配置（JSON格式）
-          if (category === 'proxy' && setting.key === 'urls') {
+          if (category === 'proxy' && field.key === 'urls') {
             try {
-              const urls = setting.value ? JSON.parse(setting.value) : []
+              const urls = backendSetting?.value ? JSON.parse(backendSetting.value) : []
               setProxyUrls(Array.isArray(urls) ? urls : [])
             } catch {
               setProxyUrls([])
             }
-            initialFormData[category][setting.key] = setting.value || '[]'
+            initialFormData[category][field.key] = backendSetting?.value || '[]'
           } else {
-            // 使用已有值，否则使用默认值
-            initialFormData[category][setting.key] = setting.value || metadata?.defaultValue || ''
+            // 使用后端值，否则使用默认值
+            initialFormData[category][field.key] = backendSetting?.value || metadata?.defaultValue || ''
           }
         }
       }
@@ -857,8 +919,11 @@ export default function SettingsPage() {
         <div className="space-y-6">
           {/* 定义分类显示顺序：Google Ads → AI引擎 → 代理设置 → 系统设置 */}
           {['google_ads', 'ai', 'proxy', 'system'].map((category) => {
-            const categorySettings = settings[category]
-            if (!categorySettings) return null
+            // 使用getMergedCategorySettings合并后端数据和前端定义的字段
+            // 即使数据库中没有数据，也能显示所有配置字段
+            const backendSettings = settings[category] || []
+            const categorySettings = getMergedCategorySettings(category, backendSettings)
+            if (!categorySettings || categorySettings.length === 0) return null
 
             const config = CATEGORY_CONFIG[category] || {
               label: category,
