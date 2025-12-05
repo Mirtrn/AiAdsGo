@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { exchangeCodeForTokens, saveGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getSetting, getUserOnlySetting } from '@/lib/settings'
 
+// 强制动态渲染
+export const dynamic = 'force-dynamic'
+
 // 获取基础URL，统一使用 NEXT_PUBLIC_APP_URL
 function getBaseUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -23,7 +26,7 @@ function createRedirectUrl(path: string): URL {
  */
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
+    const searchParams = request.nextUrl.searchParams
     const code = searchParams.get('code')
     const state = searchParams.get('state')
     const error = searchParams.get('error')
