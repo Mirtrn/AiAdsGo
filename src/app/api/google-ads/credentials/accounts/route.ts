@@ -165,7 +165,13 @@ async function upsertAccount(userId: number, account: {
 async function syncAccountsFromAPI(userId: number, credentials: any): Promise<any[]> {
   console.log(`🔄 从 Google Ads API 同步账号...`)
 
-  const client = getGoogleAdsClient()
+  // 使用用户的凭证创建客户端
+  const client = getGoogleAdsClient({
+    client_id: credentials.client_id,
+    client_secret: credentials.client_secret,
+    developer_token: credentials.developer_token,
+  })
+
   const response = await client.listAccessibleCustomers(credentials.refresh_token)
   const resourceNames = response.resource_names || []
   const customerIds = resourceNames.map((resourceName: string) => {

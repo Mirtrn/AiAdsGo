@@ -4,14 +4,29 @@ import { withRetry } from './retry'
 import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 
 /**
- * Google Ads API客户端单例
+ * Google Ads API客户端单例（仅用于环境变量配置）
  */
 let client: GoogleAdsApi | null = null
 
 /**
  * 获取Google Ads API客户端实例
+ * @param credentials - 可选的用户凭证，如果不提供则使用环境变量
  */
-export function getGoogleAdsClient(): GoogleAdsApi {
+export function getGoogleAdsClient(credentials?: {
+  client_id: string
+  client_secret: string
+  developer_token: string
+}): GoogleAdsApi {
+  // 如果提供了凭证，创建新的客户端实例
+  if (credentials) {
+    return new GoogleAdsApi({
+      client_id: credentials.client_id,
+      client_secret: credentials.client_secret,
+      developer_token: credentials.developer_token,
+    })
+  }
+
+  // 否则使用单例模式的环境变量配置
   if (!client) {
     const clientId = process.env.GOOGLE_ADS_CLIENT_ID
     const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET
