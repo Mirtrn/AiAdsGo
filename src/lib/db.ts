@@ -98,11 +98,13 @@ class PostgresAdapter implements DatabaseAdapter {
   private convertSqliteSyntax(sql: string): string {
     let result = sql
 
-    // 1. 转换 date('now', '-N days') 为 PostgreSQL 的 CURRENT_DATE - INTERVAL 'N days'
-    // 匹配: date('now', '-30 days') -> (CURRENT_DATE - INTERVAL '30 days')
+    // 1. 转换 date('now', '-N days') 为 PostgreSQL 兼容语法
+    // 由于 date 字段在数据库中是 TEXT 类型（存储 'YYYY-MM-DD' 格式），
+    // 需要将结果转换为同样的 TEXT 格式以便比较
+    // 匹配: date('now', '-30 days') -> to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')
     result = result.replace(/date\s*\(\s*'now'\s*,\s*'(-?\d+)\s+days?'\s*\)/gi, (_, days) => {
       const absdays = Math.abs(parseInt(days))
-      return `(CURRENT_DATE - INTERVAL '${absdays} days')`
+      return `to_char(CURRENT_DATE - INTERVAL '${absdays} days', 'YYYY-MM-DD')`
     })
 
     // 2. 转换 DATE(column) 为 PostgreSQL 的 (column::date)
