@@ -448,6 +448,15 @@ async function executeAmazonSearch(
         const items: any[] = []
         const resultElements = document.querySelectorAll('[data-component-type="s-search-result"]')
 
+        // 在evaluate内部定义价格解析函数
+        function parsePriceInBrowser(text: string): number | null {
+          if (!text) return null
+          const cleaned = text.replace(/[^\d.,]/g, '')
+          const normalized = cleaned.replace(',', '.')
+          const num = parseFloat(normalized)
+          return isNaN(num) ? null : num
+        }
+
         for (let i = 0; i < Math.min(maxItems, resultElements.length); i++) {
           const el = resultElements[i]
 
@@ -477,7 +486,7 @@ async function executeAmazonSearch(
               name,
               brand: null,
               priceText,
-              price: parsePrice(priceText),
+              price: parsePriceInBrowser(priceText || ''),
               rating,
               reviewCount,
               imageUrl,
@@ -685,6 +694,15 @@ async function scrapeCompareTable(page: any, limit: number): Promise<CompetitorP
     const competitors = await page.evaluate((maxItems: number) => {
       const items: any[] = []
 
+      // 在evaluate内部定义价格解析函数
+      function parsePriceInBrowser(text: string): number | null {
+        if (!text) return null
+        const cleaned = text.replace(/[^\d.,]/g, '')
+        const normalized = cleaned.replace(',', '.')
+        const num = parseFloat(normalized)
+        return isNaN(num) ? null : num
+      }
+
       // 多种选择器策略
       const selectors = [
         '[data-component-type="comparison-table"] .comparison-item',
@@ -724,7 +742,7 @@ async function scrapeCompareTable(page: any, limit: number): Promise<CompetitorP
               name,
               brand: null,
               priceText,
-              price: parsePrice(priceText),
+              price: parsePriceInBrowser(priceText || ''),
               rating,
               reviewCount,
               imageUrl,
@@ -754,6 +772,15 @@ async function scrapeRelatedToItemsYouViewed(page: any, limit: number): Promise<
   try {
     const competitors = await page.evaluate((maxItems: number) => {
       const items: any[] = []
+
+      // 在evaluate内部定义价格解析函数
+      function parsePriceInBrowser(text: string): number | null {
+        if (!text) return null
+        const cleaned = text.replace(/[^\d.,]/g, '')
+        const normalized = cleaned.replace(',', '.')
+        const num = parseFloat(normalized)
+        return isNaN(num) ? null : num
+      }
 
       // "Related to items you've viewed" 区域选择器
       // 这个区域通常使用不同的carousel widget ID
@@ -860,6 +887,15 @@ async function scrapeAlsoViewed(page: any, limit: number): Promise<CompetitorPro
     const competitors = await page.evaluate((maxItems: number) => {
       const items: any[] = []
 
+      // 在evaluate内部定义价格解析函数
+      function parsePriceInBrowser(text: string): number | null {
+        if (!text) return null
+        const cleaned = text.replace(/[^\d.,]/g, '')
+        const normalized = cleaned.replace(',', '.')
+        const num = parseFloat(normalized)
+        return isNaN(num) ? null : num
+      }
+
       // "Customers also viewed" 区域选择器
       const selectors = [
         '[data-a-carousel-options*="also_viewed"] .a-carousel-card',
@@ -929,6 +965,15 @@ async function scrapeSimilarItems(page: any, limit: number): Promise<CompetitorP
   try {
     const competitors = await page.evaluate((maxItems: number) => {
       const items: any[] = []
+
+      // 在evaluate内部定义价格解析函数
+      function parsePriceInBrowser(text: string): number | null {
+        if (!text) return null
+        const cleaned = text.replace(/[^\d.,]/g, '')
+        const normalized = cleaned.replace(',', '.')
+        const num = parseFloat(normalized)
+        return isNaN(num) ? null : num
+      }
 
       // "Similar items" 区域选择器
       const selectors = [
