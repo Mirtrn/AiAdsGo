@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { exchangeCodeForTokens, saveGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getSetting, getUserOnlySetting } from '@/lib/settings'
 
+// 获取基础URL，统一使用 NEXT_PUBLIC_APP_URL
+function getBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+}
+
+// 创建重定向URL的辅助函数
+function createRedirectUrl(path: string): URL {
+  return new URL(path, getBaseUrl())
+}
+
 /**
  * GET /api/google-ads/oauth/callback
  * Google Ads OAuth回调处理
@@ -22,19 +32,19 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error('OAuth授权失败:', error)
       return NextResponse.redirect(
-        new URL(`/settings?error=${encodeURIComponent(error)}`, request.url)
+        createRedirectUrl(`/settings?error=${encodeURIComponent(error)}`)
       )
     }
 
     if (!code) {
       return NextResponse.redirect(
-        new URL('/settings?error=missing_code', request.url)
+        createRedirectUrl('/settings?error=missing_code')
       )
     }
 
     if (!state) {
       return NextResponse.redirect(
-        new URL('/settings?error=missing_state', request.url)
+        createRedirectUrl('/settings?error=missing_state')
       )
     }
 
@@ -46,14 +56,14 @@ export async function GET(request: NextRequest) {
       )
     } catch {
       return NextResponse.redirect(
-        new URL('/settings?error=invalid_state', request.url)
+        createRedirectUrl('/settings?error=invalid_state')
       )
     }
 
     // 检查state时间戳（10分钟内有效）
     if (Date.now() - stateData.timestamp > 10 * 60 * 1000) {
       return NextResponse.redirect(
-        new URL('/settings?error=state_expired', request.url)
+        createRedirectUrl('/settings?error=state_expired')
       )
     }
 
@@ -65,7 +75,7 @@ export async function GET(request: NextRequest) {
     const loginCustomerId = (await getUserOnlySetting('google_ads', 'login_customer_id', userId))?.value || ''
     if (!loginCustomerId) {
       return NextResponse.redirect(
-        new URL('/settings?error=missing_login_customer_id&category=google_ads', request.url)
+        createRedirectUrl('/settings?error=missing_login_customer_id&category=google_ads')
       )
     }
 
@@ -91,11 +101,11 @@ export async function GET(request: NextRequest) {
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/settings?error=missing_google_ads_config&category=google_ads', request.url)
+        createRedirectUrl('/settings?error=missing_google_ads_config&category=google_ads')
       )
     }
 
-    const redirectUri = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/google-ads/oauth/callback`
+    const redirectUri = `${getBaseUrl()}/api/google-ads/oauth/callback`
 
     console.log(`📥 处理OAuth回调`)
     console.log(`   用户: ${userId}`)
@@ -134,7 +144,7 @@ export async function GET(request: NextRequest) {
     console.log(`   用户ID: ${userId}`)
 
     // 重定向回 Google Ads 账号管理页面，显示成功提示
-    const successUrl = new URL('/google-ads', request.url)
+    const successUrl = createRedirectUrl('/google-ads')
     successUrl.searchParams.set('oauth_success', 'true')
 
     return NextResponse.redirect(successUrl)
@@ -143,7 +153,7 @@ export async function GET(request: NextRequest) {
     console.error('OAuth回调处理失败:', error)
 
     return NextResponse.redirect(
-      new URL(`/settings?error=${encodeURIComponent(error.message)}`, request.url)
+      createRedirectUrl(`/settings?error=${encodeURIComponent(error.message)}`)
     )
   }
 }

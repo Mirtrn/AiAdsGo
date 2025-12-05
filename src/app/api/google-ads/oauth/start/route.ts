@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     ).toString('base64url')
 
     // 构建redirect URI
-    const redirectUri = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/google-ads/oauth/callback`
+    const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/google-ads/oauth/callback`
 
     // 生成授权URL
     const authUrl = generateOAuthUrl(clientId, redirectUri, state)
