@@ -124,8 +124,10 @@ export async function getSettingsByCategory(category: string, userId?: number): 
 export async function getSetting(category: string, key: string, userId?: number): Promise<SettingValue | null> {
   const db = await getDatabase()
 
+  // 注意：PostgreSQL 中 ORDER BY user_id DESC 会把 NULL 排在最前面
+  // 我们需要用户配置优先于全局配置，所以使用 NULLS LAST
   const query = userId
-    ? 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC LIMIT 1'
+    ? 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC NULLS LAST LIMIT 1'
     : 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND user_id IS NULL LIMIT 1'
 
   const params = userId ? [category, key, userId] : [category, key]
