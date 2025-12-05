@@ -1526,6 +1526,58 @@ ON weekly_recommendations(user_id, status, week_start_date DESC);
 
 
 -- ==========================================
+-- VIEWS: Analytics and Summary Views
+-- ==========================================
+
+-- View 1: Daily API Usage Summary
+-- Aggregates Google Ads API usage by user and date
+CREATE VIEW daily_api_usage_summary AS
+SELECT
+  user_id,
+  date,
+  SUM(request_count) as total_requests,
+  COUNT(*) as total_operations,
+  SUM(CASE WHEN is_success = 1 THEN 1 ELSE 0 END) as successful_operations,
+  SUM(CASE WHEN is_success = 0 THEN 1 ELSE 0 END) as failed_operations,
+  AVG(response_time_ms) as avg_response_time_ms,
+  MAX(response_time_ms) as max_response_time_ms
+FROM google_ads_api_usage
+GROUP BY user_id, date;
+
+-- View 2: Phase 3 Statistics
+-- Aggregates scraped product statistics by user, offer and brand
+CREATE VIEW v_phase3_statistics AS
+SELECT
+  sp.user_id,
+  sp.offer_id,
+  o.brand,
+  COUNT(*) as total_products,
+  SUM(CASE WHEN sp.promotion IS NOT NULL THEN 1 ELSE 0 END) as products_with_promotion,
+  SUM(CASE WHEN sp.badge IS NOT NULL THEN 1 ELSE 0 END) as products_with_badge,
+  SUM(CASE WHEN sp.is_prime = 1 THEN 1 ELSE 0 END) as prime_products,
+  ROUND(AVG(CASE WHEN sp.rating IS NOT NULL THEN CAST(sp.rating AS REAL) ELSE NULL END), 2) as avg_rating,
+  AVG(sp.hot_score) as avg_hot_score
+FROM scraped_products sp
+JOIN offers o ON sp.offer_id = o.id
+WHERE sp.user_id = o.user_id
+GROUP BY sp.user_id, sp.offer_id, o.brand;
+
+-- View 3: Top Hot Products
+-- Lists all hot products with offer details, ordered by rank
+CREATE VIEW v_top_hot_products AS
+SELECT
+  sp.*,
+  o.brand,
+  o.target_country,
+  o.category
+FROM scraped_products sp
+JOIN offers o ON sp.offer_id = o.id
+WHERE sp.is_hot = 1
+  AND sp.user_id = o.user_id
+ORDER BY sp.offer_id, sp.rank;
+
+
+-- ==========================================
 -- SEED DATA: Active Prompt Versions
 -- ==========================================
 -- This section includes all active prompt templates (v3.1 and latest versions)
