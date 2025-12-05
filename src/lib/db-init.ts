@@ -892,10 +892,15 @@ declare global {
   var __queueRecoveryPending: boolean | undefined
   // eslint-disable-next-line no-var
   var __queueRecoveryData: Array<{
-    id: number
+    id: number | string
     user_id: number
-    url: string
-    brand: string | null
+    url?: string
+    brand?: string | null
+    task_type?: string
+    status: string
+    retry_count?: number
+    offer_id?: number
+    data?: any
   }> | undefined
 }
 
@@ -962,7 +967,9 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
       id: o.id,
       user_id: o.user_id,
       url: o.url,
-      brand: o.brand
+      brand: o.brand,
+      status: 'pending', // 旧版队列任务状态
+      task_type: 'scrape' // 默认任务类型
     }))
   } catch (error) {
     console.error('❌ 检查队列任务失败:', error)

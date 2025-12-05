@@ -197,19 +197,27 @@ export class QueueRecoveryManager {
 // 导出单例
 export const queueRecoveryManager = QueueRecoveryManager.getInstance()
 
-// 声明全局类型（与 instrumentation.ts 保持一致）
-declare global {
-  // eslint-disable-next-line no-var
-  var __queueRecoveryPending: boolean | undefined
-  // eslint-disable-next-line no-var
-  var __queueRecoveryData: Array<{
-    id: number | string
-    task_type?: string
-    status: string
-    retry_count?: number
-    url?: string
-    offer_id?: number
-    user_id: number
-    data?: any
-  }> | undefined
+// 导出全局恢复状态检查（供队列管理器使用）
+export function hasQueueRecoveryPending(): boolean {
+  return (
+    (globalThis as any).__queueRecoveryPending === true &&
+    Array.isArray((globalThis as any).__queueRecoveryData) &&
+    (globalThis as any).__queueRecoveryData.length > 0
+  )
+}
+
+export async function executeQueueRecovery(): Promise<{
+  recovered: number
+  failed: number
+  details: TaskRecoveryInfo[]
+}> {
+  return queueRecoveryManager.executeQueueRecovery()
+}
+
+export function markTaskForRecovery(taskData: any): void {
+  queueRecoveryManager.markTaskForRecovery(taskData)
+}
+
+export function clearRecoveryMark(): void {
+  queueRecoveryManager.clearRecoveryMark()
 }

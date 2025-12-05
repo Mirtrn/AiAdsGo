@@ -7,19 +7,6 @@
 
 import { triggerOfferScraping, OfferScrapingPriority } from './offer-scraping'
 
-// 声明全局类型（与 instrumentation.ts 保持一致）
-declare global {
-  // eslint-disable-next-line no-var
-  var __queueRecoveryPending: boolean | undefined
-  // eslint-disable-next-line no-var
-  var __queueRecoveryData: Array<{
-    id: number
-    user_id: number
-    url: string
-    brand: string | null
-  }> | undefined
-}
-
 /**
  * 执行队列恢复（由API路由调用）
  *
@@ -44,9 +31,9 @@ export async function executeQueueRecoveryIfNeeded() {
     try {
       // 恢复任务使用NORMAL优先级（不阻塞新的URGENT任务）
       triggerOfferScraping(
-        offer.id,
+        Number(offer.id),
         offer.user_id,
-        offer.url,
+        offer.url || '',
         offer.brand || '提取中...',
         OfferScrapingPriority.NORMAL
       )

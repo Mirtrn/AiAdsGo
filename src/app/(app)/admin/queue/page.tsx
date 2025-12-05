@@ -29,6 +29,19 @@ interface QueueStats {
     taskTimeout: number
     enablePriority: boolean
   }
+  // 新增字段 (New Unified Queue Feature)
+  byType?: Record<string, number>
+  proxy?: {
+    total: number
+    available: number
+    failed: number
+    details?: Array<{
+      proxy: string
+      success: number
+      failed: number
+      available: boolean
+    }>
+  }
 }
 
 interface QueueConfig {
