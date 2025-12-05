@@ -198,7 +198,7 @@ export default function OptimizationOverviewPage() {
               <div>
                 <p className="text-sm text-slate-500 font-medium">CTR变化</p>
                 <p className="text-2xl font-bold mt-1">
-                  {metrics?.ctrChange !== undefined ? (
+                  {metrics?.ctrChange != null ? (
                     <span className={metrics.ctrChange >= 0 ? 'text-green-600' : 'text-red-600'}>
                       {metrics.ctrChange >= 0 ? '+' : ''}{metrics.ctrChange.toFixed(2)}%
                     </span>
@@ -226,7 +226,7 @@ export default function OptimizationOverviewPage() {
               <div>
                 <p className="text-sm text-slate-500 font-medium">CPC变化</p>
                 <p className="text-2xl font-bold mt-1">
-                  {metrics?.cpcChange !== undefined ? (
+                  {metrics?.cpcChange != null ? (
                     <span className={metrics.cpcChange <= 0 ? 'text-green-600' : 'text-red-600'}>
                       {metrics.cpcChange >= 0 ? '+' : ''}{metrics.cpcChange.toFixed(2)}%
                     </span>
@@ -250,7 +250,7 @@ export default function OptimizationOverviewPage() {
               <div>
                 <p className="text-sm text-slate-500 font-medium">展示量变化</p>
                 <p className="text-2xl font-bold mt-1">
-                  {metrics?.impressionsChange !== undefined ? (
+                  {metrics?.impressionsChange != null ? (
                     <span className={metrics.impressionsChange >= 0 ? 'text-green-600' : 'text-red-600'}>
                       {metrics.impressionsChange >= 0 ? '+' : ''}{metrics.impressionsChange.toFixed(1)}%
                     </span>
