@@ -355,8 +355,8 @@ export default function SettingsPage() {
       // 遍历所有分类
       for (const category of ['google_ads', 'ai', 'proxy', 'system']) {
         initialFormData[category] = {}
-        const backendSettings = data.settings[category] || []
-        const backendMap = new Map(backendSettings.map((s: Setting) => [s.key, s]))
+        const backendSettings = (data.settings[category] as Setting[]) || []
+        const backendMap = new Map<string, Setting>(backendSettings.map((s: Setting) => [s.key, s]))
 
         // 遍历该分类定义的所有字段
         const definedFields = CATEGORY_FIELDS[category] || []
