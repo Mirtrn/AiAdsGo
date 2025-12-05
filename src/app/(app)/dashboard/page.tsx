@@ -82,15 +82,19 @@ export default function DashboardPage() {
 
       if (riskRes.ok) {
         const risk = await riskRes.json()
-        setRisks(risk.alerts?.slice(0, 3) || [])
+        // 确保alerts是数组类型
+        const alertsArray = Array.isArray(risk.alerts) ? risk.alerts : []
+        setRisks(alertsArray.slice(0, 3))
       }
 
       if (offerRes.ok) {
         const offer = await offerRes.json()
+        // 确保offers是数组类型
+        const offersArray = Array.isArray(offer.offers) ? offer.offers : []
         setOfferSummary({
-          total: offer.offers?.length || 0,
-          active: offer.offers?.filter((o: any) => o.isActive)?.length || 0,
-          pendingScrape: offer.offers?.filter((o: any) => o.scrape_status === 'pending')?.length || 0
+          total: offersArray.length,
+          active: offersArray.filter((o: any) => o.isActive).length,
+          pendingScrape: offersArray.filter((o: any) => o.scrape_status === 'pending').length
         })
       }
     } catch (err) {
