@@ -776,7 +776,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // ========== 步骤6.8: Enhanced优化模块 ==========
+      // ========== 步骤6.8: Enhanced优化模块（串行执行，确保Controller生命周期安全）==========
       // 【P0优化】增强的关键词提取
       let enhancedKeywords: any[] = [];
       let enhancedProductInfo: any = null;
@@ -791,7 +791,7 @@ export async function POST(request: NextRequest) {
       let enhancedBrandAnalysis: any = null;
 
       if (aiAnalysisSuccess && aiProductInfo) {
-        // 【P0】增强关键词提取
+        // 【P0】增强关键词提取（✅ 修复：串行await，确保Controller不被提前关闭）
         try {
           sendProgress(controller, 'ai_analysis', 'in_progress', '正在进行增强关键词提取...');
           console.log('🔍 开始增强关键词提取...');
@@ -814,7 +814,7 @@ export async function POST(request: NextRequest) {
           console.warn('⚠️ 增强关键词提取失败:', err.message);
         }
 
-        // 【P0】增强产品信息提取
+        // 【P0】增强产品信息提取（✅ 修复：串行await）
         try {
           sendProgress(controller, 'ai_analysis', 'in_progress', '正在进行增强产品信息提取...');
           console.log('📦 开始增强产品信息提取...');
@@ -834,7 +834,7 @@ export async function POST(request: NextRequest) {
           console.warn('⚠️ 增强产品信息提取失败:', err.message);
         }
 
-        // 【P1】增强标题和描述提取
+        // 【P1】增强标题和描述提取（✅ 修复：串行await）
         try {
           sendProgress(controller, 'ai_analysis', 'in_progress', '正在生成增强广告文案...');
           console.log('✍️ 开始增强标题和描述提取...');
@@ -860,7 +860,7 @@ export async function POST(request: NextRequest) {
           console.warn('⚠️ 增强标题和描述提取失败:', err.message);
         }
 
-        // 【P2】增强竞品分析
+        // 【P2】增强竞品分析（✅ 修复：串行await）
         try {
           sendProgress(controller, 'ai_analysis', 'in_progress', '正在进行增强竞品分析...');
           console.log('🏆 开始增强竞品分析...');
@@ -883,7 +883,7 @@ export async function POST(request: NextRequest) {
           console.warn('⚠️ 增强竞品分析失败:', err.message);
         }
 
-        // 【P2】本地化适配
+        // 【P2】本地化适配（✅ 修复：串行await）
         try {
           sendProgress(controller, 'ai_analysis', 'in_progress', '正在进行本地化适配...');
           console.log('🌍 开始本地化适配...');
@@ -904,7 +904,7 @@ export async function POST(request: NextRequest) {
           console.warn('⚠️ 本地化适配失败:', err.message);
         }
 
-        // 【P3】增强品牌识别
+        // 【P3】增强品牌识别（✅ 修复：串行await，最后一个任务）
         try {
           sendProgress(controller, 'ai_analysis', 'in_progress', '正在进行增强品牌识别...');
           console.log('🏷️ 开始增强品牌识别...');
