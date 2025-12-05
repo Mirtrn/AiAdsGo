@@ -54,7 +54,8 @@ autoads.db
 /data/*.db-shm
 /data/*.db-wal
 /data/backups
-backups/
+/backups/
+# 注意：不要使用 backups/ 因为会忽略 src/app/(app)/admin/backups/ 页面
 *.db.bak
 
 # database backups and dumps - 防止敏感数据泄露
