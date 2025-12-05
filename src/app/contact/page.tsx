@@ -4,6 +4,7 @@ import { Mail, MessageCircle, Clock, MapPin } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 
+export const dynamic = 'force-dynamic';
 export const metadata = pageMetadata.contact;
 
 export default function ContactPage() {

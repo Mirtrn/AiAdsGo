@@ -11,6 +11,8 @@ import type { AIAnalysisTaskData } from './queue/executors/ai-analysis-executor'
 import type { BackupTaskData } from './queue/executors/backup-executor'
 import type { ExportTaskData } from './queue/executors/export-executor'
 import type { EmailTaskData } from './queue/executors/email-executor'
+import type { LinkCheckTaskData } from './queue/executors/link-check-executor'
+import type { CleanupTaskData } from './queue/executors/cleanup-executor'
 
 /**
  * 触发数据同步任务
@@ -173,5 +175,51 @@ export async function triggerEmail(data: EmailTaskData): Promise<string> {
   )
 
   console.log(`📥 [EmailTrigger] 邮件任务已入队: ${taskId}, 收件人: ${data.to}, 类型: ${data.type}`)
+  return taskId
+}
+
+/**
+ * 触发链接检查任务
+ *
+ * @param data 链接检查数据
+ * @returns 任务ID
+ */
+export async function triggerLinkCheck(data: LinkCheckTaskData): Promise<string> {
+  const queue = getQueueManager()
+
+  const taskId = await queue.enqueue(
+    'link-check',
+    data,
+    data.userId || 0,  // 使用0作为系统任务的用户ID
+    {
+      priority: data.checkType === 'manual' ? 'high' : 'normal',
+      maxRetries: 2
+    }
+  )
+
+  console.log(`📥 [LinkCheckTrigger] 链接检查任务已入队: ${taskId}, 类型: ${data.checkType}`)
+  return taskId
+}
+
+/**
+ * 触发数据清理任务
+ *
+ * @param data 清理任务数据
+ * @returns 任务ID
+ */
+export async function triggerCleanup(data: CleanupTaskData): Promise<string> {
+  const queue = getQueueManager()
+
+  const taskId = await queue.enqueue(
+    'cleanup',
+    data,
+    0,  // 使用0作为系统任务的用户ID
+    {
+      priority: 'low',  // 清理任务通常是低优先级
+      maxRetries: 2
+    }
+  )
+
+  console.log(`📥 [CleanupTrigger] 数据清理任务已入队: ${taskId}, 类型: ${data.cleanupType}`)
   return taskId
 }

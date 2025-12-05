@@ -49,7 +49,9 @@ export class UnifiedQueueManager {
         sync: 1,
         backup: 1,
         email: 3,
-        export: 2
+        export: 2,
+        'link-check': 2,
+        cleanup: 1
       },
       maxQueueSize: config.maxQueueSize || 1000,
       taskTimeout: config.taskTimeout || 60000,

@@ -4,6 +4,7 @@ import { Target, Zap, Users, TrendingUp } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 
+export const dynamic = 'force-dynamic';
 export const metadata = pageMetadata.about;
 
 export default function AboutPage() {

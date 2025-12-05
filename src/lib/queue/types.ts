@@ -15,6 +15,8 @@ export type TaskType =
   | 'backup'          // 数据库备份
   | 'email'           // 邮件发送
   | 'export'          // 报表导出
+  | 'link-check'      // 链接可用性检查
+  | 'cleanup'         // 数据清理
 
 /**
  * 任务优先级

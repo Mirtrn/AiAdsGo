@@ -3,6 +3,7 @@ import { pageMetadata } from "@/lib/seo";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 
+export const dynamic = 'force-dynamic';
 export const metadata = pageMetadata.privacy;
 
 export default function PrivacyPage() {
