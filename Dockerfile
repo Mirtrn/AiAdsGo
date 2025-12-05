@@ -5,9 +5,13 @@
 # ============================================
 # Stage 1: 依赖阶段
 # ============================================
-FROM node:20-alpine AS deps
+FROM node:20-bookworm-slim AS deps
 
-RUN apk add --no-cache libc6-compat python3 make g++
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -43,16 +47,35 @@ RUN node build-scheduler.js
 # ============================================
 # Stage 3: 生产运行阶段（单容器）
 # ============================================
-FROM node:20-alpine AS runner
+FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 
-# 安装Nginx和Supervisor
-RUN apk add --no-cache \
+# 安装Nginx、Supervisor和Playwright依赖
+RUN apt-get update && apt-get install -y \
     nginx \
     supervisor \
-    tzdata && \
-    rm -rf /var/cache/apk/*
+    wget \
+    # Playwright浏览器依赖
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libatspi2.0-0 \
+    libxshmfence1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # 设置时区为上海
 ENV TZ=Asia/Shanghai
@@ -92,6 +115,9 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 复制生产依赖（调度器需要better-sqlite3等原生模块）
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+
+# 安装Playwright浏览器
+RUN npx playwright install chromium --with-deps
 
 # 创建必要的目录
 RUN mkdir -p /var/log/nginx /var/lib/nginx/tmp /var/run && \
