@@ -112,9 +112,12 @@ export async function queryHighPerformingCreatives(
     FROM ad_creatives ac
     INNER JOIN ad_creative_performance acp ON ac.id = acp.ad_creative_id
     WHERE ac.user_id = ?
-    GROUP BY ac.id
-    HAVING SUM(acp.clicks) >= ? AND ctr >= ?
-    ORDER BY ctr DESC, conversionRate DESC
+    GROUP BY ac.id, ac.headlines, ac.descriptions
+    HAVING SUM(acp.clicks) >= ?
+      AND CASE WHEN SUM(acp.impressions) > 0 THEN CAST(SUM(acp.clicks) AS REAL) / SUM(acp.impressions) ELSE 0 END >= ?
+    ORDER BY
+      CASE WHEN SUM(acp.impressions) > 0 THEN CAST(SUM(acp.clicks) AS REAL) / SUM(acp.impressions) ELSE 0 END DESC,
+      CASE WHEN SUM(acp.clicks) > 0 THEN CAST(SUM(acp.conversions) AS REAL) / SUM(acp.clicks) ELSE 0 END DESC
     LIMIT ?
   `, [userId, minClicks, minCtr, limit]) as any[]
 
