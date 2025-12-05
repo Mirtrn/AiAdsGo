@@ -165,15 +165,37 @@ async function upsertAccount(userId: number, account: {
 async function syncAccountsFromAPI(userId: number, credentials: any): Promise<any[]> {
   console.log(`🔄 从 Google Ads API 同步账号...`)
 
-  // 使用用户的凭证创建客户端
-  // 如果用户未配置这3个参数，credentials中会是null，getGoogleAdsClient会回退到环境变量
-  const client = credentials.client_id && credentials.client_secret && credentials.developer_token
-    ? getGoogleAdsClient({
-        client_id: credentials.client_id,
-        client_secret: credentials.client_secret,
-        developer_token: credentials.developer_token,
-      })
-    : getGoogleAdsClient() // 回退到环境变量配置（管理员autoads的配置）
+  // 获取凭证配置（用户配置优先，否则回退到管理员配置）
+  let clientId = credentials.client_id
+  let clientSecret = credentials.client_secret
+  let developerToken = credentials.developer_token
+
+  // 如果用户未配置这3个参数，从数据库获取管理员配置
+  if (!clientId || !clientSecret || !developerToken) {
+    const { getSetting } = await import('@/lib/settings')
+    const autoadsUserId = 1 // 管理员用户ID
+
+    if (!clientId) {
+      clientId = (await getSetting('google_ads', 'client_id', autoadsUserId))?.value
+    }
+    if (!clientSecret) {
+      clientSecret = (await getSetting('google_ads', 'client_secret', autoadsUserId))?.value
+    }
+    if (!developerToken) {
+      developerToken = (await getSetting('google_ads', 'developer_token', autoadsUserId))?.value
+    }
+
+    console.log(`   使用管理员配置: client_id=${!!clientId}, client_secret=${!!clientSecret}, developer_token=${!!developerToken}`)
+  } else {
+    console.log(`   使用用户自己的配置`)
+  }
+
+  // 创建客户端
+  const client = getGoogleAdsClient({
+    client_id: clientId,
+    client_secret: clientSecret,
+    developer_token: developerToken,
+  })
 
   const response = await client.listAccessibleCustomers(credentials.refresh_token)
   const resourceNames = response.resource_names || []
