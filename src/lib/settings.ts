@@ -60,20 +60,24 @@ export async function getAllSettings(userId?: number): Promise<SettingValue[]> {
   }
 
   // 转换为返回格式
-  return Array.from(settingsMap.values()).map(setting => ({
-    category: setting.category,
-    key: setting.config_key,
-    value: setting.is_sensitive && setting.encrypted_value
-      ? decrypt(setting.encrypted_value)
-      : setting.config_value,
-    dataType: setting.data_type,
-    isSensitive: setting.is_sensitive === 1,
-    isRequired: setting.is_required === 1,
-    validationStatus: setting.validation_status,
-    validationMessage: setting.validation_message,
-    lastValidatedAt: setting.last_validated_at,
-    description: setting.description,
-  }))
+  // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
+  return Array.from(settingsMap.values()).map(setting => {
+    const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
+    return {
+      category: setting.category,
+      key: setting.config_key,
+      value: isSensitive && setting.encrypted_value
+        ? decrypt(setting.encrypted_value)
+        : setting.config_value,
+      dataType: setting.data_type,
+      isSensitive,
+      isRequired: setting.is_required === true || setting.is_required === 1,
+      validationStatus: setting.validation_status,
+      validationMessage: setting.validation_message,
+      lastValidatedAt: setting.last_validated_at,
+      description: setting.description,
+    }
+  })
 }
 
 /**
@@ -102,20 +106,24 @@ export async function getSettingsByCategory(category: string, userId?: number): 
   }
 
   // 转换为返回格式
-  return Array.from(settingsMap.values()).map(setting => ({
-    category: setting.category,
-    key: setting.config_key,
-    value: setting.is_sensitive && setting.encrypted_value
-      ? decrypt(setting.encrypted_value)
-      : setting.config_value,
-    dataType: setting.data_type,
-    isSensitive: setting.is_sensitive === 1,
-    isRequired: setting.is_required === 1,
-    validationStatus: setting.validation_status,
-    validationMessage: setting.validation_message,
-    lastValidatedAt: setting.last_validated_at,
-    description: setting.description,
-  }))
+  // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
+  return Array.from(settingsMap.values()).map(setting => {
+    const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
+    return {
+      category: setting.category,
+      key: setting.config_key,
+      value: isSensitive && setting.encrypted_value
+        ? decrypt(setting.encrypted_value)
+        : setting.config_value,
+      dataType: setting.data_type,
+      isSensitive,
+      isRequired: setting.is_required === true || setting.is_required === 1,
+      validationStatus: setting.validation_status,
+      validationMessage: setting.validation_message,
+      lastValidatedAt: setting.last_validated_at,
+      description: setting.description,
+    }
+  })
 }
 
 /**
@@ -135,15 +143,17 @@ export async function getSetting(category: string, key: string, userId?: number)
 
   if (!setting) return null
 
+  // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
+  const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
   return {
     category: setting.category,
     key: setting.config_key,
-    value: setting.is_sensitive && setting.encrypted_value
+    value: isSensitive && setting.encrypted_value
       ? decrypt(setting.encrypted_value)
       : setting.config_value,
     dataType: setting.data_type,
-    isSensitive: setting.is_sensitive === 1,
-    isRequired: setting.is_required === 1,
+    isSensitive,
+    isRequired: setting.is_required === true || setting.is_required === 1,
     validationStatus: setting.validation_status,
     validationMessage: setting.validation_message,
     lastValidatedAt: setting.last_validated_at,
@@ -179,15 +189,17 @@ export async function getUserOnlySetting(category: string, key: string, userId: 
 
   if (!setting) return null
 
+  // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
+  const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
   return {
     category: setting.category,
     key: setting.config_key,
-    value: setting.is_sensitive && setting.encrypted_value
+    value: isSensitive && setting.encrypted_value
       ? decrypt(setting.encrypted_value)
       : setting.config_value,
     dataType: setting.data_type,
-    isSensitive: setting.is_sensitive === 1,
-    isRequired: setting.is_required === 1,
+    isSensitive,
+    isRequired: setting.is_required === true || setting.is_required === 1,
     validationStatus: setting.validation_status,
     validationMessage: setting.validation_message,
     lastValidatedAt: setting.last_validated_at,
@@ -206,7 +218,7 @@ export async function updateSetting(
 ): Promise<void> {
   const db = await getDatabase()
 
-  // 获取配置元数据
+  // 获取配置元数据（从全局模板获取字段定义）
   const metadata = await db.queryOne(`
     SELECT * FROM system_settings
     WHERE category = ? AND config_key = ? AND user_id IS NULL
@@ -218,7 +230,8 @@ export async function updateSetting(
   }
 
   // 确定是否需要加密
-  const isSensitive = metadata.is_sensitive === 1
+  // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1，需要兼容处理
+  const isSensitive = metadata.is_sensitive === true || metadata.is_sensitive === 1
   const configValue = isSensitive ? null : value
   const encryptedValue = isSensitive ? encrypt(value) : null
 
