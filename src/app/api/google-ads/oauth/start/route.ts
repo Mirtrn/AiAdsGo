@@ -26,9 +26,15 @@ export async function GET(request: NextRequest) {
     const userId = authResult.user.userId
     const autoadsUserId = 1
 
+    console.log(`🔐 [OAuth Start] 用户ID: ${userId}`)
+
     // 校验: login_customer_id 必须由用户自己配置（不使用 getSetting，避免回退到全局配置）
-    const userLoginCustomerId = (await getUserOnlySetting('google_ads', 'login_customer_id', userId))?.value || ''
+    const loginCustomerIdSetting = await getUserOnlySetting('google_ads', 'login_customer_id', userId)
+    console.log(`🔐 [OAuth Start] login_customer_id 查询结果:`, JSON.stringify(loginCustomerIdSetting))
+
+    const userLoginCustomerId = loginCustomerIdSetting?.value || ''
     if (!userLoginCustomerId) {
+      console.log(`🔐 [OAuth Start] 用户 ${userId} 未配置 login_customer_id`)
       return NextResponse.json(
         { error: '请先在设置页面配置 Login Customer ID (MCC账户ID)，这是使用 Google Ads API 的必填项' },
         { status: 400 }
