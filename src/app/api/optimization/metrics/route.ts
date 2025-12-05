@@ -73,16 +73,18 @@ export async function GET(request: NextRequest) {
         AND cp.date < ?
     `, [parseInt(userId, 10), fourteenDaysAgoStr, sevenDaysAgoStr]) as any
 
-    // 计算变化率
-    const calcChange = (recent: number, previous: number): number => {
-      if (previous === 0) return recent > 0 ? 100 : 0
-      return ((recent - previous) / previous) * 100
+    // 计算变化率（确保返回数字，不是null）
+    const calcChange = (recent: number | null | undefined, previous: number | null | undefined): number => {
+      const r = recent ?? 0
+      const p = previous ?? 0
+      if (p === 0) return r > 0 ? 100 : 0
+      return ((r - p) / p) * 100
     }
 
-    const ctrChange = calcChange(recentStats?.ctr || 0, previousStats?.ctr || 0)
-    const cpcChange = calcChange(recentStats?.cpc || 0, previousStats?.cpc || 0)
-    const impressionsChange = calcChange(recentStats?.impressions || 0, previousStats?.impressions || 0)
-    const clicksChange = calcChange(recentStats?.clicks || 0, previousStats?.clicks || 0)
+    const ctrChange = calcChange(recentStats?.ctr, previousStats?.ctr)
+    const cpcChange = calcChange(recentStats?.cpc, previousStats?.cpc)
+    const impressionsChange = calcChange(recentStats?.impressions, previousStats?.impressions)
+    const clicksChange = calcChange(recentStats?.clicks, previousStats?.clicks)
 
     // 获取优化任务统计（user_id 隔离）
     const taskStats = await db.queryOne(`
@@ -94,7 +96,8 @@ export async function GET(request: NextRequest) {
     `, [parseInt(userId, 10)]) as any
 
     // 计算成本节省（基于CPC下降）
-    const costSavings = cpcChange < 0 ? Math.abs(cpcChange) * (recentStats?.cost || 0) / 100 : 0
+    const recentCost = recentStats?.cost ?? 0
+    const costSavings = cpcChange < 0 ? Math.abs(cpcChange) * recentCost / 100 : 0
 
     return NextResponse.json({
       success: true,
@@ -103,8 +106,8 @@ export async function GET(request: NextRequest) {
         cpcChange: parseFloat(cpcChange.toFixed(2)),
         impressionsChange: parseFloat(impressionsChange.toFixed(2)),
         clicksChange: parseFloat(clicksChange.toFixed(2)),
-        pendingTasks: taskStats?.pending_tasks || 0,
-        completedTasks: taskStats?.completed_tasks || 0,
+        pendingTasks: parseInt(taskStats?.pending_tasks ?? 0, 10),
+        completedTasks: parseInt(taskStats?.completed_tasks ?? 0, 10),
         costSavings: parseFloat(costSavings.toFixed(2)),
         lastUpdated: new Date().toISOString()
       }

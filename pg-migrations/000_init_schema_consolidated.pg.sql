@@ -2637,6 +2637,45 @@ ORDER BY sp.offer_id, sp.rank;
 -- ==========================================
 
 -- ==========================================
+-- SEED DATA: System Settings Metadata
+-- ==========================================
+-- Global configuration metadata (user_id IS NULL)
+-- These records define the available configuration options
+-- User-specific values will be created when users save settings
+
+-- Google Ads settings
+INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, description)
+VALUES
+  (NULL, 'google_ads', 'login_customer_id', NULL, 'string', FALSE, TRUE, 'MCC管理账户ID，用于访问您管理的广告账户'),
+  (NULL, 'google_ads', 'client_id', NULL, 'string', TRUE, FALSE, 'OAuth 2.0客户端ID'),
+  (NULL, 'google_ads', 'client_secret', NULL, 'string', TRUE, FALSE, 'OAuth 2.0客户端密钥'),
+  (NULL, 'google_ads', 'developer_token', NULL, 'string', TRUE, FALSE, 'Google Ads API开发者令牌');
+
+-- AI settings
+INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, default_value, description)
+VALUES
+  (NULL, 'ai', 'use_vertex_ai', NULL, 'boolean', FALSE, FALSE, 'false', 'AI模式选择：true=Vertex AI, false=Gemini API'),
+  (NULL, 'ai', 'gemini_api_key', NULL, 'string', TRUE, FALSE, NULL, 'Gemini API密钥'),
+  (NULL, 'ai', 'gemini_model', NULL, 'string', FALSE, FALSE, 'gemini-2.5-pro', 'Gemini模型名称'),
+  (NULL, 'ai', 'gcp_project_id', NULL, 'string', FALSE, FALSE, NULL, 'GCP项目ID'),
+  (NULL, 'ai', 'gcp_location', NULL, 'string', FALSE, FALSE, 'us-central1', 'GCP区域'),
+  (NULL, 'ai', 'gcp_service_account_json', NULL, 'text', TRUE, FALSE, NULL, 'GCP Service Account JSON凭证');
+
+-- Proxy settings
+INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, description)
+VALUES
+  (NULL, 'proxy', 'urls', NULL, 'json', FALSE, FALSE, '代理URL配置，JSON格式存储国家与代理URL的映射');
+
+-- System settings
+INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, default_value, description)
+VALUES
+  (NULL, 'system', 'currency', NULL, 'string', FALSE, FALSE, 'CNY', '默认货币单位'),
+  (NULL, 'system', 'language', NULL, 'string', FALSE, FALSE, 'zh-CN', '系统语言'),
+  (NULL, 'system', 'sync_interval_hours', NULL, 'number', FALSE, FALSE, '6', '数据同步间隔（小时）'),
+  (NULL, 'system', 'link_check_enabled', NULL, 'boolean', FALSE, FALSE, 'true', '是否启用链接检查'),
+  (NULL, 'system', 'link_check_time', NULL, 'string', FALSE, FALSE, '02:00', '链接检查时间');
+
+-- ==========================================
 -- SEED DATA: Default Admin Account
 -- ==========================================
 -- NOTE: Password hash must be generated using DEFAULT_ADMIN_PASSWORD environment variable

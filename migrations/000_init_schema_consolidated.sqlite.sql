@@ -1597,5 +1597,44 @@ INSERT INTO prompt_versions VALUES(69,'product_analysis_single','v3.1','产品�
 INSERT INTO prompt_versions VALUES(70,'review_analysis','v3.1','评论分析','评论分析v3.1','支持模板变量、增强情感分析、购买动机和用户画像分析','src/lib/review-analyzer.ts','analyzeReviewsWithAI',replace('You are an expert e-commerce review analyst. Analyze the following product reviews comprehensively.\n\n=== INPUT DATA ===\nProduct Name: {{productName}}\nTotal Reviews: {{totalReviews}}\nTarget Language: {{langName}}\n\n=== REVIEWS DATA ===\n{{reviewTexts}}\n\n=== ANALYSIS REQUIREMENTS ===\n\nPerform deep analysis across these dimensions:\n\n1. **Sentiment Distribution** (Quantitative):\n   - Calculate percentage: positive / neutral / negative\n   - Identify sentiment patterns by star rating\n\n2. **Positive Keywords** (Top 10):\n   - Extract most frequently praised aspects\n   - Include specific features customers love\n   - Note emotional language patterns\n\n3. **Negative Keywords** (Top 10):\n   - Extract most common complaints\n   - Identify recurring issues\n   - Note severity levels\n\n4. **Real Use Cases** (5-8 scenarios):\n   - How customers actually use the product\n   - Unexpected use cases discovered\n   - Environment/context of usage\n\n5. **Purchase Reasons** (Top 5):\n   - Why customers chose this product\n   - Decision factors mentioned\n   - Comparison with alternatives\n\n6. **User Profiles** (3-5 types):\n   - Demographics (if mentioned)\n   - Experience levels\n   - Primary needs/goals\n\n7. **Common Pain Points** (Top 5):\n   - Issues that affect satisfaction\n   - Setup/usage difficulties\n   - Quality concerns\n\n=== OUTPUT LANGUAGE ===\nAll output MUST be in {{langName}}.\n\n=== OUTPUT FORMAT ===\nReturn a COMPLETE JSON object:\n{\n  "sentimentDistribution": {\n    "positive": 70,\n    "neutral": 20,\n    "negative": 10\n  },\n  "topPositiveKeywords": [\n    {"keyword": "easy to use", "frequency": 45, "context": "setup and daily operation"},\n    {"keyword": "great value", "frequency": 38, "context": "price-quality ratio"}\n  ],\n  "topNegativeKeywords": [\n    {"keyword": "battery life", "frequency": 12, "context": "shorter than expected"},\n    {"keyword": "instructions unclear", "frequency": 8, "context": "initial setup"}\n  ],\n  "realUseCases": [\n    {"scenario": "Home security monitoring", "frequency": "High", "satisfaction": "Positive"},\n    {"scenario": "Baby room monitoring", "frequency": "Medium", "satisfaction": "Positive"}\n  ],\n  "purchaseReasons": [\n    {"reason": "Brand reputation", "frequency": 25},\n    {"reason": "Feature set vs price", "frequency": 22}\n  ],\n  "userProfiles": [\n    {"type": "Tech-savvy homeowner", "percentage": 40, "primaryNeed": "Security"},\n    {"type": "First-time buyer", "percentage": 30, "primaryNeed": "Ease of use"}\n  ],\n  "commonPainPoints": [\n    {"issue": "WiFi connectivity issues", "severity": "Medium", "frequency": 15},\n    {"issue": "App crashes occasionally", "severity": "Low", "frequency": 8}\n  ],\n  "overallInsights": {\n    "productStrength": "Summary of main strengths",\n    "improvementAreas": "Summary of areas to improve",\n    "marketingAngles": ["Angle 1 for ads", "Angle 2 for ads"]\n  }\n}','\n',char(10)),'Chinese',NULL,'2025-12-04 14:03:03',1,replace('\nv3.1 更新内容:\n1. 批量更新所有Prompt到v3.1\n2. 从开发环境数据库导出最新Prompt内容\n','\n',char(10)));
 
 -- ==========================================
+-- SEED DATA: System Settings Metadata
+-- ==========================================
+-- Global configuration metadata (user_id IS NULL)
+-- These records define the available configuration options
+-- User-specific values will be created when users save settings
+
+-- Google Ads settings
+INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, description)
+VALUES
+  (NULL, 'google_ads', 'login_customer_id', NULL, 'string', 0, 1, 'MCC管理账户ID，用于访问您管理的广告账户'),
+  (NULL, 'google_ads', 'client_id', NULL, 'string', 1, 0, 'OAuth 2.0客户端ID'),
+  (NULL, 'google_ads', 'client_secret', NULL, 'string', 1, 0, 'OAuth 2.0客户端密钥'),
+  (NULL, 'google_ads', 'developer_token', NULL, 'string', 1, 0, 'Google Ads API开发者令牌');
+
+-- AI settings
+INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, default_value, description)
+VALUES
+  (NULL, 'ai', 'use_vertex_ai', NULL, 'boolean', 0, 0, 'false', 'AI模式选择：true=Vertex AI, false=Gemini API'),
+  (NULL, 'ai', 'gemini_api_key', NULL, 'string', 1, 0, NULL, 'Gemini API密钥'),
+  (NULL, 'ai', 'gemini_model', NULL, 'string', 0, 0, 'gemini-2.5-pro', 'Gemini模型名称'),
+  (NULL, 'ai', 'gcp_project_id', NULL, 'string', 0, 0, NULL, 'GCP项目ID'),
+  (NULL, 'ai', 'gcp_location', NULL, 'string', 0, 0, 'us-central1', 'GCP区域'),
+  (NULL, 'ai', 'gcp_service_account_json', NULL, 'text', 1, 0, NULL, 'GCP Service Account JSON凭证');
+
+-- Proxy settings
+INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, description)
+VALUES
+  (NULL, 'proxy', 'urls', NULL, 'json', 0, 0, '代理URL配置，JSON格式存储国家与代理URL的映射');
+
+-- System settings
+INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, default_value, description)
+VALUES
+  (NULL, 'system', 'currency', NULL, 'string', 0, 0, 'CNY', '默认货币单位'),
+  (NULL, 'system', 'language', NULL, 'string', 0, 0, 'zh-CN', '系统语言'),
+  (NULL, 'system', 'sync_interval_hours', NULL, 'number', 0, 0, '6', '数据同步间隔（小时）'),
+  (NULL, 'system', 'link_check_enabled', NULL, 'boolean', 0, 0, 'true', '是否启用链接检查'),
+  (NULL, 'system', 'link_check_time', NULL, 'string', 0, 0, '02:00', '链接检查时间');
+
+-- ==========================================
 -- End of Consolidated Schema
 -- ==========================================
