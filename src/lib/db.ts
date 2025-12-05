@@ -94,26 +94,109 @@ class PostgresAdapter implements DatabaseAdapter {
     return sql.replace(/\?/g, () => `$${index++}`)
   }
 
+  // 转换 SQLite 特有语法为 PostgreSQL 兼容语法
+  private convertSqliteSyntax(sql: string): string {
+    let result = sql
+
+    // 1. 转换 date('now', '-N days') 为 PostgreSQL 的 CURRENT_DATE - INTERVAL 'N days'
+    // 匹配: date('now', '-30 days') -> (CURRENT_DATE - INTERVAL '30 days')
+    result = result.replace(/date\s*\(\s*'now'\s*,\s*'(-?\d+)\s+days?'\s*\)/gi, (_, days) => {
+      const absdays = Math.abs(parseInt(days))
+      return `(CURRENT_DATE - INTERVAL '${absdays} days')`
+    })
+
+    // 2. 转换 DATE(column) 为 PostgreSQL 的 (column::date)
+    // PostgreSQL 的 DATE() 函数需要 timestamp 类型，而 TEXT 类型需要先转换
+    // 匹配: DATE(created_at) -> (created_at::date)
+    result = result.replace(/\bDATE\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)/gi, (_, column) => {
+      return `(${column}::date)`
+    })
+
+    // 3. 转换 datetime('now') 为 PostgreSQL 的 CURRENT_TIMESTAMP
+    result = result.replace(/datetime\s*\(\s*'now'\s*\)/gi, 'CURRENT_TIMESTAMP')
+
+    // 4. 转换 strftime 为 PostgreSQL 的 to_char
+    // 匹配: strftime('%Y-%m-%d', column) -> to_char(column, 'YYYY-MM-DD')
+    result = result.replace(/strftime\s*\(\s*'%Y-%m-%d'\s*,\s*([^)]+)\)/gi, (_, column) => {
+      return `to_char(${column.trim()}::timestamp, 'YYYY-MM-DD')`
+    })
+    result = result.replace(/strftime\s*\(\s*'%Y-%m'\s*,\s*([^)]+)\)/gi, (_, column) => {
+      return `to_char(${column.trim()}::timestamp, 'YYYY-MM')`
+    })
+
+    // 5. 转换布尔字段的整数比较为布尔比较
+    // 已知的布尔字段列表（在 PostgreSQL 中是 BOOLEAN 类型）
+    const booleanFields = [
+      'is_active', 'is_selected', 'is_success', 'must_change_password',
+      'is_default', 'is_manager', 'enabled', 'is_deleted'
+    ]
+
+    // 转换 field = 1 -> field = true, field = 0 -> field = false
+    for (const field of booleanFields) {
+      // 匹配 field = 1 或 field= 1 或 field =1
+      const pattern1 = new RegExp(`\\b(${field})\\s*=\\s*1\\b`, 'gi')
+      result = result.replace(pattern1, `$1 = true`)
+
+      const pattern0 = new RegExp(`\\b(${field})\\s*=\\s*0\\b`, 'gi')
+      result = result.replace(pattern0, `$1 = false`)
+    }
+
+    // 6. 转换 CASE WHEN field = 1 中的布尔比较
+    // 匹配 WHEN is_selected = 1 -> WHEN is_selected = true
+    for (const field of booleanFields) {
+      const patternWhen1 = new RegExp(`(WHEN\\s+${field}\\s*=\\s*)1\\b`, 'gi')
+      result = result.replace(patternWhen1, '$1true')
+
+      const patternWhen0 = new RegExp(`(WHEN\\s+${field}\\s*=\\s*)0\\b`, 'gi')
+      result = result.replace(patternWhen0, '$1false')
+    }
+
+    // 7. 转换 SET field = 0/1 中的布尔赋值
+    for (const field of booleanFields) {
+      const patternSet1 = new RegExp(`(SET\\s+${field}\\s*=\\s*)1\\b`, 'gi')
+      result = result.replace(patternSet1, '$1true')
+
+      const patternSet0 = new RegExp(`(SET\\s+${field}\\s*=\\s*)0\\b`, 'gi')
+      result = result.replace(patternSet0, '$1false')
+    }
+
+    return result
+  }
+
+  // 转换参数中的布尔值：SQLite 使用 0/1，PostgreSQL 使用 true/false
+  private convertParams(params: any[]): any[] {
+    return params.map(p => {
+      if (p === undefined) return null
+      // 布尔值在 PostgreSQL 中直接使用 true/false，不需要转换
+      // 但如果代码传入的是 0/1 想表示布尔值，我们需要根据上下文判断
+      // 这里暂时不做自动转换，因为可能导致整数字段被错误转换
+      return p
+    })
+  }
+
   async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-    const pgSql = this.convertPlaceholders(sql)
-    // PostgreSQL driver doesn't allow undefined values, convert to null
-    const cleanParams = params.map(p => p === undefined ? null : p)
+    // 先转换 SQLite 特有语法，再转换占位符
+    const convertedSql = this.convertSqliteSyntax(sql)
+    const pgSql = this.convertPlaceholders(convertedSql)
+    const cleanParams = this.convertParams(params)
     const result = await this.sql.unsafe(pgSql, cleanParams)
     return result as unknown as T[]
   }
 
   async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
-    const pgSql = this.convertPlaceholders(sql)
-    // PostgreSQL driver doesn't allow undefined values, convert to null
-    const cleanParams = params.map(p => p === undefined ? null : p)
+    // 先转换 SQLite 特有语法，再转换占位符
+    const convertedSql = this.convertSqliteSyntax(sql)
+    const pgSql = this.convertPlaceholders(convertedSql)
+    const cleanParams = this.convertParams(params)
     const result = await this.sql.unsafe(pgSql, cleanParams)
     return result[0] as T | undefined
   }
 
   async exec(sql: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: number }> {
-    const pgSql = this.convertPlaceholders(sql)
-    // PostgreSQL driver doesn't allow undefined values, convert to null
-    const cleanParams = params.map(p => p === undefined ? null : p)
+    // 先转换 SQLite 特有语法，再转换占位符
+    const convertedSql = this.convertSqliteSyntax(sql)
+    const pgSql = this.convertPlaceholders(convertedSql)
+    const cleanParams = this.convertParams(params)
     const result = await this.sql.unsafe(pgSql, cleanParams)
     return {
       changes: result.count || 0,
