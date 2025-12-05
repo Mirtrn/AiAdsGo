@@ -185,8 +185,9 @@ export async function getUsageTrend(userId: number, days: number = 7): Promise<U
     : "CASE WHEN is_success = 1 THEN 1 ELSE 0 END"
 
   // PostgreSQL 和 SQLite 的日期函数不同
+  // 由于 date 字段是 TEXT 类型（存储 'YYYY-MM-DD' 格式），需要返回相同格式进行比较
   const dateCondition = db.type === 'postgres'
-    ? `date >= CURRENT_DATE - INTERVAL '${days} days'`
+    ? `date >= to_char(CURRENT_DATE - INTERVAL '${days} days', 'YYYY-MM-DD')`
     : `date >= date('now', '-${days} days')`
 
   const rows = await db.query(`
