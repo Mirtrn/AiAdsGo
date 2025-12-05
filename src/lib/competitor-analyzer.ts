@@ -448,13 +448,42 @@ async function executeAmazonSearch(
         const items: any[] = []
         const resultElements = document.querySelectorAll('[data-component-type="s-search-result"]')
 
-        // 在evaluate内部定义价格解析函数
+        // 在evaluate内部定义价格解析函数（支持欧洲和美国格式）
         function parsePriceInBrowser(text: string): number | null {
           if (!text) return null
-          const cleaned = text.replace(/[^\d.,]/g, '')
-          const normalized = cleaned.replace(',', '.')
-          const num = parseFloat(normalized)
-          return isNaN(num) ? null : num
+
+          // 移除货币符号和空格
+          const cleaned = text.replace(/[€$£¥₹\s]/g, '').trim()
+          if (!cleaned) return null
+
+          const lastCommaIndex = cleaned.lastIndexOf(',')
+          const lastDotIndex = cleaned.lastIndexOf('.')
+
+          let normalized: string
+
+          if (lastCommaIndex > lastDotIndex) {
+            // 欧洲格式: 逗号在后面是小数点 "1.299,99" → "1299.99"
+            normalized = cleaned.replace(/\./g, '').replace(',', '.')
+          } else if (lastDotIndex > lastCommaIndex) {
+            // 美国格式: 点在后面是小数点 "1,299.99" → "1299.99"
+            normalized = cleaned.replace(/,/g, '')
+          } else if (lastCommaIndex !== -1 && lastDotIndex === -1) {
+            // 只有逗号: 判断是欧洲小数点还是千位分隔符
+            const afterComma = cleaned.split(',')[1]
+            if (afterComma && afterComma.length <= 2) {
+              // 逗号后1-2位数字，是欧洲小数点 "319,00" → "319.00"
+              normalized = cleaned.replace(',', '.')
+            } else {
+              // 逗号后超过2位，是千位分隔符 "1,000,000" → "1000000"
+              normalized = cleaned.replace(/,/g, '')
+            }
+          } else {
+            // 没有逗号也没有点
+            normalized = cleaned
+          }
+
+          const price = parseFloat(normalized)
+          return isNaN(price) ? null : price
         }
 
         for (let i = 0; i < Math.min(maxItems, resultElements.length); i++) {
