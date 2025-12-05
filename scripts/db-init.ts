@@ -20,17 +20,31 @@ if (!DATABASE_URL) {
 /**
  * 从 DATABASE_URL 中提取数据库名和基础连接字符串
  * 例如: postgresql://user:pass@host:port/autoads -> { dbName: 'autoads', baseUrl: 'postgresql://user:pass@host:port/postgres' }
+ * 如果URL末尾没有数据库名，默认使用'postgres'
  */
 function parseDatabaseUrl(url: string): { dbName: string; baseUrl: string } {
-  const match = url.match(/^(postgresql?:\/\/[^/]+)\/([^?]+)(\?.*)?$/);
-  if (!match) {
-    throw new Error('无效的 DATABASE_URL 格式');
+  // 匹配带数据库名的URL: postgresql://user:pass@host:port/dbname
+  const matchWithDb = url.match(/^(postgresql?:\/\/[^/]+)\/([^/?]+)(\?.*)?$/);
+  if (matchWithDb) {
+    const [, baseWithoutDb, dbName, queryString = ''] = matchWithDb;
+    return {
+      dbName,
+      baseUrl: `${baseWithoutDb}/postgres${queryString}`,
+    };
   }
-  const [, baseWithoutDb, dbName, queryString = ''] = match;
-  return {
-    dbName,
-    baseUrl: `${baseWithoutDb}/postgres${queryString}`, // 连接到默认的 postgres 数据库
-  };
+
+  // 匹配不带数据库名的URL: postgresql://user:pass@host:port/ 或 postgresql://user:pass@host:port
+  const matchWithoutDb = url.match(/^(postgresql?:\/\/[^/]+)\/?(\?.*)?$/);
+  if (matchWithoutDb) {
+    const [, baseWithoutDb, queryString = ''] = matchWithoutDb;
+    console.log('⚠️  DATABASE_URL未指定数据库名，使用默认数据库: postgres');
+    return {
+      dbName: 'postgres',  // 默认使用postgres数据库
+      baseUrl: `${baseWithoutDb}/postgres${queryString}`,
+    };
+  }
+
+  throw new Error('无效的 DATABASE_URL 格式');
 }
 
 /**
