@@ -2582,6 +2582,57 @@ v3.1 更新内容:
 $$);
 
 -- ==========================================
+-- VIEWS: Analytics and Summary Views
+-- ==========================================
+
+-- View 1: Daily API Usage Summary
+-- Aggregates Google Ads API usage by user and date
+CREATE VIEW daily_api_usage_summary AS
+SELECT
+  user_id,
+  date,
+  SUM(request_count) as total_requests,
+  COUNT(*) as total_operations,
+  SUM(CASE WHEN is_success = TRUE THEN 1 ELSE 0 END) as successful_operations,
+  SUM(CASE WHEN is_success = FALSE THEN 1 ELSE 0 END) as failed_operations,
+  AVG(response_time_ms) as avg_response_time_ms,
+  MAX(response_time_ms) as max_response_time_ms
+FROM google_ads_api_usage
+GROUP BY user_id, date;
+
+-- View 2: Phase 3 Statistics
+-- Aggregates scraped product statistics by user, offer and brand
+CREATE VIEW v_phase3_statistics AS
+SELECT
+  sp.user_id,
+  sp.offer_id,
+  o.brand,
+  COUNT(*) as total_products,
+  SUM(CASE WHEN sp.promotion IS NOT NULL THEN 1 ELSE 0 END) as products_with_promotion,
+  SUM(CASE WHEN sp.badge IS NOT NULL THEN 1 ELSE 0 END) as products_with_badge,
+  SUM(CASE WHEN sp.is_prime = TRUE THEN 1 ELSE 0 END) as prime_products,
+  ROUND(AVG(CASE WHEN sp.rating IS NOT NULL THEN sp.rating::NUMERIC ELSE NULL END), 2) as avg_rating,
+  AVG(sp.hot_score) as avg_hot_score
+FROM scraped_products sp
+JOIN offers o ON sp.offer_id = o.id
+WHERE sp.user_id = o.user_id  -- 确保用户隔离
+GROUP BY sp.user_id, sp.offer_id, o.brand;
+
+-- View 3: Top Hot Products
+-- Lists all hot products with offer details, ordered by rank
+CREATE VIEW v_top_hot_products AS
+SELECT
+  sp.*,
+  o.brand,
+  o.target_country,
+  o.category
+FROM scraped_products sp
+JOIN offers o ON sp.offer_id = o.id
+WHERE sp.is_hot = TRUE
+  AND sp.user_id = o.user_id  -- 确保用户隔离
+ORDER BY sp.offer_id, sp.rank;
+
+-- ==========================================
 -- End of Consolidated Schema
 -- ==========================================
 
