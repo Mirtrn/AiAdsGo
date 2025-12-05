@@ -121,7 +121,7 @@ RUN node ./node_modules/playwright/cli.js install chromium --with-deps
 
 # 创建必要的目录
 RUN mkdir -p /var/log/nginx /var/lib/nginx/tmp /var/run && \
-    chown -R nginx:nginx /var/log/nginx /var/lib/nginx /var/run && \
+    chown -R www-data:www-data /var/log/nginx /var/lib/nginx /var/run && \
     chown -R nextjs:nodejs /app
 
 # 暴露80端口（Nginx）
