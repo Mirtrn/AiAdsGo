@@ -115,12 +115,18 @@ export async function exchangeCodeForTokens(code: string): Promise<{
 /**
  * 刷新access token
  */
-export async function refreshAccessToken(refreshToken: string): Promise<{
+export async function refreshAccessToken(
+  refreshToken: string,
+  credentials?: {
+    client_id: string
+    client_secret: string
+  }
+): Promise<{
   access_token: string
   expires_in: number
 }> {
-  const clientId = process.env.GOOGLE_ADS_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET
+  const clientId = credentials?.client_id || process.env.GOOGLE_ADS_CLIENT_ID
+  const clientSecret = credentials?.client_secret || process.env.GOOGLE_ADS_CLIENT_SECRET
 
   if (!clientId || !clientSecret) {
     throw new Error('缺少OAuth配置')
@@ -169,7 +175,7 @@ export async function getCustomer(
   try {
     // 尝试使用refresh token获取新的access token（带重试）
     const tokens = await withRetry(
-      () => refreshAccessToken(refreshToken),
+      () => refreshAccessToken(refreshToken, credentials ? { client_id: credentials.client_id, client_secret: credentials.client_secret } : undefined),
       {
         maxRetries: 2,
         initialDelay: 500,
