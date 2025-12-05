@@ -377,21 +377,21 @@ export default function OptimizationOverviewPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-900 truncate">
-                        {creative.headline}
+                        {creative.headline || '创意标题'}
                       </p>
                       <div className="flex items-center gap-3 mt-1">
                         <span className="text-xs text-slate-500">
-                          CTR: {(creative.ctr * 100).toFixed(2)}%
+                          CTR: {((creative.ctr ?? 0) * 100).toFixed(2)}%
                         </span>
                         <span className="text-xs text-slate-500">
-                          展示: {creative.impressions.toLocaleString()}
+                          展示: {(creative.impressions ?? 0).toLocaleString()}
                         </span>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${getRatingColor(creative.rating)}`}>
+                      <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${getRatingColor(creative.rating || 'poor')}`}>
                         <Zap className="w-3 h-3" />
-                        {creative.score}分
+                        {creative.score ?? 0}分
                       </div>
                     </div>
                   </div>
