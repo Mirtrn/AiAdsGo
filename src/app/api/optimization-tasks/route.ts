@@ -37,10 +37,10 @@ export async function GET(request: NextRequest) {
     }
 
     // 获取任务列表
-    const tasks = getUserOptimizationTasks(auth.user!.userId, status)
+    const tasks = await getUserOptimizationTasks(auth.user!.userId, status)
 
     // 获取统计信息
-    const statistics = getTaskStatistics(auth.user!.userId)
+    const statistics = await getTaskStatistics(auth.user!.userId)
 
     return NextResponse.json({
       tasks,
@@ -70,10 +70,10 @@ export async function POST(request: NextRequest) {
     }
 
     // 生成任务
-    const taskCount = generateOptimizationTasksForUser(auth.user!.userId)
+    const taskCount = await generateOptimizationTasksForUser(auth.user!.userId)
 
     // 获取更新后的统计
-    const statistics = getTaskStatistics(auth.user!.userId)
+    const statistics = await getTaskStatistics(auth.user!.userId)
 
     return NextResponse.json({
       success: true,
