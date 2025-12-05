@@ -123,7 +123,7 @@ export function generateCampaignName(params: {
     category ? sanitize(category) : 'General',
     `${Math.round(budgetAmount)}${NAMING_CONFIG.BUDGET_TYPE[budgetType]}`,
     NAMING_CONFIG.BIDDING_STRATEGY[biddingStrategy as keyof typeof NAMING_CONFIG.BIDDING_STRATEGY] || sanitize(biddingStrategy.substring(0, 6).toUpperCase()),
-    formatDateTime(date), // 使用完整日期时间确保唯一性
+    formatDate(date), // 使用日期格式YYYYMMDD
     `O${offerId}`
   ]
 
