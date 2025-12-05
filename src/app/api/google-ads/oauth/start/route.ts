@@ -42,9 +42,17 @@ export async function GET(request: NextRequest) {
     }
 
     // 获取用户的OAuth配置（getSetting已自动解密敏感字段）
-    const userClientId = (await getSetting('google_ads', 'client_id', userId))?.value || ''
-    const userClientSecret = (await getSetting('google_ads', 'client_secret', userId))?.value || ''
-    const userDeveloperToken = (await getSetting('google_ads', 'developer_token', userId))?.value || ''
+    const userClientIdSetting = await getSetting('google_ads', 'client_id', userId)
+    const userClientSecretSetting = await getSetting('google_ads', 'client_secret', userId)
+    const userDeveloperTokenSetting = await getSetting('google_ads', 'developer_token', userId)
+
+    console.log(`🔐 [OAuth Start] client_id 查询结果:`, JSON.stringify(userClientIdSetting))
+    console.log(`🔐 [OAuth Start] client_secret 查询结果:`, JSON.stringify(userClientSecretSetting))
+    console.log(`🔐 [OAuth Start] developer_token 查询结果:`, JSON.stringify(userDeveloperTokenSetting))
+
+    const userClientId = userClientIdSetting?.value || ''
+    const userClientSecret = userClientSecretSetting?.value || ''
+    const userDeveloperToken = userDeveloperTokenSetting?.value || ''
 
     // 检查用户是否有完整的OAuth配置
     const hasFullOAuthConfig = !!(userClientId && userClientSecret && userDeveloperToken)
