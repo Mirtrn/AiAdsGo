@@ -438,10 +438,10 @@ export default function MarketingHome() {
             <div>
               <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">公司</h3>
               <ul className="space-y-3">
-                <li><a href="#" className="text-sm hover:text-white transition-colors">关于我们</a></li>
-                <li><a href="#" className="text-sm hover:text-white transition-colors">联系方式</a></li>
-                <li><a href="#" className="text-sm hover:text-white transition-colors">隐私政策</a></li>
-                <li><a href="#" className="text-sm hover:text-white transition-colors">服务条款</a></li>
+                <li><a href="/about" className="text-sm hover:text-white transition-colors">关于我们</a></li>
+                <li><a href="/contact" className="text-sm hover:text-white transition-colors">联系方式</a></li>
+                <li><a href="/privacy" className="text-sm hover:text-white transition-colors">隐私政策</a></li>
+                <li><a href="/terms" className="text-sm hover:text-white transition-colors">服务条款</a></li>
               </ul>
             </div>
           </div>
