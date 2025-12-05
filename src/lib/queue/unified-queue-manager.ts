@@ -12,6 +12,7 @@ import type {
 import { MemoryQueueAdapter } from './memory-adapter'
 import { RedisQueueAdapter } from './redis-adapter'
 import { SimpleProxyManager } from './proxy-manager'
+import { queueRecoveryManager } from './queue-recovery'
 
 /**
  * 统一队列管理器
@@ -107,6 +108,13 @@ export class UnifiedQueueManager {
 
     this.running = true
     console.log('🚀 队列处理已启动')
+
+    // 【队列恢复】在启动时检查是否有待恢复的任务
+    if (queueRecoveryManager.hasPendingRecovery()) {
+      console.log('🔄 检测到待恢复的任务，开始执行恢复...')
+      const recoveryResult = await queueRecoveryManager.executeQueueRecovery()
+      console.log(`✅ 队列恢复完成: 成功 ${recoveryResult.recovered} 个，失败 ${recoveryResult.failed} 个`)
+    }
 
     // 启动处理循环（每100ms检查一次）
     this.processingLoop = setInterval(() => {
@@ -288,6 +296,16 @@ export class UnifiedQueueManager {
           await this.adapter.enqueue(task)
         }, this.config.retryDelay)
       } else {
+        // 【队列恢复】标记任务为可恢复（超过重试次数后）
+        queueRecoveryManager.markTaskForRecovery({
+          id: task.id,
+          task_type: task.type,
+          status: 'failed',
+          retry_count: task.retryCount,
+          user_id: task.userId,
+          data: task.data
+        })
+
         // 标记为失败
         await this.adapter.updateTaskStatus(task.id, 'failed', error.message)
       }

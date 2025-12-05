@@ -37,6 +37,10 @@ interface QueueConfig {
   maxQueueSize: number
   taskTimeout: number
   enablePriority: boolean
+  // 新增字段 (New Unified Queue Feature)
+  defaultMaxRetries?: number
+  retryDelay?: number
+  storageType?: 'redis' | 'memory'
 }
 
 export default function QueueManagementPage() {
@@ -46,12 +50,24 @@ export default function QueueManagementPage() {
   const [activeTab, setActiveTab] = useState<'monitor' | 'config'>('monitor')
 
   // 配置表单状态
-  const [config, setConfig] = useState<QueueConfig>({
-    globalConcurrency: 8,
-    perUserConcurrency: 2,
-    maxQueueSize: 1000,
-    taskTimeout: 300000,
-    enablePriority: true,
+  const [config, setConfig] = useState<QueueConfig>(() => {
+    // 根据服务器配置动态设置默认值
+    const cpuCores = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
+      ? navigator.hardwareConcurrency
+      : 4 // 默认4核
+    const optimalGlobalConcurrency = Math.min(cpuCores * 2, 16) // CPU核数 × 2，限制最大16
+    const optimalPerUserConcurrency = Math.max(2, Math.floor(optimalGlobalConcurrency / 4)) // 全局并发/4，最少2
+
+    return {
+      globalConcurrency: optimalGlobalConcurrency,
+      perUserConcurrency: optimalPerUserConcurrency,
+      maxQueueSize: 1000,
+      taskTimeout: 300000,
+      enablePriority: true,
+      defaultMaxRetries: 3,
+      retryDelay: 5000,
+      storageType: 'redis'
+    }
   })
   const [savingConfig, setSavingConfig] = useState(false)
 
@@ -61,11 +77,48 @@ export default function QueueManagementPage() {
       const data = await response.json()
 
       if (data.success) {
-        setStats(data.stats)
-        // 同步配置到表单
-        if (data.stats.config) {
-          setConfig(data.stats.config)
+        // 适配新统一队列格式（兼容旧格式）
+        const adaptedStats = {
+          global: data.data?.global || data.stats?.global || {
+            running: 0,
+            queued: 0,
+            completed: 0,
+            failed: 0
+          },
+          perUser: data.data?.byUser ?
+            Object.entries(data.data.byUser).map(([uid, userStats]: [string, any]) => ({
+              userId: parseInt(uid),
+              ...userStats
+            })) :
+            data.stats?.perUser || [],
+          config: data.data?.config || data.stats?.config || {
+            globalConcurrency: 5,
+            perUserConcurrency: 2,
+            maxQueueSize: 1000,
+            taskTimeout: 60000,
+            enablePriority: true,
+            storageType: 'redis'
+          },
+          // 新增字段
+          byType: data.data?.byType || {},
+          proxy: data.data?.proxy || data.stats?.proxy || null
         }
+
+        setStats(adaptedStats)
+
+        // 同步配置到表单（适配新字段）
+        const newConfig = data.data?.config || data.stats?.config || {}
+        setConfig({
+          globalConcurrency: newConfig.globalConcurrency || 5,
+          perUserConcurrency: newConfig.perUserConcurrency || 2,
+          maxQueueSize: newConfig.maxQueueSize || 1000,
+          taskTimeout: newConfig.taskTimeout || 60000,
+          enablePriority: newConfig.enablePriority !== false,
+          // 新增字段
+          defaultMaxRetries: newConfig.defaultMaxRetries || 3,
+          retryDelay: newConfig.retryDelay || 5000,
+          storageType: newConfig.storageType || 'redis'
+        })
       } else {
         throw new Error(data.error || '获取队列统计失败')
       }
@@ -171,6 +224,32 @@ export default function QueueManagementPage() {
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
                 手动刷新
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const response = await fetch('/api/queue/recover', {
+                      method: 'POST'
+                    })
+                    const data = await response.json()
+
+                    if (data.success) {
+                      toast.success(`队列恢复完成: 成功 ${data.recovered} 个，失败 ${data.failed} 个`)
+                      // 刷新统计
+                      await fetchStats()
+                    } else {
+                      toast.error(data.error || '队列恢复失败')
+                    }
+                  } catch (error: any) {
+                    toast.error('队列恢复失败')
+                    console.error(error)
+                  }
+                }}
+              >
+                <AlertCircle className="w-4 h-4 mr-2" />
+                恢复队列
               </Button>
             </>
           )}
@@ -295,6 +374,80 @@ export default function QueueManagementPage() {
             </div>
           </div>
 
+          {/* Proxy Stats Card (New Unified Queue Feature) */}
+          {stats.proxy && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <Activity className="w-5 h-5 mr-2" />
+                代理IP池状态
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm font-medium text-gray-600">代理总数</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.proxy.total}</p>
+                </div>
+                <div className="bg-green-50 rounded-lg p-4">
+                  <p className="text-sm font-medium text-green-600">可用</p>
+                  <p className="text-2xl font-bold text-green-700">{stats.proxy.available}</p>
+                </div>
+                <div className="bg-red-50 rounded-lg p-4">
+                  <p className="text-sm font-medium text-red-600">不可用</p>
+                  <p className="text-2xl font-bold text-red-700">{stats.proxy.failed}</p>
+                </div>
+              </div>
+              {stats.proxy.details && stats.proxy.details.length > 0 && (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-t border-gray-200">
+                        <th className="text-left py-2 px-3 font-medium text-gray-600">代理</th>
+                        <th className="text-center py-2 px-3 font-medium text-gray-600">成功</th>
+                        <th className="text-center py-2 px-3 font-medium text-gray-600">失败</th>
+                        <th className="text-center py-2 px-3 font-medium text-gray-600">状态</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.proxy.details.slice(0, 5).map((proxy: any, idx: number) => (
+                        <tr key={idx} className="border-t border-gray-100">
+                          <td className="py-2 px-3 text-gray-900">{proxy.proxy}</td>
+                          <td className="text-center py-2 px-3 text-gray-600">{proxy.success}</td>
+                          <td className="text-center py-2 px-3 text-gray-600">{proxy.failed}</td>
+                          <td className="text-center py-2 px-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                              proxy.available
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {proxy.available ? '可用' : '禁用'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Task Type Stats (New Unified Queue Feature) */}
+          {stats.byType && Object.keys(stats.byType).length > 0 && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <Settings className="w-5 h-5 mr-2" />
+                任务类型分布
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                {Object.entries(stats.byType).map(([type, count]: [string, any]) => (
+                  <div key={type} className="bg-gray-50 rounded-lg p-4">
+                    <p className="text-sm font-medium text-gray-600 capitalize">{type}</p>
+                    <p className="text-2xl font-bold text-gray-900">{count}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Per-User Stats */}
           {stats.perUser.length > 0 && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -410,7 +563,7 @@ export default function QueueManagementPage() {
                   className="mt-1"
                 />
                 <p className="text-sm text-gray-500 mt-1">
-                  所有用户的总并发任务数上限。建议值：CPU核心数 × 2（当前推荐：8-16）
+                  所有用户的总并发任务数上限。自动根据CPU核心数优化：CPU核数 × 2（当前：{config.globalConcurrency}）
                 </p>
               </div>
 
@@ -429,7 +582,7 @@ export default function QueueManagementPage() {
                   className="mt-1"
                 />
                 <p className="text-sm text-gray-500 mt-1">
-                  单个用户同时运行的任务数上限。建议值：全局并发 ÷ 4（当前推荐：2-4）
+                  单个用户同时运行的任务数上限。自动计算：全局并发 ÷ 4（当前：{config.perUserConcurrency}）
                 </p>
               </div>
 
@@ -491,6 +644,61 @@ export default function QueueManagementPage() {
                 </Select>
                 <p className="text-sm text-gray-500 mt-1">
                   是否启用任务优先级功能，高优先级任务优先执行
+                </p>
+              </div>
+
+              {/* Default Max Retries (New Unified Queue Feature) */}
+              <div>
+                <Label htmlFor="defaultMaxRetries" className="text-sm font-medium text-gray-700">
+                  默认最大重试次数
+                </Label>
+                <Input
+                  id="defaultMaxRetries"
+                  type="number"
+                  min="0"
+                  max="5"
+                  value={config.defaultMaxRetries}
+                  onChange={(e) => setConfig({ ...config, defaultMaxRetries: parseInt(e.target.value) || 0 })}
+                  className="mt-1"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  任务失败后的最大重试次数（默认：3）
+                </p>
+              </div>
+
+              {/* Retry Delay (New Unified Queue Feature) */}
+              <div>
+                <Label htmlFor="retryDelay" className="text-sm font-medium text-gray-700">
+                  重试延迟（毫秒）
+                </Label>
+                <Input
+                  id="retryDelay"
+                  type="number"
+                  min="1000"
+                  max="60000"
+                  step="1000"
+                  value={config.retryDelay}
+                  onChange={(e) => setConfig({ ...config, retryDelay: parseInt(e.target.value) || 1000 })}
+                  className="mt-1"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  任务重试前的等待时间（默认：5000ms = 5秒）
+                </p>
+              </div>
+
+              {/* Storage Type (Read-only, New Unified Queue Feature) */}
+              <div>
+                <Label className="text-sm font-medium text-gray-700">
+                  队列存储类型
+                </Label>
+                <Input
+                  type="text"
+                  value={config.storageType === 'redis' ? 'Redis (持久化)' : '内存 (回退)'}
+                  readOnly
+                  className="mt-1 bg-gray-50"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  由环境变量 REDIS_URL 决定，不可修改
                 </p>
               </div>
             </div>
