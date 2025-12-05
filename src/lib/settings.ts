@@ -9,8 +9,9 @@ export interface SystemSetting {
   config_value: string | null
   encrypted_value: string | null
   data_type: string
-  is_sensitive: number
-  is_required: number
+  // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1 (number)
+  is_sensitive: number | boolean
+  is_required: number | boolean
   validation_status: string | null
   validation_message: string | null
   last_validated_at: string | null
