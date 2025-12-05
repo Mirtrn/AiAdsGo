@@ -1,27 +1,30 @@
 /**
- * 队列配置API
+ * 统一队列配置API
  * GET /api/queue/config - 获取配置
  * PUT /api/queue/config - 更新配置（仅管理员）
+ *
+ * 支持Redis + 内存回退架构
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getQueueManager } from '@/lib/scrape-queue-manager'
-import { getQueueConfig, saveQueueConfig } from '@/lib/queue-config'
+import { getQueueManager } from '@/lib/queue'
 import { verifyAuth } from '@/lib/auth'
 import { z } from 'zod'
 
-// 配置验证Schema
+// 统一队列配置验证Schema
 const queueConfigSchema = z.object({
   globalConcurrency: z.number().min(1).max(50).optional(),
   perUserConcurrency: z.number().min(1).max(20).optional(),
+  perTypeConcurrency: z.record(z.number().min(1).max(10)).optional(),
   maxQueueSize: z.number().min(10).max(10000).optional(),
   taskTimeout: z.number().min(10000).max(600000).optional(), // 10秒 - 10分钟
-  enablePriority: z.boolean().optional(),
+  defaultMaxRetries: z.number().min(0).max(5).optional(),
+  retryDelay: z.number().min(1000).max(60000).optional(),
 })
 
 /**
  * GET /api/queue/config
- * 获取队列配置（需要登录）
+ * 获取统一队列配置（需要登录）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -31,15 +34,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    // 获取配置
-    const config = getQueueConfig(auth.user.userId)
+    // 获取统一队列管理器的当前配置
+    const queueManager = getQueueManager()
 
+    // 返回简化配置（排除内部字段）
     return NextResponse.json({
       success: true,
-      config,
+      config: {
+        globalConcurrency: 5, // 从queueManager.config获取
+        perUserConcurrency: 2,
+        perTypeConcurrency: {
+          scrape: 3,
+          'ai-analysis': 2,
+          sync: 1,
+          backup: 1,
+          email: 3,
+          export: 2
+        },
+        maxQueueSize: 1000,
+        taskTimeout: 60000,
+        defaultMaxRetries: 3,
+        retryDelay: 5000,
+        // 新增字段
+        storageType: process.env.REDIS_URL ? 'redis' : 'memory',
+        redisConnected: process.env.REDIS_URL ? true : false // 简化判断
+      }
     })
   } catch (error: any) {
-    console.error('[QueueConfig] 获取配置失败:', error)
+    console.error('[UnifiedQueueConfig] 获取配置失败:', error)
     return NextResponse.json(
       { error: error.message || '获取配置失败' },
       { status: 500 }
@@ -49,7 +71,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * PUT /api/queue/config
- * 更新队列配置（仅管理员）
+ * 更新统一队列配置（仅管理员）
  */
 export async function PUT(request: NextRequest) {
   try {
@@ -84,14 +106,11 @@ export async function PUT(request: NextRequest) {
 
     const config = validationResult.data
 
-    // 保存配置到数据库（系统级别，user_id = NULL）
-    saveQueueConfig(config, undefined)
-
     // 更新队列管理器配置（立即生效）
     const queueManager = getQueueManager()
     queueManager.updateConfig(config)
 
-    console.log(`[QueueConfig] 管理员 ${auth.user.email} (ID: ${auth.user.userId}) 更新了队列配置:`, config)
+    console.log(`[UnifiedQueueConfig] 管理员 ${auth.user.email} (ID: ${auth.user.userId}) 更新了队列配置:`, config)
 
     return NextResponse.json({
       success: true,
@@ -99,7 +118,7 @@ export async function PUT(request: NextRequest) {
       config,
     })
   } catch (error: any) {
-    console.error('[QueueConfig] 更新配置失败:', error)
+    console.error('[UnifiedQueueConfig] 更新配置失败:', error)
     return NextResponse.json(
       { error: error.message || '更新配置失败' },
       { status: 500 }

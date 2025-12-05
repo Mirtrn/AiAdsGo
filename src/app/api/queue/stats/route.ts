@@ -1,65 +1,83 @@
 /**
- * 队列统计API
+ * 统一队列统计API
  * GET /api/queue/stats
  *
- * 返回队列管理器的实时统计信息
+ * 返回统一队列管理器的实时统计信息
+ * 支持Redis + 内存回退架构
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getQueueManager } from '@/lib/scrape-queue-manager'
+import { verifyAuth } from '@/lib/auth'
+import { getQueueManager } from '@/lib/queue'
 
 export async function GET(request: NextRequest) {
   try {
-    // 从中间件注入的请求头中获取用户ID
-    const userId = request.headers.get('x-user-id')
-    if (!userId) {
+    // 验证身份
+    const authResult = await verifyAuth(request)
+    if (!authResult.authenticated || !authResult.user) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    // 获取队列统计信息
+    const userId = authResult.user.userId
+    const isAdmin = authResult.user.role === 'admin'
+
+    // 获取统一队列管理器
     const queueManager = getQueueManager()
-    const stats = queueManager.getStats()
+    const stats = await queueManager.getStats()
+    const proxyStats = queueManager.getProxyStats()
 
-    // 如果提供了userId参数，只返回该用户的统计
-    const searchParams = request.nextUrl.searchParams
-    const filterUserId = searchParams.get('userId')
-
-    if (filterUserId) {
-      const uid = parseInt(filterUserId, 10)
-      const userStats = stats.perUserStats.get(uid)
+    // 如果是普通用户，只返回该用户的数据
+    if (!isAdmin) {
+      const userStats = stats.byUser[userId] || {
+        pending: 0,
+        running: 0,
+        completed: 0,
+        failed: 0
+      }
 
       return NextResponse.json({
         success: true,
-        userId: uid,
-        stats: userStats || {
-          running: 0,
-          queued: 0,
-          completed: 0,
-          failed: 0,
-        },
-        config: stats.config,
+        data: {
+          total: userStats.pending + userStats.running + userStats.completed + userStats.failed,
+          pending: userStats.pending,
+          running: userStats.running,
+          completed: userStats.completed,
+          failed: userStats.failed,
+          userId,
+          proxyAvailable: proxyStats.filter((p) => p.available).length,
+          proxyTotal: proxyStats.length
+        }
       })
     }
 
-    // 返回全局统计
+    // 管理员返回全局统计（兼容旧格式）
     return NextResponse.json({
       success: true,
       stats: {
         global: {
-          running: stats.globalRunning,
-          queued: stats.globalQueued,
-          completed: stats.globalCompleted,
-          failed: stats.globalFailed,
+          running: stats.running,
+          queued: stats.pending,
+          completed: stats.completed,
+          failed: stats.failed
         },
-        perUser: Array.from(stats.perUserStats.entries()).map(([userId, userStats]) => ({
-          userId,
-          ...userStats,
+        perUser: Object.entries(stats.byUser).map(([uid, userStats]) => ({
+          userId: parseInt(uid),
+          running: userStats.running,
+          queued: userStats.pending,
+          completed: userStats.completed,
+          failed: userStats.failed
         })),
-        config: stats.config,
-      },
+        byType: stats.byType,
+        proxy: {
+          total: proxyStats.length,
+          available: proxyStats.filter((p) => p.available).length,
+          failed: proxyStats.filter((p) => !p.available).length,
+          details: proxyStats
+        }
+      }
     })
   } catch (error: any) {
-    console.error('[QueueStats] 获取队列统计失败:', error)
+    console.error('[UnifiedQueueStats] 获取队列统计失败:', error)
     return NextResponse.json(
       { error: error.message || '获取队列统计失败' },
       { status: 500 }
