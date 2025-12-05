@@ -152,15 +152,15 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * pageSize
     const paginatedCampaigns = campaigns.slice(offset, offset + pageSize)
 
-    // 计算汇总统计
+    // 计算汇总统计（✅ 修复：确保数值类型安全，处理NULL值）
     const summary = {
       totalCampaigns: total,
       activeCampaigns: campaigns.filter((c) => c.status === 'ENABLED').length,
       pausedCampaigns: campaigns.filter((c) => c.status === 'PAUSED').length,
-      totalImpressions: campaigns.reduce((sum, c) => sum + c.impressions, 0),
-      totalClicks: campaigns.reduce((sum, c) => sum + c.clicks, 0),
-      totalCost: campaigns.reduce((sum, c) => sum + c.cost, 0),
-      totalConversions: campaigns.reduce((sum, c) => sum + c.conversions, 0),
+      totalImpressions: campaigns.reduce((sum, c) => sum + (Number(c.impressions) || 0), 0),
+      totalClicks: campaigns.reduce((sum, c) => sum + (Number(c.clicks) || 0), 0),
+      totalCost: campaigns.reduce((sum, c) => sum + (Number(c.cost) || 0), 0),
+      totalConversions: campaigns.reduce((sum, c) => sum + (Number(c.conversions) || 0), 0),
     }
 
     return NextResponse.json({

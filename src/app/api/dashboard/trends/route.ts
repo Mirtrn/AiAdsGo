@@ -57,23 +57,23 @@ export async function GET(request: NextRequest) {
       conversions: number
     }>
 
-    // 计算CTR和CPC
+    // 计算CTR和CPC（✅ 修复：确保数值类型安全，处理NULL值）
     const trends = rows.map((row) => ({
       date: row.date,
-      impressions: row.impressions,
-      clicks: row.clicks,
-      cost: row.cost,
-      conversions: row.conversions,
+      impressions: Number(row.impressions) || 0,
+      clicks: Number(row.clicks) || 0,
+      cost: Number(row.cost) || 0,
+      conversions: Number(row.conversions) || 0,
       ctr: row.impressions > 0 ? (row.clicks / row.impressions) * 100 : 0,
-      cpc: row.clicks > 0 ? row.cost / row.clicks : 0,
+      cpc: row.clicks > 0 ? (Number(row.cost) || 0) / row.clicks : 0,
     }))
 
-    // 计算汇总数据
+    // 计算汇总数据（✅ 修复：确保reduce结果为number，处理NULL值）
     const summary = {
-      totalImpressions: rows.reduce((sum, row) => sum + row.impressions, 0),
-      totalClicks: rows.reduce((sum, row) => sum + row.clicks, 0),
-      totalCost: rows.reduce((sum, row) => sum + row.cost, 0),
-      totalConversions: rows.reduce((sum, row) => sum + row.conversions, 0),
+      totalImpressions: rows.reduce((sum, row) => sum + (Number(row.impressions) || 0), 0),
+      totalClicks: rows.reduce((sum, row) => sum + (Number(row.clicks) || 0), 0),
+      totalCost: rows.reduce((sum, row) => sum + (Number(row.cost) || 0), 0),
+      totalConversions: rows.reduce((sum, row) => sum + (Number(row.conversions) || 0), 0),
       avgCTR: 0,
       avgCPC: 0,
     }

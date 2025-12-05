@@ -118,12 +118,12 @@ export async function GET(request: NextRequest) {
       }
     }))
 
-    // 5. Calculate current period totals
+    // 5. Calculate current period totals（✅ 修复：确保数值类型安全，处理NULL值）
     const currentTotals = {
-      impressions: campaigns.reduce((sum, c) => sum + c.impressions, 0),
-      clicks: campaigns.reduce((sum, c) => sum + c.clicks, 0),
-      conversions: campaigns.reduce((sum, c) => sum + c.conversions, 0),
-      cost: campaigns.reduce((sum, c) => sum + c.cost, 0)
+      impressions: campaigns.reduce((sum, c) => sum + (Number(c.impressions) || 0), 0),
+      clicks: campaigns.reduce((sum, c) => sum + (Number(c.clicks) || 0), 0),
+      conversions: campaigns.reduce((sum, c) => sum + (Number(c.conversions) || 0), 0),
+      cost: campaigns.reduce((sum, c) => sum + (Number(c.cost) || 0), 0)
     }
 
     // 6. Query previous period totals for comparison
