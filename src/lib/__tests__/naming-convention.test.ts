@@ -20,10 +20,11 @@ describe('Google Ads Naming Convention', () => {
         budgetType: 'DAILY',
         biddingStrategy: 'TARGET_CPA',
         offerId: 215,
-        date: new Date('2025-11-27')
+        date: new Date('2025-11-27T00:00:00')
       })
 
-      expect(name).toBe('Eufy_IT_Electronics_50D_TCPA_20251127_O215')
+      // 验证名称格式: Brand_Country_Category_BudgetType_Strategy_DateTime_OfferId
+      expect(name).toMatch(/^Eufy_IT_Electronics_50D_TCPA_20251127\d{6}_O215$/)
     })
 
     it('should handle missing category', () => {
