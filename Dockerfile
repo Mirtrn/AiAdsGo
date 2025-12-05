@@ -26,9 +26,7 @@ WORKDIR /app
 
 # 安装所有依赖（包括devDependencies）
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm cache clean --force && \
-    npm ci
+RUN npm ci
 
 # 复制源代码
 COPY . .
