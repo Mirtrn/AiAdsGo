@@ -429,6 +429,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未找到Refresh Token，请先完成OAuth授权' }, { status: 401 })
     }
 
+    // 校验: login_customer_id 必须存在（MCC账户ID是调用Google Ads API的必填项）
+    if (!credentials.login_customer_id) {
+      return NextResponse.json({
+        error: '缺少 Login Customer ID (MCC账户ID)',
+        message: '请先在设置页面配置 Login Customer ID，这是使用 Google Ads API 的必填项'
+      }, { status: 400 })
+    }
+
     const { searchParams } = new URL(request.url)
     const forceRefresh = searchParams.get('refresh') === 'true'
     console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}`)

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { generateOAuthUrl } from '@/lib/google-ads-oauth'
-import { getSetting } from '@/lib/settings'
+import { getSetting, getUserOnlySetting } from '@/lib/settings'
 
 /**
  * GET /api/google-ads/oauth/start
@@ -10,6 +10,7 @@ import { getSetting } from '@/lib/settings'
  * 混合模式支持：
  * - 如果用户配置了完整OAuth凭证，使用用户自己的client_id
  * - 如果用户没有配置，使用autoads用户（平台共享）的client_id
+ * - login_customer_id 必须由用户自己配置（必填项）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -24,6 +25,15 @@ export async function GET(request: NextRequest) {
 
     const userId = authResult.user.userId
     const autoadsUserId = 1
+
+    // 校验: login_customer_id 必须由用户自己配置（不使用 getSetting，避免回退到全局配置）
+    const userLoginCustomerId = (await getUserOnlySetting('google_ads', 'login_customer_id', userId))?.value || ''
+    if (!userLoginCustomerId) {
+      return NextResponse.json(
+        { error: '请先在设置页面配置 Login Customer ID (MCC账户ID)，这是使用 Google Ads API 的必填项' },
+        { status: 400 }
+      )
+    }
 
     // 获取用户的OAuth配置（getSetting已自动解密敏感字段）
     const userClientId = (await getSetting('google_ads', 'client_id', userId))?.value || ''
@@ -74,6 +84,7 @@ export async function GET(request: NextRequest) {
     console.log(`   用户: ${authResult.user.email} (ID: ${userId})`)
     console.log(`   使用配置: ${useOwnConfig ? '用户自己的' : '平台共享'}`)
     console.log(`   Client ID: ${clientId.substring(0, 20)}...`)
+    console.log(`   Login Customer ID: ${userLoginCustomerId}`)
 
     return NextResponse.json({
       success: true,

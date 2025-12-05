@@ -122,8 +122,14 @@ async function getGoogleAdsConfig(userId?: number): Promise<KeywordPlannerConfig
       refreshToken = await getUserRefreshToken(db, autoadsUserId) || process.env.GOOGLE_ADS_REFRESH_TOKEN || ''
     }
 
-    // 3. login_customer_id: Always use user's own (required field)
-    const loginCustomerId = userConfigs.login_customer_id || process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || ''
+    // 3. login_customer_id: Always use user's own (required field, no fallback to other users)
+    const loginCustomerId = userConfigs.login_customer_id || ''
+
+    // 校验: login_customer_id 是必填项，用户必须在设置页面配置自己的MCC账户ID
+    if (!loginCustomerId) {
+      console.error(`[KeywordPlanner] User ${targetUserId} has not configured login_customer_id (MCC ID). Please configure it in Settings page.`)
+      return null
+    }
 
     // 4. customer_id: Always use user's own
     let customerId = await getUserCustomerId(db, targetUserId)

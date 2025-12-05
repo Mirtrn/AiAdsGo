@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exchangeCodeForTokens, saveGoogleAdsCredentials } from '@/lib/google-ads-oauth'
-import { getSetting } from '@/lib/settings'
+import { getSetting, getUserOnlySetting } from '@/lib/settings'
 
 /**
  * GET /api/google-ads/oauth/callback
@@ -9,6 +9,7 @@ import { getSetting } from '@/lib/settings'
  * 混合模式支持：
  * - 如果use_own_config=true，使用用户自己的OAuth凭证
  * - 如果use_own_config=false，使用autoads用户的OAuth凭证
+ * - login_customer_id 必须由用户自己配置（必填项）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -60,6 +61,14 @@ export async function GET(request: NextRequest) {
     const useOwnConfig = stateData.use_own_config ?? false
     const autoadsUserId = 1
 
+    // 校验: login_customer_id 必须由用户自己配置（不使用 getSetting，避免回退到全局配置）
+    const loginCustomerId = (await getUserOnlySetting('google_ads', 'login_customer_id', userId))?.value || ''
+    if (!loginCustomerId) {
+      return NextResponse.redirect(
+        new URL('/settings?error=missing_login_customer_id&category=google_ads', request.url)
+      )
+    }
+
     // 根据use_own_config决定使用哪套OAuth凭证
     let clientId: string = ''
     let clientSecret: string = ''
@@ -80,9 +89,6 @@ export async function GET(request: NextRequest) {
       console.log(`🔐 OAuth回调: 用户 ${userId} 使用平台共享OAuth配置`)
     }
 
-    // 获取用户的login_customer_id（始终使用用户自己的）
-    const loginCustomerId = (await getSetting('google_ads', 'login_customer_id', userId))?.value || ''
-
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
         new URL('/settings?error=missing_google_ads_config&category=google_ads', request.url)
@@ -94,6 +100,7 @@ export async function GET(request: NextRequest) {
     console.log(`📥 处理OAuth回调`)
     console.log(`   用户: ${userId}`)
     console.log(`   使用配置: ${useOwnConfig ? '用户自己的' : '平台共享'}`)
+    console.log(`   Login Customer ID: ${loginCustomerId}`)
     console.log(`   Authorization Code: ${code.substring(0, 10)}...`)
 
     // 交换authorization code获取tokens
