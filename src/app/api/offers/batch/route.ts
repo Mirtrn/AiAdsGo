@@ -196,14 +196,15 @@ export async function POST(request: NextRequest) {
         // 包含：推广链接解析 + 网页抓取 + AI分析 + 评论分析 + 竞品分析 + 广告元素提取 + scraped_products持久化
         // 🎯 优化: 批量导入使用LOW优先级，避免阻塞手动创建的Offer
         if (offer.scrape_status === 'pending') {
-          setImmediate(() => {
-            triggerOfferScraping(
-              offer.id,
-              parseInt(userId, 10),
-              validationResult.data.affiliate_link,
-              offer.brand || '提取中...',
-              OfferScrapingPriority.LOW
-            )
+          // 🔥 新队列系统：异步调用，不阻塞批量流程
+          triggerOfferScraping(
+            offer.id,
+            parseInt(userId, 10),
+            validationResult.data.affiliate_link,
+            offer.brand || '提取中...',
+            OfferScrapingPriority.LOW
+          ).catch(error => {
+            console.error(`[Batch] 触发抓取失败 Offer #${offer.id}:`, error.message)
           })
         }
 

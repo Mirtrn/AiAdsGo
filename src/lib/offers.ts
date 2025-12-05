@@ -667,7 +667,7 @@ export async function getIdleAdsAccounts(userId: number): Promise<any[]> {
 export async function updateOfferScrapeStatus(
   id: number,
   userId: number,
-  status: 'pending' | 'in_progress' | 'completed' | 'failed',
+  status: 'pending' | 'queued' | 'in_progress' | 'completed' | 'failed',
   error?: string,
   scrapedData?: {
     brand?: string

@@ -35,6 +35,10 @@ export interface ProxyConfig {
   username?: string
   password?: string
   protocol?: 'http' | 'https' | 'socks5'
+  // 原始URL，用于IPRocket等动态代理服务
+  originalUrl?: string
+  // 国家代码
+  country?: string
 }
 
 /**

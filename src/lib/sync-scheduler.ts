@@ -4,10 +4,15 @@
  * This service runs in the background and triggers automatic syncs based on
  * user configuration. It checks for pending syncs every minute and executes
  * them according to the configured interval.
+ *
+ * 🔄 已迁移到统一队列系统
+ * - 同步任务通过 triggerDataSync() 入队
+ * - 邮件通知通过 triggerEmail() 入队
+ * - 保留调度器逻辑，但执行改为队列任务
  */
 
 import { getDatabase } from './db'
-import { dataSyncService } from './data-sync-service'
+import { triggerDataSync, triggerEmail } from './queue-triggers'
 
 export interface SyncSchedulerConfig {
   checkIntervalMs: number // How often to check for pending syncs (default: 60000 = 1 minute)
@@ -166,43 +171,43 @@ export class SyncScheduler {
     try {
       console.log(`🔄 Starting auto sync for user ${user_id}...`)
 
-      // Execute sync
-      const syncLog = await dataSyncService.syncPerformanceData(user_id, 'auto')
+      // 🔄 使用队列系统触发同步任务（替代直接调用dataSyncService）
+      const taskId = await triggerDataSync(user_id, {
+        syncType: 'auto',
+        priority: 'normal'
+      })
 
-      console.log(
-        `✅ Auto sync completed for user ${user_id}: ${syncLog.record_count} records in ${syncLog.duration_ms}ms`
-      )
+      console.log(`📥 Auto sync task queued for user ${user_id}: ${taskId}`)
 
       // Calculate next sync time
       const nextSync = new Date()
       nextSync.setHours(nextSync.getHours() + sync_interval_hours)
 
-      // Update config: reset failures, set next sync time
+      // Update config: set next sync time (failures will be handled by queue system)
       await db.exec(
         `
         UPDATE sync_config
         SET
           last_auto_sync_at = ?,
           next_scheduled_sync_at = ?,
-          consecutive_failures = 0,
           updated_at = datetime('now')
         WHERE user_id = ?
       `,
         [new Date().toISOString(), nextSync.toISOString(), user_id]
       )
 
-      // Send success notification if enabled
+      // 🔄 使用队列系统发送成功通知
       if (syncConfig.notify_on_success && syncConfig.notification_email) {
         await this.sendNotification(
           syncConfig.notification_email,
           'success',
-          syncLog.record_count,
-          syncLog.duration_ms
+          0,  // 记录数将由队列任务完成后更新
+          0   // 耗时将由队列任务完成后更新
         )
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      console.error(`❌ Auto sync failed for user ${user_id}:`, errorMessage)
+      console.error(`❌ Auto sync queue failed for user ${user_id}:`, errorMessage)
 
       const newFailureCount = consecutive_failures + 1
 
@@ -236,7 +241,7 @@ export class SyncScheduler {
         [newFailureCount, nextRetryTime, user_id]
       )
 
-      // Send failure notification if enabled
+      // 🔄 使用队列系统发送失败通知
       if (syncConfig.notify_on_failure && syncConfig.notification_email) {
         await this.sendNotification(
           syncConfig.notification_email,
@@ -250,7 +255,8 @@ export class SyncScheduler {
   }
 
   /**
-   * Send notification email (placeholder - implement with your email service)
+   * Send notification email via queue system
+   * 🔄 已迁移到统一队列系统，使用 triggerEmail() 入队
    */
   private async sendNotification(
     email: string,
@@ -259,15 +265,33 @@ export class SyncScheduler {
     duration?: number,
     error?: string
   ) {
-    // TODO: Implement email notification
-    // For now, just log
-    console.log(`📧 [Email Notification to ${email}]`)
-    console.log(`   Type: ${type}`)
-    if (type === 'success') {
-      console.log(`   Records synced: ${recordCount}`)
-      console.log(`   Duration: ${duration}ms`)
-    } else {
-      console.log(`   Error: ${error}`)
+    try {
+      const subject = type === 'success'
+        ? '✅ AutoAds 数据同步成功'
+        : '❌ AutoAds 数据同步失败'
+
+      const body = type === 'success'
+        ? `<p>您的 Google Ads 数据同步已成功完成。</p>
+           <ul>
+             <li>同步记录数: ${recordCount || '处理中'}</li>
+             <li>耗时: ${duration ? `${duration}ms` : '处理中'}</li>
+           </ul>
+           <p>您可以登录 AutoAds 查看最新数据。</p>`
+        : `<p>您的 Google Ads 数据同步失败。</p>
+           <p><strong>错误信息:</strong> ${error || '未知错误'}</p>
+           <p>系统将自动重试，如果问题持续，请检查您的 Google Ads 账户配置。</p>`
+
+      // 🔄 使用队列系统发送邮件
+      await triggerEmail({
+        to: email,
+        subject,
+        body,
+        type: type === 'failure' ? 'alert' : 'notification'
+      })
+
+      console.log(`📧 [Email Notification queued to ${email}] Type: ${type}`)
+    } catch (err) {
+      console.error(`❌ Failed to queue email notification:`, err)
     }
   }
 

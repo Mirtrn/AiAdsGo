@@ -2,9 +2,15 @@
  * 队列系统初始化脚本
  *
  * 在应用启动时自动初始化统一队列管理器
+ *
+ * 代理配置说明：
+ * - 代理不在初始化时全局加载，而是在任务执行时按需加载
+ * - 每个用户使用自己配置的代理，不使用全局代理
+ * - 只有特定任务类型（如scrape）需要代理
  */
 
 import { getQueueManager } from './index'
+import { registerAllExecutors } from './executors'
 
 /**
  * 初始化统一队列系统
@@ -14,6 +20,7 @@ export async function initializeQueue() {
     console.log('🚀 初始化统一队列系统...')
 
     // 获取队列管理器实例
+    // 注意：不再在初始化时加载代理池，代理在任务执行时按需加载
     const queue = getQueueManager({
       // 从环境变量读取配置
       globalConcurrency: parseInt(process.env.QUEUE_GLOBAL_CONCURRENCY || '5'),
@@ -24,46 +31,26 @@ export async function initializeQueue() {
       retryDelay: parseInt(process.env.QUEUE_RETRY_DELAY || '5000'),
       redisUrl: process.env.REDIS_URL,
       redisKeyPrefix: process.env.REDIS_KEY_PREFIX || 'autoads:queue:',
-      proxyPool: parseProxyPool(process.env.PROXY_POOL)
+      // 代理池为空，代理在任务执行时按需从用户配置加载
+      proxyPool: []
     })
 
     // 连接存储适配器（Redis优先，失败则回退内存）
     await queue.initialize()
 
+    // 注册任务执行器
+    registerAllExecutors(queue)
+
     // 启动队列处理循环
     await queue.start()
 
     console.log('✅ 统一队列系统已启动')
+    console.log('📝 代理配置：任务执行时按需从用户设置加载')
 
     return queue
   } catch (error: any) {
     console.error('❌ 队列系统初始化失败:', error.message)
     throw error
-  }
-}
-
-/**
- * 解析代理池配置
- *
- * 格式: host1:port1:username1:password1,host2:port2:username2:password2
- */
-function parseProxyPool(proxyPoolStr?: string) {
-  if (!proxyPoolStr) return []
-
-  try {
-    return proxyPoolStr.split(',').map((proxy) => {
-      const [host, port, username, password] = proxy.trim().split(':')
-      return {
-        host,
-        port: parseInt(port),
-        username,
-        password,
-        protocol: 'http' as const
-      }
-    })
-  } catch (error: any) {
-    console.warn('⚠️ 解析代理池配置失败:', error.message)
-    return []
   }
 }
 

@@ -13,6 +13,7 @@ import { MemoryQueueAdapter } from './memory-adapter'
 import { RedisQueueAdapter } from './redis-adapter'
 import { SimpleProxyManager } from './proxy-manager'
 import { queueRecoveryManager, hasQueueRecoveryPending, executeQueueRecovery, markTaskForRecovery } from './queue-recovery'
+import { isProxyRequiredForTaskType, getProxyForCountry } from './user-proxy-loader'
 
 /**
  * 统一队列管理器
@@ -256,9 +257,30 @@ export class UnifiedQueueManager {
     this.incrementConcurrency(task)
 
     try {
-      // 准备代理配置
-      if (task.requireProxy && !task.proxyConfig) {
-        task.proxyConfig = this.proxyManager.getProxy() || undefined
+      // 准备代理配置（按需加载）
+      // 1. 检查任务类型是否需要代理
+      // 2. 如果需要代理，从用户配置中加载
+      if (!task.proxyConfig) {
+        const needsProxy = task.requireProxy ?? isProxyRequiredForTaskType(task.type)
+        if (needsProxy) {
+          // 从任务数据中获取目标国家（优先使用offer的target_country字段）
+          const targetCountry = task.data?.target_country || task.data?.targetCountry || task.data?.country || 'US'
+          const userProxy = await getProxyForCountry(targetCountry, task.userId)
+          if (userProxy) {
+            task.proxyConfig = {
+              host: userProxy.host,
+              port: userProxy.port,
+              username: userProxy.username,
+              password: userProxy.password,
+              protocol: userProxy.protocol,
+              // 保存原始URL用于动态代理服务
+              originalUrl: userProxy.originalUrl
+            } as ProxyConfig
+            console.log(`🔌 任务 ${task.id} 使用用户 ${task.userId} 的代理 (${userProxy.country})`)
+          } else {
+            console.log(`⚠️ 任务 ${task.id} 需要代理但用户 ${task.userId} 未配置代理`)
+          }
+        }
       }
 
       // 执行任务（带超时）
@@ -267,8 +289,8 @@ export class UnifiedQueueManager {
         this.config.taskTimeout
       )
 
-      // 标记代理成功
-      if (task.proxyConfig) {
+      // 标记代理成功（如果使用了代理池中的代理）
+      if (task.proxyConfig && this.proxyManager.getStats().total > 0) {
         this.proxyManager.markProxySuccess(task.proxyConfig)
       }
 

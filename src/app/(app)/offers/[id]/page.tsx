@@ -263,7 +263,8 @@ export default function OfferDetailPage() {
 
   const getScrapeStatusLabel = (status: string): string => {
     const labels: Record<string, string> = {
-      pending: '抓取中',
+      pending: '待抓取',
+      queued: '队列中',
       in_progress: '抓取中',
       completed: '已完成',
       failed: '失败',
@@ -273,7 +274,8 @@ export default function OfferDetailPage() {
 
   const getScrapeStatusColor = (status: string): string => {
     const colors: Record<string, string> = {
-      pending: 'bg-blue-100 text-blue-800',
+      pending: 'bg-gray-100 text-gray-800',
+      queued: 'bg-yellow-100 text-yellow-800',
       in_progress: 'bg-blue-100 text-blue-800',
       completed: 'bg-green-100 text-green-800',
       failed: 'bg-red-100 text-red-800',

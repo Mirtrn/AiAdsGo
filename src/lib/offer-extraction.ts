@@ -406,13 +406,16 @@ export async function triggerOfferExtraction(
     // 更新状态为 pending，让 scraping 流程继续
     updateOfferScrapeStatus(offerId, uid, 'pending')
 
-    // 触发详细数据抓取
+    // 触发详细数据抓取（使用默认 NORMAL 优先级）
+    // 🔥 新队列系统：异步调用，不阻塞提取流程
     triggerOfferScraping(
       offerId,
       uid,
       result.data!.finalUrl,
       normalizedBrandName
-    )
+    ).catch(error => {
+      console.error(`[OfferExtraction] 触发抓取失败 Offer #${offerId}:`, error.message)
+    })
 
     console.log(`[OfferExtraction] #${offerId} 已触发后续数据抓取`)
 

@@ -1,19 +1,41 @@
 /**
  * Offer抓取触发器
- * 通过直接调用抓取逻辑触发抓取，避免HTTP请求的认证问题
+ * 使用统一队列系统，支持 Redis优先+内存回退架构
  *
- * 核心原则：直接调用统一的核心抓取函数，确保异步抓取和手动抓取行为一致
- * 🔥 重构优化：调用 offer-scraping-core.ts 的统一抓取流程
- * 🚀 队列管理：使用队列管理器控制并发，防止服务器过载
+ * 🔥 重构优化：迁移到统一队列系统
+ * 🚀 新特性：
+ *  - Redis优先 + 内存回退
+ *  - 代理IP池管理（按需加载用户配置）
+ *  - 三层并发控制（全局/用户/类型）
+ *  - 自动任务恢复
  */
 
 import { updateOfferScrapeStatus } from './offers'
-import { performScrapeAndAnalysis } from './offer-scraping-core'
-import { getQueueManager } from './scrape-queue-manager'
-import { getQueueConfig } from './queue-config'
+import { getQueueManager } from './queue/unified-queue-manager'
+import type { TaskPriority } from './queue/types'
 
 /**
- * 🎯 优化: Offer抓取优先级枚举
+ * 🎯 优先级转换: 10-scale → TaskPriority
+ * 将旧的 1-10 优先级转换为新队列系统的高/中/低优先级
+ */
+function convertPriority(priority: number): TaskPriority {
+  if (priority >= 8) return 'high'
+  if (priority >= 4) return 'normal'
+  return 'low'
+}
+
+/**
+ * Offer抓取任务数据结构
+ */
+interface ScrapeTaskData {
+  offerId: number
+  userId: number
+  url: string
+  brand: string  // 品牌名称（字符串类型）
+}
+
+/**
+ * 🎯 Offer抓取优先级枚举（保持向后兼容）
  * 用于区分不同场景的重要性，优化用户体验
  */
 export enum OfferScrapingPriority {
@@ -27,82 +49,78 @@ export enum OfferScrapingPriority {
 /**
  * 触发Offer抓取（异步，不阻塞）
  *
- * 此函数会立即返回，抓取在后台进行
- * 调用统一的核心抓取函数，包含所有增强模块和scraped_products持久化
- * 🚀 使用队列管理器控制并发，防止服务器过载
+ * 使用统一队列系统，会立即返回 taskId
+ * 🚀 新队列系统特性：
+ *  - Redis优先 + 内存回退
+ *  - 按需加载用户代理配置
+ *  - 三层并发控制
+ *  - 自动任务恢复
  *
  * @param offerId Offer ID
  * @param userId User ID
  * @param url 要抓取的URL
  * @param brand 品牌名称
  * @param priority 优先级（1-10，数字越大优先级越高，默认5）
+ * @returns Promise<string> 任务ID，可用于查询队列状态
  */
-export function triggerOfferScraping(
+export async function triggerOfferScraping(
   offerId: number,
   userId: number,
   url: string,
-  brand: string,
+  brand: string,  // 字符串类型
   priority: number = OfferScrapingPriority.NORMAL
-): void {
-  console.log(`[OfferScraping] 触发异步抓取 Offer #${offerId}`)
+): Promise<string> {
+  console.log(`[OfferScraping] 🚀 触发异步抓取 Offer #${offerId}`)
   console.log(`[OfferScraping] URL: ${url}, Brand: ${brand}, UserId: ${userId}, Priority: ${priority}`)
 
-  // 立即更新状态为 pending（等待队列处理）
-  updateOfferScrapeStatus(offerId, userId, 'pending')
-  console.log(`[OfferScraping] 状态已更新为 pending（等待队列处理）`)
+  // 立即更新状态为 queued（已入队）
+  updateOfferScrapeStatus(offerId, userId, 'queued')
+  console.log(`[OfferScraping] 状态已更新为 queued（已入队等待处理）`)
 
-  // 使用 setImmediate 在下一个事件循环中执行，确保不阻塞当前请求
-  setImmediate(async () => {
-    try {
-      // 🚀 获取队列管理器（加载用户配置）
-      const queueConfig = await getQueueConfig(userId)
-      const queueManager = getQueueManager(queueConfig)
+  try {
+    // 🚀 获取统一队列管理器
+    const queueManager = getQueueManager()
 
-      console.log(`[OfferScraping] 添加到队列: Offer #${offerId}`)
+    // 转换优先级到新格式
+    const taskPriority = convertPriority(priority)
 
-      // 添加到队列（会自动控制并发）
-      await queueManager.addTask(
-        {
-          userId,
-          offerId,
-          priority,
-        },
-        async () => {
-          // 更新状态为 in_progress（开始执行）
-          updateOfferScrapeStatus(offerId, userId, 'in_progress')
-          console.log(`[OfferScraping] 开始执行抓取任务 Offer #${offerId}`)
-
-          // 🔥 重构优化：调用统一的核心抓取函数
-          // 包含完整的抓取流程：
-          // - 推广链接解析
-          // - 网页抓取（Amazon Store/Product/独立站）
-          // - AI分析
-          // - 评论分析
-          // - 竞品分析
-          // - 广告元素提取
-          // - scraped_products持久化
-          await performScrapeAndAnalysis(offerId, userId, url, brand)
-
-          console.log(`[OfferScraping] ✅ 后台抓取任务完成 Offer #${offerId}`)
-        }
-      )
-    } catch (error: any) {
-      console.error(`[OfferScraping] ❌ 后台抓取任务失败 Offer #${offerId}:`, error)
-      console.error(`[OfferScraping] 错误类型: ${error.name}`)
-      console.error(`[OfferScraping] 错误详情: ${error.message}`)
-      if (error.stack) {
-        console.error(`[OfferScraping] 错误堆栈:`, error.stack)
-      }
-
-      // 更新状态为失败
-      try {
-        updateOfferScrapeStatus(offerId, userId, 'failed', `抓取失败: ${error.message}`)
-        console.log(`[OfferScraping] 已更新Offer #${offerId}状态为failed`)
-      } catch (updateError: any) {
-        console.error(`[OfferScraping] ⚠️  更新失败状态时出错:`, updateError.message)
-      }
+    // 构建任务数据
+    const taskData: ScrapeTaskData = {
+      offerId,
+      userId,
+      url,
+      brand
     }
-  })
 
-  console.log(`[OfferScraping] 异步任务已添加到队列，主流程继续执行`)
+    console.log(`[OfferScraping] 📥 添加到统一队列: Offer #${offerId}, Priority: ${taskPriority}`)
+
+    // 添加到统一队列（scrape 任务需要代理）
+    const taskId = await queueManager.enqueue<ScrapeTaskData>(
+      'scrape',
+      taskData,
+      userId,
+      {
+        priority: taskPriority,
+        requireProxy: true,  // 🔥 scrape 任务需要代理IP
+        maxRetries: 3
+      }
+    )
+
+    console.log(`[OfferScraping] ✅ 任务已入队: ${taskId} (Offer #${offerId})`)
+    console.log(`[OfferScraping] 代理配置：按需从用户设置加载`)
+
+    return taskId
+  } catch (error: any) {
+    console.error(`[OfferScraping] ❌ 入队失败 Offer #${offerId}:`, error.message)
+
+    // 更新状态为失败
+    try {
+      updateOfferScrapeStatus(offerId, userId, 'failed', `队列失败: ${error.message}`)
+      console.log(`[OfferScraping] 已更新Offer #${offerId}状态为failed`)
+    } catch (updateError: any) {
+      console.error(`[OfferScraping] ⚠️  更新失败状态时出错:`, updateError.message)
+    }
+
+    throw error
+  }
 }

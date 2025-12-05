@@ -62,28 +62,30 @@ export async function POST(request: NextRequest) {
     // 使缓存失效
     invalidateOfferCache(parseInt(userId, 10))
 
-    // ⚠️ 智能抓取逻辑：避免重复抓取
+    // ⚠️ 智能抓取逻辑：SSE已保存完整数据，避免重复抓取
     // 判断依据：
-    // 1. 如果final_url已存在 → SSE流程已完成基础提取，无需再次抓取
+    // 1. 如果final_url已存在 → SSE流程已完成完整分析，无需再次抓取
     // 2. 如果final_url为空 → 手动创建场景，需要触发抓取
     if (offer.scrape_status === 'pending') {
       if (offer.final_url) {
-        // SSE已完成基础提取（品牌、Final URL），直接标记为completed
-        // 即使AI分析失败，基础信息已足够使用
-        console.log(`✅ Offer ${offer.id} 已通过SSE完成基础提取，标记为completed`)
+        // ✅ SSE已完成完整分析，所有数据已保存
+        // 🎯 智能优化：避免重复抓取，提升用户体验
+        // 数据包括：AI产品分析、评论分析、竞品分析、广告元素提取
+        console.log(`✅ Offer ${offer.id} SSE已完成完整分析，标记为completed`)
         await updateOfferScrapeStatus(offer.id, parseInt(userId, 10), 'completed')
       } else {
         // 手动创建场景：final_url为空，需要触发完整抓取
         // 🎯 优化: 使用URGENT优先级，确保用户手动创建的Offer优先处理
         console.log(`🚀 Offer ${offer.id} 缺少final_url，触发后台抓取（URGENT优先级）`)
-        setImmediate(() => {
-          triggerOfferScraping(
-            offer.id,
-            parseInt(userId, 10),
-            offer.url,
-            offer.brand,
-            OfferScrapingPriority.URGENT
-          )
+        // 🔥 新队列系统：异步调用，不阻塞API响应
+        triggerOfferScraping(
+          offer.id,
+          parseInt(userId, 10),
+          offer.url,
+          offer.brand,
+          OfferScrapingPriority.URGENT
+        ).catch(error => {
+          console.error(`[CreateOffer] 触发抓取失败 Offer #${offer.id}:`, error.message)
         })
       }
     }

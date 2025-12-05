@@ -30,7 +30,8 @@ export async function executeQueueRecoveryIfNeeded() {
   for (const offer of offersToRecover) {
     try {
       // 恢复任务使用NORMAL优先级（不阻塞新的URGENT任务）
-      triggerOfferScraping(
+      // 🔥 新队列系统：异步调用
+      await triggerOfferScraping(
         Number(offer.id),
         offer.user_id,
         offer.url || '',

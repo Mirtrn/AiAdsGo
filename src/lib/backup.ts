@@ -109,12 +109,22 @@ function cleanOldBackups() {
 
 // Simple daily scheduler (if running in long-lived process)
 // For Next.js serverless/edge, this might need to be triggered by an external cron or API route
+// 🔄 已迁移到统一队列系统：backup-executor.ts
+// 旧调度器已被禁用，使用队列系统进行备份调度
 let backupInterval: NodeJS.Timeout | null = null
 
 export function startBackupScheduler() {
   if (backupInterval) return
 
-  // Check every hour if it's time to backup (e.g., 3 AM)
+  // 🚨 禁用旧调度器，使用队列系统替代
+  console.log('⚠️ startBackupScheduler() 已禁用，请使用队列系统进行备份调度')
+  console.log('💡 替代方案：')
+  console.log('   1. 手动触发：await triggerBackup({ backupType: "manual", createdBy: userId })')
+  console.log('   2. 自动触发：配置外部cron调用API端点')
+  console.log('   3. 系统任务：await triggerBackup({ backupType: "auto" })')
+  return
+
+  /* 旧代码已注释
   backupInterval = setInterval(() => {
     const now = new Date()
     if (now.getHours() === 3 && now.getMinutes() === 0) {
@@ -123,4 +133,5 @@ export function startBackupScheduler() {
   }, 60 * 1000) // Check every minute
 
   console.log('⏰ Backup scheduler started')
+  */
 }
