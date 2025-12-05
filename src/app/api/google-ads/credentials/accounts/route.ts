@@ -223,7 +223,12 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
         credentials.refresh_token,
         undefined,
         undefined,
-        credentials.login_customer_id
+        credentials.login_customer_id,
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          developer_token: developerToken,
+        }
       )
       const accountInfoQuery = `
         SELECT
@@ -286,7 +291,7 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
         }
 
         // 保存到数据库
-        const dbId = upsertAccount(userId, accountData)
+        const dbId = await upsertAccount(userId, accountData)
         allAccounts.push({ ...accountData, db_account_id: dbId })
         processedIds.add(customerId)
 
@@ -336,7 +341,12 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
                       credentials.refresh_token,
                       undefined,
                       undefined,
-                      credentials.login_customer_id
+                      credentials.login_customer_id,
+                      {
+                        client_id: clientId,
+                        client_secret: clientSecret,
+                        developer_token: developerToken,
+                      }
                     )
                     const childBudgetQuery = `
                       SELECT
@@ -373,7 +383,7 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
                   parent_mcc: customerId,
                 }
 
-                const dbId = upsertAccount(userId, childData)
+                const dbId = await upsertAccount(userId, childData)
                 allAccounts.push({ ...childData, db_account_id: dbId })
                 processedIds.add(childId)
 
@@ -415,7 +425,7 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
         test_account: false,
         status: 'UNKNOWN',
       }
-      const dbId = upsertAccount(userId, fallbackData)
+      const dbId = await upsertAccount(userId, fallbackData)
       allAccounts.push({ ...fallbackData, db_account_id: dbId })
       processedIds.add(customerId)
     } finally {

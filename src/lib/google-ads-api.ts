@@ -157,9 +157,14 @@ export async function getCustomer(
   refreshToken: string,
   accountId?: number,
   userId?: number,
-  loginCustomerId?: string
+  loginCustomerId?: string,
+  credentials?: {
+    client_id: string
+    client_secret: string
+    developer_token: string
+  }
 ): Promise<Customer> {
-  const client = getGoogleAdsClient()
+  const client = credentials ? getGoogleAdsClient(credentials) : getGoogleAdsClient()
 
   try {
     // 尝试使用refresh token获取新的access token（带重试）
