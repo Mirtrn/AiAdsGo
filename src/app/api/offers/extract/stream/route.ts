@@ -396,15 +396,8 @@ export async function POST(request: NextRequest) {
       let reviewAnalysisSuccess = false;
 
       if (debug.isAmazonProductPage && aiAnalysisSuccess) {
-        try {
-          // 🔧 修复：检查controller状态
-          if (!isControllerOpen(controller)) {
-            console.warn('⚠️ Controller已关闭，跳过评论分析');
-            throw new Error('Controller已关闭');
-          }
-
-          sendProgress(controller, 'ai_analysis', 'in_progress', '正在分析用户评论...');
-          console.log('📝 开始P0评论分析...');
+        sendProgress(controller, 'ai_analysis', 'in_progress', '正在分析用户评论...');
+        console.log('📝 开始P0评论分析...');
 
           const { analyzeReviewsWithAI } = await import('@/lib/review-analyzer');
           // 从 review-analyzer 导入类型
@@ -517,9 +510,6 @@ export async function POST(request: NextRequest) {
           } else {
             console.log('⚠️ 无评论数据，跳过AI分析');
           }
-        } catch (reviewError: any) {
-          console.warn('⚠️ P0评论分析失败（不影响主流程）:', reviewError.message);
-        }
       }
 
       // ========== 步骤6.6: P0竞品对比分析（Amazon产品页 + 店铺页 + 独立站）==========
@@ -530,17 +520,10 @@ export async function POST(request: NextRequest) {
       const shouldRunCompetitorAnalysis = debug.isAmazonProductPage || debug.isAmazonStore || debug.isIndependentStore;
 
       if (shouldRunCompetitorAnalysis && aiAnalysisSuccess) {
-        try {
-          // 🔧 修复：检查controller状态
-          if (!isControllerOpen(controller)) {
-            console.warn('⚠️ Controller已关闭，跳过竞品对比分析');
-            throw new Error('Controller已关闭');
-          }
-
-          const pageTypeLabel = debug.isIndependentStore ? '独立站' :
-                                debug.isAmazonStore ? 'Amazon店铺页' : 'Amazon产品页';
-          sendProgress(controller, 'ai_analysis', 'in_progress', `正在分析${pageTypeLabel}竞品对比...`);
-          console.log(`🏆 开始竞品对比分析 (${pageTypeLabel})...`);
+        const pageTypeLabel = debug.isIndependentStore ? '独立站' :
+                              debug.isAmazonStore ? 'Amazon店铺页' : 'Amazon产品页';
+        sendProgress(controller, 'ai_analysis', 'in_progress', `正在分析${pageTypeLabel}竞品对比...`);
+        console.log(`🏆 开始竞品对比分析 (${pageTypeLabel})...`);
 
           const { inferCompetitorKeywords, searchCompetitorsOnAmazon, scrapeAmazonCompetitors, analyzeCompetitorsWithAI } = await import(
             '@/lib/competitor-analyzer'
@@ -689,9 +672,6 @@ export async function POST(request: NextRequest) {
           } catch (aiError: any) {
             console.error('❌ AI推断竞品失败:', aiError.message);
           }
-        } catch (competitorError: any) {
-          console.warn('⚠️ 竞品对比分析失败（不影响主流程）:', competitorError.message);
-        }
       }
 
       // ========== 步骤6.7: 广告元素提取（keywords, headlines, descriptions）==========
@@ -817,52 +797,18 @@ export async function POST(request: NextRequest) {
       let enhancedBrandAnalysis: any = null;
 
       if (aiAnalysisSuccess && aiProductInfo) {
-        // 🔧 修复：检查controller状态
-        if (!isControllerOpen(controller)) {
-          console.warn('⚠️ Controller已关闭，跳过Enhanced任务');
-        } else {
-          sendProgress(controller, 'ai_analysis', 'in_progress', '正在并行执行6个Enhanced任务...');
-          console.log('🚀 开始并行执行Enhanced任务 (预计10-15秒)...');
-        }
+        // 🔄 Enhanced任务：后台并行执行（不影响主流程）
+        console.log('🚀 开始并行执行Enhanced任务 (预计10-15秒)...');
 
-        // 🔧 修复：启动心跳保持SSE连接（防止客户端超时导致controller关闭）
-        let heartbeatInterval: NodeJS.Timeout | null = null;
-
-        const startHeartbeat = () => {
-          if (heartbeatInterval) clearInterval(heartbeatInterval);
-          heartbeatInterval = setInterval(() => {
-            try {
-              if (isControllerOpen(controller)) {
-                sendProgress(controller, 'ai_analysis', 'in_progress', '正在处理Enhanced任务...');
-              } else {
-                // Controller已关闭，停止心跳
-                if (heartbeatInterval) {
-                  clearInterval(heartbeatInterval);
-                  heartbeatInterval = null;
-                }
-              }
-            } catch (error) {
-              // 心跳发送失败，停止心跳
-              if (heartbeatInterval) {
-                clearInterval(heartbeatInterval);
-                heartbeatInterval = null;
-              }
-            }
-          }, 3000); // 每3秒发送一次心跳
-        };
-
-        startHeartbeat();
-
-        try {
-          // 并行执行所有Enhanced任务（原48秒 → 优化后10-15秒，性能提升70%）
-          const [
-            keywordsResult,
-            productInfoResult,
-            headlinesResult,
-            competitorResult,
-            localizationResult,
-            brandResult
-          ] = await Promise.all([
+        // 并行执行所有Enhanced任务（原48秒 → 优化后10-15秒，性能提升70%）
+        const [
+          keywordsResult,
+          productInfoResult,
+          headlinesResult,
+          competitorResult,
+          localizationResult,
+          brandResult
+        ] = await Promise.all([
           // 任务1: 增强关键词提取
           (async () => {
             try {
@@ -1019,13 +965,6 @@ export async function POST(request: NextRequest) {
           enhancedBrandAnalysis = brandResult;
 
           console.log('🎉 所有Enhanced任务并行执行完成！');
-        } finally {
-          // 🔧 修复：清理心跳定时器（防止内存泄漏）
-          if (heartbeatInterval) {
-            clearInterval(heartbeatInterval);
-            heartbeatInterval = null;
-          }
-        }
       }
 
       // 发送AI分析阶段完成事件
@@ -1113,16 +1052,31 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
       console.error('SSE提取失败:', error);
 
+      // 🔧 智能错误提示：根据错误类型提供具体建议
+      let errorMessage = '系统错误，请稍后重试';
+      let errorDetails = {
+        originalError: error.message,
+        stack: error.stack,
+      };
+
+      // 关键任务失败的错误提示
+      if (error.message.includes('页面加载超时')) {
+        errorMessage = `评论分析失败：页面加载超时 (${error.message})，建议检查网络连接或稍后重试`;
+      } else if (error.message.includes('页面加载失败')) {
+        errorMessage = `竞品分析失败：页面加载失败 (${error.message})，建议检查推广链接是否有效`;
+      } else if (error.message.includes('AI分析')) {
+        errorMessage = `AI分析失败：${error.message}，建议检查AI配置或稍后重试`;
+      } else if (error instanceof AppError) {
+        errorMessage = error.message;
+      }
+
       // 🔧 KISS修复：尝试发送错误，如果失败则静默处理
       try {
         sendError(
           controller,
           'error',
-          error instanceof AppError ? error.message : '系统错误，请稍后重试',
-          {
-            originalError: error.message,
-            stack: error.stack,
-          }
+          errorMessage,
+          errorDetails
         );
       } catch (sendErrorFailure) {
         // Controller已关闭，静默处理（用户已断开连接）
