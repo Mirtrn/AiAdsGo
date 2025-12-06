@@ -5,7 +5,7 @@
 
 import { NextRequest } from 'next/server';
 import { createError, AppError } from '@/lib/errors';
-import { createSSEStream, sendProgress, sendComplete, sendError } from '@/lib/sse-helper';
+import { createSSEStream, sendProgress, sendComplete, sendError, isControllerOpen } from '@/lib/sse-helper';
 import { extractOffer } from '@/lib/offer-extraction-core';
 import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from '@/lib/feature-flags';
 import { parsePrice } from '@/lib/pricing-utils';
@@ -184,7 +184,11 @@ export async function POST(request: NextRequest) {
 
       // 检查核心提取是否失败
       if (!extractResult.success || !extractResult.data) {
-        sendError(controller, 'error', extractResult.error?.message || '提取失败', extractResult.error?.details);
+        const errorDetails = extractResult.error?.details ? {
+          ...extractResult.error.details,
+          errorCode: extractResult.error.code,
+        } : { errorCode: extractResult.error?.code };
+        sendError(controller, 'error', extractResult.error?.message || '提取失败', errorDetails);
         return;
       }
 
@@ -799,15 +803,23 @@ export async function POST(request: NextRequest) {
         sendProgress(controller, 'ai_analysis', 'in_progress', '正在并行执行6个Enhanced任务...');
         console.log('🚀 开始并行执行Enhanced任务 (预计10-15秒)...');
 
-        // 并行执行所有Enhanced任务（原48秒 → 优化后10-15秒，性能提升70%）
-        const [
-          keywordsResult,
-          productInfoResult,
-          headlinesResult,
-          competitorResult,
-          localizationResult,
-          brandResult
-        ] = await Promise.all([
+        // 🔧 修复：启动心跳保持SSE连接（防止客户端超时导致controller关闭）
+        const heartbeatInterval = setInterval(() => {
+          if (isControllerOpen(controller)) {
+            sendProgress(controller, 'ai_analysis', 'in_progress', '正在处理Enhanced任务...');
+          }
+        }, 3000); // 每3秒发送一次心跳
+
+        try {
+          // 并行执行所有Enhanced任务（原48秒 → 优化后10-15秒，性能提升70%）
+          const [
+            keywordsResult,
+            productInfoResult,
+            headlinesResult,
+            competitorResult,
+            localizationResult,
+            brandResult
+          ] = await Promise.all([
           // 任务1: 增强关键词提取
           (async () => {
             try {
@@ -954,16 +966,20 @@ export async function POST(request: NextRequest) {
           })()
         ]);
 
-        // 赋值结果
-        enhancedKeywords = keywordsResult;
-        enhancedProductInfo = productInfoResult;
-        enhancedHeadlines = headlinesResult.headlines;
-        enhancedDescriptions = headlinesResult.descriptions;
-        enhancedCompetitorAnalysis = competitorResult;
-        enhancedLocalization = localizationResult;
-        enhancedBrandAnalysis = brandResult;
+          // 赋值结果
+          enhancedKeywords = keywordsResult;
+          enhancedProductInfo = productInfoResult;
+          enhancedHeadlines = headlinesResult.headlines;
+          enhancedDescriptions = headlinesResult.descriptions;
+          enhancedCompetitorAnalysis = competitorResult;
+          enhancedLocalization = localizationResult;
+          enhancedBrandAnalysis = brandResult;
 
-        console.log('🎉 所有Enhanced任务并行执行完成！');
+          console.log('🎉 所有Enhanced任务并行执行完成！');
+        } finally {
+          // 🔧 修复：清理心跳定时器（防止内存泄漏）
+          clearInterval(heartbeatInterval);
+        }
       }
 
       // 发送AI分析阶段完成事件

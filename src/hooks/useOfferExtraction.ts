@@ -28,6 +28,7 @@ interface UseOfferExtractionReturn {
   details?: ProgressEvent['details'];
   result: ExtractionResult | null;
   error: string | null;
+  errorDetails?: Record<string, unknown>; // 错误详情（包含errorCode等）
   currentDuration?: number; // 当前阶段的耗时（毫秒）
 
   // Actions
@@ -44,6 +45,7 @@ export function useOfferExtraction(): UseOfferExtractionReturn {
   const [details, setDetails] = useState<ProgressEvent['details']>();
   const [result, setResult] = useState<ExtractionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<Record<string, unknown> | undefined>(); // 错误详情
   const [currentDuration, setCurrentDuration] = useState<number | undefined>(); // 当前阶段耗时
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -59,6 +61,7 @@ export function useOfferExtraction(): UseOfferExtractionReturn {
     setDetails(undefined);
     setResult(null);
     setError(null);
+    setErrorDetails(undefined);
     setCurrentDuration(undefined);
     stageStartTimeRef.current = Date.now();
     lastStageRef.current = 'resolving_link';
@@ -163,6 +166,7 @@ export function useOfferExtraction(): UseOfferExtractionReturn {
                 setCurrentStatus('error');
                 setCurrentMessage(data.data.message);
                 setError(data.data.message);
+                setErrorDetails(data.data.details);
                 setIsExtracting(false);
               }
             } catch (parseError) {
@@ -191,6 +195,7 @@ export function useOfferExtraction(): UseOfferExtractionReturn {
     details,
     result,
     error,
+    errorDetails,
     currentDuration, // 返回当前阶段耗时
     startExtraction,
     reset,

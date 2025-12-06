@@ -68,7 +68,7 @@ export interface GeminiAxiosGenerateResult {
 export function createGeminiAxiosClient(): AxiosInstance {
   return axios.create({
     baseURL: 'https://generativelanguage.googleapis.com',
-    timeout: 60000, // 60秒超时
+    timeout: 120000, // 120秒超时（增加到2分钟，处理大数据量的评论分析）
     headers: {
       'Content-Type': 'application/json',
     },

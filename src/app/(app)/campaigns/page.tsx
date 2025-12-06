@@ -868,7 +868,7 @@ export default function CampaignsPage() {
                           aria-label="全选"
                         />
                       </TableHead>
-                      <SortableHeader field="campaignName" className="w-[200px]">系列名称</SortableHeader>
+                      <SortableHeader field="campaignName" className="w-[180px]">系列名称</SortableHeader>
                       <SortableHeader field="budgetAmount" className="w-[100px]">预算</SortableHeader>
                       <SortableHeader field="impressions" className="w-[100px]">展示</SortableHeader>
                       <SortableHeader field="clicks" className="w-[90px]">点击</SortableHeader>
@@ -893,11 +893,11 @@ export default function CampaignsPage() {
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium text-gray-900">
+                        <div className="font-medium text-gray-900 truncate max-w-[160px]" title={campaign.campaignName}>
                           {campaign.campaignName}
                         </div>
                         {campaign.campaignId && (
-                          <div className="text-xs text-gray-500 font-mono mt-1">
+                          <div className="text-xs text-gray-500 font-mono mt-1 truncate max-w-[160px]" title={campaign.campaignId}>
                             ID: {campaign.campaignId}
                           </div>
                         )}

@@ -99,6 +99,7 @@ export default function CreateOfferModalV2({
     details,
     result: extractionResult,
     error: extractionError,
+    errorDetails,
     currentDuration,
     startExtraction,
     reset: resetExtraction,
@@ -140,10 +141,16 @@ export default function CreateOfferModalV2({
   // 🔥 监听提取错误
   useEffect(() => {
     if (extractionError) {
-      setError(extractionError)
+      // 检查是否为代理配置错误
+      const errorCode = errorDetails?.errorCode as string | undefined
+      if (errorCode === 'PROXY_NOT_CONFIGURED') {
+        setError('代理配置缺失。请先在设置页面配置代理IP才能创建offer。')
+      } else {
+        setError(extractionError)
+      }
       setCurrentStep('input')
     }
-  }, [extractionError])
+  }, [extractionError, errorDetails])
 
   // ========== 步骤1: 提交用户输入，开始自动提取 ==========
   const handleExtract = async (e: React.FormEvent) => {

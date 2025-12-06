@@ -194,13 +194,14 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         } : undefined
       )
     } catch (error: any) {
-      const errorMessage = error instanceof AppError ? error.message : '代理池初始化失败'
+      const errorMessage = error instanceof AppError ? error.message : (error.message || '代理池初始化失败')
+      const errorCode = error.code || (error instanceof AppError ? error.code : 'PROXY_POOL_INIT_FAILED')
       trackStageProgress(progressCallback, fetchingProxyStartTime, 'fetching_proxy', 'error', errorMessage)
 
       return {
         success: false,
         error: {
-          code: error instanceof AppError ? error.code : 'PROXY_POOL_INIT_FAILED',
+          code: errorCode,
           message: errorMessage,
           details: error.details,
         },

@@ -50,7 +50,7 @@ export function createSSEStream(
 /**
  * 检查控制器是否可用
  */
-function isControllerOpen(controller: ReadableStreamDefaultController): boolean {
+export function isControllerOpen(controller: ReadableStreamDefaultController): boolean {
   try {
     // 尝试获取desiredSize来判断controller是否仍然打开
     const size = controller.desiredSize;
