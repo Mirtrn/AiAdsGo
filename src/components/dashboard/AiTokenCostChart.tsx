@@ -201,9 +201,9 @@ export function AiTokenCostChart({ days = 7 }: Props) {
               <div className={`text-2xl font-bold ${getStatusColor()}`}>
                 ¥{(Number(today.totalCost) || 0).toFixed(2)}
               </div>
-              <div className="text-xs text-gray-500">{today.totalCalls} 次调用</div>
+              <div className="text-xs text-gray-500">{today.totalCalls || 0} 次调用</div>
               <div className="text-xs text-gray-500 mt-0.5">
-                {(today.totalTokens / 1000).toFixed(1)}K tokens
+                {((Number(today.totalTokens) || 0) / 1000).toFixed(1)}K tokens
               </div>
             </div>
           </div>
@@ -214,13 +214,13 @@ export function AiTokenCostChart({ days = 7 }: Props) {
           <div>
             <div className="text-xs text-gray-500">输入Token</div>
             <div className="text-lg font-semibold text-gray-900">
-              {today.modelUsage.reduce((sum, m) => sum + m.inputTokens, 0).toLocaleString()}
+              {today.modelUsage.reduce((sum, m) => sum + m.inputTokens, 0).toLocaleString('en-US')}
             </div>
           </div>
           <div>
             <div className="text-xs text-gray-500">输出Token</div>
             <div className="text-lg font-semibold text-gray-900">
-              {today.modelUsage.reduce((sum, m) => sum + m.outputTokens, 0).toLocaleString()}
+              {today.modelUsage.reduce((sum, m) => sum + m.outputTokens, 0).toLocaleString('en-US')}
             </div>
           </div>
         </div>

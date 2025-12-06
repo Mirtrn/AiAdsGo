@@ -16,16 +16,16 @@ async function fetchHealthyProxyIPs(country: string, count: number): Promise<Pro
     // 从数据库中读取代理配置
     const db = await getDatabase()
     const setting = await db.queryOne(`
-      SELECT config_value FROM system_settings
-      WHERE category = 'proxy' AND config_key = 'urls'
-    `) as { config_value: string } | undefined
+      SELECT value FROM system_settings
+      WHERE category = 'proxy' AND key = 'urls'
+    `) as { value: string } | undefined
 
     if (!setting) {
       console.warn(`⚠️  未找到代理配置`)
       return []
     }
 
-    const proxyConfigs = JSON.parse(setting.config_value || '[]')
+    const proxyConfigs = JSON.parse(setting.value || '[]')
     let proxyUrl = proxyConfigs.find((c: any) => c.country === country)?.url
 
     // 如果没有找到对应国家的配置，使用第一个作为默认值

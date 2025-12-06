@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
           // 检查配置是否已存在
           const existing = await db.queryOne<any>(`
             SELECT id, is_sensitive FROM system_settings
-            WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?)
+            WHERE category = ? AND key = ? AND (user_id IS NULL OR user_id = ?)
             ORDER BY user_id DESC LIMIT 1
           `, [category, configKey, userIdNum])
 
@@ -93,26 +93,26 @@ export async function POST(request: NextRequest) {
             if (isSensitive) {
               await db.exec(`
                 UPDATE system_settings
-                SET encrypted_value = ?, config_value = NULL, updated_at = datetime('now')
-                WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?)
+                SET encrypted_value = ?, value = NULL, updated_at = datetime('now')
+                WHERE category = ? AND key = ? AND (user_id IS NULL OR user_id = ?)
               `, [encrypt(config.value), category, configKey, userIdNum])
             } else {
               await db.exec(`
                 UPDATE system_settings
-                SET config_value = ?, updated_at = datetime('now')
-                WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?)
+                SET value = ?, updated_at = datetime('now')
+                WHERE category = ? AND key = ? AND (user_id IS NULL OR user_id = ?)
               `, [config.value, category, configKey, userIdNum])
             }
           } else {
             // 插入新配置（用户级别）
             if (isSensitive) {
               await db.exec(`
-                INSERT INTO system_settings (user_id, category, config_key, encrypted_value, data_type, is_sensitive, created_at, updated_at)
+                INSERT INTO system_settings (user_id, category, key, encrypted_value, data_type, is_sensitive, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
               `, [userIdNum, category, configKey, encrypt(config.value), config.dataType || 'string'])
             } else {
               await db.exec(`
-                INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, created_at, updated_at)
+                INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
               `, [userIdNum, category, configKey, config.value, config.dataType || 'string'])
             }

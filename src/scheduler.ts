@@ -53,13 +53,13 @@ async function syncDataTask() {
         u.id,
         u.username,
         u.email,
-        ss.config_value as sync_interval_hours,
+        ss.value as sync_interval_hours,
         (SELECT MAX(started_at) FROM sync_logs WHERE user_id = u.id AND status = 'success') as last_sync_at
       FROM users u
       INNER JOIN google_ads_accounts ga ON u.id = ga.user_id
       LEFT JOIN system_settings ss ON ss.user_id = u.id
         AND ss.category = 'system'
-        AND ss.config_key = 'sync_interval_hours'
+        AND ss.key = 'sync_interval_hours'
       WHERE u.is_active = ? AND ga.is_active = ?
     `, [true, true])
 
@@ -199,11 +199,11 @@ async function linkAndAccountCheckTask() {
     }>(`
       SELECT
         ss.user_id,
-        MAX(CASE WHEN ss.config_key = 'link_check_enabled' THEN ss.config_value END) as link_check_enabled,
-        MAX(CASE WHEN ss.config_key = 'link_check_time' THEN ss.config_value END) as link_check_time
+        MAX(CASE WHEN ss.key = 'link_check_enabled' THEN ss.value END) as link_check_enabled,
+        MAX(CASE WHEN ss.key = 'link_check_time' THEN ss.value END) as link_check_time
       FROM system_settings ss
       WHERE ss.category = 'system'
-        AND ss.config_key IN ('link_check_enabled', 'link_check_time')
+        AND ss.key IN ('link_check_enabled', 'link_check_time')
         AND ss.user_id IS NOT NULL
       GROUP BY ss.user_id
     `)

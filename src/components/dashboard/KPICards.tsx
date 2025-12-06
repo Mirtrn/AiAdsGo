@@ -48,7 +48,7 @@ function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps
     } else if (format === 'percentage') {
       return `${numVal.toFixed(2)}%`
     } else {
-      return numVal.toLocaleString()
+      return numVal.toLocaleString('en-US')
     }
   }
 

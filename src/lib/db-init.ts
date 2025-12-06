@@ -409,13 +409,13 @@ async function insertDefaultSystemSettings(): Promise<void> {
       if (db.type === 'sqlite') {
         // 检查配置是否已存在
         const existing = db.queryOne(
-          'SELECT id FROM system_settings WHERE category = ? AND config_key = ? AND user_id IS NULL',
+          'SELECT id FROM system_settings WHERE category = ? AND key = ? AND user_id IS NULL',
           [setting.category, setting.key]
         )
 
         if (!existing) {
           db.exec(
-            `INSERT INTO system_settings (user_id, category, config_key, data_type, is_sensitive, is_required, default_value, description)
+            `INSERT INTO system_settings (user_id, category, key, data_type, is_sensitive, is_required, default_value, description)
              VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)`,
             [
               setting.category,
@@ -431,13 +431,13 @@ async function insertDefaultSystemSettings(): Promise<void> {
       } else {
         // PostgreSQL
         const existing = await asyncDb!.query(
-          'SELECT id FROM system_settings WHERE category = $1 AND config_key = $2 AND user_id IS NULL',
+          'SELECT id FROM system_settings WHERE category = $1 AND key = $2 AND user_id IS NULL',
           [setting.category, setting.key]
         )
 
         if (existing.length === 0) {
           await asyncDb!.query(
-            `INSERT INTO system_settings (user_id, category, config_key, data_type, is_sensitive, is_required, default_value, description)
+            `INSERT INTO system_settings (user_id, category, key, data_type, is_sensitive, is_required, default_value, description)
              VALUES (NULL, $1, $2, $3, $4, $5, $6, $7)`,
             [
               setting.category,
@@ -498,30 +498,30 @@ async function importAdminConfig(): Promise<void> {
     for (const setting of exportData.settings) {
       // 检查配置是否已存在
       const existing = await asyncDb.query(
-        'SELECT id FROM system_settings WHERE category = $1 AND config_key = $2 AND (user_id = $3 OR user_id IS NULL)',
-        [setting.category, setting.config_key, setting.user_id === null ? null : adminUserId]
+        'SELECT id FROM system_settings WHERE category = $1 AND key = $2 AND (user_id = $3 OR user_id IS NULL)',
+        [setting.category, setting.key, setting.user_id === null ? null : adminUserId]
       )
 
       if (existing.length > 0) {
         // 更新现有配置
         await asyncDb.query(
           `UPDATE system_settings
-           SET config_value = $1, encrypted_value = $2, updated_at = CURRENT_TIMESTAMP
+           SET value = $1, encrypted_value = $2, updated_at = CURRENT_TIMESTAMP
            WHERE id = $3`,
-          [setting.config_value, setting.encrypted_value, existing[0].id]
+          [setting.value, setting.encrypted_value, existing[0].id]
         )
       } else {
         // 插入新配置
         await asyncDb.query(
           `INSERT INTO system_settings (
-            user_id, category, config_key, config_value, encrypted_value,
+            user_id, category, key, value, encrypted_value,
             data_type, is_sensitive, is_required, default_value, description
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [
             setting.user_id === null ? null : adminUserId,
             setting.category,
-            setting.config_key,
-            setting.config_value,
+            setting.key,
+            setting.value,
             setting.encrypted_value,
             setting.data_type,
             setting.is_sensitive === 1,

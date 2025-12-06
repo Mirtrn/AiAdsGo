@@ -25,8 +25,8 @@ export async function GET(request: NextRequest) {
     const settings = await db.query(`
       SELECT
         category,
-        config_key,
-        config_value,
+        key,
+        value,
         encrypted_value,
         data_type,
         is_sensitive,
@@ -34,13 +34,13 @@ export async function GET(request: NextRequest) {
         description
       FROM system_settings
       WHERE user_id IS NULL OR user_id = ?
-      ORDER BY category, config_key
+      ORDER BY category, key
     `, [userIdNum]) as any[]
 
-    // 去重：对于同一个 (category, config_key) 组合，优先使用用户配置
+    // 去重：对于同一个 (category, key) 组合，优先使用用户配置
     const settingsMap = new Map<string, any>()
     for (const setting of settings) {
-      const key = `${setting.category}:${setting.config_key}`
+      const key = `${setting.category}:${setting.key}`
       // 简单处理：后出现的覆盖前面的（用户配置在后面）
       settingsMap.set(key, setting)
     }
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
         exportData[setting.category] = {}
       }
 
-      let value = setting.config_value
+      let value = setting.value
 
       // 处理敏感信息
       if (setting.is_sensitive === 1) {
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      exportData[setting.category][setting.config_key] = {
+      exportData[setting.category][setting.key] = {
         value,
         dataType: setting.data_type,
         isSensitive: setting.is_sensitive === 1,

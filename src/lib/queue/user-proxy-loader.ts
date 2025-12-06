@@ -132,13 +132,13 @@ async function getUserOnlyProxyUrls(userId: number): Promise<ProxyUrlConfig[]> {
 
     // 只查询用户级配置（user_id = userId），不包含全局配置（user_id IS NULL）
     const query = `
-      SELECT config_value, encrypted_value, is_sensitive
+      SELECT value, encrypted_value, is_sensitive
       FROM system_settings
-      WHERE category = 'proxy' AND config_key = 'urls' AND user_id = ?
+      WHERE category = 'proxy' AND key = 'urls' AND user_id = ?
       LIMIT 1
     `
     const row = await db.queryOne(query, [userId]) as {
-      config_value: string | null
+      value: string | null
       encrypted_value: string | null
       is_sensitive: number | boolean
     } | undefined
@@ -149,7 +149,7 @@ async function getUserOnlyProxyUrls(userId: number): Promise<ProxyUrlConfig[]> {
 
     // 获取配置值（处理加密情况）
     const isSensitive = row.is_sensitive === true || row.is_sensitive === 1
-    let value = row.config_value
+    let value = row.value
 
     if (isSensitive && row.encrypted_value) {
       const { decrypt } = await import('@/lib/crypto')

@@ -12,16 +12,16 @@ const db = new Database(dbPath, { readonly: true })
 console.log('📊 检查autoads用户（userId=1）的AI配置...\n')
 
 const settings = db.prepare(`
-  SELECT config_key,
+  SELECT key,
          CASE
-           WHEN config_key LIKE '%json%' THEN '[JSON_CONTENT]'
-           WHEN config_key LIKE '%key%' THEN '[API_KEY_HIDDEN]'
-           ELSE config_value
+           WHEN key LIKE '%json%' THEN '[JSON_CONTENT]'
+           WHEN key LIKE '%key%' THEN '[API_KEY_HIDDEN]'
+           ELSE value
          END as display_value,
-         LENGTH(config_value) as value_length
+         LENGTH(value) as value_length
   FROM system_settings
   WHERE category = 'ai' AND user_id = 1
-  ORDER BY config_key
+  ORDER BY key
 `).all()
 
 if (settings.length === 0) {
@@ -32,14 +32,14 @@ if (settings.length === 0) {
 } else {
   console.log('✅ 找到以下AI配置：\n')
   settings.forEach((s: any) => {
-    console.log(`  ${s.config_key}: ${s.display_value} (长度: ${s.value_length}字符)`)
+    console.log(`  ${s.key}: ${s.display_value} (长度: ${s.value_length}字符)`)
   })
 
   // 检查Vertex AI配置完整性
-  const hasVertexAI = settings.some((s: any) => s.config_key === 'use_vertex_ai')
-  const hasProjectId = settings.some((s: any) => s.config_key === 'gcp_project_id')
-  const hasServiceAccount = settings.some((s: any) => s.config_key === 'gcp_service_account_json')
-  const hasGeminiKey = settings.some((s: any) => s.config_key === 'gemini_api_key')
+  const hasVertexAI = settings.some((s: any) => s.key === 'use_vertex_ai')
+  const hasProjectId = settings.some((s: any) => s.key === 'gcp_project_id')
+  const hasServiceAccount = settings.some((s: any) => s.key === 'gcp_service_account_json')
+  const hasGeminiKey = settings.some((s: any) => s.key === 'gemini_api_key')
 
   console.log('\n配置状态：')
   if (hasVertexAI && hasProjectId && hasServiceAccount) {

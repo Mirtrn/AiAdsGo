@@ -53,30 +53,30 @@ async function getAIConfig(userId?: number): Promise<AIConfig> {
   let userSettings: Record<string, string> = {}
   if (userId) {
     const userRows = await db.query(`
-      SELECT config_key, config_value FROM system_settings
-      WHERE user_id = ? AND config_key IN (
+      SELECT key, value FROM system_settings
+      WHERE user_id = ? AND key IN (
         'vertex_ai_model', 'gcp_project_id', 'gcp_location',
         'gemini_api_key', 'gemini_model', 'use_vertex_ai'
       )
-    `, [userId]) as Array<{ config_key: string; config_value: string }>
+    `, [userId]) as Array<{ key: string; value: string }>
 
-    userSettings = userRows.reduce((acc, { config_key, config_value }) => {
-      acc[config_key] = config_value
+    userSettings = userRows.reduce((acc, { key, value }) => {
+      acc[key] = value
       return acc
     }, {} as Record<string, string>)
   }
 
   // 2. 获取全局配置（作为备选）
   const globalRows = await db.query(`
-    SELECT config_key, config_value FROM system_settings
-    WHERE user_id IS NULL AND config_key IN (
+    SELECT key, value FROM system_settings
+    WHERE user_id IS NULL AND key IN (
       'VERTEX_AI_PROJECT_ID', 'VERTEX_AI_LOCATION', 'VERTEX_AI_MODEL',
       'GEMINI_API_KEY', 'GEMINI_MODEL'
     )
-  `, []) as Array<{ config_key: string; config_value: string }>
+  `, []) as Array<{ key: string; value: string }>
 
-  const globalSettings = globalRows.reduce((acc, { config_key, config_value }) => {
-    acc[config_key] = config_value
+  const globalSettings = globalRows.reduce((acc, { key, value }) => {
+    acc[key] = value
     return acc
   }, {} as Record<string, string >)
 

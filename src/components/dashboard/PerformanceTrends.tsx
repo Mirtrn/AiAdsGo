@@ -337,7 +337,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-blue-600`}>
                 {isMobile && data.summary.totalImpressions >= 1000
                   ? `${(data.summary.totalImpressions / 1000).toFixed(1)}k`
-                  : data.summary.totalImpressions.toLocaleString()}
+                  : data.summary.totalImpressions.toLocaleString('en-US')}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-green-50 rounded-lg`}>
@@ -345,7 +345,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-green-600`}>
                 {isMobile && data.summary.totalClicks >= 1000
                   ? `${(data.summary.totalClicks / 1000).toFixed(1)}k`
-                  : data.summary.totalClicks.toLocaleString()}
+                  : data.summary.totalClicks.toLocaleString('en-US')}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-purple-50 rounded-lg`}>

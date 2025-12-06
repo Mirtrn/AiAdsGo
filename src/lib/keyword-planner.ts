@@ -31,18 +31,18 @@ interface KeywordPlannerConfig {
 // Helper: Read user configs from system_settings
 async function readUserConfigs(db: any, userId: number): Promise<Record<string, string>> {
   const configs = await db.query(`
-    SELECT config_key, config_value, encrypted_value
+    SELECT key, value, encrypted_value
     FROM system_settings
     WHERE category = 'google_ads' AND user_id = ?
-  `, [userId]) as Array<{ config_key: string; config_value: string | null; encrypted_value: string | null }>
+  `, [userId]) as Array<{ key: string; value: string | null; encrypted_value: string | null }>
 
   const configMap: Record<string, string> = {}
   for (const c of configs) {
     if (c.encrypted_value) {
       const decrypted = decrypt(c.encrypted_value)
-      if (decrypted) configMap[c.config_key] = decrypted
-    } else if (c.config_value) {
-      configMap[c.config_key] = c.config_value
+      if (decrypted) configMap[c.key] = decrypted
+    } else if (c.value) {
+      configMap[c.key] = c.value
     }
   }
   return configMap
