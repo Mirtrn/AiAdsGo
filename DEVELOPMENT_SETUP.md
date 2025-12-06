@@ -116,7 +116,7 @@ npx playwright install chromium --with-deps
 这将安装所有必需的 npm 包，包括：
 - Next.js 14+（前端框架）
 - better-sqlite3（SQLite 数据库驱动）
-- bcryptjs（密码加密）
+- bcrypt（密码加密）
 - Playwright（浏览器自动化，用于商品抓取）
 - 其他依赖...
 
@@ -133,18 +133,7 @@ npx playwright install chromium --with-deps
 >   - Windows: 安装 Visual Studio Build Tools
 > - Playwright 浏览器下载需要稳定网络连接，如遇下载失败可重试
 
-### 步骤 3：配置环境变量（可选，启动服务器前配置）
-
-```bash
-cp .env.example .env.local
-```
-
-编辑 `.env.local` 文件，配置必需的环境变量（见下一节）。
-
-> **注意**：如果只是初始化数据库，可以先跳过环境变量配置，直接执行步骤 4。
-> 环境变量仅在启动服务器（步骤 5）时才必需。
-
-### 步骤 4：初始化数据库
+### 步骤 3：初始化数据库
 
 ```bash
 # 设置管理员密码并初始化数据库
@@ -157,7 +146,24 @@ DEFAULT_ADMIN_PASSWORD="your-strong-password" npm run db:init
 3. 执行初始化脚本，创建 40 张表 + 3 个视图
 4. 创建管理员账号 `autoads`（密码为您设置的值）
 
-> **重要**：请记住您设置的 `DEFAULT_ADMIN_PASSWORD`，这将是管理员账号的登录密码。
+> **重要**：
+> - 请记住您设置的 `DEFAULT_ADMIN_PASSWORD`，这将是管理员账号的登录密码
+> - 管理员密码可以通过命令行参数传递（如上），也可以在 `.env.local` 中配置（见步骤4）
+
+### 步骤 4：配置环境变量（启动服务器前必需）
+
+```bash
+cp .env.example .env.local
+```
+
+编辑 `.env.local` 文件，配置必需的环境变量（详见[环境变量配置](#环境变量配置)章节）。
+
+**最小配置**（必需）：
+```bash
+JWT_SECRET=<64字符十六进制>      # 生成: openssl rand -hex 32
+ENCRYPTION_KEY=<64字符十六进制>  # 生成: openssl rand -hex 32
+DEFAULT_ADMIN_PASSWORD=<你的密码> # 如果步骤3已通过命令行设置则可省略
+```
 
 ### 步骤 5：启动开发服务器
 
