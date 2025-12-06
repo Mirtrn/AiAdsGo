@@ -908,7 +908,11 @@ declare global {
  * 检查未完成的队列任务
  *
  * 场景：服务重启时，内存队列中的任务会丢失
- * 解决：从数据库查询 pending/in_progress 状态的Offer，标记为待恢复
+ * 解决：Redis优先恢复scrape任务，如果Redis不可用则从数据库恢复
+ *
+ * 恢复策略：
+ * 1. Redis优先：从Redis队列读取pending/running状态的scrape任务
+ * 2. 数据库回退：从offers表查询scrape_status为pending/in_progress的记录
  *
  * 注意：这里只做查询，实际恢复在首次API请求时触发
  * 原因：instrumentation阶段无法安全导入复杂模块（offer-scraping有复杂依赖）
@@ -924,7 +928,32 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
   }
 
   try {
-    // 查询未完成的任务（7天内的，排除已删除的）
+    // 🔄 Redis优先恢复：从Redis队列读取pending/running状态的scrape任务
+    const redisTasks = await recoverFromRedis()
+
+    if (redisTasks.length > 0) {
+      const runningCount = redisTasks.filter(t => t.status === 'running').length
+      const pendingCount = redisTasks.filter(t => t.status === 'pending').length
+
+      console.log(`📋 队列恢复：从Redis发现 ${redisTasks.length} 个未完成任务`)
+      console.log(`   - running: ${runningCount}`)
+      console.log(`   - pending: ${pendingCount}`)
+      console.log(`   (将在首次API请求时自动恢复)`)
+
+      // 存储待恢复数据到全局变量
+      global.__queueRecoveryPending = true
+      global.__queueRecoveryData = redisTasks.map(t => ({
+        id: t.id,
+        user_id: t.userId,
+        url: t.data?.url,
+        brand: t.data?.brand,
+        status: t.status,
+        task_type: 'scrape'
+      }))
+      return
+    }
+
+    // 数据库回退恢复：从offers表查询未完成的scrape任务
     const unfinishedOffers = await db.query<{
       id: number
       user_id: number
@@ -956,7 +985,7 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
     const inProgressCount = unfinishedOffers.filter(o => o.scrape_status === 'in_progress').length
     const pendingCount = unfinishedOffers.filter(o => o.scrape_status === 'pending').length
 
-    console.log(`📋 队列恢复：发现 ${unfinishedOffers.length} 个未完成任务`)
+    console.log(`📋 队列恢复：从数据库发现 ${unfinishedOffers.length} 个未完成任务`)
     console.log(`   - in_progress: ${inProgressCount}`)
     console.log(`   - pending: ${pendingCount}`)
     console.log(`   (将在首次API请求时自动恢复)`)
@@ -968,11 +997,88 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
       user_id: o.user_id,
       url: o.url,
       brand: o.brand,
-      status: 'pending', // 旧版队列任务状态
-      task_type: 'scrape' // 默认任务类型
+      status: o.scrape_status === 'in_progress' ? 'running' : 'pending',
+      task_type: 'scrape'
     }))
   } catch (error) {
     console.error('❌ 检查队列任务失败:', error)
     global.__queueRecoveryPending = false
+  }
+}
+
+/**
+ * 从Redis队列恢复scrape任务
+ */
+async function recoverFromRedis(): Promise<Array<{
+  id: string
+  userId: number
+  status: string
+  data: any
+}>> {
+  try {
+    // 检查Redis是否可用
+    const redisClient = await getRedisClient()
+    if (!redisClient) {
+      console.log('⚠️ Redis未配置，跳过Redis恢复，使用数据库回退')
+      return []
+    }
+
+    // 从Redis队列读取pending和running状态的scrape任务
+    // 注意：Redis队列的键名需要与unified-queue-manager.ts中的配置一致
+    const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'autoads:queue:'
+
+    // 获取所有待处理任务（pending队列）
+    const pendingKey = `${redisKeyPrefix}pending`
+    const runningKey = `${redisKeyPrefix}running`
+
+    const [pendingTasks, runningTasks] = await Promise.all([
+      redisClient.lrange(pendingKey, 0, -1),
+      redisClient.lrange(runningKey, 0, -1)
+    ])
+
+    // 解析任务数据并过滤scrape任务
+    const allTasks = [...pendingTasks, ...runningTasks]
+    const scrapeTasks: Array<{
+      id: string
+      userId: number
+      status: string
+      data: any
+    }> = []
+
+    for (const taskStr of allTasks) {
+      try {
+        const task = JSON.parse(taskStr)
+
+        // 只恢复scrape任务
+        if (task.type === 'scrape' || task.taskType === 'scrape') {
+          scrapeTasks.push({
+            id: task.id || 'unknown',
+            userId: task.userId || 0,
+            status: task.status || 'pending',
+            data: task.data || {}
+          })
+        }
+      } catch (parseError) {
+        // 忽略解析失败的任务
+        continue
+      }
+    }
+
+    console.log(`✅ 队列恢复：Redis恢复完成，找到 ${scrapeTasks.length} 个scrape任务`)
+    return scrapeTasks
+  } catch (error) {
+    console.error('❌ Redis恢复失败，使用数据库回退:', error)
+    return []
+  }
+}
+
+// 导入Redis客户端
+async function getRedisClient(): Promise<any> {
+  try {
+    const { getRedisClient } = await import('@/lib/redis-client')
+    return getRedisClient()
+  } catch (error) {
+    console.error('导入Redis客户端失败:', error)
+    return null
   }
 }
