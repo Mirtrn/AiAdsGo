@@ -222,7 +222,7 @@ export function comparePredictionVsActual(
   comparisons.push({
     metric: '总花费',
     predicted: '未预测',
-    actual: `$${performanceData.totalCostUsd.toFixed(2)}`,
+    actual: `$${(Number(performanceData.totalCostUsd) || 0).toFixed(2)}`,
     accuracy: null,
     variance: '实际表现数据'
   })

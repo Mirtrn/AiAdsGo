@@ -351,7 +351,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-purple-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">总花费</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-purple-600`}>
-                ¥{data.summary.totalCost.toFixed(isMobile ? 0 : 2)}
+                ¥{(Number(data.summary.totalCost) || 0).toFixed(isMobile ? 0 : 2)}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-orange-50 rounded-lg`}>

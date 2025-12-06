@@ -199,7 +199,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
             {/* 中心文字 */}
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <div className={`text-2xl font-bold ${getStatusColor()}`}>
-                ¥{today.totalCost.toFixed(2)}
+                ¥{(Number(today.totalCost) || 0).toFixed(2)}
               </div>
               <div className="text-xs text-gray-500">{today.totalCalls} 次调用</div>
               <div className="text-xs text-gray-500 mt-0.5">
@@ -294,7 +294,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
               {trend.slice(0, 3).map((item) => (
                 <div key={item.date} className="flex items-center justify-between text-xs">
                   <span className="text-gray-600">{item.date}</span>
-                  <span className="font-medium text-gray-900">¥{item.totalCost.toFixed(2)}</span>
+                  <span className="font-medium text-gray-900">¥{(Number(item.totalCost) || 0).toFixed(2)}</span>
                 </div>
               ))}
             </div>
