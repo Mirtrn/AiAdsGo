@@ -1070,8 +1070,8 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
       console.error('SSE提取失败:', error);
 
-      // 🔧 修复：只在controller未关闭时发送错误
-      if (isControllerOpen(controller)) {
+      // 🔧 KISS修复：尝试发送错误，如果失败则静默处理
+      try {
         sendError(
           controller,
           'error',
@@ -1081,8 +1081,9 @@ export async function POST(request: NextRequest) {
             stack: error.stack,
           }
         );
-      } else {
-        console.warn('⚠️ Controller已关闭，无法发送错误信息');
+      } catch (sendErrorFailure) {
+        // Controller已关闭，静默处理（用户已断开连接）
+        console.warn('⚠️ 无法发送错误信息（用户已断开连接）');
       }
     }
   });
