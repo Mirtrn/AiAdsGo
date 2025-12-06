@@ -53,7 +53,7 @@ async function getUserRefreshToken(db: any, userId: number): Promise<string> {
   const credentials = await db.queryOne(`
     SELECT refresh_token
     FROM google_ads_credentials
-    WHERE user_id = ? AND is_active = 1
+    WHERE user_id = ? AND CAST(is_active AS INTEGER) = 1
   `, [userId]) as { refresh_token: string } | undefined
 
   return credentials?.refresh_token || ''
@@ -66,9 +66,9 @@ async function getUserCustomerId(db: any, userId: number): Promise<string> {
     SELECT customer_id
     FROM google_ads_accounts
     WHERE user_id = ?
-      AND is_active = 1
+      AND CAST(is_active AS INTEGER) = 1
       AND status = 'ENABLED'
-      AND is_manager_account = 0
+      AND CAST(is_manager_account AS INTEGER) = 0
     ORDER BY id ASC
     LIMIT 1
   `, [userId]) as { customer_id: string } | undefined
