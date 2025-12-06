@@ -90,40 +90,52 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { username, email, packageType, packageExpiresAt } = body
+    const {
+      username,
+      displayName,
+      email,
+      packageType,
+      packageExpiresAt,
+      validUntil, // 前端可能发送此字段
+      role
+    } = body
 
-    if (!username) {
-      return NextResponse.json({ error: 'Username is required' }, { status: 400 })
-    }
+    // 支持前端发送 validUntil 或 packageExpiresAt
+    const expiresAt = packageExpiresAt || validUntil
 
-    if (!packageExpiresAt) {
+    if (!expiresAt) {
       return NextResponse.json({ error: 'Package expiry date is required' }, { status: 400 })
-    }
-
-    // Check if username already exists
-    const db = await getDatabase()
-    const existingUser = await db.queryOne('SELECT id FROM users WHERE username = ?', [username])
-    if (existingUser) {
-      return NextResponse.json({ error: '用户名已存在，请重新生成' }, { status: 400 })
     }
 
     // Default password: auto11@20ads
     const defaultPassword = 'auto11@20ads'
 
+    // 如果提供了username，检查是否已存在
+    if (username) {
+      const db = await getDatabase()
+      const existingUser = await db.queryOne('SELECT id FROM users WHERE username = ?', [username])
+      if (existingUser) {
+        return NextResponse.json({ error: '用户名已存在，请重新生成' }, { status: 400 })
+      }
+    }
+
     const newUser = await createUser({
-      username,
+      username: username || undefined, // 让createUser自动生成
+      displayName: displayName || null,
       email: email || null,
       password: defaultPassword,
-      role: 'user',
+      role: role || 'user',
       packageType: packageType || 'trial',
-      packageExpiresAt: packageExpiresAt,
+      packageExpiresAt: expiresAt,
       mustChangePassword: 1 // Force password change
     })
 
     return NextResponse.json({
       success: true,
-      user: newUser,
-      defaultPassword // Return this so admin can share it with the user
+      data: {
+        user: newUser,
+        defaultPassword // Return this so admin can share it with the user
+      }
     })
 
   } catch (error: any) {
