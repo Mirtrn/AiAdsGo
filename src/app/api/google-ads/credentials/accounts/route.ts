@@ -204,7 +204,10 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
     return parts[parts.length - 1]
   })
 
-  console.log(`   直接可访问账户: ${customerIds.join(', ')}`)
+  console.log(`   🔍 API响应: ${JSON.stringify(response, null, 2)}`)
+  console.log(`   🔍 Resource Names: ${resourceNames.join(', ')}`)
+  console.log(`   ✅ 直接可访问账户 (${customerIds.length}个): ${customerIds.join(', ')}`)
+  console.log(`   🔑 Login Customer ID: ${credentials.login_customer_id || '未设置'}`)
 
   const allAccounts: any[] = []
   const processedIds = new Set<string>()
@@ -218,12 +221,16 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
     let apiErrorMessage: string | undefined
 
     try {
+      // 🔧 修复：确保login_customer_id正确传递（MCC账户必需）
+      const loginCustomerId = credentials.login_customer_id || customerId
+      console.log(`   🔍 请求账户 ${customerId} 信息，使用 login_customer_id: ${loginCustomerId}`)
+
       const customer = await getCustomer(
         customerId,
         credentials.refresh_token,
         undefined,
         undefined,
-        credentials.login_customer_id,
+        loginCustomerId,
         {
           client_id: clientId,
           client_secret: clientSecret,
@@ -413,8 +420,20 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
       }
     } catch (accountError: any) {
       apiSuccess = false
-      apiErrorMessage = accountError.message
-      console.warn(`   ⚠️ 获取账户 ${customerId} 信息失败: ${accountError.message}`)
+      apiErrorMessage = accountError.message || JSON.stringify(accountError)
+      console.warn(`   ⚠️ 获取账户 ${customerId} 信息失败:`)
+      console.warn(`      错误类型: ${accountError.constructor?.name || typeof accountError}`)
+      console.warn(`      错误信息: ${accountError.message || 'No message'}`)
+      console.warn(`      错误代码: ${accountError.code || accountError.error_code || 'No code'}`)
+      if (accountError.errors && Array.isArray(accountError.errors)) {
+        console.warn(`      详细错误 (${accountError.errors.length}个):`)
+        accountError.errors.forEach((err: any, idx: number) => {
+          console.warn(`        [${idx + 1}] ${err.message || JSON.stringify(err)}`)
+        })
+      }
+      if (accountError.stack) {
+        console.warn(`      堆栈: ${accountError.stack.split('\n').slice(0, 3).join('\n      ')}`)
+      }
 
       const fallbackData = {
         customer_id: customerId,
