@@ -126,7 +126,13 @@ CREATE TABLE "offers" (
   extracted_headlines TEXT,
   extracted_descriptions TEXT,
   extraction_metadata TEXT,
-  extracted_at TEXT, product_categories TEXT,
+  extracted_at TEXT,
+  product_categories TEXT,
+  -- 需求28: 产品价格和佣金比例字段
+  product_price TEXT,
+  commission_payout TEXT,
+  pricing TEXT,
+  is_active INTEGER DEFAULT 1,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
