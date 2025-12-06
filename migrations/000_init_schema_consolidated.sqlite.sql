@@ -28,7 +28,7 @@ PRAGMA journal_mode = WAL;
 CREATE TABLE users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE,
-  email TEXT NOT NULL UNIQUE,
+  email TEXT UNIQUE, -- 可选字段，支持无邮箱用户
   password_hash TEXT,
   display_name TEXT,
   google_id TEXT UNIQUE,

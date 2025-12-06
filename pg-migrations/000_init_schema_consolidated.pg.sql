@@ -27,7 +27,7 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm"; -- For text search optimization
 CREATE TABLE users (
   id SERIAL PRIMARY KEY,
   username TEXT UNIQUE,
-  email TEXT NOT NULL UNIQUE,
+  email TEXT UNIQUE, -- 可选字段，支持无邮箱用户
   password_hash TEXT,
   display_name TEXT,
   google_id TEXT UNIQUE,
