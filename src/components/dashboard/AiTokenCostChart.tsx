@@ -255,7 +255,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
                         {isHighCost && <AlertTriangle className="w-3 h-3 ml-1 text-red-500" />}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-400 text-xs">{op.callCount}次</span>
+                        <span className="text-gray-400 text-xs">{Number(op.callCount) || 0}次</span>
                         <span className="font-medium text-gray-900">¥{(Number(op.cost) || 0).toFixed(2)}</span>
                       </div>
                     </div>
