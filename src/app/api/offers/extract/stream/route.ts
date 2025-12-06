@@ -473,9 +473,18 @@ export async function POST(request: NextRequest) {
             const reviewPage = await context.newPage();
 
             try {
-              await reviewPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+              // 🔧 修复: 增加超时时间至60秒，处理意大利等加载慢的站点
+              await reviewPage.goto(finalUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
               reviews = await scrapeAmazonReviews(reviewPage, 50);
               console.log(`✅ 降级方案抓取到${reviews.length}条评论`);
+            } catch (gotoError: any) {
+              // 🔧 修复: 超时时抛出错误，进行重试
+              if (gotoError.message.includes('Timeout')) {
+                console.warn(`⚠️ 页面加载超时，正在重试...:`, gotoError.message);
+                throw new Error(`页面加载超时 (Amazon ${target_country}): ${gotoError.message}`);
+              } else {
+                throw gotoError; // 其他错误继续抛出
+              }
             } finally {
               await reviewPage.close();
               await browser.close();
