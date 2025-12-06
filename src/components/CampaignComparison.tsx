@@ -197,22 +197,22 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
                 <div className="space-y-2">
                   <MetricRow
                     label="点击率 (CTR)"
-                    value={`${(campaign.ctr * 100).toFixed(2)}%`}
+                    value={`${((Number(campaign.ctr) || 0) * 100).toFixed(2)}%`}
                     benchmark={data.industryBenchmarks.avgCtr * 100}
-                    current={campaign.ctr * 100}
+                    current={(Number(campaign.ctr) || 0) * 100}
                   />
                   <MetricRow
                     label="每次点击成本 (CPC)"
-                    value={`$${campaign.cpc.toFixed(2)}`}
+                    value={`$${(Number(campaign.cpc) || 0).toFixed(2)}`}
                     benchmark={data.industryBenchmarks.avgCpc}
-                    current={campaign.cpc}
+                    current={Number(campaign.cpc) || 0}
                     inverse
                   />
                   <MetricRow
                     label="转化率"
-                    value={`${(campaign.conversionRate * 100).toFixed(2)}%`}
+                    value={`${((Number(campaign.conversionRate) || 0) * 100).toFixed(2)}%`}
                     benchmark={data.industryBenchmarks.avgConversionRate * 100}
-                    current={campaign.conversionRate * 100}
+                    current={(Number(campaign.conversionRate) || 0) * 100}
                   />
                   <Separator />
                   <div className="grid grid-cols-2 gap-2 text-sm">
@@ -226,7 +226,7 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
                     </div>
                     <div>
                       <p className="text-gray-500">花费</p>
-                      <p className="font-semibold">${campaign.cost.toFixed(2)}</p>
+                      <p className="font-semibold">${(Number(campaign.cost) || 0).toFixed(2)}</p>
                     </div>
                     <div>
                       <p className="text-gray-500">转化</p>

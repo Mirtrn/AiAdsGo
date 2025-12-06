@@ -137,16 +137,16 @@ export const CampaignROIChart = memo(function CampaignROIChart({ data, height = 
                   <p className="text-sm text-gray-600">{data.offer_brand}</p>
                   <div className="mt-2 space-y-1 text-sm">
                     <p>
-                      ROI: <span className="font-semibold">{data.roi.toFixed(2)}%</span>
+                      ROI: <span className="font-semibold">{(Number(data.roi) || 0).toFixed(2)}%</span>
                     </p>
                     <p>
-                      收入: <span className="font-semibold">¥{data.revenue.toFixed(2)}</span>
+                      收入: <span className="font-semibold">¥{(Number(data.revenue) || 0).toFixed(2)}</span>
                     </p>
                     <p>
-                      花费: <span className="font-semibold">¥{data.cost.toFixed(2)}</span>
+                      花费: <span className="font-semibold">¥{(Number(data.cost) || 0).toFixed(2)}</span>
                     </p>
                     <p>
-                      利润: <span className="font-semibold">¥{data.profit.toFixed(2)}</span>
+                      利润: <span className="font-semibold">¥{(Number(data.profit) || 0).toFixed(2)}</span>
                     </p>
                     <p>
                       转化: <span className="font-semibold">{data.conversions}</span>
@@ -198,16 +198,16 @@ export const OfferROIChart = memo(function OfferROIChart({ data, height = 350 }:
                   <p className="text-sm text-gray-600 mb-2">{data.product_name}</p>
                   <div className="space-y-1 text-sm">
                     <p>
-                      收入: <span className="font-semibold">¥{data.revenue.toFixed(2)}</span>
+                      收入: <span className="font-semibold">¥{(Number(data.revenue) || 0).toFixed(2)}</span>
                     </p>
                     <p>
-                      花费: <span className="font-semibold">¥{data.cost.toFixed(2)}</span>
+                      花费: <span className="font-semibold">¥{(Number(data.cost) || 0).toFixed(2)}</span>
                     </p>
                     <p>
-                      利润: <span className="font-semibold">¥{data.profit.toFixed(2)}</span>
+                      利润: <span className="font-semibold">¥{(Number(data.profit) || 0).toFixed(2)}</span>
                     </p>
                     <p>
-                      ROI: <span className="font-semibold">{data.roi.toFixed(2)}%</span>
+                      ROI: <span className="font-semibold">{(Number(data.roi) || 0).toFixed(2)}%</span>
                     </p>
                     <p className="text-xs text-gray-500 mt-2">
                       {data.campaign_count} 个Campaign · {data.conversions} 次转化

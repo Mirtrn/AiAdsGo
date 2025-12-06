@@ -7,6 +7,7 @@ import {
   type ComprehensiveAdStrengthResult,
   calculateLaunchScore
 } from '@/lib/scoring'
+import { isControllerOpen } from '@/lib/sse-helper'
 
 /**
  * POST /api/offers/:id/generate-creatives-stream
@@ -55,17 +56,29 @@ export async function POST(
     async start(controller) {
       // 发送进度更新的helper函数
       const sendProgress = (step: string, progress: number, message: string, details?: any) => {
+        if (!isControllerOpen(controller)) {
+          console.warn('SSE Controller already closed, skipping progress:', step)
+          return
+        }
         const data = JSON.stringify({ type: 'progress', step, progress, message, details })
         controller.enqueue(encoder.encode(`data: ${data}\n\n`))
       }
 
       // 发送完成结果
       const sendResult = (data: any) => {
+        if (!isControllerOpen(controller)) {
+          console.warn('SSE Controller already closed, skipping result')
+          return
+        }
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'result', ...data })}\n\n`))
       }
 
       // 发送错误
       const sendError = (error: string, details?: any) => {
+        if (!isControllerOpen(controller)) {
+          console.warn('SSE Controller already closed, skipping error')
+          return
+        }
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error, details })}\n\n`))
       }
 
@@ -316,7 +329,10 @@ export async function POST(
         console.error('生成创意失败:', error)
         sendError(error.message || '生成创意失败')
       } finally {
-        controller.close()
+        // 只有在控制器仍然打开时才关闭
+        if (isControllerOpen(controller)) {
+          controller.close()
+        }
       }
     }
   })

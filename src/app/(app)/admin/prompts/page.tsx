@@ -543,7 +543,7 @@ export default function PromptsManagementPage() {
                       <span className="text-sm">总成本</span>
                     </div>
                     <p className="text-2xl font-bold text-slate-900">
-                      ¥{selectedPrompt.usageStats.reduce((sum, s) => sum + s.cost, 0).toFixed(2)}
+                      ¥{selectedPrompt.usageStats.reduce((sum, s) => sum + (Number(s.cost) || 0), 0).toFixed(2)}
                     </p>
                   </Card>
                 </div>
@@ -557,7 +557,7 @@ export default function PromptsManagementPage() {
                         <div className="flex items-center gap-4 text-slate-700">
                           <span>{stat.calls} 次</span>
                           <span>{stat.tokens.toLocaleString()} tokens</span>
-                          <span className="font-medium">¥{stat.cost.toFixed(2)}</span>
+                          <span className="font-medium">¥{(Number(stat.cost) || 0).toFixed(2)}</span>
                         </div>
                       </div>
                     ))}

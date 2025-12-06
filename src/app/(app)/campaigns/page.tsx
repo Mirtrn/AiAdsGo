@@ -904,7 +904,7 @@ export default function CampaignsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">
-                          ${campaign.budgetAmount.toFixed(2)}
+                          ${(Number(campaign.budgetAmount) || 0).toFixed(2)}
                         </div>
                         <div className="text-xs text-gray-500">{campaign.budgetType}</div>
                       </TableCell>
@@ -920,22 +920,22 @@ export default function CampaignsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium text-gray-900">
-                          {campaign.performance?.ctr?.toFixed(2) || '0.00'}%
+                          {(Number(campaign.performance?.ctr) || 0).toFixed(2)}%
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="font-medium text-gray-900">
-                          ${campaign.performance?.cpcUsd?.toFixed(2) || '0.00'}
+                          ${(Number(campaign.performance?.cpcUsd) || 0).toFixed(2)}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="font-medium text-gray-900">
-                          {campaign.performance?.conversions?.toFixed(1) || '0.0'}
+                          {(Number(campaign.performance?.conversions) || 0).toFixed(1)}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="font-medium text-gray-900">
-                          ${campaign.performance?.costUsd?.toFixed(2) || '0.00'}
+                          ${(Number(campaign.performance?.costUsd) || 0).toFixed(2)}
                         </div>
                       </TableCell>
                       <TableCell>

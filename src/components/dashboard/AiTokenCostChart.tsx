@@ -256,7 +256,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-gray-400 text-xs">{op.callCount}次</span>
-                        <span className="font-medium text-gray-900">¥{op.cost.toFixed(2)}</span>
+                        <span className="font-medium text-gray-900">¥{(Number(op.cost) || 0).toFixed(2)}</span>
                       </div>
                     </div>
                   )
@@ -276,7 +276,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
                 .map((model) => (
                   <div key={model.model} className="flex items-center justify-between text-xs">
                     <span className="text-gray-600 truncate flex-1 mr-2">{model.model}</span>
-                    <span className="font-medium text-gray-900">¥{model.cost.toFixed(2)}</span>
+                    <span className="font-medium text-gray-900">¥{(Number(model.cost) || 0).toFixed(2)}</span>
                   </div>
                 ))}
             </div>

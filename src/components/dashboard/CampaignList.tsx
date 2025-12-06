@@ -213,13 +213,13 @@ export function CampaignList() {
                         {campaign.clicks.toLocaleString()}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        ¥{campaign.cost.toFixed(2)}
+                        ¥{(Number(campaign.cost) || 0).toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {campaign.ctr.toFixed(2)}%
+                        {(Number(campaign.ctr) || 0).toFixed(2)}%
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        ¥{campaign.cpc.toFixed(2)}
+                        ¥{(Number(campaign.cpc) || 0).toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {campaign.conversions}

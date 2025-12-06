@@ -611,11 +611,11 @@ export default function OfferDetailPage() {
                                   </TableCell>
                                   <TableCell className="text-right">{campaign.impressions.toLocaleString()}</TableCell>
                                   <TableCell className="text-right">{campaign.clicks.toLocaleString()}</TableCell>
-                                  <TableCell className="text-right">{campaign.ctr.toFixed(2)}%</TableCell>
-                                  <TableCell className="text-right">${campaign.cpcUsd.toFixed(2)}</TableCell>
-                                  <TableCell className="text-right">{campaign.conversions.toFixed(1)}</TableCell>
-                                  <TableCell className="text-right">{campaign.conversionRate.toFixed(2)}%</TableCell>
-                                  <TableCell className="text-right">${campaign.costUsd.toFixed(2)}</TableCell>
+                                  <TableCell className="text-right">{(Number(campaign.ctr) || 0).toFixed(2)}%</TableCell>
+                                  <TableCell className="text-right">${(Number(campaign.cpcUsd) || 0).toFixed(2)}</TableCell>
+                                  <TableCell className="text-right">{(Number(campaign.conversions) || 0).toFixed(1)}</TableCell>
+                                  <TableCell className="text-right">{(Number(campaign.conversionRate) || 0).toFixed(2)}%</TableCell>
+                                  <TableCell className="text-right">${(Number(campaign.costUsd) || 0).toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -896,7 +896,7 @@ export default function OfferDetailPage() {
                           <div className="bg-gray-50 p-3 rounded space-y-2">
                             <div className="flex items-center gap-4">
                               <span>我方价格: <strong>${competitorData.pricePosition.ourPrice}</strong></span>
-                              <span>竞品均价: ${competitorData.pricePosition.avgCompetitorPrice?.toFixed(2)}</span>
+                              <span>竞品均价: ${(Number(competitorData.pricePosition.avgCompetitorPrice) || 0).toFixed(2)}</span>
                               <Badge variant={
                                 competitorData.pricePosition.priceAdvantage === 'lowest' ? 'default' :
                                 competitorData.pricePosition.priceAdvantage === 'below_average' ? 'secondary' :
@@ -922,7 +922,7 @@ export default function OfferDetailPage() {
                         <dd className="text-sm text-gray-900">
                           <div className="bg-gray-50 p-3 rounded flex items-center gap-4">
                             <span>我方评分: <strong>{competitorData.ratingPosition.ourRating}⭐</strong></span>
-                            <span>竞品均分: {competitorData.ratingPosition.avgCompetitorRating?.toFixed(1)}⭐</span>
+                            <span>竞品均分: {(Number(competitorData.ratingPosition.avgCompetitorRating) || 0).toFixed(1)}⭐</span>
                             <Badge variant={
                               competitorData.ratingPosition.ratingAdvantage === 'top_rated' ? 'default' :
                               competitorData.ratingPosition.ratingAdvantage === 'above_average' ? 'secondary' : 'outline'

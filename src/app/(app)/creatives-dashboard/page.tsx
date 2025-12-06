@@ -254,7 +254,7 @@ export default function CreativesDashboardPage() {
                   <div>
                     <p className="text-sm text-gray-600">总花费</p>
                     <p className="text-2xl font-bold text-gray-900">
-                      ${summary.totalPerformance.cost.toFixed(2)}
+                      ${(Number(summary.totalPerformance.cost) || 0).toFixed(2)}
                     </p>
                   </div>
                   <DollarSign className="w-8 h-8 text-orange-500" />
@@ -383,7 +383,7 @@ export default function CreativesDashboardPage() {
                             {formatNumber(creative.performance.conversions)}
                           </TableCell>
                           <TableCell className="text-right">
-                            ${creative.performance.costUsd.toFixed(2)}
+                            ${(Number(creative.performance.costUsd) || 0).toFixed(2)}
                           </TableCell>
                           <TableCell>
                             {creative.isSelected ? (
@@ -496,7 +496,7 @@ export default function CreativesDashboardPage() {
                                     <div className="bg-white p-3 rounded-lg border border-gray-200">
                                       <p className="text-xs text-gray-600">平均CPC</p>
                                       <p className="text-lg font-bold text-gray-900">
-                                        ${creative.performance.avgCpcUsd.toFixed(2)}
+                                        ${(Number(creative.performance.avgCpcUsd) || 0).toFixed(2)}
                                       </p>
                                     </div>
                                     <div className="bg-white p-3 rounded-lg border border-gray-200">

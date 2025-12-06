@@ -209,7 +209,7 @@ export default function ROIAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className={`text-2xl font-bold ${data.overall.roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {data.overall.roi >= 0 ? '+' : ''}{data.overall.roi.toFixed(2)}%
+                  {data.overall.roi >= 0 ? '+' : ''}{(Number(data.overall.roi) || 0).toFixed(2)}%
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
                   投资回报率
@@ -242,7 +242,7 @@ export default function ROIAnalyticsPage() {
                   {data.overall.conversions}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  总转化次数 · ¥{data.efficiency.costPerConversion.toFixed(2)}/次
+                  总转化次数 · ¥{(Number(data.efficiency.costPerConversion) || 0).toFixed(2)}/次
                 </p>
               </CardContent>
             </Card>
@@ -254,7 +254,7 @@ export default function ROIAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className={`text-2xl font-bold ${data.efficiency.profitMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {data.efficiency.profitMargin.toFixed(2)}%
+                  {(Number(data.efficiency.profitMargin) || 0).toFixed(2)}%
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
                   利润占收入比例
@@ -269,10 +269,10 @@ export default function ROIAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-gray-900">
-                  ¥{data.efficiency.revenuePerConversion.toFixed(2)}
+                  ¥{(Number(data.efficiency.revenuePerConversion) || 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  平均佣金 ¥{data.overall.avgCommission.toFixed(2)}
+                  平均佣金 ¥{(Number(data.overall.avgCommission) || 0).toFixed(2)}
                 </p>
               </CardContent>
             </Card>
@@ -368,25 +368,25 @@ export default function ROIAnalyticsPage() {
                         <td className="px-4 py-3 text-sm text-gray-900">{campaign.campaign_name}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{campaign.offer_brand}</td>
                         <td className="px-4 py-3 text-sm text-right text-gray-900">
-                          ¥{campaign.cost.toFixed(2)}
+                          ¥{(Number(campaign.cost) || 0).toFixed(2)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-green-600">
-                          ¥{campaign.revenue.toFixed(2)}
+                          ¥{(Number(campaign.revenue) || 0).toFixed(2)}
                         </td>
                         <td className={`px-4 py-3 text-sm text-right font-semibold ${campaign.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          ¥{campaign.profit.toFixed(2)}
+                          ¥{(Number(campaign.profit) || 0).toFixed(2)}
                         </td>
                         <td className={`px-4 py-3 text-sm text-right font-bold ${campaign.roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {campaign.roi >= 0 ? '+' : ''}{campaign.roi.toFixed(2)}%
+                          {campaign.roi >= 0 ? '+' : ''}{(Number(campaign.roi) || 0).toFixed(2)}%
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-900">
                           {campaign.conversions}
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {campaign.ctr.toFixed(2)}%
+                          {(Number(campaign.ctr) || 0).toFixed(2)}%
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          {campaign.conversionRate.toFixed(2)}%
+                          {(Number(campaign.conversionRate) || 0).toFixed(2)}%
                         </td>
                       </tr>
                     ))}
