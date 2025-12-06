@@ -7,7 +7,7 @@ import { gadsApiCache, generateGadsApiCacheKey } from './cache'
  * 抑制 Google Ads API 的 MetadataLookupWarning
  * 这是 google-ads-api 包的已知问题，不影响功能
  */
-if (typeof process !== 'undefined' && process.removeAllListeners) {
+if (typeof process !== 'undefined' && process.emitWarning) {
   const originalEmitWarning = process.emitWarning
   process.emitWarning = (warning: any, ...args: any[]) => {
     // 过滤掉 MetadataLookupWarning
