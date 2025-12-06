@@ -893,6 +893,14 @@ export async function performScrapeAndAnalysis(
     // 1. 优先使用原始爬虫数据中的品牌名（scraper-stealth.ts已经过多策略提取）
     let extractedBrand = brand // 默认使用传入的品牌名
 
+    // 🎯 品牌提取失败检查：如果原始爬虫数据中品牌为null，表示所有提取策略均失败，立即终止
+    if (rawScrapedData && rawScrapedData.brandName === null) {
+      const brandError = '所有品牌提取策略均失败。品牌词对于关键词生成和广告质量至关重要，无法继续创建广告。'
+      console.error(`❌ ${brandError}`)
+      await updateOfferScrapeStatus(offerId, userId, 'failed', brandError)
+      throw new Error(brandError)
+    }
+
     if (rawScrapedData && rawScrapedData.brandName && rawScrapedData.brandName !== 'Unknown' && rawScrapedData.brandName.trim() !== '') {
       extractedBrand = rawScrapedData.brandName
       console.log(`✅ 使用原始爬虫数据的品牌名: ${extractedBrand}`)
