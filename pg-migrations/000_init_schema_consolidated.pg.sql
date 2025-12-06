@@ -1302,8 +1302,10 @@ CREATE INDEX idx_offers_status ON offers(status);
 CREATE INDEX idx_offers_target_country ON offers(target_country);
 
 
--- Index: idx_offers_user_brand_unique (on table: offers)
-CREATE UNIQUE INDEX idx_offers_user_brand_unique ON offers(user_id, brand) WHERE is_deleted = FALSE;
+-- Index: idx_offers_user_offer_name_unique (on table: offers)
+-- Note: offer_name format is Brand_Country_Sequence (e.g., Reolink_US_01, Reolink_US_02)
+-- This allows multiple offers for the same brand but different countries/sequences
+CREATE UNIQUE INDEX idx_offers_user_offer_name_unique ON offers(user_id, offer_name) WHERE is_deleted = FALSE;
 
 
 -- Index: idx_offers_user_id (on table: offers)
