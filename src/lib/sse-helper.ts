@@ -61,23 +61,28 @@ export function isControllerOpen(controller: ReadableStreamDefaultController): b
 }
 
 /**
- * Helper to send progress update via SSE
+ * Safe wrapper for sendSSEMessage - never throws errors
  */
-export function sendSSEMessage(
+export function sendSSEMessageSafe(
   controller: ReadableStreamDefaultController,
   message: SSEMessage
 ): void {
-  if (!isControllerOpen(controller)) {
-    console.warn('SSE Controller already closed, skipping message:', message.type);
-    return;
+  try {
+    if (!isControllerOpen(controller)) {
+      console.warn('SSE Controller already closed, skipping message:', message.type);
+      return;
+    }
+    const encoder = createSSEEncoder();
+    const formatted = formatSSEMessage(message);
+    controller.enqueue(encoder.encode(formatted));
+  } catch (error) {
+    // Silently handle errors (typically means client disconnected)
+    console.warn('SSE send failed (client likely disconnected):', error instanceof Error ? error.message : String(error));
   }
-  const encoder = createSSEEncoder();
-  const formatted = formatSSEMessage(message);
-  controller.enqueue(encoder.encode(formatted));
 }
 
 /**
- * Helper to send progress event
+ * Helper to send progress event (safe version)
  */
 export function sendProgress(
   controller: ReadableStreamDefaultController,
@@ -87,7 +92,7 @@ export function sendProgress(
   details?: import('@/types/progress').ProgressEvent['details'],
   duration?: number
 ): void {
-  sendSSEMessage(controller, {
+  sendSSEMessageSafe(controller, {
     type: 'progress',
     data: {
       stage,
@@ -101,29 +106,33 @@ export function sendProgress(
 }
 
 /**
- * Helper to send completion event
+ * Helper to send completion event (safe version)
  */
 export function sendComplete(
   controller: ReadableStreamDefaultController,
   data: { success: boolean; finalUrl: string; brand: string; productCount?: number; [key: string]: any }
 ): void {
-  if (!isControllerOpen(controller)) {
-    console.warn('SSE Controller already closed, cannot send complete');
-    return;
-  }
-  sendSSEMessage(controller, {
-    type: 'complete',
-    data,
-  });
   try {
-    controller.close();
-  } catch (e) {
-    console.warn('SSE Controller close failed:', e);
+    if (!isControllerOpen(controller)) {
+      console.warn('SSE Controller already closed, cannot send complete');
+      return;
+    }
+    sendSSEMessageSafe(controller, {
+      type: 'complete',
+      data,
+    });
+    try {
+      controller.close();
+    } catch (e) {
+      console.warn('SSE Controller close failed:', e);
+    }
+  } catch (error) {
+    console.warn('SSE send complete failed (client likely disconnected):', error instanceof Error ? error.message : String(error));
   }
 }
 
 /**
- * Helper to send error event
+ * Helper to send error event (safe version)
  */
 export function sendError(
   controller: ReadableStreamDefaultController,
@@ -131,21 +140,25 @@ export function sendError(
   message: string,
   details?: Record<string, unknown>
 ): void {
-  if (!isControllerOpen(controller)) {
-    console.warn('SSE Controller already closed, cannot send error');
-    return;
-  }
-  sendSSEMessage(controller, {
-    type: 'error',
-    data: {
-      message,
-      stage,
-      details,
-    },
-  });
   try {
-    controller.close();
-  } catch (e) {
-    console.warn('SSE Controller close failed:', e);
+    if (!isControllerOpen(controller)) {
+      console.warn('SSE Controller already closed, cannot send error');
+      return;
+    }
+    sendSSEMessageSafe(controller, {
+      type: 'error',
+      data: {
+        message,
+        stage,
+        details,
+      },
+    });
+    try {
+      controller.close();
+    } catch (e) {
+      console.warn('SSE Controller close failed:', e);
+    }
+  } catch (error) {
+    console.warn('SSE send error failed (client likely disconnected):', error instanceof Error ? error.message : String(error));
   }
 }

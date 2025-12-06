@@ -397,6 +397,12 @@ export async function POST(request: NextRequest) {
 
       if (debug.isAmazonProductPage && aiAnalysisSuccess) {
         try {
+          // 🔧 修复：检查controller状态
+          if (!isControllerOpen(controller)) {
+            console.warn('⚠️ Controller已关闭，跳过评论分析');
+            throw new Error('Controller已关闭');
+          }
+
           sendProgress(controller, 'ai_analysis', 'in_progress', '正在分析用户评论...');
           console.log('📝 开始P0评论分析...');
 
@@ -525,6 +531,12 @@ export async function POST(request: NextRequest) {
 
       if (shouldRunCompetitorAnalysis && aiAnalysisSuccess) {
         try {
+          // 🔧 修复：检查controller状态
+          if (!isControllerOpen(controller)) {
+            console.warn('⚠️ Controller已关闭，跳过竞品对比分析');
+            throw new Error('Controller已关闭');
+          }
+
           const pageTypeLabel = debug.isIndependentStore ? '独立站' :
                                 debug.isAmazonStore ? 'Amazon店铺页' : 'Amazon产品页';
           sendProgress(controller, 'ai_analysis', 'in_progress', `正在分析${pageTypeLabel}竞品对比...`);
@@ -814,11 +826,32 @@ export async function POST(request: NextRequest) {
         }
 
         // 🔧 修复：启动心跳保持SSE连接（防止客户端超时导致controller关闭）
-        const heartbeatInterval = setInterval(() => {
-          if (isControllerOpen(controller)) {
-            sendProgress(controller, 'ai_analysis', 'in_progress', '正在处理Enhanced任务...');
-          }
-        }, 3000); // 每3秒发送一次心跳
+        let heartbeatInterval: NodeJS.Timeout | null = null;
+
+        const startHeartbeat = () => {
+          if (heartbeatInterval) clearInterval(heartbeatInterval);
+          heartbeatInterval = setInterval(() => {
+            try {
+              if (isControllerOpen(controller)) {
+                sendProgress(controller, 'ai_analysis', 'in_progress', '正在处理Enhanced任务...');
+              } else {
+                // Controller已关闭，停止心跳
+                if (heartbeatInterval) {
+                  clearInterval(heartbeatInterval);
+                  heartbeatInterval = null;
+                }
+              }
+            } catch (error) {
+              // 心跳发送失败，停止心跳
+              if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+              }
+            }
+          }, 3000); // 每3秒发送一次心跳
+        };
+
+        startHeartbeat();
 
         try {
           // 并行执行所有Enhanced任务（原48秒 → 优化后10-15秒，性能提升70%）
@@ -988,13 +1021,16 @@ export async function POST(request: NextRequest) {
           console.log('🎉 所有Enhanced任务并行执行完成！');
         } finally {
           // 🔧 修复：清理心跳定时器（防止内存泄漏）
-          clearInterval(heartbeatInterval);
+          if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+          }
         }
       }
 
       // 发送AI分析阶段完成事件
       const aiAnalysisDuration = Date.now() - aiAnalysisStartTime;
-      // 🔧 修复：检查controller状态
+      // 🔧 修复：检查controller状态，避免在controller关闭时发送
       if (isControllerOpen(controller)) {
         sendProgress(
           controller,
@@ -1004,6 +1040,8 @@ export async function POST(request: NextRequest) {
           undefined,
           aiAnalysisDuration
         );
+      } else {
+        console.warn('⚠️ Controller已关闭，跳过发送AI分析完成事件');
       }
 
       // ========== 步骤6.9: 数据融合 - Enhanced数据合并到extracted_*字段 ==========
@@ -1033,38 +1071,43 @@ export async function POST(request: NextRequest) {
       console.log(`📊 数据融合完成: ${mergedKeywords.length}个关键词, ${mergedHeadlines.length}个标题, ${mergedDescriptions.length}个描述`);
 
       // ========== 步骤7: 发送完成事件（包含完整分析结果）==========
-      sendComplete(controller, {
-        success: true,
-        finalUrl,
-        finalUrlSuffix: finalUrlSuffix || '',
-        brand: brandName || '未识别',
-        productDescription: productDescription || null,
-        targetLanguage,
-        redirectCount,
-        redirectChain,
-        pageTitle,
-        resolveMethod: resolveMethod || 'sse-stream',
-        productCount,
-        // AI产品分析结果
-        brandDescription: aiProductInfo?.brandDescription || null,
-        uniqueSellingPoints: aiProductInfo?.uniqueSellingPoints || null,
-        productHighlights: aiProductInfo?.productHighlights || null,
-        targetAudience: aiProductInfo?.targetAudience || null,
-        category: aiProductInfo?.category || null,
-        aiAnalysisSuccess,
-        // P0评论深度分析结果
-        reviewAnalysis: reviewAnalysisSuccess ? reviewAnalysis : null,
-        reviewAnalysisSuccess,
-        // P0竞品对比分析结果
-        competitorAnalysis: competitorAnalysisSuccess ? competitorAnalysis : null,
-        competitorAnalysisSuccess,
-        // 融合后的广告元素（包含Enhanced优化数据）
-        extractedKeywords: mergedKeywords,
-        extractedHeadlines: mergedHeadlines,
-        extractedDescriptions: mergedDescriptions,
-        extractionMetadata: mergedMetadata,
-        adExtractionSuccess: adExtractionSuccess || enhancedKeywords.length > 0,
-      });
+      // 🔧 修复：检查controller状态，避免在controller关闭时发送
+      if (isControllerOpen(controller)) {
+        sendComplete(controller, {
+          success: true,
+          finalUrl,
+          finalUrlSuffix: finalUrlSuffix || '',
+          brand: brandName || '未识别',
+          productDescription: productDescription || null,
+          targetLanguage,
+          redirectCount,
+          redirectChain,
+          pageTitle,
+          resolveMethod: resolveMethod || 'sse-stream',
+          productCount,
+          // AI产品分析结果
+          brandDescription: aiProductInfo?.brandDescription || null,
+          uniqueSellingPoints: aiProductInfo?.uniqueSellingPoints || null,
+          productHighlights: aiProductInfo?.productHighlights || null,
+          targetAudience: aiProductInfo?.targetAudience || null,
+          category: aiProductInfo?.category || null,
+          aiAnalysisSuccess,
+          // P0评论深度分析结果
+          reviewAnalysis: reviewAnalysisSuccess ? reviewAnalysis : null,
+          reviewAnalysisSuccess,
+          // P0竞品对比分析结果
+          competitorAnalysis: competitorAnalysisSuccess ? competitorAnalysis : null,
+          competitorAnalysisSuccess,
+          // 融合后的广告元素（包含Enhanced优化数据）
+          extractedKeywords: mergedKeywords,
+          extractedHeadlines: mergedHeadlines,
+          extractedDescriptions: mergedDescriptions,
+          extractionMetadata: mergedMetadata,
+          adExtractionSuccess: adExtractionSuccess || enhancedKeywords.length > 0,
+        });
+      } else {
+        console.warn('⚠️ Controller已关闭，跳过发送完成事件');
+      }
 
       console.log('✅ SSE提取流程完成');
     } catch (error: any) {
