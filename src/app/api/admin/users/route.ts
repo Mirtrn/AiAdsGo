@@ -121,8 +121,8 @@ export async function POST(request: NextRequest) {
 
     const newUser = await createUser({
       username: username || undefined, // 让createUser自动生成
-      displayName: displayName || null,
-      email: email || null,
+      displayName: displayName || undefined,
+      email: email || undefined, // 可选字段
       password: defaultPassword,
       role: role || 'user',
       packageType: packageType || 'trial',

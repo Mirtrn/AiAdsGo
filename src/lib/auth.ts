@@ -33,7 +33,7 @@ export interface User {
 
 export interface CreateUserInput {
   username?: string
-  email: string
+  email?: string // 可选，支持无邮箱的用户创建
   password?: string
   displayName?: string
   googleId?: string
@@ -145,10 +145,12 @@ export async function generateUniqueUsername(): Promise<string> {
 export async function createUser(input: CreateUserInput): Promise<User> {
   const db = await getDatabase()
 
-  // 检查邮箱是否已存在
-  const existingUser = await findUserByEmail(input.email)
-  if (existingUser) {
-    throw new Error('该邮箱已被注册')
+  // 如果提供了邮箱，检查是否已存在
+  if (input.email) {
+    const existingUser = await findUserByEmail(input.email)
+    if (existingUser) {
+      throw new Error('该邮箱已被注册')
+    }
   }
 
   // 如果提供了密码，进行哈希处理
@@ -166,7 +168,7 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     username,
-    input.email,
+    input.email || null, // email 可以为 null
     passwordHash,
     input.displayName || null,
     input.googleId || null,
