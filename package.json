@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "playwright install --with-deps chromium",
     "dev": "next dev",
     "build": "next build",
     "build:scheduler": "node build-scheduler.js",

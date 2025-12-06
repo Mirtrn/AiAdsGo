@@ -110,12 +110,17 @@ npm install
 - Next.js 14+（前端框架）
 - better-sqlite3（SQLite 数据库驱动）
 - bcryptjs（密码加密）
+- Playwright（浏览器自动化，用于商品抓取）
 - 其他依赖...
 
-> **注意**：`better-sqlite3` 是原生模块，需要编译。如果遇到编译错误，请确保已安装：
-> - macOS: `xcode-select --install`
-> - Ubuntu: `sudo apt-get install build-essential python3`
-> - Windows: 安装 Visual Studio Build Tools
+安装过程会自动下载 Playwright Chromium 浏览器（约 500MB），用于商品抓取功能。
+
+> **注意**：
+> - 首次安装可能需要 2-5 分钟，取决于网络速度
+> - `better-sqlite3` 是原生模块，需要编译。如果遇到编译错误，请确保已安装：
+>   - macOS: `xcode-select --install`
+>   - Ubuntu: `sudo apt-get install build-essential python3`
+>   - Windows: 安装 Visual Studio Build Tools
 
 ### 步骤 3：配置环境变量（可选，启动服务器前配置）
 
