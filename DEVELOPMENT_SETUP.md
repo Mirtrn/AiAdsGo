@@ -72,10 +72,13 @@ cd autobb
 # 2. 安装依赖
 npm install
 
-# 3. 初始化数据库（设置管理员密码）
+# 3. 安装 Playwright 浏览器（用于商品抓取）
+npx playwright install chromium --with-deps
+
+# 4. 初始化数据库（设置管理员密码）
 DEFAULT_ADMIN_PASSWORD="your-strong-password" npm run db:init
 
-# 4. 配置环境变量
+# 5. 配置环境变量
 cp .env.example .env.local
 # 编辑 .env.local，至少设置以下两项：
 # - JWT_SECRET（64字符十六进制）
@@ -83,7 +86,7 @@ cp .env.example .env.local
 # - ENCRYPTION_KEY（64字符十六进制）
 #   生成方法: openssl rand -hex 32
 
-# 5. 启动开发服务器
+# 6. 启动开发服务器
 npm run dev
 ```
 
@@ -103,7 +106,11 @@ cd autobb
 ### 步骤 2：安装依赖
 
 ```bash
+# 安装 npm 依赖
 npm install
+
+# 安装 Playwright 浏览器（用于商品抓取功能）
+npx playwright install chromium --with-deps
 ```
 
 这将安装所有必需的 npm 包，包括：
@@ -113,7 +120,10 @@ npm install
 - Playwright（浏览器自动化，用于商品抓取）
 - 其他依赖...
 
-安装过程会自动下载 Playwright Chromium 浏览器（约 500MB），用于商品抓取功能。
+**关于Playwright浏览器安装**：
+- `npm install` 只安装 Playwright npm 包，不会自动下载浏览器
+- 需要手动执行 `npx playwright install chromium --with-deps` 下载 Chromium 浏览器（约 500MB）
+- 只需执行一次，后续 `npm install` 不会重复下载
 
 > **注意**：
 > - 首次安装可能需要 2-5 分钟，取决于网络速度
@@ -121,6 +131,7 @@ npm install
 >   - macOS: `xcode-select --install`
 >   - Ubuntu: `sudo apt-get install build-essential python3`
 >   - Windows: 安装 Visual Studio Build Tools
+> - Playwright 浏览器下载需要稳定网络连接，如遇下载失败可重试
 
 ### 步骤 3：配置环境变量（可选，启动服务器前配置）
 
@@ -390,6 +401,38 @@ JWT_SECRET=your_random_64_char_hex_secret_here
 # 删除并重新初始化
 npm run db:reset
 ```
+
+### Q7: Offer创建时提示 "Playwright浏览器未安装"
+
+**原因**：未执行 `npx playwright install chromium --with-deps`。
+
+**解决方案**：
+```bash
+# 安装 Chromium 浏览器及其依赖
+npx playwright install chromium --with-deps
+
+# 如果只需要浏览器（不含系统依赖）
+npx playwright install chromium
+```
+
+**验证安装**：
+```bash
+# 检查Playwright浏览器是否已安装
+npx playwright --version
+node -e "require('playwright').chromium.executablePath()" 2>/dev/null && echo "✅ Chromium已安装" || echo "❌ Chromium未安装"
+```
+
+### Q8: 为什么不再自动安装Playwright浏览器？
+
+**原因**：
+- 避免 Docker 构建时的 postinstall 冲突
+- 减少 `npm install` 时的网络下载时间
+- 让开发者显式控制浏览器安装时机
+
+**影响**：
+- ✅ Docker 构建：Dockerfile 中手动安装，不受影响
+- ⚠️ 本地开发：需要手动执行一次 `npx playwright install chromium --with-deps`
+- ⚠️ CI/CD：需要在 workflow 中添加 Playwright 安装步骤
 
 ---
 
