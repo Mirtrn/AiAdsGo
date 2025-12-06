@@ -691,6 +691,11 @@ export async function POST(request: NextRequest) {
 
       if (aiAnalysisSuccess && aiProductInfo) {
         try {
+          // 🔧 修复：检查controller状态
+          if (!isControllerOpen(controller)) {
+            console.warn('⚠️ Controller已关闭，跳过广告元素提取');
+            throw new Error('Controller已关闭');
+          }
           sendProgress(controller, 'ai_analysis', 'in_progress', '正在提取广告元素...');
           console.log('📝 开始广告元素提取...');
 
@@ -800,8 +805,13 @@ export async function POST(request: NextRequest) {
       let enhancedBrandAnalysis: any = null;
 
       if (aiAnalysisSuccess && aiProductInfo) {
-        sendProgress(controller, 'ai_analysis', 'in_progress', '正在并行执行6个Enhanced任务...');
-        console.log('🚀 开始并行执行Enhanced任务 (预计10-15秒)...');
+        // 🔧 修复：检查controller状态
+        if (!isControllerOpen(controller)) {
+          console.warn('⚠️ Controller已关闭，跳过Enhanced任务');
+        } else {
+          sendProgress(controller, 'ai_analysis', 'in_progress', '正在并行执行6个Enhanced任务...');
+          console.log('🚀 开始并行执行Enhanced任务 (预计10-15秒)...');
+        }
 
         // 🔧 修复：启动心跳保持SSE连接（防止客户端超时导致controller关闭）
         const heartbeatInterval = setInterval(() => {
@@ -984,14 +994,17 @@ export async function POST(request: NextRequest) {
 
       // 发送AI分析阶段完成事件
       const aiAnalysisDuration = Date.now() - aiAnalysisStartTime;
-      sendProgress(
-        controller,
-        'ai_analysis',
-        'completed',
-        aiAnalysisSuccess ? 'AI智能分析完成' : 'AI分析失败，使用基础数据',
-        undefined,
-        aiAnalysisDuration
-      );
+      // 🔧 修复：检查controller状态
+      if (isControllerOpen(controller)) {
+        sendProgress(
+          controller,
+          'ai_analysis',
+          'completed',
+          aiAnalysisSuccess ? 'AI智能分析完成' : 'AI分析失败，使用基础数据',
+          undefined,
+          aiAnalysisDuration
+        );
+      }
 
       // ========== 步骤6.9: 数据融合 - Enhanced数据合并到extracted_*字段 ==========
       // 融合关键词：Enhanced关键词 + 原始提取关键词，去重并按优先级排序
@@ -1056,15 +1069,21 @@ export async function POST(request: NextRequest) {
       console.log('✅ SSE提取流程完成');
     } catch (error: any) {
       console.error('SSE提取失败:', error);
-      sendError(
-        controller,
-        'error',
-        error instanceof AppError ? error.message : '系统错误，请稍后重试',
-        {
-          originalError: error.message,
-          stack: error.stack,
-        }
-      );
+
+      // 🔧 修复：只在controller未关闭时发送错误
+      if (isControllerOpen(controller)) {
+        sendError(
+          controller,
+          'error',
+          error instanceof AppError ? error.message : '系统错误，请稍后重试',
+          {
+            originalError: error.message,
+            stack: error.stack,
+          }
+        );
+      } else {
+        console.warn('⚠️ Controller已关闭，无法发送错误信息');
+      }
     }
   });
 
