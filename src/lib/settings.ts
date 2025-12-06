@@ -5,8 +5,8 @@ export interface SystemSetting {
   id: number
   user_id: number | null
   category: string
-  config_key: string
-  config_value: string | null
+  key: string
+  value: string | null
   encrypted_value: string | null
   data_type: string
   // 注意：PostgreSQL 返回 boolean 类型，SQLite 返回 0/1 (number)
@@ -42,21 +42,21 @@ export async function getAllSettings(userId?: number): Promise<SettingValue[]> {
   const db = await getDatabase()
 
   const query = userId
-    ? 'SELECT * FROM system_settings WHERE user_id IS NULL OR user_id = ? ORDER BY category, config_key'
-    : 'SELECT * FROM system_settings WHERE user_id IS NULL ORDER BY category, config_key'
+    ? 'SELECT * FROM system_settings WHERE user_id IS NULL OR user_id = ? ORDER BY category, key'
+    : 'SELECT * FROM system_settings WHERE user_id IS NULL ORDER BY category, key'
 
   const params = userId ? [userId] : []
   const settings = await db.query(query, params) as SystemSetting[]
 
-  // 去重：对于同一个 (category, config_key) 组合，优先使用用户配置
+  // 去重：对于同一个 (category, key) 组合，优先使用用户配置
   const settingsMap = new Map<string, SystemSetting>()
   for (const setting of settings) {
-    const key = `${setting.category}:${setting.config_key}`
-    const existing = settingsMap.get(key)
+    const mapKey = `${setting.category}:${setting.key}`
+    const existing = settingsMap.get(mapKey)
 
     // 如果不存在，或者当前是用户配置（优先级更高），则更新
     if (!existing || setting.user_id !== null) {
-      settingsMap.set(key, setting)
+      settingsMap.set(mapKey, setting)
     }
   }
 
@@ -66,10 +66,10 @@ export async function getAllSettings(userId?: number): Promise<SettingValue[]> {
     const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
     return {
       category: setting.category,
-      key: setting.config_key,
+      key: setting.key,
       value: isSensitive && setting.encrypted_value
         ? decrypt(setting.encrypted_value)
-        : setting.config_value,
+        : setting.value,
       dataType: setting.data_type,
       isSensitive,
       isRequired: setting.is_required === true || setting.is_required === 1,
@@ -89,20 +89,20 @@ export async function getSettingsByCategory(category: string, userId?: number): 
   const db = await getDatabase()
 
   const query = userId
-    ? 'SELECT * FROM system_settings WHERE category = ? AND (user_id IS NULL OR user_id = ?) ORDER BY config_key'
-    : 'SELECT * FROM system_settings WHERE category = ? AND user_id IS NULL ORDER BY config_key'
+    ? 'SELECT * FROM system_settings WHERE category = ? AND (user_id IS NULL OR user_id = ?) ORDER BY key'
+    : 'SELECT * FROM system_settings WHERE category = ? AND user_id IS NULL ORDER BY key'
 
   const params = userId ? [category, userId] : [category]
   const settings = await db.query(query, params) as SystemSetting[]
 
-  // 去重：对于同一个 config_key，优先使用用户配置
+  // 去重：对于同一个 key，优先使用用户配置
   const settingsMap = new Map<string, SystemSetting>()
   for (const setting of settings) {
-    const existing = settingsMap.get(setting.config_key)
+    const existing = settingsMap.get(setting.key)
 
     // 如果不存在，或者当前是用户配置（优先级更高），则更新
     if (!existing || setting.user_id !== null) {
-      settingsMap.set(setting.config_key, setting)
+      settingsMap.set(setting.key, setting)
     }
   }
 
@@ -112,10 +112,10 @@ export async function getSettingsByCategory(category: string, userId?: number): 
     const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
     return {
       category: setting.category,
-      key: setting.config_key,
+      key: setting.key,
       value: isSensitive && setting.encrypted_value
         ? decrypt(setting.encrypted_value)
-        : setting.config_value,
+        : setting.value,
       dataType: setting.data_type,
       isSensitive,
       isRequired: setting.is_required === true || setting.is_required === 1,
@@ -136,8 +136,8 @@ export async function getSetting(category: string, key: string, userId?: number)
   // 注意：PostgreSQL 中 ORDER BY user_id DESC 会把 NULL 排在最前面
   // 我们需要用户配置优先于全局配置，所以使用 NULLS LAST
   const query = userId
-    ? 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC NULLS LAST LIMIT 1'
-    : 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND user_id IS NULL LIMIT 1'
+    ? 'SELECT * FROM system_settings WHERE category = ? AND key = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC NULLS LAST LIMIT 1'
+    : 'SELECT * FROM system_settings WHERE category = ? AND key = ? AND user_id IS NULL LIMIT 1'
 
   const params = userId ? [category, key, userId] : [category, key]
   const setting = await db.queryOne(query, params) as SystemSetting | undefined
@@ -148,10 +148,10 @@ export async function getSetting(category: string, key: string, userId?: number)
   const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
   return {
     category: setting.category,
-    key: setting.config_key,
+    key: setting.key,
     value: isSensitive && setting.encrypted_value
       ? decrypt(setting.encrypted_value)
-      : setting.config_value,
+      : setting.value,
     dataType: setting.data_type,
     isSensitive,
     isRequired: setting.is_required === true || setting.is_required === 1,
@@ -181,10 +181,10 @@ export async function getUserOnlySetting(category: string, key: string, userId: 
   const db = await getDatabase()
 
   // 只查询用户级配置，不包含全局配置（user_id IS NULL）
-  const query = 'SELECT * FROM system_settings WHERE category = ? AND config_key = ? AND user_id = ? LIMIT 1'
+  const query = 'SELECT * FROM system_settings WHERE category = ? AND key = ? AND user_id = ? LIMIT 1'
   const params = [category, key, userId]
 
-  console.log(`SELECT * FROM system_settings WHERE category = '${category}' AND config_key = '${key}' AND user_id = ${userId} LIMIT 1`)
+  console.log(`SELECT * FROM system_settings WHERE category = '${category}' AND key = '${key}' AND user_id = ${userId} LIMIT 1`)
 
   const setting = await db.queryOne(query, params) as SystemSetting | undefined
 
@@ -194,10 +194,10 @@ export async function getUserOnlySetting(category: string, key: string, userId: 
   const isSensitive = setting.is_sensitive === true || setting.is_sensitive === 1
   return {
     category: setting.category,
-    key: setting.config_key,
+    key: setting.key,
     value: isSensitive && setting.encrypted_value
       ? decrypt(setting.encrypted_value)
-      : setting.config_value,
+      : setting.value,
     dataType: setting.data_type,
     isSensitive,
     isRequired: setting.is_required === true || setting.is_required === 1,
@@ -222,7 +222,7 @@ export async function updateSetting(
   // 获取配置元数据（从全局模板获取字段定义）
   const metadata = await db.queryOne(`
     SELECT * FROM system_settings
-    WHERE category = ? AND config_key = ? AND user_id IS NULL
+    WHERE category = ? AND key = ? AND user_id IS NULL
     LIMIT 1
   `, [category, key]) as SystemSetting | undefined
 
@@ -240,34 +240,34 @@ export async function updateSetting(
   if (userId) {
     const userSetting = await db.queryOne(`
       SELECT id FROM system_settings
-      WHERE category = ? AND config_key = ? AND user_id = ?
+      WHERE category = ? AND key = ? AND user_id = ?
     `, [category, key, userId]) as { id: number } | undefined
 
     if (userSetting) {
       // 更新现有用户配置
       await db.exec(`
         UPDATE system_settings
-        SET config_value = ?, encrypted_value = ?, updated_at = datetime('now')
+        SET value = ?, encrypted_value = ?, updated_at = datetime('now')
         WHERE id = ?
       `, [configValue, encryptedValue, userSetting.id])
     } else {
       // 创建新的用户配置
       await db.exec(`
         INSERT INTO system_settings (
-          user_id, category, config_key, config_value, encrypted_value,
+          user_id, category, key, value, encrypted_value,
           data_type, is_sensitive, is_required, description
         )
-        SELECT ?, category, config_key, ?, ?, data_type, is_sensitive, is_required, description
+        SELECT ?, category, key, ?, ?, data_type, is_sensitive, is_required, description
         FROM system_settings
-        WHERE category = ? AND config_key = ? AND user_id IS NULL
+        WHERE category = ? AND key = ? AND user_id IS NULL
       `, [userId, configValue, encryptedValue, category, key])
     }
   } else {
     // 更新全局配置
     await db.exec(`
       UPDATE system_settings
-      SET config_value = ?, encrypted_value = ?, updated_at = datetime('now')
-      WHERE category = ? AND config_key = ? AND user_id IS NULL
+      SET value = ?, encrypted_value = ?, updated_at = datetime('now')
+      WHERE category = ? AND key = ? AND user_id IS NULL
     `, [configValue, encryptedValue, category, key])
   }
 }
@@ -301,10 +301,10 @@ export async function updateValidationStatus(
   const query = userId
     ? `UPDATE system_settings
        SET validation_status = ?, validation_message = ?, last_validated_at = datetime('now'), updated_at = datetime('now')
-       WHERE category = ? AND config_key = ? AND user_id = ?`
+       WHERE category = ? AND key = ? AND user_id = ?`
     : `UPDATE system_settings
        SET validation_status = ?, validation_message = ?, last_validated_at = datetime('now'), updated_at = datetime('now')
-       WHERE category = ? AND config_key = ? AND user_id IS NULL`
+       WHERE category = ? AND key = ? AND user_id IS NULL`
 
   const params = userId
     ? [status, message || null, category, key, userId]

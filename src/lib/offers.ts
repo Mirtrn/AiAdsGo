@@ -180,7 +180,8 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     input.extracted_headlines || null,
     input.extracted_descriptions || null,
     input.extraction_metadata || null,
-    (input.review_analysis || input.competitor_analysis) ? new Date().toISOString() : null  // 如果有AI分析结果，记录提取时间
+    // P1-3修复: 如果有任何AI分析或广告元素提取结果，记录提取时间
+    (input.review_analysis || input.competitor_analysis || input.extracted_keywords || input.extracted_headlines || input.extracted_descriptions) ? new Date().toISOString() : null
   ]
 
   // Debug: Check for undefined values

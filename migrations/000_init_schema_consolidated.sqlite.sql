@@ -194,7 +194,23 @@ CREATE TABLE ad_creatives (
   is_selected INTEGER DEFAULT 0,
   ab_test_variant_id INTEGER,
   created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')), google_campaign_id TEXT, industry_code TEXT, orientation TEXT, brand TEXT, url TEXT, keywords_with_volume TEXT DEFAULT NULL, negative_keywords TEXT DEFAULT NULL, explanation TEXT DEFAULT NULL,
+  updated_at TEXT DEFAULT (datetime('now')),
+  google_campaign_id TEXT,
+  industry_code TEXT,
+  orientation TEXT,
+  brand TEXT,
+  url TEXT,
+  keywords_with_volume TEXT DEFAULT NULL,
+  negative_keywords TEXT DEFAULT NULL,
+  explanation TEXT DEFAULT NULL,
+  -- P0-1修复: 添加launch_score字段（从launch_scores表冗余）
+  launch_score INTEGER DEFAULT NULL,
+  -- P1-1修复: 添加Google Ads同步字段
+  ad_group_id INTEGER DEFAULT NULL,
+  ad_id TEXT DEFAULT NULL,
+  creation_status TEXT NOT NULL DEFAULT 'draft',
+  creation_error TEXT DEFAULT NULL,
+  last_sync_at TEXT DEFAULT NULL,
   FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -254,6 +270,9 @@ CREATE TABLE campaigns (
   is_test_variant INTEGER DEFAULT 0,
   ab_test_id INTEGER,
   traffic_allocation REAL DEFAULT 1 CHECK(traffic_allocation >= 0 AND traffic_allocation <= 1),
+  -- P1-2修复: 添加软删除字段（与offers表保持一致）
+  is_deleted INTEGER DEFAULT 0,
+  deleted_at TEXT DEFAULT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -909,8 +928,9 @@ CREATE TABLE system_settings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
   category TEXT NOT NULL,
-  config_key TEXT NOT NULL,
-  config_value TEXT,
+  -- P0-2修复: 字段命名统一为key/value，与代码保持一致
+  key TEXT NOT NULL,
+  value TEXT,
   encrypted_value TEXT,
   data_type TEXT NOT NULL DEFAULT 'string',
   is_sensitive INTEGER NOT NULL DEFAULT 0,
@@ -999,6 +1019,18 @@ CREATE INDEX idx_ad_creatives_orientation ON ad_creatives(orientation);
 CREATE INDEX idx_ad_creatives_user_id ON ad_creatives(user_id);
 
 
+-- Index: idx_ad_creatives_launch_score (on table: ad_creatives) -- P0-1修复
+CREATE INDEX idx_ad_creatives_launch_score ON ad_creatives(launch_score DESC);
+
+
+-- Index: idx_ad_creatives_creation_status (on table: ad_creatives) -- P1-1修复
+CREATE INDEX idx_ad_creatives_creation_status ON ad_creatives(creation_status);
+
+
+-- Index: idx_ad_creatives_ad_id (on table: ad_creatives) -- P1-1修复
+CREATE INDEX idx_ad_creatives_ad_id ON ad_creatives(ad_id);
+
+
 -- Index: idx_ad_groups_campaign_id (on table: ad_groups)
 CREATE INDEX idx_ad_groups_campaign_id ON ad_groups(campaign_id);
 
@@ -1071,6 +1103,10 @@ CREATE INDEX idx_backup_logs_status ON backup_logs(status);
 
 -- Index: idx_backup_logs_type (on table: backup_logs)
 CREATE INDEX idx_backup_logs_type ON backup_logs(backup_type);
+
+
+-- Index: idx_campaigns_is_deleted (on table: campaigns) -- P1-2修复
+CREATE INDEX idx_campaigns_is_deleted ON campaigns(is_deleted);
 
 
 -- Index: idx_campaign_performance_campaign_date (on table: campaign_performance)
@@ -1492,9 +1528,9 @@ ON search_term_reports(user_id);
 CREATE INDEX idx_sync_logs_user ON sync_logs(user_id, started_at);
 
 
--- Index: idx_settings_category_key (on table: system_settings)
+-- Index: idx_settings_category_key (on table: system_settings) -- P0-2修复: config_key → key
 CREATE INDEX idx_settings_category_key
-ON system_settings(category, config_key);
+ON system_settings(category, key);
 
 
 -- Index: idx_settings_user_category (on table: system_settings)
@@ -1611,16 +1647,16 @@ INSERT INTO prompt_versions VALUES(70,'review_analysis','v3.1','评论分析','�
 -- These records define the available configuration options
 -- User-specific values will be created when users save settings
 
--- Google Ads settings
-INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, description)
+-- Google Ads settings -- P0-2修复: config_key → key, config_value → value
+INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, description)
 VALUES
   (NULL, 'google_ads', 'login_customer_id', NULL, 'string', 0, 1, 'MCC管理账户ID，用于访问您管理的广告账户'),
   (NULL, 'google_ads', 'client_id', NULL, 'string', 1, 0, 'OAuth 2.0客户端ID'),
   (NULL, 'google_ads', 'client_secret', NULL, 'string', 1, 0, 'OAuth 2.0客户端密钥'),
   (NULL, 'google_ads', 'developer_token', NULL, 'string', 1, 0, 'Google Ads API开发者令牌');
 
--- AI settings
-INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, default_value, description)
+-- AI settings -- P0-2修复: config_key → key, config_value → value
+INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description)
 VALUES
   (NULL, 'ai', 'use_vertex_ai', NULL, 'boolean', 0, 0, 'false', 'AI模式选择：true=Vertex AI, false=Gemini API'),
   (NULL, 'ai', 'gemini_api_key', NULL, 'string', 1, 0, NULL, 'Gemini API密钥'),
@@ -1629,13 +1665,13 @@ VALUES
   (NULL, 'ai', 'gcp_location', NULL, 'string', 0, 0, 'us-central1', 'GCP区域'),
   (NULL, 'ai', 'gcp_service_account_json', NULL, 'text', 1, 0, NULL, 'GCP Service Account JSON凭证');
 
--- Proxy settings
-INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, description)
+-- Proxy settings -- P0-2修复: config_key → key, config_value → value
+INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, description)
 VALUES
   (NULL, 'proxy', 'urls', NULL, 'json', 0, 0, '代理URL配置，JSON格式存储国家与代理URL的映射');
 
--- System settings
-INSERT INTO system_settings (user_id, category, config_key, config_value, data_type, is_sensitive, is_required, default_value, description)
+-- System settings -- P0-2修复: config_key → key, config_value → value
+INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description)
 VALUES
   (NULL, 'system', 'currency', NULL, 'string', 0, 0, 'CNY', '默认货币单位'),
   (NULL, 'system', 'language', NULL, 'string', 0, 0, 'zh-CN', '系统语言'),
