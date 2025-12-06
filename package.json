@@ -14,7 +14,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:queue-redis": "tsx scripts/test-queue-redis.ts",
-    "db:init": "mkdir -p data && sqlite3 data/autoads.db < migrations/000_init_schema_consolidated.sqlite.sql && tsx scripts/ensure-admin-account.ts",
+    "db:init": "mkdir -p data && sqlite3 data/autoads.db < migrations/000_init_schema_consolidated.sqlite.sql && tsx scripts/ensure-admin-account-standalone.ts",
     "db:reset": "rm -f data/autoads.db && npm run db:init",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:auto-migrate": "tsx scripts/auto-migrate.ts",

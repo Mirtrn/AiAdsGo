@@ -72,15 +72,16 @@ cd autobb
 # 2. 安装依赖
 npm install
 
-# 3. 配置环境变量
-cp .env.example .env.local
-# 编辑 .env.local，至少设置以下三项：
-# - JWT_SECRET（64字符十六进制）
-# - ENCRYPTION_KEY（64字符十六进制）
-# - DEFAULT_ADMIN_PASSWORD（管理员密码）
+# 3. 初始化数据库（设置管理员密码）
+DEFAULT_ADMIN_PASSWORD="your-strong-password" npm run db:init
 
-# 4. 初始化数据库
-npm run db:init
+# 4. 配置环境变量
+cp .env.example .env.local
+# 编辑 .env.local，至少设置以下两项：
+# - JWT_SECRET（64字符十六进制）
+#   生成方法: openssl rand -hex 32
+# - ENCRYPTION_KEY（64字符十六进制）
+#   生成方法: openssl rand -hex 32
 
 # 5. 启动开发服务器
 npm run dev
@@ -116,7 +117,7 @@ npm install
 > - Ubuntu: `sudo apt-get install build-essential python3`
 > - Windows: 安装 Visual Studio Build Tools
 
-### 步骤 3：配置环境变量
+### 步骤 3：配置环境变量（可选，启动服务器前配置）
 
 ```bash
 cp .env.example .env.local
@@ -124,17 +125,23 @@ cp .env.example .env.local
 
 编辑 `.env.local` 文件，配置必需的环境变量（见下一节）。
 
+> **注意**：如果只是初始化数据库，可以先跳过环境变量配置，直接执行步骤 4。
+> 环境变量仅在启动服务器（步骤 5）时才必需。
+
 ### 步骤 4：初始化数据库
 
 ```bash
-npm run db:init
+# 设置管理员密码并初始化数据库
+DEFAULT_ADMIN_PASSWORD="your-strong-password" npm run db:init
 ```
 
 这将：
 1. 创建 `data/` 目录
 2. 创建 SQLite 数据库文件 `data/autoads.db`
 3. 执行初始化脚本，创建 40 张表 + 3 个视图
-4. 插入 12 个 AI Prompt 模板（v3.1 版本）
+4. 创建管理员账号 `autoads`（密码为您设置的值）
+
+> **重要**：请记住您设置的 `DEFAULT_ADMIN_PASSWORD`，这将是管理员账号的登录密码。
 
 ### 步骤 5：启动开发服务器
 
