@@ -256,6 +256,118 @@ async function createDefaultAdmin(): Promise<void> {
 }
 
 /**
+ * 确保管理员账号存在（启动时检查）
+ *
+ * 与 createDefaultAdmin() 的区别：
+ * - createDefaultAdmin: 仅在数据库初始化时调用（PostgreSQL自动初始化）
+ * - ensureAdminAccount: 每次启动都调用（SQLite开发环境需要）
+ *
+ * 行为：
+ * - 如果管理员不存在：创建新账号
+ * - 如果管理员已存在：更新密码（如果环境变量中配置了新密码）
+ */
+async function ensureAdminAccount(): Promise<void> {
+  console.log('\n👤 Checking admin account...')
+
+  const db = await getDatabase()
+  const asyncDb = db.type === 'postgres' ? getDatabase() : null
+
+  try {
+    // 检查管理员是否已存在
+    let existingAdmin: any
+
+    if (db.type === 'sqlite') {
+      existingAdmin = db.queryOne(
+        'SELECT id FROM users WHERE username = ? OR role = ?',
+        [DEFAULT_ADMIN.username, 'admin']
+      )
+    } else {
+      const result = await asyncDb!.query(
+        'SELECT id FROM users WHERE username = $1 OR role = $2',
+        [DEFAULT_ADMIN.username, 'admin']
+      )
+      existingAdmin = result[0]
+    }
+
+    // 生成密码哈希
+    const passwordHash = await hashPassword(DEFAULT_ADMIN.password)
+
+    if (existingAdmin) {
+      // 管理员已存在，检查是否需要更新密码
+      if (process.env.DEFAULT_ADMIN_PASSWORD) {
+        console.log('⚠️  Admin account exists, updating password from environment variable...')
+
+        if (db.type === 'sqlite') {
+          db.exec(
+            'UPDATE users SET password_hash = ?, is_active = 1 WHERE username = ? OR role = ?',
+            [passwordHash, DEFAULT_ADMIN.username, 'admin']
+          )
+        } else {
+          await asyncDb!.query(
+            'UPDATE users SET password_hash = $1, is_active = TRUE WHERE username = $2 OR role = $3',
+            [passwordHash, DEFAULT_ADMIN.username, 'admin']
+          )
+        }
+
+        console.log('✅ Admin password updated')
+      } else {
+        console.log('✅ Admin account exists (password unchanged)')
+      }
+    } else {
+      // 管理员不存在，创建新账号
+      console.log('⚠️  Admin account not found, creating...')
+
+      if (db.type === 'sqlite') {
+        db.exec(
+          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)`,
+          [
+            DEFAULT_ADMIN.username,
+            DEFAULT_ADMIN.email,
+            passwordHash,
+            DEFAULT_ADMIN.display_name,
+            DEFAULT_ADMIN.role,
+            DEFAULT_ADMIN.package_type,
+            DEFAULT_ADMIN.package_expires_at,
+          ]
+        )
+      } else {
+        await asyncDb!.query(
+          `INSERT INTO users (username, email, password_hash, display_name, role, package_type, package_expires_at, must_change_password, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, TRUE)`,
+          [
+            DEFAULT_ADMIN.username,
+            DEFAULT_ADMIN.email,
+            passwordHash,
+            DEFAULT_ADMIN.display_name,
+            DEFAULT_ADMIN.role,
+            DEFAULT_ADMIN.package_type,
+            DEFAULT_ADMIN.package_expires_at,
+          ]
+        )
+      }
+
+      console.log('✅ Admin account created')
+      console.log('\n🔑 Admin credentials:')
+      console.log(`   Username: ${DEFAULT_ADMIN.username}`)
+      console.log(`   Password: ${DEFAULT_ADMIN.password}`)
+      console.log(`   Email: ${DEFAULT_ADMIN.email}`)
+      console.log('\n⚠️  Security Notice:')
+      if (process.env.DEFAULT_ADMIN_PASSWORD) {
+        console.log('   ✅ Using password from DEFAULT_ADMIN_PASSWORD environment variable')
+      } else {
+        console.log('   ⚠️  Random password generated! Please save it immediately:')
+        console.log(`   👉 ${DEFAULT_ADMIN.password}`)
+        console.log('   Recommended: Set DEFAULT_ADMIN_PASSWORD in .env.local')
+      }
+    }
+  } catch (error) {
+    console.error('❌ Failed to ensure admin account:', error)
+    throw error
+  }
+}
+
+/**
  * 插入默认系统配置
  */
 async function insertDefaultSystemSettings(): Promise<void> {
@@ -527,6 +639,8 @@ export async function initializeDatabase(): Promise<void> {
     console.log('✅ Database already initialized, checking for pending migrations...')
     // 数据库已初始化，执行增量迁移
     await runPendingMigrations()
+    // 🆕 确保管理员账号存在（如果不存在则创建，如果存在则更新密码）
+    await ensureAdminAccount()
     // 检查未完成的队列任务
     await checkUnfinishedQueueTasks()
     return
