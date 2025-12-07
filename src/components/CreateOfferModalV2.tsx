@@ -100,6 +100,7 @@ export default function CreateOfferModalV2({
     result: extractionResult,
     error: extractionError,
     currentDuration,
+    stageDurations, // 🔥 获取已完成阶段的耗时Map
     connectionType,
     startExtraction,
     reconnect,
@@ -389,7 +390,8 @@ export default function CreateOfferModalV2({
               currentMessage={currentMessage}
               events={[]} // V2不再提供详细events
               details={undefined} // V2不再提供details
-              currentDuration={currentDuration} // 🔥 传递前端计算的阶段耗时
+              currentDuration={currentDuration} // 🔥 传递前端计算的当前阶段实时耗时
+              stageDurations={stageDurations} // 🔥 传递已完成阶段的耗时Map
             />
           </div>
         )}

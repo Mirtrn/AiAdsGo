@@ -54,6 +54,7 @@ interface UseOfferExtractionV2Return {
   result: ExtractionResult | null
   error: string | null
   currentDuration?: number // 当前阶段的耗时（毫秒）
+  stageDurations: Map<ProgressStage, number> // 已完成阶段的耗时Map
 
   // Connection state
   connectionType: 'sse' | 'polling' | null
@@ -75,6 +76,7 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
   const [error, setError] = useState<string | null>(null)
   const [connectionType, setConnectionType] = useState<'sse' | 'polling' | null>(null)
   const [currentDuration, setCurrentDuration] = useState<number | undefined>()
+  const [stageDurations, setStageDurations] = useState<Map<ProgressStage, number>>(new Map())
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const sseReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
@@ -112,6 +114,7 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     setResult(null)
     setError(null)
     setCurrentDuration(undefined)
+    setStageDurations(new Map()) // 🔥 重置阶段耗时记录
     stageStartTimeRef.current = Date.now()
     lastStageRef.current = 'resolving_link'
   }, [cleanup])
@@ -187,6 +190,12 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
               // 🔥 阶段耗时计算逻辑
               // 如果是新阶段开始，重置计时器
               if (newStage !== lastStageRef.current && newStatus === 'in_progress') {
+                // 保存上一个阶段的完成耗时
+                if (lastStageRef.current) {
+                  const previousElapsed = Date.now() - stageStartTimeRef.current
+                  setStageDurations(prev => new Map(prev).set(lastStageRef.current, previousElapsed))
+                }
+
                 stageStartTimeRef.current = Date.now()
                 setCurrentDuration(0)
                 lastStageRef.current = newStage
@@ -198,10 +207,12 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
                 setCurrentDuration(elapsed)
               }
 
-              // 如果阶段完成，固定duration
+              // 如果阶段完成，固定duration并保存到stageDurations
               if (newStatus === 'completed') {
                 const elapsed = Date.now() - stageStartTimeRef.current
                 setCurrentDuration(elapsed)
+                // 🔥 保存当前阶段的完成耗时
+                setStageDurations(prev => new Map(prev).set(newStage, elapsed))
               }
 
               setCurrentStage(newStage)
@@ -284,6 +295,7 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     result,
     error,
     currentDuration,
+    stageDurations, // 🔥 导出已完成阶段的耗时Map
     connectionType,
     startExtraction,
     reconnect,
