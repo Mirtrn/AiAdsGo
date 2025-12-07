@@ -28,16 +28,17 @@ const STAGE_CONFIG: Record<ProgressStage, { label: string; icon: string }> = {
   error: { label: '错误', icon: '❌' },
 };
 
+// 阶段顺序必须与后端执行顺序一致
 const STAGE_ORDER: ProgressStage[] = [
-  'fetching_proxy',
-  'proxy_warmup',
-  'resolving_link',
-  'accessing_page',
-  'scraping_products',
-  'extracting_brand',
-  'processing_data',
-  'ai_analysis',
-  'completed',
+  'fetching_proxy',    // 1. 获取代理IP
+  'proxy_warmup',      // 2. 推广链接预热
+  'resolving_link',    // 3. 解析推广链接
+  'accessing_page',    // 4. 访问目标页面
+  'scraping_products', // 5. 抓取产品数据
+  'extracting_brand',  // 6. 提取品牌信息
+  'processing_data',   // 7. 处理数据
+  'ai_analysis',       // 8. AI智能分析
+  'completed',         // 9. 完成
 ];
 
 export default function ProgressTracker({
