@@ -1053,15 +1053,60 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
   }
 
   try {
-    // 🔥 KISS优化：清理过期任务，只恢复最近的任务
-    const { recentTasks, expiredCount, orphanedCount } = await cleanupAndRecoverFromRedis()
+    console.log('🔄 启动清理：清空所有未完成任务...')
 
-    if (expiredCount > 0) {
-      console.log(`🧹 队列清理：已清理 ${expiredCount} 个过期任务（超过1小时）`)
+    // 🔥 启动时清空所有未完成任务
+    // 理由：
+    // 1. 队列恢复功能已禁用，未完成任务无法恢复
+    // 2. Redis是唯一真相来源，数据库pending/running状态已无效
+    // 3. 应用重启时，running任务已失败，不应重试
+    // 4. 避免状态不一致和僵尸任务
+    // 5. 用户可以重新提交任务（成本低）
+
+    // 1. 清空Redis中的所有未完成任务（pending + running）
+    let redisClearedCount = 0
+    try {
+      const redisCleanup = await clearRedisAllUnfinishedTasks()
+      redisClearedCount = redisCleanup.clearedCount
+      if (redisClearedCount > 0) {
+        console.log(`  ✅ Redis: 已清空 ${redisClearedCount} 个未完成任务`)
+      }
+    } catch (error) {
+      console.warn('  ⚠️ Redis清理失败（非关键错误）:', error)
     }
-    if (orphanedCount > 0) {
-      console.log(`🧹 队列清理：已清理 ${orphanedCount} 个孤立任务（关联Offer已删除）`)
+
+    // 2. 清空数据库中的pending/running任务（保留completed/failed历史）
+    let dbClearedCount = 0
+    try {
+      const result = await db.exec(`
+        DELETE FROM offer_tasks
+        WHERE status IN ('pending', 'running')
+      `)
+      dbClearedCount = result.changes
+      if (dbClearedCount > 0) {
+        console.log(`  ✅ 数据库: 已清空 ${dbClearedCount} 个未完成任务`)
+      }
+    } catch (error) {
+      console.warn('  ⚠️ 数据库清理失败:', error)
     }
+
+    // 3. 清空全局恢复标志
+    global.__queueRecoveryPending = false
+    global.__queueRecoveryData = []
+
+    console.log('✅ 启动清理完成：系统状态已重置，用户可重新提交任务')
+  } catch (error) {
+    console.error('❌ 启动清理失败:', error)
+  }
+}
+
+/* 以下代码已废弃，保留供参考
+async function checkUnfinishedQueueTasks_deprecated(): Promise<void> {
+  const db = await getDatabase()
+  if (db.type !== 'sqlite') return
+
+  try {
+    const { recentTasks, expiredCount, orphanedCount } = await cleanupAndRecoverFromRedis()
 
     if (recentTasks.length > 0) {
       const runningCount = recentTasks.filter(t => t.status === 'running').length
@@ -1251,17 +1296,163 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
     global.__queueRecoveryPending = false
   }
 }
+*/
 
 /**
- * 🔥 KISS优化：清理过期任务并恢复最近任务
+ * 清空Redis中的所有未完成任务
+ *
+ * 删除所有pending和running任务，保留completed和failed作为历史记录
+ */
+async function clearRedisAllUnfinishedTasks(): Promise<{
+  clearedCount: number
+}> {
+  try {
+    const redisClient = await getRedisClient()
+    if (!redisClient) {
+      return { clearedCount: 0 }
+    }
+
+    const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'queue:'
+    let clearedCount = 0
+
+    // 1. 获取所有pending任务ID
+    const pendingTaskIds = await redisClient.zrange(`${redisKeyPrefix}pending:all`, 0, -1)
+
+    // 2. 获取所有running任务ID
+    const runningTaskIds = await redisClient.smembers(`${redisKeyPrefix}running`)
+
+    const allTaskIds = [...pendingTaskIds, ...runningTaskIds]
+
+    if (allTaskIds.length > 0) {
+      const pipeline = redisClient.pipeline()
+
+      // 3. 删除所有pending队列
+      const taskTypes = ['scrape', 'offer-extraction', 'batch-offer-creation', 'offer-creation', 'offer-scrape', 'offer-enhance', 'sync', 'ai-analysis', 'backup', 'export', 'email', 'link-check', 'cleanup']
+      for (const taskType of taskTypes) {
+        pipeline.del(`${redisKeyPrefix}pending:${taskType}`)
+      }
+      pipeline.del(`${redisKeyPrefix}pending:all`)
+
+      // 4. 删除running集合
+      pipeline.del(`${redisKeyPrefix}running`)
+
+      // 5. 删除所有用户pending队列
+      const userKeys = await redisClient.keys(`${redisKeyPrefix}user:*:pending`)
+      if (userKeys.length > 0) {
+        pipeline.del(...userKeys)
+      }
+
+      // 6. 从tasks hash中删除所有未完成任务
+      for (const taskId of allTaskIds) {
+        pipeline.hdel(`${redisKeyPrefix}tasks`, taskId)
+      }
+
+      await pipeline.exec()
+      clearedCount = allTaskIds.length
+    }
+
+    return { clearedCount }
+  } catch (error) {
+    console.error('❌ Redis清空失败:', error)
+    return { clearedCount: 0 }
+  }
+}
+
+/**
+ * 清理Redis中的过期任务（不恢复）- 已废弃
+ *
+ * @deprecated 已由 clearRedisAllUnfinishedTasks() 替代
+ */
+const TASK_EXPIRY_MS = 60 * 60 * 1000  // 1小时过期
+
+async function cleanupRedisExpiredTasks(): Promise<{
+  expiredCount: number
+  orphanedCount: number
+}> {
+  try {
+    const redisClient = await getRedisClient()
+    if (!redisClient) {
+      return { expiredCount: 0, orphanedCount: 0 }
+    }
+
+    const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'autoads:queue:'
+    const taskTypes = ['scrape', 'offer-extraction', 'offer-creation', 'offer-scrape', 'offer-enhance']
+    const now = Date.now()
+    const expiryThreshold = now - TASK_EXPIRY_MS
+
+    let expiredCount = 0
+    let orphanedCount = 0
+
+    // 获取数据库连接，用于检查Offer是否存在
+    const db = await getDatabase()
+
+    // 清理每个任务类型的pending队列
+    for (const taskType of taskTypes) {
+      const pendingKey = `${redisKeyPrefix}pending:${taskType}`
+      const taskIds = await redisClient.zrange(pendingKey, 0, -1)
+
+      for (const taskId of taskIds) {
+        const taskJson = await redisClient.hget(`${redisKeyPrefix}tasks`, taskId)
+        if (taskJson) {
+          const task = JSON.parse(taskJson)
+          const createdAt = task.createdAt || task.data?.createdAt || 0
+
+          // 检查是否过期
+          if (createdAt > 0 && createdAt < expiryThreshold) {
+            await redisClient.zrem(pendingKey, taskId)
+            await redisClient.hdel(`${redisKeyPrefix}tasks`, taskId)
+            expiredCount++
+            continue
+          }
+
+          // 检查关联的Offer是否已删除
+          const offerId = task.data?.offerId || task.data?.offer_id
+          if (offerId) {
+            const offerExists = await checkOfferExists(db, offerId)
+            if (!offerExists) {
+              await redisClient.zrem(pendingKey, taskId)
+              await redisClient.hdel(`${redisKeyPrefix}tasks`, taskId)
+              orphanedCount++
+            }
+          }
+        }
+      }
+    }
+
+    // 清理running集合中的过期任务
+    const runningTaskIds = await redisClient.smembers(`${redisKeyPrefix}running`)
+    for (const taskId of runningTaskIds) {
+      const taskJson = await redisClient.hget(`${redisKeyPrefix}tasks`, taskId)
+      if (taskJson) {
+        const task = JSON.parse(taskJson)
+        const createdAt = task.createdAt || task.data?.createdAt || 0
+
+        if (createdAt > 0 && createdAt < expiryThreshold) {
+          await redisClient.srem(`${redisKeyPrefix}running`, taskId)
+          await redisClient.hdel(`${redisKeyPrefix}tasks`, taskId)
+          expiredCount++
+        }
+      }
+    }
+
+    return { expiredCount, orphanedCount }
+  } catch (error) {
+    console.error('❌ Redis清理失败:', error)
+    return { expiredCount: 0, orphanedCount: 0 }
+  }
+}
+
+/**
+ * 🔥 KISS优化：清理过期任务并恢复最近任务（已废弃）
  *
  * 策略：
  * 1. 超过1小时的任务视为过期，直接从Redis删除
  * 2. 最多恢复50个最近的任务，避免启动时卡住
  * 3. 过期任务不再尝试恢复，减少资源浪费
  * 4. 关联Offer已删除的任务不恢复
+ *
+ * @deprecated 队列恢复功能已禁用，保留此函数供参考
  */
-const TASK_EXPIRY_MS = 60 * 60 * 1000  // 1小时过期
 const MAX_RECOVERY_TASKS = 50          // 最多恢复50个任务
 
 async function cleanupAndRecoverFromRedis(): Promise<{

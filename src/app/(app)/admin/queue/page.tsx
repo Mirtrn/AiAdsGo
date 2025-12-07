@@ -238,32 +238,6 @@ export default function QueueManagementPage() {
                 <RefreshCw className="w-4 h-4 mr-2" />
                 手动刷新
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    const response = await fetch('/api/queue/recover', {
-                      method: 'POST'
-                    })
-                    const data = await response.json()
-
-                    if (data.success) {
-                      toast.success(`队列恢复完成: 成功 ${data.recovered} 个，失败 ${data.failed} 个`)
-                      // 刷新统计
-                      await fetchStats()
-                    } else {
-                      toast.error(data.error || '队列恢复失败')
-                    }
-                  } catch (error: any) {
-                    toast.error('队列恢复失败')
-                    console.error(error)
-                  }
-                }}
-              >
-                <AlertCircle className="w-4 h-4 mr-2" />
-                恢复队列
-              </Button>
             </>
           )}
         </div>

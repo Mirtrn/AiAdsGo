@@ -12,7 +12,6 @@ import type {
 import { MemoryQueueAdapter } from './memory-adapter'
 import { RedisQueueAdapter } from './redis-adapter'
 import { SimpleProxyManager } from './proxy-manager'
-import { queueRecoveryManager, hasQueueRecoveryPending, executeQueueRecovery, markTaskForRecovery } from './queue-recovery'
 import { isProxyRequiredForTaskType, getProxyForCountry } from './user-proxy-loader'
 
 /**
@@ -63,7 +62,7 @@ export class UnifiedQueueManager {
         'batch-offer-creation': 1   // 批量任务协调器（串行执行，避免资源竞争）
       },
       maxQueueSize: config.maxQueueSize || 1000,
-      taskTimeout: config.taskTimeout || 60000,
+      taskTimeout: config.taskTimeout || 600000,  // 10分钟超时（Offer提取等长耗时任务）
       defaultMaxRetries: config.defaultMaxRetries || 3,
       retryDelay: config.retryDelay || 5000,
       redisUrl: config.redisUrl || process.env.REDIS_URL,
@@ -161,12 +160,9 @@ export class UnifiedQueueManager {
       this.running = true
       console.log('🚀 队列处理已启动')
 
-      // 【队列恢复】在启动时检查是否有待恢复的任务
-      if (hasQueueRecoveryPending()) {
-        console.log('🔄 检测到待恢复的任务，开始执行恢复...')
-        const recoveryResult = await executeQueueRecovery()
-        console.log(`✅ 队列恢复完成: 成功 ${recoveryResult.recovered} 个，失败 ${recoveryResult.failed} 个`)
-      }
+      // 【队列恢复】功能已完全移除
+      // 启动时会自动清空所有未完成任务（见 db-init.ts）
+      // 用户可以重新提交任务
 
       // 启动处理循环（每100ms检查一次）
       this.processingLoop = setInterval(() => {
@@ -440,17 +436,8 @@ export class UnifiedQueueManager {
           await this.adapter.enqueue(task)
         }, this.config.retryDelay)
       } else {
-        // 【队列恢复】标记任务为可恢复（超过重试次数后）
-        markTaskForRecovery({
-          id: task.id,
-          task_type: task.type,
-          status: 'failed',
-          retry_count: task.retryCount,
-          user_id: task.userId,
-          data: task.data
-        })
-
-        // 标记为失败
+        // 超过重试次数，标记为失败
+        // 队列恢复功能已移除，用户可重新提交任务
         await this.adapter.updateTaskStatus(task.id, 'failed', error.message)
       }
     } finally {

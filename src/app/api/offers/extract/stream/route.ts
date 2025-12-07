@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
     const queueTaskId = await queue.enqueue('offer-extraction', taskData, userIdNum, {
       priority: 'normal',
       taskId,  // 关键：传递预定义的taskId，确保队列任务ID与offer_tasks记录ID一致
+      maxRetries: 0,  // 禁用重试: Offer提取任务已经有详细进度,用户可重新提交
     })
 
     console.log(`🚀 Enqueued offer-extraction task: ${taskId}`)
@@ -115,8 +116,9 @@ export async function POST(req: NextRequest) {
         // 轮询数据库获取进度
         const pollInterval = setInterval(async () => {
           try {
+            // 优化3: 只查询必要字段,减少数据传输量
             const rows = await db.query<OfferTask>(
-              'SELECT * FROM offer_tasks WHERE id = ?',
+              'SELECT status, stage, progress, message, result, error, updated_at FROM offer_tasks WHERE id = ?',
               [taskId]
             )
 
@@ -136,6 +138,34 @@ export async function POST(req: NextRequest) {
             }
 
             const task = rows[0]
+
+            // 优化1: 智能轮询 - 任务完成/失败时立即停止轮询
+            if (task.status === 'completed' || task.status === 'failed') {
+              console.log(`🛑 任务${task.status}, 停止轮询: ${taskId}`)
+
+              if (task.status === 'completed') {
+                const result = task.result ? JSON.parse(task.result) : {}
+                sendSSE({
+                  type: 'complete',
+                  data: result
+                })
+              } else {
+                const error = task.error ? JSON.parse(task.error) : { message: task.message || '任务失败' }
+                sendSSE({
+                  type: 'error',
+                  data: {
+                    message: error.message || '任务失败',
+                    stage: 'error',
+                    details: error
+                  }
+                })
+              }
+
+              clearInterval(pollInterval)
+              controller.close()
+              isClosed = true
+              return
+            }
 
             // 只在updated_at变化时才推送
             if (task.updated_at === lastUpdatedAt) {
@@ -162,34 +192,6 @@ export async function POST(req: NextRequest) {
                 }
               })
             }
-
-            // 任务完成
-            if (task.status === 'completed') {
-              const result = task.result ? JSON.parse(task.result) : {}
-              sendSSE({
-                type: 'complete',
-                data: result
-              })
-              clearInterval(pollInterval)
-              controller.close()
-              isClosed = true
-            }
-
-            // 任务失败
-            if (task.status === 'failed') {
-              const error = task.error ? JSON.parse(task.error) : { message: task.message || '任务失败' }
-              sendSSE({
-                type: 'error',
-                data: {
-                  message: error.message || '任务失败',
-                  stage: 'error',
-                  details: error
-                }
-              })
-              clearInterval(pollInterval)
-              controller.close()
-              isClosed = true
-            }
           } catch (error: any) {
             console.error('SSE polling error:', error)
             sendSSE({
@@ -204,7 +206,7 @@ export async function POST(req: NextRequest) {
             controller.close()
             isClosed = true
           }
-        }, 500) // 每500ms轮询一次
+        }, 2000) // 每2秒轮询一次 (降低数据库查询压力)
 
         // 清理逻辑：客户端断开连接时
         req.signal.addEventListener('abort', () => {

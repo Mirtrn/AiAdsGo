@@ -3,7 +3,6 @@ import { createOffer, listOffers, updateOfferScrapeStatus } from '@/lib/offers'
 import { z } from 'zod'
 import { apiCache, generateCacheKey, invalidateOfferCache } from '@/lib/api-cache'
 import { triggerOfferScraping, OfferScrapingPriority } from '@/lib/offer-scraping'
-import { executeQueueRecoveryIfNeeded } from '@/lib/queue-recovery'
 
 const createOfferSchema = z.object({
   url: z.string().url('无效的URL格式'),
@@ -140,10 +139,6 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    // 🚀 服务重启后首次请求时，执行队列任务恢复（延迟恢复机制）
-    // 在instrumentation阶段无法安全导入offer-scraping模块，所以延迟到API请求时执行
-    await executeQueueRecoveryIfNeeded()
-
     // 从中间件注入的请求头中获取用户ID
     const userId = request.headers.get('x-user-id')
     if (!userId) {
