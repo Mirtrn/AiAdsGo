@@ -110,6 +110,14 @@ export class QueueRecoveryManager {
     const taskType = this.detectTaskType(item)
     const attempts = (item.retry_count || 0) + 1
 
+    console.log(`🔄 恢复任务 ${taskId}, 类型: ${taskType}, 尝试次数: ${attempts}`)
+    console.log(`   数据片段:`, {
+      affiliate_link: item.affiliate_link,
+      'data.affiliateLink': item.data?.affiliateLink,
+      target_country: item.target_country,
+      'data.targetCountry': item.data?.targetCountry
+    })
+
     // 检查任务状态
     const status = await this.checkTaskStatus(item, taskType)
 
@@ -164,12 +172,28 @@ export class QueueRecoveryManager {
     switch (taskType) {
       case 'offer-extraction': {
         // Offer提取任务
+        // 支持两种数据格式：
+        // 1. 从数据库恢复：item.affiliate_link（snake_case）
+        // 2. 从内存恢复：item.data.affiliateLink（camelCase）
+        const affiliateLink = item.affiliate_link || item.data?.affiliateLink
+        const targetCountry = item.target_country || item.data?.targetCountry
+        const skipCache = item.skip_cache === 1 || item.data?.skipCache === true
+        const skipWarmup = item.skip_warmup === 1 || item.data?.skipWarmup === true
+
+        // 验证必需参数
+        if (!affiliateLink) {
+          throw new Error(`恢复失败: 缺少affiliate_link参数 (taskId: ${item.id})`)
+        }
+        if (!targetCountry) {
+          throw new Error(`恢复失败: 缺少target_country参数 (taskId: ${item.id})`)
+        }
+
         const taskData = {
           taskId: item.id,
-          affiliateLink: item.affiliate_link,
-          targetCountry: item.target_country,
-          skipCache: item.skip_cache === 1,
-          skipWarmup: item.skip_warmup === 1,
+          affiliateLink,
+          targetCountry,
+          skipCache,
+          skipWarmup,
           batchId: item.batch_id || undefined
         }
 
@@ -228,26 +252,28 @@ export class QueueRecoveryManager {
    * 检测任务类型
    */
   private detectTaskType(item: any): string {
-    // 从 offers 表恢复的抓取任务
-    if (item.offer_id || (item.url && !item.affiliate_link)) {
-      return 'scrape'
-    }
-
-    // 从 offer_tasks 表恢复的Offer提取任务
-    if (item.affiliate_link && item.target_country) {
-      return 'offer-extraction'
-    }
-
-    // 从 batch_tasks 表恢复的批量任务
-    if (item.total_count !== undefined && item.task_type) {
-      return item.task_type // 'offer-creation', 'offer-scrape', 'offer-enhance'
-    }
-
-    // 使用显式task_type字段
+    // 使用显式task_type字段（优先级最高）
     if (item.task_type) {
       return item.task_type
     }
 
+    // 从 offers 表恢复的抓取任务
+    if (item.offer_id || (item.url && !item.affiliate_link && !item.data?.affiliateLink)) {
+      return 'scrape'
+    }
+
+    // 从 offer_tasks 表恢复的Offer提取任务
+    // 支持数据库格式（snake_case）和内存格式（camelCase）
+    if (item.affiliate_link || item.data?.affiliateLink) {
+      return 'offer-extraction'
+    }
+
+    // 从 batch_tasks 表恢复的批量任务
+    if (item.total_count !== undefined) {
+      return item.task_type || 'unknown'
+    }
+
+    console.warn('⚠️ 无法识别任务类型:', JSON.stringify(item, null, 2))
     return 'unknown'
   }
 
