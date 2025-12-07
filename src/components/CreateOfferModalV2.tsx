@@ -390,19 +390,6 @@ export default function CreateOfferModalV2({
               details={undefined} // V2不再提供details
               currentDuration={undefined} // V2不再提供currentDuration
             />
-            {/* 显示进度百分比 */}
-            <div className="mt-3">
-              <div className="flex justify-between text-xs text-gray-600 mb-1">
-                <span>整体进度</span>
-                <span>{progress}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
           </div>
         )}
 
