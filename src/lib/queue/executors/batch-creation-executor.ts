@@ -95,7 +95,8 @@ export async function executeBatchCreation(
         {
           priority: 'normal',
           requireProxy: true,
-          maxRetries: 2
+          maxRetries: 2,
+          taskId: childTaskId  // 关键：传递预定义的taskId，确保队列任务ID与offer_tasks记录ID一致
         }
       )
 

@@ -95,6 +95,7 @@ export async function POST(req: NextRequest) {
     console.log(`📝 Created offer_task: ${taskId} for user ${userIdNum}`)
     const queueTaskId = await queue.enqueue('offer-extraction', taskData, userIdNum, {
       priority: 'normal',
+      taskId,  // 关键：传递预定义的taskId，确保队列任务ID与offer_tasks记录ID一致
     })
 
     console.log(`🚀 Enqueued offer-extraction task: ${taskId}`)

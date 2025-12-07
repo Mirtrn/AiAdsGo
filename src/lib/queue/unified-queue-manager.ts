@@ -167,10 +167,13 @@ export class UnifiedQueueManager {
       requireProxy?: boolean
       proxyConfig?: ProxyConfig
       maxRetries?: number
+      taskId?: string  // 可选的预定义taskId
     } = {}
   ): Promise<string> {
+    const taskId = options.taskId || randomUUID()
+
     const task: Task<T> = {
-      id: randomUUID(),
+      id: taskId,
       type,
       data,
       userId,

@@ -101,7 +101,8 @@ export async function POST(req: NextRequest) {
       {
         priority: 'normal',
         requireProxy: true, // Offer提取需要代理IP
-        maxRetries: 2 // AI密集型任务，重试次数较少
+        maxRetries: 2, // AI密集型任务，重试次数较少
+        taskId  // 关键：传递预定义的taskId，确保队列任务ID与offer_tasks记录ID一致
       }
     )
 

@@ -49,11 +49,16 @@ export async function executeOfferExtraction(
       skipWarmup,
       // 进度回调：更新到数据库
       progressCallback: async (stage, status, message, data, duration) => {
-        // 计算进度百分比
+        // 计算进度百分比 - 必须包含所有ProgressStage阶段
         const progressMap: Record<string, number> = {
-          resolving_link: 10,
-          brand_extraction: 30,
-          ai_analysis: 60,
+          proxy_warmup: 5,
+          fetching_proxy: 10,
+          resolving_link: 20,
+          accessing_page: 35,
+          extracting_brand: 50,
+          scraping_products: 65,
+          processing_data: 80,
+          ai_analysis: 90,
           completed: 100,
           error: 0,
         }
