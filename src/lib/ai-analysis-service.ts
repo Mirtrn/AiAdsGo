@@ -248,9 +248,12 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             if (product.rating && product.reviews > 0) {
               reviews.push({
                 rating: product.rating,
-                text: product.name || '',
-                author: 'Unknown',
+                title: product.name || null,
+                body: product.name || null,
+                helpful: null,
+                verified: false,
                 date: new Date().toISOString(),
+                author: 'Unknown',
               })
             }
           })
@@ -288,27 +291,35 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         if (extractResult.storeData?.products) {
           // 将店铺中的其他产品视为竞品
           extractResult.storeData.products.slice(0, 10).forEach((product: any) => {
+            const priceNum = product.price ? parseFloat(product.price.replace(/[^0-9.]/g, '')) : null
+            const ratingNum = product.rating ? parseFloat(product.rating) : null
             competitors.push({
+              asin: product.asin || null,
               name: product.name || 'Unknown',
-              brand: extractResult.brand || 'Unknown',
-              price: product.price || 'N/A',
-              rating: product.rating,
-              reviewCount: product.reviews || 0,
+              brand: extractResult.brand || null,
+              price: priceNum,
+              priceText: product.price || null,
+              rating: ratingNum,
+              reviewCount: product.reviews || null,
+              imageUrl: product.imageUrl || null,
+              source: 'same_category',
               features: [],
-              sellingPoints: [],
             })
           })
         }
 
         if (competitors.length >= 2) {
+          const productPrice = extractResult.amazonProductData?.productPrice
+            ? parseFloat(extractResult.amazonProductData.productPrice.replace(/[^0-9.]/g, ''))
+            : null
+
           const ourProduct = {
             name: extractResult.amazonProductData?.productName || extractResult.brand || 'Unknown',
-            brand: extractResult.brand || 'Unknown',
-            price: extractResult.amazonProductData?.productPrice || 'N/A',
-            rating: 0,
-            reviewCount: 0,
+            brand: extractResult.brand || null,
+            price: productPrice,
+            rating: null,
+            reviewCount: null,
             features: [],
-            sellingPoints: aiProductInfo.uniqueSellingPoints?.split('\n') || [],
           }
 
           const competitorAnalysis = await analyzeCompetitorsWithAI(
@@ -336,9 +347,9 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         console.log(`🔍 开始广告元素提取...`)
 
         const scraped = {
-          pageType,
-          product: extractResult.amazonProductData || null,
-          storeProducts: extractResult.storeData?.products || null,
+          pageType: pageType as 'product' | 'store' | 'unknown',
+          product: extractResult.amazonProductData as any,
+          storeProducts: extractResult.storeData?.products as any,
           hasDeepData: !!(extractResult.amazonProductData || extractResult.storeData),
         }
 
@@ -350,10 +361,11 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           userId
         )
 
-        result.extractedKeywords = adElements.keywords || []
-        result.extractedHeadlines = adElements.headlines || []
-        result.extractedDescriptions = adElements.descriptions || []
-        result.extractionMetadata = adElements.metadata || null
+        // 转换keywords为string[]格式（只保留keyword字段）
+        result.extractedKeywords = adElements.keywords.map(k => k.keyword)
+        result.extractedHeadlines = adElements.headlines
+        result.extractedDescriptions = adElements.descriptions
+        result.extractionMetadata = adElements.sources
         result.adExtractionSuccess = true
         console.log(`✅ 广告元素提取完成 (${result.extractedKeywords?.length || 0}个关键词)`)
       } catch (error: any) {
