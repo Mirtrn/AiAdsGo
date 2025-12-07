@@ -4,6 +4,9 @@
  */
 
 import { analyzeProductPage } from './ai'
+import { analyzeReviewsWithAI, type RawReview } from './review-analyzer'
+import { analyzeCompetitorsWithAI, type CompetitorProduct } from './competitor-analyzer'
+import { extractAdElements } from './ad-elements-extractor'
 
 export interface AIAnalysisInput {
   extractResult: {
@@ -228,10 +231,142 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
     result.aiProductInfo = aiProductInfo
     console.log('✅ AI产品分析完成')
 
+    // ========== P0评论深度分析 ==========
+    if (input.enableReviewAnalysis) {
+      try {
+        console.log(`🔍 开始评论分析...`)
+
+        // 构建评论数据（从Amazon产品数据或店铺数据中提取）
+        const reviews: RawReview[] = []
+
+        if (extractResult.amazonProductData) {
+          // TODO: 从amazonProductData中提取评论数据（需要scraper支持）
+          console.log('⚠️ Amazon产品评论数据暂未实现')
+        } else if (extractResult.storeData?.products) {
+          // 从店铺产品中提取评论信息
+          extractResult.storeData.products.forEach((product: any) => {
+            if (product.rating && product.reviews > 0) {
+              reviews.push({
+                rating: product.rating,
+                text: product.name || '',
+                author: 'Unknown',
+                date: new Date().toISOString(),
+              })
+            }
+          })
+        }
+
+        if (reviews.length > 0) {
+          const reviewAnalysis = await analyzeReviewsWithAI(
+            reviews,
+            extractResult.brand || 'Unknown Product',
+            targetCountry,
+            userId,
+            { enableCompression: true, enableCache: true }
+          )
+
+          result.reviewAnalysis = reviewAnalysis
+          result.reviewAnalysisSuccess = true
+          console.log(`✅ 评论分析完成 (${reviews.length}条评论)`)
+        } else {
+          console.log('⚠️ 未找到评论数据，跳过评论分析')
+        }
+      } catch (error: any) {
+        console.error('⚠️ 评论分析失败（不影响流程）:', error.message)
+        result.reviewAnalysisSuccess = false
+      }
+    }
+
+    // ========== P0竞品对比分析 ==========
+    if (input.enableCompetitorAnalysis) {
+      try {
+        console.log(`🔍 开始竞品分析...`)
+
+        // 构建竞品数据（从店铺产品数据中提取）
+        const competitors: CompetitorProduct[] = []
+
+        if (extractResult.storeData?.products) {
+          // 将店铺中的其他产品视为竞品
+          extractResult.storeData.products.slice(0, 10).forEach((product: any) => {
+            competitors.push({
+              name: product.name || 'Unknown',
+              brand: extractResult.brand || 'Unknown',
+              price: product.price || 'N/A',
+              rating: product.rating,
+              reviewCount: product.reviews || 0,
+              features: [],
+              sellingPoints: [],
+            })
+          })
+        }
+
+        if (competitors.length >= 2) {
+          const ourProduct = {
+            name: extractResult.amazonProductData?.productName || extractResult.brand || 'Unknown',
+            brand: extractResult.brand || 'Unknown',
+            price: extractResult.amazonProductData?.productPrice || 'N/A',
+            rating: 0,
+            reviewCount: 0,
+            features: [],
+            sellingPoints: aiProductInfo.uniqueSellingPoints?.split('\n') || [],
+          }
+
+          const competitorAnalysis = await analyzeCompetitorsWithAI(
+            ourProduct,
+            competitors,
+            targetCountry,
+            userId
+          )
+
+          result.competitorAnalysis = competitorAnalysis
+          result.competitorAnalysisSuccess = true
+          console.log(`✅ 竞品分析完成 (对比${competitors.length}个竞品)`)
+        } else {
+          console.log('⚠️ 竞品数据不足，跳过竞品分析')
+        }
+      } catch (error: any) {
+        console.error('⚠️ 竞品分析失败（不影响流程）:', error.message)
+        result.competitorAnalysisSuccess = false
+      }
+    }
+
+    // ========== 广告元素提取 ==========
+    if (input.enableAdExtraction) {
+      try {
+        console.log(`🔍 开始广告元素提取...`)
+
+        const scraped = {
+          pageType,
+          product: extractResult.amazonProductData || null,
+          storeProducts: extractResult.storeData?.products || null,
+          hasDeepData: !!(extractResult.amazonProductData || extractResult.storeData),
+        }
+
+        const adElements = await extractAdElements(
+          scraped,
+          extractResult.brand || 'Unknown',
+          targetCountry,
+          targetLanguage,
+          userId
+        )
+
+        result.extractedKeywords = adElements.keywords || []
+        result.extractedHeadlines = adElements.headlines || []
+        result.extractedDescriptions = adElements.descriptions || []
+        result.extractionMetadata = adElements.metadata || null
+        result.adExtractionSuccess = true
+        console.log(`✅ 广告元素提取完成 (${result.extractedKeywords?.length || 0}个关键词)`)
+      } catch (error: any) {
+        console.error('⚠️ 广告元素提取失败（不影响流程）:', error.message)
+        result.adExtractionSuccess = false
+      }
+    }
+
   } catch (error: any) {
     console.error('⚠️ AI产品分析失败（不影响流程）:', error.message)
     result.aiAnalysisSuccess = false
   }
 
+  console.log('🎉 AI分析全流程完成')
   return result
 }
