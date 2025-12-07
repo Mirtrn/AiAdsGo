@@ -74,6 +74,7 @@ export enum ErrorCode {
   TEST_NOT_FOUND = 'CAMP_6008',
   TEST_CREATE_FAILED = 'CAMP_6009',
   TEST_INVALID_STATUS = 'CAMP_6010',
+  CAMP_ADS_ACCOUNT_ALREADY_LINKED = 'CAMP_6011',
 
   // ===== 数据同步错误 (7xxx) =====
   SYNC_FAILED = 'SYNC_7001',
@@ -319,6 +320,11 @@ export const ErrorMessages: Record<ErrorCode, { zh: string; en: string; httpStat
     en: 'Invalid test status',
     httpStatus: 400
   },
+  [ErrorCode.CAMP_ADS_ACCOUNT_ALREADY_LINKED]: {
+    zh: 'Google Ads账号已被其他Offer占用',
+    en: 'Google Ads account is already linked to another offer',
+    httpStatus: 409
+  },
 
   // 数据同步错误
   [ErrorCode.SYNC_FAILED]: {
@@ -539,6 +545,7 @@ export const createError = {
   campaignPauseFailed: (details?: any) => new AppError(ErrorCode.CAMP_PAUSE_FAILED, details),
   campaignDeleteFailed: (details?: any) => new AppError(ErrorCode.CAMP_DELETE_FAILED, details),
   invalidCampaignStatus: (details?: any) => new AppError(ErrorCode.CAMP_INVALID_STATUS, details),
+  adsAccountAlreadyLinked: (details?: any) => new AppError(ErrorCode.CAMP_ADS_ACCOUNT_ALREADY_LINKED, details),
   testNotFound: (details?: any) => new AppError(ErrorCode.TEST_NOT_FOUND, details),
   testCreateFailed: (details?: any) => new AppError(ErrorCode.TEST_CREATE_FAILED, details),
   invalidTestStatus: (details?: any) => new AppError(ErrorCode.TEST_INVALID_STATUS, details),

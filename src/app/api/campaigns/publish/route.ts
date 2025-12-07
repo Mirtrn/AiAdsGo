@@ -183,6 +183,77 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
+    // 🔒 验证1：防止Ads账号被"其他Offer"占用
+    console.log(`🔍 验证Ads账号 ${google_ads_account_id} 是否已被其他Offer占用...`)
+    const conflictCampaign = await db.queryOne(`
+      SELECT c.id, c.offer_id, o.brand, o.offer_name
+      FROM campaigns c
+      JOIN offers o ON c.offer_id = o.id
+      WHERE c.google_ads_account_id = ?
+        AND c.offer_id != ?
+        AND c.is_deleted = 0
+      LIMIT 1
+    `, [google_ads_account_id, offer_id]) as any
+
+    if (conflictCampaign) {
+      console.error(`❌ Ads账号冲突: 账号 ${google_ads_account_id} 已被Offer #${conflictCampaign.offer_id} 占用`)
+      const error = createError.adsAccountAlreadyLinked({
+        accountId: google_ads_account_id,
+        linkedOfferId: conflictCampaign.offer_id,
+        linkedOfferName: conflictCampaign.offer_name || conflictCampaign.brand
+      })
+      return NextResponse.json({
+        ...error.toJSON(),
+        message: `该Ads账号已被其他Offer占用：${conflictCampaign.offer_name || conflictCampaign.brand} (ID: ${conflictCampaign.offer_id})`,
+        suggestion: '请选择其他Ads账号，或先删除该账号下其他Offer的广告系列'
+      }, { status: error.httpStatus })
+    }
+
+    console.log(`✅ Ads账号验证通过: 账号 ${google_ads_account_id} 可供Offer #${offer_id} 使用`)
+
+    // 🔍 验证2：查询当前Offer在该账号下的已激活Campaign
+    const existingActiveCampaigns = await db.query(`
+      SELECT
+        c.id,
+        c.campaign_name,
+        c.budget_amount,
+        c.status,
+        c.created_at,
+        ac.theme as creative_theme
+      FROM campaigns c
+      LEFT JOIN ad_creatives ac ON c.ad_creative_id = ac.id
+      WHERE c.offer_id = ?
+        AND c.google_ads_account_id = ?
+        AND c.status = 'ENABLED'
+        AND c.is_deleted = 0
+      ORDER BY c.created_at DESC
+    `, [offer_id, google_ads_account_id]) as any[]
+
+    console.log(`📊 当前Offer在该Ads账号下有${existingActiveCampaigns.length}个激活的Campaign`)
+
+    // ⚠️ 验证3：如果有激活Campaign且用户未确认，返回确认提示
+    if (existingActiveCampaigns.length > 0 && !pause_old_campaigns && !force_publish) {
+      console.log(`⚠️ 需要用户确认: 是否暂停${existingActiveCampaigns.length}个已激活的Campaign`)
+      return NextResponse.json({
+        action: 'CONFIRM_PAUSE_OLD_CAMPAIGNS',
+        existing_campaigns: existingActiveCampaigns.map((c: any) => ({
+          id: c.id,
+          campaign_name: c.campaign_name,
+          budget_amount: c.budget_amount,
+          creative_theme: c.creative_theme,
+          created_at: c.created_at
+        })),
+        total: existingActiveCampaigns.length,
+        message: `该Offer在此Ads账号下已有${existingActiveCampaigns.length}个激活的广告系列`,
+        question: '是否暂停旧广告后再发布新创意？',
+        options: [
+          { label: '暂停并发布', value: 'pause_and_publish', description: '推荐：先暂停所有旧广告，再发布新广告' },
+          { label: '直接发布（A/B测试）', value: 'publish_together', description: '旧广告继续运行，新广告同时激活' },
+          { label: '取消', value: 'cancel', description: '不发布新广告' }
+        ]
+      }, { status: 422 })
+    }
+
     // 6.1 获取全局OAuth凭证（refresh_token存储在google_ads_credentials表）
     const credentials = await getGoogleAdsCredentials(userId)
     if (!credentials || !credentials.refresh_token) {

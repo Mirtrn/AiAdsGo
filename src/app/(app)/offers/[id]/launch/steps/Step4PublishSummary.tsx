@@ -13,7 +13,23 @@ import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Rocket, CheckCircle2, AlertCircle, Loader2, TrendingUp, Settings, Link2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Rocket, CheckCircle2, AlertCircle, Loader2, TrendingUp, Settings, Link2, Info } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
 
 interface Props {
@@ -38,6 +54,11 @@ export default function Step4PublishSummary({
     message: string
     success: boolean
   } | null>(null)
+
+  // 🔥 新增：确认暂停对话框相关state
+  const [showPauseConfirm, setShowPauseConfirm] = useState(false)
+  const [existingCampaigns, setExistingCampaigns] = useState<any[]>([])
+  const [pauseConfirmMessage, setPauseConfirmMessage] = useState('')
 
   const handlePublish = async () => {
     try {
@@ -114,14 +135,35 @@ export default function Step4PublishSummary({
           ad_creative_id: selectedCreative.id,
           google_ads_account_id: selectedAccount.id,
           campaign_config: campaignConfig,
-          pause_old_campaigns: pauseOldCampaigns
+          pause_old_campaigns: pauseOldCampaigns,
+          force_publish: false // 第一次调用不强制发布
         })
       })
 
       const data = await response.json()
 
+      // 🔥 处理需要确认暂停的情况（422状态码）
+      if (response.status === 422 && data.action === 'CONFIRM_PAUSE_OLD_CAMPAIGNS') {
+        console.log('⚠️ 需要用户确认是否暂停旧Campaign:', data)
+        setExistingCampaigns(data.existing_campaigns || [])
+        setPauseConfirmMessage(data.message || '')
+        setShowPauseConfirm(true)
+        setPublishing(false)
+        return
+      }
+
+      // 🔥 处理Ads账号被其他Offer占用的情况（409状态码）
+      if (response.status === 409) {
+        console.error('❌ Ads账号冲突:', data)
+        const errorMessage = data.message || data.error?.error?.message || 'Ads账号已被其他Offer占用'
+        const suggestion = data.suggestion || '请选择其他Ads账号'
+        showError('账号冲突', `${errorMessage}\n\n${suggestion}`)
+        setPublishing(false)
+        return
+      }
+
       if (!response.ok) {
-        throw new Error(data.error || '发布失败')
+        throw new Error(data.error || data.message || '发布失败')
       }
 
       // Step 3: Sync to Google Ads
@@ -147,6 +189,120 @@ export default function Step4PublishSummary({
       setTimeout(() => {
         onPublishComplete()
       }, 2000)
+    } catch (error: any) {
+      setPublishStatus({
+        step: 'failed',
+        message: error.message || '发布失败',
+        success: false
+      })
+      showError('发布失败', error.message)
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  // 🔥 新增：用户确认暂停并发布
+  const handleConfirmPauseAndPublish = async () => {
+    try {
+      setShowPauseConfirm(false)
+      setPublishing(true)
+      setPublishStatus({
+        step: 'pausing',
+        message: `正在暂停${existingCampaigns.length}个旧广告系列...`,
+        success: false
+      })
+
+      const response = await fetch('/api/campaigns/publish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          offer_id: offer.id,
+          ad_creative_id: selectedCreative.id,
+          google_ads_account_id: selectedAccount.id,
+          campaign_config: campaignConfig,
+          pause_old_campaigns: true, // 用户确认暂停
+          force_publish: false
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || '发布失败')
+      }
+
+      setPublishStatus({
+        step: 'completed',
+        message: '发布成功！广告系列已上线',
+        success: true
+      })
+
+      showSuccess('发布成功', `已暂停${existingCampaigns.length}个旧广告，新广告已创建`)
+
+      setTimeout(() => {
+        onPublishComplete()
+      }, 2000)
+
+    } catch (error: any) {
+      setPublishStatus({
+        step: 'failed',
+        message: error.message || '发布失败',
+        success: false
+      })
+      showError('发布失败', error.message)
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  // 🔥 新增：用户选择直接发布（A/B测试模式）
+  const handlePublishTogether = async () => {
+    try {
+      setShowPauseConfirm(false)
+      setPublishing(true)
+      setPublishStatus({
+        step: 'creating',
+        message: '创建新广告（A/B测试模式）...',
+        success: false
+      })
+
+      const response = await fetch('/api/campaigns/publish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          offer_id: offer.id,
+          ad_creative_id: selectedCreative.id,
+          google_ads_account_id: selectedAccount.id,
+          campaign_config: campaignConfig,
+          pause_old_campaigns: false, // 不暂停
+          force_publish: true // 强制发布（跳过确认）
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || '发布失败')
+      }
+
+      setPublishStatus({
+        step: 'completed',
+        message: '发布成功！新旧广告同时运行',
+        success: true
+      })
+
+      showSuccess('发布成功', '新广告已创建，旧广告继续运行（A/B测试模式）')
+
+      setTimeout(() => {
+        onPublishComplete()
+      }, 2000)
+
     } catch (error: any) {
       setPublishStatus({
         step: 'failed',
@@ -458,6 +614,68 @@ export default function Step4PublishSummary({
           </ul>
         </AlertDescription>
       </Alert>
+
+      {/* 🔥 暂停确认对话框 */}
+      <Dialog open={showPauseConfirm} onOpenChange={setShowPauseConfirm}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>检测到已激活的广告系列</DialogTitle>
+            <DialogDescription>
+              {pauseConfirmMessage}
+            </DialogDescription>
+          </DialogHeader>
+
+          {existingCampaigns.length > 0 && (
+            <div className="my-4">
+              <h4 className="text-sm font-medium mb-2">当前激活的广告系列：</h4>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>广告系列名称</TableHead>
+                    <TableHead>创意主题</TableHead>
+                    <TableHead>预算</TableHead>
+                    <TableHead>创建时间</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {existingCampaigns.map((camp: any) => (
+                    <TableRow key={camp.id}>
+                      <TableCell className="font-medium">{camp.campaign_name}</TableCell>
+                      <TableCell>{camp.creative_theme || '-'}</TableCell>
+                      <TableCell>${camp.budget_amount}</TableCell>
+                      <TableCell>{new Date(camp.created_at).toLocaleDateString()}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowPauseConfirm(false)}
+              disabled={publishing}
+            >
+              取消
+            </Button>
+            <Button
+              variant="default"
+              onClick={handlePublishTogether}
+              disabled={publishing}
+            >
+              {publishing ? '发布中...' : '直接发布（A/B测试）'}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmPauseAndPublish}
+              disabled={publishing}
+            >
+              {publishing ? '暂停并发布中...' : '暂停旧系列并发布'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
