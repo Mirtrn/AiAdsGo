@@ -741,12 +741,103 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   variables.description_3_guidance = buildDescription3Guidance(useCases, userProfiles)
   variables.description_4_guidance = buildDescription4Guidance(topReviews, hotInsights, topProducts, sentimentDistribution, totalReviews, averageRating)
 
-  variables.review_data_summary = buildReviewDataSummary(reviewHighlights, commonPraises, topPositiveKeywords, commonPainPoints)
+  // 🎯 P0优化（2025-12-07）：利用新增AI数据字段
+  let aiKeywords: string[] = []
+  let aiCompetitiveEdges: any = null
+  let aiReviews: any = null
+
+  // 读取AI增强的关键词数据
+  if (offer.ai_keywords) {
+    try {
+      aiKeywords = JSON.parse(offer.ai_keywords)
+      console.log(`[AdCreativeGenerator] 🎯 使用AI生成关键词: ${aiKeywords.length}个`)
+    } catch (error) {
+      console.error('[AdCreativeGenerator] ❌ 解析ai_keywords失败:', error)
+      aiKeywords = []
+    }
+  }
+
+  // 读取AI竞争优势数据
+  if (offer.ai_competitive_edges) {
+    try {
+      aiCompetitiveEdges = JSON.parse(offer.ai_competitive_edges)
+      console.log(`[AdCreativeGenerator] 🏆 使用AI竞争优势数据:`, aiCompetitiveEdges)
+    } catch (error) {
+      console.error('[AdCreativeGenerator] ❌ 解析ai_competitive_edges失败:', error)
+      aiCompetitiveEdges = null
+    }
+  }
+
+  // 读取AI评论洞察数据
+  if (offer.ai_reviews) {
+    try {
+      aiReviews = JSON.parse(offer.ai_reviews)
+      console.log(`[AdCreativeGenerator] ⭐ 使用AI评论洞察: rating=${aiReviews.rating}, sentiment=${aiReviews.sentiment}`)
+    } catch (error) {
+      console.error('[AdCreativeGenerator] ❌ 解析ai_reviews失败:', error)
+      aiReviews = null
+    }
+  }
+
+  // 优先使用AI增强数据，fallback到原有数据
+  variables.review_data_summary = buildReviewDataSummary(
+    reviewHighlights,
+    commonPraises,
+    topPositiveKeywords,
+    commonPainPoints,
+    aiReviews
+  )
 
   variables.callout_guidance = buildCalloutGuidance(salesRank, primeEligible, availability, badge, activePromotions)
   variables.exclude_keywords_section = excludeKeywords?.length ? `- 已用关键词: ${excludeKeywords.slice(0, 10).join(', ')}` : ''
 
-  // Build competitive_guidance_section
+  // 🎯 新增：AI关键词section
+  if (aiKeywords && aiKeywords.length > 0) {
+    variables.ai_keywords_section = `\n**AI生成高质量关键词** (基于产品深度分析):\n${aiKeywords.slice(0, 15).join(', ')}\n`
+  } else {
+    variables.ai_keywords_section = ''
+  }
+
+  // 🎯 新增：AI竞争优势section
+  let ai_competitive_section = ''
+  if (aiCompetitiveEdges) {
+    if (aiCompetitiveEdges.badges && aiCompetitiveEdges.badges.length > 0) {
+      ai_competitive_section += `\n**产品认证/优势标识**: ${aiCompetitiveEdges.badges.join(', ')}\n`
+    }
+    if (aiCompetitiveEdges.primeEligible) {
+      ai_competitive_section += `\n**物流优势**: Prime Eligible（快速配送）\n`
+    }
+    if (aiCompetitiveEdges.stockStatus) {
+      ai_competitive_section += `\n**库存状态**: ${aiCompetitiveEdges.stockStatus}\n`
+    }
+    if (aiCompetitiveEdges.salesRank) {
+      ai_competitive_section += `\n**销售排名**: ${aiCompetitiveEdges.salesRank}\n`
+    }
+  }
+  variables.ai_competitive_section = ai_competitive_section
+
+  // 🎯 新增：AI评论洞察section
+  let ai_reviews_section = ''
+  if (aiReviews) {
+    if (aiReviews.rating) {
+      ai_reviews_section += `\n**用户评分**: ${aiReviews.rating}/5.0`
+      if (aiReviews.count) {
+        ai_reviews_section += ` (${aiReviews.count}条评价)`
+      }
+    }
+    if (aiReviews.sentiment) {
+      ai_reviews_section += `\n**整体评价**: ${aiReviews.sentiment}`
+    }
+    if (aiReviews.positives && aiReviews.positives.length > 0) {
+      ai_reviews_section += `\n**用户好评亮点**: ${aiReviews.positives.slice(0, 3).join(', ')}\n`
+    }
+    if (aiReviews.useCases && aiReviews.useCases.length > 0) {
+      ai_reviews_section += `\n**主要使用场景**: ${aiReviews.useCases.slice(0, 2).join(', ')}\n`
+    }
+  }
+  variables.ai_reviews_section = ai_reviews_section
+
+  // Build competitive_guidance_section（保留原有逻辑，但增强AI数据）
   let competitive_guidance_section = ''
   if (offer.competitor_analysis) {
     try {
@@ -865,12 +956,40 @@ function buildDescription4Guidance(topReviews: string[], hotInsights: any, topPr
 `
 }
 
-function buildReviewDataSummary(reviewHighlights: string[], commonPraises: string[], topPositiveKeywords: Array<{keyword: string; frequency: number}>, commonPainPoints: string[]): string {
+function buildReviewDataSummary(
+  reviewHighlights: string[],
+  commonPraises: string[],
+  topPositiveKeywords: Array<{keyword: string; frequency: number}>,
+  commonPainPoints: string[],
+  aiReviews?: any
+): string {
   const parts: string[] = []
+
+  // 🎯 P0优化：优先使用AI增强的评论数据
+  if (aiReviews) {
+    if (aiReviews.rating) {
+      parts.push(`AI分析评分: ${aiReviews.rating}/5.0`)
+    }
+    if (aiReviews.sentiment) {
+      parts.push(`用户情感倾向: ${aiReviews.sentiment}`)
+    }
+    if (aiReviews.positives && aiReviews.positives.length > 0) {
+      parts.push(`用户好评要点: ${aiReviews.positives.slice(0, 3).join(', ')}`)
+    }
+    if (aiReviews.concerns && aiReviews.concerns.length > 0) {
+      parts.push(`用户关注点: ${aiReviews.concerns.slice(0, 2).join(', ')}`)
+    }
+    if (aiReviews.useCases && aiReviews.useCases.length > 0) {
+      parts.push(`主要使用场景: ${aiReviews.useCases.slice(0, 2).join(', ')}`)
+    }
+  }
+
+  // Fallback到原有数据（向后兼容）
   if (reviewHighlights.length > 0) parts.push(`Review insights: ${reviewHighlights.slice(0, 3).join(', ')}`)
   if (commonPraises.length > 0) parts.push(`User praises: ${commonPraises.slice(0, 2).join(', ')}`)
   if (topPositiveKeywords.length > 0) parts.push(`Positive keywords: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}`)
   if (commonPainPoints.length > 0) parts.push(`(Address pain points indirectly - don't highlight negatives): ${commonPainPoints.slice(0, 2).join(', ')}`)
+
   return parts.length > 0 ? parts.join('; ') : ''
 }
 
