@@ -2,135 +2,51 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { BatchUploadProgress } from '@/components/BatchUploadProgress'
-
-interface UploadResult {
-  success: boolean
-  row: number
-  offer?: {
-    id: number
-    brand: string
-    url: string
-  }
-  error?: string
-}
+import { useBatchTask } from '@/hooks/useBatchTask'
 
 export default function BatchUploadOffersPage() {
   const router = useRouter()
   const [file, setFile] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState('')
-  const [results, setResults] = useState<{
-    summary?: {
-      total: number
-      success: number
-      failed: number
-    }
-    results?: UploadResult[]
-  } | null>(null)
-  const [uploadedOfferIds, setUploadedOfferIds] = useState<number[]>([])
-  const [showProgress, setShowProgress] = useState(false)
+
+  const {
+    isProcessing,
+    batchId,
+    status,
+    totalCount,
+    completedCount,
+    failedCount,
+    progress,
+    error: batchError,
+    connectionType,
+    createBatchTask,
+    reset,
+  } = useBatchTask()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
       if (!selectedFile.name.endsWith('.csv')) {
-        setError('请选择CSV文件')
-        setFile(null)
+        alert('请选择CSV文件')
         return
       }
       setFile(selectedFile)
-      setError('')
-      setResults(null)
+      // 重置之前的批量任务状态
+      reset()
     }
-  }
-
-  const parseCSV = (text: string): any[] => {
-    const lines = text.split('\n').filter((line) => line.trim())
-    if (lines.length < 2) {
-      throw new Error('CSV文件至少需要包含表头和一行数据')
-    }
-
-    const headers = lines[0].split(',').map((h) => h.trim())
-    const offers: any[] = []
-
-    // 字段映射：将中文表头映射为API字段名
-    const fieldMapping: Record<string, string> = {
-      '推广链接': 'affiliate_link',
-      '推广国家': 'target_country',
-      '产品价格': 'product_price',
-      '佣金比例': 'commission_payout',
-      // 兼容英文表头
-      'affiliate_link': 'affiliate_link',
-      'target_country': 'target_country',
-      'product_price': 'product_price',
-      'commission_payout': 'commission_payout',
-    }
-
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map((v) => v.trim())
-      const offer: any = {}
-
-      headers.forEach((header, index) => {
-        const apiField = fieldMapping[header] || header
-        if (values[index]) {
-          offer[apiField] = values[index]
-        }
-      })
-
-      offers.push(offer)
-    }
-
-    return offers
   }
 
   const handleUpload = async () => {
     if (!file) {
-      setError('请先选择文件')
+      alert('请先选择文件')
       return
     }
 
-    setUploading(true)
-    setError('')
-    setResults(null)
-
     try {
-      // HttpOnly Cookie自动携带，无需手动操作
-
-      // 读取CSV文件
-      const text = await file.text()
-      const offers = parseCSV(text)
-
-      // 发送批量创建请求
-      const response = await fetch('/api/offers/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-},
-        body: JSON.stringify({ offers }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || '批量上传失败')
-      }
-
-      setResults(data)
-
-      // 提取成功创建的Offer IDs，启动进度显示
-      const offerIds = data.results
-        ?.filter((r: UploadResult) => r.success && r.offer?.id)
-        .map((r: UploadResult) => r.offer!.id) || []
-
-      if (offerIds.length > 0) {
-        setUploadedOfferIds(offerIds)
-        setShowProgress(true)
-      }
+      // 直接上传CSV文件，后端处理解析和校验
+      // target_country必须在CSV中指定
+      await createBatchTask(file)
     } catch (err: any) {
-      setError(err.message || '批量上传失败，请稍后重试')
-    } finally {
-      setUploading(false)
+      console.error('Upload failed:', err)
     }
   }
 
@@ -216,9 +132,9 @@ export default function BatchUploadOffersPage() {
           <div className="bg-white shadow rounded-lg p-6 mb-6">
             <h2 className="text-lg font-medium text-gray-900 mb-4">上传文件</h2>
 
-            {error && (
+            {batchError && (
               <div className="mb-4 px-4 py-3 bg-red-50 border border-red-400 text-red-700 rounded">
-                {error}
+                {batchError}
               </div>
             )}
 
@@ -231,12 +147,14 @@ export default function BatchUploadOffersPage() {
                   type="file"
                   accept=".csv"
                   onChange={handleFileChange}
+                  disabled={isProcessing}
                   className="block w-full text-sm text-gray-500
                     file:mr-4 file:py-2 file:px-4
                     file:rounded-md file:border-0
                     file:text-sm file:font-semibold
                     file:bg-indigo-50 file:text-indigo-700
-                    hover:file:bg-indigo-100"
+                    hover:file:bg-indigo-100
+                    disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 {file && (
                   <p className="mt-2 text-sm text-gray-600">
@@ -249,122 +167,114 @@ export default function BatchUploadOffersPage() {
                 <button
                   type="button"
                   onClick={() => router.push('/offers')}
-                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  disabled={isProcessing}
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleUpload}
-                  disabled={!file || uploading}
+                  disabled={!file || isProcessing}
                   className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {uploading ? '上传中...' : '开始上传'}
+                  {isProcessing ? '处理中...' : '开始上传'}
                 </button>
               </div>
             </div>
           </div>
 
-          {/* 上传结果 */}
-          {results && (
+          {/* 实时进度显示 */}
+          {batchId && (
             <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">上传结果</h2>
-
-              {/* 汇总 */}
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-500">总计</p>
-                  <p className="text-2xl font-bold text-gray-900">{results.summary?.total}</p>
-                </div>
-                <div className="bg-green-50 rounded-lg p-4">
-                  <p className="text-sm text-green-600">成功</p>
-                  <p className="text-2xl font-bold text-green-900">{results.summary?.success}</p>
-                </div>
-                <div className="bg-red-50 rounded-lg p-4">
-                  <p className="text-sm text-red-600">失败</p>
-                  <p className="text-2xl font-bold text-red-900">{results.summary?.failed}</p>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-medium text-gray-900">批量任务进度</h2>
+                <div className="flex items-center space-x-2">
+                  {connectionType && (
+                    <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600">
+                      {connectionType === 'sse' ? '📡 实时推送' : '🔄 轮询模式'}
+                    </span>
+                  )}
+                  {status && (
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      status === 'completed' ? 'bg-green-100 text-green-800' :
+                      status === 'failed' ? 'bg-red-100 text-red-800' :
+                      status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {status === 'pending' ? '⏳ 等待中' :
+                       status === 'running' ? '🔄 进行中' :
+                       status === 'completed' ? '✅ 已完成' :
+                       status === 'failed' ? '❌ 失败' :
+                       status === 'partial' ? '⚠️ 部分完成' : status}
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* 详细结果 */}
-              {results.results && results.results.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-900 mb-3">详细结果</h3>
-                  <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-300">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">行号</th>
-                          <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
-                          <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">品牌</th>
-                          <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">信息</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200 bg-white">
-                        {results.results.map((result, idx) => (
-                          <tr key={idx} className={result.success ? '' : 'bg-red-50'}>
-                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-900">
-                              {result.row}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-4 text-sm">
-                              {result.success ? (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                  成功
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                  失败
-                                </span>
-                              )}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-900">
-                              {result.offer?.brand || '-'}
-                            </td>
-                            <td className="px-3 py-4 text-sm text-gray-500">
-                              {result.success ? (
-                                <a
-                                  href={`/offers/${result.offer?.id}`}
-                                  className="text-indigo-600 hover:text-indigo-900"
-                                >
-                                  查看详情 →
-                                </a>
-                              ) : (
-                                <span className="text-red-600">{result.error}</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+              <div className="space-y-4">
+                {/* 批量任务ID */}
+                <div className="text-xs text-gray-500">
+                  任务ID: <span className="font-mono">{batchId}</span>
+                </div>
 
-                  <div className="mt-6 flex justify-end">
+                {/* 进度条 */}
+                <div>
+                  <div className="flex justify-between text-sm text-gray-700 mb-2">
+                    <span>整体进度</span>
+                    <span>{progress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div
+                      className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 统计信息 */}
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500">总计</p>
+                    <p className="text-xl font-bold text-gray-900">{totalCount}</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <p className="text-xs text-blue-600">进行中</p>
+                    <p className="text-xl font-bold text-blue-900">
+                      {totalCount - completedCount - failedCount}
+                    </p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3">
+                    <p className="text-xs text-green-600">成功</p>
+                    <p className="text-xl font-bold text-green-900">{completedCount}</p>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-3">
+                    <p className="text-xs text-red-600">失败</p>
+                    <p className="text-xl font-bold text-red-900">{failedCount}</p>
+                  </div>
+                </div>
+
+                {/* 完成后的操作 */}
+                {(status === 'completed' || status === 'partial') && (
+                  <div className="flex justify-end space-x-3 pt-4 border-t">
+                    <button
+                      onClick={reset}
+                      className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                    >
+                      继续上传
+                    </button>
                     <button
                       onClick={() => router.push('/offers')}
                       className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
                     >
-                      返回Offer列表
+                      查看Offer列表
                     </button>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
         </div>
       </main>
-
-      {/* 批量上传进度显示（浮动，不阻塞用户操作） */}
-      {showProgress && uploadedOfferIds.length > 0 && (
-        <BatchUploadProgress
-          offerIds={uploadedOfferIds}
-          onComplete={() => {
-            // 全部完成后，可以选择刷新结果或显示通知
-            console.log('批量上传全部完成！')
-          }}
-          onClose={() => {
-            setShowProgress(false)
-          }}
-        />
-      )}
     </div>
   )
 }

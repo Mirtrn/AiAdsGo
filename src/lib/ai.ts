@@ -12,15 +12,41 @@ export interface ProductInfo {
   // 🆕 增强字段：用于竞品搜索词推断
   sellingPoints?: string[]           // 产品卖点列表
   productDescription?: string        // 产品描述（完整文本）
-  // 增强数据维度（用于精准广告创意生成）
-  // ❌ 已删除冗余字段（2025-12-04）:
-  // - pricing: 与 scraped_data 重复
-  // - reviews: 与 review_analysis 重复
-  // - competitiveEdges: 与 competitor_analysis 重复
+
+  // 🎯 P0优化（2025-12-07）：存储AI返回的完整数据，提升广告创意质量20-30%
+  keywords?: string[]                 // AI生成的关键词列表
+
+  pricing?: {
+    current?: string                  // 当前价格
+    original?: string                 // 原价
+    discount?: string                 // 折扣百分比
+    competitiveness?: 'Premium' | 'Competitive' | 'Budget'  // 价格竞争力
+    valueAssessment?: string          // 性价比评估
+  }
+
+  reviews?: {
+    rating?: number                   // 评分
+    count?: number                    // 评论数
+    sentiment?: 'Positive' | 'Mixed' | 'Negative'  // 情感倾向
+    positives?: string[]              // 用户好评要点
+    concerns?: string[]               // 用户关注点/缺点
+    useCases?: string[]               // 真实使用场景
+  }
+
   promotions?: {
-    activeDeals?: string[]
-    urgencyIndicators?: string[]
-    freeShipping?: boolean
+    active?: boolean                  // 是否有促销
+    types?: string[]                  // 促销类型（Coupon, Deal, Lightning Deal）
+    urgency?: string | null           // 紧迫性文案
+    activeDeals?: string[]            // 活跃促销（兼容旧字段）
+    urgencyIndicators?: string[]      // 紧迫性指标（兼容旧字段）
+    freeShipping?: boolean            // 免邮
+  }
+
+  competitiveEdges?: {
+    badges?: string[]                 // 徽章（Amazon's Choice, Best Seller）
+    primeEligible?: boolean           // Prime资格
+    stockStatus?: string              // 库存状态
+    salesRank?: string                // 销售排名
   }
 }
 
@@ -418,13 +444,68 @@ export async function analyzeProductPage(
     // Prompt返回: productDescription, sellingPoints, technicalHighlights
     // 代码期望: brandDescription, uniqueSellingPoints, productHighlights
     const pi = productInfo as any
-    return {
+
+    // 🎯 P0优化（2025-12-07）：提取完整AI返回数据，包括 pricing, reviews, competitiveEdges, keywords
+    logger.debug('🎯 P0优化: 提取完整AI数据...')
+    const result: ProductInfo = {
+      // 基础字段
       brandDescription: ensureString(pi.brandDescription || pi.productDescription),
       uniqueSellingPoints: ensureString(pi.uniqueSellingPoints || pi.sellingPoints),
       productHighlights: ensureString(pi.productHighlights || pi.technicalHighlights),
       targetAudience: ensureString(pi.targetAudience),
       category: pi.category,
+
+      // 🆕 完整数据提取
+      keywords: pi.keywords || undefined,
+      sellingPoints: pi.sellingPoints || undefined,
+      productDescription: pi.productDescription || undefined,
+
+      // 定价信息
+      pricing: pi.pricing ? {
+        current: pi.pricing.current || undefined,
+        original: pi.pricing.original || undefined,
+        discount: pi.pricing.discount || undefined,
+        competitiveness: pi.pricing.competitiveness || undefined,
+        valueAssessment: pi.pricing.valueAssessment || undefined,
+      } : undefined,
+
+      // 评论洞察
+      reviews: pi.reviews ? {
+        rating: typeof pi.reviews.rating === 'number' ? pi.reviews.rating : undefined,
+        count: typeof pi.reviews.count === 'number' ? pi.reviews.count : undefined,
+        sentiment: pi.reviews.sentiment || undefined,
+        positives: pi.reviews.positives || undefined,
+        concerns: pi.reviews.concerns || undefined,
+        useCases: pi.reviews.useCases || undefined,
+      } : undefined,
+
+      // 促销信息
+      promotions: pi.promotions ? {
+        active: typeof pi.promotions.active === 'boolean' ? pi.promotions.active : undefined,
+        types: pi.promotions.types || undefined,
+        urgency: pi.promotions.urgency !== undefined ? pi.promotions.urgency : undefined,
+        freeShipping: typeof pi.promotions.freeShipping === 'boolean' ? pi.promotions.freeShipping : undefined,
+      } : undefined,
+
+      // 竞争优势
+      competitiveEdges: pi.competitiveEdges ? {
+        badges: pi.competitiveEdges.badges || undefined,
+        primeEligible: typeof pi.competitiveEdges.primeEligible === 'boolean' ? pi.competitiveEdges.primeEligible : undefined,
+        stockStatus: pi.competitiveEdges.stockStatus || undefined,
+        salesRank: pi.competitiveEdges.salesRank || undefined,
+      } : undefined,
     }
+
+    // 📊 数据提取统计
+    logger.debug('📊 AI数据提取统计:')
+    logger.debug(`  - 基础字段: brandDescription(${result.brandDescription?.length || 0}), uniqueSellingPoints(${result.uniqueSellingPoints?.length || 0})`)
+    logger.debug(`  - keywords: ${result.keywords?.length || 0}个`)
+    logger.debug(`  - pricing: ${result.pricing ? 'YES' : 'NO'}`)
+    logger.debug(`  - reviews: ${result.reviews ? 'YES' : 'NO'}`)
+    logger.debug(`  - promotions: ${result.promotions ? 'YES' : 'NO'}`)
+    logger.debug(`  - competitiveEdges: ${result.competitiveEdges ? 'YES' : 'NO'}`)
+
+    return result
   } catch (error: any) {
     logger.error('AI分析失败:', error)
     throw new Error(`AI分析失败: ${error.message}`)

@@ -345,6 +345,41 @@ export async function triggerOfferExtraction(
       updateData.category = aiAnalysisResult.aiProductInfo.category || undefined
     }
 
+    // 🎯 P0优化（2025-12-07）：保存AI返回的完整数据
+    if (aiAnalysisResult?.aiProductInfo) {
+      const productInfo = aiAnalysisResult.aiProductInfo
+
+      // 保存AI评论洞察（新增字段）
+      if (productInfo.reviews) {
+        updateData.ai_reviews = JSON.stringify(productInfo.reviews)
+        console.log(`[OfferExtraction] #${offerId} 💾 保存AI评论洞察: rating=${productInfo.reviews.rating}, sentiment=${productInfo.reviews.sentiment}`)
+      }
+
+      // 保存AI竞争优势（新增字段）
+      if (productInfo.competitiveEdges) {
+        updateData.ai_competitive_edges = JSON.stringify(productInfo.competitiveEdges)
+        console.log(`[OfferExtraction] #${offerId} 💾 保存AI竞争优势: badges=${productInfo.competitiveEdges.badges?.length || 0}`)
+      }
+
+      // 保存AI关键词（新增字段）
+      if (productInfo.keywords && productInfo.keywords.length > 0) {
+        updateData.ai_keywords = JSON.stringify(productInfo.keywords)
+        console.log(`[OfferExtraction] #${offerId} 💾 保存AI关键词: ${productInfo.keywords.length}个`)
+      }
+
+      // 保存AI定价信息（复用existing pricing字段）
+      if (productInfo.pricing) {
+        updateData.pricing = JSON.stringify(productInfo.pricing)
+        console.log(`[OfferExtraction] #${offerId} 💾 保存AI定价: ${productInfo.pricing.current}, competitiveness=${productInfo.pricing.competitiveness}`)
+      }
+
+      // 保存AI促销信息（复用existing promotions字段）
+      if (productInfo.promotions) {
+        updateData.promotions = JSON.stringify(productInfo.promotions)
+        console.log(`[OfferExtraction] #${offerId} 💾 保存AI促销: active=${productInfo.promotions.active}, types=${productInfo.promotions.types?.length || 0}`)
+      }
+    }
+
     // 保存评论分析结果（如果有）
     if (aiAnalysisResult?.reviewAnalysisSuccess && aiAnalysisResult.reviewAnalysis) {
       updateData.review_analysis = JSON.stringify(aiAnalysisResult.reviewAnalysis)

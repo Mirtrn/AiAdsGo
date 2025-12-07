@@ -1,0 +1,193 @@
+/**
+ * 批量Offer创建任务执行器
+ *
+ * 功能：
+ * 1. 解析CSV行数据
+ * 2. 为每行创建一个offer_task (关联batch_id)
+ * 3. 将所有offer_tasks加入队列
+ * 4. 监控子任务完成情况，更新batch_tasks进度
+ *
+ * 注意：
+ * - 这是一个协调器任务，本身不执行提取逻辑
+ * - 真正的提取由offer-extraction executor执行
+ * - 通过batch_id关联父子任务
+ */
+
+import type { Task } from '../types'
+import { getDatabase } from '@/lib/db'
+import { getQueueManager } from '../unified-queue-manager'
+import type { OfferExtractionTaskData } from './offer-extraction-executor'
+
+/**
+ * 批量创建任务数据接口
+ */
+export interface BatchCreationTaskData {
+  batchId: string
+  rows: Array<{
+    affiliate_link: string
+    target_country: string
+    product_price?: string
+    commission_payout?: string
+  }>
+}
+
+/**
+ * 批量Offer创建执行器
+ */
+export async function executeBatchCreation(
+  task: Task<BatchCreationTaskData>
+): Promise<void> {
+  const { batchId, rows } = task.data
+  const db = getDatabase()
+  const queue = getQueueManager()
+
+  console.log(`🚀 开始执行批量创建任务: batch=${batchId}, count=${rows.length}`)
+
+  try {
+    // 1. 更新batch_tasks状态为running
+    await db.query(`
+      UPDATE batch_tasks
+      SET status = 'running', started_at = datetime('now'), updated_at = datetime('now')
+      WHERE id = ?
+    `, [batchId])
+
+    // 2. 为每行数据创建offer_task并加入队列
+    const childTaskIds: string[] = []
+
+    for (const row of rows) {
+      // 生成子任务ID
+      const childTaskId = crypto.randomUUID()
+
+      // 创建offer_task记录（关联batch_id）
+      await db.query(`
+        INSERT INTO offer_tasks (
+          id,
+          user_id,
+          batch_id,
+          status,
+          affiliate_link,
+          target_country,
+          skip_cache,
+          skip_warmup,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, 'pending', ?, ?, 0, 0, datetime('now'), datetime('now'))
+      `, [
+        childTaskId,
+        task.userId,
+        batchId,
+        row.affiliate_link,
+        row.target_country
+      ])
+
+      // 加入队列
+      const taskData: OfferExtractionTaskData = {
+        affiliateLink: row.affiliate_link,
+        targetCountry: row.target_country,
+        skipCache: false,
+        skipWarmup: false
+      }
+
+      await queue.enqueue(
+        'offer-extraction',
+        taskData,
+        task.userId,
+        {
+          priority: 'normal',
+          requireProxy: true,
+          maxRetries: 2
+        }
+      )
+
+      childTaskIds.push(childTaskId)
+    }
+
+    console.log(`✅ 批量任务子任务已创建: ${childTaskIds.length} 个`)
+
+    // 3. 启动监控循环（检查子任务完成情况）
+    const monitorInterval = setInterval(async () => {
+      try {
+        // 查询子任务统计
+        const stats = await db.query<{
+          status: string
+          count: number
+        }>(`
+          SELECT status, COUNT(*) as count
+          FROM offer_tasks
+          WHERE batch_id = ?
+          GROUP BY status
+        `, [batchId])
+
+        const statsMap: Record<string, number> = {}
+        for (const row of stats) {
+          statsMap[row.status] = row.count
+        }
+
+        const completed = statsMap['completed'] || 0
+        const failed = statsMap['failed'] || 0
+        const total = rows.length
+
+        // 更新batch_tasks进度
+        await db.query(`
+          UPDATE batch_tasks
+          SET
+            completed_count = ?,
+            failed_count = ?,
+            updated_at = datetime('now')
+          WHERE id = ?
+        `, [completed, failed, batchId])
+
+        // 检查是否全部完成
+        if (completed + failed === total) {
+          clearInterval(monitorInterval)
+
+          // 确定最终状态
+          let finalStatus: 'completed' | 'failed' | 'partial'
+          if (failed === 0) {
+            finalStatus = 'completed'
+          } else if (completed === 0) {
+            finalStatus = 'failed'
+          } else {
+            finalStatus = 'partial'
+          }
+
+          // 更新最终状态
+          await db.query(`
+            UPDATE batch_tasks
+            SET
+              status = ?,
+              completed_at = datetime('now'),
+              updated_at = datetime('now')
+            WHERE id = ?
+          `, [finalStatus, batchId])
+
+          console.log(`✅ 批量任务完成: batch=${batchId}, status=${finalStatus}, completed=${completed}, failed=${failed}`)
+        }
+      } catch (error: any) {
+        console.error('❌ 批量任务监控错误:', error)
+        clearInterval(monitorInterval)
+      }
+    }, 2000) // 每2秒检查一次
+
+    // 超时保护：10分钟后自动停止监控（正常情况下子任务会更早完成）
+    setTimeout(() => {
+      clearInterval(monitorInterval)
+      console.log(`⏱️ 批量任务监控超时: batch=${batchId}`)
+    }, 600000)
+
+  } catch (error: any) {
+    console.error(`❌ 批量创建任务失败: batch=${batchId}:`, error.message)
+
+    // 更新batch_tasks为失败状态
+    await db.query(`
+      UPDATE batch_tasks
+      SET
+        status = 'failed',
+        completed_at = datetime('now'),
+        updated_at = datetime('now')
+      WHERE id = ?
+    `, [batchId])
+
+    throw error
+  }
+}

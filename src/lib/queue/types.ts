@@ -17,6 +17,8 @@ export type TaskType =
   | 'export'          // 报表导出
   | 'link-check'      // 链接可用性检查
   | 'cleanup'         // 数据清理
+  | 'offer-extraction'      // Offer信息提取（完整流程：URL解析 + 品牌识别 + AI分析）
+  | 'batch-offer-creation'  // 批量Offer创建（父任务：协调多个offer-extraction子任务）
 
 /**
  * 任务优先级

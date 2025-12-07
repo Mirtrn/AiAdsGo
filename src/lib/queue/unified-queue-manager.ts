@@ -51,7 +51,9 @@ export class UnifiedQueueManager {
         email: 3,
         export: 2,
         'link-check': 2,
-        cleanup: 1
+        cleanup: 1,
+        'offer-extraction': 2,      // Offer提取任务并发限制（AI密集型）
+        'batch-offer-creation': 1   // 批量任务协调器（串行执行，避免资源竞争）
       },
       maxQueueSize: config.maxQueueSize || 1000,
       taskTimeout: config.taskTimeout || 60000,

@@ -113,12 +113,114 @@ export class QueueRecoveryManager {
     // 检查任务状态
     const status = await this.checkTaskStatus(item, taskType)
 
-    return {
-      taskId,
-      status: status === 'running' ? 'running' : 'recoverable',
-      reason: `任务类型: ${taskType}, 状态: ${status}`,
-      recoveredAt: new Date(),
-      attempts
+    // 只恢复 pending 和 running 状态的任务
+    if (status !== 'running' && status !== 'recoverable') {
+      return {
+        taskId,
+        status,
+        reason: `任务状态不需要恢复: ${status}`,
+        recoveredAt: new Date(),
+        attempts
+      }
+    }
+
+    // 实际执行恢复：直接使用 UnifiedQueueManager 重新入队
+    try {
+      await this.enqueueRecoveredTask(item, taskType)
+
+      return {
+        taskId,
+        status: 'recoverable',
+        reason: `成功恢复任务类型: ${taskType}`,
+        recoveredAt: new Date(),
+        attempts
+      }
+    } catch (error: any) {
+      console.error(`⚠️ 恢复任务失败 ${taskType} #${taskId}:`, error.message)
+      return {
+        taskId,
+        status: 'failed',
+        reason: `恢复失败: ${error.message}`,
+        recoveredAt: new Date(),
+        attempts
+      }
+    }
+  }
+
+  /**
+   * 将恢复的任务重新入队到 UnifiedQueueManager
+   */
+  private async enqueueRecoveredTask(item: any, taskType: string): Promise<void> {
+    // 动态导入 UnifiedQueueManager 以避免循环依赖
+    const { getQueueManager } = await import('./index')
+    const queue = getQueueManager()
+
+    // 确保队列已初始化
+    if (!queue['adapter']?.isConnected?.()) {
+      await queue.initialize()
+    }
+
+    // 根据任务类型构造入队数据
+    switch (taskType) {
+      case 'offer-extraction': {
+        // Offer提取任务
+        const taskData = {
+          taskId: item.id,
+          affiliateLink: item.affiliate_link,
+          targetCountry: item.target_country,
+          skipCache: item.skip_cache === 1,
+          skipWarmup: item.skip_warmup === 1,
+          batchId: item.batch_id || undefined
+        }
+
+        await queue.enqueue('offer-extraction', taskData, item.user_id, {
+          priority: 'normal'
+        })
+
+        console.log(`✅ 恢复 offer-extraction 任务: ${item.id}`)
+        break
+      }
+
+      case 'offer-creation':
+      case 'offer-scrape':
+      case 'offer-enhance': {
+        // 批量任务（batch_tasks）
+        const taskData = {
+          batchId: item.id,
+          taskType: item.task_type,
+          totalCount: item.total_count,
+          completedCount: item.completed_count || 0,
+          failedCount: item.failed_count || 0,
+          sourceFile: item.source_file,
+          metadata: item.metadata ? JSON.parse(item.metadata) : undefined
+        }
+
+        await queue.enqueue(taskType as any, taskData, item.user_id, {
+          priority: 'normal'
+        })
+
+        console.log(`✅ 恢复 ${taskType} 任务: ${item.id}`)
+        break
+      }
+
+      case 'scrape': {
+        // Offer抓取任务（旧逻辑，保留兼容）
+        const taskData = {
+          offerId: item.offer_id || item.id,
+          url: item.url,
+          brand: item.brand
+        }
+
+        await queue.enqueue('scrape', taskData, item.user_id, {
+          priority: 'normal'
+        })
+
+        console.log(`✅ 恢复 scrape 任务: Offer #${item.offer_id || item.id}`)
+        break
+      }
+
+      default:
+        throw new Error(`不支持的任务类型: ${taskType}`)
     }
   }
 
@@ -126,12 +228,22 @@ export class QueueRecoveryManager {
    * 检测任务类型
    */
   private detectTaskType(item: any): string {
-    // 从 offer 表恢复的抓取任务
-    if (item.offer_id || item.url) {
+    // 从 offers 表恢复的抓取任务
+    if (item.offer_id || (item.url && !item.affiliate_link)) {
       return 'scrape'
     }
 
-    // 其他任务类型检测逻辑
+    // 从 offer_tasks 表恢复的Offer提取任务
+    if (item.affiliate_link && item.target_country) {
+      return 'offer-extraction'
+    }
+
+    // 从 batch_tasks 表恢复的批量任务
+    if (item.total_count !== undefined && item.task_type) {
+      return item.task_type // 'offer-creation', 'offer-scrape', 'offer-enhance'
+    }
+
+    // 使用显式task_type字段
     if (item.task_type) {
       return item.task_type
     }

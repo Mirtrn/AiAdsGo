@@ -13,6 +13,8 @@ import { createExportExecutor } from './export-executor'
 import { createEmailExecutor } from './email-executor'
 import { createLinkCheckExecutor } from './link-check-executor'
 import { createCleanupExecutor } from './cleanup-executor'
+import { executeOfferExtraction } from './offer-extraction-executor'
+import { executeBatchCreation } from './batch-creation-executor'
 
 /**
  * 注册所有任务执行器
@@ -51,6 +53,14 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
   // 注册 cleanup 执行器
   queue.registerExecutor('cleanup', createCleanupExecutor())
   console.log('   ✅ cleanup 执行器已注册（数据清理）')
+
+  // 注册 offer-extraction 执行器
+  queue.registerExecutor('offer-extraction', executeOfferExtraction)
+  console.log('   ✅ offer-extraction 执行器已注册（Offer信息提取）')
+
+  // 注册 batch-offer-creation 执行器
+  queue.registerExecutor('batch-offer-creation', executeBatchCreation)
+  console.log('   ✅ batch-offer-creation 执行器已注册（批量Offer创建）')
 
   console.log('📝 任务执行器注册完成')
 }

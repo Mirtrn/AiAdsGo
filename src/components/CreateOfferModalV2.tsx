@@ -29,7 +29,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react'
 import ProgressTracker from '@/components/ProgressTracker'
-import { useOfferExtraction } from '@/hooks/useOfferExtraction'
+import { useOfferExtractionV2 } from '@/hooks/useOfferExtractionV2'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 
 interface CreateOfferModalV2Props {
@@ -89,21 +89,21 @@ export default function CreateOfferModalV2({
   // 步骤3：用户可修正的字段
   const [brandName, setBrandName] = useState('')
 
-  // 🔥 SSE进度跟踪
+  // 🔥 任务队列 + SSE进度跟踪
   const {
     isExtracting,
+    taskId,
     currentStage,
     currentStatus,
     currentMessage,
-    events,
-    details,
+    progress,
     result: extractionResult,
     error: extractionError,
-    errorDetails,
-    currentDuration,
+    connectionType,
     startExtraction,
+    reconnect,
     reset: resetExtraction,
-  } = useOfferExtraction()
+  } = useOfferExtractionV2()
 
   // 🔥 监听提取完成，自动进入确认步骤
   useEffect(() => {
@@ -142,15 +142,14 @@ export default function CreateOfferModalV2({
   useEffect(() => {
     if (extractionError) {
       // 检查是否为代理配置错误
-      const errorCode = errorDetails?.errorCode as string | undefined
-      if (errorCode === 'PROXY_NOT_CONFIGURED') {
+      if (extractionError.includes('PROXY_NOT_CONFIGURED') || extractionError.includes('代理')) {
         setError('代理配置缺失。请先在设置页面配置代理IP才能创建offer。')
       } else {
         setError(extractionError)
       }
       setCurrentStep('input')
     }
-  }, [extractionError, errorDetails])
+  }, [extractionError])
 
   // ========== 步骤1: 提交用户输入，开始自动提取 ==========
   const handleExtract = async (e: React.FormEvent) => {
@@ -370,17 +369,37 @@ export default function CreateOfferModalV2({
           </form>
         )}
 
-        {/* ========== 步骤2: 自动提取中（SSE实时进度） ========== */}
+        {/* ========== 步骤2: 自动提取中（任务队列 + SSE实时进度） ========== */}
         {currentStep === 'extracting' && (
           <div className="py-6">
+            {/* 显示连接类型 */}
+            {connectionType && (
+              <div className="mb-2 text-xs text-gray-500 flex items-center gap-1">
+                {connectionType === 'sse' ? '🔴 SSE实时推送' : '🔵 轮询模式'}
+                {taskId && <span className="ml-2 font-mono text-[10px]">任务ID: {taskId.substring(0, 8)}...</span>}
+              </div>
+            )}
             <ProgressTracker
               currentStage={currentStage}
               currentStatus={currentStatus}
               currentMessage={currentMessage}
-              events={events}
-              details={details}
-              currentDuration={currentDuration}
+              events={[]} // V2不再提供详细events
+              details={undefined} // V2不再提供details
+              currentDuration={undefined} // V2不再提供currentDuration
             />
+            {/* 显示进度百分比 */}
+            <div className="mt-3">
+              <div className="flex justify-between text-xs text-gray-600 mb-1">
+                <span>整体进度</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
           </div>
         )}
 

@@ -1089,31 +1089,124 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
         created_at ASC
     `)
 
-    if (unfinishedOffers.length === 0) {
+    // 查询未完成的offer_tasks（Offer提取任务）
+    const unfinishedOfferTasks = await db.query<{
+      id: string
+      user_id: number
+      status: string
+      affiliate_link: string
+      target_country: string
+      skip_cache: number
+      skip_warmup: number
+      batch_id: string | null
+      created_at: string
+    }>(`
+      SELECT id, user_id, status, affiliate_link, target_country, skip_cache, skip_warmup, batch_id, created_at
+      FROM offer_tasks
+      WHERE status IN ('pending', 'running')
+        AND created_at > datetime('now', '-7 days')
+      ORDER BY
+        CASE status
+          WHEN 'running' THEN 1
+          WHEN 'pending' THEN 2
+        END,
+        created_at ASC
+    `)
+
+    // 查询未完成的batch_tasks（批量任务）
+    const unfinishedBatchTasks = await db.query<{
+      id: string
+      user_id: number
+      task_type: string
+      status: string
+      total_count: number
+      completed_count: number
+      failed_count: number
+      source_file: string | null
+      metadata: string | null
+      created_at: string
+    }>(`
+      SELECT id, user_id, task_type, status, total_count, completed_count, failed_count, source_file, metadata, created_at
+      FROM batch_tasks
+      WHERE status IN ('pending', 'running', 'partial')
+        AND created_at > datetime('now', '-7 days')
+      ORDER BY
+        CASE status
+          WHEN 'running' THEN 1
+          WHEN 'partial' THEN 2
+          WHEN 'pending' THEN 3
+        END,
+        created_at ASC
+    `)
+
+    const totalUnfinished = unfinishedOffers.length + unfinishedOfferTasks.length + unfinishedBatchTasks.length
+
+    if (totalUnfinished === 0) {
       console.log('✅ 队列恢复：没有未完成的任务需要恢复')
       global.__queueRecoveryPending = false
       return
     }
 
     // 统计信息
-    const inProgressCount = unfinishedOffers.filter(o => o.scrape_status === 'in_progress').length
-    const pendingCount = unfinishedOffers.filter(o => o.scrape_status === 'pending').length
+    const scrapeInProgress = unfinishedOffers.filter(o => o.scrape_status === 'in_progress').length
+    const scrapePending = unfinishedOffers.filter(o => o.scrape_status === 'pending').length
 
-    console.log(`📋 队列恢复：从数据库发现 ${unfinishedOffers.length} 个未完成任务`)
-    console.log(`   - in_progress: ${inProgressCount}`)
-    console.log(`   - pending: ${pendingCount}`)
+    const offerTasksRunning = unfinishedOfferTasks.filter(t => t.status === 'running').length
+    const offerTasksPending = unfinishedOfferTasks.filter(t => t.status === 'pending').length
+
+    const batchTasksRunning = unfinishedBatchTasks.filter(t => t.status === 'running').length
+    const batchTasksPartial = unfinishedBatchTasks.filter(t => t.status === 'partial').length
+    const batchTasksPending = unfinishedBatchTasks.filter(t => t.status === 'pending').length
+
+    console.log(`📋 队列恢复：从数据库发现 ${totalUnfinished} 个未完成任务`)
+    if (unfinishedOffers.length > 0) {
+      console.log(`   [scrape] ${unfinishedOffers.length} 个: running=${scrapeInProgress}, pending=${scrapePending}`)
+    }
+    if (unfinishedOfferTasks.length > 0) {
+      console.log(`   [offer-extraction] ${unfinishedOfferTasks.length} 个: running=${offerTasksRunning}, pending=${offerTasksPending}`)
+    }
+    if (unfinishedBatchTasks.length > 0) {
+      console.log(`   [batch-tasks] ${unfinishedBatchTasks.length} 个: running=${batchTasksRunning}, partial=${batchTasksPartial}, pending=${batchTasksPending}`)
+    }
     console.log(`   (将在首次API请求时自动恢复)`)
 
     // 存储待恢复数据到全局变量
     global.__queueRecoveryPending = true
-    global.__queueRecoveryData = unfinishedOffers.map(o => ({
-      id: o.id,
-      user_id: o.user_id,
-      url: o.url,
-      brand: o.brand,
-      status: o.scrape_status === 'in_progress' ? 'running' : 'pending',
-      task_type: 'scrape'
-    }))
+    global.__queueRecoveryData = [
+      // Scrape任务
+      ...unfinishedOffers.map(o => ({
+        id: o.id,
+        user_id: o.user_id,
+        url: o.url,
+        brand: o.brand,
+        status: o.scrape_status === 'in_progress' ? 'running' : 'pending',
+        task_type: 'scrape'
+      })),
+      // Offer提取任务
+      ...unfinishedOfferTasks.map(t => ({
+        id: t.id,
+        user_id: t.user_id,
+        status: t.status,
+        task_type: 'offer-extraction',
+        affiliate_link: t.affiliate_link,
+        target_country: t.target_country,
+        skip_cache: t.skip_cache,
+        skip_warmup: t.skip_warmup,
+        batch_id: t.batch_id
+      })),
+      // 批量任务
+      ...unfinishedBatchTasks.map(b => ({
+        id: b.id,
+        user_id: b.user_id,
+        status: b.status,
+        task_type: b.task_type, // 'offer-creation', 'offer-scrape', 'offer-enhance'
+        total_count: b.total_count,
+        completed_count: b.completed_count,
+        failed_count: b.failed_count,
+        source_file: b.source_file,
+        metadata: b.metadata
+      }))
+    ]
   } catch (error) {
     console.error('❌ 检查队列任务失败:', error)
     global.__queueRecoveryPending = false
@@ -1121,7 +1214,7 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
 }
 
 /**
- * 从Redis队列恢复scrape任务
+ * 从Redis队列恢复所有类型任务
  */
 async function recoverFromRedis(): Promise<Array<{
   id: string
@@ -1137,49 +1230,86 @@ async function recoverFromRedis(): Promise<Array<{
       return []
     }
 
-    // 从Redis队列读取pending和running状态的scrape任务
+    // 从Redis队列读取pending和running状态的任务
     // 注意：Redis队列的键名需要与unified-queue-manager.ts中的配置一致
     const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'autoads:queue:'
 
-    // 获取所有待处理任务（pending队列）
-    const pendingKey = `${redisKeyPrefix}pending`
-    const runningKey = `${redisKeyPrefix}running`
-
-    const [pendingTasks, runningTasks] = await Promise.all([
-      redisClient.lrange(pendingKey, 0, -1),
-      redisClient.lrange(runningKey, 0, -1)
-    ])
-
-    // 解析任务数据并过滤scrape任务
-    const allTasks = [...pendingTasks, ...runningTasks]
-    const scrapeTasks: Array<{
+    // 获取所有任务类型的pending队列
+    const taskTypes = ['scrape', 'offer-extraction', 'offer-creation', 'offer-scrape', 'offer-enhance']
+    const allTasks: Array<{
       id: string
       userId: number
       status: string
       data: any
     }> = []
 
-    for (const taskStr of allTasks) {
+    // 从每个任务类型的队列中读取
+    for (const taskType of taskTypes) {
       try {
-        const task = JSON.parse(taskStr)
+        const pendingKey = `${redisKeyPrefix}pending:${taskType}`
+        const taskIds = await redisClient.zrange(pendingKey, 0, -1)
 
-        // 只恢复scrape任务
-        if (task.type === 'scrape' || task.taskType === 'scrape') {
-          scrapeTasks.push({
-            id: task.id || 'unknown',
-            userId: task.userId || 0,
-            status: task.status || 'pending',
-            data: task.data || {}
-          })
+        for (const taskId of taskIds) {
+          try {
+            // 从tasks hash中获取任务详情
+            const taskJson = await redisClient.hget(`${redisKeyPrefix}tasks`, taskId)
+            if (taskJson) {
+              const task = JSON.parse(taskJson)
+              allTasks.push({
+                id: task.id || taskId,
+                userId: task.userId || 0,
+                status: task.status || 'pending',
+                data: {
+                  type: task.type, // 保留任务类型
+                  ...task.data // 保留原始data
+                }
+              })
+            }
+          } catch (parseError) {
+            console.warn(`⚠️ 解析Redis任务失败: ${taskId}`, parseError)
+            continue
+          }
         }
-      } catch (parseError) {
-        // 忽略解析失败的任务
+      } catch (error) {
+        console.warn(`⚠️ 从Redis恢复${taskType}任务失败:`, error)
         continue
       }
     }
 
-    console.log(`✅ 队列恢复：Redis恢复完成，找到 ${scrapeTasks.length} 个scrape任务`)
-    return scrapeTasks
+    // 同时检查running集合
+    try {
+      const runningTaskIds = await redisClient.smembers(`${redisKeyPrefix}running`)
+      for (const taskId of runningTaskIds) {
+        const taskJson = await redisClient.hget(`${redisKeyPrefix}tasks`, taskId)
+        if (taskJson) {
+          const task = JSON.parse(taskJson)
+          allTasks.push({
+            id: task.id || taskId,
+            userId: task.userId || 0,
+            status: 'running',
+            data: {
+              type: task.type, // 保留任务类型
+              ...task.data // 保留原始data
+            }
+          })
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ 从Redis恢复running任务失败:', error)
+    }
+
+    const taskTypeCount: Record<string, number> = {}
+    allTasks.forEach(t => {
+      const type = t.data?.type || 'unknown'
+      taskTypeCount[type] = (taskTypeCount[type] || 0) + 1
+    })
+
+    console.log(`✅ 队列恢复：Redis恢复完成，找到 ${allTasks.length} 个任务`)
+    Object.entries(taskTypeCount).forEach(([type, count]) => {
+      console.log(`   - ${type}: ${count} 个`)
+    })
+
+    return allTasks
   } catch (error) {
     console.error('❌ Redis恢复失败，使用数据库回退:', error)
     return []

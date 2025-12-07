@@ -1,0 +1,237 @@
+/**
+ * POST /api/offers/batch/create
+ *
+ * 批量创建Offer任务
+ *
+ * 流程：
+ * 1. 接收CSV文件上传（FormData）
+ * 2. 解析CSV，校验必填列（推广链接、推广国家）
+ * 3. 跳过缺少必填参数的行，只处理有效数据
+ * 4. 创建batch_tasks记录
+ * 5. 创建batch-offer-creation任务并加入队列
+ * 6. 返回batchId供前端订阅
+ *
+ * CSV格式要求：
+ * - 必需列：推广链接/affiliate_link, 推广国家/target_country（支持中英文表头）
+ * - 可选列：产品价格/product_price, 佣金比例/commission_payout
+ * - 编码：UTF-8
+ * - 最大有效行数：500行
+ * - 缺少必填参数的行会被自动跳过
+ */
+
+import { NextRequest, NextResponse } from 'next/server'
+import { getDatabase } from '@/lib/db'
+import { getQueueManager } from '@/lib/queue/unified-queue-manager'
+import type { BatchCreationTaskData } from '@/lib/queue/executors/batch-creation-executor'
+
+export const maxDuration = 60
+
+export async function POST(req: NextRequest) {
+  const db = getDatabase()
+  const queue = getQueueManager()
+
+  // 确保队列已初始化
+  if (!queue['adapter']?.isConnected?.()) {
+    await queue.initialize()
+  }
+
+  try {
+    // 1. 验证用户身份
+    const userId = req.headers.get('x-user-id')
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized', message: '请先登录' },
+        { status: 401 }
+      )
+    }
+    const userIdNum = parseInt(userId, 10)
+
+    // 2. 解析FormData
+    const formData = await req.formData()
+    const file = formData.get('file') as File | null
+
+    if (!file) {
+      return NextResponse.json(
+        { error: 'Invalid request', message: '请上传CSV文件' },
+        { status: 400 }
+      )
+    }
+
+    // 3. 读取并解析CSV
+    const text = await file.text()
+    const lines = text.split('\n').filter(line => line.trim())
+
+    if (lines.length < 2) {
+      return NextResponse.json(
+        { error: 'Invalid CSV', message: 'CSV文件至少需要包含标题行和一行数据' },
+        { status: 400 }
+      )
+    }
+
+    // 解析标题行（支持中英文表头）
+    const rawHeaders = lines[0].split(',').map(h => h.trim())
+
+    // 字段映射：中文 → 英文
+    const fieldMapping: Record<string, string> = {
+      '推广链接': 'affiliate_link',
+      '推广国家': 'target_country',
+      '产品价格': 'product_price',
+      '佣金比例': 'commission_payout',
+      // 兼容英文表头
+      'affiliate_link': 'affiliate_link',
+      'target_country': 'target_country',
+      'product_price': 'product_price',
+      'commission_payout': 'commission_payout',
+    }
+
+    // 映射后的英文字段名
+    const headers = rawHeaders.map(h => fieldMapping[h] || h.toLowerCase())
+
+    // 查找必填列索引
+    const affiliateLinkIdx = headers.indexOf('affiliate_link')
+    const targetCountryIdx = headers.indexOf('target_country')
+
+    // 校验必填列存在
+    if (affiliateLinkIdx === -1) {
+      return NextResponse.json(
+        { error: 'Invalid CSV', message: 'CSV文件缺少必需列：推广链接 (affiliate_link)' },
+        { status: 400 }
+      )
+    }
+
+    if (targetCountryIdx === -1) {
+      return NextResponse.json(
+        { error: 'Invalid CSV', message: 'CSV文件缺少必需列：推广国家 (target_country)' },
+        { status: 400 }
+      )
+    }
+
+    // 查找可选列索引
+    const productPriceIdx = headers.indexOf('product_price')
+    const commissionPayoutIdx = headers.indexOf('commission_payout')
+
+    // 解析数据行，只保留必填参数完整的行
+    const rows: Array<{
+      affiliate_link: string
+      target_country: string
+      product_price?: string
+      commission_payout?: string
+    }> = []
+
+    let skippedCount = 0
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim())
+      const affiliateLink = values[affiliateLinkIdx]
+      const targetCountry = values[targetCountryIdx]
+
+      // 校验必填参数
+      if (!affiliateLink || !targetCountry) {
+        skippedCount++
+        console.warn(`⚠️ 跳过第${i + 1}行：缺少必填参数 (推广链接=${affiliateLink}, 推广国家=${targetCountry})`)
+        continue // 跳过参数不全的行
+      }
+
+      const row: any = {
+        affiliate_link: affiliateLink,
+        target_country: targetCountry,
+      }
+
+      // 添加可选参数
+      if (productPriceIdx !== -1 && values[productPriceIdx]) {
+        row.product_price = values[productPriceIdx]
+      }
+      if (commissionPayoutIdx !== -1 && values[commissionPayoutIdx]) {
+        row.commission_payout = values[commissionPayoutIdx]
+      }
+
+      rows.push(row)
+    }
+
+    if (rows.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'Invalid CSV',
+          message: skippedCount > 0
+            ? `CSV文件中所有${skippedCount}行数据都缺少必填参数（推广链接、推广国家）`
+            : 'CSV文件中没有有效数据'
+        },
+        { status: 400 }
+      )
+    }
+
+    if (rows.length > 500) {
+      return NextResponse.json(
+        { error: 'Too many rows', message: `CSV文件最多支持500行，当前有效数据${rows.length}行` },
+        { status: 400 }
+      )
+    }
+
+    console.log(`📁 CSV解析完成: ${rows.length} 行有效数据${skippedCount > 0 ? ` (跳过${skippedCount}行)` : ''}`)
+
+    // 4. 创建batch_tasks记录
+    const batchId = crypto.randomUUID()
+
+    await db.exec(`
+      INSERT INTO batch_tasks (
+        id,
+        user_id,
+        task_type,
+        status,
+        total_count,
+        source_file,
+        metadata,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, 'offer-creation', 'pending', ?, ?, ?, datetime('now'), datetime('now'))
+    `, [
+      batchId,
+      userIdNum,
+      rows.length,
+      file.name,
+      JSON.stringify({
+        skipped_rows: skippedCount,
+        valid_rows: rows.length
+      })
+    ])
+
+    console.log(`📝 批量任务已创建: ${batchId} (${rows.length} 个Offer${skippedCount > 0 ? `，跳过${skippedCount}行` : ''})`)
+
+    // 5. 将batch-offer-creation任务加入队列
+    const taskData: BatchCreationTaskData = {
+      batchId,
+      rows
+    }
+
+    await queue.enqueue(
+      'batch-offer-creation',
+      taskData,
+      userIdNum,
+      {
+        priority: 'normal',
+        maxRetries: 1 // 批量任务本身不重试，由子任务重试
+      }
+    )
+
+    console.log(`🚀 批量任务已加入队列: ${batchId}`)
+
+    // 6. 返回batchId
+    return NextResponse.json({
+      success: true,
+      batchId,
+      total_count: rows.length,
+      message: `批量任务已创建，共${rows.length}个Offer`
+    })
+
+  } catch (error: any) {
+    console.error('❌ 批量创建任务失败:', error)
+
+    return NextResponse.json(
+      {
+        error: 'Internal server error',
+        message: error.message || '创建批量任务失败'
+      },
+      { status: 500 }
+    )
+  }
+}
