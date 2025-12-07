@@ -10,6 +10,8 @@
 import type { Task } from '../types'
 import { extractOffer } from '@/lib/offer-extraction-core'
 import { getDatabase } from '@/lib/db'
+import { executeAIAnalysis } from '@/lib/ai-analysis-service'
+import { getTargetLanguage } from '@/lib/offer-utils'
 
 /**
  * Offer提取任务数据接口
@@ -80,6 +82,56 @@ export async function executeOfferExtraction(
       throw new Error(extractResult.error?.message || '提取失败')
     }
 
+    // ========== 执行AI分析 ==========
+    console.log(`🤖 开始AI分析: ${task.id}`)
+
+    // 更新进度到ai_analysis阶段
+    await db.exec(`
+      UPDATE offer_tasks
+      SET stage = 'ai_analysis', message = '正在进行AI分析...', progress = 90, updated_at = datetime('now')
+      WHERE id = ?
+    `, [task.id])
+
+    let aiAnalysisResult = null
+    try {
+      const targetLanguage = getTargetLanguage(targetCountry)
+
+      aiAnalysisResult = await executeAIAnalysis({
+        extractResult: extractResult.data,
+        targetCountry,
+        targetLanguage,
+        userId: task.userId,
+        enableReviewAnalysis: true,
+        enableCompetitorAnalysis: true,
+        enableAdExtraction: true,
+      })
+
+      console.log(`✅ AI分析完成: ${task.id}`)
+    } catch (aiError: any) {
+      console.warn(`⚠️ AI分析失败（不影响流程）: ${task.id}:`, aiError.message)
+      // AI分析失败不中断流程，继续保存基础数据
+    }
+
+    // 合并AI分析结果到提取数据（展平结构，与前端期望匹配）
+    const aiProductInfo = aiAnalysisResult?.aiProductInfo || {}
+    const finalResult = {
+      ...extractResult.data,
+      // 🔥 展平AI分析结果到顶层（与CreateOfferModalV2.tsx期望的结构匹配）
+      brandDescription: aiProductInfo.brandDescription || null,
+      uniqueSellingPoints: aiProductInfo.uniqueSellingPoints || null,
+      productHighlights: aiProductInfo.productHighlights || null,
+      targetAudience: aiProductInfo.targetAudience || null,
+      category: aiProductInfo.category || null,
+      // P0评论深度分析和竞品分析
+      reviewAnalysis: aiAnalysisResult?.reviewAnalysis || null,
+      competitorAnalysis: aiAnalysisResult?.competitorAnalysis || null,
+      // 广告元素提取
+      extractedKeywords: aiAnalysisResult?.extractedKeywords || null,
+      extractedHeadlines: aiAnalysisResult?.extractedHeadlines || null,
+      extractedDescriptions: aiAnalysisResult?.extractedDescriptions || null,
+      extractionMetadata: aiAnalysisResult?.extractionMetadata || null,
+    }
+
     // 更新任务为完成状态
     await db.exec(`
       UPDATE offer_tasks
@@ -91,11 +143,11 @@ export async function executeOfferExtraction(
         completed_at = datetime('now'),
         updated_at = datetime('now')
       WHERE id = ?
-    `, [JSON.stringify(extractResult.data), task.id])
+    `, [JSON.stringify(finalResult), task.id])
 
     console.log(`✅ Offer提取任务完成: ${task.id}`)
 
-    return extractResult.data
+    return finalResult
   } catch (error: any) {
     console.error(`❌ Offer提取任务失败: ${task.id}:`, error.message)
 
