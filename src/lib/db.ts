@@ -28,7 +28,10 @@ class SQLiteAdapter implements DatabaseAdapter {
       fs.mkdirSync(dataDir, { recursive: true })
     }
 
-    this.db = new Database(dbPath, { verbose: console.log })
+    // 🔥 仅开发环境启用verbose日志（减少生产环境日志噪音）
+    this.db = new Database(dbPath, {
+      verbose: process.env.NODE_ENV === 'development' ? console.log : undefined
+    })
 
     // 启用外键约束
     this.db.pragma('foreign_keys = ON')
