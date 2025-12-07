@@ -187,7 +187,7 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
               const newStage = progressData.stage as ProgressStage
               const newStatus = progressData.status || 'in_progress'
 
-              // 🔥 阶段耗时计算逻辑
+              // 🔥 阶段耗时计算逻辑（前端计算）
               // 如果是新阶段开始，重置计时器
               if (newStage !== lastStageRef.current && newStatus === 'in_progress') {
                 // 保存上一个阶段的完成耗时
@@ -201,13 +201,33 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
                 lastStageRef.current = newStage
               }
 
+              // 🔥 修复：如果是新阶段直接完成（没有先经过in_progress），也需要保存上一个阶段的耗时
+              if (newStage !== lastStageRef.current && newStatus === 'completed') {
+                // 保存上一个阶段的完成耗时（如果还没保存）
+                if (lastStageRef.current) {
+                  setStageDurations(prev => {
+                    const newMap = new Map(prev)
+                    // 只有当上一个阶段还没有耗时记录时才保存
+                    if (!newMap.has(lastStageRef.current)) {
+                      const previousElapsed = Date.now() - stageStartTimeRef.current
+                      newMap.set(lastStageRef.current, previousElapsed)
+                    }
+                    return newMap
+                  })
+                }
+
+                // 重置计时器为当前阶段
+                stageStartTimeRef.current = Date.now()
+                lastStageRef.current = newStage
+              }
+
               // 如果正在进行中，计算已用时间
               if (newStatus === 'in_progress') {
                 const elapsed = Date.now() - stageStartTimeRef.current
                 setCurrentDuration(elapsed)
               }
 
-              // 如果阶段完成，固定duration并保存到stageDurations
+              // 如果阶段完成，保存完成耗时到stageDurations
               if (newStatus === 'completed') {
                 const elapsed = Date.now() - stageStartTimeRef.current
                 setCurrentDuration(elapsed)
