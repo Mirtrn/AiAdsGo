@@ -53,6 +53,7 @@ interface UseOfferExtractionV2Return {
   progress: number // 0-100
   result: ExtractionResult | null
   error: string | null
+  currentDuration?: number // 当前阶段的耗时（毫秒）
 
   // Connection state
   connectionType: 'sse' | 'polling' | null
@@ -73,9 +74,14 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
   const [result, setResult] = useState<ExtractionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [connectionType, setConnectionType] = useState<'sse' | 'polling' | null>(null)
+  const [currentDuration, setCurrentDuration] = useState<number | undefined>()
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const sseReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
+
+  // 阶段耗时追踪
+  const stageStartTimeRef = useRef<number>(Date.now())
+  const lastStageRef = useRef<ProgressStage>('resolving_link')
 
   // 清理函数
   const cleanup = useCallback(() => {
@@ -105,6 +111,9 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     setProgress(0)
     setResult(null)
     setError(null)
+    setCurrentDuration(undefined)
+    stageStartTimeRef.current = Date.now()
+    lastStageRef.current = 'resolving_link'
   }, [cleanup])
 
   // 开始提取 - 使用统一的POST /api/offers/extract/stream端点
@@ -172,8 +181,31 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
             if (data.type === 'progress') {
               // 后端发送格式: {type: 'progress', data: {stage, status, message, ...}}
               const progressData = data.data || data
-              setCurrentStage(progressData.stage as ProgressStage)
-              setCurrentStatus(progressData.status || 'in_progress')
+              const newStage = progressData.stage as ProgressStage
+              const newStatus = progressData.status || 'in_progress'
+
+              // 🔥 阶段耗时计算逻辑
+              // 如果是新阶段开始，重置计时器
+              if (newStage !== lastStageRef.current && newStatus === 'in_progress') {
+                stageStartTimeRef.current = Date.now()
+                setCurrentDuration(0)
+                lastStageRef.current = newStage
+              }
+
+              // 如果正在进行中，计算已用时间
+              if (newStatus === 'in_progress') {
+                const elapsed = Date.now() - stageStartTimeRef.current
+                setCurrentDuration(elapsed)
+              }
+
+              // 如果阶段完成，固定duration
+              if (newStatus === 'completed') {
+                const elapsed = Date.now() - stageStartTimeRef.current
+                setCurrentDuration(elapsed)
+              }
+
+              setCurrentStage(newStage)
+              setCurrentStatus(newStatus)
               setCurrentMessage(progressData.message || '')
               // 根据stage计算进度百分比
               const progressMap: Record<string, number> = {
@@ -251,6 +283,7 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     progress,
     result,
     error,
+    currentDuration,
     connectionType,
     startExtraction,
     reconnect,

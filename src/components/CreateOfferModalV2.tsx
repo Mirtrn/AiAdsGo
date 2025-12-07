@@ -99,6 +99,7 @@ export default function CreateOfferModalV2({
     progress,
     result: extractionResult,
     error: extractionError,
+    currentDuration,
     connectionType,
     startExtraction,
     reconnect,
@@ -388,7 +389,7 @@ export default function CreateOfferModalV2({
               currentMessage={currentMessage}
               events={[]} // V2不再提供详细events
               details={undefined} // V2不再提供details
-              currentDuration={undefined} // V2不再提供currentDuration
+              currentDuration={currentDuration} // 🔥 传递前端计算的阶段耗时
             />
           </div>
         )}
