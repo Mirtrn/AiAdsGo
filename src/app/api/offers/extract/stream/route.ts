@@ -88,16 +88,13 @@ export async function POST(req: NextRequest) {
     const taskData: OfferExtractionTaskData = {
       affiliateLink: affiliate_link,
       targetCountry: target_country,
-      userId: userIdNum,
       skipCache: skipCache || false,
       skipWarmup: skipWarmup || false,
     }
 
     console.log(`📝 Created offer_task: ${taskId} for user ${userIdNum}`)
-    const queueTaskId = await queue.enqueue('offer-extraction', taskData, {
-      taskId,
-      userId: userIdNum,
-      priority: 5,
+    const queueTaskId = await queue.enqueue('offer-extraction', taskData, userIdNum, {
+      priority: 'normal',
     })
 
     console.log(`🚀 Enqueued offer-extraction task: ${taskId}`)
