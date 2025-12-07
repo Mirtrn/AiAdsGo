@@ -189,23 +189,41 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
             console.log('📨 SSE Message:', data)
 
             if (data.type === 'progress') {
-              setCurrentStage(data.stage as ProgressStage)
-              setCurrentStatus('in_progress')
-              setCurrentMessage(data.message)
-              setProgress(data.progress)
+              // 后端发送格式: {type: 'progress', data: {stage, status, message, ...}}
+              const progressData = data.data || data
+              setCurrentStage(progressData.stage as ProgressStage)
+              setCurrentStatus(progressData.status || 'in_progress')
+              setCurrentMessage(progressData.message || '')
+              // 根据stage计算进度百分比
+              const progressMap: Record<string, number> = {
+                proxy_warmup: 5,
+                fetching_proxy: 10,
+                resolving_link: 20,
+                accessing_page: 35,
+                extracting_brand: 50,
+                scraping_products: 65,
+                processing_data: 80,
+                ai_analysis: 90,
+                completed: 100,
+                error: 0,
+              }
+              setProgress(progressMap[progressData.stage] || 0)
             } else if (data.type === 'complete') {
+              // 后端发送格式: {type: 'complete', data: {...result}}
               setCurrentStage('completed')
               setCurrentStatus('completed')
               setCurrentMessage('提取完成！')
               setProgress(100)
-              setResult(data.result)
+              setResult(data.data || data.result)  // 兼容两种格式
               setIsExtracting(false)
               cleanup()
             } else if (data.type === 'error') {
+              // 后端发送格式: {type: 'error', data: {message, stage, details}}
+              const errorData = data.data || data.error || {}
               setCurrentStage('error')
               setCurrentStatus('error')
-              setError(data.error?.message || '任务失败')
-              setCurrentMessage(data.error?.message || '任务失败')
+              setError(errorData.message || '任务失败')
+              setCurrentMessage(errorData.message || '任务失败')
               setIsExtracting(false)
               cleanup()
             }
