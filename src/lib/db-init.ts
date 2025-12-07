@@ -1054,10 +1054,13 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
 
   try {
     // 🔥 KISS优化：清理过期任务，只恢复最近的任务
-    const { recentTasks, expiredCount } = await cleanupAndRecoverFromRedis()
+    const { recentTasks, expiredCount, orphanedCount } = await cleanupAndRecoverFromRedis()
 
     if (expiredCount > 0) {
       console.log(`🧹 队列清理：已清理 ${expiredCount} 个过期任务（超过1小时）`)
+    }
+    if (orphanedCount > 0) {
+      console.log(`🧹 队列清理：已清理 ${orphanedCount} 个孤立任务（关联Offer已删除）`)
     }
 
     if (recentTasks.length > 0) {
@@ -1256,6 +1259,7 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
  * 1. 超过1小时的任务视为过期，直接从Redis删除
  * 2. 最多恢复50个最近的任务，避免启动时卡住
  * 3. 过期任务不再尝试恢复，减少资源浪费
+ * 4. 关联Offer已删除的任务不恢复
  */
 const TASK_EXPIRY_MS = 60 * 60 * 1000  // 1小时过期
 const MAX_RECOVERY_TASKS = 50          // 最多恢复50个任务
@@ -1263,12 +1267,13 @@ const MAX_RECOVERY_TASKS = 50          // 最多恢复50个任务
 async function cleanupAndRecoverFromRedis(): Promise<{
   recentTasks: Array<{ id: string; userId: number; status: string; data: any; createdAt?: number }>
   expiredCount: number
+  orphanedCount: number
 }> {
   try {
     const redisClient = await getRedisClient()
     if (!redisClient) {
       console.log('⚠️ Redis未配置，跳过Redis恢复')
-      return { recentTasks: [], expiredCount: 0 }
+      return { recentTasks: [], expiredCount: 0, orphanedCount: 0 }
     }
 
     const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'autoads:queue:'
@@ -1284,6 +1289,10 @@ async function cleanupAndRecoverFromRedis(): Promise<{
       createdAt: number
     }> = []
     const expiredTaskIds: string[] = []
+    const orphanedTaskIds: string[] = []  // 关联Offer已删除的任务
+
+    // 获取数据库连接，用于检查Offer是否存在
+    const db = await getDatabase()
 
     // 从每个任务类型的队列中读取
     for (const taskType of taskTypes) {
@@ -1302,15 +1311,27 @@ async function cleanupAndRecoverFromRedis(): Promise<{
               if (createdAt > 0 && createdAt < expiryThreshold) {
                 expiredTaskIds.push(taskId)
                 await redisClient.zrem(pendingKey, taskId)
-              } else {
-                allTasks.push({
-                  id: task.id || taskId,
-                  userId: task.userId || 0,
-                  status: task.status || 'pending',
-                  createdAt: createdAt || now,
-                  data: { type: task.type, ...task.data }
-                })
+                continue
               }
+
+              // 检查关联的Offer是否已删除
+              const offerId = task.data?.offerId || task.data?.offer_id
+              if (offerId) {
+                const offerExists = await checkOfferExists(db, offerId)
+                if (!offerExists) {
+                  orphanedTaskIds.push(taskId)
+                  await redisClient.zrem(pendingKey, taskId)
+                  continue
+                }
+              }
+
+              allTasks.push({
+                id: task.id || taskId,
+                userId: task.userId || 0,
+                status: task.status || 'pending',
+                createdAt: createdAt || now,
+                data: { type: task.type, ...task.data }
+              })
             }
           } catch (parseError) {
             console.warn(`⚠️ 解析Redis任务失败: ${taskId}`)
@@ -1334,27 +1355,40 @@ async function cleanupAndRecoverFromRedis(): Promise<{
           if (createdAt > 0 && createdAt < expiryThreshold) {
             expiredTaskIds.push(taskId)
             await redisClient.srem(`${redisKeyPrefix}running`, taskId)
-          } else {
-            allTasks.push({
-              id: task.id || taskId,
-              userId: task.userId || 0,
-              status: 'running',
-              createdAt: createdAt || now,
-              data: { type: task.type, ...task.data }
-            })
+            continue
           }
+
+          // 检查关联的Offer是否已删除
+          const offerId = task.data?.offerId || task.data?.offer_id
+          if (offerId) {
+            const offerExists = await checkOfferExists(db, offerId)
+            if (!offerExists) {
+              orphanedTaskIds.push(taskId)
+              await redisClient.srem(`${redisKeyPrefix}running`, taskId)
+              continue
+            }
+          }
+
+          allTasks.push({
+            id: task.id || taskId,
+            userId: task.userId || 0,
+            status: 'running',
+            createdAt: createdAt || now,
+            data: { type: task.type, ...task.data }
+          })
         }
       }
     } catch (error) {
       console.warn('⚠️ 从Redis读取running任务失败:', error)
     }
 
-    // 清理过期任务的详情数据
-    if (expiredTaskIds.length > 0) {
+    // 清理过期和孤立任务的详情数据
+    const allCleanupIds = [...expiredTaskIds, ...orphanedTaskIds]
+    if (allCleanupIds.length > 0) {
       try {
-        await redisClient.hdel(`${redisKeyPrefix}tasks`, ...expiredTaskIds)
+        await redisClient.hdel(`${redisKeyPrefix}tasks`, ...allCleanupIds)
       } catch (error) {
-        console.warn('⚠️ 清理过期任务详情失败:', error)
+        console.warn('⚠️ 清理任务详情失败:', error)
       }
     }
 
@@ -1380,10 +1414,26 @@ async function cleanupAndRecoverFromRedis(): Promise<{
       })
     }
 
-    return { recentTasks, expiredCount: expiredTaskIds.length }
+    return { recentTasks, expiredCount: expiredTaskIds.length, orphanedCount: orphanedTaskIds.length }
   } catch (error) {
     console.error('❌ Redis清理/恢复失败:', error)
-    return { recentTasks: [], expiredCount: 0 }
+    return { recentTasks: [], expiredCount: 0, orphanedCount: 0 }
+  }
+}
+
+/**
+ * 检查Offer是否存在（未删除）
+ */
+async function checkOfferExists(db: any, offerId: number): Promise<boolean> {
+  try {
+    const result = await db.query(
+      `SELECT COUNT(*) as count FROM offers WHERE id = ? AND deleted_at IS NULL`,
+      [offerId]
+    ) as Array<{ count: number }>
+    return result[0]?.count > 0
+  } catch (error) {
+    // 查询失败时默认认为存在，避免误删任务
+    return true
   }
 }
 
