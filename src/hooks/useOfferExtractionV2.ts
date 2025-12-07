@@ -75,7 +75,6 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
   const [connectionType, setConnectionType] = useState<'sse' | 'polling' | null>(null)
 
   const abortControllerRef = useRef<AbortController | null>(null)
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const sseReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
 
   // 清理函数
@@ -84,12 +83,6 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     if (sseReaderRef.current) {
       sseReaderRef.current.cancel().catch(() => {})
       sseReaderRef.current = null
-    }
-
-    // 停止轮询
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current)
-      pollingIntervalRef.current = null
     }
 
     // 取消请求
@@ -101,54 +94,42 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     setConnectionType(null)
   }, [])
 
-  // 启动轮询fallback
-  const startPolling = useCallback(async (tid: string) => {
-    console.log('🔄 Falling back to polling for task:', tid)
-    setConnectionType('polling')
-
-    pollingIntervalRef.current = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/offers/extract/status/${tid}`)
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`)
-        }
-
-        const data: TaskStatus = await response.json()
-
-        // 更新状态
-        setCurrentStage(data.stage as ProgressStage || 'resolving_link')
-        setCurrentStatus(data.status as ProgressStatus)
-        setCurrentMessage(data.message || '')
-        setProgress(data.progress)
-
-        // 任务完成
-        if (data.status === 'completed') {
-          setResult(data.result)
-          setIsExtracting(false)
-          cleanup()
-        }
-
-        // 任务失败
-        if (data.status === 'failed') {
-          setError(data.error?.message || '任务失败')
-          setIsExtracting(false)
-          cleanup()
-        }
-      } catch (err) {
-        console.error('Polling error:', err)
-      }
-    }, 1000) // 每秒轮询一次
+  // 重置状态
+  const reset = useCallback(() => {
+    cleanup()
+    setIsExtracting(false)
+    setTaskId(null)
+    setCurrentStage('resolving_link')
+    setCurrentStatus('pending')
+    setCurrentMessage('')
+    setProgress(0)
+    setResult(null)
+    setError(null)
   }, [cleanup])
 
-  // 启动SSE订阅
-  const startSSE = useCallback(async (tid: string) => {
-    console.log('📡 Starting SSE subscription for task:', tid)
-    setConnectionType('sse')
+  // 开始提取 - 使用统一的POST /api/offers/extract/stream端点
+  const startExtraction = useCallback(async (affiliateLink: string, targetCountry: string) => {
+    reset()
+    setIsExtracting(true)
+    setCurrentMessage('创建任务中...')
 
     try {
+      console.log('📡 Starting unified SSE extraction for:', affiliateLink)
+      setConnectionType('sse')
+
       abortControllerRef.current = new AbortController()
 
-      const response = await fetch(`/api/offers/extract/stream/${tid}`, {
+      // 调用统一端点：POST /api/offers/extract/stream
+      // 该端点会创建任务并直接返回SSE流
+      const response = await fetch('/api/offers/extract/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          affiliate_link: affiliateLink,
+          target_country: targetCountry,
+        }),
         signal: abortControllerRef.current.signal
       })
 
@@ -237,121 +218,22 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
         }
       }
     } catch (err: any) {
-      // SSE失败，fallback到轮询
+      // SSE失败
       if (err.name !== 'AbortError') {
-        console.warn('SSE failed, falling back to polling:', err)
-        await startPolling(tid)
+        console.error('SSE extraction failed:', err)
+        setError(err.message || '创建任务失败')
+        setCurrentMessage('创建任务失败，请重试')
+        setIsExtracting(false)
+        cleanup()
       }
     }
-  }, [cleanup, startPolling])
+  }, [reset, cleanup])
 
-  // 重置状态
-  const reset = useCallback(() => {
-    cleanup()
-    setIsExtracting(false)
-    setTaskId(null)
-    setCurrentStage('resolving_link')
-    setCurrentStatus('pending')
-    setCurrentMessage('')
-    setProgress(0)
-    setResult(null)
-    setError(null)
-  }, [cleanup])
-
-  // 开始提取
-  const startExtraction = useCallback(async (affiliateLink: string, targetCountry: string) => {
-    reset()
-    setIsExtracting(true)
-    setCurrentMessage('创建任务中...')
-
-    try {
-      // 1. 创建任务
-      const response = await fetch('/api/offers/extract', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          affiliate_link: affiliateLink,
-          target_country: targetCountry,
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-      const tid = data.taskId
-
-      if (!tid) {
-        throw new Error('No taskId returned')
-      }
-
-      setTaskId(tid)
-      console.log('✅ Task created:', tid)
-
-      // 2. 订阅进度（SSE优先）
-      await startSSE(tid)
-
-    } catch (err: any) {
-      console.error('Extraction failed:', err)
-      setError(err.message || '创建任务失败')
-      setCurrentMessage('创建任务失败，请重试')
-      setIsExtracting(false)
-    }
-  }, [reset, startSSE])
-
-  // 重连已有任务
+  // 重连已有任务（简化版 - 统一API不支持按taskId重连）
   const reconnect = useCallback(async (tid: string) => {
-    reset()
-    setIsExtracting(true)
-    setTaskId(tid)
-    setCurrentMessage('重新连接中...')
-
-    try {
-      // 先查询一次当前状态
-      const response = await fetch(`/api/offers/extract/status/${tid}`)
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data: TaskStatus = await response.json()
-
-      // 如果已经完成或失败，直接显示结果
-      if (data.status === 'completed') {
-        setResult(data.result)
-        setCurrentStage('completed')
-        setCurrentStatus('completed')
-        setProgress(100)
-        setCurrentMessage('提取完成！')
-        setIsExtracting(false)
-        return
-      }
-
-      if (data.status === 'failed') {
-        setError(data.error?.message || '任务失败')
-        setCurrentStage('error')
-        setCurrentStatus('error')
-        setCurrentMessage(data.error?.message || '任务失败')
-        setIsExtracting(false)
-        return
-      }
-
-      // 否则，订阅进度
-      setCurrentStage(data.stage as ProgressStage || 'resolving_link')
-      setProgress(data.progress)
-      setCurrentMessage(data.message || '处理中...')
-
-      await startSSE(tid)
-
-    } catch (err: any) {
-      console.error('Reconnect failed:', err)
-      setError(err.message || '重连失败')
-      setIsExtracting(false)
-    }
-  }, [reset, startSSE])
+    console.warn('Reconnect not supported in unified API, please restart extraction')
+    setError('当前版本不支持重连，请重新开始提取')
+  }, [])
 
   // 组件卸载时清理
   useEffect(() => {
