@@ -32,6 +32,7 @@ interface ScrapeTaskData {
   userId: number
   url: string
   brand: string  // 品牌名称（字符串类型）
+  target_country: string // 目标国家
 }
 
 /**
@@ -60,6 +61,7 @@ export enum OfferScrapingPriority {
  * @param userId User ID
  * @param url 要抓取的URL
  * @param brand 品牌名称
+ * @param targetCountry 目标国家
  * @param priority 优先级（1-10，数字越大优先级越高，默认5）
  * @returns Promise<string> 任务ID，可用于查询队列状态
  */
@@ -68,10 +70,11 @@ export async function triggerOfferScraping(
   userId: number,
   url: string,
   brand: string,  // 字符串类型
+  targetCountry: string,
   priority: number = OfferScrapingPriority.NORMAL
 ): Promise<string> {
   console.log(`[OfferScraping] 🚀 触发异步抓取 Offer #${offerId}`)
-  console.log(`[OfferScraping] URL: ${url}, Brand: ${brand}, UserId: ${userId}, Priority: ${priority}`)
+  console.log(`[OfferScraping] URL: ${url}, Brand: ${brand}, Country: ${targetCountry}, UserId: ${userId}, Priority: ${priority}`)
 
   // 立即更新状态为 queued（已入队）
   updateOfferScrapeStatus(offerId, userId, 'queued')
@@ -89,7 +92,8 @@ export async function triggerOfferScraping(
       offerId,
       userId,
       url,
-      brand
+      brand,
+      target_country: targetCountry
     }
 
     console.log(`[OfferScraping] 📥 添加到统一队列: Offer #${offerId}, Priority: ${taskPriority}`)

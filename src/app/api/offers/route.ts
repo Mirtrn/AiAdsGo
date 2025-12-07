@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
           parseInt(userId, 10),
           offer.url,
           offer.brand,
+          offer.target_country,
           OfferScrapingPriority.URGENT
         ).catch(error => {
           console.error(`[CreateOffer] 触发抓取失败 Offer #${offer.id}:`, error.message)
