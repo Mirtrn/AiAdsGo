@@ -133,16 +133,19 @@ class PostgresAdapter implements DatabaseAdapter {
     // 已知的布尔字段列表（在 PostgreSQL 中是 BOOLEAN 类型）
     const booleanFields = [
       'is_active', 'is_selected', 'is_success', 'must_change_password',
-      'is_default', 'is_manager', 'enabled', 'is_deleted'
+      'is_default', 'is_manager', 'is_manager_account', 'is_idle',
+      'enabled', 'is_deleted'
     ]
 
     // 转换 field = 1 -> field = true, field = 0 -> field = false
+    // 🔥 修复：支持括号内的表达式，例如 (is_deleted = 0 OR ...)
     for (const field of booleanFields) {
-      // 匹配 field = 1 或 field= 1 或 field =1
-      const pattern1 = new RegExp(`\\b(${field})\\s*=\\s*1\\b`, 'gi')
+      // 匹配 field = 1 (包括括号内、表达式中的情况)
+      const pattern1 = new RegExp(`(${field})\\s*=\\s*1\\b`, 'gi')
       result = result.replace(pattern1, `$1 = true`)
 
-      const pattern0 = new RegExp(`\\b(${field})\\s*=\\s*0\\b`, 'gi')
+      // 匹配 field = 0 (包括括号内、表达式中的情况)
+      const pattern0 = new RegExp(`(${field})\\s*=\\s*0\\b`, 'gi')
       result = result.replace(pattern0, `$1 = false`)
     }
 
@@ -184,6 +187,15 @@ class PostgresAdapter implements DatabaseAdapter {
     const convertedSql = this.convertSqliteSyntax(sql)
     const pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params)
+
+    // 🔥 调试日志：记录SQL转换（仅在开发环境或首次转换时）
+    if (process.env.NODE_ENV === 'development' && sql !== convertedSql) {
+      console.log('🔄 SQL转换:', {
+        原始: sql.substring(0, 200),
+        转换后: convertedSql.substring(0, 200)
+      })
+    }
+
     const result = await this.sql.unsafe(pgSql, cleanParams)
     return result as unknown as T[]
   }
