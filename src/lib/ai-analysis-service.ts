@@ -132,7 +132,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
   }
 
   try {
-    // 构建页面数据
+    // 🔥 修复：构建页面数据（适配扁平化的extractResult结构）
     const debug = extractResult.debug || {}
     const isAmazonStore = debug.isAmazonStore || false
     const isAmazonProductPage = debug.isAmazonProductPage || false
@@ -141,9 +141,9 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
     let pageType: 'product' | 'store' = 'product'
     let pageData: { title: string; description: string; text: string }
 
-    if (isAmazonStore && extractResult.storeData) {
+    if (isAmazonStore && extractResult.products) {
       pageType = 'store'
-      const products = extractResult.storeData.products || []
+      const products = extractResult.products || []
       const productSummaries = products
         .slice(0, 15)
         .map((p: any, i: number) => {
@@ -153,46 +153,46 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         .join('\n')
 
       pageData = {
-        title: extractResult.storeData.storeName || extractResult.brand || 'Unknown Store',
-        description: extractResult.storeData.storeDescription || '',
+        title: extractResult.storeName || extractResult.brand || 'Unknown Store',
+        description: extractResult.productDescription || '',
         text: [
-          `Store Name: ${extractResult.storeData.storeName || extractResult.brand || 'Unknown'}`,
-          `Total Products: ${extractResult.storeData.totalProducts || 0}`,
+          `Store Name: ${extractResult.storeName || extractResult.brand || 'Unknown'}`,
+          `Total Products: ${extractResult.productCount || 0}`,
           extractResult.productDescription ? `Description: ${extractResult.productDescription}` : '',
           '\n=== HOT-SELLING PRODUCTS (Top 15) ===',
           productSummaries,
         ].join('\n'),
       }
-    } else if (isIndependentStore && extractResult.independentStoreData) {
+    } else if (isIndependentStore && extractResult.products) {
       pageType = 'store'
-      const products = extractResult.independentStoreData.products || []
+      const products = extractResult.products || []
       const productSummaries = products
         .slice(0, 15)
         .map((p: any, i: number) => `${i + 1}. ${p.name} - ${p.price || 'N/A'}`)
         .join('\n')
 
       pageData = {
-        title: extractResult.independentStoreData.storeName || extractResult.brand || 'Unknown Store',
-        description: extractResult.independentStoreData.storeDescription || '',
+        title: extractResult.storeName || extractResult.brand || 'Unknown Store',
+        description: extractResult.productDescription || '',
         text: [
-          `Store Name: ${extractResult.independentStoreData.storeName}`,
-          `Platform: ${extractResult.independentStoreData.platform || 'Unknown'}`,
-          `Total Products: ${extractResult.independentStoreData.totalProducts}`,
+          `Store Name: ${extractResult.storeName}`,
+          `Platform: ${extractResult.platform || 'Unknown'}`,
+          `Total Products: ${extractResult.productCount}`,
           extractResult.productDescription ? `Description: ${extractResult.productDescription}` : '',
           '\n=== PRODUCTS ===',
           productSummaries,
         ].join('\n'),
       }
-    } else if (extractResult.amazonProductData) {
+    } else if (isAmazonProductPage && extractResult.productName) {
       pageType = 'product'
       pageData = {
-        title: extractResult.amazonProductData.productName || extractResult.brand || 'Unknown Product',
-        description: extractResult.amazonProductData.productDescription || '',
+        title: extractResult.productName || extractResult.brand || 'Unknown Product',
+        description: extractResult.productDescription || '',
         text: [
-          `Product: ${extractResult.amazonProductData.productName || 'Unknown'}`,
-          `Brand: ${extractResult.amazonProductData.brandName || 'Unknown'}`,
-          `Price: ${extractResult.amazonProductData.productPrice || 'N/A'}`,
-          extractResult.amazonProductData.productDescription ? `\nDescription:\n${extractResult.amazonProductData.productDescription}` : '',
+          `Product: ${extractResult.productName || 'Unknown'}`,
+          `Brand: ${extractResult.brand || 'Unknown'}`,
+          `Price: ${extractResult.price || 'N/A'}`,
+          extractResult.productDescription ? `\nDescription:\n${extractResult.productDescription}` : '',
         ]
           .filter(Boolean)
           .join('\n'),
@@ -236,15 +236,34 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
       try {
         console.log(`🔍 开始评论分析...`)
 
-        // 构建评论数据（从Amazon产品数据或店铺数据中提取）
+        // 🔥 修复：从扁平化的extractResult中提取评论数据
         const reviews: RawReview[] = []
+        const debug = extractResult.debug || {}
+        const isAmazonProductPage = debug.isAmazonProductPage || false
 
-        if (extractResult.amazonProductData) {
-          // TODO: 从amazonProductData中提取评论数据（需要scraper支持）
-          console.log('⚠️ Amazon产品评论数据暂未实现')
-        } else if (extractResult.storeData?.products) {
-          // 从店铺产品中提取评论信息
-          extractResult.storeData.products.forEach((product: any) => {
+        // 方式1: 从Amazon产品页的topReviews字段提取（格式："4.5 stars - Title: Review text..."）
+        if (isAmazonProductPage && extractResult.topReviews && extractResult.topReviews.length > 0) {
+          console.log(`📊 从Amazon产品页提取 ${extractResult.topReviews.length} 条评论...`)
+          extractResult.topReviews.forEach((reviewText: string) => {
+            // 解析评论格式："4.5 stars - Title: Review text..."
+            const ratingMatch = reviewText.match(/^([\d.]+)\s+stars?/i)
+            const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null
+
+            reviews.push({
+              rating,
+              title: reviewText.split(' - ')[1]?.split(':')[0]?.trim() || null,
+              body: reviewText.split(':').slice(1).join(':').trim() || reviewText,
+              helpful: null,
+              verified: false,
+              date: new Date().toISOString(),
+              author: 'Amazon Customer',
+            })
+          })
+        }
+        // 方式2: 从店铺产品中提取评论信息（适用于Amazon Store和独立站）
+        else if (extractResult.products && extractResult.products.length > 0) {
+          console.log(`📊 从店铺产品中提取评论信息 (${extractResult.products.length}个产品)...`)
+          extractResult.products.forEach((product: any) => {
             if (product.rating && product.reviews > 0) {
               reviews.push({
                 rating: product.rating,
@@ -285,12 +304,14 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
       try {
         console.log(`🔍 开始竞品分析...`)
 
-        // 构建竞品数据（从店铺产品数据中提取）
+        // 🔥 修复：从扁平化的extractResult中构建竞品数据
         const competitors: CompetitorProduct[] = []
 
-        if (extractResult.storeData?.products) {
+        // 从店铺产品数据中提取竞品（适用于Amazon Store和独立站）
+        if (extractResult.products && extractResult.products.length > 0) {
+          console.log(`📊 从店铺产品中提取竞品数据 (${extractResult.products.length}个产品)...`)
           // 将店铺中的其他产品视为竞品
-          extractResult.storeData.products.slice(0, 10).forEach((product: any) => {
+          extractResult.products.slice(0, 10).forEach((product: any) => {
             const priceNum = product.price ? parseFloat(product.price.replace(/[^0-9.]/g, '')) : null
             const ratingNum = product.rating ? parseFloat(product.rating) : null
             competitors.push({
@@ -309,12 +330,13 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         }
 
         if (competitors.length >= 2) {
-          const productPrice = extractResult.amazonProductData?.productPrice
-            ? parseFloat(extractResult.amazonProductData.productPrice.replace(/[^0-9.]/g, ''))
+          // 🔥 修复：从扁平化结构中提取产品价格信息
+          const productPrice = extractResult.price
+            ? parseFloat(extractResult.price.replace(/[^0-9.]/g, ''))
             : null
 
           const ourProduct = {
-            name: extractResult.amazonProductData?.productName || extractResult.brand || 'Unknown',
+            name: extractResult.productName || extractResult.brand || 'Unknown',
             brand: extractResult.brand || null,
             price: productPrice,
             rating: null,
@@ -346,11 +368,43 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
       try {
         console.log(`🔍 开始广告元素提取...`)
 
+        // 🔥 修复：重构数据结构以适配extractAdElements期望的格式
+        // extractResult现在是扁平结构，需要根据debug标志重新组装
+        const debug = extractResult.debug || {}
+        const isAmazonProductPage = debug.isAmazonProductPage || false
+        const isAmazonStore = debug.isAmazonStore || false
+
+        // 重构Amazon产品数据（如果是Amazon产品页）
+        const amazonProductData = isAmazonProductPage && extractResult.rating ? {
+          productName: extractResult.productName,
+          brandName: extractResult.brand,
+          productDescription: extractResult.productDescription,
+          productPrice: extractResult.price,
+          rating: extractResult.rating,
+          reviewCount: extractResult.reviewCount,
+          reviewHighlights: extractResult.reviewHighlights,
+          topReviews: extractResult.topReviews,
+          features: extractResult.features,
+          aboutThisItem: extractResult.aboutThisItem,
+          technicalDetails: extractResult.technicalDetails,
+          imageUrls: extractResult.imageUrls,
+          originalPrice: extractResult.originalPrice,
+          discount: extractResult.discount,
+          salesRank: extractResult.salesRank,
+          availability: extractResult.availability,
+          primeEligible: extractResult.primeEligible,
+          asin: extractResult.asin,
+          category: extractResult.category,
+        } : undefined
+
+        // 重构店铺产品数据（如果是Amazon Store或独立站）
+        const storeProducts = extractResult.products || undefined
+
         const scraped = {
           pageType: pageType as 'product' | 'store' | 'unknown',
-          product: extractResult.amazonProductData as any,
-          storeProducts: extractResult.storeData?.products as any,
-          hasDeepData: !!(extractResult.amazonProductData || extractResult.storeData),
+          product: amazonProductData as any,
+          storeProducts: storeProducts as any,
+          hasDeepData: !!(amazonProductData || storeProducts),
         }
 
         const adElements = await extractAdElements(
