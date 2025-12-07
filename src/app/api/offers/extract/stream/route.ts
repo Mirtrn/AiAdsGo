@@ -1,22 +1,27 @@
 /**
- * GET /api/offers/extract/stream/[taskId]
+ * POST /api/offers/extract/stream
  *
- * SSE订阅 - 实时推送Offer提取任务进度
+ * 合并API：创建Offer提取任务并订阅SSE进度流
  *
- * 功能：
- * 1. 验证用户身份和任务所有权
- * 2. 轮询offer_tasks表获取最新进度
- * 3. 通过SSE推送进度更新
- * 4. 任务完成或失败后自动关闭连接
+ * 流程：
+ * 1. 创建offer_tasks记录
+ * 2. 将任务加入UnifiedQueueManager
+ * 3. 建立SSE流，轮询任务进度并实时推送
+ *
+ * 请求体：
+ * - affiliate_link: 推广链接
+ * - target_country: 目标国家
  *
  * SSE消息格式：
- * - data: { type: 'progress', stage, progress, message }
- * - data: { type: 'complete', result }
- * - data: { type: 'error', error }
+ * - { type: 'progress', data: { stage, status, message, timestamp, duration, details } }
+ * - { type: 'complete', data: { success, finalUrl, brand, ... } }
+ * - { type: 'error', data: { message, stage, details } }
  */
 
 import { NextRequest } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { getQueueManager } from '@/lib/queue/unified-queue-manager'
+import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -33,32 +38,71 @@ interface OfferTask {
   updated_at: string
 }
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { taskId: string } }
-) {
+export async function POST(req: NextRequest) {
   const db = getDatabase()
-  const { taskId } = params
+  const queue = getQueueManager()
 
-  // 验证用户身份
-  const userId = req.headers.get('x-user-id')
-  if (!userId) {
-    return new Response('Unauthorized', { status: 401 })
+  // 确保队列已初始化
+  if (!queue['adapter']?.isConnected?.()) {
+    await queue.initialize()
   }
-  const userIdNum = parseInt(userId, 10)
 
   try {
-    // 验证任务存在且属于当前用户
-    const taskRows = await db.query<OfferTask>(
-      'SELECT * FROM offer_tasks WHERE id = ? AND user_id = ?',
+    // 1. 验证用户身份
+    const userId = req.headers.get('x-user-id')
+    if (!userId) {
+      return new Response('Unauthorized', { status: 401 })
+    }
+    const userIdNum = parseInt(userId, 10)
+
+    // 2. 解析请求参数
+    const body = await req.json()
+    const { affiliate_link, target_country, skipCache, skipWarmup } = body
+
+    // 参数验证
+    if (!affiliate_link || typeof affiliate_link !== 'string') {
+      return new Response(
+        JSON.stringify({ error: 'Invalid affiliate_link' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!target_country || typeof target_country !== 'string') {
+      return new Response(
+        JSON.stringify({ error: 'Invalid target_country' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // 3. 创建offer_tasks记录
+    const taskId = crypto.randomUUID()
+    await db.query(
+      `INSERT INTO offer_tasks (
+        id, user_id, status, stage, progress, message,
+        created_at, updated_at
+      ) VALUES (?, ?, 'pending', 'resolving_link', 0, '准备开始提取...', datetime('now'), datetime('now'))`,
       [taskId, userIdNum]
     )
 
-    if (!taskRows || taskRows.length === 0) {
-      return new Response('Task not found', { status: 404 })
+    // 4. 将任务加入队列
+    const taskData: OfferExtractionTaskData = {
+      affiliateLink: affiliate_link,
+      targetCountry: target_country,
+      userId: userIdNum,
+      skipCache: skipCache || false,
+      skipWarmup: skipWarmup || false,
     }
 
-    // 创建SSE流
+    console.log(`📝 Created offer_task: ${taskId} for user ${userIdNum}`)
+    const queueTaskId = await queue.enqueue('offer-extraction', taskData, {
+      taskId,
+      userId: userIdNum,
+      priority: 5,
+    })
+
+    console.log(`🚀 Enqueued offer-extraction task: ${taskId}`)
+
+    // 5. 创建SSE流
     const encoder = new TextEncoder()
     const stream = new ReadableStream({
       async start(controller) {
