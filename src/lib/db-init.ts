@@ -1038,6 +1038,11 @@ declare global {
  * 原因：instrumentation阶段无法安全导入复杂模块（offer-scraping有复杂依赖）
  *
  * 恢复执行：由 @/lib/queue-recovery.ts 的 executeQueueRecoveryIfNeeded() 函数完成
+ *
+ * 🔥 KISS优化：避免任务堆积导致启动卡住
+ * - 启动时清理过期任务（超过1小时）而非恢复
+ * - 限制恢复数量（最多50个最近任务）
+ * - 过期任务直接从Redis删除，不再尝试恢复
  */
 async function checkUnfinishedQueueTasks(): Promise<void> {
   const db = await getDatabase()
@@ -1048,21 +1053,25 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
   }
 
   try {
-    // 🔄 Redis优先恢复：从Redis队列读取pending/running状态的scrape任务
-    const redisTasks = await recoverFromRedis()
+    // 🔥 KISS优化：清理过期任务，只恢复最近的任务
+    const { recentTasks, expiredCount } = await cleanupAndRecoverFromRedis()
 
-    if (redisTasks.length > 0) {
-      const runningCount = redisTasks.filter(t => t.status === 'running').length
-      const pendingCount = redisTasks.filter(t => t.status === 'pending').length
+    if (expiredCount > 0) {
+      console.log(`🧹 队列清理：已清理 ${expiredCount} 个过期任务（超过1小时）`)
+    }
 
-      console.log(`📋 队列恢复：从Redis发现 ${redisTasks.length} 个未完成任务`)
+    if (recentTasks.length > 0) {
+      const runningCount = recentTasks.filter(t => t.status === 'running').length
+      const pendingCount = recentTasks.filter(t => t.status === 'pending').length
+
+      console.log(`📋 队列恢复：发现 ${recentTasks.length} 个最近任务待恢复`)
       console.log(`   - running: ${runningCount}`)
       console.log(`   - pending: ${pendingCount}`)
       console.log(`   (将在首次API请求时自动恢复)`)
 
       // 存储待恢复数据到全局变量
       global.__queueRecoveryPending = true
-      global.__queueRecoveryData = redisTasks.map(t => {
+      global.__queueRecoveryData = recentTasks.map(t => {
         // 根据任务数据的实际内容判断正确的任务类型
         let taskType = 'scrape' // 默认类型
         if (t.data?.affiliateLink || t.data?.affiliate_link) {
@@ -1241,34 +1250,40 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
 }
 
 /**
- * 从Redis队列恢复所有类型任务
+ * 🔥 KISS优化：清理过期任务并恢复最近任务
+ *
+ * 策略：
+ * 1. 超过1小时的任务视为过期，直接从Redis删除
+ * 2. 最多恢复50个最近的任务，避免启动时卡住
+ * 3. 过期任务不再尝试恢复，减少资源浪费
  */
-async function recoverFromRedis(): Promise<Array<{
-  id: string
-  userId: number
-  status: string
-  data: any
-}>> {
+const TASK_EXPIRY_MS = 60 * 60 * 1000  // 1小时过期
+const MAX_RECOVERY_TASKS = 50          // 最多恢复50个任务
+
+async function cleanupAndRecoverFromRedis(): Promise<{
+  recentTasks: Array<{ id: string; userId: number; status: string; data: any; createdAt?: number }>
+  expiredCount: number
+}> {
   try {
-    // 检查Redis是否可用
     const redisClient = await getRedisClient()
     if (!redisClient) {
-      console.log('⚠️ Redis未配置，跳过Redis恢复，使用数据库回退')
-      return []
+      console.log('⚠️ Redis未配置，跳过Redis恢复')
+      return { recentTasks: [], expiredCount: 0 }
     }
 
-    // 从Redis队列读取pending和running状态的任务
-    // 注意：Redis队列的键名需要与unified-queue-manager.ts中的配置一致
     const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'autoads:queue:'
-
-    // 获取所有任务类型的pending队列
     const taskTypes = ['scrape', 'offer-extraction', 'offer-creation', 'offer-scrape', 'offer-enhance']
+    const now = Date.now()
+    const expiryThreshold = now - TASK_EXPIRY_MS
+
     const allTasks: Array<{
       id: string
       userId: number
       status: string
       data: any
+      createdAt: number
     }> = []
+    const expiredTaskIds: string[] = []
 
     // 从每个任务类型的队列中读取
     for (const taskType of taskTypes) {
@@ -1278,68 +1293,97 @@ async function recoverFromRedis(): Promise<Array<{
 
         for (const taskId of taskIds) {
           try {
-            // 从tasks hash中获取任务详情
             const taskJson = await redisClient.hget(`${redisKeyPrefix}tasks`, taskId)
             if (taskJson) {
               const task = JSON.parse(taskJson)
-              allTasks.push({
-                id: task.id || taskId,
-                userId: task.userId || 0,
-                status: task.status || 'pending',
-                data: {
-                  type: task.type, // 保留任务类型
-                  ...task.data // 保留原始data
-                }
-              })
+              const createdAt = task.createdAt || task.data?.createdAt || 0
+
+              // 检查是否过期
+              if (createdAt > 0 && createdAt < expiryThreshold) {
+                expiredTaskIds.push(taskId)
+                await redisClient.zrem(pendingKey, taskId)
+              } else {
+                allTasks.push({
+                  id: task.id || taskId,
+                  userId: task.userId || 0,
+                  status: task.status || 'pending',
+                  createdAt: createdAt || now,
+                  data: { type: task.type, ...task.data }
+                })
+              }
             }
           } catch (parseError) {
-            console.warn(`⚠️ 解析Redis任务失败: ${taskId}`, parseError)
-            continue
+            console.warn(`⚠️ 解析Redis任务失败: ${taskId}`)
+            expiredTaskIds.push(taskId)
           }
         }
       } catch (error) {
-        console.warn(`⚠️ 从Redis恢复${taskType}任务失败:`, error)
-        continue
+        console.warn(`⚠️ 从Redis读取${taskType}任务失败:`, error)
       }
     }
 
-    // 同时检查running集合
+    // 检查running集合
     try {
       const runningTaskIds = await redisClient.smembers(`${redisKeyPrefix}running`)
       for (const taskId of runningTaskIds) {
         const taskJson = await redisClient.hget(`${redisKeyPrefix}tasks`, taskId)
         if (taskJson) {
           const task = JSON.parse(taskJson)
-          allTasks.push({
-            id: task.id || taskId,
-            userId: task.userId || 0,
-            status: 'running',
-            data: {
-              type: task.type, // 保留任务类型
-              ...task.data // 保留原始data
-            }
-          })
+          const createdAt = task.createdAt || task.data?.createdAt || 0
+
+          if (createdAt > 0 && createdAt < expiryThreshold) {
+            expiredTaskIds.push(taskId)
+            await redisClient.srem(`${redisKeyPrefix}running`, taskId)
+          } else {
+            allTasks.push({
+              id: task.id || taskId,
+              userId: task.userId || 0,
+              status: 'running',
+              createdAt: createdAt || now,
+              data: { type: task.type, ...task.data }
+            })
+          }
         }
       }
     } catch (error) {
-      console.warn('⚠️ 从Redis恢复running任务失败:', error)
+      console.warn('⚠️ 从Redis读取running任务失败:', error)
     }
 
-    const taskTypeCount: Record<string, number> = {}
-    allTasks.forEach(t => {
-      const type = t.data?.type || 'unknown'
-      taskTypeCount[type] = (taskTypeCount[type] || 0) + 1
-    })
+    // 清理过期任务的详情数据
+    if (expiredTaskIds.length > 0) {
+      try {
+        await redisClient.hdel(`${redisKeyPrefix}tasks`, ...expiredTaskIds)
+      } catch (error) {
+        console.warn('⚠️ 清理过期任务详情失败:', error)
+      }
+    }
 
-    console.log(`✅ 队列恢复：Redis恢复完成，找到 ${allTasks.length} 个任务`)
-    Object.entries(taskTypeCount).forEach(([type, count]) => {
-      console.log(`   - ${type}: ${count} 个`)
-    })
+    // 按创建时间排序，只保留最近的任务
+    allTasks.sort((a, b) => b.createdAt - a.createdAt)
+    const recentTasks = allTasks.slice(0, MAX_RECOVERY_TASKS)
 
-    return allTasks
+    // 如果有超出限制的任务，也标记为过期清理
+    if (allTasks.length > MAX_RECOVERY_TASKS) {
+      const extraTasks = allTasks.slice(MAX_RECOVERY_TASKS)
+      console.log(`⚠️ 任务数量超出限制，额外丢弃 ${extraTasks.length} 个旧任务`)
+    }
+
+    if (recentTasks.length > 0) {
+      const taskTypeCount: Record<string, number> = {}
+      recentTasks.forEach(t => {
+        const type = t.data?.type || 'unknown'
+        taskTypeCount[type] = (taskTypeCount[type] || 0) + 1
+      })
+      console.log(`✅ 队列恢复：找到 ${recentTasks.length} 个有效任务`)
+      Object.entries(taskTypeCount).forEach(([type, count]) => {
+        console.log(`   - ${type}: ${count} 个`)
+      })
+    }
+
+    return { recentTasks, expiredCount: expiredTaskIds.length }
   } catch (error) {
-    console.error('❌ Redis恢复失败，使用数据库回退:', error)
-    return []
+    console.error('❌ Redis清理/恢复失败:', error)
+    return { recentTasks: [], expiredCount: 0 }
   }
 }
 

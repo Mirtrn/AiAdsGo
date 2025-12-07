@@ -32,7 +32,7 @@ export async function executeOfferExtraction(
 
   try {
     // 更新任务状态为运行中
-    await db.query(`
+    await db.exec(`
       UPDATE offer_tasks
       SET status = 'running', started_at = datetime('now'), message = '开始提取Offer信息'
       WHERE id = ?
@@ -65,7 +65,7 @@ export async function executeOfferExtraction(
         const progress = progressMap[stage] || 0
 
         // 更新数据库
-        await db.query(`
+        await db.exec(`
           UPDATE offer_tasks
           SET stage = ?, message = ?, progress = ?, updated_at = datetime('now')
           WHERE id = ?
@@ -81,7 +81,7 @@ export async function executeOfferExtraction(
     }
 
     // 更新任务为完成状态
-    await db.query(`
+    await db.exec(`
       UPDATE offer_tasks
       SET
         status = 'completed',
@@ -100,7 +100,7 @@ export async function executeOfferExtraction(
     console.error(`❌ Offer提取任务失败: ${task.id}:`, error.message)
 
     // 更新任务为失败状态
-    await db.query(`
+    await db.exec(`
       UPDATE offer_tasks
       SET
         status = 'failed',

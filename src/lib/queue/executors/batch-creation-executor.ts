@@ -45,7 +45,7 @@ export async function executeBatchCreation(
 
   try {
     // 1. 更新batch_tasks状态为running
-    await db.query(`
+    await db.exec(`
       UPDATE batch_tasks
       SET status = 'running', started_at = datetime('now'), updated_at = datetime('now')
       WHERE id = ?
@@ -59,7 +59,7 @@ export async function executeBatchCreation(
       const childTaskId = crypto.randomUUID()
 
       // 创建offer_task记录（关联batch_id）
-      await db.query(`
+      await db.exec(`
         INSERT INTO offer_tasks (
           id,
           user_id,
@@ -129,7 +129,7 @@ export async function executeBatchCreation(
         const total = rows.length
 
         // 更新batch_tasks进度
-        await db.query(`
+        await db.exec(`
           UPDATE batch_tasks
           SET
             completed_count = ?,
@@ -153,7 +153,7 @@ export async function executeBatchCreation(
           }
 
           // 更新最终状态
-          await db.query(`
+          await db.exec(`
             UPDATE batch_tasks
             SET
               status = ?,
@@ -180,7 +180,7 @@ export async function executeBatchCreation(
     console.error(`❌ 批量创建任务失败: batch=${batchId}:`, error.message)
 
     // 更新batch_tasks为失败状态
-    await db.query(`
+    await db.exec(`
       UPDATE batch_tasks
       SET
         status = 'failed',
