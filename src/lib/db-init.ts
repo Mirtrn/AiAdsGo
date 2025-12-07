@@ -676,7 +676,13 @@ export async function initializeDatabase(): Promise<void> {
  */
 async function runPendingMigrations(): Promise<void> {
   const db = await getDatabase()
-  const migrationsDir = path.join(process.cwd(), 'migrations')
+
+  // 🎯 根据数据库类型选择迁移目录
+  const migrationsDir = db.type === 'postgres'
+    ? path.join(process.cwd(), 'pg-migrations')
+    : path.join(process.cwd(), 'migrations')
+
+  console.log(`🔍 Checking migrations in: ${migrationsDir} (DB type: ${db.type})`)
 
   // 检查迁移目录是否存在
   if (!fs.existsSync(migrationsDir)) {
