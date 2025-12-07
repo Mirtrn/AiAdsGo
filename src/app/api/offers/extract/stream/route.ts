@@ -24,7 +24,7 @@ import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 120
+export const maxDuration = 600 // 10分钟（与任务超时和SSE超时一致）
 
 interface OfferTask {
   id: string
@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
           }
         })
 
-        // 超时保护：2分钟后自动关闭
+        // 超时保护：10分钟后自动关闭（与任务超时时间一致）
         setTimeout(() => {
           console.log(`⏱️ SSE timeout for task: ${taskId}`)
           clearInterval(pollInterval)
@@ -226,7 +226,7 @@ export async function POST(req: NextRequest) {
             sendSSE({
               type: 'error',
               data: {
-                message: 'SSE timeout',
+                message: 'SSE timeout - task may still be running',
                 stage: 'error',
                 details: {}
               }
@@ -234,7 +234,7 @@ export async function POST(req: NextRequest) {
             controller.close()
             isClosed = true
           }
-        }, 120000)
+        }, 600000) // 10分钟 = 600000ms
       }
     })
 
