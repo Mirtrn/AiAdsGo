@@ -20,14 +20,35 @@ export interface AIAnalysisInput {
     pageTitle?: string | null
     resolveMethod?: string
     productCount?: number
-    // Store data
+    // Flattened store properties
+    storeName?: string
+    platform?: string
+    products?: any[]
+    // Flattened product properties
+    productName?: string
+    price?: string
+    rating?: string | null
+    reviewCount?: string | null
+    reviewHighlights?: string[]
+    topReviews?: string[]
+    features?: string[]
+    aboutThisItem?: string[]
+    technicalDetails?: Record<string, string>
+    imageUrls?: string[]
+    originalPrice?: string | null
+    discount?: string | null
+    salesRank?: string | null
+    availability?: string | null
+    primeEligible?: boolean
+    asin?: string | null
+    category?: string | null
+    // Legacy nested data (kept for backwards compatibility)
     storeData?: {
       storeName?: string
       storeDescription?: string
       products?: any[]
       totalProducts?: number
     }
-    // Product data
     amazonProductData?: {
       productName?: string
       brandName?: string
@@ -35,7 +56,6 @@ export interface AIAnalysisInput {
       productPrice?: string
       imageUrls?: string[]
     }
-    // Independent store data
     independentStoreData?: {
       storeName?: string
       storeDescription?: string
@@ -247,7 +267,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           extractResult.topReviews.forEach((reviewText: string) => {
             // 解析评论格式："4.5 stars - Title: Review text..."
             const ratingMatch = reviewText.match(/^([\d.]+)\s+stars?/i)
-            const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null
+            const rating = ratingMatch ? `${ratingMatch[1]} out of 5 stars` : null
 
             reviews.push({
               rating,
@@ -266,7 +286,9 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           extractResult.products.forEach((product: any) => {
             if (product.rating && product.reviews > 0) {
               reviews.push({
-                rating: product.rating,
+                rating: typeof product.rating === 'number'
+                  ? `${product.rating} out of 5 stars`
+                  : product.rating,
                 title: product.name || null,
                 body: product.name || null,
                 helpful: null,
