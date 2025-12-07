@@ -97,7 +97,36 @@ export interface ExtractOfferResult {
     productCount?: number
     products?: any[]
     storeName?: string
-    hotInsights?: string
+    storeDescription?: string
+    hotInsights?: {
+      avgRating: number
+      avgReviews: number
+      topProductsCount: number
+    }
+    // 店铺分类数据（店铺维度增强）
+    productCategories?: {
+      primaryCategories: Array<{
+        name: string
+        count: number
+        url?: string
+      }>
+      categoryTree?: Record<string, string[]>
+      totalCategories: number
+    }
+    // 深度抓取结果（热销商品详情页数据）
+    deepScrapeResults?: {
+      topProducts: Array<{
+        asin: string
+        productData: any
+        reviews: string[]
+        competitorAsins: string[]
+        scrapeStatus: 'success' | 'failed' | 'skipped'
+        error?: string
+      }>
+      totalScraped: number
+      successCount: number
+      failedCount: number
+    }
 
     // 独立站专属数据（可选）
     logoUrl?: string
@@ -513,7 +542,10 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           productCount,
           products: storeData.products,
           storeName: storeData.storeName,
+          storeDescription: storeData.storeDescription,
           hotInsights: storeData.hotInsights,
+          productCategories: storeData.productCategories,
+          deepScrapeResults: storeData.deepScrapeResults,
         }),
 
         // 独立站专属数据（可选）
@@ -521,6 +553,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           productCount,
           products: independentStoreData.products,
           storeName: independentStoreData.storeName,
+          storeDescription: independentStoreData.storeDescription,
           logoUrl: independentStoreData.logoUrl,
           platform: independentStoreData.platform,
         }),

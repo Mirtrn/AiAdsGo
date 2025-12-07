@@ -20,10 +20,41 @@ export interface AIAnalysisInput {
     pageTitle?: string | null
     resolveMethod?: string
     productCount?: number
-    // Flattened store properties
+    // Flattened store properties (Amazon Store & Independent Store)
     storeName?: string
+    storeDescription?: string
     platform?: string
     products?: any[]
+    logoUrl?: string
+    hotInsights?: {
+      avgRating?: number
+      avgReviews?: number
+      topProductsCount?: number
+    }
+    // 店铺分类数据（店铺维度增强）
+    productCategories?: {
+      primaryCategories?: Array<{
+        name: string
+        count: number
+        url?: string
+      }>
+      categoryTree?: Record<string, string[]>
+      totalCategories?: number
+    }
+    // 深度抓取结果（热销商品详情页数据）
+    deepScrapeResults?: {
+      topProducts?: Array<{
+        asin: string
+        productData?: any
+        reviews?: string[]
+        competitorAsins?: string[]
+        scrapeStatus: 'success' | 'failed' | 'skipped'
+        error?: string
+      }>
+      totalScraped?: number
+      successCount?: number
+      failedCount?: number
+    }
     // Flattened product properties
     productName?: string
     price?: string
@@ -48,6 +79,35 @@ export interface AIAnalysisInput {
       storeDescription?: string
       products?: any[]
       totalProducts?: number
+      storeUrl?: string
+      brandName?: string | null
+      hotInsights?: {
+        avgRating: number
+        avgReviews: number
+        topProductsCount: number
+      }
+      productCategories?: {
+        primaryCategories: Array<{
+          name: string
+          count: number
+          url?: string
+        }>
+        categoryTree?: Record<string, string[]>
+        totalCategories: number
+      }
+      deepScrapeResults?: {
+        topProducts: Array<{
+          asin: string
+          productData: any
+          reviews: string[]
+          competitorAsins: string[]
+          scrapeStatus: 'success' | 'failed' | 'skipped'
+          error?: string
+        }>
+        totalScraped: number
+        successCount: number
+        failedCount: number
+      }
     }
     amazonProductData?: {
       productName?: string
@@ -62,6 +122,7 @@ export interface AIAnalysisInput {
       products?: any[]
       totalProducts?: number
       platform?: string
+      logoUrl?: string
     }
     // Debug info
     debug?: {
