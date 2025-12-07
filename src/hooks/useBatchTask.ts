@@ -46,7 +46,7 @@ interface UseBatchTaskReturn {
   connectionType: 'sse' | 'polling' | null
 
   // Actions
-  createBatchTask: (csvFile: File, targetCountry: string) => Promise<void>
+  createBatchTask: (csvFile: File) => Promise<void>
   reconnect: (batchId: string) => Promise<void>
   reset: () => void
 }

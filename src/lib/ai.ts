@@ -167,31 +167,31 @@ export async function analyzeProductPage(
     if (!userId) {
       throw new Error('分析产品页面需要用户ID，请确保已登录')
     }
-    const result = await generateContent({
+    const geminiResult = await generateContent({
       operationType: 'product_page_analysis',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 6144,  // 增加到6144以容纳更丰富的数据维度
     }, userId)
 
-    const text = result.text
+    const text = geminiResult.text
 
     // 记录token使用
-    if (result.usage) {
+    if (geminiResult.usage) {
       const cost = estimateTokenCost(
-        result.model,
-        result.usage.inputTokens,
-        result.usage.outputTokens
+        geminiResult.model,
+        geminiResult.usage.inputTokens,
+        geminiResult.usage.outputTokens
       )
       await recordTokenUsage({
         userId,
-        model: result.model,
+        model: geminiResult.model,
         operationType: 'product_analysis',
-        inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
-        totalTokens: result.usage.totalTokens,
+        inputTokens: geminiResult.usage.inputTokens,
+        outputTokens: geminiResult.usage.outputTokens,
+        totalTokens: geminiResult.usage.totalTokens,
         cost,
-        apiType: result.apiType
+        apiType: geminiResult.apiType
       })
     }
 
@@ -440,14 +440,16 @@ export async function analyzeProductPage(
       return String(value)
     }
 
+    // 🎯 P0优化（2025-12-07）：提取完整AI返回数据，包括 pricing, reviews, competitiveEdges, keywords
+    logger.debug('🎯 P0优化: 提取完整AI数据...')
+
     // 🔧 P0修复：字段名映射兼容（Prompt返回字段名 → 代码期望字段名）
     // Prompt返回: productDescription, sellingPoints, technicalHighlights
     // 代码期望: brandDescription, uniqueSellingPoints, productHighlights
     const pi = productInfo as any
 
-    // 🎯 P0优化（2025-12-07）：提取完整AI返回数据，包括 pricing, reviews, competitiveEdges, keywords
-    logger.debug('🎯 P0优化: 提取完整AI数据...')
-    const result: ProductInfo = {
+    // 构建完整的ProductInfo对象，包含所有新增字段
+    const enhancedProductInfo: ProductInfo = {
       // 基础字段
       brandDescription: ensureString(pi.brandDescription || pi.productDescription),
       uniqueSellingPoints: ensureString(pi.uniqueSellingPoints || pi.sellingPoints),
@@ -496,16 +498,19 @@ export async function analyzeProductPage(
       } : undefined,
     }
 
+    // 更新productInfo为增强版本
+    productInfo = enhancedProductInfo
+
     // 📊 数据提取统计
     logger.debug('📊 AI数据提取统计:')
-    logger.debug(`  - 基础字段: brandDescription(${result.brandDescription?.length || 0}), uniqueSellingPoints(${result.uniqueSellingPoints?.length || 0})`)
-    logger.debug(`  - keywords: ${result.keywords?.length || 0}个`)
-    logger.debug(`  - pricing: ${result.pricing ? 'YES' : 'NO'}`)
-    logger.debug(`  - reviews: ${result.reviews ? 'YES' : 'NO'}`)
-    logger.debug(`  - promotions: ${result.promotions ? 'YES' : 'NO'}`)
-    logger.debug(`  - competitiveEdges: ${result.competitiveEdges ? 'YES' : 'NO'}`)
+    logger.debug(`  - 基础字段: brandDescription(${productInfo.brandDescription?.length || 0}), uniqueSellingPoints(${productInfo.uniqueSellingPoints?.length || 0})`)
+    logger.debug(`  - keywords: ${productInfo.keywords?.length || 0}个`)
+    logger.debug(`  - pricing: ${productInfo.pricing ? 'YES' : 'NO'}`)
+    logger.debug(`  - reviews: ${productInfo.reviews ? 'YES' : 'NO'}`)
+    logger.debug(`  - promotions: ${productInfo.promotions ? 'YES' : 'NO'}`)
+    logger.debug(`  - competitiveEdges: ${productInfo.competitiveEdges ? 'YES' : 'NO'}`)
 
-    return result
+    return productInfo
   } catch (error: any) {
     logger.error('AI分析失败:', error)
     throw new Error(`AI分析失败: ${error.message}`)

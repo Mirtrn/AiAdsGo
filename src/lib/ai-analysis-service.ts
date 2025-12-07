@@ -63,6 +63,37 @@ export interface AIAnalysisResult {
     productHighlights?: string
     targetAudience?: string
     category?: string
+    // 🎯 P0优化（2025-12-07）：新增完整字段
+    keywords?: string[]
+    sellingPoints?: string[]
+    productDescription?: string
+    pricing?: {
+      current?: string
+      original?: string
+      discount?: string
+      competitiveness?: 'Premium' | 'Competitive' | 'Budget'
+      valueAssessment?: string
+    }
+    reviews?: {
+      rating?: number
+      count?: number
+      sentiment?: 'Positive' | 'Mixed' | 'Negative'
+      positives?: string[]
+      concerns?: string[]
+      useCases?: string[]
+    }
+    promotions?: {
+      active?: boolean
+      types?: string[]
+      urgency?: string | null
+      freeShipping?: boolean
+    }
+    competitiveEdges?: {
+      badges?: string[]
+      primeEligible?: boolean
+      stockStatus?: string
+      salesRank?: string
+    }
   }
   reviewAnalysis?: any
   reviewAnalysisSuccess?: boolean
