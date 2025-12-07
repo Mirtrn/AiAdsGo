@@ -8,7 +8,7 @@
  */
 
 import { updateOffer, updateOfferScrapeStatus } from './offers'
-import { triggerOfferScraping } from './offer-scraping'
+import { triggerOfferScraping, OfferScrapingPriority } from './offer-scraping'
 import { normalizeBrandName } from './offer-utils'
 import { extractOffer } from './offer-extraction-core'
 import { executeAIAnalysis } from './ai-analysis-service'
@@ -447,7 +447,9 @@ export async function triggerOfferExtraction(
       offerId,
       uid,
       result.data!.finalUrl,
-      normalizedBrandName
+      normalizedBrandName,
+      tCountry,
+      OfferScrapingPriority.NORMAL
     ).catch(error => {
       console.error(`[OfferExtraction] 触发抓取失败 Offer #${offerId}:`, error.message)
     })

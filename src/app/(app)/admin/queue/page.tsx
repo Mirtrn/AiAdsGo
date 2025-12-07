@@ -323,7 +323,7 @@ export default function QueueManagementPage() {
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div
                     className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${globalUtilization}%` }}
+                    style={{ width: `${Math.min(globalUtilization, 100)}%` }}
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">利用率: {globalUtilization}%</p>
@@ -477,7 +477,7 @@ export default function QueueManagementPage() {
                       <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">队列中</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">已完成</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">失败</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">利用率</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-600 w-32">利用率</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -512,11 +512,11 @@ export default function QueueManagementPage() {
                             </span>
                           </td>
                           <td className="text-center py-3 px-4">
-                            <div className="flex items-center justify-center space-x-2">
-                              <div className="w-20 bg-gray-200 rounded-full h-2">
+                            <div className="flex flex-col items-center space-y-1">
+                              <div className="w-16 bg-gray-200 rounded-full h-2">
                                 <div
                                   className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                                  style={{ width: `${userUtilization}%` }}
+                                  style={{ width: `${Math.min(userUtilization, 100)}%` }}
                                 />
                               </div>
                               <span className="text-xs text-gray-600 font-medium">{userUtilization}%</span>

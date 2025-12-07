@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { ToasterProvider } from '@/components/ToasterProvider'
-import { QueueInitializer } from '@/components/QueueInitializer'
 import './globals.css'
 
 // ⚡ P0性能优化: 移除全局force-dynamic，按需在各页面单独设置
@@ -89,7 +88,6 @@ export default function RootLayout({
       <body className={inter.className}>
         {children}
         <ToasterProvider />
-        <QueueInitializer />
       </body>
     </html>
   )

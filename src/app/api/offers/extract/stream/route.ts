@@ -42,11 +42,6 @@ export async function POST(req: NextRequest) {
   const db = getDatabase()
   const queue = getQueueManager()
 
-  // 确保队列已初始化
-  if (!queue['adapter']?.isConnected?.()) {
-    await queue.initialize()
-  }
-
   try {
     // 1. 验证用户身份
     const userId = req.headers.get('x-user-id')
@@ -76,7 +71,7 @@ export async function POST(req: NextRequest) {
 
     // 3. 创建offer_tasks记录
     const taskId = crypto.randomUUID()
-    await db.query(
+    await db.exec(
       `INSERT INTO offer_tasks (
         id, user_id, affiliate_link, target_country, status, stage, progress, message,
         created_at, updated_at

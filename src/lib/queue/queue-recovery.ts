@@ -254,22 +254,26 @@ export class QueueRecoveryManager {
   private detectTaskType(item: any): string {
     // 使用显式task_type字段（优先级最高）
     if (item.task_type) {
+      console.log(`[DEBUG] detectTaskType: 使用显式task_type=${item.task_type}`)
       return item.task_type
     }
 
     // 从 offers 表恢复的抓取任务
     if (item.offer_id || (item.url && !item.affiliate_link && !item.data?.affiliateLink)) {
+      console.log(`[DEBUG] detectTaskType: 识别为scrape - offer_id=${item.offer_id}, url=${!!item.url}, affiliate_link=${!!item.affiliate_link}`)
       return 'scrape'
     }
 
     // 从 offer_tasks 表恢复的Offer提取任务
     // 支持数据库格式（snake_case）和内存格式（camelCase）
     if (item.affiliate_link || item.data?.affiliateLink) {
+      console.log(`[DEBUG] detectTaskType: 识别为offer-extraction - affiliate_link=${item.affiliate_link}, data.affiliateLink=${item.data?.affiliateLink}`)
       return 'offer-extraction'
     }
 
     // 从 batch_tasks 表恢复的批量任务
     if (item.total_count !== undefined) {
+      console.log(`[DEBUG] detectTaskType: 批量任务 - total_count=${item.total_count}, task_type=${item.task_type}`)
       return item.task_type || 'unknown'
     }
 

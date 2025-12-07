@@ -30,11 +30,6 @@ export async function POST(req: NextRequest) {
   const db = getDatabase()
   const queue = getQueueManager()
 
-  // 确保队列已初始化
-  if (!queue['adapter']?.isConnected?.()) {
-    await queue.initialize()
-  }
-
   try {
     // 1. 验证用户身份
     const userId = req.headers.get('x-user-id')

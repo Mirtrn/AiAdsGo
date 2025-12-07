@@ -55,8 +55,17 @@ export async function executeQueueRecoveryIfNeeded() {
  * 检测任务类型
  */
 function detectTaskType(item: any): string {
+  console.log(`[DEBUG] detectTaskType: 检测任务 ${item.id}, affiliate_link=${item.affiliate_link}, url=${item.url}, offer_id=${item.offer_id}`)
+
+  // 从 offer_tasks 表恢复的Offer提取任务（优先级最高）
+  if (item.affiliate_link) {
+    console.log(`[DEBUG] detectTaskType: 识别为offer-extraction - 有affiliate_link`)
+    return 'offer-extraction'
+  }
+
   // 从 offers 表恢复的抓取任务
   if (item.offer_id || (item.url && !item.affiliate_link)) {
+    console.log(`[DEBUG] detectTaskType: 识别为scrape - offer_id或url存在，但无affiliate_link`)
     return 'scrape'
   }
 

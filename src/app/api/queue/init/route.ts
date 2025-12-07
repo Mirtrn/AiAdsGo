@@ -9,7 +9,6 @@
 
 import { NextResponse } from 'next/server'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
-import { registerAllExecutors } from '@/lib/queue/executors'
 
 // 全局标记：队列是否已初始化
 let queueInitialized = false
@@ -48,14 +47,11 @@ async function ensureQueueInitialized(): Promise<{ success: boolean; message: st
         proxyPool: [] // 代理在任务执行时按需加载
       })
 
-      // 连接存储适配器
-      await queue.initialize()
+      // 确保队列已启动（自动处理初始化）
+      await queue.ensureStarted()
 
-      // 注册所有任务执行器
-      registerAllExecutors(queue)
-
-      // 启动队列处理循环
-      await queue.start()
+      // 安全注册所有任务执行器（只注册一次）
+      await queue.registerAllExecutorsSafe()
 
       queueInitialized = true
       console.log('✅ 统一队列系统初始化完成')

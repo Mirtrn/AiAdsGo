@@ -1062,14 +1062,35 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
 
       // 存储待恢复数据到全局变量
       global.__queueRecoveryPending = true
-      global.__queueRecoveryData = redisTasks.map(t => ({
-        id: t.id,
-        user_id: t.userId,
-        url: t.data?.url,
-        brand: t.data?.brand,
-        status: t.status,
-        task_type: 'scrape'
-      }))
+      global.__queueRecoveryData = redisTasks.map(t => {
+        // 根据任务数据的实际内容判断正确的任务类型
+        let taskType = 'scrape' // 默认类型
+        if (t.data?.affiliateLink || t.data?.affiliate_link) {
+          taskType = 'offer-extraction'
+        } else if (t.data?.taskType || t.data?.batchId) {
+          taskType = t.data.taskType || 'batch-task'
+        }
+        // 如果没有匹配的类型，保持默认的 'scrape'
+
+        return {
+          id: t.id,
+          user_id: t.userId,
+          status: t.status,
+          task_type: taskType,
+          // 保留原始数据用于后续处理
+          data: t.data,
+          // 为scrape任务保留url和brand字段
+          ...(taskType === 'scrape' && {
+            url: t.data?.url,
+            brand: t.data?.brand
+          }),
+          // 为offer-extraction任务保留affiliate_link字段
+          ...(taskType === 'offer-extraction' && {
+            affiliate_link: t.data?.affiliateLink || t.data?.affiliate_link,
+            target_country: t.data?.targetCountry || t.data?.target_country
+          })
+        }
+      })
       return
     }
 

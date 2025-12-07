@@ -202,6 +202,7 @@ export async function POST(request: NextRequest) {
             parseInt(userId, 10),
             validationResult.data.affiliate_link,
             offer.brand || '提取中...',
+            offer.target_country,
             OfferScrapingPriority.LOW
           ).catch(error => {
             console.error(`[Batch] 触发抓取失败 Offer #${offer.id}:`, error.message)

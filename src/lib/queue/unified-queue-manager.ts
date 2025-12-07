@@ -38,6 +38,13 @@ export class UnifiedQueueManager {
   private perUserRunningCount: Map<number, number> = new Map()
   private perTypeRunningCount: Map<TaskType, number> = new Map()
 
+  // 初始化状态跟踪
+  private initialized: boolean = false
+  private initializingPromise: Promise<void> | null = null
+  private started: boolean = false
+  private startingPromise: Promise<void> | null = null
+  private executorsRegistered: boolean = false
+
   constructor(config: Partial<QueueConfig> = {}) {
     // 合并默认配置
     this.config = {
@@ -90,41 +97,85 @@ export class UnifiedQueueManager {
 
   /**
    * 初始化队列（连接存储）
+   * 只执行一次，后续调用直接返回
    */
   async initialize(): Promise<void> {
-    try {
-      await this.adapter.connect()
+    // 如果已初始化，直接返回
+    if (this.initialized) {
       console.log(`✅ 队列已初始化: ${this.adapter.constructor.name}`)
-    } catch (error: any) {
-      console.error('❌ Redis连接失败，回退到内存队列:', error.message)
-
-      // 回退到内存队列
-      this.adapter = new MemoryQueueAdapter()
-      await this.adapter.connect()
-      console.log('✅ 内存队列已启用')
+      return
     }
+
+    // 如果正在初始化，等待完成
+    if (this.initializingPromise) {
+      await this.initializingPromise
+      return
+    }
+
+    // 开始初始化
+    this.initializingPromise = (async () => {
+      try {
+        await this.adapter.connect()
+        console.log(`✅ 队列已初始化: ${this.adapter.constructor.name}`)
+        this.initialized = true
+      } catch (error: any) {
+        console.error('❌ Redis连接失败，回退到内存队列:', error.message)
+
+        // 回退到内存队列
+        this.adapter = new MemoryQueueAdapter()
+        await this.adapter.connect()
+        console.log('✅ 内存队列已启用')
+        this.initialized = true
+      }
+    })()
+
+    await this.initializingPromise
   }
 
   /**
    * 启动队列处理
+   * 只执行一次，后续调用直接返回
    */
   async start(): Promise<void> {
-    if (this.running) return
-
-    this.running = true
-    console.log('🚀 队列处理已启动')
-
-    // 【队列恢复】在启动时检查是否有待恢复的任务
-    if (hasQueueRecoveryPending()) {
-      console.log('🔄 检测到待恢复的任务，开始执行恢复...')
-      const recoveryResult = await executeQueueRecovery()
-      console.log(`✅ 队列恢复完成: 成功 ${recoveryResult.recovered} 个，失败 ${recoveryResult.failed} 个`)
+    // 确保已初始化
+    if (!this.initialized) {
+      await this.initialize()
     }
 
-    // 启动处理循环（每100ms检查一次）
-    this.processingLoop = setInterval(() => {
-      this.processQueue()
-    }, 100)
+    // 如果已启动，直接返回
+    if (this.started) {
+      console.log('🚀 队列处理已在运行中')
+      return
+    }
+
+    // 如果正在启动，等待完成
+    if (this.startingPromise) {
+      await this.startingPromise
+      return
+    }
+
+    // 开始启动
+    this.startingPromise = (async () => {
+      if (this.running) return
+
+      this.running = true
+      console.log('🚀 队列处理已启动')
+
+      // 【队列恢复】在启动时检查是否有待恢复的任务
+      if (hasQueueRecoveryPending()) {
+        console.log('🔄 检测到待恢复的任务，开始执行恢复...')
+        const recoveryResult = await executeQueueRecovery()
+        console.log(`✅ 队列恢复完成: 成功 ${recoveryResult.recovered} 个，失败 ${recoveryResult.failed} 个`)
+      }
+
+      // 启动处理循环（每100ms检查一次）
+      this.processingLoop = setInterval(() => {
+        this.processQueue()
+      }, 100)
+      this.started = true
+    })()
+
+    await this.startingPromise
   }
 
   /**
@@ -134,6 +185,7 @@ export class UnifiedQueueManager {
     if (!this.running) return
 
     this.running = false
+    this.started = false
 
     if (this.processingLoop) {
       clearInterval(this.processingLoop)
@@ -146,17 +198,77 @@ export class UnifiedQueueManager {
 
   /**
    * 注册任务执行器
+   * 防止重复注册
    */
   registerExecutor<T = any, R = any>(
     type: TaskType,
     executor: TaskExecutor<T, R>
   ): void {
+    if (this.executors.has(type)) {
+      return // 静默跳过，不输出警告日志
+    }
     this.executors.set(type, executor)
     console.log(`📝 已注册执行器: ${type}`)
   }
 
   /**
+   * 注册所有任务执行器（防重复）
+   */
+  registerAllExecutors(): void {
+    if (this.executorsRegistered) {
+      console.log('⚠️ 任务执行器已注册，跳过重复注册')
+      return
+    }
+    this.executorsRegistered = true
+  }
+
+  /**
+   * 公开方法：确保队列已初始化
+   * 可用于手动初始化队列系统
+   */
+  async ensureInitialized(): Promise<void> {
+    await this.initialize()
+  }
+
+  /**
+   * 公开方法：确保队列已启动
+   * 可用于手动启动队列系统
+   */
+  async ensureStarted(): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize()
+    }
+    if (!this.started) {
+      await this.start()
+    }
+    // 自动注册执行器（如果尚未注册）
+    if (!this.executorsRegistered) {
+      await this.registerAllExecutorsSafe()
+    }
+  }
+
+  /**
+   * 公开方法：注册所有任务执行器
+   */
+  async registerAllExecutorsSafe(): Promise<void> {
+    if (this.executorsRegistered) {
+      console.log('⚠️ 任务执行器已注册，跳过重复注册')
+      return
+    }
+
+    console.log('📝 注册任务执行器...')
+
+    // 动态导入执行器注册函数
+    const { registerAllExecutors } = await import('./executors')
+    registerAllExecutors(this)
+
+    this.executorsRegistered = true
+    console.log('📝 任务执行器注册完成')
+  }
+
+  /**
    * 添加任务到队列
+   * 自动确保队列已初始化和启动
    */
   async enqueue<T = any>(
     type: TaskType,
@@ -170,6 +282,9 @@ export class UnifiedQueueManager {
       taskId?: string  // 可选的预定义taskId
     } = {}
   ): Promise<string> {
+    // 自动确保队列已启动并注册执行器
+    await this.ensureStarted()
+
     const taskId = options.taskId || randomUUID()
 
     const task: Task<T> = {
