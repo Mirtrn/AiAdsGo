@@ -107,7 +107,10 @@ export default function CreateOfferModalV2({
 
   // 🔥 监听提取完成，自动进入确认步骤
   useEffect(() => {
+    console.log('🔍 useEffect triggered:', { extractionResult, currentStage, currentStep })
+
     if (extractionResult && currentStage === 'completed') {
+      console.log('✅ Extraction completed, switching to confirm step')
       // 保存提取的数据（包含所有AI分析结果）
       setExtractedData({
         finalUrl: extractionResult.finalUrl,

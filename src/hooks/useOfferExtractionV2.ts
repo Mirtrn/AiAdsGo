@@ -210,11 +210,15 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
               setProgress(progressMap[progressData.stage] || 0)
             } else if (data.type === 'complete') {
               // 后端发送格式: {type: 'complete', data: {...result}}
+              const resultData = data.data || data.result
+              console.log('🎉 Complete message received:', { data, resultData })
+              console.log('🔍 Result has finalUrl:', resultData?.finalUrl)
+
               setCurrentStage('completed')
               setCurrentStatus('completed')
               setCurrentMessage('提取完成！')
               setProgress(100)
-              setResult(data.data || data.result)  // 兼容两种格式
+              setResult(resultData)
               setIsExtracting(false)
               cleanup()
             } else if (data.type === 'error') {
