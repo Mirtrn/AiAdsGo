@@ -1348,12 +1348,9 @@ CREATE INDEX idx_optimization_tasks_user_status_created
 ON optimization_tasks(user_id, status, created_at DESC);
 
 
--- Index: idx_prompt_usage_stats_date (on table: prompt_usage_stats)
-CREATE INDEX idx_prompt_usage_stats_date ON prompt_usage_stats(usage_date);
-
-
--- Index: idx_prompt_usage_stats_prompt (on table: prompt_usage_stats)
-CREATE INDEX idx_prompt_usage_stats_prompt ON prompt_usage_stats(prompt_id, version);
+-- REMOVED: prompt_usage_stats table indexes (table was removed in KISS optimization)
+-- CREATE INDEX idx_prompt_usage_stats_date ON prompt_usage_stats(usage_date);
+-- CREATE INDEX idx_prompt_usage_stats_prompt ON prompt_usage_stats(prompt_id, version);
 
 
 -- Index: idx_prompt_versions_active (on table: prompt_versions)

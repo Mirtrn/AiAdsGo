@@ -100,7 +100,7 @@ async function initializeSQLite(): Promise<void> {
   // 因为 better-sqlite3 的 exec 方法可以执行多条 SQL 语句
   const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
   const dataDir = path.dirname(dbPath)
-  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema.sqlite.sql')
+  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema_v2.sql')
 
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true })
@@ -109,7 +109,8 @@ async function initializeSQLite(): Promise<void> {
 
   if (!fs.existsSync(sqlPath)) {
     console.log('⚠️  SQLite schema file not found.')
-    console.log('   Please run: npm run db:schema && npm run db:init')
+    console.log(`   Expected: ${sqlPath}`)
+    console.log('   Please run: npm run db:init')
     return
   }
 
@@ -125,9 +126,9 @@ async function initializePostgreSQL(): Promise<void> {
 
   try {
     // 1. 从生成的SQL文件创建表结构
-    const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema.pg.sql')
+    const sqlPath = path.join(process.cwd(), 'pg-migrations', '000_init_schema_v2.pg.sql')
     if (!fs.existsSync(sqlPath)) {
-      throw new Error(`PostgreSQL schema file not found: ${sqlPath}. Please run: npm run db:schema`)
+      throw new Error(`PostgreSQL schema file not found: ${sqlPath}`)
     }
 
     const sqlContent = fs.readFileSync(sqlPath, 'utf-8')
@@ -138,7 +139,7 @@ async function initializePostgreSQL(): Promise<void> {
     await sql.begin(async (tx: any) => {
       await tx.unsafe(sqlContent)
     })
-    console.log('✅ Schema created from migrations/000_init_schema.pg.sql')
+    console.log('✅ Schema created from pg-migrations/000_init_schema_v2.pg.sql')
 
     // 2. 创建默认管理员账号
     await createDefaultAdmin()
