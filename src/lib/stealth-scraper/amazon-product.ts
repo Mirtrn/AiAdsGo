@@ -324,6 +324,44 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
   })
   const category = categoryParts.join(' > ') || null
 
+  // 🔥 新增：提取竞品ASIN（从"Frequently bought together"、"Customers also viewed"等区域）
+  const relatedAsins: string[] = []
+  const relatedAsinSelectors = [
+    // Frequently bought together
+    '#sims-fbt .a-carousel-card a[href*="/dp/"]',
+    '#sims-fbt a[href*="/dp/"]',
+    '[data-component-type="s-product-image"] a[href*="/dp/"]',
+    // Customers who viewed this also viewed
+    '#anonCarousel1 a[href*="/dp/"]',
+    '#anonCarousel2 a[href*="/dp/"]',
+    '#anonCarousel3 a[href*="/dp/"]',
+    // Similar items / Compare with similar
+    '#HLCXComparisonWidget a[href*="/dp/"]',
+    '#comparison_table a[href*="/dp/"]',
+    // Customers also shopped for
+    '#sp_detail a[href*="/dp/"]',
+    '#sp_detail2 a[href*="/dp/"]',
+    // Products related to this item
+    '#sims-consolidated-1 a[href*="/dp/"]',
+    '#sims-consolidated-2 a[href*="/dp/"]',
+    // Generic carousel selectors
+    '.a-carousel-card a[href*="/dp/"]',
+    '[data-a-carousel-options] a[href*="/dp/"]',
+  ]
+
+  for (const selector of relatedAsinSelectors) {
+    $(selector).each((i: number, el: any) => {
+      const href = $(el).attr('href') || ''
+      const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
+      if (asinMatch && asinMatch[1] && asinMatch[1] !== asin && !relatedAsins.includes(asinMatch[1])) {
+        relatedAsins.push(asinMatch[1])
+      }
+    })
+    if (relatedAsins.length >= 10) break // 最多提取10个竞品ASIN
+  }
+
+  console.log(`🔥 竞品ASIN提取: 找到 ${relatedAsins.length} 个竞品`)
+
   // Extract prices
   const currentPrice = $('.a-price .a-offscreen').first().text().trim() ||
                        $('#priceblock_ourprice').text().trim() ||
@@ -399,6 +437,7 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
     technicalDetails,
     asin,
     category,
+    relatedAsins,  // 🔥 新增：竞品ASIN列表
   }
 
   console.log(`✅ 抓取成功: ${productData.productName || 'Unknown'}`)

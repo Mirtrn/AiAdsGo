@@ -12,7 +12,7 @@ import { resolveAffiliateLink, BATCH_MODE_RETRY_CONFIG, getProxyPool } from '@/l
 import { extractProductInfo } from '@/lib/scraper'
 import {
   scrapeAmazonStoreDeep,
-  scrapeIndependentStore,
+  scrapeIndependentStoreDeep,  // 🔥 修改：使用深度抓取版本，与Amazon Store保持一致
   scrapeAmazonProduct,
 } from '@/lib/stealth-scraper'
 import { createError, AppError } from '@/lib/errors'
@@ -443,12 +443,20 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         }
         console.log(`✅ Amazon单品识别成功: ${brandName || 'Unknown'}`)
       } else if (isIndependentStore) {
-        console.log('🏬 检测到独立站首页，使用非Crawlee方案抓取...')
-        independentStoreData = await scrapeIndependentStore(fullTargetUrl, proxyApiUrl, targetCountry)
+        console.log('🏬 检测到独立站首页，使用深度抓取模式（包含热销商品详情）...')
+        // 🔥 修改（2025-12-08）：使用深度抓取版本，与Amazon Store保持一致
+        // 进入前5个热销商品详情页，获取详细评论和竞品数据
+        independentStoreData = await scrapeIndependentStoreDeep(
+          fullTargetUrl,
+          5,  // 抓取前5个热销商品的详情页
+          proxyApiUrl,
+          targetCountry,
+          3   // 并发数：最多同时抓取3个商品
+        )
         brandName = independentStoreData.storeName
         productDescription = independentStoreData.storeDescription
         productCount = independentStoreData.totalProducts
-        console.log(`✅ 独立站识别成功: ${brandName}, 产品数: ${productCount}`)
+        console.log(`✅ 独立站深度识别成功: ${brandName}, 产品数: ${productCount}, 深度抓取: ${independentStoreData.deepScrapeResults?.successCount || 0}/${independentStoreData.deepScrapeResults?.totalScraped || 0}`)
       } else {
         // 使用普通scraper抓取单个产品页面（非Amazon站点）
         scrapedData = await extractProductInfo(resolvedData.finalUrl, targetCountry)
@@ -557,6 +565,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         }),
 
         // 独立站专属数据（可选）
+        // 🔥 修改（2025-12-08）：添加hotInsights和deepScrapeResults，与Amazon Store保持一致
         ...(independentStoreData && {
           productCount,
           products: independentStoreData.products,
@@ -564,6 +573,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           storeDescription: independentStoreData.storeDescription,
           logoUrl: independentStoreData.logoUrl,
           platform: independentStoreData.platform,
+          hotInsights: independentStoreData.hotInsights,  // 🔥 新增：热销洞察
+          deepScrapeResults: independentStoreData.deepScrapeResults,  // 🔥 新增：深度抓取结果
         }),
 
         // 元数据

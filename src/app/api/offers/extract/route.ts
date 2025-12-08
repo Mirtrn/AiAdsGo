@@ -9,6 +9,14 @@
  * 3. 将任务加入UnifiedQueueManager
  * 4. 返回taskId给前端用于SSE订阅/轮询
  *
+ * 参数：
+ * - affiliate_link: 联盟链接（必填）
+ * - target_country: 推广国家（必填）
+ * - product_price: 产品价格（选填）
+ * - commission_payout: 佣金比例（选填）
+ * - skipCache: 跳过缓存（选填）
+ * - skipWarmup: 跳过预热（选填）
+ *
  * 客户端使用：
  * - SSE订阅：GET /api/offers/extract/stream/[taskId]
  * - 轮询查询：GET /api/offers/extract/status/[taskId]
@@ -38,7 +46,8 @@ export async function POST(req: NextRequest) {
 
     // 2. 解析请求参数
     const body = await req.json()
-    const { affiliate_link, target_country, skipCache, skipWarmup } = body
+    // 🔥 修复（2025-12-08）：添加product_price和commission_payout参数支持
+    const { affiliate_link, target_country, product_price, commission_payout, skipCache, skipWarmup } = body
 
     // 参数验证
     if (!affiliate_link || typeof affiliate_link !== 'string') {
@@ -58,6 +67,7 @@ export async function POST(req: NextRequest) {
     // 3. 创建offer_tasks记录
     const taskId = crypto.randomUUID()
 
+    // 🔥 修复（2025-12-08）：添加product_price和commission_payout字段
     await db.exec(`
       INSERT INTO offer_tasks (
         id,
@@ -65,16 +75,20 @@ export async function POST(req: NextRequest) {
         status,
         affiliate_link,
         target_country,
+        product_price,
+        commission_payout,
         skip_cache,
         skip_warmup,
         created_at,
         updated_at
-      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, datetime('now'), datetime('now'))
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     `, [
       taskId,
       userIdNum,
       affiliate_link,
       target_country,
+      product_price || null,
+      commission_payout || null,
       (skipCache ?? false) ? 1 : 0,
       (skipWarmup ?? false) ? 1 : 0
     ])
@@ -82,11 +96,14 @@ export async function POST(req: NextRequest) {
     console.log(`📝 Created offer_task: ${taskId} for user ${userIdNum}`)
 
     // 4. 将任务加入队列
+    // 🔥 修复（2025-12-08）：传递product_price和commission_payout到执行器
     const taskData: OfferExtractionTaskData = {
       affiliateLink: affiliate_link,
       targetCountry: target_country,
       skipCache: skipCache ?? false,
-      skipWarmup: skipWarmup ?? false
+      skipWarmup: skipWarmup ?? false,
+      productPrice: product_price || undefined,
+      commissionPayout: commission_payout || undefined,
     }
 
     await queue.enqueue(

@@ -22,6 +22,7 @@ export type {
   AmazonProductData,
   AmazonStoreData,
   IndependentStoreData,
+  IndependentProductData,  // 🔥 新增：独立站产品数据类型
 } from './types'
 
 // Proxy utilities
@@ -61,4 +62,6 @@ export {
 // Independent store scraping
 export {
   scrapeIndependentStore,
+  scrapeIndependentStoreDeep,  // 🔥 新增：独立站深度抓取
+  scrapeIndependentProduct,    // 🔥 新增：独立站单品抓取
 } from './independent-store'

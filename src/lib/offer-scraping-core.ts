@@ -34,12 +34,12 @@ async function saveScrapedProducts(
         user_id, offer_id, name, asin, price, rating, review_count, image_url,
         promotion, badge, is_prime,
         hot_score, rank, is_hot, hot_label,
-        scrape_source, created_at, updated_at
+        product_url, scrape_source, created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?,
-        ?, datetime('now'), datetime('now')
+        ?, ?, datetime('now'), datetime('now')
       )
     `, [
       userId,
@@ -59,6 +59,8 @@ async function saveScrapedProducts(
       product.rank || null,
       product.isHot ? 1 : 0,
       product.hotLabel || null,
+      // 🔥 产品URL字段（独立站和Amazon保持一致）
+      product.productUrl || null,
       source
     ])
   }
@@ -748,17 +750,31 @@ export async function performScrapeAndAnalysis(
 
               console.log(`✅ Amazon产品抓取完成: ${productData.productName}`)
             } else if (isIndependentStore) {
-              // 独立站店铺页面抓取 - 🔧 修复：使用完整URL
-              console.log('🏪 检测到独立站店铺页面，使用店铺抓取模式...')
-              const { scrapeIndependentStore } = await import('@/lib/stealth-scraper')
-              const storeData = await scrapeIndependentStore(urlForScraping, proxyUrl, targetCountry)  // 🌍 传入目标国家
+              // 独立站店铺页面抓取 - 🔥 修改（2025-12-08）：使用深度抓取版本，与Amazon Store保持一致
+              console.log('🏪 检测到独立站店铺页面，使用深度抓取模式（包含热销商品详情）...')
+              const { scrapeIndependentStoreDeep } = await import('@/lib/stealth-scraper')
+              const storeData = await scrapeIndependentStoreDeep(
+                urlForScraping,
+                5,  // 抓取前5个热销商品的详情页
+                proxyUrl,
+                targetCountry,
+                3   // 并发数
+              )
 
               // 构建丰富的文本信息供AI分析
               const productSummaries = storeData.products.slice(0, 20).map((p, i) => {
                 const parts = [`${i + 1}. ${p.name}`]
                 if (p.price) parts.push(`价格: ${p.price}`)
+                if (p.rating) parts.push(`评分: ${p.rating}⭐`)
+                if (p.reviewCount) parts.push(`评论: ${p.reviewCount}条`)
+                if (p.hotLabel) parts.push(p.hotLabel)
                 return parts.join(' | ')
               }).join('\n')
+
+              // 🔥 新增：热销洞察信息
+              const hotInsightsSummary = storeData.hotInsights
+                ? `\n\n=== 热销洞察 ===\n平均评分: ${storeData.hotInsights.avgRating.toFixed(1)}⭐\n平均评论数: ${storeData.hotInsights.avgReviews}条\n热销商品数: ${storeData.hotInsights.topProductsCount}`
+                : ''
 
               const textContent = [
                 `=== 独立站店铺: ${storeData.storeName} ===`,
@@ -766,6 +782,7 @@ export async function performScrapeAndAnalysis(
                 `店铺描述: ${storeData.storeDescription || 'N/A'}`,
                 `平台: ${storeData.platform || 'generic'}`,
                 `产品数量: ${storeData.totalProducts}`,
+                hotInsightsSummary,
                 '',
                 '=== 产品列表 ===',
                 productSummaries,
@@ -778,7 +795,7 @@ export async function performScrapeAndAnalysis(
                 html: '',
               }
 
-              console.log(`✅ 独立站店铺抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品`)
+              console.log(`✅ 独立站店铺深度抓取完成: ${storeData.storeName}, ${storeData.totalProducts}个产品, 深度抓取: ${storeData.deepScrapeResults?.successCount || 0}/${storeData.deepScrapeResults?.totalScraped || 0}`)
 
               // 🎯 P0优化: 保存原始爬虫数据（Independent Store页面）
               rawScrapedData = storeData
@@ -1315,7 +1332,8 @@ export async function performScrapeAndAnalysis(
               topReviews: [],
               technicalDetails: {},
               asin: null,
-              category: productInfo.category || null
+              category: productInfo.category || null,
+              relatedAsins: []  // 🔥 非Amazon直接抓取场景无竞品ASIN
             }
           },
           extractedBrand,

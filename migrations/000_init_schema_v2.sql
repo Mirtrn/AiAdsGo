@@ -1775,6 +1775,30 @@ CREATE INDEX IF NOT EXISTS idx_offer_tasks_offer_id ON offer_tasks(offer_id);
 -- 4. Index supports efficient lookup: "Find task that created offer X"
 
 
+-- Migration 062: Add product_price and commission_payout to offer_tasks table
+-- Purpose: Support passing product price and commission parameters through SSE flow
+-- Date: 2025-12-08
+-- Related: /api/offers/extract needs to accept these optional parameters
+ALTER TABLE offer_tasks ADD COLUMN product_price TEXT;
+ALTER TABLE offer_tasks ADD COLUMN commission_payout TEXT;
+
+-- Migration Notes:
+-- 1. These fields are optional, used when user provides pricing info during offer creation
+-- 2. If not provided, values will be extracted from the product page during scraping
+-- 3. Matches batch upload flow which already supports these fields via batch-creation-executor
+
+
+-- Migration 063: Add product_url to scraped_products table for independent store products
+-- Purpose: Independent stores don't have ASIN but have product URLs, need to store them
+-- Date: 2025-12-08
+-- Related: scrapeIndependentStoreDeep now returns product URLs for each product
+ALTER TABLE scraped_products ADD COLUMN product_url TEXT;
+
+-- Migration Notes:
+-- 1. For Amazon products: asin is used (product_url may be null)
+-- 2. For independent store products: product_url is used (asin is null)
+-- 3. This ensures data consistency between Amazon and independent store products
+
 
 -- ==========================================
 -- End of Consolidated Schema

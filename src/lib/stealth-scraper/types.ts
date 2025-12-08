@@ -46,6 +46,8 @@ export interface AmazonProductData {
   technicalDetails: Record<string, string>
   asin: string | null
   category: string | null
+  // 🔥 新增：竞品ASIN列表（从"Frequently bought together"、"Customers also viewed"等提取）
+  relatedAsins: string[]
 }
 
 /**
@@ -108,6 +110,7 @@ export interface AmazonStoreData {
 
 /**
  * Independent site store data structure
+ * 🔥 增强版：与AmazonStoreData保持一致的数据结构
  */
 export interface IndependentStoreData {
   storeName: string | null
@@ -117,10 +120,57 @@ export interface IndependentStoreData {
     name: string
     price: string | null
     productUrl: string | null
+    // 🔥 新增：与Amazon产品一致的字段
+    rating?: string | null
+    reviewCount?: string | null
+    hotScore?: number      // 热销分数
+    rank?: number          // 热销排名
+    isHot?: boolean        // 是否为热销商品（Top 5）
+    hotLabel?: string      // 热销标签
+    imageUrl?: string | null // 产品图片
   }>
   totalProducts: number
   storeUrl: string
   platform: string | null // shopify, woocommerce, generic
+  // 🔥 新增：热销洞察（与Amazon Store一致）
+  hotInsights?: {
+    avgRating: number
+    avgReviews: number
+    topProductsCount: number
+  }
+  // 🔥 新增：深度抓取结果（热销商品详情页数据）
+  deepScrapeResults?: {
+    topProducts: Array<{
+      productUrl: string
+      productData: IndependentProductData | null
+      reviews: string[]           // 评价摘要
+      competitorUrls: string[]    // 竞品URL列表
+      scrapeStatus: 'success' | 'failed' | 'skipped'
+      error?: string
+    }>
+    totalScraped: number
+    successCount: number
+    failedCount: number
+  }
+}
+
+/**
+ * Independent site product data structure (for deep scraping)
+ */
+export interface IndependentProductData {
+  productName: string | null
+  productDescription: string | null
+  productPrice: string | null
+  originalPrice: string | null
+  discount: string | null
+  brandName: string | null
+  features: string[]
+  imageUrls: string[]
+  rating: string | null
+  reviewCount: string | null
+  availability: string | null
+  reviews: string[]
+  category: string | null
 }
 
 /**

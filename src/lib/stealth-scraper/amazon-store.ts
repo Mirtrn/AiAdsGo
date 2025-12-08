@@ -888,7 +888,7 @@ export async function scrapeAmazonStoreDeep(
             asin: asin,
             productData: productData,
             reviews: productData.topReviews || [],
-            competitorAsins: [] as string[],
+            competitorAsins: productData.relatedAsins || [],  // 🔥 使用从详情页提取的竞品ASIN
             scrapeStatus: 'success' as const
           }
         } catch (error: any) {
@@ -910,7 +910,7 @@ export async function scrapeAmazonStoreDeep(
         deepResults.topProducts.push(result.value)
         if (result.value.scrapeStatus === 'success') {
           deepResults.successCount++
-          console.log(`  ✅ 成功: ${result.value.asin}, 评价数: ${result.value.reviews.length}`)
+          console.log(`  ✅ 成功: ${result.value.asin}, 评价数: ${result.value.reviews.length}, 竞品数: ${result.value.competitorAsins.length}`)
         } else {
           deepResults.failedCount++
         }
