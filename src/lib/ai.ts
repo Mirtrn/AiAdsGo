@@ -48,6 +48,41 @@ export interface ProductInfo {
     stockStatus?: string              // 库存状态
     salesRank?: string                // 销售排名
   }
+
+  // 🎯 v3.3优化（2025-12-08）：店铺/单品差异化分析字段
+  // 店铺分析专用字段
+  storeQualityLevel?: 'Premium' | 'Standard' | 'Budget' | 'Unknown'
+  categoryDiversification?: {
+    level: 'Focused' | 'Moderate' | 'Diverse'
+    categories?: string[]
+    primaryCategory?: string
+  }
+  hotInsights?: {
+    avgRating?: number
+    avgReviews?: number
+    topProductsCount?: number
+    bestSeller?: string
+    priceRange?: { min: number; max: number }
+  }
+  // 单品分析专用字段
+  marketFit?: {
+    score: number // 0-100
+    level: 'Excellent' | 'Good' | 'Average' | 'Poor'
+    strengths?: string[]
+    gaps?: string[]
+  }
+  credibilityLevel?: {
+    score: number // 0-100
+    level: 'High' | 'Medium' | 'Low'
+    factors?: string[]
+  }
+  categoryPosition?: {
+    rank?: string
+    percentile?: number
+    competitors?: number
+  }
+  // 页面类型标识
+  pageType?: 'store' | 'product'
 }
 
 /**
@@ -496,6 +531,41 @@ export async function analyzeProductPage(
         stockStatus: pi.competitiveEdges.stockStatus || undefined,
         salesRank: pi.competitiveEdges.salesRank || undefined,
       } : undefined,
+
+      // 🎯 v3.3优化（2025-12-08）：店铺/单品差异化分析字段
+      // 店铺分析专用字段
+      storeQualityLevel: pi.storeQualityLevel || undefined,
+      categoryDiversification: pi.categoryDiversification ? {
+        level: pi.categoryDiversification.level || 'Focused',
+        categories: pi.categoryDiversification.categories || undefined,
+        primaryCategory: pi.categoryDiversification.primaryCategory || undefined,
+      } : undefined,
+      hotInsights: pi.hotInsights ? {
+        avgRating: typeof pi.hotInsights.avgRating === 'number' ? pi.hotInsights.avgRating : undefined,
+        avgReviews: typeof pi.hotInsights.avgReviews === 'number' ? pi.hotInsights.avgReviews : undefined,
+        topProductsCount: typeof pi.hotInsights.topProductsCount === 'number' ? pi.hotInsights.topProductsCount : undefined,
+        bestSeller: pi.hotInsights.bestSeller || undefined,
+        priceRange: pi.hotInsights.priceRange || undefined,
+      } : undefined,
+      // 单品分析专用字段
+      marketFit: pi.marketFit ? {
+        score: typeof pi.marketFit.score === 'number' ? pi.marketFit.score : 0,
+        level: pi.marketFit.level || 'Average',
+        strengths: pi.marketFit.strengths || undefined,
+        gaps: pi.marketFit.gaps || undefined,
+      } : undefined,
+      credibilityLevel: pi.credibilityLevel ? {
+        score: typeof pi.credibilityLevel.score === 'number' ? pi.credibilityLevel.score : 0,
+        level: pi.credibilityLevel.level || 'Medium',
+        factors: pi.credibilityLevel.factors || undefined,
+      } : undefined,
+      categoryPosition: pi.categoryPosition ? {
+        rank: pi.categoryPosition.rank || undefined,
+        percentile: typeof pi.categoryPosition.percentile === 'number' ? pi.categoryPosition.percentile : undefined,
+        competitors: typeof pi.categoryPosition.competitors === 'number' ? pi.categoryPosition.competitors : undefined,
+      } : undefined,
+      // 页面类型标识
+      pageType: pi.pageType || pageType,
     }
 
     // 更新productInfo为增强版本
@@ -509,6 +579,14 @@ export async function analyzeProductPage(
     logger.debug(`  - reviews: ${productInfo.reviews ? 'YES' : 'NO'}`)
     logger.debug(`  - promotions: ${productInfo.promotions ? 'YES' : 'NO'}`)
     logger.debug(`  - competitiveEdges: ${productInfo.competitiveEdges ? 'YES' : 'NO'}`)
+    // 🎯 v3.3优化：新增字段统计
+    logger.debug(`  - pageType: ${productInfo.pageType || 'unknown'}`)
+    logger.debug(`  - storeQualityLevel: ${productInfo.storeQualityLevel || 'N/A'}`)
+    logger.debug(`  - categoryDiversification: ${productInfo.categoryDiversification?.level || 'N/A'}`)
+    logger.debug(`  - hotInsights: ${productInfo.hotInsights ? 'YES' : 'NO'}`)
+    logger.debug(`  - marketFit: ${productInfo.marketFit ? `${productInfo.marketFit.score}/100 (${productInfo.marketFit.level})` : 'N/A'}`)
+    logger.debug(`  - credibilityLevel: ${productInfo.credibilityLevel ? `${productInfo.credibilityLevel.score}/100 (${productInfo.credibilityLevel.level})` : 'N/A'}`)
+    logger.debug(`  - categoryPosition: ${productInfo.categoryPosition?.rank || 'N/A'}`)
 
     return productInfo
   } catch (error: any) {

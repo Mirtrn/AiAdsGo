@@ -178,6 +178,40 @@ export interface AIAnalysisResult {
       stockStatus?: string
       salesRank?: string
     }
+    // 🎯 v3.2优化（2025-12-08）：店铺/单品差异化分析字段
+    // 店铺分析专用字段
+    storeQualityLevel?: 'Premium' | 'Standard' | 'Budget' | 'Unknown'
+    categoryDiversification?: {
+      level: 'Focused' | 'Moderate' | 'Diverse'
+      categories?: string[]
+      primaryCategory?: string
+    }
+    hotInsights?: {
+      avgRating?: number
+      avgReviews?: number
+      topProductsCount?: number
+      bestSeller?: string
+      priceRange?: { min: number; max: number }
+    }
+    // 单品分析专用字段
+    marketFit?: {
+      score: number // 0-100
+      level: 'Excellent' | 'Good' | 'Average' | 'Poor'
+      strengths?: string[]
+      gaps?: string[]
+    }
+    credibilityLevel?: {
+      score: number // 0-100
+      level: 'High' | 'Medium' | 'Low'
+      factors?: string[]
+    }
+    categoryPosition?: {
+      rank?: string
+      percentile?: number
+      competitors?: number
+    }
+    // 页面类型标识
+    pageType?: 'store' | 'product'
   }
   reviewAnalysis?: any
   reviewAnalysisSuccess?: boolean

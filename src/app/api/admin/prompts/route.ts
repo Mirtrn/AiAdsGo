@@ -18,17 +18,7 @@ export async function GET(request: NextRequest) {
           SELECT COUNT(*)
           FROM prompt_versions pv2
           WHERE pv2.prompt_id = pv.prompt_id
-        ) as version_count,
-        (
-          SELECT SUM(call_count)
-          FROM prompt_usage_stats
-          WHERE prompt_id = pv.prompt_id AND version = pv.version
-        ) as total_calls,
-        (
-          SELECT SUM(total_cost)
-          FROM prompt_usage_stats
-          WHERE prompt_id = pv.prompt_id AND version = pv.version
-        ) as total_cost
+        ) as version_count
       FROM prompt_versions pv
       LEFT JOIN users u ON pv.created_by = u.id
       WHERE pv.is_active = 1
@@ -64,8 +54,8 @@ export async function GET(request: NextRequest) {
         createdBy: prompt.created_by_name,
         createdAt: prompt.created_at,
         versionCount: prompt.version_count || 0,
-        totalCalls: prompt.total_calls || 0,
-        totalCost: prompt.total_cost || 0,
+        totalCalls: 0,  // Feature offline: prompt_usage_stats table removed
+        totalCost: 0,   // Feature offline: prompt_usage_stats table removed
       })
     }
 
@@ -92,8 +82,8 @@ export async function GET(request: NextRequest) {
             createdBy: p.created_by_name,
             createdAt: p.created_at,
             versionCount: p.version_count || 0,
-            totalCalls: p.total_calls || 0,
-            totalCost: p.total_cost || 0,
+            totalCalls: 0,  // Feature offline: prompt_usage_stats table removed
+            totalCost: 0,   // Feature offline: prompt_usage_stats table removed
           }
         }),
         promptsByCategory,

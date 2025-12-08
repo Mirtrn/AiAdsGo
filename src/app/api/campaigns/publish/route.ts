@@ -403,36 +403,10 @@ export async function POST(request: NextRequest) {
       console.warn('⚠️ Launch Score评估失败，跳过风险评估')
     }
 
-    // 8. 创建A/B测试记录（智能优化模式）
-    let abTestId: number | null = null
-    if (enable_smart_optimization) {
-      const now = new Date().toISOString()
-      const abTestInsert = await db.exec(`
-        INSERT INTO ab_tests (
-          user_id,
-          offer_id,
-          test_name,
-          test_description,
-          test_type,
-          test_dimension,
-          test_mode,
-          is_auto_test,
-          status,
-          min_sample_size,
-          confidence_level,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, 'full_creative', 'creative', 'launch_multi_variant', 1, 'running', 100, 0.95, ?, ?)
-      `, [userId,
-        offer_id,
-        `智能优化 - ${campaign_config.campaignName}`,
-        `自动测试${variant_count}个创意变体，流量分配：均匀分布`,
-        now,
-        now])
-
-      abTestId = Number(abTestInsert.lastInsertRowid)
-      console.log(`✅ 创建A/B测试记录: ${abTestId}`)
-    }
+    // 8. A/B测试功能已下线 (KISS optimization 2025-12-08)
+    // 保留ab_test_id变量以保持向后兼容性，但始终为null
+    const abTestId: number | null = null
+    // A/B测试记录创建已移除 - 原代码: INSERT INTO ab_tests ...
 
     // 9. 计算流量分配（预算分配）
     const trafficAllocations = creatives.map((_, index) => {
@@ -770,36 +744,12 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 创建ab_test_variants记录（智能优化模式）
-      if (enable_smart_optimization && abTestId) {
-        for (let i = 0; i < publishResults.length; i++) {
-          const result = publishResults[i]
-          const creative = creatives[i]
-
-          await db.exec(`
-            INSERT INTO ab_test_variants (
-              ab_test_id,
-              variant_name,
-              variant_label,
-              ad_creative_id,
-              traffic_allocation,
-              is_control,
-              created_at,
-              updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          `, [abTestId,
-            result.variant_name,
-            `Variant ${result.variant_name}`,
-            creative.id,
-            trafficAllocations[i],
-            i === 0 ? 1 : 0  // 第一个作为对照组
-          ])
-        }
-      }
+      // A/B测试功能已下线 (KISS optimization 2025-12-08)
+      // ab_test_variants记录创建已移除 - abTestId始终为null
 
       return NextResponse.json({
         success: publishResults.length > 0,
-        ab_test_id: abTestId,
+        ab_test_id: abTestId,  // 保持向后兼容性，始终返回null
         campaigns: publishResults,
         failed: failedCampaigns,
         summary: {

@@ -378,6 +378,43 @@ export async function triggerOfferExtraction(
         updateData.promotions = JSON.stringify(productInfo.promotions)
         console.log(`[OfferExtraction] #${offerId} 💾 保存AI促销: active=${productInfo.promotions.active}, types=${productInfo.promotions.types?.length || 0}`)
       }
+
+      // 🎯 v3.2优化（2025-12-08）：保存店铺/单品差异化分析字段
+      const v32AnalysisData: Record<string, any> = {}
+
+      // 店铺分析专用字段
+      if (productInfo.storeQualityLevel) {
+        v32AnalysisData.storeQualityLevel = productInfo.storeQualityLevel
+      }
+      if (productInfo.categoryDiversification) {
+        v32AnalysisData.categoryDiversification = productInfo.categoryDiversification
+      }
+      if (productInfo.hotInsights) {
+        v32AnalysisData.hotInsights = productInfo.hotInsights
+      }
+
+      // 单品分析专用字段
+      if (productInfo.marketFit) {
+        v32AnalysisData.marketFit = productInfo.marketFit
+      }
+      if (productInfo.credibilityLevel) {
+        v32AnalysisData.credibilityLevel = productInfo.credibilityLevel
+      }
+      if (productInfo.categoryPosition) {
+        v32AnalysisData.categoryPosition = productInfo.categoryPosition
+      }
+
+      // 页面类型
+      if (productInfo.pageType) {
+        updateData.page_type = productInfo.pageType
+        v32AnalysisData.pageType = productInfo.pageType
+      }
+
+      // 如果有v3.2数据，保存到专用列
+      if (Object.keys(v32AnalysisData).length > 0) {
+        updateData.ai_analysis_v32 = JSON.stringify(v32AnalysisData)
+        console.log(`[OfferExtraction] #${offerId} 💾 保存v3.2分析: pageType=${v32AnalysisData.pageType || 'unknown'}, fields=${Object.keys(v32AnalysisData).join(',')}`)
+      }
     }
 
     // 保存评论分析结果（如果有）

@@ -41,17 +41,7 @@ export async function GET(
         pv.created_at,
         pv.is_active,
         pv.change_notes,
-        u.username as created_by_name,
-        (
-          SELECT SUM(call_count)
-          FROM prompt_usage_stats
-          WHERE prompt_id = pv.prompt_id AND version = pv.version
-        ) as total_calls,
-        (
-          SELECT SUM(total_cost)
-          FROM prompt_usage_stats
-          WHERE prompt_id = pv.prompt_id AND version = pv.version
-        ) as total_cost
+        u.username as created_by_name
        FROM prompt_versions pv
        LEFT JOIN users u ON pv.created_by = u.id
        WHERE pv.prompt_id = ?
@@ -59,20 +49,8 @@ export async function GET(
       [promptId]
     )
 
-    // 获取使用统计（最近30天）
-    const usageStats = await db.query<any>(
-      `SELECT
-        usage_date,
-        SUM(call_count) as calls,
-        SUM(total_tokens) as tokens,
-        SUM(total_cost) as cost
-       FROM prompt_usage_stats
-       WHERE prompt_id = ?
-         AND usage_date >= date('now', '-30 days')
-       GROUP BY usage_date
-       ORDER BY usage_date DESC`,
-      [promptId]
-    )
+    // Usage stats feature offline (prompt_usage_stats table removed)
+    const usageStats: any[] = []
 
     return NextResponse.json({
       success: true,
@@ -100,15 +78,10 @@ export async function GET(
           createdAt: v.created_at,
           isActive: v.is_active === 1,
           changeNotes: v.change_notes,
-          totalCalls: v.total_calls || 0,
-          totalCost: v.total_cost || 0,
+          totalCalls: 0,  // Feature offline: prompt_usage_stats table removed
+          totalCost: 0,   // Feature offline: prompt_usage_stats table removed
         })),
-        usageStats: usageStats.map(s => ({
-          date: s.usage_date,
-          calls: s.calls || 0,
-          tokens: s.tokens || 0,
-          cost: s.cost || 0,
-        })),
+        usageStats: [],  // Feature offline: prompt_usage_stats table removed
       }
     })
   } catch (error: any) {

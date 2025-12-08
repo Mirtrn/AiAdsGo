@@ -592,6 +592,82 @@ async function buildAdCreativePrompt(
     extras.push(`STORE HOT PRODUCTS: ${topProducts.slice(0, 3).join(', ')} (Avg: ${hotInsights.avgRating.toFixed(1)}⭐, ${hotInsights.avgReviews} reviews)`)
   }
 
+  // 🎯 v3.2优化（2025-12-08）：读取v3.2差异化分析数据
+  let v32Analysis: {
+    storeQualityLevel?: string
+    categoryDiversification?: { level: string; categories?: string[]; primaryCategory?: string }
+    hotInsights?: { avgRating?: number; avgReviews?: number; topProductsCount?: number; bestSeller?: string; priceRange?: { min: number; max: number } }
+    marketFit?: { score: number; level: string; strengths?: string[]; gaps?: string[] }
+    credibilityLevel?: { score: number; level: string; factors?: string[] }
+    categoryPosition?: { rank?: string; percentile?: number; competitors?: number }
+    pageType?: 'store' | 'product'
+  } | null = null
+
+  if (offer.ai_analysis_v32) {
+    try {
+      v32Analysis = JSON.parse(offer.ai_analysis_v32)
+      console.log(`[AdCreativeGenerator] 🎯 使用v3.2分析数据: pageType=${v32Analysis?.pageType}`)
+    } catch (error) {
+      console.error('[AdCreativeGenerator] ❌ 解析ai_analysis_v32失败:', error)
+    }
+  }
+
+  // 店铺页面特殊处理（v3.2增强）
+  if (v32Analysis?.pageType === 'store') {
+    // 店铺质量等级
+    if (v32Analysis.storeQualityLevel) {
+      extras.push(`STORE QUALITY: ${v32Analysis.storeQualityLevel} Tier`)
+    }
+    // 分类多样化
+    if (v32Analysis.categoryDiversification) {
+      const catDiv = v32Analysis.categoryDiversification
+      extras.push(`CATEGORY FOCUS: ${catDiv.level}${catDiv.primaryCategory ? ` - Primary: ${catDiv.primaryCategory}` : ''}`)
+      if (catDiv.categories && catDiv.categories.length > 0) {
+        extras.push(`PRODUCT RANGE: ${catDiv.categories.slice(0, 4).join(', ')}`)
+      }
+    }
+    // 增强热销洞察
+    if (v32Analysis.hotInsights) {
+      const hi = v32Analysis.hotInsights
+      if (hi.bestSeller) {
+        extras.push(`BEST SELLER: ${hi.bestSeller}`)
+      }
+      if (hi.priceRange) {
+        extras.push(`PRICE RANGE: $${hi.priceRange.min} - $${hi.priceRange.max}`)
+      }
+    }
+  }
+
+  // 单品页面特殊处理（v3.2增强）
+  if (v32Analysis?.pageType === 'product') {
+    // 市场契合度
+    if (v32Analysis.marketFit) {
+      const mf = v32Analysis.marketFit
+      extras.push(`MARKET FIT: ${mf.level} (${mf.score}/100)`)
+      if (mf.strengths && mf.strengths.length > 0) {
+        extras.push(`PRODUCT STRENGTHS: ${mf.strengths.slice(0, 3).join(', ')}`)
+      }
+    }
+    // 可信度评级
+    if (v32Analysis.credibilityLevel) {
+      const cl = v32Analysis.credibilityLevel
+      extras.push(`CREDIBILITY: ${cl.level} (${cl.score}/100)`)
+      if (cl.factors && cl.factors.length > 0) {
+        extras.push(`TRUST FACTORS: ${cl.factors.slice(0, 3).join(', ')}`)
+      }
+    }
+    // 品类排名
+    if (v32Analysis.categoryPosition) {
+      const cp = v32Analysis.categoryPosition
+      if (cp.rank) {
+        extras.push(`CATEGORY RANK: ${cp.rank}`)
+      }
+      if (cp.percentile) {
+        extras.push(`TOP ${100 - cp.percentile}% IN CATEGORY`)
+      }
+    }
+  }
+
   // 🔥 P0优化：竞品分析数据（差异化定位关键）
   if (offer.competitor_analysis) {
     try {
