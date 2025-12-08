@@ -11,10 +11,10 @@
 import { resolveAffiliateLink, BATCH_MODE_RETRY_CONFIG, getProxyPool } from '@/lib/url-resolver-enhanced'
 import { extractProductInfo } from '@/lib/scraper'
 import {
-  scrapeAmazonStore,
+  scrapeAmazonStoreDeep,
   scrapeIndependentStore,
   scrapeAmazonProduct,
-} from '@/lib/scraper-stealth'
+} from '@/lib/stealth-scraper'
 import { createError, AppError } from '@/lib/errors'
 import {
   detectPageType,
@@ -416,12 +416,20 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       progressCallback?.('scraping_products', 'in_progress', '正在抓取产品数据...', undefined, 0)
 
       if (isAmazonStore) {
-        console.log('🏪 检测到Amazon Store页面，使用非Crawlee方案抓取...')
-        storeData = await scrapeAmazonStore(fullTargetUrl, proxyApiUrl, targetCountry)
+        console.log('🏪 检测到Amazon Store页面，使用深度抓取模式（包含热销商品详情）...')
+        // 🔥 方案A：前置深度抓取
+        // 进入前5个热销商品详情页，获取详细评论和竞品数据
+        storeData = await scrapeAmazonStoreDeep(
+          fullTargetUrl,
+          5,  // 抓取前5个热销商品的详情页
+          proxyApiUrl,
+          targetCountry,
+          3   // 并发数：最多同时抓取3个商品
+        )
         brandName = storeData.brandName || storeData.storeName
         productDescription = storeData.storeDescription
         productCount = storeData.totalProducts
-        console.log(`✅ Amazon Store识别成功: ${brandName}, 产品数: ${productCount}`)
+        console.log(`✅ Amazon Store深度识别成功: ${brandName}, 产品数: ${productCount}, 深度抓取: ${storeData.deepScrapeResults?.successCount || 0}/${storeData.deepScrapeResults?.totalScraped || 0}`)
       } else if (isAmazonProductPage) {
         console.log('📦 检测到Amazon单品页面，使用非Crawlee方案抓取...')
         amazonProductData = await scrapeAmazonProduct(fullTargetUrl, proxyApiUrl, targetCountry)
