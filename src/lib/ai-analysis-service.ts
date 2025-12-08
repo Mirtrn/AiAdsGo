@@ -7,6 +7,7 @@ import { analyzeProductPage } from './ai'
 import { analyzeReviewsWithAI, type RawReview } from './review-analyzer'
 import { analyzeCompetitorsWithAI, type CompetitorProduct } from './competitor-analyzer'
 import { extractAdElements } from './ad-elements-extractor'
+import { scrapeAmazonProduct } from './stealth-scraper/amazon-product'
 
 export interface AIAnalysisInput {
   extractResult: {
@@ -226,6 +227,133 @@ export interface AIAnalysisResult {
   extractedDescriptions?: string[]
   extractionMetadata?: any
   adExtractionSuccess?: boolean
+}
+
+/**
+ * 根据国家获取Amazon域名
+ */
+function getAmazonDomain(country: string): string {
+  const domainMap: Record<string, string> = {
+    'US': 'com',
+    'UK': 'co.uk',
+    'DE': 'de',
+    'FR': 'fr',
+    'IT': 'it',
+    'ES': 'es',
+    'JP': 'co.jp',
+    'CA': 'ca',
+    'AU': 'com.au',
+    'IN': 'in',
+    'MX': 'com.mx',
+    'BR': 'com.br',
+  }
+  return domainMap[country] || 'com'
+}
+
+/**
+ * 智能选择多样化的ASIN
+ * 策略：均匀间隔选择，保证多样性
+ */
+function selectDiverseAsins(asins: string[], limit: number): string[] {
+  if (asins.length <= limit) {
+    return asins
+  }
+
+  // 均匀间隔选择策略
+  const step = Math.floor(asins.length / limit)
+  const selected: string[] = []
+
+  for (let i = 0; i < limit; i++) {
+    const index = Math.min(i * step, asins.length - 1)
+    selected.push(asins[index])
+  }
+
+  return selected
+}
+
+/**
+ * 批量抓取竞品详情
+ * 复用现有的 scrapeAmazonProduct 函数，自动继承代理重试、反爬虫、品牌过滤等功能
+ *
+ * @param asins - 竞品ASIN列表（已过滤同品牌产品）
+ * @param targetCountry - 目标国家
+ * @param customProxyUrl - 自定义代理URL（可选）
+ * @param limit - 最多抓取数量（默认3个，避免过度抓取）
+ * @returns 竞品产品详情列表
+ */
+async function batchScrapeCompetitorDetails(
+  asins: string[],
+  targetCountry: string,
+  customProxyUrl?: string,
+  limit: number = 3
+): Promise<CompetitorProduct[]> {
+  console.log(`🔍 批量抓取${Math.min(asins.length, limit)}个竞品详情...`)
+
+  // Step 1: 智能选择要抓取的ASIN（保证多样性）
+  const selectedAsins = selectDiverseAsins(asins, limit)
+  console.log(`📋 已选择${selectedAsins.length}个多样化ASIN: ${selectedAsins.join(', ')}`)
+
+  // Step 2: 构建竞品URL列表
+  const amazonDomain = getAmazonDomain(targetCountry)
+  const competitorUrls = selectedAsins.map(asin => ({
+    asin,
+    url: `https://www.amazon.${amazonDomain}/dp/${asin}`
+  }))
+
+  // Step 3: 并行抓取详情（使用Promise.allSettled避免单点失败）
+  const results = await Promise.allSettled(
+    competitorUrls.map(async ({ asin, url }) => {
+      try {
+        console.log(`  🔄 正在抓取竞品: ${asin}`)
+
+        // 🔥 复用现有的 scrapeAmazonProduct 函数
+        // 优势：自动包含代理重试、反爬虫、品牌过滤等逻辑
+        const productData = await scrapeAmazonProduct(
+          url,
+          customProxyUrl,
+          targetCountry,
+          1  // 竞品抓取只重试1次（避免过长等待）
+        )
+
+        // 转换为 CompetitorProduct 格式
+        const competitor: CompetitorProduct = {
+          asin,
+          name: productData.productName || `Product ${asin}`,
+          brand: productData.brandName || 'Unknown',
+          price: productData.productPrice
+            ? parseFloat(productData.productPrice.replace(/[^0-9.]/g, ''))
+            : null,
+          priceText: productData.productPrice || null,
+          rating: productData.rating
+            ? parseFloat(productData.rating)
+            : null,
+          reviewCount: productData.reviewCount
+            ? parseInt(productData.reviewCount.replace(/[^0-9]/g, ''), 10)
+            : null,
+          imageUrl: productData.imageUrls?.[0] || null,
+          source: 'related_products' as const,
+          features: productData.features || productData.aboutThisItem || [],
+        }
+
+        console.log(`  ✅ 成功抓取: ${asin} - ${competitor.name} (${competitor.brand})`)
+        return competitor
+      } catch (error: any) {
+        console.warn(`  ❌ 竞品详情抓取失败 (${asin}):`, error.message)
+        return null
+      }
+    })
+  )
+
+  // Step 4: 过滤成功的结果
+  const competitors = results
+    .filter((r): r is PromiseFulfilledResult<CompetitorProduct | null> =>
+      r.status === 'fulfilled' && r.value !== null
+    )
+    .map(r => r.value!)
+
+  console.log(`✅ 批量抓取完成: 成功${competitors.length}/${selectedAsins.length}个竞品`)
+
+  return competitors
 }
 
 /**
@@ -718,33 +846,56 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               features: extractResult.features || extractResult.aboutThisItem || [],
             }
 
-            // 使用已提取的ASIN列表进行竞品分析
-            // 注意：这些ASIN只是标识符，我们需要构建简化的竞品对象
-            // 由于没有详细数据，使用ASIN作为name，AI会基于brand和ASIN进行分析
-            const competitors: CompetitorProduct[] = extractResult.relatedAsins!.slice(0, 5).map(asin => ({
-              asin,
-              name: `Competitor Product ${asin}`,
-              brand: 'Competitor Brand',  // 已通过品牌过滤，确保是不同品牌
-              price: null,
-              priceText: null,
-              rating: null,
-              reviewCount: null,
-              imageUrl: null,
-              source: 'same_category' as const,
-              features: [],
-            }))
-
-            const competitorAnalysis = await analyzeCompetitorsWithAI(
-              ourProduct,
-              competitors,
+            // 🔥 新增（2025-12-09）：批量抓取竞品详情（3个），获取完整产品信息
+            const competitors = await batchScrapeCompetitorDetails(
+              extractResult.relatedAsins!,
               targetCountry,
-              userId,
-              { enableCompression: true, enableCache: true }
+              undefined,  // 使用默认代理
+              3           // 最多抓取3个竞品详情（数量控制）
             )
 
-            result.competitorAnalysis = competitorAnalysis
-            result.competitorAnalysisSuccess = true
-            console.log(`✅ [REUSE ASINS] 竞品分析完成 (${competitors.length}个已过滤竞品ASIN)`)
+            if (competitors.length > 0) {
+              // 使用完整的竞品数据进行分析
+              const competitorAnalysis = await analyzeCompetitorsWithAI(
+                ourProduct,
+                competitors,
+                targetCountry,
+                userId,
+                { enableCompression: true, enableCache: true }
+              )
+
+              result.competitorAnalysis = competitorAnalysis
+              result.competitorAnalysisSuccess = true
+              console.log(`✅ [DETAILED COMPETITORS] 竞品详细分析完成 (${competitors.length}个完整竞品数据)`)
+            } else {
+              // 降级：使用简化的ASIN列表（无详情）
+              console.warn(`⚠️ 竞品详情抓取全部失败，使用简化ASIN分析`)
+
+              const simplifiedCompetitors: CompetitorProduct[] = extractResult.relatedAsins!.slice(0, 5).map(asin => ({
+                asin,
+                name: `Competitor Product ${asin}`,
+                brand: 'Competitor Brand',  // 已通过品牌过滤，确保是不同品牌
+                price: null,
+                priceText: null,
+                rating: null,
+                reviewCount: null,
+                imageUrl: null,
+                source: 'same_category' as const,
+                features: [],
+              }))
+
+              const competitorAnalysis = await analyzeCompetitorsWithAI(
+                ourProduct,
+                simplifiedCompetitors,
+                targetCountry,
+                userId,
+                { enableCompression: true, enableCache: true }
+              )
+
+              result.competitorAnalysis = competitorAnalysis
+              result.competitorAnalysisSuccess = true
+              console.log(`✅ [SIMPLIFIED ASINS] 竞品简化分析完成 (${simplifiedCompetitors.length}个ASIN)`)
+            }
           } catch (error: any) {
             console.warn(`⚠️ [REUSE ASINS] 竞品分析失败:`, error.message)
             // 降级到市场定位分析
