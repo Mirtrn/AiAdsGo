@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { findOfferById } from '@/lib/offers'
-import { generateAdCreative } from '@/lib/ad-creative-generator'
+import { generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
 import {
   evaluateCreativeAdStrength,

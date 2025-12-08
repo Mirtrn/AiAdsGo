@@ -8,68 +8,12 @@ import {
 } from "@/lib/launch-score-cache";
 import RadarChart from "./RadarChart";
 import ScoreTrendChart from "./ScoreTrendChart";
-
-interface LaunchScoreModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  offer: {
-    id: number;
-    offerName: string;
-    brand: string;
-  };
-}
-
-interface Creative {
-  id: number;
-  version: number;
-  headline1: string;
-  headline2: string | null;
-  headline3: string | null;
-  description1: string;
-  description2: string | null;
-  finalUrl: string;
-  qualityScore: number | null;
-  isApproved: boolean;
-  createdAt: string;
-}
-
-interface ScoreDimension {
-  score: number;
-  issues: string[];
-  suggestions: string[];
-}
-
-interface LaunchScoreData {
-  totalScore: number;
-  keywordAnalysis: ScoreDimension & {
-    relevance: number;
-    competition: string;
-  };
-  marketFitAnalysis: ScoreDimension & {
-    targetAudienceMatch: number;
-    geographicRelevance: number;
-    competitorPresence: string;
-  };
-  landingPageAnalysis: ScoreDimension & {
-    loadSpeed: number;
-    mobileOptimization: boolean;
-    contentRelevance: number;
-    callToAction: boolean;
-    trustSignals: number;
-  };
-  budgetAnalysis: ScoreDimension & {
-    estimatedCpc: number;
-    competitiveness: string;
-    roi: number;
-  };
-  contentAnalysis: ScoreDimension & {
-    headlineQuality: number;
-    descriptionQuality: number;
-    keywordAlignment: number;
-    uniqueness: number;
-  };
-  overallRecommendations: string[];
-}
+import type {
+  LaunchScoreModalProps,
+  Creative,
+  ScoreDimension,
+  LaunchScoreData,
+} from "./launch-score/types";
 
 export default function LaunchScoreModal({
   isOpen,

@@ -2,9 +2,9 @@
  * 数据库 Schema 定义 - 单一权威来源
  *
  * 所有表结构在此定义，自动生成 SQLite 和 PostgreSQL 的初始化脚本
- * 版本: 1.0.0
- * 最后更新: 2025-12-02
- * 表数量: 38
+ * 版本: 2.0.0
+ * 最后更新: 2025-12-08
+ * 表数量: 39 (removed prompt_usage_stats, added offer_tasks, batch_tasks)
  */
 
 // ============================================================================
@@ -153,6 +153,10 @@ export const TABLES: TableDef[] = [
       { name: 'promotions', type: 'TEXT' },  // 促销活动信息（JSON格式）
       { name: 'scraped_data', type: 'TEXT' },  // 爬取的原始数据（JSON格式）
       { name: 'product_currency', type: 'TEXT', default: 'USD' },  // 产品货币单位
+      // Database v2.0: AI增强字段 - 用于AI分析的结构化数据
+      { name: 'ai_reviews', type: 'TEXT' },  // AI处理的评论数据（JSON格式）
+      { name: 'ai_competitive_edges', type: 'TEXT' },  // AI分析的竞争优势（JSON格式）
+      { name: 'ai_keywords', type: 'TEXT' },  // AI提取的关键词（JSON格式）
       { name: 'is_deleted', type: 'BOOLEAN', notNull: true, default: false },  // 软删除标记
       { name: 'deleted_at', type: 'TIMESTAMP' },  // 删除时间
       { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
@@ -1043,29 +1047,65 @@ export const TABLES: TableDef[] = [
   },
 
   // -------------------------------------------------------------------------
-  // 37. prompt_usage_stats - Prompt 使用统计
+  // 37. offer_tasks - Offer任务队列 (Migration 058, Database v2.0)
   // -------------------------------------------------------------------------
   {
-    name: 'prompt_usage_stats',
+    name: 'offer_tasks',
     columns: [
-      { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
-      { name: 'prompt_id', type: 'TEXT', notNull: true },
-      { name: 'version', type: 'TEXT', notNull: true },
-      { name: 'usage_date', type: 'DATE', notNull: true },
-      { name: 'call_count', type: 'INTEGER', default: 0 },
-      { name: 'total_tokens', type: 'INTEGER', default: 0 },
-      { name: 'total_cost', type: 'REAL', default: 0 },
-      { name: 'avg_quality_score', type: 'REAL' },
+      { name: 'id', type: 'TEXT', primaryKey: true },  // UUID v4
+      { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
+      { name: 'status', type: 'TEXT', notNull: true, check: "status IN ('pending', 'running', 'completed', 'failed')", default: 'pending' },
+      { name: 'stage', type: 'TEXT' },  // Current processing stage
+      { name: 'progress', type: 'INTEGER', default: 0 },  // 0-100
+      { name: 'affiliate_link', type: 'TEXT', notNull: true },
+      { name: 'target_country', type: 'TEXT', notNull: true },
+      { name: 'result', type: 'TEXT' },  // JSON extraction result
+      { name: 'error', type: 'TEXT' },  // JSON error details
+      { name: 'batch_id', type: 'TEXT', references: { table: 'batch_tasks', column: 'id', onDelete: 'SET NULL' } },  // Migration 060
+      { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+      { name: 'updated_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+      { name: 'started_at', type: 'TIMESTAMP' },
+      { name: 'completed_at', type: 'TIMESTAMP' },
     ],
     indexes: [
-      { name: 'idx_prompt_usage_stats_date', columns: ['usage_date'] },
-      { name: 'idx_prompt_usage_stats_prompt', columns: ['prompt_id', 'version'] },
+      { name: 'idx_offer_tasks_user_status', columns: ['user_id', 'status'] },  // User task list
+      { name: 'idx_offer_tasks_status_created', columns: ['status', 'created_at'] },  // Admin dashboard
+      { name: 'idx_offer_tasks_updated_at', columns: ['updated_at'] },  // SSE polling
+      { name: 'idx_offer_tasks_id_updated', columns: ['id', 'updated_at'] },  // SSE single task
+      { name: 'idx_offer_tasks_batch_id', columns: ['batch_id', 'status'] },  // Batch queries (Migration 060)
     ],
-    uniqueConstraints: [['prompt_id', 'version', 'usage_date']],
   },
 
   // -------------------------------------------------------------------------
-  // 38. migration_history - 迁移历史
+  // 38. batch_tasks - 批量任务管理 (Migration 059, Database v2.0)
+  // -------------------------------------------------------------------------
+  {
+    name: 'batch_tasks',
+    columns: [
+      { name: 'id', type: 'TEXT', primaryKey: true },  // UUID v4
+      { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
+      { name: 'task_type', type: 'TEXT', notNull: true },  // offer-creation, offer-scrape, offer-enhance
+      { name: 'status', type: 'TEXT', notNull: true, check: "status IN ('pending', 'running', 'completed', 'failed', 'partial')", default: 'pending' },
+      { name: 'total_count', type: 'INTEGER', notNull: true, default: 0 },
+      { name: 'success_count', type: 'INTEGER', notNull: true, default: 0 },
+      { name: 'failed_count', type: 'INTEGER', notNull: true, default: 0 },
+      { name: 'progress', type: 'INTEGER', notNull: true, default: 0 },  // 0-100
+      { name: 'result_summary', type: 'TEXT' },  // JSON summary
+      { name: 'error', type: 'TEXT' },  // JSON error details
+      { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+      { name: 'updated_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+      { name: 'started_at', type: 'TIMESTAMP' },
+      { name: 'completed_at', type: 'TIMESTAMP' },
+    ],
+    indexes: [
+      { name: 'idx_batch_tasks_user_status', columns: ['user_id', 'status'] },  // User batch list
+      { name: 'idx_batch_tasks_status_created', columns: ['status', 'created_at'] },  // Status filtering
+      { name: 'idx_batch_tasks_user_created', columns: ['user_id', 'created_at'] },  // History queries
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // 39. migration_history - 迁移历史
   // -------------------------------------------------------------------------
   {
     name: 'migration_history',
@@ -1112,5 +1152,5 @@ export const DEFAULT_SETTINGS = [
 // 导出表数量常量
 // ============================================================================
 
-export const SCHEMA_VERSION = '1.0.0'
+export const SCHEMA_VERSION = '2.0.0'
 export const TABLE_COUNT = TABLES.length

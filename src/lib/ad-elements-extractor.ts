@@ -16,27 +16,17 @@ import { getKeywordSearchVolumes } from './keyword-planner'
 import { getHighIntentKeywords } from './google-suggestions'
 import { getHeadlineLanguageInstructions, getDescriptionLanguageInstructions } from './ad-elements-language-instructions'
 import { loadPrompt } from './prompt-loader'
-import type { AmazonProductData, AmazonStoreData } from './scraper-stealth'
+import type { AmazonProductData, AmazonStoreData } from './stealth-scraper'
+import type {
+  StoreProduct,
+  EnrichedStoreProduct,
+  ExtractedAdElements,
+  ProductInfo,
+  CategoryThreshold
+} from './ad-elements/types'
 
-// Type alias for Store Product (extracted from AmazonStoreData.products)
-type StoreProduct = AmazonStoreData['products'][number]
-
-// 🔥 扩展的Store Product类型（包含深度数据）
-type EnrichedStoreProduct = {
-  name: string
-  asin?: string | null
-  price?: string | null
-  rating?: string | null
-  reviewCount?: string | null
-  imageUrl?: string | null
-  hotScore?: number
-  hasDeepData?: boolean
-  // 🔥 深度数据字段
-  productData?: AmazonProductData | null
-  reviewAnalysis?: any | null
-  competitorAnalysis?: any | null
-  productInfo?: any | null  // 🆕 AI产品分析结果
-}
+// Re-export types for backward compatibility
+export type { ExtractedAdElements, ProductInfo } from './ad-elements/types'
 
 /**
  * 从AI响应中提取JSON（处理markdown代码块等格式）
@@ -137,54 +127,6 @@ function extractJsonFromResponse(response: string): any {
 }
 
 /**
- * 提取的广告元素
- */
-export interface ExtractedAdElements {
-  // 关键字（已查询搜索量）
-  keywords: Array<{
-    keyword: string
-    source: 'product_title' | 'google_suggest' | 'brand_variant'
-    searchVolume: number
-    priority: 'HIGH' | 'MEDIUM' | 'LOW'
-  }>
-
-  // 广告标题（15个）
-  headlines: string[]
-
-  // 广告描述（4个）
-  descriptions: string[]
-
-  // 提取来源统计
-  sources: {
-    productCount: number
-    keywordSources: Record<string, number>
-    topProducts: Array<{
-      name: string
-      rating: string | null
-      reviewCount: string | null
-    }>
-  }
-}
-
-/**
- * 商品数据接口（兼容单商品和店铺商品）
- */
-interface ProductInfo {
-  name: string
-  description?: string
-  features?: string[]
-  aboutThisItem?: string[]  // Amazon "About this item" 产品详细描述
-  brand?: string
-  rating?: string | null
-  reviewCount?: string | null
-  // 🔥 Deep analysis fields from productInfo
-  uniqueSellingPoints?: string
-  targetAudience?: string
-  productHighlights?: string
-  brandDescription?: string
-}
-
-/**
  * 从商品标题提取"品牌名+商品名"
  * @example "Teslong Inspection Camera with Light" → "Teslong Inspection Camera"
  */
@@ -209,13 +151,6 @@ function extractBrandProductName(productTitle: string, brandName: string): strin
  * 🔥 P1.2优化1：类目权重系数
  * 不同类目的评论数量基准不同，需要动态调整门槛
  */
-interface CategoryThreshold {
-  highReviewBase: number  // High 流行度评论数基准
-  mediumReviewBase: number  // Medium 流行度评论数基准
-  multiplier: number  // 门槛倍数
-  description: string
-}
-
 const CATEGORY_THRESHOLDS: Record<string, CategoryThreshold> = {
   // 电子产品：竞争激烈，门槛提高 50%
   'Electronics': { highReviewBase: 5000, mediumReviewBase: 500, multiplier: 1.5, description: '电子产品' },

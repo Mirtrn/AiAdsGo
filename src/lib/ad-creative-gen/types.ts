@@ -1,0 +1,45 @@
+/**
+ * Ad Creative Generator - Type Definitions
+ *
+ * Shared TypeScript interfaces for ad creative generation modules
+ */
+
+// Re-export types from ad-creative module
+export type {
+  GeneratedAdCreativeData,
+  HeadlineAsset,
+  DescriptionAsset,
+  QualityMetrics
+} from '../ad-creative'
+
+export type { Offer } from '../offers'
+
+/**
+ * Keyword with search volume data
+ * 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
+ */
+export interface KeywordWithVolume {
+  keyword: string
+  searchVolume: number // 精确搜索量（来自Historical Metrics API）
+  competition?: string
+  competitionIndex?: number
+  source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
+  matchType?: 'EXACT' | 'BROAD' // 匹配类型
+}
+
+/**
+ * AI Configuration
+ * 优先使用Vertex AI，其次使用Gemini API
+ */
+export interface AIConfig {
+  type: 'vertex-ai' | 'gemini-api' | null
+  vertexAI?: {
+    projectId: string
+    location: string
+    model: string
+  }
+  geminiAPI?: {
+    apiKey: string
+    model: string
+  }
+}

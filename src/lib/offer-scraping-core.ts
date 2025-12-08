@@ -82,7 +82,7 @@ async function saveScrapedProducts(
 async function saveDeepScrapeResults(
   offerId: number,
   userId: number,
-  deepResults: NonNullable<import('@/lib/scraper-stealth').AmazonStoreData['deepScrapeResults']>,
+  deepResults: NonNullable<import('@/lib/stealth-scraper').AmazonStoreData['deepScrapeResults']>,
   targetCountry: string
 ): Promise<void> {
   const db = await getDatabase()
@@ -485,7 +485,7 @@ export async function performScrapeAndAnalysis(
               // Amazon Store页面专用抓取 - 🔧 修复：使用完整URL
               // 🔥 新增：使用深度抓取模式（进入热销商品详情页获取评价和竞品数据）
               console.log('📦 检测到Amazon Store页面，使用深度抓取模式...')
-              const { scrapeAmazonStoreDeep } = await import('@/lib/scraper-stealth')
+              const { scrapeAmazonStoreDeep } = await import('@/lib/stealth-scraper')
               const storeData = await scrapeAmazonStoreDeep(
                 urlForScraping,
                 5,  // 抓取前5个热销商品的详情页
@@ -679,7 +679,7 @@ export async function performScrapeAndAnalysis(
               }
             } else if (isAmazon) {
               // Amazon产品页面专用抓取 - 增强版 - 🔧 修复：使用完整URL
-              const { scrapeAmazonProduct } = await import('@/lib/scraper-stealth')
+              const { scrapeAmazonProduct } = await import('@/lib/stealth-scraper')
               const productData = await scrapeAmazonProduct(urlForScraping, proxyUrl, targetCountry)  // 🌍 传入目标国家
 
               // 🎯 P0优化: 保存原始爬虫数据
@@ -750,7 +750,7 @@ export async function performScrapeAndAnalysis(
             } else if (isIndependentStore) {
               // 独立站店铺页面抓取 - 🔧 修复：使用完整URL
               console.log('🏪 检测到独立站店铺页面，使用店铺抓取模式...')
-              const { scrapeIndependentStore } = await import('@/lib/scraper-stealth')
+              const { scrapeIndependentStore } = await import('@/lib/stealth-scraper')
               const storeData = await scrapeIndependentStore(urlForScraping, proxyUrl, targetCountry)  // 🌍 传入目标国家
 
               // 构建丰富的文本信息供AI分析
@@ -792,7 +792,7 @@ export async function performScrapeAndAnalysis(
               }
             } else {
               // 通用JavaScript渲染抓取 - 🔧 修复：使用完整URL
-              const { scrapeUrlWithBrowser } = await import('@/lib/scraper-stealth')
+              const { scrapeUrlWithBrowser } = await import('@/lib/stealth-scraper')
               const result = await scrapeUrlWithBrowser(urlForScraping, proxyUrl, {
                 waitForTimeout: 30000,
                 targetCountry,  // 🌍 传入目标国家

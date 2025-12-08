@@ -1,0 +1,496 @@
+/**
+ * Core Scraping Functions
+ *
+ * Base URL scraping and affiliate link resolution
+ */
+
+import { smartWaitForLoad, recordWaitOptimization } from '../smart-wait-strategy'
+import { getPlaywrightPool } from '../playwright-pool'
+import { retryWithBackoff, isProxyConnectionError } from './proxy-utils'
+import {
+  createStealthBrowser,
+  releaseBrowser,
+  configureStealthPage,
+  randomDelay,
+  getDynamicTimeout
+} from './browser-stealth'
+import type { ScrapeUrlResult, AffiliateLinkResult } from './types'
+
+const PROXY_URL = process.env.PROXY_URL || ''
+
+/**
+ * Scrape URL with JavaScript rendering and stealth mode
+ * P0优化: 使用连接池减少启动时间
+ * 🌍 支持根据目标国家动态配置语言
+ */
+export async function scrapeUrlWithBrowser(
+  url: string,
+  customProxyUrl?: string,
+  options: {
+    waitForSelector?: string
+    waitForTimeout?: number
+    followRedirects?: boolean
+    targetCountry?: string  // 🌍 目标国家参数
+  } = {}
+): Promise<ScrapeUrlResult> {
+  // 🔥 P0修复: 必须传入targetCountry到createStealthBrowser
+  // 之前漏传导致浏览器locale/timezone/languages使用默认en-US配置
+  // 这会触发Amazon反爬虫检测（访问amazon.it但浏览器是英语配置）
+  const browserResult = await createStealthBrowser(customProxyUrl, options.targetCountry)
+
+  try {
+    return await retryWithBackoff(async () => {
+      // 连接池模式已有context，独立模式需要创建
+      const page = await browserResult.context.newPage()
+      await configureStealthPage(page, options.targetCountry)  // 🌍 传入目标国家
+
+      // Track redirects
+      const redirectChain: string[] = [url]
+      page.on('response', response => {
+        const status = response.status()
+        if (status >= 300 && status < 400) {
+          const location = response.headers()['location']
+          if (location) {
+            redirectChain.push(location)
+          }
+        }
+      })
+
+      console.log(`🌐 访问URL: ${url}`)
+
+      // 🔥 增强人类行为模拟：导航前随机延迟
+      await randomDelay(500, 1500)
+
+      // 🔥 P1修复: 两阶段智能等待策略
+      // 阶段1: 快速提交导航，不等待完整加载（避免被第三方资源阻塞）
+      let response: any
+      try {
+        response = await page.goto(url, {
+          waitUntil: 'commit',  // 最快策略，导航提交后立即返回
+          timeout: 10000,  // 10秒足够建立连接
+        })
+      } catch (commitError: any) {
+        // 如果commit也失败，说明根本连不上，直接抛出
+        console.error(`❌ 导航提交失败: ${commitError.message}`)
+        throw commitError
+      }
+
+      if (!response) {
+        throw new Error('No response received')
+      }
+
+      const status = response.status()
+      console.log(`📊 HTTP状态: ${status}`)
+
+      if (status === 429) {
+        throw new Error('429 Too Many Requests - 触发限流，将重试')
+      }
+
+      if (status >= 400) {
+        throw new Error(`HTTP ${status} error`)
+      }
+
+      // 🔥 P0修复: commit后等待DOM开始加载,否则页面可能是空壳HTML
+      // Amazon反爬策略:返回200状态但HTML为空,需等待JavaScript执行渲染DOM
+      try {
+        await page.waitForLoadState('domcontentloaded', { timeout: 5000 })
+        console.log(`✅ DOM加载完成`)
+
+        // ✅ 方案2修复: DOM加载后立即添加延迟，给JavaScript执行时间
+        // Amazon的JavaScript可能在DOM加载后1-2秒才开始执行
+        const initialWait = 1000 + Math.random() * 2000  // 1-3秒
+        console.log(`⏰ DOM加载后等待: ${Math.round(initialWait)}ms`)
+        await new Promise(resolve => setTimeout(resolve, initialWait))
+      } catch (e) {
+        console.warn(`⚠️ DOM加载超时,但继续执行`)
+      }
+
+      // 🔧 修复: Amazon 欧洲站点需要等待网络空闲才能完整渲染内容
+      // 特别是 IT/DE/FR/ES 站点，JavaScript 加载较慢
+      if (url.includes('amazon.it') || url.includes('amazon.de') || url.includes('amazon.fr') || url.includes('amazon.es')) {
+        console.log(`🇪🇺 Amazon欧洲站点检测到 (${url.match(/amazon\.(it|de|fr|es)/)?.[1]?.toUpperCase()}), 等待网络空闲...`)
+        try {
+          await page.waitForLoadState('networkidle', { timeout: 15000 })
+          console.log(`✅ 网络空闲等待完成`)
+        } catch (networkError) {
+          console.warn(`⚠️ Network idle timeout (15s), continuing...`)
+        }
+      }
+
+      // 🔥 P1修复: 检测Amazon的a-no-js标记，表示JavaScript未执行完成
+      // 如果检测到a-no-js，需要额外等待JavaScript渲染
+      try {
+        // 🔥 P0增强: 同时获取页面语言信息用于诊断
+        const pageStatus = await page.evaluate(() => {
+          const html = document.documentElement
+          return {
+            hasNoJsClass: html.classList.contains('a-no-js') || document.body?.classList.contains('a-no-js'),
+            hasJsClass: html.classList.contains('a-js'),
+            htmlLang: html.getAttribute('lang') || '(未设置)',
+            htmlClass: html.className.substring(0, 100),
+          }
+        })
+
+        console.log(`🔍 页面状态: lang=${pageStatus.htmlLang}, a-js=${pageStatus.hasJsClass}, a-no-js=${pageStatus.hasNoJsClass}`)
+
+        if (pageStatus.hasNoJsClass) {
+          console.log(`🔄 检测到a-no-js标记，等待JavaScript渲染...`)
+
+          // ✅ 修复1: 添加随机延迟（模拟人类阅读时间）
+          const humanDelay = 2000 + Math.random() * 3000  // 2-5秒
+          console.log(`⏰ 模拟人类行为延迟: ${Math.round(humanDelay)}ms`)
+          await new Promise(resolve => setTimeout(resolve, humanDelay))
+
+          // ✅ 修复2: 模拟鼠标移动和滚动
+          try {
+            await page.mouse.move(
+              Math.random() * 800 + 100,  // x: 100-900
+              Math.random() * 400 + 100   // y: 100-500
+            )
+            await page.mouse.wheel(0, Math.random() * 300 + 100)  // 滚动100-400px
+            console.log(`🖱️ 已模拟鼠标移动和滚动`)
+          } catch (e) {
+            console.warn(`⚠️ 鼠标模拟失败，继续执行`)
+          }
+
+          // ✅ 修复3: 增加超时时间 8秒 → 15秒
+          // 等待a-no-js变为a-js，或者等待networkidle
+          try {
+            await Promise.race([
+              // 等待class变化（a-no-js → a-js）
+              page.waitForFunction(() => {
+                const html = document.documentElement
+                return !html.classList.contains('a-no-js') || html.classList.contains('a-js')
+              }, { timeout: 15000 }),  // ✅ 8秒 → 15秒
+              // 或者等待网络空闲
+              page.waitForLoadState('networkidle', { timeout: 15000 }),  // ✅ 8秒 → 15秒
+            ])
+            console.log(`✅ JavaScript渲染完成`)
+          } catch (waitError) {
+            console.warn(`⚠️ JavaScript渲染等待超时，继续执行`)
+
+            // ✅ 修复4: 超时后再等待一次（给Amazon最后机会）
+            console.log(`🔄 最后尝试：再等待5秒...`)
+            await new Promise(resolve => setTimeout(resolve, 5000))
+          }
+        }
+
+        // 🔥 P0增强: 如果页面语言与目标国家不匹配，记录警告
+        if (options.targetCountry && pageStatus.htmlLang) {
+          const { getLanguageCodeForCountry } = await import('../language-country-codes')
+          const expectedLangCode = getLanguageCodeForCountry(options.targetCountry)
+          const actualLang = pageStatus.htmlLang.toLowerCase().split('-')[0]  // 'en-gb' -> 'en'
+
+          if (expectedLangCode !== actualLang) {
+            console.warn(`⚠️ 语言不匹配: 目标国家${options.targetCountry}期望语言${expectedLangCode}，但页面lang=${pageStatus.htmlLang}，可能代理IP不在目标国家`)
+          }
+        }
+      } catch (evalError) {
+        console.warn(`⚠️ a-no-js检测失败: ${(evalError as Error).message}`)
+      }
+
+      // 阶段2: 等待关键元素出现（Amazon产品页面的核心内容）
+      if (options.waitForSelector) {
+        console.log(`⏳ 等待关键元素: ${options.waitForSelector}`)
+
+        // 🔥 多选择器容错策略：尝试多个可能的选择器
+        const productSelectors = [
+          '#productTitle',  // 美国/英国站常用
+          'span[id="productTitle"]',  // 精确匹配
+          'h1[id="title"]',  // 意大利站可能的变体
+          '[data-feature-name="title"]',  // 数据属性选择器
+          'h1.product-title-word-break',  // 类名选择器
+          '#dp-container',  // 产品容器，最宽松的备选
+        ]
+
+        // 🔧 修复: Amazon IT/DE/FR/ES 需要更长的等待时间
+        const isEuropeanAmazon = url.includes('amazon.it') || url.includes('amazon.de') || url.includes('amazon.fr') || url.includes('amazon.es')
+        const selectorTimeout = isEuropeanAmazon ? 8000 : 3000  // 欧洲站点8秒，其他3秒
+
+        let selectorFound = false
+        let foundSelector = ''
+
+        for (const selector of productSelectors) {
+          const found = await page.waitForSelector(selector, {
+            timeout: selectorTimeout,  // 🔧 根据地区动态调整超时时间
+            state: 'visible'
+          }).then(() => true).catch(() => false)
+
+          if (found) {
+            selectorFound = true
+            foundSelector = selector
+            console.log(`✅ 找到元素: ${selector}`)
+            break
+          }
+        }
+
+        if (!selectorFound) {
+          selectorFound = false
+        }
+
+        if (!selectorFound) {
+          console.warn(`⚠️ 关键元素未找到: ${options.waitForSelector}`)
+
+          // 🔥 检测是否遇到反爬虫保护页面
+          const pageTitle = await page.title().catch(() => '')
+          const pageUrl = page.url()
+
+          // Cloudflare Challenge检测
+          if (pageTitle.toLowerCase().includes('just a moment') ||
+              pageTitle.toLowerCase().includes('attention required') ||
+              pageTitle.toLowerCase().includes('please verify') ||
+              pageUrl.includes('captcha') ||
+              pageUrl.includes('challenge')) {
+            console.error(`🚫 检测到反爬虫保护页面: "${pageTitle}"`)
+            throw new Error(`遇到反爬虫保护页面: ${pageTitle}`)
+          }
+
+          // Amazon错误页面检测
+          if (pageTitle.toLowerCase().includes('page not found') ||
+              pageTitle.toLowerCase().includes('404') ||
+              pageTitle.toLowerCase().includes('sorry')) {
+            console.error(`📭 检测到Amazon错误页面: "${pageTitle}"`)
+            throw new Error(`Amazon错误页面: ${pageTitle}`)
+          }
+
+          // 🔥 P0增强调试: 提取页面中所有可能的标题元素
+          try {
+            const debugInfo = await page.evaluate(() => {
+              const h1s = Array.from(document.querySelectorAll('h1')).map(el => ({
+                tag: 'h1',
+                id: el.id,
+                class: el.className,
+                text: el.textContent?.substring(0, 100) || ''
+              }))
+              const spans = Array.from(document.querySelectorAll('span[id*="title"], span[class*="title"]')).slice(0, 5).map(el => ({
+                tag: 'span',
+                id: el.id,
+                class: el.className,
+                text: el.textContent?.substring(0, 100) || ''
+              }))
+              return { h1s, spans, bodyClass: document.body?.className || '' }
+            })
+            console.warn(`🔍 页面结构调试:`, JSON.stringify(debugInfo, null, 2))
+          } catch (e) {
+            console.warn('调试信息提取失败')
+          }
+
+          // 获取部分HTML用于调试（前500个字符）
+          const htmlPreview = await page.content().then(html => html.substring(0, 500)).catch(() => '')
+          console.warn(`📄 页面预览: ${htmlPreview}...`)
+
+          // 如果没有明确的反爬虫特征，但选择器未找到，可能是页面结构变化
+          // 🔥 P0修复: 不再抛出错误，而是继续处理（允许降级抓取）
+          console.warn(`⚠️ 页面加载成功但关键选择器未找到，将尝试降级提取数据`)
+        } else {
+          console.log(`✅ 关键元素已加载: ${foundSelector || options.waitForSelector}`)
+        }
+
+        // 🔥 增强人类行为模拟：页面加载后模拟鼠标活动和滚动
+        await page.mouse.move(
+          Math.floor(Math.random() * 200) + 100,
+          Math.floor(Math.random() * 200) + 100
+        ).catch(() => {})
+
+        await page.evaluate(() => {
+          window.scrollTo(0, Math.floor(Math.random() * 500))
+        }).catch(() => {})
+      } else {
+        // 🔥 P1优化: 使用智能等待策略
+        const waitStart = Date.now()
+        const waitResult = await smartWaitForLoad(page, url).catch(() => ({
+          waited: 10000,
+          loadComplete: false,
+          signals: []
+        }))
+        const waitTime = Date.now() - waitStart
+
+        console.log(`⏱️ 智能等待完成: ${waitResult.waited}ms, 信号: ${waitResult.signals.join(', ')}`)
+
+        // 记录优化效果（相比固定10秒networkidle）
+        recordWaitOptimization(10000, waitResult.waited)
+      }
+
+      // Additional random delay (simulate reading)
+      await randomDelay(1000, 2000)
+
+      // Simulate human scrolling
+      await page.evaluate(() => {
+        window.scrollBy(0, Math.random() * 500)
+      })
+
+      await randomDelay(500, 1000)
+
+      // Get final URL after all redirects
+      const finalUrl = page.url()
+      if (finalUrl !== url) {
+        redirectChain.push(finalUrl)
+      }
+
+      console.log(`✅ 最终URL: ${finalUrl}`)
+      console.log(`🔄 重定向次数: ${redirectChain.length - 1}`)
+
+      // Extract data
+      const html = await page.content()
+      const title = await page.title()
+
+      // Take screenshot for debugging (optional)
+      let screenshot: Buffer | undefined
+      try {
+        screenshot = await page.screenshot({
+          fullPage: false,
+          timeout: 30000,  // 🔥 修复: 增加到30秒超时（代理网络可能较慢）
+          animations: 'disabled',  // 禁用动画加速截图
+        })
+      } catch (error) {
+        console.warn('⚠️ 截图失败:', error)
+        // 尝试第二次截图，不等待字体加载
+        try {
+          screenshot = await page.screenshot({
+            fullPage: false,
+            timeout: 15000,
+            animations: 'disabled',
+            // 不等待字体，直接截图
+          }).catch(() => undefined)
+          if (screenshot) {
+            console.log('✅ 第二次尝试截图成功（未等待字体加载）')
+          }
+        } catch (retryError) {
+          console.warn('⚠️ 第二次截图也失败，跳过截图继续执行')
+        }
+      }
+
+      // 关闭页面（context由releaseBrowser处理）
+      await page.close().catch(() => {})
+
+      return {
+        html,
+        title,
+        finalUrl,
+        redirectChain: Array.from(new Set(redirectChain)), // Remove duplicates
+        screenshot,
+      }
+    })
+  } finally {
+    await releaseBrowser(browserResult)
+  }
+}
+
+/**
+ * Resolve affiliate link redirects
+ * P0优化: 使用连接池减少启动时间
+ * P0优化: 集成代理IP池预热缓存
+ * P1优化: 代理失败时自动换新代理重试
+ */
+export async function resolveAffiliateLink(
+  affiliateLink: string,
+  customProxyUrl?: string,
+  targetCountry?: string,
+  maxProxyRetries: number = 2  // 代理失败最多重试2次
+): Promise<AffiliateLinkResult> {
+  console.log(`🔗 解析推广链接: ${affiliateLink}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
+
+  let lastError: Error | undefined
+  const effectiveProxyUrl = customProxyUrl || PROXY_URL
+
+  for (let proxyAttempt = 0; proxyAttempt <= maxProxyRetries; proxyAttempt++) {
+    try {
+      if (proxyAttempt > 0) {
+        console.log(`🔄 链接解析 - 代理重试 ${proxyAttempt}/${maxProxyRetries}，清理连接池并获取新代理...`)
+        const pool = getPlaywrightPool()
+        await pool.clearIdleInstances()
+        // 🔥 清理代理IP缓存，强制获取新IP
+        const { clearProxyCache } = await import('../proxy/fetch-proxy-ip')
+        clearProxyCache(effectiveProxyUrl)
+        console.log(`🧹 已清理代理IP缓存: ${effectiveProxyUrl}`)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
+      const browserResult = await createStealthBrowser(effectiveProxyUrl, targetCountry)
+
+      try {
+        return await retryWithBackoff(async () => {
+          const page = await browserResult.context.newPage()
+          await configureStealthPage(page, targetCountry)  // 🌍 传入目标国家
+
+          const redirectChain: string[] = [affiliateLink]
+
+          // Track all redirects
+          page.on('response', response => {
+            const url = response.url()
+            if (!redirectChain.includes(url)) {
+              redirectChain.push(url)
+            }
+          })
+
+          // Navigate and wait for final URL
+          await randomDelay(500, 1500)
+
+          await page.goto(affiliateLink, {
+            waitUntil: 'domcontentloaded',
+            timeout: getDynamicTimeout(affiliateLink), // 🔥 P1优化: 动态超时
+          })
+
+          // Wait for any JavaScript redirects
+          // 🔥 P1优化: 使用智能等待策略
+          const waitResult = await smartWaitForLoad(page, affiliateLink, { maxWaitTime: 15000 }).catch(() => ({
+            waited: 15000,
+            loadComplete: false,
+            signals: []
+          }))
+
+          console.log(`⏱️ 链接解析等待: ${waitResult.waited}ms, 信号: ${waitResult.signals.join(', ')}`)
+          recordWaitOptimization(15000, waitResult.waited)
+
+          await randomDelay(1000, 2000)
+
+          // 🔥 修复：使用page.evaluate获取完整URL，包括Cloudflare拦截页的URL
+          // page.url()在某些情况下可能返回不完整的URL
+          const finalUrl = await page.evaluate(() => window.location.href).catch(() => page.url())
+
+          // Parse final URL and suffix
+          const urlObj = new URL(finalUrl)
+          const basePath = `${urlObj.origin}${urlObj.pathname}`
+          const suffix = urlObj.search.substring(1) // Remove leading '?'
+
+          console.log(`✅ 最终URL: ${basePath}`)
+          console.log(`🔧 URL Suffix: ${suffix.substring(0, 100)}${suffix.length > 100 ? '...' : ''}`)
+
+          // 🔥 新增：如果suffix为空但finalUrl包含查询参数，记录警告
+          if (!suffix && finalUrl.includes('?')) {
+            console.warn(`⚠️ URL Suffix提取警告: finalUrl包含?但suffix为空`)
+            console.warn(`   finalUrl: ${finalUrl}`)
+            console.warn(`   urlObj.search: ${urlObj.search}`)
+          }
+
+          await page.close().catch(() => {})
+
+          return {
+            finalUrl: basePath,
+            finalUrlSuffix: suffix,
+            redirectChain: Array.from(new Set(redirectChain)),
+            redirectCount: redirectChain.length - 1,
+          }
+        })
+      } finally {
+        await releaseBrowser(browserResult)
+      }
+
+    } catch (error: any) {
+      lastError = error
+      console.error(`❌ 链接解析尝试 ${proxyAttempt + 1} 失败: ${error.message?.substring(0, 100)}`)
+
+      // 如果是代理连接错误，尝试换新代理
+      if (isProxyConnectionError(error) && proxyAttempt < maxProxyRetries) {
+        console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
+        continue
+      }
+
+      // 其他错误或已用尽重试次数
+      throw error
+    }
+  }
+
+  // 所有重试都失败
+  throw lastError || new Error('推广链接解析失败：已用尽所有代理重试')
+}

@@ -395,28 +395,18 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         const reviews: RawReview[] = []
         const debug = extractResult.debug || {}
         const isAmazonProductPage = debug.isAmazonProductPage || false
+        const isAmazonStore = debug.isAmazonStore || false
 
-        // 方式1: 从Amazon产品页的topReviews字段提取（格式："4.5 stars - Title: Review text..."）
-        if (isAmazonProductPage && extractResult.topReviews && extractResult.topReviews.length > 0) {
-          console.log(`📊 从Amazon产品页提取 ${extractResult.topReviews.length} 条评论...`)
-          extractResult.topReviews.forEach((reviewText: string) => {
-            // 解析评论格式："4.5 stars - Title: Review text..."
-            const ratingMatch = reviewText.match(/^([\d.]+)\s+stars?/i)
-            const rating = ratingMatch ? `${ratingMatch[1]} out of 5 stars` : null
-
-            reviews.push({
-              rating,
-              title: reviewText.split(' - ')[1]?.split(':')[0]?.trim() || null,
-              body: reviewText.split(':').slice(1).join(':').trim() || reviewText,
-              helpful: null,
-              verified: false,
-              date: new Date().toISOString(),
-              author: 'Amazon Customer',
-            })
-          })
+        // 🎯 修复（2025-12-08）：单品页面的评论分析由 offer-scraping-core.ts 的 Playwright 处理
+        // 这里只处理店铺页面的评论聚合分析
+        if (isAmazonProductPage) {
+          // 单品页面：跳过静态HTML评论提取（Amazon评论是懒加载的，Cheerio无法获取）
+          // 评论将由后续的 Playwright 流程抓取和分析
+          console.log(`ℹ️ 单品页面评论分析将由 Playwright 流程处理（跳过静态HTML提取）`)
+          result.reviewAnalysisSuccess = true  // 标记为成功，让后续流程继续
         }
-        // 方式2: 从店铺产品中提取评论信息（适用于Amazon Store和独立站）
-        else if (extractResult.products && extractResult.products.length > 0) {
+        // 店铺页面：从产品列表中提取评论信息（适用于Amazon Store和独立站）
+        else if ((isAmazonStore || extractResult.products) && extractResult.products && extractResult.products.length > 0) {
           console.log(`📊 从店铺产品中提取评论信息 (${extractResult.products.length}个产品)...`)
           extractResult.products.forEach((product: any) => {
             if (product.rating && product.reviews > 0) {
@@ -433,22 +423,26 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               })
             }
           })
-        }
 
-        if (reviews.length > 0) {
-          const reviewAnalysis = await analyzeReviewsWithAI(
-            reviews,
-            extractResult.brand || 'Unknown Product',
-            targetCountry,
-            userId,
-            { enableCompression: true, enableCache: true }
-          )
+          if (reviews.length > 0) {
+            const reviewAnalysis = await analyzeReviewsWithAI(
+              reviews,
+              extractResult.brand || 'Unknown Product',
+              targetCountry,
+              userId,
+              { enableCompression: true, enableCache: true }
+            )
 
-          result.reviewAnalysis = reviewAnalysis
-          result.reviewAnalysisSuccess = true
-          console.log(`✅ 评论分析完成 (${reviews.length}条评论)`)
+            result.reviewAnalysis = reviewAnalysis
+            result.reviewAnalysisSuccess = true
+            console.log(`✅ 评论分析完成 (${reviews.length}条评论)`)
+          } else {
+            console.log('⚠️ 店铺产品中未找到评论数据')
+            result.reviewAnalysisSuccess = true  // 不视为失败
+          }
         } else {
-          console.log('⚠️ 未找到评论数据，跳过评论分析')
+          console.log('ℹ️ 非店铺页面，评论分析将由后续流程处理')
+          result.reviewAnalysisSuccess = true  // 标记为成功，让后续流程继续
         }
       } catch (error: any) {
         console.error('⚠️ 评论分析失败（不影响流程）:', error.message)
@@ -463,9 +457,20 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
 
         // 🔥 修复：从扁平化的extractResult中构建竞品数据
         const competitors: CompetitorProduct[] = []
+        const debug = extractResult.debug || {}
+        const isAmazonProductPage = debug.isAmazonProductPage || false
+        const isAmazonStore = debug.isAmazonStore || false
 
-        // 从店铺产品数据中提取竞品（适用于Amazon Store和独立站）
-        if (extractResult.products && extractResult.products.length > 0) {
+        // 🎯 修复（2025-12-08）：单品页面的竞品分析由 offer-scraping-core.ts 的 Playwright 处理
+        // 这里只处理店铺页面的产品对比分析
+        if (isAmazonProductPage) {
+          // 单品页面：跳过静态数据竞品提取（单品页面没有products数组）
+          // 竞品将由后续的 Playwright 流程抓取和分析
+          console.log(`ℹ️ 单品页面竞品分析将由 Playwright 流程处理（跳过静态数据提取）`)
+          result.competitorAnalysisSuccess = true  // 标记为成功，让后续流程继续
+        }
+        // 店铺页面：从产品数据中提取竞品（适用于Amazon Store和独立站）
+        else if ((isAmazonStore || extractResult.products) && extractResult.products && extractResult.products.length > 0) {
           console.log(`📊 从店铺产品中提取竞品数据 (${extractResult.products.length}个产品)...`)
           // 将店铺中的其他产品视为竞品
           extractResult.products.slice(0, 10).forEach((product: any) => {
@@ -484,35 +489,39 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               features: [],
             })
           })
-        }
 
-        if (competitors.length >= 2) {
-          // 🔥 修复：从扁平化结构中提取产品价格信息
-          const productPrice = extractResult.price
-            ? parseFloat(extractResult.price.replace(/[^0-9.]/g, ''))
-            : null
+          if (competitors.length >= 2) {
+            // 🔥 修复：从扁平化结构中提取产品价格信息
+            const productPrice = extractResult.price
+              ? parseFloat(extractResult.price.replace(/[^0-9.]/g, ''))
+              : null
 
-          const ourProduct = {
-            name: extractResult.productName || extractResult.brand || 'Unknown',
-            brand: extractResult.brand || null,
-            price: productPrice,
-            rating: null,
-            reviewCount: null,
-            features: [],
+            const ourProduct = {
+              name: extractResult.productName || extractResult.brand || 'Unknown',
+              brand: extractResult.brand || null,
+              price: productPrice,
+              rating: null,
+              reviewCount: null,
+              features: [],
+            }
+
+            const competitorAnalysis = await analyzeCompetitorsWithAI(
+              ourProduct,
+              competitors,
+              targetCountry,
+              userId
+            )
+
+            result.competitorAnalysis = competitorAnalysis
+            result.competitorAnalysisSuccess = true
+            console.log(`✅ 竞品分析完成 (对比${competitors.length}个竞品)`)
+          } else {
+            console.log('⚠️ 店铺产品数据不足（需要>=2个产品）')
+            result.competitorAnalysisSuccess = true  // 不视为失败
           }
-
-          const competitorAnalysis = await analyzeCompetitorsWithAI(
-            ourProduct,
-            competitors,
-            targetCountry,
-            userId
-          )
-
-          result.competitorAnalysis = competitorAnalysis
-          result.competitorAnalysisSuccess = true
-          console.log(`✅ 竞品分析完成 (对比${competitors.length}个竞品)`)
         } else {
-          console.log('⚠️ 竞品数据不足，跳过竞品分析')
+          console.log('ℹ️ 非店铺页面，竞品分析将由后续流程处理')
+          result.competitorAnalysisSuccess = true  // 标记为成功，让后续流程继续
         }
       } catch (error: any) {
         console.error('⚠️ 竞品分析失败（不影响流程）:', error.message)
