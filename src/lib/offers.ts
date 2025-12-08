@@ -789,13 +789,25 @@ export async function updateOfferScrapeStatus(
       userId
     ])
   } else {
-    await db.exec(`
-      UPDATE offers
-      SET scrape_status = ?,
-          scrape_error = ?,
-          scraped_at = CASE WHEN ? = 'completed' THEN datetime('now') ELSE scraped_at END,
-          updated_at = datetime('now')
-      WHERE id = ? AND user_id = ?
-    `, [status, error || null, status, id, userId])
+    // 🔧 修复: 为了兼容PostgreSQL，使用条件更新而不是CASE表达式
+    // SQLite中scraped_at是TEXT，PostgreSQL中是TIMESTAMP，CASE会导致类型不匹配
+    if (status === 'completed') {
+      await db.exec(`
+        UPDATE offers
+        SET scrape_status = ?,
+            scrape_error = ?,
+            scraped_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE id = ? AND user_id = ?
+      `, [status, error || null, id, userId])
+    } else {
+      await db.exec(`
+        UPDATE offers
+        SET scrape_status = ?,
+            scrape_error = ?,
+            updated_at = datetime('now')
+        WHERE id = ? AND user_id = ?
+      `, [status, error || null, id, userId])
+    }
   }
 }
