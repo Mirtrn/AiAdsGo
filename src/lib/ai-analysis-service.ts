@@ -233,16 +233,42 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         })
         .join('\n')
 
+      // 🎯 P1优化：增强店铺数据，添加分类和热销洞察
+      const textParts = [
+        `Store Name: ${extractResult.storeName || extractResult.brand || 'Unknown'}`,
+        `Total Products: ${extractResult.productCount || 0}`,
+        extractResult.productDescription ? `Description: ${extractResult.productDescription}` : '',
+      ]
+
+      // 添加热销洞察
+      if (extractResult.hotInsights) {
+        textParts.push(
+          `\n=== HOT-SELLING INSIGHTS ===`,
+          `Average Rating: ${extractResult.hotInsights.avgRating?.toFixed(1) || 'N/A'}`,
+          `Average Reviews: ${extractResult.hotInsights.avgReviews?.toFixed(0) || 'N/A'}`,
+          `Top Products Count: ${extractResult.hotInsights.topProductsCount || 0}`
+        )
+      }
+
+      // 添加产品分类信息
+      if (extractResult.productCategories?.primaryCategories && extractResult.productCategories.primaryCategories.length > 0) {
+        const categories = extractResult.productCategories.primaryCategories
+          .slice(0, 5)
+          .map(c => `${c.name} (${c.count} products)`)
+          .join(', ')
+        textParts.push(
+          `\n=== PRODUCT CATEGORIES ===`,
+          categories
+        )
+      }
+
+      // 添加热销产品列表
+      textParts.push('\n=== HOT-SELLING PRODUCTS (Top 15) ===', productSummaries)
+
       pageData = {
         title: extractResult.storeName || extractResult.brand || 'Unknown Store',
-        description: extractResult.productDescription || '',
-        text: [
-          `Store Name: ${extractResult.storeName || extractResult.brand || 'Unknown'}`,
-          `Total Products: ${extractResult.productCount || 0}`,
-          extractResult.productDescription ? `Description: ${extractResult.productDescription}` : '',
-          '\n=== HOT-SELLING PRODUCTS (Top 15) ===',
-          productSummaries,
-        ].join('\n'),
+        description: extractResult.productDescription || extractResult.storeDescription || '',
+        text: textParts.filter(Boolean).join('\n'),
       }
     } else if (isIndependentStore && extractResult.products) {
       pageType = 'store'
@@ -266,17 +292,31 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
       }
     } else if (isAmazonProductPage && extractResult.productName) {
       pageType = 'product'
+      // 🎯 P1优化：添加未使用的数据字段（rating, reviewCount, category）
+      const textParts = [
+        `Product: ${extractResult.productName || 'Unknown'}`,
+        `Brand: ${extractResult.brand || 'Unknown'}`,
+        `Category: ${extractResult.category || 'General'}`,
+        `Price: ${extractResult.price || 'N/A'}`,
+      ]
+
+      // 添加评分和评论数
+      if (extractResult.rating || extractResult.reviewCount) {
+        textParts.push(
+          `Rating: ${extractResult.rating || 'N/A'}`,
+          `Reviews: ${extractResult.reviewCount || 'N/A'}`
+        )
+      }
+
+      // 添加产品描述
+      if (extractResult.productDescription) {
+        textParts.push(`\nDescription:\n${extractResult.productDescription}`)
+      }
+
       pageData = {
         title: extractResult.productName || extractResult.brand || 'Unknown Product',
         description: extractResult.productDescription || '',
-        text: [
-          `Product: ${extractResult.productName || 'Unknown'}`,
-          `Brand: ${extractResult.brand || 'Unknown'}`,
-          `Price: ${extractResult.price || 'N/A'}`,
-          extractResult.productDescription ? `\nDescription:\n${extractResult.productDescription}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n'),
+        text: textParts.filter(Boolean).join('\n'),
       }
     } else {
       // 通用产品页面
