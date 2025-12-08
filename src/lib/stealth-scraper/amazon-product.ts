@@ -324,7 +324,11 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
   })
   const category = categoryParts.join(' > ') || null
 
+  // 🎯 优化品牌名提取 - 多源策略应对反爬虫（提前提取用于竞品过滤）
+  let brandName: string | null = extractBrandName($, url, null, technicalDetails)
+
   // 🔥 新增：提取竞品ASIN（从"Frequently bought together"、"Customers also viewed"等区域）
+  // ⚠️ 修复：排除同品牌产品，只保留真正的竞品
   const relatedAsins: string[] = []
   const relatedAsinSelectors = [
     // Frequently bought together
@@ -349,18 +353,54 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
     '[data-a-carousel-options] a[href*="/dp/"]',
   ]
 
+  const targetBrandNormalized = brandName ? normalizeBrandName(brandName) : null
+
   for (const selector of relatedAsinSelectors) {
     $(selector).each((i: number, el: any) => {
       const href = $(el).attr('href') || ''
       const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
       if (asinMatch && asinMatch[1] && asinMatch[1] !== asin && !relatedAsins.includes(asinMatch[1])) {
+        // 🔍 尝试从推荐卡片中提取品牌信息（常见于产品标题或单独的品牌元素）
+        const $card = $(el).closest('.a-carousel-card, [data-asin], li, .s-result-item')
+        let cardBrand: string | null = null
+
+        // 策略1: 从产品卡片中的品牌元素提取
+        const brandInCard = $card.find('[data-brand], .a-size-base.a-color-secondary, .s-line-clamp-1').text().trim()
+        if (brandInCard && brandInCard.length > 1 && brandInCard.length < 50) {
+          cardBrand = normalizeBrandName(cleanBrandText(brandInCard))
+        }
+
+        // 策略2: 从产品标题中提取（通常品牌名在标题开头）
+        if (!cardBrand) {
+          const cardTitle = $card.find('img').attr('alt') || $card.find('.a-link-normal').text().trim()
+          if (cardTitle) {
+            // 简单的品牌提取：取标题第一个词（如果是已知品牌格式）
+            const titleWords = cardTitle.split(/\s+/)
+            if (titleWords.length > 0 && titleWords[0].length > 2 && titleWords[0].length < 30) {
+              cardBrand = normalizeBrandName(titleWords[0])
+            }
+          }
+        }
+
+        // 🛡️ 品牌过滤：排除同品牌产品
+        if (targetBrandNormalized && cardBrand) {
+          if (cardBrand === targetBrandNormalized) {
+            console.log(`⚠️ 排除同品牌产品: ASIN ${asinMatch[1]}, 品牌 ${cardBrand}`)
+            return // 跳过同品牌产品
+          }
+        }
+
+        // ✅ 通过过滤，添加到竞品列表
         relatedAsins.push(asinMatch[1])
+        if (cardBrand) {
+          console.log(`✅ 添加竞品: ASIN ${asinMatch[1]}, 品牌 ${cardBrand}`)
+        }
       }
     })
     if (relatedAsins.length >= 10) break // 最多提取10个竞品ASIN
   }
 
-  console.log(`🔥 竞品ASIN提取: 找到 ${relatedAsins.length} 个竞品`)
+  console.log(`🔥 竞品ASIN提取: 找到 ${relatedAsins.length} 个竞品 (目标品牌: ${targetBrandNormalized || '未知'})`)
 
   // Extract prices
   const currentPrice = $('.a-price .a-offscreen').first().text().trim() ||
@@ -413,8 +453,10 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
     }
   }
 
-  // 🎯 优化品牌名提取 - 多源策略应对反爬虫
-  let brandName: string | null = extractBrandName($, url, productName, technicalDetails)
+  // 品牌名已在前面提取（用于竞品过滤），这里可以使用productName进一步验证
+  if (!brandName) {
+    brandName = extractBrandName($, url, productName, technicalDetails)
+  }
 
   const productData: AmazonProductData = {
     productName,
