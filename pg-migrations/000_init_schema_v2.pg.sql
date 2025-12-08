@@ -167,6 +167,7 @@ CREATE TABLE scraped_products (
   hot_label TEXT,              -- 热销标签: "🔥 热销商品" or "✅ 畅销商品"
 
   scrape_source TEXT NOT NULL, -- 'amazon_store' or 'independent_store'
+  product_url TEXT,            -- Product URL for independent store products (Migration 063)
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, deep_scrape_data TEXT, review_analysis TEXT, competitor_analysis TEXT, has_deep_data BOOLEAN DEFAULT FALSE, product_info TEXT,
 
@@ -2605,113 +2606,10 @@ GROUP BY user_id, date;
 -- REMOVED: v_top_hot_products (KISS optimization)
 
 
--- Migration 062: Add product_price and commission_payout to offer_tasks table
--- Purpose: Support passing product price and commission parameters through SSE flow
--- Date: 2025-12-08
--- Related: /api/offers/extract needs to accept these optional parameters
-ALTER TABLE offer_tasks ADD COLUMN IF NOT EXISTS product_price TEXT;
-ALTER TABLE offer_tasks ADD COLUMN IF NOT EXISTS commission_payout TEXT;
-
--- Migration Notes:
--- 1. These fields are optional, used when user provides pricing info during offer creation
--- 2. If not provided, values will be extracted from the product page during scraping
--- 3. Matches batch upload flow which already supports these fields via batch-creation-executor
-
-
--- Migration 063: Add product_url to scraped_products table for independent store products
--- Purpose: Independent stores don't have ASIN but have product URLs, need to store them
--- Date: 2025-12-08
--- Related: scrapeIndependentStoreDeep now returns product URLs for each product
-ALTER TABLE scraped_products ADD COLUMN IF NOT EXISTS product_url TEXT;
-
--- Migration Notes:
--- 1. For Amazon products: asin is used (product_url may be null)
--- 2. For independent store products: product_url is used (asin is null)
--- 3. This ensures data consistency between Amazon and independent store products
-
-
 -- ==========================================
--- End of Consolidated Schema
+-- offer_tasks Table (Task Queue Architecture)
 -- ==========================================
-
--- ==========================================
--- SEED DATA: System Settings Metadata
--- ==========================================
--- Global configuration metadata (user_id IS NULL)
--- These records define the available configuration options
--- User-specific values will be created when users save settings
-
--- Google Ads settings
-INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, description)
-VALUES
-  (NULL, 'google_ads', 'login_customer_id', NULL, 'string', FALSE, TRUE, 'MCC管理账户ID，用于访问您管理的广告账户'),
-  (NULL, 'google_ads', 'client_id', NULL, 'string', TRUE, FALSE, 'OAuth 2.0客户端ID'),
-  (NULL, 'google_ads', 'client_secret', NULL, 'string', TRUE, FALSE, 'OAuth 2.0客户端密钥'),
-  (NULL, 'google_ads', 'developer_token', NULL, 'string', TRUE, FALSE, 'Google Ads API开发者令牌');
-
--- AI settings
-INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description)
-VALUES
-  (NULL, 'ai', 'use_vertex_ai', NULL, 'boolean', FALSE, FALSE, 'false', 'AI模式选择：true=Vertex AI, false=Gemini API'),
-  (NULL, 'ai', 'gemini_api_key', NULL, 'string', TRUE, FALSE, NULL, 'Gemini API密钥'),
-  (NULL, 'ai', 'gemini_model', NULL, 'string', FALSE, FALSE, 'gemini-2.5-pro', 'Gemini模型名称'),
-  (NULL, 'ai', 'gcp_project_id', NULL, 'string', FALSE, FALSE, NULL, 'GCP项目ID'),
-  (NULL, 'ai', 'gcp_location', NULL, 'string', FALSE, FALSE, 'us-central1', 'GCP区域'),
-  (NULL, 'ai', 'gcp_service_account_json', NULL, 'text', TRUE, FALSE, NULL, 'GCP Service Account JSON凭证');
-
--- Proxy settings
-INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, description)
-VALUES
-  (NULL, 'proxy', 'urls', NULL, 'json', FALSE, FALSE, '代理URL配置，JSON格式存储国家与代理URL的映射');
-
--- System settings
-INSERT INTO system_settings (user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description)
-VALUES
-  (NULL, 'system', 'currency', NULL, 'string', FALSE, FALSE, 'CNY', '默认货币单位'),
-  (NULL, 'system', 'language', NULL, 'string', FALSE, FALSE, 'zh-CN', '系统语言'),
-  (NULL, 'system', 'sync_interval_hours', NULL, 'number', FALSE, FALSE, '6', '数据同步间隔（小时）'),
-  (NULL, 'system', 'link_check_enabled', NULL, 'boolean', FALSE, FALSE, 'true', '是否启用链接检查'),
-  (NULL, 'system', 'link_check_time', NULL, 'string', FALSE, FALSE, '02:00', '链接检查时间');
-
--- ==========================================
--- SEED DATA: Default Admin Account
--- ==========================================
--- NOTE: Password hash must be generated using DEFAULT_ADMIN_PASSWORD environment variable
--- Run scripts/generate-admin-insert.ts to generate the INSERT statement with your password
-
--- ==========================================
--- ADMIN ACCOUNT PLACEHOLDER
--- ==========================================
--- The admin account INSERT will be generated at build/deployment time using:
--- DEFAULT_ADMIN_PASSWORD="your-password" npx tsx scripts/generate-admin-insert.ts
---
--- For manual initialization, run the script above and execute the output SQL.
--- The script generates:
--- - username: autoads
--- - email: admin@autoads.com
--- - role: admin
--- - package_type: lifetime
--- - password: from DEFAULT_ADMIN_PASSWORD env var (REQUIRED - will error if not set)
--- ==========================================
-
--- ==========================================
--- Reset sequences after seed data
--- ==========================================
-SELECT setval('prompt_versions_id_seq', (SELECT COALESCE(MAX(id), 1) FROM prompt_versions));
-
-
-
--- Migration 058: Create offer_tasks table for task queue architecture (PostgreSQL)
--- Purpose: Decouple task execution from SSE connections, enable task persistence and reconnection
--- Features:
---   - User-level isolation (user_id)
---   - Task status tracking (pending, running, completed, failed)
---   - Progress monitoring (0-100)
---   - Result persistence (JSONB)
---   - Respects /admin/queue concurrency limits (globalConcurrency, perUserConcurrency)
--- Date: 2025-12-07
-
-CREATE TABLE IF NOT EXISTS offer_tasks (
+CREATE TABLE offer_tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id INTEGER NOT NULL,
 
@@ -2726,6 +2624,12 @@ CREATE TABLE IF NOT EXISTS offer_tasks (
   target_country VARCHAR(10) NOT NULL,
   skip_cache BOOLEAN DEFAULT FALSE,
   skip_warmup BOOLEAN DEFAULT FALSE,
+  product_price TEXT,           -- Optional: User-provided product price
+  commission_payout TEXT,       -- Optional: User-provided commission
+
+  -- Task relationships
+  batch_id UUID,                -- Parent batch task (if this is part of a batch)
+  offer_id INTEGER,             -- Created offer ID (after successful extraction)
 
   -- Output results
   result JSONB, -- JSON object of extraction result
@@ -2737,15 +2641,17 @@ CREATE TABLE IF NOT EXISTS offer_tasks (
   started_at TIMESTAMP WITH TIME ZONE,    -- When task actually started running
   completed_at TIMESTAMP WITH TIME ZONE,  -- When task finished (success or failure)
 
-  -- Foreign key
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  -- Foreign keys
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (batch_id) REFERENCES batch_tasks(id) ON DELETE SET NULL,
+  FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_user_status ON offer_tasks(user_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_status_created ON offer_tasks(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_user_created ON offer_tasks(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_updated ON offer_tasks(updated_at DESC);
+CREATE INDEX idx_offer_tasks_user_status ON offer_tasks(user_id, status, created_at DESC);
+CREATE INDEX idx_offer_tasks_status_created ON offer_tasks(status, created_at);
+CREATE INDEX idx_offer_tasks_user_created ON offer_tasks(user_id, created_at DESC);
+CREATE INDEX idx_offer_tasks_updated ON offer_tasks(updated_at DESC);
 
 -- Auto-update trigger for updated_at
 CREATE OR REPLACE FUNCTION update_offer_tasks_updated_at()
@@ -2760,34 +2666,6 @@ CREATE TRIGGER trigger_offer_tasks_updated_at
 BEFORE UPDATE ON offer_tasks
 FOR EACH ROW
 EXECUTE FUNCTION update_offer_tasks_updated_at();
-
--- Table comments
-COMMENT ON TABLE offer_tasks IS 'Task queue for offer extraction workflow - supports SSE reconnection and task persistence';
-COMMENT ON COLUMN offer_tasks.id IS 'Unique task identifier (UUID)';
-COMMENT ON COLUMN offer_tasks.user_id IS 'User who created the task (for isolation and concurrency control)';
-COMMENT ON COLUMN offer_tasks.status IS 'Task status: pending → running → (completed | failed)';
-COMMENT ON COLUMN offer_tasks.stage IS 'Current execution stage (resolving_link, brand_extraction, ai_analysis, etc.)';
-COMMENT ON COLUMN offer_tasks.progress IS 'Progress percentage (0-100)';
-COMMENT ON COLUMN offer_tasks.result IS 'Extraction result on success (JSONB)';
-COMMENT ON COLUMN offer_tasks.error IS 'Error details on failure (JSONB)';
-COMMENT ON COLUMN offer_tasks.started_at IS 'Timestamp when task started running';
-COMMENT ON COLUMN offer_tasks.completed_at IS 'Timestamp when task completed (success or failure)';
-
--- Migration Notes:
--- 1. Task isolation: Each user's tasks are isolated by user_id
--- 2. Concurrency control: Application layer enforces globalConcurrency and perUserConcurrency limits
--- 3. Status flow: pending → running → (completed | failed)
--- 4. Cleanup: Old tasks (>7 days) should be cleaned up by cron job
-
-
--- Migration 059: Create batch_tasks table for batch operations (PostgreSQL)
--- Purpose: Support batch offer creation, scrape, and other bulk operations
--- Features:
---   - Parent task for coordinating multiple child tasks
---   - Progress tracking (total, completed, failed counts)
---   - Support for different batch types (creation, scrape, enhance)
---   - User-level isolation
--- Date: 2025-12-07
 
 CREATE TABLE IF NOT EXISTS batch_tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2863,7 +2741,6 @@ COMMENT ON COLUMN batch_tasks.completed_at IS 'Timestamp when all child tasks fi
 -- Purpose: Link individual offer tasks to parent batch tasks
 -- Date: 2025-12-07
 
-ALTER TABLE offer_tasks ADD COLUMN batch_id UUID REFERENCES batch_tasks(id) ON DELETE SET NULL;
 
 -- Performance index for batch queries
 CREATE INDEX IF NOT EXISTS idx_offer_tasks_batch_id ON offer_tasks(batch_id, status);
@@ -2879,7 +2756,6 @@ CREATE INDEX IF NOT EXISTS idx_offer_tasks_batch_id ON offer_tasks(batch_id, sta
 -- Purpose: Track created offer from batch extraction tasks
 -- Date: 2025-12-08
 
-ALTER TABLE offer_tasks ADD COLUMN offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL;
 
 -- Performance index for offer lookup
 CREATE INDEX IF NOT EXISTS idx_offer_tasks_offer_id ON offer_tasks(offer_id);
@@ -2894,4 +2770,6 @@ CREATE INDEX IF NOT EXISTS idx_offer_tasks_offer_id ON offer_tasks(offer_id);
 
 -- ==========================================
 -- End of Consolidated PostgreSQL Schema
--- ==========================================
+
+
+-- End of Schema

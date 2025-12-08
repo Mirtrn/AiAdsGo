@@ -1609,18 +1609,11 @@ VALUES
 
 
 
--- Migration 058: Create offer_tasks table for task queue architecture
--- Purpose: Decouple task execution from SSE connections, enable task persistence and reconnection
--- Features:
---   - User-level isolation (user_id)
---   - Task status tracking (pending, running, completed, failed)
---   - Progress monitoring (0-100)
---   - Result persistence (JSON)
---   - Respects /admin/queue concurrency limits (globalConcurrency, perUserConcurrency)
--- Date: 2025-12-07
-
-CREATE TABLE IF NOT EXISTS offer_tasks (
-  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+-- ==========================================
+-- offer_tasks Table (Task Queue Architecture)
+-- ==========================================
+CREATE TABLE offer_tasks (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   user_id INTEGER NOT NULL,
 
   -- Task status and progress
@@ -1632,56 +1625,42 @@ CREATE TABLE IF NOT EXISTS offer_tasks (
   -- Input parameters
   affiliate_link TEXT NOT NULL,
   target_country TEXT NOT NULL,
-  skip_cache INTEGER DEFAULT 0, -- 0 or 1 (SQLite boolean)
-  skip_warmup INTEGER DEFAULT 0, -- 0 or 1 (SQLite boolean)
+  skip_cache INTEGER DEFAULT 0,
+  skip_warmup INTEGER DEFAULT 0,
+  product_price TEXT,           -- Optional: User-provided product price
+  commission_payout TEXT,       -- Optional: User-provided commission
+
+  -- Task relationships
+  batch_id TEXT,                -- Parent batch task (if this is part of a batch)
+  offer_id INTEGER,             -- Created offer ID (after successful extraction)
 
   -- Output results
-  result TEXT, -- JSON string of extraction result
-  error TEXT,  -- JSON string of error details
+  result TEXT, -- JSON object of extraction result
+  error TEXT,  -- JSON object of error details
 
   -- Timestamps
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  started_at TEXT,    -- When task actually started running
-  completed_at TEXT,  -- When task finished (success or failure)
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at TEXT,
+  completed_at TEXT,
 
-  -- Foreign key
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  -- Foreign keys
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (batch_id) REFERENCES batch_tasks(id) ON DELETE SET NULL,
+  FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_user_status ON offer_tasks(user_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_status_created ON offer_tasks(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_user_created ON offer_tasks(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_updated ON offer_tasks(updated_at DESC);
+CREATE INDEX idx_offer_tasks_user_status ON offer_tasks(user_id, status, created_at DESC);
+CREATE INDEX idx_offer_tasks_status_created ON offer_tasks(status, created_at);
+CREATE INDEX idx_offer_tasks_user_created ON offer_tasks(user_id, created_at DESC);
+CREATE INDEX idx_offer_tasks_updated ON offer_tasks(updated_at DESC);
 
--- Auto-update trigger for updated_at
-CREATE TRIGGER IF NOT EXISTS trigger_offer_tasks_updated_at
-AFTER UPDATE ON offer_tasks
-FOR EACH ROW
-WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-  UPDATE offer_tasks SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
--- Migration Notes:
--- 1. Task isolation: Each user's tasks are isolated by user_id
--- 2. Concurrency control: Application layer enforces globalConcurrency and perUserConcurrency limits
--- 3. Status flow: pending → running → (completed | failed)
--- 4. Cleanup: Old tasks (>7 days) should be cleaned up by cron job
-
-
--- Migration 059: Create batch_tasks table for batch operations
--- Purpose: Support batch offer creation, scrape, and other bulk operations
--- Features:
---   - Parent task for coordinating multiple child tasks
---   - Progress tracking (total, completed, failed counts)
---   - Support for different batch types (creation, scrape, enhance)
---   - User-level isolation
--- Date: 2025-12-07
-
-CREATE TABLE IF NOT EXISTS batch_tasks (
-  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+-- ==========================================
+-- batch_tasks Table (Batch Operations)
+-- ==========================================
+CREATE TABLE batch_tasks (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   user_id INTEGER NOT NULL,
 
   -- Batch task type and status
@@ -1694,112 +1673,22 @@ CREATE TABLE IF NOT EXISTS batch_tasks (
   failed_count INTEGER DEFAULT 0 CHECK(failed_count >= 0),
 
   -- Batch metadata
-  source_file TEXT,  -- CSV filename or source identifier
-  metadata TEXT,     -- JSON: additional metadata (e.g., {"target_country": "US"})
+  source_file TEXT,
+  metadata TEXT,
 
   -- Timestamps
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   started_at TEXT,
   completed_at TEXT,
 
+  -- Foreign key
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_batch_tasks_user_status ON batch_tasks(user_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_batch_tasks_status_created ON batch_tasks(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_batch_tasks_user_created ON batch_tasks(user_id, created_at DESC);
+CREATE INDEX idx_batch_tasks_user_status ON batch_tasks(user_id, status, created_at DESC);
+CREATE INDEX idx_batch_tasks_status_created ON batch_tasks(status, created_at);
+CREATE INDEX idx_batch_tasks_user_created ON batch_tasks(user_id, created_at DESC);
 
--- Auto-update trigger for updated_at
-CREATE TRIGGER IF NOT EXISTS update_batch_tasks_updated_at
-AFTER UPDATE ON batch_tasks
-FOR EACH ROW
-BEGIN
-  UPDATE batch_tasks SET updated_at = datetime('now') WHERE id = NEW.id;
-END;
-
--- Table comments (stored as separate metadata)
--- batch_tasks: Parent task for coordinating batch operations (offer creation, scraping, etc.)
--- id: Unique batch task identifier (UUID)
--- user_id: User who created the batch task (for isolation and concurrency control)
--- task_type: Type of batch operation (offer-creation, offer-scrape, offer-enhance)
--- status: Batch status - pending → running → (completed | failed | partial)
--- total_count: Total number of child tasks in this batch
--- completed_count: Number of successfully completed child tasks
--- failed_count: Number of failed child tasks
--- source_file: Source file name (e.g., CSV filename for bulk import)
--- metadata: JSON metadata for batch-specific configuration
--- started_at: Timestamp when first child task started
--- completed_at: Timestamp when all child tasks finished
-
--- Migration Notes:
--- 1. Batch isolation: Each user's batches are isolated by user_id
--- 2. Child task tracking: Child tasks (offer_tasks) will reference this via batch_id
--- 3. Status flow: pending → running → (completed | failed | partial)
---    - completed: All child tasks succeeded
---    - failed: All child tasks failed
---    - partial: Some succeeded, some failed
--- 4. Cleanup: Old batches (>30 days) should be cleaned up by cron job
-
-
--- Migration 060: Add batch_id to offer_tasks table
--- Purpose: Link individual offer tasks to parent batch tasks
--- Date: 2025-12-07
-
-ALTER TABLE offer_tasks ADD COLUMN batch_id TEXT REFERENCES batch_tasks(id) ON DELETE SET NULL;
-
--- Performance index for batch queries
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_batch_id ON offer_tasks(batch_id, status);
-
--- Migration Notes:
--- 1. batch_id is NULL for standalone tasks (manual single creation)
--- 2. batch_id is set for tasks created as part of a batch operation
--- 3. ON DELETE SET NULL: If batch is deleted, child tasks become standalone
--- 4. Index supports efficient queries: "Get all tasks for batch X"
-
-
--- Migration 061: Add offer_id to offer_tasks table
--- Purpose: Track created offer from batch extraction tasks
--- Date: 2025-12-08
-
-ALTER TABLE offer_tasks ADD COLUMN offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL;
-
--- Performance index for offer lookup
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_offer_id ON offer_tasks(offer_id);
-
--- Migration Notes:
--- 1. offer_id is NULL before offer is created
--- 2. offer_id is set when batch extraction creates an offer
--- 3. For standalone tasks (not batch), offer is created first, so offer_id may not be needed
--- 4. Index supports efficient lookup: "Find task that created offer X"
-
-
--- Migration 062: Add product_price and commission_payout to offer_tasks table
--- Purpose: Support passing product price and commission parameters through SSE flow
--- Date: 2025-12-08
--- Related: /api/offers/extract needs to accept these optional parameters
-ALTER TABLE offer_tasks ADD COLUMN product_price TEXT;
-ALTER TABLE offer_tasks ADD COLUMN commission_payout TEXT;
-
--- Migration Notes:
--- 1. These fields are optional, used when user provides pricing info during offer creation
--- 2. If not provided, values will be extracted from the product page during scraping
--- 3. Matches batch upload flow which already supports these fields via batch-creation-executor
-
-
--- Migration 063: Add product_url to scraped_products table for independent store products
--- Purpose: Independent stores don't have ASIN but have product URLs, need to store them
--- Date: 2025-12-08
--- Related: scrapeIndependentStoreDeep now returns product URLs for each product
-ALTER TABLE scraped_products ADD COLUMN product_url TEXT;
-
--- Migration Notes:
--- 1. For Amazon products: asin is used (product_url may be null)
--- 2. For independent store products: product_url is used (asin is null)
--- 3. This ensures data consistency between Amazon and independent store products
-
-
--- ==========================================
--- End of Consolidated Schema
--- ==========================================
+-- End of Schema
