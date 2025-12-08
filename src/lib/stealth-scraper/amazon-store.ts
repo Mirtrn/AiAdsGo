@@ -390,6 +390,42 @@ async function scrapeStorePageContent(
     await batchScrapeProductDetails(page, products, productAsins, effectiveProxyUrl)
   }
 
+  // Phase 3: If still no products, try scraping from categories
+  const needPhase3 = products.length === 0 && productAsins.size === 0
+  console.log(`🔍 Phase 3检查: products.length: ${products.length}, needPhase3: ${needPhase3}`)
+
+  if (needPhase3) {
+    console.log(`📂 策略B: 从产品分类页抓取ASIN...`)
+
+    // Try to scrape categories first if not already done
+    let categoriesToScrape: Array<{ name: string; url?: string }> = []
+
+    try {
+      const productCategories = await scrapeStoreCategories(page)
+      if (productCategories.totalCategories > 0) {
+        categoriesToScrape = productCategories.primaryCategories.filter(c => c.url)
+        console.log(`✅ 找到 ${categoriesToScrape.length} 个可访问的分类`)
+      }
+    } catch (error: any) {
+      console.warn(`⚠️ 分类抓取失败: ${error.message}`)
+    }
+
+    if (categoriesToScrape.length > 0) {
+      // Scrape products from top 3 categories
+      const maxCategories = Math.min(3, categoriesToScrape.length)
+      console.log(`📂 准备从前 ${maxCategories} 个分类抓取产品...`)
+
+      await scrapeCategoryProducts(page, categoriesToScrape.slice(0, maxCategories), productAsins, effectiveProxyUrl)
+
+      console.log(`📊 策略B结果: 从分类页找到 ${productAsins.size} 个产品ASIN`)
+
+      if (productAsins.size > 0) {
+        console.log(`📦 阶段3: 批量抓取产品详情页`)
+        await batchScrapeProductDetails(page, products, productAsins, effectiveProxyUrl)
+      }
+    }
+  }
+
   // Filter and enhance products
   console.log(`📊 原始产品数量: ${products.length}`)
   const validProducts = products.filter(p => {
@@ -527,6 +563,84 @@ function extractProductsFromJson(
 /**
  * Batch scrape product details
  */
+/**
+ * Scrape products from category pages
+ */
+async function scrapeCategoryProducts(
+  page: Page,
+  categories: Array<{ name: string; url?: string }>,
+  productAsins: Set<string>,
+  effectiveProxyUrl: string
+): Promise<void> {
+  for (const category of categories) {
+    if (!category.url) continue
+
+    try {
+      console.log(`📂 访问分类: ${category.name}`)
+
+      // Build full category URL
+      const categoryUrl = category.url.startsWith('http')
+        ? category.url
+        : `https://www.amazon.com${category.url}`
+
+      await page.goto(categoryUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: getDynamicTimeout(categoryUrl),
+      })
+
+      await randomDelay(2000, 3000)
+
+      // Wait for product grid to load
+      await page.waitForSelector('[data-asin]:not([data-asin=""]), .s-result-item[data-asin]', {
+        timeout: 10000
+      }).catch(() => {
+        console.log('  ⚠️ 未找到产品网格，尝试其他选择器...')
+      })
+
+      await randomDelay(1000, 2000)
+
+      const html = await page.content()
+      const $ = load(html)
+
+      // Extract ASINs from category page
+      const foundAsins = new Set<string>()
+
+      // Strategy 1: data-asin attributes
+      $('[data-asin]').each((i, el) => {
+        const asin = $(el).attr('data-asin')
+        if (asin && asin.length === 10 && /^[A-Z0-9]{10}$/.test(asin)) {
+          foundAsins.add(asin)
+        }
+      })
+
+      // Strategy 2: /dp/ links
+      $('a[href*="/dp/"]').each((i, el) => {
+        const href = $(el).attr('href') || ''
+        const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
+        if (asinMatch && asinMatch[1]) {
+          foundAsins.add(asinMatch[1])
+        }
+      })
+
+      console.log(`  ✅ 从 "${category.name}" 提取到 ${foundAsins.size} 个ASIN`)
+
+      // Add to main ASIN set (limit to first 20 per category)
+      let count = 0
+      for (const asin of foundAsins) {
+        if (count >= 20) break
+        productAsins.add(asin)
+        count++
+      }
+
+      await randomDelay(2000, 3000)
+
+    } catch (error: any) {
+      console.error(`  ❌ 分类 "${category.name}" 抓取失败: ${error.message}`)
+      continue
+    }
+  }
+}
+
 async function batchScrapeProductDetails(
   page: Page,
   products: AmazonStoreData['products'],
