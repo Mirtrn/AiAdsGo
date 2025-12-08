@@ -20,6 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { RefreshCw, CheckCircle2, XCircle, Activity, AlertCircle } from 'lucide-react'
+import { fetchWithRetry } from '@/lib/api-error-handler'
 
 interface ProxyHealth {
   url: string
@@ -57,20 +58,25 @@ export default function ProxyHealthPage() {
     setError('')
 
     try {
-      const response = await fetch('/api/admin/proxy-health', {
+      const result = await fetchWithRetry('/api/admin/proxy-health', {
         credentials: 'include',
         cache: 'no-store',
+      }, {
+        maxRetries: 2,
+        retryDelay: 2000,
+        retryOnErrors: ['SERVICE_UNAVAILABLE', 'HTML_RESPONSE']
       })
 
-      if (!response.ok) {
-        throw new Error('获取代理健康状态失败')
+      if (!result.success) {
+        setError(result.userMessage)
+        return
       }
 
-      const data = await response.json()
+      const data = result.data
       setProxies(data.data)
       setLastUpdated(Date.now())
     } catch (err: any) {
-      setError(err.message || '获取代理健康状态失败')
+      setError('获取代理健康状态时发生未知错误')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -79,7 +85,7 @@ export default function ProxyHealthPage() {
 
   const handleToggleProxy = async (proxyUrl: string, isHealthy: boolean) => {
     try {
-      const response = await fetch('/api/admin/proxy-health', {
+      const result = await fetchWithRetry('/api/admin/proxy-health', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -91,14 +97,15 @@ export default function ProxyHealthPage() {
         }),
       })
 
-      if (!response.ok) {
-        throw new Error('操作失败')
+      if (!result.success) {
+        setError(result.userMessage)
+        return
       }
 
       // 刷新数据
       await fetchProxyHealth(true)
     } catch (err: any) {
-      setError(err.message || '操作失败')
+      setError('操作代理状态时发生未知错误')
     }
   }
 

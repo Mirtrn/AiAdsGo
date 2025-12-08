@@ -10,6 +10,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { exportOffers, type OfferExportData } from '@/lib/export-utils'
+import { fetchWithRetry } from '@/lib/api-error-handler'
 import {
   Table,
   TableBody,
@@ -131,12 +132,17 @@ export default function OffersPage() {
     // Poll for scraping status updates every 30 seconds (优化：减少轮询频率)
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch('/api/offers', {
+        const result = await fetchWithRetry('/api/offers', {
           credentials: 'include',
           cache: 'no-store',
+        }, {
+          maxRetries: 1,
+          retryDelay: 2000,
+          retryOnErrors: ['SERVICE_UNAVAILABLE', 'HTML_RESPONSE']
         })
-        if (response.ok) {
-          const data = await response.json()
+
+        if (result.success) {
+          const data = result.data
           // 只有存在进行中的任务时才更新状态
           if (data.offers.some((offer: Offer) => offer.scrape_status === 'in_progress')) {
             console.log('[Polling] Found in-progress tasks, updating offers...')
@@ -145,6 +151,7 @@ export default function OffersPage() {
           }
         }
       } catch (error) {
+        // 轮询错误静默处理，不影响用户体验
         console.error('[Polling] Error fetching offers:', error)
       }
     }, 30000) // Poll every 30 seconds (降低频率)

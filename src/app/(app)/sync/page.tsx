@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/table'
 import { RefreshCw, CheckCircle2, XCircle, Clock, AlertCircle, Activity, Settings } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { fetchWithRetry } from '@/lib/api-error-handler'
 
 interface SyncStatus {
   isRunning: boolean
@@ -65,16 +66,17 @@ export default function SyncManagementPage() {
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch('/api/sync/status', {
+      const result = await fetchWithRetry('/api/sync/status', {
         credentials: 'include',
+      }, {
+        maxRetries: 2,
+        retryDelay: 2000,
+        retryOnErrors: ['SERVICE_UNAVAILABLE', 'HTML_RESPONSE']
       })
 
-      if (!response.ok) {
-        throw new Error('获取同步状态失败')
+      if (result.success) {
+        setStatus(result.data)
       }
-
-      const data = await response.json()
-      setStatus(data)
     } catch (err: any) {
       console.error('Fetch status error:', err)
     }
@@ -83,16 +85,17 @@ export default function SyncManagementPage() {
   const fetchLogs = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/sync/logs?limit=20', {
+      const result = await fetchWithRetry('/api/sync/logs?limit=20', {
         credentials: 'include',
+      }, {
+        maxRetries: 2,
+        retryDelay: 2000,
+        retryOnErrors: ['SERVICE_UNAVAILABLE', 'HTML_RESPONSE']
       })
 
-      if (!response.ok) {
-        throw new Error('获取同步日志失败')
+      if (result.success) {
+        setLogs(result.data.logs)
       }
-
-      const data = await response.json()
-      setLogs(data.logs)
     } catch (err: any) {
       console.error('Fetch logs error:', err)
     } finally {
@@ -103,17 +106,17 @@ export default function SyncManagementPage() {
   const handleSync = async () => {
     setSyncing(true)
     try {
-      const response = await fetch('/api/sync/trigger', {
+      const result = await fetchWithRetry('/api/sync/trigger', {
         method: 'POST',
         credentials: 'include',
       })
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || '同步失败')
+      if (!result.success) {
+        showError('同步失败', result.userMessage)
+        return
       }
 
+      const data = result.data
       showSuccess('同步成功', `已同步 ${data.recordCount} 条性能数据，耗时 ${(data.duration / 1000).toFixed(2)}秒`)
 
       // 刷新状态和日志
@@ -122,7 +125,7 @@ export default function SyncManagementPage() {
         fetchLogs()
       }, 1000)
     } catch (err: any) {
-      showError('同步失败', err.message)
+      showError('同步失败', '同步时发生未知错误')
     } finally {
       setSyncing(false)
     }

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { fetchWithRetry } from '@/lib/api-error-handler'
 
 interface QueueStats {
   global: {
@@ -86,8 +87,21 @@ export default function QueueManagementPage() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/queue/stats')
-      const data = await response.json()
+      const result = await fetchWithRetry('/api/queue/stats', undefined, {
+        maxRetries: 2,
+        retryDelay: 2000,
+        retryOnErrors: ['SERVICE_UNAVAILABLE', 'HTML_RESPONSE']
+      })
+
+      if (!result.success) {
+        // 只在监控标签页显示错误，避免切换标签页时也显示错误
+        if (activeTab === 'monitor') {
+          toast.error(result.userMessage)
+        }
+        return
+      }
+
+      const data = result.data
 
       if (data.success) {
         // 适配新统一队列格式（兼容旧格式）
@@ -133,12 +147,14 @@ export default function QueueManagementPage() {
           storageType: newConfig.storageType || 'redis'
         })
       } else {
-        throw new Error(data.error || '获取队列统计失败')
+        if (activeTab === 'monitor') {
+          toast.error(data.error || '获取队列统计失败')
+        }
       }
     } catch (error: any) {
       console.error('获取队列统计失败:', error)
       if (activeTab === 'monitor') {
-        toast.error(error.message || '获取队列统计失败')
+        toast.error('获取队列统计时发生未知错误')
       }
     } finally {
       setLoading(false)
@@ -148,7 +164,7 @@ export default function QueueManagementPage() {
   const saveConfig = async () => {
     setSavingConfig(true)
     try {
-      const response = await fetch('/api/queue/config', {
+      const result = await fetchWithRetry('/api/queue/config', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -156,10 +172,9 @@ export default function QueueManagementPage() {
         body: JSON.stringify(config),
       })
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || '保存配置失败')
+      if (!result.success) {
+        toast.error(result.userMessage)
+        return
       }
 
       toast.success('配置已保存并生效')
@@ -168,7 +183,7 @@ export default function QueueManagementPage() {
       await fetchStats()
     } catch (error: any) {
       console.error('保存配置失败:', error)
-      toast.error(error.message || '保存配置失败')
+      toast.error('保存配置时发生未知错误')
     } finally {
       setSavingConfig(false)
     }
