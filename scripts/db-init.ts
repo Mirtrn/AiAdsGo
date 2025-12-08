@@ -107,9 +107,9 @@ async function checkDatabaseInitialized(sql: ReturnType<typeof postgres>): Promi
 async function initializeDatabase(sql: ReturnType<typeof postgres>): Promise<void> {
   // 支持本地开发和 Docker 容器两种路径
   const possiblePaths = [
-    resolve('/app/pg-migrations/000_init_schema_consolidated.pg.sql'),  // Docker 容器
-    resolve(__dirname, '../pg-migrations/000_init_schema_consolidated.pg.sql'),  // 本地开发
-    resolve(process.cwd(), 'pg-migrations/000_init_schema_consolidated.pg.sql'),  // 当前目录
+    resolve('/app/pg-migrations/000_init_schema_v2.pg.sql'),  // Docker 容器
+    resolve(__dirname, '../pg-migrations/000_init_schema_v2.pg.sql'),  // 本地开发
+    resolve(process.cwd(), 'pg-migrations/000_init_schema_v2.pg.sql'),  // 当前目录
   ];
 
   let migrationPath = '';

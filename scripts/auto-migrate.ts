@@ -100,7 +100,7 @@ async function initSQLite() {
   }
 
   // 读取整合 SQL 文件
-  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema_consolidated.sqlite.sql')
+  const sqlPath = path.join(process.cwd(), 'migrations', '000_init_schema_v2.sql')
   if (!fs.existsSync(sqlPath)) {
     throw new Error(`Schema 文件不存在: ${sqlPath}`)
   }
@@ -136,7 +136,7 @@ async function initPostgres() {
   const { hashPassword } = await import('../src/lib/crypto')
 
   // 读取整合 SQL 文件
-  const sqlPath = path.join(process.cwd(), 'pg-migrations', '000_init_schema_consolidated.pg.sql')
+  const sqlPath = path.join(process.cwd(), 'pg-migrations', '000_init_schema_v2.pg.sql')
   if (!fs.existsSync(sqlPath)) {
     throw new Error(`Schema 文件不存在: ${sqlPath}`)
   }
