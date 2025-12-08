@@ -551,6 +551,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           primeEligible: amazonProductData.primeEligible,
           asin: amazonProductData.asin,
           category: amazonProductData.category,
+          relatedAsins: amazonProductData.relatedAsins,  // 🔥 新增：竞品ASIN列表（已过滤同品牌产品）
         }),
 
         // Amazon Store专属数据（可选）

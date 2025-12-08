@@ -636,9 +636,12 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         console.log(`  - debug内容:`, JSON.stringify(debug, null, 2))
 
         // 🔥 新增（2025-12-08）：Playwright深度竞品抓取（与手动创建流程一致）
-        // 当 enablePlaywrightDeepScraping=true 且是Amazon单品页面时，使用Playwright抓取5个真实竞品
-        if (isAmazonProductPage && input.enablePlaywrightDeepScraping && extractResult.finalUrl) {
-          console.log(`🚀 [DEEP SCRAPE] 启用Playwright深度竞品抓取（5个竞品）...`)
+        // 优先使用已提取的relatedAsins，避免重复抓取
+        // 只有在没有relatedAsins或数量不足时，才启用Playwright深度抓取
+        const hasRelatedAsins = extractResult.relatedAsins && extractResult.relatedAsins.length > 0
+
+        if (isAmazonProductPage && !hasRelatedAsins && input.enablePlaywrightDeepScraping && extractResult.finalUrl) {
+          console.log(`🚀 [DEEP SCRAPE] 未找到已提取的竞品ASIN，启用Playwright深度抓取（5个竞品）...`)
 
           try {
             const { getPlaywrightPool } = await import('@/lib/playwright-pool')
@@ -693,6 +696,58 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           } catch (playwrightError: any) {
             console.warn(`⚠️ [DEEP SCRAPE] Playwright竞品抓取失败，降级使用市场定位分析:`, playwrightError.message)
             // 降级逻辑会在下面的else分支处理
+          }
+        } else if (isAmazonProductPage && hasRelatedAsins) {
+          // 🔥 新增（2025-12-09）：使用已提取的竞品ASIN，避免重复抓取
+          console.log(`✅ 复用已提取的${extractResult.relatedAsins!.length}个竞品ASIN（已过滤同品牌产品）`)
+
+          try {
+            // 构建"我们的产品"对象
+            const priceStr = extractResult.price
+            let priceNum: number | null = null
+            if (priceStr) {
+              priceNum = parseFloat(priceStr.replace(/[^0-9.]/g, ''))
+            }
+
+            const ourProduct = {
+              name: extractResult.productName || extractResult.brand || 'Unknown Product',
+              brand: extractResult.brand || null,
+              price: priceNum,
+              rating: extractResult.rating ? parseFloat(extractResult.rating) : null,
+              reviewCount: extractResult.reviewCount ? parseInt(extractResult.reviewCount.replace(/[^0-9]/g, ''), 10) : null,
+              features: extractResult.features || extractResult.aboutThisItem || [],
+            }
+
+            // 使用已提取的ASIN列表进行竞品分析
+            // 注意：这些ASIN只是标识符，我们需要构建简化的竞品对象
+            // 由于没有详细数据，使用ASIN作为name，AI会基于brand和ASIN进行分析
+            const competitors: CompetitorProduct[] = extractResult.relatedAsins!.slice(0, 5).map(asin => ({
+              asin,
+              name: `Competitor Product ${asin}`,
+              brand: 'Competitor Brand',  // 已通过品牌过滤，确保是不同品牌
+              price: null,
+              priceText: null,
+              rating: null,
+              reviewCount: null,
+              imageUrl: null,
+              source: 'same_category' as const,
+              features: [],
+            }))
+
+            const competitorAnalysis = await analyzeCompetitorsWithAI(
+              ourProduct,
+              competitors,
+              targetCountry,
+              userId,
+              { enableCompression: true, enableCache: true }
+            )
+
+            result.competitorAnalysis = competitorAnalysis
+            result.competitorAnalysisSuccess = true
+            console.log(`✅ [REUSE ASINS] 竞品分析完成 (${competitors.length}个已过滤竞品ASIN)`)
+          } catch (error: any) {
+            console.warn(`⚠️ [REUSE ASINS] 竞品分析失败:`, error.message)
+            // 降级到市场定位分析
           }
         }
 
