@@ -1759,6 +1759,22 @@ CREATE INDEX IF NOT EXISTS idx_offer_tasks_batch_id ON offer_tasks(batch_id, sta
 -- 4. Index supports efficient queries: "Get all tasks for batch X"
 
 
+-- Migration 061: Add offer_id to offer_tasks table
+-- Purpose: Track created offer from batch extraction tasks
+-- Date: 2025-12-08
+
+ALTER TABLE offer_tasks ADD COLUMN offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL;
+
+-- Performance index for offer lookup
+CREATE INDEX IF NOT EXISTS idx_offer_tasks_offer_id ON offer_tasks(offer_id);
+
+-- Migration Notes:
+-- 1. offer_id is NULL before offer is created
+-- 2. offer_id is set when batch extraction creates an offer
+-- 3. For standalone tasks (not batch), offer is created first, so offer_id may not be needed
+-- 4. Index supports efficient lookup: "Find task that created offer X"
+
+
 
 -- ==========================================
 -- End of Consolidated Schema

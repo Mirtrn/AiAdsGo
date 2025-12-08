@@ -212,8 +212,19 @@ class PostgresAdapter implements DatabaseAdapter {
   async exec(sql: string, params: any[] = []): Promise<{ changes: number; lastInsertRowid?: number }> {
     // 先转换 SQLite 特有语法，再转换占位符
     const convertedSql = this.convertSqliteSyntax(sql)
-    const pgSql = this.convertPlaceholders(convertedSql)
+    let pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params)
+
+    // 🔥 PostgreSQL INSERT 语句需要 RETURNING id 才能获取插入的ID
+    // 检测是否是 INSERT 语句，如果是且没有 RETURNING，自动添加
+    const isInsert = /^\s*INSERT\s+INTO\s+/i.test(pgSql)
+    const hasReturning = /\bRETURNING\b/i.test(pgSql)
+
+    if (isInsert && !hasReturning) {
+      // 移除末尾的分号（如果有），添加 RETURNING id
+      pgSql = pgSql.replace(/;\s*$/, '') + ' RETURNING id'
+    }
+
     const result = await this.sql.unsafe(pgSql, cleanParams)
     return {
       changes: result.count || 0,

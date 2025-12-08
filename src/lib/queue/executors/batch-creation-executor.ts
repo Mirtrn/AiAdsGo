@@ -85,7 +85,10 @@ export async function executeBatchCreation(
         affiliateLink: row.affiliate_link,
         targetCountry: row.target_country,
         skipCache: false,
-        skipWarmup: false
+        skipWarmup: false,
+        // 🔥 修复（2025-12-08）：传递产品价格和佣金比例，用于创建Offer记录
+        productPrice: row.product_price,
+        commissionPayout: row.commission_payout,
       }
 
       await queue.enqueue(

@@ -12,6 +12,7 @@ import { extractOffer } from '@/lib/offer-extraction-core'
 import { getDatabase } from '@/lib/db'
 import { executeAIAnalysis } from '@/lib/ai-analysis-service'
 import { getTargetLanguage } from '@/lib/offer-utils'
+import { createOffer, updateOfferScrapeStatus } from '@/lib/offers'
 
 /**
  * Offer提取任务数据接口
@@ -21,6 +22,9 @@ export interface OfferExtractionTaskData {
   targetCountry: string
   skipCache?: boolean
   skipWarmup?: boolean
+  // 🔥 新增：产品价格和佣金比例（用于批量上传创建Offer）
+  productPrice?: string
+  commissionPayout?: string
 }
 
 /**
@@ -29,7 +33,7 @@ export interface OfferExtractionTaskData {
 export async function executeOfferExtraction(
   task: Task<OfferExtractionTaskData>
 ): Promise<any> {
-  const { affiliateLink, targetCountry, skipCache = false, skipWarmup = false } = task.data
+  const { affiliateLink, targetCountry, skipCache = false, skipWarmup = false, productPrice, commissionPayout } = task.data
   const db = getDatabase()
 
   try {
@@ -104,6 +108,10 @@ export async function executeOfferExtraction(
         enableReviewAnalysis: true,
         enableCompetitorAnalysis: true,
         enableAdExtraction: true,
+        // 🔥 修复（2025-12-08）：所有offer-extraction任务都启用Playwright深度抓取
+        // 不再区分是否为批量任务，确保与手动创建流程(performScrapeAndAnalysis)完全一致
+        // 抓取30条真实评论 + 5个真实竞品
+        enablePlaywrightDeepScraping: true,
       })
 
       console.log(`✅ AI分析完成: ${task.id}`)
@@ -132,7 +140,98 @@ export async function executeOfferExtraction(
       extractionMetadata: aiAnalysisResult?.extractionMetadata || null,
     }
 
-    // 更新任务为完成状态
+    // ========== 🔥 修复（2025-12-08）：批量上传自动创建Offer记录 ==========
+    // 检查是否是批量任务（有batch_id的offer_tasks）
+    const taskRow = await db.queryOne<{ batch_id: string | null }>(`
+      SELECT batch_id FROM offer_tasks WHERE id = ?
+    `, [task.id])
+
+    let createdOfferId: number | null = null
+
+    if (taskRow?.batch_id) {
+      // 这是批量上传任务，需要创建Offer记录
+      console.log(`📦 批量任务，创建Offer记录: ${task.id}`)
+
+      try {
+        // 1. 创建基础Offer记录
+        const offer = await createOffer(task.userId, {
+          url: extractResult.data.finalUrl || affiliateLink,
+          brand: extractResult.data.brand || '提取中...',
+          target_country: targetCountry,
+          affiliate_link: affiliateLink,
+          final_url: extractResult.data.finalUrl || undefined,
+          product_price: productPrice || extractResult.data.price || undefined,
+          commission_payout: commissionPayout || undefined,
+          // AI分析结果
+          brand_description: aiProductInfo.brandDescription || undefined,
+          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
+            (Array.isArray(aiProductInfo.uniqueSellingPoints)
+              ? aiProductInfo.uniqueSellingPoints.join('\n')
+              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
+          product_highlights: aiProductInfo.productHighlights ?
+            (Array.isArray(aiProductInfo.productHighlights)
+              ? aiProductInfo.productHighlights.join('\n')
+              : String(aiProductInfo.productHighlights)) : undefined,
+          target_audience: aiProductInfo.targetAudience || undefined,
+          category: aiProductInfo.category || undefined,
+          // 评论和竞品分析
+          review_analysis: aiAnalysisResult?.reviewAnalysis ?
+            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
+          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
+            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
+          // 广告元素
+          extracted_keywords: aiAnalysisResult?.extractedKeywords ?
+            JSON.stringify(aiAnalysisResult.extractedKeywords) : undefined,
+          extracted_headlines: aiAnalysisResult?.extractedHeadlines ?
+            JSON.stringify(aiAnalysisResult.extractedHeadlines) : undefined,
+          extracted_descriptions: aiAnalysisResult?.extractedDescriptions ?
+            JSON.stringify(aiAnalysisResult.extractedDescriptions) : undefined,
+          extraction_metadata: aiAnalysisResult?.extractionMetadata ?
+            JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
+        })
+
+        createdOfferId = offer.id
+        console.log(`✅ 批量任务Offer创建成功: offer_id=${offer.id}`)
+
+        // 2. 更新Offer状态为completed（包含完整的scraped_data）
+        await updateOfferScrapeStatus(offer.id, task.userId, 'completed', undefined, {
+          brand: extractResult.data.brand || undefined,
+          url: extractResult.data.finalUrl || undefined,
+          brand_description: aiProductInfo.brandDescription || undefined,
+          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
+            (Array.isArray(aiProductInfo.uniqueSellingPoints)
+              ? aiProductInfo.uniqueSellingPoints.join('\n')
+              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
+          product_highlights: aiProductInfo.productHighlights ?
+            (Array.isArray(aiProductInfo.productHighlights)
+              ? aiProductInfo.productHighlights.join('\n')
+              : String(aiProductInfo.productHighlights)) : undefined,
+          target_audience: aiProductInfo.targetAudience || undefined,
+          category: aiProductInfo.category || undefined,
+          review_analysis: aiAnalysisResult?.reviewAnalysis ?
+            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
+          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
+            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
+          extracted_keywords: aiAnalysisResult?.extractedKeywords ?
+            JSON.stringify(aiAnalysisResult.extractedKeywords) : undefined,
+          extracted_headlines: aiAnalysisResult?.extractedHeadlines ?
+            JSON.stringify(aiAnalysisResult.extractedHeadlines) : undefined,
+          extracted_descriptions: aiAnalysisResult?.extractedDescriptions ?
+            JSON.stringify(aiAnalysisResult.extractedDescriptions) : undefined,
+          extraction_metadata: aiAnalysisResult?.extractionMetadata ?
+            JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
+          extracted_at: new Date().toISOString(),
+          scraped_data: JSON.stringify(extractResult.data),
+        })
+
+        console.log(`✅ 批量任务Offer状态更新完成: offer_id=${offer.id}`)
+      } catch (offerError: any) {
+        console.error(`❌ 批量任务创建Offer失败: ${task.id}:`, offerError.message)
+        // 创建Offer失败不中断流程，任务本身的result仍然保存
+      }
+    }
+
+    // 更新任务为完成状态（包含创建的offer_id）
     await db.exec(`
       UPDATE offer_tasks
       SET
@@ -140,10 +239,11 @@ export async function executeOfferExtraction(
         progress = 100,
         message = '提取完成',
         result = ?,
+        offer_id = ?,
         completed_at = datetime('now'),
         updated_at = datetime('now')
       WHERE id = ?
-    `, [JSON.stringify(finalResult), task.id])
+    `, [JSON.stringify(finalResult), createdOfferId, task.id])
 
     console.log(`✅ Offer提取任务完成: ${task.id}`)
 
