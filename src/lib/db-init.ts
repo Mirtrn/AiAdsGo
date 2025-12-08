@@ -1072,27 +1072,48 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
     }
 
     // 2. 清空数据库中的pending/running任务（保留completed/failed历史）
+    // 🔥 新增：检查offer_tasks表是否存在，避免在数据库未初始化时报错
     let dbClearedCount = 0
     try {
+      // 检查offer_tasks表是否存在
+      let tableExists = false
       if (db.type === 'sqlite') {
-        const result = await db.exec(`
-          DELETE FROM offer_tasks
-          WHERE status IN ('pending', 'running')
-        `)
-        dbClearedCount = result.changes
+        const result = await db.query<{ count: number }>(
+          "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='offer_tasks'"
+        )
+        tableExists = result[0].count > 0
       } else {
         // PostgreSQL
-        const result = await db.query(`
-          DELETE FROM offer_tasks
-          WHERE status IN ('pending', 'running')
-        `)
-        dbClearedCount = result.length
+        const result = await db.query<{ exists: boolean }>(
+          "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'offer_tasks')"
+        )
+        tableExists = result[0].exists
       }
-      if (dbClearedCount > 0) {
-        console.log(`  ✅ 数据库: 已清空 ${dbClearedCount} 个未完成任务`)
+
+      if (!tableExists) {
+        console.log('  ℹ️  数据库: offer_tasks表不存在，跳过清理')
+      } else {
+        // 表存在，执行清理
+        if (db.type === 'sqlite') {
+          const result = await db.exec(`
+            DELETE FROM offer_tasks
+            WHERE status IN ('pending', 'running')
+          `)
+          dbClearedCount = result.changes
+        } else {
+          // PostgreSQL
+          const result = await db.query(`
+            DELETE FROM offer_tasks
+            WHERE status IN ('pending', 'running')
+          `)
+          dbClearedCount = result.length
+        }
+        if (dbClearedCount > 0) {
+          console.log(`  ✅ 数据库: 已清空 ${dbClearedCount} 个未完成任务`)
+        }
       }
     } catch (error) {
-      console.warn('  ⚠️ 数据库清理失败:', error)
+      console.warn('  ⚠️ 数据库清理失败（非关键错误）:', error)
     }
 
     // 3. 清空全局恢复标志
