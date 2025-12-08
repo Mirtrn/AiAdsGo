@@ -835,6 +835,17 @@ export async function scrapeAmazonStoreDeep(
 
   const storeData = await scrapeAmazonStore(storeUrl, customProxyUrl, targetCountry)
 
+  console.log(`📊 scrapeAmazonStore返回产品数: ${storeData.products.length}`)
+
+  // If no products found, the Phase 3 in scrapeAmazonStore should have executed
+  // But let's verify and provide clear feedback
+  if (storeData.products.length === 0) {
+    console.warn(`⚠️ scrapeAmazonStore未返回任何产品`)
+    console.warn(`⚠️ Phase 3应该已在scrapeAmazonStore中执行，但未找到产品`)
+    console.warn(`⚠️ 可能原因：1) 分类页也无产品 2) Phase 3执行失败 3) 页面结构特殊`)
+    return storeData
+  }
+
   const hotProducts = storeData.products
     .filter(p => p.asin)
     .filter(p => p.isHot || (p.rank && p.rank <= topN))
