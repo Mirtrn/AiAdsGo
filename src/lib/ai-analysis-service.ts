@@ -20,6 +20,7 @@ export interface AIAnalysisInput {
     pageTitle?: string | null
     resolveMethod?: string
     productCount?: number
+    pageType?: 'store' | 'product'
     // Flattened store properties (Amazon Store & Independent Store)
     storeName?: string
     storeDescription?: string
