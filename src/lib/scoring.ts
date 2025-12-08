@@ -63,23 +63,47 @@ export async function calculateLaunchScore(
       ? negativeKeywords.join(', ')
       : '❌ 未设置（重要缺失！）'
 
-    // 🎨 插值替换模板变量
+    // 🎯 P1修复: 准备prompt模板期望的变量
+    const keywordCount = creativeKeywords.length
+    const headlineCount = creative.headlines.length
+    const descriptionCount = creative.descriptions.length
+
+    // 计算匹配类型分布
+    let matchTypeDistribution = 'Not available'
+    if (keywordsWithVolume.length > 0) {
+      const matchTypes: Record<string, number> = {}
+      keywordsWithVolume.forEach((kw: any) => {
+        const type = kw.matchType || 'BROAD'
+        matchTypes[type] = (matchTypes[type] || 0) + 1
+      })
+      matchTypeDistribution = Object.entries(matchTypes)
+        .map(([type, count]) => `${type}: ${count}`)
+        .join(', ')
+    }
+
+    // 构建关键词列表文本
+    const keywordsListText = creativeKeywords.slice(0, 20).join(', ')
+
+    // 🎨 插值替换模板变量 - 匹配prompt模板中的变量名
     const prompt = promptTemplate
-      .replace('{{offer.brand}}', offer.brand)
-      .replace('{{offer.target_country}}', offer.target_country)
-      .replace('{{offer.category}}', offer.category || '未知')
-      .replace('{{offer.brand_description}}', offer.brand_description || '无')
-      .replace('{{offer.unique_selling_points}}', offer.unique_selling_points || '无')
-      .replace('{{offer.product_highlights}}', offer.product_highlights || '无')
-      .replace('{{offer.target_audience}}', offer.target_audience || '无')
-      .replace('{{offer.url}}', offer.url)
-      .replace('{{offer.affiliate_link}}', offer.affiliate_link || '无')
-      .replace('{{creative.headlines}}', creative.headlines.slice(0, 3).join(', '))
-      .replace('{{creative.descriptions}}', creative.descriptions.join(', '))
-      .replace('{{creative.keywords}}', creativeKeywords.join(', '))
-      .replace('{{creative.negativeKeywords}}', negativeKeywordsText)
-      .replace('{{creative.final_url}}', creative.final_url)
-      .replace('{{keywordsWithVolume}}', keywordsWithVolumeText)
+      // Campaign Overview
+      .replace('{{brand}}', offer.brand)
+      .replace('{{productName}}', offer.brand_description || offer.brand)
+      .replace('{{targetCountry}}', offer.target_country)
+      .replace('{{budget}}', 'Based on keyword competition')
+      // Keywords Data
+      .replace('{{keywordCount}}', keywordCount.toString())
+      .replace('{{matchTypeDistribution}}', matchTypeDistribution)
+      .replace('{{keywordsList}}', keywordsListText + '\n\n' + keywordsWithVolumeText)
+      .replace('{{negativeKeywords}}', negativeKeywordsText)
+      // Landing Page
+      .replace('{{landingPageUrl}}', creative.final_url)
+      .replace('{{pageType}}', offer.url.includes('/stores/') || offer.url.includes('/store/') ? 'Store Page' : 'Product Page')
+      // Ad Creatives
+      .replace('{{headlineCount}}', headlineCount.toString())
+      .replace('{{descriptionCount}}', descriptionCount.toString())
+      .replace('{{sampleHeadlines}}', creative.headlines.slice(0, 5).join(', '))
+      .replace('{{sampleDescriptions}}', creative.descriptions.join(', '))
 
     // 智能模型选择：Launch Score计算使用Pro模型
     const aiResponse = await generateContent({

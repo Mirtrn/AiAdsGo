@@ -56,6 +56,7 @@ export interface ExtractedAdElements {
 
 /**
  * 商品数据接口（兼容单商品和店铺商品）
+ * 🎯 P1修复: 同步ai.ts中的ProductInfo字段定义
  */
 export interface ProductInfo {
   name: string
@@ -70,6 +71,41 @@ export interface ProductInfo {
   targetAudience?: string
   productHighlights?: string
   brandDescription?: string
+  category?: string
+
+  // 🎯 P1修复: 以下字段与ai.ts ProductInfo同步
+  pricing?: {
+    current?: string
+    original?: string
+    discount?: string
+    competitiveness?: 'Premium' | 'Competitive' | 'Budget'
+    valueAssessment?: string
+  }
+
+  reviews?: {
+    rating?: number
+    count?: number
+    sentiment?: 'Positive' | 'Mixed' | 'Negative'
+    positives?: string[]
+    concerns?: string[]
+    useCases?: string[]
+  }
+
+  promotions?: {
+    active?: boolean
+    types?: string[]
+    urgency?: string | null
+    activeDeals?: string[]
+    urgencyIndicators?: string[]
+    freeShipping?: boolean
+  }
+
+  competitiveEdges?: {
+    badges?: string[]
+    primeEligible?: boolean
+    stockStatus?: string
+    salesRank?: string
+  }
 }
 
 /**

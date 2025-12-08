@@ -135,6 +135,95 @@ export async function generateKeywords(
   // 📦 从数据库加载prompt模板 (版本管理)
   const promptTemplate = await loadPrompt('keywords_generation')
 
+  // 🎯 P0修复: 从offer中提取产品详情数据
+  let productName = offer.brand
+  let productFeatures = ''
+  let sellingPoints = offer.unique_selling_points || ''
+  let pricePoint = ''
+  let reviewPositives = ''
+  let reviewUseCases = ''
+  let purchaseReasons = ''
+  let competitorKeywords = ''
+
+  // 从scraped_data提取产品名称和价格
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+      productName = scrapedData.productName || scrapedData.title || offer.brand
+      pricePoint = scrapedData.productPrice || scrapedData.price || ''
+      // 提取产品特性
+      if (scrapedData.features && Array.isArray(scrapedData.features)) {
+        productFeatures = scrapedData.features.slice(0, 8).join('; ')
+      }
+      if (scrapedData.aboutThisItem && Array.isArray(scrapedData.aboutThisItem)) {
+        productFeatures = productFeatures
+          ? productFeatures + '; ' + scrapedData.aboutThisItem.slice(0, 5).join('; ')
+          : scrapedData.aboutThisItem.slice(0, 8).join('; ')
+      }
+    } catch {}
+  }
+
+  // 从product_highlights补充产品特性
+  if (!productFeatures && offer.product_highlights) {
+    productFeatures = offer.product_highlights
+  }
+
+  // 从review_analysis提取评论洞察
+  if (offer.review_analysis) {
+    try {
+      const reviewAnalysis = JSON.parse(offer.review_analysis)
+      // 提取正面关键词
+      if (reviewAnalysis.topPositiveKeywords && Array.isArray(reviewAnalysis.topPositiveKeywords)) {
+        reviewPositives = reviewAnalysis.topPositiveKeywords
+          .slice(0, 5)
+          .map((k: any) => typeof k === 'string' ? k : k.keyword)
+          .join(', ')
+      } else if (reviewAnalysis.commonPraises && Array.isArray(reviewAnalysis.commonPraises)) {
+        reviewPositives = reviewAnalysis.commonPraises.slice(0, 5).join(', ')
+      }
+      // 提取使用场景
+      if (reviewAnalysis.realUseCases && Array.isArray(reviewAnalysis.realUseCases)) {
+        reviewUseCases = reviewAnalysis.realUseCases
+          .slice(0, 3)
+          .map((u: any) => typeof u === 'string' ? u : u.scenario || u)
+          .join(', ')
+      }
+      // 提取购买理由
+      if (reviewAnalysis.purchaseReasons && Array.isArray(reviewAnalysis.purchaseReasons)) {
+        purchaseReasons = reviewAnalysis.purchaseReasons
+          .slice(0, 3)
+          .map((r: any) => typeof r === 'string' ? r : r.reason || r)
+          .join(', ')
+      }
+    } catch {}
+  }
+
+  // 从competitor_analysis提取竞品关键词
+  if (offer.competitor_analysis) {
+    try {
+      const compAnalysis = JSON.parse(offer.competitor_analysis)
+      // 从竞品分析中提取可能的关键词
+      if (compAnalysis.uniqueSellingPoints && Array.isArray(compAnalysis.uniqueSellingPoints)) {
+        competitorKeywords = compAnalysis.uniqueSellingPoints
+          .slice(0, 3)
+          .map((u: any) => u.usp || u)
+          .join(', ')
+      }
+    } catch {}
+  }
+
+  // 从ai_keywords获取已生成的关键词作为参考
+  if (offer.ai_keywords) {
+    try {
+      const aiKeywords = JSON.parse(offer.ai_keywords)
+      if (Array.isArray(aiKeywords) && aiKeywords.length > 0) {
+        competitorKeywords = competitorKeywords
+          ? competitorKeywords + '; ' + aiKeywords.slice(0, 5).join(', ')
+          : aiKeywords.slice(0, 5).join(', ')
+      }
+    } catch {}
+  }
+
   // 🎨 插值替换模板变量
   const prompt = promptTemplate
     .replace('{{offer.brand}}', offer.brand)
@@ -142,6 +231,15 @@ export async function generateKeywords(
     .replace('{{offer.target_country}}', offer.target_country)
     .replace(/\{\{offer\.target_country\}\}/g, offer.target_country) // 替换所有出现的地方
     .replace('{{offer.category}}', offer.category || '未分类')
+    // 🎯 P0修复: 添加缺失的8个变量
+    .replace('{{productName}}', productName)
+    .replace('{{productFeatures}}', productFeatures || '未提供')
+    .replace('{{sellingPoints}}', sellingPoints || '未提供')
+    .replace('{{pricePoint}}', pricePoint || '未提供')
+    .replace('{{reviewPositives}}', reviewPositives || '未提供')
+    .replace('{{reviewUseCases}}', reviewUseCases || '未提供')
+    .replace('{{purchaseReasons}}', purchaseReasons || '未提供')
+    .replace('{{competitorKeywords}}', competitorKeywords || '未提供')
 
   // 🆕 Token优化：定义结构化JSON schema
   const responseSchema = {

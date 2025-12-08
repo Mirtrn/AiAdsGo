@@ -838,6 +838,7 @@ async function extractFromStore(
 /**
  * 生成广告标题的提示词（从数据库加载版本管理）
  * 🔥 Enhanced to utilize productInfo deep analysis fields
+ * 🎯 P1修复: 添加缺失的变量 (price, productCategories, reviewPositives, reviewUseCases, promotionInfo)
  */
 async function getHeadlinePrompt(
   product: ProductInfo,
@@ -858,6 +859,23 @@ async function getHeadlinePrompt(
   const productHighlightsText = product.productHighlights || 'Not provided'
   const brandDescriptionText = product.brandDescription || 'Not provided'
 
+  // 🎯 P1修复: 添加缺失的变量
+  const priceText = product.pricing?.current || 'Not provided'
+  const productCategoriesText = product.category || 'Not provided'
+  const reviewPositivesText = product.reviews?.positives?.slice(0, 5).join(', ') || 'Not provided'
+  const reviewUseCasesText = product.reviews?.useCases?.slice(0, 3).join(', ') || 'Not provided'
+
+  // 构建促销信息
+  let promotionInfoText = 'No active promotions'
+  if (product.promotions?.active) {
+    const promoTypes = product.promotions.types?.join(', ') || ''
+    const urgency = product.promotions.urgency || ''
+    promotionInfoText = `Active: ${promoTypes}${urgency ? ` | ${urgency}` : ''}`
+    if (product.promotions.freeShipping) {
+      promotionInfoText += ' | Free Shipping'
+    }
+  }
+
   // 🎨 插值替换模板变量
   const prompt = promptTemplate
     .replace('{{product.name}}', product.name)
@@ -872,6 +890,12 @@ async function getHeadlinePrompt(
     .replace('{{product.targetAudience}}', targetAudienceText)
     .replace('{{product.productHighlights}}', productHighlightsText)
     .replace('{{product.brandDescription}}', brandDescriptionText)
+    // 🎯 P1修复: 添加缺失的变量
+    .replace('{{product.price}}', priceText)
+    .replace('{{productCategories}}', productCategoriesText)
+    .replace('{{reviewPositives}}', reviewPositivesText)
+    .replace('{{reviewUseCases}}', reviewUseCasesText)
+    .replace('{{promotionInfo}}', promotionInfoText)
 
   return prompt
 }
@@ -1291,36 +1315,46 @@ async function generateHeadlinesFromMultipleProducts(
 /**
  * 生成广告描述的提示词（从数据库加载版本管理）
  * 🔥 Enhanced to utilize productInfo deep analysis fields
+ * 🎯 P1修复: 修复变量命名不一致和添加缺失变量
  */
 async function getDescriptionPrompt(product: ProductInfo, targetLanguage: string): Promise<string> {
   // 📦 从数据库加载prompt模板 (版本管理)
   const promptTemplate = await loadPrompt('ad_elements_descriptions')
 
   // 🎨 准备模板变量
-  const descriptionText = product.description?.slice(0, 500) || 'Not provided'
-  const aboutThisItemText = product.aboutThisItem?.slice(0, 10).join('; ') || 'Not provided'
   const featuresText = product.features?.slice(0, 10).join('; ') || 'Not provided'
+  const sellingPointsText = product.uniqueSellingPoints || product.productHighlights || 'Not provided'
 
-  // 🔥 Add deep analysis fields if available
-  const uniqueSellingPointsText = product.uniqueSellingPoints || 'Not provided'
-  const targetAudienceText = product.targetAudience || 'Not provided'
-  const productHighlightsText = product.productHighlights || 'Not provided'
-  const brandDescriptionText = product.brandDescription || 'Not provided'
+  // 🎯 P1修复: 添加缺失的变量
+  const priceText = product.pricing?.current || 'Not provided'
+  const productCategoriesText = product.category || 'Not provided'
+  const reviewPositivesText = product.reviews?.positives?.slice(0, 5).join(', ') || 'Not provided'
+  const purchaseReasonsText = product.reviews?.useCases?.slice(0, 3).join(', ') || 'Not provided'
 
-  // 🎨 插值替换模板变量
+  // 构建促销信息
+  let promotionInfoText = 'No active promotions'
+  if (product.promotions?.active) {
+    const promoTypes = product.promotions.types?.join(', ') || ''
+    const urgency = product.promotions.urgency || ''
+    promotionInfoText = `Active: ${promoTypes}${urgency ? ` | ${urgency}` : ''}`
+    if (product.promotions.freeShipping) {
+      promotionInfoText += ' | Free Shipping'
+    }
+  }
+
+  // 🎨 插值替换模板变量 - 匹配prompt模板中的变量名
   const prompt = promptTemplate
-    .replace('{{product.name}}', product.name)
-    .replace('{{product.brand}}', product.brand || 'Unknown')
-    .replace('{{product.rating}}', product.rating?.toString() || 'N/A')
-    .replace('{{product.reviewCount}}', product.reviewCount?.toString() || 'N/A')
-    .replace('{{product.description}}', descriptionText)
-    .replace('{{product.aboutThisItem}}', aboutThisItemText)
-    .replace('{{product.features}}', featuresText)
-    // 🔥 Add new template variables for deep analysis
-    .replace('{{product.uniqueSellingPoints}}', uniqueSellingPointsText)
-    .replace('{{product.targetAudience}}', targetAudienceText)
-    .replace('{{product.productHighlights}}', productHighlightsText)
-    .replace('{{product.brandDescription}}', brandDescriptionText)
+    .replace('{{productName}}', product.name)
+    .replace('{{brand}}', product.brand || 'Unknown')
+    .replace('{{price}}', priceText)
+    .replace('{{rating}}', product.rating?.toString() || 'N/A')
+    .replace('{{reviewCount}}', product.reviewCount?.toString() || 'N/A')
+    .replace('{{features}}', featuresText)
+    .replace('{{sellingPoints}}', sellingPointsText)
+    .replace('{{productCategories}}', productCategoriesText)
+    .replace('{{reviewPositives}}', reviewPositivesText)
+    .replace('{{purchaseReasons}}', purchaseReasonsText)
+    .replace('{{promotionInfo}}', promotionInfoText)
 
   return prompt
 }

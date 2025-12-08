@@ -805,6 +805,11 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   }
   variables.extracted_elements_section = extracted_elements_section
 
+  // 🔧 P0修复（2025-12-08）：添加缺失的section变量赋值
+  variables.enhanced_features_section = enhanced_features_section
+  variables.localization_section = localization_section
+  variables.brand_analysis_section = brand_analysis_section
+
   // Build all dynamic guidance sections
   variables.headline_brand_guidance = buildHeadlineBrandGuidance(badge, salesRank, offer, hotInsights, topProducts, sentimentDistribution, averageRating)
   variables.headline_feature_guidance = buildHeadlineFeatureGuidance(technicalDetails, reviewHighlights, commonPraises, topPositiveKeywords)

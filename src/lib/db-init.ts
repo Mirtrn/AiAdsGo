@@ -174,7 +174,7 @@ async function createDefaultAdmin(): Promise<void> {
     let existingAdmin: any
 
     if (db.type === 'sqlite') {
-      existingAdmin = db.queryOne(
+      existingAdmin = await db.queryOne(
         'SELECT id FROM users WHERE username = ? OR role = ?',
         [DEFAULT_ADMIN.username, 'admin']
       )
@@ -278,7 +278,7 @@ async function ensureAdminAccount(): Promise<void> {
     let existingAdmin: any
 
     if (db.type === 'sqlite') {
-      existingAdmin = db.queryOne(
+      existingAdmin = await db.queryOne(
         'SELECT id FROM users WHERE username = ? OR role = ?',
         [DEFAULT_ADMIN.username, 'admin']
       )

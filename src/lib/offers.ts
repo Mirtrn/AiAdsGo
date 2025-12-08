@@ -46,6 +46,12 @@ export interface Offer {
   // ❌ 已删除冗余字段（2025-12-04）: pricing (与scraped_data重复)
   promotions: string | null  // 促销信息JSON
   scraped_data: string | null  // 原始爬虫数据（包含discount, salesRank, badge, reviews等所有字段）
+  // 🎯 AI分析结果字段（数据库同步）
+  ai_keywords: string | null  // AI生成的关键词JSON（从competitor_analysis等提取）
+  ai_reviews: string | null  // AI分析的评论总结
+  ai_competitive_edges: string | null  // AI分析的竞争优势
+  ai_analysis_v32: string | null  // 新版AI分析结果JSON（v3.2架构）
+  page_type: string | null  // 页面类型：'product' | 'store'
   // P1-11: 关联的Google Ads账号信息（运行时计算字段，非数据库字段）
   linked_accounts?: Array<{
     account_id: number

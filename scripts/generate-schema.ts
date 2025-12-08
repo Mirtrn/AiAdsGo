@@ -40,5 +40,5 @@ console.log(`   大小: ${(postgresSchema.length / 1024).toFixed(2)} KB`)
 
 console.log('\n✅ Schema 文件生成完成！')
 console.log('\n使用方法:')
-console.log('  SQLite:     npx tsx scripts/init-db.ts')
-console.log('  PostgreSQL: DATABASE_URL=postgres://... npx tsx scripts/init-db.ts')
+console.log('  SQLite:     npm run db:init')
+console.log('  PostgreSQL: Docker容器启动时自动执行 scripts/db-init.ts')
