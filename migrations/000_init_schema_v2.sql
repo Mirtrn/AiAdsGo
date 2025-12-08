@@ -1612,52 +1612,8 @@ VALUES
 -- ==========================================
 -- offer_tasks Table (Task Queue Architecture)
 -- ==========================================
-CREATE TABLE offer_tasks (
-  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-  user_id INTEGER NOT NULL,
-
-  -- Task status and progress
-  status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed')) DEFAULT 'pending',
-  stage TEXT, -- resolving_link, brand_extraction, ai_analysis, etc.
-  progress INTEGER DEFAULT 0 CHECK(progress >= 0 AND progress <= 100),
-  message TEXT,
-
-  -- Input parameters
-  affiliate_link TEXT NOT NULL,
-  target_country TEXT NOT NULL,
-  skip_cache INTEGER DEFAULT 0,
-  skip_warmup INTEGER DEFAULT 0,
-  product_price TEXT,           -- Optional: User-provided product price
-  commission_payout TEXT,       -- Optional: User-provided commission
-
-  -- Task relationships
-  batch_id TEXT,                -- Parent batch task (if this is part of a batch)
-  offer_id INTEGER,             -- Created offer ID (after successful extraction)
-
-  -- Output results
-  result TEXT, -- JSON object of extraction result
-  error TEXT,  -- JSON object of error details
-
-  -- Timestamps
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  started_at TEXT,
-  completed_at TEXT,
-
-  -- Foreign keys
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (batch_id) REFERENCES batch_tasks(id) ON DELETE SET NULL,
-  FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL
-);
-
--- Performance indexes
-CREATE INDEX idx_offer_tasks_user_status ON offer_tasks(user_id, status, created_at DESC);
-CREATE INDEX idx_offer_tasks_status_created ON offer_tasks(status, created_at);
-CREATE INDEX idx_offer_tasks_user_created ON offer_tasks(user_id, created_at DESC);
-CREATE INDEX idx_offer_tasks_updated ON offer_tasks(updated_at DESC);
-
 -- ==========================================
--- batch_tasks Table (Batch Operations)
+-- batch_tasks Table (Must be defined first - referenced by offer_tasks)
 -- ==========================================
 CREATE TABLE batch_tasks (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -1691,4 +1647,53 @@ CREATE INDEX idx_batch_tasks_user_status ON batch_tasks(user_id, status, created
 CREATE INDEX idx_batch_tasks_status_created ON batch_tasks(status, created_at);
 CREATE INDEX idx_batch_tasks_user_created ON batch_tasks(user_id, created_at DESC);
 
--- End of Schema
+-- ==========================================
+-- offer_tasks Table (References batch_tasks)
+-- ==========================================
+CREATE TABLE offer_tasks (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  user_id INTEGER NOT NULL,
+
+  -- Task status and progress
+  status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed')) DEFAULT 'pending',
+  stage TEXT,
+  progress INTEGER DEFAULT 0 CHECK(progress >= 0 AND progress <= 100),
+  message TEXT,
+
+  -- Input parameters
+  affiliate_link TEXT NOT NULL,
+  target_country TEXT NOT NULL,
+  skip_cache INTEGER DEFAULT 0,
+  skip_warmup INTEGER DEFAULT 0,
+  product_price TEXT,
+  commission_payout TEXT,
+
+  -- Task relationships
+  batch_id TEXT,
+  offer_id INTEGER,
+
+  -- Output results
+  result TEXT,
+  error TEXT,
+
+  -- Timestamps
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at TEXT,
+  completed_at TEXT,
+
+  -- Foreign keys
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (batch_id) REFERENCES batch_tasks(id) ON DELETE SET NULL,
+  FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL
+);
+
+-- Performance indexes
+CREATE INDEX idx_offer_tasks_user_status ON offer_tasks(user_id, status, created_at DESC);
+CREATE INDEX idx_offer_tasks_status_created ON offer_tasks(status, created_at);
+CREATE INDEX idx_offer_tasks_user_created ON offer_tasks(user_id, created_at DESC);
+CREATE INDEX idx_offer_tasks_updated ON offer_tasks(updated_at DESC);
+CREATE INDEX idx_offer_tasks_batch_id ON offer_tasks(batch_id, status);
+CREATE INDEX idx_offer_tasks_offer_id ON offer_tasks(offer_id);
+
+-- End of Task Queue Tables

@@ -2609,65 +2609,10 @@ GROUP BY user_id, date;
 -- ==========================================
 -- offer_tasks Table (Task Queue Architecture)
 -- ==========================================
-CREATE TABLE offer_tasks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id INTEGER NOT NULL,
-
-  -- Task status and progress
-  status VARCHAR(20) NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed')) DEFAULT 'pending',
-  stage VARCHAR(50), -- resolving_link, brand_extraction, ai_analysis, etc.
-  progress INTEGER DEFAULT 0 CHECK(progress >= 0 AND progress <= 100),
-  message TEXT,
-
-  -- Input parameters
-  affiliate_link TEXT NOT NULL,
-  target_country VARCHAR(10) NOT NULL,
-  skip_cache BOOLEAN DEFAULT FALSE,
-  skip_warmup BOOLEAN DEFAULT FALSE,
-  product_price TEXT,           -- Optional: User-provided product price
-  commission_payout TEXT,       -- Optional: User-provided commission
-
-  -- Task relationships
-  batch_id UUID,                -- Parent batch task (if this is part of a batch)
-  offer_id INTEGER,             -- Created offer ID (after successful extraction)
-
-  -- Output results
-  result JSONB, -- JSON object of extraction result
-  error JSONB,  -- JSON object of error details
-
-  -- Timestamps
-  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-  started_at TIMESTAMP WITH TIME ZONE,    -- When task actually started running
-  completed_at TIMESTAMP WITH TIME ZONE,  -- When task finished (success or failure)
-
-  -- Foreign keys
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (batch_id) REFERENCES batch_tasks(id) ON DELETE SET NULL,
-  FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL
-);
-
--- Performance indexes
-CREATE INDEX idx_offer_tasks_user_status ON offer_tasks(user_id, status, created_at DESC);
-CREATE INDEX idx_offer_tasks_status_created ON offer_tasks(status, created_at);
-CREATE INDEX idx_offer_tasks_user_created ON offer_tasks(user_id, created_at DESC);
-CREATE INDEX idx_offer_tasks_updated ON offer_tasks(updated_at DESC);
-
--- Auto-update trigger for updated_at
-CREATE OR REPLACE FUNCTION update_offer_tasks_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trigger_offer_tasks_updated_at
-BEFORE UPDATE ON offer_tasks
-FOR EACH ROW
-EXECUTE FUNCTION update_offer_tasks_updated_at();
-
-CREATE TABLE IF NOT EXISTS batch_tasks (
+-- ==========================================
+-- batch_tasks Table (Must be defined first - referenced by offer_tasks)
+-- ==========================================
+CREATE TABLE batch_tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id INTEGER NOT NULL,
 
@@ -2681,8 +2626,8 @@ CREATE TABLE IF NOT EXISTS batch_tasks (
   failed_count INTEGER DEFAULT 0 CHECK(failed_count >= 0),
 
   -- Batch metadata
-  source_file TEXT,  -- CSV filename or source identifier
-  metadata JSONB,    -- JSON: additional metadata (e.g., {"target_country": "US"})
+  source_file TEXT,
+  metadata JSONB,
 
   -- Timestamps
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -2695,9 +2640,9 @@ CREATE TABLE IF NOT EXISTS batch_tasks (
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_batch_tasks_user_status ON batch_tasks(user_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_batch_tasks_status_created ON batch_tasks(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_batch_tasks_user_created ON batch_tasks(user_id, created_at DESC);
+CREATE INDEX idx_batch_tasks_user_status ON batch_tasks(user_id, status, created_at DESC);
+CREATE INDEX idx_batch_tasks_status_created ON batch_tasks(status, created_at);
+CREATE INDEX idx_batch_tasks_user_created ON batch_tasks(user_id, created_at DESC);
 
 -- Auto-update trigger for updated_at
 CREATE OR REPLACE FUNCTION update_batch_tasks_updated_at()
@@ -2713,63 +2658,67 @@ BEFORE UPDATE ON batch_tasks
 FOR EACH ROW
 EXECUTE FUNCTION update_batch_tasks_updated_at();
 
--- Table comments
-COMMENT ON TABLE batch_tasks IS 'Parent task for coordinating batch operations (offer creation, scraping, etc.)';
-COMMENT ON COLUMN batch_tasks.id IS 'Unique batch task identifier (UUID)';
-COMMENT ON COLUMN batch_tasks.user_id IS 'User who created the batch task (for isolation and concurrency control)';
-COMMENT ON COLUMN batch_tasks.task_type IS 'Type of batch operation (offer-creation, offer-scrape, offer-enhance)';
-COMMENT ON COLUMN batch_tasks.status IS 'Batch status: pending → running → (completed | failed | partial)';
-COMMENT ON COLUMN batch_tasks.total_count IS 'Total number of child tasks in this batch';
-COMMENT ON COLUMN batch_tasks.completed_count IS 'Number of successfully completed child tasks';
-COMMENT ON COLUMN batch_tasks.failed_count IS 'Number of failed child tasks';
-COMMENT ON COLUMN batch_tasks.source_file IS 'Source file name (e.g., CSV filename for bulk import)';
-COMMENT ON COLUMN batch_tasks.metadata IS 'JSON metadata for batch-specific configuration';
-COMMENT ON COLUMN batch_tasks.started_at IS 'Timestamp when first child task started';
-COMMENT ON COLUMN batch_tasks.completed_at IS 'Timestamp when all child tasks finished';
-
--- Migration Notes:
--- 1. Batch isolation: Each user's batches are isolated by user_id
--- 2. Child task tracking: Child tasks (offer_tasks) will reference this via batch_id
--- 3. Status flow: pending → running → (completed | failed | partial)
---    - completed: All child tasks succeeded
---    - failed: All child tasks failed
---    - partial: Some succeeded, some failed
--- 4. Cleanup: Old batches (>30 days) should be cleaned up by cron job
-
-
--- Migration 060: Add batch_id to offer_tasks table (PostgreSQL)
--- Purpose: Link individual offer tasks to parent batch tasks
--- Date: 2025-12-07
-
-
--- Performance index for batch queries
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_batch_id ON offer_tasks(batch_id, status);
-
--- Migration Notes:
--- 1. batch_id is NULL for standalone tasks (manual single creation)
--- 2. batch_id is set for tasks created as part of a batch operation
--- 3. ON DELETE SET NULL: If batch is deleted, child tasks become standalone
--- 4. Index supports efficient queries: "Get all tasks for batch X"
-
-
--- Migration 061: Add offer_id to offer_tasks table (PostgreSQL)
--- Purpose: Track created offer from batch extraction tasks
--- Date: 2025-12-08
-
-
--- Performance index for offer lookup
-CREATE INDEX IF NOT EXISTS idx_offer_tasks_offer_id ON offer_tasks(offer_id);
-
--- Migration Notes:
--- 1. offer_id is NULL before offer is created
--- 2. offer_id is set when batch extraction creates an offer
--- 3. For standalone tasks (not batch), offer is created first, so offer_id may not be needed
--- 4. Index supports efficient lookup: "Find task that created offer X"
-
-
-
 -- ==========================================
--- End of Consolidated PostgreSQL Schema
+-- offer_tasks Table (References batch_tasks)
+-- ==========================================
+CREATE TABLE offer_tasks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id INTEGER NOT NULL,
 
+  -- Task status and progress
+  status VARCHAR(20) NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed')) DEFAULT 'pending',
+  stage VARCHAR(50),
+  progress INTEGER DEFAULT 0 CHECK(progress >= 0 AND progress <= 100),
+  message TEXT,
 
--- End of Schema
+  -- Input parameters
+  affiliate_link TEXT NOT NULL,
+  target_country VARCHAR(10) NOT NULL,
+  skip_cache BOOLEAN DEFAULT FALSE,
+  skip_warmup BOOLEAN DEFAULT FALSE,
+  product_price TEXT,
+  commission_payout TEXT,
+
+  -- Task relationships
+  batch_id UUID,
+  offer_id INTEGER,
+
+  -- Output results
+  result JSONB,
+  error JSONB,
+
+  -- Timestamps
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  started_at TIMESTAMP WITH TIME ZONE,
+  completed_at TIMESTAMP WITH TIME ZONE,
+
+  -- Foreign keys
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (batch_id) REFERENCES batch_tasks(id) ON DELETE SET NULL,
+  FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE SET NULL
+);
+
+-- Performance indexes
+CREATE INDEX idx_offer_tasks_user_status ON offer_tasks(user_id, status, created_at DESC);
+CREATE INDEX idx_offer_tasks_status_created ON offer_tasks(status, created_at);
+CREATE INDEX idx_offer_tasks_user_created ON offer_tasks(user_id, created_at DESC);
+CREATE INDEX idx_offer_tasks_updated ON offer_tasks(updated_at DESC);
+CREATE INDEX idx_offer_tasks_batch_id ON offer_tasks(batch_id, status);
+CREATE INDEX idx_offer_tasks_offer_id ON offer_tasks(offer_id);
+
+-- Auto-update trigger for updated_at
+CREATE OR REPLACE FUNCTION update_offer_tasks_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_offer_tasks_updated_at
+BEFORE UPDATE ON offer_tasks
+FOR EACH ROW
+EXECUTE FUNCTION update_offer_tasks_updated_at();
+
+-- End of Task Queue Tables
