@@ -18,6 +18,9 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
   private keyPrefix: string
   private connected: boolean = false
 
+  private reconnectAttempts = 0
+  private readonly MAX_RECONNECT_ATTEMPTS = 10
+
   constructor(
     private redisUrl: string,
     keyPrefix: string = 'queue:'
@@ -26,36 +29,77 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
   }
 
   async connect(): Promise<void> {
-    if (this.connected) return
+    if (this.connected && this.client?.status === 'ready') return
 
     try {
       this.client = new Redis(this.redisUrl, {
         maxRetriesPerRequest: 3,
-        retryStrategy: (times: number) => {
-          if (times > 3) return null // 停止重试
-          return Math.min(times * 100, 2000) // 指数退避
-        },
         enableReadyCheck: true,
-        lazyConnect: true
+        lazyConnect: true,
+
+        // 连接保活配置
+        keepAlive: 30000,  // 每30秒发送TCP keepalive包
+        connectTimeout: 10000,  // 连接超时10秒
+
+        // 重连策略：指数退避，最大延迟10秒
+        retryStrategy: (times: number) => {
+          this.reconnectAttempts = times
+
+          if (times > this.MAX_RECONNECT_ATTEMPTS) {
+            console.error(`❌ Redis队列重连失败，已达到最大重试次数(${this.MAX_RECONNECT_ATTEMPTS})`)
+            return null  // 停止重试
+          }
+
+          const delay = Math.min(times * 200, 10000)
+          if (times <= 3) {
+            console.log(`⏳ Redis队列重连中... (第${times}次，${delay}ms后重试)`)
+          }
+          return delay
+        },
+
+        // 自动重连
+        autoResubscribe: true,
+        autoResendUnfulfilledCommands: true,
       })
 
       // 连接Redis
       await this.client.connect()
 
       // 监听连接状态
-      this.client.on('error', (err) => {
-        console.error('🔴 Redis连接错误:', err.message)
-        this.connected = false
+      this.client.on('connect', () => {
+        console.log('🔗 Redis队列正在建立连接...')
       })
 
       this.client.on('ready', () => {
-        console.log('✅ Redis队列已连接')
+        this.reconnectAttempts = 0
         this.connected = true
+        console.log('✅ Redis队列已连接')
+      })
+
+      this.client.on('error', (err) => {
+        // 只在首次错误或关键错误时打印
+        if (this.reconnectAttempts === 0 || err.message.includes('ECONNREFUSED')) {
+          console.error('🔴 Redis队列连接错误:', err.message)
+        }
+        this.connected = false
+      })
+
+      this.client.on('close', () => {
+        if (this.reconnectAttempts === 0) {
+          console.warn('⚠️ Redis队列连接已关闭，将尝试重连...')
+        }
+        this.connected = false
+      })
+
+      this.client.on('reconnecting', (delay: number) => {
+        if (this.reconnectAttempts <= 3) {
+          console.log(`🔄 Redis队列正在重连... (延迟${delay}ms)`)
+        }
       })
 
       this.connected = true
     } catch (error: any) {
-      console.error('❌ Redis连接失败:', error.message)
+      console.error('❌ Redis队列连接失败:', error.message)
       throw error
     }
   }
