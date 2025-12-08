@@ -1048,11 +1048,6 @@ declare global {
 async function checkUnfinishedQueueTasks(): Promise<void> {
   const db = await getDatabase()
 
-  // 只支持 SQLite（PostgreSQL 暂不支持）
-  if (db.type !== 'sqlite') {
-    return
-  }
-
   try {
     console.log('🔄 启动清理：清空所有未完成任务...')
 
@@ -1079,11 +1074,20 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
     // 2. 清空数据库中的pending/running任务（保留completed/failed历史）
     let dbClearedCount = 0
     try {
-      const result = await db.exec(`
-        DELETE FROM offer_tasks
-        WHERE status IN ('pending', 'running')
-      `)
-      dbClearedCount = result.changes
+      if (db.type === 'sqlite') {
+        const result = await db.exec(`
+          DELETE FROM offer_tasks
+          WHERE status IN ('pending', 'running')
+        `)
+        dbClearedCount = result.changes
+      } else {
+        // PostgreSQL
+        const result = await db.query(`
+          DELETE FROM offer_tasks
+          WHERE status IN ('pending', 'running')
+        `)
+        dbClearedCount = result.length
+      }
       if (dbClearedCount > 0) {
         console.log(`  ✅ 数据库: 已清空 ${dbClearedCount} 个未完成任务`)
       }
