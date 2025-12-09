@@ -49,6 +49,12 @@ export class UnifiedQueueManager {
   private readonly HEALTH_CHECK_INTERVAL = 5 * 60 * 1000  // 5分钟检查一次
   private readonly STALE_TASK_TIMEOUT = 30 * 60 * 1000    // 30分钟超时
 
+  // 🔥 错误追踪和退避机制（防止Redis连接问题时的错误刷屏）
+  private consecutiveErrors: number = 0
+  private lastErrorTime: number = 0
+  private readonly MAX_CONSECUTIVE_ERRORS = 3
+  private readonly ERROR_BACKOFF_MS = 5000  // 连续错误后暂停5秒
+
   constructor(config: Partial<QueueConfig> = {}) {
     // 合并默认配置
     this.config = {
@@ -322,6 +328,19 @@ export class UnifiedQueueManager {
   private async processQueue(): Promise<void> {
     if (!this.running) return
 
+    // 🔥 检查是否处于错误退避期
+    const now = Date.now()
+    if (this.consecutiveErrors >= this.MAX_CONSECUTIVE_ERRORS) {
+      const timeSinceLastError = now - this.lastErrorTime
+      if (timeSinceLastError < this.ERROR_BACKOFF_MS) {
+        // 仍在退避期，跳过本次处理
+        return
+      }
+      // 退避期结束，重置错误计数
+      console.log('🔄 Redis连接恢复尝试，重置错误计数')
+      this.consecutiveErrors = 0
+    }
+
     // 检查是否达到全局并发限制
     if (this.globalRunningCount >= this.config.globalConcurrency) {
       return
@@ -330,7 +349,13 @@ export class UnifiedQueueManager {
     try {
       // 尝试获取任务
       const task = await this.adapter.dequeue()
-      if (!task) return
+      if (!task) {
+        // 成功执行（即使没有任务），重置错误计数
+        if (this.consecutiveErrors > 0) {
+          this.consecutiveErrors = 0
+        }
+        return
+      }
 
       // 检查是否有对应的执行器
       const executor = this.executors.get(task.type)
@@ -350,8 +375,25 @@ export class UnifiedQueueManager {
 
       // 执行任务
       this.executeTask(task, executor)
+
+      // 成功执行，重置错误计数
+      if (this.consecutiveErrors > 0) {
+        this.consecutiveErrors = 0
+      }
     } catch (error: any) {
-      console.error('❌ 队列处理错误:', error.message)
+      this.consecutiveErrors++
+      this.lastErrorTime = now
+
+      // 🔥 只在首次错误或达到退避阈值时记录详细错误
+      if (this.consecutiveErrors === 1) {
+        console.error('❌ 队列处理错误:', error.message)
+      } else if (this.consecutiveErrors === this.MAX_CONSECUTIVE_ERRORS) {
+        console.error(
+          `❌ Redis连接持续失败（${this.consecutiveErrors}次），` +
+          `暂停${this.ERROR_BACKOFF_MS / 1000}秒后重试。错误: ${error.message}`
+        )
+      }
+      // 其他连续错误静默处理，避免刷屏
     }
   }
 
