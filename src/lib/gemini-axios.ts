@@ -157,6 +157,11 @@ export async function generateContent(params: {
       }
     )
 
+    // 🔍 详细的响应日志（用于诊断）
+    console.log('📋 Gemini API完整响应结构:')
+    console.log('   - HTTP状态:', response.status)
+    console.log('   - 响应体:', JSON.stringify(response.data, null, 2))
+
     // 提取响应文本
     if (
       !response.data.candidates ||
@@ -164,7 +169,9 @@ export async function generateContent(params: {
       !response.data.candidates[0].content.parts ||
       response.data.candidates[0].content.parts.length === 0
     ) {
-      console.error('Gemini API响应结构:', JSON.stringify(response.data, null, 2))
+      console.error('❌ Gemini API响应结构异常:')
+      console.error('   - candidates:', response.data.candidates)
+      console.error('   - 完整响应:', JSON.stringify(response.data, null, 2))
       throw new Error('Gemini API 返回了空响应')
     }
 

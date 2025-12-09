@@ -990,25 +990,46 @@ Rules:
 `.trim()
 
     // 智能模型选择：广告强度评估使用Flash模型（简单评分任务）
-    const result = await generateContent({
-      operationType: 'ad_strength_evaluation',
-      prompt,
-      temperature: 0.3, // 低温度确保一致性
-      maxOutputTokens: 500,
-      responseSchema: {
-        type: 'OBJECT',
-        properties: {
-          priceAdvantage: { type: 'NUMBER', description: 'Score 0-3' },
-          uniqueMarketPosition: { type: 'NUMBER', description: 'Score 0-3' },
-          competitiveComparison: { type: 'NUMBER', description: 'Score 0-2' },
-          valueEmphasis: { type: 'NUMBER', description: 'Score 0-2' },
-          confidence: { type: 'NUMBER', description: 'Confidence 0.0-1.0' }
+    // 🔧 修复：添加try-catch和降级策略
+    let result
+    try {
+      result = await generateContent({
+        operationType: 'ad_strength_evaluation',
+        prompt,
+        temperature: 0.3, // 低温度确保一致性
+        maxOutputTokens: 500,
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            priceAdvantage: { type: 'NUMBER', description: 'Score 0-3' },
+            uniqueMarketPosition: { type: 'NUMBER', description: 'Score 0-3' },
+            competitiveComparison: { type: 'NUMBER', description: 'Score 0-2' },
+            valueEmphasis: { type: 'NUMBER', description: 'Score 0-2' },
+            confidence: { type: 'NUMBER', description: 'Confidence 0.0-1.0' }
+          },
+          required: ['priceAdvantage', 'uniqueMarketPosition', 'competitiveComparison', 'valueEmphasis', 'confidence']
         },
-        required: ['priceAdvantage', 'uniqueMarketPosition', 'competitiveComparison', 'valueEmphasis', 'confidence']
-      },
-      responseMimeType: 'application/json',
-      enableAutoModelSelection: false // 明确使用Flash模型
-    }, userId)
+        responseMimeType: 'application/json',
+        enableAutoModelSelection: false // 明确使用Flash模型
+      }, userId)
+    } catch (schemaError: any) {
+      // 如果schema模式失败，降级到纯文本模式
+      console.warn(`   ⚠️ JSON schema模式失败: ${schemaError.message}`)
+      console.log(`   🔄 降级到纯文本模式重试...`)
+
+      // 修改prompt，要求返回JSON格式但不使用schema约束
+      const fallbackPrompt = prompt + '\n\nIMPORTANT: Return ONLY valid JSON, no markdown, no extra text.'
+
+      result = await generateContent({
+        operationType: 'ad_strength_evaluation',
+        prompt: fallbackPrompt,
+        temperature: 0.3,
+        maxOutputTokens: 500,
+        enableAutoModelSelection: false
+      }, userId)
+
+      console.log(`   ✓ 降级模式成功获取响应`)
+    }
 
     // 记录token使用
     if (result.usage) {
@@ -1029,7 +1050,37 @@ Rules:
       })
     }
 
-    const aiScores = JSON.parse(result.text)
+    // 🔧 健壮的JSON解析
+    let aiScores: {
+      priceAdvantage: number
+      uniqueMarketPosition: number
+      competitiveComparison: number
+      valueEmphasis: number
+      confidence: number
+    }
+    try {
+      // 清理可能的markdown代码块
+      let jsonText = result.text.trim()
+      if (jsonText.startsWith('```json')) {
+        jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '')
+      } else if (jsonText.startsWith('```')) {
+        jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '')
+      }
+
+      aiScores = JSON.parse(jsonText)
+
+      // 验证必需字段
+      const requiredFields = ['priceAdvantage', 'uniqueMarketPosition', 'competitiveComparison', 'valueEmphasis', 'confidence']
+      const missingFields = requiredFields.filter(field => !(field in aiScores))
+
+      if (missingFields.length > 0) {
+        throw new Error(`AI响应缺少必需字段: ${missingFields.join(', ')}`)
+      }
+    } catch (parseError: any) {
+      console.error(`   ❌ JSON解析失败: ${parseError.message}`)
+      console.error(`   原始响应: ${result.text}`)
+      throw new Error(`AI响应格式错误: ${parseError.message}`)
+    }
 
     console.log(`   🤖 AI分析结果 (置信度: ${(aiScores.confidence * 100).toFixed(0)}%):`)
     console.log(`      价格优势: ${fastDetectionScores.priceAdvantage} → ${aiScores.priceAdvantage}`)
