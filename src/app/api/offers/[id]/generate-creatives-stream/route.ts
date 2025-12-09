@@ -54,32 +54,45 @@ export async function POST(
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     async start(controller) {
+      // 🔥 安全的enqueue封装 - 处理竞态条件
+      const safeEnqueue = (data: string): boolean => {
+        try {
+          if (!isControllerOpen(controller)) {
+            return false
+          }
+          controller.enqueue(encoder.encode(data))
+          return true
+        } catch (error: any) {
+          // 捕获 "Controller is already closed" 错误
+          if (error?.code === 'ERR_INVALID_STATE' || error?.message?.includes('closed')) {
+            console.warn('SSE Controller closed during enqueue (client disconnected)')
+          } else {
+            console.error('SSE enqueue error:', error)
+          }
+          return false
+        }
+      }
+
       // 发送进度更新的helper函数
       const sendProgress = (step: string, progress: number, message: string, details?: any) => {
-        if (!isControllerOpen(controller)) {
-          console.warn('SSE Controller already closed, skipping progress:', step)
-          return
-        }
         const data = JSON.stringify({ type: 'progress', step, progress, message, details })
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+        if (!safeEnqueue(`data: ${data}\n\n`)) {
+          console.warn('SSE Controller already closed, skipping progress:', step)
+        }
       }
 
       // 发送完成结果
       const sendResult = (data: any) => {
-        if (!isControllerOpen(controller)) {
+        if (!safeEnqueue(`data: ${JSON.stringify({ type: 'result', ...data })}\n\n`)) {
           console.warn('SSE Controller already closed, skipping result')
-          return
         }
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'result', ...data })}\n\n`))
       }
 
       // 发送错误
       const sendError = (error: string, details?: any) => {
-        if (!isControllerOpen(controller)) {
+        if (!safeEnqueue(`data: ${JSON.stringify({ type: 'error', error, details })}\n\n`)) {
           console.warn('SSE Controller already closed, skipping error')
-          return
         }
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error, details })}\n\n`))
       }
 
       // 耗时统计
