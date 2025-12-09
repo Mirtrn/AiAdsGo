@@ -2124,9 +2124,9 @@ export async function generateAdCreative(
               userId,
               brandName,
               // 传递Google Ads API凭证
-              clientId: credentials.client_id,
-              clientSecret: credentials.client_secret,
-              developerToken: credentials.developer_token
+              clientId: credentials.client_id || undefined,
+              clientSecret: credentials.client_secret || undefined,
+              developerToken: credentials.developer_token || undefined
             })
 
             console.log(`   ✅ 获取 ${roundKeywords.length} 个扩展关键词（精确搜索量）`)

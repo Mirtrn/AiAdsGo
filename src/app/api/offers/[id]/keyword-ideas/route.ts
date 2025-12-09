@@ -117,9 +117,9 @@ export async function POST(
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
         // 传递Google Ads API凭证
-        clientId: credentials?.client_id,
-        clientSecret: credentials?.client_secret,
-        developerToken: credentials?.developer_token,
+        clientId: credentials?.client_id || undefined,
+        clientSecret: credentials?.client_secret || undefined,
+        developerToken: credentials?.developer_token || undefined,
       }),
     ])
 
@@ -142,9 +142,9 @@ export async function POST(
           accountId: googleAdsAccount.id,
           userId: parseInt(userId, 10),
           // 传递Google Ads API凭证
-          clientId: credentials?.client_id,
-          clientSecret: credentials?.client_secret,
-          developerToken: credentials?.developer_token,
+          clientId: credentials?.client_id || undefined,
+          clientSecret: credentials?.client_secret || undefined,
+          developerToken: credentials?.developer_token || undefined,
         })
 
         // 转换为KeywordIdea格式
