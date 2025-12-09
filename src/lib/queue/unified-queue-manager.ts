@@ -693,6 +693,13 @@ export class UnifiedQueueManager {
     this.config = { ...this.config, ...config }
     console.log('🔄 队列配置已更新')
   }
+
+  /**
+   * 获取当前队列配置（只读）
+   */
+  getConfig(): Readonly<QueueConfig> {
+    return { ...this.config }
+  }
 }
 
 // 导出单例实例

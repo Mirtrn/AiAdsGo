@@ -36,28 +36,22 @@ export async function GET(request: NextRequest) {
 
     // 获取统一队列管理器的当前配置
     const queueManager = getQueueManager()
+    const currentConfig = queueManager.getConfig()
 
-    // 返回简化配置（排除内部字段）
+    // 返回实际配置（排除敏感内部字段）
     return NextResponse.json({
       success: true,
       config: {
-        globalConcurrency: 5, // 从queueManager.config获取
-        perUserConcurrency: 2,
-        perTypeConcurrency: {
-          scrape: 3,
-          'ai-analysis': 2,
-          sync: 1,
-          backup: 1,
-          email: 3,
-          export: 2
-        },
-        maxQueueSize: 1000,
-        taskTimeout: 60000,
-        defaultMaxRetries: 3,
-        retryDelay: 5000,
-        // 新增字段
-        storageType: process.env.REDIS_URL ? 'redis' : 'memory',
-        redisConnected: process.env.REDIS_URL ? true : false // 简化判断
+        globalConcurrency: currentConfig.globalConcurrency,
+        perUserConcurrency: currentConfig.perUserConcurrency,
+        perTypeConcurrency: currentConfig.perTypeConcurrency,
+        maxQueueSize: currentConfig.maxQueueSize,
+        taskTimeout: currentConfig.taskTimeout,
+        defaultMaxRetries: currentConfig.defaultMaxRetries,
+        retryDelay: currentConfig.retryDelay,
+        // 状态信息
+        storageType: currentConfig.redisUrl ? 'redis' : 'memory',
+        redisConnected: !!currentConfig.redisUrl
       }
     })
   } catch (error: any) {
