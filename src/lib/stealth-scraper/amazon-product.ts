@@ -24,7 +24,8 @@ export async function scrapeAmazonProduct(
   url: string,
   customProxyUrl?: string,
   targetCountry?: string,  // 🌍 目标国家参数
-  maxProxyRetries: number = 2  // 代理失败最多重试2次
+  maxProxyRetries: number = 2,  // 代理失败最多重试2次
+  skipCompetitorExtraction: boolean = false  // 🔥 修复：跳过竞品ASIN提取（用于竞品详情页抓取，避免二级循环）
 ): Promise<AmazonProductData> {
   console.log(`🛒 抓取Amazon产品: ${url}${targetCountry ? ` (国家: ${targetCountry})` : ''}`)
 
@@ -102,7 +103,7 @@ export async function scrapeAmazonProduct(
       const $ = load(result.html)
 
       // Parse and return product data
-      return parseAmazonProductHtml($, url)
+      return parseAmazonProductHtml($, url, skipCompetitorExtraction)
 
     } catch (error: any) {
       lastError = error
@@ -133,8 +134,9 @@ export async function scrapeAmazonProduct(
 
 /**
  * Parse Amazon product HTML and extract data
+ * @param skipCompetitorExtraction 跳过竞品ASIN提取（用于竞品详情页抓取，避免二级循环）
  */
-function parseAmazonProductHtml($: any, url: string): AmazonProductData {
+function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: boolean = false): AmazonProductData {
   // 🎯 核心优化：限定选择器范围到核心产品区域，避免抓取推荐商品
   // 推荐商品区域关键词
   const recommendationKeywords = [
@@ -331,7 +333,13 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
   // 🔥 新增：提取竞品ASIN（从"Frequently bought together"、"Customers also viewed"等区域）
   // ⚠️ 修复：排除同品牌产品，只保留真正的竞品
   // 🔥 优化（2025-12-09）：同时提取价格和品牌，支持基于价格区间的智能选择
+  // 🔥 修复（2025-12-09）：支持skipCompetitorExtraction参数，避免竞品详情页抓取时的二级循环
   const relatedAsins: Array<{ asin: string, price: number | null, brand: string | null }> = []
+
+  // 🛡️ 如果是竞品详情页抓取，跳过竞品ASIN提取（避免"竞品的竞品"循环）
+  if (skipCompetitorExtraction) {
+    console.log(`⏭️ 跳过竞品ASIN提取（skipCompetitorExtraction=true）`)
+  } else {
   const relatedAsinSelectors = [
     // Frequently bought together
     '#sims-fbt .a-carousel-card a[href*="/dp/"]',
@@ -427,6 +435,7 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
   }
 
   console.log(`🔥 竞品ASIN提取: 找到 ${relatedAsins.length} 个竞品 (目标品牌: ${targetBrandNormalized || '未知'})`)
+  } // 🔥 结束 skipCompetitorExtraction else 块
 
   // Extract prices
   const currentPrice = $('.a-price .a-offscreen').first().text().trim() ||

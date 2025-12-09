@@ -446,11 +446,13 @@ async function batchScrapeCompetitorDetails(
 
         // 🔥 复用现有的 scrapeAmazonProduct 函数
         // 优势：自动包含代理重试、反爬虫、品牌过滤等逻辑
+        // 🔥 修复（2025-12-09）：传入skipCompetitorExtraction=true，避免"竞品的竞品"二级循环抓取
         const productData = await scrapeAmazonProduct(
           url,
           customProxyUrl,
           targetCountry,
-          1  // 竞品抓取只重试1次（避免过长等待）
+          1,  // 竞品抓取只重试1次（避免过长等待）
+          true  // 🛡️ 跳过竞品ASIN提取，避免二级循环
         )
 
         // 转换为 CompetitorProduct 格式
