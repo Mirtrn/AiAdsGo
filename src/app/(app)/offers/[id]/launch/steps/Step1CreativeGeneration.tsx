@@ -320,22 +320,28 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       setGenerationStartTime(Date.now())
       setGenerationProgress({ step: 'init', progress: 0, message: '正在初始化...' })
 
-      // 使用流式API
-      const response = await fetch(`/api/offers/${offer.id}/generate-creatives-stream`, {
+      // 🔥 Step 1: 入队获取taskId
+      const enqueueResponse = await fetch(`/api/offers/${offer.id}/generate-creatives-queue`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          maxRetries: 3,
-          targetRating: 'EXCELLENT'
-        })
+        body: JSON.stringify({ maxRetries: 3, targetRating: 'EXCELLENT' })
+      })
+
+      if (!enqueueResponse.ok) {
+        const errorData = await enqueueResponse.json()
+        throw new Error(errorData.error || '任务入队失败')
+      }
+
+      const { taskId } = await enqueueResponse.json()
+
+      // 🔥 Step 2: 订阅SSE流
+      const response = await fetch(`/api/creative-tasks/${taskId}/stream`, {
+        credentials: 'include'
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || '生成失败')
+        throw new Error('无法订阅任务进度')
       }
 
       // 读取SSE流

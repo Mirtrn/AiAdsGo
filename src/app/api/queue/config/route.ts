@@ -26,7 +26,8 @@ const DEFAULT_QUEUE_CONFIG = {
     'link-check': 2,
     cleanup: 1,
     'offer-extraction': 2,
-    'batch-offer-creation': 1
+    'batch-offer-creation': 1,
+    'ad-creative': 1  // 创意生成任务（AI密集型，串行避免API限流）
   },
   maxQueueSize: 1000,
   taskTimeout: 600000,
