@@ -330,268 +330,71 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   // 🎯 优化品牌名提取 - 多源策略应对反爬虫（提前提取用于竞品过滤）
   let brandName: string | null = extractBrandName($, url, null, technicalDetails)
 
-  // 🔥 新增：提取竞品ASIN（从"Frequently bought together"、"Customers also viewed"等区域）
-  // ⚠️ 修复：排除同品牌产品，只保留真正的竞品
-  // 🔥 优化（2025-12-09）：同时提取价格和品牌，支持基于价格区间的智能选择
-  // 🔥 修复（2025-12-09）：支持skipCompetitorExtraction参数，避免竞品详情页抓取时的二级循环
-  const relatedAsins: Array<{ asin: string, price: number | null, brand: string | null }> = []
+  // 🔥 KISS优化（2025-12-09）：只提取候选ASIN，品牌过滤移到详情页抓取后进行
+  // 原因：列表页的品牌提取不可靠（颜色/尺寸词被误识别为品牌）
+  const relatedAsins: string[] = []
 
   // 🛡️ 如果是竞品详情页抓取，跳过竞品ASIN提取（避免"竞品的竞品"循环）
   if (skipCompetitorExtraction) {
     console.log(`⏭️ 跳过竞品ASIN提取（skipCompetitorExtraction=true）`)
   } else {
-  const relatedAsinSelectors = [
-    // 🔥 2024-2025 Amazon新版页面结构
-    // Frequently bought together (新版)
-    '[data-csa-c-type="widget"][data-csa-c-slot-id="sims-fbt"] a[href*="/dp/"]',
-    '#sims-fbt-content a[href*="/dp/"]',
-    '#sims-fbt .a-carousel-card a[href*="/dp/"]',
-    '#sims-fbt a[href*="/dp/"]',
-    // Customers who bought this also bought (新版)
-    '[data-csa-c-slot-id="sims_purchase"] a[href*="/dp/"]',
-    '[data-csa-c-slot-id="sims_viewed"] a[href*="/dp/"]',
-    '[data-csa-c-slot-id="sims_considered"] a[href*="/dp/"]',
-    // 4 stars and above (新版推荐区)
-    '[data-csa-c-slot-id="sims_themis"] a[href*="/dp/"]',
-    // Compare with similar items (新版)
-    '#similarities_feature_div a[href*="/dp/"]',
-    '[data-feature-name="similarities"] a[href*="/dp/"]',
-    // Products related to this item (新版)
-    '[data-csa-c-slot-id="sims-consolidated"] a[href*="/dp/"]',
-    '#sims-consolidated-1 a[href*="/dp/"]',
-    '#sims-consolidated-2 a[href*="/dp/"]',
-    // Sponsored products related (新版)
-    '[data-csa-c-slot-id="sp_detail"] a[href*="/dp/"]',
-    '[data-csa-c-slot-id="sp_detail2"] a[href*="/dp/"]',
-    '#sp_detail a[href*="/dp/"]',
-    '#sp_detail2 a[href*="/dp/"]',
-    // Customers who viewed this also viewed (旧版)
-    '#anonCarousel1 a[href*="/dp/"]',
-    '#anonCarousel2 a[href*="/dp/"]',
-    '#anonCarousel3 a[href*="/dp/"]',
-    // Similar items / Compare with similar (旧版)
-    '#HLCXComparisonWidget a[href*="/dp/"]',
-    '#comparison_table a[href*="/dp/"]',
-    // 通用选择器 - 最后尝试
-    '[data-component-type="s-product-image"] a[href*="/dp/"]',
-    '.a-carousel-card a[href*="/dp/"]',
-    '[data-a-carousel-options] a[href*="/dp/"]',
-    // 🔥 新增：直接从data-asin属性提取
-    '[data-asin]:not([data-asin=""]) a[href*="/dp/"]',
-  ]
-
-  const targetBrandNormalized = brandName ? normalizeBrandName(brandName) : null
-
-  // 🔍 调试：记录每个选择器找到的元素数量
-  console.log(`🔍 开始竞品ASIN提取，目标品牌: ${targetBrandNormalized || '未知'}`)
-
-  for (const selector of relatedAsinSelectors) {
-    const elementsFound = $(selector).length
-    if (elementsFound > 0) {
-      console.log(`🔍 选择器 "${selector}" 找到 ${elementsFound} 个元素`)
-    }
-    $(selector).each((i: number, el: any) => {
-      const href = $(el).attr('href') || ''
-      const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
-      if (asinMatch && asinMatch[1] && asinMatch[1] !== asin && !relatedAsins.some(r => r.asin === asinMatch[1])) {
-        // 🔍 尝试从推荐卡片中提取品牌信息（常见于产品标题或单独的品牌元素）
-        const $card = $(el).closest('.a-carousel-card, [data-asin], li, .s-result-item')
-        let cardBrand: string | null = null
-
-        // 策略1: 从产品卡片中的品牌元素提取
-        const brandInCard = $card.find('[data-brand], .a-size-base.a-color-secondary, .s-line-clamp-1').text().trim()
-        if (brandInCard && brandInCard.length > 1 && brandInCard.length < 50) {
-          cardBrand = normalizeBrandName(cleanBrandText(brandInCard))
-        }
-
-        // 策略2: 从产品标题中提取（通常品牌名在标题开头）
-        if (!cardBrand) {
-          const cardTitle = $card.find('img').attr('alt') || $card.find('.a-link-normal').text().trim()
-          if (cardTitle) {
-            // 简单的品牌提取：取标题第一个词（如果是已知品牌格式）
-            const titleWords = cardTitle.split(/\s+/)
-            if (titleWords.length > 0 && titleWords[0].length > 2 && titleWords[0].length < 30) {
-              cardBrand = normalizeBrandName(titleWords[0])
-            }
-          }
-        }
-
-        // 🛡️ 品牌过滤：排除同品牌产品
-        if (targetBrandNormalized && cardBrand) {
-          if (cardBrand === targetBrandNormalized) {
-            console.log(`⚠️ 排除同品牌产品: ASIN ${asinMatch[1]}, 品牌 ${cardBrand}`)
-            return // 跳过同品牌产品
-          }
-        }
-
-        // 🔥 新增（2025-12-09）：从推荐卡片中提取价格
-        // 🔧 修复（2025-12-09）：使用parsePrice统一处理欧洲/美国价格格式
-        let cardPrice: number | null = null
-        const priceSelectors = [
-          '.a-price .a-offscreen',
-          '.a-price-whole',
-          '.a-color-price',
-          '[data-a-color="price"] .a-offscreen',
-          '.p13n-sc-price',
-        ]
-        for (const priceSelector of priceSelectors) {
-          const priceText = $card.find(priceSelector).first().text().trim()
-          if (priceText) {
-            // 🔧 使用统一的parsePrice函数，正确处理欧洲格式（€299,00 → 299.00）
-            const parsed = parsePrice(priceText)
-            if (parsed !== null && parsed > 0) {
-              cardPrice = parsed
-              break
-            }
-          }
-        }
-
-        // ✅ 通过过滤，添加到竞品列表（包含价格和品牌信息）
-        relatedAsins.push({
-          asin: asinMatch[1],
-          price: cardPrice,
-          brand: cardBrand
-        })
-        console.log(`✅ 添加竞品: ASIN ${asinMatch[1]}, 品牌 ${cardBrand || '未知'}, 价格 ${cardPrice || '未知'}`)
-      }
-    })
-    if (relatedAsins.length >= 10) break // 最多提取10个竞品ASIN
-  }
-
-  // 🔥 Fallback策略：如果上述选择器都没找到，直接从data-asin属性提取
-  if (relatedAsins.length === 0) {
-    console.log(`⚠️ 链接选择器未找到竞品，尝试data-asin属性提取...`)
-
-    // 推荐区域的容器选择器
-    const recommendationContainers = [
-      '#sims-fbt',
-      '#sims-fbt-content',
-      '[data-csa-c-slot-id*="sims"]',
-      '#similarities_feature_div',
-      '#sp_detail',
-      '#sp_detail2',
-      '.a-carousel-container',
-      '[data-a-carousel-options]',
-      '#anonCarousel1',
-      '#anonCarousel2',
-      '#anonCarousel3',
-      '#HLCXComparisonWidget',
-      '#comparison_table',
+    // Amazon推荐区域选择器（2024-2025版本）
+    const relatedAsinSelectors = [
+      // Frequently bought together
+      '#sims-fbt a[href*="/dp/"]',
+      '#sims-fbt-content a[href*="/dp/"]',
+      '[data-csa-c-slot-id="sims-fbt"] a[href*="/dp/"]',
+      // Customers also viewed/bought
+      '[data-csa-c-slot-id="sims_purchase"] a[href*="/dp/"]',
+      '[data-csa-c-slot-id="sims_viewed"] a[href*="/dp/"]',
+      '[data-csa-c-slot-id="sims_considered"] a[href*="/dp/"]',
+      // Compare with similar items
+      '#similarities_feature_div a[href*="/dp/"]',
+      '[data-feature-name="similarities"] a[href*="/dp/"]',
+      // Sponsored products
+      '#sp_detail a[href*="/dp/"]',
+      '#sp_detail2 a[href*="/dp/"]',
+      // Carousel containers
+      '.a-carousel-card a[href*="/dp/"]',
+      '[data-a-carousel-options] a[href*="/dp/"]',
     ]
 
-    for (const containerSelector of recommendationContainers) {
-      const $container = $(containerSelector)
-      if ($container.length === 0) continue
+    console.log(`🔍 开始竞品候选ASIN提取...`)
 
-      console.log(`🔍 检查容器 "${containerSelector}"...`)
-
-      // 从容器内的data-asin属性提取
-      $container.find('[data-asin]').each((i: number, el: any) => {
-        const dataAsin = $(el).attr('data-asin')
-        if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin) && dataAsin !== asin) {
-          if (!relatedAsins.some(r => r.asin === dataAsin)) {
-            // 尝试提取品牌和价格
-            const $card = $(el)
-            let cardBrand: string | null = null
-            let cardPrice: number | null = null
-
-            // 品牌提取
-            const imgAlt = $card.find('img').attr('alt') || ''
-            if (imgAlt) {
-              const titleWords = imgAlt.split(/\s+/)
-              if (titleWords.length > 0 && titleWords[0].length > 2 && titleWords[0].length < 30) {
-                cardBrand = normalizeBrandName(titleWords[0])
-              }
-            }
-
-            // 品牌过滤
-            if (targetBrandNormalized && cardBrand && cardBrand === targetBrandNormalized) {
-              console.log(`⚠️ 排除同品牌产品: ASIN ${dataAsin}, 品牌 ${cardBrand}`)
-              return
-            }
-
-            // 价格提取
-            const priceText = $card.find('.a-price .a-offscreen, .a-color-price, .p13n-sc-price').first().text().trim()
-            if (priceText) {
-              const parsed = parsePrice(priceText)
-              if (parsed !== null && parsed > 0) {
-                cardPrice = parsed
-              }
-            }
-
-            relatedAsins.push({ asin: dataAsin, price: cardPrice, brand: cardBrand })
-            console.log(`✅ [data-asin] 添加竞品: ASIN ${dataAsin}, 品牌 ${cardBrand || '未知'}, 价格 ${cardPrice || '未知'}`)
-          }
+    // 策略1：从链接提取ASIN
+    for (const selector of relatedAsinSelectors) {
+      $(selector).each((_i: number, el: any) => {
+        if (relatedAsins.length >= 10) return false
+        const href = $(el).attr('href') || ''
+        const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
+        if (asinMatch && asinMatch[1] !== asin && !relatedAsins.includes(asinMatch[1])) {
+          relatedAsins.push(asinMatch[1])
         }
       })
-
       if (relatedAsins.length >= 10) break
     }
+
+    // 策略2：从data-asin属性提取（Fallback）
+    if (relatedAsins.length < 5) {
+      const recommendationContainers = [
+        '#sims-fbt', '#sims-fbt-content', '[data-csa-c-slot-id*="sims"]',
+        '#similarities_feature_div', '.a-carousel-container'
+      ]
+      for (const containerSelector of recommendationContainers) {
+        $(containerSelector).find('[data-asin]').each((_i: number, el: any) => {
+          if (relatedAsins.length >= 10) return false
+          const dataAsin = $(el).attr('data-asin')
+          if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin) &&
+              dataAsin !== asin && !relatedAsins.includes(dataAsin)) {
+            relatedAsins.push(dataAsin)
+          }
+        })
+        if (relatedAsins.length >= 10) break
+      }
+    }
+
+    console.log(`🔥 竞品候选ASIN提取完成: 找到 ${relatedAsins.length} 个候选（品牌过滤将在详情页抓取后进行）`)
   }
-
-  // 🔥 最终Fallback：如果仍然没找到，扫描整个页面的data-asin（排除主产品区域）
-  if (relatedAsins.length === 0) {
-    console.log(`⚠️ 容器选择器也未找到竞品，尝试全页面data-asin扫描...`)
-
-    // 排除主产品区域的选择器
-    const excludeSelectors = ['#ppd', '#centerCol', '#dp-container', '#productTitle']
-
-    $('[data-asin]').each((i: number, el: any) => {
-      if (relatedAsins.length >= 10) return false
-
-      const $el = $(el)
-      const dataAsin = $el.attr('data-asin')
-
-      // 验证ASIN格式
-      if (!dataAsin || dataAsin.length !== 10 || !/^[A-Z0-9]+$/.test(dataAsin) || dataAsin === asin) {
-        return
-      }
-
-      // 排除主产品区域
-      let isInMainProduct = false
-      for (const excludeSelector of excludeSelectors) {
-        if ($el.closest(excludeSelector).length > 0 && $el.closest('.a-carousel-container, [data-a-carousel-options]').length === 0) {
-          isInMainProduct = true
-          break
-        }
-      }
-      if (isInMainProduct) return
-
-      // 检查是否已添加
-      if (relatedAsins.some(r => r.asin === dataAsin)) return
-
-      // 提取品牌
-      let cardBrand: string | null = null
-      const imgAlt = $el.find('img').attr('alt') || $el.attr('title') || ''
-      if (imgAlt) {
-        const titleWords = imgAlt.split(/\s+/)
-        if (titleWords.length > 0 && titleWords[0].length > 2 && titleWords[0].length < 30) {
-          cardBrand = normalizeBrandName(titleWords[0])
-        }
-      }
-
-      // 品牌过滤
-      if (targetBrandNormalized && cardBrand && cardBrand === targetBrandNormalized) {
-        return
-      }
-
-      // 提取价格
-      let cardPrice: number | null = null
-      const priceText = $el.find('.a-price .a-offscreen, .a-color-price').first().text().trim()
-      if (priceText) {
-        const parsed = parsePrice(priceText)
-        if (parsed !== null && parsed > 0) {
-          cardPrice = parsed
-        }
-      }
-
-      relatedAsins.push({ asin: dataAsin, price: cardPrice, brand: cardBrand })
-      console.log(`✅ [全页面扫描] 添加竞品: ASIN ${dataAsin}, 品牌 ${cardBrand || '未知'}, 价格 ${cardPrice || '未知'}`)
-    })
-  }
-
-  console.log(`🔥 竞品ASIN提取: 找到 ${relatedAsins.length} 个竞品 (目标品牌: ${targetBrandNormalized || '未知'})`)
-  } // 🔥 结束 skipCompetitorExtraction else 块
 
   // Extract prices
   const currentPrice = $('.a-price .a-offscreen').first().text().trim() ||

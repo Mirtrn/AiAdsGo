@@ -46,13 +46,9 @@ export interface AmazonProductData {
   technicalDetails: Record<string, string>
   asin: string | null
   category: string | null
-  // 🔥 新增：竞品ASIN列表（从"Frequently bought together"、"Customers also viewed"等提取）
-  // 🔥 优化（2025-12-09）：包含价格和品牌信息，支持基于价格区间的智能选择
-  relatedAsins: Array<{
-    asin: string
-    price: number | null  // 从推荐卡片提取的价格
-    brand: string | null  // 从推荐卡片提取的品牌
-  }>
+  // 🔥 竞品候选ASIN列表（从"Frequently bought together"、"Customers also viewed"等提取）
+  // 🔥 KISS优化（2025-12-09）：只存储ASIN，品牌/价格通过详情页抓取获取（更准确）
+  relatedAsins: string[]
 }
 
 /**

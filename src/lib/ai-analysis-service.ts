@@ -77,12 +77,8 @@ export interface AIAnalysisInput {
     primeEligible?: boolean
     asin?: string | null
     category?: string | null
-    // 🔥 新增：竞品ASIN列表（已过滤同品牌产品，包含价格和品牌信息）
-    relatedAsins?: Array<{
-      asin: string
-      price: number | null
-      brand: string | null
-    }>
+    // 🔥 KISS优化：竞品候选ASIN列表（品牌过滤在详情页抓取后进行）
+    relatedAsins?: string[]
     // Legacy nested data (kept for backwards compatibility)
     storeData?: {
       storeName?: string
@@ -303,113 +299,41 @@ function getCacheStats(): { size: number, hitRate: string } {
 }
 
 /**
- * 基于价格区间的智能ASIN选择
- * 策略：从低/中/高价位各选1个，保证价格多样性
- *
- * @param asins - 竞品ASIN列表（包含价格信息）
- * @param limit - 最多选择数量
- * @returns 选中的ASIN列表
+ * 🔥 KISS优化（2025-12-09）：简单选择前N个ASIN
+ * 品牌过滤将在详情页抓取后进行（更准确）
  */
-function selectAsinsByPriceRange(
-  asins: Array<{ asin: string, price: number | null, brand: string | null }>,
-  limit: number = 3
-): string[] {
-  if (asins.length === 0) return []
-  if (asins.length <= limit) return asins.map(a => a.asin)
-
-  // 分离有价格和无价格的ASIN
-  const withPrice = asins.filter(a => a.price !== null && a.price > 0)
-  const withoutPrice = asins.filter(a => a.price === null || a.price <= 0)
-
-  console.log(`📊 价格分析: ${withPrice.length}个有价格, ${withoutPrice.length}个无价格`)
-
-  // 如果有价格的ASIN不足，使用均匀间隔选择
-  if (withPrice.length < 2) {
-    console.log(`⚠️ 价格信息不足，使用均匀间隔选择`)
-    const step = Math.floor(asins.length / limit)
-    return asins
-      .filter((_, i) => i % step === 0)
-      .slice(0, limit)
-      .map(a => a.asin)
-  }
-
-  // 按价格排序
-  const sorted = [...withPrice].sort((a, b) => (a.price || 0) - (b.price || 0))
-  const minPrice = sorted[0].price || 0
-  const maxPrice = sorted[sorted.length - 1].price || 0
-
-  console.log(`💰 价格范围: ${minPrice} - ${maxPrice}`)
-
-  // 计算价格区间
-  const priceRange = maxPrice - minPrice
-  const lowThreshold = minPrice + priceRange * 0.33
-  const highThreshold = minPrice + priceRange * 0.67
-
-  // 分组
-  const lowPrice = sorted.filter(a => (a.price || 0) <= lowThreshold)
-  const midPrice = sorted.filter(a => (a.price || 0) > lowThreshold && (a.price || 0) <= highThreshold)
-  const highPrice = sorted.filter(a => (a.price || 0) > highThreshold)
-
-  console.log(`📈 价格分组: 低价${lowPrice.length}个, 中价${midPrice.length}个, 高价${highPrice.length}个`)
-
-  // 从每个价格区间选择
-  const selected: string[] = []
-
-  // 低价位：选择最低价
-  if (lowPrice.length > 0) {
-    selected.push(lowPrice[0].asin)
-    console.log(`  ✅ 低价位: ${lowPrice[0].asin} (${lowPrice[0].price})`)
-  }
-
-  // 中价位：选择中间价格
-  if (midPrice.length > 0 && selected.length < limit) {
-    const midIndex = Math.floor(midPrice.length / 2)
-    selected.push(midPrice[midIndex].asin)
-    console.log(`  ✅ 中价位: ${midPrice[midIndex].asin} (${midPrice[midIndex].price})`)
-  }
-
-  // 高价位：选择最高价
-  if (highPrice.length > 0 && selected.length < limit) {
-    selected.push(highPrice[highPrice.length - 1].asin)
-    console.log(`  ✅ 高价位: ${highPrice[highPrice.length - 1].asin} (${highPrice[highPrice.length - 1].price})`)
-  }
-
-  // 如果不足limit个，从其他区间补充
-  const allCandidates = [...sorted, ...withoutPrice]
-  for (const candidate of allCandidates) {
-    if (selected.length >= limit) break
-    if (!selected.includes(candidate.asin)) {
-      selected.push(candidate.asin)
-      console.log(`  ➕ 补充: ${candidate.asin} (${candidate.price || '无价格'})`)
-    }
-  }
-
-  return selected.slice(0, limit)
+function selectAsins(asins: string[], limit: number = 3): string[] {
+  return asins.slice(0, limit)
 }
 
 /**
  * 批量抓取竞品详情
- * 复用现有的 scrapeAmazonProduct 函数，自动继承代理重试、反爬虫、品牌过滤等功能
- * 🔥 优化（2025-12-09）：支持缓存和基于价格区间的智能选择
+ * 🔥 KISS优化（2025-12-09）：
+ * - 输入简化为纯ASIN数组
+ * - 品牌过滤在详情页抓取后进行（更准确）
+ * - 复用 scrapeAmazonProduct 获取完整产品信息（价格、品牌、评分等）
  *
- * @param relatedAsins - 竞品ASIN列表（包含价格和品牌信息）
+ * @param candidateAsins - 候选竞品ASIN列表
  * @param targetCountry - 目标国家
+ * @param mainBrand - 主产品品牌（用于过滤同品牌产品）
  * @param customProxyUrl - 自定义代理URL（可选）
- * @param limit - 最多抓取数量（默认3个，避免过度抓取）
- * @returns 竞品产品详情列表
+ * @param limit - 最多抓取数量（默认3个）
+ * @returns 竞品产品详情列表（已过滤同品牌）
  */
 async function batchScrapeCompetitorDetails(
-  relatedAsins: Array<{ asin: string, price: number | null, brand: string | null }>,
+  candidateAsins: string[],
   targetCountry: string,
+  mainBrand: string | null,
   customProxyUrl?: string,
   limit: number = 3
 ): Promise<CompetitorProduct[]> {
   console.log(`🔍 批量抓取竞品详情 (最多${limit}个)...`)
   console.log(`📊 缓存状态: ${getCacheStats().hitRate}`)
+  console.log(`🏷️ 主产品品牌: ${mainBrand || '未知'}（将过滤同品牌竞品）`)
 
-  // Step 1: 基于价格区间智能选择ASIN（低/中/高价位各1个）
-  const selectedAsins = selectAsinsByPriceRange(relatedAsins, limit)
-  console.log(`📋 已选择${selectedAsins.length}个多样化ASIN (按价格区间): ${selectedAsins.join(', ')}`)
+  // Step 1: 选择候选ASIN（多选一些以备品牌过滤和失败重试）
+  const selectedAsins = selectAsins(candidateAsins, Math.min(limit + 5, candidateAsins.length))
+  console.log(`📋 已选择${selectedAsins.length}个候选ASIN: ${selectedAsins.join(', ')}`)
 
   // Step 2: 检查缓存，分离已缓存和需抓取的ASIN
   const cachedCompetitors: CompetitorProduct[] = []
@@ -495,9 +419,39 @@ async function batchScrapeCompetitorDetails(
   // Step 6: 合并缓存和新抓取的结果
   const allCompetitors = [...cachedCompetitors, ...scrapedCompetitors]
 
-  console.log(`✅ 批量抓取完成: 缓存${cachedCompetitors.length}个 + 新抓取${scrapedCompetitors.length}/${asinsToScrape.length}个 = 共${allCompetitors.length}个竞品`)
+  // 🔥 KISS优化：在详情页抓取后进行品牌过滤（更准确）
+  const mainBrandNormalized = mainBrand?.toLowerCase().trim() || null
 
-  return allCompetitors
+  // Step 7: 过滤同品牌产品
+  const afterMainBrandFilter = mainBrandNormalized
+    ? allCompetitors.filter(c => {
+        const competitorBrand = c.brand?.toLowerCase().trim() || ''
+        const isSameBrand = competitorBrand === mainBrandNormalized ||
+                           competitorBrand.includes(mainBrandNormalized) ||
+                           mainBrandNormalized.includes(competitorBrand)
+        if (isSameBrand) {
+          console.log(`🛡️ 过滤同品牌竞品: ${c.asin} - ${c.brand}`)
+        }
+        return !isSameBrand
+      })
+    : allCompetitors
+
+  // Step 8: 保证品牌多样性（每个品牌最多1个产品）
+  const seenBrands = new Set<string>()
+  const diverseCompetitors = afterMainBrandFilter.filter(c => {
+    const brand = c.brand?.toLowerCase().trim() || `unknown_${c.asin}`
+    if (seenBrands.has(brand)) {
+      console.log(`🔄 跳过重复品牌: ${c.asin} - ${c.brand}`)
+      return false
+    }
+    seenBrands.add(brand)
+    return true
+  })
+
+  console.log(`✅ 批量抓取完成: 缓存${cachedCompetitors.length}个 + 新抓取${scrapedCompetitors.length}/${asinsToScrape.length}个`)
+  console.log(`🛡️ 品牌过滤: ${allCompetitors.length}个 → ${afterMainBrandFilter.length}个(排除主品牌) → ${diverseCompetitors.length}个(品牌多样化)`)
+
+  return diverseCompetitors.slice(0, limit)
 }
 
 /**
@@ -988,12 +942,14 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               features: extractResult.features || extractResult.aboutThisItem || [],
             }
 
-            // 🔥 新增（2025-12-09）：批量抓取竞品详情（3个），获取完整产品信息
+            // 🔥 KISS优化（2025-12-09）：批量抓取竞品详情，品牌过滤在详情页抓取后进行
+            // 目标：获取5个多样化竞品（不同品牌）
             const competitors = await batchScrapeCompetitorDetails(
               extractResult.relatedAsins!,
               targetCountry,
-              competitorProxyUrl,  // 🔥 修复：使用动态获取的代理URL
-              3           // 最多抓取3个竞品详情（数量控制）
+              extractResult.brand || null,  // 🔥 传入主产品品牌用于过滤
+              competitorProxyUrl,
+              5  // 🔥 目标5个竞品
             )
 
             if (competitors.length > 0) {
@@ -1013,12 +969,13 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               // 降级：使用简化的ASIN列表（无详情）
               console.warn(`⚠️ 竞品详情抓取全部失败，使用简化ASIN分析`)
 
-              const simplifiedCompetitors: CompetitorProduct[] = extractResult.relatedAsins!.slice(0, 5).map(item => ({
-                asin: item.asin,  // 🔥 从对象中提取ASIN字符串
-                name: `Competitor Product ${item.asin}`,
-                brand: item.brand || 'Competitor Brand',  // 使用提取的品牌信息
-                price: item.price,  // 使用提取的价格信息
-                priceText: item.price ? `$${item.price.toFixed(2)}` : null,
+              // 🔥 KISS优化：relatedAsins现在是纯字符串数组
+              const simplifiedCompetitors: CompetitorProduct[] = extractResult.relatedAsins!.slice(0, 5).map(asin => ({
+                asin,
+                name: `Competitor Product ${asin}`,
+                brand: 'Unknown',  // 详情页抓取失败时无品牌信息
+                price: null,
+                priceText: null,
                 rating: null,
                 reviewCount: null,
                 imageUrl: null,
