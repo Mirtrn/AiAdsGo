@@ -60,8 +60,43 @@ const publicPaths = [
   '/sitemap.xml',    // SEO - sitemap.xml
 ]
 
+// 🛡️ 恶意请求拦截：直接返回404，不记录日志，节省资源
+// 这些是自动化漏洞扫描器常见的攻击路径
+const MALICIOUS_PATTERNS = [
+  // PHP文件（本项目是Next.js，不存在PHP）
+  /\.php$/i,
+  /\.php\?/i,
+  // WordPress相关路径
+  /^\/wp-/i,
+  /^\/wordpress/i,
+  // 常见漏洞路径
+  /^\/\.well-known\/acme-challenge\//i,
+  /^\/\.well-known\/pki-validation\//i,
+  /^\/vendor\/phpunit/i,
+  /^\/cgi-bin\//i,
+  /^\/\.git/i,
+  /^\/\.env/i,
+  /^\/\.htaccess/i,
+  /^\/phpmyadmin/i,
+  /^\/mysql/i,
+  /^\/admin\.php/i,
+  /^\/xmlrpc\.php/i,
+  // 常见后门文件名
+  /^\/shell/i,
+  /^\/c99/i,
+  /^\/r57/i,
+  /^\/webshell/i,
+  /^\/backdoor/i,
+]
+
 export async function middleware(request: NextRequest) {
   const { pathname} = request.nextUrl
+
+  // 🛡️ 第一道防线：拦截恶意请求，直接返回404
+  // 不记录日志、不重定向、不渲染页面，最小化资源消耗
+  if (MALICIOUS_PATTERNS.some(pattern => pattern.test(pathname))) {
+    return new NextResponse(null, { status: 404 })
+  }
 
   // 检查是否是公开路径
   const isPublicPath = publicPaths.some(path => {
