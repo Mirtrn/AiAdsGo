@@ -644,6 +644,8 @@ export async function initializeDatabase(): Promise<void> {
     await ensureAdminAccount()
     // 检查未完成的队列任务
     await checkUnfinishedQueueTasks()
+    // 🆕 初始化队列系统（统一开发和生产环境）
+    await initializeQueueSystem()
     return
   }
 
@@ -659,6 +661,25 @@ export async function initializeDatabase(): Promise<void> {
 
   // 初始化完成后也执行迁移（确保所有增量迁移都被应用）
   await runPendingMigrations()
+  // 🆕 初始化队列系统（统一开发和生产环境）
+  await initializeQueueSystem()
+}
+
+/**
+ * 初始化队列系统
+ *
+ * 统一开发和生产环境的队列初始化逻辑
+ * 在数据库初始化完成后调用，确保队列系统在服务启动时就绪
+ */
+async function initializeQueueSystem(): Promise<void> {
+  try {
+    const { initializeQueue } = await import('./queue/init-queue')
+    await initializeQueue()
+  } catch (error) {
+    console.error('❌ 队列系统初始化失败:', error)
+    // 队列初始化失败不应阻止应用启动
+    // 队列会在首次使用时通过 ensureStarted() 自动初始化
+  }
 }
 
 /**
