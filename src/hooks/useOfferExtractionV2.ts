@@ -192,7 +192,9 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
               if (newStage !== lastStageRef.current && newStatus === 'in_progress') {
                 // 保存上一个阶段的完成耗时
                 if (lastStageRef.current) {
-                  const previousElapsed = Date.now() - stageStartTimeRef.current
+                  let previousElapsed = Date.now() - stageStartTimeRef.current
+                  // 🔥 修复：如果阶段切换太快（<1秒），显示为1秒
+                  if (previousElapsed < 1000) previousElapsed = 1000
                   setStageDurations(prev => new Map(prev).set(lastStageRef.current, previousElapsed))
                 }
 
@@ -209,7 +211,9 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
                     const newMap = new Map(prev)
                     // 只有当上一个阶段还没有耗时记录时才保存
                     if (!newMap.has(lastStageRef.current)) {
-                      const previousElapsed = Date.now() - stageStartTimeRef.current
+                      let previousElapsed = Date.now() - stageStartTimeRef.current
+                      // 🔥 修复：如果阶段切换太快（<1秒），显示为1秒
+                      if (previousElapsed < 1000) previousElapsed = 1000
                       newMap.set(lastStageRef.current, previousElapsed)
                     }
                     return newMap
@@ -229,7 +233,11 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
 
               // 如果阶段完成，保存完成耗时到stageDurations
               if (newStatus === 'completed') {
-                const elapsed = Date.now() - stageStartTimeRef.current
+                let elapsed = Date.now() - stageStartTimeRef.current
+                // 🔥 修复：如果阶段切换太快导致计算不准确（<1秒），显示为1秒
+                if (elapsed < 1000) {
+                  elapsed = 1000
+                }
                 setCurrentDuration(elapsed)
                 // 🔥 保存当前阶段的完成耗时
                 setStageDurations(prev => new Map(prev).set(newStage, elapsed))
