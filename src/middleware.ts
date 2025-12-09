@@ -64,29 +64,78 @@ const publicPaths = [
 // 这些是自动化漏洞扫描器常见的攻击路径
 const MALICIOUS_PATTERNS = [
   // PHP文件（本项目是Next.js，不存在PHP）
-  /\.php$/i,
-  /\.php\?/i,
-  // WordPress相关路径
+  /\.php($|\?|\/)/i,
+  // WordPress相关路径（包括目录）
   /^\/wp-/i,
   /^\/wordpress/i,
+  // .well-known 漏洞探测（保留合法的 /.well-known/security.txt 等）
+  /^\/\.well-known\/?$/i,                    // /.well-known 或 /.well-known/
+  /^\/\.well-known\/acme-challenge/i,        // SSL证书验证路径探测
+  /^\/\.well-known\/pki-validation/i,        // PKI验证路径探测
+  /^\/\.well-knownold/i,                     // 旧版本探测
   // 常见漏洞路径
-  /^\/\.well-known\/acme-challenge\//i,
-  /^\/\.well-known\/pki-validation\//i,
-  /^\/vendor\/phpunit/i,
-  /^\/cgi-bin\//i,
+  /^\/vendor\//i,                            // Composer vendor目录
+  /^\/cgi-bin/i,
   /^\/\.git/i,
   /^\/\.env/i,
   /^\/\.htaccess/i,
+  /^\/\.svn/i,
+  /^\/\.hg/i,
+  /^\/\.DS_Store/i,
   /^\/phpmyadmin/i,
+  /^\/pma/i,
   /^\/mysql/i,
-  /^\/admin\.php/i,
-  /^\/xmlrpc\.php/i,
-  // 常见后门文件名
+  /^\/adminer/i,
+  /^\/xmlrpc/i,
+  // 常见后门/Web Shell路径
   /^\/shell/i,
   /^\/c99/i,
   /^\/r57/i,
   /^\/webshell/i,
   /^\/backdoor/i,
+  /^\/alfa/i,                                // ALFA Shell
+  /^\/ALFA/i,
+  /^\/b374k/i,                               // b374k Shell
+  /^\/wso/i,                                 // WSO Shell
+  // 上传目录探测
+  /^\/uploads?\/?$/i,                        // /upload 或 /uploads
+  /^\/upload\/\w+\.php/i,
+  /^\/uploads\/\w+\.php/i,
+  /^\/files?\/?$/i,                          // /file 或 /files
+  /^\/temp\/?$/i,
+  /^\/tmp\/?$/i,
+  // 备份文件探测
+  /^\/backup/i,
+  /^\/bak/i,
+  /^\/old/i,
+  /^\/copy/i,
+  /\.(bak|backup|old|orig|)$/i,
+  // 配置文件探测
+  /^\/config\.(php|inc|ini|conf|yml|yaml|json|xml)$/i,
+  /^\/configuration\./i,
+  /^\/settings\.(php|inc|ini)$/i,
+  /^\/database\./i,
+  /^\/db\.(php|inc|sql)$/i,
+  // 日志文件探测
+  /^\/logs?\/?$/i,
+  /^\/error_log/i,
+  /^\/access_log/i,
+  /\.(log|logs)$/i,
+  // 其他常见攻击路径
+  /^\/test\.(php|html?)$/i,
+  /^\/info\.php$/i,
+  /^\/phpinfo/i,
+  /^\/debug/i,
+  /^\/console/i,
+  /^\/manager\/?$/i,
+  /^\/administrator\/?$/i,
+  /^\/admin\/?$/i,                           // 注意：不影响 /admin/queue 等合法路径
+]
+
+// 🛡️ 合法路径白名单（优先于恶意模式检查）
+const LEGITIMATE_PATHS = [
+  /^\/admin\//,                              // /admin/queue, /admin/users 等
+  /^\/api\//,                                // API路由
 ]
 
 export async function middleware(request: NextRequest) {
@@ -94,7 +143,9 @@ export async function middleware(request: NextRequest) {
 
   // 🛡️ 第一道防线：拦截恶意请求，直接返回404
   // 不记录日志、不重定向、不渲染页面，最小化资源消耗
-  if (MALICIOUS_PATTERNS.some(pattern => pattern.test(pathname))) {
+  // 先检查白名单，避免误拦截合法路径
+  const isLegitimate = LEGITIMATE_PATHS.some(pattern => pattern.test(pathname))
+  if (!isLegitimate && MALICIOUS_PATTERNS.some(pattern => pattern.test(pathname))) {
     return new NextResponse(null, { status: 404 })
   }
 
