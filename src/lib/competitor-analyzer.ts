@@ -38,7 +38,7 @@ export interface CompetitorProduct {
   imageUrl: string | null
 
   // 竞品来源
-  source: 'amazon_compare' | 'amazon_also_viewed' | 'amazon_similar' | 'same_category'
+  source: 'amazon_compare' | 'amazon_also_viewed' | 'amazon_similar' | 'same_category' | 'related_products'
 
   // 相似度评分（0-100）
   similarityScore?: number

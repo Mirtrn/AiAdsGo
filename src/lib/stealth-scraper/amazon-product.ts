@@ -329,7 +329,8 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
 
   // 🔥 新增：提取竞品ASIN（从"Frequently bought together"、"Customers also viewed"等区域）
   // ⚠️ 修复：排除同品牌产品，只保留真正的竞品
-  const relatedAsins: string[] = []
+  // 🔥 优化（2025-12-09）：同时提取价格和品牌，支持基于价格区间的智能选择
+  const relatedAsins: Array<{ asin: string, price: number | null, brand: string | null }> = []
   const relatedAsinSelectors = [
     // Frequently bought together
     '#sims-fbt .a-carousel-card a[href*="/dp/"]',
@@ -359,7 +360,7 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
     $(selector).each((i: number, el: any) => {
       const href = $(el).attr('href') || ''
       const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
-      if (asinMatch && asinMatch[1] && asinMatch[1] !== asin && !relatedAsins.includes(asinMatch[1])) {
+      if (asinMatch && asinMatch[1] && asinMatch[1] !== asin && !relatedAsins.some(r => r.asin === asinMatch[1])) {
         // 🔍 尝试从推荐卡片中提取品牌信息（常见于产品标题或单独的品牌元素）
         const $card = $(el).closest('.a-carousel-card, [data-asin], li, .s-result-item')
         let cardBrand: string | null = null
@@ -390,11 +391,38 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
           }
         }
 
-        // ✅ 通过过滤，添加到竞品列表
-        relatedAsins.push(asinMatch[1])
-        if (cardBrand) {
-          console.log(`✅ 添加竞品: ASIN ${asinMatch[1]}, 品牌 ${cardBrand}`)
+        // 🔥 新增（2025-12-09）：从推荐卡片中提取价格
+        let cardPrice: number | null = null
+        const priceSelectors = [
+          '.a-price .a-offscreen',
+          '.a-price-whole',
+          '.a-color-price',
+          '[data-a-color="price"] .a-offscreen',
+          '.p13n-sc-price',
+        ]
+        for (const priceSelector of priceSelectors) {
+          const priceText = $card.find(priceSelector).first().text().trim()
+          if (priceText) {
+            // 解析价格：移除货币符号和逗号，转换为数字
+            const priceMatch = priceText.match(/[\d,.]+/)
+            if (priceMatch) {
+              const cleanPrice = priceMatch[0].replace(/,/g, '')
+              const parsed = parseFloat(cleanPrice)
+              if (!isNaN(parsed) && parsed > 0) {
+                cardPrice = parsed
+                break
+              }
+            }
+          }
         }
+
+        // ✅ 通过过滤，添加到竞品列表（包含价格和品牌信息）
+        relatedAsins.push({
+          asin: asinMatch[1],
+          price: cardPrice,
+          brand: cardBrand
+        })
+        console.log(`✅ 添加竞品: ASIN ${asinMatch[1]}, 品牌 ${cardBrand || '未知'}, 价格 ${cardPrice || '未知'}`)
       }
     })
     if (relatedAsins.length >= 10) break // 最多提取10个竞品ASIN

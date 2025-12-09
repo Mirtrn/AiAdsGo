@@ -888,7 +888,7 @@ export async function scrapeAmazonStoreDeep(
             asin: asin,
             productData: productData,
             reviews: productData.topReviews || [],
-            competitorAsins: productData.relatedAsins || [],  // 🔥 使用从详情页提取的竞品ASIN
+            competitorAsins: (productData.relatedAsins || []).map(r => r.asin),  // 🔥 提取ASIN字符串（兼容新格式）
             scrapeStatus: 'success' as const
           }
         } catch (error: any) {

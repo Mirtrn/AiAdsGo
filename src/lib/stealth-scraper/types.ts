@@ -47,7 +47,12 @@ export interface AmazonProductData {
   asin: string | null
   category: string | null
   // 🔥 新增：竞品ASIN列表（从"Frequently bought together"、"Customers also viewed"等提取）
-  relatedAsins: string[]
+  // 🔥 优化（2025-12-09）：包含价格和品牌信息，支持基于价格区间的智能选择
+  relatedAsins: Array<{
+    asin: string
+    price: number | null  // 从推荐卡片提取的价格
+    brand: string | null  // 从推荐卡片提取的品牌
+  }>
 }
 
 /**

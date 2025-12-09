@@ -75,6 +75,12 @@ export interface AIAnalysisInput {
     primeEligible?: boolean
     asin?: string | null
     category?: string | null
+    // 🔥 新增：竞品ASIN列表（已过滤同品牌产品，包含价格和品牌信息）
+    relatedAsins?: Array<{
+      asin: string
+      price: number | null
+      brand: string | null
+    }>
     // Legacy nested data (kept for backwards compatibility)
     storeData?: {
       storeName?: string
@@ -250,57 +256,187 @@ function getAmazonDomain(country: string): string {
   return domainMap[country] || 'com'
 }
 
+// 🔥 新增（2025-12-09）：竞品详情缓存（24小时有效期）
+interface CachedCompetitor {
+  data: CompetitorProduct
+  timestamp: number
+}
+
+const competitorCache = new Map<string, CachedCompetitor>()
+const CACHE_TTL = 24 * 60 * 60 * 1000  // 24小时
+
 /**
- * 智能选择多样化的ASIN
- * 策略：均匀间隔选择，保证多样性
+ * 从缓存获取竞品详情
  */
-function selectDiverseAsins(asins: string[], limit: number): string[] {
-  if (asins.length <= limit) {
+function getCachedCompetitor(asin: string): CompetitorProduct | null {
+  const cached = competitorCache.get(asin)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log(`  📦 缓存命中: ${asin}`)
+    return cached.data
+  }
+  if (cached) {
+    competitorCache.delete(asin)  // 清理过期缓存
+  }
+  return null
+}
+
+/**
+ * 保存竞品详情到缓存
+ */
+function setCachedCompetitor(asin: string, data: CompetitorProduct): void {
+  competitorCache.set(asin, {
+    data,
+    timestamp: Date.now()
+  })
+}
+
+/**
+ * 获取缓存统计
+ */
+function getCacheStats(): { size: number, hitRate: string } {
+  return {
+    size: competitorCache.size,
+    hitRate: `${competitorCache.size} items cached`
+  }
+}
+
+/**
+ * 基于价格区间的智能ASIN选择
+ * 策略：从低/中/高价位各选1个，保证价格多样性
+ *
+ * @param asins - 竞品ASIN列表（包含价格信息）
+ * @param limit - 最多选择数量
+ * @returns 选中的ASIN列表
+ */
+function selectAsinsByPriceRange(
+  asins: Array<{ asin: string, price: number | null, brand: string | null }>,
+  limit: number = 3
+): string[] {
+  if (asins.length === 0) return []
+  if (asins.length <= limit) return asins.map(a => a.asin)
+
+  // 分离有价格和无价格的ASIN
+  const withPrice = asins.filter(a => a.price !== null && a.price > 0)
+  const withoutPrice = asins.filter(a => a.price === null || a.price <= 0)
+
+  console.log(`📊 价格分析: ${withPrice.length}个有价格, ${withoutPrice.length}个无价格`)
+
+  // 如果有价格的ASIN不足，使用均匀间隔选择
+  if (withPrice.length < 2) {
+    console.log(`⚠️ 价格信息不足，使用均匀间隔选择`)
+    const step = Math.floor(asins.length / limit)
     return asins
+      .filter((_, i) => i % step === 0)
+      .slice(0, limit)
+      .map(a => a.asin)
   }
 
-  // 均匀间隔选择策略
-  const step = Math.floor(asins.length / limit)
+  // 按价格排序
+  const sorted = [...withPrice].sort((a, b) => (a.price || 0) - (b.price || 0))
+  const minPrice = sorted[0].price || 0
+  const maxPrice = sorted[sorted.length - 1].price || 0
+
+  console.log(`💰 价格范围: ${minPrice} - ${maxPrice}`)
+
+  // 计算价格区间
+  const priceRange = maxPrice - minPrice
+  const lowThreshold = minPrice + priceRange * 0.33
+  const highThreshold = minPrice + priceRange * 0.67
+
+  // 分组
+  const lowPrice = sorted.filter(a => (a.price || 0) <= lowThreshold)
+  const midPrice = sorted.filter(a => (a.price || 0) > lowThreshold && (a.price || 0) <= highThreshold)
+  const highPrice = sorted.filter(a => (a.price || 0) > highThreshold)
+
+  console.log(`📈 价格分组: 低价${lowPrice.length}个, 中价${midPrice.length}个, 高价${highPrice.length}个`)
+
+  // 从每个价格区间选择
   const selected: string[] = []
 
-  for (let i = 0; i < limit; i++) {
-    const index = Math.min(i * step, asins.length - 1)
-    selected.push(asins[index])
+  // 低价位：选择最低价
+  if (lowPrice.length > 0) {
+    selected.push(lowPrice[0].asin)
+    console.log(`  ✅ 低价位: ${lowPrice[0].asin} (${lowPrice[0].price})`)
   }
 
-  return selected
+  // 中价位：选择中间价格
+  if (midPrice.length > 0 && selected.length < limit) {
+    const midIndex = Math.floor(midPrice.length / 2)
+    selected.push(midPrice[midIndex].asin)
+    console.log(`  ✅ 中价位: ${midPrice[midIndex].asin} (${midPrice[midIndex].price})`)
+  }
+
+  // 高价位：选择最高价
+  if (highPrice.length > 0 && selected.length < limit) {
+    selected.push(highPrice[highPrice.length - 1].asin)
+    console.log(`  ✅ 高价位: ${highPrice[highPrice.length - 1].asin} (${highPrice[highPrice.length - 1].price})`)
+  }
+
+  // 如果不足limit个，从其他区间补充
+  const allCandidates = [...sorted, ...withoutPrice]
+  for (const candidate of allCandidates) {
+    if (selected.length >= limit) break
+    if (!selected.includes(candidate.asin)) {
+      selected.push(candidate.asin)
+      console.log(`  ➕ 补充: ${candidate.asin} (${candidate.price || '无价格'})`)
+    }
+  }
+
+  return selected.slice(0, limit)
 }
 
 /**
  * 批量抓取竞品详情
  * 复用现有的 scrapeAmazonProduct 函数，自动继承代理重试、反爬虫、品牌过滤等功能
+ * 🔥 优化（2025-12-09）：支持缓存和基于价格区间的智能选择
  *
- * @param asins - 竞品ASIN列表（已过滤同品牌产品）
+ * @param relatedAsins - 竞品ASIN列表（包含价格和品牌信息）
  * @param targetCountry - 目标国家
  * @param customProxyUrl - 自定义代理URL（可选）
  * @param limit - 最多抓取数量（默认3个，避免过度抓取）
  * @returns 竞品产品详情列表
  */
 async function batchScrapeCompetitorDetails(
-  asins: string[],
+  relatedAsins: Array<{ asin: string, price: number | null, brand: string | null }>,
   targetCountry: string,
   customProxyUrl?: string,
   limit: number = 3
 ): Promise<CompetitorProduct[]> {
-  console.log(`🔍 批量抓取${Math.min(asins.length, limit)}个竞品详情...`)
+  console.log(`🔍 批量抓取竞品详情 (最多${limit}个)...`)
+  console.log(`📊 缓存状态: ${getCacheStats().hitRate}`)
 
-  // Step 1: 智能选择要抓取的ASIN（保证多样性）
-  const selectedAsins = selectDiverseAsins(asins, limit)
-  console.log(`📋 已选择${selectedAsins.length}个多样化ASIN: ${selectedAsins.join(', ')}`)
+  // Step 1: 基于价格区间智能选择ASIN（低/中/高价位各1个）
+  const selectedAsins = selectAsinsByPriceRange(relatedAsins, limit)
+  console.log(`📋 已选择${selectedAsins.length}个多样化ASIN (按价格区间): ${selectedAsins.join(', ')}`)
 
-  // Step 2: 构建竞品URL列表
+  // Step 2: 检查缓存，分离已缓存和需抓取的ASIN
+  const cachedCompetitors: CompetitorProduct[] = []
+  const asinsToScrape: string[] = []
+
+  for (const asin of selectedAsins) {
+    const cached = getCachedCompetitor(asin)
+    if (cached) {
+      cachedCompetitors.push(cached)
+    } else {
+      asinsToScrape.push(asin)
+    }
+  }
+
+  console.log(`📦 缓存: ${cachedCompetitors.length}个命中, ${asinsToScrape.length}个需抓取`)
+
+  // Step 3: 构建竞品URL列表（只抓取未缓存的）
+  if (asinsToScrape.length === 0) {
+    console.log(`✅ 全部命中缓存，无需抓取`)
+    return cachedCompetitors
+  }
+
   const amazonDomain = getAmazonDomain(targetCountry)
-  const competitorUrls = selectedAsins.map(asin => ({
+  const competitorUrls = asinsToScrape.map(asin => ({
     asin,
     url: `https://www.amazon.${amazonDomain}/dp/${asin}`
   }))
 
-  // Step 3: 并行抓取详情（使用Promise.allSettled避免单点失败）
+  // Step 4: 并行抓取详情（使用Promise.allSettled避免单点失败）
   const results = await Promise.allSettled(
     competitorUrls.map(async ({ asin, url }) => {
       try {
@@ -335,6 +471,9 @@ async function batchScrapeCompetitorDetails(
           features: productData.features || productData.aboutThisItem || [],
         }
 
+        // 🔥 保存到缓存
+        setCachedCompetitor(asin, competitor)
+
         console.log(`  ✅ 成功抓取: ${asin} - ${competitor.name} (${competitor.brand})`)
         return competitor
       } catch (error: any) {
@@ -344,16 +483,19 @@ async function batchScrapeCompetitorDetails(
     })
   )
 
-  // Step 4: 过滤成功的结果
-  const competitors = results
+  // Step 5: 过滤成功的结果
+  const scrapedCompetitors = results
     .filter((r): r is PromiseFulfilledResult<CompetitorProduct | null> =>
       r.status === 'fulfilled' && r.value !== null
     )
     .map(r => r.value!)
 
-  console.log(`✅ 批量抓取完成: 成功${competitors.length}/${selectedAsins.length}个竞品`)
+  // Step 6: 合并缓存和新抓取的结果
+  const allCompetitors = [...cachedCompetitors, ...scrapedCompetitors]
 
-  return competitors
+  console.log(`✅ 批量抓取完成: 缓存${cachedCompetitors.length}个 + 新抓取${scrapedCompetitors.length}/${asinsToScrape.length}个 = 共${allCompetitors.length}个竞品`)
+
+  return allCompetitors
 }
 
 /**
@@ -871,12 +1013,12 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               // 降级：使用简化的ASIN列表（无详情）
               console.warn(`⚠️ 竞品详情抓取全部失败，使用简化ASIN分析`)
 
-              const simplifiedCompetitors: CompetitorProduct[] = extractResult.relatedAsins!.slice(0, 5).map(asin => ({
-                asin,
-                name: `Competitor Product ${asin}`,
-                brand: 'Competitor Brand',  // 已通过品牌过滤，确保是不同品牌
-                price: null,
-                priceText: null,
+              const simplifiedCompetitors: CompetitorProduct[] = extractResult.relatedAsins!.slice(0, 5).map(item => ({
+                asin: item.asin,  // 🔥 从对象中提取ASIN字符串
+                name: `Competitor Product ${item.asin}`,
+                brand: item.brand || 'Competitor Brand',  // 使用提取的品牌信息
+                price: item.price,  // 使用提取的价格信息
+                priceText: item.price ? `$${item.price.toFixed(2)}` : null,
                 rating: null,
                 reviewCount: null,
                 imageUrl: null,
