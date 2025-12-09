@@ -50,6 +50,9 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    // 🔥 获取当前配置（从队列管理器内存中读取）
+    const currentConfig = queueManager.getConfig()
+
     // 管理员返回全局统计（兼容旧格式）
     return NextResponse.json({
       success: true,
@@ -73,6 +76,17 @@ export async function GET(request: NextRequest) {
           available: proxyStats.filter((p) => p.available).length,
           failed: proxyStats.filter((p) => !p.available).length,
           details: proxyStats
+        },
+        // 🔥 修复：返回当前配置，前端需要此数据显示"当前生效配置"
+        config: {
+          globalConcurrency: currentConfig.globalConcurrency,
+          perUserConcurrency: currentConfig.perUserConcurrency,
+          maxQueueSize: currentConfig.maxQueueSize,
+          taskTimeout: currentConfig.taskTimeout,
+          enablePriority: true,  // 统一队列始终启用优先级
+          defaultMaxRetries: currentConfig.defaultMaxRetries,
+          retryDelay: currentConfig.retryDelay,
+          storageType: process.env.REDIS_URL ? 'redis' : 'memory'
         }
       }
     })
