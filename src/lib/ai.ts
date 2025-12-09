@@ -441,7 +441,7 @@ export async function analyzeProductPage(
         productInfo = {
           brandDescription: extractStringField('brandDescription', repairedJson),
           uniqueSellingPoints: extractArrayField('uniqueSellingPoints', repairedJson) || extractStringField('uniqueSellingPoints', repairedJson),
-          productHighlights: extractArrayField('productHighlights', repairedJson) || extractStringField('productHighlights', repairedJson),
+          productHighlights: extractArrayField('productHighlights', repairedJson) || extractStringField('productHighlights', repairedJson) || extractArrayField('technicalHighlights', repairedJson) || extractStringField('technicalHighlights', repairedJson),
           targetAudience: extractStringField('targetAudience', repairedJson),
           category: extractStringField('category', repairedJson),
         }

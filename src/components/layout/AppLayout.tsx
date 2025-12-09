@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
+import { QueueInitializer } from '@/components/QueueInitializer'
 
 // 套餐类型中文映射
 const PACKAGE_TYPE_MAP: Record<string, string> = {
@@ -344,6 +345,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900">
+      {/* 队列系统初始化 */}
+      <QueueInitializer />
+
       {/* Mobile Menu Button */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 glass px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">

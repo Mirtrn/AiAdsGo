@@ -83,8 +83,10 @@ export default function QueueManagementPage() {
     }
   })
   const [savingConfig, setSavingConfig] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
-  const fetchStats = async () => {
+  const fetchStats = async (showSuccessToast = false) => {
+    setRefreshing(true)
     try {
       const result = await fetchWithRetry('/api/queue/stats', undefined, {
         maxRetries: 2,
@@ -132,6 +134,11 @@ export default function QueueManagementPage() {
 
         setStats(adaptedStats)
 
+        // 手动刷新时显示成功提示
+        if (showSuccessToast) {
+          toast.success(`队列数据已更新：运行 ${adaptedStats.global.running}，排队 ${adaptedStats.global.queued}`)
+        }
+
         // 同步配置到表单（适配新字段）
         const newConfig = data.data?.config || data.stats?.config || {}
         setConfig({
@@ -157,6 +164,7 @@ export default function QueueManagementPage() {
       }
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -231,10 +239,11 @@ export default function QueueManagementPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={fetchStats}
+              onClick={() => fetchStats(true)}
+              disabled={refreshing}
             >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              刷新
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? '刷新中...' : '刷新'}
             </Button>
           )}
         </div>
