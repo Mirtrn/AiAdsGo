@@ -410,12 +410,20 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
                    $('[data-hook="price-above-strike"] span').text().trim() ||
                    null
 
-  // 🎯 优化产品名称提取 - 按优先级尝试核心产品区域
+  // 🎯 优化产品名称提取 - 按优先级尝试核心产品区域（包含桌面版和移动版）
   const titleSelectors = [
+    // === 桌面版选择器 ===
     '#ppd #productTitle',
     '#centerCol #productTitle',
     '#dp-container #productTitle',
-    '#productTitle'
+    '#productTitle',
+    // === 移动版选择器 (a-m-us页面) ===
+    '#title_feature_div h1 span',
+    '#title_feature_div span.a-text-bold',
+    '#title span.a-text-bold',
+    '#title',
+    '[data-hook="product-title"]',
+    '.a-size-large.a-text-bold',
   ]
   let productName: string | null = null
   for (const selector of titleSelectors) {
@@ -426,14 +434,20 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
   }
 
-  // 🎯 优化产品描述提取 - 限定在核心产品区域
+  // 🎯 优化产品描述提取 - 限定在核心产品区域（包含桌面版和移动版）
   const descriptionSelectors = [
+    // === 桌面版选择器 ===
     '#ppd #feature-bullets',
     '#centerCol #feature-bullets',
     '#dp-container #feature-bullets',
     '#feature-bullets',
     '#productDescription',
-    '[data-feature-name="featurebullets"]'
+    '[data-feature-name="featurebullets"]',
+    // === 移动版选择器 (a-m-us页面) ===
+    '#featurebullets_feature_div',
+    '[data-hook="product-description"]',
+    '.a-expander-content',
+    '#aplus_feature_div',
   ]
   let productDescription: string | null = null
   for (const selector of descriptionSelectors) {

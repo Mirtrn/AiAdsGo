@@ -193,14 +193,23 @@ export async function scrapeUrlWithBrowser(
       if (options.waitForSelector) {
         console.log(`⏳ 等待关键元素: ${options.waitForSelector}`)
 
-        // 🔥 多选择器容错策略：尝试多个可能的选择器
+        // 🔥 多选择器容错策略：尝试多个可能的选择器（包含桌面版和移动版）
         const productSelectors = [
+          // === 桌面版选择器 ===
           '#productTitle',  // 美国/英国站常用
           'span[id="productTitle"]',  // 精确匹配
           'h1[id="title"]',  // 意大利站可能的变体
           '[data-feature-name="title"]',  // 数据属性选择器
           'h1.product-title-word-break',  // 类名选择器
-          '#dp-container',  // 产品容器，最宽松的备选
+          // === 移动版选择器 (a-m-us页面) ===
+          '#title_feature_div h1',  // 移动版标题容器
+          '#title_feature_div span.a-text-bold',  // 移动版粗体标题
+          '[data-hook="product-title"]',  // 移动版钩子选择器
+          '#title',  // 移动版简化标题ID
+          '.a-size-large.a-text-bold',  // 移动版大号粗体文本
+          // === 最宽松的备选 ===
+          '#dp-container',  // 产品容器
+          '#ppd',  // 产品页面容器
         ]
 
         // 🔧 修复: Amazon IT/DE/FR/ES 需要更长的等待时间
@@ -268,8 +277,17 @@ export async function scrapeUrlWithBrowser(
                 class: el.className,
                 text: el.textContent?.substring(0, 100) || ''
               }))
-              return { h1s, spans, bodyClass: document.body?.className || '' }
+              const bodyClass = document.body?.className || ''
+              // 🔥 检测移动版页面标识
+              const isMobilePage = bodyClass.includes('a-m-') || bodyClass.includes('a-mobile')
+              return { h1s, spans, bodyClass, isMobilePage }
             })
+
+            // 🔥 移动版页面警告
+            if (debugInfo.isMobilePage) {
+              console.warn(`📱 检测到Amazon移动版页面 (a-m-* class)，DOM结构可能与桌面版不同`)
+            }
+
             console.warn(`🔍 页面结构调试:`, JSON.stringify(debugInfo, null, 2))
           } catch (e) {
             console.warn('调试信息提取失败')
