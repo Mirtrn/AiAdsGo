@@ -1018,7 +1018,13 @@ export default function OfferDetailPage() {
                                 {competitorData.competitors.slice(0, 8).map((comp: any, idx: number) => (
                                   <tr key={idx}>
                                     <td className="px-3 py-2 text-sm text-gray-900 max-w-[200px]">
-                                      <div className="font-medium truncate" title={comp.name}>{comp.name}</div>
+                                      {comp.url ? (
+                                        <a href={comp.url} target="_blank" rel="noopener noreferrer" className="font-medium truncate text-blue-600 hover:text-blue-800 hover:underline block" title={comp.name}>
+                                          {comp.name}
+                                        </a>
+                                      ) : (
+                                        <div className="font-medium truncate" title={comp.name}>{comp.name}</div>
+                                      )}
                                       {comp.brand && <div className="text-xs text-gray-500">{comp.brand}</div>}
                                     </td>
                                     <td className="px-3 py-2 text-sm text-gray-900">{comp.priceText || (comp.price ? `$${comp.price}` : '-')}</td>
