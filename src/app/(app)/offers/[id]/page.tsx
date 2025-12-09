@@ -1018,8 +1018,8 @@ export default function OfferDetailPage() {
                                 {competitorData.competitors.slice(0, 8).map((comp: any, idx: number) => (
                                   <tr key={idx}>
                                     <td className="px-3 py-2 text-sm text-gray-900 max-w-[200px]">
-                                      {comp.url ? (
-                                        <a href={comp.url} target="_blank" rel="noopener noreferrer" className="font-medium truncate text-blue-600 hover:text-blue-800 hover:underline block" title={comp.name}>
+                                      {comp.asin && comp.asin !== 'market-benchmark' ? (
+                                        <a href={`https://www.amazon.com/dp/${comp.asin}`} target="_blank" rel="noopener noreferrer" className="font-medium truncate text-blue-600 hover:text-blue-800 hover:underline block" title={comp.name}>
                                           {comp.name}
                                         </a>
                                       ) : (
