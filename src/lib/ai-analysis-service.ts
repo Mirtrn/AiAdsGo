@@ -395,6 +395,8 @@ async function batchScrapeCompetitorDetails(
           imageUrl: productData.imageUrls?.[0] || null,
           source: 'related_products' as const,
           features: productData.features || productData.aboutThisItem || [],
+          // 🔥 新增：商品链接（用于前端展示可点击链接）
+          productUrl: url,
         }
 
         // 🔥 保存到缓存

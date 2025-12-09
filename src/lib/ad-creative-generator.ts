@@ -451,6 +451,38 @@ async function buildAdCreativePrompt(
   if (topReviews.length > 0) {
     // 只使用前2条最优质评论（避免prompt过长）
     extras.push(`TOP REVIEWS (Use for credibility): ${topReviews.slice(0, 2).join(' | ')}`)
+
+    // 🔥 v4.1优化：提取用户语言模式（常用表达词汇）
+    // 从评论中提取2-4词的短语作为自然语言参考
+    const userPhrases: string[] = []
+    topReviews.slice(0, 5).forEach(review => {
+      // 匹配常见的用户表达模式
+      const patterns = [
+        /very ([\w\s]+)/gi,           // "very easy to use"
+        /really ([\w\s]+)/gi,         // "really quiet"
+        /so ([\w]+)/gi,               // "so powerful"
+        /love the ([\w\s]+)/gi,       // "love the design"
+        /great ([\w\s]+)/gi,          // "great battery life"
+        /perfect for ([\w\s]+)/gi,    // "perfect for pets"
+        /works ([\w\s]+)/gi,          // "works perfectly"
+        /easy to ([\w]+)/gi,          // "easy to clean"
+      ]
+      patterns.forEach(pattern => {
+        const matches = review.match(pattern)
+        if (matches) {
+          matches.slice(0, 2).forEach(m => {
+            const cleaned = m.toLowerCase().trim()
+            if (cleaned.length > 5 && cleaned.length < 30) {
+              userPhrases.push(cleaned)
+            }
+          })
+        }
+      })
+    })
+    const uniquePhrases = [...new Set(userPhrases)].slice(0, 6)
+    if (uniquePhrases.length > 0) {
+      extras.push(`USER LANGUAGE PATTERNS: ${uniquePhrases.join(', ')}`)
+    }
   }
 
   // 🔥 P1-1+: 用户评论深度分析（增强版 - 充分利用所有评论分析字段）
@@ -592,6 +624,65 @@ async function buildAdCreativePrompt(
     extras.push(`STORE HOT PRODUCTS: ${topProducts.slice(0, 3).join(', ')} (Avg: ${hotInsights.avgRating.toFixed(1)}⭐, ${hotInsights.avgReviews} reviews)`)
   }
 
+  // 🔥 v4.1优化（2025-12-09）：提取店铺深度抓取数据
+  let storeAggregatedReviews: string[] = []
+  let storeAggregatedFeatures: string[] = []
+  let storeHotBadges: string[] = []
+  let storeCategoryKeywords: string[] = []
+
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+
+      // 1. 提取深度抓取的聚合数据
+      if (scrapedData.deepScrapeResults) {
+        const dsr = scrapedData.deepScrapeResults
+        storeAggregatedReviews = dsr.aggregatedReviews || []
+        storeAggregatedFeatures = dsr.aggregatedFeatures || []
+
+        // 从热销商品提取徽章
+        if (dsr.topProducts && Array.isArray(dsr.topProducts)) {
+          dsr.topProducts.forEach((tp: any) => {
+            if (tp.productData?.badge) {
+              storeHotBadges.push(tp.productData.badge)
+            }
+          })
+          storeHotBadges = [...new Set(storeHotBadges)] // 去重
+        }
+      }
+
+      // 2. 提取产品分类作为关键词来源
+      if (scrapedData.productCategories?.primaryCategories) {
+        storeCategoryKeywords = scrapedData.productCategories.primaryCategories
+          .slice(0, 5)
+          .map((c: any) => c.name)
+          .filter(Boolean)
+      }
+
+      // 3. 从热销商品提取徽章（备选路径）
+      if (storeHotBadges.length === 0 && scrapedData.products) {
+        scrapedData.products.forEach((p: any) => {
+          if (p.badge) storeHotBadges.push(p.badge)
+        })
+        storeHotBadges = [...new Set(storeHotBadges)].slice(0, 3)
+      }
+    } catch {}
+  }
+
+  // 添加店铺深度数据到extras
+  if (storeAggregatedFeatures.length > 0) {
+    extras.push(`STORE HOT FEATURES: ${storeAggregatedFeatures.slice(0, 8).join(' | ')}`)
+  }
+  if (storeAggregatedReviews.length > 0) {
+    extras.push(`STORE USER VOICES: ${storeAggregatedReviews.slice(0, 5).join(' | ')}`)
+  }
+  if (storeHotBadges.length > 0) {
+    extras.push(`STORE TRUST BADGES: ${storeHotBadges.join(', ')}`)
+  }
+  if (storeCategoryKeywords.length > 0) {
+    extras.push(`STORE CATEGORIES: ${storeCategoryKeywords.join(', ')}`)
+  }
+
   // 🎯 v3.2优化（2025-12-08）：读取v3.2差异化分析数据
   let v32Analysis: {
     storeQualityLevel?: string
@@ -712,6 +803,22 @@ async function buildAdCreativePrompt(
           .map((f: any) => f.feature)
         if (ourAdvantages.length > 0) {
           extras.push(`COMPETITIVE FEATURES: ${ourAdvantages.slice(0, 3).join(', ')}`)
+        }
+      }
+
+      // 🔥 v4.1优化：提取竞品特性用于差异化关键词
+      if (compAnalysis.competitors && Array.isArray(compAnalysis.competitors)) {
+        // 收集所有竞品特性
+        const competitorFeatures: string[] = []
+        compAnalysis.competitors.forEach((comp: any) => {
+          if (comp.features && Array.isArray(comp.features)) {
+            competitorFeatures.push(...comp.features.slice(0, 3))
+          }
+        })
+        // 去重并取前10个
+        const uniqueCompFeatures = [...new Set(competitorFeatures)].slice(0, 10)
+        if (uniqueCompFeatures.length > 0) {
+          extras.push(`COMPETITOR FEATURES (for differentiation): ${uniqueCompFeatures.join(' | ')}`)
         }
       }
 

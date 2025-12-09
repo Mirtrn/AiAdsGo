@@ -21,7 +21,8 @@ import {
   ShieldCheck,
   AlertCircle,
   Target,
-  Zap
+  Zap,
+  ExternalLink
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -37,6 +38,8 @@ interface Offer {
       rating?: number
       reviewCount?: number
       features?: string[]
+      // 🔥 新增：商品链接（用于跳转到Amazon商品详情页）
+      productUrl?: string | null
     }>
     pricePosition?: {
       ourPrice: number
@@ -378,7 +381,22 @@ export default function CompetitorsPage() {
                     <tbody>
                       {analysis.competitors.map((competitor, i) => (
                         <tr key={i} className="border-b last:border-0 hover:bg-slate-50">
-                          <td className="py-3 px-4 text-sm text-slate-900">{competitor.name}</td>
+                          <td className="py-3 px-4 text-sm">
+                            {competitor.productUrl ? (
+                              <a
+                                href={competitor.productUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+                                title="在新窗口打开Amazon商品页面"
+                              >
+                                {competitor.name}
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-slate-900">{competitor.name}</span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-sm text-slate-600">{competitor.brand || '-'}</td>
                           <td className="py-3 px-4 text-sm text-slate-600 text-right">
                             {competitor.price ? `$${competitor.price}` : '-'}

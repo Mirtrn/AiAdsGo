@@ -106,6 +106,18 @@ export interface ProductInfo {
     stockStatus?: string
     salesRank?: string
   }
+
+  // 🔥 v3.2新增：深度数据增强字段
+  storeDeepData?: {
+    aggregatedReviews?: string[]      // 热销商品评论聚合
+    aggregatedFeatures?: string[]     // 热销商品特性聚合
+    hotBadges?: string[]              // 热销商品徽章
+    categoryKeywords?: string[]       // 店铺分类关键词
+  }
+
+  userLanguagePatterns?: string[]     // 用户语言模式（从评论提取）
+  competitorFeatures?: string[]       // 竞品特性（用于差异化）
+  topReviewQuotes?: string[]          // 热门评论原文（用于引用）
 }
 
 /**

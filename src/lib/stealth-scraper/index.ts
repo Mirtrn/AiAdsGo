@@ -65,3 +65,12 @@ export {
   scrapeIndependentStoreDeep,  // 🔥 新增：独立站深度抓取
   scrapeIndependentProduct,    // 🔥 新增：独立站单品抓取
 } from './independent-store'
+
+// Product detail cache (统一缓存模块)
+export {
+  getCachedProductDetail,
+  setCachedProductDetail,
+  getProductCacheStats,
+  checkCacheBatch,
+  cleanupExpiredCache,
+} from './product-detail-cache'

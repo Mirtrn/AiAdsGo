@@ -441,7 +441,7 @@ export async function analyzeProductPage(
         productInfo = {
           brandDescription: extractStringField('brandDescription', repairedJson),
           uniqueSellingPoints: extractArrayField('uniqueSellingPoints', repairedJson) || extractStringField('uniqueSellingPoints', repairedJson),
-          productHighlights: extractArrayField('productHighlights', repairedJson) || extractStringField('productHighlights', repairedJson) || extractArrayField('technicalHighlights', repairedJson) || extractStringField('technicalHighlights', repairedJson),
+          productHighlights: extractArrayField('productHighlights', repairedJson) || extractStringField('productHighlights', repairedJson),
           targetAudience: extractStringField('targetAudience', repairedJson),
           category: extractStringField('category', repairedJson),
         }
@@ -479,7 +479,7 @@ export async function analyzeProductPage(
     logger.debug('🎯 P0优化: 提取完整AI数据...')
 
     // 🔧 P0修复：字段名映射兼容（Prompt返回字段名 → 代码期望字段名）
-    // Prompt返回: productDescription, sellingPoints, technicalHighlights
+    // Prompt返回: productDescription, sellingPoints, productHighlights
     // 代码期望: brandDescription, uniqueSellingPoints, productHighlights
     const pi = productInfo as any
 
@@ -488,7 +488,7 @@ export async function analyzeProductPage(
       // 基础字段
       brandDescription: ensureString(pi.brandDescription || pi.productDescription),
       uniqueSellingPoints: ensureString(pi.uniqueSellingPoints || pi.sellingPoints),
-      productHighlights: ensureString(pi.productHighlights || pi.technicalHighlights),
+      productHighlights: ensureString(pi.productHighlights),
       targetAudience: ensureString(pi.targetAudience),
       category: pi.category,
 

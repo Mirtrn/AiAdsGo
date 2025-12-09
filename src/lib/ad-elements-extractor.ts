@@ -876,6 +876,15 @@ async function getHeadlinePrompt(
     }
   }
 
+  // 🔥 v3.2新增：准备深度数据变量
+  const userLanguagePatternsText = product.userLanguagePatterns?.slice(0, 6).join(', ') || ''
+  const storeAggregatedFeaturesText = product.storeDeepData?.aggregatedFeatures?.slice(0, 8).join(' | ') || ''
+  const storeUserVoicesText = product.storeDeepData?.aggregatedReviews?.slice(0, 5).join(' | ') || ''
+  const trustBadgesText = product.storeDeepData?.hotBadges?.join(', ') ||
+                          product.competitiveEdges?.badges?.join(', ') || ''
+  const competitorFeaturesText = product.competitorFeatures?.slice(0, 8).join(' | ') || ''
+  const topReviewQuotesText = product.topReviewQuotes?.slice(0, 3).join(' | ') || ''
+
   // 🎨 插值替换模板变量
   const prompt = promptTemplate
     .replace('{{product.name}}', product.name)
@@ -896,6 +905,13 @@ async function getHeadlinePrompt(
     .replace('{{reviewPositives}}', reviewPositivesText)
     .replace('{{reviewUseCases}}', reviewUseCasesText)
     .replace('{{promotionInfo}}', promotionInfoText)
+    // 🔥 v3.2新增: 深度数据变量
+    .replace('{{userLanguagePatterns}}', userLanguagePatternsText)
+    .replace('{{storeHotFeatures}}', storeAggregatedFeaturesText)
+    .replace('{{storeUserVoices}}', storeUserVoicesText)
+    .replace('{{trustBadges}}', trustBadgesText)
+    .replace('{{competitorFeatures}}', competitorFeaturesText)
+    .replace('{{topReviewQuotes}}', topReviewQuotesText)
 
   return prompt
 }
@@ -1342,6 +1358,15 @@ async function getDescriptionPrompt(product: ProductInfo, targetLanguage: string
     }
   }
 
+  // 🔥 v3.2新增：准备深度数据变量
+  const userLanguagePatternsText = product.userLanguagePatterns?.slice(0, 6).join(', ') || ''
+  const storeAggregatedFeaturesText = product.storeDeepData?.aggregatedFeatures?.slice(0, 8).join(' | ') || ''
+  const storeUserVoicesText = product.storeDeepData?.aggregatedReviews?.slice(0, 5).join(' | ') || ''
+  const trustBadgesText = product.storeDeepData?.hotBadges?.join(', ') ||
+                          product.competitiveEdges?.badges?.join(', ') || ''
+  const competitorFeaturesText = product.competitorFeatures?.slice(0, 8).join(' | ') || ''
+  const topReviewQuotesText = product.topReviewQuotes?.slice(0, 3).join(' | ') || ''
+
   // 🎨 插值替换模板变量 - 匹配prompt模板中的变量名
   const prompt = promptTemplate
     .replace('{{productName}}', product.name)
@@ -1355,6 +1380,13 @@ async function getDescriptionPrompt(product: ProductInfo, targetLanguage: string
     .replace('{{reviewPositives}}', reviewPositivesText)
     .replace('{{purchaseReasons}}', purchaseReasonsText)
     .replace('{{promotionInfo}}', promotionInfoText)
+    // 🔥 v3.2新增：深度数据增强变量
+    .replace('{{userLanguagePatterns}}', userLanguagePatternsText)
+    .replace('{{storeHotFeatures}}', storeAggregatedFeaturesText)
+    .replace('{{storeUserVoices}}', storeUserVoicesText)
+    .replace('{{trustBadges}}', trustBadgesText)
+    .replace('{{competitorFeatures}}', competitorFeaturesText)
+    .replace('{{topReviewQuotes}}', topReviewQuotesText)
 
   return prompt
 }

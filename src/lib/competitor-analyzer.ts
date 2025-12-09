@@ -36,6 +36,8 @@ export interface CompetitorProduct {
   rating: number | null
   reviewCount: number | null
   imageUrl: string | null
+  // 🔥 新增：商品链接（用于前端展示可点击链接）
+  productUrl?: string | null
 
   // 竞品来源
   source: 'amazon_compare' | 'amazon_also_viewed' | 'amazon_similar' | 'same_category' | 'related_products'

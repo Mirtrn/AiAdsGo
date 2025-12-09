@@ -72,6 +72,9 @@ export interface AmazonStoreData {
     promotion?: string | null       // 促销信息：折扣、优惠券、限时优惠
     badge?: string | null           // 徽章：Amazon's Choice、Best Seller、#1 in Category
     isPrime?: boolean               // Prime标识
+    // 🔥 新增：完整详情页数据（用于hotScore优化）
+    salesRank?: string | null       // 销量排名
+    features?: string[]             // 产品特性
   }>
   totalProducts: number
   storeUrl: string
@@ -93,19 +96,25 @@ export interface AmazonStoreData {
     }
     totalCategories: number
   }
-  // 🔥 新增：深度抓取结果（热销商品详情页数据）
+  // 🔥 增强版：深度抓取结果（热销商品详情页数据）
   deepScrapeResults?: {
     topProducts: Array<{
       asin: string
       productData: AmazonProductData | null
       reviews: string[]           // 评价摘要
+      reviewHighlights?: string[] // 🔥 新增：评价亮点
       competitorAsins: string[]   // 竞品ASIN列表
+      features?: string[]         // 🔥 新增：产品特性
       scrapeStatus: 'success' | 'failed' | 'skipped'
       error?: string
     }>
     totalScraped: number
     successCount: number
     failedCount: number
+    // 🔥 新增：聚合数据用于AI分析
+    aggregatedReviews?: string[]           // 聚合所有热销商品的评论
+    aggregatedCompetitorAsins?: string[]   // 聚合所有竞品ASIN（去重）
+    aggregatedFeatures?: string[]          // 聚合所有产品特性（去重）
   }
 }
 

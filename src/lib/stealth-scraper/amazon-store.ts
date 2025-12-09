@@ -18,6 +18,12 @@ import {
   getDynamicTimeout
 } from './browser-stealth'
 import { scrapeAmazonProduct } from './amazon-product'
+import {
+  getCachedProductDetail,
+  setCachedProductDetail,
+  getProductCacheStats,
+  checkCacheBatch
+} from './product-detail-cache'
 import type { AmazonStoreData, AmazonProductData } from './types'
 
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -641,88 +647,166 @@ async function scrapeCategoryProducts(
   }
 }
 
+/**
+ * 🔥 优化版：批量抓取产品详情
+ * 使用统一的 scrapeAmazonProduct 获取完整数据
+ * 支持24小时缓存，避免重复抓取
+ *
+ * @param productAsins - 待抓取的ASIN列表
+ * @param effectiveProxyUrl - 代理URL
+ * @param targetCountry - 目标国家
+ * @param maxCount - 最大抓取数量（默认10）
+ * @returns 完整的产品详情数组
+ */
+async function batchScrapeProductDetailsComplete(
+  productAsins: Set<string>,
+  effectiveProxyUrl: string,
+  targetCountry?: string,
+  maxCount: number = 10
+): Promise<AmazonProductData[]> {
+  const asinsToProcess = Array.from(productAsins).slice(0, maxCount)
+  console.log(`📦 批量抓取产品详情 (最多${maxCount}个)...`)
+  console.log(`📊 缓存状态: ${JSON.stringify(getProductCacheStats())}`)
+
+  // Step 1: 检查缓存
+  const { cached, uncached } = checkCacheBatch(asinsToProcess)
+  console.log(`📦 缓存: ${cached.length}个命中, ${uncached.length}个需抓取`)
+
+  const results: AmazonProductData[] = cached.map(c => c.data)
+
+  // Step 2: 抓取未缓存的产品
+  if (uncached.length === 0) {
+    console.log(`✅ 全部命中缓存，无需抓取`)
+    return results
+  }
+
+  // 并行抓取（但限制并发数为3，避免过多请求）
+  const batchSize = 3
+  for (let i = 0; i < uncached.length; i += batchSize) {
+    const batch = uncached.slice(i, i + batchSize)
+    console.log(`🔄 处理批次 ${Math.floor(i / batchSize) + 1}: ${batch.length} 个商品`)
+
+    const batchResults = await Promise.allSettled(
+      batch.map(async (asin) => {
+        const productUrl = `https://www.amazon.com/dp/${asin}`
+        console.log(`  🛒 抓取产品: ${asin}`)
+
+        try {
+          // 使用完整的 scrapeAmazonProduct 获取所有数据
+          const productData = await scrapeAmazonProduct(
+            productUrl,
+            effectiveProxyUrl,
+            targetCountry,
+            1,  // 热销商品抓取只重试1次
+            true  // 跳过竞品ASIN提取（避免嵌套抓取）
+          )
+
+          // 保存到缓存
+          if (productData.asin) {
+            setCachedProductDetail(productData.asin, productData)
+          }
+
+          console.log(`  ✅ 成功: ${productData.productName?.substring(0, 50)}... (${productData.rating || 'N/A'}⭐, ${productData.reviewCount || '0'} 评论, Badge: ${productData.badge || 'None'})`)
+          return productData
+        } catch (error: any) {
+          console.error(`  ❌ 抓取失败 (${asin}): ${error.message}`)
+          return null
+        }
+      })
+    )
+
+    // 收集成功的结果
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled' && result.value) {
+        results.push(result.value)
+      }
+    }
+
+    // 批次间延迟
+    if (i + batchSize < uncached.length) {
+      await randomDelay(2000, 3000)
+    }
+  }
+
+  console.log(`✅ 批量抓取完成: 缓存${cached.length}个 + 新抓取${results.length - cached.length}/${uncached.length}个`)
+  return results
+}
+
+/**
+ * @deprecated 旧版轻量级抓取函数，已被 batchScrapeProductDetailsComplete 替代
+ * 保留以兼容旧代码，但建议使用新函数
+ */
 async function batchScrapeProductDetails(
   page: Page,
   products: AmazonStoreData['products'],
   productAsins: Set<string>,
-  effectiveProxyUrl: string
+  effectiveProxyUrl: string,
+  targetCountry?: string
 ): Promise<void> {
-  for (const asin of Array.from(productAsins).slice(0, 10)) {
-    try {
-      const productUrl = `https://www.amazon.com/dp/${asin}`
-      console.log(`🛒 抓取产品 ${products.length + 1}/${Math.min(productAsins.size, 10)}: ${asin}`)
+  // 调用新的完整抓取函数
+  const completeProducts = await batchScrapeProductDetailsComplete(
+    productAsins,
+    effectiveProxyUrl,
+    targetCountry,
+    10
+  )
 
-      await page.goto(productUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: getDynamicTimeout(productUrl),
-      })
-
-      const productWaitResult = await smartWaitForLoad(page, productUrl, { maxWaitTime: 10000 }).catch(() => ({
-        waited: 10000,
-        loadComplete: false,
-        signals: []
-      }))
-
-      await randomDelay(1000, 2000)
-
-      const productHtml = await page.content()
-      const $product = load(productHtml)
-
-      const name = $product('#productTitle').text().trim() ||
-                   $product('h1[id*="title"]').text().trim()
-
-      const price = $product('.a-price .a-offscreen').first().text().trim() ||
-                    $product('#priceblock_ourprice').text().trim() ||
-                    null
-
-      const ratingText = $product('#acrPopover').attr('title') ||
-                         $product('span[data-hook="rating-out-of-text"]').text().trim()
-      const rating = ratingText ? ratingText.match(/[\d.]+/)?.[0] || null : null
-
-      const reviewCountText = $product('#acrCustomerReviewText').text().trim()
-      const reviewCount = reviewCountText ? reviewCountText.match(/[\d,]+/)?.[0]?.replace(/,/g, '') || null : null
-
-      const primeEligible = $product('#primeEligibilityMessage').length > 0 ||
-                            $product('.a-icon-prime').length > 0
-
-      const promotion = $product('.a-badge-label').first().text().trim() || null
-      const badge = $product('[aria-label*="Amazon\'s Choice"]').attr('aria-label') ||
-                    $product('[aria-label*="Best Seller"]').attr('aria-label') ||
-                    null
-
-      if (name && name.length > 5) {
-        products.push({
-          name,
-          price,
-          rating,
-          reviewCount,
-          asin,
-          promotion,
-          badge,
-          isPrime: primeEligible,
-        })
-        console.log(`  ✅ ${name.substring(0, 60)}... (${rating || 'N/A'}⭐, ${reviewCount || '0'} 评论)`)
-      }
-
-      await randomDelay(2000, 3000)
-
-    } catch (error: any) {
-      console.error(`  ❌ 抓取失败: ${error.message}`)
-      continue
-    }
+  // 转换为旧格式并添加到products数组
+  for (const p of completeProducts) {
+    products.push({
+      name: p.productName || `Product ${p.asin}`,
+      price: p.productPrice || null,
+      rating: p.rating || null,
+      reviewCount: p.reviewCount || null,
+      asin: p.asin || '',
+      promotion: null,
+      badge: p.badge || null,
+      isPrime: p.primeEligible || false,
+      // 🔥 新增：保留完整数据用于hotScore计算
+      salesRank: p.salesRank || null,
+      features: p.features || [],
+    })
   }
 }
 
 /**
- * Calculate hot scores for products
+ * 🔥 优化版：计算热销分数
+ * 基于完整详情页数据：rating + reviewCount + badge + salesRank
  */
 function calculateHotScores(products: AmazonStoreData['products']): AmazonStoreData['products'] {
   const productsWithScores = products.map(p => {
     const rating = p.rating ? parseFloat(p.rating) : 0
     const reviewCount = p.reviewCount ? parseInt(p.reviewCount.replace(/,/g, '')) : 0
-    const hotScore = rating > 0 && reviewCount > 0
+
+    // 基础热度分 = 评分 × log10(评论数 + 1)
+    let hotScore = rating > 0 && reviewCount > 0
       ? rating * Math.log10(reviewCount + 1)
       : 0
+
+    // 🔥 Badge加权（Amazon官方认证更可信）
+    if (p.badge) {
+      const badgeLower = p.badge.toLowerCase()
+      if (badgeLower.includes('best seller') || badgeLower.includes('#1')) {
+        hotScore *= 1.5  // Best Seller 加权50%
+      } else if (badgeLower.includes("amazon's choice")) {
+        hotScore *= 1.3  // Amazon's Choice 加权30%
+      } else {
+        hotScore *= 1.1  // 其他badge 加权10%
+      }
+    }
+
+    // 🔥 SalesRank加权（排名越低越热销）
+    if (p.salesRank) {
+      const rankMatch = p.salesRank.match(/[\d,]+/)
+      if (rankMatch) {
+        const rank = parseInt(rankMatch[0].replace(/,/g, ''))
+        if (rank > 0) {
+          if (rank < 100) hotScore *= 1.4       // Top 100
+          else if (rank < 1000) hotScore *= 1.2  // Top 1000
+          else if (rank < 10000) hotScore *= 1.1 // Top 10000
+        }
+      }
+    }
 
     return { ...p, hotScore, ratingNum: rating, reviewCountNum: reviewCount }
   })
@@ -744,7 +828,10 @@ function calculateHotScores(products: AmazonStoreData['products']): AmazonStoreD
     promotion: p.promotion,
     badge: p.badge,
     isPrime: p.isPrime,
-    hotLabel: index < 5 ? '🔥 热销商品' : '✅ 畅销商品'
+    hotLabel: index < 5 ? '🔥 热销商品' : '✅ 畅销商品',
+    // 🔥 新增：保留完整数据供AI分析
+    salesRank: p.salesRank,
+    features: p.features,
   }))
 }
 
@@ -822,7 +909,11 @@ async function scrapeStoreCategories(
 }
 
 /**
- * 🔥 新增：店铺深度抓取 - 对热销商品进入详情页获取评价和竞品数据
+ * 🔥 增强版：店铺深度抓取
+ * - 对热销商品进入详情页获取完整数据
+ * - 聚合评论数据用于AI评论分析
+ * - 聚合竞品ASIN用于竞品分析
+ * - 使用统一缓存避免重复抓取
  */
 export async function scrapeAmazonStoreDeep(
   storeUrl: string,
@@ -832,17 +923,14 @@ export async function scrapeAmazonStoreDeep(
   maxConcurrency: number = 3
 ): Promise<AmazonStoreData> {
   console.log(`🔍 店铺深度抓取开始: ${storeUrl}, 目标抓取 ${topN} 个热销商品`)
+  console.log(`📊 产品缓存状态: ${JSON.stringify(getProductCacheStats())}`)
 
   const storeData = await scrapeAmazonStore(storeUrl, customProxyUrl, targetCountry)
 
   console.log(`📊 scrapeAmazonStore返回产品数: ${storeData.products.length}`)
 
-  // If no products found, the Phase 3 in scrapeAmazonStore should have executed
-  // But let's verify and provide clear feedback
   if (storeData.products.length === 0) {
     console.warn(`⚠️ scrapeAmazonStore未返回任何产品`)
-    console.warn(`⚠️ Phase 3应该已在scrapeAmazonStore中执行，但未找到产品`)
-    console.warn(`⚠️ 可能原因：1) 分类页也无产品 2) Phase 3执行失败 3) 页面结构特殊`)
     return storeData
   }
 
@@ -862,8 +950,16 @@ export async function scrapeAmazonStoreDeep(
     topProducts: [],
     totalScraped: hotProducts.length,
     successCount: 0,
-    failedCount: 0
+    failedCount: 0,
+    // 🔥 新增：聚合数据用于AI分析
+    aggregatedReviews: [],
+    aggregatedCompetitorAsins: [],
+    aggregatedFeatures: [],
   }
+
+  // 用于去重的Set
+  const seenCompetitorAsins = new Set<string>()
+  const seenFeatures = new Set<string>()
 
   for (let i = 0; i < hotProducts.length; i += maxConcurrency) {
     const batch = hotProducts.slice(i, i + maxConcurrency)
@@ -876,19 +972,42 @@ export async function scrapeAmazonStoreDeep(
 
         console.log(`  🛒 抓取商品详情: ${product.name?.substring(0, 50)}... (${asin})`)
 
+        // 🔥 优先检查缓存
+        const cached = getCachedProductDetail(asin)
+        if (cached) {
+          console.log(`  📦 缓存命中: ${asin}`)
+          return {
+            asin: asin,
+            productData: cached,
+            reviews: cached.topReviews || [],
+            reviewHighlights: cached.reviewHighlights || [],
+            competitorAsins: cached.relatedAsins || [],
+            features: cached.features || [],
+            scrapeStatus: 'success' as const
+          }
+        }
+
         try {
           const productData = await scrapeAmazonProduct(
             productUrl,
             customProxyUrl,
             targetCountry,
-            2
+            2,
+            false  // 🔥 不跳过竞品提取，店铺场景需要收集竞品
           )
+
+          // 保存到缓存
+          if (productData.asin) {
+            setCachedProductDetail(productData.asin, productData)
+          }
 
           return {
             asin: asin,
             productData: productData,
             reviews: productData.topReviews || [],
-            competitorAsins: productData.relatedAsins || [],  // 🔥 KISS优化：relatedAsins已是字符串数组
+            reviewHighlights: productData.reviewHighlights || [],
+            competitorAsins: productData.relatedAsins || [],
+            features: productData.features || [],
             scrapeStatus: 'success' as const
           }
         } catch (error: any) {
@@ -897,7 +1016,9 @@ export async function scrapeAmazonStoreDeep(
             asin: asin,
             productData: null,
             reviews: [],
+            reviewHighlights: [],
             competitorAsins: [],
+            features: [],
             scrapeStatus: 'failed' as const,
             error: error.message
           }
@@ -907,10 +1028,38 @@ export async function scrapeAmazonStoreDeep(
 
     for (const result of batchResults) {
       if (result.status === 'fulfilled') {
-        deepResults.topProducts.push(result.value)
-        if (result.value.scrapeStatus === 'success') {
+        const value = result.value
+        deepResults.topProducts.push(value)
+
+        if (value.scrapeStatus === 'success') {
           deepResults.successCount++
-          console.log(`  ✅ 成功: ${result.value.asin}, 评价数: ${result.value.reviews.length}, 竞品数: ${result.value.competitorAsins.length}`)
+
+          // 🔥 聚合评论数据
+          if (value.reviews && value.reviews.length > 0) {
+            deepResults.aggregatedReviews!.push(...value.reviews)
+          }
+          if (value.reviewHighlights && value.reviewHighlights.length > 0) {
+            deepResults.aggregatedReviews!.push(...value.reviewHighlights)
+          }
+
+          // 🔥 聚合竞品ASIN（去重）
+          for (const competitorAsin of value.competitorAsins) {
+            if (!seenCompetitorAsins.has(competitorAsin) && competitorAsin !== value.asin) {
+              seenCompetitorAsins.add(competitorAsin)
+              deepResults.aggregatedCompetitorAsins!.push(competitorAsin)
+            }
+          }
+
+          // 🔥 聚合产品特性（去重）
+          for (const feature of value.features) {
+            const featureKey = feature.substring(0, 50).toLowerCase()
+            if (!seenFeatures.has(featureKey)) {
+              seenFeatures.add(featureKey)
+              deepResults.aggregatedFeatures!.push(feature)
+            }
+          }
+
+          console.log(`  ✅ 成功: ${value.asin}, 评价数: ${value.reviews.length}, 竞品数: ${value.competitorAsins.length}`)
         } else {
           deepResults.failedCount++
         }
@@ -922,6 +1071,7 @@ export async function scrapeAmazonStoreDeep(
   }
 
   console.log(`📊 深度抓取完成: 成功 ${deepResults.successCount}/${deepResults.totalScraped}`)
+  console.log(`📊 聚合数据: 评论 ${deepResults.aggregatedReviews?.length || 0} 条, 竞品ASIN ${deepResults.aggregatedCompetitorAsins?.length || 0} 个, 特性 ${deepResults.aggregatedFeatures?.length || 0} 条`)
 
   return {
     ...storeData,
