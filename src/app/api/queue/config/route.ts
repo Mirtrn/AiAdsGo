@@ -89,13 +89,14 @@ async function saveQueueConfigToDB(config: typeof DEFAULT_QUEUE_CONFIG): Promise
     `, [configJson])
   } else {
     // 插入新配置
+    // 🔥 修复：使用参数化查询传入布尔值，避免PostgreSQL类型错误
     await db.exec(`
       INSERT INTO system_settings (
         user_id, category, key, value, data_type, is_sensitive, is_required, description
       ) VALUES (
-        NULL, 'queue', 'config', ?, 'json', 0, 0, '统一队列系统配置'
+        NULL, 'queue', 'config', ?, 'json', ?, ?, '统一队列系统配置'
       )
-    `, [configJson])
+    `, [configJson, false, false])
   }
 }
 

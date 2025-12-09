@@ -134,7 +134,7 @@ class PostgresAdapter implements DatabaseAdapter {
     const booleanFields = [
       'is_active', 'is_selected', 'is_success', 'must_change_password',
       'is_default', 'is_manager', 'is_manager_account', 'is_idle',
-      'enabled', 'is_deleted'
+      'enabled', 'is_deleted', 'is_sensitive', 'is_required'  // 🔥 修复：添加 system_settings 表的布尔字段
     ]
 
     // 转换 field = 1 -> field = true, field = 0 -> field = false
