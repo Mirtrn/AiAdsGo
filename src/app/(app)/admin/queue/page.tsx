@@ -60,7 +60,6 @@ interface QueueConfig {
 export default function QueueManagementPage() {
   const [stats, setStats] = useState<QueueStats | null>(null)
   const [loading, setLoading] = useState(true)
-  const [autoRefresh, setAutoRefresh] = useState(true)
   const [activeTab, setActiveTab] = useState<'monitor' | 'config'>('monitor')
 
   // 配置表单状态
@@ -191,13 +190,7 @@ export default function QueueManagementPage() {
 
   useEffect(() => {
     fetchStats()
-
-    // 自动刷新（每5秒）
-    if (autoRefresh && activeTab === 'monitor') {
-      const interval = setInterval(fetchStats, 5000)
-      return () => clearInterval(interval)
-    }
-  }, [autoRefresh, activeTab])
+  }, [activeTab])
 
   if (loading) {
     return (
@@ -235,25 +228,14 @@ export default function QueueManagementPage() {
         </div>
         <div className="flex items-center space-x-3">
           {activeTab === 'monitor' && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setAutoRefresh(!autoRefresh)}
-                className={autoRefresh ? 'bg-green-50 text-green-700 border-green-200' : ''}
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${autoRefresh ? 'animate-spin' : ''}`} />
-                {autoRefresh ? '自动刷新' : '已暂停'}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchStats}
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                手动刷新
-              </Button>
-            </>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchStats}
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              刷新
+            </Button>
           )}
         </div>
       </div>
