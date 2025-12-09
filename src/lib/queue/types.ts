@@ -152,6 +152,12 @@ export interface QueueStorageAdapter {
     cleanedTaskIds: string[]
   }>
 
+  // 🔥 无效用户任务清理（可选，Redis适配器实现）
+  cleanupInvalidUserTasks?(): Promise<{
+    cleanedCount: number
+    cleanedTaskIds: string[]
+  }>
+
   // 连接管理
   connect(): Promise<void>
   disconnect(): Promise<void>
