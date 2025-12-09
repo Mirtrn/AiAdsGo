@@ -57,12 +57,24 @@ export async function getKeywordIdeas(params: {
       }
     : undefined
 
+  // Fetch parent_mcc_id from database for login-customer-id header
+  let loginCustomerId: string | undefined = undefined
+  if (params.accountId && params.userId) {
+    const { getDatabase } = await import('./db')
+    const db = await getDatabase()
+    const account = await db.queryOne<{parent_mcc_id: string | null}>(
+      'SELECT parent_mcc_id FROM google_ads_accounts WHERE id = ? AND user_id = ?',
+      [params.accountId, params.userId]
+    )
+    loginCustomerId = account?.parent_mcc_id || undefined
+  }
+
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
     params.userId,
-    undefined, // loginCustomerId
+    loginCustomerId, // Now properly set from database
     credentials
   )
 
@@ -157,12 +169,24 @@ export async function getKeywordMetrics(params: {
       }
     : undefined
 
+  // Fetch parent_mcc_id from database for login-customer-id header
+  let loginCustomerId: string | undefined = undefined
+  if (params.accountId && params.userId) {
+    const { getDatabase } = await import('./db')
+    const db = await getDatabase()
+    const account = await db.queryOne<{parent_mcc_id: string | null}>(
+      'SELECT parent_mcc_id FROM google_ads_accounts WHERE id = ? AND user_id = ?',
+      [params.accountId, params.userId]
+    )
+    loginCustomerId = account?.parent_mcc_id || undefined
+  }
+
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
     params.userId,
-    undefined, // loginCustomerId
+    loginCustomerId, // Now properly set from database
     credentials
   )
 
