@@ -9,6 +9,9 @@ import { analyzeCompetitorsWithAI, type CompetitorProduct } from './competitor-a
 import { extractAdElements } from './ad-elements-extractor'
 import { scrapeAmazonProduct } from './stealth-scraper/amazon-product'
 
+// 🔥 修复（2025-12-09）：显式获取代理URL，确保竞品抓取时可用
+const PROXY_URL = process.env.PROXY_URL || ''
+
 export interface AIAnalysisInput {
   extractResult: {
     finalUrl: string
@@ -992,7 +995,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             const competitors = await batchScrapeCompetitorDetails(
               extractResult.relatedAsins!,
               targetCountry,
-              undefined,  // 使用默认代理
+              PROXY_URL || undefined,  // 🔥 修复：显式传递代理URL
               3           // 最多抓取3个竞品详情（数量控制）
             )
 
