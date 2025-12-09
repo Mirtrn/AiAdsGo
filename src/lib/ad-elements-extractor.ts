@@ -614,9 +614,12 @@ async function extractFromSingleProduct(
       }
     })
 
-    // 过滤搜索量过低的关键字
-    const filteredKeywords = keywordsWithVolume.filter(k => k.searchVolume >= minSearchVolume)
-    console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}）`)
+    // 过滤搜索量过低的关键字（但保留搜索量为0的关键字，因为可能是API未返回数据）
+    const hasAnyVolume = keywordsWithVolume.some(k => k.searchVolume > 0)
+    const filteredKeywords = hasAnyVolume
+      ? keywordsWithVolume.filter(k => k.searchVolume >= minSearchVolume || k.searchVolume === 0)
+      : keywordsWithVolume // 如果所有关键词都是0，保留全部（API数据缺失）
+    console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}${!hasAnyVolume ? '，API未返回数据' : ''}）`)
 
     // 按优先级和搜索量排序
     filteredKeywords.sort((a, b) => {
@@ -776,8 +779,11 @@ async function extractFromStore(
       }
     })
 
-    const filteredKeywords = keywordsWithVolume.filter(k => k.searchVolume >= minSearchVolume)
-    console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}）`)
+    const hasAnyVolume = keywordsWithVolume.some(k => k.searchVolume > 0)
+    const filteredKeywords = hasAnyVolume
+      ? keywordsWithVolume.filter(k => k.searchVolume >= minSearchVolume || k.searchVolume === 0)
+      : keywordsWithVolume
+    console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}${!hasAnyVolume ? '，API未返回数据' : ''}）`)
 
     // 排序
     filteredKeywords.sort((a, b) => {

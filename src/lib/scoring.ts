@@ -146,6 +146,14 @@ export async function calculateLaunchScore(
 
     const rawAnalysis = JSON.parse(jsonString) as ScoreAnalysis
 
+    // 验证必需字段存在
+    if (!rawAnalysis.keywordAnalysis || !rawAnalysis.marketFitAnalysis ||
+        !rawAnalysis.landingPageAnalysis || !rawAnalysis.budgetAnalysis ||
+        !rawAnalysis.contentAnalysis) {
+      console.error('AI返回的JSON结构不完整:', JSON.stringify(rawAnalysis, null, 2))
+      throw new Error(`AI返回的JSON缺少必需的分析字段。已有字段: ${Object.keys(rawAnalysis).join(', ')}`)
+    }
+
     // 验证评分范围
     validateScores(rawAnalysis)
 

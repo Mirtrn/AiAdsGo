@@ -164,6 +164,7 @@ export async function generateContent(params: {
       !response.data.candidates[0].content.parts ||
       response.data.candidates[0].content.parts.length === 0
     ) {
+      console.error('Gemini API响应结构:', JSON.stringify(response.data, null, 2))
       throw new Error('Gemini API 返回了空响应')
     }
 
@@ -216,6 +217,7 @@ export async function generateContent(params: {
           !fallbackResponse.data.candidates[0].content.parts ||
           fallbackResponse.data.candidates[0].content.parts.length === 0
         ) {
+          console.error('Gemini API (fallback)响应结构:', JSON.stringify(fallbackResponse.data, null, 2))
           throw new Error('Gemini API (fallback) 返回了空响应')
         }
 
