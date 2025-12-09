@@ -51,7 +51,8 @@ export async function GET(
         scrape_status: offer.scrape_status,
         scrapeError: offer.scrape_error,
         scrapedAt: offer.scraped_at,
-        isActive: offer.is_active === 1,
+        // 🔥 修复：兼容PostgreSQL(BOOLEAN)和SQLite(INTEGER)
+        isActive: offer.is_active === true || offer.is_active === 1,
         createdAt: offer.created_at,
         updatedAt: offer.updated_at,
         // AI分析结果字段（仅返回评论分析和竞品分析）
@@ -149,7 +150,8 @@ export async function PUT(
         finalUrl: offer.final_url,
         finalUrlSuffix: offer.final_url_suffix,
         scrape_status: offer.scrape_status,
-        isActive: offer.is_active === 1,
+        // 🔥 修复：兼容PostgreSQL(BOOLEAN)和SQLite(INTEGER)
+        isActive: offer.is_active === true || offer.is_active === 1,
         createdAt: offer.created_at,
         updatedAt: offer.updated_at,
       },

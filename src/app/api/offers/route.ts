@@ -108,7 +108,8 @@ export async function POST(request: NextRequest) {
           finalUrl: offer.final_url,
           finalUrlSuffix: offer.final_url_suffix,
           scrape_status: offer.scrape_status,
-          isActive: offer.is_active === 1,
+          // 🔥 修复：兼容PostgreSQL(BOOLEAN)和SQLite(INTEGER)
+          isActive: offer.is_active === true || offer.is_active === 1,
           createdAt: offer.created_at,
           // 新增字段（需求1和需求5）
           offerName: offer.offer_name,

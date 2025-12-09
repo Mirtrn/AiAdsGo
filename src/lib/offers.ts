@@ -26,7 +26,8 @@ export interface Offer {
   scrape_status: string
   scrape_error: string | null
   scraped_at: string | null
-  is_active: number
+  // 注意：PostgreSQL 返回 boolean，SQLite 返回 number (0/1)
+  is_active: number | boolean
   industry_code: string | null  // 行业代码（数据库字段，之前遗漏）
   // P0优化: 分析结果字段
   review_analysis: string | null
