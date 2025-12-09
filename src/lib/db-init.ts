@@ -1059,13 +1059,15 @@ async function checkUnfinishedQueueTasks(): Promise<void> {
     // 4. 避免状态不一致和僵尸任务
     // 5. 用户可以重新提交任务（成本低）
 
-    // 1. 清空Redis中的所有未完成任务（pending + running）
+    // 1. 清空Redis中的所有未完成任务（pending + running僵尸任务）
     let redisClearedCount = 0
     try {
       const redisCleanup = await clearRedisAllUnfinishedTasks()
       redisClearedCount = redisCleanup.clearedCount
-      if (redisClearedCount > 0) {
+      if (redisClearedCount > 0 || redisCleanup.details.userQueuesCleared > 0) {
         console.log(`  ✅ Redis: 已清空 ${redisClearedCount} 个未完成任务`)
+      } else {
+        console.log(`  ✅ Redis: 队列状态正常，无需清理`)
       }
     } catch (error) {
       console.warn('  ⚠️ Redis清理失败（非关键错误）:', error)
@@ -1327,60 +1329,113 @@ async function checkUnfinishedQueueTasks_deprecated(): Promise<void> {
 /**
  * 清空Redis中的所有未完成任务
  *
- * 删除所有pending和running任务，保留completed和failed作为历史记录
+ * 🔥 全面清理策略（解决僵尸任务问题）：
+ * 1. 使用正确的key prefix (autoads:queue:)
+ * 2. 清空所有pending队列
+ * 3. 清空running集合（关键：服务重启后所有running任务都是僵尸）
+ * 4. 清空用户相关队列
+ * 5. 从tasks hash中删除未完成任务的详情
+ * 6. 保留completed和failed作为历史记录
  */
 async function clearRedisAllUnfinishedTasks(): Promise<{
   clearedCount: number
+  details: {
+    pendingCleared: number
+    runningCleared: number
+    userQueuesCleared: number
+  }
 }> {
   try {
     const redisClient = await getRedisClient()
     if (!redisClient) {
-      return { clearedCount: 0 }
+      return {
+        clearedCount: 0,
+        details: { pendingCleared: 0, runningCleared: 0, userQueuesCleared: 0 }
+      }
     }
 
-    const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'queue:'
-    let clearedCount = 0
+    // 🔥 关键修复：使用与UnifiedQueueManager一致的key prefix
+    const redisKeyPrefix = process.env.REDIS_KEY_PREFIX || 'autoads:queue:'
+
+    let pendingCleared = 0
+    let runningCleared = 0
+    let userQueuesCleared = 0
 
     // 1. 获取所有pending任务ID
     const pendingTaskIds = await redisClient.zrange(`${redisKeyPrefix}pending:all`, 0, -1)
+    pendingCleared = pendingTaskIds.length
 
-    // 2. 获取所有running任务ID
+    // 2. 获取所有running任务ID（🔥 关键：这些都是僵尸任务）
     const runningTaskIds = await redisClient.smembers(`${redisKeyPrefix}running`)
+    runningCleared = runningTaskIds.length
 
-    const allTaskIds = [...pendingTaskIds, ...runningTaskIds]
+    // 3. 获取所有用户pending队列
+    const userPendingKeys = await redisClient.keys(`${redisKeyPrefix}user:*:pending`)
+    userQueuesCleared = userPendingKeys.length
 
-    if (allTaskIds.length > 0) {
-      const pipeline = redisClient.pipeline()
+    const allTaskIds = [...new Set([...pendingTaskIds, ...runningTaskIds])]  // 去重
 
-      // 3. 删除所有pending队列
-      const taskTypes = ['scrape', 'offer-extraction', 'batch-offer-creation', 'offer-creation', 'offer-scrape', 'offer-enhance', 'sync', 'ai-analysis', 'backup', 'export', 'email', 'link-check', 'cleanup']
-      for (const taskType of taskTypes) {
-        pipeline.del(`${redisKeyPrefix}pending:${taskType}`)
-      }
-      pipeline.del(`${redisKeyPrefix}pending:all`)
+    // 使用pipeline批量删除，提高效率
+    const pipeline = redisClient.pipeline()
 
-      // 4. 删除running集合
-      pipeline.del(`${redisKeyPrefix}running`)
-
-      // 5. 删除所有用户pending队列
-      const userKeys = await redisClient.keys(`${redisKeyPrefix}user:*:pending`)
-      if (userKeys.length > 0) {
-        pipeline.del(...userKeys)
-      }
-
-      // 6. 从tasks hash中删除所有未完成任务
-      for (const taskId of allTaskIds) {
-        pipeline.hdel(`${redisKeyPrefix}tasks`, taskId)
-      }
-
-      await pipeline.exec()
-      clearedCount = allTaskIds.length
+    // 4. 删除所有类型的pending队列
+    const taskTypes = [
+      'scrape',
+      'offer-extraction',
+      'batch-offer-creation',
+      'offer-creation',
+      'offer-scrape',
+      'offer-enhance',
+      'sync',
+      'ai-analysis',
+      'backup',
+      'export',
+      'email',
+      'link-check',
+      'cleanup'
+    ]
+    for (const taskType of taskTypes) {
+      pipeline.del(`${redisKeyPrefix}pending:${taskType}`)
     }
 
-    return { clearedCount }
+    // 5. 删除全局pending队列
+    pipeline.del(`${redisKeyPrefix}pending:all`)
+
+    // 6. 🔥 关键：删除running集合（清除所有僵尸任务）
+    pipeline.del(`${redisKeyPrefix}running`)
+
+    // 7. 删除所有用户pending队列
+    for (const userKey of userPendingKeys) {
+      pipeline.del(userKey)
+    }
+
+    // 8. 从tasks hash中删除所有未完成任务的详情
+    for (const taskId of allTaskIds) {
+      pipeline.hdel(`${redisKeyPrefix}tasks`, taskId)
+    }
+
+    await pipeline.exec()
+
+    const clearedCount = allTaskIds.length
+
+    // 输出详细清理日志
+    if (clearedCount > 0 || userQueuesCleared > 0) {
+      console.log(`  📊 Redis清理详情:`)
+      console.log(`     - pending任务: ${pendingCleared}`)
+      console.log(`     - running任务(僵尸): ${runningCleared}`)
+      console.log(`     - 用户队列: ${userQueuesCleared}`)
+    }
+
+    return {
+      clearedCount,
+      details: { pendingCleared, runningCleared, userQueuesCleared }
+    }
   } catch (error) {
     console.error('❌ Redis清空失败:', error)
-    return { clearedCount: 0 }
+    return {
+      clearedCount: 0,
+      details: { pendingCleared: 0, runningCleared: 0, userQueuesCleared: 0 }
+    }
   }
 }
 

@@ -44,6 +44,11 @@ export class UnifiedQueueManager {
   private startingPromise: Promise<void> | null = null
   private executorsRegistered: boolean = false
 
+  // 🔥 健康检查定时器
+  private healthCheckLoop: NodeJS.Timeout | null = null
+  private readonly HEALTH_CHECK_INTERVAL = 5 * 60 * 1000  // 5分钟检查一次
+  private readonly STALE_TASK_TIMEOUT = 30 * 60 * 1000    // 30分钟超时
+
   constructor(config: Partial<QueueConfig> = {}) {
     // 合并默认配置
     this.config = {
@@ -158,17 +163,21 @@ export class UnifiedQueueManager {
       if (this.running) return
 
       this.running = true
-      console.log('🚀 队列处理已启动')
+      console.log('🚀 队列处理启动中...')
 
-      // 【队列恢复】功能已完全移除
-      // 启动时会自动清空所有未完成任务（见 db-init.ts）
-      // 用户可以重新提交任务
+      // 🔥 启动时清理僵尸任务（关键步骤）
+      await this.cleanupZombieTasks('startup')
 
       // 启动处理循环（每100ms检查一次）
       this.processingLoop = setInterval(() => {
         this.processQueue()
       }, 100)
+
+      // 🔥 启动健康检查循环
+      this.startHealthCheckLoop()
+
       this.started = true
+      console.log('🚀 队列处理已启动')
     })()
 
     await this.startingPromise
@@ -183,10 +192,14 @@ export class UnifiedQueueManager {
     this.running = false
     this.started = false
 
+    // 停止处理循环
     if (this.processingLoop) {
       clearInterval(this.processingLoop)
       this.processingLoop = null
     }
+
+    // 🔥 停止健康检查循环
+    this.stopHealthCheckLoop()
 
     await this.adapter.disconnect()
     console.log('⏹️ 队列处理已停止')
@@ -517,6 +530,153 @@ export class UnifiedQueueManager {
    */
   async clearFailed(): Promise<number> {
     return this.adapter.clearFailed()
+  }
+
+  /**
+   * 🔥 清理僵尸任务（启动时调用）
+   *
+   * 僵尸任务定义：
+   * 1. running状态但实际上没有在执行（服务重启导致）
+   * 2. 超时的running任务（执行时间过长）
+   *
+   * 清理策略：
+   * 1. 启动时：清空所有running任务（因为服务重启后没有任务在执行）
+   * 2. 运行时：定期检查超时的running任务并标记为失败
+   */
+  async cleanupZombieTasks(mode: 'startup' | 'runtime' = 'runtime'): Promise<{
+    cleaned: number
+    details: string
+  }> {
+    try {
+      if (mode === 'startup') {
+        // 启动模式：清空所有未完成任务
+        if (this.adapter.clearAllUnfinished) {
+          const result = await this.adapter.clearAllUnfinished()
+          const details = `pending=${result.pendingCleared}, running(zombie)=${result.runningCleared}, userQueues=${result.userQueuesCleared}`
+
+          if (result.totalCleared > 0) {
+            console.log(`🧹 队列启动清理: 清除 ${result.totalCleared} 个僵尸任务`)
+            console.log(`   ${details}`)
+          }
+
+          return {
+            cleaned: result.totalCleared,
+            details
+          }
+        }
+      } else {
+        // 运行时模式：只清理超时任务
+        if (this.adapter.cleanupStaleRunningTasks) {
+          const result = await this.adapter.cleanupStaleRunningTasks(this.STALE_TASK_TIMEOUT)
+
+          if (result.cleanedCount > 0) {
+            console.log(`🧹 队列健康检查: 清理 ${result.cleanedCount} 个超时任务`)
+          }
+
+          return {
+            cleaned: result.cleanedCount,
+            details: `stale tasks cleaned: ${result.cleanedTaskIds.join(', ')}`
+          }
+        }
+      }
+
+      return { cleaned: 0, details: 'No cleanup adapter available' }
+    } catch (error: any) {
+      console.error('❌ 僵尸任务清理失败:', error.message)
+      return { cleaned: 0, details: `Error: ${error.message}` }
+    }
+  }
+
+  /**
+   * 🔥 执行健康检查
+   *
+   * 检查内容：
+   * 1. 内存中的running计数是否与Redis一致
+   * 2. 是否有超时的任务需要清理
+   * 3. 队列状态是否正常
+   */
+  async performHealthCheck(): Promise<{
+    healthy: boolean
+    issues: string[]
+    actions: string[]
+  }> {
+    const issues: string[] = []
+    const actions: string[] = []
+
+    try {
+      // 1. 获取队列统计
+      const stats = await this.adapter.getStats()
+
+      // 2. 检查内存计数与Redis是否一致
+      if (this.globalRunningCount !== stats.running) {
+        issues.push(`内存running计数(${this.globalRunningCount})与Redis(${stats.running})不一致`)
+
+        // 如果Redis中有running任务但内存中没有，说明有僵尸任务
+        if (this.globalRunningCount === 0 && stats.running > 0) {
+          // 清理这些僵尸任务
+          const cleanupResult = await this.cleanupZombieTasks('runtime')
+          actions.push(`清理了 ${cleanupResult.cleaned} 个僵尸任务`)
+        }
+      }
+
+      // 3. 检查超时任务
+      if (this.adapter.cleanupStaleRunningTasks) {
+        const staleCleanup = await this.adapter.cleanupStaleRunningTasks(this.STALE_TASK_TIMEOUT)
+        if (staleCleanup.cleanedCount > 0) {
+          issues.push(`发现 ${staleCleanup.cleanedCount} 个超时任务`)
+          actions.push(`清理超时任务: ${staleCleanup.cleanedTaskIds.join(', ')}`)
+        }
+      }
+
+      const healthy = issues.length === 0
+      if (!healthy) {
+        console.log(`⚠️ 队列健康检查发现问题:`)
+        issues.forEach(issue => console.log(`   - ${issue}`))
+        actions.forEach(action => console.log(`   ✅ ${action}`))
+      }
+
+      return { healthy, issues, actions }
+    } catch (error: any) {
+      return {
+        healthy: false,
+        issues: [`健康检查失败: ${error.message}`],
+        actions: []
+      }
+    }
+  }
+
+  /**
+   * 🔥 启动健康检查循环
+   */
+  private startHealthCheckLoop(): void {
+    if (this.healthCheckLoop) return
+
+    // 立即执行一次健康检查
+    this.performHealthCheck().catch(err =>
+      console.error('❌ 首次健康检查失败:', err.message)
+    )
+
+    // 设置定期检查
+    this.healthCheckLoop = setInterval(async () => {
+      try {
+        await this.performHealthCheck()
+      } catch (error: any) {
+        console.error('❌ 定期健康检查失败:', error.message)
+      }
+    }, this.HEALTH_CHECK_INTERVAL)
+
+    console.log(`🏥 队列健康检查已启动 (间隔: ${this.HEALTH_CHECK_INTERVAL / 1000}秒)`)
+  }
+
+  /**
+   * 🔥 停止健康检查循环
+   */
+  private stopHealthCheckLoop(): void {
+    if (this.healthCheckLoop) {
+      clearInterval(this.healthCheckLoop)
+      this.healthCheckLoop = null
+      console.log('🏥 队列健康检查已停止')
+    }
   }
 
   /**

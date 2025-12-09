@@ -397,6 +397,144 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
   }
 
   /**
+   * 🔥 全面清理所有未完成任务（启动时使用）
+   *
+   * 解决僵尸任务问题：
+   * 1. 清空所有pending队列
+   * 2. 清空running集合（关键：服务重启后所有running任务都是僵尸）
+   * 3. 清空用户相关队列
+   * 4. 从tasks hash中删除未完成任务
+   * 5. 保留completed和failed作为历史记录
+   */
+  async clearAllUnfinished(): Promise<{
+    pendingCleared: number
+    runningCleared: number
+    userQueuesCleared: number
+    totalCleared: number
+  }> {
+    if (!this.client) {
+      return {
+        pendingCleared: 0,
+        runningCleared: 0,
+        userQueuesCleared: 0,
+        totalCleared: 0
+      }
+    }
+
+    // 1. 获取所有pending任务ID
+    const pendingTaskIds = await this.client.zrange(this.getKey('pending:all'), 0, -1)
+
+    // 2. 获取所有running任务ID（僵尸任务）
+    const runningTaskIds = await this.client.smembers(this.getKey('running'))
+
+    // 3. 获取所有用户pending队列
+    const userPendingKeys = await this.client.keys(this.getKey('user:*:pending'))
+
+    // 合并并去重
+    const allTaskIds = [...new Set([...pendingTaskIds, ...runningTaskIds])]
+
+    const pipeline = this.client.pipeline()
+
+    // 4. 删除所有类型的pending队列
+    const taskTypes = [
+      'scrape',
+      'offer-extraction',
+      'batch-offer-creation',
+      'offer-creation',
+      'offer-scrape',
+      'offer-enhance',
+      'sync',
+      'ai-analysis',
+      'backup',
+      'export',
+      'email',
+      'link-check',
+      'cleanup'
+    ]
+    for (const taskType of taskTypes) {
+      pipeline.del(this.getKey(`pending:${taskType}`))
+    }
+
+    // 5. 删除全局pending队列
+    pipeline.del(this.getKey('pending:all'))
+
+    // 6. 删除running集合
+    pipeline.del(this.getKey('running'))
+
+    // 7. 删除所有用户pending队列
+    for (const userKey of userPendingKeys) {
+      pipeline.del(userKey)
+    }
+
+    // 8. 从tasks hash中删除未完成任务
+    for (const taskId of allTaskIds) {
+      pipeline.hdel(this.getKey('tasks'), taskId)
+    }
+
+    await pipeline.exec()
+
+    return {
+      pendingCleared: pendingTaskIds.length,
+      runningCleared: runningTaskIds.length,
+      userQueuesCleared: userPendingKeys.length,
+      totalCleared: allTaskIds.length
+    }
+  }
+
+  /**
+   * 清理超时的running任务（定期调用）
+   *
+   * @param timeoutMs 超时时间（毫秒），默认30分钟
+   */
+  async cleanupStaleRunningTasks(timeoutMs: number = 30 * 60 * 1000): Promise<{
+    cleanedCount: number
+    cleanedTaskIds: string[]
+  }> {
+    if (!this.client) {
+      return { cleanedCount: 0, cleanedTaskIds: [] }
+    }
+
+    const now = Date.now()
+    const runningTaskIds = await this.client.smembers(this.getKey('running'))
+    const cleanedTaskIds: string[] = []
+
+    for (const taskId of runningTaskIds) {
+      const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
+      if (!taskJson) {
+        // 任务详情不存在，是孤立的running记录
+        await this.client.srem(this.getKey('running'), taskId)
+        cleanedTaskIds.push(taskId)
+        continue
+      }
+
+      const task: Task = JSON.parse(taskJson)
+      const startedAt = task.startedAt || task.createdAt
+
+      // 检查是否超时
+      if (startedAt && (now - startedAt) > timeoutMs) {
+        // 任务超时，标记为失败并清理
+        task.status = 'failed'
+        task.error = 'Task timeout - marked as stale'
+        task.completedAt = now
+
+        const pipeline = this.client.pipeline()
+        pipeline.hset(this.getKey('tasks'), task.id, JSON.stringify(task))
+        pipeline.srem(this.getKey('running'), taskId)
+        pipeline.sadd(this.getKey('failed'), taskId)
+        await pipeline.exec()
+
+        cleanedTaskIds.push(taskId)
+        console.log(`⏰ 清理超时任务: ${taskId} (运行时间: ${Math.round((now - startedAt) / 1000 / 60)}分钟)`)
+      }
+    }
+
+    return {
+      cleanedCount: cleanedTaskIds.length,
+      cleanedTaskIds
+    }
+  }
+
+  /**
    * 计算优先级分数
    * high: 0-999, normal: 1000-1999, low: 2000-2999
    * 同优先级按时间戳排序（越早越小）

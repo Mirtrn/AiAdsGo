@@ -138,6 +138,20 @@ export interface QueueStorageAdapter {
   clearCompleted(): Promise<number>
   clearFailed(): Promise<number>
 
+  // 🔥 启动时清理操作（可选，Redis适配器实现）
+  clearAllUnfinished?(): Promise<{
+    pendingCleared: number
+    runningCleared: number
+    userQueuesCleared: number
+    totalCleared: number
+  }>
+
+  // 🔥 超时任务清理（可选，Redis适配器实现）
+  cleanupStaleRunningTasks?(timeoutMs?: number): Promise<{
+    cleanedCount: number
+    cleanedTaskIds: string[]
+  }>
+
   // 连接管理
   connect(): Promise<void>
   disconnect(): Promise<void>
