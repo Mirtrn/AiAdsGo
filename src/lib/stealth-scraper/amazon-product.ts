@@ -200,14 +200,22 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   // 因此移除了imageUrls提取逻辑，降低抓取复杂度和数据冗余
   const imageUrls: string[] = [] // 保留空数组以维持接口兼容性
 
-  // Extract rating and review count
+  // Extract rating and review count - 支持桌面版和移动版
   const ratingText = $('#acrPopover').attr('title') ||
                      $('span[data-hook="rating-out-of-text"]').text().trim() ||
-                     $('.a-icon-star span').first().text().trim()
+                     $('.a-icon-star span').first().text().trim() ||
+                     // === 移动版选择器 (a-m-* 页面) ===
+                     $('[data-hook="cr-state-object"]').attr('data-state')?.match(/"averageStarRating":([\d.]+)/)?.[1] ||
+                     $('.a-icon-alt').first().text().trim() ||
+                     $('i.a-icon-star-medium + span').text().trim()
   const rating = ratingText ? ratingText.match(/[\d.]+/)?.[0] || null : null
 
   const reviewCountText = $('#acrCustomerReviewText').text().trim() ||
-                          $('span[data-hook="total-review-count"]').text().trim()
+                          $('span[data-hook="total-review-count"]').text().trim() ||
+                          // === 移动版选择器 (a-m-* 页面) ===
+                          $('[data-hook="cr-state-object"]').attr('data-state')?.match(/"totalReviewCount":(\d+)/)?.[1] ||
+                          $('a[href*="customerReviews"]').text().trim() ||
+                          $('.a-link-normal[href*="reviews"]').first().text().trim()
   const reviewCount = reviewCountText ? reviewCountText.match(/[\d,]+/)?.[0]?.replace(/,/g, '') || null : null
 
   // Extract sales rank
@@ -216,22 +224,30 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
                         $('th:contains("Best Sellers Rank")').next().text().trim()
   const salesRank = salesRankText ? salesRankText.match(/#[\d,]+/)?.[0] || null : null
 
-  // 🎯 P3优化: Extract badge (Amazon's Choice, Best Seller, etc.)
+  // 🎯 P3优化: Extract badge (Amazon's Choice, Best Seller, etc.) - 支持桌面版和移动版
   let badge: string | null = null
 
   // Strategy 1: Amazon's Choice badge (最常见)
   const amazonChoiceBadge = $('.ac-badge-wrapper .ac-badge-text-primary').text().trim() ||
                             $('span.a-badge-text:contains("Amazon\'s Choice")').text().trim() ||
-                            $('[data-a-badge-color="sx-gulfstream"] span.a-badge-text').text().trim()
+                            $('[data-a-badge-color="sx-gulfstream"] span.a-badge-text').text().trim() ||
+                            // === 移动版选择器 (a-m-* 页面) ===
+                            $('[data-feature-name="acBadge"] .a-badge-text').text().trim() ||
+                            $('i.a-icon-ac').parent().text().trim()
 
   // Strategy 2: Best Seller badge (从多个位置检测)
   const bestSellerBadge = $('#zeitgeist-module .a-badge-text').text().trim() ||
                           $('.badge-wrapper .badge-text:contains("Best Seller")').text().trim() ||
-                          $('span:contains("#1 Best Seller")').first().text().trim()
+                          $('span:contains("#1 Best Seller")').first().text().trim() ||
+                          // === 移动版选择器 (a-m-* 页面) ===
+                          $('[data-feature-name="zeitgeist"] .a-badge-text').text().trim() ||
+                          $('i.a-icon-bestseller').parent().text().trim()
 
   // Strategy 3: Generic badge detection (捕获其他badge)
   const genericBadge = $('.a-badge-text').first().text().trim() ||
-                       $('i.a-icon-addon-badge').parent().text().trim()
+                       $('i.a-icon-addon-badge').parent().text().trim() ||
+                       // === 移动版选择器 (a-m-* 页面) ===
+                       $('[data-component-type="badge"]').text().trim()
 
   // 优先级: Amazon's Choice > Best Seller > Generic
   if (amazonChoiceBadge) {
@@ -262,15 +278,23 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
   }
 
-  // Extract availability
+  // Extract availability - 支持桌面版和移动版
   const availability = $('#availability span').text().trim() ||
                        $('#outOfStock span').text().trim() ||
+                       // === 移动版选择器 (a-m-* 页面) ===
+                       $('#deliveryMessage_feature_div').text().trim() ||
+                       $('[data-csa-c-delivery-price]').text().trim() ||
+                       $('#mir-layout-DELIVERY_BLOCK').text().trim() ||
                        null
 
-  // Check Prime eligibility
+  // Check Prime eligibility - 支持桌面版和移动版
   const primeEligible = $('#primeEligibilityMessage').length > 0 ||
                         $('.a-icon-prime').length > 0 ||
-                        $('[data-feature-name="primeEligible"]').length > 0
+                        $('[data-feature-name="primeEligible"]').length > 0 ||
+                        // === 移动版选择器 (a-m-* 页面) ===
+                        $('i.a-icon-prime-m').length > 0 ||
+                        $('[data-action="show-prime-delivery"]').length > 0 ||
+                        $('span:contains("FREE Prime")').length > 0
 
   // Extract review highlights
   const reviewHighlights: string[] = []
@@ -295,8 +319,9 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
   })
 
-  // Extract technical details
+  // Extract technical details - 支持桌面版和移动版
   const technicalDetails: Record<string, string> = {}
+  // === 桌面版选择器 ===
   $('#productDetails_techSpec_section_1 tr, #productDetails_detailBullets_sections1 tr').each((i: number, el: any) => {
     const key = $(el).find('th').text().trim()
     const value = $(el).find('td').text().trim()
@@ -312,6 +337,22 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
       technicalDetails[match[1].trim()] = match[2].trim()
     }
   })
+  // === 移动版选择器 (a-m-* 页面) ===
+  $('#productDetails_feature_div tr, #tech-specs-desktop tr').each((i: number, el: any) => {
+    const key = $(el).find('th, .a-text-bold').first().text().trim()
+    const value = $(el).find('td, .a-text-normal').last().text().trim()
+    if (key && value && !technicalDetails[key]) {
+      technicalDetails[key] = value
+    }
+  })
+  // Mobile: product overview section
+  $('#productOverview_feature_div tr, #poExpander tr').each((i: number, el: any) => {
+    const key = $(el).find('.a-text-bold').text().trim()
+    const value = $(el).find('.a-text-normal, .po-break-word').text().trim()
+    if (key && value && !technicalDetails[key]) {
+      technicalDetails[key] = value
+    }
+  })
 
   // Extract ASIN
   const asin = url.match(/\/dp\/([A-Z0-9]+)/)?.[1] ||
@@ -319,12 +360,20 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
                $('th:contains("ASIN")').next().text().trim() ||
                null
 
-  // Extract category/breadcrumb
+  // Extract category/breadcrumb - 支持桌面版和移动版
   const categoryParts: string[] = []
+  // === 桌面版选择器 ===
   $('#wayfinding-breadcrumbs_feature_div li a').each((i: number, el: any) => {
     const text = $(el).text().trim()
     if (text) categoryParts.push(text)
   })
+  // === 移动版选择器 (a-m-* 页面) ===
+  if (categoryParts.length === 0) {
+    $('[data-feature-name="wayfinding-breadcrumbs"] a, .a-breadcrumb a').each((i: number, el: any) => {
+      const text = $(el).text().trim()
+      if (text) categoryParts.push(text)
+    })
+  }
   const category = categoryParts.join(' > ') || null
 
   // 🎯 优化品牌名提取 - 多源策略应对反爬虫（提前提取用于竞品过滤）
@@ -396,18 +445,29 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     console.log(`🔥 竞品候选ASIN提取完成: 找到 ${relatedAsins.length} 个候选（品牌过滤将在详情页抓取后进行）`)
   }
 
-  // Extract prices
+  // Extract prices - 支持桌面版和移动版
   const currentPrice = $('.a-price .a-offscreen').first().text().trim() ||
                        $('#priceblock_ourprice').text().trim() ||
                        $('#price_inside_buybox').text().trim() ||
+                       // === 移动版选择器 (a-m-* 页面) ===
+                       $('#corePrice_feature_div .a-price .a-offscreen').first().text().trim() ||
+                       $('[data-a-color="price"] .a-offscreen').first().text().trim() ||
+                       $('.priceToPay .a-offscreen').first().text().trim() ||
+                       $('#apex_offerDisplay_mobile .a-offscreen').first().text().trim() ||
                        null
 
   const originalPrice = $('.a-price[data-a-strike="true"] .a-offscreen').text().trim() ||
                         $('.priceBlockStrikePriceString').text().trim() ||
+                        // === 移动版选择器 (a-m-* 页面) ===
+                        $('.basisPrice .a-offscreen').text().trim() ||
+                        $('[data-a-strike="true"] .a-offscreen').first().text().trim() ||
                         null
 
   const discount = $('.savingsPercentage').text().trim() ||
                    $('[data-hook="price-above-strike"] span').text().trim() ||
+                   // === 移动版选择器 (a-m-* 页面) ===
+                   $('.savingPriceOverride').text().trim() ||
+                   $('[data-a-color="price"] .a-text-price').text().trim() ||
                    null
 
   // 🎯 优化产品名称提取 - 按优先级尝试核心产品区域（包含桌面版和移动版）

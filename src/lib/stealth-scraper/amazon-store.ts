@@ -257,11 +257,19 @@ async function scrapeStorePageContent(
 
     await randomDelay(3000, 5000)
 
+    // 🔥 产品网格选择器 - 支持桌面版和移动版
     const productSelectors = [
+      // === 通用选择器 ===
       'div[data-asin]:not([data-asin=""])',
       'a[href*="/dp/"][class*="product"]',
+      // === 桌面版选择器 ===
       'div[class*="ProductCard"]',
       'div[class*="product-card"]',
+      '.stores-widget-btf',
+      // === 移动版选择器 (a-m-* 页面) ===
+      '.a-carousel-card',
+      '[data-component-type="s-search-result"]',
+      '.s-result-item',
     ]
 
     for (const selector of productSelectors) {
@@ -331,15 +339,24 @@ async function scrapeStorePageContent(
   }
 
   if (!storeName) {
+    // 🔥 支持桌面版和移动版选择器
     storeName = $('[data-testid="store-name"]').text().trim() ||
                 $('.stores-heading-desktop h1').text().trim() ||
+                // === 移动版选择器 (a-m-* 页面) ===
+                $('.stores-heading-mobile h1').text().trim() ||
+                $('[data-cel-widget="StoreFrontTopSectionTitle"] h1').text().trim() ||
+                $('.a-section h1.a-text-bold').first().text().trim() ||
                 $('meta[property="og:title"]').attr('content')?.replace(' - Amazon.com', '').trim() ||
                 null
   }
 
+  // 🔥 支持桌面版和移动版选择器
   const storeDescription = $('meta[name="description"]').attr('content') ||
                            $('meta[property="og:description"]').attr('content') ||
                            $('.stores-brand-description').text().trim() ||
+                           // === 移动版选择器 ===
+                           $('[data-cel-widget="StoreFrontTopSectionDescription"]').text().trim() ||
+                           $('.a-section .a-text-normal').first().text().trim() ||
                            null
 
   // Extract brand name
