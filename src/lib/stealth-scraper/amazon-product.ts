@@ -573,8 +573,6 @@ function extractBrandName(
     '#bylineInfo',
     'a#bylineInfo',
     '[data-feature-name="bylineInfo"]',
-    '#productOverview_feature_div tr:contains("Brand") td:last-child',
-    '#detailBullets_feature_div li:contains("Brand") span:last-child',
   ]
 
   for (const selector of brandSelectors) {
@@ -590,6 +588,37 @@ function extractBrandName(
         console.log(`✅ 策略1成功: 从选择器${selector}提取品牌 "${brandName}"`)
         break
       }
+    }
+  }
+
+  // 🔥 策略1.5: 从Product Overview表格提取Brand（截图中的"Brand: Coziley"格式）
+  if (!brandName) {
+    // 方法1: 遍历productOverview表格行
+    $('#productOverview_feature_div tr, #poExpander tr').each((i: number, el: any) => {
+      if (brandName) return false // 已找到则停止
+      const label = $(el).find('td.a-span3, td:first-child').text().trim().toLowerCase()
+      if (label === 'brand' || label.includes('brand')) {
+        const value = $(el).find('td.a-span9, td:last-child').text().trim()
+        if (value && value.length > 1 && value.length < 50) {
+          brandName = value
+          console.log(`✅ 策略1.5成功: 从Product Overview表格提取品牌 "${brandName}"`)
+        }
+      }
+    })
+
+    // 方法2: 直接查找包含Brand的行
+    if (!brandName) {
+      $('tr').each((i: number, el: any) => {
+        if (brandName) return false
+        const labelText = $(el).find('td:first-child, th').text().trim().toLowerCase()
+        if (labelText === 'brand') {
+          const value = $(el).find('td:last-child').text().trim()
+          if (value && value.length > 1 && value.length < 50 && !isInRecommendationArea(el)) {
+            brandName = value
+            console.log(`✅ 策略1.5b成功: 从表格行提取品牌 "${brandName}"`)
+          }
+        }
+      })
     }
   }
 
