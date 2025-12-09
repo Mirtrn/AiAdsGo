@@ -8,6 +8,7 @@ import { analyzeReviewsWithAI, type RawReview } from './review-analyzer'
 import { analyzeCompetitorsWithAI, type CompetitorProduct } from './competitor-analyzer'
 import { extractAdElements } from './ad-elements-extractor'
 import { scrapeAmazonProduct } from './stealth-scraper/amazon-product'
+import { parsePrice } from './pricing-utils'  // 🔧 新增：统一价格解析函数
 
 // 🔥 修复（2025-12-09）：显式获取代理URL，确保竞品抓取时可用
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -459,9 +460,7 @@ async function batchScrapeCompetitorDetails(
           asin,
           name: productData.productName || `Product ${asin}`,
           brand: productData.brandName || 'Unknown',
-          price: productData.productPrice
-            ? parseFloat(productData.productPrice.replace(/[^0-9.]/g, ''))
-            : null,
+          price: parsePrice(productData.productPrice),  // 🔧 修复：使用统一价格解析函数
           priceText: productData.productPrice || null,
           rating: productData.rating
             ? parseFloat(productData.rating)
@@ -932,11 +931,8 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                 console.log(`✅ Playwright抓取${scrapedCompetitors.length}个竞品，执行AI分析...`)
 
                 // 从产品数据构建"我们的产品"对象
-                const priceStr = extractResult.price
-                let priceNum: number | null = null
-                if (priceStr) {
-                  priceNum = parseFloat(priceStr.replace(/[^0-9.]/g, ''))
-                }
+                // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
+                const priceNum = parsePrice(extractResult.price)
 
                 const ourProduct = {
                   name: extractResult.productName || extractResult.brand || 'Unknown Product',
@@ -976,11 +972,8 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
 
           try {
             // 构建"我们的产品"对象
-            const priceStr = extractResult.price
-            let priceNum: number | null = null
-            if (priceStr) {
-              priceNum = parseFloat(priceStr.replace(/[^0-9.]/g, ''))
-            }
+            // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
+            const priceNum = parsePrice(extractResult.price)
 
             const ourProduct = {
               name: extractResult.productName || extractResult.brand || 'Unknown Product',
@@ -1057,11 +1050,8 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             console.log(`📊 单品页面：使用产品数据进行竞品市场定位分析...`)
 
             // 从产品数据构建"我们的产品"对象
-            const priceStr = extractResult.price
-            let priceNum: number | null = null
-            if (priceStr) {
-              priceNum = parseFloat(priceStr.replace(/[^0-9.]/g, ''))
-            }
+            // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
+            const priceNum = parsePrice(extractResult.price)
 
             const ourProduct = {
               name: extractResult.productName || extractResult.brand || 'Unknown Product',
@@ -1157,7 +1147,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             console.log(`📊 从店铺产品中提取竞品数据 (${extractResult.products.length}个产品)...`)
             // 将店铺中的其他产品视为竞品
             extractResult.products.slice(0, 10).forEach((product: any) => {
-              const priceNum = product.price ? parseFloat(product.price.replace(/[^0-9.]/g, '')) : null
+              const priceNum = parsePrice(product.price)  // 🔧 修复：使用统一价格解析函数
               const ratingNum = product.rating ? parseFloat(product.rating) : null
               competitors.push({
                 asin: product.asin || null,
@@ -1174,10 +1164,8 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             })
 
             if (competitors.length >= 2) {
-              // 🔥 修复：从扁平化结构中提取产品价格信息
-              const productPrice = extractResult.price
-                ? parseFloat(extractResult.price.replace(/[^0-9.]/g, ''))
-                : null
+              // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
+              const productPrice = parsePrice(extractResult.price)
 
               const ourProduct = {
                 name: extractResult.productName || extractResult.brand || 'Unknown',
@@ -1209,7 +1197,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           console.log(`📊 从店铺产品中提取竞品数据 (${extractResult.products.length}个产品)...`)
           // 将店铺中的其他产品视为竞品
           extractResult.products.slice(0, 10).forEach((product: any) => {
-            const priceNum = product.price ? parseFloat(product.price.replace(/[^0-9.]/g, '')) : null
+            const priceNum = parsePrice(product.price)  // 🔧 修复：使用统一价格解析函数
             const ratingNum = product.rating ? parseFloat(product.rating) : null
             competitors.push({
               asin: product.asin || null,
@@ -1226,10 +1214,8 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           })
 
           if (competitors.length >= 2) {
-            // 🔥 修复：从扁平化结构中提取产品价格信息
-            const productPrice = extractResult.price
-              ? parseFloat(extractResult.price.replace(/[^0-9.]/g, ''))
-              : null
+            // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
+            const productPrice = parsePrice(extractResult.price)
 
             const ourProduct = {
               name: extractResult.productName || extractResult.brand || 'Unknown',

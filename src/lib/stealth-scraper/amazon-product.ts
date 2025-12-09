@@ -5,6 +5,7 @@
  */
 
 import { normalizeBrandName } from '../offer-utils'
+import { parsePrice } from '../pricing-utils'  // 🔥 新增：统一价格解析函数
 import { getPlaywrightPool } from '../playwright-pool'
 import { isProxyConnectionError } from './proxy-utils'
 import { createStealthBrowser, releaseBrowser, configureStealthPage } from './browser-stealth'
@@ -392,6 +393,7 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
         }
 
         // 🔥 新增（2025-12-09）：从推荐卡片中提取价格
+        // 🔧 修复（2025-12-09）：使用parsePrice统一处理欧洲/美国价格格式
         let cardPrice: number | null = null
         const priceSelectors = [
           '.a-price .a-offscreen',
@@ -403,15 +405,11 @@ function parseAmazonProductHtml($: any, url: string): AmazonProductData {
         for (const priceSelector of priceSelectors) {
           const priceText = $card.find(priceSelector).first().text().trim()
           if (priceText) {
-            // 解析价格：移除货币符号和逗号，转换为数字
-            const priceMatch = priceText.match(/[\d,.]+/)
-            if (priceMatch) {
-              const cleanPrice = priceMatch[0].replace(/,/g, '')
-              const parsed = parseFloat(cleanPrice)
-              if (!isNaN(parsed) && parsed > 0) {
-                cardPrice = parsed
-                break
-              }
+            // 🔧 使用统一的parsePrice函数，正确处理欧洲格式（€299,00 → 299.00）
+            const parsed = parsePrice(priceText)
+            if (parsed !== null && parsed > 0) {
+              cardPrice = parsed
+              break
             }
           }
         }
