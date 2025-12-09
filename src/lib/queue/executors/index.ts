@@ -15,6 +15,7 @@ import { createLinkCheckExecutor } from './link-check-executor'
 import { createCleanupExecutor } from './cleanup-executor'
 import { executeOfferExtraction } from './offer-extraction-executor'
 import { executeBatchCreation } from './batch-creation-executor'
+import { executeAdCreativeGeneration } from './ad-creative-executor'
 
 /**
  * 注册所有任务执行器
@@ -49,6 +50,9 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
 
   // 注册 batch-offer-creation 执行器
   queue.registerExecutor('batch-offer-creation', executeBatchCreation)
+
+  // 注册 ad-creative 执行器
+  queue.registerExecutor('ad-creative', executeAdCreativeGeneration)
 }
 
 export { createScrapeExecutor, convertPriorityToEnum } from './scrape-executor'
@@ -67,3 +71,4 @@ export type { ExportTaskData } from './export-executor'
 export type { EmailTaskData } from './email-executor'
 export type { LinkCheckTaskData } from './link-check-executor'
 export type { CleanupTaskData } from './cleanup-executor'
+export type { AdCreativeTaskData } from './ad-creative-executor'

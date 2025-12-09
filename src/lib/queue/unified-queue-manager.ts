@@ -70,7 +70,8 @@ export class UnifiedQueueManager {
         'link-check': 2,
         cleanup: 1,
         'offer-extraction': 2,      // Offer提取任务并发限制（AI密集型）
-        'batch-offer-creation': 1   // 批量任务协调器（串行执行，避免资源竞争）
+        'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
+        'ad-creative': 1            // 创意生成任务（AI密集型，串行避免API限流）
       },
       maxQueueSize: config.maxQueueSize || 1000,
       taskTimeout: config.taskTimeout || 600000,  // 10分钟超时（Offer提取等长耗时任务）
