@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { findActiveGoogleAdsAccounts } from '@/lib/google-ads-accounts'
+import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import {
   getKeywordIdeas,
   filterHighQualityKeywords,
@@ -89,6 +90,9 @@ export async function POST(
 
     console.log(`获取关键词建议: seeds=${finalSeedKeywords.join(', ')}, url=${useUrl ? offer.url : 'none'}`)
 
+    // 获取用户的Google Ads API凭证
+    const credentials = await getGoogleAdsCredentials(parseInt(userId, 10))
+
     // 需求11：并行获取Google搜索下拉词和Keyword Planner建议
     const [googleSuggestKeywords, keywordPlannerIdeas] = await Promise.all([
       // 1. 获取Google搜索下拉词（自动过滤低意图关键词）
@@ -112,6 +116,10 @@ export async function POST(
         targetLanguage: offer.target_language || 'English',
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
+        // 传递Google Ads API凭证
+        clientId: credentials?.client_id,
+        clientSecret: credentials?.client_secret,
+        developerToken: credentials?.developer_token,
       }),
     ])
 
@@ -133,6 +141,10 @@ export async function POST(
           targetLanguage: offer.target_language || 'English',
           accountId: googleAdsAccount.id,
           userId: parseInt(userId, 10),
+          // 传递Google Ads API凭证
+          clientId: credentials?.client_id,
+          clientSecret: credentials?.client_secret,
+          developerToken: credentials?.developer_token,
         })
 
         // 转换为KeywordIdea格式

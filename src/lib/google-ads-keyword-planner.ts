@@ -44,12 +44,26 @@ export async function getKeywordIdeas(params: {
   targetLanguage: string
   accountId?: number
   userId?: number
+  // Google Ads API凭证（可选，不提供则使用环境变量）
+  clientId?: string
+  clientSecret?: string
+  developerToken?: string
 }): Promise<KeywordIdea[]> {
+  const credentials = params.clientId && params.clientSecret && params.developerToken
+    ? {
+        client_id: params.clientId,
+        client_secret: params.clientSecret,
+        developer_token: params.developerToken
+      }
+    : undefined
+
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    undefined, // loginCustomerId
+    credentials
   )
 
   // API追踪
@@ -130,12 +144,26 @@ export async function getKeywordMetrics(params: {
   targetLanguage: string
   accountId?: number
   userId?: number
+  // Google Ads API凭证（可选，不提供则使用环境变量）
+  clientId?: string
+  clientSecret?: string
+  developerToken?: string
 }): Promise<KeywordMetrics[]> {
+  const credentials = params.clientId && params.clientSecret && params.developerToken
+    ? {
+        client_id: params.clientId,
+        client_secret: params.clientSecret,
+        developer_token: params.developerToken
+      }
+    : undefined
+
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    undefined, // loginCustomerId
+    credentials
   )
 
   // API追踪

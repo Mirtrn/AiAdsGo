@@ -48,6 +48,10 @@ export async function getUnifiedKeywordData(params: {
   userId?: number
   // 品牌名（用于过滤）
   brandName?: string
+  // Google Ads API凭证（可选，不提供则使用环境变量）
+  clientId?: string
+  clientSecret?: string
+  developerToken?: string
 }): Promise<UnifiedKeywordData[]> {
   console.log('\n🔄 统一关键词数据获取服务启动')
   console.log(`   基础关键词: ${params.baseKeywords.length}个`)
@@ -113,7 +117,11 @@ export async function getUnifiedKeywordData(params: {
         targetCountry: params.country,
         targetLanguage: params.language,
         accountId: params.accountId,
-        userId: params.userId
+        userId: params.userId,
+        // 传递Google Ads API凭证
+        clientId: params.clientId,
+        clientSecret: params.clientSecret,
+        developerToken: params.developerToken
       })
 
       console.log(`   📋 Ideas API 返回 ${keywordIdeas.length} 个建议关键词`)

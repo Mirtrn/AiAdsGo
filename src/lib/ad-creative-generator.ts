@@ -2122,7 +2122,11 @@ export async function generateAdCreative(
               refreshToken: credentials.refresh_token,
               accountId: adsAccount.id,
               userId,
-              brandName
+              brandName,
+              // 传递Google Ads API凭证
+              clientId: credentials.client_id,
+              clientSecret: credentials.client_secret,
+              developerToken: credentials.developer_token
             })
 
             console.log(`   ✅ 获取 ${roundKeywords.length} 个扩展关键词（精确搜索量）`)
@@ -2238,12 +2242,12 @@ export async function generateAdCreative(
       // 步骤1: 尝试从全局缓存查询（不区分大小写）
       console.log(`   📦 步骤1: 查询全局缓存...`)
       const row = await db.queryOne(`
-        SELECT keyword, search_volume
+        SELECT keyword_text, search_volume
         FROM global_keywords
-        WHERE LOWER(keyword) = LOWER(?) AND country = ?
+        WHERE LOWER(keyword_text) = LOWER(?) AND country = ?
         ORDER BY search_volume DESC
         LIMIT 1
-      `, [offerBrand, targetCountry]) as { keyword: string; search_volume: number } | undefined
+      `, [offerBrand, targetCountry]) as { keyword_text: string; search_volume: number } | undefined
 
       if (row && row.search_volume > 0) {
         brandSearchVolume = row.search_volume
