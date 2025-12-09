@@ -235,6 +235,11 @@ export function normalizeBrandName(brand: string): string {
  * 示例：Reolink_US_01, Reolink_US_02, ITEHIL_DE_01
  *
  * 需求1: 自动生成的字段
+ *
+ * 🔥 修复（2025-12-09）：
+ * 1. 排除软删除的记录（deleted_at IS NULL）
+ * 2. 显式转换count为数字（PostgreSQL bigint可能返回字符串）
+ * 3. 添加唯一性循环检查，避免重名
  */
 export async function generateOfferName(
   brandName: string,
@@ -243,21 +248,49 @@ export async function generateOfferName(
 ): Promise<string> {
   const db = await getDatabase()
 
-  // 查询该用户下同品牌同国家的Offer数量
-  const result = await db.queryOne<{ count: number }>(
+  // 🔥 修复：查询该用户下同品牌同国家的Offer数量（排除软删除）
+  const result = await db.queryOne<{ count: number | string }>(
     `
     SELECT COUNT(*) as count
     FROM offers
-    WHERE user_id = ? AND brand = ? AND target_country = ?
+    WHERE user_id = ? AND brand = ? AND target_country = ? AND deleted_at IS NULL
   `,
     [userId, brandName, countryCode]
   )
 
-  // 序号从01开始，格式化为2位数字
-  const sequence = String((result?.count || 0) + 1).padStart(2, '0')
+  // 🔥 修复：显式转换为数字（PostgreSQL bigint可能返回字符串）
+  const existingCount = Number(result?.count) || 0
 
-  // 组合生成offer_name: 品牌_国家_序号
-  return `${brandName}_${countryCode}_${sequence}`
+  // 🔥 修复：循环检查确保生成的offer_name唯一
+  let sequenceNum = existingCount + 1
+  let maxAttempts = 100 // 防止无限循环
+
+  while (maxAttempts > 0) {
+    const sequence = String(sequenceNum).padStart(2, '0')
+    const proposedName = `${brandName}_${countryCode}_${sequence}`
+
+    // 检查是否已存在（包括软删除的，避免历史冲突）
+    const existing = await db.queryOne<{ count: number | string }>(
+      `SELECT COUNT(*) as count FROM offers WHERE user_id = ? AND offer_name = ?`,
+      [userId, proposedName]
+    )
+
+    const existingNameCount = Number(existing?.count) || 0
+
+    if (existingNameCount === 0) {
+      // 找到唯一的名称
+      return proposedName
+    }
+
+    // 已存在，尝试下一个序号
+    sequenceNum++
+    maxAttempts--
+  }
+
+  // 兜底：使用时间戳确保唯一
+  const timestamp = Date.now().toString(36)
+  console.warn(`⚠️ [generateOfferName] 无法找到唯一序号，使用时间戳: ${brandName}_${countryCode}_${timestamp}`)
+  return `${brandName}_${countryCode}_${timestamp}`
 }
 
 /**
@@ -367,6 +400,7 @@ export function getCountryList(): Array<{ code: string; name: string; language: 
 
 /**
  * 验证Offer名称是否唯一
+ * 🔥 修复（2025-12-09）：显式转换count为数字（PostgreSQL bigint可能返回字符串）
  */
 export async function isOfferNameUnique(offerName: string, userId: number, excludeOfferId?: number): Promise<boolean> {
   const db = await getDatabase()
@@ -377,9 +411,10 @@ export async function isOfferNameUnique(offerName: string, userId: number, exclu
 
   const params = excludeOfferId ? [userId, offerName, excludeOfferId] : [userId, offerName]
 
-  const result = await db.queryOne<{ count: number }>(query, params)
+  const result = await db.queryOne<{ count: number | string }>(query, params)
 
-  return (result?.count || 0) === 0
+  // 🔥 修复：显式转换为数字
+  return Number(result?.count || 0) === 0
 }
 
 /**
