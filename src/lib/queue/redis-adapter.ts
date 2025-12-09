@@ -305,6 +305,11 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
 
       const task: Task = JSON.parse(taskJson)
 
+      // 🔥 过滤无效用户ID（userId <= 0 是无效的）
+      if (!task.userId || task.userId <= 0) {
+        continue
+      }
+
       // 按类型统计
       byType[task.type] = (byType[task.type] || 0) + 1
 
@@ -526,6 +531,67 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
         cleanedTaskIds.push(taskId)
         console.log(`⏰ 清理超时任务: ${taskId} (运行时间: ${Math.round((now - startedAt) / 1000 / 60)}分钟)`)
       }
+    }
+
+    return {
+      cleanedCount: cleanedTaskIds.length,
+      cleanedTaskIds
+    }
+  }
+
+  /**
+   * 🔥 清理无效用户的任务数据
+   *
+   * 删除 userId <= 0 的任务记录
+   * 用于清理历史脏数据
+   */
+  async cleanupInvalidUserTasks(): Promise<{
+    cleanedCount: number
+    cleanedTaskIds: string[]
+  }> {
+    if (!this.client) {
+      return { cleanedCount: 0, cleanedTaskIds: [] }
+    }
+
+    const allTaskIds = await this.client.hkeys(this.getKey('tasks'))
+    const cleanedTaskIds: string[] = []
+
+    for (const taskId of allTaskIds) {
+      const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
+      if (!taskJson) continue
+
+      try {
+        const task: Task = JSON.parse(taskJson)
+
+        // 检查是否是无效用户
+        if (!task.userId || task.userId <= 0) {
+          // 从所有相关集合中删除
+          const pipeline = this.client.pipeline()
+          pipeline.hdel(this.getKey('tasks'), taskId)
+          pipeline.srem(this.getKey('running'), taskId)
+          pipeline.srem(this.getKey('completed'), taskId)
+          pipeline.srem(this.getKey('failed'), taskId)
+          pipeline.zrem(this.getKey('pending:all'), taskId)
+
+          // 删除类型相关队列
+          if (task.type) {
+            pipeline.zrem(this.getKey(`pending:${task.type}`), taskId)
+          }
+
+          await pipeline.exec()
+          cleanedTaskIds.push(taskId)
+          console.log(`🧹 清理无效用户任务: ${taskId} (userId=${task.userId})`)
+        }
+      } catch (e) {
+        // 解析失败的任务也清理掉
+        await this.client.hdel(this.getKey('tasks'), taskId)
+        cleanedTaskIds.push(taskId)
+        console.log(`🧹 清理损坏任务: ${taskId}`)
+      }
+    }
+
+    if (cleanedTaskIds.length > 0) {
+      console.log(`✅ 共清理 ${cleanedTaskIds.length} 个无效用户任务`)
     }
 
     return {
