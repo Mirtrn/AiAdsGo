@@ -9,9 +9,7 @@ import { analyzeCompetitorsWithAI, type CompetitorProduct } from './competitor-a
 import { extractAdElements } from './ad-elements-extractor'
 import { scrapeAmazonProduct } from './stealth-scraper/amazon-product'
 import { parsePrice } from './pricing-utils'  // 🔧 新增：统一价格解析函数
-
-// 🔥 修复（2025-12-09）：显式获取代理URL，确保竞品抓取时可用
-const PROXY_URL = process.env.PROXY_URL || ''
+import { getProxyUrlForCountry } from './settings'  // 🔥 修复（2025-12-09）：动态获取代理URL
 
 export interface AIAnalysisInput {
   extractResult: {
@@ -971,6 +969,10 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           console.log(`✅ 复用已提取的${extractResult.relatedAsins!.length}个竞品ASIN（已过滤同品牌产品）`)
 
           try {
+            // 🔥 修复（2025-12-09）：动态获取代理URL（与商品抓取保持一致）
+            const competitorProxyUrl = await getProxyUrlForCountry(targetCountry, userId)
+            console.log(`🔧 竞品抓取代理: ${competitorProxyUrl ? '已配置' : '未配置'}`)
+
             // 构建"我们的产品"对象
             // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
             const priceNum = parsePrice(extractResult.price)
@@ -988,7 +990,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             const competitors = await batchScrapeCompetitorDetails(
               extractResult.relatedAsins!,
               targetCountry,
-              PROXY_URL || undefined,  // 🔥 修复：显式传递代理URL
+              competitorProxyUrl,  // 🔥 修复：使用动态获取的代理URL
               3           // 最多抓取3个竞品详情（数量控制）
             )
 
