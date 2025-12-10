@@ -413,3 +413,28 @@ WHERE prompt_id = 'ad_creative_generation' AND version != 'v4.2';
 UPDATE prompt_versions
 SET is_active = 1
 WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.2';
+
+-- ============================================================
+-- PART 3: 修复缺失激活版本的Prompt + 统一Prompt名称为中文
+-- Issue 1: ad_elements_descriptions 和 ad_elements_headlines 所有版本都是 is_active=0
+-- Issue 2: 部分Prompt名称是英文，需要统一为中文
+-- ============================================================
+
+-- 激活 ad_elements_descriptions v3.2
+UPDATE prompt_versions
+SET is_active = 1
+WHERE prompt_id = 'ad_elements_descriptions' AND version = 'v3.2';
+
+-- 激活 ad_elements_headlines v3.2
+UPDATE prompt_versions
+SET is_active = 1
+WHERE prompt_id = 'ad_elements_headlines' AND version = 'v3.2';
+
+-- 统一Prompt名称为中文
+UPDATE prompt_versions
+SET name = '广告创意生成v4.2 - 竞争定位增强版'
+WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.2';
+
+UPDATE prompt_versions
+SET name = '投放评分v3.2'
+WHERE prompt_id = 'launch_score_evaluation' AND version = 'v3.2';
