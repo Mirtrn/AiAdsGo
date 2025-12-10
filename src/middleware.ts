@@ -54,6 +54,10 @@ const protectedPaths = [
 const publicPaths = [
   '/',               // 营销首页
   '/login',          // 登录页面
+  '/privacy',        // 隐私政策
+  '/terms',          // 服务条款
+  '/about',          // 关于我们
+  '/contact',        // 联系我们
   '/api/auth/login', // 登录API
   '/api/auth/google', // Google OAuth
   '/robots.txt',     // SEO - robots.txt
