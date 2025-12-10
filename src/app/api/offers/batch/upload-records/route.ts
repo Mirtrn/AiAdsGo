@@ -85,6 +85,12 @@ export async function GET(req: NextRequest) {
       LIMIT ? OFFSET ?
     `, [...queryParams, limit, offset])
 
+    // 确保 success_rate 是数字类型（处理 SQLite/PostgreSQL 差异）
+    const normalizedRecords = records.map(record => ({
+      ...record,
+      success_rate: Number(record.success_rate) || 0
+    }))
+
     // 查询总数
     const countResult = await db.query<{ total: number }>(`
       SELECT COUNT(*) as total
@@ -97,7 +103,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: records,
+      data: normalizedRecords,
       pagination: {
         page,
         limit,

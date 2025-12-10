@@ -335,11 +335,11 @@ export default function BatchOfferPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <span className={`font-semibold ${
-                        record.success_rate >= 90 ? 'text-green-600' :
-                        record.success_rate >= 70 ? 'text-yellow-600' :
+                        Number(record.success_rate) >= 90 ? 'text-green-600' :
+                        Number(record.success_rate) >= 70 ? 'text-yellow-600' :
                         'text-red-600'
                       }`}>
-                        {record.success_rate.toFixed(1)}%
+                        {Number(record.success_rate).toFixed(1)}%
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
