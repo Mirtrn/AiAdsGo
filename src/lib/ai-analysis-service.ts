@@ -924,8 +924,88 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                 result.competitorAnalysisSuccess = true
                 console.log(`✅ [DEEP SCRAPE] 竞品深度分析完成 (${scrapedCompetitors.length}个真实竞品)`)
               } else {
-                console.log('⚠️ [DEEP SCRAPE] Playwright未抓取到竞品，使用备用分析')
-                // 降级到使用市场定位分析
+                // 🔥 修复（2025-12-10）：Playwright深度抓取失败时，尝试搜索补充策略
+                console.log('⚠️ [DEEP SCRAPE] Playwright未抓取到竞品，尝试搜索补充策略...')
+
+                // 尝试使用搜索策略获取竞品
+                try {
+                  const competitorProxyUrl = await getProxyUrlForCountry(targetCountry, userId)
+                  const priceNum = parsePrice(extractResult.price)
+
+                  const ourProduct = {
+                    name: extractResult.productName || extractResult.brand || 'Unknown Product',
+                    brand: extractResult.brand || null,
+                    price: priceNum,
+                    rating: extractResult.rating ? parseFloat(extractResult.rating) : null,
+                    reviewCount: extractResult.reviewCount ? parseInt(extractResult.reviewCount.replace(/[^0-9]/g, ''), 10) : null,
+                    features: extractResult.features || extractResult.aboutThisItem || [],
+                  }
+
+                  // AI推断搜索关键词
+                  const searchTerms = await inferCompetitorKeywords({
+                    name: extractResult.productName || 'Unknown Product',
+                    brand: extractResult.brand || null,
+                    category: extractResult.category || 'Unknown',
+                    price: ourProduct.price,
+                    targetCountry,
+                    features: extractResult.features || [],
+                    aboutThisItem: extractResult.aboutThisItem || [],
+                  }, userId)
+
+                  if (searchTerms.length > 0) {
+                    console.log(`🔍 [搜索策略] 搜索关键词: ${searchTerms.slice(0, 3).join(', ')}`)
+
+                    const { getPlaywrightPool } = await import('@/lib/playwright-pool')
+                    const searchPool = getPlaywrightPool()
+                    const searchInstance = await searchPool.acquire(competitorProxyUrl, undefined, targetCountry)
+
+                    try {
+                      const searchPage = await searchInstance.context.newPage()
+
+                      try {
+                        const searchCompetitors = await searchCompetitorsOnAmazon(
+                          searchTerms.slice(0, 3),
+                          searchPage,
+                          targetCountry,
+                          2
+                        )
+
+                        // 过滤同品牌产品
+                        const mainBrandLower = (extractResult.brand || '').toLowerCase()
+                        const filteredCompetitors = searchCompetitors.filter(c => {
+                          const cBrand = (c.brand || '').toLowerCase()
+                          return !cBrand.includes(mainBrandLower) && !mainBrandLower.includes(cBrand)
+                        })
+
+                        if (filteredCompetitors.length > 0) {
+                          console.log(`✅ [搜索策略] 获取${filteredCompetitors.length}个有效竞品`)
+
+                          const competitorAnalysis = await analyzeCompetitorsWithAI(
+                            ourProduct,
+                            filteredCompetitors,
+                            targetCountry,
+                            userId,
+                            { enableCompression: true, enableCache: true }
+                          )
+
+                          result.competitorAnalysis = competitorAnalysis
+                          result.competitorAnalysisSuccess = true
+                          console.log(`✅ [搜索策略] 竞品分析完成 (${filteredCompetitors.length}个真实竞品)`)
+                        } else {
+                          console.log('⚠️ [搜索策略] 未获取到有效竞品，降级到市场定位分析')
+                        }
+                      } finally {
+                        await searchPage.close()
+                      }
+                    } finally {
+                      searchPool.release(searchInstance.instanceId)
+                    }
+                  } else {
+                    console.log('⚠️ [搜索策略] 无法生成搜索关键词，降级到市场定位分析')
+                  }
+                } catch (searchError: any) {
+                  console.warn(`⚠️ [搜索策略] 搜索补充失败: ${searchError.message}`)
+                }
               }
             } finally {
               await page.close()
