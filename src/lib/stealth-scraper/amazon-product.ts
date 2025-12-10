@@ -67,16 +67,23 @@ export async function scrapeAmazonProduct(
 
         // 只在第一次尝试时重试（避免无限循环）
         if (proxyAttempt === 0) {
-          console.warn(`🔄 清理连接池并立即重试（a-no-js修复）...`)
+          console.warn(`🔄 a-no-js检测到，清理代理缓存并使用新IP重试...`)
+
+          // 🔥 优化（2025-12-10）：先清理代理IP缓存，强制获取新IP
+          const { clearProxyCache } = await import('../proxy/fetch-proxy-ip')
+          clearProxyCache(effectiveProxyUrl)
+          console.log(`🧹 已清理代理IP缓存，下次将获取新IP`)
+
+          // 清理连接池实例
           const pool = getPlaywrightPool()
           await pool.clearIdleInstances()
 
-          // 等待5-10秒再重试（给系统重置时间）
-          const retryDelay = 5000 + Math.random() * 5000
-          console.log(`⏰ 等待${Math.round(retryDelay)}ms后重试...`)
+          // 🔥 优化：减少等待时间从5-10秒到1-2秒（新IP不需要长时间等待）
+          const retryDelay = 1000 + Math.random() * 1000
+          console.log(`⏰ 等待${Math.round(retryDelay)}ms后使用新代理IP重试...`)
           await new Promise(resolve => setTimeout(resolve, retryDelay))
 
-          // 重新抓取
+          // 重新抓取（会自动获取新的代理IP）
           result = await scrapeUrlWithBrowser(url, effectiveProxyUrl, {
             waitForSelector: '#productTitle',
             waitForTimeout: quickTimeout,

@@ -362,9 +362,10 @@ async function batchScrapeCompetitorDetails(
     url: `https://www.amazon.${amazonDomain}/dp/${asin}`
   }))
 
-  // Step 4: 分批抓取详情（限制并发数为3，避免连接池资源竞争）
-  // 🔥 修复（2025-12-10）：10个并发导致70%失败，改为分批3个并发
-  const CONCURRENCY_LIMIT = 3
+  // Step 4: 分批抓取详情（限制并发数为5，平衡速度和成功率）
+  // 🔥 优化（2025-12-10）：从3提升到5，配合代理IP轮换可安全并发
+  // 连接池支持10实例，每代理最多3实例，5并发是安全阈值
+  const CONCURRENCY_LIMIT = 5
   const allResults: PromiseSettledResult<CompetitorProduct | null>[] = []
 
   for (let i = 0; i < competitorUrls.length; i += CONCURRENCY_LIMIT) {
@@ -994,40 +995,46 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                   // Step 2: 使用Playwright执行搜索
                   const { getPlaywrightPool } = await import('@/lib/playwright-pool')
                   const pool = getPlaywrightPool()
-                  const instanceId = await pool.acquire(competitorProxyUrl, targetCountry)
+                  // 🔥 修复：acquire() 返回 { browser, context, instanceId }
+                  const instance = await pool.acquire(competitorProxyUrl, undefined, targetCountry)
 
                   try {
-                    const { page } = pool.getPage(instanceId)!
+                    // 从 context 创建新页面
+                    const page = await instance.context.newPage()
 
-                    // Step 3: 执行Amazon搜索
-                    const searchCompetitors = await searchCompetitorsOnAmazon(
-                      searchTerms.slice(0, 3),  // 最多搜索3个词
-                      page,
-                      targetCountry,
-                      2  // 每个词取2个结果
-                    )
+                    try {
+                      // Step 3: 执行Amazon搜索
+                      const searchCompetitors = await searchCompetitorsOnAmazon(
+                        searchTerms.slice(0, 3),  // 最多搜索3个词
+                        page,
+                        targetCountry,
+                        2  // 每个词取2个结果
+                      )
 
-                    // Step 4: 过滤同品牌产品
-                    const mainBrandLower = (extractResult.brand || '').toLowerCase()
-                    const filteredSearchCompetitors = searchCompetitors.filter(c => {
-                      const cBrand = (c.brand || '').toLowerCase()
-                      return !cBrand.includes(mainBrandLower) && !mainBrandLower.includes(cBrand)
-                    })
+                      // Step 4: 过滤同品牌产品
+                      const mainBrandLower = (extractResult.brand || '').toLowerCase()
+                      const filteredSearchCompetitors = searchCompetitors.filter(c => {
+                        const cBrand = (c.brand || '').toLowerCase()
+                        return !cBrand.includes(mainBrandLower) && !mainBrandLower.includes(cBrand)
+                      })
 
-                    console.log(`✅ [策略2] 搜索获取: ${filteredSearchCompetitors.length}个有效竞品`)
+                      console.log(`✅ [策略2] 搜索获取: ${filteredSearchCompetitors.length}个有效竞品`)
 
-                    // Step 5: 合并两个来源，去重
-                    const existingAsins = new Set(competitors.map(c => c.asin))
-                    for (const sc of filteredSearchCompetitors) {
-                      if (!existingAsins.has(sc.asin) && competitors.length < TARGET_COMPETITORS) {
-                        competitors.push(sc)
-                        existingAsins.add(sc.asin)
+                      // Step 5: 合并两个来源，去重
+                      const existingAsins = new Set(competitors.map(c => c.asin))
+                      for (const sc of filteredSearchCompetitors) {
+                        if (!existingAsins.has(sc.asin) && competitors.length < TARGET_COMPETITORS) {
+                          competitors.push(sc)
+                          existingAsins.add(sc.asin)
+                        }
                       }
-                    }
 
-                    console.log(`📊 [合并] 最终竞品数量: ${competitors.length}个`)
+                      console.log(`📊 [合并] 最终竞品数量: ${competitors.length}个`)
+                    } finally {
+                      await page.close()
+                    }
                   } finally {
-                    pool.release(instanceId)
+                    pool.release(instance.instanceId)
                   }
                 }
               } catch (searchError: any) {

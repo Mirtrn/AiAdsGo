@@ -15,8 +15,8 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright'
  * 连接池配置
  */
 const POOL_CONFIG = {
-  maxInstances: 10,             // 最大浏览器实例数 (从5扩容到10)
-  maxInstancesPerProxy: 3,      // 每个代理最大实例数（支持并发）
+  maxInstances: 10,             // 最大浏览器实例数
+  maxInstancesPerProxy: 5,      // 🔥 优化（2025-12-10）：从3提升到5，支持5并发竞品抓取
   maxIdleTime: 5 * 60 * 1000,   // 5分钟空闲后释放
   launchTimeout: 30000,         // 启动超时30秒
   acquireTimeout: 60000,        // 获取实例超时60秒
