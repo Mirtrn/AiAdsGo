@@ -674,11 +674,29 @@ async function calculateCompetitivePositioning(
   // 常见"节省"关键词（20+语言）
   const savingsKeywords = /(?:save|risparmia|ahorra|économise?|sparen|economize|bespaar|сэкономить|節約|절약|ประหยัด|توفير|חסוך|tasarruf|spara|gem|חיסכון|tiết kiệm|menjimat|save|discount|sconto|descuento|réduction|rabatt|desconto|korting|скидка|割引|할인|ส่วนลด|خصم|הנחה|indirim|rabat|छूट|giảm giá|diskaun)/i
 
-  const hasQuantifiedSavings = universalCurrencyPattern.test(allTexts) && savingsKeywords.test(allTextsLower)
+  // 百分比折扣模式（如 "Save 20%", "20% off", "20% discount"）
+  const percentagePattern = /(?:save|discount|off|减|折扣|割引|할인|ส่วนลด|خصم|הנחה|indirim|छूट|giảm|diskaun)?\s*(\d{1,2})%/i
 
-  if (hasQuantifiedSavings) {
+  // "No fees" / "Zero cost" 模式（明确的零成本承诺）
+  const noFeesPattern = /(?:no|zero|without|免|無|なし|없음|ไม่มี|بدون|ללא|yok|बिना|không|tanpa)\s+(?:monthly\s+)?(?:fees?|cost|charge|price|subscription|月费|费用|料金|수수료|ค่าธรรมเนียม|رسوم|עמלה|ücret|शुल्क|phí|bayaran)/i
+
+  // "Free" 相关模式（免费福利）
+  const freePattern = /\bfree\s+(?:shipping|delivery|trial|returns?|installation|warranty|support|训练|运费|配送|试用|退货|安装|保修|サポート|無料|무료|ฟรี|مجاني|חינם|ücretsiz|मुफ़्त|miễn phí|percuma)\b/i
+
+  // 优先检测高价值量化模式
+  const hasQuantifiedSavings = universalCurrencyPattern.test(allTexts) && savingsKeywords.test(allTextsLower)
+  const hasPercentageDiscount = percentagePattern.test(allTexts)
+  const hasNoFees = noFeesPattern.test(allTextsLower)
+  const hasFreeOffer = freePattern.test(allTextsLower)
+
+  if (hasQuantifiedSavings || hasPercentageDiscount || hasNoFees) {
     priceAdvantage = 3
-    console.log('   ✅ 价格优势量化（通用检测） (+3分)')
+    if (hasQuantifiedSavings) console.log('   ✅ 价格优势量化（货币+节省） (+3分)')
+    if (hasPercentageDiscount) console.log('   ✅ 价格优势量化（百分比折扣） (+3分)')
+    if (hasNoFees) console.log('   ✅ 价格优势量化（零费用承诺） (+3分)')
+  } else if (hasFreeOffer) {
+    priceAdvantage = 2.5
+    console.log('   ✅ 免费福利（Free offer） (+2.5分)')
   } else if (savingsKeywords.test(allTextsLower) || /best value|affordable|budget|cheap|economic|便宜|实惠|划算|お得|저렴|ราคาถูก|رخيص|זול|ucuz|billig|goedkoop|дешевый|barato|bon marché|economico|सस्ता|rẻ|murah/i.test(allTextsLower)) {
     priceAdvantage = 1.5
     console.log('   ⚠️ 价格优势非量化（通用检测） (+1.5分)')
@@ -693,11 +711,23 @@ async function calculateCompetitivePositioning(
   // 常见"第一/领先"关键词
   const leadershipKeywords = /#1|numero\s*1|number\s*one|第一|ナンバーワン|넘버원|อันดับ\s*1|رقم\s*1|מספר\s*1|1\s*numaralı|नंबर\s*1|số\s*1|nombor\s*1|primeiro|primero|erste|premier|première|первый|πρώτο|pierwszy/i
 
-  const hasUniqueness = uniquenessKeywords.test(allTexts) || leadershipKeywords.test(allTexts)
+  // "Official" 官方店铺/授权经销商
+  const officialPattern = /\bofficial\s+(?:store|shop|seller|dealer|partner|retailer)|authorized\s+(?:dealer|seller|retailer)|官方|正規店|공식|อย่างเป็นทางการ|رسمي|רשמי|resmi|официальный|chính thức|rasmi\b/i
 
-  if (hasUniqueness) {
+  // 技术规格/等级标识（如 IK10, IP67, 4K, Ultra HD）
+  const technicalSpecPattern = /\b(?:IK\d{1,2}|IP\d{2}|4K|8K|[UQ]HD|Ultra\s+HD|Full\s+HD|[0-9]+MP|[0-9]+K|HDR10|Dolby|DTS|WiFi\s*[56]|5G|LTE|A\+\+|Grade\s+A|CE|FCC|UL|ISO\s*\d+)/i
+
+  const hasUniqueness = uniquenessKeywords.test(allTexts) || leadershipKeywords.test(allTexts)
+  const hasOfficialStatus = officialPattern.test(allTexts)
+  const hasTechnicalDifferentiation = technicalSpecPattern.test(allTexts)
+
+  if (hasUniqueness || hasOfficialStatus) {
     uniqueMarketPosition = 3
-    console.log('   ✅ 独特市场定位（通用检测） (+3分)')
+    if (hasUniqueness) console.log('   ✅ 独特市场定位（唯一性声明） (+3分)')
+    if (hasOfficialStatus) console.log('   ✅ 独特市场定位（官方/授权） (+3分)')
+  } else if (hasTechnicalDifferentiation) {
+    uniqueMarketPosition = 2.5
+    console.log('   ✅ 独特市场定位（技术规格） (+2.5分)')
   } else if (/top|best|leading|premier|superior|migliore|mejor|meilleur|beste|лучший|最好|最高|ベスト|최고|ดีที่สุด|الأفضل|הטוב|en iyi|सर्वश्रेष्ठ|tốt nhất|terbaik|beste|paras|bästa|καλύτερο|najlepszy/i.test(allTextsLower)) {
     uniqueMarketPosition = 1.5
     console.log('   ⚠️ 隐含独特性（通用检测） (+1.5分)')
