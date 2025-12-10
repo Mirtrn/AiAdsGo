@@ -205,12 +205,12 @@ export default function UserManagementPage() {
         fetchUsers(pagination.page)
     }, [pagination.page])
 
-    const fetchUsers = async (page: number = 1) => {
+    const fetchUsers = async (page: number = 1, limit?: number) => {
         try {
             setLoading(true)
             const params = new URLSearchParams({
                 page: page.toString(),
-                limit: pagination.limit.toString(),
+                limit: (limit || pagination.limit).toString(),
                 search: searchQuery,
                 role: roleFilter,
                 status: statusFilter,
@@ -731,8 +731,9 @@ export default function UserManagementPage() {
                                     <Select
                                         value={String(pagination.limit)}
                                         onValueChange={(value) => {
-                                            setPagination(prev => ({ ...prev, limit: Number(value), page: 1 }))
-                                            fetchUsers(1)
+                                            const newLimit = Number(value)
+                                            setPagination(prev => ({ ...prev, limit: newLimit, page: 1 }))
+                                            fetchUsers(1, newLimit)
                                         }}
                                     >
                                         <SelectTrigger className="w-[70px]">
