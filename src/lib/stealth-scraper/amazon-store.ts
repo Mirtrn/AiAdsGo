@@ -363,8 +363,16 @@ async function scrapeStorePageContent(
   let brandName: string | null = null
   if (storeName) {
     brandName = storeName
+      // 🔥 修复（2025-12-10）：移除所有Amazon域名前缀
       .replace(/^Amazon\.com:\s*/i, '')
       .replace(/^Amazon\.ca:\s*/i, '')
+      .replace(/^Amazon\.co\.uk:\s*/i, '')
+      .replace(/^Amazon\.de:\s*/i, '')
+      .replace(/^Amazon\.fr:\s*/i, '')
+      .replace(/^Amazon\.it:\s*/i, '')
+      .replace(/^Amazon\.es:\s*/i, '')
+      .replace(/^Amazon\.in:\s*/i, '')
+      .replace(/^Amazon\.jp:\s*/i, '')
       .replace(/^Amazon:\s*/i, '')
       .replace(/\s+Store$/i, '')
       .replace(/\s+Official Store$/i, '')

@@ -51,6 +51,7 @@ interface User {
     created_at: string
     locked_until: string | null
     failed_login_count: number
+    last_login_at: string | null
 }
 
 interface Pagination {
@@ -580,6 +581,7 @@ export default function UserManagementPage() {
                                     <TableHead>套餐</TableHead>
                                     <TableHead>有效期</TableHead>
                                     <TableHead>创建时间</TableHead>
+                                    <TableHead>上次登录</TableHead>
                                     <TableHead>状态</TableHead>
                                     <TableHead className="text-center">操作</TableHead>
                                 </TableRow>
@@ -587,7 +589,7 @@ export default function UserManagementPage() {
                             <TableBody>
                                 {users.length === 0 && !loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                        <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                                             未找到用户
                                         </TableCell>
                                     </TableRow>
@@ -624,6 +626,18 @@ export default function UserManagementPage() {
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
                                                 {new Date(user.created_at).toLocaleDateString('zh-CN')}
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
+                                                {user.last_login_at ? (
+                                                    <div className="flex flex-col">
+                                                        <span>{new Date(user.last_login_at).toLocaleDateString('zh-CN')}</span>
+                                                        <span className="text-xs text-muted-foreground">
+                                                            {new Date(user.last_login_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-muted-foreground">从未登录</span>
+                                                )}
                                             </TableCell>
                                             <TableCell>
                                                 {user.is_active === 0 ? (

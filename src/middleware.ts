@@ -108,12 +108,26 @@ const MALICIOUS_PATTERNS = [
   /^\/files?\/?$/i,                          // /file 或 /files
   /^\/temp\/?$/i,
   /^\/tmp\/?$/i,
-  // 备份文件探测
-  /^\/backup/i,
-  /^\/bak/i,
-  /^\/old/i,
-  /^\/copy/i,
-  /\.(bak|backup|old|orig|)$/i,
+  // 备份文件和目录探测（常见的备份路径模式）
+  /^\/backup/i,                              // /backup.*, /backups/*
+  /^\/bak/i,                                 // /bak*
+  /^\/old/i,                                 // /old*
+  /^\/copy/i,                                // /copy*
+  /^\/restore/i,                             // /restore/* - 🔥 新增
+  /^\/back/i,                                // /back/* - 🔥 新增
+  /\.(bak|backup|old|orig)$/i,               // 备份文件后缀
+  // 常见备份文件名模式
+  /^\/[^\/]*backup[^\/]*\.(zip|tar|gz|tgz|rar|7z|sql)$/i,  // 🔥 新增：根目录备份文件
+  /^\/full_backup/i,                         // 🔥 新增：/full_backup.*
+  /^\/site_backup/i,                         // 🔥 新增：/site_backup.*
+  /^\/db_backup/i,                           // 🔥 新增：/db_backup.*
+  /^\/sql_backup/i,                          // 🔥 新增：/sql_backup.*
+  // 数据库备份文件
+  /\.(sql|sql\.zip|sql\.gz|sql\.tar\.gz|dump)$/i,  // 🔥 新增：数据库文件
+  // 常见网站目录打包文件
+  /^\/[^\/]*(www|public_html|html|web|site)\.(zip|tar|gz|rar)$/i,  // 🔥 新增
+  // SFTP配置文件
+  /sftp-config\.json$/i,                     // 🔥 新增：SFTP配置文件
   // 配置文件探测
   /^\/config\.(php|inc|ini|conf|yml|yaml|json|xml)$/i,
   /^\/configuration\./i,
