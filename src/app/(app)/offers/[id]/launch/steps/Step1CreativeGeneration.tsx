@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Star, RefreshCw, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, Wand2 } from 'lucide-react'
+import { Star, RefreshCw, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, ExternalLink, Wand2, HelpCircle } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import ScoreRadarChart from '@/components/charts/ScoreRadarChart'
 import { BonusScoreCard } from '@/components/BonusScoreCard'
@@ -729,7 +730,28 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                   {creative.adStrength ? (
                     <div className={`p-4 rounded-xl border ${getAdStrengthColor(creative.adStrength.rating)} bg-opacity-50`}>
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm font-medium text-gray-700">Ad Strength</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-medium text-gray-700">Ad Strength</span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <HelpCircle className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="max-w-xs p-3 text-xs">
+                                <p className="font-semibold mb-2">Ad Strength 7维度评分说明：</p>
+                                <ul className="space-y-1">
+                                  <li><strong>相关性 (18%)</strong>：关键词与广告的匹配度</li>
+                                  <li><strong>质量 (14%)</strong>：数字、CTA、紧迫感等元素</li>
+                                  <li><strong>吸引力 (14%)</strong>：标题和描述的完整性</li>
+                                  <li><strong>多样性 (18%)</strong>：资产类型和长度的多样化</li>
+                                  <li><strong>清晰度 (8%)</strong>：政策合规性和内容规范</li>
+                                  <li><strong>品牌影响力 (18%)</strong>：品牌词的搜索热度</li>
+                                  <li><strong>竞争定位 (10%)</strong>：价格优势和差异化表达</li>
+                                </ul>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
                         <Badge
                           variant={getAdStrengthBadge(creative.adStrength.rating).variant}
                           className={getAdStrengthBadge(creative.adStrength.rating).className}
