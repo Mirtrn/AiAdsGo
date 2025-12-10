@@ -19,8 +19,8 @@ SET category = '广告创意生成'
 WHERE prompt_id = 'ad_creative_generation' AND category != '广告创意生成';
 
 -- 激活缺失的Prompt版本（ad_elements_descriptions和ad_elements_headlines所有版本都是is_active=0）
-UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'ad_elements_descriptions' AND version = 'v3.2';
-UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'ad_elements_headlines' AND version = 'v3.2';
+UPDATE prompt_versions SET is_active = TRUE WHERE prompt_id = 'ad_elements_descriptions' AND version = 'v3.2';
+UPDATE prompt_versions SET is_active = TRUE WHERE prompt_id = 'ad_elements_headlines' AND version = 'v3.2';
 
 -- ============================================================
 -- 2. Launch Score Prompt v3.2
@@ -28,7 +28,7 @@ UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'ad_elements_headline
 -- ============================================================
 
 -- 禁用旧版本
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'launch_score_evaluation' AND version != 'v3.2';
+UPDATE prompt_versions SET is_active = FALSE WHERE prompt_id = 'launch_score_evaluation' AND version != 'v3.2';
 
 -- 插入新版本 v3.2
 INSERT INTO prompt_versions (
@@ -145,14 +145,14 @@ Return JSON with EXACT field names:
 
 CRITICAL: Use EXACT field names above. Do NOT use "dimensions", "keywordQuality", "marketFit", etc.',
   'Chinese',
-  1,
+  TRUE,
   NOW(),
   'v3.2: 修复字段名 dimensions.keywordQuality → keywordAnalysis，匹配ScoreAnalysis接口'
 )
 ON CONFLICT (prompt_id, version) DO NOTHING;
 
 -- 确保v3.2激活
-UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'launch_score_evaluation' AND version = 'v3.2';
+UPDATE prompt_versions SET is_active = TRUE WHERE prompt_id = 'launch_score_evaluation' AND version = 'v3.2';
 
 -- ============================================================
 -- 3. Ad Creative Prompt v4.2
@@ -160,7 +160,7 @@ UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'launch_score_evaluat
 -- ============================================================
 
 -- 禁用旧版本
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'ad_creative_generation' AND version != 'v4.2';
+UPDATE prompt_versions SET is_active = FALSE WHERE prompt_id = 'ad_creative_generation' AND version != 'v4.2';
 
 -- 插入新版本 v4.2
 INSERT INTO prompt_versions (
@@ -404,11 +404,11 @@ Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarit
   "quality_metrics": {"headline_diversity_score":N, "keyword_relevance_score":N, "data_utilization_score":N, "competitive_positioning_score":N, "estimated_ad_strength":"EXCELLENT"}
 }',
   'Chinese',
-  1,
+  TRUE,
   NOW(),
   'v4.2: 增强竞争定位维度 - 价格优势量化、独特定位声明、竞品对比暗示、性价比强调'
 )
 ON CONFLICT (prompt_id, version) DO NOTHING;
 
 -- 确保v4.2激活
-UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.2';
+UPDATE prompt_versions SET is_active = TRUE WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.2';
