@@ -64,13 +64,19 @@ export const BCRYPT_SALT_ROUNDS = parseInt(getOptionalEnvVar('BCRYPT_SALT_ROUNDS
 export const DATABASE_TYPE = getOptionalEnvVar('DATABASE_TYPE', 'sqlite')
 export const SQLITE_DB_PATH = getOptionalEnvVar('SQLITE_DB_PATH', './data/autoads.db')
 
-// ==================== Redis配置 ====================
-export const REDIS_URL = getOptionalEnvVar('REDIS_URL', 'redis://localhost:6379')
-
 // ==================== Node环境 ====================
 export const NODE_ENV = getOptionalEnvVar('NODE_ENV', 'development')
 export const IS_PRODUCTION = NODE_ENV === 'production'
 export const IS_DEVELOPMENT = NODE_ENV === 'development'
+
+// ==================== Redis配置 ====================
+export const REDIS_URL = getOptionalEnvVar('REDIS_URL', 'redis://localhost:6379')
+
+// 🔥 Redis环境隔离 (2025-12-10新增)
+export const REDIS_KEY_PREFIX = getOptionalEnvVar(
+  'REDIS_KEY_PREFIX',
+  `autoads:${NODE_ENV}:queue:`
+)
 
 // ==================== 运行时验证（仅在非构建/测试时执行） ====================
 if (!SKIP_VALIDATION) {
