@@ -53,6 +53,22 @@ export async function GET(request: NextRequest) {
     // 🔥 获取当前配置（从队列管理器内存中读取）
     const currentConfig = queueManager.getConfig()
 
+    // 🔥 获取用户信息（用于显示用户名）
+    const { getDatabase } = await import('@/lib/db')
+    const db = await getDatabase()
+
+    const userIds = Object.keys(stats.byUser).map(id => parseInt(id))
+    const userMap: Record<number, { username: string; email: string }> = {}
+
+    if (userIds.length > 0) {
+      const users = await db.query<{ id: number; username: string; email: string }>(
+        `SELECT id, username, email FROM users WHERE id IN (${userIds.join(',')})`
+      )
+      users.forEach(user => {
+        userMap[user.id] = { username: user.username, email: user.email }
+      })
+    }
+
     // 管理员返回全局统计（兼容旧格式）
     return NextResponse.json({
       success: true,
@@ -63,13 +79,19 @@ export async function GET(request: NextRequest) {
           completed: stats.completed,
           failed: stats.failed
         },
-        perUser: Object.entries(stats.byUser).map(([uid, userStats]) => ({
-          userId: parseInt(uid),
-          running: userStats.running,
-          queued: userStats.pending,
-          completed: userStats.completed,
-          failed: userStats.failed
-        })),
+        perUser: Object.entries(stats.byUser).map(([uid, userStats]) => {
+          const numericUid = parseInt(uid)
+          const userInfo = userMap[numericUid]
+          return {
+            userId: numericUid,
+            username: userInfo?.username || `用户#${numericUid}`,
+            email: userInfo?.email,
+            running: userStats.running,
+            queued: userStats.pending,
+            completed: userStats.completed,
+            failed: userStats.failed
+          }
+        }),
         byType: stats.byType,
         proxy: {
           total: proxyStats.length,

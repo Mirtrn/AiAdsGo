@@ -18,6 +18,8 @@ interface QueueStats {
   }
   perUser: Array<{
     userId: number
+    username: string
+    email?: string
     running: number
     queued: number
     completed: number
@@ -452,7 +454,7 @@ export default function QueueManagementPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">用户ID</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">用户</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">运行中</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">队列中</th>
                       <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">已完成</th>
@@ -469,7 +471,12 @@ export default function QueueManagementPage() {
                       return (
                         <tr key={userStat.userId} className="border-b border-gray-100 hover:bg-gray-50">
                           <td className="py-3 px-4">
-                            <span className="font-mono text-sm text-gray-900">用户 #{userStat.userId}</span>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-gray-900">{userStat.username}</span>
+                              {userStat.email && (
+                                <span className="text-xs text-gray-500">{userStat.email}</span>
+                              )}
+                            </div>
                           </td>
                           <td className="text-center py-3 px-4">
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
