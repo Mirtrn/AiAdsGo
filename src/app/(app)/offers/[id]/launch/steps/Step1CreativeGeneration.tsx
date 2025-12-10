@@ -253,35 +253,47 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
           return {
             ...c,
             score: numericScore,  // 🔧 确保 score 始终是数字
-            // 构造adStrength对象（如果不存在）
+            // 构造adStrength对象（如果不存在）- 必须包含完整的7个维度
             adStrength: c.adStrength || {
               rating: calculatedRating,
               score: numericScore,
               dimensions: {
                 diversity: {
                   score: c.score_breakdown?.diversity || 0,
-                  weight: 0.25,
+                  weight: 0.18,
                   details: ''
                 },
                 relevance: {
                   score: c.score_breakdown?.relevance || 0,
-                  weight: 0.25,
+                  weight: 0.18,
                   details: ''
                 },
                 completeness: {
                   score: c.score_breakdown?.engagement || 0,
-                  weight: 0.20,
+                  weight: 0.14,
                   details: ''
                 },
                 quality: {
                   score: c.score_breakdown?.quality || 0,
-                  weight: 0.20,
+                  weight: 0.14,
                   details: ''
                 },
                 compliance: {
                   score: c.score_breakdown?.clarity || 0,
-                  weight: 0.10,
+                  weight: 0.08,
                   details: ''
+                },
+                // 🔧 新增：品牌搜索量维度 (18%)
+                brandSearchVolume: {
+                  score: c.score_breakdown?.brandSearchVolume || 0,
+                  weight: 0.18,
+                  details: { monthlySearchVolume: 0, volumeLevel: 'micro', dataSource: 'unavailable' }
+                },
+                // 🔧 新增：竞争定位维度 (10%)
+                competitivePositioning: {
+                  score: c.score_breakdown?.competitivePositioning || 0,
+                  weight: 0.10,
+                  details: { priceAdvantage: 0, uniqueMarketPosition: 0, competitiveComparison: 0, valueEmphasis: 0 }
                 }
               },
               suggestions: c.score_explanation ? [c.score_explanation] : []
