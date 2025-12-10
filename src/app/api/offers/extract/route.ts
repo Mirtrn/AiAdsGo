@@ -89,8 +89,8 @@ export async function POST(req: NextRequest) {
       target_country,
       product_price || null,
       commission_payout || null,
-      (skipCache ?? false) ? 1 : 0,
-      (skipWarmup ?? false) ? 1 : 0
+      skipCache ?? false,
+      skipWarmup ?? false
     ])
 
     console.log(`📝 Created offer_task: ${taskId} for user ${userIdNum}`)

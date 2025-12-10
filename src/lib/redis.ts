@@ -1,4 +1,8 @@
 import Redis from 'ioredis'
+import { REDIS_KEY_PREFIX } from './config'
+
+// 🔥 环境隔离前缀（从 autoads:development:queue: 提取 autoads:development:）
+const ENV_PREFIX = REDIS_KEY_PREFIX.replace(':queue:', ':')
 
 // 7天缓存时间（秒）
 const CACHE_TTL = 7 * 24 * 60 * 60
@@ -39,6 +43,9 @@ export function getRedisClient(): Redis {
  * @param url - 网页URL
  * @param language - 目标语言
  * @param pageType - 页面类型（product或store）
+ *
+ * 格式：{ENV_PREFIX}scrape:{typePrefix}{language}:{base64Url}
+ * 例如：autoads:development:scrape:product:en:aHR0cHM6Ly8uLi4=
  */
 function generateCacheKey(url: string, language: string, pageType?: 'product' | 'store'): string {
   // 标准化URL（移除尾部斜杠和查询参数中的tracking）
@@ -48,7 +55,7 @@ function generateCacheKey(url: string, language: string, pageType?: 'product' | 
 
   // 包含页面类型以避免类型不匹配
   const typePrefix = pageType ? `${pageType}:` : ''
-  return `scrape:${typePrefix}${language}:${Buffer.from(normalizedUrl).toString('base64')}`
+  return `${ENV_PREFIX}scrape:${typePrefix}${language}:${Buffer.from(normalizedUrl).toString('base64')}`
 }
 
 /**

@@ -1,6 +1,7 @@
 /**
  * 增强的URL解析模块
  * 集成：多代理池管理 + Redis缓存 + 智能重试 + 降级方案
+ * 环境隔离：使用环境特定前缀，防止开发/生产缓存混淆
  */
 
 import { getRedisClient } from './redis'
@@ -8,6 +9,10 @@ import { resolveAffiliateLinkWithPlaywright } from './url-resolver-playwright'
 import type { PlaywrightResolvedUrl } from './url-resolver-playwright'
 import { resolveAffiliateLinkWithHttp } from './url-resolver-http'
 import { getOptimalResolver, extractDomain } from './resolver-domains'
+import { REDIS_KEY_PREFIX } from './config'
+
+// 🔥 环境隔离前缀（从 autoads:development:queue: 提取 autoads:development:）
+const ENV_PREFIX = REDIS_KEY_PREFIX.replace(':queue:', ':')
 
 // ==================== 类型定义 ====================
 
@@ -365,14 +370,15 @@ export function getProxyPool(): ProxyPoolManager {
 
 // ==================== Redis缓存管理 ====================
 
-const CACHE_KEY_PREFIX = 'redirect:'
 const CACHE_TTL = 7 * 24 * 60 * 60 // 7天（秒）
 
 /**
  * 生成缓存键
+ * 格式：{ENV_PREFIX}redirect:{targetCountry}:{affiliateLink}
+ * 例如：autoads:development:redirect:US:https://...
  */
 function getCacheKey(affiliateLink: string, targetCountry: string): string {
-  return `${CACHE_KEY_PREFIX}${targetCountry}:${affiliateLink}`
+  return `${ENV_PREFIX}redirect:${targetCountry}:${affiliateLink}`
 }
 
 /**

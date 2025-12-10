@@ -29,11 +29,13 @@ interface RedisInfo {
 async function getRedisInfo(): Promise<RedisInfo> {
   const env = NODE_ENV
   const keyPrefix = REDIS_KEY_PREFIX
+  const envPrefix = keyPrefix.replace(':queue:', ':')  // 提取环境前缀
 
   console.log(`🔍 正在检查Redis配置...`)
   console.log(`   环境: ${env}`)
   console.log(`   REDIS_URL: ${REDIS_URL}`)
-  console.log(`   Key Prefix: ${keyPrefix}`)
+  console.log(`   Queue Key Prefix: ${keyPrefix}`)
+  console.log(`   Cache Env Prefix: ${envPrefix}`)
   console.log()
 
   const client = new Redis(REDIS_URL, {
@@ -49,10 +51,12 @@ async function getRedisInfo(): Promise<RedisInfo> {
     connected = true
     console.log('✅ Redis连接成功')
 
-    // 获取所有匹配的keys
+    // 获取所有匹配的keys（包括队列和缓存）
     const patterns = [
-      `${keyPrefix}*`,
-      `autoads:${env}:*`,
+      `${keyPrefix}*`,              // 队列: autoads:development:queue:*
+      `${envPrefix}ai_cache:*`,     // AI缓存: autoads:development:ai_cache:*
+      `${envPrefix}redirect:*`,     // URL缓存: autoads:development:redirect:*
+      `${envPrefix}scrape:*`,       // 网页缓存: autoads:development:scrape:*
     ]
 
     for (const pattern of patterns) {
@@ -83,7 +87,7 @@ async function getRedisInfo(): Promise<RedisInfo> {
     stats: {
       totalKeys: keys.length,
       queueKeys: keys.filter(k => k.includes(':queue:')).length,
-      cacheKeys: keys.filter(k => k.includes(':cache:')).length,
+      cacheKeys: keys.filter(k => k.includes(':ai_cache:') || k.includes(':redirect:') || k.includes(':scrape:')).length,
     }
   }
 }

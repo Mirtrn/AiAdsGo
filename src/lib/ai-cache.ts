@@ -13,9 +13,16 @@
  * 预期收益：
  * - 评论分析命中率：40-50% → 节省$880/年
  * - 竞品分析命中率：30-40% → 节省$240/年
+ *
+ * 环境隔离：
+ * - 使用环境特定前缀，防止开发/生产缓存混淆
  */
 
 import { getRedisClient } from './redis-client'
+import { REDIS_KEY_PREFIX } from './config'
+
+// 🔥 环境隔离前缀（从 autoads:development:queue: 提取 autoads:development:）
+const ENV_PREFIX = REDIS_KEY_PREFIX.replace(':queue:', ':')
 
 export interface CacheOptions {
   ttl?: number // 缓存时间（秒），默认使用operationType的默认TTL
@@ -63,14 +70,15 @@ const CACHE_CONFIG: Record<
 /**
  * 生成缓存键
  *
- * 格式：ai_cache:{operationType}:{version}:{contentHash}
+ * 格式：{ENV_PREFIX}ai_cache:{operationType}:{version}:{contentHash}
+ * 例如：autoads:development:ai_cache:review_analysis:v1:abc123
  */
 function generateCacheKey(
   operationType: string,
   contentHash: string,
   version: string = 'v1'
 ): string {
-  return `ai_cache:${operationType}:${version}:${contentHash}`
+  return `${ENV_PREFIX}ai_cache:${operationType}:${version}:${contentHash}`
 }
 
 /**
@@ -277,7 +285,7 @@ export class AICacheManager {
     try {
       const redis = this.getRedis()
       if (redis && redis.status === 'ready') {
-        const pattern = `ai_cache:${operationType}:*`
+        const pattern = `${ENV_PREFIX}ai_cache:${operationType}:*`
         const stream = redis.scanStream({
           match: pattern,
           count: 100,
@@ -295,7 +303,7 @@ export class AICacheManager {
       }
 
       // 清理内存缓存
-      const prefix = `ai_cache:${operationType}:`
+      const prefix = `${ENV_PREFIX}ai_cache:${operationType}:`
       for (const key of this.memoryCache.keys()) {
         if (key.startsWith(prefix)) {
           this.memoryCache.delete(key)
