@@ -276,28 +276,16 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       }
     }
 
-    const pipeline = this.client.pipeline()
-
-    // 获取各状态任务数量
-    pipeline.zcard(this.getKey('pending:all'))
-    pipeline.scard(this.getKey('running'))
-    pipeline.scard(this.getKey('completed'))
-    pipeline.scard(this.getKey('failed'))
-
-    const results = await pipeline.exec()
-    if (!results) throw new Error('Failed to get stats')
-
-    const [pendingRes, runningRes, completedRes, failedRes] = results
-
-    const pending = (pendingRes?.[1] as number) || 0
-    const running = (runningRes?.[1] as number) || 0
-    const completed = (completedRes?.[1] as number) || 0
-    const failed = (failedRes?.[1] as number) || 0
-
-    // 获取所有任务详情用于类型和用户统计
+    // 🔥 修复：统一从任务详情计算统计，确保全局和用户统计一致
     const allTaskIds = await this.client.hkeys(this.getKey('tasks'))
     const byType: Record<TaskType, number> = {} as Record<TaskType, number>
     const byUser: Record<number, any> = {}
+
+    // 状态计数器
+    let totalPending = 0
+    let totalRunning = 0
+    let totalCompleted = 0
+    let totalFailed = 0
 
     for (const taskId of allTaskIds) {
       const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
@@ -306,6 +294,7 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       const task: Task = JSON.parse(taskJson)
 
       // 🔥 过滤无效用户ID（userId <= 0 是无效的）
+      // 无效用户的任务不计入任何统计
       if (!task.userId || task.userId <= 0) {
         continue
       }
@@ -318,14 +307,20 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
         byUser[task.userId] = { pending: 0, running: 0, completed: 0, failed: 0 }
       }
       byUser[task.userId][task.status]++
+
+      // 全局状态统计（与用户统计使用相同逻辑）
+      if (task.status === 'pending') totalPending++
+      else if (task.status === 'running') totalRunning++
+      else if (task.status === 'completed') totalCompleted++
+      else if (task.status === 'failed') totalFailed++
     }
 
     return {
-      total: pending + running + completed + failed,
-      pending,
-      running,
-      completed,
-      failed,
+      total: totalPending + totalRunning + totalCompleted + totalFailed,
+      pending: totalPending,
+      running: totalRunning,
+      completed: totalCompleted,
+      failed: totalFailed,
       byType,
       byUser
     }

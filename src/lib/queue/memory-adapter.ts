@@ -117,9 +117,19 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
       }
     }
 
-    const allTasks = Array.from(this.tasks.values())
+    // 🔥 修复：过滤有效用户，确保全局和用户统计一致
+    const allTasks = Array.from(this.tasks.values()).filter(
+      (task) => task.userId && task.userId > 0
+    )
+
     const byType: Record<TaskType, number> = {} as Record<TaskType, number>
     const byUser: Record<number, any> = {}
+
+    // 状态计数器
+    let totalPending = 0
+    let totalRunning = 0
+    let totalCompleted = 0
+    let totalFailed = 0
 
     allTasks.forEach((task) => {
       // 按类型统计
@@ -130,14 +140,20 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
         byUser[task.userId] = { pending: 0, running: 0, completed: 0, failed: 0 }
       }
       byUser[task.userId][task.status]++
+
+      // 全局状态统计（与用户统计使用相同逻辑）
+      if (task.status === 'pending') totalPending++
+      else if (task.status === 'running') totalRunning++
+      else if (task.status === 'completed') totalCompleted++
+      else if (task.status === 'failed') totalFailed++
     })
 
     return {
       total: allTasks.length,
-      pending: allTasks.filter((t) => t.status === 'pending').length,
-      running: this.runningTasks.size,
-      completed: allTasks.filter((t) => t.status === 'completed').length,
-      failed: allTasks.filter((t) => t.status === 'failed').length,
+      pending: totalPending,
+      running: totalRunning,
+      completed: totalCompleted,
+      failed: totalFailed,
       byType,
       byUser
     }

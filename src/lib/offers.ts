@@ -774,27 +774,36 @@ export async function updateOfferScrapeStatus(
   if (status === 'completed' && scrapedData) {
     // 🔧 修复：当品牌名更新时，同步更新offer_name
     // 需要先查询当前的offer_name以提取序号
-    const currentOffer = await db.queryOne(`
-      SELECT offer_name, target_country FROM offers WHERE id = ? AND user_id = ?
-    `, [id, userId]) as { offer_name: string; target_country: string } | undefined
+    let currentOffer: { offer_name: string; target_country: string } | undefined
+    let newOfferName: string | null = null
 
-    let newOfferName = currentOffer?.offer_name || null
+    try {
+      currentOffer = await db.queryOne(`
+        SELECT offer_name, target_country FROM offers WHERE id = ? AND user_id = ?
+      `, [id, userId]) as { offer_name: string; target_country: string } | undefined
 
-    // 如果提供了新的品牌名且不是Unknown，则更新offer_name
-    if (scrapedData.brand && scrapedData.brand !== 'Unknown' && currentOffer) {
-      // 从旧的offer_name中提取序号（格式：Brand_Country_序号）
-      const parts = currentOffer.offer_name.split('_')
-      const sequenceNumber = parts.length >= 3 ? parts[parts.length - 1] : '01'
-      const proposedOfferName = `${scrapedData.brand}_${currentOffer.target_country}_${sequenceNumber}`
+      newOfferName = currentOffer?.offer_name || null
 
-      // 🔧 修复：检查新offer_name是否已被占用，如果是则重新生成唯一名称
-      const isUnique = await isOfferNameUnique(proposedOfferName, userId, id)
-      if (isUnique) {
-        newOfferName = proposedOfferName
-      } else {
-        // 已被占用，使用generateOfferName生成新的唯一名称
-        newOfferName = await generateOfferName(scrapedData.brand, currentOffer.target_country, userId)
+      // 如果提供了新的品牌名且不是Unknown，则更新offer_name
+      if (scrapedData.brand && scrapedData.brand !== 'Unknown' && currentOffer) {
+        // 从旧的offer_name中提取序号（格式：Brand_Country_序号）
+        const parts = currentOffer.offer_name.split('_')
+        const sequenceNumber = parts.length >= 3 ? parts[parts.length - 1] : '01'
+        const proposedOfferName = `${scrapedData.brand}_${currentOffer.target_country}_${sequenceNumber}`
+
+        // 🔧 修复：检查新offer_name是否已被占用，如果是则重新生成唯一名称
+        const isUnique = await isOfferNameUnique(proposedOfferName, userId, id)
+        if (isUnique) {
+          newOfferName = proposedOfferName
+        } else {
+          // 已被占用，使用generateOfferName生成新的唯一名称
+          newOfferName = await generateOfferName(scrapedData.brand, currentOffer.target_country, userId)
+        }
       }
+    } catch (nameError: any) {
+      // 🔥 修复（2025-12-10）: offer_name更新失败不应阻止状态更新
+      console.error('❌ offer_name更新失败:', nameError.message)
+      // 继续使用原有的offer_name
     }
 
     // 🔧 PostgreSQL兼容性修复：使用NOW()替代datetime('now')
