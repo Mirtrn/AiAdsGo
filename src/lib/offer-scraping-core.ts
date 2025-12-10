@@ -34,12 +34,16 @@ async function saveScrapedProducts(
         user_id, offer_id, name, asin, price, rating, review_count, image_url,
         promotion, badge, is_prime,
         hot_score, rank, is_hot, hot_label,
-        product_url, scrape_source, created_at, updated_at
+        product_url, scrape_source,
+        sales_volume, discount, delivery_info,
+        created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, datetime('now'), datetime('now')
+        ?, ?,
+        ?, ?, ?,
+        datetime('now'), datetime('now')
       )
     `, [
       userId,
@@ -61,7 +65,11 @@ async function saveScrapedProducts(
       product.hotLabel || null,
       // 🔥 产品URL字段（独立站和Amazon保持一致）
       product.productUrl || null,
-      source
+      source,
+      // 🔥 2025-12-10新增：销售热度相关字段
+      product.salesVolume || null,
+      product.discount || null,
+      product.deliveryInfo || null
     ])
   }
 

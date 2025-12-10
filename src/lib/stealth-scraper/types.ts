@@ -75,6 +75,11 @@ export interface AmazonStoreData {
     // 🔥 新增：完整详情页数据（用于hotScore优化）
     salesRank?: string | null       // 销量排名
     features?: string[]             // 产品特性
+    // 🔥 2025-12-10优化：从店铺页直接提取的销售热度
+    salesVolume?: string | null     // 销售热度："1K+ bought in past month"
+    discount?: string | null        // 折扣百分比："-20%"
+    deliveryInfo?: string | null    // 配送信息："Get it by Tuesday, December 16"
+    imageUrl?: string | null        // 产品图片URL
   }>
   totalProducts: number
   storeUrl: string

@@ -4,7 +4,7 @@
  * Amazon store page scraping with product listing extraction
  */
 
-import { load } from 'cheerio'
+import { load, type CheerioAPI } from 'cheerio'
 import { Page } from 'playwright'
 import { normalizeBrandName } from '../offer-utils'
 import { getPlaywrightPool } from '../playwright-pool'
@@ -385,7 +385,12 @@ async function scrapeStorePageContent(
   console.log('📍 策略A0: 从嵌入的JavaScript JSON中提取产品数据...')
   extractProductsFromJson(html, products, productAsins)
 
-  // Strategy A1: Extract from HTML links
+  // 🔥 Strategy A2: Extract complete data from ProductGridItem (2025-12-10优化)
+  // 这个策略可以直接从页面提取完整数据，避免访问详情页
+  console.log('📍 策略A2: 从ProductGridItem提取完整数据...')
+  extractFromProductGridItems($, products, productAsins)
+
+  // Strategy A1: Extract ASINs from HTML links (补充A0和A2未覆盖的ASIN)
   console.log('📍 策略A1: 从Store页面HTML提取产品ASIN...')
   $('a[href*="/dp/"]').each((i, el) => {
     const href = $(el).attr('href') || ''
@@ -403,10 +408,19 @@ async function scrapeStorePageContent(
 
   console.log(`📊 策略A1结果: 找到 ${productAsins.size} 个产品ASIN`)
 
+  // 🔥 优化：检查是否已有足够完整的数据，避免不必要的详情页抓取
+  const productsWithCompleteData = products.filter(p =>
+    p.rating && p.reviewCount && (p.salesVolume || p.badge)
+  )
+  const hasCompleteData = productsWithCompleteData.length >= 5
+
+  console.log(`📊 数据完整性检查: ${productsWithCompleteData.length}/${products.length} 个产品有完整数据`)
+
   // Phase 2: Batch scrape product details if needed
+  // 🔥 优化：如果已有完整数据，跳过详情页抓取
   const needPhase2 = products.length === 0 && productAsins.size > 0
 
-  console.log(`🔍 Phase 2检查: products.length: ${products.length}, productAsins.size: ${productAsins.size}, needPhase2: ${needPhase2}`)
+  console.log(`🔍 Phase 2检查: products.length: ${products.length}, productAsins.size: ${productAsins.size}, needPhase2: ${needPhase2}${hasCompleteData ? ' (已有完整数据，跳过)' : ''}`)
 
   if (needPhase2) {
     console.log(`📦 阶段2: 批量抓取产品详情页`)
@@ -580,6 +594,188 @@ function extractProductsFromJson(
     }
   } catch (error: any) {
     console.error(`❌ 解析JavaScript JSON失败: ${error.message}`)
+  }
+}
+
+/**
+ * 🔥 2025-12-10优化：策略A2 - 从ProductGridItem直接提取完整数据
+ *
+ * 新版Amazon店铺页面使用ProductGridItem组件展示产品
+ * 可以直接提取：ASIN、标题、价格、评分、评论数、销售热度、Prime状态等
+ *
+ * 关键选择器：
+ * - 产品项: li[data-testid="product-grid-item"]
+ * - ASIN: data-csa-c-item-id="amzn1.asin.XXXXXXXXXX"
+ * - 评分: [class*="rating--short"]
+ * - 价格: 从文本中正则匹配
+ * - 销售热度: "1K+ bought in past month" 等
+ */
+function extractFromProductGridItems(
+  $: CheerioAPI,
+  products: AmazonStoreData['products'],
+  productAsins: Set<string>
+): void {
+  console.log('📍 策略A2: 从ProductGridItem提取完整数据...')
+
+  let extractedCount = 0
+
+  // 选择器优先级：data-testid > class名
+  const productSelectors = [
+    'li[data-testid="product-grid-item"]',
+    '[class*="ProductGridItem__itemOuter"]',
+    'li[data-csa-c-item-type="asin"]'
+  ]
+
+  for (const selector of productSelectors) {
+    const items = $(selector)
+    if (items.length === 0) continue
+
+    console.log(`  ✓ 选择器 "${selector}" 匹配到 ${items.length} 个产品项`)
+
+    items.each((i, el) => {
+      const $item = $(el)
+
+      // 1. 提取ASIN - 优先使用data-csa-c-item-id属性
+      let asin: string | null = null
+      const csaItemId = $item.attr('data-csa-c-item-id')
+      if (csaItemId && csaItemId.startsWith('amzn1.asin.')) {
+        asin = csaItemId.replace('amzn1.asin.', '')
+      }
+
+      // 备选：从链接提取ASIN
+      if (!asin) {
+        const href = $item.find('a[href*="/dp/"]').attr('href')
+        if (href) {
+          const match = href.match(/\/dp\/([A-Z0-9]{10})/)
+          if (match) asin = match[1]
+        }
+      }
+
+      // 跳过无效或重复的ASIN
+      if (!asin || productAsins.has(asin)) return
+
+      // 2. 提取产品标题
+      const titleEl = $item.find('a[title]').first()
+      const title = titleEl.attr('title') ||
+                   $item.find('[class*="title"]').text().trim() ||
+                   $item.find('img').attr('alt')?.replace('Image of ', '') ||
+                   `Product ${asin}`
+
+      // 3. 提取评分 - 从rating--short类获取
+      let rating: string | null = null
+      const ratingShort = $item.find('[class*="rating--short"]').text().trim()
+      if (ratingShort && /^\d+\.?\d*$/.test(ratingShort)) {
+        rating = ratingShort
+      }
+
+      // 4. 提取评论数 - 从rating容器解析
+      let reviewCount: string | null = null
+      const ratingContainer = $item.find('[class*="rating__"]').text()
+      if (ratingContainer) {
+        // 格式："4.24.2 out of 5 stars2574.2 out of 5 stars. 257 customer reviews"
+        const reviewMatch = ratingContainer.match(/(\d{1,3}(?:,\d{3})*)\s*(?:customer reviews|ratings)/i)
+        if (reviewMatch) {
+          reviewCount = reviewMatch[1]
+        } else {
+          // 备选：查找纯数字（评论数）
+          const numbersInRating = ratingContainer.match(/\d{1,3}(?:,\d{3})*/g)
+          if (numbersInRating && numbersInRating.length >= 2) {
+            // 评论数通常是较大的那个数字
+            const nums = numbersInRating.map(n => parseInt(n.replace(/,/g, '')))
+            const maxNum = Math.max(...nums)
+            if (maxNum > 10) {
+              reviewCount = maxNum.toLocaleString()
+            }
+          }
+        }
+      }
+
+      // 5. 提取价格
+      let price: string | null = null
+      const itemText = $item.text()
+      const priceMatch = itemText.match(/\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/)
+      if (priceMatch) {
+        price = '$' + priceMatch[1]
+      }
+
+      // 6. 🔥 提取销售热度 (关键优化点!)
+      let salesVolume: string | null = null
+      const salesMatch = itemText.match(/(\d+[KM]?\+?)\s*bought in past month/i)
+      if (salesMatch) {
+        salesVolume = salesMatch[1] + ' bought in past month'
+      }
+
+      // 7. 提取折扣信息
+      let discount: string | null = null
+      const discountMatch = itemText.match(/(-\d+%)/i)
+      if (discountMatch) {
+        discount = discountMatch[1]
+      }
+
+      // 8. 提取促销标签
+      let promotion: string | null = null
+      if (itemText.includes('Limited time deal')) {
+        promotion = 'Limited time deal'
+      } else if (itemText.includes('Deal')) {
+        promotion = 'Deal'
+      }
+
+      // 9. 检查Prime
+      const isPrime = $item.find('img[alt*="Prime"]').length > 0
+
+      // 10. 提取配送信息
+      let deliveryInfo: string | null = null
+      const deliveryMatch = itemText.match(/(Get it by [A-Za-z]+,\s*[A-Za-z]+\s*\d+)/i)
+      if (deliveryMatch) {
+        deliveryInfo = deliveryMatch[1]
+      }
+
+      // 11. 提取图片URL
+      let imageUrl: string | null = null
+      const imgSrc = $item.find('img[src*="images-amazon"]').attr('src')
+      if (imgSrc) {
+        imageUrl = imgSrc
+      }
+
+      // 12. 提取Badge (Best Seller, Amazon's Choice等)
+      let badge: string | null = null
+      if (itemText.toLowerCase().includes('best seller')) {
+        badge = 'Best Seller'
+      } else if (itemText.toLowerCase().includes("amazon's choice")) {
+        badge = "Amazon's Choice"
+      } else if (itemText.includes('Climate Pledge')) {
+        badge = 'Climate Pledge Friendly'
+      }
+
+      // 添加到产品列表
+      products.push({
+        name: title.substring(0, 300),
+        price,
+        rating,
+        reviewCount,
+        asin,
+        promotion,
+        badge,
+        isPrime,
+        salesVolume,
+        discount,
+        deliveryInfo,
+        imageUrl
+      })
+
+      productAsins.add(asin)
+      extractedCount++
+    })
+
+    // 如果已成功提取产品，跳出循环
+    if (extractedCount > 0) {
+      console.log(`📊 策略A2成功: 从ProductGridItem提取 ${extractedCount} 个产品（含完整数据）`)
+      break
+    }
+  }
+
+  if (extractedCount === 0) {
+    console.log('⚠️ 策略A2未找到ProductGridItem产品')
   }
 }
 
@@ -788,7 +984,11 @@ async function batchScrapeProductDetails(
 
 /**
  * 🔥 优化版：计算热销分数
- * 基于完整详情页数据：rating + reviewCount + badge + salesRank
+ * 基于完整详情页数据：rating + reviewCount + badge + salesRank + salesVolume
+ *
+ * 2025-12-10优化：新增salesVolume加权
+ * salesVolume格式："1K+ bought in past month", "4K+ bought in past month"
+ * 这是Amazon官方的销售热度指标，权重应该较高
  */
 function calculateHotScores(products: AmazonStoreData['products']): AmazonStoreData['products'] {
   const productsWithScores = products.map(p => {
@@ -800,6 +1000,28 @@ function calculateHotScores(products: AmazonStoreData['products']): AmazonStoreD
       ? rating * Math.log10(reviewCount + 1)
       : 0
 
+    // 🔥 2025-12-10优化：SalesVolume加权（从店铺页直接获取的销售热度）
+    // 这是最直接的热销指标，权重最高
+    if (p.salesVolume) {
+      const salesVolumeNum = parseSalesVolume(p.salesVolume)
+      if (salesVolumeNum > 0) {
+        // 使用对数缩放，避免极端值主导
+        const salesFactor = Math.log10(salesVolumeNum + 1)
+        hotScore += salesFactor * 2  // 销售热度贡献额外分数
+
+        // 销售量分级加权
+        if (salesVolumeNum >= 10000) {
+          hotScore *= 1.6  // 10K+ 销售加权60%
+        } else if (salesVolumeNum >= 4000) {
+          hotScore *= 1.4  // 4K+ 销售加权40%
+        } else if (salesVolumeNum >= 1000) {
+          hotScore *= 1.2  // 1K+ 销售加权20%
+        } else if (salesVolumeNum >= 500) {
+          hotScore *= 1.1  // 500+ 销售加权10%
+        }
+      }
+    }
+
     // 🔥 Badge加权（Amazon官方认证更可信）
     if (p.badge) {
       const badgeLower = p.badge.toLowerCase()
@@ -807,6 +1029,8 @@ function calculateHotScores(products: AmazonStoreData['products']): AmazonStoreD
         hotScore *= 1.5  // Best Seller 加权50%
       } else if (badgeLower.includes("amazon's choice")) {
         hotScore *= 1.3  // Amazon's Choice 加权30%
+      } else if (badgeLower.includes('climate pledge')) {
+        hotScore *= 1.05  // Climate Pledge 小幅加权
       } else {
         hotScore *= 1.1  // 其他badge 加权10%
       }
@@ -822,6 +1046,27 @@ function calculateHotScores(products: AmazonStoreData['products']): AmazonStoreD
           else if (rank < 1000) hotScore *= 1.2  // Top 1000
           else if (rank < 10000) hotScore *= 1.1 // Top 10000
         }
+      }
+    }
+
+    // 🔥 折扣加权（有折扣的商品可能更热销）
+    if (p.discount) {
+      const discountMatch = p.discount.match(/-?(\d+)%/)
+      if (discountMatch) {
+        const discountPercent = parseInt(discountMatch[1])
+        if (discountPercent >= 20) {
+          hotScore *= 1.1  // 20%以上折扣加权10%
+        }
+      }
+    }
+
+    // 🔥 促销标签加权
+    if (p.promotion) {
+      const promoLower = p.promotion.toLowerCase()
+      if (promoLower.includes('limited time')) {
+        hotScore *= 1.15  // 限时优惠加权15%
+      } else if (promoLower.includes('deal')) {
+        hotScore *= 1.1   // 普通deal加权10%
       }
     }
 
@@ -849,7 +1094,45 @@ function calculateHotScores(products: AmazonStoreData['products']): AmazonStoreD
     // 🔥 新增：保留完整数据供AI分析
     salesRank: p.salesRank,
     features: p.features,
+    // 🔥 2025-12-10优化：保留从店铺页直接提取的数据
+    salesVolume: p.salesVolume,
+    discount: p.discount,
+    deliveryInfo: p.deliveryInfo,
+    imageUrl: p.imageUrl,
   }))
+}
+
+/**
+ * 🔥 2025-12-10新增：解析销售热度字符串
+ *
+ * 输入格式：
+ * - "1K+ bought in past month" → 1000
+ * - "4K+ bought in past month" → 4000
+ * - "10K+ bought in past month" → 10000
+ * - "500+ bought in past month" → 500
+ * - "1M+ bought in past month" → 1000000
+ *
+ * @param salesVolume - 销售热度字符串
+ * @returns 解析后的数值
+ */
+function parseSalesVolume(salesVolume: string): number {
+  if (!salesVolume) return 0
+
+  // 提取数字和单位
+  const match = salesVolume.match(/(\d+(?:\.\d+)?)\s*([KMkm])?/)
+  if (!match) return 0
+
+  let value = parseFloat(match[1])
+  const unit = match[2]?.toUpperCase()
+
+  // 应用单位乘数
+  if (unit === 'K') {
+    value *= 1000
+  } else if (unit === 'M') {
+    value *= 1000000
+  }
+
+  return Math.round(value)
 }
 
 /**

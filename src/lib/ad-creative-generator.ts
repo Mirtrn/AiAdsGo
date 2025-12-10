@@ -602,9 +602,34 @@ async function buildAdCreativePrompt(
     extras.push(`SPECS: ${topSpecs}`)
   }
 
+  // 🔥 2025-12-10优化：提取features和aboutThisItem（产品核心卖点）
+  let productFeatures: string[] = []
+  let aboutThisItem: string[] = []
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+      productFeatures = scrapedData.features || []
+      aboutThisItem = scrapedData.aboutThisItem || []
+    } catch {}
+  }
+  // 优先使用aboutThisItem（更详细），其次使用features
+  const featureSource = aboutThisItem.length > 0 ? aboutThisItem : productFeatures
+  if (featureSource.length > 0) {
+    // 提取前5个最重要的产品特点（限制每条100字符避免过长）
+    const topFeatures = featureSource
+      .slice(0, 5)
+      .map((f: string) => f.length > 100 ? f.substring(0, 100) + '...' : f)
+      .join(' | ')
+    extras.push(`PRODUCT FEATURES: ${topFeatures}`)
+  }
+
   // 🔥 P1-3: Store热销数据（新增优化 - 用于Amazon Store或独立站店铺页）
   let hotInsights: { avgRating: number; avgReviews: number; topProductsCount: number } | null = null
   let topProducts: string[] = []
+  // 🔥 2025-12-10优化：提取销售热度数据
+  let storeSalesVolumes: string[] = []
+  let storeDiscounts: string[] = []
+
   if (offer.scraped_data) {
     try {
       const scrapedData = JSON.parse(offer.scraped_data)
@@ -615,6 +640,19 @@ async function buildAdCreativePrompt(
           .slice(0, 5)
           .map((p: any) => p.name || p.productName)
           .filter(Boolean)
+
+        // 🔥 2025-12-10优化：提取销量数据（"1K+ bought in past month"等）
+        storeSalesVolumes = scrapedData.products
+          .filter((p: any) => p.salesVolume)
+          .slice(0, 3)
+          .map((p: any) => `${(p.name || '').substring(0, 20)}... (${p.salesVolume})`)
+
+        // 🔥 2025-12-10优化：提取折扣数据（"-20%"等）
+        storeDiscounts = scrapedData.products
+          .filter((p: any) => p.discount)
+          .slice(0, 3)
+          .map((p: any) => p.discount)
+        storeDiscounts = [...new Set(storeDiscounts)] // 去重
       }
     } catch {}
   }
@@ -622,6 +660,16 @@ async function buildAdCreativePrompt(
   // 如果是Store页面，添加热销洞察到Prompt
   if (hotInsights && topProducts.length > 0) {
     extras.push(`STORE HOT PRODUCTS: ${topProducts.slice(0, 3).join(', ')} (Avg: ${hotInsights.avgRating.toFixed(1)}⭐, ${hotInsights.avgReviews} reviews)`)
+  }
+
+  // 🔥 2025-12-10优化：添加销售热度数据到Prompt（强社会证明信号）
+  if (storeSalesVolumes.length > 0) {
+    extras.push(`🔥 SALES MOMENTUM: ${storeSalesVolumes.join(' | ')}`)
+  }
+
+  // 🔥 2025-12-10优化：添加折扣数据到Prompt（促销信号）
+  if (storeDiscounts.length > 0) {
+    extras.push(`💰 ACTIVE DISCOUNTS: ${storeDiscounts.join(', ')}`)
   }
 
   // 🔥 v4.1优化（2025-12-09）：提取店铺深度抓取数据
@@ -919,7 +967,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 
   // Build all dynamic guidance sections
   variables.headline_brand_guidance = buildHeadlineBrandGuidance(badge, salesRank, offer, hotInsights, topProducts, sentimentDistribution, averageRating)
-  variables.headline_feature_guidance = buildHeadlineFeatureGuidance(technicalDetails, reviewHighlights, commonPraises, topPositiveKeywords)
+  variables.headline_feature_guidance = buildHeadlineFeatureGuidance(technicalDetails, reviewHighlights, commonPraises, topPositiveKeywords, featureSource)
   variables.headline_promo_guidance = buildHeadlinePromoGuidance(discount, activePromotions)
   variables.headline_cta_guidance = buildHeadlineCTAGuidance(primeEligible, purchaseReasons)
   variables.headline_urgency_guidance = buildHeadlineUrgencyGuidance(availability)
@@ -1051,8 +1099,12 @@ function buildHeadlineBrandGuidance(badge: string | null, salesRank: string | nu
 `
 }
 
-function buildHeadlineFeatureGuidance(technicalDetails: Record<string, string>, reviewHighlights: string[], commonPraises: string[], topPositiveKeywords: Array<{keyword: string; frequency: number}>): string {
-  return `- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}${commonPraises.length > 0 ? `. **USER PRAISES**: Use authentic features: ${commonPraises.slice(0, 2).join(', ')}` : ''}${topPositiveKeywords.length > 0 ? `. **POSITIVE KEYWORDS**: Incorporate high-frequency praise words: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}` : ''}
+function buildHeadlineFeatureGuidance(technicalDetails: Record<string, string>, reviewHighlights: string[], commonPraises: string[], topPositiveKeywords: Array<{keyword: string; frequency: number}>, productFeatures: string[] = []): string {
+  // 🔥 2025-12-10优化：整合productFeatures到guidance中
+  const featureExamples = productFeatures.length > 0
+    ? `\n  * **SCRAPED FEATURES** (use these for authentic headlines): ${productFeatures.slice(0, 3).map(f => `"${f.substring(0, 30)}..."`).join(', ')}`
+    : ''
+  return `- Feature (4): ${Object.keys(technicalDetails).length > 0 ? 'Use SPECS data for technical features' : 'Core product benefits'}${reviewHighlights.length > 0 ? `, incorporate REVIEW INSIGHTS (e.g., "${reviewHighlights[0]}")` : ''}${commonPraises.length > 0 ? `. **USER PRAISES**: Use authentic features: ${commonPraises.slice(0, 2).join(', ')}` : ''}${topPositiveKeywords.length > 0 ? `. **POSITIVE KEYWORDS**: Incorporate high-frequency praise words: ${topPositiveKeywords.slice(0, 3).map(k => k.keyword).join(', ')}` : ''}${featureExamples}
   * IMPORTANT: Each of the 4 feature headlines must focus on a DIFFERENT feature or benefit
   * Example 1: "4K Resolution Display" (technical spec)
   * Example 2: "Extended Battery Life" (performance benefit)

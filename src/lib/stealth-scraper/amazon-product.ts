@@ -286,13 +286,44 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   }
 
   // Extract availability - 支持桌面版和移动版
-  const availability = $('#availability span').text().trim() ||
-                       $('#outOfStock span').text().trim() ||
-                       // === 移动版选择器 (a-m-* 页面) ===
-                       $('#deliveryMessage_feature_div').text().trim() ||
-                       $('[data-csa-c-delivery-price]').text().trim() ||
-                       $('#mir-layout-DELIVERY_BLOCK').text().trim() ||
-                       null
+  // 🔥 2025-12-10优化：避免#availability包含JavaScript代码污染的问题
+  // 优先使用更精确的选择器，按可靠性顺序排列
+  const availability = (() => {
+    // 策略1: 使用颜色类选择器（最可靠，避免JS代码）
+    const colorPrice = $('#availability .a-color-price').first().text().trim()
+    if (colorPrice && colorPrice.length < 200) return colorPrice
+
+    const colorSuccess = $('#availability .a-color-success').first().text().trim()
+    if (colorSuccess && colorSuccess.length < 200) return colorSuccess
+
+    const colorState = $('#availability .a-color-state').first().text().trim()
+    if (colorState && colorState.length < 200) return colorState
+
+    // 策略2: #outOfStock 区域（缺货商品）
+    const outOfStock = $('#outOfStock').first().text().trim()
+    if (outOfStock && outOfStock.length > 5 && outOfStock.length < 200) {
+      // 清理多余空白和换行
+      return outOfStock.replace(/\s+/g, ' ').split('Deliver to')[0].trim()
+    }
+
+    // 策略3: 直接子span（过滤掉script标签的文本）
+    const directSpan = $('#availability > span').first().text().trim()
+    if (directSpan && directSpan.length > 5 && directSpan.length < 200 && !directSpan.includes('function')) {
+      return directSpan
+    }
+
+    // === 移动版选择器 (a-m-* 页面) ===
+    const deliveryMsg = $('#deliveryMessage_feature_div').text().trim()
+    if (deliveryMsg && deliveryMsg.length < 200) return deliveryMsg
+
+    const deliveryPrice = $('[data-csa-c-delivery-price]').text().trim()
+    if (deliveryPrice && deliveryPrice.length < 200) return deliveryPrice
+
+    const mirLayout = $('#mir-layout-DELIVERY_BLOCK').text().trim()
+    if (mirLayout && mirLayout.length < 200) return mirLayout
+
+    return null
+  })()
 
   // Check Prime eligibility - 支持桌面版和移动版
   const primeEligible = $('#primeEligibilityMessage').length > 0 ||
@@ -352,11 +383,22 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
       technicalDetails[key] = value
     }
   })
-  // Mobile: product overview section
+  // 🔥 2025-12-10优化：Product Overview表格提取（包含带图标的属性）
+  // 使用.a-text-bold和.po-break-word精确分离label和value
   $('#productOverview_feature_div tr, #poExpander tr').each((i: number, el: any) => {
-    const key = $(el).find('.a-text-bold').text().trim()
-    const value = $(el).find('.a-text-normal, .po-break-word').text().trim()
-    if (key && value && !technicalDetails[key]) {
+    // 跳过嵌套表格的父行（cellCount > 2 表示是包含嵌套表格的容器行）
+    const directCells = $(el).children('td')
+    if (directCells.length > 2) return  // 跳过容器行，让内部的tr处理
+
+    // 使用.first()确保只获取第一个匹配元素
+    const keyEl = $(el).find('.a-text-bold').first()
+    const valueEl = $(el).find('.po-break-word').first()
+
+    const key = keyEl.text().trim()
+    const value = valueEl.text().trim()
+
+    // 验证key和value是有效的（避免重复和空值）
+    if (key && value && key !== value && !technicalDetails[key] && key.length < 50) {
       technicalDetails[key] = value
     }
   })
@@ -395,6 +437,7 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     console.log(`⏭️ 跳过竞品ASIN提取（skipCompetitorExtraction=true）`)
   } else {
     // Amazon推荐区域选择器（2024-2025版本）
+    // 🔥 2025-12-10优化：增加更多选择器，特别是缺货商品页面的fallback
     const relatedAsinSelectors = [
       // Frequently bought together
       '#sims-fbt a[href*="/dp/"]',
@@ -407,12 +450,15 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
       // Compare with similar items
       '#similarities_feature_div a[href*="/dp/"]',
       '[data-feature-name="similarities"] a[href*="/dp/"]',
-      // Sponsored products
+      // Sponsored products (通常是相关竞品)
       '#sp_detail a[href*="/dp/"]',
       '#sp_detail2 a[href*="/dp/"]',
-      // Carousel containers
+      // Carousel containers - 🔥 缺货商品页面的主要来源
       '.a-carousel-card a[href*="/dp/"]',
       '[data-a-carousel-options] a[href*="/dp/"]',
+      // 🔥 新增：Products related to this item（意大利站常见）
+      '[data-component-type="s-search-result"] a[href*="/dp/"]',
+      '.s-result-item a[href*="/dp/"]',
     ]
 
     console.log(`🔍 开始竞品候选ASIN提取...`)
@@ -431,10 +477,19 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
 
     // 策略2：从data-asin属性提取（Fallback）
-    if (relatedAsins.length < 5) {
+    // 🔥 2025-12-10优化：降低触发阈值从5改为3，更积极使用data-asin
+    if (relatedAsins.length < 3) {
+      console.log(`🔄 策略1提取不足（${relatedAsins.length}个），启用data-asin策略...`)
       const recommendationContainers = [
+        // 🔥 优化：将.a-carousel-card提前，这是缺货商品页面的主要来源
+        '.a-carousel-card',
+        '.a-carousel-container',
         '#sims-fbt', '#sims-fbt-content', '[data-csa-c-slot-id*="sims"]',
-        '#similarities_feature_div', '.a-carousel-container'
+        '#similarities_feature_div',
+        // 🔥 新增：Sponsored products区域的data-asin
+        '#sp_detail', '#sp_detail2',
+        // 🔥 新增：Brands in this category区域
+        '[data-component-type="sbv-sponsored"]',
       ]
       for (const containerSelector of recommendationContainers) {
         $(containerSelector).find('[data-asin]').each((_i: number, el: any) => {
@@ -447,6 +502,21 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
         })
         if (relatedAsins.length >= 10) break
       }
+    }
+
+    // 🔥 策略3：全局搜索data-asin（最后的fallback）
+    if (relatedAsins.length < 3) {
+      console.log(`🔄 策略2仍不足（${relatedAsins.length}个），启用全局data-asin搜索...`)
+      // 排除当前商品区域，只在推荐区域搜索
+      const excludeSelectors = '#ppd, #dp-container, #centerCol, #rightCol'
+      $('[data-asin]').not($(excludeSelectors).find('[data-asin]')).each((_i: number, el: any) => {
+        if (relatedAsins.length >= 10) return false
+        const dataAsin = $(el).attr('data-asin')
+        if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin) &&
+            dataAsin !== asin && !relatedAsins.includes(dataAsin)) {
+          relatedAsins.push(dataAsin)
+        }
+      })
     }
 
     console.log(`🔥 竞品候选ASIN提取完成: 找到 ${relatedAsins.length} 个候选（品牌过滤将在详情页抓取后进行）`)
@@ -740,29 +810,40 @@ function extractBrandName(
 
 /**
  * Clean brand text by removing store visit prefixes in multiple languages
+ * 🔥 2025-12-10优化：增强意大利站和欧洲站的品牌清洗
  */
 function cleanBrandText(brand: string): string {
   // English (US, CA, AU, GB, IN, SG): "Visit the Brand Store"
   brand = brand.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
 
-  // Italian (IT): "Visita lo Store di Brand", "Visita il/la/le/i/gli Brand"
+  // Italian (IT): 多种格式
+  // - "Visita lo Store di Brand"
+  // - "Visita il Brand Store"
+  // - "Visita lo store Brand"
+  // - "Brand Store" (简化版)
   brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+/i, '')
   brand = brand.replace(/^(Store|Negozio)\s+(di\s+)?/i, '')
+  brand = brand.replace(/\s+(Store|Negozio)$/i, '')  // 🔥 新增：末尾的Store/Negozio
+  brand = brand.replace(/\s+di\s+$/i, '')  // 🔥 新增：末尾的"di"
 
   // French (FR, BE, CA-FR): "Visitez la boutique de Brand"
   brand = brand.replace(/^Visitez\s+(la|le|les)\s+/i, '')
   brand = brand.replace(/^Boutique\s+(de\s+)?/i, '')
+  brand = brand.replace(/\s+Boutique$/i, '')  // 🔥 新增
 
   // German (DE, AT, CH): "Besuchen Sie den Brand-Shop"
   brand = brand.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '').replace(/-Shop$/i, '')
+  brand = brand.replace(/\s+Shop$/i, '')  // 🔥 新增
 
   // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda de Brand"
   brand = brand.replace(/^Visita\s+(la|el)\s+/i, '')
   brand = brand.replace(/^Tienda\s+(de\s+)?/i, '')
+  brand = brand.replace(/\s+Tienda$/i, '')  // 🔥 新增
 
   // Portuguese (BR, PT): "Visite a loja da Brand"
   brand = brand.replace(/^Visite\s+a\s+/i, '')
   brand = brand.replace(/^Loja\s+(da\s+)?/i, '')
+  brand = brand.replace(/\s+Loja$/i, '')  // 🔥 新增
 
   // Japanese (JP): "ブランド 出品者のストアにアクセス"
   brand = brand.replace(/\s*出品者のストアにアクセス$/i, '')
