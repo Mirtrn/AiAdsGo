@@ -245,14 +245,17 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       if (data.creatives && data.creatives.length > 0) {
         // 转换数据库创意为前端需要的格式（构造adStrength对象）
         const formattedCreatives = data.creatives.map((c: any) => {
-          const calculatedRating = c.score >= 85 ? 'EXCELLENT' : c.score >= 70 ? 'GOOD' : c.score >= 50 ? 'AVERAGE' : 'POOR'
+          // 🔧 确保 score 是数字类型（数据库可能返回字符串）
+          const numericScore = typeof c.score === 'number' ? c.score : (parseFloat(c.score) || 0)
+          const calculatedRating = numericScore >= 85 ? 'EXCELLENT' : numericScore >= 70 ? 'GOOD' : numericScore >= 50 ? 'AVERAGE' : 'POOR'
 
           return {
             ...c,
+            score: numericScore,  // 🔧 确保 score 始终是数字
             // 构造adStrength对象（如果不存在）
             adStrength: c.adStrength || {
               rating: calculatedRating,
-              score: c.score || 0,
+              score: numericScore,
               dimensions: {
                 diversity: {
                   score: c.score_breakdown?.diversity || 0,
@@ -735,7 +738,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                         </Badge>
                       </div>
                       <div className="flex items-baseline gap-2 mb-3">
-                        <div className="text-3xl font-bold tracking-tight">{creative.adStrength.score.toFixed(0)}</div>
+                        <div className="text-3xl font-bold tracking-tight">{(typeof creative.adStrength.score === 'number' ? creative.adStrength.score : parseFloat(creative.adStrength.score) || 0).toFixed(0)}</div>
                         <div className="text-sm text-gray-500 font-medium">/ 100</div>
                       </div>
 
@@ -788,7 +791,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                           {getScoreBadge(creative.score).label}
                         </Badge>
                       </div>
-                      <div className="text-3xl font-bold">{creative.score.toFixed(1)}</div>
+                      <div className="text-3xl font-bold">{(typeof creative.score === 'number' ? creative.score : parseFloat(creative.score) || 0).toFixed(1)}</div>
                     </div>
                   )}
 

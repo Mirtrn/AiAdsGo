@@ -283,7 +283,7 @@ export async function calculateCreativeQualityScore(creative: {
       operationType: 'creative_quality_scoring',
       prompt,
       temperature: 0.3, // 降低温度以获得更稳定的评分
-      maxOutputTokens: 256, // 增加以容纳Gemini 2.5的思考tokens + 实际输出
+      maxOutputTokens: 2048, // 🔧 增加token限制，避免Gemini 2.5 Pro thinking模式导致MAX_TOKENS错误
     }, userId)
 
     // 记录token使用
