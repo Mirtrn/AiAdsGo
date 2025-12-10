@@ -260,19 +260,19 @@ export default function LaunchAdPage() {
       </main>
 
       {/* Sticky Navigation Footer */}
-      {currentStep < 4 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-200 z-20 py-4">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-            <Button
-              variant="outline"
-              onClick={handleBack}
-              disabled={currentStep === 1}
-              className="min-w-[100px]"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              上一步
-            </Button>
+      <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-200 z-20 py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+          <Button
+            variant="outline"
+            onClick={handleBack}
+            disabled={currentStep === 1}
+            className="min-w-[100px]"
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            上一步
+          </Button>
 
+          {currentStep < 4 && (
             <div className="flex items-center gap-4">
               <div className="text-sm text-gray-500">
                 步骤 {currentStep} / {STEPS.length}
@@ -286,9 +286,15 @@ export default function LaunchAdPage() {
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </div>
-          </div>
+          )}
+
+          {currentStep === 4 && (
+            <div className="text-sm text-gray-500">
+              步骤 {currentStep} / {STEPS.length}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

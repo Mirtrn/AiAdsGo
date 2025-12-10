@@ -54,6 +54,7 @@ interface GoogleAdsAccount {
   db_account_id: number | null
   db_account_name: string | null
   last_sync_at?: string
+  account_balance?: number | null  // 账户余额（微单位，需除以1000000）
   linked_offers?: Array<{
     id: number
     offer_name: string | null
@@ -64,11 +65,23 @@ interface GoogleAdsAccount {
   }>
 }
 
+// 格式化账户余额显示
+const formatBalance = (balance: number | null | undefined, currency: string): string => {
+  if (balance === null || balance === undefined) return '-'
+  // Google Ads API 返回的金额是微单位，需要除以 1,000,000
+  const amount = balance / 1000000
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: currency || 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount)
+}
+
 export default function Step3AccountLinking({ offer, onAccountLinked, selectedAccount }: Props) {
   const [accounts, setAccounts] = useState<GoogleAdsAccount[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(selectedAccount?.customer_id || null)
   const [loading, setLoading] = useState(true)
-  const [verifying, setVerifying] = useState<string | null>(null)
   const [hasCredentials, setHasCredentials] = useState(false)
   const [showGuideDialog, setShowGuideDialog] = useState(false)
 
@@ -147,35 +160,6 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
   const handleConnectNewAccount = () => {
     // 显示操作指南弹窗，引导用户添加新账号
     setShowGuideDialog(true)
-  }
-
-  const handleVerifyAccount = async (customerId: string) => {
-    try {
-      setVerifying(customerId)
-
-      const response = await fetch('/api/google-ads/credentials/verify', {
-        method: 'POST',
-        credentials: 'include'
-      })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || '验证失败')
-      }
-
-      const data = await response.json()
-
-      if (data.valid) {
-        showSuccess('验证成功', '账号凭证有效')
-        fetchAccounts()
-      } else {
-        showError('验证失败', data.error || '账号凭证无效')
-      }
-    } catch (error: any) {
-      showError('验证失败', error.message)
-    } finally {
-      setVerifying(null)
-    }
   }
 
   const handleSelectAccount = (account: GoogleAdsAccount) => {
@@ -265,7 +249,8 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                   <TableHead className="w-[50px]">选择</TableHead>
                   <TableHead>账号名称</TableHead>
                   <TableHead>账号ID</TableHead>
-                  <TableHead>货币</TableHead>
+                  <TableHead>账户余额</TableHead>
+                  <TableHead>已关联Offer</TableHead>
                   <TableHead>时区</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="text-right">操作</TableHead>
@@ -304,7 +289,26 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-sm">{account.customer_id}</TableCell>
-                      <TableCell>{account.currency_code}</TableCell>
+                      <TableCell className="text-sm">
+                        {formatBalance(account.account_balance, account.currency_code)}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {account.linked_offers && account.linked_offers.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {account.linked_offers.map((linkedOffer) => (
+                              <Badge
+                                key={linkedOffer.id}
+                                variant="outline"
+                                className={linkedOffer.id === offer.id ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-gray-50'}
+                              >
+                                #{linkedOffer.id}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm">{account.time_zone}</TableCell>
                       <TableCell>
                         <Badge variant="default" className="bg-green-600">
@@ -313,35 +317,17 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleVerifyAccount(account.customer_id)
-                            }}
-                            disabled={verifying === account.customer_id}
-                            title="验证凭证"
-                          >
-                            {verifying === account.customer_id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <RefreshCw className="w-4 h-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              window.open('https://ads.google.com', '_blank')
-                            }}
-                            title="在Google Ads中查看"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </Button>
-                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            window.open('https://ads.google.com', '_blank')
+                          }}
+                          title="在Google Ads中查看"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   )
