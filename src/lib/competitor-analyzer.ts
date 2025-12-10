@@ -491,8 +491,14 @@ async function executeAmazonSearch(
         for (let i = 0; i < Math.min(maxItems, resultElements.length); i++) {
           const el = resultElements[i]
 
-          const asin = el.getAttribute('data-asin')
+          let asin = el.getAttribute('data-asin')
           if (!asin) continue
+
+          // 🔧 修复: 清理ASIN中的deal标识符后缀 (如 :amzn1.deal.xxx)
+          // Amazon搜索结果的data-asin有时包含deal参数，需要移除
+          if (asin.includes(':')) {
+            asin = asin.split(':')[0]
+          }
 
           const nameEl = el.querySelector('h2 a span, h2 span')
           const name = nameEl?.textContent?.trim() || ''

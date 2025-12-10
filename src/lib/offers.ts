@@ -797,10 +797,13 @@ export async function updateOfferScrapeStatus(
       }
     }
 
+    // 🔧 PostgreSQL兼容性修复：使用NOW()替代datetime('now')
+    const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
     await db.exec(`
       UPDATE offers
       SET scrape_status = ?,
-          scraped_at = datetime('now'),
+          scraped_at = ${nowFunc},
           brand = COALESCE(?, brand),
           offer_name = COALESCE(?, offer_name),
           url = COALESCE(?, url),
@@ -823,7 +826,7 @@ export async function updateOfferScrapeStatus(
           extracted_at = COALESCE(?, extracted_at),
           scraped_data = COALESCE(?, scraped_data),
           product_categories = COALESCE(?, product_categories),
-          updated_at = datetime('now')
+          updated_at = ${nowFunc}
       WHERE id = ? AND user_id = ?
     `, [
       status,
@@ -855,13 +858,16 @@ export async function updateOfferScrapeStatus(
   } else {
     // 🔧 修复: 为了兼容PostgreSQL，使用条件更新而不是CASE表达式
     // SQLite中scraped_at是TEXT，PostgreSQL中是TIMESTAMP，CASE会导致类型不匹配
+    // 🔧 PostgreSQL兼容性修复：使用NOW()替代datetime('now')
+    const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
     if (status === 'completed') {
       await db.exec(`
         UPDATE offers
         SET scrape_status = ?,
             scrape_error = ?,
-            scraped_at = datetime('now'),
-            updated_at = datetime('now')
+            scraped_at = ${nowFunc},
+            updated_at = ${nowFunc}
         WHERE id = ? AND user_id = ?
       `, [status, error || null, id, userId])
     } else {
@@ -869,7 +875,7 @@ export async function updateOfferScrapeStatus(
         UPDATE offers
         SET scrape_status = ?,
             scrape_error = ?,
-            updated_at = datetime('now')
+            updated_at = ${nowFunc}
         WHERE id = ? AND user_id = ?
       `, [status, error || null, id, userId])
     }

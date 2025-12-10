@@ -36,11 +36,14 @@ export async function executeOfferExtraction(
   const { affiliateLink, targetCountry, skipCache = false, skipWarmup = false, productPrice, commissionPayout } = task.data
   const db = getDatabase()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   try {
     // 更新任务状态为运行中
     await db.exec(`
       UPDATE offer_tasks
-      SET status = 'running', started_at = datetime('now'), message = '开始提取Offer信息'
+      SET status = 'running', started_at = ${nowFunc}, message = '开始提取Offer信息'
       WHERE id = ?
     `, [task.id])
 
@@ -73,7 +76,7 @@ export async function executeOfferExtraction(
         // 更新数据库
         await db.exec(`
           UPDATE offer_tasks
-          SET stage = ?, message = ?, progress = ?, updated_at = datetime('now')
+          SET stage = ?, message = ?, progress = ?, updated_at = ${nowFunc}
           WHERE id = ?
         `, [stage, message, progress, task.id])
 
@@ -92,7 +95,7 @@ export async function executeOfferExtraction(
     // 更新进度到ai_analysis阶段
     await db.exec(`
       UPDATE offer_tasks
-      SET stage = 'ai_analysis', message = '正在进行AI分析...', progress = 90, updated_at = datetime('now')
+      SET stage = 'ai_analysis', message = '正在进行AI分析...', progress = 90, updated_at = ${nowFunc}
       WHERE id = ?
     `, [task.id])
 
@@ -240,8 +243,8 @@ export async function executeOfferExtraction(
         message = '提取完成',
         result = ?,
         offer_id = ?,
-        completed_at = datetime('now'),
-        updated_at = datetime('now')
+        completed_at = ${nowFunc},
+        updated_at = ${nowFunc}
       WHERE id = ?
     `, [JSON.stringify(finalResult), createdOfferId, task.id])
 
@@ -258,8 +261,8 @@ export async function executeOfferExtraction(
         status = 'failed',
         message = ?,
         error = ?,
-        completed_at = datetime('now'),
-        updated_at = datetime('now')
+        completed_at = ${nowFunc},
+        updated_at = ${nowFunc}
       WHERE id = ?
     `, [
       error.message,
