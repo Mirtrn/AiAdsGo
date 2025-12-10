@@ -270,7 +270,11 @@ export async function getKeywordSearchVolumes(
 
           totalApiCalls++
 
+          // 🔥 修复（2025-12-10）：添加详细日志，便于排查API返回为空的问题
+          console.log(`[KeywordPlanner] API响应类型: ${typeof response}, 结构: ${Object.keys(response || {}).join(', ')}`)
           const results = (response as any).results || response || []
+          console.log(`[KeywordPlanner] 解析结果数量: ${Array.isArray(results) ? results.length : 'N/A'}`)
+
           for (const result of results) {
             // generateKeywordHistoricalMetrics returns { text, keyword_metrics }
             if (result.text && result.keyword_metrics) {

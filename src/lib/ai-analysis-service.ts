@@ -362,9 +362,17 @@ async function batchScrapeCompetitorDetails(
     url: `https://www.amazon.${amazonDomain}/dp/${asin}`
   }))
 
-  // Step 4: 并行抓取详情（使用Promise.allSettled避免单点失败）
-  const results = await Promise.allSettled(
-    competitorUrls.map(async ({ asin, url }) => {
+  // Step 4: 分批抓取详情（限制并发数为3，避免连接池资源竞争）
+  // 🔥 修复（2025-12-10）：10个并发导致70%失败，改为分批3个并发
+  const CONCURRENCY_LIMIT = 3
+  const allResults: PromiseSettledResult<CompetitorProduct | null>[] = []
+
+  for (let i = 0; i < competitorUrls.length; i += CONCURRENCY_LIMIT) {
+    const batch = competitorUrls.slice(i, i + CONCURRENCY_LIMIT)
+    console.log(`  📦 抓取批次 ${Math.floor(i / CONCURRENCY_LIMIT) + 1}/${Math.ceil(competitorUrls.length / CONCURRENCY_LIMIT)} (${batch.length}个)`)
+
+    const batchResults = await Promise.allSettled(
+      batch.map(async ({ asin, url }) => {
       try {
         console.log(`  🔄 正在抓取竞品: ${asin}`)
 
@@ -409,10 +417,14 @@ async function batchScrapeCompetitorDetails(
         return null
       }
     })
-  )
+    )
+
+    // 收集本批次结果
+    allResults.push(...batchResults)
+  }
 
   // Step 5: 过滤成功的结果
-  const scrapedCompetitors = results
+  const scrapedCompetitors = allResults
     .filter((r): r is PromiseFulfilledResult<CompetitorProduct | null> =>
       r.status === 'fulfilled' && r.value !== null
     )

@@ -26,7 +26,7 @@ export async function initializeQueue() {
       globalConcurrency: parseInt(process.env.QUEUE_GLOBAL_CONCURRENCY || '5'),
       perUserConcurrency: parseInt(process.env.QUEUE_PER_USER_CONCURRENCY || '2'),
       maxQueueSize: parseInt(process.env.QUEUE_MAX_SIZE || '1000'),
-      taskTimeout: parseInt(process.env.QUEUE_TASK_TIMEOUT || '60000'),
+      taskTimeout: parseInt(process.env.QUEUE_TASK_TIMEOUT || '600000'),  // 🔥 修复（2025-12-10）：默认10分钟（Offer提取约需5分钟）
       defaultMaxRetries: parseInt(process.env.QUEUE_MAX_RETRIES || '3'),
       retryDelay: parseInt(process.env.QUEUE_RETRY_DELAY || '5000'),
       redisUrl: process.env.REDIS_URL,
