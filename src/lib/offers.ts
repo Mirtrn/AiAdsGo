@@ -543,7 +543,43 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
  * 删除Offer（软删除）
  * 需求25: 保留历史数据，解除Ads账号关联
  */
-export async function deleteOffer(id: number, userId: number): Promise<void> {
+/**
+ * 关联账号详情接口
+ */
+export interface LinkedAccountDetail {
+  account_id: number
+  customer_id: string
+  account_name: string | null
+  campaign_id: number
+  campaign_name: string
+  status: string
+  created_at: string
+}
+
+/**
+ * 删除Offer结果接口
+ */
+export interface DeleteOfferResult {
+  success: boolean
+  message: string
+  hasLinkedAccounts?: boolean
+  linkedAccounts?: LinkedAccountDetail[]
+  accountCount?: number
+  campaignCount?: number
+}
+
+/**
+ * 删除Offer
+ * @param id - Offer ID
+ * @param userId - 用户ID
+ * @param autoUnlink - 是否自动解除关联（默认false）
+ * @returns 删除结果，包含关联账号详情（如果有）
+ */
+export async function deleteOffer(
+  id: number,
+  userId: number,
+  autoUnlink: boolean = false
+): Promise<DeleteOfferResult> {
   const db = await getDatabase()
 
   // 验证Offer存在且属于该用户
@@ -552,11 +588,18 @@ export async function deleteOffer(id: number, userId: number): Promise<void> {
     throw new Error('Offer不存在或无权访问')
   }
 
-  // 检查是否有关联的Ads账号
+  // 获取关联的Ads账号和Campaign详情
   // 使用INNER JOIN确保只检查有效账号，忽略孤儿campaigns
   // ⚠️ 修复：忽略未成功发布到Google Ads的campaigns(google_campaign_id为空)
-  const associatedAccounts = await db.queryOne(`
-    SELECT COUNT(DISTINCT gaa.id) as account_count, COUNT(*) as campaign_count
+  const linkedAccounts = (await db.query(`
+    SELECT
+      gaa.id as account_id,
+      gaa.customer_id,
+      gaa.account_name,
+      c.id as campaign_id,
+      c.campaign_name,
+      c.status,
+      c.created_at
     FROM campaigns c
     INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     WHERE c.offer_id = ?
@@ -564,14 +607,33 @@ export async function deleteOffer(id: number, userId: number): Promise<void> {
       AND c.status != 'REMOVED'
       AND c.google_campaign_id IS NOT NULL
       AND c.google_campaign_id != ''
-  `, [id, userId]) as { account_count: number; campaign_count: number }
+    ORDER BY gaa.account_name, c.created_at DESC
+  `, [id, userId])) as LinkedAccountDetail[]
 
-  if (associatedAccounts.account_count > 0) {
-    throw new Error(`无法删除Offer：该Offer关联了 ${associatedAccounts.account_count} 个Ads账号。请先在"关联Ads账号"列中解除所有账号的关联后再删除。`)
+  // 如果有关联且未开启自动解除，返回关联详情
+  if (linkedAccounts.length > 0 && !autoUnlink) {
+    const accountCount = new Set(linkedAccounts.map(a => a.account_id)).size
+    return {
+      success: false,
+      message: `该Offer关联了 ${accountCount} 个Ads账号，共 ${linkedAccounts.length} 个广告系列。请选择"解除关联并删除"或先手动解除关联。`,
+      hasLinkedAccounts: true,
+      linkedAccounts,
+      accountCount,
+      campaignCount: linkedAccounts.length
+    }
+  }
+
+  // 自动解除所有关联
+  if (autoUnlink && linkedAccounts.length > 0) {
+    await db.exec(`
+      UPDATE campaigns
+      SET status = 'REMOVED',
+          updated_at = datetime('now')
+      WHERE offer_id = ? AND user_id = ? AND status != 'REMOVED'
+    `, [id, userId])
   }
 
   // 软删除Offer（保留历史数据）
-  // 注意：此时已经确认没有关联的活跃Campaigns，可以安全删除
   await db.exec(`
     UPDATE offers
     SET is_deleted = 1,
@@ -581,11 +643,12 @@ export async function deleteOffer(id: number, userId: number): Promise<void> {
     WHERE id = ? AND user_id = ?
   `, [id, userId])
 
-  // 注意：不再自动更新Campaigns状态，用户必须先手动解除关联
-  // 此时应该不存在任何活跃的Campaigns关联（已在上面验证）
-
-  // TODO: 检查并标记闲置的Ads账号
-  // TODO: 实现闲置账号标记功能（需要先添加 is_idle 列到 google_ads_accounts 表）
+  return {
+    success: true,
+    message: autoUnlink
+      ? `Offer删除成功，已自动解除 ${linkedAccounts.length} 个广告系列的关联`
+      : 'Offer删除成功'
+  }
 }
 
 /**

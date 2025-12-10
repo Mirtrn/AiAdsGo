@@ -49,6 +49,7 @@ import {
 import AdjustCpcModal from '@/components/AdjustCpcModal'
 import LaunchScoreModal from '@/components/LaunchScoreModal'
 import CreateOfferModalV2 from '@/components/CreateOfferModalV2'
+import DeleteOfferConfirmDialog from '@/components/DeleteOfferConfirmDialog'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
 import { usePagination } from '@/hooks'
@@ -120,6 +121,12 @@ export default function OffersPage() {
   const [offerToDelete, setOfferToDelete] = useState<Offer | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // 删除确认对话框状态（支持关联账号详情）
+  const [isDeleteConfirmDialogOpen, setIsDeleteConfirmDialogOpen] = useState(false)
+  const [deleteLinkedAccounts, setDeleteLinkedAccounts] = useState<any[]>([])
+  const [deleteAccountCount, setDeleteAccountCount] = useState(0)
+  const [deleteCampaignCount, setDeleteCampaignCount] = useState(0)
 
   // P1-11: 解除关联状态
   const [isUnlinkDialogOpen, setIsUnlinkDialogOpen] = useState(false)
@@ -250,18 +257,36 @@ export default function OffersPage() {
     }
   }
 
-  const handleDeleteOffer = async () => {
+  const handleDeleteOffer = async (autoUnlink: boolean = false) => {
     if (!offerToDelete) return
 
     try {
       setDeleting(true)
       setDeleteError(null)
-      const response = await fetch(`/api/offers/${offerToDelete.id}`, {
+
+      // 构建URL，添加autoUnlink参数
+      const url = new URL(`/api/offers/${offerToDelete.id}`, window.location.origin)
+      if (autoUnlink) {
+        url.searchParams.set('autoUnlink', 'true')
+      }
+
+      const response = await fetch(url.toString(), {
         method: 'DELETE',
         credentials: 'include',
       })
 
       const data = await response.json()
+
+      // 409状态码：有关联账号需要确认
+      if (response.status === 409 && data.hasLinkedAccounts) {
+        // 关闭简单删除对话框，打开关联账号详情对话框
+        setIsDeleteDialogOpen(false)
+        setDeleteLinkedAccounts(data.linkedAccounts || [])
+        setDeleteAccountCount(data.accountCount || 0)
+        setDeleteCampaignCount(data.campaignCount || 0)
+        setIsDeleteConfirmDialogOpen(true)
+        return
+      }
 
       if (!response.ok) {
         // 在对话框内显示错误，不关闭对话框
@@ -272,10 +297,14 @@ export default function OffersPage() {
       // 刷新列表
       await fetchOffers()
 
-      // 关闭对话框
+      // 关闭所有对话框
       setIsDeleteDialogOpen(false)
+      setIsDeleteConfirmDialogOpen(false)
       setOfferToDelete(null)
       setDeleteError(null)
+      setDeleteLinkedAccounts([])
+      setDeleteAccountCount(0)
+      setDeleteCampaignCount(0)
     } catch (err: any) {
       setDeleteError(err.message || '删除Offer失败')
     } finally {
@@ -1028,6 +1057,26 @@ export default function OffersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Delete Offer Confirm Dialog (with linked accounts details) */}
+      <DeleteOfferConfirmDialog
+        open={isDeleteConfirmDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteConfirmDialogOpen(open)
+          if (!open) {
+            setDeleteLinkedAccounts([])
+            setDeleteAccountCount(0)
+            setDeleteCampaignCount(0)
+            setDeleteError(null)
+          }
+        }}
+        offerName={offerToDelete?.offer_name || offerToDelete?.brand || ''}
+        linkedAccounts={deleteLinkedAccounts}
+        accountCount={deleteAccountCount}
+        campaignCount={deleteCampaignCount}
+        onConfirmDelete={handleDeleteOffer}
+        deleting={deleting}
+      />
 
       {/* Batch Delete Confirmation Dialog */}
       <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {

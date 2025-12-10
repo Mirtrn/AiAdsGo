@@ -171,6 +171,9 @@ export async function PUT(
 /**
  * DELETE /api/offers/:id
  * 删除Offer
+ *
+ * Query参数：
+ * - autoUnlink: boolean (可选) - 是否自动解除关联，默认false
  */
 export async function DELETE(
   request: NextRequest,
@@ -185,30 +188,41 @@ export async function DELETE(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    await deleteOffer(parseInt(id, 10), parseInt(userId, 10))
+    // 获取查询参数
+    const { searchParams } = new URL(request.url)
+    const autoUnlink = searchParams.get('autoUnlink') === 'true'
+
+    // 执行删除操作
+    const result = await deleteOffer(parseInt(id, 10), parseInt(userId, 10), autoUnlink)
 
     // 使缓存失效
     invalidateOfferCache(parseInt(userId, 10), parseInt(id, 10))
 
+    // 如果有关联账号且未自动解除，返回409状态码和详情
+    if (!result.success && result.hasLinkedAccounts) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.message,
+          hasLinkedAccounts: true,
+          linkedAccounts: result.linkedAccounts,
+          accountCount: result.accountCount,
+          campaignCount: result.campaignCount
+        },
+        { status: 409 } // 409 Conflict: 资源冲突，需要用户确认
+      )
+    }
+
+    // 删除成功
     return NextResponse.json({
       success: true,
-      message: 'Offer删除成功',
+      message: result.message,
     })
   } catch (error: any) {
     console.error('删除Offer失败:', error)
 
     // 区分不同类型的错误，返回合适的HTTP状态码
     const errorMessage = error.message || '删除Offer失败'
-
-    // 业务逻辑验证错误：Offer有关联的Campaigns
-    if (errorMessage.includes('无法删除Offer：该Offer关联了')) {
-      return NextResponse.json(
-        {
-          error: errorMessage,
-        },
-        { status: 409 } // 409 Conflict: 资源冲突，无法删除
-      )
-    }
 
     // 资源不存在或权限错误
     if (errorMessage.includes('Offer不存在或无权访问')) {

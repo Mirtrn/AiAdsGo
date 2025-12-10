@@ -158,6 +158,14 @@ export async function createAdCreative(
       clarity: number
       brandSearchVolume?: number  // 品牌搜索量维度（可选）
     }
+    // 🔧 新增：完整的 Ad Strength 评估数据（7维度）
+    adStrength?: {
+      rating: string
+      score: number
+      isExcellent?: boolean
+      dimensions: any
+      suggestions?: string[]
+    }
   }
 ): Promise<AdCreative> {
   const db = await getDatabase()
@@ -178,8 +186,9 @@ export async function createAdCreative(
       headlines, descriptions, keywords, keywords_with_volume, negative_keywords, callouts, sitelinks,
       final_url, final_url_suffix,
       score, score_breakdown, score_explanation,
-      generation_round, theme, ai_model
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      generation_round, theme, ai_model,
+      ad_strength_data
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     offerId,
     userId,
@@ -197,7 +206,8 @@ export async function createAdCreative(
     scoreResult.explanation,
     data.generation_round || 1,
     data.theme,
-    data.ai_model || 'gemini-2.5-flash'
+    data.ai_model || 'gemini-2.5-flash',
+    data.adStrength ? JSON.stringify(data.adStrength) : null  // 🔧 保存完整的 Ad Strength 数据
   ])
 
   const creative = await findAdCreativeById(result.lastInsertRowid!, userId)
@@ -308,6 +318,8 @@ function parseAdCreativeRow(row: any): AdCreative {
     callouts: row.callouts ? JSON.parse(row.callouts) : undefined,
     sitelinks: row.sitelinks ? JSON.parse(row.sitelinks) : undefined,
     score_breakdown: JSON.parse(row.score_breakdown),
+    // 🔧 解析完整的 Ad Strength 评估数据（7维度）
+    adStrength: row.ad_strength_data ? JSON.parse(row.ad_strength_data) : undefined,
   }
 }
 
