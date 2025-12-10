@@ -1048,7 +1048,7 @@ export default function OffersPage() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting} onClick={() => setDeleteError(null)}>取消</AlertDialogCancel>
             <Button
-              onClick={handleDeleteOffer}
+              onClick={() => handleDeleteOffer()}
               disabled={deleting}
               variant="destructive"
             >
@@ -1070,7 +1070,7 @@ export default function OffersPage() {
             setDeleteError(null)
           }
         }}
-        offerName={offerToDelete?.offer_name || offerToDelete?.brand || ''}
+        offerName={offerToDelete?.offerName || offerToDelete?.brand || ''}
         linkedAccounts={deleteLinkedAccounts}
         accountCount={deleteAccountCount}
         campaignCount={deleteCampaignCount}
