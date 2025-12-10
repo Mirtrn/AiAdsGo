@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomer } from '@/lib/google-ads-api'
-import { findActiveGoogleAdsAccounts } from '@/lib/google-ads-accounts'
+import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
 
 /**
  * PUT /api/campaigns/:id/update-cpc
@@ -29,8 +29,8 @@ export async function PUT(
       )
     }
 
-    // 获取用户的激活Google Ads账号
-    const googleAdsAccounts = await findActiveGoogleAdsAccounts(parseInt(userId, 10))
+    // 获取用户可用的Google Ads账号（ENABLED状态，非Manager账号）
+    const googleAdsAccounts = await findEnabledGoogleAdsAccounts(parseInt(userId, 10))
 
     if (googleAdsAccounts.length === 0) {
       return NextResponse.json(
