@@ -1,19 +1,36 @@
 -- Migration: 066_prompt_updates_v3.2_v4.2.pg.sql
--- Description: 合并迁移 - Launch Score v3.2 (修复JSON格式) + Ad Creative v4.2 (竞争定位增强)
+-- Description: Prompt版本更新 - Launch Score v3.2 + Ad Creative v4.2 + 激活状态修复
 -- Date: 2025-12-10
+--
+-- 变更内容:
+-- 1. Launch Score v3.2: 修复JSON输出格式，匹配ScoreAnalysis接口字段名
+-- 2. Ad Creative v4.2: 增强竞争定位维度（价格优势、独特定位、竞品对比、性价比）
+-- 3. 修复ad_elements_descriptions/headlines激活状态
+-- 4. 统一所有Prompt名称为中文
+-- 5. 统一ad_creative_generation的category为"广告创意生成"
 
 -- ============================================================
--- PART 1: Launch Score Prompt v3.2
--- Issue: AI返回的JSON字段名与ScoreAnalysis接口不匹配
--- Fix: dimensions.keywordQuality → keywordAnalysis
+-- 1. 统一数据一致性修复
 -- ============================================================
 
--- 禁用旧版本 v3.1
+-- 统一ad_creative_generation的category（修复历史不一致：有些是"ad_creative"，有些是"广告创意生成"）
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'launch_score_evaluation' AND version = 'v3.1';
+SET category = '广告创意生成'
+WHERE prompt_id = 'ad_creative_generation' AND category != '广告创意生成';
 
--- 插入新版本 v3.2（如果不存在）
+-- 激活缺失的Prompt版本（ad_elements_descriptions和ad_elements_headlines所有版本都是is_active=0）
+UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'ad_elements_descriptions' AND version = 'v3.2';
+UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'ad_elements_headlines' AND version = 'v3.2';
+
+-- ============================================================
+-- 2. Launch Score Prompt v3.2
+-- 问题: AI返回JSON字段名(dimensions.keywordQuality)与代码期望(keywordAnalysis)不匹配
+-- ============================================================
+
+-- 禁用旧版本
+UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'launch_score_evaluation' AND version != 'v3.2';
+
+-- 插入新版本 v3.2
 INSERT INTO prompt_versions (
   prompt_id, version, category, name, description,
   file_path, function_name, prompt_content, language,
@@ -23,7 +40,7 @@ VALUES (
   'launch_score_evaluation',
   'v3.2',
   '投放评分',
-  'Launch Score Evaluation',
+  '投放评分v3.2',
   '修复JSON输出格式，匹配ScoreAnalysis接口字段名',
   'src/lib/scoring.ts',
   'createLaunchScore',
@@ -130,36 +147,22 @@ CRITICAL: Use EXACT field names above. Do NOT use "dimensions", "keywordQuality"
   'Chinese',
   1,
   NOW(),
-  '修复字段名：dimensions.keywordQuality → keywordAnalysis，匹配ScoreAnalysis接口'
+  'v3.2: 修复字段名 dimensions.keywordQuality → keywordAnalysis，匹配ScoreAnalysis接口'
 )
 ON CONFLICT (prompt_id, version) DO NOTHING;
 
--- 确保v3.2是唯一激活的版本
-UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'launch_score_evaluation' AND version != 'v3.2';
-
-UPDATE prompt_versions
-SET is_active = 1
-WHERE prompt_id = 'launch_score_evaluation' AND version = 'v3.2';
+-- 确保v3.2激活
+UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'launch_score_evaluation' AND version = 'v3.2';
 
 -- ============================================================
--- PART 2: Ad Creative Prompt v4.2
--- Issue: 竞争定位维度经常只得1.5/10分
--- Fix: 增强竞争定位指令 - 价格优势量化、独特定位声明、竞品对比暗示、性价比强调
+-- 3. Ad Creative Prompt v4.2
+-- 问题: 竞争定位维度经常只得1.5/10分，缺少量化价格优势、独特定位声明等
 -- ============================================================
 
--- 统一现有版本的category为"广告创意生成"（修复历史不一致）
-UPDATE prompt_versions
-SET category = '广告创意生成'
-WHERE prompt_id = 'ad_creative_generation' AND category != '广告创意生成';
+-- 禁用旧版本
+UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'ad_creative_generation' AND version != 'v4.2';
 
--- 禁用旧版本 v4.1
-UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.1';
-
--- 插入新版本 v4.2（如果不存在）
+-- 插入新版本 v4.2
 INSERT INTO prompt_versions (
   prompt_id, version, category, name, description,
   file_path, function_name, prompt_content, language,
@@ -169,7 +172,7 @@ VALUES (
   'ad_creative_generation',
   'v4.2',
   '广告创意生成',
-  'Ad Creative Generation with Competitive Positioning',
+  '广告创意生成v4.2 - 竞争定位增强版',
   '增强竞争定位维度：价格优势量化、独特定位声明、竞品对比暗示、性价比强调',
   'src/lib/ad-creative-generator.ts',
   'generateAdCreative',
@@ -190,7 +193,7 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 {{ai_competitive_section}}
 {{ai_reviews_section}}
 
-## 🔥 v4.2 竞争定位增强 (NEW - 提升Ad Strength评分)
+## 🔥 v4.2 竞争定位增强 (提升Ad Strength评分)
 
 ### ⚡ 竞争定位必备元素 (CRITICAL FOR AD STRENGTH)
 
@@ -403,40 +406,9 @@ Quality: 8+ with keywords, 5+ with numbers, 3+ with urgency, <20% text similarit
   'Chinese',
   1,
   NOW(),
-  'v4.2: 增强竞争定位维度 - 价格优势量化(Save €X)、独特定位声明(The Only)、竞品对比暗示(Replace)、性价比强调(Best Value)'
+  'v4.2: 增强竞争定位维度 - 价格优势量化、独特定位声明、竞品对比暗示、性价比强调'
 )
 ON CONFLICT (prompt_id, version) DO NOTHING;
 
--- 确保v4.2是唯一激活的版本
-UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'ad_creative_generation' AND version != 'v4.2';
-
-UPDATE prompt_versions
-SET is_active = 1
-WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.2';
-
--- ============================================================
--- PART 3: 修复缺失激活版本的Prompt + 统一Prompt名称为中文
--- Issue 1: ad_elements_descriptions 和 ad_elements_headlines 所有版本都是 is_active=0
--- Issue 2: 部分Prompt名称是英文，需要统一为中文
--- ============================================================
-
--- 激活 ad_elements_descriptions v3.2
-UPDATE prompt_versions
-SET is_active = 1
-WHERE prompt_id = 'ad_elements_descriptions' AND version = 'v3.2';
-
--- 激活 ad_elements_headlines v3.2
-UPDATE prompt_versions
-SET is_active = 1
-WHERE prompt_id = 'ad_elements_headlines' AND version = 'v3.2';
-
--- 统一Prompt名称为中文
-UPDATE prompt_versions
-SET name = '广告创意生成v4.2 - 竞争定位增强版'
-WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.2';
-
-UPDATE prompt_versions
-SET name = '投放评分v3.2'
-WHERE prompt_id = 'launch_score_evaluation' AND version = 'v3.2';
+-- 确保v4.2激活
+UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.2';
