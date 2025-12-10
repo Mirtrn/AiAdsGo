@@ -14,7 +14,7 @@ export const GET = withAuth(
         return NextResponse.json({ error: '无效的用户ID' }, { status: 400 })
       }
 
-      const db = await getDatabase()
+      const db = getDatabase()
 
       // 获取登录尝试记录（成功和失败）
       const { searchParams } = new URL(request.url)

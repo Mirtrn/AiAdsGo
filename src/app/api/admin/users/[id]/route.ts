@@ -17,7 +17,7 @@ export async function PATCH(
     const body = await request.json()
     const { email, packageType, packageExpiresAt, isActive } = body
 
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // Build update query dynamically
     const updates: string[] = []
@@ -78,7 +78,7 @@ export async function DELETE(
 
   try {
     const userId = parseInt(params.id)
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // Prevent deleting self
     if (auth.user?.userId === userId) {

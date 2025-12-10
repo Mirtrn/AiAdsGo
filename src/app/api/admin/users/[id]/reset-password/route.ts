@@ -15,7 +15,7 @@ export async function POST(
 
   try {
     const userId = parseInt(params.id)
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // Check if user exists
     const user = await db.queryOne('SELECT id, username FROM users WHERE id = ?', [userId]) as { id: number; username: string } | undefined

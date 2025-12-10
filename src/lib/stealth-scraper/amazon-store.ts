@@ -364,9 +364,14 @@ async function scrapeStorePageContent(
   if (storeName) {
     brandName = storeName
       .replace(/^Amazon\.com:\s*/i, '')
+      .replace(/^Amazon\.ca:\s*/i, '')
       .replace(/^Amazon:\s*/i, '')
       .replace(/\s+Store$/i, '')
       .replace(/\s+Official Store$/i, '')
+      // 🔥 修复：移除"Best Seller"/"Best Sellers"等后缀
+      .replace(/:\s*Best Sellers?$/i, '')
+      .replace(/\s+-\s+Best Sellers?$/i, '')
+      .replace(/\s+Best Sellers?$/i, '')
       .trim()
   }
 

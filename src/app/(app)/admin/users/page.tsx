@@ -253,7 +253,12 @@ export default function UserManagementPage() {
             const data = await res.json()
             if (!res.ok) throw new Error(data.error)
 
-            toast.success(`用户创建成功! 用户名: ${data.user.username}, 默认密码: ${data.defaultPassword}`)
+            // API返回格式: { success: true, data: { user: {...}, defaultPassword: "..." } }
+            const userData = data.data || data  // 兼容新旧格式
+            const username = userData.user?.username || data.username
+            const password = userData.defaultPassword || data.defaultPassword
+
+            toast.success(`用户创建成功! 用户名: ${username}, 默认密码: ${password}`)
             setIsCreateOpen(false)
             fetchUsers(pagination.page)
             // Reset form

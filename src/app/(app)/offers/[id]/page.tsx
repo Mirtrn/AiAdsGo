@@ -104,8 +104,11 @@ export default function OfferDetailPage() {
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [scraping, setScraping] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isRebuildDialogOpen, setIsRebuildDialogOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [rebuildError, setRebuildError] = useState<string | null>(null)
 
   // Performance data states
   const [performanceLoading, setPerformanceLoading] = useState(true)
@@ -283,6 +286,41 @@ export default function OfferDetailPage() {
     return colors[status] || 'bg-gray-100 text-gray-800'
   }
 
+  const handleRebuild = async () => {
+    try {
+      setRebuilding(true)
+      setRebuildError(null)
+
+      const response = await fetch(`/api/offers/${offerId}/rebuild`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setRebuildError(data.message || '重建Offer失败')
+        return
+      }
+
+      // 关闭对话框
+      setIsRebuildDialogOpen(false)
+      setRebuildError(null)
+
+      // 显示成功提示
+      showSuccess('重建任务已创建', `Offer重建任务已启动，taskId: ${data.taskId}`)
+
+      // 3秒后刷新页面数据
+      setTimeout(() => {
+        fetchOffer()
+      }, 3000)
+    } catch (err: any) {
+      setRebuildError(err.message || '重建Offer失败')
+    } finally {
+      setRebuilding(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -327,6 +365,14 @@ export default function OfferDetailPage() {
                 className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
               >
                 编辑
+              </button>
+              <button
+                onClick={() => setIsRebuildDialogOpen(true)}
+                disabled={rebuilding || !offer.affiliateLink}
+                className="px-4 py-2 text-sm text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                title={!offer.affiliateLink ? '缺少推广链接，无法重建' : '重新抓取并更新所有Offer信息'}
+              >
+                重建
               </button>
               <button
                 onClick={() => setIsDeleteDialogOpen(true)}
@@ -1126,6 +1172,57 @@ export default function OfferDetailPage() {
               variant="destructive"
             >
               {deleting ? '删除中...' : deleteError ? '重试删除' : '确认删除'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Rebuild Confirmation Dialog */}
+      <AlertDialog open={isRebuildDialogOpen} onOpenChange={(open) => {
+        setIsRebuildDialogOpen(open)
+        if (!open) setRebuildError(null)
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认重建Offer</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  您确定要重建 <strong className="text-gray-900">{offer?.brand}</strong> 的Offer吗？
+                </p>
+
+                {/* 重建错误提示 */}
+                {rebuildError && (
+                  <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                    <p className="text-sm text-red-800">{rebuildError}</p>
+                  </div>
+                )}
+
+                {!rebuildError && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                    <p className="text-sm text-blue-800 font-medium mb-2">ℹ️ 重建说明</p>
+                    <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
+                      <li>将重新抓取产品页面和店铺信息</li>
+                      <li>重新运行AI分析生成所有内容</li>
+                      <li>更新品牌信息、产品描述、评价分析、竞品分析等所有字段</li>
+                      <li>处理时间约2-5分钟，后台异步执行</li>
+                      <li><strong>注意：将覆盖现有所有数据</strong></li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rebuilding} onClick={() => setRebuildError(null)}>
+              取消
+            </AlertDialogCancel>
+            <Button
+              onClick={handleRebuild}
+              disabled={rebuilding}
+              variant="default"
+            >
+              {rebuilding ? '启动中...' : rebuildError ? '重试' : '确认重建'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,280 +1,368 @@
+/**
+ * 批量创建Offer页面
+ *
+ * 功能：
+ * 1. 下载CSV模板
+ * 2. 上传CSV文件进行批量创建
+ * 3. 显示上传文件记录列表（替代实时进度）
+ *
+ * 特性：
+ * - 非阻塞上传：文件上传后立即返回，后台处理
+ * - 弹窗提示：上传成功后显示处理流程说明
+ * - 记录追踪：显示历史上传记录及处理结果
+ * - 无SSE timeout：不再使用SSE实时进度，避免超时
+ */
+
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useBatchTask } from '@/hooks/useBatchTask'
+import { useState, useEffect } from 'react'
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, ClockIcon, CheckCircleIcon, XCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
+import UploadSuccessModal from '@/components/UploadSuccessModal'
 
-export default function BatchUploadOffersPage() {
-  const router = useRouter()
-  const [file, setFile] = useState<File | null>(null)
+interface UploadRecord {
+  id: string
+  batch_id: string
+  file_name: string
+  uploaded_at: string
+  valid_count: number
+  processed_count: number
+  skipped_count: number
+  failed_count: number
+  success_rate: number
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'partial'
+  completed_at: string | null
+}
 
-  const {
-    isProcessing,
-    batchId,
-    status,
-    totalCount,
-    completedCount,
-    failedCount,
-    progress,
-    error: batchError,
-    connectionType,
-    createBatchTask,
-    reset,
-  } = useBatchTask()
+export default function BatchOfferPage() {
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [uploadResult, setUploadResult] = useState<{
+    fileName: string
+    validCount: number
+    skippedCount: number
+  } | null>(null)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0]
-    if (selectedFile) {
-      if (!selectedFile.name.endsWith('.csv')) {
-        alert('请选择CSV文件')
-        return
-      }
-      setFile(selectedFile)
-      // 重置之前的批量任务状态
-      reset()
+  const [records, setRecords] = useState<UploadRecord[]>([])
+  const [isLoadingRecords, setIsLoadingRecords] = useState(true)
+  const [recordsError, setRecordsError] = useState<string | null>(null)
+
+  // 下载CSV模板
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/offers/batch-template')
+      if (!response.ok) throw new Error('下载模板失败')
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'offer_batch_template.csv'
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch (error: any) {
+      console.error('Download template error:', error)
+      alert(`下载失败: ${error.message}`)
     }
   }
 
-  const handleUpload = async () => {
-    if (!file) {
-      alert('请先选择文件')
-      return
-    }
+  // 上传CSV文件
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // 重置状态
+    setUploadError(null)
+    setIsUploading(true)
 
     try {
-      // 直接上传CSV文件，后端处理解析和校验
-      // target_country必须在CSV中指定
-      await createBatchTask(file)
-    } catch (err: any) {
-      console.error('Upload failed:', err)
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/offers/batch/create', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      // 计算跳过的行数
+      const skippedCount = data.skipped_count || 0
+
+      // 显示成功弹窗
+      setUploadResult({
+        fileName: file.name,
+        validCount: data.total_count,
+        skippedCount
+      })
+      setShowSuccessModal(true)
+
+      // 刷新上传记录列表
+      await loadUploadRecords()
+
+      // 重置文件输入
+      event.target.value = ''
+
+    } catch (error: any) {
+      console.error('Upload error:', error)
+      setUploadError(error.message || '上传失败')
+    } finally {
+      setIsUploading(false)
     }
   }
 
-  const downloadTemplate = () => {
-    // 直接打开模板下载API，避免前端处理CSV格式
-    window.open('/api/offers/batch-template', '_blank')
+  // 加载上传记录列表
+  const loadUploadRecords = async () => {
+    try {
+      setIsLoadingRecords(true)
+      setRecordsError(null)
+
+      const response = await fetch('/api/offers/batch/upload-records?limit=20')
+      if (!response.ok) {
+        throw new Error('获取上传记录失败')
+      }
+
+      const result = await response.json()
+      setRecords(result.data || [])
+    } catch (error: any) {
+      console.error('Load records error:', error)
+      setRecordsError(error.message)
+    } finally {
+      setIsLoadingRecords(false)
+    }
+  }
+
+  // 初始加载
+  useEffect(() => {
+    loadUploadRecords()
+  }, [])
+
+  // 状态标签样式
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+          <ClockIcon className="w-4 h-4 mr-1" />
+          待处理
+        </span>
+      case 'processing':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+          <ClockIcon className="w-4 h-4 mr-1 animate-spin" />
+          处理中
+        </span>
+      case 'completed':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+          <CheckCircleIcon className="w-4 h-4 mr-1" />
+          已完成
+        </span>
+      case 'failed':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+          <XCircleIcon className="w-4 h-4 mr-1" />
+          失败
+        </span>
+      case 'partial':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+          <ExclamationCircleIcon className="w-4 h-4 mr-1" />
+          部分成功
+        </span>
+      default:
+        return null
+    }
+  }
+
+  // 格式化时间
+  const formatTime = (isoString: string) => {
+    const date = new Date(isoString)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <a href="/offers" className="text-indigo-600 hover:text-indigo-500 mr-4">
-                ← 返回列表
-              </a>
-              <h1 className="text-xl font-bold text-gray-900">导入Offer</h1>
-            </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-900">批量创建Offer</h1>
+        <p className="mt-2 text-sm text-gray-600">
+          上传CSV文件批量创建Offer，支持自动提取产品信息和生成推广创意
+        </p>
+      </div>
+
+      {/* 上传区域 */}
+      <div className="bg-white shadow rounded-lg p-6 mb-8">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-medium text-gray-900">上传CSV文件</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              请先下载模板，填写后上传。文件必须包含"推广链接"和"推广国家"列。
+            </p>
+          </div>
+          <button
+            onClick={handleDownloadTemplate}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+          >
+            <ArrowDownTrayIcon className="h-5 w-5 mr-2 text-gray-500" />
+            下载模板
+          </button>
+        </div>
+
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8">
+          <div className="flex justify-center">
+            <label className="relative cursor-pointer">
+              <div className="flex flex-col items-center">
+                <ArrowUpTrayIcon className="h-12 w-12 text-gray-400" />
+                <span className="mt-2 block text-sm font-medium text-gray-900">
+                  {isUploading ? '上传中...' : '点击选择CSV文件'}
+                </span>
+                <span className="mt-1 block text-xs text-gray-500">
+                  支持UTF-8编码，最大500行
+                </span>
+              </div>
+              <input
+                type="file"
+                className="sr-only"
+                accept=".csv,text/csv"
+                onChange={handleFileUpload}
+                disabled={isUploading}
+              />
+            </label>
           </div>
         </div>
-      </nav>
 
-      <main className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          {/* 说明和模板下载 */}
-          <div className="bg-white shadow rounded-lg p-6 mb-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">📋 使用说明</h2>
-
-            <div className="space-y-3 text-sm text-gray-600">
-              <p><strong>步骤1：</strong>点击下方"下载CSV模板"按钮，获取标准格式模板</p>
-              <p><strong>步骤2：</strong>在模板中填写Offer信息（必填：推广链接、推广国家）</p>
-              <p><strong>步骤3：</strong>上传填好的CSV文件（单次最多100条）</p>
-              <p><strong>步骤4：</strong>等待处理完成，查看导入结果</p>
-            </div>
-
-            <div className="mt-6">
-              <button
-                onClick={downloadTemplate}
-                className="inline-flex items-center px-4 py-2 border border-indigo-600 shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
-              >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                下载CSV模板
-              </button>
-              <p className="mt-2 text-xs text-gray-500">
-                💡 提示：模板包含示例数据，可直接参考填写
-              </p>
-            </div>
-          </div>
-
-          {/* CSV字段说明 */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
-            <h3 className="text-sm font-medium text-blue-900 mb-3">📋 CSV字段说明</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="font-medium text-blue-900 mb-2">✅ 必填字段</p>
-                <ul className="mt-2 space-y-1.5 text-blue-700">
-                  <li>• <span className="font-mono bg-white px-2 py-0.5 rounded">推广链接</span> - 联盟推广URL</li>
-                  <li>• <span className="font-mono bg-white px-2 py-0.5 rounded">推广国家</span> - 国家代码（如：US, UK, DE）</li>
-                </ul>
-              </div>
-              <div>
-                <p className="font-medium text-blue-900 mb-2">📊 可选字段</p>
-                <ul className="mt-2 space-y-1.5 text-blue-700">
-                  <li>• <span className="font-mono bg-white px-2 py-0.5 rounded">产品价格</span> - 带货币符号（如：$699.00）</li>
-                  <li>• <span className="font-mono bg-white px-2 py-0.5 rounded">佣金比例</span> - 百分比（如：6.75%）</li>
-                </ul>
-              </div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-blue-200">
-              <p className="text-xs text-blue-600">
-                💡 <strong>提示：</strong>产品价格和佣金比例用于自动计算建议CPC，帮助优化广告投放成本
-              </p>
-              <p className="text-xs text-blue-600 mt-2">
-                🤖 <strong>自动提取：</strong>品牌名称、Final URL、品牌描述等信息将通过系统自动抓取获得
-              </p>
-            </div>
-          </div>
-
-          {/* 上传区域 */}
-          <div className="bg-white shadow rounded-lg p-6 mb-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">上传文件</h2>
-
-            {batchError && (
-              <div className="mb-4 px-4 py-3 bg-red-50 border border-red-400 text-red-700 rounded">
-                {batchError}
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  选择CSV文件
-                </label>
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileChange}
-                  disabled={isProcessing}
-                  className="block w-full text-sm text-gray-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-md file:border-0
-                    file:text-sm file:font-semibold
-                    file:bg-indigo-50 file:text-indigo-700
-                    hover:file:bg-indigo-100
-                    disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                {file && (
-                  <p className="mt-2 text-sm text-gray-600">
-                    已选择：{file.name} ({(file.size / 1024).toFixed(2)} KB)
-                  </p>
-                )}
-              </div>
-
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => router.push('/offers')}
-                  disabled={isProcessing}
-                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleUpload}
-                  disabled={!file || isProcessing}
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isProcessing ? '处理中...' : '开始上传'}
-                </button>
+        {uploadError && (
+          <div className="mt-4 rounded-md bg-red-50 p-4">
+            <div className="flex">
+              <XCircleIcon className="h-5 w-5 text-red-400" />
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">上传失败</h3>
+                <div className="mt-2 text-sm text-red-700">{uploadError}</div>
               </div>
             </div>
           </div>
+        )}
+      </div>
 
-          {/* 实时进度显示 */}
-          {batchId && (
-            <div className="bg-white shadow rounded-lg p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-medium text-gray-900">批量任务进度</h2>
-                <div className="flex items-center space-x-2">
-                  {connectionType && (
-                    <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600">
-                      {connectionType === 'sse' ? '📡 实时推送' : '🔄 轮询模式'}
-                    </span>
-                  )}
-                  {status && (
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      status === 'completed' ? 'bg-green-100 text-green-800' :
-                      status === 'failed' ? 'bg-red-100 text-red-800' :
-                      status === 'partial' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {status === 'pending' ? '⏳ 等待中' :
-                       status === 'running' ? '🔄 进行中' :
-                       status === 'completed' ? '✅ 已完成' :
-                       status === 'failed' ? '❌ 失败' :
-                       status === 'partial' ? '⚠️ 部分完成' : status}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {/* 批量任务ID */}
-                <div className="text-xs text-gray-500">
-                  任务ID: <span className="font-mono">{batchId}</span>
-                </div>
-
-                {/* 进度条 */}
-                <div>
-                  <div className="flex justify-between text-sm text-gray-700 mb-2">
-                    <span>整体进度</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div
-                      className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* 统计信息 */}
-                <div className="grid grid-cols-4 gap-4">
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500">总计</p>
-                    <p className="text-xl font-bold text-gray-900">{totalCount}</p>
-                  </div>
-                  <div className="bg-blue-50 rounded-lg p-3">
-                    <p className="text-xs text-blue-600">进行中</p>
-                    <p className="text-xl font-bold text-blue-900">
-                      {totalCount - completedCount - failedCount}
-                    </p>
-                  </div>
-                  <div className="bg-green-50 rounded-lg p-3">
-                    <p className="text-xs text-green-600">成功</p>
-                    <p className="text-xl font-bold text-green-900">{completedCount}</p>
-                  </div>
-                  <div className="bg-red-50 rounded-lg p-3">
-                    <p className="text-xs text-red-600">失败</p>
-                    <p className="text-xl font-bold text-red-900">{failedCount}</p>
-                  </div>
-                </div>
-
-                {/* 完成后的操作 */}
-                {(status === 'completed' || status === 'partial') && (
-                  <div className="flex justify-end space-x-3 pt-4 border-t">
-                    <button
-                      onClick={reset}
-                      className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-                    >
-                      继续上传
-                    </button>
-                    <button
-                      onClick={() => router.push('/offers')}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-                    >
-                      查看Offer列表
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+      {/* 上传文件记录 */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-medium text-gray-900">上传文件记录</h2>
+          <button
+            onClick={loadUploadRecords}
+            disabled={isLoadingRecords}
+            className="text-sm text-blue-600 hover:text-blue-700 disabled:opacity-50"
+          >
+            {isLoadingRecords ? '刷新中...' : '刷新'}
+          </button>
         </div>
-      </main>
+
+        {recordsError && (
+          <div className="rounded-md bg-red-50 p-4 mb-4">
+            <div className="flex">
+              <XCircleIcon className="h-5 w-5 text-red-400" />
+              <div className="ml-3">
+                <p className="text-sm text-red-700">{recordsError}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isLoadingRecords && records.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
+            <p className="mt-4 text-sm text-gray-500">加载中...</p>
+          </div>
+        ) : records.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-sm text-gray-500">暂无上传记录</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    文件名
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    上传时间
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    有效数量
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    处理数量
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    成功率
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    状态
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {records.map((record) => (
+                  <tr key={record.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {record.file_name}
+                      {record.skipped_count > 0 && (
+                        <span className="ml-2 text-xs text-yellow-600">
+                          (跳过{record.skipped_count}行)
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatTime(record.uploaded_at)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {record.valid_count}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {record.processed_count}
+                      {record.failed_count > 0 && (
+                        <span className="ml-1 text-red-600">
+                          ({record.failed_count} 失败)
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span className={`font-semibold ${
+                        record.success_rate >= 90 ? 'text-green-600' :
+                        record.success_rate >= 70 ? 'text-yellow-600' :
+                        'text-red-600'
+                      }`}>
+                        {record.success_rate.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {getStatusBadge(record.status)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* 上传成功弹窗 */}
+      {uploadResult && (
+        <UploadSuccessModal
+          isOpen={showSuccessModal}
+          onClose={() => setShowSuccessModal(false)}
+          fileName={uploadResult.fileName}
+          validCount={uploadResult.validCount}
+          skippedCount={uploadResult.skippedCount}
+        />
+      )}
     </div>
   )
 }

@@ -675,84 +675,85 @@ function extractBrandName(
     return false
   }
 
-  // 策略1: 从核心产品区域的品牌链接提取（主要方法）
-  const brandSelectors = [
-    '#ppd #bylineInfo',
-    '#centerCol #bylineInfo',
-    '#dp-container #bylineInfo',
-    '#bylineInfo',
-    'a#bylineInfo',
-    '[data-feature-name="bylineInfo"]',
-  ]
-
-  for (const selector of brandSelectors) {
-    const $el = $(selector)
-    if ($el.length > 0 && !isInRecommendationArea($el[0])) {
-      let brand = $el.text().trim()
-
-      // 🌍 多语言品牌店铺文本清理
-      brand = cleanBrandText(brand)
-
-      if (brand && brand.length > 1 && brand.length < 50) {
-        brandName = brand
-        console.log(`✅ 策略1成功: 从选择器${selector}提取品牌 "${brandName}"`)
-        break
+  // 🔥 策略1（优先级最高）: 从Product Overview表格提取Brand（最准确的来源）
+  // 2025-12-10修复：Product Overview表格的品牌是最准确的，应该优先使用
+  // 方法1: 遍历productOverview表格行
+  $('#productOverview_feature_div tr, #poExpander tr').each((i: number, el: any) => {
+    if (brandName) return false // 已找到则停止
+    const label = $(el).find('td.a-span3, td:first-child').text().trim().toLowerCase()
+    if (label === 'brand' || label.includes('brand')) {
+      const value = $(el).find('td.a-span9, td:last-child').text().trim()
+      if (value && value.length > 1 && value.length < 50) {
+        brandName = value
+        console.log(`✅ 策略1成功: 从Product Overview表格提取品牌 "${brandName}"`)
       }
     }
-  }
+  })
 
-  // 🔥 策略1.5: 从Product Overview表格提取Brand（截图中的"Brand: Coziley"格式）
+  // 方法2: 直接查找包含Brand的行
   if (!brandName) {
-    // 方法1: 遍历productOverview表格行
-    $('#productOverview_feature_div tr, #poExpander tr').each((i: number, el: any) => {
-      if (brandName) return false // 已找到则停止
-      const label = $(el).find('td.a-span3, td:first-child').text().trim().toLowerCase()
-      if (label === 'brand' || label.includes('brand')) {
-        const value = $(el).find('td.a-span9, td:last-child').text().trim()
-        if (value && value.length > 1 && value.length < 50) {
+    $('tr').each((i: number, el: any) => {
+      if (brandName) return false
+      const labelText = $(el).find('td:first-child, th').text().trim().toLowerCase()
+      if (labelText === 'brand') {
+        const value = $(el).find('td:last-child').text().trim()
+        if (value && value.length > 1 && value.length < 50 && !isInRecommendationArea(el)) {
           brandName = value
-          console.log(`✅ 策略1.5成功: 从Product Overview表格提取品牌 "${brandName}"`)
+          console.log(`✅ 策略1b成功: 从表格行提取品牌 "${brandName}"`)
         }
       }
     })
+  }
 
-    // 方法2: 直接查找包含Brand的行
-    if (!brandName) {
-      $('tr').each((i: number, el: any) => {
-        if (brandName) return false
-        const labelText = $(el).find('td:first-child, th').text().trim().toLowerCase()
-        if (labelText === 'brand') {
-          const value = $(el).find('td:last-child').text().trim()
-          if (value && value.length > 1 && value.length < 50 && !isInRecommendationArea(el)) {
-            brandName = value
-            console.log(`✅ 策略1.5b成功: 从表格行提取品牌 "${brandName}"`)
-          }
+  // 策略2: 从核心产品区域的品牌链接提取（次优方法，可能包含后缀）
+  if (!brandName) {
+    const brandSelectors = [
+      '#ppd #bylineInfo',
+      '#centerCol #bylineInfo',
+      '#dp-container #bylineInfo',
+      '#bylineInfo',
+      'a#bylineInfo',
+      '[data-feature-name="bylineInfo"]',
+    ]
+
+    for (const selector of brandSelectors) {
+      const $el = $(selector)
+      if ($el.length > 0 && !isInRecommendationArea($el[0])) {
+        let brand = $el.text().trim()
+
+        // 🌍 多语言品牌店铺文本清理
+        brand = cleanBrandText(brand)
+
+        if (brand && brand.length > 1 && brand.length < 50) {
+          brandName = brand
+          console.log(`✅ 策略2成功: 从选择器${selector}提取品牌 "${brandName}"`)
+          break
         }
-      })
+      }
     }
   }
 
-  // 策略2: 从data属性获取
+  // 策略3: 从data属性获取
   if (!brandName) {
     const dataBrand = $('[data-brand]').attr('data-brand')
     if (dataBrand && dataBrand.length > 1 && dataBrand.length < 50) {
       brandName = dataBrand
-      console.log(`✅ 策略2成功: 从data-brand属性提取 "${brandName}"`)
+      console.log(`✅ 策略3成功: 从data-brand属性提取 "${brandName}"`)
     }
   }
 
-  // 策略2.5: 从technicalDetails.Brand提取
+  // 策略4: 从technicalDetails.Brand提取
   if (!brandName && technicalDetails.Brand) {
     const techBrand = technicalDetails.Brand.toString().trim()
       .replace(/^‎/, '') // 移除Unicode左到右标记
       .replace(/^Brand:\s*/i, '')
     if (techBrand && techBrand.length > 1 && techBrand.length < 50) {
       brandName = techBrand
-      console.log(`✅ 策略2.5成功: 从technicalDetails.Brand提取 "${brandName}"`)
+      console.log(`✅ 策略4成功: 从technicalDetails.Brand提取 "${brandName}"`)
     }
   }
 
-  // 策略3: 从产品标题智能提取
+  // 策略5: 从产品标题智能提取
   if (!brandName && productName) {
     const titleParts = productName.split(/[\s-,|]+/)
     if (titleParts.length > 0) {
@@ -762,13 +763,13 @@ function extractBrandName(
                             /^[A-Z0-9]+$/.test(potentialBrand)
         if (isValidBrand) {
           brandName = potentialBrand
-          console.log(`✅ 策略3成功: 从产品标题提取品牌 "${brandName}"`)
+          console.log(`✅ 策略5成功: 从产品标题提取品牌 "${brandName}"`)
         }
       }
     }
   }
 
-  // 策略4: 从Amazon URL中提取
+  // 策略6: 从Amazon URL中提取
   if (!brandName) {
     const urlBrandMatch = url.match(/amazon\.com\/stores\/([^\/]+)/) ||
                           url.match(/amazon\.com\/([A-Z][A-Za-z0-9-]+)\/s\?/)
@@ -779,18 +780,18 @@ function extractBrandName(
         .trim()
       if (urlBrand.length >= 2 && urlBrand.length <= 30 && !urlBrand.includes('page')) {
         brandName = urlBrand
-        console.log(`✅ 策略4成功: 从URL提取品牌 "${brandName}"`)
+        console.log(`✅ 策略6成功: 从URL提取品牌 "${brandName}"`)
       }
     }
   }
 
-  // 策略5: 从meta标签提取
+  // 策略7: 从meta标签提取
   if (!brandName) {
     const metaBrand = $('meta[property="og:brand"]').attr('content') ||
                      $('meta[name="brand"]').attr('content')
     if (metaBrand && metaBrand.length > 1 && metaBrand.length < 50) {
       brandName = metaBrand
-      console.log(`✅ 策略5成功: 从meta标签提取品牌 "${brandName}"`)
+      console.log(`✅ 策略7成功: 从meta标签提取品牌 "${brandName}"`)
     }
   }
 

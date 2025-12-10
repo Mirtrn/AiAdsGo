@@ -11,7 +11,7 @@ export async function GET(
 ) {
   try {
     const { promptId } = params
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // 获取当前激活版本
     const activeVersion = await db.queryOne<any>(
@@ -113,7 +113,7 @@ export async function PUT(
       )
     }
 
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // 检查版本是否存在
     const versionExists = await db.queryOne<any>(

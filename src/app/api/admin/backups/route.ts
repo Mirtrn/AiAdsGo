@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '30')
 
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // 查询备份历史
     const backups = await db.query(`

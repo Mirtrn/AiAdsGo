@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') || 'all'
     const limit = parseInt(searchParams.get('limit') || '50')
 
-    const db = await getDatabase()
+    const db = getDatabase()
 
     // 根据类型获取不同的任务日志
     let backups: any[] = []

@@ -44,11 +44,17 @@ export async function executeBatchCreation(
   console.log(`🚀 开始执行批量创建任务: batch=${batchId}, count=${rows.length}`)
 
   try {
-    // 1. 更新batch_tasks状态为running
+    // 1. 更新batch_tasks和upload_records状态为running
     await db.exec(`
       UPDATE batch_tasks
       SET status = 'running', started_at = datetime('now'), updated_at = datetime('now')
       WHERE id = ?
+    `, [batchId])
+
+    await db.exec(`
+      UPDATE upload_records
+      SET status = 'processing', updated_at = datetime('now')
+      WHERE batch_id = ?
     `, [batchId])
 
     // 2. 为每行数据创建offer_task并加入队列
@@ -131,7 +137,7 @@ export async function executeBatchCreation(
         const failed = statsMap['failed'] || 0
         const total = rows.length
 
-        // 更新batch_tasks进度
+        // 更新batch_tasks和upload_records进度
         await db.exec(`
           UPDATE batch_tasks
           SET
@@ -139,6 +145,15 @@ export async function executeBatchCreation(
             failed_count = ?,
             updated_at = datetime('now')
           WHERE id = ?
+        `, [completed, failed, batchId])
+
+        await db.exec(`
+          UPDATE upload_records
+          SET
+            processed_count = ?,
+            failed_count = ?,
+            updated_at = datetime('now')
+          WHERE batch_id = ?
         `, [completed, failed, batchId])
 
         // 检查是否全部完成
@@ -155,7 +170,7 @@ export async function executeBatchCreation(
             finalStatus = 'partial'
           }
 
-          // 更新最终状态
+          // 更新batch_tasks和upload_records最终状态
           await db.exec(`
             UPDATE batch_tasks
             SET
@@ -163,6 +178,15 @@ export async function executeBatchCreation(
               completed_at = datetime('now'),
               updated_at = datetime('now')
             WHERE id = ?
+          `, [finalStatus, batchId])
+
+          await db.exec(`
+            UPDATE upload_records
+            SET
+              status = ?,
+              completed_at = datetime('now'),
+              updated_at = datetime('now')
+            WHERE batch_id = ?
           `, [finalStatus, batchId])
 
           console.log(`✅ 批量任务完成: batch=${batchId}, status=${finalStatus}, completed=${completed}, failed=${failed}`)
@@ -182,7 +206,7 @@ export async function executeBatchCreation(
   } catch (error: any) {
     console.error(`❌ 批量创建任务失败: batch=${batchId}:`, error.message)
 
-    // 更新batch_tasks为失败状态
+    // 更新batch_tasks和upload_records为失败状态
     await db.exec(`
       UPDATE batch_tasks
       SET
@@ -190,6 +214,15 @@ export async function executeBatchCreation(
         completed_at = datetime('now'),
         updated_at = datetime('now')
       WHERE id = ?
+    `, [batchId])
+
+    await db.exec(`
+      UPDATE upload_records
+      SET
+        status = 'failed',
+        completed_at = datetime('now'),
+        updated_at = datetime('now')
+      WHERE batch_id = ?
     `, [batchId])
 
     throw error

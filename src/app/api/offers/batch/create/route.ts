@@ -192,6 +192,39 @@ export async function POST(req: NextRequest) {
 
     console.log(`📝 批量任务已创建: ${batchId} (${rows.length} 个Offer${skippedCount > 0 ? `，跳过${skippedCount}行` : ''})`)
 
+    // 4.5 创建upload_records记录
+    const uploadRecordId = crypto.randomUUID()
+    await db.exec(`
+      INSERT INTO upload_records (
+        id,
+        user_id,
+        batch_id,
+        file_name,
+        file_size,
+        valid_count,
+        skipped_count,
+        status,
+        metadata,
+        uploaded_at,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, datetime('now'), datetime('now'), datetime('now'))
+    `, [
+      uploadRecordId,
+      userIdNum,
+      batchId,
+      file.name,
+      file.size,
+      rows.length,
+      skippedCount,
+      JSON.stringify({
+        skipped_rows: skippedCount,
+        valid_rows: rows.length
+      })
+    ])
+
+    console.log(`📋 上传记录已创建: ${uploadRecordId}`)
+
     // 5. 将batch-offer-creation任务加入队列
     const taskData: BatchCreationTaskData = {
       batchId,

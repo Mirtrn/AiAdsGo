@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(searchParams.get('limit') || '10')
   const offset = (page - 1) * limit
 
-  const db = await getDatabase()
+  const db = getDatabase()
 
   let query = `
       SELECT id, username, email, display_name, role, package_type, package_expires_at, is_active, last_login_at, created_at,
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
 
     // 如果提供了username，检查是否已存在
     if (username) {
-      const db = await getDatabase()
+      const db = getDatabase()
       const existingUser = await db.queryOne('SELECT id FROM users WHERE username = ?', [username])
       if (existingUser) {
         return NextResponse.json({ error: '用户名已存在，请重新生成' }, { status: 400 })
