@@ -816,7 +816,17 @@ export default function OfferDetailPage() {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {reviewData.userProfiles.map((profile: any, idx: number) => (
                               <div key={idx} className="bg-gray-50 p-3 rounded">
-                                <div className="font-medium text-blue-700">{profile.profile}</div>
+                                <div className="flex justify-between items-start">
+                                  <div className="font-medium text-blue-700">{profile.type || profile.profile}</div>
+                                  {profile.percentage && (
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                      {profile.percentage}%
+                                    </span>
+                                  )}
+                                </div>
+                                {profile.primaryNeed && (
+                                  <p className="mt-1 text-xs text-gray-600">{profile.primaryNeed}</p>
+                                )}
                                 {profile.indicators && (
                                   <ul className="mt-1 text-xs text-gray-600">
                                     {profile.indicators.map((ind: string, indIdx: number) => (
