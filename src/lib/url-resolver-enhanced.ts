@@ -9,10 +9,7 @@ import { resolveAffiliateLinkWithPlaywright } from './url-resolver-playwright'
 import type { PlaywrightResolvedUrl } from './url-resolver-playwright'
 import { resolveAffiliateLinkWithHttp } from './url-resolver-http'
 import { getOptimalResolver, extractDomain } from './resolver-domains'
-import { REDIS_KEY_PREFIX } from './config'
-
-// 🔥 环境隔离前缀（从 autoads:development:queue: 提取 autoads:development:）
-const ENV_PREFIX = REDIS_KEY_PREFIX.replace(':queue:', ':')
+import { REDIS_PREFIX_CONFIG } from './config'
 
 // ==================== 类型定义 ====================
 
@@ -374,11 +371,11 @@ const CACHE_TTL = 7 * 24 * 60 * 60 // 7天（秒）
 
 /**
  * 生成缓存键
- * 格式：{ENV_PREFIX}redirect:{targetCountry}:{affiliateLink}
- * 例如：autoads:development:redirect:US:https://...
+ * 格式：{cache_prefix}redirect:{targetCountry}:{affiliateLink}
+ * 例如：autoads:development:cache:redirect:US:https://...
  */
 function getCacheKey(affiliateLink: string, targetCountry: string): string {
-  return `${ENV_PREFIX}redirect:${targetCountry}:${affiliateLink}`
+  return `${REDIS_PREFIX_CONFIG.cache}redirect:${targetCountry}:${affiliateLink}`
 }
 
 /**

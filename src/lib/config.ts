@@ -72,11 +72,14 @@ export const IS_DEVELOPMENT = NODE_ENV === 'development'
 // ==================== Redis配置 ====================
 export const REDIS_URL = getOptionalEnvVar('REDIS_URL', 'redis://localhost:6379')
 
-// 🔥 Redis环境隔离 (2025-12-10新增)
-export const REDIS_KEY_PREFIX = getOptionalEnvVar(
-  'REDIS_KEY_PREFIX',
-  `autoads:${NODE_ENV}:queue:`
-)
+// 🔥 Redis前缀配置（结构化，2025-12-10优化为方案3）
+export const REDIS_PREFIX_CONFIG = {
+  queue: `autoads:${NODE_ENV}:queue:`,
+  cache: `autoads:${NODE_ENV}:cache:`,
+} as const
+
+// 向后兼容：保留REDIS_KEY_PREFIX（队列专用）
+export const REDIS_KEY_PREFIX = REDIS_PREFIX_CONFIG.queue
 
 // ==================== 运行时验证（仅在非构建/测试时执行） ====================
 if (!SKIP_VALIDATION) {
