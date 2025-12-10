@@ -990,7 +990,11 @@ async function scrapeAlsoViewed(page: any, limit: number): Promise<CompetitorPro
 }
 
 /**
- * 从"Similar items"区域抓取竞品
+ * 从"Similar items"/"Products related to this item"区域抓取竞品
+ *
+ * 🔥 2025-12-10修复：支持Amazon赞助商品(Sponsored Products)的新DOM结构
+ * - 旧结构: a[href*="/dp/"] 直接链接
+ * - 新结构: id="sp_detail_B0DZ321NP2" 或 /sspa/click?...url=%2Fdp%2F... URL编码链接
  */
 async function scrapeSimilarItems(page: any, limit: number): Promise<CompetitorProduct[]> {
   try {
@@ -1006,42 +1010,122 @@ async function scrapeSimilarItems(page: any, limit: number): Promise<CompetitorP
         return isNaN(num) ? null : num
       }
 
-      // "Similar items" 区域选择器
+      // 🔥 新增：从多种来源提取ASIN
+      function extractAsin(el: Element): string | null {
+        // 方法1: 从 id="sp_detail_B0DZ321NP2" 格式提取 (赞助商品)
+        const spDetailDiv = el.querySelector('[id^="sp_detail_"]')
+        if (spDetailDiv) {
+          const match = spDetailDiv.id.match(/sp_detail_([A-Z0-9]{10})/)
+          if (match) return match[1]
+        }
+
+        // 方法2: 从 data-adfeedbackdetails JSON 提取
+        const feedbackEl = el.querySelector('[data-adfeedbackdetails]')
+        if (feedbackEl) {
+          try {
+            const feedbackData = JSON.parse(feedbackEl.getAttribute('data-adfeedbackdetails') || '{}')
+            if (feedbackData.asin) return feedbackData.asin
+          } catch {}
+        }
+
+        // 方法3: 从 /sspa/click?...url=%2Fdp%2FXXXX... URL解码提取
+        const sspaLink = el.querySelector('a[href*="/sspa/click"]') as HTMLAnchorElement | null
+        if (sspaLink) {
+          const urlMatch = sspaLink.href.match(/url=%2Fdp%2F([A-Z0-9]{10})/)
+          if (urlMatch) return urlMatch[1]
+          // 尝试解码URL
+          try {
+            const decoded = decodeURIComponent(sspaLink.href)
+            const decodedMatch = decoded.match(/\/dp\/([A-Z0-9]{10})/)
+            if (decodedMatch) return decodedMatch[1]
+          } catch {}
+        }
+
+        // 方法4: 传统方式 - 直接 /dp/ 链接
+        const directLink = el.querySelector('a[href*="/dp/"]') as HTMLAnchorElement | null
+        if (directLink) {
+          const match = directLink.href.match(/\/dp\/([A-Z0-9]{10})/)
+          if (match) return match[1]
+        }
+
+        // 方法5: 从 data-asin 属性提取
+        const asinEl = el.querySelector('[data-asin]')
+        if (asinEl) {
+          const asin = asinEl.getAttribute('data-asin')
+          if (asin && /^[A-Z0-9]{10}$/.test(asin)) return asin
+        }
+
+        return null
+      }
+
+      // 🔥 新增：从赞助商品提取商品名称
+      function extractName(el: Element): string {
+        // 尝试从 data-adfeedbackdetails 提取标题
+        const feedbackEl = el.querySelector('[data-adfeedbackdetails]')
+        if (feedbackEl) {
+          try {
+            const feedbackData = JSON.parse(feedbackEl.getAttribute('data-adfeedbackdetails') || '{}')
+            if (feedbackData.title) return feedbackData.title
+          } catch {}
+        }
+
+        // 传统选择器
+        const nameEl = el.querySelector('.a-truncate-full, .p13n-sc-truncated, .a-link-normal[title], [class*="truncate"]')
+        if (nameEl) {
+          const text = nameEl.textContent?.trim()
+          if (text && text !== 'Unknown') return text
+          const title = nameEl.getAttribute('title')
+          if (title) return title
+        }
+
+        // 从图片alt属性
+        const imgEl = el.querySelector('img[alt]')
+        if (imgEl) {
+          const alt = imgEl.getAttribute('alt')
+          if (alt && alt.length > 5) return alt
+        }
+
+        return 'Unknown'
+      }
+
+      // "Similar items" / "Products related to this item" 区域选择器
       const selectors = [
-        '[data-a-carousel-options*="similar"] .a-carousel-card',
-        '#sp_detail .a-carousel-card',
-        '[cel_widget_id*="similar"] .a-carousel-card'
+        '#sp_detail .a-carousel-card',                              // 🔥 赞助商品优先
+        '[data-a-carousel-options*="sims"] .a-carousel-card',       // 赞助商品变体
+        '[cel_widget_id*="sims"] .a-carousel-card',                 // 赞助商品变体
+        '[data-a-carousel-options*="similar"] .a-carousel-card',    // 传统similar
+        '[cel_widget_id*="similar"] .a-carousel-card'               // 传统similar
       ]
 
       for (const selector of selectors) {
         const elements = document.querySelectorAll(selector)
         if (elements.length > 0) {
+          console.log(`✅ 找到Related/Similar区域: ${selector}, 共${elements.length}个商品`)
+
           elements.forEach((el, idx) => {
             if (idx >= maxItems) return
 
-            const linkEl = el.querySelector('a[href*="/dp/"]') as HTMLAnchorElement | null
-            const asin = linkEl?.href?.match(/\/dp\/([A-Z0-9]{10})/)?.[1] || null
+            const asin = extractAsin(el)
+            const name = extractName(el)
 
-            const nameEl = el.querySelector('.a-truncate-full, .p13n-sc-truncated')
-            const name = nameEl?.textContent?.trim() || 'Unknown'
-
-            const priceEl = el.querySelector('.a-price .a-offscreen')
+            const priceEl = el.querySelector('.a-price .a-offscreen, .a-color-price')
             const priceText = priceEl?.textContent?.trim() || null
 
-            const ratingEl = el.querySelector('.a-icon-star-small')
-            const ratingText = ratingEl?.getAttribute('aria-label') || null
-            const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
+            const ratingEl = el.querySelector('.a-icon-star-small, [class*="star"]')
+            const ratingText = ratingEl?.getAttribute('aria-label') || ratingEl?.textContent || null
+            const rating = ratingText ? parseFloat(ratingText.match(/[\d.,]+/)?.[0]?.replace(',', '.') || '0') : null
 
             const imageEl = el.querySelector('img')
             const imageUrl = imageEl?.src || imageEl?.getAttribute('data-src') || null
 
-            if (name !== 'Unknown') {
+            // 🔥 改进：即使name是Unknown，只要有ASIN也保留
+            if (asin || name !== 'Unknown') {
               items.push({
                 asin,
                 name,
                 brand: null,
                 priceText,
-                price: parsePrice(priceText),
+                price: parsePriceInBrowser(priceText || ''),
                 rating,
                 reviewCount: null,
                 imageUrl,
@@ -1059,6 +1143,7 @@ async function scrapeSimilarItems(page: any, limit: number): Promise<CompetitorP
     return competitors
 
   } catch (error) {
+    console.error('❌ scrapeSimilarItems失败:', error)
     return []
   }
 }
