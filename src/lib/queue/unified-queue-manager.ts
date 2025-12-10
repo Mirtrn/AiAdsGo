@@ -745,12 +745,20 @@ export class UnifiedQueueManager {
   }
 }
 
-// 导出单例实例
-let queueInstance: UnifiedQueueManager | null = null
+// 使用 globalThis 防止 Next.js 热重载时重置单例
+// 与 db.ts 保持一致的单例模式
+declare global {
+  var __queueManager: UnifiedQueueManager | undefined
+}
 
+/**
+ * 获取统一队列管理器单例
+ * 使用 globalThis 存储实例，防止 Next.js 热重载时重新初始化
+ */
 export function getQueueManager(config?: Partial<QueueConfig>): UnifiedQueueManager {
-  if (!queueInstance) {
-    queueInstance = new UnifiedQueueManager(config)
+  if (!globalThis.__queueManager) {
+    console.log('🚀 创建统一队列管理器单例...')
+    globalThis.__queueManager = new UnifiedQueueManager(config)
   }
-  return queueInstance
+  return globalThis.__queueManager
 }
