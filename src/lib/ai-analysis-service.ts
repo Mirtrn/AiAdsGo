@@ -5,7 +5,7 @@
 
 import { analyzeProductPage } from './ai'
 import { analyzeReviewsWithAI, type RawReview } from './review-analyzer'
-import { analyzeCompetitorsWithAI, type CompetitorProduct } from './competitor-analyzer'
+import { analyzeCompetitorsWithAI, inferCompetitorKeywords, searchCompetitorsOnAmazon, type CompetitorProduct } from './competitor-analyzer'
 import { extractAdElements } from './ad-elements-extractor'
 import { scrapeAmazonProduct } from './stealth-scraper/amazon-product'
 import { parsePrice } from './pricing-utils'  // 🔧 新增：统一价格解析函数
@@ -956,15 +956,85 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               features: extractResult.features || extractResult.aboutThisItem || [],
             }
 
-            // 🔥 KISS优化（2025-12-09）：批量抓取竞品详情，品牌过滤在详情页抓取后进行
-            // 目标：获取5个多样化竞品（不同品牌）
-            const competitors = await batchScrapeCompetitorDetails(
+            // 🔥 KISS优化（2025-12-10）：双重策略获取竞品
+            // 策略1：优先使用relatedAsins（推荐区域，速度快）
+            // 策略2：如果竞品不足，使用搜索结果补充（更准确）
+            const MIN_COMPETITORS = 3  // 最少需要3个有效竞品
+            const TARGET_COMPETITORS = 5  // 目标5个竞品
+
+            let competitors = await batchScrapeCompetitorDetails(
               extractResult.relatedAsins!,
               targetCountry,
-              extractResult.brand || null,  // 🔥 传入主产品品牌用于过滤
+              extractResult.brand || null,
               competitorProxyUrl,
-              5  // 🔥 目标5个竞品
+              TARGET_COMPETITORS
             )
+
+            console.log(`📊 [策略1] relatedAsins获取: ${competitors.length}个有效竞品`)
+
+            // 🔥 策略2：如果竞品不足，使用Amazon搜索补充
+            if (competitors.length < MIN_COMPETITORS) {
+              console.log(`⚠️ relatedAsins竞品不足(${competitors.length}<${MIN_COMPETITORS})，启用搜索补充...`)
+
+              try {
+                // Step 1: AI推断搜索关键词
+                const searchTerms = await inferCompetitorKeywords({
+                  name: extractResult.productName || 'Unknown Product',
+                  brand: extractResult.brand || null,
+                  category: extractResult.category || 'Unknown',
+                  price: ourProduct.price,
+                  targetCountry,
+                  features: extractResult.features || [],
+                  aboutThisItem: extractResult.aboutThisItem || [],
+                }, userId)
+
+                if (searchTerms.length > 0) {
+                  console.log(`🔍 [策略2] 搜索关键词: ${searchTerms.slice(0, 3).join(', ')}`)
+
+                  // Step 2: 使用Playwright执行搜索
+                  const { getPlaywrightPool } = await import('@/lib/playwright-pool')
+                  const pool = getPlaywrightPool()
+                  const instanceId = await pool.acquire(competitorProxyUrl, targetCountry)
+
+                  try {
+                    const { page } = pool.getPage(instanceId)!
+
+                    // Step 3: 执行Amazon搜索
+                    const searchCompetitors = await searchCompetitorsOnAmazon(
+                      searchTerms.slice(0, 3),  // 最多搜索3个词
+                      page,
+                      targetCountry,
+                      2  // 每个词取2个结果
+                    )
+
+                    // Step 4: 过滤同品牌产品
+                    const mainBrandLower = (extractResult.brand || '').toLowerCase()
+                    const filteredSearchCompetitors = searchCompetitors.filter(c => {
+                      const cBrand = (c.brand || '').toLowerCase()
+                      return !cBrand.includes(mainBrandLower) && !mainBrandLower.includes(cBrand)
+                    })
+
+                    console.log(`✅ [策略2] 搜索获取: ${filteredSearchCompetitors.length}个有效竞品`)
+
+                    // Step 5: 合并两个来源，去重
+                    const existingAsins = new Set(competitors.map(c => c.asin))
+                    for (const sc of filteredSearchCompetitors) {
+                      if (!existingAsins.has(sc.asin) && competitors.length < TARGET_COMPETITORS) {
+                        competitors.push(sc)
+                        existingAsins.add(sc.asin)
+                      }
+                    }
+
+                    console.log(`📊 [合并] 最终竞品数量: ${competitors.length}个`)
+                  } finally {
+                    pool.release(instanceId)
+                  }
+                }
+              } catch (searchError: any) {
+                console.warn(`⚠️ 搜索补充失败: ${searchError.message}`)
+                // 继续使用已有的competitors
+              }
+            }
 
             if (competitors.length > 0) {
               // 使用完整的竞品数据进行分析
@@ -983,11 +1053,10 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               // 降级：使用简化的ASIN列表（无详情）
               console.warn(`⚠️ 竞品详情抓取全部失败，使用简化ASIN分析`)
 
-              // 🔥 KISS优化：relatedAsins现在是纯字符串数组
               const simplifiedCompetitors: CompetitorProduct[] = extractResult.relatedAsins!.slice(0, 5).map(asin => ({
                 asin,
                 name: `Competitor Product ${asin}`,
-                brand: 'Unknown',  // 详情页抓取失败时无品牌信息
+                brand: 'Unknown',
                 price: null,
                 priceText: null,
                 rating: null,
