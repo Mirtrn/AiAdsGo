@@ -123,24 +123,40 @@ export async function getUserProModel(userId?: number): Promise<ModelType> {
 }
 
 /**
- * 选择最优模型（V2：支持用户Pro模型选择）
+ * 选择最优模型（V3：支持responseSchema兼容性检查）
  *
  * @param operationType - 操作类型（来自recordTokenUsage）
  * @param userId - 用户ID（用于获取用户模型偏好）
- * @param forceProForTesting - 强制使用Pro（用于A/B测试）
+ * @param options - 可选配置
+ * @param options.forceProForTesting - 强制使用Pro（用于A/B测试）
+ * @param options.hasResponseSchema - 是否使用了responseSchema（思考型模型不完全支持）
  * @returns 模型选择结果
  */
 export async function selectOptimalModel(
   operationType: string,
   userId?: number,
-  forceProForTesting: boolean = false
+  options: {
+    forceProForTesting?: boolean
+    hasResponseSchema?: boolean
+  } = {}
 ): Promise<ModelSelection> {
+  const { forceProForTesting = false, hasResponseSchema = false } = options
   const userProModel = await getUserProModel(userId)
+
+  // 🔧 修复(2025-12-11): gemini-3-pro-preview是思考型模型，不完全支持responseSchema
+  // 当使用responseSchema时，强制降级到gemini-2.5-pro以确保正常输出
+  const effectiveProModel = (hasResponseSchema && userProModel === 'gemini-3-pro-preview')
+    ? 'gemini-2.5-pro'
+    : userProModel
+
+  if (hasResponseSchema && userProModel === 'gemini-3-pro-preview') {
+    console.log(`⚠️ 检测到responseSchema + gemini-3-pro-preview组合，自动降级到gemini-2.5-pro`)
+  }
 
   // A/B测试期间：强制使用用户的Pro模型作为对照组
   if (forceProForTesting) {
     return {
-      model: userProModel,
+      model: effectiveProModel,
       reason: 'A/B测试对照组',
       testingRequired: true,
     }
@@ -155,19 +171,21 @@ export async function selectOptimalModel(
     }
   }
 
-  // Pro保留场景：复杂任务使用用户选择的Pro模型
+  // Pro保留场景：复杂任务使用用户选择的Pro模型（或降级后的模型）
   if (PRO_OPERATIONS.has(operationType)) {
     return {
-      model: userProModel,
-      reason: `复杂分析任务，使用用户选择的Pro模型: ${userProModel}`,
+      model: effectiveProModel,
+      reason: effectiveProModel !== userProModel
+        ? `复杂分析任务，因responseSchema兼容性降级到: ${effectiveProModel}`
+        : `复杂分析任务，使用用户选择的Pro模型: ${effectiveProModel}`,
       testingRequired: false,
     }
   }
 
   // 未知operationType：默认使用用户的Pro模型（安全第一）
-  console.warn(`⚠️ Unknown operationType: ${operationType}, defaulting to user's Pro model: ${userProModel}`)
+  console.warn(`⚠️ Unknown operationType: ${operationType}, defaulting to user's Pro model: ${effectiveProModel}`)
   return {
-    model: userProModel,
+    model: effectiveProModel,
     reason: '未知操作类型，使用用户Pro模型确保质量',
     testingRequired: false,
   }
