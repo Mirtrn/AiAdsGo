@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth, createUser, generateUniqueUsername } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 
+/**
+ * 🔧 修复(2025-12-11): 转换数据库字段名为 camelCase
+ * 规范: API响应使用 camelCase，数据库字段使用 snake_case
+ */
+function transformUserToApiResponse(user: any) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    displayName: user.display_name,
+    role: user.role,
+    packageType: user.package_type,
+    packageExpiresAt: user.package_expires_at,
+    isActive: user.is_active,
+    lastLoginAt: user.last_login_at,
+    createdAt: user.created_at,
+    lockedUntil: user.locked_until,
+    failedLoginCount: user.failed_login_count
+  }
+}
+
 // GET: List all users (paginated)
 export async function GET(request: NextRequest) {
   const auth = await verifyAuth(request)
@@ -21,15 +42,15 @@ export async function GET(request: NextRequest) {
         id,
         username,
         email,
-        display_name AS displayName,
+        display_name,
         role,
-        package_type AS packageType,
-        package_expires_at AS packageExpiresAt,
-        is_active AS isActive,
-        last_login_at AS lastLoginAt,
-        created_at AS createdAt,
-        locked_until AS lockedUntil,
-        failed_login_count AS failedLoginCount
+        package_type,
+        package_expires_at,
+        is_active,
+        last_login_at,
+        created_at,
+        locked_until,
+        failed_login_count
       FROM users
       WHERE 1=1
     `
@@ -82,7 +103,7 @@ export async function GET(request: NextRequest) {
   const users = await db.query(query, [...params, limit, offset])
 
   return NextResponse.json({
-    users,
+    users: users.map(transformUserToApiResponse),
     pagination: {
       total: total.count,
       page,
