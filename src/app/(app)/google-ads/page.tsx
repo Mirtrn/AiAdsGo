@@ -258,7 +258,9 @@ export default function GoogleAdsPage() {
     )
   }
 
-  const hasCredentials = credentials && credentials.client_id && credentials.developer_token
+  // 🔧 修复(2025-12-11): 用户只需配置 login_customer_id，可以使用共享管理员配置
+  // 后端会检查管理员是否有完整配置，并在 has_refresh_token 中反映结果
+  // 因此前端只需检查 has_refresh_token，不需要检查 client_id 和 developer_token
   const hasRefreshToken = credentials?.has_refresh_token || false
 
   return (
@@ -296,18 +298,10 @@ export default function GoogleAdsPage() {
             </div>
           )}
 
-          {!hasCredentials && (
+          {!hasRefreshToken && (
             <div className="mb-6 bg-amber-50 border border-amber-200 rounded-md p-4">
               <p className="text-sm text-amber-800">
-                请先在 <a href="/settings" className="underline font-semibold">系统设置</a> 的 "Google Ads API" 部分完成配置和授权。
-              </p>
-            </div>
-          )}
-
-          {hasCredentials && !hasRefreshToken && (
-            <div className="mb-6 bg-blue-50 border border-blue-400 text-blue-700 px-4 py-3 rounded">
-              <p className="text-sm">
-                请先在 <a href="/settings" className="underline font-semibold">系统设置</a> 中完成 OAuth 授权后，再刷新此页面查看账户列表。
+                请先在 <a href="/settings" className="underline font-semibold">系统设置</a> 的 "Google Ads API" 部分完成 Login Customer ID 配置。
               </p>
             </div>
           )}
