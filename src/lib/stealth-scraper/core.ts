@@ -136,19 +136,64 @@ export async function scrapeUrlWithBrowser(
         if (pageStatus.hasNoJsClass) {
           console.log(`🔄 检测到a-no-js标记，等待JavaScript渲染...`)
 
+          // 🔥 2025-12-11优化: 先尝试刷新页面（有时能绕过反爬虫）
+          // Amazon的a-no-js检测有时是临时的，刷新后可能恢复正常
+          try {
+            console.log(`🔄 尝试刷新页面绕过a-no-js检测...`)
+
+            // 在刷新前添加随机延迟（模拟人类犹豫）
+            await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000))
+
+            // 刷新页面
+            await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 })
+
+            // 刷新后等待一下
+            await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 2000))
+
+            // 重新检测a-no-js状态
+            const refreshedStatus = await page.evaluate(() => {
+              const html = document.documentElement
+              return {
+                hasNoJsClass: html.classList.contains('a-no-js'),
+                hasJsClass: html.classList.contains('a-js'),
+              }
+            })
+
+            if (!refreshedStatus.hasNoJsClass || refreshedStatus.hasJsClass) {
+              console.log(`✅ 刷新后a-no-js已消除，页面恢复正常`)
+            } else {
+              console.warn(`⚠️ 刷新后仍有a-no-js，继续尝试其他方法...`)
+            }
+          } catch (refreshError) {
+            console.warn(`⚠️ 刷新页面失败: ${(refreshError as Error).message}`)
+          }
+
           // ✅ 修复1: 添加随机延迟（模拟人类阅读时间）
           const humanDelay = 2000 + Math.random() * 3000  // 2-5秒
           console.log(`⏰ 模拟人类行为延迟: ${Math.round(humanDelay)}ms`)
           await new Promise(resolve => setTimeout(resolve, humanDelay))
 
-          // ✅ 修复2: 模拟鼠标移动和滚动
+          // ✅ 修复2: 模拟更真实的鼠标移动（贝塞尔曲线路径）
           try {
-            await page.mouse.move(
-              Math.random() * 800 + 100,  // x: 100-900
-              Math.random() * 400 + 100   // y: 100-500
-            )
-            await page.mouse.wheel(0, Math.random() * 300 + 100)  // 滚动100-400px
-            console.log(`🖱️ 已模拟鼠标移动和滚动`)
+            // 生成多个点模拟人类鼠标移动路径
+            const startX = Math.random() * 200 + 50
+            const startY = Math.random() * 200 + 50
+            const endX = Math.random() * 600 + 300
+            const endY = Math.random() * 400 + 200
+
+            // 分3-5步移动（更像人类）
+            const steps = 3 + Math.floor(Math.random() * 3)
+            for (let i = 0; i <= steps; i++) {
+              const t = i / steps
+              const x = startX + (endX - startX) * t + (Math.random() - 0.5) * 20
+              const y = startY + (endY - startY) * t + (Math.random() - 0.5) * 20
+              await page.mouse.move(x, y)
+              await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 100))
+            }
+
+            // 滚动页面
+            await page.mouse.wheel(0, Math.random() * 300 + 100)
+            console.log(`🖱️ 已模拟人类鼠标移动路径和滚动`)
           } catch (e) {
             console.warn(`⚠️ 鼠标模拟失败，继续执行`)
           }

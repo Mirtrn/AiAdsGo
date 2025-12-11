@@ -170,8 +170,33 @@ export async function configureStealthPage(page: Page, targetCountry?: string): 
     console.log(`🌍 目标国家: ${targetCountry}, Accept-Language: ${acceptLanguage}`)
   }
 
+  // 🔥 2025-12-11优化: 根据User-Agent生成匹配的Sec-CH-UA头部
+  // 避免UA和Sec-CH-UA不匹配被检测
+  let secChUa = '"Chromium";v="131", "Not_A Brand";v="24"'
+  let secChUaPlatform = '"Windows"'
+
+  if (userAgent.includes('Macintosh')) {
+    secChUaPlatform = '"macOS"'
+  } else if (userAgent.includes('Linux')) {
+    secChUaPlatform = '"Linux"'
+  }
+
+  if (userAgent.includes('Chrome/131')) {
+    secChUa = '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"'
+  } else if (userAgent.includes('Chrome/130')) {
+    secChUa = '"Google Chrome";v="130", "Chromium";v="130", "Not_A Brand";v="24"'
+  } else if (userAgent.includes('Firefox')) {
+    // Firefox不发送Sec-CH-UA
+    secChUa = ''
+  } else if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) {
+    // Safari也不发送Sec-CH-UA
+    secChUa = ''
+  } else if (userAgent.includes('Edg/')) {
+    secChUa = '"Microsoft Edge";v="130", "Chromium";v="130", "Not_A Brand";v="24"'
+  }
+
   // Set user agent with realistic headers
-  await page.setExtraHTTPHeaders({
+  const headers: Record<string, string> = {
     'User-Agent': userAgent,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
     'Accept-Language': acceptLanguage,  // 🌍 动态语言支持
@@ -183,12 +208,18 @@ export async function configureStealthPage(page: Page, targetCountry?: string): 
     'Sec-Fetch-Site': 'none',
     'Sec-Fetch-User': '?1',
     'Cache-Control': 'max-age=0',
-    // 🔥 添加DNT和真实Referer
+    // 🔥 添加DNT
     'DNT': '1',
-    'Sec-CH-UA': '"Chromium";v="131", "Not_A Brand";v="24"',
-    'Sec-CH-UA-Mobile': '?0',
-    'Sec-CH-UA-Platform': '"Windows"',
-  })
+  }
+
+  // 只有Chrome/Edge才发送Sec-CH-UA头部
+  if (secChUa) {
+    headers['Sec-CH-UA'] = secChUa
+    headers['Sec-CH-UA-Mobile'] = '?0'
+    headers['Sec-CH-UA-Platform'] = secChUaPlatform
+  }
+
+  await page.setExtraHTTPHeaders(headers)
 
   // 🎲 P0优化: 随机化硬件参数（避免所有请求使用相同值）
   const hardwareConcurrency = [4, 8, 16][Math.floor(Math.random() * 3)]

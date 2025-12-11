@@ -65,21 +65,25 @@ export async function scrapeAmazonProduct(
         console.warn(`⚠️ 检测到<html>标签中有a-no-js类，页面JavaScript未正常执行`)
         console.warn(`🔍 <html>标签classes: ${htmlClasses.substring(0, 100)}...`)
 
-        // 只在第一次尝试时重试（避免无限循环）
-        if (proxyAttempt === 0) {
-          console.warn(`🔄 a-no-js检测到，清理代理缓存并使用新IP重试...`)
+        // 🔥 2025-12-11优化: 增加重试次数，a-no-js失败最多重试2次（使用不同代理IP）
+        const maxNoJsRetries = 2
+        for (let noJsRetry = 1; noJsRetry <= maxNoJsRetries; noJsRetry++) {
+          console.warn(`🔄 a-no-js重试 ${noJsRetry}/${maxNoJsRetries}，清理代理缓存并使用新IP...`)
 
-          // 🔥 优化（2025-12-10）：先清理代理IP缓存，强制获取新IP
+          // 清理代理IP缓存，强制获取新IP
           const { clearProxyCache } = await import('../proxy/fetch-proxy-ip')
           clearProxyCache(effectiveProxyUrl)
           console.log(`🧹 已清理代理IP缓存，下次将获取新IP`)
 
-          // 清理连接池实例
+          // 清理连接池实例（确保不复用被标记的浏览器实例）
           const pool = getPlaywrightPool()
           await pool.clearIdleInstances()
 
-          // 🔥 优化：减少等待时间从5-10秒到1-2秒（新IP不需要长时间等待）
-          const retryDelay = 1000 + Math.random() * 1000
+          // 🔥 2025-12-11优化: 增加重试间隔，避免触发频率限制
+          // 第一次重试等待3-5秒，第二次等待5-8秒
+          const retryDelay = noJsRetry === 1
+            ? 3000 + Math.random() * 2000
+            : 5000 + Math.random() * 3000
           console.log(`⏰ 等待${Math.round(retryDelay)}ms后使用新代理IP重试...`)
           await new Promise(resolve => setTimeout(resolve, retryDelay))
 
@@ -90,17 +94,22 @@ export async function scrapeAmazonProduct(
             targetCountry,
           })
 
-          // 🔥 Bug修复: 重试后同样使用正则精确匹配<html>标签中的class
+          // 检查重试结果
           const retryHtmlTagMatch = result.html?.match(/<html[^>]*class="([^"]*)"/)
           const retryHtmlClasses = retryHtmlTagMatch ? retryHtmlTagMatch[1] : ''
           const retryHasNoJs = retryHtmlClasses.includes('a-no-js') && !retryHtmlClasses.includes('a-js')
 
-          // 如果重试后仍然有a-no-js，记录但继续执行
-          if (result.html && retryHasNoJs) {
-            console.error(`🚨 重试后<html>标签仍有a-no-js类，Amazon反爬虫可能升级，继续尝试解析...`)
-            console.error(`🔍 重试后<html>标签classes: ${retryHtmlClasses.substring(0, 100)}...`)
+          if (!retryHasNoJs) {
+            console.log(`✅ a-no-js重试${noJsRetry}成功，<html>标签已正确包含a-js类`)
+            break  // 成功，退出重试循环
+          } else if (noJsRetry < maxNoJsRetries) {
+            console.warn(`⚠️ a-no-js重试${noJsRetry}失败，继续重试...`)
+            console.warn(`🔍 重试${noJsRetry}后classes: ${retryHtmlClasses.substring(0, 100)}...`)
           } else {
-            console.log(`✅ 重试成功，<html>标签已正确包含a-js类`)
+            // 最后一次重试也失败
+            console.error(`🚨 a-no-js重试${maxNoJsRetries}次后仍失败，Amazon反爬虫可能升级`)
+            console.error(`🔍 最终classes: ${retryHtmlClasses.substring(0, 100)}...`)
+            console.error(`💡 建议: 检查代理IP质量，或稍后重试`)
           }
         }
       }
