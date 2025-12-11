@@ -77,6 +77,8 @@ const passwordChangeAllowedPaths = [
 const MALICIOUS_PATTERNS = [
   // PHP文件（本项目是Next.js，不存在PHP）
   /\.php($|\?|\/)/i,
+  // ASP/ASPX文件（Windows服务器）
+  /\.(asp|aspx)($|\?|\/)/i,
   // WordPress相关路径（包括目录）
   /^\/wp-/i,
   /^\/wordpress/i,
@@ -86,7 +88,7 @@ const MALICIOUS_PATTERNS = [
   /^\/\.well-known\/pki-validation/i,        // PKI验证路径探测
   /^\/\.well-knownold/i,                     // 旧版本探测
   // 常见漏洞路径
-  /^\/vendor\//i,                            // Composer vendor目录
+  /^\/vendor\/?/i,                           // Composer vendor目录
   /^\/cgi-bin/i,
   /^\/\.git/i,
   /^\/\.env/i,
@@ -99,6 +101,7 @@ const MALICIOUS_PATTERNS = [
   /^\/mysql/i,
   /^\/adminer/i,
   /^\/xmlrpc/i,
+  /^\/xmrlpc/i,                              // xmlrpc变种拼写
   // 常见后门/Web Shell路径
   /^\/shell/i,
   /^\/c99/i,
@@ -109,10 +112,10 @@ const MALICIOUS_PATTERNS = [
   /^\/ALFA/i,
   /^\/b374k/i,                               // b374k Shell
   /^\/wso/i,                                 // WSO Shell
-  // 上传目录探测
+  // 上传目录探测（根级别目录）
   /^\/uploads?\/?$/i,                        // /upload 或 /uploads
-  /^\/upload\/\w+\.php/i,
-  /^\/uploads\/\w+\.php/i,
+  /^\/upload\//i,                            // /upload/*
+  /^\/uploads\//i,                           // /uploads/*
   /^\/files?\/?$/i,                          // /file 或 /files
   /^\/temp\/?$/i,
   /^\/tmp\/?$/i,
@@ -121,21 +124,21 @@ const MALICIOUS_PATTERNS = [
   /^\/bak/i,                                 // /bak*
   /^\/old/i,                                 // /old*
   /^\/copy/i,                                // /copy*
-  /^\/restore/i,                             // /restore/* - 🔥 新增
-  /^\/back/i,                                // /back/* - 🔥 新增
+  /^\/restore/i,                             // /restore/*
+  /^\/back/i,                                // /back/*
   /\.(bak|backup|old|orig)$/i,               // 备份文件后缀
   // 常见备份文件名模式
-  /^\/[^\/]*backup[^\/]*\.(zip|tar|gz|tgz|rar|7z|sql)$/i,  // 🔥 新增：根目录备份文件
-  /^\/full_backup/i,                         // 🔥 新增：/full_backup.*
-  /^\/site_backup/i,                         // 🔥 新增：/site_backup.*
-  /^\/db_backup/i,                           // 🔥 新增：/db_backup.*
-  /^\/sql_backup/i,                          // 🔥 新增：/sql_backup.*
+  /^\/[^\/]*backup[^\/]*\.(zip|tar|gz|tgz|rar|7z|sql)$/i,
+  /^\/full_backup/i,
+  /^\/site_backup/i,
+  /^\/db_backup/i,
+  /^\/sql_backup/i,
   // 数据库备份文件
-  /\.(sql|sql\.zip|sql\.gz|sql\.tar\.gz|dump)$/i,  // 🔥 新增：数据库文件
+  /\.(sql|sql\.zip|sql\.gz|sql\.tar\.gz|dump)$/i,
   // 常见网站目录打包文件
-  /^\/[^\/]*(www|public_html|html|web|site)\.(zip|tar|gz|rar)$/i,  // 🔥 新增
+  /^\/[^\/]*(www|public_html|html|web|site)\.(zip|tar|gz|rar)$/i,
   // SFTP配置文件
-  /sftp-config\.json$/i,                     // 🔥 新增：SFTP配置文件
+  /sftp-config\.json$/i,
   // 配置文件探测
   /^\/config\.(php|inc|ini|conf|yml|yaml|json|xml)$/i,
   /^\/configuration\./i,
@@ -156,12 +159,65 @@ const MALICIOUS_PATTERNS = [
   /^\/manager\/?$/i,
   /^\/administrator\/?$/i,
   /^\/admin\/?$/i,                           // 注意：不影响 /admin/queue 等合法路径
+
+  // === 以下是根据真实攻击日志新增的模式 ===
+
+  // CMS相关目录探测（Joomla, Drupal等）
+  /^\/components\/?$/i,                      // Joomla组件目录
+  /^\/modules\/?$/i,                         // Drupal/Joomla模块目录
+  /^\/modules\/mod_/i,                       // Joomla模块文件上传漏洞
+  /^\/sites\/default\/files/i,              // Drupal默认文件目录
+  /^\/images\/stories/i,                     // Joomla媒体目录
+  /^\/plugins\/?$/i,                         // 插件目录探测
+
+  // 编辑器漏洞探测
+  /\/fckeditor\//i,                          // FCKEditor漏洞
+  /\/ckeditor\//i,                           // CKEditor漏洞
+  /\/kindeditor\//i,                         // KindEditor漏洞
+  /\/ueditor\//i,                            // UEditor漏洞
+
+  // 常见目录探测（根级别）
+  /^\/images\/?$/i,                          // /images 目录探测
+  /^\/assets\/?$/i,                          // /assets 目录探测
+  /^\/css\/?$/i,                             // /css 目录探测
+  /^\/js\/?$/i,                              // /js 目录探测
+  /^\/fonts\/?$/i,                           // /fonts 目录探测
+  /^\/include\/?$/i,                         // /include 目录探测
+  /^\/includes\/?$/i,                        // /includes 目录探测
+  /^\/template\/?$/i,                        // /template 目录探测
+  /^\/templates\/?$/i,                       // /templates 目录探测
+  /^\/public\/?$/i,                          // /public 目录探测（区分大小写）
+  /^\/Public\/?$/i,                          // /Public 目录探测
+  /^\/local\/?$/i,                           // /local 目录探测
+  /^\/system\/?$/i,                          // /system 目录探测
+  /^\/shop\/?$/i,                            // /shop 目录探测
+  /^\/site\/?$/i,                            // /site 目录探测
+  /^\/Site\/?$/i,                            // /Site 目录探测
+  /^\/php\/?$/i,                             // /php 目录探测
+  /^\/Assets\/?$/i,                          // /Assets 目录探测
+
+  // OpenCart/电商平台漏洞
+  /\/controller\/extension/i,               // OpenCart扩展目录
+
+  // 常见漏洞文件名（不带扩展名已在.php规则中处理）
+  /^\/autoload_classmap/i,                   // PHP自动加载配置
+  /^\/function\//i,                          // 函数目录
+  /^\/index\//i,                             // index目录探测
+  /^\/mah\//i,                               // 常见后门路径
 ]
 
 // 🛡️ 合法路径白名单（优先于恶意模式检查）
 const LEGITIMATE_PATHS = [
-  /^\/admin\//,                              // /admin/queue, /admin/users 等
+  /^\/admin\//,                              // /admin/queue, /admin/users 等合法管理页面
   /^\/api\//,                                // API路由
+  /^\/settings/,                             // 设置页面
+  /^\/dashboard/,                            // 仪表盘
+  /^\/offers/,                               // Offer管理
+  /^\/campaigns/,                            // 广告系列
+  /^\/creatives/,                            // 创意管理
+  /^\/analytics/,                            // 数据分析
+  /^\/optimization/,                         // 优化迭代
+  /^\/change-password/,                      // 修改密码
 ]
 
 export async function middleware(request: NextRequest) {
