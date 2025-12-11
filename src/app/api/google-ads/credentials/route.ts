@@ -107,6 +107,24 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    // 🔧 修复(2025-12-11): 检查是否可以使用共享管理员配置
+    // 业务逻辑：
+    // 1. 如果用户有自己的 refresh_token，使用用户自己的配置
+    // 2. 如果用户没有 refresh_token，但有 login_customer_id，检查管理员（user_id=1）是否有配置
+    // 3. 如果管理员有完整配置，则用户可以使用共享配置
+    let hasRefreshToken = !!credentials.refresh_token
+
+    if (!hasRefreshToken && credentials.login_customer_id) {
+      // 用户没有自己的 refresh_token，但配置了 login_customer_id
+      // 检查管理员（user_id=1, autoads）是否有配置
+      const adminCredentials = await getGoogleAdsCredentials(1) // 1 = autoads管理员
+      if (adminCredentials && adminCredentials.refresh_token) {
+        // 管理员有 refresh_token，用户可以使用共享配置
+        hasRefreshToken = true
+        console.log(`✅ 用户 ${authResult.user.userId} 将使用共享管理员配置`)
+      }
+    }
+
     // 返回凭证状态（不返回完整的敏感信息）
     return NextResponse.json({
       success: true,
@@ -115,7 +133,7 @@ export async function GET(request: NextRequest) {
         client_id: credentials.client_id,
         developer_token: credentials.developer_token,
         login_customer_id: credentials.login_customer_id,
-        has_refresh_token: !!credentials.refresh_token,
+        has_refresh_token: hasRefreshToken, // 🔧 修复：考虑共享管理员配置
         last_verified_at: credentials.last_verified_at,
         is_active: credentials.is_active === 1,
         created_at: credentials.created_at,

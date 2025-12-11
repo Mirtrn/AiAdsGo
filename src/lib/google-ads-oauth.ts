@@ -148,6 +148,22 @@ export async function refreshAccessToken(userId: number): Promise<{
     throw new Error('缺少 Client ID 或 Client Secret（未配置用户凭证且平台共享配置不可用）')
   }
 
+  // 🔧 修复(2025-12-11): 获取 refresh_token（用户配置优先，否则使用管理员共享配置）
+  let refreshToken = credentials.refresh_token
+  if (!refreshToken && credentials.login_customer_id) {
+    // 用户没有自己的 refresh_token，但配置了 login_customer_id
+    // 尝试使用管理员（user_id=1）的 refresh_token
+    const adminCredentials = await getGoogleAdsCredentials(1) // 1 = autoads管理员
+    if (adminCredentials && adminCredentials.refresh_token) {
+      refreshToken = adminCredentials.refresh_token
+      console.log(`🔄 用户 ${userId} 使用共享管理员的 refresh_token`)
+    }
+  }
+
+  if (!refreshToken) {
+    throw new Error('缺少 Refresh Token（未配置用户凭证且管理员共享配置不可用）')
+  }
+
   const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: {
@@ -156,7 +172,7 @@ export async function refreshAccessToken(userId: number): Promise<{
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
-      refresh_token: credentials.refresh_token,
+      refresh_token: refreshToken, // 🔧 修复：可能是用户的或管理员的 refresh_token
       grant_type: 'refresh_token',
     }),
   })
