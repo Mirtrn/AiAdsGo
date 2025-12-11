@@ -222,7 +222,7 @@ export async function GET(request: NextRequest) {
         // Final URL字段
         finalUrl: offer.final_url,
         finalUrlSuffix: offer.final_url_suffix,
-        scrape_status: offer.scrape_status,
+        scrapeStatus: offer.scrape_status,
         scrapeError: offer.scrape_error,
         scrapedAt: offer.scraped_at,
         isActive: offer.is_active === 1,

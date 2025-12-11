@@ -49,7 +49,7 @@ export async function POST(
       message: '广告创意已选择',
       data: {
         id: creativeId,
-        offer_id: creative.offer_id
+        offerId: creative.offer_id
       }
     })
 

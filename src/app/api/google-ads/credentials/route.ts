@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       message: 'Google Ads凭证已保存',
       data: {
         id: credentials.id,
-        has_credentials: true
+        hasCredentials: true
       }
     })
 
@@ -115,13 +115,13 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({
             success: true,
             data: {
-              has_credentials: true,
-              client_id: '', // 用户没有自己的配置
-              developer_token: '',
-              login_customer_id: userLoginCustomerId.value,
-              has_refresh_token: true, // 可以使用管理员的 refresh_token
-              is_active: true,
-              using_shared_config: true // 标记使用共享配置
+              hasCredentials: true,
+              clientId: '', // 用户没有自己的配置
+              developerToken: '',
+              loginCustomerId: userLoginCustomerId.value,
+              hasRefreshToken: true, // 可以使用管理员的 refresh_token
+              isActive: true,
+              usingSharedConfig: true // 标记使用共享配置
             }
           })
         }
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: {
-          has_credentials: false
+          hasCredentials: false
         }
       })
     }
@@ -158,15 +158,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        has_credentials: true,
-        client_id: credentials.client_id,
-        developer_token: credentials.developer_token,
-        login_customer_id: credentials.login_customer_id,
-        has_refresh_token: hasRefreshToken, // 🔧 修复：考虑共享管理员配置
-        last_verified_at: credentials.last_verified_at,
-        is_active: credentials.is_active === 1,
-        created_at: credentials.created_at,
-        updated_at: credentials.updated_at
+        hasCredentials: true,
+        clientId: credentials.client_id,
+        developerToken: credentials.developer_token,
+        loginCustomerId: credentials.login_customer_id,
+        hasRefreshToken: hasRefreshToken, // 🔧 修复：考虑共享管理员配置
+        lastVerifiedAt: credentials.last_verified_at,
+        isActive: credentials.is_active === 1,
+        createdAt: credentials.created_at,
+        updatedAt: credentials.updated_at
       }
     })
 

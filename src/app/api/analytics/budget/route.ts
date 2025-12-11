@@ -94,10 +94,10 @@ export async function GET(request: NextRequest) {
       const isNearBudget = utilizationRate >= 80 && utilizationRate < 100
 
       return {
-        campaign_id: row.id,
-        campaign_name: row.campaign_name,
-        offer_brand: row.offer_brand,
-        budget_type: row.budget_type,
+        campaignId: row.id,
+        campaignName: row.campaign_name,
+        offerBrand: row.offer_brand,
+        budgetType: row.budget_type,
         budget: parseFloat(budget.toFixed(2)),
         spent: parseFloat(spent.toFixed(2)),
         remaining: parseFloat(remaining.toFixed(2)),
@@ -159,9 +159,9 @@ export async function GET(request: NextRequest) {
       const utilizationRate = allocatedBudget > 0 ? (spent / allocatedBudget) * 100 : 0
 
       return {
-        offer_id: row.id,
+        offerId: row.id,
         brand: row.brand,
-        product_name: row.product_name,
+        productName: row.product_name,
         allocatedBudget: parseFloat(allocatedBudget.toFixed(2)),
         spent: parseFloat(spent.toFixed(2)),
         utilizationRate: parseFloat(utilizationRate.toFixed(2)),
@@ -181,8 +181,8 @@ export async function GET(request: NextRequest) {
         severity: 'critical',
         message: `${overBudgetCampaigns.length} 个Campaign超出预算`,
         campaigns: overBudgetCampaigns.map((c) => ({
-          id: c.campaign_id,
-          name: c.campaign_name,
+          id: c.campaignId,
+          name: c.campaignName,
           overBy: parseFloat((c.spent - c.budget).toFixed(2)),
         })),
       })
@@ -196,8 +196,8 @@ export async function GET(request: NextRequest) {
         severity: 'warning',
         message: `${nearBudgetCampaigns.length} 个Campaign接近预算限制`,
         campaigns: nearBudgetCampaigns.map((c) => ({
-          id: c.campaign_id,
-          name: c.campaign_name,
+          id: c.campaignId,
+          name: c.campaignName,
           remaining: c.remaining,
           daysRemaining: c.daysRemaining,
         })),
@@ -214,8 +214,8 @@ export async function GET(request: NextRequest) {
         severity: 'info',
         message: `${underutilizedCampaigns.length} 个Campaign预算利用率过低`,
         campaigns: underutilizedCampaigns.map((c) => ({
-          id: c.campaign_id,
-          name: c.campaign_name,
+          id: c.campaignId,
+          name: c.campaignName,
           utilizationRate: c.utilizationRate,
         })),
       })
@@ -232,7 +232,7 @@ export async function GET(request: NextRequest) {
       recommendations.push({
         type: 'increase_budget',
         message: '建议增加高转化Campaign的预算',
-        campaigns: highRoiCampaigns.map((c) => c.campaign_name),
+        campaigns: highRoiCampaigns.map((c) => c.campaignName),
       })
     }
 
@@ -244,7 +244,7 @@ export async function GET(request: NextRequest) {
       recommendations.push({
         type: 'pause_campaign',
         message: '建议暂停或优化零转化Campaign',
-        campaigns: lowPerformanceCampaigns.map((c) => c.campaign_name),
+        campaigns: lowPerformanceCampaigns.map((c) => c.campaignName),
       })
     }
 

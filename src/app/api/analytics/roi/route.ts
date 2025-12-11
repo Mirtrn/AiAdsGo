@@ -125,9 +125,9 @@ export async function GET(request: NextRequest) {
       const conversionRate = row.clicks > 0 ? (row.conversions / row.clicks) * 100 : 0
 
       return {
-        campaign_id: row.id,
-        campaign_name: row.campaign_name,
-        offer_brand: row.offer_brand,
+        campaignId: row.id,
+        campaignName: row.campaign_name,
+        offerBrand: row.offer_brand,
         cost: parseFloat(cost.toFixed(2)),
         revenue: parseFloat(revenue.toFixed(2)),
         profit: parseFloat(profit.toFixed(2)),
@@ -168,11 +168,11 @@ export async function GET(request: NextRequest) {
       const roi = cost > 0 ? ((revenue - cost) / cost) * 100 : 0
 
       return {
-        offer_id: row.id,
+        offerId: row.id,
         brand: row.brand,
-        offer_name: row.offer_name,
-        commission_amount: row.commission_amount,
-        campaign_count: row.campaign_count,
+        offerName: row.offer_name,
+        commissionAmount: row.commission_amount,
+        campaignCount: row.campaign_count,
         cost: parseFloat(cost.toFixed(2)),
         revenue: parseFloat(revenue.toFixed(2)),
         profit: parseFloat(profit.toFixed(2)),

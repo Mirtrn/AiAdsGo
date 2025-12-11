@@ -7,19 +7,19 @@ import { getDatabase } from '@/lib/db'
  */
 export interface SyncConfig {
   id: number
-  user_id: number
-  auto_sync_enabled: boolean
-  sync_interval_hours: number
-  max_retry_attempts: number
-  retry_delay_minutes: number
-  notify_on_success: boolean
-  notify_on_failure: boolean
-  notification_email: string | null
-  last_auto_sync_at: string | null
-  next_scheduled_sync_at: string | null
-  consecutive_failures: number
-  created_at: string
-  updated_at: string
+  userId: number
+  autoSyncEnabled: boolean
+  syncIntervalHours: number
+  maxRetryAttempts: number
+  retryDelayMinutes: number
+  notifyOnSuccess: boolean
+  notifyOnFailure: boolean
+  notificationEmail: string | null
+  lastAutoSyncAt: string | null
+  nextScheduledSyncAt: string | null
+  consecutiveFailures: number
+  createdAt: string
+  updatedAt: string
 }
 
 /**
@@ -40,7 +40,22 @@ export async function GET(request: NextRequest) {
 
     // 2. Get sync config (create default if not exists)
     let config = await db.queryOne(
-      'SELECT * FROM sync_config WHERE user_id = ?',
+      `SELECT
+        id,
+        user_id as userId,
+        auto_sync_enabled as autoSyncEnabled,
+        sync_interval_hours as syncIntervalHours,
+        max_retry_attempts as maxRetryAttempts,
+        retry_delay_minutes as retryDelayMinutes,
+        notify_on_success as notifyOnSuccess,
+        notify_on_failure as notifyOnFailure,
+        notification_email as notificationEmail,
+        last_auto_sync_at as lastAutoSyncAt,
+        next_scheduled_sync_at as nextScheduledSyncAt,
+        consecutive_failures as consecutiveFailures,
+        created_at as createdAt,
+        updated_at as updatedAt
+      FROM sync_config WHERE user_id = ?`,
       [userId]
     ) as SyncConfig | undefined
 
@@ -58,7 +73,22 @@ export async function GET(request: NextRequest) {
       )
 
       config = await db.queryOne(
-        'SELECT * FROM sync_config WHERE id = ?',
+        `SELECT
+          id,
+          user_id as userId,
+          auto_sync_enabled as autoSyncEnabled,
+          sync_interval_hours as syncIntervalHours,
+          max_retry_attempts as maxRetryAttempts,
+          retry_delay_minutes as retryDelayMinutes,
+          notify_on_success as notifyOnSuccess,
+          notify_on_failure as notifyOnFailure,
+          notification_email as notificationEmail,
+          last_auto_sync_at as lastAutoSyncAt,
+          next_scheduled_sync_at as nextScheduledSyncAt,
+          consecutive_failures as consecutiveFailures,
+          created_at as createdAt,
+          updated_at as updatedAt
+        FROM sync_config WHERE id = ?`,
         [result.lastInsertRowid]
       ) as SyncConfig
     }
@@ -66,9 +96,9 @@ export async function GET(request: NextRequest) {
     // 3. Convert integer booleans to actual booleans
     const formattedConfig = {
       ...config,
-      auto_sync_enabled: Boolean(config.auto_sync_enabled),
-      notify_on_success: Boolean(config.notify_on_success),
-      notify_on_failure: Boolean(config.notify_on_failure),
+      autoSyncEnabled: Boolean(config.autoSyncEnabled),
+      notifyOnSuccess: Boolean(config.notifyOnSuccess),
+      notifyOnFailure: Boolean(config.notifyOnFailure),
     }
 
     return NextResponse.json({
@@ -236,15 +266,30 @@ export async function PUT(request: NextRequest) {
 
     // 5. Get updated config
     const updatedConfig = await db.queryOne(
-      'SELECT * FROM sync_config WHERE user_id = ?',
+      `SELECT
+        id,
+        user_id as userId,
+        auto_sync_enabled as autoSyncEnabled,
+        sync_interval_hours as syncIntervalHours,
+        max_retry_attempts as maxRetryAttempts,
+        retry_delay_minutes as retryDelayMinutes,
+        notify_on_success as notifyOnSuccess,
+        notify_on_failure as notifyOnFailure,
+        notification_email as notificationEmail,
+        last_auto_sync_at as lastAutoSyncAt,
+        next_scheduled_sync_at as nextScheduledSyncAt,
+        consecutive_failures as consecutiveFailures,
+        created_at as createdAt,
+        updated_at as updatedAt
+      FROM sync_config WHERE user_id = ?`,
       [userId]
     ) as SyncConfig
 
     const formattedConfig = {
       ...updatedConfig,
-      auto_sync_enabled: Boolean(updatedConfig.auto_sync_enabled),
-      notify_on_success: Boolean(updatedConfig.notify_on_success),
-      notify_on_failure: Boolean(updatedConfig.notify_on_failure),
+      autoSyncEnabled: Boolean(updatedConfig.autoSyncEnabled),
+      notifyOnSuccess: Boolean(updatedConfig.notifyOnSuccess),
+      notifyOnFailure: Boolean(updatedConfig.notifyOnFailure),
     }
 
     return NextResponse.json({

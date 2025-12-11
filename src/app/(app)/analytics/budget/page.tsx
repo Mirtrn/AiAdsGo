@@ -36,10 +36,10 @@ interface BudgetData {
     activeCampaigns: number
   }
   byCampaign: Array<{
-    campaign_id: number
-    campaign_name: string
-    offer_brand: string
-    budget_type: string
+    campaignId: number
+    campaignName: string
+    offerBrand: string
+    budgetType: string
     budget: number
     spent: number
     remaining: number
@@ -57,9 +57,9 @@ interface BudgetData {
     cumulativeSpent: number
   }>
   byOffer: Array<{
-    offer_id: number
+    offerId: number
     brand: string
-    product_name: string
+    productName: string
     allocatedBudget: number
     spent: number
     utilizationRate: number
@@ -127,7 +127,7 @@ export default function BudgetAnalyticsPage() {
     csvRows.push('Campaign名称,品牌,预算,已花费,剩余,使用率,状态')
     data.byCampaign.forEach((row: BudgetData['byCampaign'][0]) => {
       csvRows.push(
-        `${row.campaign_name},${row.offer_brand},${row.budget},${row.spent},${row.remaining},${row.utilizationRate}%,${row.status}`
+        `${row.campaignName},${row.offerBrand},${row.budget},${row.spent},${row.remaining},${row.utilizationRate}%,${row.status}`
       )
     })
     csvRows.push('')
@@ -137,7 +137,7 @@ export default function BudgetAnalyticsPage() {
     csvRows.push('品牌,产品名称,分配预算,已花费,使用率,Campaign数量')
     data.byOffer.forEach((row: BudgetData['byOffer'][0]) => {
       csvRows.push(
-        `${row.brand},${row.product_name},${row.allocatedBudget},${row.spent},${row.utilizationRate}%,${row.campaignCount}`
+        `${row.brand},${row.productName},${row.allocatedBudget},${row.spent},${row.utilizationRate}%,${row.campaignCount}`
       )
     })
 
@@ -431,9 +431,9 @@ export default function BudgetAnalyticsPage() {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {data.byCampaign.map((campaign: BudgetData['byCampaign'][0]) => (
-                      <tr key={campaign.campaign_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-900">{campaign.campaign_name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{campaign.offer_brand}</td>
+                      <tr key={campaign.campaignId} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-900">{campaign.campaignName}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{campaign.offerBrand}</td>
                         <td className="px-4 py-3 text-sm text-right text-gray-900">
                           ¥{campaign.budget.toFixed(2)}
                         </td>

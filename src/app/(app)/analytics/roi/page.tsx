@@ -28,9 +28,9 @@ interface ROIData {
     conversions: number
   }>
   byCampaign: Array<{
-    campaign_id: number
-    campaign_name: string
-    offer_brand: string
+    campaignId: number
+    campaignName: string
+    offerBrand: string
     cost: number
     revenue: number
     profit: number
@@ -40,11 +40,11 @@ interface ROIData {
     conversionRate: number
   }>
   byOffer: Array<{
-    offer_id: number
+    offerId: number
     brand: string
-    product_name: string
-    commission_amount: number
-    campaign_count: number
+    offerName: string
+    commissionAmount: number
+    campaignCount: number
     cost: number
     revenue: number
     profit: number
@@ -106,7 +106,7 @@ export default function ROIAnalyticsPage() {
     csvRows.push('Campaign ROI排名')
     csvRows.push('Campaign名称,品牌,成本,收入,利润,ROI,转化次数')
     data.byCampaign.forEach((row: ROIData['byCampaign'][0]) => {
-      csvRows.push(`${row.campaign_name},${row.offer_brand},${row.cost},${row.revenue},${row.profit},${row.roi},${row.conversions}`)
+      csvRows.push(`${row.campaignName},${row.offerBrand},${row.cost},${row.revenue},${row.profit},${row.roi},${row.conversions}`)
     })
     csvRows.push('')
 
@@ -114,7 +114,7 @@ export default function ROIAnalyticsPage() {
     csvRows.push('Offer ROI分析')
     csvRows.push('品牌,产品名称,成本,收入,利润,ROI,转化次数')
     data.byOffer.forEach((row: ROIData['byOffer'][0]) => {
-      csvRows.push(`${row.brand},${row.product_name},${row.cost},${row.revenue},${row.profit},${row.roi},${row.conversions}`)
+      csvRows.push(`${row.brand},${row.offerName},${row.cost},${row.revenue},${row.profit},${row.roi},${row.conversions}`)
     })
 
     // Create and download file
@@ -364,9 +364,9 @@ export default function ROIAnalyticsPage() {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {data.byCampaign.map((campaign: ROIData['byCampaign'][0]) => (
-                      <tr key={campaign.campaign_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-900">{campaign.campaign_name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{campaign.offer_brand}</td>
+                      <tr key={campaign.campaignId} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-900">{campaign.campaignName}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{campaign.offerBrand}</td>
                         <td className="px-4 py-3 text-sm text-right text-gray-900">
                           ¥{(Number(campaign.cost) || 0).toFixed(2)}
                         </td>

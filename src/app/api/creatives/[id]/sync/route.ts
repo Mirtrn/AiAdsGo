@@ -161,8 +161,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         success: true,
         creative: {
           ...creative,
-          ad_id: adResult.adId,
-          creation_status: 'synced',
+          adId: adResult.adId,
+          creationStatus: 'synced',
         },
         adResourceName: adResult.resourceName,
       })

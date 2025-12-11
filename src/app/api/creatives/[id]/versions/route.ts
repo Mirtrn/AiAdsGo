@@ -41,36 +41,36 @@ export async function GET(
     // 获取所有版本（按版本号降序）
     const versions = await db.query<{
       id: number
-      creative_id: number
-      version_number: number
+      creativeId: number
+      versionNumber: number
       headlines: string
       descriptions: string
-      final_url: string
-      path_1: string | null
-      path_2: string | null
-      quality_score: number | null
-      quality_details: string | null
-      created_by: string
-      creation_method: string
-      change_summary: string | null
-      created_at: string
+      finalUrl: string
+      path1: string | null
+      path2: string | null
+      qualityScore: number | null
+      qualityDetails: string | null
+      createdBy: string
+      creationMethod: string
+      changeSummary: string | null
+      createdAt: string
     }>(
       `
       SELECT
         id,
-        creative_id,
-        version_number,
+        creative_id as creativeId,
+        version_number as versionNumber,
         headlines,
         descriptions,
-        final_url,
-        path_1,
-        path_2,
-        quality_score,
-        quality_details,
-        created_by,
-        creation_method,
-        change_summary,
-        created_at
+        final_url as finalUrl,
+        path_1 as path1,
+        path_2 as path2,
+        quality_score as qualityScore,
+        quality_details as qualityDetails,
+        created_by as createdBy,
+        creation_method as creationMethod,
+        change_summary as changeSummary,
+        created_at as createdAt
       FROM creative_versions
       WHERE creative_id = ?
       ORDER BY version_number DESC
@@ -83,7 +83,7 @@ export async function GET(
       ...v,
       headlines: JSON.parse(v.headlines),
       descriptions: JSON.parse(v.descriptions),
-      quality_details: v.quality_details ? JSON.parse(v.quality_details) : null,
+      qualityDetails: v.qualityDetails ? JSON.parse(v.qualityDetails) : null,
     }))
 
     return NextResponse.json({
@@ -251,7 +251,22 @@ export async function POST(
 
     // 获取新创建的版本
     const newVersion = await db.queryOne<any>(
-      'SELECT * FROM creative_versions WHERE id = ?',
+      `SELECT
+        id,
+        creative_id as creativeId,
+        version_number as versionNumber,
+        headlines,
+        descriptions,
+        final_url as finalUrl,
+        path_1 as path1,
+        path_2 as path2,
+        quality_score as qualityScore,
+        quality_details as qualityDetails,
+        created_by as createdBy,
+        creation_method as creationMethod,
+        change_summary as changeSummary,
+        created_at as createdAt
+      FROM creative_versions WHERE id = ?`,
       [result.lastInsertRowid]
     )
 
@@ -262,8 +277,8 @@ export async function POST(
           ...newVersion,
           headlines: JSON.parse(newVersion.headlines),
           descriptions: JSON.parse(newVersion.descriptions),
-          quality_details: newVersion.quality_details
-            ? JSON.parse(newVersion.quality_details)
+          qualityDetails: newVersion.qualityDetails
+            ? JSON.parse(newVersion.qualityDetails)
             : null,
         },
       },
