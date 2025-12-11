@@ -445,40 +445,32 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   if (skipCompetitorExtraction) {
     console.log(`⏭️ 跳过竞品ASIN提取（skipCompetitorExtraction=true）`)
   } else {
-    // Amazon推荐区域选择器（2024-2025版本）
-    // 🔥 2025-12-11优化：增加"Customers who viewed"和"Similar brands"精确选择器
+    // 🔥 2025-12-12修复：精确定位"Products related to this item"和"4 stars and above"区域
+    // 问题：之前的选择器过于宽泛，抓取了不相关的推荐商品
+    // 解决：优先使用最相关的竞品区域选择器
     const relatedAsinSelectors = [
-      // 🆕 "Customers who viewed this item also viewed" - 最重要的竞品来源
-      '#sims-simsContainer_feature_div_01 a[href*="/dp/"]',
-      '#sims-simsContainer_feature_div_01 .a-carousel-card a[href*="/dp/"]',
-      // 🆕 "Similar brands on Amazon" - 重要的品牌竞品来源
-      '#sims-discoveryAndInspiration_feature_div_01 a[href*="/dp/"]',
-      '#sims-discoveryAndInspiration_feature_div_01 [data-asin] a[href*="/dp/"]',
-      // 🆕 "Related Climate Pledge Friendly items"
-      '#sims-simsContainer_feature_div_11 a[href*="/dp/"]',
-      // Frequently bought together
-      '#sims-fbt a[href*="/dp/"]',
-      '#sims-fbt-content a[href*="/dp/"]',
-      '[data-csa-c-slot-id="sims-fbt"] a[href*="/dp/"]',
-      '#sims-productBundle_feature_div_01 a[href*="/dp/"]',
-      // Customers also viewed/bought (通配符选择器)
-      '[data-csa-c-slot-id="sims_purchase"] a[href*="/dp/"]',
-      '[data-csa-c-slot-id="sims_viewed"] a[href*="/dp/"]',
-      '[data-csa-c-slot-id="sims_considered"] a[href*="/dp/"]',
-      // Compare with similar items
+      // 🎯 优先级1: "Products related to this item" - 最相关的竞品区域
       '#similarities_feature_div a[href*="/dp/"]',
-      '#sims-comparisonContainer_feature_div_01 a[href*="/dp/"]',
       '[data-feature-name="similarities"] a[href*="/dp/"]',
-      // Sponsored products (通常是相关竞品)
-      '#sp_detail a[href*="/dp/"]',
-      '#sp_detail2 a[href*="/dp/"]',
-      '#sims-sponsoredProducts2_feature_div_01 a[href*="/dp/"]',
-      // Carousel containers - 缺货商品页面的主要来源
-      '.a-carousel-card a[href*="/dp/"]',
-      '[data-a-carousel-options] a[href*="/dp/"]',
-      // Products related to this item（意大利站常见）
+      '#sims-comparisonContainer_feature_div_01 a[href*="/dp/"]',
+
+      // 🎯 优先级2: "4 stars and above" / "Highly rated" - 高评分相关商品
       '[data-component-type="s-search-result"] a[href*="/dp/"]',
       '.s-result-item a[href*="/dp/"]',
+      '#search a[href*="/dp/"]',
+
+      // 🎯 优先级3: "Customers who viewed this item also viewed" - 用户行为相关
+      '#sims-simsContainer_feature_div_01 a[href*="/dp/"]',
+      '#sims-simsContainer_feature_div_01 .a-carousel-card a[href*="/dp/"]',
+      '[data-csa-c-slot-id="sims_viewed"] a[href*="/dp/"]',
+
+      // 🎯 优先级4: "Compare with similar items" - 对比表格
+      '#HLCXComparisonTable a[href*="/dp/"]',
+      '[data-feature-name="comparison"] a[href*="/dp/"]',
+
+      // ⚠️ 降低优先级: Frequently bought together（可能是配件，不是竞品）
+      '#sims-fbt a[href*="/dp/"]',
+      '#sims-fbt-content a[href*="/dp/"]',
     ]
 
     console.log(`🔍 开始竞品候选ASIN提取...`)
@@ -497,26 +489,29 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
 
     // 策略2：从data-asin属性提取（Fallback）
-    // 🔥 2025-12-10优化：降低触发阈值从5改为3，更积极使用data-asin
+    // 🔥 2025-12-12修复：优先从相关竞品区域提取data-asin
     if (relatedAsins.length < 3) {
       console.log(`🔄 策略1提取不足（${relatedAsins.length}个），启用data-asin策略...`)
       const recommendationContainers = [
-        // 🆕 2025-12-11优化：优先提取最重要的竞品区域
-        '#sims-simsContainer_feature_div_01',  // "Customers who viewed this item also viewed"
-        '#sims-discoveryAndInspiration_feature_div_01',  // "Similar brands on Amazon"
-        '#sims-simsContainer_feature_div_11',  // "Related Climate Pledge Friendly items"
-        '#sims-productBundle_feature_div_01',  // "Frequently bought together"
-        '#sims-comparisonContainer_feature_div_01',  // "Compare with similar items"
-        // Carousel容器 - 缺货商品页面的主要来源
-        '.a-carousel-card',
-        '.a-carousel-container',
-        '#sims-fbt', '#sims-fbt-content', '[data-csa-c-slot-id*="sims"]',
+        // 🎯 优先级1: "Products related to this item" 和 "Compare with similar items"
         '#similarities_feature_div',
-        // Sponsored products区域的data-asin
-        '#sp_detail', '#sp_detail2',
-        '#sims-sponsoredProducts2_feature_div_01',
-        // Brands in this category区域
-        '[data-component-type="sbv-sponsored"]',
+        '#sims-comparisonContainer_feature_div_01',
+        '#HLCXComparisonTable',
+        '[data-feature-name="similarities"]',
+        '[data-feature-name="comparison"]',
+
+        // 🎯 优先级2: "4 stars and above" / Search results
+        '[data-component-type="s-search-result"]',
+        '.s-result-item',
+        '#search',
+
+        // 🎯 优先级3: "Customers who viewed this item also viewed"
+        '#sims-simsContainer_feature_div_01',
+        '[data-csa-c-slot-id="sims_viewed"]',
+
+        // ⚠️ 降低优先级: Frequently bought together
+        '#sims-fbt',
+        '#sims-fbt-content',
       ]
       for (const containerSelector of recommendationContainers) {
         $(containerSelector).find('[data-asin]').each((_i: number, el: any) => {
