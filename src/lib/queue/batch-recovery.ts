@@ -17,7 +17,7 @@
  * 🔥 修复（2025-12-11）：解决服务重启后upload_records一直显示"处理中"的问题
  */
 
-import { getDatabase } from '@/lib/db'
+import { getDatabase, type DatabaseAdapter } from '@/lib/db'
 
 /**
  * 恢复所有未完成的批量任务状态
@@ -88,7 +88,7 @@ export async function recoverBatchTaskStatus(): Promise<void> {
  *    - 如果还有pending/running的子任务 → 保留原状态（但实际队列已清空，这些任务不会再执行）
  */
 async function recoverSingleBatchTask(
-  db: any,
+  db: DatabaseAdapter,
   batchId: string,
   uploadRecordId: string,
   validCount: number
