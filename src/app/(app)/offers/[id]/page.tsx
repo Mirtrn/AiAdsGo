@@ -96,6 +96,43 @@ interface ROIData {
   avgOrderValue: number
 }
 
+/**
+ * 根据国家代码获取Amazon域名
+ * 🔧 2025-12-11添加：用于前端生成正确的竞品链接
+ */
+function getAmazonDomain(countryCode: string): string {
+  const domainMap: Record<string, string> = {
+    'US': 'amazon.com',
+    'UK': 'amazon.co.uk',
+    'DE': 'amazon.de',
+    'FR': 'amazon.fr',
+    'IT': 'amazon.it',
+    'ES': 'amazon.es',
+    'JP': 'amazon.co.jp',
+    'CA': 'amazon.ca',
+    'AU': 'amazon.com.au',
+    'IN': 'amazon.in',
+    'MX': 'amazon.com.mx',
+    'BR': 'amazon.com.br',
+  }
+  return domainMap[countryCode] || 'amazon.com'
+}
+
+/**
+ * 获取竞品的真实URL
+ * 优先使用存储的productUrl，如果没有则根据国家代码动态生成
+ */
+function getCompetitorUrl(comp: any, targetCountry: string): string {
+  if (comp.productUrl) {
+    return comp.productUrl
+  }
+  if (comp.asin) {
+    const domain = getAmazonDomain(targetCountry)
+    return `https://www.${domain}/dp/${comp.asin}`
+  }
+  return ''
+}
+
 export default function OfferDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -1085,11 +1122,14 @@ export default function OfferDetailPage() {
                                 </tr>
                               </thead>
                               <tbody className="bg-white divide-y divide-gray-200">
-                                {competitorData.competitors.slice(0, 8).map((comp: any, idx: number) => (
+                                {competitorData.competitors.slice(0, 8).map((comp: any, idx: number) => {
+                                  // 🔧 2025-12-11修复：使用getCompetitorUrl获取正确的竞品链接
+                                  const competitorUrl = getCompetitorUrl(comp, offer.targetCountry)
+                                  return (
                                   <tr key={idx}>
                                     <td className="px-3 py-2 text-sm text-gray-900 max-w-[200px]">
-                                      {comp.asin && comp.asin !== 'market-benchmark' ? (
-                                        <a href={`https://www.amazon.com/dp/${comp.asin}`} target="_blank" rel="noopener noreferrer" className="font-medium truncate text-blue-600 hover:text-blue-800 hover:underline block" title={comp.name}>
+                                      {competitorUrl && comp.asin !== 'market-benchmark' ? (
+                                        <a href={competitorUrl} target="_blank" rel="noopener noreferrer" className="font-medium truncate text-blue-600 hover:text-blue-800 hover:underline block" title={comp.name}>
                                           {comp.name}
                                         </a>
                                       ) : (
@@ -1106,7 +1146,7 @@ export default function OfferDetailPage() {
                                        comp.source === 'amazon_similar' ? '相似商品' : comp.source || '-'}
                                     </td>
                                   </tr>
-                                ))}
+                                )})}
                               </tbody>
                             </table>
                           </div>

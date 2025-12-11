@@ -277,11 +277,17 @@ const CACHE_TTL = 24 * 60 * 60 * 1000  // 24小时
 
 /**
  * 从缓存获取竞品详情
+ * 🔧 2025-12-11修复：为旧缓存数据补充productUrl字段
  */
-function getCachedCompetitor(asin: string): CompetitorProduct | null {
+function getCachedCompetitor(asin: string, targetCountry?: string): CompetitorProduct | null {
   const cached = competitorCache.get(asin)
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     console.log(`  📦 缓存命中: ${asin}`)
+    // 🔧 修复：如果缓存数据没有productUrl，根据国家代码生成
+    if (!cached.data.productUrl && targetCountry) {
+      const amazonDomain = getAmazonDomain(targetCountry)
+      cached.data.productUrl = `https://www.amazon.${amazonDomain}/dp/${asin}`
+    }
     return cached.data
   }
   if (cached) {
@@ -352,7 +358,7 @@ async function batchScrapeCompetitorDetails(
   const asinsToScrape: string[] = []
 
   for (const asin of selectedAsins) {
-    const cached = getCachedCompetitor(asin)
+    const cached = getCachedCompetitor(asin, targetCountry)  // 🔧 传入targetCountry以补充productUrl
     if (cached) {
       cachedCompetitors.push(cached)
     } else {
