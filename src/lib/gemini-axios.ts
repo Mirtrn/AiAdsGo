@@ -162,20 +162,38 @@ export async function generateContent(params: {
     console.log('   - HTTP状态:', response.status)
     console.log('   - 响应体:', JSON.stringify(response.data, null, 2))
 
-    // 提取响应文本
-    if (
-      !response.data.candidates ||
-      response.data.candidates.length === 0 ||
-      !response.data.candidates[0].content.parts ||
-      response.data.candidates[0].content.parts.length === 0
-    ) {
-      console.error('❌ Gemini API响应结构异常:')
-      console.error('   - candidates:', response.data.candidates)
+    // 检查响应基本结构
+    if (!response.data.candidates || response.data.candidates.length === 0) {
+      console.error('❌ Gemini API响应结构异常: 没有候选响应')
       console.error('   - 完整响应:', JSON.stringify(response.data, null, 2))
-      throw new Error('Gemini API 返回了空响应')
+      throw new Error('Gemini API 返回了空响应（没有candidates）')
     }
 
-    const text = response.data.candidates[0].content.parts[0].text
+    const candidate = response.data.candidates[0]
+
+    // 🔧 修复(2025-12-11): 检查finishReason，如果是MAX_TOKENS，说明输出被截断
+    if (candidate.finishReason === 'MAX_TOKENS') {
+      console.error('❌ Gemini API输出达到token限制被截断')
+      console.error('   - finishReason:', candidate.finishReason)
+      console.error('   - usageMetadata:', response.data.usageMetadata)
+      throw new Error('Gemini API 输出达到token限制被截断。请增加maxOutputTokens参数。')
+    }
+
+    // 提取响应文本
+    if (
+      !candidate.content ||
+      !candidate.content.parts ||
+      candidate.content.parts.length === 0 ||
+      !candidate.content.parts[0].text
+    ) {
+      console.error('❌ Gemini API响应结构异常: content.parts为空或缺失')
+      console.error('   - candidate:', candidate)
+      console.error('   - finishReason:', candidate.finishReason)
+      console.error('   - 完整响应:', JSON.stringify(response.data, null, 2))
+      throw new Error('Gemini API 返回了空响应（content.parts为空）')
+    }
+
+    const text = candidate.content.parts[0].text
     console.log(`✓ Gemini API 调用成功，返回 ${text.length} 字符`)
 
     // 记录token使用情况
@@ -218,17 +236,36 @@ export async function generateContent(params: {
           }
         )
 
-        if (
-          !fallbackResponse.data.candidates ||
-          fallbackResponse.data.candidates.length === 0 ||
-          !fallbackResponse.data.candidates[0].content.parts ||
-          fallbackResponse.data.candidates[0].content.parts.length === 0
-        ) {
-          console.error('Gemini API (fallback)响应结构:', JSON.stringify(fallbackResponse.data, null, 2))
-          throw new Error('Gemini API (fallback) 返回了空响应')
+        // 检查fallback响应基本结构
+        if (!fallbackResponse.data.candidates || fallbackResponse.data.candidates.length === 0) {
+          console.error('Gemini API (fallback)响应结构异常: 没有候选响应')
+          console.error('   - 完整响应:', JSON.stringify(fallbackResponse.data, null, 2))
+          throw new Error('Gemini API (fallback) 返回了空响应（没有candidates）')
         }
 
-        const text = fallbackResponse.data.candidates[0].content.parts[0].text
+        const fallbackCandidate = fallbackResponse.data.candidates[0]
+
+        // 检查finishReason
+        if (fallbackCandidate.finishReason === 'MAX_TOKENS') {
+          console.error('❌ Gemini API (fallback) 输出达到token限制被截断')
+          console.error('   - finishReason:', fallbackCandidate.finishReason)
+          throw new Error('Gemini API (fallback) 输出达到token限制被截断')
+        }
+
+        // 检查content.parts
+        if (
+          !fallbackCandidate.content ||
+          !fallbackCandidate.content.parts ||
+          fallbackCandidate.content.parts.length === 0 ||
+          !fallbackCandidate.content.parts[0].text
+        ) {
+          console.error('Gemini API (fallback)响应结构异常: content.parts为空')
+          console.error('   - candidate:', fallbackCandidate)
+          console.error('   - 完整响应:', JSON.stringify(fallbackResponse.data, null, 2))
+          throw new Error('Gemini API (fallback) 返回了空响应（content.parts为空）')
+        }
+
+        const text = fallbackCandidate.content.parts[0].text
         console.log(`✓ Gemini API (fallback: gemini-2.5-flash) 调用成功，返回 ${text.length} 字符`)
 
         // 记录token使用情况

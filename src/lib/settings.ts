@@ -560,12 +560,13 @@ export async function validateGeminiConfig(
     const { generateContent } = await import('./gemini-axios')
 
     // 使用选择的模型进行测试（使用用户级AI配置）
-    // 注意：Gemini 2.5 模型有"思考"功能，需要更多tokens
+    // 注意：Gemini 2.5+ 模型有"思考"功能，思考过程可能占用大量tokens
+    // 为了确保有足够的输出空间，设置maxOutputTokens为1000
     await generateContent({
       model: model,
       prompt: 'Say "OK" if you can hear me.',
       temperature: 0.1,
-      maxOutputTokens: 200, // Gemini 2.5 模型的思考过程需要更多tokens
+      maxOutputTokens: 1000, // 🔧 修复(2025-12-11): 增加token限制以容纳思考过程和实际输出
     }, userId)
 
     return {
