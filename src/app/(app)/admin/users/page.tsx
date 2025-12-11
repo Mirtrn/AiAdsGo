@@ -576,6 +576,7 @@ export default function UserManagementPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
+                                    <TableHead className="w-[80px]">用户ID</TableHead>
                                     <TableHead>用户</TableHead>
                                     <TableHead>角色</TableHead>
                                     <TableHead>套餐</TableHead>
@@ -589,13 +590,16 @@ export default function UserManagementPage() {
                             <TableBody>
                                 {users.length === 0 && !loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                                             未找到用户
                                         </TableCell>
                                     </TableRow>
                                 ) : (
                                     users.map((user) => (
                                         <TableRow key={user.id}>
+                                            <TableCell className="font-mono text-sm text-muted-foreground">
+                                                {user.id}
+                                            </TableCell>
                                             <TableCell>
                                                 <div className="flex items-center gap-3">
                                                     <Avatar>
