@@ -4,6 +4,7 @@ import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
+import { getUserOnlySetting } from '@/lib/settings'
 
 // Google Ads CustomerStatus 枚举值映射
 // 参考: https://developers.google.com/google-ads/api/reference/rpc/latest/CustomerStatusEnum.CustomerStatus
@@ -480,9 +481,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权访问' }, { status: 401 })
     }
 
-    const credentials = await getGoogleAdsCredentials(authResult.user.userId)
+    const userId = authResult.user.userId
+
+    // 🔧 修复(2025-12-11): 支持用户只配置 login_customer_id，使用共享管理员配置
+    let credentials = await getGoogleAdsCredentials(userId)
+    let usingSharedConfig = false
+
     if (!credentials) {
-      return NextResponse.json({ error: '未配置Google Ads凭证' }, { status: 404 })
+      // 用户没有 google_ads_credentials 记录，检查是否配置了 login_customer_id
+      const userLoginCustomerId = await getUserOnlySetting('google_ads', 'login_customer_id', userId)
+
+      if (userLoginCustomerId?.value) {
+        // 用户配置了 login_customer_id，检查管理员是否有完整的共享配置
+        const adminCredentials = await getGoogleAdsCredentials(1) // 1 = autoads管理员
+        if (adminCredentials && adminCredentials.refresh_token) {
+          // 使用管理员的凭证，但替换 login_customer_id
+          credentials = {
+            ...adminCredentials,
+            login_customer_id: userLoginCustomerId.value,
+            user_id: userId
+          }
+          usingSharedConfig = true
+          console.log(`✅ 用户 ${userId} 使用共享管理员配置，login_customer_id: ${userLoginCustomerId.value}`)
+        }
+      }
+
+      if (!credentials) {
+        return NextResponse.json({ error: '未配置Google Ads凭证' }, { status: 404 })
+      }
     }
 
     if (!credentials.refresh_token) {
@@ -499,12 +525,12 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const forceRefresh = searchParams.get('refresh') === 'true'
-    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}`)
+    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}, usingSharedConfig=${usingSharedConfig}`)
 
     let allAccounts: any[]
 
     // 检查缓存
-    const cachedAccounts = await getCachedAccounts(authResult.user.userId)
+    const cachedAccounts = await getCachedAccounts(userId)
     console.log(`📦 缓存中有 ${cachedAccounts.length} 个账号`)
 
     if (!forceRefresh && cachedAccounts.length > 0) {
@@ -526,7 +552,7 @@ export async function GET(request: NextRequest) {
     } else {
       // 从 API 获取并同步
       console.log(`🔄 强制刷新: 从 Google Ads API 同步账号...`)
-      allAccounts = await syncAccountsFromAPI(authResult.user.userId, credentials)
+      allAccounts = await syncAccountsFromAPI(userId, credentials)
       console.log(`✅ 同步完成，获取到 ${allAccounts.length} 个账号`)
     }
 
@@ -553,7 +579,7 @@ export async function GET(request: NextRequest) {
           AND (o.is_deleted = FALSE OR o.is_deleted = 0 OR o.is_deleted IS NULL)
           AND c.status != 'REMOVED'
         GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_deleted
-      `, [dbAccountId, authResult.user!.userId])
+      `, [dbAccountId, userId])
 
       return { ...account, linked_offers: linkedOffers }
     }))
@@ -564,6 +590,7 @@ export async function GET(request: NextRequest) {
         total: accountsWithOffers.length,
         accounts: accountsWithOffers,
         cached: !forceRefresh && cachedAccounts.length > 0,
+        usingSharedConfig, // 返回是否使用共享配置的标记
       },
     })
 

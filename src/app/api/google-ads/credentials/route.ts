@@ -6,6 +6,7 @@ import {
   deleteGoogleAdsCredentials,
   verifyGoogleAdsCredentials
 } from '@/lib/google-ads-oauth'
+import { getUserOnlySetting } from '@/lib/settings'
 
 /**
  * POST /api/google-ads/credentials
@@ -98,7 +99,35 @@ export async function GET(request: NextRequest) {
 
     const credentials = await getGoogleAdsCredentials(authResult.user.userId)
 
+    // 🔧 修复(2025-12-11): 当用户没有 google_ads_credentials 记录时，
+    // 也要检查用户是否在 system_settings 中配置了 login_customer_id，
+    // 以及管理员是否有完整的共享配置
     if (!credentials) {
+      // 检查用户是否在 system_settings 中配置了 login_customer_id
+      const userLoginCustomerId = await getUserOnlySetting('google_ads', 'login_customer_id', authResult.user.userId)
+
+      if (userLoginCustomerId?.value) {
+        // 用户配置了 login_customer_id，检查管理员是否有完整的共享配置
+        const adminCredentials = await getGoogleAdsCredentials(1) // 1 = autoads管理员
+        if (adminCredentials && adminCredentials.refresh_token) {
+          // 管理员有 refresh_token，用户可以使用共享配置
+          console.log(`✅ 用户 ${authResult.user.userId} 未完成OAuth授权，但配置了 login_customer_id，将使用共享管理员配置`)
+          return NextResponse.json({
+            success: true,
+            data: {
+              has_credentials: true,
+              client_id: '', // 用户没有自己的配置
+              developer_token: '',
+              login_customer_id: userLoginCustomerId.value,
+              has_refresh_token: true, // 可以使用管理员的 refresh_token
+              is_active: true,
+              using_shared_config: true // 标记使用共享配置
+            }
+          })
+        }
+      }
+
+      // 用户没有配置 login_customer_id，或管理员没有共享配置
       return NextResponse.json({
         success: true,
         data: {
