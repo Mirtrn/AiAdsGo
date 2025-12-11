@@ -120,6 +120,9 @@ export interface UpdateOfferInput {
   enhanced_descriptions?: string
   localization_adapt?: string
   brand_analysis?: string
+  // v3.2架构：店铺/单品差异化分析字段
+  ai_analysis_v32?: string
+  page_type?: string
 }
 
 /**
@@ -525,6 +528,15 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
   if (input.brand_analysis !== undefined) {
     updates.push('brand_analysis = ?')
     params.push(input.brand_analysis)
+  }
+  // v3.2架构：店铺/单品差异化分析字段
+  if (input.ai_analysis_v32 !== undefined) {
+    updates.push('ai_analysis_v32 = ?')
+    params.push(input.ai_analysis_v32)
+  }
+  if (input.page_type !== undefined) {
+    updates.push('page_type = ?')
+    params.push(input.page_type)
   }
 
   if (updates.length === 0) {
