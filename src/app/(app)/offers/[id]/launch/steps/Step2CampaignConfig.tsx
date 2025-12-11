@@ -84,7 +84,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
         category: offer.category || undefined
       },
       config: {
-        targetCountry: offer.target_country || 'US',
+        targetCountry: offer.targetCountry || 'US',
         budgetAmount,
         budgetType: 'DAILY',
         biddingStrategy,
@@ -106,8 +106,9 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
       budgetAmount: 10,  // 10 USD（业务规范）
       budgetType: 'DAILY' as const,  // 固定每日预算
       // 🔒 Target Country/Language 强制与 Offer 保持一致
-      targetCountry: offer.target_country || 'US',
-      targetLanguage: offer.target_language || 'en',
+      // 🔧 修复(2025-12-11): 使用驼峰命名 targetCountry（与API返回一致）
+      targetCountry: offer.targetCountry || 'US',
+      targetLanguage: offer.targetLanguage || 'en',
       biddingStrategy: 'MAXIMIZE_CLICKS',  // 业务规范：网站流量营销目标
       // 优先使用: 创意的final_url_suffix → Offer解析后的final_url_suffix
       finalUrlSuffix: selectedCreative?.final_url_suffix || offer.finalUrlSuffix || offer.final_url_suffix || '',

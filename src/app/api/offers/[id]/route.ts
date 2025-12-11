@@ -40,6 +40,7 @@ export async function GET(
         offerName: offer.offer_name, // 🔧 添加offer_name字段映射
         category: offer.category,
         targetCountry: offer.target_country,
+        targetLanguage: offer.target_language, // 🔧 修复(2025-12-11): 添加target_language字段
         affiliateLink: offer.affiliate_link,
         brandDescription: offer.brand_description,
         uniqueSellingPoints: offer.unique_selling_points,
@@ -143,6 +144,7 @@ export async function PUT(
         offerName: offer.offer_name, // 🔧 添加offer_name字段映射
         category: offer.category,
         targetCountry: offer.target_country,
+        targetLanguage: offer.target_language, // 🔧 修复(2025-12-11): 添加target_language字段
         affiliateLink: offer.affiliate_link,
         brandDescription: offer.brand_description,
         uniqueSellingPoints: offer.unique_selling_points,

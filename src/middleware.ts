@@ -64,6 +64,14 @@ const publicPaths = [
   '/sitemap.xml',    // SEO - sitemap.xml
 ]
 
+// 强制修改密码时允许访问的路径
+const passwordChangeAllowedPaths = [
+  '/change-password',           // 修改密码页面
+  '/api/auth/change-password',  // 修改密码API
+  '/api/auth/logout',           // 退出登录API
+  '/api/auth/me',               // 获取用户信息API（页面需要）
+]
+
 // 🛡️ 恶意请求拦截：直接返回404，不记录日志，节省资源
 // 这些是自动化漏洞扫描器常见的攻击路径
 const MALICIOUS_PATTERNS = [
@@ -231,6 +239,29 @@ export async function middleware(request: NextRequest) {
   requestHeaders.set('x-user-email', String(payload.email))
   requestHeaders.set('x-user-role', String(payload.role))
   requestHeaders.set('x-user-package', String(payload.packageType))
+
+  // 🔐 强制修改密码检查
+  // 如果用户需要强制修改密码，只允许访问特定路径
+  if (payload.mustChangePassword === true) {
+    const isPasswordChangeAllowed = passwordChangeAllowedPaths.some(path => {
+      return pathname === path || pathname.startsWith(path + '/')
+    })
+
+    if (!isPasswordChangeAllowed) {
+      if (isApiRoute) {
+        // API路径：返回403，提示需要先修改密码
+        return NextResponse.json(
+          { error: '请先修改初始密码', code: 'PASSWORD_CHANGE_REQUIRED' },
+          { status: 403 }
+        )
+      } else {
+        // 页面路径：重定向到修改密码页面
+        const changePasswordUrl = new URL('/change-password', request.url)
+        changePasswordUrl.searchParams.set('forced', 'true')
+        return NextResponse.redirect(changePasswordUrl)
+      }
+    }
+  }
 
   return NextResponse.next({
     request: {

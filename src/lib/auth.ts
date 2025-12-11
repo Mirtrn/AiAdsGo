@@ -258,12 +258,13 @@ export async function loginWithPassword(
   // 更新最后登录时间
   await updateLastLogin(user.id)
 
-  // 生成JWT token
+  // 生成JWT token (包含强制修改密码标志)
   const token = generateToken({
     userId: user.id,
     email: user.email,
     role: user.role,
     packageType: user.package_type,
+    mustChangePassword: !!user.must_change_password,
   })
 
   return {
@@ -339,12 +340,13 @@ export async function loginWithGoogle(googleProfile: {
   // 更新最后登录时间
   await updateLastLogin(user.id)
 
-  // 生成JWT token
+  // 生成JWT token (包含强制修改密码标志)
   const token = generateToken({
     userId: user.id,
     email: user.email,
     role: user.role,
     packageType: user.package_type,
+    mustChangePassword: !!user.must_change_password,
   })
 
   return {

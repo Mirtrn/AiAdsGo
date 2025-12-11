@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { verifyPassword, hashPassword } from '@/lib/crypto'
-import { verifyToken } from '@/lib/jwt'
+import { verifyToken, generateToken } from '@/lib/jwt'
 
 /**
  * POST /api/auth/change-password
@@ -81,22 +81,47 @@ export async function POST(request: NextRequest) {
     // 生成新密码哈希
     const newPasswordHash = await hashPassword(newPassword)
 
-    // 更新密码并将must_change_password设为0
+    // 更新密码并将must_change_password设为0 (兼容PostgreSQL和SQLite)
+    const db_type = db.type
+    const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime(\'now\')'
     await db.exec(`
       UPDATE users
       SET password_hash = ?,
           must_change_password = 0,
-          updated_at = datetime('now')
+          updated_at = ${nowFunc}
       WHERE id = ?
     `, [newPasswordHash, payload.userId])
 
-    return NextResponse.json(
+    // 生成新的JWT token（不含mustChangePassword标志）
+    const newToken = generateToken({
+      userId: payload.userId,
+      email: payload.email,
+      role: payload.role,
+      packageType: payload.packageType,
+      mustChangePassword: false, // 密码已修改，不再需要强制修改
+    })
+
+    // 创建响应并设置新的cookie
+    const response = NextResponse.json(
       {
         success: true,
         message: '密码修改成功'
       },
       { status: 200 }
     )
+
+    // 更新HttpOnly Cookie
+    response.cookies.set({
+      name: 'auth_token',
+      value: newToken,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7天过期
+      path: '/',
+    })
+
+    return response
 
   } catch (error) {
     console.error('修改密码失败:', error)
