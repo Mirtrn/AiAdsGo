@@ -187,30 +187,72 @@ export async function scrapeAmazonReviews(
 
     // 抓取评论 - 使用增强的选择器组合
     const reviews: RawReview[] = await page.evaluate((maxReviews: number) => {
-      // 尝试多个选择器路径
+      console.log('🔍 [Browser Context] 开始查找评论元素...')
+
+      // 🔧 优化(2025-12-11): 添加更多Amazon国际站点的选择器fallback
       const selectorGroups = [
-        '#customer-reviews_feature_div [data-hook="review"]',  // 产品评论区域+标准评论元素（优先）
-        '#customer-reviews_feature_div .review',      // 产品评论区域+通用评论类名
-        '#customer-reviews_feature_div div[data-hook="review"]',  // 产品评论区域+深层评论
-        '[data-hook="review"]',
-        '.review',
-        '[data-testid="review"]',
+        // 优先级1: 产品评论区域内的标准评论（最常见）
+        '#customer-reviews_feature_div [data-hook="review"]',
+        '#customer-reviews_feature_div div[data-hook="review"]',
+
+        // 优先级2: Reviews with Images区域（Amazon新版布局）
+        '#reviews-medley-footer [data-hook="review"]',
+        'div[data-hook="reviews-medley-footer"] [data-hook="review"]',
+
+        // 优先级3: CR Review List（传统布局）
         '#cm-cr-dp-review-list [data-hook="review"]',
         '#cm_cr-review_list [data-hook="review"]',
-        'div[data-hook="reviews-medley-footer"] ~ div [data-hook="review"]'
+
+        // 优先级4: 通用data-hook选择器（跨站点兼容）
+        '[data-hook="review"]',
+        'div[data-hook="review"]',
+
+        // 优先级5: 基于类名的fallback（老版本Amazon）
+        '.review.aok-relative',
+        '.review',
+        '.cr-review-item',
+
+        // 优先级6: 基于ID的fallback
+        '[id^="customer_review-"]',
+
+        // 优先级7: 桌面版评论列表
+        '[data-component-type="s-customer-reviews-list-desktop"] [data-hook="review"]',
+
+        // 优先级8: 通用testid
+        '[data-testid="review"]'
       ]
 
       let reviewElements: NodeListOf<Element> | null = null
+      let usedSelector = ''
+
       for (const selector of selectorGroups) {
-        const elements = document.querySelectorAll(selector)
-        if (elements.length > 0) {
-          reviewElements = elements
-          break
+        try {
+          const elements = document.querySelectorAll(selector)
+          if (elements.length > 0) {
+            reviewElements = elements
+            usedSelector = selector
+            console.log(`✅ [Browser Context] 找到${elements.length}个评论元素，使用选择器: ${selector}`)
+            break
+          }
+        } catch (error) {
+          console.warn(`⚠️ [Browser Context] 选择器失败: ${selector}`, error)
         }
       }
 
       if (!reviewElements || reviewElements.length === 0) {
-        console.log('⚠️ 未找到评论元素')
+        console.log('❌ [Browser Context] 所有选择器都未找到评论元素')
+        // 🔍 调试信息：输出页面中的可能评论容器
+        const debugContainers = [
+          '#customer-reviews_feature_div',
+          '#reviews-medley-footer',
+          '#cm-cr-dp-review-list'
+        ]
+        debugContainers.forEach(container => {
+          const el = document.querySelector(container)
+          if (el) {
+            console.log(`📦 [Browser Context] 找到容器: ${container}, innerHTML长度: ${el.innerHTML.length}`)
+          }
+        })
         return []
       }
 
@@ -219,38 +261,87 @@ export async function scrapeAmazonReviews(
       reviewElements.forEach((el, index) => {
         if (index >= maxReviews) return
 
-        // 评分
-        const ratingEl = el.querySelector('[data-hook="review-star-rating"], .a-icon-star, .review-rating')
+        // 🔧 优化(2025-12-11): 增强评分提取，支持更多格式
+        const ratingEl = el.querySelector(
+          '[data-hook="review-star-rating"], ' +
+          '[data-hook="cmps-review-star-rating"], ' +
+          '.a-icon-star, ' +
+          '.review-rating, ' +
+          '[class*="a-star"]'
+        )
         const rating = ratingEl?.textContent?.trim() ||
                        ratingEl?.getAttribute('aria-label') ||
+                       ratingEl?.getAttribute('title') ||
                        null
 
-        // 标题
-        const titleEl = el.querySelector('[data-hook="review-title"], .review-title, [data-testid="review-title"]')
-        const title = titleEl?.textContent?.trim() || null
+        // 🔧 优化(2025-12-11): 增强标题提取
+        const titleEl = el.querySelector(
+          '[data-hook="review-title"], ' +
+          '[data-hook="review-title-content"], ' +
+          '.review-title, ' +
+          '.review-title-content, ' +
+          '[class*="review-title"], ' +
+          'a[data-hook="review-title"], ' +
+          '[data-testid="review-title"]'
+        )
+        let title = titleEl?.textContent?.trim() || null
+        // 清理标题中的评分文字（如"5.0 out of 5 stars Great product"）
+        if (title && /^\d+(\.\d+)?\s+out of\s+\d+\s+stars/i.test(title)) {
+          title = title.replace(/^\d+(\.\d+)?\s+out of\s+\d+\s+stars\s*/i, '').trim()
+        }
 
-        // 正文
-        const bodyEl = el.querySelector('[data-hook="review-body"], .review-text, [data-testid="review-body"]')
-        const body = bodyEl?.textContent?.trim() || null
+        // 🔧 优化(2025-12-11): 增强正文提取
+        const bodyEl = el.querySelector(
+          '[data-hook="review-body"], ' +
+          '[data-hook="review-collapsed-text"], ' +
+          '.review-text, ' +
+          '.review-text-content, ' +
+          '[class*="review-text"]'
+        )
+        let body = bodyEl?.textContent?.trim() || null
+        // 清理正文中的"Read more"按钮文字
+        if (body) {
+          body = body.replace(/Read more$/i, '').trim()
+        }
 
         // 有用投票
-        const helpfulEl = el.querySelector('[data-hook="helpful-vote-statement"], .review-votes')
+        const helpfulEl = el.querySelector(
+          '[data-hook="helpful-vote-statement"], ' +
+          '[data-hook="review-votes"], ' +
+          '.review-votes, ' +
+          '[class*="helpful"]'
+        )
         const helpful = helpfulEl?.textContent?.trim() || null
 
-        // 认证购买 - 移除无效的:has-text伪选择器（不是标准CSS选择器）
-        const verifiedEl = el.querySelector('[data-hook="avp-badge"], .avp-badge')
-        // 如果没有找到badge元素，检查文本内容是否包含"Verified Purchase"
-        const verified = verifiedEl !== null || (el.textContent?.includes('Verified Purchase') ?? false)
+        // 🔧 优化(2025-12-11): 增强认证购买检测
+        const verifiedEl = el.querySelector(
+          '[data-hook="avp-badge"], ' +
+          '[data-hook="avp-badge-linkless"], ' +
+          '.avp-badge, ' +
+          '[class*="verified-purchase"]'
+        )
+        const verified = verifiedEl !== null ||
+                        (el.textContent?.includes('Verified Purchase') ?? false) ||
+                        (el.textContent?.includes('Verified purchase') ?? false)
 
         // 日期
-        const dateEl = el.querySelector('[data-hook="review-date"], .review-date')
+        const dateEl = el.querySelector(
+          '[data-hook="review-date"], ' +
+          '.review-date, ' +
+          '[class*="review-date"]'
+        )
         const date = dateEl?.textContent?.trim() || null
 
         // 作者
-        const authorEl = el.querySelector('[data-hook="genome-widget"], .a-profile-name, .review-author')
+        const authorEl = el.querySelector(
+          '[data-hook="genome-widget"], ' +
+          '.a-profile-name, ' +
+          '.review-author, ' +
+          '[class*="author"]'
+        )
         const author = authorEl?.textContent?.trim() || null
 
-        // 只添加有实际内容的评论
+        // 只添加有实际内容的评论（标题或正文至少有一个）
         if (title || body) {
           results.push({
             rating,
@@ -261,9 +352,11 @@ export async function scrapeAmazonReviews(
             date,
             author
           })
+          console.log(`✓ [Browser Context] 评论${index + 1}: ${title?.substring(0, 30) || body?.substring(0, 30) || 'N/A'}...`)
         }
       })
 
+      console.log(`✅ [Browser Context] 成功提取${results.length}条评论`)
       return results
     }, limit)
 
