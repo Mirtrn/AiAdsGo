@@ -145,44 +145,84 @@ export async function scrapeAmazonReviews(
         // 直接在URL后添加#customer-reviews_feature_div锚点，浏览器会自动滚动到评论区域
         const reviewsUrl = currentUrl.split('#')[0] + '#customer-reviews_feature_div'
         console.log(`🔗 导航到评论区域: ${reviewsUrl}`)
-        await page.goto(reviewsUrl, { waitUntil: 'domcontentloaded', timeout: 10000 })
+        // 🔧 优化(2025-12-11): 使用networkidle等待，确保动态内容加载完成
+        await page.goto(reviewsUrl, { waitUntil: 'networkidle', timeout: 15000 })
         console.log('✅ 已导航到评论区域')
-        // 等待页面滚动到评论区域
-        await page.waitForTimeout(2000)
       } catch (navError) {
         console.log('⚠️ 导航到评论区域失败，在当前页面抓取评论:', navError)
       }
     }
 
-    // 等待评论加载 - 支持多种Amazon布局
-    // 尝试多个选择器：标准评论、Customers say区域、Reviews区域
-    const selectors = [
-      '#customer-reviews_feature_div',              // 产品评论区域容器（最高优先）
-      '#customer-reviews_feature_div [data-hook="review"]',  // 产品评论区域+标准评论元素
-      '#customer-reviews_feature_div .review',      // 产品评论区域+通用评论类名
-      '[data-hook="review"]',                    // 标准评论容器
-      '.review',                                  // 通用评论类名
-      '[data-testid="review"]',                  // 测试ID
-      '[data-component-type="s-customer-reviews-list-desktop"]',  // 桌面版评论列表
+    // 🔧 优化(2025-12-11): 滚动到评论区域触发懒加载
+    try {
+      await page.evaluate(() => {
+        const reviewSection = document.querySelector('#customer-reviews_feature_div') ||
+                              document.querySelector('#reviews-medley-footer')
+        if (reviewSection) {
+          reviewSection.scrollIntoView({ behavior: 'instant', block: 'start' })
+        }
+      })
+      // 等待懒加载内容渲染
+      await page.waitForTimeout(2000)
+    } catch (scrollError) {
+      console.log('⚠️ 滚动到评论区域失败:', scrollError)
+    }
+
+    // 🔧 优化(2025-12-11): 优先等待实际评论元素，而非容器
+    // 评论容器可能存在但内部评论元素是懒加载的
+    const reviewElementSelectors = [
+      '[data-hook="review"]',                        // 标准评论元素（最可靠）
       '#cm-cr-dp-review-list [data-hook="review"]',  // 详情页评论列表
-      'div[data-hook="reviews-medley-footer"] ~ div [data-hook="review"]',  // Reviews区域
-      '#cm_cr-review_list [data-hook="review"]'    // 传统评论列表ID
+      '.review.aok-relative',                        // Amazon UK/EU 布局
+      'li.review[data-hook="review"]',               // 列表形式的评论
+      '[id^="customer_review-"]',                    // 以customer_review-开头的ID
     ]
 
     let reviewSelectorFound = false
-    for (const selector of selectors) {
-      try {
-        await page.waitForSelector(selector, { timeout: 3000 })
-        console.log(`✅ 找到评论选择器: ${selector}`)
-        reviewSelectorFound = true
-        break
-      } catch {
-        // 继续尝试下一个选择器
+    let foundSelector = ''
+
+    // 🔧 优化(2025-12-11): 增加重试机制，每次等待更长时间
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      console.log(`🔄 尝试第${attempt}次查找评论元素...`)
+
+      for (const selector of reviewElementSelectors) {
+        try {
+          // 增加等待时间：第1次3秒，第2次5秒，第3次8秒
+          const timeout = attempt === 1 ? 3000 : (attempt === 2 ? 5000 : 8000)
+          await page.waitForSelector(selector, { timeout })
+          console.log(`✅ 找到评论选择器: ${selector}`)
+          reviewSelectorFound = true
+          foundSelector = selector
+          break
+        } catch {
+          // 继续尝试下一个选择器
+        }
+      }
+
+      if (reviewSelectorFound) break
+
+      // 如果没找到，滚动页面触发更多懒加载
+      if (attempt < 3) {
+        console.log(`⚠️ 第${attempt}次未找到评论，滚动页面后重试...`)
+        await page.evaluate(() => {
+          window.scrollBy(0, 500)
+        })
+        await page.waitForTimeout(1500)
       }
     }
 
     if (!reviewSelectorFound) {
       console.log('⚠️ 所有评论选择器均未找到，尝试通用抓取')
+      // 🔧 优化(2025-12-11): 输出调试信息帮助诊断
+      const debugInfo = await page.evaluate(() => {
+        return {
+          hasReviewContainer: !!document.querySelector('#customer-reviews_feature_div'),
+          containerInnerLength: document.querySelector('#customer-reviews_feature_div')?.innerHTML?.length || 0,
+          reviewElementCount: document.querySelectorAll('[data-hook="review"]').length,
+          pageUrl: window.location.href
+        }
+      })
+      console.log('📊 调试信息:', JSON.stringify(debugInfo))
     }
 
     // 抓取评论 - 使用增强的选择器组合
