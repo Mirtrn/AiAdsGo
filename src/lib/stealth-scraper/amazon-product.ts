@@ -467,10 +467,6 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
       // 🎯 优先级4: "Compare with similar items" - 对比表格
       '#HLCXComparisonTable a[href*="/dp/"]',
       '[data-feature-name="comparison"] a[href*="/dp/"]',
-
-      // ⚠️ 降低优先级: Frequently bought together（可能是配件，不是竞品）
-      '#sims-fbt a[href*="/dp/"]',
-      '#sims-fbt-content a[href*="/dp/"]',
     ]
 
     console.log(`🔍 开始竞品候选ASIN提取...`)
@@ -508,10 +504,6 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
         // 🎯 优先级3: "Customers who viewed this item also viewed"
         '#sims-simsContainer_feature_div_01',
         '[data-csa-c-slot-id="sims_viewed"]',
-
-        // ⚠️ 降低优先级: Frequently bought together
-        '#sims-fbt',
-        '#sims-fbt-content',
       ]
       for (const containerSelector of recommendationContainers) {
         $(containerSelector).find('[data-asin]').each((_i: number, el: any) => {
