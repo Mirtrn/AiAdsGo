@@ -129,6 +129,38 @@ let proxyPoolInitialized = false
 let proxyPoolInitializedForUser: number | null = null
 
 /**
+ * 清除代理池缓存
+ * 当用户更新代理配置时调用，强制下次使用时重新加载
+ *
+ * 🔥 修复（2025-12-11）：
+ * 解决用户更新代理配置后，系统仍使用旧配置的问题
+ *
+ * 🔥 优化（2025-12-11）：用户隔离
+ * - 只重置模块级缓存标记，不清除全局代理池实例
+ * - 下次 initializeProxyPool 会根据 userId 判断是否需要重新加载
+ * - initializeProxyPool 会调用 loadProxies() 覆盖旧配置
+ * - 这样不会影响其他用户正在进行的操作
+ */
+export function invalidateProxyPoolCache(userId?: number): void {
+  console.log(`🗑️ [invalidateProxyPoolCache] 清除代理池缓存 (userId: ${userId || 'all'})`)
+
+  // 只清除模块级缓存标记
+  // 这是用户隔离的：下次 initializeProxyPool 会根据 userId 判断是否需要重新加载
+  if (!userId || proxyPoolInitializedForUser === userId) {
+    proxyPoolInitialized = false
+    proxyPoolInitializedForUser = null
+    console.log(`   - 模块级缓存已清除 (用户: ${userId || 'all'})`)
+  } else {
+    console.log(`   - 跳过清除：当前缓存属于用户 ${proxyPoolInitializedForUser}，请求清除用户 ${userId}`)
+  }
+
+  // 🔥 不再调用 clearProxyPool()
+  // 原因：clearProxyPool() 会清除整个全局代理池，影响所有用户
+  // 正确做法：让 initializeProxyPool 在下次调用时重新加载当前用户的配置
+  // initializeProxyPool 会调用 proxyPool.loadProxies() 覆盖旧配置
+}
+
+/**
  * 初始化代理池
  *
  * 检查用户的代理配置并确保可用

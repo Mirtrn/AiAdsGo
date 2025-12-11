@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSetting, updateSetting } from '@/lib/settings'
+import { invalidateProxyPoolCache } from '@/lib/offer-utils'
 import { z } from 'zod'
 
 /**
@@ -92,6 +93,12 @@ export async function PUT(
 
     // 更新配置
     updateSetting(category, key, value, userIdNum)
+
+    // 🔥 修复（2025-12-11）：如果更新了代理配置，清除代理池缓存
+    if (category === 'proxy') {
+      console.log('🔄 检测到代理配置更新，清除代理池缓存')
+      invalidateProxyPoolCache(userIdNum)
+    }
 
     return NextResponse.json({
       success: true,

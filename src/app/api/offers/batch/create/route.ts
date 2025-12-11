@@ -30,6 +30,9 @@ export async function POST(req: NextRequest) {
   const db = getDatabase()
   const queue = getQueueManager()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   try {
     // 1. 验证用户身份
     const userId = req.headers.get('x-user-id')
@@ -178,7 +181,7 @@ export async function POST(req: NextRequest) {
         metadata,
         created_at,
         updated_at
-      ) VALUES (?, ?, 'offer-creation', 'pending', ?, ?, ?, datetime('now'), datetime('now'))
+      ) VALUES (?, ?, 'offer-creation', 'pending', ?, ?, ?, ${nowFunc}, ${nowFunc})
     `, [
       batchId,
       userIdNum,
@@ -208,7 +211,7 @@ export async function POST(req: NextRequest) {
         uploaded_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, datetime('now'), datetime('now'), datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ${nowFunc}, ${nowFunc}, ${nowFunc})
     `, [
       uploadRecordId,
       userIdNum,

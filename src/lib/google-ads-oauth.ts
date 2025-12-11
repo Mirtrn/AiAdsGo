@@ -36,6 +36,9 @@ export async function saveGoogleAdsCredentials(
 ): Promise<GoogleAdsCredentials> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   // 检查是否已存在
   const existing = await db.queryOne<GoogleAdsCredentials>(`
     SELECT * FROM google_ads_credentials WHERE user_id = ?
@@ -53,8 +56,8 @@ export async function saveGoogleAdsCredentials(
           access_token = ?,
           access_token_expires_at = ?,
           is_active = 1,
-          last_verified_at = datetime('now'),
-          updated_at = datetime('now')
+          last_verified_at = ${nowFunc},
+          updated_at = ${nowFunc}
       WHERE user_id = ?
     `, [
       credentials.client_id,
@@ -73,7 +76,7 @@ export async function saveGoogleAdsCredentials(
         user_id, client_id, client_secret, refresh_token,
         developer_token, login_customer_id, access_token, access_token_expires_at,
         last_verified_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${nowFunc})
     `, [
       userId,
       credentials.client_id,
@@ -114,9 +117,12 @@ export async function getGoogleAdsCredentials(userId: number): Promise<GoogleAds
 export async function deleteGoogleAdsCredentials(userId: number): Promise<void> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   await db.exec(`
     UPDATE google_ads_credentials
-    SET is_active = 0, updated_at = datetime('now')
+    SET is_active = 0, updated_at = ${nowFunc}
     WHERE user_id = ?
   `, [userId])
 }
@@ -165,11 +171,15 @@ export async function refreshAccessToken(userId: number): Promise<{
 
   // 更新数据库
   const db = await getDatabase()
+
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   await db.exec(`
     UPDATE google_ads_credentials
     SET access_token = ?,
         access_token_expires_at = ?,
-        updated_at = datetime('now')
+        updated_at = ${nowFunc}
     WHERE user_id = ?
   `, [data.access_token, expiresAt, userId])
 
@@ -243,10 +253,14 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
 
     // 更新验证时间
     const db = await getDatabase()
+
+    // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+    const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
     await db.exec(`
       UPDATE google_ads_credentials
-      SET last_verified_at = datetime('now'),
-          updated_at = datetime('now')
+      SET last_verified_at = ${nowFunc},
+          updated_at = ${nowFunc}
       WHERE user_id = ?
     `, [userId])
 

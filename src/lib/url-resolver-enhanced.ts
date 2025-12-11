@@ -365,6 +365,17 @@ export function getProxyPool(): ProxyPoolManager {
   return global.__proxyPoolInstance
 }
 
+/**
+ * 清除全局代理池实例
+ * 用于用户更新代理配置后强制重新加载
+ */
+export function clearProxyPool(): void {
+  if (global.__proxyPoolInstance) {
+    console.log('🗑️ 清除全局代理池缓存')
+    global.__proxyPoolInstance = undefined
+  }
+}
+
 // ==================== Redis缓存管理 ====================
 
 const CACHE_TTL = 7 * 24 * 60 * 60 // 7天（秒）

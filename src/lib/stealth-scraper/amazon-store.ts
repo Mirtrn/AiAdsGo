@@ -381,6 +381,37 @@ async function scrapeStorePageContent(
       .replace(/\s+-\s+Best Sellers?$/i, '')
       .replace(/\s+Best Sellers?$/i, '')
       .trim()
+
+    // 🔥 修复（2025-12-11）：移除店铺分类/分区后缀（如 ": CLEAN", ": Electronics" 等）
+    // 这些通常是店铺内的分类导航，不是品牌名称的一部分
+    // 格式：品牌名: 分类名 → 只保留品牌名
+    if (brandName && brandName.includes(':')) {
+      // 常见的分类关键词（大小写不敏感）
+      const categoryKeywords = [
+        'clean', 'home', 'kitchen', 'electronics', 'tech', 'beauty',
+        'fashion', 'sports', 'outdoor', 'garden', 'pet', 'pets',
+        'baby', 'kids', 'toys', 'office', 'automotive', 'health',
+        'food', 'grocery', 'clothing', 'accessories', 'sale', 'deals',
+        'new', 'best', 'top', 'featured', 'popular', 'trending'
+      ]
+
+      const parts = brandName.split(':')
+      if (parts.length >= 2) {
+        const firstPart = parts[0].trim()
+        const secondPart = parts[1].trim().toLowerCase()
+
+        // 检查第二部分是否像分类名称
+        const isLikelyCategory = categoryKeywords.some(keyword =>
+          secondPart.includes(keyword) || secondPart === keyword
+        )
+
+        // 如果第二部分很短（<=15字符）或包含常见分类关键词，则只保留第一部分
+        if (isLikelyCategory || secondPart.length <= 15) {
+          console.log(`🔧 品牌名清理: "${brandName}" → "${firstPart}" (移除分类后缀: "${parts.slice(1).join(':')}")`)
+          brandName = firstPart
+        }
+      }
+    }
   }
 
   if (!brandName) {

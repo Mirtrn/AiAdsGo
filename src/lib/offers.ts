@@ -394,6 +394,9 @@ export async function listOffers(
 export async function updateOffer(id: number, userId: number, input: UpdateOfferInput): Promise<Offer> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   // 验证Offer存在且属于该用户
   const existing = await findOfferById(id, userId)
   if (!existing) {
@@ -520,7 +523,7 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
     return existing
   }
 
-  updates.push('updated_at = datetime(\'now\')')
+  updates.push(`updated_at = ${nowFunc}`)
 
   const updateQuery = `
     UPDATE offers
@@ -582,6 +585,9 @@ export async function deleteOffer(
 ): Promise<DeleteOfferResult> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   // 验证Offer存在且属于该用户
   const existing = await findOfferById(id, userId)
   if (!existing) {
@@ -628,7 +634,7 @@ export async function deleteOffer(
     await db.exec(`
       UPDATE campaigns
       SET status = 'REMOVED',
-          updated_at = datetime('now')
+          updated_at = ${nowFunc}
       WHERE offer_id = ? AND user_id = ? AND status != 'REMOVED'
     `, [id, userId])
   }
@@ -637,9 +643,9 @@ export async function deleteOffer(
   await db.exec(`
     UPDATE offers
     SET is_deleted = 1,
-        deleted_at = datetime('now'),
+        deleted_at = ${nowFunc},
         is_active = 0,
-        updated_at = datetime('now')
+        updated_at = ${nowFunc}
     WHERE id = ? AND user_id = ?
   `, [id, userId])
 
@@ -662,6 +668,9 @@ export async function unlinkOfferFromAccount(
 ): Promise<{ unlinkedCount: number }> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   // 验证Offer存在
   const existing = await findOfferById(offerId, userId)
   if (!existing) {
@@ -672,7 +681,7 @@ export async function unlinkOfferFromAccount(
   const result = await db.exec(`
     UPDATE campaigns
     SET status = 'REMOVED',
-        updated_at = datetime('now')
+        updated_at = ${nowFunc}
     WHERE offer_id = ?
       AND google_ads_account_id = ?
       AND user_id = ?
@@ -809,6 +818,10 @@ export async function updateOfferScrapeStatus(
     // 🔧 PostgreSQL兼容性修复：使用NOW()替代datetime('now')
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
+    // 🔥 修复（2025-12-11）: 移除不存在的列 reviews 和 competitive_edges
+    // PostgreSQL offers表中没有这两个字段，导致UPDATE语句失败
+    // reviews数据应该存储在 review_analysis 或 ai_reviews 字段
+    // competitive_edges数据应该存储在 competitor_analysis 或 ai_competitive_edges 字段
     await db.exec(`
       UPDATE offers
       SET scrape_status = ?,
@@ -822,9 +835,7 @@ export async function updateOfferScrapeStatus(
           target_audience = COALESCE(?, target_audience),
           category = COALESCE(?, category),
           pricing = COALESCE(?, pricing),
-          reviews = COALESCE(?, reviews),
           promotions = COALESCE(?, promotions),
-          competitive_edges = COALESCE(?, competitive_edges),
           review_analysis = COALESCE(?, review_analysis),
           competitor_analysis = COALESCE(?, competitor_analysis),
           visual_analysis = COALESCE(?, visual_analysis),
@@ -848,9 +859,7 @@ export async function updateOfferScrapeStatus(
       scrapedData.target_audience || null,
       scrapedData.category || null,
       scrapedData.pricing || null,
-      scrapedData.reviews || null,
       scrapedData.promotions || null,
-      scrapedData.competitive_edges || null,
       scrapedData.review_analysis || null,
       scrapedData.competitor_analysis || null,
       scrapedData.visual_analysis || null,

@@ -58,6 +58,8 @@ export async function GET(
         // AI分析结果字段（仅返回评论分析和竞品分析）
         reviewAnalysis: offer.review_analysis,
         competitorAnalysis: offer.competitor_analysis,
+        // 链接类型（店铺/单品）
+        pageType: offer.page_type || 'product',
       },
     })
   } catch (error: any) {

@@ -41,19 +41,22 @@ export async function executeBatchCreation(
   const db = getDatabase()
   const queue = getQueueManager()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   console.log(`🚀 开始执行批量创建任务: batch=${batchId}, count=${rows.length}`)
 
   try {
     // 1. 更新batch_tasks和upload_records状态为running
     await db.exec(`
       UPDATE batch_tasks
-      SET status = 'running', started_at = datetime('now'), updated_at = datetime('now')
+      SET status = 'running', started_at = ${nowFunc}, updated_at = ${nowFunc}
       WHERE id = ?
     `, [batchId])
 
     await db.exec(`
       UPDATE upload_records
-      SET status = 'processing', updated_at = datetime('now')
+      SET status = 'processing', updated_at = ${nowFunc}
       WHERE batch_id = ?
     `, [batchId])
 
@@ -77,7 +80,7 @@ export async function executeBatchCreation(
           skip_warmup,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, 'pending', ?, ?, false, false, datetime('now'), datetime('now'))
+        ) VALUES (?, ?, ?, 'pending', ?, ?, false, false, ${nowFunc}, ${nowFunc})
       `, [
         childTaskId,
         task.userId,
@@ -143,7 +146,7 @@ export async function executeBatchCreation(
           SET
             completed_count = ?,
             failed_count = ?,
-            updated_at = datetime('now')
+            updated_at = ${nowFunc}
           WHERE id = ?
         `, [completed, failed, batchId])
 
@@ -152,7 +155,7 @@ export async function executeBatchCreation(
           SET
             processed_count = ?,
             failed_count = ?,
-            updated_at = datetime('now')
+            updated_at = ${nowFunc}
           WHERE batch_id = ?
         `, [completed, failed, batchId])
 
@@ -175,8 +178,8 @@ export async function executeBatchCreation(
             UPDATE batch_tasks
             SET
               status = ?,
-              completed_at = datetime('now'),
-              updated_at = datetime('now')
+              completed_at = ${nowFunc},
+              updated_at = ${nowFunc}
             WHERE id = ?
           `, [finalStatus, batchId])
 
@@ -184,8 +187,8 @@ export async function executeBatchCreation(
             UPDATE upload_records
             SET
               status = ?,
-              completed_at = datetime('now'),
-              updated_at = datetime('now')
+              completed_at = ${nowFunc},
+              updated_at = ${nowFunc}
             WHERE batch_id = ?
           `, [finalStatus, batchId])
 
@@ -206,13 +209,16 @@ export async function executeBatchCreation(
   } catch (error: any) {
     console.error(`❌ 批量创建任务失败: batch=${batchId}:`, error.message)
 
+    // 🔧 PostgreSQL兼容性：在catch块中也需要使用正确的NOW函数
+    const nowFuncErr = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
     // 更新batch_tasks和upload_records为失败状态
     await db.exec(`
       UPDATE batch_tasks
       SET
         status = 'failed',
-        completed_at = datetime('now'),
-        updated_at = datetime('now')
+        completed_at = ${nowFuncErr},
+        updated_at = ${nowFuncErr}
       WHERE id = ?
     `, [batchId])
 
@@ -220,8 +226,8 @@ export async function executeBatchCreation(
       UPDATE upload_records
       SET
         status = 'failed',
-        completed_at = datetime('now'),
-        updated_at = datetime('now')
+        completed_at = ${nowFuncErr},
+        updated_at = ${nowFuncErr}
       WHERE batch_id = ?
     `, [batchId])
 

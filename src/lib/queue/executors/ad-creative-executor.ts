@@ -35,11 +35,14 @@ export async function executeAdCreativeGeneration(
   const { offerId, maxRetries = 3, targetRating = 'EXCELLENT' } = task.data
   const db = getDatabase()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   try {
     // 更新任务状态为运行中
     await db.exec(`
       UPDATE creative_tasks
-      SET status = 'running', started_at = datetime('now'), message = '开始生成广告创意'
+      SET status = 'running', started_at = ${nowFunc}, message = '开始生成广告创意'
       WHERE id = ?
     `, [task.id])
 
@@ -76,7 +79,7 @@ export async function executeAdCreativeGeneration(
       // 更新进度：生成中
       await db.exec(`
         UPDATE creative_tasks
-        SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = datetime('now')
+        SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = ${nowFunc}
         WHERE id = ?
       `, [attemptBaseProgress, `第${attempts}次生成: AI正在创作广告文案...`, attempts, task.id])
 
@@ -93,7 +96,7 @@ export async function executeAdCreativeGeneration(
       // 更新进度：评估中
       await db.exec(`
         UPDATE creative_tasks
-        SET stage = 'evaluating', progress = ?, message = ?, updated_at = datetime('now')
+        SET stage = 'evaluating', progress = ?, message = ?, updated_at = ${nowFunc}
         WHERE id = ?
       `, [attemptBaseProgress + 10, `第${attempts}次生成: 评估创意质量...`, task.id])
 
@@ -120,7 +123,7 @@ export async function executeAdCreativeGeneration(
       // 更新进度：评估完成
       await db.exec(`
         UPDATE creative_tasks
-        SET progress = ?, message = ?, updated_at = datetime('now')
+        SET progress = ?, message = ?, updated_at = ${nowFunc}
         WHERE id = ?
       `, [attemptBaseProgress + 18, `第${attempts}次生成: ${evaluation.finalRating} (${evaluation.finalScore}分)`, task.id])
 
@@ -170,7 +173,7 @@ export async function executeAdCreativeGeneration(
     // 更新进度：保存中
     await db.exec(`
       UPDATE creative_tasks
-      SET stage = 'saving', progress = 85, message = '正在保存创意到数据库...', updated_at = datetime('now')
+      SET stage = 'saving', progress = 85, message = '正在保存创意到数据库...', updated_at = ${nowFunc}
       WHERE id = ?
     `, [task.id])
 
@@ -261,8 +264,8 @@ export async function executeAdCreativeGeneration(
         creative_id = ?,
         result = ?,
         optimization_history = ?,
-        completed_at = datetime('now'),
-        updated_at = datetime('now')
+        completed_at = ${nowFunc},
+        updated_at = ${nowFunc}
       WHERE id = ?
     `, [savedCreative.id, JSON.stringify(finalResult), JSON.stringify(retryHistory), task.id])
 
@@ -272,6 +275,9 @@ export async function executeAdCreativeGeneration(
   } catch (error: any) {
     console.error(`❌ 创意生成任务失败: ${task.id}:`, error.message)
 
+    // 🔧 PostgreSQL兼容性：在catch块中也需要使用正确的NOW函数
+    const nowFuncErr = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
     // 更新任务为失败状态
     await db.exec(`
       UPDATE creative_tasks
@@ -279,8 +285,8 @@ export async function executeAdCreativeGeneration(
         status = 'failed',
         message = ?,
         error = ?,
-        completed_at = datetime('now'),
-        updated_at = datetime('now')
+        completed_at = ${nowFuncErr},
+        updated_at = ${nowFuncErr}
       WHERE id = ?
     `, [
       error.message,

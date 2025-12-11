@@ -253,7 +253,25 @@ async function buildAdCreativePrompt(
     productInfo?: { features?: string[]; benefits?: string[]; useCases?: string[] }
     reviewAnalysis?: { sentiment?: string; themes?: string[]; insights?: string[] }
     localization?: { currency?: string; culturalNotes?: string[]; localKeywords?: string[] }
-    brandAnalysis?: { positioning?: string; voice?: string; competitors?: string[] }
+    brandAnalysis?: {
+      positioning?: string
+      voice?: string
+      competitors?: string[]
+      // 🔥 修复（2025-12-11）：添加店铺分析新字段
+      hotProducts?: Array<{
+        name: string
+        productHighlights?: string[]
+        successFactors?: string[]
+      }>
+      reviewAnalysis?: {
+        overallSentiment?: string
+        positives?: string[]
+        concerns?: string[]
+        customerUseCases?: string[]
+        trustIndicators?: string[]
+      }
+      sellingPoints?: string[]
+    }
     qualityScore?: number
   }
 ): Promise<string> {
@@ -311,7 +329,7 @@ async function buildAdCreativePrompt(
 
   // 🎯 P3优化：使用品牌分析数据
   if (extractedElements?.brandAnalysis) {
-    const { positioning, voice, competitors } = extractedElements.brandAnalysis
+    const { positioning, voice, competitors, hotProducts, reviewAnalysis: storeReviewAnalysis, sellingPoints } = extractedElements.brandAnalysis
     if (positioning) {
       brand_analysis_section += `\n**🏷️ BRAND POSITIONING**: ${positioning}`
     }
@@ -320,6 +338,40 @@ async function buildAdCreativePrompt(
     }
     if (competitors && competitors.length > 0) {
       brand_analysis_section += `\n**🏷️ KEY COMPETITORS**: ${competitors.slice(0, 3).join(', ')}`
+    }
+    // 🔥 修复（2025-12-11）：添加店铺卖点
+    if (sellingPoints && sellingPoints.length > 0) {
+      brand_analysis_section += `\n**🏷️ BRAND SELLING POINTS**: ${sellingPoints.slice(0, 5).join(', ')}`
+    }
+    // 🔥 修复（2025-12-11）：添加热销商品产品亮点
+    if (hotProducts && hotProducts.length > 0) {
+      const allHighlights: string[] = []
+      hotProducts.slice(0, 3).forEach(p => {
+        if (p.productHighlights && p.productHighlights.length > 0) {
+          allHighlights.push(...p.productHighlights.slice(0, 3))
+        }
+      })
+      if (allHighlights.length > 0) {
+        brand_analysis_section += `\n**🔥 HOT PRODUCT HIGHLIGHTS**: ${[...new Set(allHighlights)].slice(0, 8).join(', ')}`
+      }
+    }
+    // 🔥 修复（2025-12-11）：添加店铺评论分析
+    if (storeReviewAnalysis) {
+      if (storeReviewAnalysis.overallSentiment) {
+        brand_analysis_section += `\n**📊 STORE SENTIMENT**: ${storeReviewAnalysis.overallSentiment}`
+      }
+      if (storeReviewAnalysis.positives && storeReviewAnalysis.positives.length > 0) {
+        brand_analysis_section += `\n**👍 CUSTOMER PRAISES**: ${storeReviewAnalysis.positives.slice(0, 4).join(', ')}`
+      }
+      if (storeReviewAnalysis.concerns && storeReviewAnalysis.concerns.length > 0) {
+        brand_analysis_section += `\n**⚠️ CUSTOMER CONCERNS**: ${storeReviewAnalysis.concerns.slice(0, 3).join(', ')}`
+      }
+      if (storeReviewAnalysis.customerUseCases && storeReviewAnalysis.customerUseCases.length > 0) {
+        brand_analysis_section += `\n**🎯 REAL USE CASES**: ${storeReviewAnalysis.customerUseCases.slice(0, 4).join(', ')}`
+      }
+      if (storeReviewAnalysis.trustIndicators && storeReviewAnalysis.trustIndicators.length > 0) {
+        brand_analysis_section += `\n**✅ TRUST INDICATORS**: ${storeReviewAnalysis.trustIndicators.slice(0, 4).join(', ')}`
+      }
     }
   }
 
@@ -1797,7 +1849,25 @@ export async function generateAdCreative(
     headlines?: string[]
     descriptions?: string[]
     localization?: { currency?: string; culturalNotes?: string[]; localKeywords?: string[] }
-    brandAnalysis?: { positioning?: string; voice?: string; competitors?: string[] }
+    brandAnalysis?: {
+      positioning?: string
+      voice?: string
+      competitors?: string[]
+      // 🔥 修复（2025-12-11）：添加店铺分析新字段
+      hotProducts?: Array<{
+        name: string
+        productHighlights?: string[]
+        successFactors?: string[]
+      }>
+      reviewAnalysis?: {
+        overallSentiment?: string
+        positives?: string[]
+        concerns?: string[]
+        customerUseCases?: string[]
+        trustIndicators?: string[]
+      }
+      sellingPoints?: string[]
+    }
   } = {}
 
   try {

@@ -51,13 +51,19 @@ export interface AIAnalysisInput {
         asin: string
         productData?: any
         reviews?: string[]
+        reviewHighlights?: string[]  // 🔥 修复（2025-12-11）：添加评论高亮
         competitorAsins?: string[]
+        features?: string[]  // 🔥 修复（2025-12-11）：添加产品特性
         scrapeStatus: 'success' | 'failed' | 'skipped'
         error?: string
       }>
       totalScraped?: number
       successCount?: number
       failedCount?: number
+      // 🔥 修复（2025-12-11）：添加聚合数据用于AI分析
+      aggregatedReviews?: string[]
+      aggregatedFeatures?: string[]
+      aggregatedCompetitorAsins?: string[]
     }
     // Flattened product properties
     productName?: string
@@ -106,13 +112,19 @@ export interface AIAnalysisInput {
           asin: string
           productData: any
           reviews: string[]
+          reviewHighlights?: string[]  // 🔥 修复（2025-12-11）
           competitorAsins: string[]
+          features?: string[]  // 🔥 修复（2025-12-11）
           scrapeStatus: 'success' | 'failed' | 'skipped'
           error?: string
         }>
         totalScraped: number
         successCount: number
         failedCount: number
+        // 🔥 修复（2025-12-11）：添加聚合数据
+        aggregatedReviews?: string[]
+        aggregatedFeatures?: string[]
+        aggregatedCompetitorAsins?: string[]
       }
     }
     amazonProductData?: {
@@ -544,6 +556,34 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
       // 添加热销产品列表
       textParts.push('\n=== HOT-SELLING PRODUCTS (Top 15) ===', productSummaries)
 
+      // 🔥 修复（2025-12-11）：添加深度抓取的聚合特性数据，用于生成"产品亮点"
+      if (extractResult.deepScrapeResults?.aggregatedFeatures &&
+          extractResult.deepScrapeResults.aggregatedFeatures.length > 0) {
+        const features = extractResult.deepScrapeResults.aggregatedFeatures
+          .slice(0, 15)  // 限制最多15条特性
+          .map((f: string) => `- ${f}`)
+          .join('\n')
+        textParts.push(
+          `\n=== PRODUCT FEATURES (Aggregated from Hot-Selling Products) ===`,
+          features
+        )
+        console.log(`📊 [STORE] 添加聚合特性到AI分析输入: ${extractResult.deepScrapeResults.aggregatedFeatures.length}条`)
+      }
+
+      // 🔥 修复（2025-12-11）：添加深度抓取的评论摘要，用于生成"评论分析"
+      if (extractResult.deepScrapeResults?.aggregatedReviews &&
+          extractResult.deepScrapeResults.aggregatedReviews.length > 0) {
+        const reviewSummaries = extractResult.deepScrapeResults.aggregatedReviews
+          .slice(0, 10)  // 限制最多10条评论摘要
+          .map((r: string) => `- ${r.substring(0, 200)}${r.length > 200 ? '...' : ''}`)
+          .join('\n')
+        textParts.push(
+          `\n=== REVIEW HIGHLIGHTS (Aggregated from Hot-Selling Products) ===`,
+          reviewSummaries
+        )
+        console.log(`📊 [STORE] 添加聚合评论到AI分析输入: ${extractResult.deepScrapeResults.aggregatedReviews.length}条`)
+      }
+
       pageData = {
         title: extractResult.storeName || extractResult.brand || 'Unknown Store',
         description: extractResult.productDescription || extractResult.storeDescription || '',
@@ -557,17 +597,46 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         .map((p: any, i: number) => `${i + 1}. ${p.name} - ${p.price || 'N/A'}`)
         .join('\n')
 
+      // 🔥 修复（2025-12-11）：独立站也支持深度抓取数据
+      const textParts = [
+        `Store Name: ${extractResult.storeName}`,
+        `Platform: ${extractResult.platform || 'Unknown'}`,
+        `Total Products: ${extractResult.productCount}`,
+        extractResult.productDescription ? `Description: ${extractResult.productDescription}` : '',
+        '\n=== PRODUCTS ===',
+        productSummaries,
+      ]
+
+      // 添加聚合特性（如果有）
+      if (extractResult.deepScrapeResults?.aggregatedFeatures &&
+          extractResult.deepScrapeResults.aggregatedFeatures.length > 0) {
+        const features = extractResult.deepScrapeResults.aggregatedFeatures
+          .slice(0, 15)
+          .map((f: string) => `- ${f}`)
+          .join('\n')
+        textParts.push(
+          `\n=== PRODUCT FEATURES ===`,
+          features
+        )
+      }
+
+      // 添加聚合评论（如果有）
+      if (extractResult.deepScrapeResults?.aggregatedReviews &&
+          extractResult.deepScrapeResults.aggregatedReviews.length > 0) {
+        const reviewSummaries = extractResult.deepScrapeResults.aggregatedReviews
+          .slice(0, 10)
+          .map((r: string) => `- ${r.substring(0, 200)}${r.length > 200 ? '...' : ''}`)
+          .join('\n')
+        textParts.push(
+          `\n=== REVIEW HIGHLIGHTS ===`,
+          reviewSummaries
+        )
+      }
+
       pageData = {
         title: extractResult.storeName || extractResult.brand || 'Unknown Store',
         description: extractResult.productDescription || '',
-        text: [
-          `Store Name: ${extractResult.storeName}`,
-          `Platform: ${extractResult.platform || 'Unknown'}`,
-          `Total Products: ${extractResult.productCount}`,
-          extractResult.productDescription ? `Description: ${extractResult.productDescription}` : '',
-          '\n=== PRODUCTS ===',
-          productSummaries,
-        ].join('\n'),
+        text: textParts.filter(Boolean).join('\n'),
       }
     } else if (isAmazonProductPage && extractResult.productName) {
       pageType = 'product'
@@ -764,18 +833,120 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             result.reviewAnalysisSuccess = true  // 不视为失败
           }
         }
-        // 🔥 修复（2025-12-08）：店铺页面判断逻辑优化
-        // 问题：之前的条件 (isAmazonStore || extractResult.products) && extractResult.products && extractResult.products.length > 0
-        // 当 isAmazonStore=true 但 products=[] 时，条件失败，导致跳过分析
-        // 修复：优先判断 isAmazonStore，如果是店铺页面，即使没有产品也应该尝试分析
+        // 🔥 修复（2025-12-11）：店铺页面评论分析优化
+        // 问题：之前只使用 products[].rating/reviewCount，数据质量差
+        // 修复：优先使用 deepScrapeResults.aggregatedReviews（真实评论数据）
         else if (isAmazonStore) {
-          // Amazon Store页面：即使没有产品数据，也标记为成功（可能是抓取失败，不应阻塞流程）
-          if (!extractResult.products || extractResult.products.length === 0) {
-            console.log(`⚠️ Amazon Store页面未提取到产品数据，跳过评论分析`)
-            result.reviewAnalysisSuccess = true  // 标记为成功，不阻塞流程
-          } else {
-            // 店铺页面：从产品列表中提取评论信息
-            console.log(`📊 从店铺产品中提取评论信息 (${extractResult.products.length}个产品)...`)
+          // 🔥 优先使用深度抓取的聚合评论数据
+          const deepResults = extractResult.deepScrapeResults
+          const aggregatedReviews = deepResults?.aggregatedReviews || []
+          const aggregatedFeatures = deepResults?.aggregatedFeatures || []
+
+          console.log(`🔍 [STORE] deepScrapeResults检查:`)
+          console.log(`  - aggregatedReviews: ${aggregatedReviews.length}条`)
+          console.log(`  - aggregatedFeatures: ${aggregatedFeatures.length}条`)
+          console.log(`  - products: ${extractResult.products?.length || 0}个`)
+
+          // 策略1: 使用深度抓取的真实评论数据（最优）
+          if (aggregatedReviews.length > 0) {
+            console.log(`📊 [STORE] 使用深度抓取的聚合评论数据 (${aggregatedReviews.length}条真实评论)...`)
+
+            // 将聚合评论数据转换为RawReview格式
+            aggregatedReviews.forEach((reviewStr: string) => {
+              // 解析评论字符串（格式同单品页面）
+              const ratingMatch = reviewStr.match(/^([\d.]+)\s*(?:out of 5\s*)?stars?\s*-?\s*/i)
+              const rating = ratingMatch ? `${ratingMatch[1]} out of 5 stars` : null
+              const textWithoutRating = ratingMatch ? reviewStr.replace(ratingMatch[0], '') : reviewStr
+
+              // 尝试分离标题和正文
+              const titleMatch = textWithoutRating.match(/^([^:]+):\s*(.+)$/)
+              const title = titleMatch ? titleMatch[1].trim() : null
+              const body = titleMatch ? titleMatch[2].trim() : textWithoutRating.trim()
+
+              reviews.push({
+                rating,
+                title,
+                body,
+                helpful: null,
+                verified: false,
+                date: new Date().toISOString(),
+                author: 'Amazon Reviewer',
+              })
+            })
+
+            if (reviews.length > 0) {
+              const reviewAnalysis = await analyzeReviewsWithAI(
+                reviews,
+                extractResult.brand || extractResult.storeName || 'Unknown Store',
+                targetCountry,
+                userId,
+                { enableCompression: true, enableCache: true }
+              )
+
+              result.reviewAnalysis = reviewAnalysis
+              result.reviewAnalysisSuccess = true
+              console.log(`✅ [STORE] 评论分析完成 (${reviews.length}条深度抓取评论)`)
+            }
+          }
+          // 策略2: 从topProducts的reviews中提取（备用）
+          else if (deepResults?.topProducts && deepResults.topProducts.length > 0) {
+            console.log(`📊 [STORE] 从topProducts提取评论数据...`)
+
+            for (const topProduct of deepResults.topProducts) {
+              const productReviews = topProduct.reviews || []
+              const productHighlights = topProduct.reviewHighlights || []
+
+              productReviews.forEach((reviewStr: string) => {
+                const ratingMatch = reviewStr.match(/^([\d.]+)\s*(?:out of 5\s*)?stars?\s*-?\s*/i)
+                const rating = ratingMatch ? `${ratingMatch[1]} out of 5 stars` : null
+                const textWithoutRating = ratingMatch ? reviewStr.replace(ratingMatch[0], '') : reviewStr
+
+                reviews.push({
+                  rating,
+                  title: null,
+                  body: textWithoutRating.trim(),
+                  helpful: null,
+                  verified: false,
+                  date: new Date().toISOString(),
+                  author: 'Amazon Reviewer',
+                })
+              })
+
+              productHighlights.forEach((highlight: string) => {
+                reviews.push({
+                  rating: null,
+                  title: 'Review Highlight',
+                  body: highlight,
+                  helpful: null,
+                  verified: true,
+                  date: new Date().toISOString(),
+                  author: 'Multiple Reviewers',
+                })
+              })
+            }
+
+            if (reviews.length > 0) {
+              const reviewAnalysis = await analyzeReviewsWithAI(
+                reviews,
+                extractResult.brand || extractResult.storeName || 'Unknown Store',
+                targetCountry,
+                userId,
+                { enableCompression: true, enableCache: true }
+              )
+
+              result.reviewAnalysis = reviewAnalysis
+              result.reviewAnalysisSuccess = true
+              console.log(`✅ [STORE] 评论分析完成 (${reviews.length}条topProducts评论)`)
+            }
+          }
+          // 策略3: 无深度数据，标记成功但跳过分析（避免阻塞）
+          else if (!extractResult.products || extractResult.products.length === 0) {
+            console.log(`⚠️ [STORE] 无深度抓取数据且无产品列表，跳过评论分析`)
+            result.reviewAnalysisSuccess = true
+          }
+          // 策略4: 降级使用产品列表基础数据（最后方案）
+          else {
+            console.log(`📊 [STORE] 降级：从产品列表提取基础评论信息 (${extractResult.products.length}个产品)...`)
             extractResult.products.forEach((product: any) => {
               if (product.rating && product.reviews > 0) {
                 reviews.push({
@@ -803,10 +974,10 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
 
               result.reviewAnalysis = reviewAnalysis
               result.reviewAnalysisSuccess = true
-              console.log(`✅ 评论分析完成 (${reviews.length}条评论)`)
+              console.log(`✅ [STORE] 评论分析完成 (${reviews.length}条基础评论)`)
             } else {
-              console.log('⚠️ 店铺产品中未找到评论数据')
-              result.reviewAnalysisSuccess = true  // 不视为失败
+              console.log('⚠️ [STORE] 产品中未找到评论数据')
+              result.reviewAnalysisSuccess = true
             }
           }
         }

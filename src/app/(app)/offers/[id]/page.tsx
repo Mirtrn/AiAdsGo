@@ -55,6 +55,8 @@ interface Offer {
   // AI分析结果字段（仅显示评论分析和竞品分析）
   reviewAnalysis: string | null
   competitorAnalysis: string | null
+  // 链接类型
+  pageType: 'store' | 'product' | null
 }
 
 interface PerformanceSummary {
@@ -687,6 +689,18 @@ export default function OfferDetailPage() {
               <div>
                 <dt className="text-sm font-medium text-gray-500">品牌名称</dt>
                 <dd className="mt-1 text-sm text-gray-900">{offer.brand}</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500">链接类型</dt>
+                <dd className="mt-1">
+                  <span className={`px-2 py-1 text-xs font-semibold rounded ${
+                    offer.pageType === 'store'
+                      ? 'bg-purple-100 text-purple-800'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {offer.pageType === 'store' ? '🏪 店铺' : '📦 单品'}
+                  </span>
+                </dd>
               </div>
               <div>
                 <dt className="text-sm font-medium text-gray-500">产品分类</dt>

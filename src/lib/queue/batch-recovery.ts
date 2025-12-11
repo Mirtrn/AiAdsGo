@@ -93,6 +93,9 @@ async function recoverSingleBatchTask(
   uploadRecordId: string,
   validCount: number
 ): Promise<void> {
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   // 1. 查询所有子任务的实际状态（数据库是唯一真相来源）
   const childStats = await db.query<{
     status: string
@@ -153,8 +156,8 @@ async function recoverSingleBatchTask(
       status = ?,
       completed_count = ?,
       failed_count = ?,
-      completed_at = COALESCE(completed_at, datetime('now')),
-      updated_at = datetime('now')
+      completed_at = COALESCE(completed_at, ${nowFunc}),
+      updated_at = ${nowFunc}
     WHERE id = ?
   `, [finalStatus, completed, failed, batchId])
 
@@ -166,8 +169,8 @@ async function recoverSingleBatchTask(
       processed_count = ?,
       failed_count = ?,
       success_rate = ?,
-      completed_at = COALESCE(completed_at, datetime('now')),
-      updated_at = datetime('now')
+      completed_at = COALESCE(completed_at, ${nowFunc}),
+      updated_at = ${nowFunc}
     WHERE id = ?
   `, [finalStatus, completed, failed, successRate, uploadRecordId])
 

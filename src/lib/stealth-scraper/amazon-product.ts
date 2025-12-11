@@ -437,26 +437,37 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     console.log(`⏭️ 跳过竞品ASIN提取（skipCompetitorExtraction=true）`)
   } else {
     // Amazon推荐区域选择器（2024-2025版本）
-    // 🔥 2025-12-10优化：增加更多选择器，特别是缺货商品页面的fallback
+    // 🔥 2025-12-11优化：增加"Customers who viewed"和"Similar brands"精确选择器
     const relatedAsinSelectors = [
+      // 🆕 "Customers who viewed this item also viewed" - 最重要的竞品来源
+      '#sims-simsContainer_feature_div_01 a[href*="/dp/"]',
+      '#sims-simsContainer_feature_div_01 .a-carousel-card a[href*="/dp/"]',
+      // 🆕 "Similar brands on Amazon" - 重要的品牌竞品来源
+      '#sims-discoveryAndInspiration_feature_div_01 a[href*="/dp/"]',
+      '#sims-discoveryAndInspiration_feature_div_01 [data-asin] a[href*="/dp/"]',
+      // 🆕 "Related Climate Pledge Friendly items"
+      '#sims-simsContainer_feature_div_11 a[href*="/dp/"]',
       // Frequently bought together
       '#sims-fbt a[href*="/dp/"]',
       '#sims-fbt-content a[href*="/dp/"]',
       '[data-csa-c-slot-id="sims-fbt"] a[href*="/dp/"]',
-      // Customers also viewed/bought
+      '#sims-productBundle_feature_div_01 a[href*="/dp/"]',
+      // Customers also viewed/bought (通配符选择器)
       '[data-csa-c-slot-id="sims_purchase"] a[href*="/dp/"]',
       '[data-csa-c-slot-id="sims_viewed"] a[href*="/dp/"]',
       '[data-csa-c-slot-id="sims_considered"] a[href*="/dp/"]',
       // Compare with similar items
       '#similarities_feature_div a[href*="/dp/"]',
+      '#sims-comparisonContainer_feature_div_01 a[href*="/dp/"]',
       '[data-feature-name="similarities"] a[href*="/dp/"]',
       // Sponsored products (通常是相关竞品)
       '#sp_detail a[href*="/dp/"]',
       '#sp_detail2 a[href*="/dp/"]',
-      // Carousel containers - 🔥 缺货商品页面的主要来源
+      '#sims-sponsoredProducts2_feature_div_01 a[href*="/dp/"]',
+      // Carousel containers - 缺货商品页面的主要来源
       '.a-carousel-card a[href*="/dp/"]',
       '[data-a-carousel-options] a[href*="/dp/"]',
-      // 🔥 新增：Products related to this item（意大利站常见）
+      // Products related to this item（意大利站常见）
       '[data-component-type="s-search-result"] a[href*="/dp/"]',
       '.s-result-item a[href*="/dp/"]',
     ]
@@ -481,14 +492,21 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     if (relatedAsins.length < 3) {
       console.log(`🔄 策略1提取不足（${relatedAsins.length}个），启用data-asin策略...`)
       const recommendationContainers = [
-        // 🔥 优化：将.a-carousel-card提前，这是缺货商品页面的主要来源
+        // 🆕 2025-12-11优化：优先提取最重要的竞品区域
+        '#sims-simsContainer_feature_div_01',  // "Customers who viewed this item also viewed"
+        '#sims-discoveryAndInspiration_feature_div_01',  // "Similar brands on Amazon"
+        '#sims-simsContainer_feature_div_11',  // "Related Climate Pledge Friendly items"
+        '#sims-productBundle_feature_div_01',  // "Frequently bought together"
+        '#sims-comparisonContainer_feature_div_01',  // "Compare with similar items"
+        // Carousel容器 - 缺货商品页面的主要来源
         '.a-carousel-card',
         '.a-carousel-container',
         '#sims-fbt', '#sims-fbt-content', '[data-csa-c-slot-id*="sims"]',
         '#similarities_feature_div',
-        // 🔥 新增：Sponsored products区域的data-asin
+        // Sponsored products区域的data-asin
         '#sp_detail', '#sp_detail2',
-        // 🔥 新增：Brands in this category区域
+        '#sims-sponsoredProducts2_feature_div_01',
+        // Brands in this category区域
         '[data-component-type="sbv-sponsored"]',
       ]
       for (const containerSelector of recommendationContainers) {

@@ -42,6 +42,9 @@ export async function POST(req: NextRequest) {
   const db = getDatabase()
   const queue = getQueueManager()
 
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   try {
     // 1. 验证用户身份
     const userId = req.headers.get('x-user-id')
@@ -75,7 +78,7 @@ export async function POST(req: NextRequest) {
       `INSERT INTO offer_tasks (
         id, user_id, affiliate_link, target_country, status, stage, progress, message,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'pending', 'resolving_link', 0, '准备开始提取...', datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, 'pending', 'resolving_link', 0, '准备开始提取...', ${nowFunc}, ${nowFunc})`,
       [taskId, userIdNum, affiliate_link, target_country]
     )
 
