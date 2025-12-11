@@ -105,6 +105,9 @@ export async function POST(
     // 4. 创建offer_tasks记录（关联到原有offer_id）
     const taskId = crypto.randomUUID()
 
+    // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+    const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
     await db.exec(`
       INSERT INTO offer_tasks (
         id,
@@ -119,7 +122,7 @@ export async function POST(
         skip_warmup,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, true, false, datetime('now'), datetime('now'))
+      ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ${db.type === 'postgres' ? 'true' : '1'}, ${db.type === 'postgres' ? 'false' : '0'}, ${nowFunc}, ${nowFunc})
     `, [
       taskId,
       userIdNum,

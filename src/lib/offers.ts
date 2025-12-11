@@ -803,6 +803,8 @@ export async function updateOfferScrapeStatus(
     scraped_data?: string
     // 🆕 Phase 2: 产品分类元数据（Store Metadata Enhancement）
     product_categories?: string
+    // 🔥 页面类型标识（店铺/单品）
+    page_type?: 'store' | 'product'
   }
 ): Promise<void> {
   const db = await getDatabase()
@@ -873,6 +875,7 @@ export async function updateOfferScrapeStatus(
           extracted_at = COALESCE(?, extracted_at),
           scraped_data = COALESCE(?, scraped_data),
           product_categories = COALESCE(?, product_categories),
+          page_type = COALESCE(?, page_type),
           updated_at = ${nowFunc}
       WHERE id = ? AND user_id = ?
     `, [
@@ -897,6 +900,7 @@ export async function updateOfferScrapeStatus(
       scrapedData.extracted_at || null,
       scrapedData.scraped_data || null,
       scrapedData.product_categories || null,
+      scrapedData.page_type || null,
       id,
       userId
     ])

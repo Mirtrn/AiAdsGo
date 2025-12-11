@@ -144,14 +144,59 @@ export async function executeOfferExtraction(
     }
 
     // ========== 🔥 修复（2025-12-08）：批量上传自动创建Offer记录 ==========
-    // 检查是否是批量任务（有batch_id的offer_tasks）
-    const taskRow = await db.queryOne<{ batch_id: string | null }>(`
-      SELECT batch_id FROM offer_tasks WHERE id = ?
+    // ========== 🔥 修复（2025-12-11）：支持Rebuild任务更新现有Offer记录 ==========
+    // 检查是否是批量任务（有batch_id）或重建任务（有offer_id）
+    const taskRow = await db.queryOne<{ batch_id: string | null; offer_id: number | null }>(`
+      SELECT batch_id, offer_id FROM offer_tasks WHERE id = ?
     `, [task.id])
 
     let createdOfferId: number | null = null
 
-    if (taskRow?.batch_id) {
+    if (taskRow?.offer_id && !taskRow?.batch_id) {
+      // 这是重建任务，需要更新现有Offer记录
+      console.log(`🔄 重建任务，更新现有Offer记录: taskId=${task.id}, offerId=${taskRow.offer_id}`)
+
+      try {
+        // 使用updateOfferScrapeStatus更新所有字段
+        await updateOfferScrapeStatus(taskRow.offer_id, task.userId, 'completed', undefined, {
+          brand: extractResult.data.brand || undefined,
+          url: extractResult.data.finalUrl || undefined,
+          brand_description: aiProductInfo.brandDescription || undefined,
+          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
+            (Array.isArray(aiProductInfo.uniqueSellingPoints)
+              ? aiProductInfo.uniqueSellingPoints.join('\n')
+              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
+          product_highlights: aiProductInfo.productHighlights ?
+            (Array.isArray(aiProductInfo.productHighlights)
+              ? aiProductInfo.productHighlights.join('\n')
+              : String(aiProductInfo.productHighlights)) : undefined,
+          target_audience: aiProductInfo.targetAudience || undefined,
+          category: aiProductInfo.category || undefined,
+          review_analysis: aiAnalysisResult?.reviewAnalysis ?
+            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
+          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
+            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
+          extracted_keywords: aiAnalysisResult?.extractedKeywords ?
+            JSON.stringify(aiAnalysisResult.extractedKeywords) : undefined,
+          extracted_headlines: aiAnalysisResult?.extractedHeadlines ?
+            JSON.stringify(aiAnalysisResult.extractedHeadlines) : undefined,
+          extracted_descriptions: aiAnalysisResult?.extractedDescriptions ?
+            JSON.stringify(aiAnalysisResult.extractedDescriptions) : undefined,
+          extraction_metadata: aiAnalysisResult?.extractionMetadata ?
+            JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
+          extracted_at: new Date().toISOString(),
+          scraped_data: JSON.stringify(extractResult.data),
+          // 🔥 页面类型更新（重建时也需要更新）
+          page_type: extractResult.data.pageType || undefined,
+        })
+
+        createdOfferId = taskRow.offer_id
+        console.log(`✅ 重建任务Offer更新完成: offer_id=${taskRow.offer_id}`)
+      } catch (offerError: any) {
+        console.error(`❌ 重建任务更新Offer失败: ${task.id}:`, offerError.message)
+        // 更新Offer失败不中断流程，任务本身的result仍然保存
+      }
+    } else if (taskRow?.batch_id) {
       // 这是批量上传任务，需要创建Offer记录
       console.log(`📦 批量任务，创建Offer记录: ${task.id}`)
 
