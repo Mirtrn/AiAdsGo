@@ -191,6 +191,8 @@ export async function executeOfferExtraction(
             JSON.stringify(aiAnalysisResult.extractedDescriptions) : undefined,
           extraction_metadata: aiAnalysisResult?.extractionMetadata ?
             JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
+          // 🔥 页面类型标识（从extractResult中提取）
+          page_type: extractResult.data.pageType || 'product',
         })
 
         createdOfferId = offer.id

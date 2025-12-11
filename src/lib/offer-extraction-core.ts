@@ -139,6 +139,9 @@ export interface ExtractOfferResult {
     resolveMethod: string
     proxyUsed: string | null
 
+    // 🔥 页面类型标识（用于区分店铺/单品）
+    pageType: 'store' | 'product'
+
     // 调试信息
     debug: {
       scrapedDataAvailable: boolean
@@ -584,6 +587,9 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         pageTitle: resolvedData.pageTitle,
         resolveMethod: resolvedData.resolveMethod || 'unknown',
         proxyUsed: resolvedData.proxyUsed || null,
+
+        // 🔥 页面类型标识（根据isAmazonStore判断）
+        pageType: isAmazonStore ? 'store' : 'product',
 
         // 调试信息
         debug: {

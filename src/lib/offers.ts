@@ -86,6 +86,8 @@ export interface CreateOfferInput {
   extracted_headlines?: string
   extracted_descriptions?: string
   extraction_metadata?: string
+  // 🔥 页面类型标识（店铺/单品）
+  page_type?: 'store' | 'product'
 }
 
 export interface UpdateOfferInput {
@@ -188,7 +190,9 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     input.extracted_descriptions || null,
     input.extraction_metadata || null,
     // P1-3修复: 如果有任何AI分析或广告元素提取结果，记录提取时间
-    (input.review_analysis || input.competitor_analysis || input.extracted_keywords || input.extracted_headlines || input.extracted_descriptions) ? new Date().toISOString() : null
+    (input.review_analysis || input.competitor_analysis || input.extracted_keywords || input.extracted_headlines || input.extracted_descriptions) ? new Date().toISOString() : null,
+    // 🔥 页面类型标识（店铺/单品）
+    input.page_type || 'product'  // 默认为'product'
   ]
 
   // Debug: Check for undefined values
@@ -211,8 +215,9 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
       pricing, promotions, scraped_data,
       review_analysis, competitor_analysis,
       extracted_keywords, extracted_headlines, extracted_descriptions, extraction_metadata,
-      extracted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      extracted_at,
+      page_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, params)
 
   const offer = await findOfferById(result.lastInsertRowid as number, userId)
