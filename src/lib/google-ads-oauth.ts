@@ -39,6 +39,9 @@ export async function saveGoogleAdsCredentials(
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
+  // 🔧 PostgreSQL兼容性：is_active 在 PostgreSQL 是 BOOLEAN，在 SQLite 是 INTEGER
+  const isActiveValue = db.type === 'postgres' ? true : 1
+
   // 检查是否已存在
   const existing = await db.queryOne<GoogleAdsCredentials>(`
     SELECT * FROM google_ads_credentials WHERE user_id = ?
@@ -55,7 +58,7 @@ export async function saveGoogleAdsCredentials(
           login_customer_id = ?,
           access_token = ?,
           access_token_expires_at = ?,
-          is_active = 1,
+          is_active = ?,
           last_verified_at = ${nowFunc},
           updated_at = ${nowFunc}
       WHERE user_id = ?
@@ -67,6 +70,7 @@ export async function saveGoogleAdsCredentials(
       credentials.login_customer_id || null,
       credentials.access_token || null,
       credentials.access_token_expires_at || null,
+      isActiveValue,
       userId
     ])
   } else {
@@ -103,10 +107,13 @@ export async function saveGoogleAdsCredentials(
 export async function getGoogleAdsCredentials(userId: number): Promise<GoogleAdsCredentials | null> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：is_active 在 PostgreSQL 是 BOOLEAN，在 SQLite 是 INTEGER
+  const isActiveValue = db.type === 'postgres' ? true : 1
+
   const credentials = await db.queryOne<GoogleAdsCredentials>(`
     SELECT * FROM google_ads_credentials
-    WHERE user_id = ? AND is_active = 1
-  `, [userId])
+    WHERE user_id = ? AND is_active = ?
+  `, [userId, isActiveValue])
 
   return credentials || null
 }
@@ -120,11 +127,14 @@ export async function deleteGoogleAdsCredentials(userId: number): Promise<void> 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
+  // 🔧 PostgreSQL兼容性：is_active 在 PostgreSQL 是 BOOLEAN，在 SQLite 是 INTEGER
+  const isActiveValue = db.type === 'postgres' ? false : 0
+
   await db.exec(`
     UPDATE google_ads_credentials
-    SET is_active = 0, updated_at = ${nowFunc}
+    SET is_active = ?, updated_at = ${nowFunc}
     WHERE user_id = ?
-  `, [userId])
+  `, [isActiveValue, userId])
 }
 
 /**
