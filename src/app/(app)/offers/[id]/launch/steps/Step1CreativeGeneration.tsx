@@ -67,19 +67,21 @@ interface Creative {
     url: string
     description?: string
   }>
-  final_url: string
+  // 🔧 修复(2025-12-11): 与API响应保持一致 - camelCase
+  finalUrl: string
   score: number
-  score_breakdown: {
+  scoreBreakdown: {
     relevance: number
     quality: number
     engagement: number
     diversity: number
     clarity: number
   }
-  score_explanation: string
-  generation_round: number
+  scoreExplanation: string
+  // 🔧 修复(2025-12-11): snake_case → camelCase
+  generationRound: number
   theme: string
-  ai_model: string
+  aiModel: string
 
   // AD_STRENGTH新增字段
   headlinesWithMetadata?: HeadlineAsset[]
@@ -259,44 +261,44 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
               score: numericScore,
               dimensions: {
                 diversity: {
-                  score: c.score_breakdown?.diversity || 0,
+                  score: c.scoreBreakdown?.diversity || 0,
                   weight: 0.18,
                   details: ''
                 },
                 relevance: {
-                  score: c.score_breakdown?.relevance || 0,
+                  score: c.scoreBreakdown?.relevance || 0,
                   weight: 0.18,
                   details: ''
                 },
                 completeness: {
-                  score: c.score_breakdown?.engagement || 0,
+                  score: c.scoreBreakdown?.engagement || 0,
                   weight: 0.14,
                   details: ''
                 },
                 quality: {
-                  score: c.score_breakdown?.quality || 0,
+                  score: c.scoreBreakdown?.quality || 0,
                   weight: 0.14,
                   details: ''
                 },
                 compliance: {
-                  score: c.score_breakdown?.clarity || 0,
+                  score: c.scoreBreakdown?.clarity || 0,
                   weight: 0.08,
                   details: ''
                 },
                 // 🔧 新增：品牌搜索量维度 (18%)
                 brandSearchVolume: {
-                  score: c.score_breakdown?.brandSearchVolume || 0,
+                  score: c.scoreBreakdown?.brandSearchVolume || 0,
                   weight: 0.18,
                   details: { monthlySearchVolume: 0, volumeLevel: 'micro', dataSource: 'unavailable' }
                 },
                 // 🔧 新增：竞争定位维度 (10%)
                 competitivePositioning: {
-                  score: c.score_breakdown?.competitivePositioning || 0,
+                  score: c.scoreBreakdown?.competitivePositioning || 0,
                   weight: 0.10,
                   details: { priceAdvantage: 0, uniqueMarketPosition: 0, competitiveComparison: 0, valueEmphasis: 0 }
                 }
               },
-              suggestions: c.score_explanation ? [c.score_explanation] : []
+              suggestions: c.scoreExplanation ? [c.scoreExplanation] : []
             }
           }
         })
@@ -309,8 +311,8 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
               return b.score - a.score
             }
             // 若分数相同，按创建时间从新到旧排序
-            const timeA = new Date(a.created_at).getTime()
-            const timeB = new Date(b.created_at).getTime()
+            const timeA = new Date(a.createdAt).getTime()
+            const timeB = new Date(b.createdAt).getTime()
             return timeB - timeA
           })
           // 🎯 只取前 3 个最佳创意
@@ -391,22 +393,23 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 })
               } else if (data.type === 'result') {
                 // 生成成功
+                // 🔧 修复(2025-12-11): 使用 camelCase 字段名
                 const newCreative = {
                   id: data.creative.id,
                   ...data.creative,
                   score: data.adStrength.score,
-                  score_breakdown: {
+                  scoreBreakdown: {
                     diversity: data.adStrength.dimensions.diversity.score,
                     relevance: data.adStrength.dimensions.relevance.score,
                     engagement: data.adStrength.dimensions.completeness.score,
                     quality: data.adStrength.dimensions.quality.score,
                     clarity: data.adStrength.dimensions.compliance.score
                   },
-                  score_explanation: data.adStrength.suggestions.join(' '),
-                  generation_round: generationCount + 1,
+                  scoreExplanation: data.adStrength.suggestions.join(' '),
+                  generationRound: generationCount + 1,
                   theme: data.creative.theme || '品牌导向',
-                  ai_model: 'gemini-2.5-pro',
-                  final_url: data.offer?.url || '',
+                  aiModel: 'gemini-2.5-pro',
+                  finalUrl: data.offer?.url || '',
                   adStrength: data.adStrength,
                   optimization: data.optimization
                 }
@@ -426,8 +429,8 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                       return b.score - a.score
                     }
                     // 若分数相同，按创建时间从新到旧排序
-                    const timeA = new Date(a.created_at).getTime()
-                    const timeB = new Date(b.created_at).getTime()
+                    const timeA = new Date(a.createdAt).getTime()
+                    const timeB = new Date(b.createdAt).getTime()
                     return timeB - timeA
                   })
                   .slice(0, 3)
@@ -707,13 +710,13 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                           variant="outline"
                           className={`
                             text-[11px] px-1.5 py-0.5 h-5 font-semibold border
-                            ${creative.generation_round === 1 ? 'bg-blue-50 text-blue-700 border-blue-300' : ''}
-                            ${creative.generation_round === 2 ? 'bg-green-50 text-green-700 border-green-300' : ''}
-                            ${creative.generation_round === 3 ? 'bg-orange-50 text-orange-700 border-orange-300' : ''}
-                            ${creative.generation_round > 3 ? 'bg-gray-50 text-gray-600 border-gray-300' : ''}
+                            ${creative.generationRound === 1 ? 'bg-blue-50 text-blue-700 border-blue-300' : ''}
+                            ${creative.generationRound === 2 ? 'bg-green-50 text-green-700 border-green-300' : ''}
+                            ${creative.generationRound === 3 ? 'bg-orange-50 text-orange-700 border-orange-300' : ''}
+                            ${creative.generationRound > 3 ? 'bg-gray-50 text-gray-600 border-gray-300' : ''}
                           `}
                         >
-                          {creative.generation_round}
+                          {creative.generationRound}
                         </Badge>
                       </CardTitle>
                       <div className="text-xs text-muted-foreground mt-1">

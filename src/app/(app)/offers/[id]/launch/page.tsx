@@ -30,6 +30,9 @@ const STEPS: Step[] = [
   { id: 4, label: '发布上线', description: '确认并发布' }
 ]
 
+/**
+ * 🔧 修复(2025-12-11): 统一使用 camelCase 与 API 响应匹配
+ */
 interface Offer {
   id: number
   url: string
@@ -38,8 +41,8 @@ interface Offer {
   offerName: string | null
   targetCountry: string
   targetLanguage: string | null
-  scrape_status: string
-  enhanced_data?: any
+  scrapeStatus: string
+  enhancedData?: any
 }
 
 interface SelectedCreative {
@@ -53,10 +56,10 @@ interface SelectedCreative {
     url: string
     description?: string
   }>
-  final_url: string
-  final_url_suffix?: string
+  finalUrl: string
+  finalUrlSuffix?: string
   score: number
-  score_breakdown: {
+  scoreBreakdown: {
     relevance: number
     quality: number
     engagement: number
@@ -82,9 +85,9 @@ interface CampaignConfig {
 
 interface GoogleAdsAccount {
   id: number
-  customer_id: string
-  account_name?: string
-  is_active: boolean
+  customerId: string
+  accountName?: string
+  isActive: boolean
 }
 
 export default function LaunchAdPage() {

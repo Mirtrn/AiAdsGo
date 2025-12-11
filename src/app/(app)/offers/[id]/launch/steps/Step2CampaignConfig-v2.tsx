@@ -65,7 +65,8 @@ export default function Step2CampaignConfigV2({ offer, selectedCreative, onConfi
       targetCountry: offer.targetCountry || 'US',
       targetLanguage: offer.targetLanguage || 'en',
       biddingStrategy: 'MAXIMIZE_CLICKS',  // 业务规范
-      finalUrlSuffix: selectedCreative?.final_url_suffix || '',
+      // 🔧 修复(2025-12-11): final_url_suffix → finalUrlSuffix
+      finalUrlSuffix: selectedCreative?.finalUrlSuffix || '',
 
       // Ad Group Level
       adGroupName: `${offer.brand || 'Brand'} - Ad Group 1`,
@@ -82,7 +83,8 @@ export default function Step2CampaignConfigV2({ offer, selectedCreative, onConfi
       adName: `${offer.brand || 'Brand'} - Ad 1`,
       headlines: selectedCreative?.headlines || [],
       descriptions: selectedCreative?.descriptions || [],
-      finalUrls: [selectedCreative?.final_url || offer.url],
+      // 🔧 修复(2025-12-11): final_url → finalUrl
+      finalUrls: [selectedCreative?.finalUrl || offer.url],
 
       // Extensions
       callouts: selectedCreative?.callouts || [],

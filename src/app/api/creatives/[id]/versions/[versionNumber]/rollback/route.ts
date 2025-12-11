@@ -142,12 +142,22 @@ export async function POST(
       success: true,
       data: {
         version: {
-          ...newVersion,
+          id: newVersion.id,
+          creativeId: newVersion.creative_id,
+          versionNumber: newVersion.version_number,
           headlines: JSON.parse(newVersion.headlines),
           descriptions: JSON.parse(newVersion.descriptions),
-          quality_details: newVersion.quality_details
+          finalUrl: newVersion.final_url,
+          path1: newVersion.path_1,
+          path2: newVersion.path_2,
+          qualityScore: newVersion.quality_score,
+          qualityDetails: newVersion.quality_details
             ? JSON.parse(newVersion.quality_details)
             : null,
+          createdBy: newVersion.created_by,
+          creationMethod: newVersion.creation_method,
+          changeSummary: newVersion.change_summary,
+          createdAt: newVersion.created_at,
         },
       },
       message: `成功回滚到版本 ${versionNumber}（新版本号: ${newVersionNumber}）`,

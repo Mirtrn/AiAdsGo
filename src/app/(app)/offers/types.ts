@@ -18,9 +18,10 @@ export interface OfferListItem {
   productPrice?: string | null
   commissionPayout?: string | null
   // P1-11: 关联的Google Ads账号信息（只显示非MCC账号）
+  // 🔧 修复(2025-12-11): snake_case → camelCase
   linkedAccounts?: Array<{
-    account_id: number
-    customer_id: string
+    accountId: number
+    customerId: string
   }>
 }
 

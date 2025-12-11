@@ -2,6 +2,44 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findAdCreativesByOfferId, findAdCreativesByUserId } from '@/lib/ad-creative'
 
 /**
+ * 🔧 修复(2025-12-11): 转换数据库字段名为 camelCase
+ * 规范: API响应使用 camelCase，数据库字段使用 snake_case
+ */
+function transformCreativeToApiResponse(creative: any) {
+  return {
+    id: creative.id,
+    offerId: creative.offer_id,
+    userId: creative.user_id,
+    headlines: creative.headlines,
+    descriptions: creative.descriptions,
+    keywords: creative.keywords,
+    keywordsWithVolume: creative.keywordsWithVolume,
+    negativeKeywords: creative.negativeKeywords,
+    callouts: creative.callouts,
+    sitelinks: creative.sitelinks,
+    finalUrl: creative.final_url,
+    finalUrlSuffix: creative.final_url_suffix,
+    path1: creative.path_1,
+    path2: creative.path_2,
+    score: creative.score,
+    scoreBreakdown: creative.score_breakdown,
+    scoreExplanation: creative.score_explanation,
+    version: creative.version,
+    generationRound: creative.generation_round,
+    generationPrompt: creative.generation_prompt,
+    theme: creative.theme,
+    creationStatus: creative.creation_status,
+    creationError: creative.creation_error,
+    googleAdId: creative.google_ad_id,
+    googleAdGroupId: creative.google_ad_group_id,
+    lastSyncAt: creative.last_sync_at,
+    createdAt: creative.created_at,
+    updatedAt: creative.updated_at,
+    adStrength: creative.adStrength,
+  }
+}
+
+/**
  * GET /api/creatives?offerId=:id
  * 获取创意列表（可选按offerId过滤）
  */
@@ -36,10 +74,13 @@ export async function GET(request: NextRequest) {
       creatives = await findAdCreativesByUserId(parseInt(userId, 10), limit)
     }
 
+    // 🔧 修复(2025-12-11): 转换为 camelCase 响应
+    const transformedCreatives = creatives.map(transformCreativeToApiResponse)
+
     return NextResponse.json({
       success: true,
-      creatives,
-      count: creatives.length,
+      creatives: transformedCreatives,
+      count: transformedCreatives.length,
     })
   } catch (error: any) {
     console.error('获取创意列表失败:', error)

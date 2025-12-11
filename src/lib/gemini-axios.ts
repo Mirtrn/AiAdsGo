@@ -146,6 +146,10 @@ export async function generateContent(params: {
   // 尝试使用主模型
   try {
     console.log(`🤖 调用 Gemini API: ${model}`)
+    console.log(`   - Prompt长度: ${prompt.length} 字符`)
+    console.log(`   - maxOutputTokens: ${maxOutputTokens}`)
+    console.log(`   - temperature: ${temperature}`)
+    console.log(`   - 使用responseSchema: ${!!responseSchema}`)
 
     const response = await client.post<GeminiResponse>(
       `/v1beta/models/${model}:generateContent`,
@@ -215,6 +219,14 @@ export async function generateContent(params: {
       model
     }
   } catch (error: any) {
+    // 🔧 修复(2025-12-11): 对所有错误打印详细信息
+    console.error(`❌ Gemini API调用失败:`)
+    console.error(`   - HTTP状态: ${error.response?.status}`)
+    console.error(`   - 错误消息: ${error.message}`)
+    if (error.response?.data) {
+      console.error(`   - 响应数据: ${JSON.stringify(error.response.data, null, 2)}`)
+    }
+
     // 检查是否是模型过载错误（503或overloaded消息）
     const isOverloaded =
       error.response?.status === 503 ||
@@ -293,6 +305,31 @@ export async function generateContent(params: {
     }
 
     // 其他错误（非过载或已经是flash模型），直接抛出
+    // 🔧 修复(2025-12-11): 增加详细错误信息，便于排查400错误
+    const errorDetails = error.response?.data?.error
+    if (errorDetails) {
+      console.error('❌ Gemini API错误详情:')
+      console.error('   - code:', errorDetails.code)
+      console.error('   - message:', errorDetails.message)
+      console.error('   - status:', errorDetails.status)
+      if (errorDetails.details) {
+        console.error('   - details:', JSON.stringify(errorDetails.details, null, 2))
+      }
+
+      // 🔧 地理位置限制的友好错误提示
+      if (errorDetails.message?.includes('location is not supported') ||
+          errorDetails.status === 'FAILED_PRECONDITION') {
+        throw new Error(
+          `Gemini API调用失败: 当前地理位置不支持直接访问Gemini API。\n` +
+          `解决方案:\n` +
+          `1. 配置 Vertex AI（推荐，在/settings页面配置GCP项目ID和服务账号）\n` +
+          `2. 使用VPN或代理切换到支持的地区\n` +
+          `原始错误: ${errorDetails.message}`
+        )
+      }
+
+      throw new Error(`Gemini API调用失败 (${errorDetails.code}): ${errorDetails.message}`)
+    }
     throw new Error(`Gemini API调用失败: ${error.message}`)
   }
 }

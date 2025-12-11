@@ -29,12 +29,13 @@ export async function POST(request: NextRequest) {
         console.log(`   Customer ID: ${result.customer_id}`)
       }
 
+      // 🔧 修复(2025-12-11): snake_case → camelCase
       return NextResponse.json({
         success: true,
         message: 'Google Ads凭证有效',
         data: {
           valid: true,
-          customer_id: result.customer_id
+          customerId: result.customer_id
         }
       })
     } else {

@@ -41,7 +41,7 @@ export function createSyncExecutor(): TaskExecutor<SyncTaskData> {
       // 注意：现有服务会处理所有账户的同步，不需要传入特定账户ID
       const syncLog: SyncLog = await dataSyncService.syncPerformanceData(userId, syncType)
 
-      console.log(`✅ [SyncExecutor] 同步任务完成: 用户 #${userId}, 记录数: ${syncLog.record_count}, 耗时: ${syncLog.duration_ms}ms`)
+      console.log(`✅ [SyncExecutor] 同步任务完成: 用户 #${userId}, 记录数: ${syncLog.recordCount}, 耗时: ${syncLog.durationMs}ms`)
 
       return syncLog
     } catch (error: any) {

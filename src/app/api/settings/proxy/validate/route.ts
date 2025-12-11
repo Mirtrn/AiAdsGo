@@ -45,10 +45,10 @@ export async function POST(request: NextRequest) {
         success: true,
         message: '验证成功',
         data: {
-          is_valid: true,
-          country_code: validation.countryCode,
-          country_name: validation.countryCode ? getCountryName(validation.countryCode) : null,
-          test_ip: proxyIp.fullAddress,
+          isValid: true,
+          countryCode: validation.countryCode,
+          countryName: validation.countryCode ? getCountryName(validation.countryCode) : null,
+          testIp: proxyIp.fullAddress,
         },
       })
     } catch (error: any) {

@@ -108,9 +108,9 @@ export const CampaignROIChart = memo(function CampaignROIChart({ data, height = 
       .slice(0, 10)
       .map((item) => ({
         ...item,
-        name: item.campaign_name.length > 20
-          ? item.campaign_name.substring(0, 20) + '...'
-          : item.campaign_name,
+        name: item.campaignName.length > 20
+          ? item.campaignName.substring(0, 20) + '...'
+          : item.campaignName,
       }))
   }, [data])
 
@@ -133,8 +133,8 @@ export const CampaignROIChart = memo(function CampaignROIChart({ data, height = 
               const data = payload[0].payload
               return (
                 <div className="bg-white border border-gray-300 rounded p-3 shadow-lg">
-                  <p className="font-semibold mb-2">{data.campaign_name}</p>
-                  <p className="text-sm text-gray-600">{data.offer_brand}</p>
+                  <p className="font-semibold mb-2">{data.campaignName}</p>
+                  <p className="text-sm text-gray-600">{data.offerBrand}</p>
                   <div className="mt-2 space-y-1 text-sm">
                     <p>
                       ROI: <span className="font-semibold">{(Number(data.roi) || 0).toFixed(2)}%</span>
@@ -176,9 +176,9 @@ export const OfferROIChart = memo(function OfferROIChart({ data, height = 350 }:
       .slice(0, 8)
       .map((item) => ({
         ...item,
-        name: `${item.brand} - ${item.product_name}`.length > 25
-          ? `${item.brand} - ${item.product_name}`.substring(0, 25) + '...'
-          : `${item.brand} - ${item.product_name}`,
+        name: `${item.brand} - ${item.offerName}`.length > 25
+          ? `${item.brand} - ${item.offerName}`.substring(0, 25) + '...'
+          : `${item.brand} - ${item.offerName}`,
       }))
   }, [data])
 
@@ -195,7 +195,7 @@ export const OfferROIChart = memo(function OfferROIChart({ data, height = 350 }:
               return (
                 <div className="bg-white border border-gray-300 rounded p-3 shadow-lg">
                   <p className="font-semibold mb-1">{data.brand}</p>
-                  <p className="text-sm text-gray-600 mb-2">{data.product_name}</p>
+                  <p className="text-sm text-gray-600 mb-2">{data.offerName}</p>
                   <div className="space-y-1 text-sm">
                     <p>
                       收入: <span className="font-semibold">¥{(Number(data.revenue) || 0).toFixed(2)}</span>
@@ -210,7 +210,7 @@ export const OfferROIChart = memo(function OfferROIChart({ data, height = 350 }:
                       ROI: <span className="font-semibold">{(Number(data.roi) || 0).toFixed(2)}%</span>
                     </p>
                     <p className="text-xs text-gray-500 mt-2">
-                      {data.campaign_count} 个Campaign · {data.conversions} 次转化
+                      {data.campaignCount} 个Campaign · {data.conversions} 次转化
                     </p>
                   </div>
                 </div>

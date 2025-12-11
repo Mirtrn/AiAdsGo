@@ -42,26 +42,25 @@ interface Props {
 }
 
 interface GoogleAdsAccount {
-  customer_id: string
-  descriptive_name: string
-  currency_code: string
-  time_zone: string
+  customerId: string
+  descriptiveName: string
+  currencyCode: string
+  timeZone: string
   manager: boolean
-  test_account: boolean
+  testAccount: boolean
   status: string
-  parent_mcc?: string
-  parent_mcc_name?: string
-  db_account_id: number | null
-  db_account_name: string | null
-  last_sync_at?: string
-  account_balance?: number | null  // 账户余额（微单位，需除以1000000）
-  linked_offers?: Array<{
+  parentMcc?: string
+  parentMccName?: string
+  dbAccountId: number | null
+  lastSyncAt?: string
+  accountBalance?: number | null  // 账户余额（微单位，需除以1000000）
+  linkedOffers?: Array<{
     id: number
-    offer_name: string | null
+    offerName: string | null
     brand: string
-    target_country: string
-    is_active: number
-    campaign_count: number
+    targetCountry: string
+    isActive: boolean
+    campaignCount: number
   }>
 }
 
@@ -80,7 +79,7 @@ const formatBalance = (balance: number | null | undefined, currency: string): st
 
 export default function Step3AccountLinking({ offer, onAccountLinked, selectedAccount }: Props) {
   const [accounts, setAccounts] = useState<GoogleAdsAccount[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(selectedAccount?.customer_id || null)
+  const [selectedId, setSelectedId] = useState<string | null>(selectedAccount?.customerId || null)
   const [loading, setLoading] = useState(true)
   const [hasCredentials, setHasCredentials] = useState(false)
   const [showGuideDialog, setShowGuideDialog] = useState(false)
@@ -98,7 +97,8 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
 
       if (response.ok) {
         const data = await response.json()
-        setHasCredentials(data.has_credentials || false)
+        // 🔧 修复(2025-12-11): 使用 camelCase (hasCredentials)
+        setHasCredentials(data.hasCredentials || false)
       }
     } catch (error) {
       console.error('Failed to check credentials:', error)
@@ -135,7 +135,7 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
           if (account.manager === true) return false
 
           // 条件3：未被任何其他 Offer 关联
-          const linkedOffers = account.linked_offers || []
+          const linkedOffers = account.linkedOffers || []
           // 如果有关联的 Offers，且不全是当前 Offer，则排除
           const hasOtherOfferLinks = linkedOffers.some(
             (linkedOffer: any) => linkedOffer.id !== offer.id
@@ -163,19 +163,18 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
   }
 
   const handleSelectAccount = (account: GoogleAdsAccount) => {
-    setSelectedId(account.customer_id)
+    setSelectedId(account.customerId)
 
-    // 🔧 BUG FIX: Transform account object to match parent component's expected interface
-    // The API returns `db_account_id` but Step4 expects `id`
+    // 🔧 修复(2025-12-11): 输出 camelCase 字段名
     const transformedAccount = {
-      id: account.db_account_id!,  // Database ID used in Step4
-      customer_id: account.customer_id,
-      account_name: account.descriptive_name,
-      is_active: account.status === 'ENABLED'
+      id: account.dbAccountId!,  // Database ID used in Step4
+      customerId: account.customerId,
+      accountName: account.descriptiveName,
+      isActive: account.status === 'ENABLED'
     }
 
     onAccountLinked(transformedAccount)
-    showSuccess('已选择', `账号 ${account.descriptive_name} (${account.customer_id}) 已关联`)
+    showSuccess('已选择', `账号 ${account.descriptiveName} (${account.customerId}) 已关联`)
   }
 
   if (loading) {
@@ -258,11 +257,11 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
               </TableHeader>
               <TableBody>
                 {accounts.map((account) => {
-                  const isSelected = selectedId === account.customer_id
+                  const isSelected = selectedId === account.customerId
 
                   return (
                     <TableRow
-                      key={account.customer_id}
+                      key={account.customerId}
                       className={`cursor-pointer ${isSelected ? 'bg-green-50' : 'hover:bg-gray-50'}`}
                       onClick={() => handleSelectAccount(account)}
                     >
@@ -275,27 +274,27 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{account.descriptive_name}</span>
-                          {account.test_account && (
+                          <span className="font-medium">{account.descriptiveName}</span>
+                          {account.testAccount && (
                             <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 text-xs">
                               测试
                             </Badge>
                           )}
                         </div>
-                        {account.parent_mcc && (
+                        {account.parentMcc && (
                           <div className="text-xs text-gray-500 mt-1">
-                            MCC: {account.parent_mcc_name || account.parent_mcc}
+                            MCC: {account.parentMccName || account.parentMcc}
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">{account.customer_id}</TableCell>
+                      <TableCell className="font-mono text-sm">{account.customerId}</TableCell>
                       <TableCell className="text-sm">
-                        {formatBalance(account.account_balance, account.currency_code)}
+                        {formatBalance(account.accountBalance, account.currencyCode)}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {account.linked_offers && account.linked_offers.length > 0 ? (
+                        {account.linkedOffers && account.linkedOffers.length > 0 ? (
                           <div className="flex flex-wrap gap-1">
-                            {account.linked_offers.map((linkedOffer) => (
+                            {account.linkedOffers.map((linkedOffer) => (
                               <Badge
                                 key={linkedOffer.id}
                                 variant="outline"
@@ -309,7 +308,7 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                           <span className="text-gray-400">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm">{account.time_zone}</TableCell>
+                      <TableCell className="text-sm">{account.timeZone}</TableCell>
                       <TableCell>
                         <Badge variant="default" className="bg-green-600">
                           <CheckCircle2 className="w-3 h-3 mr-1" />
@@ -341,7 +340,7 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                 <div className="flex items-center gap-2 text-green-800">
                   <CheckCircle2 className="w-4 h-4" />
                   <span className="font-medium">
-                    已选择账号：{accounts.find(a => a.customer_id === selectedId)?.descriptive_name} ({selectedId})
+                    已选择账号：{accounts.find(a => a.customerId === selectedId)?.descriptiveName} ({selectedId})
                   </span>
                 </div>
               </div>

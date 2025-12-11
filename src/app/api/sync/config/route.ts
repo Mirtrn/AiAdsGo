@@ -130,31 +130,31 @@ export async function PUT(request: NextRequest) {
     const userId = authResult.user.userId
     const body = await request.json()
 
-    // 2. Validate input
+    // 2. Validate input - 🔧 修复(2025-12-11): 接受 camelCase 字段
     const {
-      auto_sync_enabled,
-      sync_interval_hours,
-      max_retry_attempts,
-      retry_delay_minutes,
-      notify_on_success,
-      notify_on_failure,
-      notification_email,
+      autoSyncEnabled,
+      syncIntervalHours,
+      maxRetryAttempts,
+      retryDelayMinutes,
+      notifyOnSuccess,
+      notifyOnFailure,
+      notificationEmail,
     } = body
 
     // Validation rules
     if (
-      typeof auto_sync_enabled !== 'boolean' &&
-      auto_sync_enabled !== undefined
+      typeof autoSyncEnabled !== 'boolean' &&
+      autoSyncEnabled !== undefined
     ) {
       return NextResponse.json(
-        { error: 'auto_sync_enabled必须是布尔值' },
+        { error: 'autoSyncEnabled必须是布尔值' },
         { status: 400 }
       )
     }
 
     if (
-      sync_interval_hours !== undefined &&
-      (sync_interval_hours < 1 || sync_interval_hours > 24)
+      syncIntervalHours !== undefined &&
+      (syncIntervalHours < 1 || syncIntervalHours > 24)
     ) {
       return NextResponse.json(
         { error: '同步间隔必须在1-24小时之间' },
@@ -163,8 +163,8 @@ export async function PUT(request: NextRequest) {
     }
 
     if (
-      max_retry_attempts !== undefined &&
-      (max_retry_attempts < 0 || max_retry_attempts > 10)
+      maxRetryAttempts !== undefined &&
+      (maxRetryAttempts < 0 || maxRetryAttempts > 10)
     ) {
       return NextResponse.json(
         { error: '重试次数必须在0-10之间' },
@@ -173,8 +173,8 @@ export async function PUT(request: NextRequest) {
     }
 
     if (
-      retry_delay_minutes !== undefined &&
-      (retry_delay_minutes < 5 || retry_delay_minutes > 120)
+      retryDelayMinutes !== undefined &&
+      (retryDelayMinutes < 5 || retryDelayMinutes > 120)
     ) {
       return NextResponse.json(
         { error: '重试延迟必须在5-120分钟之间' },
@@ -184,18 +184,18 @@ export async function PUT(request: NextRequest) {
 
     const db = await getDatabase()
 
-    // 3. Build update query dynamically
+    // 3. Build update query dynamically - 🔧 修复: 使用 camelCase 变量
     const updates: string[] = []
     const values: any[] = []
 
-    if (auto_sync_enabled !== undefined) {
+    if (autoSyncEnabled !== undefined) {
       updates.push('auto_sync_enabled = ?')
-      values.push(auto_sync_enabled ? 1 : 0)
+      values.push(autoSyncEnabled ? 1 : 0)
 
       // If enabling auto sync, calculate next sync time
-      if (auto_sync_enabled) {
+      if (autoSyncEnabled) {
         const interval =
-          sync_interval_hours !== undefined ? sync_interval_hours : 6
+          syncIntervalHours !== undefined ? syncIntervalHours : 6
         const nextSync = new Date()
         nextSync.setHours(nextSync.getHours() + interval)
 
@@ -207,9 +207,9 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    if (sync_interval_hours !== undefined) {
+    if (syncIntervalHours !== undefined) {
       updates.push('sync_interval_hours = ?')
-      values.push(sync_interval_hours)
+      values.push(syncIntervalHours)
 
       // Recalculate next sync time if auto sync is enabled
       const currentConfig = await db.queryOne(
@@ -219,36 +219,36 @@ export async function PUT(request: NextRequest) {
 
       if (currentConfig?.auto_sync_enabled) {
         const nextSync = new Date()
-        nextSync.setHours(nextSync.getHours() + sync_interval_hours)
+        nextSync.setHours(nextSync.getHours() + syncIntervalHours)
 
         updates.push('next_scheduled_sync_at = ?')
         values.push(nextSync.toISOString())
       }
     }
 
-    if (max_retry_attempts !== undefined) {
+    if (maxRetryAttempts !== undefined) {
       updates.push('max_retry_attempts = ?')
-      values.push(max_retry_attempts)
+      values.push(maxRetryAttempts)
     }
 
-    if (retry_delay_minutes !== undefined) {
+    if (retryDelayMinutes !== undefined) {
       updates.push('retry_delay_minutes = ?')
-      values.push(retry_delay_minutes)
+      values.push(retryDelayMinutes)
     }
 
-    if (notify_on_success !== undefined) {
+    if (notifyOnSuccess !== undefined) {
       updates.push('notify_on_success = ?')
-      values.push(notify_on_success ? 1 : 0)
+      values.push(notifyOnSuccess ? 1 : 0)
     }
 
-    if (notify_on_failure !== undefined) {
+    if (notifyOnFailure !== undefined) {
       updates.push('notify_on_failure = ?')
-      values.push(notify_on_failure ? 1 : 0)
+      values.push(notifyOnFailure ? 1 : 0)
     }
 
-    if (notification_email !== undefined) {
+    if (notificationEmail !== undefined) {
       updates.push('notification_email = ?')
-      values.push(notification_email || null)
+      values.push(notificationEmail || null)
     }
 
     // Always update updated_at

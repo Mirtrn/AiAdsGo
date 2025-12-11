@@ -26,13 +26,13 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertTriangle, Trash2, UnlinkIcon } from 'lucide-react'
 
 interface LinkedAccountDetail {
-  account_id: number
-  customer_id: string
-  account_name: string | null
-  campaign_id: number
-  campaign_name: string
+  accountId: number
+  customerId: string
+  accountName: string | null
+  campaignId: number
+  campaignName: string
   status: string
-  created_at: string
+  createdAt: string
 }
 
 interface Props {
@@ -58,20 +58,20 @@ export default function DeleteOfferConfirmDialog({
 }: Props) {
   // 按账号分组展示
   const accountGroups = linkedAccounts.reduce((groups, account) => {
-    const key = account.account_id
+    const key = account.accountId
     if (!groups[key]) {
       groups[key] = {
-        account_id: account.account_id,
-        customer_id: account.customer_id,
-        account_name: account.account_name,
+        accountId: account.accountId,
+        customerId: account.customerId,
+        accountName: account.accountName,
         campaigns: []
       }
     }
     groups[key].campaigns.push({
-      campaign_id: account.campaign_id,
-      campaign_name: account.campaign_name,
+      campaignId: account.campaignId,
+      campaignName: account.campaignName,
       status: account.status,
-      created_at: account.created_at
+      createdAt: account.createdAt
     })
     return groups
   }, {} as Record<number, any>)
@@ -104,11 +104,11 @@ export default function DeleteOfferConfirmDialog({
           <h4 className="text-sm font-medium">关联的Ads账号和广告系列：</h4>
 
           {Object.values(accountGroups).map((group: any) => (
-            <div key={group.account_id} className="border rounded-lg p-4 space-y-3">
+            <div key={group.accountId} className="border rounded-lg p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-medium">{group.account_name || '未命名账号'}</div>
-                  <div className="text-sm text-gray-500 font-mono">{group.customer_id}</div>
+                  <div className="font-medium">{group.accountName || '未命名账号'}</div>
+                  <div className="text-sm text-gray-500 font-mono">{group.customerId}</div>
                 </div>
                 <div className="text-sm text-gray-500">
                   {group.campaigns.length} 个广告系列
@@ -125,8 +125,8 @@ export default function DeleteOfferConfirmDialog({
                 </TableHeader>
                 <TableBody>
                   {group.campaigns.map((campaign: any) => (
-                    <TableRow key={campaign.campaign_id}>
-                      <TableCell className="font-medium">{campaign.campaign_name}</TableCell>
+                    <TableRow key={campaign.campaignId}>
+                      <TableCell className="font-medium">{campaign.campaignName}</TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                           campaign.status === 'ACTIVE' ? 'bg-green-100 text-green-800' :
@@ -137,7 +137,7 @@ export default function DeleteOfferConfirmDialog({
                         </span>
                       </TableCell>
                       <TableCell className="text-sm text-gray-500">
-                        {new Date(campaign.created_at).toLocaleDateString('zh-CN')}
+                        {new Date(campaign.createdAt).toLocaleDateString('zh-CN')}
                       </TableCell>
                     </TableRow>
                   ))}

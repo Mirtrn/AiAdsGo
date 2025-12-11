@@ -78,7 +78,7 @@ export async function POST(
       return NextResponse.json({
         success: true,
         message: '没有需要暂停的广告系列',
-        paused_count: 0,
+        pausedCount: 0,
         campaigns: []
       })
     }
@@ -94,8 +94,8 @@ export async function POST(
     }, {} as Record<number, typeof campaigns>)
 
     const results: Array<{
-      campaign_id: number
-      campaign_name: string
+      campaignId: number
+      campaignName: string
       success: boolean
       error?: string
     }> = []
@@ -118,8 +118,8 @@ export async function POST(
             : 'Google Ads账号refresh token缺失'
           accountCampaigns.forEach(campaign => {
             results.push({
-              campaign_id: campaign.id,
-              campaign_name: campaign.campaign_name,
+              campaignId: campaign.id,
+              campaignName: campaign.campaign_name,
               success: false,
               error: errorMsg
             })
@@ -150,8 +150,8 @@ export async function POST(
             `, [campaign.id])
 
             results.push({
-              campaign_id: campaign.id,
-              campaign_name: campaign.campaign_name,
+              campaignId: campaign.id,
+              campaignName: campaign.campaign_name,
               success: true
             })
 
@@ -160,8 +160,8 @@ export async function POST(
             console.error(`暂停广告系列失败 (Campaign ID: ${campaign.id}):`, error)
 
             results.push({
-              campaign_id: campaign.id,
-              campaign_name: campaign.campaign_name,
+              campaignId: campaign.id,
+              campaignName: campaign.campaign_name,
               success: false,
               error: error.message || '暂停失败'
             })
@@ -175,8 +175,8 @@ export async function POST(
         // 该账号下所有广告系列都标记为失败
         accountCampaigns.forEach(campaign => {
           results.push({
-            campaign_id: campaign.id,
-            campaign_name: campaign.campaign_name,
+            campaignId: campaign.id,
+            campaignName: campaign.campaign_name,
             success: false,
             error: `账号凭证错误: ${error.message}`
           })
@@ -189,9 +189,9 @@ export async function POST(
     return NextResponse.json({
       success: errorCount === 0,
       message: `已暂停 ${pausedCount} 个广告系列${errorCount > 0 ? `，${errorCount} 个失败` : ''}`,
-      paused_count: pausedCount,
-      error_count: errorCount,
-      total_count: campaigns.length,
+      pausedCount: pausedCount,
+      errorCount: errorCount,
+      totalCount: campaigns.length,
       campaigns: results
     })
 

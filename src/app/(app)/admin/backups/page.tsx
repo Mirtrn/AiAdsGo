@@ -3,32 +3,38 @@
 import { useState, useEffect } from 'react'
 import { showSuccess, showError, showConfirm } from '@/lib/toast-utils'
 
+/**
+ * 🔧 修复(2025-12-11): 统一使用 camelCase 字段名
+ */
 interface Backup {
   id: number
-  backup_filename: string
-  backup_path: string
-  file_size_bytes: number
+  backupFilename: string
+  backupPath: string
+  fileSizeBytes: number
   status: string
-  error_message: string | null
-  backup_type: string
-  created_at: string
-  task_type: string
+  errorMessage: string | null
+  backupType: string
+  createdAt: string
+  taskType: string
 }
 
+/**
+ * 🔧 修复(2025-12-11): 统一使用 camelCase 字段名
+ */
 interface SyncLog {
   id: number
-  user_id: number
-  google_ads_account_id: number
-  sync_type: string
+  userId: number
+  googleAdsAccountId: number
+  syncType: string
   status: string
-  record_count: number
-  duration_ms: number
-  error_message: string | null
-  started_at: string
-  completed_at: string | null
+  recordCount: number
+  durationMs: number
+  errorMessage: string | null
+  startedAt: string
+  completedAt: string | null
   username: string | null
-  customer_id: string | null
-  task_type: string
+  customerId: string | null
+  taskType: string
 }
 
 interface ScheduledTask {
@@ -330,27 +336,27 @@ export default function AdminScheduledTasksPage() {
                     {/* 合并备份和同步日志，按时间排序 */}
                     {[...backups.slice(0, 5), ...syncLogs.slice(0, 5)]
                       .sort((a, b) => {
-                        const dateA = new Date('created_at' in a ? a.created_at : a.started_at)
-                        const dateB = new Date('created_at' in b ? b.created_at : b.started_at)
+                        const dateA = new Date('createdAt' in a ? a.createdAt : a.startedAt)
+                        const dateB = new Date('createdAt' in b ? b.createdAt : b.startedAt)
                         return dateB.getTime() - dateA.getTime()
                       })
                       .slice(0, 10)
                       .map((item, index) => (
-                        <div key={`${item.task_type}-${item.id}`} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                        <div key={`${item.taskType}-${item.id}`} className="flex items-center justify-between p-3 bg-gray-50 rounded">
                           <div className="flex items-center space-x-4">
                             <span className={`px-2 py-1 text-xs rounded ${
-                              item.task_type === 'backup' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                              item.taskType === 'backup' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
                             }`}>
-                              {item.task_type === 'backup' ? '备份' : '同步'}
+                              {item.taskType === 'backup' ? '备份' : '同步'}
                             </span>
                             <div>
                               <p className="text-sm font-medium text-gray-900">
-                                {item.task_type === 'backup'
-                                  ? (item as Backup).backup_filename || '数据库备份'
-                                  : `用户 ${(item as SyncLog).username || (item as SyncLog).user_id} - ${(item as SyncLog).record_count} 条记录`}
+                                {item.taskType === 'backup'
+                                  ? (item as Backup).backupFilename || '数据库备份'
+                                  : `用户 ${(item as SyncLog).username || (item as SyncLog).userId} - ${(item as SyncLog).recordCount} 条记录`}
                               </p>
                               <p className="text-xs text-gray-500">
-                                {'created_at' in item ? formatDateTime(item.created_at) : formatDateTime((item as SyncLog).started_at)}
+                                {'createdAt' in item ? formatDateTime(item.createdAt) : formatDateTime((item as SyncLog).startedAt)}
                               </p>
                             </div>
                           </div>
@@ -432,31 +438,31 @@ export default function AdminScheduledTasksPage() {
                           <tr key={backup.id} className="hover:bg-gray-50">
                             <td className="px-6 py-4">
                               <div className="text-sm font-medium text-gray-900">
-                                {backup.backup_filename || 'N/A'}
+                                {backup.backupFilename || 'N/A'}
                               </div>
-                              {backup.error_message && (
+                              {backup.errorMessage && (
                                 <div className="text-xs text-red-600 mt-1">
-                                  错误: {backup.error_message}
+                                  错误: {backup.errorMessage}
                                 </div>
                               )}
                             </td>
                             <td className="px-6 py-4">
                               <span className={`px-2 py-1 text-xs rounded ${
-                                backup.backup_type === 'manual'
+                                backup.backupType === 'manual'
                                   ? 'bg-blue-100 text-blue-800'
                                   : 'bg-gray-100 text-gray-800'
                               }`}>
-                                {backup.backup_type === 'manual' ? '手动' : '自动'}
+                                {backup.backupType === 'manual' ? '手动' : '自动'}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900">
-                              {backup.status === 'success' ? formatFileSize(backup.file_size_bytes) : 'N/A'}
+                              {backup.status === 'success' ? formatFileSize(backup.fileSizeBytes) : 'N/A'}
                             </td>
                             <td className="px-6 py-4">
                               {renderStatusBadge(backup.status)}
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900">
-                              {formatDateTime(backup.created_at)}
+                              {formatDateTime(backup.createdAt)}
                             </td>
                           </tr>
                         ))}
@@ -543,37 +549,37 @@ export default function AdminScheduledTasksPage() {
                           <tr key={log.id} className="hover:bg-gray-50">
                             <td className="px-6 py-4">
                               <div className="text-sm font-medium text-gray-900">
-                                {log.username || `用户#${log.user_id}`}
+                                {log.username || `用户#${log.userId}`}
                               </div>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900">
-                              {log.customer_id || '-'}
+                              {log.customerId || '-'}
                             </td>
                             <td className="px-6 py-4">
                               <span className={`px-2 py-1 text-xs rounded ${
-                                log.sync_type === 'manual'
+                                log.syncType === 'manual'
                                   ? 'bg-blue-100 text-blue-800'
                                   : 'bg-gray-100 text-gray-800'
                               }`}>
-                                {log.sync_type === 'manual' ? '手动' : '自动'}
+                                {log.syncType === 'manual' ? '手动' : '自动'}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900">
-                              {log.record_count.toLocaleString()}
+                              {log.recordCount.toLocaleString()}
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900">
-                              {formatDuration(log.duration_ms)}
+                              {formatDuration(log.durationMs)}
                             </td>
                             <td className="px-6 py-4">
                               {renderStatusBadge(log.status)}
-                              {log.error_message && (
-                                <div className="text-xs text-red-600 mt-1 max-w-xs truncate" title={log.error_message}>
-                                  {log.error_message}
+                              {log.errorMessage && (
+                                <div className="text-xs text-red-600 mt-1 max-w-xs truncate" title={log.errorMessage}>
+                                  {log.errorMessage}
                                 </div>
                               )}
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900">
-                              {formatDateTime(log.started_at)}
+                              {formatDateTime(log.startedAt)}
                             </td>
                           </tr>
                         ))}

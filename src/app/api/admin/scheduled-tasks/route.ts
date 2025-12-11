@@ -33,17 +33,18 @@ export async function GET(request: NextRequest) {
     let syncLogs: any[] = []
 
     if (type === 'all' || type === 'backup') {
+      // 🔧 修复(2025-12-11): 使用 AS 别名返回 camelCase 字段
       backups = await db.query(`
         SELECT
           id,
-          backup_filename,
-          backup_path,
-          file_size_bytes,
+          backup_filename AS backupFilename,
+          backup_path AS backupPath,
+          file_size_bytes AS fileSizeBytes,
           status,
-          error_message,
-          backup_type,
-          created_at,
-          'backup' as task_type
+          error_message AS errorMessage,
+          backup_type AS backupType,
+          created_at AS createdAt,
+          'backup' as taskType
         FROM backup_logs
         ORDER BY created_at DESC
         LIMIT ?
@@ -51,21 +52,22 @@ export async function GET(request: NextRequest) {
     }
 
     if (type === 'all' || type === 'sync') {
+      // 🔧 修复(2025-12-11): 使用 AS 别名返回 camelCase 字段
       syncLogs = await db.query(`
         SELECT
           sl.id,
-          sl.user_id,
-          sl.google_ads_account_id,
-          sl.sync_type,
+          sl.user_id AS userId,
+          sl.google_ads_account_id AS googleAdsAccountId,
+          sl.sync_type AS syncType,
           sl.status,
-          sl.record_count,
-          sl.duration_ms,
-          sl.error_message,
-          sl.started_at,
-          sl.completed_at,
+          sl.record_count AS recordCount,
+          sl.duration_ms AS durationMs,
+          sl.error_message AS errorMessage,
+          sl.started_at AS startedAt,
+          sl.completed_at AS completedAt,
           u.username,
-          ga.customer_id,
-          'sync' as task_type
+          ga.customer_id AS customerId,
+          'sync' as taskType
         FROM sync_logs sl
         LEFT JOIN users u ON sl.user_id = u.id
         LEFT JOIN google_ads_accounts ga ON sl.google_ads_account_id = ga.id

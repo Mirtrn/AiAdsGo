@@ -94,7 +94,7 @@ export default function DashboardPage() {
         setOfferSummary({
           total: offersArray.length,
           active: offersArray.filter((o: any) => o.isActive).length,
-          pendingScrape: offersArray.filter((o: any) => o.scrape_status === 'pending').length
+          pendingScrape: offersArray.filter((o: any) => o.scrapeStatus === 'pending').length
         })
       }
     } catch (err) {

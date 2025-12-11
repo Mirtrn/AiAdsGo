@@ -733,7 +733,7 @@ export default function OffersPage() {
                         语言
                       </SortableTableHead>
                       <SortableTableHead
-                        field="scrape_status"
+                        field="scrapeStatus"
                         currentSortBy={sortBy}
                         sortOrder={sortOrder}
                         onSort={handleSort}
@@ -787,17 +787,18 @@ export default function OffersPage() {
                           {/* P1-11: 显示关联的Google Ads账号（只显示非MCC账号） */}
                           {offer.linkedAccounts && offer.linkedAccounts.length > 0 ? (
                             <div className="space-y-1">
+                              {/* 🔧 修复(2025-12-11): snake_case → camelCase */}
                               {offer.linkedAccounts.map((account, idx) => (
                                 <div key={idx} className="flex items-center gap-1.5 text-xs">
                                   <span className="text-gray-700 font-mono">
-                                    {account.customer_id}
+                                    {account.customerId}
                                   </span>
                                   <button
                                     onClick={() => {
                                       setOfferToUnlink({
                                         offer,
-                                        accountId: account.account_id,
-                                        accountName: account.customer_id
+                                        accountId: account.accountId,
+                                        accountName: account.customerId
                                       })
                                       setIsUnlinkDialogOpen(true)
                                     }}

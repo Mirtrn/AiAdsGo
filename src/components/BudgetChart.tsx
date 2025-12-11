@@ -89,9 +89,9 @@ export const CampaignBudgetChart = memo(function CampaignBudgetChart({ data, hei
       .slice(0, 10)
       .map((item) => ({
         ...item,
-        name: item.campaign_name.length > 20
-          ? item.campaign_name.substring(0, 20) + '...'
-          : item.campaign_name,
+        name: item.campaignName.length > 20
+          ? item.campaignName.substring(0, 20) + '...'
+          : item.campaignName,
       }))
   }, [data])
 
@@ -107,8 +107,8 @@ export const CampaignBudgetChart = memo(function CampaignBudgetChart({ data, hei
               const data = payload[0].payload
               return (
                 <div className="bg-white border border-gray-300 rounded p-3 shadow-lg">
-                  <p className="font-semibold mb-2">{data.campaign_name}</p>
-                  <p className="text-sm text-gray-600 mb-2">{data.offer_brand}</p>
+                  <p className="font-semibold mb-2">{data.campaignName}</p>
+                  <p className="text-sm text-gray-600 mb-2">{data.offerBrand}</p>
                   <div className="space-y-1 text-sm">
                     <p>
                       预算: <span className="font-semibold">¥{data.budget.toFixed(2)}</span>
@@ -229,7 +229,7 @@ export const OfferBudgetChart = memo(function OfferBudgetChart({ data, height = 
               return (
                 <div className="bg-white border border-gray-300 rounded p-3 shadow-lg">
                   <p className="font-semibold mb-1">{data.brand}</p>
-                  <p className="text-sm text-gray-600 mb-2">{data.product_name}</p>
+                  <p className="text-sm text-gray-600 mb-2">{data.offerName}</p>
                   <div className="space-y-1 text-sm">
                     <p>
                       预算分配: <span className="font-semibold">¥{data.allocatedBudget.toFixed(2)}</span>

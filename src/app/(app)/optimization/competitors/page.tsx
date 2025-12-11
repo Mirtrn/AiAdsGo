@@ -89,10 +89,10 @@ export default function CompetitorsPage() {
           .map((offer: any) => ({
             id: offer.id,
             brand: offer.brand,
-            productName: offer.product_name || offer.brand,
-            competitorAnalysis: offer.competitor_analysis ?
-              (typeof offer.competitor_analysis === 'string' ?
-                JSON.parse(offer.competitor_analysis) : offer.competitor_analysis) : null
+            productName: offer.offerName || offer.brand,
+            competitorAnalysis: offer.competitorAnalysis ?
+              (typeof offer.competitorAnalysis === 'string' ?
+                JSON.parse(offer.competitorAnalysis) : offer.competitorAnalysis) : null
           }))
           .filter((offer: Offer) => offer.competitorAnalysis)
 

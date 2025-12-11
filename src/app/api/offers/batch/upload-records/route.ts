@@ -86,9 +86,20 @@ export async function GET(req: NextRequest) {
     `, [...queryParams, limit, offset])
 
     // 确保 success_rate 是数字类型（处理 SQLite/PostgreSQL 差异）
+    // 同时转换为 camelCase
     const normalizedRecords = records.map(record => ({
-      ...record,
-      success_rate: Number(record.success_rate) || 0
+      id: record.id,
+      batchId: record.batch_id,
+      fileName: record.file_name,
+      fileSize: record.file_size,
+      uploadedAt: record.uploaded_at,
+      validCount: record.valid_count,
+      processedCount: record.processed_count,
+      skippedCount: record.skipped_count,
+      failedCount: record.failed_count,
+      successRate: Number(record.success_rate) || 0,
+      status: record.status,
+      completedAt: record.completed_at,
     }))
 
     // 查询总数

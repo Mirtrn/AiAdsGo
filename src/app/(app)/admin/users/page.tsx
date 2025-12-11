@@ -45,13 +45,13 @@ interface User {
     username: string
     email: string
     role: string
-    package_type: string
-    package_expires_at: string | null
-    is_active: number
-    created_at: string
-    locked_until: string | null
-    failed_login_count: number
-    last_login_at: string | null
+    packageType: string
+    packageExpiresAt: string | null
+    isActive: number
+    createdAt: string
+    lockedUntil: string | null
+    failedLoginCount: number
+    lastLoginAt: string | null
 }
 
 interface Pagination {
@@ -441,9 +441,9 @@ export default function UserManagementPage() {
     const openEditModal = (user: User) => {
         setSelectedUser(user)
         setEditEmail(user.email || '')
-        setEditPackage(user.package_type)
-        setEditExpiry(user.package_expires_at ? new Date(user.package_expires_at).toISOString().split('T')[0] : '')
-        setEditStatus(user.is_active)
+        setEditPackage(user.packageType)
+        setEditExpiry(user.packageExpiresAt ? new Date(user.packageExpiresAt).toISOString().split('T')[0] : '')
+        setEditStatus(user.isActive)
         setIsEditOpen(true)
     }
 
@@ -487,8 +487,8 @@ export default function UserManagementPage() {
     }
 
     const isUserLocked = (user: User) => {
-        if (!user.locked_until) return false
-        return new Date(user.locked_until) > new Date()
+        if (!user.lockedUntil) return false
+        return new Date(user.lockedUntil) > new Date()
     }
 
     const calculateRemainingMinutes = (lockedUntil: string) => {
@@ -620,23 +620,23 @@ export default function UserManagementPage() {
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant="outline" className="capitalize">
-                                                    {user.package_type === 'trial' ? '试用版' :
-                                                     user.package_type === 'annual' ? '年度会员' :
-                                                     user.package_type === 'lifetime' ? '终身会员' : '私有化部署'}
+                                                    {user.packageType === 'trial' ? '试用版' :
+                                                     user.packageType === 'annual' ? '年度会员' :
+                                                     user.packageType === 'lifetime' ? '终身会员' : '私有化部署'}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
-                                                {user.package_expires_at ? new Date(user.package_expires_at).toLocaleDateString('zh-CN') : '永久'}
+                                                {user.packageExpiresAt ? new Date(user.packageExpiresAt).toLocaleDateString('zh-CN') : '永久'}
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
-                                                {new Date(user.created_at).toLocaleDateString('zh-CN')}
+                                                {new Date(user.createdAt).toLocaleDateString('zh-CN')}
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
-                                                {user.last_login_at ? (
+                                                {user.lastLoginAt ? (
                                                     <div className="flex flex-col">
-                                                        <span>{new Date(user.last_login_at).toLocaleDateString('zh-CN')}</span>
+                                                        <span>{new Date(user.lastLoginAt).toLocaleDateString('zh-CN')}</span>
                                                         <span className="text-xs text-muted-foreground">
-                                                            {new Date(user.last_login_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                                            {new Date(user.lastLoginAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                                                         </span>
                                                     </div>
                                                 ) : (
@@ -644,13 +644,13 @@ export default function UserManagementPage() {
                                                 )}
                                             </TableCell>
                                             <TableCell>
-                                                {user.is_active === 0 ? (
+                                                {user.isActive === 0 ? (
                                                     <Badge variant="destructive">
                                                         🚫 已禁用
                                                     </Badge>
                                                 ) : isUserLocked(user) ? (
                                                     <Badge variant="outline" className="text-yellow-600 border-yellow-600">
-                                                        ⏳ 已锁定（还剩{calculateRemainingMinutes(user.locked_until!)}分钟）
+                                                        ⏳ 已锁定（还剩{calculateRemainingMinutes(user.lockedUntil!)}分钟）
                                                     </Badge>
                                                 ) : (
                                                     <Badge variant="outline" className="text-green-600 border-green-600">
@@ -698,11 +698,11 @@ export default function UserManagementPage() {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className={user.is_active ? 'text-orange-600 hover:text-orange-700' : 'text-green-600 hover:text-green-700'}
-                                                        onClick={() => handleDisableUser(user.id, user.username, user.is_active)}
-                                                        title={user.is_active ? '禁用' : '启用'}
+                                                        className={user.isActive ? 'text-orange-600 hover:text-orange-700' : 'text-green-600 hover:text-green-700'}
+                                                        onClick={() => handleDisableUser(user.id, user.username, user.isActive)}
+                                                        title={user.isActive ? '禁用' : '启用'}
                                                     >
-                                                        {user.is_active ? (
+                                                        {user.isActive ? (
                                                             <XCircle className="w-4 h-4" />
                                                         ) : (
                                                             <CheckCircle className="w-4 h-4" />
@@ -712,7 +712,7 @@ export default function UserManagementPage() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="text-red-600 hover:text-red-700"
-                                                        onClick={() => handleDeleteUser(user.id, user.username, user.is_active)}
+                                                        onClick={() => handleDeleteUser(user.id, user.username, user.isActive)}
                                                         title="删除"
                                                     >
                                                         <Trash className="w-4 h-4" />

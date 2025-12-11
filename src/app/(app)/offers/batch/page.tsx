@@ -21,16 +21,16 @@ import UploadSuccessModal from '@/components/UploadSuccessModal'
 
 interface UploadRecord {
   id: string
-  batch_id: string
-  file_name: string
-  uploaded_at: string
-  valid_count: number
-  processed_count: number
-  skipped_count: number
-  failed_count: number
-  success_rate: number
+  batchId: string
+  fileName: string
+  uploadedAt: string
+  validCount: number
+  processedCount: number
+  skippedCount: number
+  failedCount: number
+  successRate: number
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'partial'
-  completed_at: string | null
+  completedAt: string | null
 }
 
 export default function BatchOfferPage() {
@@ -92,12 +92,12 @@ export default function BatchOfferPage() {
       const data = await response.json()
 
       // 计算跳过的行数
-      const skippedCount = data.skipped_count || 0
+      const skippedCount = data.skippedCount || 0
 
       // 显示成功弹窗
       setUploadResult({
         fileName: file.name,
-        validCount: data.total_count,
+        validCount: data.totalCount,
         skippedCount
       })
       setShowSuccessModal(true)
@@ -312,34 +312,34 @@ export default function BatchOfferPage() {
                 {records.map((record) => (
                   <tr key={record.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {record.file_name}
-                      {record.skipped_count > 0 && (
+                      {record.fileName}
+                      {record.skippedCount > 0 && (
                         <span className="ml-2 text-xs text-yellow-600">
-                          (跳过{record.skipped_count}行)
+                          (跳过{record.skippedCount}行)
                         </span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatTime(record.uploaded_at)}
+                      {formatTime(record.uploadedAt)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.valid_count}
+                      {record.validCount}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.processed_count}
-                      {record.failed_count > 0 && (
+                      {record.processedCount}
+                      {record.failedCount > 0 && (
                         <span className="ml-1 text-red-600">
-                          ({record.failed_count} 失败)
+                          ({record.failedCount} 失败)
                         </span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <span className={`font-semibold ${
-                        Number(record.success_rate) >= 90 ? 'text-green-600' :
-                        Number(record.success_rate) >= 70 ? 'text-yellow-600' :
+                        Number(record.successRate) >= 90 ? 'text-green-600' :
+                        Number(record.successRate) >= 70 ? 'text-yellow-600' :
                         'text-red-600'
                       }`}>
-                        {Number(record.success_rate).toFixed(1)}%
+                        {Number(record.successRate).toFixed(1)}%
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">

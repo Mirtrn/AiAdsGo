@@ -561,7 +561,21 @@ export async function GET(request: NextRequest) {
     const accountsWithOffers = await Promise.all(allAccounts.map(async (account) => {
       const dbAccountId = account.db_account_id
       if (!dbAccountId) {
-        return { ...account, linked_offers: [] }
+        // 🔧 修复(2025-12-11): 转换snake_case为camelCase，保持API响应一致性
+        return {
+          customerId: account.customer_id,
+          descriptiveName: account.descriptive_name,
+          currencyCode: account.currency_code,
+          timeZone: account.time_zone,
+          manager: account.manager,
+          testAccount: account.test_account,
+          status: account.status,
+          accountBalance: account.account_balance,
+          parentMcc: account.parent_mcc,
+          dbAccountId: account.db_account_id,
+          lastSyncAt: account.last_sync_at,
+          linkedOffers: []
+        }
       }
 
       const linkedOffers = await db.query(`
@@ -591,7 +605,21 @@ export async function GET(request: NextRequest) {
         campaignCount: offer.campaign_count
       }))
 
-      return { ...account, linked_offers: linkedOffersMapped }
+      // 🔧 修复(2025-12-11): 转换snake_case为camelCase，保持API响应一致性
+      return {
+        customerId: account.customer_id,
+        descriptiveName: account.descriptive_name,
+        currencyCode: account.currency_code,
+        timeZone: account.time_zone,
+        manager: account.manager,
+        testAccount: account.test_account,
+        status: account.status,
+        accountBalance: account.account_balance,
+        parentMcc: account.parent_mcc,
+        dbAccountId: account.db_account_id,
+        lastSyncAt: account.last_sync_at,
+        linkedOffers: linkedOffersMapped
+      }
     }))
 
     return NextResponse.json({

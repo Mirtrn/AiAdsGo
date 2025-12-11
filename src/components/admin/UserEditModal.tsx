@@ -11,21 +11,21 @@ interface UserEditModalProps {
     id: number
     username: string
     email: string | null
-    display_name: string
+    displayName: string
     role: string
-    package_type: string
-    valid_from: string
-    valid_until: string
-    is_active: number
+    packageType: string
+    validFrom: string
+    validUntil: string
+    isActive: number
   }
 }
 
 export default function UserEditModal({ isOpen, onClose, onSuccess, user }: UserEditModalProps) {
   const [formData, setFormData] = useState({
-    packageType: user.package_type,
-    validFrom: user.valid_from?.split('T')[0] || '',
-    validUntil: user.valid_until?.split('T')[0] || '',
-    isActive: user.is_active === 1,
+    packageType: user.packageType,
+    validFrom: user.validFrom?.split('T')[0] || '',
+    validUntil: user.validUntil?.split('T')[0] || '',
+    isActive: user.isActive === 1,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -33,10 +33,10 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
   // 当user变化时更新表单数据
   useEffect(() => {
     setFormData({
-      packageType: user.package_type,
-      validFrom: user.valid_from?.split('T')[0] || '',
-      validUntil: user.valid_until?.split('T')[0] || '',
-      isActive: user.is_active === 1,
+      packageType: user.packageType,
+      validFrom: user.validFrom?.split('T')[0] || '',
+      validUntil: user.validUntil?.split('T')[0] || '',
+      isActive: user.isActive === 1,
     })
   }, [user])
 
@@ -277,7 +277,7 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <span className="text-gray-500">显示名称:</span>
-                <span className="ml-2 text-gray-900">{user.display_name}</span>
+                <span className="ml-2 text-gray-900">{user.displayName}</span>
               </div>
               <div>
                 <span className="text-gray-500">角色:</span>

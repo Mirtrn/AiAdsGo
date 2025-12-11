@@ -17,8 +17,19 @@ export async function GET(request: NextRequest) {
   const db = getDatabase()
 
   let query = `
-      SELECT id, username, email, display_name, role, package_type, package_expires_at, is_active, last_login_at, created_at,
-             locked_until, failed_login_count
+      SELECT
+        id,
+        username,
+        email,
+        display_name AS displayName,
+        role,
+        package_type AS packageType,
+        package_expires_at AS packageExpiresAt,
+        is_active AS isActive,
+        last_login_at AS lastLoginAt,
+        created_at AS createdAt,
+        locked_until AS lockedUntil,
+        failed_login_count AS failedLoginCount
       FROM users
       WHERE 1=1
     `

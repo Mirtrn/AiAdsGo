@@ -5,32 +5,29 @@ import { History, Save, Undo2, Clock, CheckCircle, AlertCircle } from 'lucide-re
 
 interface Creative {
   id: number
-  headline_1: string
-  headline_2: string | null
-  headline_3: string | null
-  description_1: string
-  description_2: string | null
-  final_url: string
-  path_1: string | null
-  path_2: string | null
-  quality_score: number | null
+  headlines: string[]
+  descriptions: string[]
+  finalUrl: string
+  path1: string | null
+  path2: string | null
+  qualityScore: number | null
 }
 
 interface CreativeVersion {
   id: number
-  creative_id: number
-  version_number: number
+  creativeId: number
+  versionNumber: number
   headlines: string[]
   descriptions: string[]
-  final_url: string
-  path_1: string | null
-  path_2: string | null
-  quality_score: number | null
-  quality_details: any
-  created_by: string
-  creation_method: string
-  change_summary: string | null
-  created_at: string
+  finalUrl: string
+  path1: string | null
+  path2: string | null
+  qualityScore: number | null
+  qualityDetails: any
+  createdBy: string
+  creationMethod: string
+  changeSummary: string | null
+  createdAt: string
 }
 
 interface CreativeEditorProps {
@@ -41,17 +38,17 @@ interface CreativeEditorProps {
 export function CreativeEditor({ creative, onSave }: CreativeEditorProps) {
   // 编辑状态
   const [headlines, setHeadlines] = useState<string[]>([
-    creative.headline_1 || '',
-    creative.headline_2 || '',
-    creative.headline_3 || '',
+    creative.headlines[0] || '',
+    creative.headlines[1] || '',
+    creative.headlines[2] || '',
   ])
   const [descriptions, setDescriptions] = useState<string[]>([
-    creative.description_1 || '',
-    creative.description_2 || '',
+    creative.descriptions[0] || '',
+    creative.descriptions[1] || '',
   ])
-  const [finalUrl, setFinalUrl] = useState(creative.final_url || '')
-  const [path1, setPath1] = useState(creative.path_1 || '')
-  const [path2, setPath2] = useState(creative.path_2 || '')
+  const [finalUrl, setFinalUrl] = useState(creative.finalUrl || '')
+  const [path1, setPath1] = useState(creative.path1 || '')
+  const [path2, setPath2] = useState(creative.path2 || '')
 
   // UI状态
   const [saving, setSaving] = useState(false)
@@ -133,11 +130,8 @@ export function CreativeEditor({ creative, onSave }: CreativeEditorProps) {
       if (onSave) {
         onSave({
           ...creative,
-          headline_1: validHeadlines[0],
-          headline_2: validHeadlines[1] || null,
-          headline_3: validHeadlines[2] || null,
-          description_1: validDescriptions[0],
-          description_2: validDescriptions[1] || null,
+          headlines: validHeadlines,
+          descriptions: validDescriptions,
         })
       }
     } catch (error) {
@@ -174,9 +168,9 @@ export function CreativeEditor({ creative, onSave }: CreativeEditorProps) {
       // 更新编辑器内容
       setHeadlines(version.headlines)
       setDescriptions(version.descriptions)
-      setFinalUrl(version.final_url)
-      setPath1(version.path_1 || '')
-      setPath2(version.path_2 || '')
+      setFinalUrl(version.finalUrl)
+      setPath1(version.path1 || '')
+      setPath2(version.path2 || '')
 
       setSaveMessage({ type: 'success', text: result.message })
 
@@ -339,35 +333,35 @@ export function CreativeEditor({ creative, onSave }: CreativeEditorProps) {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="font-semibold text-gray-900">
-                          版本 {version.version_number}
+                          版本 {version.versionNumber}
                         </span>
                         <span
                           className={`px-2 py-1 text-xs rounded-full ${
-                            version.creation_method === 'ai_generation'
+                            version.creationMethod === 'ai_generation'
                               ? 'bg-purple-100 text-purple-800'
-                              : version.creation_method === 'rollback'
+                              : version.creationMethod === 'rollback'
                               ? 'bg-yellow-100 text-yellow-800'
                               : 'bg-blue-100 text-blue-800'
                           }`}
                         >
-                          {version.creation_method === 'ai_generation'
+                          {version.creationMethod === 'ai_generation'
                             ? 'AI生成'
-                            : version.creation_method === 'rollback'
+                            : version.creationMethod === 'rollback'
                             ? '回滚'
                             : '手动编辑'}
                         </span>
-                        {version.quality_score && (
+                        {version.qualityScore && (
                           <span className="text-sm text-gray-600">
-                            评分: {version.quality_score.toFixed(1)}
+                            评分: {version.qualityScore.toFixed(1)}
                           </span>
                         )}
                       </div>
                       <p className="text-sm text-gray-600 mb-2">
                         <Clock className="h-3 w-3 inline mr-1" />
-                        {new Date(version.created_at).toLocaleString('zh-CN')}
+                        {new Date(version.createdAt).toLocaleString('zh-CN')}
                       </p>
-                      {version.change_summary && (
-                        <p className="text-sm text-gray-700">{version.change_summary}</p>
+                      {version.changeSummary && (
+                        <p className="text-sm text-gray-700">{version.changeSummary}</p>
                       )}
                       <div className="mt-2 text-sm">
                         <p className="text-gray-600">
@@ -376,7 +370,7 @@ export function CreativeEditor({ creative, onSave }: CreativeEditorProps) {
                       </div>
                     </div>
                     <button
-                      onClick={() => handleRollback(version.version_number)}
+                      onClick={() => handleRollback(version.versionNumber)}
                       className="ml-4 flex items-center gap-1 px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded"
                     >
                       <Undo2 className="h-4 w-4" />

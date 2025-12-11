@@ -22,12 +22,12 @@ import { generateNamingScheme } from '@/lib/naming-convention'
  *
  * 发布广告系列到Google Ads
  *
- * Request Body:
+ * Request Body (🔧 修复2025-12-11: 统一使用camelCase):
  * {
- *   offer_id: number
- *   ad_creative_id: number  // 单创意模式：指定创意ID；智能优化模式：忽略（自动选择多个）
- *   google_ads_account_id: number
- *   campaign_config: {
+ *   offerId: number
+ *   adCreativeId: number  // 单创意模式：指定创意ID；智能优化模式：忽略（自动选择多个）
+ *   googleAdsAccountId: number
+ *   campaignConfig: {
  *     campaignName: string
  *     budgetAmount: number
  *     budgetType: 'DAILY' | 'TOTAL'
@@ -40,9 +40,9 @@ import { generateNamingScheme } from '@/lib/naming-convention'
  *     keywords: string[]
  *     negativeKeywords: string[]
  *   }
- *   pause_old_campaigns: boolean
- *   enable_smart_optimization?: boolean  // 启用智能优化（默认false）
- *   variant_count?: number              // 创意变体数量（默认3，范围2-5）
+ *   pauseOldCampaigns: boolean
+ *   enableSmartOptimization?: boolean  // 启用智能优化（默认false）
+ *   variantCount?: number              // 创意变体数量（默认3，范围2-5）
  * }
  */
 export async function POST(request: NextRequest) {
@@ -56,42 +56,62 @@ export async function POST(request: NextRequest) {
 
     const userId = authResult.user.userId
 
-    // 2. 解析请求体
+    // 2. 解析请求体 - 🔧 修复(2025-12-11): 接受camelCase字段名
     const body = await request.json()
     const {
+      // 支持camelCase（推荐）
+      offerId,
+      adCreativeId,
+      googleAdsAccountId,
+      campaignConfig,
+      pauseOldCampaigns,
+      enableSmartOptimization = false,
+      variantCount = 3,
+      forcePublish = false, // 强制发布标志（用于绕过60-80分警告）
+      // 向后兼容snake_case
       offer_id,
       ad_creative_id,
       google_ads_account_id,
       campaign_config,
       pause_old_campaigns,
-      enable_smart_optimization = false,
-      variant_count = 3,
-      force_publish = false // 强制发布标志（用于绕过60-80分警告）
+      enable_smart_optimization,
+      variant_count,
+      force_publish
     } = body
 
+    // 使用camelCase优先，兼容snake_case
+    const _offerId = offerId ?? offer_id
+    const _adCreativeId = adCreativeId ?? ad_creative_id
+    const _googleAdsAccountId = googleAdsAccountId ?? google_ads_account_id
+    const _campaignConfig = campaignConfig ?? campaign_config
+    const _pauseOldCampaigns = pauseOldCampaigns ?? pause_old_campaigns
+    const _enableSmartOptimization = enableSmartOptimization ?? enable_smart_optimization ?? false
+    const _variantCount = variantCount ?? variant_count ?? 3
+    const _forcePublish = forcePublish ?? force_publish ?? false
+
     // 3. 验证必填字段
-    if (!offer_id || !google_ads_account_id || !campaign_config) {
+    if (!_offerId || !_googleAdsAccountId || !_campaignConfig) {
       const missing = []
-      if (!offer_id) missing.push('offer_id')
-      if (!google_ads_account_id) missing.push('google_ads_account_id')
-      if (!campaign_config) missing.push('campaign_config')
+      if (!_offerId) missing.push('offerId')
+      if (!_googleAdsAccountId) missing.push('googleAdsAccountId')
+      if (!_campaignConfig) missing.push('campaignConfig')
 
       const error = createError.requiredField(missing.join(', '))
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    // 单创意模式需要指定ad_creative_id
-    if (!enable_smart_optimization && !ad_creative_id) {
-      const error = createError.requiredField('ad_creative_id')
+    // 单创意模式需要指定adCreativeId
+    if (!_enableSmartOptimization && !_adCreativeId) {
+      const error = createError.requiredField('adCreativeId')
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    // 智能优化模式验证variant_count
-    if (enable_smart_optimization) {
-      if (variant_count < 2 || variant_count > 5) {
+    // 智能优化模式验证variantCount
+    if (_enableSmartOptimization) {
+      if (_variantCount < 2 || _variantCount > 5) {
         const error = createError.invalidParameter({
-          field: 'variant_count',
-          value: variant_count,
+          field: 'variantCount',
+          value: _variantCount,
           constraint: 'Must be between 2 and 5'
         })
         return NextResponse.json(error.toJSON(), { status: error.httpStatus })
@@ -105,16 +125,16 @@ export async function POST(request: NextRequest) {
       SELECT id, url, brand, target_country, target_language, scrape_status
       FROM offers
       WHERE id = ? AND user_id = ?
-    `, [offer_id, userId]) as any
+    `, [_offerId, userId]) as any
 
     if (!offer) {
-      const error = createError.offerNotFound({ offerId: offer_id, userId })
+      const error = createError.offerNotFound({ offerId: _offerId, userId })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
     if (offer.scrape_status !== 'completed') {
       const error = createError.offerNotReady({
-        offerId: offer_id,
+        offerId: _offerId,
         currentStatus: offer.scrape_status,
         requiredStatus: 'completed'
       })
@@ -124,7 +144,7 @@ export async function POST(request: NextRequest) {
     // 5. 选择广告创意（单创意模式 vs 智能优化模式）
     let creatives: any[] = []
 
-    if (enable_smart_optimization) {
+    if (_enableSmartOptimization) {
       // 智能优化模式：选择多个最优创意
       creatives = await db.query(`
         SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score
@@ -132,12 +152,12 @@ export async function POST(request: NextRequest) {
         WHERE offer_id = ? AND user_id = ?
         ORDER BY launch_score DESC, created_at DESC
         LIMIT ?
-      `, [offer_id, userId, variant_count]) as any[]
+      `, [_offerId, userId, _variantCount]) as any[]
 
-      if (creatives.length < variant_count) {
+      if (creatives.length < _variantCount) {
         const error = createError.invalidParameter({
           field: 'creatives',
-          message: `需要至少${variant_count}个创意，但只找到${creatives.length}个`
+          message: `需要至少${_variantCount}个创意，但只找到${creatives.length}个`
         })
         return NextResponse.json(error.toJSON(), { status: error.httpStatus })
       }
@@ -147,10 +167,10 @@ export async function POST(request: NextRequest) {
         SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected
         FROM ad_creatives
         WHERE id = ? AND offer_id = ? AND user_id = ?
-      `, [ad_creative_id, offer_id, userId]) as any
+      `, [_adCreativeId, _offerId, userId]) as any
 
       if (!creative) {
-        const error = createError.creativeNotFound({ creativeId: ad_creative_id })
+        const error = createError.creativeNotFound({ creativeId: _adCreativeId })
         return NextResponse.json(error.toJSON(), { status: error.httpStatus })
       }
 
@@ -176,18 +196,18 @@ export async function POST(request: NextRequest) {
       SELECT id, customer_id, is_active
       FROM google_ads_accounts
       WHERE id = ? AND user_id = ? AND is_active = ?
-    `, [google_ads_account_id, userId, isActiveValue]) as any
+    `, [_googleAdsAccountId, userId, isActiveValue]) as any
 
     if (!adsAccount) {
       const error = createError.gadsAccountNotActive({
-        accountId: google_ads_account_id,
+        accountId: _googleAdsAccountId,
         userId
       })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
     // 🔒 验证1：防止Ads账号被"其他Offer"占用
-    console.log(`🔍 验证Ads账号 ${google_ads_account_id} 是否已被其他Offer占用...`)
+    console.log(`🔍 验证Ads账号 ${_googleAdsAccountId} 是否已被其他Offer占用...`)
     const conflictCampaign = await db.queryOne(`
       SELECT c.id, c.offer_id, o.brand, o.offer_name
       FROM campaigns c
@@ -196,12 +216,12 @@ export async function POST(request: NextRequest) {
         AND c.offer_id != ?
         AND c.is_deleted = 0
       LIMIT 1
-    `, [google_ads_account_id, offer_id]) as any
+    `, [_googleAdsAccountId, _offerId]) as any
 
     if (conflictCampaign) {
-      console.error(`❌ Ads账号冲突: 账号 ${google_ads_account_id} 已被Offer #${conflictCampaign.offer_id} 占用`)
+      console.error(`❌ Ads账号冲突: 账号 ${_googleAdsAccountId} 已被Offer #${conflictCampaign.offer_id} 占用`)
       const error = createError.adsAccountAlreadyLinked({
-        accountId: google_ads_account_id,
+        accountId: _googleAdsAccountId,
         linkedOfferId: conflictCampaign.offer_id,
         linkedOfferName: conflictCampaign.offer_name || conflictCampaign.brand
       })
@@ -212,7 +232,7 @@ export async function POST(request: NextRequest) {
       }, { status: error.httpStatus })
     }
 
-    console.log(`✅ Ads账号验证通过: 账号 ${google_ads_account_id} 可供Offer #${offer_id} 使用`)
+    console.log(`✅ Ads账号验证通过: 账号 ${_googleAdsAccountId} 可供Offer #${_offerId} 使用`)
 
     // 🔍 验证2：查询当前Offer在该账号下的已激活Campaign
     const existingActiveCampaigns = await db.query(`
@@ -230,21 +250,21 @@ export async function POST(request: NextRequest) {
         AND c.status = 'ENABLED'
         AND c.is_deleted = 0
       ORDER BY c.created_at DESC
-    `, [offer_id, google_ads_account_id]) as any[]
+    `, [_offerId, _googleAdsAccountId]) as any[]
 
     console.log(`📊 当前Offer在该Ads账号下有${existingActiveCampaigns.length}个激活的Campaign`)
 
     // ⚠️ 验证3：如果有激活Campaign且用户未确认，返回确认提示
-    if (existingActiveCampaigns.length > 0 && !pause_old_campaigns && !force_publish) {
+    if (existingActiveCampaigns.length > 0 && !_pauseOldCampaigns && !_forcePublish) {
       console.log(`⚠️ 需要用户确认: 是否暂停${existingActiveCampaigns.length}个已激活的Campaign`)
       return NextResponse.json({
         action: 'CONFIRM_PAUSE_OLD_CAMPAIGNS',
-        existing_campaigns: existingActiveCampaigns.map((c: any) => ({
+        existingCampaigns: existingActiveCampaigns.map((c: any) => ({
           id: c.id,
-          campaign_name: c.campaign_name,
-          budget_amount: c.budget_amount,
-          creative_theme: c.creative_theme,
-          created_at: c.created_at
+          campaignName: c.campaign_name,
+          budgetAmount: c.budget_amount,
+          creativeTheme: c.creative_theme,
+          createdAt: c.created_at
         })),
         total: existingActiveCampaigns.length,
         message: `该Offer在此Ads账号下已有${existingActiveCampaigns.length}个激活的广告系列`,
@@ -268,12 +288,12 @@ export async function POST(request: NextRequest) {
     }
 
     // 7. 暂停旧广告系列（如果请求）
-    if (pause_old_campaigns) {
+    if (_pauseOldCampaigns) {
       const oldCampaigns = await db.query(`
         SELECT id, google_campaign_id
         FROM campaigns
         WHERE offer_id = ? AND user_id = ? AND status = 'ENABLED' AND google_campaign_id IS NOT NULL
-      `, [offer_id, userId]) as any[]
+      `, [_offerId, userId]) as any[]
 
       for (const oldCampaign of oldCampaigns) {
         try {
@@ -425,27 +445,27 @@ export async function POST(request: NextRequest) {
       const creative = creatives[i]
       const variantName = creatives.length > 1 ? String.fromCharCode(65 + i) : '' // A, B, C...
       const variantSuffix = variantName ? ` - Variant ${variantName}` : ''
-      const variantBudget = campaign_config.budgetAmount * trafficAllocations[i]
+      const variantBudget = _campaignConfig.budgetAmount * trafficAllocations[i]
 
       // 🔥 使用统一命名规范生成名称
       const naming = generateNamingScheme({
         offer: {
-          id: offer_id,
+          id: _offerId,
           brand: offer.brand,
           category: offer.category || undefined
         },
         config: {
-          targetCountry: campaign_config.targetCountry,
+          targetCountry: _campaignConfig.targetCountry,
           budgetAmount: variantBudget,
-          budgetType: campaign_config.budgetType,
-          biddingStrategy: campaign_config.biddingStrategy,
-          maxCpcBid: campaign_config.maxCpcBid
+          budgetType: _campaignConfig.budgetType,
+          biddingStrategy: _campaignConfig.biddingStrategy,
+          maxCpcBid: _campaignConfig.maxCpcBid
         },
         creative: {
           id: creative.id,
           theme: creative.theme || undefined
         },
-        smartOptimization: enable_smart_optimization ? {
+        smartOptimization: _enableSmartOptimization ? {
           enabled: true,
           variantIndex: i + 1,
           totalVariants: creatives.length
@@ -475,15 +495,15 @@ export async function POST(request: NextRequest) {
         ) VALUES (?, ?, ?, ?, ?, ?, 'ENABLED', 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         userId,
-        offer_id,
-        google_ads_account_id,
+        _offerId,
+        _googleAdsAccountId,
         naming.campaignName,  // 🔥 使用规范化的Campaign名称
         variantBudget,
-        campaign_config.budgetType,
+        _campaignConfig.budgetType,
         creative.id,
-        JSON.stringify(campaign_config),
-        pause_old_campaigns ? 1 : 0,
-        enable_smart_optimization ? 1 : 0,
+        JSON.stringify(_campaignConfig),
+        _pauseOldCampaigns ? 1 : 0,
+        _enableSmartOptimization ? 1 : 0,
         abTestId,
         trafficAllocations[i],
         now,
@@ -522,10 +542,10 @@ export async function POST(request: NextRequest) {
             refreshToken: credentials.refresh_token,
             campaignName: naming.campaignName,  // 🔥 使用规范化的Campaign名称
             budgetAmount: variantBudget,
-            budgetType: campaign_config.budgetType,
-            biddingStrategy: campaign_config.biddingStrategy,
-            targetCountry: campaign_config.targetCountry,
-            targetLanguage: campaign_config.targetLanguage,
+            budgetType: _campaignConfig.budgetType,
+            biddingStrategy: _campaignConfig.biddingStrategy,
+            targetCountry: _campaignConfig.targetCountry,
+            targetLanguage: _campaignConfig.targetLanguage,
             finalUrlSuffix: creative.final_url_suffix || undefined,  // Final URL suffix从推广链接中提取（如果为空则不设置）
             status: 'ENABLED',
             accountId: adsAccount.id,
@@ -539,7 +559,7 @@ export async function POST(request: NextRequest) {
             refreshToken: credentials.refresh_token,
             campaignId: googleCampaignId,
             adGroupName: naming.adGroupName,  // 🔥 使用规范化的Ad Group名称
-            cpcBidMicros: campaign_config.maxCpcBid * 1000000,
+            cpcBidMicros: _campaignConfig.maxCpcBid * 1000000,
             status: 'ENABLED',
             accountId: adsAccount.id,
             userId
@@ -569,7 +589,7 @@ export async function POST(request: NextRequest) {
             return h
           })
 
-          const keywordOperations = campaign_config.keywords.map((keyword: string) => ({
+          const keywordOperations = _campaignConfig.keywords.map((keyword: string) => ({
             keywordText: keyword,
             matchType: 'BROAD' as const,
             status: 'ENABLED' as const
@@ -588,8 +608,8 @@ export async function POST(request: NextRequest) {
           }
 
           // 添加否定关键词
-          if (campaign_config.negativeKeywords && campaign_config.negativeKeywords.length > 0) {
-            const negativeKeywordOperations = campaign_config.negativeKeywords.map((keyword: string) => ({
+          if (_campaignConfig.negativeKeywords && _campaignConfig.negativeKeywords.length > 0) {
+            const negativeKeywordOperations = _campaignConfig.negativeKeywords.map((keyword: string) => ({
               keywordText: keyword,
               matchType: 'EXACT' as const,
               status: 'ENABLED' as const,
@@ -683,14 +703,15 @@ export async function POST(request: NextRequest) {
             WHERE id = ?
           `, [googleCampaignId, googleAdGroupId, googleAdId, campaignId])
 
+          // 🔧 修复(2025-12-11): snake_case → camelCase
           publishResults.push({
             id: campaignId,
-            google_campaign_id: googleCampaignId,
-            google_ad_group_id: googleAdGroupId,
-            google_ad_id: googleAdId,
-            variant_name: variantName,
+            googleCampaignId: googleCampaignId,
+            googleAdGroupId: googleAdGroupId,
+            googleAdId: googleAdId,
+            variantName: variantName,
             status: 'ENABLED',
-            creation_status: 'synced'
+            creationStatus: 'synced'
           })
 
           apiSuccess = true
@@ -725,9 +746,10 @@ export async function POST(request: NextRequest) {
             WHERE id = ?
           `, [errorMessage, campaignId])
 
+          // 🔧 修复(2025-12-11): snake_case → camelCase
           failedCampaigns.push({
             id: campaignId,
-            variant_name: variantName,
+            variantName: variantName,
             error: errorMessage
           })
         } finally {
@@ -752,7 +774,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: publishResults.length > 0,
-        ab_test_id: abTestId,  // 保持向后兼容性，始终返回null
+        abTestId: abTestId,  // 🔧 修复(2025-12-11): ab_test_id → abTestId
         campaigns: publishResults,
         failed: failedCampaigns,
         summary: {

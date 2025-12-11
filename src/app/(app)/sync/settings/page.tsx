@@ -17,21 +17,24 @@ import {
 } from '@/components/ui/select'
 import { Settings, Save, RefreshCw, Bell, Clock, AlertTriangle } from 'lucide-react'
 
+/**
+ * 🔧 修复(2025-12-11): 统一使用 camelCase 与 API 响应匹配
+ */
 interface SyncConfig {
   id: number
-  user_id: number
-  auto_sync_enabled: boolean
-  sync_interval_hours: number
-  max_retry_attempts: number
-  retry_delay_minutes: number
-  notify_on_success: boolean
-  notify_on_failure: boolean
-  notification_email: string | null
-  last_auto_sync_at: string | null
-  next_scheduled_sync_at: string | null
-  consecutive_failures: number
-  created_at: string
-  updated_at: string
+  userId: number
+  autoSyncEnabled: boolean
+  syncIntervalHours: number
+  maxRetryAttempts: number
+  retryDelayMinutes: number
+  notifyOnSuccess: boolean
+  notifyOnFailure: boolean
+  notificationEmail: string | null
+  lastAutoSyncAt: string | null
+  nextScheduledSyncAt: string | null
+  consecutiveFailures: number
+  createdAt: string
+  updatedAt: string
 }
 
 interface SchedulerStatus {
@@ -75,14 +78,14 @@ export default function SyncSettingsPage() {
       const data = await response.json()
       setConfig(data.config)
 
-      // Initialize form state
-      setAutoSyncEnabled(data.config.auto_sync_enabled)
-      setSyncInterval(data.config.sync_interval_hours)
-      setMaxRetries(data.config.max_retry_attempts)
-      setRetryDelay(data.config.retry_delay_minutes)
-      setNotifySuccess(data.config.notify_on_success)
-      setNotifyFailure(data.config.notify_on_failure)
-      setNotificationEmail(data.config.notification_email || '')
+      // Initialize form state - 🔧 修复: 使用 camelCase 字段名
+      setAutoSyncEnabled(data.config.autoSyncEnabled)
+      setSyncInterval(data.config.syncIntervalHours)
+      setMaxRetries(data.config.maxRetryAttempts)
+      setRetryDelay(data.config.retryDelayMinutes)
+      setNotifySuccess(data.config.notifyOnSuccess)
+      setNotifyFailure(data.config.notifyOnFailure)
+      setNotificationEmail(data.config.notificationEmail || '')
     } catch (err: any) {
       showError('加载失败', err.message || '无法加载同步配置')
     } finally {
@@ -113,14 +116,15 @@ export default function SyncSettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        // 🔧 修复(2025-12-11): PUT 请求体使用 camelCase
         body: JSON.stringify({
-          auto_sync_enabled: autoSyncEnabled,
-          sync_interval_hours: syncInterval,
-          max_retry_attempts: maxRetries,
-          retry_delay_minutes: retryDelay,
-          notify_on_success: notifySuccess,
-          notify_on_failure: notifyFailure,
-          notification_email: notificationEmail || null,
+          autoSyncEnabled: autoSyncEnabled,
+          syncIntervalHours: syncInterval,
+          maxRetryAttempts: maxRetries,
+          retryDelayMinutes: retryDelay,
+          notifyOnSuccess: notifySuccess,
+          notifyOnFailure: notifyFailure,
+          notificationEmail: notificationEmail || null,
         }),
       })
 
@@ -218,7 +222,7 @@ export default function SyncSettingsPage() {
                 <div>
                   <p className="text-sm text-gray-600">自动同步</p>
                   <p className="text-lg font-semibold">
-                    {config.auto_sync_enabled ? (
+                    {config.autoSyncEnabled ? (
                       <span className="text-green-600">已启用</span>
                     ) : (
                       <span className="text-gray-500">已禁用</span>
@@ -238,23 +242,23 @@ export default function SyncSettingsPage() {
                 <div>
                   <p className="text-sm text-gray-600">上次自动同步</p>
                   <p className="text-sm font-medium">
-                    {formatDateTime(config.last_auto_sync_at)}
+                    {formatDateTime(config.lastAutoSyncAt)}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">下次计划同步</p>
                   <p className="text-sm font-medium">
-                    {formatDateTime(config.next_scheduled_sync_at)}
+                    {formatDateTime(config.nextScheduledSyncAt)}
                   </p>
                 </div>
               </div>
 
-              {config.consecutive_failures > 0 && (
+              {config.consecutiveFailures > 0 && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-yellow-600" />
                     <p className="text-yellow-800 font-medium">
-                      连续失败 {config.consecutive_failures} 次
+                      连续失败 {config.consecutiveFailures} 次
                     </p>
                   </div>
                   <p className="text-yellow-600 text-sm mt-1">

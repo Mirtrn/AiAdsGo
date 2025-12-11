@@ -217,7 +217,8 @@ export default function ScrapeTestPage() {
         const statusResponse = await fetch(`/api/offers/${offer.id}`)
         const { offer: updatedOffer } = await statusResponse.json()
 
-        if (updatedOffer.scrape_status === 'completed') {
+        // 🔧 修复(2025-12-11): 使用 camelCase 字段名
+        if (updatedOffer.scrapeStatus === 'completed') {
           completed = true
 
           console.log('🔍 Offer数据:', {
@@ -266,8 +267,8 @@ export default function ScrapeTestPage() {
           })
 
           toast.success(`✅ 抓取完成！识别品牌: ${brandName}`)
-        } else if (updatedOffer.scrape_status === 'failed') {
-          throw new Error(updatedOffer.scrape_error || '抓取失败')
+        } else if (updatedOffer.scrapeStatus === 'failed') {
+          throw new Error(updatedOffer.scrapeError || '抓取失败')
         }
 
         attempts++

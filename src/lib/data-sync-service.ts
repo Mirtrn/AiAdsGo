@@ -16,18 +16,19 @@ export interface SyncStatus {
 
 /**
  * 同步日志
+ * 🔧 修复(2025-12-11): 统一使用 camelCase 字段名
  */
 export interface SyncLog {
   id: number
-  user_id: number
-  google_ads_account_id: number
-  sync_type: 'manual' | 'auto'
+  userId: number
+  googleAdsAccountId: number
+  syncType: 'manual' | 'auto'
   status: 'success' | 'failed' | 'running'
-  record_count: number
-  duration_ms: number
-  error_message: string | null
-  started_at: string
-  completed_at: string | null
+  recordCount: number
+  durationMs: number
+  errorMessage: string | null
+  startedAt: string
+  completedAt: string | null
 }
 
 /**
@@ -262,17 +263,18 @@ export class DataSyncService {
         lastSyncError: null,
       })
 
+      // 🔧 修复(2025-12-11): 返回 camelCase 字段名
       return {
         id: syncLogId!,
-        user_id: userId,
-        google_ads_account_id: accounts[0].id,
-        sync_type: syncType,
+        userId: userId,
+        googleAdsAccountId: accounts[0].id,
+        syncType: syncType,
         status: 'success',
-        record_count: recordCount,
-        duration_ms: duration,
-        error_message: null,
-        started_at: startedAt,
-        completed_at: completedAt,
+        recordCount: recordCount,
+        durationMs: duration,
+        errorMessage: null,
+        startedAt: startedAt,
+        completedAt: completedAt,
       }
     } catch (error) {
       const duration = Date.now() - startTime
@@ -397,13 +399,24 @@ export class DataSyncService {
 
   /**
    * 获取同步日志
+   * 🔧 修复(2025-12-11): 使用 AS 别名返回 camelCase 字段
    */
   async getSyncLogs(userId: number, limit: number = 20): Promise<SyncLog[]> {
     const db = await getDatabase()
 
     return await db.query(
       `
-      SELECT *
+      SELECT
+        id,
+        user_id AS userId,
+        google_ads_account_id AS googleAdsAccountId,
+        sync_type AS syncType,
+        status,
+        record_count AS recordCount,
+        duration_ms AS durationMs,
+        error_message AS errorMessage,
+        started_at AS startedAt,
+        completed_at AS completedAt
       FROM sync_logs
       WHERE user_id = ?
       ORDER BY started_at DESC

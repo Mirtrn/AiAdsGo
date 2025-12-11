@@ -197,16 +197,16 @@ export default function LaunchScoreModal({
         const data = await response.json();
         if (data.launchScore) {
           const scoreData = {
-            totalScore: data.launchScore.total_score,
-            keywordAnalysis: JSON.parse(data.launchScore.keyword_analysis_data),
+            totalScore: data.launchScore.totalScore,
+            keywordAnalysis: JSON.parse(data.launchScore.keywordAnalysisData),
             marketFitAnalysis: JSON.parse(
-              data.launchScore.market_analysis_data,
+              data.launchScore.marketAnalysisData,
             ),
             landingPageAnalysis: JSON.parse(
-              data.launchScore.landing_page_analysis_data,
+              data.launchScore.landingPageAnalysisData,
             ),
-            budgetAnalysis: JSON.parse(data.launchScore.budget_analysis_data),
-            contentAnalysis: JSON.parse(data.launchScore.content_analysis_data),
+            budgetAnalysis: JSON.parse(data.launchScore.budgetAnalysisData),
+            contentAnalysis: JSON.parse(data.launchScore.contentAnalysisData),
             overallRecommendations: JSON.parse(
               data.launchScore.recommendations || "[]",
             ),

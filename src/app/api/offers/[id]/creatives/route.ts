@@ -38,16 +38,17 @@ export async function GET(
       data: {
         offerId,
         total: creatives.length,
+        // 🔧 修复(2025-12-11): snake_case → camelCase
         creatives: creatives.map((c: any) => ({
           id: c.id,
           version: c.version,
           headlines: c.headlines,
           descriptions: c.descriptions,
           keywords: c.keywords,
-          final_url: c.final_url,
+          finalUrl: c.final_url,
           score: c.score,
-          creation_status: c.creation_status,
-          created_at: c.created_at,
+          creationStatus: c.creation_status,
+          createdAt: c.created_at,
         })),
       },
     })

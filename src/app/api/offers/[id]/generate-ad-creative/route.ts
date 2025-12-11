@@ -10,6 +10,32 @@ import {
 } from '@/lib/scoring'
 
 /**
+ * 🔧 转换 AdCreative 为 API 响应格式 (camelCase)
+ */
+function transformCreativeToApiResponse(creative: any) {
+  return {
+    ...creative,
+    offerId: creative.offer_id,
+    userId: creative.user_id,
+    finalUrl: creative.final_url,
+    finalUrlSuffix: creative.final_url_suffix,
+    path1: creative.path_1,
+    path2: creative.path_2,
+    scoreBreakdown: creative.score_breakdown,
+    scoreExplanation: creative.score_explanation,
+    generationRound: creative.generation_round,
+    generationPrompt: creative.generation_prompt,
+    creationStatus: creative.creation_status,
+    creationError: creative.creation_error,
+    googleAdId: creative.google_ad_id,
+    googleAdGroupId: creative.google_ad_group_id,
+    lastSyncAt: creative.last_sync_at,
+    createdAt: creative.created_at,
+    updatedAt: creative.updated_at,
+  }
+}
+
+/**
  * POST /api/offers/[id]/generate-ad-creative
  * 为指定Offer生成广告创意
  */
@@ -288,7 +314,8 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      creatives: creatives,  // 前端期望 creatives 字段
+      // 🔧 修复(2025-12-11): 完整转换为 camelCase
+      creatives: creatives.map(transformCreativeToApiResponse),
       total: creatives.length
     })
 

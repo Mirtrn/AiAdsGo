@@ -20,21 +20,21 @@ interface ProxyUrlConfig {
 
 // Google Ads账户接口
 interface GoogleAdsAccount {
-  customer_id: string
-  descriptive_name: string
-  currency_code: string
-  time_zone: string
+  customerId: string
+  descriptiveName: string
+  currencyCode: string
+  timeZone: string
   manager: boolean
-  test_account: boolean
+  testAccount: boolean
   status?: string
 }
 
 // Google Ads凭证状态接口
 interface GoogleAdsCredentialStatus {
-  has_credentials: boolean
-  login_customer_id?: string
-  last_verified_at?: string
-  is_active?: boolean
+  hasCredentials: boolean
+  loginCustomerId?: string
+  lastVerifiedAt?: string
+  isActive?: boolean
 }
 
 // 代理配置支持的国家列表（使用全局映射 + ROW其他地区选项）
@@ -469,7 +469,7 @@ export default function SettingsPage() {
       }
 
       const data = await response.json()
-      window.location.href = data.data.auth_url
+      window.location.href = data.data.authUrl
     } catch (err: any) {
       toast.error(err.message || 'OAuth启动失败')
       setStartingOAuth(false)
@@ -489,7 +489,8 @@ export default function SettingsPage() {
       const data = await response.json()
 
       if (data.success && data.data.valid) {
-        toast.success(`凭证有效${data.data.customer_id ? ` - Customer ID: ${data.data.customer_id}` : ''}`)
+        // 🔧 修复(2025-12-11): snake_case → camelCase
+        toast.success(`凭证有效${data.data.customerId ? ` - Customer ID: ${data.data.customerId}` : ''}`)
         await fetchGoogleAdsCredentialStatus()
       } else {
         toast.error(data.data.error || '凭证无效')
@@ -969,20 +970,20 @@ export default function SettingsPage() {
                       </div>
 
                       {/* Google Ads 凭证状态 */}
-                      {googleAdsCredentialStatus?.has_credentials && (
+                      {googleAdsCredentialStatus?.hasCredentials && (
                         <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                           <div className="flex items-center gap-2 mb-2">
                             <CheckCircle2 className="w-5 h-5 text-green-600" />
                             <span className="font-semibold text-green-700">已配置完整凭证</span>
                           </div>
-                          {googleAdsCredentialStatus.login_customer_id && (
+                          {googleAdsCredentialStatus.loginCustomerId && (
                             <p className="text-sm text-green-700">
-                              MCC ID: <span className="font-mono">{googleAdsCredentialStatus.login_customer_id}</span>
+                              MCC ID: <span className="font-mono">{googleAdsCredentialStatus.loginCustomerId}</span>
                             </p>
                           )}
-                          {googleAdsCredentialStatus.last_verified_at && (
+                          {googleAdsCredentialStatus.lastVerifiedAt && (
                             <p className="text-sm text-green-700">
-                              验证: {new Date(googleAdsCredentialStatus.last_verified_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              验证: {new Date(googleAdsCredentialStatus.lastVerifiedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </p>
                           )}
                         </div>
@@ -1030,7 +1031,7 @@ export default function SettingsPage() {
                     </div>
 
                     {/* 可访问的账户列表 */}
-                    {googleAdsCredentialStatus?.has_credentials && (
+                    {googleAdsCredentialStatus?.hasCredentials && (
                       <div className="border-t pt-6">
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="font-semibold text-lg">Google Ads 账户</h3>
@@ -1081,12 +1082,12 @@ export default function SettingsPage() {
                                 </div>
                                 {googleAdsAccounts.map((account) => (
                                   <div
-                                    key={account.customer_id}
+                                    key={account.customerId}
                                     className="p-4 border rounded-lg hover:bg-gray-50 transition-colors"
                                   >
                                     <div className="flex items-center justify-between mb-2">
                                       <span className="font-semibold text-gray-900">
-                                        {account.descriptive_name}
+                                        {account.descriptiveName}
                                       </span>
                                       <div className="flex gap-2">
                                         {account.manager && (
@@ -1094,7 +1095,7 @@ export default function SettingsPage() {
                                             Manager
                                           </span>
                                         )}
-                                        {account.test_account && (
+                                        {account.testAccount && (
                                           <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
                                             测试账户
                                           </span>
@@ -1104,13 +1105,13 @@ export default function SettingsPage() {
                                     <div className="grid grid-cols-3 gap-2 text-sm text-gray-600">
                                       <div>
                                         <span className="font-medium">ID:</span>{' '}
-                                        <span className="font-mono">{account.customer_id}</span>
+                                        <span className="font-mono">{account.customerId}</span>
                                       </div>
                                       <div>
-                                        <span className="font-medium">货币:</span> {account.currency_code}
+                                        <span className="font-medium">货币:</span> {account.currencyCode}
                                       </div>
                                       <div>
-                                        <span className="font-medium">时区:</span> {account.time_zone}
+                                        <span className="font-medium">时区:</span> {account.timeZone}
                                       </div>
                                     </div>
                                   </div>

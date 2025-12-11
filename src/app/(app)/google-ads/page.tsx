@@ -4,21 +4,19 @@ import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 interface GoogleAdsAccount {
-  customer_id: string
-  descriptive_name: string
-  currency_code: string
-  time_zone: string
+  customerId: string
+  descriptiveName: string
+  currencyCode: string
+  timeZone: string
   manager: boolean
-  test_account: boolean
+  testAccount: boolean
   status: string
-  account_balance?: number | null  // 账户余额（单位：微货币，即实际金额×1,000,000）
-  parent_mcc?: string
-  parent_mcc_name?: string
-  db_account_id: number | null
-  db_account_name: string | null
-  last_sync_at?: string
-  // 🔧 修复(2025-12-11): 使用camelCase匹配API返回的字段名
-  linked_offers?: Array<{
+  accountBalance?: number | null  // 账户余额（单位：微货币，即实际金额×1,000,000）
+  parentMcc?: string
+  parentMccName?: string
+  dbAccountId: number | null
+  lastSyncAt?: string
+  linkedOffers?: Array<{
     id: number
     offerName: string | null
     brand: string
@@ -29,11 +27,12 @@ interface GoogleAdsAccount {
 }
 
 interface Credentials {
-  client_id: string
-  developer_token: string
-  login_customer_id?: string
-  refresh_token?: string
-  has_refresh_token: boolean
+  clientId: string
+  developerToken: string
+  loginCustomerId?: string
+  refreshToken?: string
+  hasRefreshToken: boolean
+  usingSharedConfig?: boolean
 }
 
 export default function GoogleAdsPage() {
@@ -88,7 +87,7 @@ export default function GoogleAdsPage() {
       if (data.success && data.data) {
         setCredentials(data.data)
 
-        if (data.data.has_refresh_token) {
+        if (data.data.hasRefreshToken) {
           fetchAccounts()
         }
       }
@@ -118,21 +117,21 @@ export default function GoogleAdsPage() {
       const data = await response.json()
 
       if (data.success && data.data) {
-        // 处理账号数据，添加 parent_mcc_name
+        // 处理账号数据，添加 parentMccName
         const allAccounts = data.data.accounts || []
         const mccMap = new Map<string, string>()
 
         // 先建立 MCC ID -> 名称的映射
         allAccounts.forEach((acc: GoogleAdsAccount) => {
           if (acc.manager) {
-            mccMap.set(acc.customer_id, acc.descriptive_name)
+            mccMap.set(acc.customerId, acc.descriptiveName)
           }
         })
 
-        // 为每个账号添加 parent_mcc_name
+        // 为每个账号添加 parentMccName
         const enrichedAccounts = allAccounts.map((acc: GoogleAdsAccount) => ({
           ...acc,
-          parent_mcc_name: acc.parent_mcc ? mccMap.get(acc.parent_mcc) : undefined
+          parentMccName: acc.parentMcc ? mccMap.get(acc.parentMcc) : undefined
         }))
 
         setAccounts(enrichedAccounts)
@@ -140,8 +139,8 @@ export default function GoogleAdsPage() {
         setIsCached(data.data.cached || false)
 
         // 获取最新同步时间
-        if (allAccounts.length > 0 && allAccounts[0].last_sync_at) {
-          setLastSyncAt(allAccounts[0].last_sync_at)
+        if (allAccounts.length > 0 && allAccounts[0].lastSyncAt) {
+          setLastSyncAt(allAccounts[0].lastSyncAt)
         }
       }
     } catch (err: any) {
@@ -188,32 +187,32 @@ export default function GoogleAdsPage() {
 
     switch (sortColumn) {
       case 'name':
-        aValue = a.descriptive_name.toLowerCase()
-        bValue = b.descriptive_name.toLowerCase()
+        aValue = a.descriptiveName.toLowerCase()
+        bValue = b.descriptiveName.toLowerCase()
         break
-      case 'customer_id':
-        aValue = a.customer_id
-        bValue = b.customer_id
+      case 'customerId':
+        aValue = a.customerId
+        bValue = b.customerId
         break
       case 'mcc':
-        aValue = a.parent_mcc_name?.toLowerCase() || ''
-        bValue = b.parent_mcc_name?.toLowerCase() || ''
+        aValue = a.parentMccName?.toLowerCase() || ''
+        bValue = b.parentMccName?.toLowerCase() || ''
         break
       case 'type':
-        aValue = a.manager ? 'mcc' : a.test_account ? 'test' : 'normal'
-        bValue = b.manager ? 'mcc' : b.test_account ? 'test' : 'normal'
+        aValue = a.manager ? 'mcc' : a.testAccount ? 'test' : 'normal'
+        bValue = b.manager ? 'mcc' : b.testAccount ? 'test' : 'normal'
         break
       case 'balance':
-        aValue = a.account_balance ?? 0
-        bValue = b.account_balance ?? 0
+        aValue = a.accountBalance ?? 0
+        bValue = b.accountBalance ?? 0
         break
       case 'status':
         aValue = a.status.toLowerCase()
         bValue = b.status.toLowerCase()
         break
       case 'offers':
-        aValue = a.linked_offers?.length || 0
-        bValue = b.linked_offers?.length || 0
+        aValue = a.linkedOffers?.length || 0
+        bValue = b.linkedOffers?.length || 0
         break
       default:
         return 0
@@ -260,9 +259,9 @@ export default function GoogleAdsPage() {
   }
 
   // 🔧 修复(2025-12-11): 用户只需配置 login_customer_id，可以使用共享管理员配置
-  // 后端会检查管理员是否有完整配置，并在 has_refresh_token 中反映结果
-  // 因此前端只需检查 has_refresh_token，不需要检查 client_id 和 developer_token
-  const hasRefreshToken = credentials?.has_refresh_token || false
+  // 后端会检查管理员是否有完整配置，并在 hasRefreshToken 中反映结果
+  // 因此前端只需检查 hasRefreshToken，不需要检查 clientId 和 developerToken
+  const hasRefreshToken = credentials?.hasRefreshToken || false
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -366,11 +365,11 @@ export default function GoogleAdsPage() {
                           </th>
                           <th
                             className="px-6 py-3 text-left text-sm font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                            onClick={() => handleSort('customer_id')}
+                            onClick={() => handleSort('customerId')}
                           >
                             <div className="flex items-center">
                               Customer ID
-                              <SortIndicator column="customer_id" />
+                              <SortIndicator column="customerId" />
                             </div>
                           </th>
                           <th
@@ -422,32 +421,32 @@ export default function GoogleAdsPage() {
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {paginatedAccounts.map((account) => (
-                          <tr key={account.customer_id} className="hover:bg-gray-50">
+                          <tr key={account.customerId} className="hover:bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex items-center">
                                 <div>
                                   <div className="text-base font-medium text-gray-900">
-                                    {account.descriptive_name}
+                                    {account.descriptiveName}
                                   </div>
                                   <div className="text-sm text-gray-500">
-                                    {account.currency_code} · {account.time_zone}
+                                    {account.currencyCode} · {account.timeZone}
                                   </div>
                                 </div>
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <span className="text-sm font-mono text-gray-700">
-                                {account.customer_id}
+                                {account.customerId}
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              {account.parent_mcc ? (
+                              {account.parentMcc ? (
                                 <div>
                                   <div className="text-sm text-gray-900">
-                                    {account.parent_mcc_name || '未知 MCC'}
+                                    {account.parentMccName || '未知 MCC'}
                                   </div>
                                   <div className="text-sm text-gray-500 font-mono">
-                                    {account.parent_mcc}
+                                    {account.parentMcc}
                                   </div>
                                 </div>
                               ) : (
@@ -461,21 +460,21 @@ export default function GoogleAdsPage() {
                                     MCC
                                   </span>
                                 )}
-                                {account.test_account && (
+                                {account.testAccount && (
                                   <span className="px-2 py-1 text-sm font-semibold rounded-full bg-yellow-100 text-yellow-800">
                                     测试
                                   </span>
                                 )}
-                                {!account.manager && !account.test_account && (
+                                {!account.manager && !account.testAccount && (
                                   <span className="text-sm text-gray-600">普通账户</span>
                                 )}
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              {account.account_balance !== null && account.account_balance !== undefined ? (
+                              {account.accountBalance !== null && account.accountBalance !== undefined ? (
                                 <div className="text-sm">
                                   <div className="font-medium text-gray-900">
-                                    {account.currency_code} {(account.account_balance / 1000000).toLocaleString('zh-CN', {
+                                    {account.currencyCode} {(account.accountBalance / 1000000).toLocaleString('zh-CN', {
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2
                                     })}
@@ -521,20 +520,20 @@ export default function GoogleAdsPage() {
                               })()}
                             </td>
                             <td className="px-6 py-4">
-                              {account.linked_offers && account.linked_offers.length > 0 ? (
+                              {account.linkedOffers && account.linkedOffers.length > 0 ? (
                                 <div>
                                   <button
-                                    onClick={() => toggleOffers(account.customer_id)}
+                                    onClick={() => toggleOffers(account.customerId)}
                                     className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
                                   >
-                                    {account.linked_offers.length} 个 Offer
+                                    {account.linkedOffers.length} 个 Offer
                                     <span className="ml-1">
-                                      {expandedOffers.has(account.customer_id) ? '▼' : '▶'}
+                                      {expandedOffers.has(account.customerId) ? '▼' : '▶'}
                                     </span>
                                   </button>
-                                  {expandedOffers.has(account.customer_id) && (
+                                  {expandedOffers.has(account.customerId) && (
                                     <div className="mt-2 space-y-1">
-                                      {account.linked_offers.map((offer) => (
+                                      {account.linkedOffers.map((offer) => (
                                         <div
                                           key={offer.id}
                                           className="text-sm bg-gray-50 px-2 py-1.5 rounded"

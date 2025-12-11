@@ -29,9 +29,9 @@ interface UserProfile {
   username: string
   email: string | null
   role: string
-  subscription_type: string | null
-  subscription_end_date: string | null
-  created_at: string
+  subscriptionType: string | null
+  subscriptionEndDate: string | null
+  createdAt: string
 }
 
 export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfileModalProps) {
@@ -48,9 +48,9 @@ export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfil
           username: propUser.username,
           email: propUser.email,
           role: propUser.role,
-          subscription_type: propUser.packageType,
-          subscription_end_date: propUser.packageExpiresAt,
-          created_at: new Date().toISOString(),
+          subscriptionType: propUser.packageType,
+          subscriptionEndDate: propUser.packageExpiresAt,
+          createdAt: new Date().toISOString(),
         })
         setLoading(false)
       } else {
@@ -157,7 +157,7 @@ export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfil
     )
   }
 
-  const subscriptionStatus = getSubscriptionStatus(profile.subscription_end_date)
+  const subscriptionStatus = getSubscriptionStatus(profile.subscriptionEndDate)
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -205,7 +205,7 @@ export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfil
                 <div className="flex-1">
                   <p className="text-sm text-gray-500">注册时间</p>
                   <p className="font-medium text-gray-900">
-                    {new Date(profile.created_at).toLocaleDateString('zh-CN')}
+                    {new Date(profile.createdAt).toLocaleDateString('zh-CN')}
                   </p>
                 </div>
               </div>
@@ -219,15 +219,15 @@ export function UserProfileModal({ isOpen, onClose, user: propUser }: UserProfil
             <div className="p-4 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50/50">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-medium text-gray-700">套餐类型</p>
-                {getSubscriptionBadge(profile.subscription_type)}
+                {getSubscriptionBadge(profile.subscriptionType)}
               </div>
 
-              {profile.subscription_end_date && (
+              {profile.subscriptionEndDate && (
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-gray-700">有效期</p>
                   <div className="text-right">
                     <p className="text-sm text-gray-900 font-medium">
-                      {new Date(profile.subscription_end_date).toLocaleDateString('zh-CN')}
+                      {new Date(profile.subscriptionEndDate).toLocaleDateString('zh-CN')}
                     </p>
                     <Badge variant={subscriptionStatus.variant} className="mt-1 text-xs">
                       {subscriptionStatus.message}

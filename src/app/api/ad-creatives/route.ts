@@ -30,13 +30,32 @@ export async function GET(request: NextRequest) {
     const creatives = await db.query(
       `
       SELECT
-        id, offer_id, user_id,
-        headlines, descriptions, keywords, keywords_with_volume, negative_keywords,
-        callouts, sitelinks, final_url, final_url_suffix,
-        score, score_breakdown, ad_strength, launch_score,
-        theme, ai_model, generation_round,
-        ad_group_id, ad_id, creation_status, creation_error, last_sync_at,
-        created_at, updated_at
+        id,
+        offer_id AS offerId,
+        user_id AS userId,
+        headlines,
+        descriptions,
+        keywords,
+        keywords_with_volume AS keywordsWithVolume,
+        negative_keywords AS negativeKeywords,
+        callouts,
+        sitelinks,
+        final_url AS finalUrl,
+        final_url_suffix AS finalUrlSuffix,
+        score,
+        score_breakdown AS scoreBreakdown,
+        ad_strength AS adStrength,
+        launch_score AS launchScore,
+        theme,
+        ai_model AS aiModel,
+        generation_round AS generationRound,
+        ad_group_id AS adGroupId,
+        ad_id AS adId,
+        creation_status AS creationStatus,
+        creation_error AS creationError,
+        last_sync_at AS lastSyncAt,
+        created_at AS createdAt,
+        updated_at AS updatedAt
       FROM ad_creatives
       WHERE offer_id = ? AND user_id = ?
       ORDER BY
@@ -178,13 +197,32 @@ export async function POST(request: NextRequest) {
     const creative = await db.queryOne(
       `
       SELECT
-        id, offer_id, user_id,
-        headlines, descriptions, keywords, keywords_with_volume, negative_keywords,
-        callouts, sitelinks, final_url, final_url_suffix,
-        score, score_breakdown, ad_strength, launch_score,
-        theme, ai_model, generation_round,
-        ad_group_id, ad_id, creation_status, creation_error, last_sync_at,
-        created_at, updated_at
+        id,
+        offer_id AS offerId,
+        user_id AS userId,
+        headlines,
+        descriptions,
+        keywords,
+        keywords_with_volume AS keywordsWithVolume,
+        negative_keywords AS negativeKeywords,
+        callouts,
+        sitelinks,
+        final_url AS finalUrl,
+        final_url_suffix AS finalUrlSuffix,
+        score,
+        score_breakdown AS scoreBreakdown,
+        ad_strength AS adStrength,
+        launch_score AS launchScore,
+        theme,
+        ai_model AS aiModel,
+        generation_round AS generationRound,
+        ad_group_id AS adGroupId,
+        ad_id AS adId,
+        creation_status AS creationStatus,
+        creation_error AS creationError,
+        last_sync_at AS lastSyncAt,
+        created_at AS createdAt,
+        updated_at AS updatedAt
       FROM ad_creatives
       WHERE id = ?
     `,

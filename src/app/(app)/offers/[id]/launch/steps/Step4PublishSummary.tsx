@@ -99,7 +99,7 @@ export default function Step4PublishSummary({
           } else {
             setPublishStatus({
               step: 'pausing',
-              message: `已暂停 ${pauseData.paused_count} 个广告系列`,
+              message: `已暂停 ${pauseData.pausedCount} 个广告系列`,
               success: true
             })
           }
@@ -131,12 +131,12 @@ export default function Step4PublishSummary({
         },
         credentials: 'include',
         body: JSON.stringify({
-          offer_id: offer.id,
-          ad_creative_id: selectedCreative.id,
-          google_ads_account_id: selectedAccount.id,
-          campaign_config: campaignConfig,
-          pause_old_campaigns: pauseOldCampaigns,
-          force_publish: false // 第一次调用不强制发布
+          offerId: offer.id,
+          adCreativeId: selectedCreative.id,
+          googleAdsAccountId: selectedAccount.id,
+          campaignConfig: campaignConfig,
+          pauseOldCampaigns: pauseOldCampaigns,
+          forcePublish: false // 第一次调用不强制发布
         })
       })
 
@@ -145,7 +145,7 @@ export default function Step4PublishSummary({
       // 🔥 处理需要确认暂停的情况（422状态码）
       if (response.status === 422 && data.action === 'CONFIRM_PAUSE_OLD_CAMPAIGNS') {
         console.log('⚠️ 需要用户确认是否暂停旧Campaign:', data)
-        setExistingCampaigns(data.existing_campaigns || [])
+        setExistingCampaigns(data.existingCampaigns || [])
         setPauseConfirmMessage(data.message || '')
         setShowPauseConfirm(true)
         setPublishing(false)
@@ -219,12 +219,12 @@ export default function Step4PublishSummary({
         },
         credentials: 'include',
         body: JSON.stringify({
-          offer_id: offer.id,
-          ad_creative_id: selectedCreative.id,
-          google_ads_account_id: selectedAccount.id,
-          campaign_config: campaignConfig,
-          pause_old_campaigns: true, // 用户确认暂停
-          force_publish: false
+          offerId: offer.id,
+          adCreativeId: selectedCreative.id,
+          googleAdsAccountId: selectedAccount.id,
+          campaignConfig: campaignConfig,
+          pauseOldCampaigns: true, // 用户确认暂停
+          forcePublish: false
         })
       })
 
@@ -276,12 +276,12 @@ export default function Step4PublishSummary({
         },
         credentials: 'include',
         body: JSON.stringify({
-          offer_id: offer.id,
-          ad_creative_id: selectedCreative.id,
-          google_ads_account_id: selectedAccount.id,
-          campaign_config: campaignConfig,
-          pause_old_campaigns: false, // 不暂停
-          force_publish: true // 强制发布（跳过确认）
+          offerId: offer.id,
+          adCreativeId: selectedCreative.id,
+          googleAdsAccountId: selectedAccount.id,
+          campaignConfig: campaignConfig,
+          pauseOldCampaigns: false, // 不暂停
+          forcePublish: true // 强制发布（跳过确认）
         })
       })
 
@@ -356,19 +356,19 @@ export default function Step4PublishSummary({
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <span className="text-gray-600">相关性:</span>{' '}
-                <span className="font-semibold">{selectedCreative.score_breakdown.relevance}</span>
+                <span className="font-semibold">{selectedCreative.scoreBreakdown.relevance}</span>
               </div>
               <div>
                 <span className="text-gray-600">质量:</span>{' '}
-                <span className="font-semibold">{selectedCreative.score_breakdown.quality}</span>
+                <span className="font-semibold">{selectedCreative.scoreBreakdown.quality}</span>
               </div>
               <div>
                 <span className="text-gray-600">吸引力:</span>{' '}
-                <span className="font-semibold">{selectedCreative.score_breakdown.engagement}</span>
+                <span className="font-semibold">{selectedCreative.scoreBreakdown.engagement}</span>
               </div>
               <div>
                 <span className="text-gray-600">多样性:</span>{' '}
-                <span className="font-semibold">{selectedCreative.score_breakdown.diversity}</span>
+                <span className="font-semibold">{selectedCreative.scoreBreakdown.diversity}</span>
               </div>
             </div>
           </div>
@@ -504,9 +504,9 @@ export default function Step4PublishSummary({
         <CardContent>
           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
             <div>
-              <div className="font-semibold">{selectedAccount.account_name || '广告账号'}</div>
+              <div className="font-semibold">{selectedAccount.accountName || '广告账号'}</div>
               <div className="text-sm text-gray-600 font-mono mt-1">
-                {selectedAccount.customer_id}
+                {selectedAccount.customerId}
               </div>
             </div>
             <Badge variant="default" className="bg-green-600">
@@ -640,10 +640,10 @@ export default function Step4PublishSummary({
                 <TableBody>
                   {existingCampaigns.map((camp: any) => (
                     <TableRow key={camp.id}>
-                      <TableCell className="font-medium">{camp.campaign_name}</TableCell>
-                      <TableCell>{camp.creative_theme || '-'}</TableCell>
-                      <TableCell>${camp.budget_amount}</TableCell>
-                      <TableCell>{new Date(camp.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="font-medium">{camp.campaignName}</TableCell>
+                      <TableCell>{camp.creativeTheme || '-'}</TableCell>
+                      <TableCell>${camp.budgetAmount}</TableCell>
+                      <TableCell>{new Date(camp.createdAt).toLocaleDateString()}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

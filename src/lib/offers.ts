@@ -54,11 +54,12 @@ export interface Offer {
   ai_analysis_v32: string | null  // 新版AI分析结果JSON（v3.2架构）
   page_type: string | null  // 页面类型：'product' | 'store'
   // P1-11: 关联的Google Ads账号信息（运行时计算字段，非数据库字段）
+  // 🔧 修复(2025-12-11): snake_case → camelCase
   linked_accounts?: Array<{
-    account_id: number
-    account_name: string | null
-    customer_id: string
-    campaign_count: number
+    accountId: number
+    accountName: string | null
+    customerId: string
+    campaignCount: number
   }>
 }
 
@@ -368,11 +369,12 @@ export async function listOffers(
   }>
 
   // 按offer_id分组关联账号
+  // 🔧 修复(2025-12-11): snake_case → camelCase
   const accountsByOfferId = new Map<number, Array<{
-    account_id: number
-    account_name: string | null
-    customer_id: string
-    campaign_count: number
+    accountId: number
+    accountName: string | null
+    customerId: string
+    campaignCount: number
   }>>()
 
   for (const account of allLinkedAccounts) {
@@ -380,10 +382,10 @@ export async function listOffers(
       accountsByOfferId.set(account.offer_id, [])
     }
     accountsByOfferId.get(account.offer_id)!.push({
-      account_id: account.account_id,
-      account_name: account.account_name,
-      customer_id: account.customer_id,
-      campaign_count: 0
+      accountId: account.account_id,
+      accountName: account.account_name,
+      customerId: account.customer_id,
+      campaignCount: 0
     })
   }
 
@@ -570,13 +572,13 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
  * 关联账号详情接口
  */
 export interface LinkedAccountDetail {
-  account_id: number
-  customer_id: string
-  account_name: string | null
-  campaign_id: number
-  campaign_name: string
+  accountId: number
+  customerId: string
+  accountName: string | null
+  campaignId: number
+  campaignName: string
   status: string
-  created_at: string
+  createdAt: string
 }
 
 /**
@@ -621,13 +623,13 @@ export async function deleteOffer(
   // ⚠️ 修复：忽略未成功发布到Google Ads的campaigns(google_campaign_id为空)
   const linkedAccounts = (await db.query(`
     SELECT
-      gaa.id as account_id,
-      gaa.customer_id,
-      gaa.account_name,
-      c.id as campaign_id,
-      c.campaign_name,
+      gaa.id as accountId,
+      gaa.customer_id as customerId,
+      gaa.account_name as accountName,
+      c.id as campaignId,
+      c.campaign_name as campaignName,
       c.status,
-      c.created_at
+      c.created_at as createdAt
     FROM campaigns c
     INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     WHERE c.offer_id = ?
@@ -640,7 +642,7 @@ export async function deleteOffer(
 
   // 如果有关联且未开启自动解除，返回关联详情
   if (linkedAccounts.length > 0 && !autoUnlink) {
-    const accountCount = new Set(linkedAccounts.map(a => a.account_id)).size
+    const accountCount = new Set(linkedAccounts.map(a => a.accountId)).size
     return {
       success: false,
       message: `该Offer关联了 ${accountCount} 个Ads账号，共 ${linkedAccounts.length} 个广告系列。请选择"解除关联并删除"或先手动解除关联。`,

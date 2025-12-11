@@ -110,8 +110,8 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
       targetCountry: offer.targetCountry || 'US',
       targetLanguage: offer.targetLanguage || 'en',
       biddingStrategy: 'MAXIMIZE_CLICKS',  // 业务规范：网站流量营销目标
-      // 优先使用: 创意的final_url_suffix → Offer解析后的final_url_suffix
-      finalUrlSuffix: selectedCreative?.final_url_suffix || offer.finalUrlSuffix || offer.final_url_suffix || '',
+      // 🔧 修复(2025-12-11): API已统一返回camelCase，移除snake_case fallback
+      finalUrlSuffix: selectedCreative?.finalUrlSuffix || offer.finalUrlSuffix || '',
 
       // Ad Group Level - 使用统一命名规范
       adGroupName: initialNaming.adGroupName,
@@ -135,9 +135,8 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
       adName: initialNaming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
       headlines: selectedCreative?.headlines || [],
       descriptions: selectedCreative?.descriptions || [],
-      // 优先使用: 创意的final_url → Offer解析后的finalUrl → 原始url
       // 🔧 修复(2025-12-11): API已统一返回camelCase，移除snake_case fallback
-      finalUrls: [selectedCreative?.final_url || offer.finalUrl || offer.url],
+      finalUrls: [selectedCreative?.finalUrl || offer.finalUrl || offer.url],
 
       // Extensions
       callouts: selectedCreative?.callouts || [],

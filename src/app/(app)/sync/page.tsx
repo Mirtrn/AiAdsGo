@@ -26,17 +26,20 @@ interface SyncStatus {
   lastSyncError: string | null
 }
 
+/**
+ * 🔧 修复(2025-12-11): 统一使用 camelCase 字段名
+ */
 interface SyncLog {
   id: number
-  user_id: number
-  google_ads_account_id: number
-  sync_type: 'manual' | 'auto'
+  userId: number
+  googleAdsAccountId: number
+  syncType: 'manual' | 'auto'
   status: 'success' | 'failed' | 'running'
-  record_count: number
-  duration_ms: number
-  error_message: string | null
-  started_at: string
-  completed_at: string | null
+  recordCount: number
+  durationMs: number
+  errorMessage: string | null
+  startedAt: string
+  completedAt: string | null
 }
 
 export default function SyncManagementPage() {
@@ -319,27 +322,27 @@ export default function SyncManagementPage() {
                     {logs.map((log) => (
                       <TableRow key={log.id}>
                         <TableCell className="font-medium">
-                          {formatDateTime(log.started_at)}
+                          {formatDateTime(log.startedAt)}
                         </TableCell>
                         <TableCell>
-                          {getSyncTypeBadge(log.sync_type)}
+                          {getSyncTypeBadge(log.syncType)}
                         </TableCell>
                         <TableCell>
                           {getStatusBadge(log.status)}
                         </TableCell>
                         <TableCell className="text-right">
-                          {log.record_count.toLocaleString()}
+                          {log.recordCount.toLocaleString()}
                         </TableCell>
                         <TableCell className="text-right">
-                          {formatDuration(log.duration_ms)}
+                          {formatDuration(log.durationMs)}
                         </TableCell>
                         <TableCell>
-                          {log.completed_at ? formatDateTime(log.completed_at) : '-'}
+                          {log.completedAt ? formatDateTime(log.completedAt) : '-'}
                         </TableCell>
                         <TableCell>
-                          {log.error_message ? (
-                            <span className="text-red-600 text-sm truncate max-w-xs block" title={log.error_message}>
-                              {log.error_message}
+                          {log.errorMessage ? (
+                            <span className="text-red-600 text-sm truncate max-w-xs block" title={log.errorMessage}>
+                              {log.errorMessage}
                             </span>
                           ) : (
                             '-'

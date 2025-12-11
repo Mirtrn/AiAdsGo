@@ -250,7 +250,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       batchId,
-      total_count: rows.length,
+      totalCount: rows.length,
+      skippedCount: skippedCount,
       message: `批量任务已创建，共${rows.length}个Offer`
     })
 
