@@ -581,7 +581,17 @@ export async function GET(request: NextRequest) {
         GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_deleted
       `, [dbAccountId, userId])
 
-      return { ...account, linked_offers: linkedOffers }
+      // 🔧 修复(2025-12-11): 转换snake_case为camelCase，保持API响应一致性
+      const linkedOffersMapped = linkedOffers.map((offer: any) => ({
+        id: offer.id,
+        offerName: offer.offer_name,
+        brand: offer.brand,
+        targetCountry: offer.target_country,
+        isActive: offer.is_active === 1,
+        campaignCount: offer.campaign_count
+      }))
+
+      return { ...account, linked_offers: linkedOffersMapped }
     }))
 
     return NextResponse.json({

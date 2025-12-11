@@ -46,7 +46,7 @@ interface Offer {
   uniqueSellingPoints: string | null
   productHighlights: string | null
   targetAudience: string | null
-  scrape_status: string
+  scrapeStatus: string
   scrapeError: string | null
   scrapedAt: string | null
   isActive: boolean
@@ -392,23 +392,23 @@ export default function OfferDetailPage() {
         <div className="px-4 py-6 sm:px-0">
           {/* 抓取状态提示 */}
           <div className={`mb-6 px-4 py-3 rounded border ${
-            offer.scrape_status === 'completed' ? 'bg-green-50 border-green-400 text-green-700' :
-            offer.scrape_status === 'failed' ? 'bg-red-50 border-red-400 text-red-700' :
+            offer.scrapeStatus === 'completed' ? 'bg-green-50 border-green-400 text-green-700' :
+            offer.scrapeStatus === 'failed' ? 'bg-red-50 border-red-400 text-red-700' :
             'bg-blue-50 border-blue-400 text-blue-700'
           }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getScrapeStatusColor(offer.scrape_status)}`}>
-                  {getScrapeStatusLabel(offer.scrape_status)}
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getScrapeStatusColor(offer.scrapeStatus)}`}>
+                  {getScrapeStatusLabel(offer.scrapeStatus)}
                 </span>
                 <span className="ml-3">
-                  {offer.scrape_status === 'pending' && '产品信息后台异步抓取中...'}
-                  {offer.scrape_status === 'in_progress' && '正在抓取产品信息...'}
-                  {offer.scrape_status === 'completed' && `产品信息抓取完成 (${offer.scrapedAt ? new Date(offer.scrapedAt).toLocaleString('zh-CN') : ''})`}
-                  {offer.scrape_status === 'failed' && `抓取失败: ${offer.scrapeError || '未知错误'}`}
+                  {offer.scrapeStatus === 'pending' && '产品信息后台异步抓取中...'}
+                  {offer.scrapeStatus === 'in_progress' && '正在抓取产品信息...'}
+                  {offer.scrapeStatus === 'completed' && `产品信息抓取完成 (${offer.scrapedAt ? new Date(offer.scrapedAt).toLocaleString('zh-CN') : ''})`}
+                  {offer.scrapeStatus === 'failed' && `抓取失败: ${offer.scrapeError || '未知错误'}`}
                 </span>
               </div>
-              {offer.scrape_status === 'failed' && (
+              {offer.scrapeStatus === 'failed' && (
                 <button
                   onClick={handleScrape}
                   disabled={scraping}

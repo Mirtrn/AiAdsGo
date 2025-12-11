@@ -58,11 +58,12 @@ export default function Step2CampaignConfigV2({ offer, selectedCreative, onConfi
   const [config, setConfig] = useState<CampaignConfig>(
     initialConfig || {
       // Campaign Level - 符合业务规范
-      campaignName: `${offer.brand || 'Brand'} - ${offer.target_country || 'US'} Campaign`,
+      // 🔧 修复(2025-12-11): 使用驼峰命名（与API返回一致）
+      campaignName: `${offer.brand || 'Brand'} - ${offer.targetCountry || 'US'} Campaign`,
       budgetAmount: 10,  // 10 USD（业务规范）
       budgetType: 'DAILY' as const,  // 固定每日预算
-      targetCountry: offer.target_country || 'US',
-      targetLanguage: offer.target_language || 'en',
+      targetCountry: offer.targetCountry || 'US',
+      targetLanguage: offer.targetLanguage || 'en',
       biddingStrategy: 'MAXIMIZE_CLICKS',  // 业务规范
       finalUrlSuffix: selectedCreative?.final_url_suffix || '',
 

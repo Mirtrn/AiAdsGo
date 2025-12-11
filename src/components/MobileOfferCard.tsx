@@ -18,7 +18,7 @@ interface Offer {
   targetCountry: string
   affiliateLink: string | null
   brandDescription: string | null
-  scrape_status: string
+  scrapeStatus: string  // 🔧 修复(2025-12-11): snake_case → camelCase
   isActive: boolean
   createdAt: string
   offerName: string | null
@@ -60,7 +60,7 @@ export function MobileOfferCard({
         {/* 顶部：Offer ID */}
         <div className="flex items-center justify-between">
           <span className="text-xs text-gray-500 font-mono">Offer ID: #{offer.id}</span>
-          {getScrapeStatusBadge(offer.scrape_status)}
+          {getScrapeStatusBadge(offer.scrapeStatus)}
         </div>
 
         {/* Offer标识 */}

@@ -121,8 +121,8 @@ export default function LaunchAdPage() {
 
       const data = await response.json()
 
-      // 检查抓取状态
-      if (data.offer.scrape_status !== 'completed') {
+      // 检查抓取状态 - 🔧 修复(2025-12-11): 使用camelCase
+      if (data.offer.scrapeStatus !== 'completed') {
         showError('无法生成广告', '请先完成网页抓取后再生成广告创意')
         router.push('/offers')
         return

@@ -49,7 +49,10 @@ export async function GET(
         // Final URL字段（从推广链接解析后的最终落地页）
         finalUrl: offer.final_url,
         finalUrlSuffix: offer.final_url_suffix,
-        scrape_status: offer.scrape_status,
+        // 🔧 修复(2025-12-11): 添加产品价格和佣金比例字段（需求28：计算建议CPC）
+        productPrice: offer.product_price,
+        commissionPayout: offer.commission_payout,
+        scrapeStatus: offer.scrape_status,
         scrapeError: offer.scrape_error,
         scrapedAt: offer.scraped_at,
         // 🔥 修复：兼容PostgreSQL(BOOLEAN)和SQLite(INTEGER)
@@ -153,7 +156,7 @@ export async function PUT(
         // Final URL字段（从推广链接解析后的最终落地页）
         finalUrl: offer.final_url,
         finalUrlSuffix: offer.final_url_suffix,
-        scrape_status: offer.scrape_status,
+        scrapeStatus: offer.scrape_status,
         // 🔥 修复：兼容PostgreSQL(BOOLEAN)和SQLite(INTEGER)
         isActive: offer.is_active === true || offer.is_active === 1,
         createdAt: offer.created_at,

@@ -41,18 +41,18 @@ export default function EditOfferPage() {
         const data = await response.json()
         const offer = data.offer
 
-        // 填充表单
+        // 填充表单 - 🔧 修复(2025-12-11): 使用camelCase匹配API返回的字段名
         setUrl(offer.url || '')
         setBrand(offer.brand || '')
         setCategory(offer.category || '')
-        setTargetCountry(offer.target_country || 'US')
-        setAffiliateLink(offer.affiliate_link || '')
-        setBrandDescription(offer.brand_description || '')
-        setUniqueSellingPoints(offer.unique_selling_points || '')
-        setProductHighlights(offer.product_highlights || '')
-        setTargetAudience(offer.target_audience || '')
-        setProductPrice(offer.product_price || '')
-        setCommissionPayout(offer.commission_payout || '')
+        setTargetCountry(offer.targetCountry || 'US')
+        setAffiliateLink(offer.affiliateLink || '')
+        setBrandDescription(offer.brandDescription || '')
+        setUniqueSellingPoints(offer.uniqueSellingPoints || '')
+        setProductHighlights(offer.productHighlights || '')
+        setTargetAudience(offer.targetAudience || '')
+        setProductPrice(offer.productPrice || '')
+        setCommissionPayout(offer.commissionPayout || '')
       } catch (err: any) {
         setError(err.message || '加载Offer失败')
       } finally {

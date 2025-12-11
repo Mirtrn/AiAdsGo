@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
           // Final URL字段
           finalUrl: offer.final_url,
           finalUrlSuffix: offer.final_url_suffix,
-          scrape_status: offer.scrape_status,
+          scrapeStatus: offer.scrape_status,
           // 🔥 修复：兼容PostgreSQL(BOOLEAN)和SQLite(INTEGER)
           isActive: offer.is_active === true || offer.is_active === 1,
           createdAt: offer.created_at,
@@ -174,10 +174,10 @@ export async function GET(request: NextRequest) {
         offers: offers.map(offer => ({
           id: offer.id,
           brand: offer.brand,
-          scrape_status: offer.scrape_status,
-          scrape_error: offer.scrape_error,
-          affiliate_link: offer.affiliate_link,
-          target_country: offer.target_country,
+          scrapeStatus: offer.scrape_status,
+          scrapeError: offer.scrape_error,
+          affiliateLink: offer.affiliate_link,
+          targetCountry: offer.target_country,
         })),
         total: offers.length,
       })

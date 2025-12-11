@@ -151,7 +151,7 @@ export default function OffersPage() {
         if (result.success) {
           const data = result.data
           // 只有存在进行中的任务时才更新状态
-          if (data.offers.some((offer: Offer) => offer.scrape_status === 'in_progress')) {
+          if (data.offers.some((offer: Offer) => offer.scrapeStatus === 'in_progress')) {
             console.log('[Polling] Found in-progress tasks, updating offers...')
             setOffers(data.offers)
             setFilteredOffers(data.offers)
@@ -187,7 +187,7 @@ export default function OffersPage() {
 
     // 状态筛选
     if (statusFilter !== 'all') {
-      filtered = filtered.filter((offer) => offer.scrape_status === statusFilter)
+      filtered = filtered.filter((offer) => offer.scrapeStatus === statusFilter)
     }
 
     // P2-5: 排序
@@ -456,7 +456,7 @@ export default function OffersPage() {
       targetLanguage: offer.targetLanguage || 'English',
       url: offer.url,
       affiliateLink: offer.affiliateLink,
-      scrapeStatus: offer.scrape_status,
+      scrapeStatus: offer.scrapeStatus,
       isActive: offer.isActive,
       createdAt: offer.createdAt,
     }))
@@ -782,7 +782,7 @@ export default function OffersPage() {
                         <TableCell className="text-body-sm text-muted-foreground">
                           {offer.targetLanguage || 'English'}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{getScrapeStatusBadge(offer.scrape_status)}</TableCell>
+                        <TableCell className="whitespace-nowrap">{getScrapeStatusBadge(offer.scrapeStatus)}</TableCell>
                         <TableCell>
                           {/* P1-11: 显示关联的Google Ads账号（只显示非MCC账号） */}
                           {offer.linkedAccounts && offer.linkedAccounts.length > 0 ? (
@@ -819,9 +819,9 @@ export default function OffersPage() {
                               size="sm"
                               variant="default"
                               onClick={() => router.push(`/offers/${offer.id}/launch`)}
-                              disabled={offer.scrape_status !== 'completed'}
+                              disabled={offer.scrapeStatus !== 'completed'}
                               className="h-8 whitespace-nowrap"
-                              title={offer.scrape_status !== 'completed' ? '请等待数据抓取完成' : ''}
+                              title={offer.scrapeStatus !== 'completed' ? '请等待数据抓取完成' : ''}
                             >
                               <Rocket className="w-3.5 h-3.5 mr-1.5" />
                               发布广告

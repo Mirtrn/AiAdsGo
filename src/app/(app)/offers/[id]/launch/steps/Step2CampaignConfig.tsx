@@ -135,8 +135,9 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
       adName: initialNaming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
       headlines: selectedCreative?.headlines || [],
       descriptions: selectedCreative?.descriptions || [],
-      // 优先使用: 创意的final_url → Offer解析后的final_url → 原始url
-      finalUrls: [selectedCreative?.final_url || offer.finalUrl || offer.final_url || offer.url],
+      // 优先使用: 创意的final_url → Offer解析后的finalUrl → 原始url
+      // 🔧 修复(2025-12-11): API已统一返回camelCase，移除snake_case fallback
+      finalUrls: [selectedCreative?.final_url || offer.finalUrl || offer.url],
 
       // Extensions
       callouts: selectedCreative?.callouts || [],
@@ -588,10 +589,11 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
                   step="0.01"
                 />
               </div>
-              {offer.product_price && offer.commission_payout && (() => {
-                // 需求31: 计算建议最大CPC = product_price * commission_payout / 50
-                const priceMatch = String(offer.product_price).match(/[\d.,]+/)
-                const commissionMatch = String(offer.commission_payout).match(/[\d.]+/)
+              {/* 🔧 修复(2025-12-11): 使用驼峰命名 productPrice/commissionPayout（与API返回一致） */}
+              {offer.productPrice && offer.commissionPayout && (() => {
+                // 需求31: 计算建议最大CPC = productPrice * commissionPayout / 50
+                const priceMatch = String(offer.productPrice).match(/[\d.,]+/)
+                const commissionMatch = String(offer.commissionPayout).match(/[\d.]+/)
 
                 if (priceMatch && commissionMatch) {
                   const price = parseFloat(priceMatch[0].replace(/,/g, ''))

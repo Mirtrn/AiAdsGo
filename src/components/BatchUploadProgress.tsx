@@ -9,13 +9,14 @@ interface BatchUploadProgressProps {
   onClose?: () => void
 }
 
+// 🔧 修复(2025-12-11): 使用camelCase匹配API返回的字段名
 interface OfferStatus {
   id: number
   brand: string
-  scrape_status: 'pending' | 'in_progress' | 'completed' | 'failed'
-  affiliate_link?: string
-  target_country?: string
-  scrape_error?: string
+  scrapeStatus: 'pending' | 'in_progress' | 'completed' | 'failed'
+  affiliateLink?: string
+  targetCountry?: string
+  scrapeError?: string
 }
 
 export function BatchUploadProgress({ offerIds, onComplete, onClose }: BatchUploadProgressProps) {
@@ -36,7 +37,7 @@ export function BatchUploadProgress({ offerIds, onComplete, onClose }: BatchUplo
           setOffers(data.offers)
 
           const completed = data.offers.filter(
-            (o: OfferStatus) => o.scrape_status === 'completed' || o.scrape_status === 'failed'
+            (o: OfferStatus) => o.scrapeStatus === 'completed' || o.scrapeStatus === 'failed'
           ).length
 
           setProgress({ completed, total: offerIds.length })
@@ -189,8 +190,8 @@ export function BatchUploadProgress({ offerIds, onComplete, onClose }: BatchUplo
                 🎉 所有Offer已处理完成！
               </p>
               <p className="text-xs text-green-600 mt-1">
-                成功: {offers.filter(o => o.scrape_status === 'completed').length} 个 |
-                失败: {offers.filter(o => o.scrape_status === 'failed').length} 个
+                成功: {offers.filter(o => o.scrapeStatus === 'completed').length} 个 |
+                失败: {offers.filter(o => o.scrapeStatus === 'failed').length} 个
               </p>
             </div>
           )}
@@ -262,13 +263,13 @@ export function BatchUploadProgress({ offerIds, onComplete, onClose }: BatchUplo
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center space-x-2">
-                        {getStatusIcon(offer.scrape_status)}
+                        {getStatusIcon(offer.scrapeStatus)}
                         <span className="font-semibold text-gray-900">
                           Offer #{offer.id}
                         </span>
                       </div>
-                      <span className={`text-xs font-medium ${getStatusColor(offer.scrape_status)}`}>
-                        {getStatusText(offer.scrape_status)}
+                      <span className={`text-xs font-medium ${getStatusColor(offer.scrapeStatus)}`}>
+                        {getStatusText(offer.scrapeStatus)}
                       </span>
                     </div>
 
@@ -277,16 +278,16 @@ export function BatchUploadProgress({ offerIds, onComplete, onClose }: BatchUplo
                         <span className="font-medium">品牌:</span> {offer.brand || '提取中...'}
                       </p>
                       <p className="text-sm text-gray-700">
-                        <span className="font-medium">国家:</span> {offer.target_country || 'N/A'}
+                        <span className="font-medium">国家:</span> {offer.targetCountry || 'N/A'}
                       </p>
-                      {offer.scrape_error && (
+                      {offer.scrapeError && (
                         <p className="text-xs text-red-600 mt-2">
-                          ⚠️ {offer.scrape_error}
+                          ⚠️ {offer.scrapeError}
                         </p>
                       )}
                     </div>
 
-                    {offer.scrape_status === 'completed' && (
+                    {offer.scrapeStatus === 'completed' && (
                       <a
                         href={`/offers/${offer.id}`}
                         className="inline-block mt-3 text-sm text-indigo-600 hover:text-indigo-800 font-medium"

@@ -17,13 +17,14 @@ interface GoogleAdsAccount {
   db_account_id: number | null
   db_account_name: string | null
   last_sync_at?: string
+  // 🔧 修复(2025-12-11): 使用camelCase匹配API返回的字段名
   linked_offers?: Array<{
     id: number
-    offer_name: string | null
+    offerName: string | null
     brand: string
-    target_country: string
-    is_active: number
-    campaign_count: number
+    targetCountry: string
+    isActive: boolean
+    campaignCount: number
   }>
 }
 
@@ -542,10 +543,10 @@ export default function GoogleAdsPage() {
                                             href={`/offers/${offer.id}`}
                                             className="text-indigo-600 hover:underline font-medium"
                                           >
-                                            {offer.offer_name || offer.brand}
+                                            {offer.offerName || offer.brand}
                                           </a>
                                           <span className="text-gray-600 ml-1">
-                                            · {offer.target_country} · {offer.campaign_count} 系列
+                                            · {offer.targetCountry} · {offer.campaignCount} 系列
                                           </span>
                                         </div>
                                       ))}

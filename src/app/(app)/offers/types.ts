@@ -10,7 +10,7 @@ export interface OfferListItem {
   targetCountry: string
   affiliateLink: string | null
   brandDescription: string | null
-  scrape_status: string
+  scrapeStatus: string  // 🔧 修复(2025-12-11): snake_case → camelCase
   isActive: boolean
   createdAt: string
   offerName: string | null
@@ -24,7 +24,7 @@ export interface OfferListItem {
   }>
 }
 
-export type SortField = 'brand' | 'targetCountry' | 'scrape_status' | 'createdAt' | ''
+export type SortField = 'brand' | 'targetCountry' | 'scrapeStatus' | 'createdAt' | ''  // 🔧 修复
 export type SortOrder = 'asc' | 'desc'
 
 export interface OfferFilters {
