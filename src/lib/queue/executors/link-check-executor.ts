@@ -102,7 +102,7 @@ export function createLinkCheckExecutor(): TaskExecutor<LinkCheckTaskData, LinkC
 
         // 构建查询条件
         let query = `
-          SELECT o.id, o.affiliate_link, o.target_country, o.user_id, o.product_name
+          SELECT o.id, o.affiliate_link, o.target_country, o.user_id, o.brand, o.offer_name
           FROM offers o
           WHERE o.is_active = 1 AND o.affiliate_link IS NOT NULL
         `
@@ -122,7 +122,8 @@ export function createLinkCheckExecutor(): TaskExecutor<LinkCheckTaskData, LinkC
           affiliate_link: string
           target_country: string
           user_id: number
-          product_name: string
+          brand: string
+          offer_name: string | null
         }>(query, params)
 
         console.log(`   找到 ${offers.length} 个需要检查的Offer`)
@@ -133,6 +134,7 @@ export function createLinkCheckExecutor(): TaskExecutor<LinkCheckTaskData, LinkC
 
         // 逐个检查链接
         for (const offer of offers) {
+          const displayName = offer.offer_name || offer.brand || `Offer #${offer.id}`
           const result = await validateLinkWithResolver(
             offer.affiliate_link,
             offer.target_country || 'US',
@@ -141,11 +143,11 @@ export function createLinkCheckExecutor(): TaskExecutor<LinkCheckTaskData, LinkC
 
           if (result.isValid) {
             validLinks++
-            console.log(`   ✅ Offer #${offer.id} (${offer.product_name}): 链接有效`)
+            console.log(`   ✅ ${displayName}: 链接有效`)
           } else {
             brokenLinks++
             totalAlerts++
-            console.log(`   ❌ Offer #${offer.id} (${offer.product_name}): 链接失效 - ${result.error}`)
+            console.log(`   ❌ ${displayName}: 链接失效 - ${result.error}`)
 
             // 创建风险提示
             await db.exec(`
@@ -154,8 +156,8 @@ export function createLinkCheckExecutor(): TaskExecutor<LinkCheckTaskData, LinkC
             `, [
               offer.user_id,
               offer.id,
-              `推广链接失效: ${offer.product_name}`,
-              `Offer "${offer.product_name}" 的推广链接无法正常解析。错误: ${result.error}`
+              `推广链接失效: ${displayName}`,
+              `Offer "${displayName}" 的推广链接无法正常解析。错误: ${result.error}`
             ])
           }
         }

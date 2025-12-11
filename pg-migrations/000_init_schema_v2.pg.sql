@@ -94,6 +94,7 @@ CREATE TABLE "offers" (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL,
   brand TEXT NOT NULL,
+  product_name TEXT,            -- 产品名称（与brand配合使用）
   url TEXT NOT NULL,
   target_country TEXT NOT NULL DEFAULT 'US',
   target_language TEXT NOT NULL DEFAULT 'en',

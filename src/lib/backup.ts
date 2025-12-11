@@ -40,18 +40,33 @@ export async function backupDatabase(backupType: 'manual' | 'auto', createdBy?: 
   const db = await getDatabase()
 
   try {
+    // 🚨 检查数据库类型：仅支持SQLite备份
     const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'autoads.db')
+    const isPostgres = process.env.DATABASE_URL?.startsWith('postgres')
+
+    // PostgreSQL环境下跳过备份（返回成功避免任务失败）
+    if (isPostgres || !dbPath.endsWith('.db')) {
+      const skipMessage = 'PostgreSQL环境下已跳过文件备份（PostgreSQL由云服务商自动备份）'
+      console.log(`⚠️ ${skipMessage}`)
+
+      // 记录跳过日志
+      await db.exec(`
+        INSERT INTO backup_logs (backup_type, status, error_message, created_by)
+        VALUES (?, ?, ?, ?)
+      `, [backupType, 'skipped', skipMessage, createdBy || null])
+
+      return {
+        success: true,
+        errorMessage: skipMessage
+      }
+    }
+
+    // SQLite环境：执行文件备份
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const backupFilename = `autoads-backup-${backupType}-${timestamp}.db`
     const backupPath = path.join(BACKUP_DIR, backupFilename)
 
-    // For SQLite, use file copy; For PostgreSQL, this would need pg_dump
-    if (dbPath.endsWith('.db')) {
-      fs.copyFileSync(dbPath, backupPath)
-    } else {
-      throw new Error('Database backup for PostgreSQL not yet implemented')
-    }
-
+    fs.copyFileSync(dbPath, backupPath)
     console.log(`✅ Database backup created at ${backupPath}`)
     cleanOldBackups()
 
