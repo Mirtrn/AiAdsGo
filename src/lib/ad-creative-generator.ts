@@ -2141,13 +2141,16 @@ export async function generateAdCreative(
       const { getDatabase } = await import('@/lib/db')
       const db = await getDatabase()
 
+      // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+      const isActiveValue = db.type === 'postgres' ? true : 1
+
       // 查询用户的Google Ads账号
       const adsAccount = await db.queryOne(`
         SELECT id, customer_id FROM google_ads_accounts
-        WHERE user_id = ? AND is_active = 1
+        WHERE user_id = ? AND is_active = ?
         ORDER BY created_at DESC
         LIMIT 1
-      `, [userId]) as { id: number; customer_id: string } | undefined
+      `, [userId, isActiveValue]) as { id: number; customer_id: string } | undefined
 
       if (adsAccount) {
         // 获取OAuth凭证

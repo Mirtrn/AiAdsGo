@@ -58,6 +58,10 @@ export async function loadPrompt(promptId: string): Promise<string> {
 
   // 2. 从数据库加载active版本
   const db = await getDatabase()
+
+  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+  const isActiveValue = db.type === 'postgres' ? true : 1
+
   const prompt = await db.queryOne<{
     prompt_content: string | Buffer
     version: string
@@ -65,8 +69,8 @@ export async function loadPrompt(promptId: string): Promise<string> {
   }>(
     `SELECT prompt_content, version, name
      FROM prompt_versions
-     WHERE prompt_id = ? AND is_active = 1`,
-    [promptId]
+     WHERE prompt_id = ? AND is_active = ?`,
+    [promptId, isActiveValue]
   )
 
   if (!prompt) {

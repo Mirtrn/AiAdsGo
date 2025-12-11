@@ -9,6 +9,9 @@ export async function GET(request: NextRequest) {
   try {
     const db = getDatabase()
 
+    // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+    const isActiveValue = db.type === 'postgres' ? true : 1
+
     // 获取所有激活的Prompt版本
     const activePrompts = await db.query<any>(`
       SELECT
@@ -21,9 +24,9 @@ export async function GET(request: NextRequest) {
         ) as version_count
       FROM prompt_versions pv
       LEFT JOIN users u ON pv.created_by = u.id
-      WHERE pv.is_active = 1
+      WHERE pv.is_active = ?
       ORDER BY pv.category, pv.name
-    `)
+    `, [isActiveValue])
 
     // 按分类分组
     const promptsByCategory: Record<string, any[]> = {}
@@ -147,10 +150,13 @@ export async function POST(request: NextRequest) {
     // 如果是第一个版本，或者请求激活此版本，则取消其他版本的激活状态
     const isActive = body.isActive !== undefined ? body.isActive : true
 
+    // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+    const isActiveFalse = db.type === 'postgres' ? false : 0
+
     if (isActive) {
       await db.exec(
-        'UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = ?',
-        [promptId]
+        'UPDATE prompt_versions SET is_active = ? WHERE prompt_id = ?',
+        [isActiveFalse, promptId]
       )
     }
 

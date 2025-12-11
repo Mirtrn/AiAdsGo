@@ -13,6 +13,9 @@ export async function GET(
     const { promptId } = params
     const db = getDatabase()
 
+    // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+    const isActiveValue = db.type === 'postgres' ? true : 1
+
     // 获取当前激活版本
     const activeVersion = await db.queryOne<any>(
       `SELECT
@@ -20,8 +23,8 @@ export async function GET(
         u.username as created_by_name
        FROM prompt_versions pv
        LEFT JOIN users u ON pv.created_by = u.id
-       WHERE pv.prompt_id = ? AND pv.is_active = 1`,
-      [promptId]
+       WHERE pv.prompt_id = ? AND pv.is_active = ?`,
+      [promptId, isActiveValue]
     )
 
     if (!activeVersion) {
@@ -128,16 +131,20 @@ export async function PUT(
       )
     }
 
+    // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+    const isActiveFalse = db.type === 'postgres' ? false : 0
+    const isActiveTrue = db.type === 'postgres' ? true : 1
+
     // 取消其他版本的激活状态
     await db.exec(
-      'UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = ?',
-      [promptId]
+      'UPDATE prompt_versions SET is_active = ? WHERE prompt_id = ?',
+      [isActiveFalse, promptId]
     )
 
     // 激活指定版本
     await db.exec(
-      'UPDATE prompt_versions SET is_active = 1 WHERE prompt_id = ? AND version = ?',
-      [promptId, version]
+      'UPDATE prompt_versions SET is_active = ? WHERE prompt_id = ? AND version = ?',
+      [isActiveTrue, promptId, version]
     )
 
     return NextResponse.json({

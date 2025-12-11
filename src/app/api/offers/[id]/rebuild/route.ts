@@ -69,10 +69,13 @@ export async function POST(
     }
     const userIdNum = parseInt(userId, 10)
 
+    // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+    const isDeletedFalse = db.type === 'postgres' ? false : 0
+
     // 2. 查询Offer并验证所有权
     const offers = await db.query<Offer>(
-      'SELECT id, user_id, affiliate_link, target_country, product_price, commission_payout FROM offers WHERE id = ? AND user_id = ? AND is_deleted = 0',
-      [offerId, userIdNum]
+      'SELECT id, user_id, affiliate_link, target_country, product_price, commission_payout FROM offers WHERE id = ? AND user_id = ? AND is_deleted = ?',
+      [offerId, userIdNum, isDeletedFalse]
     )
 
     if (!offers || offers.length === 0) {

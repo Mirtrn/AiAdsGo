@@ -112,14 +112,17 @@ export class DataSyncService {
     let syncLogId: number | undefined
 
     try {
+      // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+      const isActiveValue = db.type === 'postgres' ? true : 1
+
       // 1. 获取用户的所有Google Ads账户
       const accounts = await db.query(
         `
         SELECT id, customer_id, refresh_token, user_id
         FROM google_ads_accounts
-        WHERE user_id = ? AND is_active = 1
+        WHERE user_id = ? AND is_active = ?
       `,
-        [userId]
+        [userId, isActiveValue]
       ) as Array<{
         id: number
         customer_id: string

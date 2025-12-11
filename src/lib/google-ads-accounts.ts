@@ -121,11 +121,14 @@ export async function findGoogleAdsAccountsByUserId(userId: number): Promise<Goo
 export async function findActiveGoogleAdsAccounts(userId: number): Promise<GoogleAdsAccount[]> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：is_active 在 PostgreSQL 是 BOOLEAN，在 SQLite 是 INTEGER
+  const isActiveValue = db.type === 'postgres' ? true : 1
+
   const rows = await db.query(`
     SELECT * FROM google_ads_accounts
-    WHERE user_id = ? AND is_active = 1
+    WHERE user_id = ? AND is_active = ?
     ORDER BY created_at DESC
-  `, [userId]) as any[]
+  `, [userId, isActiveValue]) as any[]
 
   return rows.map(mapRowToGoogleAdsAccount)
 }
@@ -136,14 +139,18 @@ export async function findActiveGoogleAdsAccounts(userId: number): Promise<Googl
 export async function findEnabledGoogleAdsAccounts(userId: number): Promise<GoogleAdsAccount[]> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+  const isActiveValue = db.type === 'postgres' ? true : 1
+  const isManagerValue = db.type === 'postgres' ? false : 0
+
   const rows = await db.query(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ?
-      AND is_active = 1
+      AND is_active = ?
       AND status = 'ENABLED'
-      AND is_manager_account = 0
+      AND is_manager_account = ?
     ORDER BY created_at DESC
-  `, [userId]) as any[]
+  `, [userId, isActiveValue, isManagerValue]) as any[]
 
   return rows.map(mapRowToGoogleAdsAccount)
 }
@@ -248,19 +255,24 @@ export async function deleteGoogleAdsAccount(id: number, userId: number): Promis
 export async function setActiveGoogleAdsAccount(id: number, userId: number): Promise<boolean> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：布尔字段和时间函数兼容性处理
+  const isActiveTrue = db.type === 'postgres' ? true : 1
+  const isActiveFalse = db.type === 'postgres' ? false : 0
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
   // 将所有账号设为不激活
   await db.exec(`
     UPDATE google_ads_accounts
-    SET is_active = 0
+    SET is_active = ?
     WHERE user_id = ?
-  `, [userId])
+  `, [isActiveFalse, userId])
 
   // 将指定账号设为激活
   const result = await db.exec(`
     UPDATE google_ads_accounts
-    SET is_active = 1, updated_at = datetime('now')
+    SET is_active = ?, updated_at = ${nowFunc}
     WHERE id = ? AND user_id = ?
-  `, [id, userId])
+  `, [isActiveTrue, id, userId])
 
   return result.changes > 0
 }

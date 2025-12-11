@@ -325,6 +325,9 @@ export async function checkAllUserLinks(userId: number): Promise<{
 }> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+  const isDeletedFalse = db.type === 'postgres' ? false : 0
+
   // 获取用户的所有活跃Offers（包含目标国家）
   const offers = await db.query(
     `
@@ -333,9 +336,9 @@ export async function checkAllUserLinks(userId: number): Promise<{
     WHERE user_id = ?
       AND affiliate_link IS NOT NULL
       AND affiliate_link != ''
-      AND (is_deleted = 0 OR is_deleted IS NULL)
+      AND (is_deleted = ? OR is_deleted IS NULL)
   `,
-    [userId]
+    [userId, isDeletedFalse]
   ) as any[]
 
   let totalChecked = 0
@@ -431,15 +434,18 @@ export async function checkAdsAccountStatus(userId: number): Promise<{
 }> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+  const isActiveValue = db.type === 'postgres' ? true : 1
+
   // 获取用户的所有活跃Ads账号
   const accounts = await db.query(
     `
     SELECT id, customer_id, account_name, is_active
     FROM google_ads_accounts
     WHERE user_id = ?
-      AND is_active = 1
+      AND is_active = ?
   `,
-    [userId]
+    [userId, isActiveValue]
   ) as any[]
 
   if (accounts.length === 0) {
@@ -605,6 +611,9 @@ export async function dailyLinkCheck(): Promise<{
 }> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+  const isDeletedFalse = db.type === 'postgres' ? false : 0
+
   // 获取所有有Offers的用户
   const users = await db.query(
     `
@@ -612,9 +621,9 @@ export async function dailyLinkCheck(): Promise<{
     FROM offers
     WHERE affiliate_link IS NOT NULL
       AND affiliate_link != ''
-      AND (is_deleted = 0 OR is_deleted IS NULL)
+      AND (is_deleted = ? OR is_deleted IS NULL)
   `,
-    []
+    [isDeletedFalse]
   ) as { user_id: number }[]
 
   const results: Record<number, Awaited<ReturnType<typeof checkAllUserLinks>>> = {}

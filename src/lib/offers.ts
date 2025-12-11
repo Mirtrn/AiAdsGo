@@ -327,6 +327,9 @@ export async function listOffers(
     return { offers: [], total: count }
   }
 
+  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+  const isManagerValue = db.type === 'postgres' ? false : 0
+
   // 构建offer IDs的占位符
   const offerIds = offers.map(o => o.id)
   const placeholders = offerIds.map(() => '?').join(',')
@@ -343,13 +346,13 @@ export async function listOffers(
     WHERE c.offer_id IN (${placeholders})
       AND c.user_id = ?
       AND c.status != 'REMOVED'
-      AND gaa.is_manager_account = 0
+      AND gaa.is_manager_account = ?
       AND c.google_campaign_id IS NOT NULL
       AND c.google_campaign_id != ''
     ORDER BY c.offer_id, gaa.account_name
   `
 
-  const allLinkedAccounts = await db.query(linkedAccountsQuery, [...offerIds, userId]) as Array<{
+  const allLinkedAccounts = await db.query(linkedAccountsQuery, [...offerIds, userId, isManagerValue]) as Array<{
     offer_id: number
     account_id: number
     account_name: string | null
@@ -585,8 +588,10 @@ export async function deleteOffer(
 ): Promise<DeleteOfferResult> {
   const db = await getDatabase()
 
-  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
+  // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数和布尔值
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+  const isDeletedTrue = db.type === 'postgres' ? true : 1
+  const isActiveFalse = db.type === 'postgres' ? false : 0
 
   // 验证Offer存在且属于该用户
   const existing = await findOfferById(id, userId)
@@ -642,12 +647,12 @@ export async function deleteOffer(
   // 软删除Offer（保留历史数据）
   await db.exec(`
     UPDATE offers
-    SET is_deleted = 1,
+    SET is_deleted = ?,
         deleted_at = ${nowFunc},
-        is_active = 0,
+        is_active = ?,
         updated_at = ${nowFunc}
     WHERE id = ? AND user_id = ?
-  `, [id, userId])
+  `, [isDeletedTrue, isActiveFalse, id, userId])
 
   return {
     success: true,
@@ -720,25 +725,30 @@ export async function unlinkOfferFromAccount(
 export async function getIdleAdsAccounts(userId: number): Promise<any[]> {
   const db = await getDatabase()
 
+  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+  const isActiveValue = db.type === 'postgres' ? true : 1
+  const isManagerValue = db.type === 'postgres' ? false : 0
+  const isDeletedValue = db.type === 'postgres' ? false : 0
+
   // 通过子查询判断账号是否闲置（没有活跃的Campaign关联）
   return await db.query(`
     SELECT gaa.*
     FROM google_ads_accounts gaa
     WHERE gaa.user_id = ?
-      AND gaa.is_active = 1
+      AND gaa.is_active = ?
       AND gaa.status = 'ENABLED'
-      AND gaa.is_manager_account = 0
+      AND gaa.is_manager_account = ?
       AND NOT EXISTS (
         SELECT 1
         FROM campaigns c
         JOIN offers o ON c.offer_id = o.id
         WHERE c.google_ads_account_id = gaa.id
           AND c.user_id = gaa.user_id
-          AND o.is_deleted = 0
+          AND o.is_deleted = ?
           AND c.status != 'REMOVED'
       )
     ORDER BY gaa.updated_at DESC
-  `, [userId])
+  `, [userId, isActiveValue, isManagerValue, isDeletedValue])
 }
 
 /**

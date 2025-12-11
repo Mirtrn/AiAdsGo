@@ -168,12 +168,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
+    const isActiveValue = db.type === 'postgres' ? true : 1
+
     // 6. 获取Google Ads账号信息（customer_id）
     const adsAccount = await db.queryOne(`
       SELECT id, customer_id, is_active
       FROM google_ads_accounts
-      WHERE id = ? AND user_id = ? AND is_active = 1
-    `, [google_ads_account_id, userId]) as any
+      WHERE id = ? AND user_id = ? AND is_active = ?
+    `, [google_ads_account_id, userId, isActiveValue]) as any
 
     if (!adsAccount) {
       const error = createError.gadsAccountNotActive({
