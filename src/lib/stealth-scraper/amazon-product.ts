@@ -269,9 +269,25 @@ export async function scrapeAmazonProductWithContext(
     }).then(() => true).catch(() => false)
 
     if (!featureLoaded) {
-      console.warn(`⚠️ [复用Context] feature-bullets未加载，尝试额外等待...`)
-      // 🔥 额外等待2秒，给慢速网络更多时间
+      console.warn(`⚠️ [复用Context] feature-bullets未加载，尝试第三次滚动到70%位置...`)
+      // 🔥 2025-12-13 KISS优化：第三次滚动到页面70%位置，覆盖更多懒加载区域
+      await page.evaluate(() => {
+        const scrollHeight = document.body.scrollHeight
+        window.scrollTo(0, scrollHeight * 0.7)
+      }).catch(() => {})
       await randomDelay(2000, 2500)
+
+      // 再次检查feature-bullets
+      const retryLoaded = await page.waitForSelector('#feature-bullets li, #featurebullets_feature_div li', {
+        timeout: 3000,
+        state: 'visible'
+      }).then(() => true).catch(() => false)
+
+      if (retryLoaded) {
+        console.log(`✅ [复用Context] 第三次滚动后feature-bullets已加载`)
+      } else {
+        console.warn(`⚠️ [复用Context] feature-bullets仍未加载，可能页面结构不同`)
+      }
     } else {
       console.log(`✅ [复用Context] feature-bullets已加载`)
     }

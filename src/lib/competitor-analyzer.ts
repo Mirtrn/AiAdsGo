@@ -674,6 +674,25 @@ export async function scrapeAmazonCompetitors(
   const competitors: CompetitorProduct[] = []
 
   try {
+    // 🔥 2025-12-13 KISS优化：快速检测竞品区域是否存在
+    const debugContainers = await page.evaluate(() => {
+      return {
+        compareTable: !!document.querySelector('[data-component-type="comparison-table"], .comparison-table, #HLCXComparisonTable'),
+        relatedItems: !!document.querySelector('[data-component-type="related-items"], [data-csa-c-slot-id*="related"]'),
+        alsoViewed: !!document.querySelector('[data-component-type="customers-also-viewed"], [data-a-carousel-options*="also_viewed"]'),
+        similarItems: !!document.querySelector('#sp_detail, #sp_detail2, [data-component-type="similar-items"]'),
+        simsCarousel: !!document.querySelector('[data-csa-c-slot-id*="sims"], [class*="sims-carousel"]')
+      }
+    }).catch(() => ({}))
+    console.log(`📊 竞品区域检测: ${JSON.stringify(debugContainers)}`)
+
+    // 如果所有区域都不存在，快速返回
+    const hasAnyContainer = Object.values(debugContainers).some(v => v)
+    if (!hasAnyContainer) {
+      console.log('⚠️ 未检测到任何竞品区域，快速跳过')
+      return []
+    }
+
     // 策略1: 从"Compare with similar items"表格抓取
     const compareTableCompetitors = await scrapeCompareTable(page, limit)
     if (compareTableCompetitors.length > 0) {

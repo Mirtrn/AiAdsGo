@@ -153,6 +153,26 @@ export async function scrapeAmazonReviews(
       }
     }
 
+    // 🔥 2025-12-13 KISS优化：快速失败机制 - 先检查评论容器是否存在
+    const hasReviewContainer = await page.evaluate(() => {
+      const containers = [
+        '#customer-reviews_feature_div',
+        '#reviews-medley-footer',
+        '#cm-cr-dp-review-list',
+        '[data-hook="review"]'
+      ]
+      for (const selector of containers) {
+        if (document.querySelector(selector)) return selector
+      }
+      return null
+    }).catch(() => null)
+
+    if (!hasReviewContainer) {
+      console.log('⚠️ 评论容器不存在，快速跳过评论抓取（节省16秒重试时间）')
+      return []
+    }
+    console.log(`✅ 发现评论容器: ${hasReviewContainer}`)
+
     // 🔧 优化(2025-12-11): 滚动到评论区域触发懒加载
     try {
       await page.evaluate(() => {
@@ -498,6 +518,10 @@ export async function analyzeReviewsWithAI(
     .replace(/\{\{langName\}\}/g, langName)
     .replace('{{reviewTexts}}', reviewTexts)
 
+  // 🔥 2025-12-13修复：强制追加语言指令，确保AI输出目标语言
+  // 即使评论是其他语言（如Amazon.com上的意大利语评论），输出也必须是targetCountry语言
+  const languageEnforcedPrompt = prompt + `\n\n⚠️ CRITICAL LANGUAGE REQUIREMENT: Even if some reviews are written in other languages (e.g., Italian, Spanish, French), you MUST translate and output ALL content in ${langName} ONLY. Do NOT preserve the original language of reviews in your output.`
+
   try {
     // 使用Gemini AI进行分析
     if (!userId) {
@@ -505,11 +529,12 @@ export async function analyzeReviewsWithAI(
     }
 
     // 🆕 Token优化：支持缓存（7天TTL）
-    const cacheKey = options?.cacheKey || productName
+    // 🔥 2025-12-13修复：cacheKey必须包含targetCountry，避免不同语言的缓存混淆
+    const cacheKey = options?.cacheKey || `${productName}_${targetCountry}`
     const performAnalysis = async () => {
       const aiResponse = await generateContent({
         operationType: 'review_analysis',
-        prompt,
+        prompt: languageEnforcedPrompt,  // 🔥 使用强制语言指令的prompt
         temperature: 0.5,  // 降低温度确保更准确的提取
         maxOutputTokens: 8192,  // 增加到8192以避免评论分析被截断
       }, userId!)
