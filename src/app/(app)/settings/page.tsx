@@ -988,9 +988,16 @@ export default function SettingsPage() {
                               使用 Google Ads API 需要完成以下步骤：
                             </p>
                             <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
+                              <li>在 Google Cloud Console 创建 OAuth 2.0 客户端</li>
+                              <li>
+                                <span className="font-medium">重要：</span>在 OAuth 客户端中配置以下URI：
+                                <ul className="mt-1 ml-4 list-disc text-blue-600">
+                                  <li>已获授权的 JavaScript 来源：<code className="bg-blue-100 px-1 rounded text-xs">https://www.autoads.dev</code></li>
+                                  <li>已获授权的重定向 URI：<code className="bg-blue-100 px-1 rounded text-xs">https://www.autoads.dev/api/google-ads/oauth/callback</code></li>
+                                </ul>
+                              </li>
                               <li>填写所有必填参数并保存配置</li>
                               <li>点击"启动 OAuth 授权"完成账号绑定</li>
-                              <li>授权成功后即可管理您的广告账户</li>
                             </ol>
                           </div>
                         </div>
