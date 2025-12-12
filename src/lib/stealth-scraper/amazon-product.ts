@@ -17,6 +17,22 @@ import type { AmazonProductData } from './types'
 const PROXY_URL = process.env.PROXY_URL || ''
 
 /**
+ * 🔥 KISS优化：清理ASIN格式
+ * Amazon页面数据中ASIN可能包含deal后缀如 "B0DCFNZF32:amzn1.deal.xxx"
+ * 只保留标准10位ASIN部分
+ */
+function cleanAsin(asin: string | null | undefined): string | null {
+  if (!asin) return null
+  // 移除冒号及其后的所有内容（deal后缀）
+  const cleaned = asin.split(':')[0]
+  // 验证是否为有效的10位ASIN格式
+  if (/^[A-Z0-9]{10}$/.test(cleaned)) {
+    return cleaned
+  }
+  return null
+}
+
+/**
  * Scrape Amazon product page with enhanced anti-bot bypass
  * Extracts comprehensive data for AI creative generation
  * 🔥 P1优化：代理失败时自动换新代理重试
@@ -683,11 +699,12 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
   })
 
-  // Extract ASIN
-  const asin = url.match(/\/dp\/([A-Z0-9]+)/)?.[1] ||
+  // Extract ASIN - 使用cleanAsin确保格式正确
+  const rawAsin = url.match(/\/dp\/([A-Z0-9]+)/)?.[1] ||
                $('input[name="ASIN"]').val()?.toString() ||
                $('th:contains("ASIN")').next().text().trim() ||
                null
+  const asin = cleanAsin(rawAsin)
 
   // Extract category/breadcrumb - 支持桌面版和移动版
   const categoryParts: string[] = []
@@ -729,10 +746,11 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
       const csaItemId = $(el).attr('data-csa-c-item-id')
       let competitorAsin: string | null = null
 
-      if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin)) {
-        competitorAsin = dataAsin
+      // 使用cleanAsin确保ASIN格式正确（防止deal后缀等问题）
+      if (dataAsin) {
+        competitorAsin = cleanAsin(dataAsin)
       } else if (csaItemId && csaItemId.startsWith('amzn1.asin.')) {
-        competitorAsin = csaItemId.replace('amzn1.asin.', '')
+        competitorAsin = cleanAsin(csaItemId.replace('amzn1.asin.', ''))
       }
 
       if (competitorAsin && competitorAsin !== asin && !aplusCompetitors.includes(competitorAsin)) {
@@ -750,9 +768,9 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
       $('#HLCXComparisonTable [data-asin], [data-feature-name="comparison"] [data-asin]').each((_i: number, el: any) => {
         if (relatedAsins.length >= 10) return false
         const dataAsin = $(el).attr('data-asin')
-        if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin) &&
-            dataAsin !== asin && !relatedAsins.includes(dataAsin)) {
-          relatedAsins.push(dataAsin)
+        const cleanedAsin = cleanAsin(dataAsin)
+        if (cleanedAsin && cleanedAsin !== asin && !relatedAsins.includes(cleanedAsin)) {
+          relatedAsins.push(cleanedAsin)
         }
       })
     }
@@ -830,9 +848,9 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
         .each((_i: number, el: any) => {
           if (relatedAsins.length >= 10) return false
           const dataAsin = $(el).attr('data-asin')
-          if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin) &&
-              dataAsin !== asin && !relatedAsins.includes(dataAsin) && !excludedAsins.has(dataAsin)) {
-            relatedAsins.push(dataAsin)
+          const cleanedAsin = cleanAsin(dataAsin)
+          if (cleanedAsin && cleanedAsin !== asin && !relatedAsins.includes(cleanedAsin) && !excludedAsins.has(dataAsin || '')) {
+            relatedAsins.push(cleanedAsin)
           }
         })
     }

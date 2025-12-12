@@ -29,6 +29,22 @@ import type { AmazonStoreData, AmazonProductData } from './types'
 const PROXY_URL = process.env.PROXY_URL || ''
 
 /**
+ * 🔥 KISS优化：清理ASIN格式
+ * Amazon JSON数据中ASIN可能包含deal后缀如 "B0DCFNZF32:amzn1.deal.xxx"
+ * 只保留标准10位ASIN部分
+ */
+function cleanAsin(asin: string | null | undefined): string | null {
+  if (!asin) return null
+  // 移除冒号及其后的所有内容（deal后缀）
+  const cleaned = asin.split(':')[0]
+  // 验证是否为有效的10位ASIN格式
+  if (/^[A-Z0-9]{10}$/.test(cleaned)) {
+    return cleaned
+  }
+  return null
+}
+
+/**
  * 🔥 KISS优化：根据目标国家获取对应的Amazon域名
  * 默认返回 amazon.com (美国)
  */
@@ -667,7 +683,10 @@ function extractProductsFromJson(
 
       const preloadProducts = carouselData.preloadProducts || {}
 
-      for (const [asin, productData] of Object.entries(preloadProducts) as [string, any][]) {
+      for (const [rawAsin, productData] of Object.entries(preloadProducts) as [string, any][]) {
+        const asin = cleanAsin(rawAsin)
+        if (!asin) continue  // 跳过无效ASIN
+
         products.push({
           name: productData.title || '',
           price: productData.formattedPriceV2 || null,
@@ -691,9 +710,11 @@ function extractProductsFromJson(
         const segmentItems = segment.segmentItems || []
         for (const item of segmentItems) {
           if (item.type === 'PRODUCT' && item.asin) {
-            const asin = item.asin
+            const asin = cleanAsin(item.asin)
+            if (!asin) continue  // 跳过无效ASIN
             if (!productAsins.has(asin)) {
-              const productData = preloadProducts[asin]
+              // 尝试从preloadProducts获取，注意原始key可能也需要清理
+              const productData = preloadProducts[item.asin] || preloadProducts[asin]
               if (productData) {
                 products.push({
                   name: productData.title || '',
@@ -766,7 +787,7 @@ function extractFromProductGridItems(
       let asin: string | null = null
       const csaItemId = $item.attr('data-csa-c-item-id')
       if (csaItemId && csaItemId.startsWith('amzn1.asin.')) {
-        asin = csaItemId.replace('amzn1.asin.', '')
+        asin = cleanAsin(csaItemId.replace('amzn1.asin.', ''))
       }
 
       // 备选：从链接提取ASIN
@@ -1406,7 +1427,11 @@ export async function scrapeAmazonStoreDeep(
     // 🔥 串行处理，避免同一Context并发过多Page导致不稳定
     for (let i = 0; i < hotProducts.length; i++) {
       const product = hotProducts[i]
-      const asin = product.asin!
+      const asin = cleanAsin(product.asin) // 防御性清理，确保ASIN格式正确
+      if (!asin) {
+        console.warn(`  ⚠️ 跳过无效ASIN: ${product.asin}`)
+        continue
+      }
       const amazonDomain = getAmazonDomain(targetCountry)
       const productUrl = `https://${amazonDomain}/dp/${asin}`
 
