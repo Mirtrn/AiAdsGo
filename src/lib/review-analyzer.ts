@@ -153,7 +153,35 @@ export async function scrapeAmazonReviews(
       }
     }
 
-    // 🔥 2025-12-13 KISS优化：快速失败机制 - 先检查评论容器是否存在
+    // 🔥 2025-12-13 KISS优化v2：评论区在页面底部(~9945px)，必须先深度滚动触发懒加载
+    // 顺序：深度滚动 → 检测容器 → 快速失败
+    console.log('📜 开始深度滚动到页面底部触发评论区懒加载...')
+    try {
+      // 第一步：滚动到页面80%位置（评论区通常在底部）
+      await page.evaluate(() => {
+        const scrollHeight = document.body.scrollHeight
+        window.scrollTo(0, scrollHeight * 0.8)
+      })
+      await page.waitForTimeout(1500)
+
+      // 第二步：尝试直接滚动到评论区
+      await page.evaluate(() => {
+        const reviewSection = document.querySelector('#customer-reviews_feature_div') ||
+                              document.querySelector('#reviews-medley-footer')
+        if (reviewSection) {
+          reviewSection.scrollIntoView({ behavior: 'instant', block: 'start' })
+        } else {
+          // 没找到则继续滚动到更深位置
+          window.scrollTo(0, document.body.scrollHeight * 0.9)
+        }
+      })
+      await page.waitForTimeout(2000)
+      console.log('✅ 深度滚动完成')
+    } catch (scrollError) {
+      console.log('⚠️ 深度滚动失败:', scrollError)
+    }
+
+    // 滚动后再检查评论容器是否存在
     const hasReviewContainer = await page.evaluate(() => {
       const containers = [
         '#customer-reviews_feature_div',
@@ -168,25 +196,10 @@ export async function scrapeAmazonReviews(
     }).catch(() => null)
 
     if (!hasReviewContainer) {
-      console.log('⚠️ 评论容器不存在，快速跳过评论抓取（节省16秒重试时间）')
+      console.log('⚠️ 深度滚动后评论容器仍不存在，快速跳过评论抓取')
       return []
     }
     console.log(`✅ 发现评论容器: ${hasReviewContainer}`)
-
-    // 🔧 优化(2025-12-11): 滚动到评论区域触发懒加载
-    try {
-      await page.evaluate(() => {
-        const reviewSection = document.querySelector('#customer-reviews_feature_div') ||
-                              document.querySelector('#reviews-medley-footer')
-        if (reviewSection) {
-          reviewSection.scrollIntoView({ behavior: 'instant', block: 'start' })
-        }
-      })
-      // 等待懒加载内容渲染
-      await page.waitForTimeout(2000)
-    } catch (scrollError) {
-      console.log('⚠️ 滚动到评论区域失败:', scrollError)
-    }
 
     // 🔧 优化(2025-12-11): 优先等待实际评论元素，而非容器
     // 评论容器可能存在但内部评论元素是懒加载的

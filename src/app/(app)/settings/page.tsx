@@ -471,7 +471,7 @@ export default function SettingsPage() {
       }
 
       const data = await response.json()
-      window.location.href = data.data.authUrl
+      window.location.href = data.data.auth_url
     } catch (err: any) {
       toast.error(err.message || 'OAuth启动失败')
       setStartingOAuth(false)
