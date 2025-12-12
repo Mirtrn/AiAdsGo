@@ -456,6 +456,45 @@ async function scrapeStorePageContent(
         }
       }
     }
+
+    // 🔥 修复（2025-12-12）：过滤无效的品牌名
+    const invalidBrandNames = [
+      'page not found', 'not found', 'error', '404', '429',
+      'access denied', 'something went wrong', 'sorry',
+      'amazon.com', 'amazon', 'page'
+    ]
+    if (brandName && invalidBrandNames.some(invalid =>
+      brandName!.toLowerCase() === invalid ||
+      brandName!.toLowerCase().includes(invalid)
+    )) {
+      console.warn(`⚠️ 无效品牌名过滤: "${brandName}"`)
+      brandName = null
+    }
+
+    // 🔥 修复（2025-12-12）：品牌名包含产品后缀时，尝试提取核心品牌名
+    // 例如: "RingConn Smart Ring" → "RingConn"
+    if (brandName && brandName.split(/\s+/).length > 2) {
+      const words = brandName.split(/\s+/)
+      const firstWord = words[0]
+      // 如果第一个单词看起来像品牌名（首字母大写，2-20字符）
+      if (firstWord.length >= 2 && firstWord.length <= 20 &&
+          /^[A-Z][a-zA-Z0-9]*$/.test(firstWord)) {
+        // 检查后续单词是否是产品类型词
+        const productTypeWords = [
+          'smart', 'ring', 'watch', 'band', 'tracker', 'speaker', 'earbuds',
+          'headphones', 'phone', 'tablet', 'laptop', 'camera', 'drone',
+          'charger', 'cable', 'case', 'cover', 'screen', 'protector',
+          'keyboard', 'mouse', 'monitor', 'light', 'lamp', 'fan'
+        ]
+        const hasProductType = words.slice(1).some(w =>
+          productTypeWords.includes(w.toLowerCase())
+        )
+        if (hasProductType) {
+          console.log(`🔧 品牌名精简: "${brandName}" → "${firstWord}" (移除产品类型词)`)
+          brandName = firstWord
+        }
+      }
+    }
   }
 
   if (!brandName) {

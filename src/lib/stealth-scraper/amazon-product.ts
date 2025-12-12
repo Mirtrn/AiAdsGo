@@ -1179,9 +1179,13 @@ function cleanBrandText(brand: string): string {
   brand = brand.replace(/^Boutique\s+(de\s+)?/i, '')
   brand = brand.replace(/\s+Boutique$/i, '')  // 🔥 新增
 
-  // German (DE, AT, CH): "Besuchen Sie den Brand-Shop"
-  brand = brand.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '').replace(/-Shop$/i, '')
-  brand = brand.replace(/\s+Shop$/i, '')  // 🔥 新增
+  // German (DE, AT, CH):
+  // - 正式形式: "Besuchen Sie den Brand-Shop"
+  // - 非正式形式: "Besuche den roborock-Store" 🔥 2025-12-12新增
+  brand = brand.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '')
+  brand = brand.replace(/^Besuche\s+(den|die|das)\s+/i, '')  // 🔥 非正式形式
+  brand = brand.replace(/-(Shop|Store)$/i, '')  // 🔥 合并处理 -Shop 和 -Store
+  brand = brand.replace(/\s+(Shop|Store)$/i, '')  // 末尾的 Shop/Store
 
   // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda de Brand"
   brand = brand.replace(/^Visita\s+(la|el)\s+/i, '')
