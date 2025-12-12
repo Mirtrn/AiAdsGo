@@ -335,23 +335,23 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-blue-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">总展示量</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-blue-600`}>
-                {isMobile && data.summary.totalImpressions >= 1000
-                  ? `${(data.summary.totalImpressions / 1000).toFixed(1)}k`
-                  : data.summary.totalImpressions.toLocaleString('en-US')}
+                {isMobile && (data.summary?.totalImpressions ?? 0) >= 1000
+                  ? `${((data.summary?.totalImpressions ?? 0) / 1000).toFixed(1)}k`
+                  : (data.summary?.totalImpressions ?? 0).toLocaleString('en-US')}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-green-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">总点击量</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-green-600`}>
-                {isMobile && data.summary.totalClicks >= 1000
-                  ? `${(data.summary.totalClicks / 1000).toFixed(1)}k`
-                  : data.summary.totalClicks.toLocaleString('en-US')}
+                {isMobile && (data.summary?.totalClicks ?? 0) >= 1000
+                  ? `${((data.summary?.totalClicks ?? 0) / 1000).toFixed(1)}k`
+                  : (data.summary?.totalClicks ?? 0).toLocaleString('en-US')}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-purple-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">总花费</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-purple-600`}>
-                ¥{(Number(data.summary.totalCost) || 0).toFixed(isMobile ? 0 : 2)}
+                ¥{(Number(data.summary?.totalCost) || 0).toFixed(isMobile ? 0 : 2)}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-orange-50 rounded-lg`}>

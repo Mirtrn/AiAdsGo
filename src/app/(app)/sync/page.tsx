@@ -257,7 +257,7 @@ export default function SyncManagementPage() {
                 <div>
                   <p className="text-sm text-gray-600">上次同步记录数</p>
                   <p className="text-lg font-bold text-gray-900 mt-1">
-                    {status.lastSyncRecordCount.toLocaleString()} 条
+                    {(status.lastSyncRecordCount ?? 0).toLocaleString()} 条
                   </p>
                 </div>
 
@@ -331,7 +331,7 @@ export default function SyncManagementPage() {
                           {getStatusBadge(log.status)}
                         </TableCell>
                         <TableCell className="text-right">
-                          {log.recordCount.toLocaleString()}
+                          {(log.recordCount ?? 0).toLocaleString()}
                         </TableCell>
                         <TableCell className="text-right">
                           {formatDuration(log.durationMs)}

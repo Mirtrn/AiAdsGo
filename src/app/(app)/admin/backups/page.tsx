@@ -315,7 +315,7 @@ export default function AdminScheduledTasksPage() {
                         <div>
                           <div className="text-sm text-gray-500">总同步记录</div>
                           <div className="text-2xl font-bold text-indigo-600">
-                            {stats.sync.totalRecords.toLocaleString()}
+                            {(stats.sync?.totalRecords ?? 0).toLocaleString()}
                           </div>
                         </div>
                         <div>
@@ -565,7 +565,7 @@ export default function AdminScheduledTasksPage() {
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900">
-                              {log.recordCount.toLocaleString()}
+                              {(log.recordCount ?? 0).toLocaleString()}
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-900">
                               {formatDuration(log.durationMs)}

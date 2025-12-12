@@ -207,10 +207,10 @@ export function CampaignList() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {campaign.impressions.toLocaleString('en-US')}
+                        {(campaign.impressions ?? 0).toLocaleString('en-US')}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {campaign.clicks.toLocaleString('en-US')}
+                        {(campaign.clicks ?? 0).toLocaleString('en-US')}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         ¥{(Number(campaign.cost) || 0).toFixed(2)}

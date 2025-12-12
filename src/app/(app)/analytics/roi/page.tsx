@@ -223,11 +223,11 @@ export default function ROIAnalyticsPage() {
                 <DollarSign className="h-4 w-4 text-indigo-600" />
               </CardHeader>
               <CardContent>
-                <div className={`text-2xl font-bold ${data.overall.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  ¥{data.overall.totalProfit.toLocaleString()}
+                <div className={`text-2xl font-bold ${(data.overall?.totalProfit ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  ¥{(data.overall?.totalProfit ?? 0).toLocaleString()}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  收入 ¥{data.overall.totalRevenue.toLocaleString()} - 成本 ¥{data.overall.totalCost.toLocaleString()}
+                  收入 ¥{(data.overall?.totalRevenue ?? 0).toLocaleString()} - 成本 ¥{(data.overall?.totalCost ?? 0).toLocaleString()}
                 </p>
               </CardContent>
             </Card>

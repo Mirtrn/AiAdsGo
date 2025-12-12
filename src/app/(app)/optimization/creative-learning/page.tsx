@@ -353,9 +353,9 @@ export default function CreativeLearningPage() {
                         </Badge>
                       </div>
                       <div className="flex gap-4 text-sm text-slate-500">
-                        <span>点击: {creative.performance.clicks.toLocaleString()}</span>
-                        <span>展示: {creative.performance.impressions.toLocaleString()}</span>
-                        <span>转化: {creative.performance.conversions}</span>
+                        <span>点击: {(creative.performance?.clicks ?? 0).toLocaleString()}</span>
+                        <span>展示: {(creative.performance?.impressions ?? 0).toLocaleString()}</span>
+                        <span>转化: {creative.performance?.conversions ?? 0}</span>
                       </div>
                     </div>
                   ))}

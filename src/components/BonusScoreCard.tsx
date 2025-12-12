@@ -112,35 +112,35 @@ export function BonusScoreCard({ adCreativeId, baseScore, onConversionClick }: B
             <MetricRow
               icon={<MousePointer className="h-3 w-3" />}
               label="Clicks"
-              score={data.breakdown.clicks.score}
-              value={`${data.breakdown.clicks.value.toLocaleString()}`}
-              benchmark={`${data.breakdown.clicks.benchmark.toLocaleString()}`}
-              comparison={data.breakdown.clicks.comparison}
+              score={data.breakdown.clicks?.score ?? 0}
+              value={`${(data.breakdown.clicks?.value ?? 0).toLocaleString()}`}
+              benchmark={`${(data.breakdown.clicks?.benchmark ?? 0).toLocaleString()}`}
+              comparison={data.breakdown.clicks?.comparison ?? 'equal'}
             />
             <MetricRow
               icon={<Target className="h-3 w-3" />}
               label="CTR"
-              score={data.breakdown.ctr.score}
-              value={`${data.breakdown.ctr.value.toFixed(2)}%`}
-              benchmark={`${data.breakdown.ctr.benchmark.toFixed(2)}%`}
-              comparison={data.breakdown.ctr.comparison}
+              score={data.breakdown.ctr?.score ?? 0}
+              value={`${(data.breakdown.ctr?.value ?? 0).toFixed(2)}%`}
+              benchmark={`${(data.breakdown.ctr?.benchmark ?? 0).toFixed(2)}%`}
+              comparison={data.breakdown.ctr?.comparison ?? 'equal'}
             />
             <MetricRow
               icon={<DollarSign className="h-3 w-3" />}
               label="CPC"
-              score={data.breakdown.cpc.score}
-              value={`$${data.breakdown.cpc.value.toFixed(2)}`}
-              benchmark={`$${data.breakdown.cpc.benchmark.toFixed(2)}`}
-              comparison={data.breakdown.cpc.comparison}
+              score={data.breakdown.cpc?.score ?? 0}
+              value={`$${(data.breakdown.cpc?.value ?? 0).toFixed(2)}`}
+              benchmark={`$${(data.breakdown.cpc?.benchmark ?? 0).toFixed(2)}`}
+              comparison={data.breakdown.cpc?.comparison ?? 'equal'}
               invertColors // CPC越低越好
             />
             <MetricRow
               icon={<ShoppingCart className="h-3 w-3" />}
               label="Conv."
-              score={data.breakdown.conversions.score}
-              value={`${data.breakdown.conversions.value.toFixed(2)}%`}
-              benchmark={`${data.breakdown.conversions.benchmark.toFixed(2)}%`}
-              comparison={data.breakdown.conversions.comparison}
+              score={data.breakdown.conversions?.score ?? 0}
+              value={`${(data.breakdown.conversions?.value ?? 0).toFixed(2)}%`}
+              benchmark={`${(data.breakdown.conversions?.benchmark ?? 0).toFixed(2)}%`}
+              comparison={data.breakdown.conversions?.comparison ?? 'equal'}
               onAddClick={onConversionClick}
             />
           </div>

@@ -218,11 +218,11 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <p className="text-gray-500">展示</p>
-                      <p className="font-semibold">{campaign.impressions.toLocaleString()}</p>
+                      <p className="font-semibold">{(campaign.impressions ?? 0).toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-gray-500">点击</p>
-                      <p className="font-semibold">{campaign.clicks.toLocaleString()}</p>
+                      <p className="font-semibold">{(campaign.clicks ?? 0).toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-gray-500">花费</p>

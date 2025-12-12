@@ -1208,9 +1208,9 @@ export default function CreativesPage() {
                   {parseKeywords(selectedCreative).map((kw: any, index: number) => (
                     <Badge key={index} variant="secondary" className="bg-blue-100 text-blue-800">
                       {typeof kw === 'string' ? kw : kw.keyword}
-                      {typeof kw !== 'string' && kw.searchVolume > 0 && (
+                      {typeof kw !== 'string' && (kw.searchVolume ?? 0) > 0 && (
                         <span className="ml-1 text-blue-600 font-medium">
-                          ({kw.searchVolume.toLocaleString()})
+                          ({(kw.searchVolume ?? 0).toLocaleString()})
                         </span>
                       )}
                     </Badge>

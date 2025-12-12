@@ -519,7 +519,7 @@ export default function OfferDetailPage() {
                           <div>
                             <p className="text-sm font-medium text-gray-600">展示次数</p>
                             <p className="text-2xl font-bold text-gray-900 mt-1">
-                              {performanceSummary.impressions.toLocaleString()}
+                              {(performanceSummary.impressions ?? 0).toLocaleString()}
                             </p>
                           </div>
                           <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center">
@@ -538,7 +538,7 @@ export default function OfferDetailPage() {
                           <div>
                             <p className="text-sm font-medium text-gray-600">点击次数</p>
                             <p className="text-2xl font-bold text-gray-900 mt-1">
-                              {performanceSummary.clicks.toLocaleString()}
+                              {(performanceSummary.clicks ?? 0).toLocaleString()}
                             </p>
                           </div>
                           <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
@@ -557,7 +557,7 @@ export default function OfferDetailPage() {
                           <div>
                             <p className="text-sm font-medium text-gray-600">转化次数</p>
                             <p className="text-2xl font-bold text-gray-900 mt-1">
-                              {performanceSummary.conversions.toLocaleString()}
+                              {(performanceSummary.conversions ?? 0).toLocaleString()}
                             </p>
                           </div>
                           <div className="h-12 w-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -694,8 +694,8 @@ export default function OfferDetailPage() {
                                       )}
                                     </div>
                                   </TableCell>
-                                  <TableCell className="text-right">{campaign.impressions.toLocaleString()}</TableCell>
-                                  <TableCell className="text-right">{campaign.clicks.toLocaleString()}</TableCell>
+                                  <TableCell className="text-right">{(campaign.impressions ?? 0).toLocaleString()}</TableCell>
+                                  <TableCell className="text-right">{(campaign.clicks ?? 0).toLocaleString()}</TableCell>
                                   <TableCell className="text-right">{(Number(campaign.ctr) || 0).toFixed(2)}%</TableCell>
                                   <TableCell className="text-right">${(Number(campaign.cpcUsd) || 0).toFixed(2)}</TableCell>
                                   <TableCell className="text-right">{(Number(campaign.conversions) || 0).toFixed(1)}</TableCell>

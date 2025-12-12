@@ -272,10 +272,10 @@ export default function BudgetAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-gray-900">
-                  {data.overall.utilizationRate.toFixed(1)}%
+                  {(data.overall?.utilizationRate ?? 0).toFixed(1)}%
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  ¥{data.overall.totalSpent.toLocaleString()} / ¥{data.overall.totalBudget.toLocaleString()}
+                  ¥{(data.overall?.totalSpent ?? 0).toLocaleString()} / ¥{(data.overall?.totalBudget ?? 0).toLocaleString()}
                 </p>
               </CardContent>
             </Card>
@@ -287,7 +287,7 @@ export default function BudgetAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600">
-                  ¥{data.overall.remaining.toLocaleString()}
+                  ¥{(data.overall?.remaining ?? 0).toLocaleString()}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
                   可用预算
@@ -302,10 +302,10 @@ export default function BudgetAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-gray-900">
-                  ¥{data.overall.dailyAvgSpend.toFixed(2)}
+                  ¥{(data.overall?.dailyAvgSpend ?? 0).toFixed(2)}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  预计30天 ¥{data.overall.projectedTotalSpend.toFixed(2)}
+                  预计30天 ¥{(data.overall?.projectedTotalSpend ?? 0).toFixed(2)}
                 </p>
               </CardContent>
             </Card>
@@ -317,7 +317,7 @@ export default function BudgetAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-gray-900">
-                  {data.overall.activeCampaigns}
+                  {data.overall?.activeCampaigns ?? 0}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
                   正在投放中
