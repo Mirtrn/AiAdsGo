@@ -982,7 +982,8 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
 }
 
 /**
- * Extract brand name using multiple strategies
+ * Extract brand name using multiple strategies with cross-validation
+ * 🔥 2025-12-12重构：多渠道交叉验证，提高品牌提取准确性
  */
 function extractBrandName(
   $: any,
@@ -990,7 +991,13 @@ function extractBrandName(
   productName: string | null,
   technicalDetails: Record<string, string>
 ): string | null {
-  let brandName: string | null = null
+  // 🔥 多渠道收集品牌名候选
+  interface BrandCandidate {
+    value: string
+    source: string
+    confidence: number  // 1-5, 5 = 最高置信度
+  }
+  const candidates: BrandCandidate[] = []
 
   // 检查元素是否在推荐区域
   const recommendationKeywords = [
@@ -1022,86 +1029,68 @@ function extractBrandName(
     return false
   }
 
-  // 🔥 策略1（优先级最高）: 从Product Overview表格提取Brand（最准确的来源）
-  // 2025-12-10修复：Product Overview表格的品牌是最准确的，应该优先使用
-  // 方法1: 遍历productOverview表格行
+  // ========== 渠道1: Product Overview表格 (置信度: 5) ==========
   $('#productOverview_feature_div tr, #poExpander tr').each((i: number, el: any) => {
-    if (brandName) return false // 已找到则停止
     const label = $(el).find('td.a-span3, td:first-child').text().trim().toLowerCase()
     if (label === 'brand' || label.includes('brand')) {
       const value = $(el).find('td.a-span9, td:last-child').text().trim()
       if (value && value.length > 1 && value.length < 50) {
-        brandName = value
-        console.log(`✅ 策略1成功: 从Product Overview表格提取品牌 "${brandName}"`)
+        candidates.push({ value, source: 'product-overview', confidence: 5 })
       }
     }
   })
 
-  // 方法2: 直接查找包含Brand的行
-  if (!brandName) {
-    $('tr').each((i: number, el: any) => {
-      if (brandName) return false
-      const labelText = $(el).find('td:first-child, th').text().trim().toLowerCase()
-      if (labelText === 'brand') {
-        const value = $(el).find('td:last-child').text().trim()
-        if (value && value.length > 1 && value.length < 50 && !isInRecommendationArea(el)) {
-          brandName = value
-          console.log(`✅ 策略1b成功: 从表格行提取品牌 "${brandName}"`)
-        }
+  // 直接查找包含Brand的表格行
+  $('tr').each((i: number, el: any) => {
+    const labelText = $(el).find('td:first-child, th').text().trim().toLowerCase()
+    if (labelText === 'brand') {
+      const value = $(el).find('td:last-child').text().trim()
+      if (value && value.length > 1 && value.length < 50 && !isInRecommendationArea(el)) {
+        candidates.push({ value, source: 'table-row', confidence: 5 })
       }
-    })
-  }
+    }
+  })
 
-  // 策略2: 从核心产品区域的品牌链接提取（次优方法，可能包含后缀）
-  if (!brandName) {
-    const brandSelectors = [
-      '#ppd #bylineInfo',
-      '#centerCol #bylineInfo',
-      '#dp-container #bylineInfo',
-      '#bylineInfo',
-      'a#bylineInfo',
-      '[data-feature-name="bylineInfo"]',
-    ]
+  // ========== 渠道2: bylineInfo品牌链接 (置信度: 4) ==========
+  const brandSelectors = [
+    '#ppd #bylineInfo',
+    '#centerCol #bylineInfo',
+    '#dp-container #bylineInfo',
+    '#bylineInfo',
+    'a#bylineInfo',
+    '[data-feature-name="bylineInfo"]',
+  ]
 
-    for (const selector of brandSelectors) {
-      const $el = $(selector)
-      if ($el.length > 0 && !isInRecommendationArea($el[0])) {
-        let brand = $el.text().trim()
-
-        // 🌍 多语言品牌店铺文本清理
-        brand = cleanBrandText(brand)
-
-        if (brand && brand.length > 1 && brand.length < 50) {
-          brandName = brand
-          console.log(`✅ 策略2成功: 从选择器${selector}提取品牌 "${brandName}"`)
-          break
-        }
+  for (const selector of brandSelectors) {
+    const $el = $(selector)
+    if ($el.length > 0 && !isInRecommendationArea($el[0])) {
+      let brand = $el.text().trim()
+      brand = cleanBrandText(brand)
+      if (brand && brand.length > 1 && brand.length < 50) {
+        candidates.push({ value: brand, source: 'bylineInfo', confidence: 4 })
+        break
       }
     }
   }
 
-  // 策略3: 从data属性获取
-  if (!brandName) {
-    const dataBrand = $('[data-brand]').attr('data-brand')
-    if (dataBrand && dataBrand.length > 1 && dataBrand.length < 50) {
-      brandName = dataBrand
-      console.log(`✅ 策略3成功: 从data-brand属性提取 "${brandName}"`)
-    }
+  // ========== 渠道3: data-brand属性 (置信度: 5) ==========
+  const dataBrand = $('[data-brand]').attr('data-brand')
+  if (dataBrand && dataBrand.length > 1 && dataBrand.length < 50) {
+    candidates.push({ value: dataBrand, source: 'data-brand', confidence: 5 })
   }
 
-  // 策略4: 从technicalDetails.Brand提取
-  if (!brandName && technicalDetails.Brand) {
+  // ========== 渠道4: technicalDetails.Brand (置信度: 5) ==========
+  if (technicalDetails.Brand) {
     const techBrand = technicalDetails.Brand.toString().trim()
-      .replace(/^‎/, '') // 移除Unicode左到右标记
+      .replace(/^‎/, '')
       .replace(/^Brand:\s*/i, '')
     if (techBrand && techBrand.length > 1 && techBrand.length < 50) {
-      brandName = techBrand
-      console.log(`✅ 策略4成功: 从technicalDetails.Brand提取 "${brandName}"`)
+      candidates.push({ value: techBrand, source: 'technical-details', confidence: 5 })
     }
   }
 
-  // 策略5: 从产品标题智能提取
-  if (!brandName && productName) {
+  // ========== 渠道5: 产品标题首单词 (置信度: 2) ==========
+  if (productName) {
     const titleParts = productName.split(/[\s-,|]+/)
     if (titleParts.length > 0) {
       const potentialBrand = titleParts[0].trim()
@@ -1109,51 +1098,93 @@ function extractBrandName(
         const isValidBrand = /^[A-Za-z][A-Za-z0-9&\s-]*$/.test(potentialBrand) ||
                             /^[A-Z0-9]+$/.test(potentialBrand)
         if (isValidBrand) {
-          brandName = potentialBrand
-          console.log(`✅ 策略5成功: 从产品标题提取品牌 "${brandName}"`)
+          candidates.push({ value: potentialBrand, source: 'product-title', confidence: 2 })
         }
       }
     }
   }
 
-  // 策略6: 从Amazon URL中提取
-  if (!brandName) {
-    const urlBrandMatch = url.match(/amazon\.com\/stores\/([^\/]+)/) ||
-                          url.match(/amazon\.com\/([A-Z][A-Za-z0-9-]+)\/s\?/)
-    if (urlBrandMatch && urlBrandMatch[1]) {
-      const urlBrand = decodeURIComponent(urlBrandMatch[1])
-        .replace(/-/g, ' ')
-        .replace(/\+/g, ' ')
-        .trim()
-      if (urlBrand.length >= 2 && urlBrand.length <= 30 && !urlBrand.includes('page')) {
-        brandName = urlBrand
-        console.log(`✅ 策略6成功: 从URL提取品牌 "${brandName}"`)
-      }
+  // ========== 渠道6: URL中的品牌 (置信度: 3) ==========
+  const urlBrandMatch = url.match(/amazon\.[a-z.]+\/stores\/([^\/]+)/) ||
+                        url.match(/amazon\.[a-z.]+\/([A-Z][A-Za-z0-9-]+)\/s\?/)
+  if (urlBrandMatch && urlBrandMatch[1]) {
+    const urlBrand = decodeURIComponent(urlBrandMatch[1])
+      .replace(/-/g, ' ')
+      .replace(/\+/g, ' ')
+      .trim()
+    if (urlBrand.length >= 2 && urlBrand.length <= 30 && !urlBrand.includes('page')) {
+      candidates.push({ value: urlBrand, source: 'url', confidence: 3 })
     }
   }
 
-  // 策略7: 从meta标签提取
-  if (!brandName) {
-    const metaBrand = $('meta[property="og:brand"]').attr('content') ||
-                     $('meta[name="brand"]').attr('content')
-    if (metaBrand && metaBrand.length > 1 && metaBrand.length < 50) {
-      brandName = metaBrand
-      console.log(`✅ 策略7成功: 从meta标签提取品牌 "${brandName}"`)
-    }
+  // ========== 渠道7: meta标签 (置信度: 4) ==========
+  const metaBrand = $('meta[property="og:brand"]').attr('content') ||
+                   $('meta[name="brand"]').attr('content')
+  if (metaBrand && metaBrand.length > 1 && metaBrand.length < 50) {
+    candidates.push({ value: metaBrand, source: 'meta-tag', confidence: 4 })
   }
 
-  // 最后清洗：去除常见后缀
-  if (brandName) {
-    brandName = brandName
-      .replace(/\s+(Official|Store|Shop|Brand)$/i, '')
+  // ========== 交叉验证逻辑 ==========
+  if (candidates.length === 0) {
+    console.warn('⚠️ 所有品牌提取渠道均无结果')
+    return null
+  }
+
+  // 规范化函数：统一大小写，去除后缀
+  const normalizeBrand = (brand: string): string => {
+    return brand
+      .toLowerCase()
+      .replace(/\s+(official|store|shop|brand)$/i, '')
+      .replace(/-(shop|store)$/i, '')
       .trim()
   }
 
-  if (!brandName) {
-    console.warn('⚠️ 所有品牌提取策略均失败，返回null')
+  // 计算每个规范化品牌的总分（置信度 × 出现次数）
+  const brandScores = new Map<string, { originalValue: string, totalScore: number, sources: string[] }>()
+
+  for (const candidate of candidates) {
+    const normalized = normalizeBrand(candidate.value)
+    const existing = brandScores.get(normalized)
+
+    if (existing) {
+      existing.totalScore += candidate.confidence
+      existing.sources.push(candidate.source)
+      // 保留原始值中最长的（通常更完整）
+      if (candidate.value.length > existing.originalValue.length) {
+        existing.originalValue = candidate.value
+      }
+    } else {
+      brandScores.set(normalized, {
+        originalValue: candidate.value,
+        totalScore: candidate.confidence,
+        sources: [candidate.source]
+      })
+    }
   }
 
-  return brandName
+  // 选择得分最高的品牌
+  let bestBrand: { normalized: string, data: { originalValue: string, totalScore: number, sources: string[] } } | null = null
+  for (const [normalized, data] of brandScores) {
+    if (!bestBrand || data.totalScore > bestBrand.data.totalScore) {
+      bestBrand = { normalized, data }
+    }
+  }
+
+  if (!bestBrand) {
+    console.warn('⚠️ 品牌交叉验证失败')
+    return null
+  }
+
+  // 输出交叉验证结果
+  const verificationStatus = bestBrand.data.sources.length >= 2 ? '✅ 多渠道验证' : '⚠️ 单渠道'
+  console.log(`${verificationStatus} 品牌名: "${bestBrand.data.originalValue}" (得分: ${bestBrand.data.totalScore}, 来源: ${bestBrand.data.sources.join(', ')})`)
+
+  // 最终清洗
+  let finalBrand = bestBrand.data.originalValue
+    .replace(/\s+(Official|Store|Shop|Brand)$/i, '')
+    .trim()
+
+  return finalBrand
 }
 
 /**

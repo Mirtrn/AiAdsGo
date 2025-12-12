@@ -1379,62 +1379,32 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               const rankMatch = extractResult.salesRank.match(/#?([\d,]+)/i)
               const rank = rankMatch ? parseInt(rankMatch[1].replace(/,/g, ''), 10) : null
 
-              if (rank && rank < 10000) {
-                // 高排名产品：创建虚拟竞品对比
-                categoryCompetitors.push({
-                  asin: 'category-avg',
-                  name: `${extractResult.category || 'Category'} Average Product`,
-                  brand: 'Category Average',
-                  price: priceNum ? priceNum * 0.9 : null, // 假设品类平均价格略低
-                  priceText: null,
-                  rating: 4.2, // 品类平均评分
-                  reviewCount: 500,
-                  imageUrl: null,
-                  source: 'same_category',  // 使用允许的类型
-                  features: [],
-                })
-
-                categoryCompetitors.push({
-                  asin: 'category-leader',
-                  name: `${extractResult.category || 'Category'} Best Seller`,
-                  brand: 'Category Leader',
-                  price: priceNum ? priceNum * 1.2 : null, // 假设品类领先者价格略高
-                  priceText: null,
-                  rating: 4.6, // 领先者评分
-                  reviewCount: 5000,
-                  imageUrl: null,
-                  source: 'same_category',  // 使用允许的类型
-                  features: [],
-                })
+              // 🔥 修复（2025-12-12）：不再创建虚假竞品数据
+              // 原来的代码会创建 "category-avg"、"category-leader"、"market-benchmark" 等假数据
+              // 这会导致AI生成关于虚假竞品的错误分析结果
+              // 正确做法：只使用真实竞品数据，没有竞品时跳过竞品分析
+              if (rank) {
+                console.log(`📊 产品排名: #${rank}，但没有真实竞品数据`)
               }
             }
 
-            // 只有当有足够数据时才进行分析
-            if (categoryCompetitors.length >= 1 || (ourProduct.price && ourProduct.rating)) {
+            // 🔥 修复（2025-12-12）：只有当有真实竞品时才进行分析
+            // 删除了虚假的 "Market Benchmark" 竞品创建
+            if (categoryCompetitors.length >= 1) {
               const competitorAnalysis = await analyzeCompetitorsWithAI(
                 ourProduct,
-                categoryCompetitors.length > 0 ? categoryCompetitors : [{
-                  asin: 'market-benchmark',
-                  name: 'Market Benchmark',
-                  brand: 'Market Average',
-                  price: priceNum || 50,
-                  priceText: null,
-                  rating: 4.0,
-                  reviewCount: 1000,
-                  imageUrl: null,
-                  source: 'same_category',  // 使用允许的类型
-                  features: [],
-                }],
+                categoryCompetitors,
                 targetCountry,
                 userId
               )
 
               result.competitorAnalysis = competitorAnalysis
               result.competitorAnalysisSuccess = true
-              console.log(`✅ 单品页面竞品分析完成 (市场定位分析)`)
+              console.log(`✅ 单品页面竞品分析完成 (${categoryCompetitors.length}个真实竞品)`)
             } else {
-              console.log('⚠️ 单品页面产品数据不足以进行竞品分析')
-              result.competitorAnalysisSuccess = true  // 不视为失败
+              // 🔥 修复（2025-12-12）：没有真实竞品时，明确标注而不是创建虚假数据
+              console.log('ℹ️ 单品页面无真实竞品数据，跳过竞品分析（不会生成虚假数据）')
+              result.competitorAnalysisSuccess = true  // 不视为失败，但不生成竞品分析
             }
           } else {
             console.log('ℹ️ 单品页面无足够产品数据进行竞品分析')
