@@ -165,30 +165,17 @@ async function upsertAccount(userId: number, account: {
 async function syncAccountsFromAPI(userId: number, credentials: any): Promise<any[]> {
   console.log(`🔄 从 Google Ads API 同步账号...`)
 
-  // 获取凭证配置（用户配置优先，否则回退到管理员配置）
-  let clientId = credentials.client_id
-  let clientSecret = credentials.client_secret
-  let developerToken = credentials.developer_token
+  // 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须有自己的完整凭证
+  // 不再回退到管理员配置，确保用户数据完全隔离
+  const clientId = credentials.client_id
+  const clientSecret = credentials.client_secret
+  const developerToken = credentials.developer_token
 
-  // 如果用户未配置这3个参数，从数据库获取管理员配置
   if (!clientId || !clientSecret || !developerToken) {
-    const { getSetting } = await import('@/lib/settings')
-    const autoadsUserId = 1 // 管理员用户ID
-
-    if (!clientId) {
-      clientId = (await getSetting('google_ads', 'client_id', autoadsUserId))?.value
-    }
-    if (!clientSecret) {
-      clientSecret = (await getSetting('google_ads', 'client_secret', autoadsUserId))?.value
-    }
-    if (!developerToken) {
-      developerToken = (await getSetting('google_ads', 'developer_token', autoadsUserId))?.value
-    }
-
-    console.log(`   使用管理员配置: client_id=${!!clientId}, client_secret=${!!clientSecret}, developer_token=${!!developerToken}`)
-  } else {
-    console.log(`   使用用户自己的配置`)
+    throw new Error('缺少 Google Ads API 凭证配置，请在设置中完成配置')
   }
+
+  console.log(`   使用用户自己的配置`)
 
   // 创建客户端
   const client = getGoogleAdsClient({

@@ -149,29 +149,18 @@ export async function refreshAccessToken(userId: number): Promise<{
     throw new Error('Google Ads凭证不存在')
   }
 
-  // 获取 client_id 和 client_secret（用户配置优先，否则使用平台共享配置）
-  const { getSetting } = await import('./settings')
-  const clientId = credentials.client_id || (await getSetting('google_ads', 'client_id'))?.value
-  const clientSecret = credentials.client_secret || (await getSetting('google_ads', 'client_secret'))?.value
+  // 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须有自己的完整凭证
+  // 不再回退到平台共享配置或管理员配置
+  const clientId = credentials.client_id
+  const clientSecret = credentials.client_secret
+  const refreshToken = credentials.refresh_token
 
   if (!clientId || !clientSecret) {
-    throw new Error('缺少 Client ID 或 Client Secret（未配置用户凭证且平台共享配置不可用）')
-  }
-
-  // 🔧 修复(2025-12-11): 获取 refresh_token（用户配置优先，否则使用管理员共享配置）
-  let refreshToken = credentials.refresh_token
-  if (!refreshToken && credentials.login_customer_id) {
-    // 用户没有自己的 refresh_token，但配置了 login_customer_id
-    // 尝试使用管理员（user_id=1）的 refresh_token
-    const adminCredentials = await getGoogleAdsCredentials(1) // 1 = autoads管理员
-    if (adminCredentials && adminCredentials.refresh_token) {
-      refreshToken = adminCredentials.refresh_token
-      console.log(`🔄 用户 ${userId} 使用共享管理员的 refresh_token`)
-    }
+    throw new Error('缺少 Client ID 或 Client Secret，请在设置中完成 Google Ads API 配置')
   }
 
   if (!refreshToken) {
-    throw new Error('缺少 Refresh Token（未配置用户凭证且管理员共享配置不可用）')
+    throw new Error('缺少 Refresh Token，请完成 OAuth 授权')
   }
 
   const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -182,7 +171,7 @@ export async function refreshAccessToken(userId: number): Promise<{
     body: new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
-      refresh_token: refreshToken, // 🔧 修复：可能是用户的或管理员的 refresh_token
+      refresh_token: refreshToken,
       grant_type: 'refresh_token',
     }),
   })
