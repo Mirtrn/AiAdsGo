@@ -6,6 +6,41 @@
 import { getProxyConfig } from './proxy'
 
 /**
+ * 从产品名称中提取核心词（用于生成查询变体）
+ * 🔧 优化(2025-12-12): 新增函数
+ *
+ * @example
+ * extractCoreProductWords("Reolink Argus 4 Pro 4K Solar Security Camera", "Reolink")
+ * // returns ["Argus", "Camera", "Security"]
+ */
+function extractCoreProductWords(productName: string, brandName: string): string[] {
+  if (!productName || !brandName) return []
+
+  // 移除品牌名
+  const nameWithoutBrand = productName
+    .replace(new RegExp(brandName, 'gi'), '')
+    .trim()
+
+  // 分词并过滤
+  const words = nameWithoutBrand
+    .split(/[\s\-–—]+/)
+    .filter(w => {
+      // 过滤条件：
+      // 1. 太短（<3字符）
+      if (w.length < 3) return false
+      // 2. 纯数字或规格参数（如 4K, 1080P, 32GB, 2.4GHz）
+      if (/^[\d.]+[pPkKgGmMtThHzZ"']*$/.test(w)) return false
+      if (/^\d+x\d+$/i.test(w)) return false
+      // 3. 常见无意义词
+      if (/^(with|for|and|the|a|an|in|on|of|to|by|from|new|pro|plus|max|mini|lite|version|edition|series|gen|generation)$/i.test(w)) return false
+      return true
+    })
+
+  // 返回前3个有意义的词
+  return words.slice(0, 3)
+}
+
+/**
  * 购买意图弱的关键词模式 (需求11)
  * 过滤掉这些词，因为它们购买意图不强烈
  *
@@ -224,28 +259,63 @@ export async function getGoogleSearchSuggestions(params: {
 /**
  * 批量获取Google搜索建议
  * 为品牌词生成多个查询变体
+ *
+ * 🔧 优化(2025-12-12): 增强查询变体策略
+ * - 原来：4个固定模板（brand, brand official, brand store, buy brand）
+ * - 现在：支持传入产品名和品类，生成更多精准变体
  */
 export async function getBrandSearchSuggestions(params: {
   brand: string
   country: string
   language: string
   useProxy?: boolean
+  productName?: string  // 🔧 新增：产品名称
+  category?: string     // 🔧 新增：产品品类
 }): Promise<GoogleSuggestion[]> {
-  const { brand, country, language, useProxy } = params
+  const { brand, country, language, useProxy, productName, category } = params
 
-  // 生成多个查询变体
-  const queries = [
-    brand, // 品牌名
-    `${brand} official`, // 品牌官方
-    `${brand} store`, // 品牌商店
-    `buy ${brand}`, // 购买品牌
+  // 🔧 优化(2025-12-12): 生成更多样化的查询变体
+  const queries: string[] = [
+    // 基础品牌查询
+    brand,                          // 品牌名
+    `${brand} official`,            // 品牌官方
+    `${brand} store`,               // 品牌商店
+    `buy ${brand}`,                 // 购买品牌
+    // 🔧 新增：购买意图变体
+    `${brand} price`,               // 价格查询
+    `${brand} sale`,                // 促销查询
+    `${brand} discount`,            // 折扣查询
+    `${brand} amazon`,              // 电商渠道
+    `${brand} shop`,                // 购物查询
   ]
 
-  console.log(`🔍 批量获取品牌"${brand}"的搜索建议...`)
+  // 🔧 新增：品牌+品类组合（如 "Reolink camera"）
+  if (category) {
+    const categoryClean = category.replace(/[&,]/g, ' ').trim().split(' ')[0] // 取第一个词
+    if (categoryClean && categoryClean.length > 2) {
+      queries.push(`${brand} ${categoryClean}`)
+      queries.push(`${brand} ${categoryClean} price`)
+      queries.push(`best ${brand} ${categoryClean}`)
+    }
+  }
+
+  // 🔧 新增：从产品名提取核心词并组合
+  if (productName) {
+    // 提取产品名中的核心词（去除品牌名和规格参数）
+    const coreWords = extractCoreProductWords(productName, brand)
+    for (const word of coreWords.slice(0, 2)) { // 最多取2个核心词
+      queries.push(`${brand} ${word}`)
+    }
+  }
+
+  // 去重
+  const uniqueQueries = [...new Set(queries)]
+
+  console.log(`🔍 批量获取品牌"${brand}"的搜索建议 (${uniqueQueries.length}个查询变体)...`)
 
   // 并行获取所有查询的建议
   const allSuggestions = await Promise.all(
-    queries.map((query) =>
+    uniqueQueries.map((query) =>
       getGoogleSearchSuggestions({
         query,
         country,

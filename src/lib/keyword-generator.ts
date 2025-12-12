@@ -146,6 +146,8 @@ export async function generateKeywords(
   let competitorKeywords = ''
 
   // 从scraped_data提取产品名称和价格
+  // 🔧 优化(2025-12-12): 支持店铺页面多商品关键词聚合
+  let storeProductNames: string[] = []  // 存储店铺多个产品名称
   if (offer.scraped_data) {
     try {
       const scrapedData = JSON.parse(offer.scraped_data)
@@ -159,6 +161,16 @@ export async function generateKeywords(
         productFeatures = productFeatures
           ? productFeatures + '; ' + scrapedData.aboutThisItem.slice(0, 5).join('; ')
           : scrapedData.aboutThisItem.slice(0, 8).join('; ')
+      }
+
+      // 🔧 优化(2025-12-12): 从店铺页面提取多个产品名称
+      // 店铺数据结构: { products: [{ title, asin, ... }, ...] }
+      if (scrapedData.products && Array.isArray(scrapedData.products)) {
+        storeProductNames = scrapedData.products
+          .slice(0, 10)  // 最多取10个产品
+          .map((p: any) => p.title || p.productName || p.name)
+          .filter((name: string) => name && name.length > 3)
+        console.log(`🏪 店铺多商品聚合: 发现${storeProductNames.length}个产品`)
       }
     } catch {}
   }
@@ -368,13 +380,43 @@ export async function generateKeywords(
         targetLanguage,
         maxBrandKeywords,
         userId,
-        minSearchVolume
+        minSearchVolume,
+        productName,  // 🔧 优化(2025-12-12): 传递产品名称用于生成更精准的种子词
+        offer.category || undefined  // 🔧 优化(2025-12-12): 传递品类用于生成品牌+品类组合
       )
 
       // 将品牌关键词添加到列表开头（高优先级）
       if (brandKeywords.length > 0) {
         allKeywords = [...brandKeywords, ...allKeywords]
         brandKeywordsCount = brandKeywords.length
+      }
+    }
+
+    // 🔧 优化(2025-12-12): 1.5 店铺多商品关键词聚合
+    // 从店铺的多个产品名称中提取关键词，增加品牌相关关键词覆盖
+    if (storeProductNames.length > 0 && offer.brand) {
+      const storeKeywords = aggregateStoreProductKeywords(
+        storeProductNames,
+        offer.brand,
+        offer.category
+      )
+      if (storeKeywords.length > 0) {
+        console.log(`🏪 店铺多商品聚合: 生成${storeKeywords.length}个关键词`)
+        allKeywords = [...allKeywords, ...storeKeywords]
+      }
+    }
+
+    // 🔧 优化(2025-12-12): 1.6 从产品特性生成关键词
+    // 将产品特性转换为搜索关键词（如 "4K resolution" → "brand 4K camera"）
+    if (productFeatures && offer.brand) {
+      const featureKeywords = generateKeywordsFromFeatures(
+        productFeatures,
+        offer.brand,
+        offer.category
+      )
+      if (featureKeywords.length > 0) {
+        console.log(`🔧 产品特性关键词: 生成${featureKeywords.length}个关键词`)
+        allKeywords = [...allKeywords, ...featureKeywords]
       }
     }
 
@@ -724,12 +766,19 @@ ${baseKeywords.join(', ')}
 /**
  * 使用Keyword Planner扩展品牌关键词
  * 通过Keyword Planner API获取真实的品牌相关关键词建议
+ *
+ * 🔧 优化(2025-12-12): 增强种子词策略
+ * - 原来：只用品牌名作为种子词
+ * - 现在：使用品牌名、品牌+品类、品牌+产品名等多个种子词
+ *
  * @param brandName - 品牌名称
  * @param targetCountry - 目标国家
  * @param targetLanguage - 目标语言
  * @param maxKeywords - 最大关键词数量
  * @param userId - 用户ID
  * @param minSearchVolume - 最小搜索量阈值
+ * @param productName - 产品名称（可选，用于生成更精准的种子词）
+ * @param category - 产品品类（可选，用于生成更精准的种子词）
  */
 async function expandBrandKeywordsWithPlanner(
   brandName: string,
@@ -737,13 +786,37 @@ async function expandBrandKeywordsWithPlanner(
   targetLanguage: string,
   maxKeywords: number,
   userId: number,
-  minSearchVolume: number = 500
+  minSearchVolume: number = 500,
+  productName?: string,
+  category?: string
 ): Promise<GeneratedKeyword[]> {
   try {
-    // 使用品牌名作为种子关键词，通过Keyword Planner获取相关关键词建议
+    // 🔧 优化(2025-12-12): 构建多样化的种子关键词
+    // 策略：品牌名 + 品牌+品类 + 品牌+产品名 + 从产品标题提取的关键词
+    const seedKeywords: string[] = [brandName]
+
+    // 添加品牌+品类组合（如 "Reolink camera"）
+    if (category) {
+      const categoryClean = category.replace(/[&,]/g, ' ').trim()
+      if (categoryClean && !categoryClean.toLowerCase().includes(brandName.toLowerCase())) {
+        seedKeywords.push(`${brandName} ${categoryClean}`)
+      }
+    }
+
+    // 从产品名称提取核心词并与品牌组合
+    if (productName) {
+      const extractedKeywords = extractKeywordsFromProductTitle(productName, brandName)
+      seedKeywords.push(...extractedKeywords)
+    }
+
+    // 去重并限制种子词数量（API限制）
+    const uniqueSeeds = [...new Set(seedKeywords)].slice(0, 5)
+    console.log(`🔍 品牌词扩展种子词: ${uniqueSeeds.join(', ')}`)
+
+    // 使用多个种子关键词，通过Keyword Planner获取相关关键词建议
     // 🔧 修复(2025-12-12): 独立账号模式 - 传递 userId
     const suggestions = await getKeywordSuggestions(
-      [brandName],
+      uniqueSeeds,
       targetCountry,
       targetLanguage,
       maxKeywords * 3, // 请求更多以便过滤后有足够数量
@@ -760,6 +833,8 @@ async function expandBrandKeywordsWithPlanner(
       .sort((a, b) => b.avgMonthlySearches - a.avgMonthlySearches)
       .slice(0, maxKeywords)
 
+    console.log(`✅ 品牌词扩展结果: ${validKeywords.length}个 (种子词${uniqueSeeds.length}个)`)
+
     // 转换为GeneratedKeyword格式
     return validKeywords.map(v => ({
       keyword: v.keyword,
@@ -774,4 +849,274 @@ async function expandBrandKeywordsWithPlanner(
     console.error('扩展品牌关键词失败:', error)
     return [] // 失败时返回空数组，不影响主流程
   }
+}
+
+/**
+ * 从产品标题中提取关键词（需求34）
+ *
+ * 示例输入: "Teslong Inspection Camera 1080P HD Borescope with 4.5" Screen"
+ * 示例输出: ["Teslong Inspection Camera", "Teslong Borescope"]
+ *
+ * @param productTitle - 产品标题
+ * @param brandName - 品牌名称
+ * @returns 提取的关键词数组
+ */
+function extractKeywordsFromProductTitle(productTitle: string, brandName: string): string[] {
+  if (!productTitle || !brandName) return []
+
+  const keywords: string[] = []
+  const brandLower = brandName.toLowerCase()
+  const titleLower = productTitle.toLowerCase()
+
+  // 移除品牌名，获取产品描述部分
+  const titleWithoutBrand = productTitle
+    .replace(new RegExp(brandName, 'gi'), '')
+    .replace(/^\s*[-–—]\s*/, '') // 移除开头的连字符
+    .trim()
+
+  // 分词并过滤
+  const words = titleWithoutBrand
+    .split(/\s+/)
+    .filter(w => {
+      // 过滤掉：
+      // 1. 太短的词（<3字符）
+      // 2. 纯数字或规格参数（如 1080P, 4.5", 32GB）
+      // 3. 常见无意义词
+      const isShort = w.length < 3
+      const isSpec = /^[\d.]+[pPkKgGmMtT"']*$/.test(w) || /^\d+x\d+$/i.test(w)
+      const isCommon = /^(with|for|and|the|a|an|in|on|of|to|by|from|new|pro|plus|max|mini|lite)$/i.test(w)
+      return !isShort && !isSpec && !isCommon
+    })
+
+  // 策略1: 品牌名 + 前2个核心词（如 "Teslong Inspection Camera"）
+  if (words.length >= 2) {
+    const combo1 = `${brandName} ${words.slice(0, 2).join(' ')}`
+    if (!keywords.includes(combo1)) {
+      keywords.push(combo1)
+    }
+  }
+
+  // 策略2: 品牌名 + 单个核心产品词（如 "Teslong Borescope"）
+  // 查找可能的产品类型词（通常是名词，首字母大写或全小写）
+  const productTypeWords = words.filter(w =>
+    /^[A-Z][a-z]+$/.test(w) || // 首字母大写
+    /^[a-z]+$/.test(w) // 全小写
+  )
+
+  for (const word of productTypeWords.slice(0, 2)) {
+    const combo2 = `${brandName} ${word}`
+    if (!keywords.includes(combo2) && word.toLowerCase() !== words[0]?.toLowerCase()) {
+      keywords.push(combo2)
+    }
+  }
+
+  // 策略3: 如果标题中已包含品牌名，直接提取品牌+后续词
+  if (titleLower.includes(brandLower)) {
+    const brandIndex = titleLower.indexOf(brandLower)
+    const afterBrand = productTitle.substring(brandIndex + brandName.length).trim()
+    const afterWords = afterBrand.split(/\s+/).filter(w => w.length >= 3)
+
+    if (afterWords.length >= 2) {
+      const combo3 = `${brandName} ${afterWords.slice(0, 2).join(' ')}`
+      if (!keywords.includes(combo3)) {
+        keywords.push(combo3)
+      }
+    }
+  }
+
+  return keywords.slice(0, 3) // 最多返回3个
+}
+
+/**
+ * 🔧 优化(2025-12-12): 店铺多商品关键词聚合
+ * 从店铺的多个产品名称中提取共同的产品类型词，生成品牌相关关键词
+ *
+ * @param productNames - 店铺产品名称数组
+ * @param brandName - 品牌名称
+ * @param category - 产品品类（可选）
+ * @returns 聚合后的关键词数组
+ */
+function aggregateStoreProductKeywords(
+  productNames: string[],
+  brandName: string,
+  category?: string | null
+): GeneratedKeyword[] {
+  if (!productNames || productNames.length === 0 || !brandName) return []
+
+  const keywords: GeneratedKeyword[] = []
+  const seenKeywords = new Set<string>()
+  const brandLower = brandName.toLowerCase()
+
+  // 统计产品类型词出现频率
+  const wordFrequency = new Map<string, number>()
+
+  for (const productName of productNames) {
+    // 移除品牌名，提取核心词
+    const nameWithoutBrand = productName
+      .replace(new RegExp(brandName, 'gi'), '')
+      .trim()
+
+    const words = nameWithoutBrand
+      .split(/[\s\-–—,]+/)
+      .filter(w => {
+        if (w.length < 3) return false
+        // 过滤规格参数
+        if (/^[\d.]+[pPkKgGmMtThHzZ"']*$/.test(w)) return false
+        if (/^\d+x\d+$/i.test(w)) return false
+        // 过滤常见无意义词
+        if (/^(with|for|and|the|a|an|in|on|of|to|by|from|new|pro|plus|max|mini|lite|version|edition|series|gen|generation|pack|set|kit|bundle)$/i.test(w)) return false
+        return true
+      })
+
+    // 统计词频
+    for (const word of words) {
+      const wordLower = word.toLowerCase()
+      wordFrequency.set(wordLower, (wordFrequency.get(wordLower) || 0) + 1)
+    }
+  }
+
+  // 按频率排序，取出现次数>=2的高频词
+  const frequentWords = Array.from(wordFrequency.entries())
+    .filter(([_, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([word]) => word)
+
+  // 生成品牌+高频产品词组合
+  for (const word of frequentWords) {
+    const keyword = `${brandName} ${word}`
+    const keywordLower = keyword.toLowerCase()
+
+    if (!seenKeywords.has(keywordLower)) {
+      seenKeywords.add(keywordLower)
+      keywords.push({
+        keyword,
+        matchType: 'PHRASE',
+        priority: 'MEDIUM',
+        category: '产品词',
+        searchIntent: 'transactional',
+      })
+    }
+  }
+
+  // 如果有品类，生成品牌+品类组合
+  if (category && !seenKeywords.has(`${brandName} ${category}`.toLowerCase())) {
+    const categoryClean = category.replace(/[&,]/g, ' ').trim().split(' ')[0]
+    if (categoryClean && categoryClean.length > 2) {
+      keywords.push({
+        keyword: `${brandName} ${categoryClean}`,
+        matchType: 'PHRASE',
+        priority: 'MEDIUM',
+        category: '产品词',
+        searchIntent: 'transactional',
+      })
+    }
+  }
+
+  return keywords.slice(0, 8) // 最多返回8个
+}
+
+/**
+ * 🔧 优化(2025-12-12): 从产品特性生成关键词
+ * 将产品特性转换为搜索关键词
+ *
+ * @example
+ * 输入特性: "4K Ultra HD resolution; Night vision; Two-way audio"
+ * 输出: ["Reolink 4K camera", "Reolink night vision", "Reolink two-way audio"]
+ *
+ * @param features - 产品特性字符串（分号分隔）
+ * @param brandName - 品牌名称
+ * @param category - 产品品类（可选）
+ * @returns 生成的关键词数组
+ */
+function generateKeywordsFromFeatures(
+  features: string,
+  brandName: string,
+  category?: string | null
+): GeneratedKeyword[] {
+  if (!features || !brandName) return []
+
+  const keywords: GeneratedKeyword[] = []
+  const seenKeywords = new Set<string>()
+
+  // 常见的高价值特性关键词（用户搜索时常用的词）
+  const highValueFeatures: Record<string, string[]> = {
+    // 视频/相机相关
+    '4k': ['4K', '4K camera', '4K video'],
+    '1080p': ['1080P', 'HD'],
+    'night vision': ['night vision'],
+    'infrared': ['infrared', 'IR'],
+    'motion detection': ['motion detection', 'motion sensor'],
+    'two-way audio': ['two-way audio', '2-way audio'],
+    'wireless': ['wireless', 'WiFi'],
+    'solar': ['solar', 'solar powered'],
+    'battery': ['battery', 'rechargeable'],
+    'waterproof': ['waterproof', 'outdoor'],
+    'ptz': ['PTZ', 'pan tilt'],
+    // 智能设备相关
+    'smart': ['smart'],
+    'alexa': ['Alexa compatible', 'Alexa'],
+    'google': ['Google Home', 'Google Assistant'],
+    'app': ['app control', 'mobile app'],
+    'cloud': ['cloud storage'],
+    // 音频相关
+    'bluetooth': ['bluetooth'],
+    'noise cancelling': ['noise cancelling', 'ANC'],
+    // 通用高价值词
+    'professional': ['professional', 'pro'],
+    'portable': ['portable'],
+    'compact': ['compact'],
+  }
+
+  // 分割特性
+  const featureList = features
+    .split(/[;,]/)
+    .map(f => f.trim().toLowerCase())
+    .filter(f => f.length > 3)
+
+  // 匹配高价值特性
+  for (const feature of featureList) {
+    for (const [pattern, variants] of Object.entries(highValueFeatures)) {
+      if (feature.includes(pattern)) {
+        // 使用第一个变体生成关键词
+        const featureWord = variants[0]
+        const keyword = `${brandName} ${featureWord}`
+        const keywordLower = keyword.toLowerCase()
+
+        if (!seenKeywords.has(keywordLower)) {
+          seenKeywords.add(keywordLower)
+          keywords.push({
+            keyword,
+            matchType: 'PHRASE',
+            priority: 'LOW',
+            category: '特性词',
+            searchIntent: 'transactional',
+          })
+        }
+
+        // 如果有品类，生成品类+特性组合
+        if (category) {
+          const categoryClean = category.replace(/[&,]/g, ' ').trim().split(' ')[0]
+          if (categoryClean && categoryClean.length > 2) {
+            const categoryKeyword = `${featureWord} ${categoryClean}`
+            const categoryKeywordLower = categoryKeyword.toLowerCase()
+
+            if (!seenKeywords.has(categoryKeywordLower)) {
+              seenKeywords.add(categoryKeywordLower)
+              keywords.push({
+                keyword: categoryKeyword,
+                matchType: 'BROAD',
+                priority: 'LOW',
+                category: '特性词',
+                searchIntent: 'informational',
+              })
+            }
+          }
+        }
+        break // 每个特性只匹配一次
+      }
+    }
+  }
+
+  return keywords.slice(0, 6) // 最多返回6个
 }
