@@ -60,7 +60,7 @@ export function getDynamicTimeout(url: string): number {
 export async function createStealthBrowser(proxyUrl?: string, targetCountry?: string): Promise<StealthBrowserResult> {
   // 🔴 根据需求10：必须使用代理，不允许降级为直连访问
   const effectiveProxyUrl = proxyUrl || PROXY_URL
-  if (!effectiveProxyUrl) {
+  if (!effectiveProxyUrl || typeof effectiveProxyUrl !== 'string') {
     throw new Error('❌ 代理配置缺失：根据需求10，必须配置代理URL(PROXY_URL环境变量或传入customProxyUrl参数)，不允许直连访问')
   }
 
