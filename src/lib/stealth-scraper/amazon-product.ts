@@ -458,33 +458,34 @@ function extractJsonLdData($: any): JsonLdProductData | null {
  */
 function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: boolean = false): AmazonProductData {
   // 🎯 核心优化：限定选择器范围到核心产品区域，避免抓取推荐商品
-  // 推荐商品区域关键词
-  const recommendationKeywords = [
-    'also bought', 'also viewed', 'frequently bought together',
-    'customers who bought', 'related products', 'similar items',
-    'sponsored products', 'customers also shopped for', 'compare with similar',
-    'recommended for you', 'more items to explore'
-  ]
 
   // 检查元素是否在推荐区域
+  // 🔥 2025-12-13修复：限制检查深度，避免检查到body/html等大容器导致误判
+  // 问题：之前检查所有父元素的text，body包含整个页面文字，会误判所有元素都在推荐区域
   const isInRecommendationArea = (el: any): boolean => {
     const $el = $(el)
     const parents = $el.parents().toArray()
 
-    for (const parent of parents) {
+    // 🔥 关键修复：只检查最近的5层父元素，避免检查到body等大容器
+    const maxDepth = Math.min(parents.length, 5)
+
+    for (let i = 0; i < maxDepth; i++) {
+      const parent = parents[i]
       const $parent = $(parent)
-      const text = $parent.text().toLowerCase()
       const id = ($parent.attr('id') || '').toLowerCase()
       const className = ($parent.attr('class') || '').toLowerCase()
 
-      // 检查文本内容
-      if (recommendationKeywords.some(keyword => text.includes(keyword))) {
-        return true
+      // 🔥 修复：如果到达核心产品区域的已知安全容器，停止检查
+      if (id === 'feature-bullets' || id === 'featurebullets_feature_div' ||
+          id === 'centerCol' || id === 'ppd' || id === 'dp-container') {
+        return false  // 在安全区域内，不是推荐区域
       }
 
-      // 检查ID和类名
+      // 只检查ID和类名，不再检查整个text（text太大会误判）
       if (id.includes('sims') || id.includes('related') || id.includes('sponsored') ||
-          className.includes('sims') || className.includes('related') || className.includes('sponsored')) {
+          id.includes('also-viewed') || id.includes('also-bought') ||
+          className.includes('sims') || className.includes('related') || className.includes('sponsored') ||
+          className.includes('also-viewed') || className.includes('also-bought')) {
         return true
       }
     }
@@ -1120,29 +1121,32 @@ function extractBrandName(
   const candidates: BrandCandidate[] = []
 
   // 检查元素是否在推荐区域
-  const recommendationKeywords = [
-    'also bought', 'also viewed', 'frequently bought together',
-    'customers who bought', 'related products', 'similar items',
-    'sponsored products', 'customers also shopped for', 'compare with similar',
-    'recommended for you', 'more items to explore'
-  ]
-
+  // 🔥 2025-12-13修复：限制检查深度，避免检查到body/html等大容器导致误判
   const isInRecommendationArea = (el: any): boolean => {
     const $el = $(el)
     const parents = $el.parents().toArray()
 
-    for (const parent of parents) {
+    // 🔥 关键修复：只检查最近的5层父元素，避免检查到body等大容器
+    const maxDepth = Math.min(parents.length, 5)
+
+    for (let i = 0; i < maxDepth; i++) {
+      const parent = parents[i]
       const $parent = $(parent)
-      const text = $parent.text().toLowerCase()
       const id = ($parent.attr('id') || '').toLowerCase()
       const className = ($parent.attr('class') || '').toLowerCase()
 
-      if (recommendationKeywords.some(keyword => text.includes(keyword))) {
-        return true
+      // 🔥 修复：如果到达核心产品区域的已知安全容器，停止检查
+      if (id === 'feature-bullets' || id === 'featurebullets_feature_div' ||
+          id === 'centerCol' || id === 'ppd' || id === 'dp-container' ||
+          id === 'productoverview_feature_div' || id === 'bylineinfo') {
+        return false  // 在安全区域内，不是推荐区域
       }
 
+      // 只检查ID和类名，不再检查整个text（text太大会误判）
       if (id.includes('sims') || id.includes('related') || id.includes('sponsored') ||
-          className.includes('sims') || className.includes('related') || className.includes('sponsored')) {
+          id.includes('also-viewed') || id.includes('also-bought') ||
+          className.includes('sims') || className.includes('related') || className.includes('sponsored') ||
+          className.includes('also-viewed') || className.includes('also-bought')) {
         return true
       }
     }
