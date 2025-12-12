@@ -4,7 +4,6 @@ import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
-import { getUserOnlySetting } from '@/lib/settings'
 
 // Google Ads CustomerStatus 枚举值映射
 // 参考: https://developers.google.com/google-ads/api/reference/rpc/latest/CustomerStatusEnum.CustomerStatus
@@ -483,32 +482,16 @@ export async function GET(request: NextRequest) {
 
     const userId = authResult.user.userId
 
-    // 🔧 修复(2025-12-11): 支持用户只配置 login_customer_id，使用共享管理员配置
-    let credentials = await getGoogleAdsCredentials(userId)
-    let usingSharedConfig = false
+    // 🔧 修复(2025-12-12): 只支持独立账号模式，移除共享配置
+    // 每个用户必须配置自己的 Google Ads API 凭证并完成 OAuth 授权
+    const credentials = await getGoogleAdsCredentials(userId)
 
     if (!credentials) {
-      // 用户没有 google_ads_credentials 记录，检查是否配置了 login_customer_id
-      const userLoginCustomerId = await getUserOnlySetting('google_ads', 'login_customer_id', userId)
-
-      if (userLoginCustomerId?.value) {
-        // 用户配置了 login_customer_id，检查管理员是否有完整的共享配置
-        const adminCredentials = await getGoogleAdsCredentials(1) // 1 = autoads管理员
-        if (adminCredentials && adminCredentials.refresh_token) {
-          // 使用管理员的凭证，但替换 login_customer_id
-          credentials = {
-            ...adminCredentials,
-            login_customer_id: userLoginCustomerId.value,
-            user_id: userId
-          }
-          usingSharedConfig = true
-          console.log(`✅ 用户 ${userId} 使用共享管理员配置，login_customer_id: ${userLoginCustomerId.value}`)
-        }
-      }
-
-      if (!credentials) {
-        return NextResponse.json({ error: '未配置Google Ads凭证' }, { status: 404 })
-      }
+      return NextResponse.json({
+        error: '未配置 Google Ads 凭证',
+        message: '请在设置页面完成 Google Ads API 配置并完成 OAuth 授权',
+        code: 'CREDENTIALS_NOT_CONFIGURED'
+      }, { status: 404 })
     }
 
     if (!credentials.refresh_token) {
@@ -525,7 +508,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const forceRefresh = searchParams.get('refresh') === 'true'
-    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}, usingSharedConfig=${usingSharedConfig}`)
+    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}`)
 
     let allAccounts: any[]
 
@@ -622,13 +605,14 @@ export async function GET(request: NextRequest) {
       }
     }))
 
+    // 🔧 修复(2025-12-12): 简化响应，移除共享配置相关信息
     return NextResponse.json({
       success: true,
       data: {
         total: accountsWithOffers.length,
         accounts: accountsWithOffers,
         cached: !forceRefresh && cachedAccounts.length > 0,
-        usingSharedConfig, // 返回是否使用共享配置的标记
+        loginCustomerId: credentials.login_customer_id,
       },
     })
 

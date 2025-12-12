@@ -32,7 +32,6 @@ interface Credentials {
   loginCustomerId?: string
   refreshToken?: string
   hasRefreshToken: boolean
-  usingSharedConfig?: boolean
 }
 
 export default function GoogleAdsPage() {
@@ -258,9 +257,7 @@ export default function GoogleAdsPage() {
     )
   }
 
-  // 🔧 修复(2025-12-11): 用户只需配置 login_customer_id，可以使用共享管理员配置
-  // 后端会检查管理员是否有完整配置，并在 hasRefreshToken 中反映结果
-  // 因此前端只需检查 hasRefreshToken，不需要检查 clientId 和 developerToken
+  // 🔧 修复(2025-12-12): 独立账号模式 - 用户必须配置完整的 Google Ads API 凭证并完成 OAuth 授权
   const hasRefreshToken = credentials?.hasRefreshToken || false
 
   return (
@@ -300,9 +297,20 @@ export default function GoogleAdsPage() {
 
           {!hasRefreshToken && (
             <div className="mb-6 bg-amber-50 border border-amber-200 rounded-md p-4">
-              <p className="text-sm text-amber-800">
-                请先在 <a href="/settings" className="underline font-semibold">系统设置</a> 的 "Google Ads API" 部分完成 Login Customer ID 配置。
+              <p className="text-sm text-amber-800 font-semibold mb-2">⚠️ 未完成 Google Ads API 配置</p>
+              <p className="text-sm text-amber-700 mb-3">
+                使用 Google Ads 功能前，需要完成以下配置：
               </p>
+              <ol className="text-sm text-amber-700 list-decimal list-inside space-y-1 mb-3">
+                <li>在系统设置中填写所有 Google Ads API 必填参数</li>
+                <li>保存配置后，点击"启动 OAuth 授权"完成账号绑定</li>
+              </ol>
+              <a
+                href="/settings"
+                className="inline-block px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded hover:bg-amber-700"
+              >
+                前往配置 →
+              </a>
             </div>
           )}
 
@@ -655,13 +663,16 @@ export default function GoogleAdsPage() {
             <p className="font-semibold">使用说明：</p>
             <ul className="mt-2 text-sm space-y-1">
               <li>
-                • <strong>API 配置</strong>: 在 <a href="/settings" className="underline">系统设置</a> 中完成 Google Ads API 凭证配置和 OAuth 授权
+                • <strong>配置要求</strong>: 在 <a href="/settings" className="underline text-indigo-600 hover:text-indigo-800">系统设置</a> 中完成 Google Ads API 所有必填参数配置，并完成 OAuth 授权
+              </li>
+              <li>
+                • <strong>MCC 账户</strong>: 配置您的 MCC（Manager Account）ID，系统将自动获取您管理的所有子账户
               </li>
               <li>
                 • <strong>所属 MCC</strong>: 显示该账户归属的 MCC 管理账户名称和 ID
               </li>
               <li>
-                • <strong>关联 Offer</strong>: 点击可展开查看该账户关联的所有 Offer
+                • <strong>关联 Offer</strong>: 点击可展开查看该账户关联的所有 Offer 及广告系列数量
               </li>
             </ul>
           </div>

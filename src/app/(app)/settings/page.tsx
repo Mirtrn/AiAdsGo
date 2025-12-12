@@ -67,27 +67,28 @@ const SETTING_METADATA: Record<string, {
   options?: { value: string; label: string }[]
   defaultValue?: string
 }> = {
-  // Google Ads
+  // Google Ads - 所有参数必填
   'google_ads.login_customer_id': {
-    label: 'Login Customer ID (MCC账户ID) *',  // 添加必填标记
-    description: '您的MCC管理账户ID，用于访问您管理的广告账户。格式：10位数字（不含连字符）【必填】',
-    placeholder: '例如: 1234567890'
+    label: 'Login Customer ID (MCC账户ID)',
+    description: '您的MCC管理账户ID，用于访问您管理的广告账户。格式：10位数字（不含连字符）',
+    placeholder: '例如: 1234567890',
+    helpLink: 'https://support.google.com/google-ads/answer/6139186'
   },
   'google_ads.client_id': {
-    label: 'Client ID（选填）',
-    description: 'OAuth 2.0客户端ID。如不填写，将使用平台共享配置',
-    placeholder: '输入Client ID（选填）',
+    label: 'OAuth Client ID',
+    description: 'Google Cloud Console 中创建的 OAuth 2.0 客户端 ID',
+    placeholder: '例如: 123456789-xxx.apps.googleusercontent.com',
     helpLink: 'https://console.cloud.google.com/apis/credentials'
   },
   'google_ads.client_secret': {
-    label: 'Client Secret（选填）',
-    description: 'OAuth 2.0客户端密钥。如不填写，将使用平台共享配置',
-    placeholder: '输入Client Secret（选填）'
+    label: 'OAuth Client Secret',
+    description: 'OAuth 2.0 客户端密钥，与 Client ID 配对使用',
+    placeholder: '输入 Client Secret'
   },
   'google_ads.developer_token': {
-    label: 'Developer Token（选填）',
-    description: 'Google Ads API开发者令牌。如不填写，将使用平台共享配置',
-    placeholder: '输入Developer Token（选填）',
+    label: 'Developer Token',
+    description: 'Google Ads API 开发者令牌，在 Google Ads 账户的 API 中心获取',
+    placeholder: '输入 Developer Token',
     helpLink: 'https://ads.google.com/aw/apicenter'
   },
 
@@ -206,10 +207,11 @@ const CATEGORY_FIELDS: Record<string, {
   isRequired: boolean
 }[]> = {
   google_ads: [
+    // 🔧 修复(2025-12-12): 所有 Google Ads 参数都是必填的（独立账号模式）
     { key: 'login_customer_id', dataType: 'string', isSensitive: false, isRequired: true },
-    { key: 'client_id', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'client_secret', dataType: 'string', isSensitive: true, isRequired: false },
-    { key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'client_id', dataType: 'string', isSensitive: true, isRequired: true },
+    { key: 'client_secret', dataType: 'string', isSensitive: true, isRequired: true },
+    { key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: true },
   ],
   ai: [
     { key: 'use_vertex_ai', dataType: 'boolean', isSensitive: false, isRequired: false },
@@ -537,11 +539,32 @@ export default function SettingsPage() {
     setSaving(true)
 
     try {
-      // Google Ads配置验证
+      // 🔧 修复(2025-12-12): Google Ads 所有参数必填验证
       if (category === 'google_ads') {
         const loginCustomerId = formData.google_ads?.['login_customer_id']
-        if (!loginCustomerId || loginCustomerId.trim() === '') {
+        const clientId = formData.google_ads?.['client_id']
+        const clientSecret = formData.google_ads?.['client_secret']
+        const developerToken = formData.google_ads?.['developer_token']
+
+        const isValidValue = (v: string | undefined) => v && v.trim() !== '' && v !== '············'
+
+        if (!isValidValue(loginCustomerId)) {
           toast.error('Login Customer ID (MCC账户ID) 是必填项')
+          setSaving(false)
+          return
+        }
+        if (!isValidValue(clientId)) {
+          toast.error('OAuth Client ID 是必填项')
+          setSaving(false)
+          return
+        }
+        if (!isValidValue(clientSecret)) {
+          toast.error('OAuth Client Secret 是必填项')
+          setSaving(false)
+          return
+        }
+        if (!isValidValue(developerToken)) {
+          toast.error('Developer Token 是必填项')
           setSaving(false)
           return
         }
@@ -909,8 +932,8 @@ export default function SettingsPage() {
               <ul className="space-y-1 text-body-sm text-blue-700">
                 <li>• 敏感数据（如API密钥、Service Account JSON）将使用AES-256-GCM加密存储</li>
                 <li>• 标记为"必填"的配置项需要填写才能使用对应功能</li>
-                <li>• AI引擎支持两种模式：Vertex AI（推荐，企业级）和 Gemini API（直连访问）</li>
-                <li>• 配置Google Ads API后，请前往Google Ads设置页面完成账号授权</li>
+                <li>• <strong>Google Ads</strong>：需要配置所有参数并完成 OAuth 授权后才能使用广告管理功能</li>
+                <li>• <strong>AI引擎</strong>：支持 Vertex AI（推荐）和 Gemini API 两种模式</li>
                 <li>• 如遇API访问问题，可尝试启用代理设置</li>
               </ul>
             </div>
@@ -955,26 +978,30 @@ export default function SettingsPage() {
                   <div className="space-y-6">
                     {/* 配置说明和凭证状态 - 2列布局 */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {/* 混合配置模式说明 */}
+                      {/* 🔧 修复(2025-12-12): 独立账号模式说明 */}
                       <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                         <div className="flex items-start gap-3">
                           <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
                           <div>
                             <p className="font-semibold text-blue-800 mb-2">配置说明</p>
-                            <p className="text-sm text-blue-700">
-                              <strong>Login Customer ID</strong> 必填，其他OAuth凭证选填。
-                              不配置OAuth凭证将使用平台共享配置。
+                            <p className="text-sm text-blue-700 mb-2">
+                              使用 Google Ads API 需要完成以下步骤：
                             </p>
+                            <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
+                              <li>填写所有必填参数并保存配置</li>
+                              <li>点击"启动 OAuth 授权"完成账号绑定</li>
+                              <li>授权成功后即可管理您的广告账户</li>
+                            </ol>
                           </div>
                         </div>
                       </div>
 
                       {/* Google Ads 凭证状态 */}
-                      {googleAdsCredentialStatus?.hasCredentials && (
+                      {googleAdsCredentialStatus?.hasCredentials ? (
                         <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                           <div className="flex items-center gap-2 mb-2">
                             <CheckCircle2 className="w-5 h-5 text-green-600" />
-                            <span className="font-semibold text-green-700">已配置完整凭证</span>
+                            <span className="font-semibold text-green-700">已完成配置和授权</span>
                           </div>
                           {googleAdsCredentialStatus.loginCustomerId && (
                             <p className="text-sm text-green-700">
@@ -986,6 +1013,16 @@ export default function SettingsPage() {
                               验证: {new Date(googleAdsCredentialStatus.lastVerifiedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </p>
                           )}
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle className="w-5 h-5 text-amber-600" />
+                            <span className="font-semibold text-amber-700">待完成配置</span>
+                          </div>
+                          <p className="text-sm text-amber-700">
+                            请填写所有必填参数并完成 OAuth 授权后才能使用 Google Ads 功能
+                          </p>
                         </div>
                       )}
                     </div>
