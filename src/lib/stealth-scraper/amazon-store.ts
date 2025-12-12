@@ -1029,9 +1029,9 @@ async function batchScrapeProductDetailsComplete(
   console.log(`📦 批量抓取产品详情 (最多${maxCount}个)...`)
   console.log(`📊 缓存状态: ${JSON.stringify(getProductCacheStats())}`)
 
-  // Step 1: 检查缓存
-  const { cached, uncached } = checkCacheBatch(asinsToProcess)
-  console.log(`📦 缓存: ${cached.length}个命中, ${uncached.length}个需抓取`)
+  // Step 1: 检查缓存 - 🔥 2025-12-12修复：启用质量检查，要求features不为空
+  const { cached, uncached } = checkCacheBatch(asinsToProcess, true)
+  console.log(`📦 缓存: ${cached.length}个命中(质量合格), ${uncached.length}个需抓取`)
 
   const results: AmazonProductData[] = cached.map(c => c.data)
 
@@ -1437,10 +1437,11 @@ export async function scrapeAmazonStoreDeep(
 
       console.log(`  🛒 [${i + 1}/${hotProducts.length}] 抓取商品详情: ${product.name?.substring(0, 50)}... (${asin}) [${amazonDomain}]`)
 
-      // 🔥 优先检查缓存
-      const cached = getCachedProductDetail(asin)
+      // 🔥 2025-12-12修复：优先检查缓存，启用质量检查（要求features不为空）
+      // getCachedProductDetail 现在支持质量检查，统一日志输出
+      const cached = getCachedProductDetail(asin, true)  // requireFeatures = true
       if (cached) {
-        console.log(`  📦 缓存命中: ${asin}`)
+        // 缓存有效且质量合格（features不为空）
         const cachedResult = {
           asin: asin,
           productData: cached,
@@ -1455,6 +1456,7 @@ export async function scrapeAmazonStoreDeep(
         aggregateProductData(cachedResult, deepResults, seenCompetitorAsins, seenFeatures)
         continue
       }
+      // 缓存未命中或质量不合格，需要重新抓取
 
       try {
         // 🔥 使用复用Context的抓取函数
@@ -1483,7 +1485,8 @@ export async function scrapeAmazonStoreDeep(
         deepResults.successCount++
         aggregateProductData(successResult, deepResults, seenCompetitorAsins, seenFeatures)
 
-        console.log(`  ✅ 成功: ${asin}, 评价数: ${successResult.reviews.length}, 竞品数: ${successResult.competitorAsins.length}`)
+        // 🔥 2025-12-12调试：记录每个商品的features提取结果
+        console.log(`  ✅ 成功: ${asin}, 评价数: ${successResult.reviews.length}, 竞品数: ${successResult.competitorAsins.length}, features: ${successResult.features.length}条`)
 
         // 🔥 商品间添加随机延迟，模拟人类行为
         if (i < hotProducts.length - 1) {

@@ -36,6 +36,9 @@ export async function executeOfferExtraction(
   const { affiliateLink, targetCountry, skipCache = false, skipWarmup = false, productPrice, commissionPayout } = task.data
   const db = getDatabase()
 
+  // 🔥 2025-12-12调试：记录task.data中的targetCountry
+  console.log(`📋 executeOfferExtraction: task.id=${task.id}, targetCountry="${targetCountry}", task.data=${JSON.stringify(task.data)}`)
+
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 

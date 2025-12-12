@@ -381,9 +381,37 @@ export async function scrapeUrlWithBrowser(
       await randomDelay(1000, 2000)
 
       // Simulate human scrolling
-      await page.evaluate(() => {
-        window.scrollBy(0, Math.random() * 500)
-      })
+      // 🔥 2025-12-12优化：针对Amazon产品页面，滚动到feature-bullets区域触发懒加载
+      const isAmazonProduct = url.includes('amazon.') && (url.includes('/dp/') || url.includes('/gp/product/'))
+      if (isAmazonProduct) {
+        // Amazon产品页面：滚动到feature-bullets区域
+        await page.evaluate(() => {
+          const featureBullets = document.querySelector('#feature-bullets, #featurebullets_feature_div')
+          if (featureBullets) {
+            featureBullets.scrollIntoView({ behavior: 'instant', block: 'center' })
+          } else {
+            // 如果找不到，滚动到页面中部位置
+            window.scrollTo(0, window.innerHeight * 0.8)
+          }
+        }).catch(() => {})
+        await randomDelay(800, 1200)  // 等待懒加载内容渲染
+
+        // 等待feature-bullets元素出现
+        await page.waitForSelector('#feature-bullets li, #featurebullets_feature_div li', {
+          timeout: 3000,
+          state: 'visible'
+        }).catch(() => {
+          console.warn(`⚠️ feature-bullets未加载，可能页面结构不同`)
+        })
+
+        // 滚动回顶部
+        await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
+      } else {
+        // 非Amazon产品页面：普通随机滚动
+        await page.evaluate(() => {
+          window.scrollBy(0, Math.random() * 500)
+        })
+      }
 
       await randomDelay(500, 1000)
 

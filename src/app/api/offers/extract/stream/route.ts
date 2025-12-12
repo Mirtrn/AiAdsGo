@@ -58,16 +58,17 @@ export async function POST(req: NextRequest) {
     const { affiliate_link, target_country, skipCache, skipWarmup } = body
 
     // 参数验证
-    if (!affiliate_link || typeof affiliate_link !== 'string') {
+    if (!affiliate_link || typeof affiliate_link !== 'string' || affiliate_link.trim() === '') {
       return new Response(
         JSON.stringify({ error: 'Invalid affiliate_link' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       )
     }
 
-    if (!target_country || typeof target_country !== 'string') {
+    // 🔥 2025-12-12修复：加强target_country验证，确保不是空字符串
+    if (!target_country || typeof target_country !== 'string' || target_country.trim().length < 2) {
       return new Response(
-        JSON.stringify({ error: 'Invalid target_country' }),
+        JSON.stringify({ error: 'Invalid target_country (至少2个字符，如US、UK、DE)' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       )
     }

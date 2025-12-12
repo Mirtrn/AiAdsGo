@@ -124,7 +124,8 @@ export async function POST(req: NextRequest) {
       const targetCountry = values[targetCountryIdx]
 
       // 校验必填参数
-      if (!affiliateLink || !targetCountry) {
+      // 🔥 2025-12-12修复：加强验证，确保不是空字符串，target_country至少2个字符
+      if (!affiliateLink || affiliateLink.trim() === '' || !targetCountry || targetCountry.trim().length < 2) {
         skippedCount++
         console.warn(`⚠️ 跳过第${i + 1}行：缺少必填参数 (推广链接=${affiliateLink}, 推广国家=${targetCountry})`)
         continue // 跳过参数不全的行

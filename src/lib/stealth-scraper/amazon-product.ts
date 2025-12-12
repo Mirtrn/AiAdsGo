@@ -228,9 +228,31 @@ export async function scrapeAmazonProductWithContext(
     // 智能等待页面加载
     await smartWaitForLoad(page, url, { maxWaitTime: 8000 }).catch(() => {})
 
-    // 模拟人类滚动
-    await page.evaluate(() => window.scrollBy(0, Math.random() * 300 + 100)).catch(() => {})
-    await randomDelay(500, 1000)
+    // 🔥 2025-12-12优化：滚动到feature-bullets区域，确保产品特性加载
+    // Amazon产品特性(About this item)通常在页面中下部，需要滚动触发懒加载
+    await page.evaluate(() => {
+      // 尝试滚动到feature-bullets区域
+      const featureBullets = document.querySelector('#feature-bullets, #featurebullets_feature_div')
+      if (featureBullets) {
+        featureBullets.scrollIntoView({ behavior: 'instant', block: 'center' })
+      } else {
+        // 如果找不到，滚动到页面中部位置
+        window.scrollTo(0, window.innerHeight * 0.8)
+      }
+    }).catch(() => {})
+    await randomDelay(800, 1200)  // 等待懒加载内容渲染
+
+    // 等待feature-bullets元素出现（最多等待3秒）
+    await page.waitForSelector('#feature-bullets li, #featurebullets_feature_div li', {
+      timeout: 3000,
+      state: 'visible'
+    }).catch(() => {
+      console.warn(`⚠️ [复用Context] feature-bullets未加载，可能页面结构不同`)
+    })
+
+    // 模拟人类滚动回顶部
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
+    await randomDelay(300, 500)
 
     // 获取HTML并解析
     const html = await page.content()
@@ -431,13 +453,23 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   const jsonLdData = extractJsonLdData($)
 
   // Extract product features - 限定在核心产品区域
+  // 🔥 2025-12-12优化：增加移动版选择器支持
   const features: string[] = []
   const featureSelectors = [
+    // === 桌面版选择器 ===
     '#ppd #feature-bullets li',
     '#centerCol #feature-bullets li',
     '#dp-container #feature-bullets li',
     '#feature-bullets li:not([id*="sims"]):not([class*="sims"])',  // 排除sims相关
-    '#featurebullets_feature_div li'
+    '#featurebullets_feature_div li',
+    // === 移动版选择器 (a-m-* 页面) ===
+    '[data-feature-name="featurebullets"] li',
+    '.a-unordered-list.a-vertical.a-spacing-mini li',
+    '#feature-bullets ul li',
+    // === About this item 专用选择器 ===
+    '[data-cel-widget*="feature-bullets"] li',
+    '#productFactsDesktop ul li',
+    '[data-csa-c-slot-id="productDetails_feature_div"] li',
   ]
 
   for (const selector of featureSelectors) {
@@ -452,6 +484,13 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
         features.push(text)
       }
     })
+  }
+
+  // 🔥 2025-12-12调试：记录features提取结果
+  if (features.length > 0) {
+    console.log(`📝 产品特性提取成功: ${features.length} 条 (前50字: ${features[0]?.substring(0, 50)}...)`)
+  } else {
+    console.warn(`⚠️ 产品特性提取为空，可能页面结构变化或懒加载未完成`)
   }
 
   // ========== 图片提取已移除 ==========

@@ -196,6 +196,9 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     progressCallback,
   } = options
 
+  // 🔥 2025-12-12调试：记录targetCountry参数
+  console.log(`📍 extractOffer: targetCountry="${targetCountry}", userId=${userId}, affiliateLink=${affiliateLink?.substring(0, 50)}...`)
+
   try {
     // ========== 步骤0: 初始化代理池（必须在预热之前） ==========
     const fetchingProxyStartTime = Date.now()

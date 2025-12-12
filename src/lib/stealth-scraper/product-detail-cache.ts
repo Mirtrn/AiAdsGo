@@ -24,12 +24,30 @@ let cacheMisses = 0
 
 /**
  * 从缓存获取产品详情
+ * @param asin - 产品ASIN
+ * @param requireFeatures - 是否要求features不为空（质量检查）
+ * @param silent - 是否静默模式（不打印日志）
  */
-export function getCachedProductDetail(asin: string): AmazonProductData | null {
+export function getCachedProductDetail(
+  asin: string,
+  requireFeatures: boolean = false,
+  silent: boolean = false
+): AmazonProductData | null {
   const cached = productDetailCache.get(asin)
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    // 🔥 2025-12-12修复：质量检查 - 如果要求features但为空，视为缓存未命中
+    if (requireFeatures && (!cached.data.features || cached.data.features.length === 0)) {
+      if (!silent) {
+        console.log(`  ⚠️ 缓存质量不佳: ${asin} (features为空)，需重新抓取`)
+      }
+      cacheMisses++
+      return null
+    }
     cacheHits++
-    console.log(`  📦 产品缓存命中: ${asin}`)
+    if (!silent) {
+      const featuresCount = cached.data.features?.length || 0
+      console.log(`  📦 缓存命中: ${asin} (features: ${featuresCount}条)`)
+    }
     return cached.data
   }
   if (cached) {
@@ -100,8 +118,13 @@ export function clearAllCache(): void {
 
 /**
  * 批量检查缓存，返回已缓存和未缓存的ASIN列表
+ * @param asins - 要检查的ASIN列表
+ * @param requireFeatures - 是否要求features不为空（质量检查）
  */
-export function checkCacheBatch(asins: string[]): {
+export function checkCacheBatch(
+  asins: string[],
+  requireFeatures: boolean = false
+): {
   cached: Array<{ asin: string; data: AmazonProductData }>
   uncached: string[]
 } {
@@ -109,7 +132,8 @@ export function checkCacheBatch(asins: string[]): {
   const uncached: string[] = []
 
   for (const asin of asins) {
-    const data = getCachedProductDetail(asin)
+    // 🔥 2025-12-12修复：传递质量检查参数
+    const data = getCachedProductDetail(asin, requireFeatures)
     if (data) {
       cached.push({ asin, data })
     } else {

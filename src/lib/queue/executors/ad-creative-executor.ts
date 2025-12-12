@@ -84,11 +84,13 @@ export async function executeAdCreativeGeneration(
       `, [attemptBaseProgress, `第${attempts}次生成: AI正在创作广告文案...`, attempts, task.id])
 
       // 1. 生成创意
+      // 🔥 2025-12-12修复：始终跳过缓存，确保每次重新生成都产生新创意
+      // 用户点击"重新生成"时期望获得不同的创意，不应使用缓存
       const creative = await generateAdCreative(
         offerId,
         task.userId,
         {
-          skipCache: attempts > 1,
+          skipCache: true,  // 始终跳过缓存
           excludeKeywords: attempts > 1 ? usedKeywords : undefined
         }
       )

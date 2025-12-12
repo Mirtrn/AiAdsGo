@@ -53,16 +53,17 @@ export async function POST(req: NextRequest) {
     const { affiliate_link, target_country, product_price, commission_payout, skipCache, skipWarmup } = body
 
     // 参数验证
-    if (!affiliate_link || typeof affiliate_link !== 'string') {
+    if (!affiliate_link || typeof affiliate_link !== 'string' || affiliate_link.trim() === '') {
       return NextResponse.json(
         { error: 'Invalid request', message: 'affiliate_link is required' },
         { status: 400 }
       )
     }
 
-    if (!target_country || typeof target_country !== 'string') {
+    // 🔥 2025-12-12修复：加强target_country验证，确保不是空字符串
+    if (!target_country || typeof target_country !== 'string' || target_country.trim().length < 2) {
       return NextResponse.json(
-        { error: 'Invalid request', message: 'target_country is required' },
+        { error: 'Invalid request', message: 'target_country is required (至少2个字符，如US、UK、DE)' },
         { status: 400 }
       )
     }
