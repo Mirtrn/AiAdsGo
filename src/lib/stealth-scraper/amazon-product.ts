@@ -149,6 +149,142 @@ export async function scrapeAmazonProduct(
 }
 
 /**
+ * 🔥 P1优化: 从JSON-LD结构化数据提取产品信息（最稳定的数据源）
+ * Amazon页面通常包含Schema.org格式的JSON-LD数据，比DOM选择器更稳定
+ */
+interface JsonLdProductData {
+  name?: string
+  brand?: string
+  description?: string
+  price?: string
+  currency?: string
+  rating?: string
+  reviewCount?: string
+  sku?: string  // ASIN
+  image?: string[]
+  availability?: string
+  category?: string
+}
+
+function extractJsonLdData($: any): JsonLdProductData | null {
+  const result: JsonLdProductData = {}
+  let foundProduct = false
+
+  try {
+    // 遍历所有JSON-LD脚本标签
+    $('script[type="application/ld+json"]').each((_i: number, el: any) => {
+      try {
+        const jsonText = $(el).html()
+        if (!jsonText) return
+
+        const data = JSON.parse(jsonText)
+
+        // 处理数组格式（Amazon有时用@graph数组）
+        const items = Array.isArray(data) ? data : (data['@graph'] || [data])
+
+        for (const item of items) {
+          // 检查是否是Product类型
+          const itemType = item['@type']
+          if (itemType === 'Product' || (Array.isArray(itemType) && itemType.includes('Product'))) {
+            foundProduct = true
+
+            // 提取产品名称
+            if (item.name && !result.name) {
+              result.name = item.name
+            }
+
+            // 提取品牌
+            if (item.brand && !result.brand) {
+              if (typeof item.brand === 'string') {
+                result.brand = item.brand
+              } else if (item.brand.name) {
+                result.brand = item.brand.name
+              }
+            }
+
+            // 提取描述
+            if (item.description && !result.description) {
+              result.description = item.description
+            }
+
+            // 提取SKU/ASIN
+            if (item.sku && !result.sku) {
+              result.sku = item.sku
+            }
+            if (item.productID && !result.sku) {
+              result.sku = item.productID
+            }
+
+            // 提取图片
+            if (item.image && !result.image) {
+              if (Array.isArray(item.image)) {
+                result.image = item.image.slice(0, 5)
+              } else if (typeof item.image === 'string') {
+                result.image = [item.image]
+              }
+            }
+
+            // 提取类别
+            if (item.category && !result.category) {
+              result.category = item.category
+            }
+
+            // 提取价格（Offers结构）
+            if (item.offers && !result.price) {
+              const offers = Array.isArray(item.offers) ? item.offers[0] : item.offers
+              if (offers.price) {
+                result.price = String(offers.price)
+                result.currency = offers.priceCurrency || 'USD'
+              }
+              if (offers.availability) {
+                // 简化availability URL为可读状态
+                const availUrl = offers.availability
+                if (availUrl.includes('InStock')) {
+                  result.availability = 'In Stock'
+                } else if (availUrl.includes('OutOfStock')) {
+                  result.availability = 'Out of Stock'
+                } else if (availUrl.includes('LimitedAvailability')) {
+                  result.availability = 'Limited Availability'
+                } else {
+                  result.availability = availUrl.split('/').pop() || 'Unknown'
+                }
+              }
+            }
+
+            // 提取评分（AggregateRating结构）
+            if (item.aggregateRating && !result.rating) {
+              const aggRating = item.aggregateRating
+              if (aggRating.ratingValue) {
+                result.rating = String(aggRating.ratingValue)
+              }
+              if (aggRating.reviewCount) {
+                result.reviewCount = String(aggRating.reviewCount)
+              } else if (aggRating.ratingCount) {
+                result.reviewCount = String(aggRating.ratingCount)
+              }
+            }
+          }
+        }
+      } catch (parseError) {
+        // 单个JSON-LD解析失败，继续处理其他标签
+        console.warn(`⚠️ JSON-LD解析警告: ${(parseError as Error).message?.substring(0, 50)}`)
+      }
+    })
+
+    if (foundProduct) {
+      console.log(`✅ JSON-LD提取成功: ${result.name?.substring(0, 50) || 'Unknown'}...`)
+      console.log(`   品牌: ${result.brand || 'N/A'}, 价格: ${result.price || 'N/A'} ${result.currency || ''}`)
+      console.log(`   评分: ${result.rating || 'N/A'}, 评论数: ${result.reviewCount || 'N/A'}`)
+      return result
+    }
+  } catch (error) {
+    console.warn(`⚠️ JSON-LD整体提取失败: ${(error as Error).message?.substring(0, 100)}`)
+  }
+
+  return null
+}
+
+/**
  * Parse Amazon product HTML and extract data
  * @param skipCompetitorExtraction 跳过竞品ASIN提取（用于竞品详情页抓取，避免二级循环）
  */
@@ -186,6 +322,9 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
     return false
   }
+
+  // 🔥 P1优化: 首先提取JSON-LD结构化数据作为可靠的备份数据源
+  const jsonLdData = extractJsonLdData($)
 
   // Extract product features - 限定在核心产品区域
   const features: string[] = []
@@ -366,6 +505,50 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     }
   })
 
+  // 🔥 P2优化: 提取评论关键词/主题（Amazon Review Topics，用于广告创意）
+  const reviewKeywords: string[] = []
+
+  // 策略1: 从"Read reviews that mention"部分提取
+  $('[data-hook="lighthut-term"], .cr-lighthouse-term, [data-hook="review-filter-tag"]').each((_i: number, el: any) => {
+    const keyword = $(el).text().trim().toLowerCase()
+    if (keyword && keyword.length >= 2 && keyword.length <= 30 && !reviewKeywords.includes(keyword)) {
+      reviewKeywords.push(keyword)
+    }
+  })
+
+  // 策略2: 从评论标签/过滤器提取
+  if (reviewKeywords.length === 0) {
+    $('.cr-vote-buttons + span, [data-hook="review-filter"], .a-declarative[data-action="reviews:filter"]').each((_i: number, el: any) => {
+      const keyword = $(el).text().trim().toLowerCase()
+      if (keyword && keyword.length >= 2 && keyword.length <= 30 && !reviewKeywords.includes(keyword)) {
+        reviewKeywords.push(keyword)
+      }
+    })
+  }
+
+  // 策略3: 从AI评论摘要中提取关键特征（如果有）
+  const aiSummary = $('[data-hook="cr-product-feedback"], #cr-product-feedback').text().trim()
+  if (aiSummary && aiSummary.length > 20) {
+    // 提取常见的产品属性关键词
+    const attributePatterns = [
+      /quality/gi, /value/gi, /price/gi, /easy to use/gi, /setup/gi,
+      /durable/gi, /performance/gi, /design/gi, /size/gi, /comfort/gi,
+      /noise/gi, /battery/gi, /speed/gi, /material/gi, /sturdy/gi,
+    ]
+    for (const pattern of attributePatterns) {
+      if (pattern.test(aiSummary)) {
+        const keyword = pattern.source.replace(/\\s/g, ' ').toLowerCase()
+        if (!reviewKeywords.includes(keyword)) {
+          reviewKeywords.push(keyword)
+        }
+      }
+    }
+  }
+
+  if (reviewKeywords.length > 0) {
+    console.log(`🏷️ 评论关键词: ${reviewKeywords.slice(0, 5).join(', ')}${reviewKeywords.length > 5 ? '...' : ''}`)
+  }
+
   // Extract technical details - 支持桌面版和移动版
   const technicalDetails: Record<string, string> = {}
   // === 桌面版选择器 ===
@@ -445,85 +628,38 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   if (skipCompetitorExtraction) {
     console.log(`⏭️ 跳过竞品ASIN提取（skipCompetitorExtraction=true）`)
   } else {
-    // 🔥 2025-12-12修复：精确定位"Products related to this item"和"4 stars and above"区域
-    // 问题：之前的选择器过于宽泛，抓取了不相关的推荐商品
-    // 解决：优先使用最相关的竞品区域选择器
-    const relatedAsinSelectors = [
-      // 🎯 优先级1: "Products related to this item" - 最相关的竞品区域
-      '#similarities_feature_div a[href*="/dp/"]',
-      '[data-feature-name="similarities"] a[href*="/dp/"]',
-      '#sims-comparisonContainer_feature_div_01 a[href*="/dp/"]',
+    // 🔥 2025-12-12优化：精确竞品提取策略
+    // 核心原则：只提取真正的竞品，排除配件/耗材/经常一起购买
+    console.log(`🔍 开始精确竞品ASIN提取...`)
 
-      // 🎯 优先级2: "4 stars and above" / "Highly rated" - 高评分相关商品
-      '[data-component-type="s-search-result"] a[href*="/dp/"]',
-      '.s-result-item a[href*="/dp/"]',
-      '#search a[href*="/dp/"]',
+    // ========== 🎯 优先级0（最高）: A+内容比较表格 ==========
+    // 品牌官方的竞品对比，最具参考价值
+    const aplusCompetitors: string[] = []
+    $('#aplus table [data-asin], #aplus [data-csa-c-item-id]').each((_i: number, el: any) => {
+      if (aplusCompetitors.length >= 5) return false
+      const dataAsin = $(el).attr('data-asin')
+      const csaItemId = $(el).attr('data-csa-c-item-id')
+      let competitorAsin: string | null = null
 
-      // 🎯 优先级3: "Customers who viewed this item also viewed" - 用户行为相关
-      '#sims-simsContainer_feature_div_01 a[href*="/dp/"]',
-      '#sims-simsContainer_feature_div_01 .a-carousel-card a[href*="/dp/"]',
-      '[data-csa-c-slot-id="sims_viewed"] a[href*="/dp/"]',
-
-      // 🎯 优先级4: "Compare with similar items" - 对比表格
-      '#HLCXComparisonTable a[href*="/dp/"]',
-      '[data-feature-name="comparison"] a[href*="/dp/"]',
-    ]
-
-    console.log(`🔍 开始竞品候选ASIN提取...`)
-
-    // 策略1：从链接提取ASIN
-    for (const selector of relatedAsinSelectors) {
-      $(selector).each((_i: number, el: any) => {
-        if (relatedAsins.length >= 10) return false
-        const href = $(el).attr('href') || ''
-        const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
-        if (asinMatch && asinMatch[1] !== asin && !relatedAsins.includes(asinMatch[1])) {
-          relatedAsins.push(asinMatch[1])
-        }
-      })
-      if (relatedAsins.length >= 10) break
-    }
-
-    // 策略2：从data-asin属性提取（Fallback）
-    // 🔥 2025-12-12修复：优先从相关竞品区域提取data-asin
-    if (relatedAsins.length < 3) {
-      console.log(`🔄 策略1提取不足（${relatedAsins.length}个），启用data-asin策略...`)
-      const recommendationContainers = [
-        // 🎯 优先级1: "Products related to this item" 和 "Compare with similar items"
-        '#similarities_feature_div',
-        '#sims-comparisonContainer_feature_div_01',
-        '#HLCXComparisonTable',
-        '[data-feature-name="similarities"]',
-        '[data-feature-name="comparison"]',
-
-        // 🎯 优先级2: "4 stars and above" / Search results
-        '[data-component-type="s-search-result"]',
-        '.s-result-item',
-        '#search',
-
-        // 🎯 优先级3: "Customers who viewed this item also viewed"
-        '#sims-simsContainer_feature_div_01',
-        '[data-csa-c-slot-id="sims_viewed"]',
-      ]
-      for (const containerSelector of recommendationContainers) {
-        $(containerSelector).find('[data-asin]').each((_i: number, el: any) => {
-          if (relatedAsins.length >= 10) return false
-          const dataAsin = $(el).attr('data-asin')
-          if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin) &&
-              dataAsin !== asin && !relatedAsins.includes(dataAsin)) {
-            relatedAsins.push(dataAsin)
-          }
-        })
-        if (relatedAsins.length >= 10) break
+      if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin)) {
+        competitorAsin = dataAsin
+      } else if (csaItemId && csaItemId.startsWith('amzn1.asin.')) {
+        competitorAsin = csaItemId.replace('amzn1.asin.', '')
       }
+
+      if (competitorAsin && competitorAsin !== asin && !aplusCompetitors.includes(competitorAsin)) {
+        aplusCompetitors.push(competitorAsin)
+        console.log(`  📊 A+比较表格竞品: ${competitorAsin}`)
+      }
+    })
+    relatedAsins.push(...aplusCompetitors)
+    if (aplusCompetitors.length > 0) {
+      console.log(`✅ A+比较表格: 找到 ${aplusCompetitors.length} 个官方竞品`)
     }
 
-    // 🔥 策略3：全局搜索data-asin（最后的fallback）
-    if (relatedAsins.length < 3) {
-      console.log(`🔄 策略2仍不足（${relatedAsins.length}个），启用全局data-asin搜索...`)
-      // 排除当前商品区域，只在推荐区域搜索
-      const excludeSelectors = '#ppd, #dp-container, #centerCol, #rightCol'
-      $('[data-asin]').not($(excludeSelectors).find('[data-asin]')).each((_i: number, el: any) => {
+    // ========== 🎯 优先级1: "Compare with similar items" 官方对比表格 ==========
+    if (relatedAsins.length < 10) {
+      $('#HLCXComparisonTable [data-asin], [data-feature-name="comparison"] [data-asin]').each((_i: number, el: any) => {
         if (relatedAsins.length >= 10) return false
         const dataAsin = $(el).attr('data-asin')
         if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin) &&
@@ -533,7 +669,87 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
       })
     }
 
-    console.log(`🔥 竞品候选ASIN提取完成: 找到 ${relatedAsins.length} 个候选（品牌过滤将在详情页抓取后进行）`)
+    // ========== 🎯 优先级2: "Products related to this item" ==========
+    if (relatedAsins.length < 10) {
+      const relatedSelectors = [
+        '#sp_detail .a-carousel-card a[href*="/dp/"]',
+        '[data-component-type="sp_detail"] .a-carousel-card a[href*="/dp/"]',
+        '#similarities_feature_div a[href*="/dp/"]',
+        '[data-feature-name="similarities"] a[href*="/dp/"]',
+      ]
+      for (const selector of relatedSelectors) {
+        $(selector).each((_i: number, el: any) => {
+          if (relatedAsins.length >= 10) return false
+          const href = $(el).attr('href') || ''
+          const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
+          if (asinMatch && asinMatch[1] !== asin && !relatedAsins.includes(asinMatch[1])) {
+            relatedAsins.push(asinMatch[1])
+          }
+        })
+        if (relatedAsins.length >= 10) break
+      }
+    }
+
+    // ========== 🎯 优先级3: "Customers who viewed this item also viewed" ==========
+    if (relatedAsins.length < 10) {
+      const viewedSelectors = [
+        '#sims-simsContainer_feature_div_01 a[href*="/dp/"]',
+        '[data-csa-c-slot-id="sims_viewed"] a[href*="/dp/"]',
+        '#sims-simsContainer_feature_div_11 a[href*="/dp/"]',
+      ]
+      for (const selector of viewedSelectors) {
+        $(selector).each((_i: number, el: any) => {
+          if (relatedAsins.length >= 10) return false
+          const href = $(el).attr('href') || ''
+          const asinMatch = href.match(/\/dp\/([A-Z0-9]{10})/)
+          if (asinMatch && asinMatch[1] !== asin && !relatedAsins.includes(asinMatch[1])) {
+            relatedAsins.push(asinMatch[1])
+          }
+        })
+        if (relatedAsins.length >= 10) break
+      }
+    }
+
+    // ========== 🚫 排除非竞品区域 ==========
+    // 不从以下区域提取：配件、耗材、经常一起购买
+    const excludedContainers = [
+      '#sims-fbt',                    // "Frequently bought together" - 配件/耗材
+      '#purchase-sims-feature',        // "Customers who bought this also bought" - 可能是配件
+      '#session-sims-feature',
+      '[data-component-type="sp_accessory"]',  // 配件推荐
+      '#warranties_and_support',       // 保修服务
+      '#addon-selector',               // 加购选项
+    ]
+
+    // ========== 🔄 Fallback: data-asin全局搜索（排除非竞品区域）==========
+    if (relatedAsins.length < 5) {
+      console.log(`🔄 精确提取不足（${relatedAsins.length}个），启用Fallback策略...`)
+
+      // 构建排除选择器
+      const excludeSelector = excludedContainers.join(', ')
+      const excludeElements = $(excludeSelector).find('[data-asin]')
+      const excludedAsins = new Set<string>()
+      excludeElements.each((_i: number, el: any) => {
+        const exAsin = $(el).attr('data-asin')
+        if (exAsin) excludedAsins.add(exAsin)
+      })
+
+      // 从推荐区域提取（排除核心商品区域和非竞品区域）
+      const coreProductSelectors = '#ppd, #dp-container, #centerCol, #rightCol, #buybox'
+      $('[data-asin]')
+        .not($(coreProductSelectors).find('[data-asin]'))
+        .not($(excludeSelector).find('[data-asin]'))
+        .each((_i: number, el: any) => {
+          if (relatedAsins.length >= 10) return false
+          const dataAsin = $(el).attr('data-asin')
+          if (dataAsin && dataAsin.length === 10 && /^[A-Z0-9]+$/.test(dataAsin) &&
+              dataAsin !== asin && !relatedAsins.includes(dataAsin) && !excludedAsins.has(dataAsin)) {
+            relatedAsins.push(dataAsin)
+          }
+        })
+    }
+
+    console.log(`🔥 精确竞品提取完成: ${relatedAsins.length} 个候选（A+:${aplusCompetitors.length}）`)
   }
 
   // Extract prices - 支持桌面版和移动版
@@ -617,32 +833,61 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     brandName = extractBrandName($, url, productName, technicalDetails)
   }
 
+  // 🔥 P1优化: 使用JSON-LD数据作为备份（当DOM选择器失败时）
+  const finalProductName = productName || jsonLdData?.name || null
+  const finalBrandName = brandName || jsonLdData?.brand || null
+  const finalRating = rating || jsonLdData?.rating || null
+  const finalReviewCount = reviewCount || jsonLdData?.reviewCount || null
+  const finalAvailability = availability || jsonLdData?.availability || null
+  const finalCategory = category || jsonLdData?.category || null
+  const finalAsin = asin || jsonLdData?.sku || null
+
+  // 价格备份：如果DOM价格为空但JSON-LD有价格
+  const finalPrice = currentPrice || (jsonLdData?.price
+    ? (jsonLdData.currency ? `${jsonLdData.currency} ${jsonLdData.price}` : jsonLdData.price)
+    : null)
+
+  // 记录JSON-LD备份使用情况
+  const jsonLdFallbacks: string[] = []
+  if (!productName && jsonLdData?.name) jsonLdFallbacks.push('name')
+  if (!brandName && jsonLdData?.brand) jsonLdFallbacks.push('brand')
+  if (!rating && jsonLdData?.rating) jsonLdFallbacks.push('rating')
+  if (!reviewCount && jsonLdData?.reviewCount) jsonLdFallbacks.push('reviewCount')
+  if (!availability && jsonLdData?.availability) jsonLdFallbacks.push('availability')
+  if (!currentPrice && jsonLdData?.price) jsonLdFallbacks.push('price')
+
+  if (jsonLdFallbacks.length > 0) {
+    console.log(`📋 JSON-LD备份字段: ${jsonLdFallbacks.join(', ')}`)
+  }
+
   const productData: AmazonProductData = {
-    productName,
+    productName: finalProductName,
     productDescription,
-    productPrice: currentPrice,
+    productPrice: finalPrice,
     originalPrice,
     discount,
-    brandName: brandName ? normalizeBrandName(brandName) : null,
+    brandName: finalBrandName ? normalizeBrandName(finalBrandName) : null,
     features,
     aboutThisItem: features,  // Amazon #feature-bullets 就是 "About this item"
     imageUrls: Array.from(new Set(imageUrls)).slice(0, 5),
-    rating,
-    reviewCount,
+    rating: finalRating,
+    reviewCount: finalReviewCount,
     salesRank,
     badge,  // 🎯 P3优化: Amazon trust badge
-    availability,
+    availability: finalAvailability,
     primeEligible,
     reviewHighlights: reviewHighlights.slice(0, 10),
     topReviews: topReviews.slice(0, 5),
     technicalDetails,
-    asin,
-    category,
+    asin: finalAsin,
+    category: finalCategory,
     relatedAsins,  // 🔥 新增：竞品ASIN列表
+    // 🔥 P2优化: 评论关键词（用于广告创意）
+    reviewKeywords: reviewKeywords.slice(0, 15),  // 最多15个关键词
   }
 
   console.log(`✅ 抓取成功: ${productData.productName || 'Unknown'}`)
-  console.log(`⭐ 评分: ${rating || 'N/A'}, 评论数: ${reviewCount || 'N/A'}, 销量排名: ${salesRank || 'N/A'}`)
+  console.log(`⭐ 评分: ${finalRating || 'N/A'}, 评论数: ${finalReviewCount || 'N/A'}, 销量排名: ${salesRank || 'N/A'}`)
   console.log(`🎯 P3 Badge: ${badge || 'None'}`)  // P3优化: 显示badge提取结果
 
   return productData

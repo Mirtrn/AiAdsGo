@@ -157,6 +157,35 @@ export interface ScrapedProductData {
 }
 
 /**
+ * 🌍 检测是否为Amazon域名（支持全球16个站点）
+ */
+export function isAmazonDomain(url: string): boolean {
+  const amazonDomains = [
+    'amazon.com',     // 美国
+    'amazon.co.uk',   // 英国
+    'amazon.de',      // 德国
+    'amazon.fr',      // 法国
+    'amazon.it',      // 意大利
+    'amazon.es',      // 西班牙
+    'amazon.co.jp',   // 日本
+    'amazon.ca',      // 加拿大
+    'amazon.com.au',  // 澳大利亚
+    'amazon.in',      // 印度
+    'amazon.com.mx',  // 墨西哥
+    'amazon.nl',      // 荷兰
+    'amazon.pl',      // 波兰
+    'amazon.se',      // 瑞典
+    'amazon.sg',      // 新加坡
+    'amazon.com.br',  // 巴西
+    'amazon.ae',      // 阿联酋
+    'amazon.sa',      // 沙特
+    'amazon.com.tr',  // 土耳其
+    'amazon.eg',      // 埃及
+  ]
+  return amazonDomains.some(domain => url.includes(domain))
+}
+
+/**
  * Extract structured product data from a landing page
  * Supports Amazon, Shopify, and generic e-commerce sites
  * @param url - 产品页面URL
@@ -191,8 +220,8 @@ export async function scrapeProductData(
     const html = response.data
     const $ = load(html)
 
-    // Detect site type
-    const isAmazon = url.includes('amazon.com')
+    // 🌍 Detect site type - 支持全球Amazon站点
+    const isAmazon = isAmazonDomain(url)
     const isShopify = $('[data-shopify]').length > 0
 
     // Extract data based on site type
@@ -374,8 +403,8 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
                   poBrand.replace(/^Brand/, '') || // 备用选择器
                   null
 
-  // 如果是Amazon stores URL且没有从页面提取到品牌，从URL中提取
-  if (!brandName && url.includes('amazon.com/stores/')) {
+  // 如果是Amazon stores URL且没有从页面提取到品牌，从URL中提取（支持全球站点）
+  if (!brandName && isAmazonDomain(url) && url.includes('/stores/')) {
     const urlMatch = url.match(/\/stores\/([^\/]+)\//)
     if (urlMatch && urlMatch[1]) {
       brandName = decodeURIComponent(urlMatch[1])
@@ -500,8 +529,8 @@ function extractGenericData($: any, url: string): ScrapedProductData {
                   $('meta[property="og:brand"]').attr('content') ||
                   $('meta[property="og:site_name"]').attr('content') || null
 
-  // 优先从Amazon stores URL中提取品牌名
-  if (!brandName && url.includes('amazon.com/stores/')) {
+  // 优先从Amazon stores URL中提取品牌名（支持全球站点）
+  if (!brandName && isAmazonDomain(url) && url.includes('/stores/')) {
     const urlMatch = url.match(/\/stores\/([^\/]+)\//)
     if (urlMatch && urlMatch[1]) {
       brandName = decodeURIComponent(urlMatch[1])

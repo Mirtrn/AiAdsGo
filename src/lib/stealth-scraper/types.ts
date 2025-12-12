@@ -49,6 +49,8 @@ export interface AmazonProductData {
   // 🔥 竞品候选ASIN列表（从"Frequently bought together"、"Customers also viewed"等提取）
   // 🔥 KISS优化（2025-12-09）：只存储ASIN，品牌/价格通过详情页抓取获取（更准确）
   relatedAsins: string[]
+  // 🔥 P2优化: 评论主题/关键词（Amazon的Review Topics，用于广告创意）
+  reviewKeywords?: string[]
 }
 
 /**
