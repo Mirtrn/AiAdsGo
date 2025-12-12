@@ -228,27 +228,53 @@ export async function scrapeAmazonProductWithContext(
     // 智能等待页面加载
     await smartWaitForLoad(page, url, { maxWaitTime: 8000 }).catch(() => {})
 
-    // 🔥 2025-12-12优化：滚动到feature-bullets区域，确保产品特性加载
+    // 🔥 2025-12-12优化：分段滚动触发懒加载，确保feature-bullets加载
     // Amazon产品特性(About this item)通常在页面中下部，需要滚动触发懒加载
-    await page.evaluate(() => {
-      // 尝试滚动到feature-bullets区域
+    // KISS原则：分两次滚动，覆盖更大范围
+    const scrollDebug = await page.evaluate(() => {
+      const results = { scrollPositions: [] as number[], featureBulletsFound: false }
+
+      // 第一次滚动：到页面30%位置
+      const scrollHeight = document.body.scrollHeight
+      const firstScroll = scrollHeight * 0.3
+      window.scrollTo(0, firstScroll)
+      results.scrollPositions.push(firstScroll)
+
+      return results
+    }).catch(() => ({ scrollPositions: [], featureBulletsFound: false }))
+
+    await randomDelay(1500, 2000)  // 等待第一段懒加载
+
+    // 第二次滚动：到feature-bullets或页面50%位置
+    const scrollResult = await page.evaluate(() => {
       const featureBullets = document.querySelector('#feature-bullets, #featurebullets_feature_div')
       if (featureBullets) {
         featureBullets.scrollIntoView({ behavior: 'instant', block: 'center' })
+        return { found: true, method: 'scrollIntoView' }
       } else {
-        // 如果找不到，滚动到页面中部位置
-        window.scrollTo(0, window.innerHeight * 0.8)
+        // 滚动到页面50%位置
+        const scrollHeight = document.body.scrollHeight
+        window.scrollTo(0, scrollHeight * 0.5)
+        return { found: false, method: 'scrollTo50%' }
       }
-    }).catch(() => {})
-    await randomDelay(800, 1200)  // 等待懒加载内容渲染
+    }).catch(() => ({ found: false, method: 'error' }))
 
-    // 等待feature-bullets元素出现（最多等待3秒）
-    await page.waitForSelector('#feature-bullets li, #featurebullets_feature_div li', {
-      timeout: 3000,
+    console.log(`🔍 [复用Context] 滚动策略: ${scrollResult.method}, featureBulletsFound=${scrollResult.found}`)
+    await randomDelay(2000, 3000)  // 🔥 增加等待时间: 800-1200ms → 2000-3000ms
+
+    // 等待feature-bullets元素出现（最多等待5秒）
+    const featureLoaded = await page.waitForSelector('#feature-bullets li, #featurebullets_feature_div li', {
+      timeout: 5000,  // 🔥 增加超时: 3秒 → 5秒
       state: 'visible'
-    }).catch(() => {
-      console.warn(`⚠️ [复用Context] feature-bullets未加载，可能页面结构不同`)
-    })
+    }).then(() => true).catch(() => false)
+
+    if (!featureLoaded) {
+      console.warn(`⚠️ [复用Context] feature-bullets未加载，尝试额外等待...`)
+      // 🔥 额外等待2秒，给慢速网络更多时间
+      await randomDelay(2000, 2500)
+    } else {
+      console.log(`✅ [复用Context] feature-bullets已加载`)
+    }
 
     // 模拟人类滚动回顶部
     await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
