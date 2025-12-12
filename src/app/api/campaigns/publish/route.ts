@@ -206,33 +206,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    // 🔒 验证1：防止Ads账号被"其他Offer"占用
-    console.log(`🔍 验证Ads账号 ${_googleAdsAccountId} 是否已被其他Offer占用...`)
-    const conflictCampaign = await db.queryOne(`
-      SELECT c.id, c.offer_id, o.brand, o.offer_name
-      FROM campaigns c
-      JOIN offers o ON c.offer_id = o.id
-      WHERE c.google_ads_account_id = ?
-        AND c.offer_id != ?
-        AND c.is_deleted = 0
-      LIMIT 1
-    `, [_googleAdsAccountId, _offerId]) as any
-
-    if (conflictCampaign) {
-      console.error(`❌ Ads账号冲突: 账号 ${_googleAdsAccountId} 已被Offer #${conflictCampaign.offer_id} 占用`)
-      const error = createError.adsAccountAlreadyLinked({
-        accountId: _googleAdsAccountId,
-        linkedOfferId: conflictCampaign.offer_id,
-        linkedOfferName: conflictCampaign.offer_name || conflictCampaign.brand
-      })
-      return NextResponse.json({
-        ...error.toJSON(),
-        message: `该Ads账号已被其他Offer占用：${conflictCampaign.offer_name || conflictCampaign.brand} (ID: ${conflictCampaign.offer_id})`,
-        suggestion: '请选择其他Ads账号，或先删除该账号下其他Offer的广告系列'
-      }, { status: error.httpStatus })
-    }
-
-    console.log(`✅ Ads账号验证通过: 账号 ${_googleAdsAccountId} 可供Offer #${_offerId} 使用`)
+    // 🔓 KISS优化(2025-12-12): 移除独占约束，允许多个Offer共享同一Ads账号
+    // 原逻辑：一个Ads账号只能被一个Offer使用
+    // 新逻辑：多个Offer可以共享同一Ads账号，通过前端优先级排序引导用户选择
+    console.log(`✅ Ads账号 ${_googleAdsAccountId} 可供Offer #${_offerId} 使用（已移除独占约束）`)
 
     // 🔍 验证2：查询当前Offer在该账号下的已激活Campaign
     const existingActiveCampaigns = await db.query(`

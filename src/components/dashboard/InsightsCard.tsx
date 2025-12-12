@@ -212,19 +212,19 @@ export function InsightsCard({ days }: InsightsCardProps) {
 
           {/* 统计摘要 */}
           <div className="flex items-center gap-4">
-            {data.summary.high > 0 && (
+            {data.summary?.high > 0 && (
               <div className="flex items-center gap-1">
                 <span className="text-sm font-medium text-red-600">{data.summary.high}</span>
                 <span className="text-sm text-muted-foreground">高优先级</span>
               </div>
             )}
-            {data.summary.medium > 0 && (
+            {data.summary?.medium > 0 && (
               <div className="flex items-center gap-1">
                 <span className="text-sm font-medium text-yellow-600">{data.summary.medium}</span>
                 <span className="text-sm text-muted-foreground">中优先级</span>
               </div>
             )}
-            {data.summary.low > 0 && (
+            {data.summary?.low > 0 && (
               <div className="flex items-center gap-1">
                 <span className="text-sm font-medium text-gray-600">{data.summary.low}</span>
                 <span className="text-sm text-muted-foreground">低优先级</span>
@@ -236,7 +236,7 @@ export function InsightsCard({ days }: InsightsCardProps) {
 
       {/* Insights列表 */}
       <CardContent className="space-y-4">
-        {data.insights.length === 0 ? (
+        {!data.insights || data.insights.length === 0 ? (
           <div className="text-center py-12">
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
             <p className="text-muted-foreground">太好了！目前没有发现需要关注的问题</p>
@@ -326,7 +326,7 @@ export function InsightsCard({ days }: InsightsCardProps) {
       </CardContent>
 
       {/* Footer */}
-      {data.insights.length > 0 && (
+      {data.insights && data.insights.length > 0 && (
         <CardContent className="bg-muted/30 border-t">
           <p className="text-sm text-muted-foreground">
             最后更新: {new Date(data.generatedAt).toLocaleString('zh-CN')}

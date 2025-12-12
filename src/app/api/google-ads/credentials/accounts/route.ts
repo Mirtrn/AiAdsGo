@@ -459,6 +459,7 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
  *
  * Query params:
  * - refresh=true: 强制从 API 刷新
+ * - offerId=number: 当前Offer ID（用于计算账号优先级）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -495,7 +496,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const forceRefresh = searchParams.get('refresh') === 'true'
-    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}`)
+    const offerId = searchParams.get('offerId') ? parseInt(searchParams.get('offerId')!, 10) : null
+    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}, offerId=${offerId}`)
 
     let allAccounts: any[]
 
@@ -528,6 +530,16 @@ export async function GET(request: NextRequest) {
 
     // 查询关联的 Offer 信息
     const db = await getDatabase()
+
+    // 🔓 KISS优化(2025-12-12): 获取当前Offer的品牌名（用于同品牌优先级计算）
+    let currentOfferBrand: string | null = null
+    if (offerId) {
+      const currentOffer = await db.queryOne(`
+        SELECT brand FROM offers WHERE id = ? AND user_id = ?
+      `, [offerId, userId]) as { brand: string } | undefined
+      currentOfferBrand = currentOffer?.brand || null
+    }
+
     const accountsWithOffers = await Promise.all(allAccounts.map(async (account) => {
       const dbAccountId = account.db_account_id
       if (!dbAccountId) {
@@ -544,7 +556,10 @@ export async function GET(request: NextRequest) {
           parentMcc: account.parent_mcc,
           dbAccountId: account.db_account_id,
           lastSyncAt: account.last_sync_at,
-          linkedOffers: []
+          linkedOffers: [],
+          // 🔓 KISS优化(2025-12-12): 优先级标识
+          priority: 'none' as const,
+          priorityScore: 0
         }
       }
 
@@ -575,6 +590,28 @@ export async function GET(request: NextRequest) {
         campaignCount: offer.campaign_count
       }))
 
+      // 🔓 KISS优化(2025-12-12): 计算账号优先级
+      // priority: 'current' = 当前Offer已用过 | 'same-brand' = 同品牌Offer用过 | 'none' = 未使用
+      // priorityScore: 用于排序 (2=current, 1=same-brand, 0=none)
+      let priority: 'current' | 'same-brand' | 'none' = 'none'
+      let priorityScore = 0
+
+      if (offerId && linkedOffersMapped.length > 0) {
+        // 检查是否被当前Offer使用过
+        const usedByCurrentOffer = linkedOffersMapped.some((o: any) => o.id === offerId)
+        if (usedByCurrentOffer) {
+          priority = 'current'
+          priorityScore = 2
+        } else if (currentOfferBrand) {
+          // 检查是否被同品牌Offer使用过
+          const usedBySameBrand = linkedOffersMapped.some((o: any) => o.brand === currentOfferBrand)
+          if (usedBySameBrand) {
+            priority = 'same-brand'
+            priorityScore = 1
+          }
+        }
+      }
+
       // 🔧 修复(2025-12-11): 转换snake_case为camelCase，保持API响应一致性
       return {
         customerId: account.customer_id,
@@ -588,9 +625,27 @@ export async function GET(request: NextRequest) {
         parentMcc: account.parent_mcc,
         dbAccountId: account.db_account_id,
         lastSyncAt: account.last_sync_at,
-        linkedOffers: linkedOffersMapped
+        linkedOffers: linkedOffersMapped,
+        // 🔓 KISS优化(2025-12-12): 优先级标识
+        priority,
+        priorityScore
       }
     }))
+
+    // 🔓 KISS优化(2025-12-12): 按优先级排序
+    // 排序规则: priorityScore DESC > is_manager_account DESC > account_name ASC
+    accountsWithOffers.sort((a, b) => {
+      // 1. 优先级分数高的在前
+      if (b.priorityScore !== a.priorityScore) {
+        return b.priorityScore - a.priorityScore
+      }
+      // 2. MCC账号在前（用于展示层级结构）
+      if (a.manager !== b.manager) {
+        return a.manager ? -1 : 1
+      }
+      // 3. 按名称字母排序
+      return (a.descriptiveName || '').localeCompare(b.descriptiveName || '')
+    })
 
     // 🔧 修复(2025-12-12): 简化响应，移除共享配置相关信息
     return NextResponse.json({

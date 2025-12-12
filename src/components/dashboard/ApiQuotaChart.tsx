@@ -225,7 +225,7 @@ export function ApiQuotaChart({ days = 7 }: Props) {
         )}
 
         {/* 操作类型分布 */}
-        {Object.keys(today.operationBreakdown).length > 0 && (
+        {today.operationBreakdown && Object.keys(today.operationBreakdown).length > 0 && (
           <div className="pt-2 border-t">
             <div className="text-xs text-gray-500 mb-2">操作类型分布</div>
             <div className="space-y-1.5">

@@ -7,7 +7,9 @@
  * 账号筛选规则：
  * 1. 状态必须是 ENABLED（启用）
  * 2. 不能是 MCC 账号（manager !== true）
- * 3. 未被任何其他 Offer 关联
+ *
+ * 🔓 KISS优化(2025-12-12): 移除独占约束，允许多个Offer共享同一Ads账号
+ * 优先级排序：当前Offer已用 > 同品牌Offer已用 > 未使用
  */
 
 import { useState, useEffect } from 'react'
@@ -62,6 +64,9 @@ interface GoogleAdsAccount {
     isActive: boolean
     campaignCount: number
   }>
+  // 🔓 KISS优化(2025-12-12): 优先级标识
+  priority?: 'current' | 'same-brand' | 'none'
+  priorityScore?: number
 }
 
 // 格式化账户余额显示
@@ -109,8 +114,8 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
     try {
       setLoading(true)
 
-      // 调用真实 API 获取账号列表
-      const response = await fetch('/api/google-ads/credentials/accounts?refresh=false', {
+      // 🔓 KISS优化(2025-12-12): 传入offerId用于计算账号优先级
+      const response = await fetch(`/api/google-ads/credentials/accounts?refresh=false&offerId=${offer.id}`, {
         credentials: 'include'
       })
 
@@ -123,10 +128,11 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
       if (data.success && data.data?.accounts) {
         const allAccounts = data.data.accounts as GoogleAdsAccount[]
 
+        // 🔓 KISS优化(2025-12-12): 移除独占约束，只筛选基本条件
         // 筛选可用账号：
         // 1. 状态必须是 ENABLED
         // 2. 不能是 MCC 账号
-        // 3. 未被任何其他 Offer 关联（当前 Offer 除外）
+        // （已移除：未被其他Offer关联的限制）
         const availableAccounts = allAccounts.filter(account => {
           // 条件1：状态必须是 ENABLED
           if (account.status !== 'ENABLED') return false
@@ -134,17 +140,10 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
           // 条件2：不能是 MCC 账号
           if (account.manager === true) return false
 
-          // 条件3：未被任何其他 Offer 关联
-          const linkedOffers = account.linkedOffers || []
-          // 如果有关联的 Offers，且不全是当前 Offer，则排除
-          const hasOtherOfferLinks = linkedOffers.some(
-            (linkedOffer: any) => linkedOffer.id !== offer.id
-          )
-          if (hasOtherOfferLinks) return false
-
           return true
         })
 
+        // API已按优先级排序，直接使用
         setAccounts(availableAccounts)
       } else {
         setAccounts([])
@@ -238,7 +237,7 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
           <CardHeader className="pb-3">
             <CardTitle className="text-base">可用账号列表</CardTitle>
             <CardDescription>
-              选择一个账号用于发布广告（仅显示启用状态、非MCC、未被其他Offer关联的账号）
+              选择一个账号用于发布广告（仅显示启用状态、非MCC的账号，已按推荐优先级排序）
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -248,10 +247,10 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                   <TableHead className="w-[50px]">选择</TableHead>
                   <TableHead>账号名称</TableHead>
                   <TableHead>账号ID</TableHead>
+                  <TableHead>推荐</TableHead>
                   <TableHead>账户余额</TableHead>
                   <TableHead>已关联Offer</TableHead>
                   <TableHead>时区</TableHead>
-                  <TableHead>状态</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
@@ -288,6 +287,23 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-sm">{account.customerId}</TableCell>
+                      <TableCell>
+                        {/* 🔓 KISS优化(2025-12-12): 优先级标识 */}
+                        {account.priority === 'current' && (
+                          <Badge className="bg-green-100 text-green-800 border-green-300">
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                            已用
+                          </Badge>
+                        )}
+                        {account.priority === 'same-brand' && (
+                          <Badge className="bg-blue-100 text-blue-800 border-blue-300">
+                            同品牌
+                          </Badge>
+                        )}
+                        {account.priority === 'none' && (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm">
                         {formatBalance(account.accountBalance, account.currencyCode)}
                       </TableCell>
@@ -309,12 +325,6 @@ export default function Step3AccountLinking({ offer, onAccountLinked, selectedAc
                         )}
                       </TableCell>
                       <TableCell className="text-sm">{account.timeZone}</TableCell>
-                      <TableCell>
-                        <Badge variant="default" className="bg-green-600">
-                          <CheckCircle2 className="w-3 h-3 mr-1" />
-                          启用
-                        </Badge>
-                      </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="ghost"
