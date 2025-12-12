@@ -1,26 +1,18 @@
 -- =====================================================
--- Migration: 073_prompt_ctr_optimization_v3.3.sql
+-- Migration: 073_prompt_ctr_optimization_v4.6.pg.sql
 -- Date: 2025-12-12
--- Purpose: CTR/CPC优化 - 增强标题和描述生成策略
--- Changes:
---   1. ad_elements_headlines v3.2 → v3.3:
---      - 新增DKI模板支持
---      - 数字具体化策略
---      - 情感触发词库
---      - 问句式标题
---      - 关键词嵌入率要求
---   2. ad_elements_descriptions v3.2 → v3.3:
---      - 结构化描述模板(Feature-Benefit-CTA等)
---      - USP前置规则
---      - 社会证明嵌入
---      - 竞品差异化暗示
+-- Purpose: CTR/CPC优化 - 全面增强标题、描述和核心创意生成
+-- 整合内容:
+--   1. ad_elements_headlines v3.2 → v3.3
+--   2. ad_elements_descriptions v3.2 → v3.3
+--   3. ad_creative_generation v4.5 → v4.6
+-- PostgreSQL Version
 -- =====================================================
 
--- Step 1: Deactivate old versions
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'ad_elements_headlines' AND is_active = 1;
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'ad_elements_descriptions' AND is_active = 1;
+-- ========== PART 1: ad_elements_headlines v3.3 ==========
 
--- Step 2: Insert new headline prompt v3.3
+UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'ad_elements_headlines' AND is_active = true;
+
 INSERT INTO prompt_versions (prompt_id, version, category, name, description, file_path, function_name, prompt_content, is_active, change_notes, created_at)
 VALUES (
   'ad_elements_headlines',
@@ -165,12 +157,15 @@ Return JSON:
     "questionHeadlineCount": 2
   }
 }',
-  1,
+  true,
   'v3.3 CTR优化: 1)数字具体化策略 2)情感触发词 3)问句式标题 4)DKI模板支持 5)关键词嵌入率要求(8/15)',
-  datetime('now')
+  NOW()
 );
 
--- Step 3: Insert new description prompt v3.3
+-- ========== PART 2: ad_elements_descriptions v3.3 ==========
+
+UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'ad_elements_descriptions' AND is_active = true;
+
 INSERT INTO prompt_versions (prompt_id, version, category, name, description, file_path, function_name, prompt_content, is_active, change_notes, created_at)
 VALUES (
   'ad_elements_descriptions',
@@ -317,10 +312,225 @@ Return JSON:
     "competitorDifferentiation": true
   }
 }',
-  1,
+  true,
   'v3.3 CTR优化: 1)结构化描述模板(4种) 2)USP前置规则(前30字符) 3)社会证明嵌入 4)竞品差异化暗示',
-  datetime('now')
+  NOW()
 );
 
--- Step 4: Verify migration
--- SELECT prompt_id, version, is_active, LENGTH(prompt_content) as length FROM prompt_versions WHERE prompt_id IN ('ad_elements_headlines', 'ad_elements_descriptions') ORDER BY prompt_id, version;
+-- ========== PART 3: ad_creative_generation v4.6 ==========
+
+UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'ad_creative_generation' AND is_active = true;
+
+INSERT INTO prompt_versions (prompt_id, version, category, name, description, file_path, function_name, prompt_content, is_active, change_notes, created_at)
+VALUES (
+  'ad_creative_generation',
+  'v4.6',
+  '广告创意生成',
+  '广告创意生成v4.6 - CTR优化增强版',
+  'CTR优化增强：情感触发词、问句式标题、结构化描述模板、USP前置、关键词嵌入率',
+  'src/lib/ad-creative-generator.ts',
+  'generateAdCreative',
+  '{{language_instruction}}
+
+Generate Google Ads creative for {{brand}} ({{category}}).
+
+PRODUCT: {{product_description}}
+USPs: {{unique_selling_points}}
+AUDIENCE: {{target_audience}}
+COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
+{{enhanced_features_section}}{{localization_section}}{{brand_analysis_section}}
+{{extras_data}}
+{{promotion_section}}{{theme_section}}{{reference_performance_section}}{{extracted_elements_section}}
+
+🎯 **AI增强数据 (v4.6优化 - 2025-12-12)**:
+{{ai_keywords_section}}
+{{ai_competitive_section}}
+{{ai_reviews_section}}
+
+## 🆕 v4.6 CTR优化增强 (CTR OPTIMIZATION - NEW)
+
+### 🎯 情感触发词策略 (EMOTIONAL TRIGGERS - CTR +10-15%)
+
+**必须在标题中使用以下情感触发词（至少3个标题）**:
+
+**信任类 (Trust)**:
+- "Trusted", "Verified", "#1 Rated", "Official", "Certified"
+- 多语言: "Affidabile", "Verificato", "Certificato" (IT), "Confiable", "Verificado" (ES)
+
+**独家类 (Exclusivity)**:
+- "Exclusive", "Members Only", "VIP", "Limited Edition"
+- 多语言: "Esclusivo", "Solo per Te" (IT), "Exclusivo", "Solo para Ti" (ES)
+
+**社会证明类 (Social Proof)**:
+- "10000+ Sold", "Best Seller", "Top Rated", "Award Winning"
+- 多语言: "Più Venduto", "Premiato" (IT), "Más Vendido", "Premiado" (ES)
+
+**价值类 (Value)**:
+- "Best Value", "Premium Quality", "Unbeatable", "Superior"
+- 多语言: "Miglior Rapporto", "Qualità Premium" (IT), "Mejor Valor", "Calidad Premium" (ES)
+
+### 🎯 问句式标题 (QUESTION HEADLINES - CTR +5-12%)
+
+**必须生成1-2个问句式标题**:
+- 针对用户痛点或需求提问
+- 使用目标语言的疑问词
+- ✅ 英语: "Need Home Security?", "Want 4K Quality?", "Looking for Value?"
+- ✅ 意大利语: "Cerchi Sicurezza?", "Vuoi Qualità 4K?", "Cerchi il Miglior Prezzo?"
+- ✅ 西班牙语: "¿Necesitas Seguridad?", "¿Quieres Calidad 4K?"
+
+### 🎯 关键词嵌入率 (KEYWORD EMBEDDING - CRITICAL)
+
+**强制要求: 8/15 (53%+) 标题必须包含关键词**
+- 从{{ai_keywords_section}}中选择高搜索量关键词
+- 自然融入标题，避免堆砌
+- 在headlineAnalysis中标记哪些标题包含关键词
+
+## 🆕 v4.6 结构化描述模板 (STRUCTURED DESCRIPTIONS)
+
+**每条描述必须遵循不同的模板结构**:
+
+**模板1: FEATURE-BENEFIT-CTA** (转化率 +10-15%)
+- 结构: [核心特性] + [用户收益] + [行动号召]
+- ✅ "4K Ultra HD captures every detail. Never miss a moment. Shop now."
+
+**模板2: PROBLEM-SOLUTION-PROOF** (信任度 +20%)
+- 结构: [痛点] + [解决方案] + [社会证明]
+- ✅ "Worried about security? 24/7 protection. Trusted by 1M+ families."
+
+**模板3: OFFER-URGENCY-TRUST** (CTR +15%)
+- 结构: [优惠] + [紧迫感] + [信任信号]
+- ✅ "Free Shipping + 30-Day Returns. Limited time. Official Store."
+
+**模板4: USP-DIFFERENTIATION** (转化率 +8%)
+- 结构: [独特优势] + [竞品对比暗示] + [价值]
+- ✅ "No Monthly Fees. Unlike others, pay once. Best value."
+
+### 🎯 USP前置规则 (USP FRONT-LOADING - CRITICAL)
+
+**每条描述的前30个字符必须包含最强卖点**:
+- ✅ "4K Solar Camera..." NOT "This camera has 4K..."
+- ✅ "Save €50 Today..." NOT "You can save €50 if..."
+- ✅ "No Monthly Fees..." NOT "Unlike other products..."
+
+## 🔥 v4.5 店铺数据增强 (保留)
+
+### 🏪 店铺品牌分析数据利用 (CRITICAL FOR STORE LINKS)
+
+**当检测到店铺分析数据时（BRAND ANALYSIS SECTION包含以下字段）**:
+
+**1️⃣ HOT PRODUCT HIGHLIGHTS - 热销产品亮点 (高转化)**
+- 提取关键词创建标题（≤30字符）
+- ✅ 示例: "5-in-1 Cleaning", "Ultra-Slim Design"
+
+**2️⃣ CUSTOMER PRAISES - 客户好评 (社会证明)**
+- 转化为社会证明标题: "Customers Love Our Quality"
+
+**3️⃣ REAL USE CASES - 真实使用场景 (相关性提升)**
+- 创建场景化标题: "Perfect for Home Office"
+
+**4️⃣ CUSTOMER CONCERNS - 客户顾虑 (转化优化)**
+- 主动回应顾虑: "Easy Returns", "24/7 Support"
+
+**5️⃣ TRUST INDICATORS - 信任指标 (可信度)**
+- 在标题中使用: "Verified Seller", "Top Rated"
+
+## 🔥 v4.4 产品特性增强 (保留)
+
+**当检测到 "PRODUCT FEATURES" 数据时**:
+- 从PRODUCT FEATURES中提取核心卖点关键词
+- 转化为简洁有力的标题（≤30字符）
+- ✅ "5-in-1 Robot Vacuum", "8000Pa Suction Power"
+
+## 🔥 v4.3 销售热度增强 (保留)
+
+**当检测到 "🔥 SALES MOMENTUM" 数据时**:
+- ✅ "1K+ Sold This Month", "4K+ Happy Customers"
+
+## 🔥 v4.2 竞争定位增强 (保留)
+
+**1️⃣ 价格优势量化**: "Save €170", "20% Off"
+**2️⃣ 独特定位声明**: "The Only", "#1", "Exclusive"
+**3️⃣ 隐性竞品对比**: "Unlike others", "Better performance"
+**4️⃣ 性价比强调**: "Best Value", "More for Less"
+
+## REQUIREMENTS (Target: EXCELLENT Ad Strength)
+
+### HEADLINES (15 required, ≤30 chars each)
+**FIRST HEADLINE (MANDATORY)**: "{KeyWord:{{brand}}} Official" - If exceeds 30 chars, use "{KeyWord:{{brand}}}"
+**⚠️ CRITICAL**: ONLY the first headline can use {KeyWord:...} format.
+
+**🎯 v4.6 HEADLINE REQUIREMENTS (NEW)**:
+- 🔥 **Keyword Embedding**: 8/15 (53%+) headlines MUST contain keywords
+- 🔥 **Emotional Triggers**: 3+ headlines with emotional power words
+- 🔥 **Question Headlines**: 1-2 question-style headlines
+- 🔥 **Number Usage**: 5+ headlines with specific numbers
+- 🔥 **Diversity**: <20% text similarity, no 2+ shared words
+
+**Headline Types (must cover all)**:
+{{headline_brand_guidance}}
+{{headline_feature_guidance}}
+{{headline_promo_guidance}}
+{{headline_cta_guidance}}
+{{headline_urgency_guidance}}
+
+Length distribution: 5 short(10-20), 5 medium(20-25), 5 long(25-30)
+
+### DESCRIPTIONS (4 required, ≤90 chars each)
+
+**🎯 v4.6 DESCRIPTION REQUIREMENTS (NEW)**:
+- 🔥 **Structured Templates**: Each description MUST follow a DIFFERENT template
+- 🔥 **USP Front-Loading**: Strongest USP in first 30 characters
+- 🔥 **Social Proof**: 2/4 descriptions must include proof element
+- 🔥 **Differentiation**: 1+ description with implicit competitor comparison
+
+**Template Assignment**:
+- Description 1: FEATURE-BENEFIT-CTA (value focus)
+- Description 2: PROBLEM-SOLUTION-PROOF (trust focus)
+- Description 3: OFFER-URGENCY-TRUST (action focus)
+- Description 4: USP-DIFFERENTIATION (competitive focus)
+
+{{description_1_guidance}}
+{{description_2_guidance}}
+{{description_3_guidance}}
+{{description_4_guidance}}
+
+### KEYWORDS (20-30 required)
+**⚠️ 强制约束：所有关键词必须使用目标语言 {{target_language}}**
+
+**第一优先级 - 品牌短尾词 (8-10个)**
+**第二优先级 - 产品核心词 (6-8个)**
+**第三优先级 - 购买意图词 (3-5个)**
+**第四优先级 - 长尾精准词 (3-7个)**
+
+{{exclude_keywords_section}}
+
+### CALLOUTS (4-6, ≤25 chars)
+{{callout_guidance}}
+
+### SITELINKS (6): text≤25, desc≤35, url="/"
+- Each sitelink must have UNIQUE description
+- Cover: product, promo, shipping, contact, reviews, new arrivals
+
+## FORBIDDEN CONTENT:
+**❌ Prohibited Words**: "100%", "best", "guarantee", "miracle", ALL CAPS abuse
+**❌ Prohibited Symbols**: ★ ☆ ⭐ 🌟 ✨ © ® ™ • ● ◆ ▪ → ← ↑ ↓ ✓ ✔ ✗ ✘ ❤ ♥ ⚡ 🔥 💎 👍 👎
+**❌ Excessive Punctuation**: "!!!", "???", "..."
+
+## OUTPUT (JSON only, no markdown):
+{
+  "headlines": [{"text":"...", "type":"brand|feature|promo|cta|urgency|social_proof|question|emotional", "length":N, "keywords":[], "hasNumber":bool, "hasUrgency":bool, "hasEmotionalTrigger":bool, "isQuestion":bool}...],
+  "descriptions": [{"text":"...", "type":"feature-benefit-cta|problem-solution-proof|offer-urgency-trust|usp-differentiation", "length":N, "hasCTA":bool, "first30Chars":"...", "hasSocialProof":bool}...],
+  "keywords": ["..."],
+  "callouts": ["..."],
+  "sitelinks": [{"text":"...", "url":"/", "description":"..."}],
+  "theme": "...",
+  "quality_metrics": {"headline_diversity_score":N, "keyword_embedding_rate":N, "emotional_trigger_count":N, "question_headline_count":N, "usp_front_loaded_count":N, "estimated_ad_strength":"EXCELLENT"},
+  "ctr_optimization": {"keywordEmbeddingRate":0.53, "emotionalTriggerCount":3, "questionHeadlineCount":2, "uspFrontLoadedDescriptions":4}
+}',
+  true,
+  'v4.6 CTR优化: 1)情感触发词策略 2)问句式标题 3)结构化描述模板 4)USP前置规则 5)关键词嵌入率53%+',
+  NOW()
+);
+
+-- ========== VERIFICATION ==========
+-- SELECT prompt_id, version, is_active, LENGTH(prompt_content) as length FROM prompt_versions WHERE prompt_id IN ('ad_elements_headlines', 'ad_elements_descriptions', 'ad_creative_generation') ORDER BY prompt_id, version;
