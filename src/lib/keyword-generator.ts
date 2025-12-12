@@ -741,11 +741,13 @@ async function expandBrandKeywordsWithPlanner(
 ): Promise<GeneratedKeyword[]> {
   try {
     // 使用品牌名作为种子关键词，通过Keyword Planner获取相关关键词建议
+    // 🔧 修复(2025-12-12): 独立账号模式 - 传递 userId
     const suggestions = await getKeywordSuggestions(
       [brandName],
       targetCountry,
       targetLanguage,
-      maxKeywords * 3 // 请求更多以便过滤后有足够数量
+      maxKeywords * 3, // 请求更多以便过滤后有足够数量
+      userId
     )
 
     // 过滤：只保留包含品牌名且搜索量>=阈值的关键词

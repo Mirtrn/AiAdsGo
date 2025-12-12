@@ -193,7 +193,8 @@ export async function getKeywordSearchVolumes(
   const apiVolumes = new Map<string, KeywordVolume>()
 
   if (needApiKeywords.length > 0) {
-    const config = await getGoogleAdsConfig()
+    // 🔧 修复(2025-12-12): 独立账号模式 - 必须传递 userId
+    const config = await getGoogleAdsConfig(userId)
 
     if (config?.developerToken && config?.refreshToken && config?.customerId) {
       // Split keywords into batches of 20 (Google Ads API limit)
@@ -420,14 +421,16 @@ export async function getKeywordVolume(
 
 /**
  * 获取关键词建议（基于种子关键词）
+ * 🔧 修复(2025-12-12): 独立账号模式 - 添加 userId 参数
  */
 export async function getKeywordSuggestions(
   seedKeywords: string[],
   country: string,
   language: string,
-  maxResults: number = 50
+  maxResults: number = 50,
+  userId?: number
 ): Promise<KeywordVolume[]> {
-  const config = await getGoogleAdsConfig()
+  const config = await getGoogleAdsConfig(userId)
   if (!config?.developerToken || !config?.refreshToken || !config?.customerId) {
     console.warn('[KeywordPlanner] No valid config for suggestions')
     return []
