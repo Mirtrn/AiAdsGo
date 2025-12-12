@@ -385,24 +385,53 @@ export async function scrapeUrlWithBrowser(
       const isAmazonProduct = url.includes('amazon.') && (url.includes('/dp/') || url.includes('/gp/product/'))
       if (isAmazonProduct) {
         // Amazon产品页面：滚动到feature-bullets区域
-        await page.evaluate(() => {
+        const scrollResult = await page.evaluate(() => {
           const featureBullets = document.querySelector('#feature-bullets, #featurebullets_feature_div')
           if (featureBullets) {
             featureBullets.scrollIntoView({ behavior: 'instant', block: 'center' })
+            return { found: true, selector: featureBullets.id || featureBullets.className }
           } else {
             // 如果找不到，滚动到页面中部位置
             window.scrollTo(0, window.innerHeight * 0.8)
+            return { found: false, selector: null }
           }
-        }).catch(() => {})
+        }).catch(() => ({ found: false, selector: null }))
+
+        console.log(`🔍 feature-bullets滚动: found=${scrollResult.found}, selector=${scrollResult.selector}`)
         await randomDelay(800, 1200)  // 等待懒加载内容渲染
 
         // 等待feature-bullets元素出现
-        await page.waitForSelector('#feature-bullets li, #featurebullets_feature_div li', {
+        const featureLoaded = await page.waitForSelector('#feature-bullets li, #featurebullets_feature_div li', {
           timeout: 3000,
           state: 'visible'
-        }).catch(() => {
+        }).then(() => true).catch(() => false)
+
+        if (!featureLoaded) {
           console.warn(`⚠️ feature-bullets未加载，可能页面结构不同`)
-        })
+          // 🔥 调试：检查页面中是否有其他可能的feature容器
+          const featureDebug = await page.evaluate(() => {
+            const selectors = [
+              '#feature-bullets',
+              '#featurebullets_feature_div',
+              '[data-feature-name="featurebullets"]',
+              '#productFactsDesktop',
+              '.a-expander-content'
+            ]
+            const results: Record<string, number> = {}
+            for (const sel of selectors) {
+              results[sel] = document.querySelectorAll(sel).length
+            }
+            // 检查是否有"About this item"文本
+            const aboutThisItem = document.body?.innerText?.includes('About this item') || false
+            return { selectors: results, hasAboutThisItem: aboutThisItem }
+          }).catch(() => null)
+
+          if (featureDebug) {
+            console.log(`🔍 feature容器调试: ${JSON.stringify(featureDebug)}`)
+          }
+        } else {
+          console.log(`✅ feature-bullets已加载`)
+        }
 
         // 滚动回顶部
         await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
