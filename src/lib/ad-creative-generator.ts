@@ -2145,9 +2145,13 @@ export async function generateAdCreative(
       const isActiveValue = db.type === 'postgres' ? true : 1
 
       // 查询用户的Google Ads账号
+      // 🔧 修复(2025-12-12): Keyword Planner API 必须使用客户账号，不能使用 MCC 账号
       const adsAccount = await db.queryOne(`
         SELECT id, customer_id FROM google_ads_accounts
-        WHERE user_id = ? AND is_active = ?
+        WHERE user_id = ?
+          AND is_active = ?
+          AND status = 'ENABLED'
+          AND is_manager_account = 0
         ORDER BY created_at DESC
         LIMIT 1
       `, [userId, isActiveValue]) as { id: number; customer_id: string } | undefined
