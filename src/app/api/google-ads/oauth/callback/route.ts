@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exchangeCodeForTokens, saveGoogleAdsCredentials } from '@/lib/google-ads-oauth'
-import { getSetting, getUserOnlySetting } from '@/lib/settings'
+import { getUserOnlySetting } from '@/lib/settings'
 
 // 强制动态渲染
 export const dynamic = 'force-dynamic'
@@ -19,10 +19,9 @@ function createRedirectUrl(path: string): URL {
  * GET /api/google-ads/oauth/callback
  * Google Ads OAuth回调处理
  *
- * 混合模式支持：
- * - 如果use_own_config=true，使用用户自己的OAuth凭证
- * - 如果use_own_config=false，使用autoads用户的OAuth凭证
- * - login_customer_id 必须由用户自己配置（必填项）
+ * 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须使用自己的OAuth凭证
+ * - 不再支持平台共享配置，确保用户数据完全隔离
+ * - login_customer_id, client_id, client_secret, developer_token 都必须由用户自己配置
  */
 export async function GET(request: NextRequest) {
   try {
@@ -51,8 +50,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 验证state（包含use_own_config标记）
-    let stateData: { user_id: number; timestamp: number; use_own_config?: boolean }
+    // 验证state
+    let stateData: { user_id: number; timestamp: number }
     try {
       stateData = JSON.parse(
         Buffer.from(state, 'base64url').toString()
@@ -71,8 +70,6 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = stateData.user_id
-    const useOwnConfig = stateData.use_own_config ?? false
-    const autoadsUserId = 1
 
     // 校验: login_customer_id 必须由用户自己配置（不使用 getSetting，避免回退到全局配置）
     const loginCustomerId = (await getUserOnlySetting('google_ads', 'login_customer_id', userId))?.value || ''
@@ -82,37 +79,23 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 根据use_own_config决定使用哪套OAuth凭证
-    let clientId: string = ''
-    let clientSecret: string = ''
-    let developerToken: string = ''
+    // 🔧 修复(2025-12-12): 独立账号模式 - 必须使用用户自己的OAuth凭证
+    const clientId = (await getUserOnlySetting('google_ads', 'client_id', userId))?.value || ''
+    const clientSecret = (await getUserOnlySetting('google_ads', 'client_secret', userId))?.value || ''
+    const developerToken = (await getUserOnlySetting('google_ads', 'developer_token', userId))?.value || ''
 
-    // getSetting已自动解密敏感字段，直接使用.value即可
-    if (useOwnConfig) {
-      // 用户使用自己的OAuth凭证
-      clientId = (await getSetting('google_ads', 'client_id', userId))?.value || ''
-      clientSecret = (await getSetting('google_ads', 'client_secret', userId))?.value || ''
-      developerToken = (await getSetting('google_ads', 'developer_token', userId))?.value || ''
-      console.log(`🔐 OAuth回调: 用户 ${userId} 使用自己的OAuth配置`)
-    } else {
-      // 使用平台共享的OAuth凭证（autoads用户的配置）
-      clientId = (await getSetting('google_ads', 'client_id', autoadsUserId))?.value || process.env.GOOGLE_ADS_CLIENT_ID || ''
-      clientSecret = (await getSetting('google_ads', 'client_secret', autoadsUserId))?.value || process.env.GOOGLE_ADS_CLIENT_SECRET || ''
-      developerToken = (await getSetting('google_ads', 'developer_token', autoadsUserId))?.value || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || ''
-      console.log(`🔐 OAuth回调: 用户 ${userId} 使用平台共享OAuth配置`)
-    }
-
-    if (!clientId || !clientSecret) {
+    if (!clientId || !clientSecret || !developerToken) {
       return NextResponse.redirect(
         createRedirectUrl('/settings?error=missing_google_ads_config&category=google_ads')
       )
     }
 
+    console.log(`🔐 OAuth回调: 用户 ${userId} 使用自己的OAuth配置`)
+
     const redirectUri = `${getBaseUrl()}/api/google-ads/oauth/callback`
 
     console.log(`📥 处理OAuth回调`)
     console.log(`   用户: ${userId}`)
-    console.log(`   使用配置: ${useOwnConfig ? '用户自己的' : '平台共享'}`)
     console.log(`   Login Customer ID: ${loginCustomerId}`)
     console.log(`   Authorization Code: ${code.substring(0, 10)}...`)
 

@@ -6,9 +6,9 @@ import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
  * GET /api/dashboard/api-quota
  * 获取Google Ads API配额使用情况
  *
- * 逻辑：
+ * 🔧 修复(2025-12-12): 独立账号模式 - 每个用户只能查看自己的API使用统计
  * - 如果用户配置了自己的Google Ads API凭证 → 显示该用户的API使用统计
- * - 如果用户未配置凭证 → 显示autoads管理员（userId=1）的API使用统计
+ * - 如果用户未配置凭证 → 返回空数据，不再回退到管理员数据
  */
 export async function GET(request: NextRequest) {
   try {
@@ -25,18 +25,38 @@ export async function GET(request: NextRequest) {
     // 检查用户是否配置了自己的Google Ads API凭证
     const userCredentials = await getGoogleAdsCredentials(currentUserId)
 
-    // 如果用户有自己的凭证，使用用户ID；否则使用autoads管理员ID（userId=1）
-    const targetUserId = userCredentials ? currentUserId : 1
-    const isUsingSharedCredentials = !userCredentials
+    // 🔧 修复(2025-12-12): 独立账号模式 - 不再回退到管理员数据
+    if (!userCredentials) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          today: {
+            totalOperations: 0,
+            successfulOperations: 0,
+            failedOperations: 0,
+            avgResponseTimeMs: 0
+          },
+          trend: [],
+          quotaCheck: {
+            isOverLimit: false,
+            isNearLimit: false,
+            usage: 0,
+            limit: 0
+          },
+          recommendations: ['ℹ️ 您尚未配置 Google Ads API 凭证，请先在设置页面完成配置'],
+          hasCredentials: false
+        }
+      })
+    }
 
     // 获取今天的使用统计
-    const todayStats = await getDailyUsageStats(targetUserId)
+    const todayStats = await getDailyUsageStats(currentUserId)
 
     // 获取最近N天的趋势
-    const trend = await getUsageTrend(targetUserId, days)
+    const trend = await getUsageTrend(currentUserId, days)
 
     // 检查配额限制
-    const quotaCheck = await checkQuotaLimit(targetUserId, 0.8)
+    const quotaCheck = await checkQuotaLimit(currentUserId, 0.8)
 
     return NextResponse.json({
       success: true,
@@ -44,9 +64,8 @@ export async function GET(request: NextRequest) {
         today: todayStats,
         trend,
         quotaCheck,
-        recommendations: generateRecommendations(todayStats, quotaCheck, isUsingSharedCredentials),
-        isUsingSharedCredentials, // 是否使用共享凭证
-        targetUserId // 实际统计的用户ID
+        recommendations: generateRecommendations(todayStats, quotaCheck),
+        hasCredentials: true
       }
     })
   } catch (error: any) {
@@ -64,13 +83,8 @@ export async function GET(request: NextRequest) {
 /**
  * 根据使用情况生成建议
  */
-function generateRecommendations(stats: any, check: any, isUsingSharedCredentials: boolean): string[] {
+function generateRecommendations(stats: any, check: any): string[] {
   const recommendations: string[] = []
-
-  // 如果使用共享凭证，添加说明
-  if (isUsingSharedCredentials) {
-    recommendations.push('ℹ️ 当前显示的是系统共享账号的API使用情况')
-  }
 
   if (check.isOverLimit) {
     recommendations.push('⚠️ 已超出每日配额限制，请明天再试或联系技术支持提升配额')

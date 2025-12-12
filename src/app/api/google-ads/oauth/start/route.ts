@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { generateOAuthUrl } from '@/lib/google-ads-oauth'
-import { getSetting, getUserOnlySetting } from '@/lib/settings'
+import { getUserOnlySetting } from '@/lib/settings'
 
 /**
  * GET /api/google-ads/oauth/start
  * 启动Google Ads OAuth授权流程
  *
- * 混合模式支持：
- * - 如果用户配置了完整OAuth凭证，使用用户自己的client_id
- * - 如果用户没有配置，使用autoads用户（平台共享）的client_id
+ * 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须配置自己的完整OAuth凭证
+ * - client_id, client_secret, developer_token 必须由用户自己配置
  * - login_customer_id 必须由用户自己配置（必填项）
+ * - 不再支持平台共享配置，确保用户数据完全隔离
  */
 export async function GET(request: NextRequest) {
   try {
@@ -24,7 +24,6 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = authResult.user.userId
-    const autoadsUserId = 1
 
     console.log(`🔐 [OAuth Start] 用户ID: ${userId}`)
 
@@ -41,10 +40,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 获取用户的OAuth配置（getSetting已自动解密敏感字段）
-    const userClientIdSetting = await getSetting('google_ads', 'client_id', userId)
-    const userClientSecretSetting = await getSetting('google_ads', 'client_secret', userId)
-    const userDeveloperTokenSetting = await getSetting('google_ads', 'developer_token', userId)
+    // 🔧 修复(2025-12-12): 独立账号模式 - 必须获取用户自己的OAuth配置
+    const userClientIdSetting = await getUserOnlySetting('google_ads', 'client_id', userId)
+    const userClientSecretSetting = await getUserOnlySetting('google_ads', 'client_secret', userId)
+    const userDeveloperTokenSetting = await getUserOnlySetting('google_ads', 'developer_token', userId)
 
     console.log(`🔐 [OAuth Start] client_id 查询结果:`, JSON.stringify(userClientIdSetting))
     console.log(`🔐 [OAuth Start] client_secret 查询结果:`, JSON.stringify(userClientSecretSetting))
@@ -54,37 +53,22 @@ export async function GET(request: NextRequest) {
     const userClientSecret = userClientSecretSetting?.value || ''
     const userDeveloperToken = userDeveloperTokenSetting?.value || ''
 
-    // 检查用户是否有完整的OAuth配置
-    const hasFullOAuthConfig = !!(userClientId && userClientSecret && userDeveloperToken)
-
-    let clientId: string
-    let useOwnConfig: boolean
-
-    if (hasFullOAuthConfig) {
-      // 用户配置了完整OAuth凭证，使用用户自己的配置
-      clientId = userClientId
-      useOwnConfig = true
-      console.log(`🔐 用户 ${userId} 使用自己的OAuth配置`)
-    } else {
-      // 用户没有配置完整凭证，使用平台共享配置
-      clientId = (await getSetting('google_ads', 'client_id', autoadsUserId))?.value || process.env.GOOGLE_ADS_CLIENT_ID || ''
-      useOwnConfig = false
-      console.log(`🔐 用户 ${userId} 使用平台共享OAuth配置`)
-    }
-
-    if (!clientId) {
+    // 🔧 修复(2025-12-12): 独立账号模式 - 必须有完整的OAuth配置，不再回退到共享配置
+    if (!userClientId || !userClientSecret || !userDeveloperToken) {
       return NextResponse.json(
-        { error: '缺少Client ID配置，请先在设置页面配置OAuth凭证或联系管理员' },
+        { error: '请先在设置页面完成 Google Ads API 配置（Client ID、Client Secret、Developer Token 都是必填项）' },
         { status: 400 }
       )
     }
 
-    // 生成state用于验证回调，包含是否使用自己配置的标记
+    const clientId = userClientId
+    console.log(`🔐 用户 ${userId} 使用自己的OAuth配置`)
+
+    // 生成state用于验证回调
     const state = Buffer.from(
       JSON.stringify({
         user_id: userId,
-        timestamp: Date.now(),
-        use_own_config: useOwnConfig
+        timestamp: Date.now()
       })
     ).toString('base64url')
 
@@ -96,7 +80,6 @@ export async function GET(request: NextRequest) {
 
     console.log(`🔐 启动Google Ads OAuth流程`)
     console.log(`   用户: ${authResult.user.email} (ID: ${userId})`)
-    console.log(`   使用配置: ${useOwnConfig ? '用户自己的' : '平台共享'}`)
     console.log(`   Client ID: ${clientId.substring(0, 20)}...`)
     console.log(`   Login Customer ID: ${userLoginCustomerId}`)
 
@@ -104,8 +87,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         auth_url: authUrl,
-        redirect_uri: redirectUri,
-        use_own_config: useOwnConfig
+        redirect_uri: redirectUri
       }
     })
 
