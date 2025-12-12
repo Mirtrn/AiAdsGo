@@ -50,8 +50,10 @@ export interface AdStrengthEvaluation {
       score: number // 0-18
       weight: 0.18
       details: {
-        keywordCoverage: number // 0-10.8 关键词覆盖率
-        keywordNaturalness: number // 0-7.2 关键词自然度
+        keywordCoverage: number // 0-10 关键词覆盖率
+        keywordEmbedding: number // 0-4 关键词嵌入率得分 (v3.3新增)
+        keywordEmbeddingRate: number // 0-100 关键词嵌入率百分比 (v3.3新增)
+        keywordNaturalness: number // 0-6 关键词自然度
       }
     }
     completeness: {
@@ -415,6 +417,10 @@ function calculateDiversity(headlines: HeadlineAsset[], descriptions: Descriptio
 
 /**
  * 2. 计算Relevance（相关性）- 20分
+ *
+ * v3.3 CTR优化：新增关键词嵌入率检测
+ * - 目标：8/15 headlines包含关键词 (53%+)
+ * - 这是Google Ads RSA的最佳实践
  */
 function calculateRelevance(
   headlines: HeadlineAsset[],
@@ -423,7 +429,7 @@ function calculateRelevance(
 ) {
   const allTexts = [...headlines.map(h => h.text), ...descriptions.map(d => d.text)].join(' ').toLowerCase()
 
-  // 2.1 关键词覆盖率 (0-12分) - 优化：支持词形变化和部分匹配
+  // 2.1 关键词覆盖率 (0-10分) - 优化：支持词形变化和部分匹配
   const matchedKeywords = keywords.filter(kw => {
     const kwLower = kw.toLowerCase()
 
@@ -442,7 +448,7 @@ function calculateRelevance(
   })
 
   const coverageRatio = keywords.length > 0 ? matchedKeywords.length / keywords.length : 0
-  const keywordCoverage = coverageRatio * 12
+  const keywordCoverage = coverageRatio * 10 // 降低到10分，为嵌入率腾出空间
 
   // 调试输出
   if (coverageRatio < 0.8) {
@@ -452,18 +458,57 @@ function calculateRelevance(
     console.log(`   匹配失败: ${unmatchedKeywords.join(', ')}`)
   }
 
-  // 2.2 关键词自然度 (0-8分)
+  // 2.2 关键词嵌入率 (0-4分) - v3.3 CTR优化新增
+  // 目标：8/15 headlines (53%+) 包含关键词
+  const headlinesWithKeyword = headlines.filter(h => {
+    const headlineText = h.text.toLowerCase()
+    return keywords.some(kw => {
+      const kwLower = kw.toLowerCase()
+      // 精确匹配
+      if (headlineText.includes(kwLower)) return true
+      // 词根匹配
+      const kwRoot = kwLower.replace(/s$|ing$|ed$/g, '')
+      if (kwRoot.length >= 3 && headlineText.includes(kwRoot)) return true
+      return false
+    })
+  })
+
+  const embeddingRate = headlines.length > 0 ? headlinesWithKeyword.length / headlines.length : 0
+  const targetEmbeddingRate = 8 / 15 // 53%
+
+  // 评分：达到53%得满分4分，低于则按比例扣分
+  let keywordEmbedding = 0
+  if (embeddingRate >= targetEmbeddingRate) {
+    keywordEmbedding = 4
+  } else if (embeddingRate >= 0.4) {
+    keywordEmbedding = 3
+  } else if (embeddingRate >= 0.27) {
+    keywordEmbedding = 2
+  } else if (embeddingRate > 0) {
+    keywordEmbedding = 1
+  }
+
+  console.log(`🔑 关键词嵌入率: ${headlinesWithKeyword.length}/${headlines.length} (${(embeddingRate * 100).toFixed(0)}%)`)
+  if (embeddingRate < targetEmbeddingRate) {
+    console.log(`   ⚠️ 低于目标 ${(targetEmbeddingRate * 100).toFixed(0)}%，建议增加关键词嵌入`)
+  } else {
+    console.log(`   ✅ 达到目标嵌入率`)
+  }
+
+  // 2.3 关键词自然度 (0-6分)
   // 检查关键词是否自然融入（非堆砌）
   const keywordDensity = calculateKeywordDensity(allTexts, keywords)
-  const naturalness = keywordDensity < 0.3 ? 8 : (keywordDensity < 0.5 ? 5.6 : 3.2) // 密度低于30%最佳
+  const naturalness = keywordDensity < 0.3 ? 6 : (keywordDensity < 0.5 ? 4 : 2) // 密度低于30%最佳
 
-  const totalScore = keywordCoverage + naturalness
+  const totalScore = keywordCoverage + keywordEmbedding + naturalness
 
   return {
     score: Math.min(20, Math.round(totalScore)), // 确保不超过最大值20
     weight: 0.20 as const,
     details: {
       keywordCoverage: Math.round(keywordCoverage),
+      keywordEmbedding: Math.round(keywordEmbedding), // v3.3新增
+      keywordEmbeddingRate: Math.round(embeddingRate * 100), // v3.3新增：百分比
       keywordNaturalness: Math.round(naturalness)
     }
   }
@@ -1328,10 +1373,14 @@ function generateSuggestions(
   }
 
   // Relevance建议
-  if (relevance.details.keywordCoverage < 10) {
-    suggestions.push('💡 提高关键词覆盖率：至少90%的关键词应出现在创意中')
+  if (relevance.details.keywordCoverage < 8) {
+    suggestions.push('💡 提高关键词覆盖率：至少80%的关键词应出现在创意中')
   }
-  if (relevance.details.keywordNaturalness < 6) {
+  // v3.3 CTR优化：关键词嵌入率建议
+  if (relevance.details.keywordEmbeddingRate < 53) {
+    suggestions.push(`🔑 提高关键词嵌入率：当前${relevance.details.keywordEmbeddingRate}%，目标53%+ (8/15 headlines含关键词)`)
+  }
+  if (relevance.details.keywordNaturalness < 4) {
     suggestions.push('💡 优化关键词自然度：避免关键词堆砌，自然融入文案')
   }
 

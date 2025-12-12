@@ -266,9 +266,11 @@ function scoreQuality(creative: AdCreative): number {
     score += 5
   }
 
-  // 4. Sitelinks (+5分)
+  // 4. Sitelinks (+5分) - v3.3 CTR优化：增强多样性检查
   if (creative.sitelinks && creative.sitelinks.length >= 2) {
-    score += 5
+    const sitelinkDiversity = evaluateSitelinkDiversity(creative.sitelinks)
+    // 基础分2分 + 多样性奖励最多3分
+    score += 2 + Math.round(sitelinkDiversity.diversityScore * 3)
   }
 
   // 5. 字符长度规范检查 (+5分)
@@ -469,6 +471,143 @@ function generateExplanation(breakdown: ScoreBreakdown, totalScore: number): str
   }
 
   return parts.join('')
+}
+
+/**
+ * v3.3 CTR优化：Sitelink多样性评估
+ *
+ * Google Ads最佳实践：
+ * - 4-6个Sitelinks覆盖不同用户意图
+ * - 类型多样：产品页、分类页、促销页、关于我们、联系方式等
+ * - 避免重复或相似的链接文本
+ *
+ * @param sitelinks Sitelink数组
+ * @returns 多样性评估结果
+ */
+export interface SitelinkDiversityResult {
+  diversityScore: number // 0-1，1表示完全多样
+  typesCovered: string[] // 覆盖的类型
+  suggestions: string[] // 改进建议
+  details: {
+    textUniqueness: number // 文本独特性 0-1
+    typeCoverage: number // 类型覆盖率 0-1
+    lengthVariation: number // 长度变化 0-1
+  }
+}
+
+/**
+ * Sitelink类型分类
+ */
+const SITELINK_TYPE_PATTERNS: Record<string, RegExp> = {
+  product: /product|shop|buy|store|item|collection|catalog|prodotto|prodotti|negozio|acquista|compra|tienda|producto|boutique|produit|produkt|kaufen|商品|产品|购买|製品|商店|제품|구매/i,
+  category: /category|categories|browse|all|view all|see all|categoria|categorie|sfoglia|categoría|catégorie|kategorie|分类|类别|カテゴリ|카테고리/i,
+  promo: /sale|deal|offer|discount|promo|coupon|save|offerta|sconto|promozione|oferta|descuento|soldes|rabatt|优惠|折扣|促销|セール|할인/i,
+  about: /about|who we are|our story|company|brand|chi siamo|sobre|à propos|über uns|关于|について|소개/i,
+  contact: /contact|support|help|customer service|contatti|contacto|kontakt|联系|お問い合わせ|연락/i,
+  shipping: /shipping|delivery|free shipping|spedizione|envío|livraison|versand|配送|运费|配達|배송/i,
+  returns: /return|refund|exchange|reso|resi|devolución|retour|rückgabe|退货|退款|返品|반품/i,
+  reviews: /review|testimonial|rating|recensioni|reseña|avis|bewertung|评价|评论|レビュー|리뷰/i,
+  new: /new|latest|arrival|nuovo|nuovi|nuevo|nouveau|neu|新品|新着|신상품/i,
+  bestseller: /best seller|popular|top|trending|più venduti|más vendido|meilleure vente|bestseller|热销|人気|인기/i
+}
+
+export function evaluateSitelinkDiversity(
+  sitelinks: Array<{ text: string; description?: string; url?: string }>
+): SitelinkDiversityResult {
+  if (!sitelinks || sitelinks.length === 0) {
+    return {
+      diversityScore: 0,
+      typesCovered: [],
+      suggestions: ['添加至少4个Sitelinks以提高广告效果'],
+      details: { textUniqueness: 0, typeCoverage: 0, lengthVariation: 0 }
+    }
+  }
+
+  const suggestions: string[] = []
+  const typesCovered: string[] = []
+
+  // 1. 文本独特性评估 (0-1)
+  const texts = sitelinks.map(s => s.text.toLowerCase())
+  const uniqueTexts = new Set(texts)
+  const textUniqueness = uniqueTexts.size / texts.length
+
+  // 检查相似文本
+  for (let i = 0; i < texts.length; i++) {
+    for (let j = i + 1; j < texts.length; j++) {
+      const similarity = calculateTextSimilarity(texts[i], texts[j])
+      if (similarity > 0.6) {
+        suggestions.push(`Sitelink "${sitelinks[i].text}" 与 "${sitelinks[j].text}" 过于相似，建议差异化`)
+      }
+    }
+  }
+
+  // 2. 类型覆盖率评估 (0-1)
+  const allText = sitelinks.map(s => `${s.text} ${s.description || ''}`).join(' ')
+
+  for (const [type, pattern] of Object.entries(SITELINK_TYPE_PATTERNS)) {
+    if (pattern.test(allText)) {
+      typesCovered.push(type)
+    }
+  }
+
+  // 理想覆盖4种以上类型
+  const typeCoverage = Math.min(1, typesCovered.length / 4)
+
+  // 建议缺失的重要类型
+  const importantTypes = ['product', 'promo', 'shipping', 'contact']
+  const missingTypes = importantTypes.filter(t => !typesCovered.includes(t))
+  if (missingTypes.length > 0) {
+    const typeNames: Record<string, string> = {
+      product: '产品页',
+      promo: '促销页',
+      shipping: '配送信息',
+      contact: '联系方式'
+    }
+    suggestions.push(`建议添加: ${missingTypes.map(t => typeNames[t]).join('、')}`)
+  }
+
+  // 3. 长度变化评估 (0-1)
+  const lengths = sitelinks.map(s => s.text.length)
+  const avgLength = lengths.reduce((a, b) => a + b, 0) / lengths.length
+  const lengthVariance = lengths.reduce((sum, len) => sum + Math.pow(len - avgLength, 2), 0) / lengths.length
+  const lengthStdDev = Math.sqrt(lengthVariance)
+  // 标准差在3-8之间表示良好的变化
+  const lengthVariation = Math.min(1, lengthStdDev / 5)
+
+  // 4. 数量检查
+  if (sitelinks.length < 4) {
+    suggestions.push(`当前${sitelinks.length}个Sitelinks，建议增加到4-6个`)
+  }
+
+  // 综合多样性得分
+  const diversityScore = (textUniqueness * 0.4) + (typeCoverage * 0.4) + (lengthVariation * 0.2)
+
+  return {
+    diversityScore: Math.round(diversityScore * 100) / 100,
+    typesCovered,
+    suggestions,
+    details: {
+      textUniqueness: Math.round(textUniqueness * 100) / 100,
+      typeCoverage: Math.round(typeCoverage * 100) / 100,
+      lengthVariation: Math.round(lengthVariation * 100) / 100
+    }
+  }
+}
+
+/**
+ * 计算两个文本的相似度 (简化版Jaccard)
+ */
+function calculateTextSimilarity(text1: string, text2: string): number {
+  const words1 = new Set(text1.split(/\s+/).filter(w => w.length > 2))
+  const words2 = new Set(text2.split(/\s+/).filter(w => w.length > 2))
+
+  if (words1.size === 0 && words2.size === 0) return 1
+  if (words1.size === 0 || words2.size === 0) return 0
+
+  const intersection = new Set([...words1].filter(w => words2.has(w)))
+  const union = new Set([...words1, ...words2])
+
+  return intersection.size / union.size
 }
 
 /**
