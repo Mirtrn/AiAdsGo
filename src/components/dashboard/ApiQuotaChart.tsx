@@ -187,9 +187,9 @@ export function ApiQuotaChart({ days = 7 }: Props) {
             {/* 中心文字 */}
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <div className={`text-2xl font-bold ${getStatusColor()}`}>
-                {today.totalRequests.toLocaleString('en-US')}
+                {(today.totalRequests ?? 0).toLocaleString('en-US')}
               </div>
-              <div className="text-xs text-gray-500">/ {today.quotaLimit.toLocaleString('en-US')}</div>
+              <div className="text-xs text-gray-500">/ {(today.quotaLimit ?? 0).toLocaleString('en-US')}</div>
               <div className={`text-xs font-medium mt-0.5 ${getStatusColor()}`}>
                 {usagePercent.toFixed(1)}%
               </div>
@@ -202,7 +202,7 @@ export function ApiQuotaChart({ days = 7 }: Props) {
           <div>
             <div className="text-xs text-gray-500">剩余配额</div>
             <div className="text-lg font-semibold text-gray-900">
-              {today.quotaRemaining.toLocaleString('en-US')}
+              {(today.quotaRemaining ?? 0).toLocaleString('en-US')}
             </div>
           </div>
           <div>
@@ -253,7 +253,7 @@ export function ApiQuotaChart({ days = 7 }: Props) {
               {data.trend.slice(0, 3).map((item) => (
                 <div key={item.date} className="flex items-center justify-between text-xs">
                   <span className="text-gray-600">{item.date}</span>
-                  <span className="font-medium text-gray-900">{item.totalRequests.toLocaleString('en-US')}</span>
+                  <span className="font-medium text-gray-900">{(item.totalRequests ?? 0).toLocaleString('en-US')}</span>
                 </div>
               ))}
             </div>

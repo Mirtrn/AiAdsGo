@@ -114,14 +114,14 @@ export function AiTokenCostChart({ days = 7 }: Props) {
   const centerY = size / 2
 
   // 计算模型使用占比（取最大使用的模型）
-  const topModel = today.modelUsage.length > 0
+  const topModel = today.modelUsage && today.modelUsage.length > 0
     ? today.modelUsage.reduce((max, model) =>
-        model.totalTokens > max.totalTokens ? model : max
+        (model.totalTokens ?? 0) > (max.totalTokens ?? 0) ? model : max
       )
     : null
 
-  const topModelPercent = topModel && today.totalTokens > 0
-    ? (topModel.totalTokens / today.totalTokens) * 100
+  const topModelPercent = topModel && (today.totalTokens ?? 0) > 0
+    ? ((topModel.totalTokens ?? 0) / (today.totalTokens ?? 1)) * 100
     : 0
 
   const usageOffset = circumference - (topModelPercent / 100) * circumference
@@ -214,13 +214,13 @@ export function AiTokenCostChart({ days = 7 }: Props) {
           <div>
             <div className="text-xs text-gray-500">输入Token</div>
             <div className="text-lg font-semibold text-gray-900">
-              {today.modelUsage.reduce((sum, m) => sum + m.inputTokens, 0).toLocaleString('en-US')}
+              {(today.modelUsage?.reduce((sum, m) => sum + (m.inputTokens ?? 0), 0) ?? 0).toLocaleString('en-US')}
             </div>
           </div>
           <div>
             <div className="text-xs text-gray-500">输出Token</div>
             <div className="text-lg font-semibold text-gray-900">
-              {today.modelUsage.reduce((sum, m) => sum + m.outputTokens, 0).toLocaleString('en-US')}
+              {(today.modelUsage?.reduce((sum, m) => sum + (m.outputTokens ?? 0), 0) ?? 0).toLocaleString('en-US')}
             </div>
           </div>
         </div>
@@ -266,7 +266,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
         )}
 
         {/* 模型使用分布 */}
-        {today.modelUsage.length > 0 && (
+        {today.modelUsage && today.modelUsage.length > 0 && (
           <div className="pt-2 border-t">
             <div className="text-xs text-gray-500 mb-2">模型使用分布</div>
             <div className="space-y-1.5">
