@@ -58,9 +58,10 @@ export async function scrapeIndependentStore(
       }
 
       const browserResult = await createStealthBrowser(effectiveProxyUrl, targetCountry)
+      let page: Page | null = null
 
       try {
-        const page = await browserResult.context.newPage()
+        page = await browserResult.context.newPage()
         await configureStealthPage(page, targetCountry)
 
         console.log(`🌐 访问URL: ${url}`)
@@ -99,7 +100,6 @@ export async function scrapeIndependentStore(
         console.log(`✅ 最终URL: ${finalUrl}`)
 
         const html = await page.content()
-        await page.close().catch(() => {})
 
         // Parse store data from HTML
         const storeData = await parseIndependentStoreHtml(html, finalUrl)
@@ -109,6 +109,12 @@ export async function scrapeIndependentStore(
 
         return storeData
       } finally {
+        // 🔥 2025-12-12 内存优化：确保Page在finally中关闭，防止内存泄漏
+        if (page) {
+          await page.close().catch((e) => {
+            console.warn(`⚠️ [独立站] Page关闭失败: ${e.message}`)
+          })
+        }
         await releaseBrowser(browserResult)
       }
 
@@ -307,9 +313,10 @@ export async function scrapeIndependentProduct(
       }
 
       const browserResult = await createStealthBrowser(effectiveProxyUrl, targetCountry)
+      let page: Page | null = null
 
       try {
-        const page = await browserResult.context.newPage()
+        page = await browserResult.context.newPage()
         await configureStealthPage(page, targetCountry)
 
         await randomDelay(500, 1500)
@@ -394,13 +401,18 @@ export async function scrapeIndependentProduct(
         await randomDelay(500, 1000)
 
         const html = await page.content()
-        await page.close().catch(() => {})
 
         // Parse product data
         const productData = await parseIndependentProductHtml(html, url)
 
         return productData
       } finally {
+        // 🔥 2025-12-12 内存优化：确保Page在finally中关闭，防止内存泄漏
+        if (page) {
+          await page.close().catch((e) => {
+            console.warn(`⚠️ [独立站产品] Page关闭失败: ${e.message}`)
+          })
+        }
         await releaseBrowser(browserResult)
       }
 

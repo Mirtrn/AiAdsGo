@@ -499,6 +499,30 @@ export class UnifiedQueueManager {
     } finally {
       // 减少并发计数
       this.decrementConcurrency(task)
+
+      // 🔥 2025-12-12 内存优化：任务完成后主动清理资源
+      // 清理空闲的浏览器实例，释放内存
+      if (task.type === 'offer-extraction' || task.type === 'batch-offer-creation') {
+        try {
+          const { getPlaywrightPool } = await import('@/lib/playwright-pool')
+          const pool = getPlaywrightPool()
+          await pool.clearIdleInstances()
+          console.log(`🧹 [内存清理] 任务 ${task.id} 完成后清理空闲浏览器实例`)
+        } catch (cleanupError) {
+          // 清理失败不影响主流程
+          console.warn(`⚠️ [内存清理] 清理空闲实例失败: ${cleanupError}`)
+        }
+
+        // 触发Node.js垃圾回收（如果可用）
+        if (global.gc) {
+          try {
+            global.gc()
+            console.log(`🧹 [内存清理] 触发GC`)
+          } catch {
+            // GC失败不影响主流程
+          }
+        }
+      }
     }
   }
 

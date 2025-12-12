@@ -17,7 +17,7 @@ import {
   randomDelay,
   getDynamicTimeout
 } from './browser-stealth'
-import { scrapeAmazonProduct } from './amazon-product'
+import { scrapeAmazonProduct, scrapeAmazonProductWithContext } from './amazon-product'
 import {
   getCachedProductDetail,
   setCachedProductDetail,
@@ -59,18 +59,24 @@ export async function scrapeAmazonStore(
       }
 
       const browserResult = await createStealthBrowser(effectiveProxyUrl, targetCountry)
+      let page: Page | null = null
 
       try {
-        const page = await browserResult.context.newPage()
+        page = await browserResult.context.newPage()
         await configureStealthPage(page, targetCountry)
 
         // Navigate and scrape
         const storeData = await scrapeStorePageContent(page, url, effectiveProxyUrl, targetCountry)
 
-        await page.close().catch(() => {})
         return storeData
 
       } finally {
+        // 🔥 2025-12-12 内存优化：确保Page在finally中关闭，防止内存泄漏
+        if (page) {
+          await page.close().catch((e) => {
+            console.warn(`⚠️ Page关闭失败: ${e.message}`)
+          })
+        }
         await releaseBrowser(browserResult)
       }
 
@@ -302,30 +308,34 @@ async function scrapeStorePageContent(
 
   const html = await page.content()
 
-  // Save debug files
-  try {
-    const fs = await import('fs')
-    const path = await import('path')
-    const storageDir = path.join(process.cwd(), 'storage')
-    if (!fs.existsSync(storageDir)) {
-      fs.mkdirSync(storageDir, { recursive: true })
+  // 🔥 2025-12-12 内存优化：仅在开发环境保存调试文件
+  const isDevMode = process.env.NODE_ENV !== 'production' && process.env.SCRAPER_DEBUG === 'true'
+  if (isDevMode) {
+    // Save debug files
+    try {
+      const fs = await import('fs')
+      const path = await import('path')
+      const storageDir = path.join(process.cwd(), 'storage')
+      if (!fs.existsSync(storageDir)) {
+        fs.mkdirSync(storageDir, { recursive: true })
+      }
+
+      const timestamp = Date.now()
+      const htmlFile = path.join(storageDir, `debug-store-${timestamp}.html`)
+      const screenshotFile = path.join(storageDir, `debug-store-${timestamp}.png`)
+
+      fs.writeFileSync(htmlFile, html)
+      await page.screenshot({
+        path: screenshotFile,
+        fullPage: true,
+        timeout: 30000,
+        animations: 'disabled'
+      })
+
+      console.log(`📁 调试文件已保存: HTML: ${htmlFile}`)
+    } catch (error: any) {
+      console.warn(`⚠️ 保存调试文件失败: ${error.message}`)
     }
-
-    const timestamp = Date.now()
-    const htmlFile = path.join(storageDir, `debug-store-${timestamp}.html`)
-    const screenshotFile = path.join(storageDir, `debug-store-${timestamp}.png`)
-
-    fs.writeFileSync(htmlFile, html)
-    await page.screenshot({
-      path: screenshotFile,
-      fullPage: true,
-      timeout: 30000,
-      animations: 'disabled'
-    })
-
-    console.log(`📁 调试文件已保存: HTML: ${htmlFile}`)
-  } catch (error: any) {
-    console.warn(`⚠️ 保存调试文件失败: ${error.message}`)
   }
 
   // Parse HTML
@@ -1258,13 +1268,18 @@ async function scrapeStoreCategories(
  * - 聚合评论数据用于AI评论分析
  * - 聚合竞品ASIN用于竞品分析
  * - 使用统一缓存避免重复抓取
+ *
+ * 🔥 2025-12-12 内存优化：
+ * - 创建单个浏览器实例，复用Context抓取所有商品详情
+ * - 从每个Offer 6个浏览器降低到1个浏览器
+ * - 预计内存节省80%+
  */
 export async function scrapeAmazonStoreDeep(
   storeUrl: string,
   topN: number = 5,
   customProxyUrl?: string,
   targetCountry?: string,
-  maxConcurrency: number = 3
+  maxConcurrency: number = 2  // 🔥 降低并发，因为复用同一个Context
 ): Promise<AmazonStoreData> {
   console.log(`🔍 店铺深度抓取开始: ${storeUrl}, 目标抓取 ${topN} 个热销商品`)
   console.log(`📊 产品缓存状态: ${JSON.stringify(getProductCacheStats())}`)
@@ -1305,112 +1320,102 @@ export async function scrapeAmazonStoreDeep(
   const seenCompetitorAsins = new Set<string>()
   const seenFeatures = new Set<string>()
 
-  for (let i = 0; i < hotProducts.length; i += maxConcurrency) {
-    const batch = hotProducts.slice(i, i + maxConcurrency)
-    console.log(`🔄 处理批次 ${Math.floor(i / maxConcurrency) + 1}: ${batch.length} 个商品`)
+  // 🔥 2025-12-12 内存优化：创建单个浏览器实例，复用Context
+  const effectiveProxyUrl = customProxyUrl || PROXY_URL
+  let browserResult: Awaited<ReturnType<typeof createStealthBrowser>> | null = null
 
-    const batchResults = await Promise.allSettled(
-      batch.map(async (product) => {
-        const asin = product.asin!
-        const productUrl = `https://www.amazon.com/dp/${asin}`
+  try {
+    // 创建浏览器实例用于所有商品详情抓取
+    browserResult = await createStealthBrowser(effectiveProxyUrl, targetCountry)
+    console.log(`🔄 [内存优化] 创建单个浏览器实例，将复用Context抓取 ${hotProducts.length} 个商品`)
 
-        console.log(`  🛒 抓取商品详情: ${product.name?.substring(0, 50)}... (${asin})`)
+    // 🔥 串行处理，避免同一Context并发过多Page导致不稳定
+    for (let i = 0; i < hotProducts.length; i++) {
+      const product = hotProducts[i]
+      const asin = product.asin!
+      const productUrl = `https://www.amazon.com/dp/${asin}`
 
-        // 🔥 优先检查缓存
-        const cached = getCachedProductDetail(asin)
-        if (cached) {
-          console.log(`  📦 缓存命中: ${asin}`)
-          return {
-            asin: asin,
-            productData: cached,
-            reviews: cached.topReviews || [],
-            reviewHighlights: cached.reviewHighlights || [],
-            competitorAsins: cached.relatedAsins || [],
-            features: cached.features || [],
-            scrapeStatus: 'success' as const
-          }
+      console.log(`  🛒 [${i + 1}/${hotProducts.length}] 抓取商品详情: ${product.name?.substring(0, 50)}... (${asin})`)
+
+      // 🔥 优先检查缓存
+      const cached = getCachedProductDetail(asin)
+      if (cached) {
+        console.log(`  📦 缓存命中: ${asin}`)
+        const cachedResult = {
+          asin: asin,
+          productData: cached,
+          reviews: cached.topReviews || [],
+          reviewHighlights: cached.reviewHighlights || [],
+          competitorAsins: cached.relatedAsins || [],
+          features: cached.features || [],
+          scrapeStatus: 'success' as const
         }
-
-        try {
-          const productData = await scrapeAmazonProduct(
-            productUrl,
-            customProxyUrl,
-            targetCountry,
-            2,
-            false  // 🔥 不跳过竞品提取，店铺场景需要收集竞品
-          )
-
-          // 保存到缓存
-          if (productData.asin) {
-            setCachedProductDetail(productData.asin, productData)
-          }
-
-          return {
-            asin: asin,
-            productData: productData,
-            reviews: productData.topReviews || [],
-            reviewHighlights: productData.reviewHighlights || [],
-            competitorAsins: productData.relatedAsins || [],
-            features: productData.features || [],
-            scrapeStatus: 'success' as const
-          }
-        } catch (error: any) {
-          console.error(`  ❌ 商品详情抓取失败 (${asin}): ${error.message}`)
-          return {
-            asin: asin,
-            productData: null,
-            reviews: [],
-            reviewHighlights: [],
-            competitorAsins: [],
-            features: [],
-            scrapeStatus: 'failed' as const,
-            error: error.message
-          }
-        }
-      })
-    )
-
-    for (const result of batchResults) {
-      if (result.status === 'fulfilled') {
-        const value = result.value
-        deepResults.topProducts.push(value)
-
-        if (value.scrapeStatus === 'success') {
-          deepResults.successCount++
-
-          // 🔥 聚合评论数据
-          if (value.reviews && value.reviews.length > 0) {
-            deepResults.aggregatedReviews!.push(...value.reviews)
-          }
-          if (value.reviewHighlights && value.reviewHighlights.length > 0) {
-            deepResults.aggregatedReviews!.push(...value.reviewHighlights)
-          }
-
-          // 🔥 聚合竞品ASIN（去重）
-          for (const competitorAsin of value.competitorAsins) {
-            if (!seenCompetitorAsins.has(competitorAsin) && competitorAsin !== value.asin) {
-              seenCompetitorAsins.add(competitorAsin)
-              deepResults.aggregatedCompetitorAsins!.push(competitorAsin)
-            }
-          }
-
-          // 🔥 聚合产品特性（去重）
-          for (const feature of value.features) {
-            const featureKey = feature.substring(0, 50).toLowerCase()
-            if (!seenFeatures.has(featureKey)) {
-              seenFeatures.add(featureKey)
-              deepResults.aggregatedFeatures!.push(feature)
-            }
-          }
-
-          console.log(`  ✅ 成功: ${value.asin}, 评价数: ${value.reviews.length}, 竞品数: ${value.competitorAsins.length}`)
-        } else {
-          deepResults.failedCount++
-        }
-      } else {
-        deepResults.failedCount++
-        console.error(`  ❌ Promise失败: ${result.reason}`)
+        deepResults.topProducts.push(cachedResult)
+        deepResults.successCount++
+        aggregateProductData(cachedResult, deepResults, seenCompetitorAsins, seenFeatures)
+        continue
       }
+
+      try {
+        // 🔥 使用复用Context的抓取函数
+        const productData = await scrapeAmazonProductWithContext(
+          browserResult.context,
+          productUrl,
+          targetCountry,
+          false  // 不跳过竞品提取，店铺场景需要收集竞品
+        )
+
+        // 保存到缓存
+        if (productData.asin) {
+          setCachedProductDetail(productData.asin, productData)
+        }
+
+        const successResult = {
+          asin: asin,
+          productData: productData,
+          reviews: productData.topReviews || [],
+          reviewHighlights: productData.reviewHighlights || [],
+          competitorAsins: productData.relatedAsins || [],
+          features: productData.features || [],
+          scrapeStatus: 'success' as const
+        }
+        deepResults.topProducts.push(successResult)
+        deepResults.successCount++
+        aggregateProductData(successResult, deepResults, seenCompetitorAsins, seenFeatures)
+
+        console.log(`  ✅ 成功: ${asin}, 评价数: ${successResult.reviews.length}, 竞品数: ${successResult.competitorAsins.length}`)
+
+        // 🔥 商品间添加随机延迟，模拟人类行为
+        if (i < hotProducts.length - 1) {
+          const delay = 1000 + Math.random() * 2000
+          console.log(`  ⏰ 等待 ${Math.round(delay)}ms 后继续...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+
+      } catch (error: any) {
+        console.error(`  ❌ 商品详情抓取失败 (${asin}): ${error.message}`)
+        deepResults.topProducts.push({
+          asin: asin,
+          productData: null,
+          reviews: [],
+          reviewHighlights: [],
+          competitorAsins: [],
+          features: [],
+          scrapeStatus: 'failed' as const,
+          error: error.message
+        })
+        deepResults.failedCount++
+
+        // 🔥 失败后等待更长时间，可能是反爬虫触发
+        await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 2000))
+      }
+    }
+
+  } finally {
+    // 🔥 确保浏览器实例被释放
+    if (browserResult) {
+      await releaseBrowser(browserResult)
+      console.log(`🔄 [内存优化] 浏览器实例已释放`)
     }
   }
 
@@ -1420,5 +1425,46 @@ export async function scrapeAmazonStoreDeep(
   return {
     ...storeData,
     deepScrapeResults: deepResults
+  }
+}
+
+/**
+ * 🔥 辅助函数：聚合产品数据到深度抓取结果
+ */
+function aggregateProductData(
+  result: {
+    asin: string
+    reviews: string[]
+    reviewHighlights: string[]
+    competitorAsins: string[]
+    features: string[]
+  },
+  deepResults: NonNullable<AmazonStoreData['deepScrapeResults']>,
+  seenCompetitorAsins: Set<string>,
+  seenFeatures: Set<string>
+): void {
+  // 聚合评论数据
+  if (result.reviews && result.reviews.length > 0) {
+    deepResults.aggregatedReviews!.push(...result.reviews)
+  }
+  if (result.reviewHighlights && result.reviewHighlights.length > 0) {
+    deepResults.aggregatedReviews!.push(...result.reviewHighlights)
+  }
+
+  // 聚合竞品ASIN（去重）
+  for (const competitorAsin of result.competitorAsins) {
+    if (!seenCompetitorAsins.has(competitorAsin) && competitorAsin !== result.asin) {
+      seenCompetitorAsins.add(competitorAsin)
+      deepResults.aggregatedCompetitorAsins!.push(competitorAsin)
+    }
+  }
+
+  // 聚合产品特性（去重）
+  for (const feature of result.features) {
+    const featureKey = feature.substring(0, 50).toLowerCase()
+    if (!seenFeatures.has(featureKey)) {
+      seenFeatures.add(featureKey)
+      deepResults.aggregatedFeatures!.push(feature)
+    }
   }
 }

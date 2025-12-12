@@ -8,8 +8,10 @@ import { normalizeBrandName } from '../offer-utils'
 import { parsePrice } from '../pricing-utils'  // 🔥 新增：统一价格解析函数
 import { getPlaywrightPool } from '../playwright-pool'
 import { isProxyConnectionError } from './proxy-utils'
-import { createStealthBrowser, releaseBrowser, configureStealthPage } from './browser-stealth'
+import { createStealthBrowser, releaseBrowser, configureStealthPage, randomDelay } from './browser-stealth'
 import { scrapeUrlWithBrowser } from './core'
+import { smartWaitForLoad } from '../smart-wait-strategy'
+import type { BrowserContext, Page } from 'playwright'
 import type { AmazonProductData } from './types'
 
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -146,6 +148,92 @@ export async function scrapeAmazonProduct(
 
   // 所有代理重试都失败
   throw lastError || new Error('Amazon产品抓取失败：已用尽所有代理重试')
+}
+
+/**
+ * 🔥 2025-12-12 内存优化: 复用已有BrowserContext抓取产品
+ *
+ * 用于深度抓取场景，避免每个商品都创建新浏览器实例
+ * 内存节省: 从6个浏览器/Offer降低到1个浏览器/Offer
+ *
+ * @param context - 已有的BrowserContext（由调用方管理生命周期）
+ * @param url - 产品URL
+ * @param targetCountry - 目标国家
+ * @param skipCompetitorExtraction - 是否跳过竞品提取
+ */
+export async function scrapeAmazonProductWithContext(
+  context: BrowserContext,
+  url: string,
+  targetCountry?: string,
+  skipCompetitorExtraction: boolean = true
+): Promise<AmazonProductData> {
+  console.log(`🛒 [复用Context] 抓取Amazon产品: ${url}`)
+
+  const page = await context.newPage()
+
+  try {
+    // 配置stealth页面
+    await configureStealthPage(page, targetCountry)
+
+    // 导航前随机延迟（模拟人类行为）
+    await randomDelay(300, 800)
+
+    // 导航到产品页面
+    await page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    })
+
+    // 等待关键元素
+    const productSelectors = [
+      '#productTitle',
+      'span[id="productTitle"]',
+      '#title_feature_div h1',
+      '#dp-container',
+    ]
+
+    let selectorFound = false
+    for (const selector of productSelectors) {
+      const found = await page.waitForSelector(selector, {
+        timeout: 5000,
+        state: 'visible'
+      }).then(() => true).catch(() => false)
+
+      if (found) {
+        selectorFound = true
+        break
+      }
+    }
+
+    if (!selectorFound) {
+      console.warn(`⚠️ [复用Context] 产品选择器未找到，继续尝试解析`)
+    }
+
+    // 智能等待页面加载
+    await smartWaitForLoad(page, url, { maxWaitTime: 8000 }).catch(() => {})
+
+    // 模拟人类滚动
+    await page.evaluate(() => window.scrollBy(0, Math.random() * 300 + 100)).catch(() => {})
+    await randomDelay(500, 1000)
+
+    // 获取HTML并解析
+    const html = await page.content()
+    const { load } = await import('cheerio')
+    const $ = load(html)
+
+    // 解析产品数据
+    const productData = parseAmazonProductHtml($, url, skipCompetitorExtraction)
+
+    console.log(`✅ [复用Context] 抓取成功: ${productData.productName?.substring(0, 50) || 'Unknown'}...`)
+
+    return productData
+
+  } finally {
+    // 🔥 关键：确保Page在finally中关闭，防止内存泄漏
+    await page.close().catch((e) => {
+      console.warn(`⚠️ [复用Context] Page关闭失败: ${e.message}`)
+    })
+  }
 }
 
 /**

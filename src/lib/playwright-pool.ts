@@ -13,14 +13,18 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright'
 
 /**
  * 连接池配置
+ * 🔥 2025-12-12 内存优化：
+ * - 减少最大实例数：10 → 5（配合深度抓取复用Context优化）
+ * - 缩短空闲时间：5分钟 → 1分钟（更快释放内存）
+ * - 减少每代理实例数：5 → 2（避免同一代理过多实例）
  */
 const POOL_CONFIG = {
-  maxInstances: 10,             // 最大浏览器实例数
-  maxInstancesPerProxy: 5,      // 🔥 优化（2025-12-10）：从3提升到5，支持5并发竞品抓取
-  maxIdleTime: 5 * 60 * 1000,   // 5分钟空闲后释放
+  maxInstances: 5,              // 🔥 内存优化：从10减到5
+  maxInstancesPerProxy: 2,      // 🔥 内存优化：从5减到2
+  maxIdleTime: 60 * 1000,       // 🔥 内存优化：从5分钟减到1分钟
   launchTimeout: 30000,         // 启动超时30秒
   acquireTimeout: 60000,        // 获取实例超时60秒
-  warmupCount: 2,               // 预热实例数
+  warmupCount: 1,               // 🔥 内存优化：从2减到1
 }
 
 /**

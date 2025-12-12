@@ -42,19 +42,22 @@ export async function scrapeUrlWithBrowser(
     return await retryWithBackoff(async () => {
       // 连接池模式已有context，独立模式需要创建
       const page = await browserResult.context.newPage()
-      await configureStealthPage(page, options.targetCountry)  // 🌍 传入目标国家
 
-      // Track redirects
-      const redirectChain: string[] = [url]
-      page.on('response', response => {
-        const status = response.status()
-        if (status >= 300 && status < 400) {
-          const location = response.headers()['location']
-          if (location) {
-            redirectChain.push(location)
+      // 🔥 2025-12-12 内存优化：使用try-finally确保Page在任何情况下都被关闭
+      try {
+        await configureStealthPage(page, options.targetCountry)  // 🌍 传入目标国家
+
+        // Track redirects
+        const redirectChain: string[] = [url]
+        page.on('response', response => {
+          const status = response.status()
+          if (status >= 300 && status < 400) {
+            const location = response.headers()['location']
+            if (location) {
+              redirectChain.push(location)
+            }
           }
-        }
-      })
+        })
 
       console.log(`🌐 访问URL: ${url}`)
 
@@ -423,15 +426,19 @@ export async function scrapeUrlWithBrowser(
         }
       }
 
-      // 关闭页面（context由releaseBrowser处理）
-      await page.close().catch(() => {})
-
       return {
         html,
         title,
         finalUrl,
         redirectChain: Array.from(new Set(redirectChain)), // Remove duplicates
         screenshot,
+      }
+
+      } finally {
+        // 🔥 2025-12-12 内存优化：确保Page在任何情况下都被关闭
+        await page.close().catch((e) => {
+          console.warn(`⚠️ Page关闭失败: ${e.message}`)
+        })
       }
     })
   } finally {
@@ -474,65 +481,70 @@ export async function resolveAffiliateLink(
       try {
         return await retryWithBackoff(async () => {
           const page = await browserResult.context.newPage()
-          await configureStealthPage(page, targetCountry)  // 🌍 传入目标国家
+          try {
+            await configureStealthPage(page, targetCountry)  // 🌍 传入目标国家
 
-          const redirectChain: string[] = [affiliateLink]
+            const redirectChain: string[] = [affiliateLink]
 
-          // Track all redirects
-          page.on('response', response => {
-            const url = response.url()
-            if (!redirectChain.includes(url)) {
-              redirectChain.push(url)
+            // Track all redirects
+            page.on('response', response => {
+              const url = response.url()
+              if (!redirectChain.includes(url)) {
+                redirectChain.push(url)
+              }
+            })
+
+            // Navigate and wait for final URL
+            await randomDelay(500, 1500)
+
+            await page.goto(affiliateLink, {
+              waitUntil: 'domcontentloaded',
+              timeout: getDynamicTimeout(affiliateLink), // 🔥 P1优化: 动态超时
+            })
+
+            // Wait for any JavaScript redirects
+            // 🔥 P1优化: 使用智能等待策略
+            const waitResult = await smartWaitForLoad(page, affiliateLink, { maxWaitTime: 15000 }).catch(() => ({
+              waited: 15000,
+              loadComplete: false,
+              signals: []
+            }))
+
+            console.log(`⏱️ 链接解析等待: ${waitResult.waited}ms, 信号: ${waitResult.signals.join(', ')}`)
+            recordWaitOptimization(15000, waitResult.waited)
+
+            await randomDelay(1000, 2000)
+
+            // 🔥 修复：使用page.evaluate获取完整URL，包括Cloudflare拦截页的URL
+            // page.url()在某些情况下可能返回不完整的URL
+            const finalUrl = await page.evaluate(() => window.location.href).catch(() => page.url())
+
+            // Parse final URL and suffix
+            const urlObj = new URL(finalUrl)
+            const basePath = `${urlObj.origin}${urlObj.pathname}`
+            const suffix = urlObj.search.substring(1) // Remove leading '?'
+
+            console.log(`✅ 最终URL: ${basePath}`)
+            console.log(`🔧 URL Suffix: ${suffix.substring(0, 100)}${suffix.length > 100 ? '...' : ''}`)
+
+            // 🔥 新增：如果suffix为空但finalUrl包含查询参数，记录警告
+            if (!suffix && finalUrl.includes('?')) {
+              console.warn(`⚠️ URL Suffix提取警告: finalUrl包含?但suffix为空`)
+              console.warn(`   finalUrl: ${finalUrl}`)
+              console.warn(`   urlObj.search: ${urlObj.search}`)
             }
-          })
 
-          // Navigate and wait for final URL
-          await randomDelay(500, 1500)
-
-          await page.goto(affiliateLink, {
-            waitUntil: 'domcontentloaded',
-            timeout: getDynamicTimeout(affiliateLink), // 🔥 P1优化: 动态超时
-          })
-
-          // Wait for any JavaScript redirects
-          // 🔥 P1优化: 使用智能等待策略
-          const waitResult = await smartWaitForLoad(page, affiliateLink, { maxWaitTime: 15000 }).catch(() => ({
-            waited: 15000,
-            loadComplete: false,
-            signals: []
-          }))
-
-          console.log(`⏱️ 链接解析等待: ${waitResult.waited}ms, 信号: ${waitResult.signals.join(', ')}`)
-          recordWaitOptimization(15000, waitResult.waited)
-
-          await randomDelay(1000, 2000)
-
-          // 🔥 修复：使用page.evaluate获取完整URL，包括Cloudflare拦截页的URL
-          // page.url()在某些情况下可能返回不完整的URL
-          const finalUrl = await page.evaluate(() => window.location.href).catch(() => page.url())
-
-          // Parse final URL and suffix
-          const urlObj = new URL(finalUrl)
-          const basePath = `${urlObj.origin}${urlObj.pathname}`
-          const suffix = urlObj.search.substring(1) // Remove leading '?'
-
-          console.log(`✅ 最终URL: ${basePath}`)
-          console.log(`🔧 URL Suffix: ${suffix.substring(0, 100)}${suffix.length > 100 ? '...' : ''}`)
-
-          // 🔥 新增：如果suffix为空但finalUrl包含查询参数，记录警告
-          if (!suffix && finalUrl.includes('?')) {
-            console.warn(`⚠️ URL Suffix提取警告: finalUrl包含?但suffix为空`)
-            console.warn(`   finalUrl: ${finalUrl}`)
-            console.warn(`   urlObj.search: ${urlObj.search}`)
-          }
-
-          await page.close().catch(() => {})
-
-          return {
-            finalUrl: basePath,
-            finalUrlSuffix: suffix,
-            redirectChain: Array.from(new Set(redirectChain)),
-            redirectCount: redirectChain.length - 1,
+            return {
+              finalUrl: basePath,
+              finalUrlSuffix: suffix,
+              redirectChain: Array.from(new Set(redirectChain)),
+              redirectCount: redirectChain.length - 1,
+            }
+          } finally {
+            // 🔥 内存优化：确保Page在任何情况下都关闭
+            await page.close().catch((e) => {
+              console.warn(`⚠️ [resolveAffiliateLink] Page关闭失败: ${e.message}`)
+            })
           }
         })
       } finally {
