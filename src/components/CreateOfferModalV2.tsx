@@ -51,6 +51,8 @@ interface ExtractedData {
   targetLanguage: string
   redirectCount: number
   resolveMethod: string
+  // 🔥 页面类型标识（店铺/单品）
+  pageType: 'store' | 'product'
   // AI分析结果
   brandDescription: string | null
   uniqueSellingPoints: string | null
@@ -122,6 +124,8 @@ export default function CreateOfferModalV2({
         targetLanguage: extractionResult.targetLanguage || 'English',
         redirectCount: extractionResult.redirectCount || 0,
         resolveMethod: 'sse-stream',
+        // 🔥 页面类型标识（店铺/单品）
+        pageType: extractionResult.pageType || 'product',
         // AI分析结果
         brandDescription: extractionResult.brandDescription || null,
         uniqueSellingPoints: extractionResult.uniqueSellingPoints || null,
@@ -204,6 +208,8 @@ export default function CreateOfferModalV2({
           target_audience: extractedData.targetAudience || undefined,
           category: extractedData.category || undefined,
           target_language: extractedData.targetLanguage,
+          // 🔥 页面类型标识（店铺/单品）
+          page_type: extractedData.pageType || 'product',
           // P0评论深度分析和竞品分析（JSON格式）
           review_analysis: extractedData.reviewAnalysis ? JSON.stringify(extractedData.reviewAnalysis) : undefined,
           competitor_analysis: extractedData.competitorAnalysis ? JSON.stringify(extractedData.competitorAnalysis) : undefined,

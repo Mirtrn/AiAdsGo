@@ -21,6 +21,8 @@ const createOfferSchema = z.object({
   // 需求28：产品价格和佣金比例（可选）
   product_price: z.string().optional(),
   commission_payout: z.string().optional(),
+  // 🔥 页面类型标识（店铺/单品）
+  page_type: z.enum(['store', 'product']).optional(),
   // AI分析结果字段（JSON字符串格式）
   review_analysis: z.string().optional(),
   competitor_analysis: z.string().optional(),
