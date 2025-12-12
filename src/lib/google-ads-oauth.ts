@@ -2,16 +2,17 @@ import { getDatabase } from './db'
 
 /**
  * Google Ads OAuth凭证接口
+ * 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须配置自己的完整凭证
  */
 export interface GoogleAdsCredentials {
   id: number
   user_id: number
-  client_id?: string | null  // 选填，可使用平台共享配置
-  client_secret?: string | null  // 选填，可使用平台共享配置
+  client_id: string         // 必填 - 独立账号模式，每用户独立配置
+  client_secret: string     // 必填 - 独立账号模式，每用户独立配置
   refresh_token: string
   access_token?: string
-  developer_token?: string | null  // 选填，可使用平台共享配置
-  login_customer_id: string  // 必填，MCC账户ID
+  developer_token: string   // 必填 - 独立账号模式，每用户独立配置
+  login_customer_id: string // 必填 - MCC账户ID
   access_token_expires_at?: string
   is_active: number
   last_verified_at?: string
@@ -21,15 +22,16 @@ export interface GoogleAdsCredentials {
 
 /**
  * 保存或更新Google Ads凭证
+ * 🔧 修复(2025-12-12): 独立账号模式 - 所有凭证字段必填
  */
 export async function saveGoogleAdsCredentials(
   userId: number,
   credentials: {
-    client_id?: string | null  // 选填，可使用平台共享配置
-    client_secret?: string | null  // 选填，可使用平台共享配置
+    client_id: string          // 必填 - 独立账号模式
+    client_secret: string      // 必填 - 独立账号模式
     refresh_token: string
-    developer_token?: string | null  // 选填，可使用平台共享配置
-    login_customer_id: string  // 必填，MCC账户ID
+    developer_token: string    // 必填 - 独立账号模式
+    login_customer_id: string  // 必填 - MCC账户ID
     access_token?: string
     access_token_expires_at?: string
   }
