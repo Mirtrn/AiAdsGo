@@ -227,23 +227,13 @@ export async function fetchProxyIp(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`\n🔍 [尝试 ${attempt}/${maxRetries}] 开始获取代理IP...`)
-      console.log(`📍 URL: ${proxyUrl}`)
+      // 🔥 KISS优化：精简日志，只保留关键信息
+      console.log(`🔍 [代理IP ${attempt}/${maxRetries}] 开始获取...`)
 
       // 🔥 最终解决方案：使用Playwright获取代理IP
       // 根本原因：CloudFlare的TLS指纹检测阻断了Node.js的所有网络方法
-      // - fetch (undici): ❌ ECONNRESET
-      // - axios: ❌ ECONNRESET
-      // - Node.js原生https: ❌ ECONNRESET
-      // - curl: ❌ ECONNRESET
-      // - 浏览器手动访问: ✅ 成功（用户已验证）
-      //
-      // 诊断结论：IPRocket使用CloudFlare，能区分Node.js的OpenSSL和浏览器的BoringSSL
-      // 解决方案：用Playwright（真实Chromium浏览器）获取代理IP
 
       const startTime = Date.now()
-      console.log(`⏰ 开始时间: ${new Date(startTime).toISOString()}`)
-      console.log(`🌐 使用Playwright（真实浏览器）获取代理IP...`)
 
       const { chromium } = await import('playwright')
 
@@ -374,39 +364,25 @@ export async function fetchProxyIp(
           } catch (e) {}
         })
 
-        // 页面加载前等待
-        await page.waitForTimeout(500)
-
-        console.log(`📡 访问代理URL...`)
-
+        // 🔥 KISS优化：移除不必要的等待，直接访问API
         const response = await page.goto(proxyUrl, {
-          waitUntil: 'domcontentloaded',  // 改为domcontentloaded，减少等待时间
+          waitUntil: 'domcontentloaded',
           timeout: 15000,
         })
-
-        const fetchTime = Date.now() - startTime
-        console.log(`✅ 页面加载完成，耗时: ${fetchTime}ms`)
-        console.log(`📊 HTTP状态码: ${response?.status() || 'unknown'}`)
 
         if (!response || response.status() !== 200) {
           throw new Error(`获取代理IP失败: HTTP ${response?.status() || 'unknown'}`)
         }
 
-        // 等待内容加载
-        await page.waitForTimeout(1000)
-
-        // 获取页面文本内容
+        // 🔥 KISS优化：文本API不需要额外等待，直接读取内容
         const text = await page.textContent('body')
         if (!text) {
           throw new Error('代理IP响应为空')
         }
 
         proxyString = text
-
-        const totalTime = Date.now() - startTime
-        console.log(`✅ 内容提取完成，总耗时: ${totalTime}ms`)
-        console.log(`📄 响应内容长度: ${proxyString.length} 字节`)
-        console.log(`📄 响应原始内容: ${proxyString.substring(0, 200)}${proxyString.length > 200 ? '...' : ''}`)
+        const fetchTime = Date.now() - startTime
+        console.log(`✅ [代理IP] 获取成功 (${fetchTime}ms)`)
 
       } finally {
         if (browser) {
@@ -416,24 +392,16 @@ export async function fetchProxyIp(
 
       // 如果返回多行，只取第一行
       const firstLine = proxyString.trim().split('\n')[0].trim()
-      console.log(`📌 提取第一行: ${firstLine}`)
 
       // Step 4: 解析代理字符串 (格式: host:port:username:password)
       const parts = firstLine.split(':')
-      console.log(`🔧 解析字段数量: ${parts.length}`)
-
       if (parts.length !== 4) {
         throw new Error(
-          `代理IP格式错误: 期望4个字段（host:port:username:password），实际${parts.length}个字段。\n响应内容: ${firstLine}`
+          `代理IP格式错误: 期望4个字段，实际${parts.length}个字段`
         )
       }
 
       const [host, portStr, username, password] = parts
-      console.log(`🔧 解析结果:`)
-      console.log(`   - host: ${host}`)
-      console.log(`   - port: ${portStr}`)
-      console.log(`   - username: ${username}`)
-      console.log(`   - password: ${password.substring(0, 4)}***`)
 
       // 验证host
       if (!host || host.length < 7) {
@@ -463,29 +431,22 @@ export async function fetchProxyIp(
         fullAddress: `${host}:${port}`,
       }
 
-      console.log(`✅ 成功解析代理凭证: ${credentials.fullAddress}`)
-
       // 🔥 P0优化：阻塞式健康检查，失败时重试获取新代理
       if (!skipHealthCheck) {
-        console.log(`🏥 开始代理IP健康检查...`)
         const healthCheck = await testProxyHealth(credentials, 10000)
         if (!healthCheck.healthy) {
-          console.warn(
-            `⚠️ 代理IP质量检测未通过: ${credentials.fullAddress}\n` +
-              `  - 响应时间: ${healthCheck.responseTime}ms\n` +
-              `  - 错误: ${healthCheck.error || '响应过慢'}\n` +
-              `  - 重试获取新代理IP...`
-          )
+          console.warn(`⚠️ 代理IP健康检查失败: ${credentials.fullAddress} (${healthCheck.error || '响应过慢'})`)
           throw new Error(`代理IP健康检查失败: ${healthCheck.error || '响应过慢'}`)
         }
-        console.log(`✅ 代理IP质量检测通过: ${credentials.fullAddress} (${healthCheck.responseTime}ms)`)
+        console.log(`✅ [代理IP] ${credentials.fullAddress} 健康检查通过 (${healthCheck.responseTime}ms)`)
+      } else {
+        console.log(`✅ [代理IP] ${credentials.fullAddress} (跳过健康检查)`)
       }
 
       return credentials
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('未知错误')
-      console.error(`\n❌ [尝试 ${attempt}/${maxRetries}] 失败`)
-      console.error(`📛 错误信息: ${lastError.message}`)
+      console.error(`❌ [代理IP ${attempt}/${maxRetries}] ${lastError.message}`)
 
       // 如果不是最后一次尝试，等待后重试
       if (attempt < maxRetries) {

@@ -29,6 +29,40 @@ import type { AmazonStoreData, AmazonProductData } from './types'
 const PROXY_URL = process.env.PROXY_URL || ''
 
 /**
+ * 🔥 KISS优化：根据目标国家获取对应的Amazon域名
+ * 默认返回 amazon.com (美国)
+ */
+function getAmazonDomain(targetCountry?: string): string {
+  if (!targetCountry) return 'www.amazon.com'
+
+  const domainMap: Record<string, string> = {
+    'US': 'www.amazon.com',
+    'DE': 'www.amazon.de',
+    'UK': 'www.amazon.co.uk',
+    'GB': 'www.amazon.co.uk',
+    'FR': 'www.amazon.fr',
+    'IT': 'www.amazon.it',
+    'ES': 'www.amazon.es',
+    'JP': 'www.amazon.co.jp',
+    'CA': 'www.amazon.ca',
+    'AU': 'www.amazon.com.au',
+    'NL': 'www.amazon.nl',
+    'SE': 'www.amazon.se',
+    'PL': 'www.amazon.pl',
+    'BE': 'www.amazon.com.be',
+    'MX': 'www.amazon.com.mx',
+    'BR': 'www.amazon.com.br',
+    'IN': 'www.amazon.in',
+    'SG': 'www.amazon.sg',
+    'AE': 'www.amazon.ae',
+    'SA': 'www.amazon.sa',
+    'TR': 'www.amazon.com.tr',
+  }
+
+  return domainMap[targetCountry.toUpperCase()] || 'www.amazon.com'
+}
+
+/**
  * Scrape Amazon Store page with multiple products
  * Extracts store info and product listings for AI creative generation
  * P0优化: 使用连接池减少启动时间
@@ -955,8 +989,9 @@ async function batchScrapeProductDetailsComplete(
 
     const batchResults = await Promise.allSettled(
       batch.map(async (asin) => {
-        const productUrl = `https://www.amazon.com/dp/${asin}`
-        console.log(`  🛒 抓取产品: ${asin}`)
+        const amazonDomain = getAmazonDomain(targetCountry)
+        const productUrl = `https://${amazonDomain}/dp/${asin}`
+        console.log(`  🛒 抓取产品: ${asin} (${amazonDomain})`)
 
         try {
           // 使用完整的 scrapeAmazonProduct 获取所有数据
@@ -1333,9 +1368,10 @@ export async function scrapeAmazonStoreDeep(
     for (let i = 0; i < hotProducts.length; i++) {
       const product = hotProducts[i]
       const asin = product.asin!
-      const productUrl = `https://www.amazon.com/dp/${asin}`
+      const amazonDomain = getAmazonDomain(targetCountry)
+      const productUrl = `https://${amazonDomain}/dp/${asin}`
 
-      console.log(`  🛒 [${i + 1}/${hotProducts.length}] 抓取商品详情: ${product.name?.substring(0, 50)}... (${asin})`)
+      console.log(`  🛒 [${i + 1}/${hotProducts.length}] 抓取商品详情: ${product.name?.substring(0, 50)}... (${asin}) [${amazonDomain}]`)
 
       // 🔥 优先检查缓存
       const cached = getCachedProductDetail(asin)
