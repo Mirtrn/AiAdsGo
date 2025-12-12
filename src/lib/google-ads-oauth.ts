@@ -249,9 +249,18 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
       return { valid: false, error: '缺少Refresh Token' }
     }
 
-    // 使用 google-ads-api 库验证凭证
+    // 🔧 修复(2025-12-12): 独立账号模式 - 必须使用用户自己的凭证
+    if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
+      return { valid: false, error: '凭证配置不完整，请在设置中完成 Google Ads API 配置' }
+    }
+
+    // 使用 google-ads-api 库验证凭证 - 传入用户自己的凭证
     const { getGoogleAdsClient } = await import('./google-ads-api')
-    const client = getGoogleAdsClient()
+    const client = getGoogleAdsClient({
+      client_id: credentials.client_id,
+      client_secret: credentials.client_secret,
+      developer_token: credentials.developer_token
+    })
 
     // 调用 listAccessibleCustomers 测试凭证
     const response = await client.listAccessibleCustomers(credentials.refresh_token)

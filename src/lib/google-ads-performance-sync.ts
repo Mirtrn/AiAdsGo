@@ -6,7 +6,7 @@
 import { getDatabase } from './db'
 import { saveCreativePerformance, PerformanceData } from './bonus-score-calculator'
 import { GoogleAdsApi } from 'google-ads-api'
-import { refreshAccessToken } from './google-ads-oauth'
+import { refreshAccessToken, getGoogleAdsCredentials } from './google-ads-oauth'
 
 interface SyncResult {
   success: boolean
@@ -17,12 +17,14 @@ interface SyncResult {
 
 /**
  * 同步单个广告创意的效果数据
+ * 🔧 修复(2025-12-12): 独立账号模式 - 添加 refreshToken 参数
  */
 export async function syncCreativePerformance(
   adCreativeId: number,
   userId: string,
   googleAdsClient: GoogleAdsApi,
-  customerID: string
+  customerID: string,
+  refreshToken: string
 ): Promise<boolean> {
   try {
     const db = await getDatabase()
@@ -46,10 +48,10 @@ export async function syncCreativePerformance(
       return false
     }
 
-    // 从Google Ads API获取效果数据
+    // 🔧 修复: 使用传入的 refreshToken 而不是环境变量
     const customer = googleAdsClient.Customer({
       customer_id: customerID,
-      refresh_token: process.env.GOOGLE_ADS_REFRESH_TOKEN!
+      refresh_token: refreshToken
     })
 
     // 查询最近30天的效果数据
@@ -125,12 +127,14 @@ export async function syncCreativePerformance(
 }
 
 /**
- * 批量同步所有活跃广告创意的效果数据
+ * 同步用户所有广告创意的效果数据
+ * 🔧 修复(2025-12-12): 独立账号模式 - 添加 refreshToken 参数
  */
 export async function syncAllCreativesPerformance(
   userId: string,
   googleAdsClient: GoogleAdsApi,
-  customerID: string
+  customerID: string,
+  refreshToken: string
 ): Promise<SyncResult> {
   const db = await getDatabase()
   const syncDate = new Date().toISOString().split('T')[0]
@@ -157,7 +161,8 @@ export async function syncAllCreativesPerformance(
         creative.id,
         userId,
         googleAdsClient,
-        customerID
+        customerID,
+        refreshToken
       )
 
       if (success) {
@@ -186,24 +191,44 @@ export async function syncAllCreativesPerformance(
 
 /**
  * API endpoint helper - Sync performance for a specific user
+ * 🔧 修复(2025-12-12): 独立账号模式 - 使用用户自己的凭证
  */
 export async function syncUserPerformanceData(userId: string): Promise<SyncResult> {
   try {
+    const userIdNum = parseInt(userId)
+    if (!userIdNum) {
+      throw new Error('Invalid userId')
+    }
+
+    // 🔧 修复: 获取用户自己的 Google Ads 凭证
+    const credentials = await getGoogleAdsCredentials(userIdNum)
+    if (!credentials) {
+      throw new Error('Google Ads credentials not configured. Please complete API configuration in Settings.')
+    }
+
+    if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
+      throw new Error('Incomplete Google Ads credentials. Please complete API configuration in Settings.')
+    }
+
+    if (!credentials.refresh_token) {
+      throw new Error('OAuth not completed. Please complete OAuth authorization in Settings.')
+    }
+
     // 刷新 access token 以确保有效
     console.log('[PerformanceSync] Refreshing access token...')
     try {
-      await refreshAccessToken(parseInt(userId) || 1)
+      await refreshAccessToken(userIdNum)
       console.log('[PerformanceSync] Access token refreshed successfully')
     } catch (refreshError: any) {
       console.warn('[PerformanceSync] Token refresh warning:', refreshError.message)
       // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
     }
 
-    // Initialize Google Ads client
+    // 🔧 修复: 使用用户自己的凭证创建 Google Ads client
     const googleAdsClient = new GoogleAdsApi({
-      client_id: process.env.GOOGLE_ADS_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_ADS_CLIENT_SECRET!,
-      developer_token: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!
+      client_id: credentials.client_id,
+      client_secret: credentials.client_secret,
+      developer_token: credentials.developer_token
     })
 
     const db = await getDatabase()
@@ -223,7 +248,7 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       throw new Error('No active Google Ads account found')
     }
 
-    return await syncAllCreativesPerformance(userId, googleAdsClient, account.customer_id)
+    return await syncAllCreativesPerformance(userId, googleAdsClient, account.customer_id, credentials.refresh_token)
   } catch (error) {
     return {
       success: false,

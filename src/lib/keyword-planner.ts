@@ -76,66 +76,51 @@ async function getUserCustomerId(db: any, userId: number): Promise<string> {
   return account?.customer_id || ''
 }
 
-// Get Google Ads API config with hybrid mode support
-// - If user has complete OAuth config (client_id, client_secret, developer_token): use user's config
-// - If not: share autoads user's OAuth config, but use user's login_customer_id and customer_id
+// 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须配置自己的完整 OAuth 凭证
+// Get Google Ads API config - requires user's own complete OAuth config
 async function getGoogleAdsConfig(userId?: number): Promise<KeywordPlannerConfig | null> {
   try {
-    const db = await getDatabase()
-    const autoadsUserId = 1
-    const targetUserId = userId || autoadsUserId
-
-    // 1. Read target user's config
-    const userConfigs = await readUserConfigs(db, targetUserId)
-
-    // 2. Check if user has complete OAuth config
-    const hasFullOAuthConfig = !!(
-      userConfigs.client_id &&
-      userConfigs.client_secret &&
-      userConfigs.developer_token
-    )
-
-    let clientId: string
-    let clientSecret: string
-    let developerToken: string
-    let refreshToken: string
-
-    if (hasFullOAuthConfig) {
-      // User has complete OAuth config - use user's own credentials
-      console.log(`[KeywordPlanner] Using user ${targetUserId}'s own OAuth config`)
-      clientId = userConfigs.client_id
-      clientSecret = userConfigs.client_secret
-      developerToken = userConfigs.developer_token
-      refreshToken = await getUserRefreshToken(db, targetUserId)
-
-      // If user hasn't completed OAuth yet, show warning
-      if (!refreshToken) {
-        console.warn(`[KeywordPlanner] User ${targetUserId} has OAuth config but no refresh_token. Please complete OAuth authorization.`)
-      }
-    } else {
-      // User doesn't have complete OAuth config - share autoads config
-      console.log(`[KeywordPlanner] Sharing autoads OAuth config for user ${targetUserId}`)
-      const autoadsConfigs = await readUserConfigs(db, autoadsUserId)
-      clientId = autoadsConfigs.client_id || process.env.GOOGLE_ADS_CLIENT_ID || ''
-      clientSecret = autoadsConfigs.client_secret || process.env.GOOGLE_ADS_CLIENT_SECRET || ''
-      developerToken = autoadsConfigs.developer_token || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || ''
-      refreshToken = await getUserRefreshToken(db, autoadsUserId) || process.env.GOOGLE_ADS_REFRESH_TOKEN || ''
-    }
-
-    // 3. login_customer_id: Always use user's own (required field, no fallback to other users)
-    const loginCustomerId = userConfigs.login_customer_id || ''
-
-    // 校验: login_customer_id 是必填项，用户必须在设置页面配置自己的MCC账户ID
-    if (!loginCustomerId) {
-      console.error(`[KeywordPlanner] User ${targetUserId} has not configured login_customer_id (MCC ID). Please configure it in Settings page.`)
+    if (!userId) {
+      console.error('[KeywordPlanner] userId is required for independent account mode')
       return null
     }
 
-    // 4. customer_id: Always use user's own
-    let customerId = await getUserCustomerId(db, targetUserId)
+    const db = await getDatabase()
+
+    // 1. Read user's config
+    const userConfigs = await readUserConfigs(db, userId)
+
+    // 2. 独立账号模式 - 必须有完整的 OAuth 配置
+    const clientId = userConfigs.client_id
+    const clientSecret = userConfigs.client_secret
+    const developerToken = userConfigs.developer_token
+
+    if (!clientId || !clientSecret || !developerToken) {
+      console.error(`[KeywordPlanner] User ${userId} has incomplete OAuth config. Please complete Google Ads API configuration in Settings.`)
+      return null
+    }
+
+    console.log(`[KeywordPlanner] Using user ${userId}'s own OAuth config`)
+
+    // 3. Get refresh token
+    const refreshToken = await getUserRefreshToken(db, userId)
+    if (!refreshToken) {
+      console.error(`[KeywordPlanner] User ${userId} has no refresh_token. Please complete OAuth authorization.`)
+      return null
+    }
+
+    // 4. login_customer_id: 必填项
+    const loginCustomerId = userConfigs.login_customer_id || ''
+    if (!loginCustomerId) {
+      console.error(`[KeywordPlanner] User ${userId} has not configured login_customer_id (MCC ID). Please configure it in Settings page.`)
+      return null
+    }
+
+    // 5. customer_id: 使用用户自己的账号
+    let customerId = await getUserCustomerId(db, userId)
     if (!customerId) {
-      // Fallback to env if user has no accounts
-      customerId = process.env.GOOGLE_ADS_CUSTOMER_IDS?.split(',')[0] || ''
+      console.warn(`[KeywordPlanner] User ${userId} has no Google Ads accounts. Using login_customer_id as fallback.`)
+      customerId = loginCustomerId
     }
 
     return {

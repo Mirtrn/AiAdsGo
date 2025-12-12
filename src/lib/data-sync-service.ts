@@ -1,6 +1,7 @@
 import { getCustomer } from './google-ads-api'
 import { getDatabase } from './db'
 import { enums } from 'google-ads-api'
+import { getGoogleAdsCredentials } from './google-ads-oauth'
 
 /**
  * 同步状态
@@ -33,12 +34,19 @@ export interface SyncLog {
 
 /**
  * GAQL查询参数
+ * 🔧 修复(2025-12-12): 独立账号模式 - 添加凭证参数
  */
 export interface GAQLQueryParams {
   customerId: string
   refreshToken: string
   startDate: string // YYYY-MM-DD
   endDate: string // YYYY-MM-DD
+  credentials?: {
+    client_id: string
+    client_secret: string
+    developer_token: string
+    login_customer_id?: string
+  }
 }
 
 /**
@@ -90,6 +98,7 @@ export class DataSyncService {
 
   /**
    * 执行数据同步（手动触发或定时任务）
+   * 🔧 修复(2025-12-12): 独立账号模式 - 使用用户凭证
    */
   async syncPerformanceData(
     userId: number,
@@ -113,6 +122,22 @@ export class DataSyncService {
     let syncLogId: number | undefined
 
     try {
+      // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
+      const credentials = await getGoogleAdsCredentials(userId)
+      if (!credentials) {
+        throw new Error('Google Ads 凭证未配置，请在设置页面完成配置')
+      }
+      if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
+        throw new Error('Google Ads 凭证配置不完整，请在设置页面完成配置')
+      }
+
+      const userCredentials = {
+        client_id: credentials.client_id,
+        client_secret: credentials.client_secret,
+        developer_token: credentials.developer_token,
+        login_customer_id: credentials.login_customer_id || undefined
+      }
+
       // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
       const isActiveValue = db.type === 'postgres' ? true : 1
 
@@ -180,6 +205,7 @@ export class DataSyncService {
           refreshToken: account.refresh_token,
           startDate: this.formatDate(startDate),
           endDate: this.formatDate(endDate),
+          credentials: userCredentials,
         })
 
         // 4. 批量写入数据库（使用upsert处理重复）
@@ -309,15 +335,23 @@ export class DataSyncService {
 
   /**
    * 使用GAQL查询性能数据
+   * 🔧 修复(2025-12-12): 独立账号模式 - 传递用户凭证
    */
   private async queryPerformanceData(
     params: GAQLQueryParams
   ): Promise<CampaignPerformanceData[]> {
-    const { customerId, refreshToken, startDate, endDate } = params
+    const { customerId, refreshToken, startDate, endDate, credentials } = params
 
     try {
-      // 获取Google Ads Customer实例
-      const customer = await getCustomer(customerId, refreshToken)
+      // 🔧 修复: 传递用户凭证给 getCustomer
+      const customer = await getCustomer(
+        customerId,
+        refreshToken,
+        undefined,
+        undefined,
+        credentials?.login_customer_id,
+        credentials
+      )
 
       // GAQL查询语句
       const query = `
