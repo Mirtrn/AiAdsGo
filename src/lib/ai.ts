@@ -573,29 +573,105 @@ export async function analyzeProductPage(
 
     // 🔥 修复（2025-12-13）：店铺场景整合热销商品的产品亮点
     // 问题：店铺场景AI返回的是 hotProducts 数组，每个产品有 productHighlights
-    // 解决：将所有热销商品的 productHighlights 整合成店铺整体的产品亮点
+    // 解决：使用AI智能整合提炼热销商品的产品亮点，而不是简单汇总
     if (pageType === 'store' && pi.hotProducts && Array.isArray(pi.hotProducts)) {
-      const allHighlights: string[] = []
+      try {
+        // 收集所有热销商品的产品亮点
+        const allProductHighlights: Array<{ productName: string; highlights: string[] }> = []
 
-      pi.hotProducts.forEach((product: any, index: number) => {
-        if (product.productHighlights && Array.isArray(product.productHighlights)) {
-          // 添加产品名称作为分组标题
-          if (product.name) {
-            allHighlights.push(`\n【${product.name}】`)
+        pi.hotProducts.forEach((product: any) => {
+          if (product.productHighlights && Array.isArray(product.productHighlights) && product.productHighlights.length > 0) {
+            allProductHighlights.push({
+              productName: product.name || 'Unknown Product',
+              highlights: product.productHighlights
+            })
           }
-          // 添加该产品的所有亮点
-          product.productHighlights.forEach((highlight: string) => {
-            allHighlights.push(`• ${highlight}`)
-          })
-        }
-      })
+        })
 
-      // 如果成功提取到亮点，覆盖原有的 productHighlights
-      if (allHighlights.length > 0) {
-        productInfo.productHighlights = allHighlights.join('\n')
-        logger.debug(`✅ [STORE] 整合了 ${pi.hotProducts.length} 个热销商品的产品亮点 (共${allHighlights.length}条)`)
-      } else {
-        logger.debug(`⚠️ [STORE] 未能从 hotProducts 中提取产品亮点`)
+        if (allProductHighlights.length > 0) {
+          // 调用AI整合提炼产品亮点
+          const synthesisPrompt = `You are a product marketing expert. Analyze the product highlights from ${allProductHighlights.length} hot-selling products in a brand store and synthesize them into 5-8 key store-level product highlights.
+
+=== INPUT: Product Highlights by Product ===
+${allProductHighlights.map((p, i) => `
+Product ${i + 1}: ${p.productName}
+${p.highlights.map(h => `- ${h}`).join('\n')}
+`).join('\n')}
+
+=== TASK ===
+Synthesize these product-level highlights into 5-8 concise, store-level product highlights that:
+1. Identify common themes and technologies across products
+2. Highlight unique innovations that differentiate the brand
+3. Focus on customer benefits, not just features
+4. Use clear, compelling language
+5. Avoid repetition
+
+=== OUTPUT FORMAT ===
+Return a JSON object with this structure:
+{
+  "storeHighlights": [
+    "Highlight 1 - Brief explanation",
+    "Highlight 2 - Brief explanation",
+    ...
+  ]
+}
+
+Output in ${langName}.`
+
+          const synthesisResult = await generateContent({
+            operationType: 'store_highlights_synthesis',
+            prompt: synthesisPrompt,
+            temperature: 0.7,
+            maxOutputTokens: 1024,
+          }, userId)
+
+          // 记录token使用
+          if (synthesisResult.usage) {
+            const cost = estimateTokenCost(
+              synthesisResult.model,
+              synthesisResult.usage.inputTokens,
+              synthesisResult.usage.outputTokens
+            )
+            await recordTokenUsage({
+              userId,
+              model: synthesisResult.model,
+              operationType: 'store_highlights_synthesis',
+              inputTokens: synthesisResult.usage.inputTokens,
+              outputTokens: synthesisResult.usage.outputTokens,
+              totalTokens: synthesisResult.usage.totalTokens,
+              cost,
+              apiType: synthesisResult.apiType
+            })
+          }
+
+          // 解析AI返回的整合亮点
+          const synthesisText = synthesisResult.text
+          const jsonMatch = synthesisText.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const synthesisData = JSON.parse(jsonMatch[0])
+            if (synthesisData.storeHighlights && Array.isArray(synthesisData.storeHighlights)) {
+              productInfo.productHighlights = synthesisData.storeHighlights.join('\n')
+              logger.debug(`✅ [STORE] AI整合提炼了 ${allProductHighlights.length} 个热销商品的产品亮点 → ${synthesisData.storeHighlights.length} 条店铺级亮点`)
+            }
+          }
+        } else {
+          logger.debug(`⚠️ [STORE] 未能从 hotProducts 中提取产品亮点`)
+        }
+      } catch (error: any) {
+        logger.error(`❌ [STORE] AI整合产品亮点失败: ${error.message}`)
+        // 降级方案：简单汇总
+        const allHighlights: string[] = []
+        pi.hotProducts.forEach((product: any) => {
+          if (product.productHighlights && Array.isArray(product.productHighlights)) {
+            product.productHighlights.forEach((highlight: string) => {
+              allHighlights.push(`• ${highlight}`)
+            })
+          }
+        })
+        if (allHighlights.length > 0) {
+          productInfo.productHighlights = allHighlights.slice(0, 10).join('\n')
+          logger.debug(`⚠️ [STORE] 降级为简单汇总: ${allHighlights.length} 条亮点`)
+        }
       }
     }
 
