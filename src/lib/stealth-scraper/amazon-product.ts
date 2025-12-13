@@ -302,14 +302,25 @@ export async function scrapeAmazonProductWithContext(
         const scrollHeight = document.body.scrollHeight
         window.scrollTo(0, scrollHeight * 0.85)
       }).catch(() => {})
-      await randomDelay(1500, 2000)
+      await randomDelay(1000, 1500)
 
       // 滚动到接近页面底部
       await page.evaluate(() => {
         const scrollHeight = document.body.scrollHeight
         window.scrollTo(0, scrollHeight * 0.95)
       }).catch(() => {})
-      await randomDelay(1500, 2000)
+
+      // 🔥 关键修复：等待网络空闲，确保竞品推荐区域的AJAX请求完成
+      // 这是单品链接能拿到竞品数据、店铺场景拿不到的根本原因
+      console.log(`⏳ [复用Context] 等待竞品推荐区域AJAX加载...`)
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 5000 })
+        console.log(`✅ [复用Context] 网络空闲，竞品推荐AJAX加载完成`)
+      } catch {
+        // 超时不是错误，继续处理
+        console.log(`⚠️ [复用Context] 网络空闲等待超时，继续处理`)
+      }
+      await randomDelay(500, 1000)
 
       // 检查是否有竞品推荐区域加载
       const hasCompetitorSections = await page.evaluate(() => {
