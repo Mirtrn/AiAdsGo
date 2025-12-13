@@ -44,6 +44,23 @@ const nextConfig = {
     ],
     // 启用 instrumentation
     instrumentationHook: true,
+    // 🔐 Server Actions 安全配置
+    serverActions: {
+      // 允许的来源域名（生产环境）
+      allowedOrigins: [
+        'autoads.dev',
+        'www.autoads.dev',
+        'app.autoads.dev',
+        'localhost:3000',
+        'localhost',
+      ],
+      // 允许转发的请求（nginx反向代理场景）
+      allowedForwardedHosts: [
+        'autoads.dev',
+        'www.autoads.dev',
+        'app.autoads.dev',
+      ],
+    },
   },
 
   webpack: (config, { isServer }) => {
