@@ -137,8 +137,7 @@ Return a COMPLETE JSON object:
     "marketingAngles": ["Angle 1 for ads", "Angle 2 for ads"]
   }
 }',
-    change_notes = 'v3.2更新: 1. 新增quantitativeHighlights提取评论中的具体数字（续航、功率、容量等） 2. 新增competitorMentions追踪用户提及的竞品品牌',
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = 'v3.2更新: 1. 新增quantitativeHighlights提取评论中的具体数字（续航、功率、容量等） 2. 新增competitorMentions追踪用户提及的竞品品牌'
 WHERE name = 'review_analysis';
 
 -- ==========================================
@@ -226,6 +225,5 @@ Return ONLY a valid JSON object with this exact structure:
   * Unique differentiation (20%): More USPs = higher score
 
 **Important**: Return ONLY the JSON object, no markdown code blocks, no explanations.',
-    change_notes = 'v3.2更新: 新增competitorWeaknesses字段，从竞品常见问题中提取可用于广告的差异化卖点',
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = 'v3.2更新: 新增competitorWeaknesses字段，从竞品常见问题中提取可用于广告的差异化卖点'
 WHERE name = 'competitor_analysis';
