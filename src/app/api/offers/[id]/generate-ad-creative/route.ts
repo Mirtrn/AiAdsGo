@@ -174,7 +174,8 @@ export async function POST(
             engagement: evaluation.localEvaluation.dimensions.completeness.score,
             diversity: evaluation.localEvaluation.dimensions.diversity.score,
             clarity: evaluation.localEvaluation.dimensions.compliance.score,
-            brandSearchVolume: evaluation.localEvaluation.dimensions.brandSearchVolume.score
+            brandSearchVolume: evaluation.localEvaluation.dimensions.brandSearchVolume.score,
+            competitivePositioning: evaluation.localEvaluation.dimensions.competitivePositioning.score
           }
         })
       }))
@@ -234,7 +235,8 @@ export async function POST(
           engagement: evaluation.localEvaluation.dimensions.completeness.score,
           diversity: evaluation.localEvaluation.dimensions.diversity.score,
           clarity: evaluation.localEvaluation.dimensions.compliance.score,
-          brandSearchVolume: evaluation.localEvaluation.dimensions.brandSearchVolume.score
+          brandSearchVolume: evaluation.localEvaluation.dimensions.brandSearchVolume.score,
+          competitivePositioning: evaluation.localEvaluation.dimensions.competitivePositioning.score
         }
       })
 
@@ -307,11 +309,9 @@ export async function GET(
     const generationRound = searchParams.get('generation_round')
     const isSelected = searchParams.get('is_selected')
 
-    // 🔥 性能优化：默认使用轻量级模式快速返回
     const creatives = await listAdCreativesByOffer(offerId, authResult.user.userId, {
       generation_round: generationRound ? parseInt(generationRound) : undefined,
-      is_selected: isSelected === 'true' ? true : isSelected === 'false' ? false : undefined,
-      lightweight: true  // 只返回核心字段，提升加载速度
+      is_selected: isSelected === 'true' ? true : isSelected === 'false' ? false : undefined
     })
 
     return NextResponse.json({

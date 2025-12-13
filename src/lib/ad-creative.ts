@@ -43,15 +43,16 @@ export interface AdCreative {
   path_1?: string               // URL路径1
   path_2?: string               // URL路径2
 
-  // 评分信息
-  score: number                 // 总评分 (0-100)
+  // 评分信息 (Ad Strength 7维度评分体系)
+  score: number                      // 总评分 (0-100)
   score_breakdown: {
-    relevance: number           // 相关性 (0-30)
-    quality: number             // 质量 (0-25)
-    engagement: number          // 吸引力 (0-25)
-    diversity: number           // 多样性 (0-10)
-    clarity: number             // 清晰度 (0-10)
-    brandSearchVolume?: number  // 品牌搜索量 (0-20, 可选)
+    relevance: number                // 相关性 (0-18)
+    quality: number                  // 质量 (0-14)
+    engagement: number               // 吸引力/完整性 (0-14)
+    diversity: number                // 多样性 (0-18)
+    clarity: number                  // 清晰度/合规性 (0-8)
+    brandSearchVolume: number        // 品牌搜索量 (0-18)
+    competitivePositioning: number   // 竞争定位 (0-10)
   }
   score_explanation: string
 
@@ -152,7 +153,7 @@ export async function createAdCreative(
     final_url_suffix?: string
     ai_model?: string
     generation_round?: number
-    // 新增：允许外部传入评分（Ad Strength评估结果）
+    // 新增：允许外部传入评分（Ad Strength 7维度评估结果）
     score?: number
     score_breakdown?: {
       relevance: number
@@ -160,7 +161,8 @@ export async function createAdCreative(
       engagement: number
       diversity: number
       clarity: number
-      brandSearchVolume?: number  // 品牌搜索量维度（可选）
+      brandSearchVolume: number
+      competitivePositioning: number
     }
     // 🔧 新增：完整的 Ad Strength 评估数据（7维度）
     adStrength?: {
@@ -241,8 +243,6 @@ export async function findAdCreativeById(id: number, userId: number): Promise<Ad
 
 /**
  * 获取Offer的所有广告创意
- *
- * @param lightweight - 如果为true，只返回核心字段（用于列表展示）以提升性能
  */
 export async function listAdCreativesByOffer(
   offerId: number,
@@ -250,7 +250,6 @@ export async function listAdCreativesByOffer(
   options?: {
     generation_round?: number
     is_selected?: boolean
-    lightweight?: boolean  // 🔥 新增：轻量级模式
   }
 ): Promise<AdCreative[]> {
   const db = await getDatabase()
@@ -268,13 +267,8 @@ export async function listAdCreativesByOffer(
     params.push(options.is_selected ? 1 : 0)
   }
 
-  // 🔥 性能优化：轻量级模式只查询必要字段
-  const selectFields = options?.lightweight
-    ? 'id, offer_id, user_id, headlines, descriptions, keywords, keywords_with_volume, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, score, score_breakdown, theme, created_at, is_selected'
-    : '*'
-
   const rows = await db.query(`
-    SELECT ${selectFields} FROM ad_creatives
+    SELECT * FROM ad_creatives
     WHERE ${whereConditions.join(' AND ')}
     ORDER BY score DESC, created_at DESC
   `, params) as any[]

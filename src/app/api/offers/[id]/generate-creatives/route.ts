@@ -232,7 +232,9 @@ export async function POST(
         quality: bestEvaluation.localEvaluation.dimensions.quality.score,
         engagement: bestEvaluation.localEvaluation.dimensions.completeness.score,
         diversity: bestEvaluation.localEvaluation.dimensions.diversity.score,
-        clarity: bestEvaluation.localEvaluation.dimensions.compliance.score
+        clarity: bestEvaluation.localEvaluation.dimensions.compliance.score,
+        brandSearchVolume: bestEvaluation.localEvaluation.dimensions.brandSearchVolume.score,
+        competitivePositioning: bestEvaluation.localEvaluation.dimensions.competitivePositioning.score
       },
       generation_round: attempts, // 传入实际的尝试次数
       ai_model: bestCreative.ai_model // 传入实际使用的AI模型
