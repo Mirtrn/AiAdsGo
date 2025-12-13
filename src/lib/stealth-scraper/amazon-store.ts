@@ -231,10 +231,17 @@ async function scrapeStorePageContent(
       })
 
       if (!response) throw new Error('No response received')
-      console.log(`📊 HTTP状态: ${response.status()}`)
+      const httpStatus = response.status()
+      console.log(`📊 HTTP状态: ${httpStatus}`)
+
+      // 🔥 FIX: 429 (Too Many Requests) 应该触发重试，而不是继续解析
+      if (httpStatus === 429) {
+        console.warn(`⚠️ 检测到429限流，触发重试...`)
+        throw new Error('HTTP 429: Amazon rate limit, need retry with different proxy')
+      }
 
       const pageTitle = await page.title().catch(() => '')
-      if (pageTitle.includes('Page Not Found') || response.status() === 404) {
+      if (pageTitle.includes('Page Not Found') || httpStatus === 404) {
         console.warn(`⚠️ 检测到404页面，尝试使用完整参数URL`)
 
         if (finalUrlWithParams !== url && finalUrlWithParams.includes('?')) {
@@ -243,6 +250,13 @@ async function scrapeStorePageContent(
             waitUntil: 'domcontentloaded',
             timeout: getDynamicTimeout(finalUrlWithParams),
           })
+
+          // 🔥 FIX: 重新访问后也检查429
+          const retryStatus = response?.status()
+          if (retryStatus === 429) {
+            console.warn(`⚠️ 重试后仍遇到429限流`)
+            throw new Error('HTTP 429: Amazon rate limit on retry')
+          }
         }
       }
 

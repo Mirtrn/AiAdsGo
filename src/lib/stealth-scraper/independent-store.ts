@@ -73,7 +73,13 @@ export async function scrapeIndependentStore(
         })
 
         if (!response) throw new Error('No response received')
-        console.log(`📊 HTTP状态: ${response.status()}`)
+        const httpStatus = response.status()
+        console.log(`📊 HTTP状态: ${httpStatus}`)
+
+        // 🔥 FIX: 处理429限流
+        if (httpStatus === 429) {
+          throw new Error('HTTP 429: Rate limit, need retry')
+        }
 
         // Wait for content to load with smart wait strategy
         const waitResult = await smartWaitForLoad(page, url, { maxWaitTime: 15000 }).catch(() => ({
