@@ -336,6 +336,76 @@ export default function Step4PublishSummary({
         </CardHeader>
       </Card>
 
+      {/* Pause Option & Publish Button - Combined in one row */}
+      <div className="flex items-center justify-between gap-4 py-2">
+        {/* Left: Pause Option */}
+        <div className="flex items-center space-x-3">
+          <Checkbox
+            id="pauseOld"
+            checked={pauseOldCampaigns}
+            onCheckedChange={(checked) => setPauseOldCampaigns(checked as boolean)}
+          />
+          <Label
+            htmlFor="pauseOld"
+            className="text-sm font-medium cursor-pointer"
+          >
+            暂停所有已存在的广告系列
+          </Label>
+        </div>
+
+        {/* Right: Publish Button */}
+        <Button
+          onClick={handlePublish}
+          disabled={publishing}
+          size="default"
+          className="min-w-[140px]"
+        >
+          {publishing ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              发布中...
+            </>
+          ) : (
+            <>
+              <Rocket className="w-4 h-4 mr-2" />
+              发布广告
+            </>
+          )}
+        </Button>
+      </div>
+
+      {/* Publish Status */}
+      {publishStatus && (
+        <Alert
+          className={
+            publishStatus.success
+              ? 'bg-green-50 border-green-200'
+              : publishStatus.step === 'failed'
+              ? 'bg-red-50 border-red-200'
+              : 'bg-blue-50 border-blue-200'
+          }
+        >
+          {publishStatus.success ? (
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+          ) : publishStatus.step === 'failed' ? (
+            <AlertCircle className="h-4 w-4 text-red-600" />
+          ) : (
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+          )}
+          <AlertDescription
+            className={
+              publishStatus.success
+                ? 'text-green-900'
+                : publishStatus.step === 'failed'
+                ? 'text-red-900'
+                : 'text-blue-900'
+            }
+          >
+            {publishStatus.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Ad Creative Summary */}
       <Card>
         <CardHeader>
@@ -484,7 +554,7 @@ export default function Step4PublishSummary({
               <Separator className="my-4" />
               <div>
                 <span className="text-sm text-gray-600">最终网址后缀:</span>
-                <div className="text-sm font-mono bg-gray-50 p-2 rounded mt-1">
+                <div className="text-sm font-mono bg-gray-50 p-2 rounded mt-1 break-all whitespace-pre-wrap">
                   {campaignConfig.finalUrlSuffix}
                 </div>
               </div>
@@ -514,90 +584,6 @@ export default function Step4PublishSummary({
               已验证
             </Badge>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Pause Old Campaigns Option */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-start space-x-3">
-            <Checkbox
-              id="pauseOld"
-              checked={pauseOldCampaigns}
-              onCheckedChange={(checked) => setPauseOldCampaigns(checked as boolean)}
-            />
-            <div className="flex-1">
-              <Label
-                htmlFor="pauseOld"
-                className="text-base font-medium cursor-pointer"
-              >
-                暂停所有已存在的广告系列
-              </Label>
-              <p className="text-sm text-gray-500 mt-1">
-                勾选此项将在发布新广告前，自动暂停该Offer下所有正在投放的广告系列
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Publish Status */}
-      {publishStatus && (
-        <Alert
-          className={
-            publishStatus.success
-              ? 'bg-green-50 border-green-200'
-              : publishStatus.step === 'failed'
-              ? 'bg-red-50 border-red-200'
-              : 'bg-blue-50 border-blue-200'
-          }
-        >
-          {publishStatus.success ? (
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
-          ) : publishStatus.step === 'failed' ? (
-            <AlertCircle className="h-4 w-4 text-red-600" />
-          ) : (
-            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-          )}
-          <AlertDescription
-            className={
-              publishStatus.success
-                ? 'text-green-900'
-                : publishStatus.step === 'failed'
-                ? 'text-red-900'
-                : 'text-blue-900'
-            }
-          >
-            {publishStatus.message}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Publish Button */}
-      <Card>
-        <CardContent className="py-6">
-          <Button
-            onClick={handlePublish}
-            disabled={publishing}
-            size="lg"
-            className="w-full"
-          >
-            {publishing ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                发布中...
-              </>
-            ) : (
-              <>
-                <Rocket className="w-5 h-5 mr-2" />
-                发布广告
-              </>
-            )}
-          </Button>
-
-          <p className="text-xs text-gray-500 text-center mt-4">
-            点击"发布广告"即表示您同意Google Ads的服务条款和政策
-          </p>
         </CardContent>
       </Card>
 
