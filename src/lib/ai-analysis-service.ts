@@ -1426,62 +1426,14 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             result.competitorAnalysisSuccess = true  // 不视为失败
           }
         }
-        // 🔥 修复（2025-12-13）：店铺页面使用真正的竞品数据
-        // 问题：之前错误地将店铺自家产品当作竞品分析
-        // 修复：优先使用 deepScrapeResults.aggregatedCompetitorAsins（从热销商品详情页抓取的真正竞品）
+        // 🔥 修复（2025-12-13）：店铺场景跳过竞品分析
+        // 原因：店铺链接的推荐区域主要是同品牌产品，过滤后竞品不足
+        // 决策：店铺场景的核心价值是产品亮点分析，不是竞品对比
         else if (isAmazonStore) {
-          // Amazon Store页面：优先使用聚合的真实竞品ASIN
-          const aggregatedCompetitorAsins = extractResult.deepScrapeResults?.aggregatedCompetitorAsins || []
+          console.log(`ℹ️ [STORE] 店铺场景跳过竞品分析（核心价值是产品亮点，不是竞品对比）`)
+          result.competitorAnalysisSuccess = true  // 不视为失败
 
-          if (aggregatedCompetitorAsins.length > 0) {
-            // 🔥 使用从热销商品详情页抓取的真正竞品ASIN
-            console.log(`📊 [STORE] 使用聚合的真实竞品ASIN进行分析 (${aggregatedCompetitorAsins.length}个)...`)
-
-            try {
-              // 获取代理URL
-              const competitorProxyUrl = await getProxyUrlForCountry(targetCountry, userId)
-
-              // 抓取竞品详情（最多10个，过滤同品牌）
-              // 复用现有的 batchScrapeCompetitorDetails 函数
-              const realCompetitors = await batchScrapeCompetitorDetails(
-                aggregatedCompetitorAsins.slice(0, 15),  // 多取一些，因为会过滤同品牌
-                targetCountry,
-                extractResult.brand || null,  // 主品牌，用于过滤
-                competitorProxyUrl,
-                10  // 最多抓取10个竞品
-              )
-
-              if (realCompetitors.length >= 2) {
-                // 构建"我们的产品"对象（使用店铺热销商品的平均数据）
-                const hotInsights = extractResult.hotInsights || {}
-                const ourProduct = {
-                  name: extractResult.productName || extractResult.brand || 'Store Products',
-                  brand: extractResult.brand || null,
-                  price: parsePrice(extractResult.price),
-                  rating: hotInsights.avgRating || null,
-                  reviewCount: hotInsights.avgReviews || null,
-                  features: extractResult.deepScrapeResults?.aggregatedFeatures?.slice(0, 10) || [],
-                }
-
-                const competitorAnalysis = await analyzeCompetitorsWithAI(
-                  ourProduct,
-                  realCompetitors,
-                  targetCountry,
-                  userId
-                )
-
-                result.competitorAnalysis = competitorAnalysis
-                result.competitorAnalysisSuccess = true
-                console.log(`✅ [STORE] 真实竞品分析完成 (对比${realCompetitors.length}个其他品牌竞品)`)
-              } else {
-                console.log(`⚠️ [STORE] 过滤同品牌后竞品不足 (${realCompetitors.length}个)，跳过竞品分析`)
-                result.competitorAnalysisSuccess = true  // 不视为失败
-              }
-            } catch (fetchError: any) {
-              console.warn(`⚠️ [STORE] 抓取竞品详情失败: ${fetchError.message}，跳过竞品分析`)
-              result.competitorAnalysisSuccess = true  // 不视为失败
-            }
-          } else if (!extractResult.products || extractResult.products.length === 0) {
+          if (!extractResult.products || extractResult.products.length === 0) {
             console.log(`⚠️ Amazon Store页面未提取到产品数据，跳过竞品分析`)
             result.competitorAnalysisSuccess = true  // 标记为成功，不阻塞流程
           } else {

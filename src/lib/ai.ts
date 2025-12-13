@@ -571,6 +571,34 @@ export async function analyzeProductPage(
     // 更新productInfo为增强版本
     productInfo = enhancedProductInfo
 
+    // 🔥 修复（2025-12-13）：店铺场景整合热销商品的产品亮点
+    // 问题：店铺场景AI返回的是 hotProducts 数组，每个产品有 productHighlights
+    // 解决：将所有热销商品的 productHighlights 整合成店铺整体的产品亮点
+    if (pageType === 'store' && pi.hotProducts && Array.isArray(pi.hotProducts)) {
+      const allHighlights: string[] = []
+
+      pi.hotProducts.forEach((product: any, index: number) => {
+        if (product.productHighlights && Array.isArray(product.productHighlights)) {
+          // 添加产品名称作为分组标题
+          if (product.name) {
+            allHighlights.push(`\n【${product.name}】`)
+          }
+          // 添加该产品的所有亮点
+          product.productHighlights.forEach((highlight: string) => {
+            allHighlights.push(`• ${highlight}`)
+          })
+        }
+      })
+
+      // 如果成功提取到亮点，覆盖原有的 productHighlights
+      if (allHighlights.length > 0) {
+        productInfo.productHighlights = allHighlights.join('\n')
+        logger.debug(`✅ [STORE] 整合了 ${pi.hotProducts.length} 个热销商品的产品亮点 (共${allHighlights.length}条)`)
+      } else {
+        logger.debug(`⚠️ [STORE] 未能从 hotProducts 中提取产品亮点`)
+      }
+    }
+
     // 📊 数据提取统计
     logger.debug('📊 AI数据提取统计:')
     logger.debug(`  - 基础字段: brandDescription(${productInfo.brandDescription?.length || 0}), uniqueSellingPoints(${productInfo.uniqueSellingPoints?.length || 0})`)
