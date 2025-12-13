@@ -105,6 +105,18 @@ export interface CompetitorAdvantage {
 }
 
 /**
+ * 🔥 v3.2新增：竞品弱点（可转化为我们的卖点）
+ * 从竞品的负面评论、用户抱怨中提取
+ */
+export interface CompetitorWeakness {
+  weakness: string             // "Short battery life", "Difficult setup"
+  competitor: string           // 竞品名称或 "Multiple competitors"
+  frequency: 'high' | 'medium' | 'low'  // 该弱点的普遍程度
+  ourAdvantage: string         // 我们如何避免这个问题或做得更好
+  adCopy: string               // 可直接用于广告的文案（如 "Unlike others, 8-hour battery life"）
+}
+
+/**
  * 完整的竞品分析结果
  */
 export interface CompetitorAnalysisResult {
@@ -126,6 +138,9 @@ export interface CompetitorAnalysisResult {
 
   // 竞品优势
   competitorAdvantages: CompetitorAdvantage[]
+
+  // 🔥 v3.2新增：竞品弱点（可转化为我们的卖点）
+  competitorWeaknesses?: CompetitorWeakness[]
 
   // 综合竞争力评分（0-100）
   overallCompetitiveness: number
@@ -1359,6 +1374,8 @@ export async function analyzeCompetitorsWithAI(
       featureComparison: analysisData.featureComparison || [],
       uniqueSellingPoints: analysisData.uniqueSellingPoints || [],
       competitorAdvantages: analysisData.competitorAdvantages || [],
+      // 🔥 v3.2新增：竞品弱点
+      competitorWeaknesses: analysisData.competitorWeaknesses || [],
       overallCompetitiveness: analysisData.overallCompetitiveness || 50,
       analyzedAt: new Date().toISOString(),
     }
@@ -1366,6 +1383,8 @@ export async function analyzeCompetitorsWithAI(
     console.log('✅ AI竞品分析完成')
     console.log(`   - 识别${result.uniqueSellingPoints.length}个独特卖点`)
     console.log(`   - 发现${result.competitorAdvantages.length}个竞品优势需应对`)
+    // 🔥 v3.2新增
+    console.log(`   - 挖掘${result.competitorWeaknesses?.length || 0}个竞品弱点可利用`)
     console.log(`   - 综合竞争力: ${result.overallCompetitiveness}/100`)
 
     return result

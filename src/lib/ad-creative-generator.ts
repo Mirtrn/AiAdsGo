@@ -549,6 +549,9 @@ async function buildAdCreativePrompt(
   let sentimentDistribution: {positive: number; neutral: number; negative: number} | null = null
   let totalReviews: number = 0
   let averageRating: number = 0
+  // 🔥 v3.2新增：量化数据亮点
+  let quantitativeHighlights: Array<{metric: string; value: string; adCopy: string}> = []
+  let competitorMentions: Array<{brand: string; comparison: string; sentiment: string}> = []
 
   // 🎯 合并基础和增强评论分析数据
   if (offer.review_analysis) {
@@ -572,6 +575,9 @@ async function buildAdCreativePrompt(
       sentimentDistribution = reviewAnalysis.sentimentDistribution || null
       totalReviews = reviewAnalysis.totalReviews || 0
       averageRating = reviewAnalysis.averageRating || 0
+      // 🔥 v3.2新增字段
+      quantitativeHighlights = reviewAnalysis.quantitativeHighlights || []
+      competitorMentions = reviewAnalysis.competitorMentions || []
     } catch {}
   }
 
@@ -635,6 +641,29 @@ async function buildAdCreativePrompt(
   if (userProfiles.length > 0) {
     const profiles = userProfiles.slice(0, 3).map(p => p.profile).join(', ')
     extras.push(`TARGET PERSONAS: ${profiles}`)
+  }
+
+  // 🔥 v3.2新增：量化数据亮点（评论中的具体数字 - 最有说服力的广告素材）
+  // 例如："8小时续航"、"2000Pa吸力"、"覆盖2000平方英尺"
+  if (quantitativeHighlights.length > 0) {
+    const topHighlights = quantitativeHighlights
+      .slice(0, 5)
+      .map(q => q.adCopy)
+      .join(' | ')
+    extras.push(`PROVEN CLAIMS: ${topHighlights}`)
+  }
+
+  // 🔥 v3.2新增：竞品对比优势（用户自发的竞品比较）
+  if (competitorMentions.length > 0) {
+    // 只提取正面对比（用户认为我们比竞品更好的地方）
+    const positiveComparisons = competitorMentions
+      .filter(c => c.sentiment === 'positive')
+      .slice(0, 3)
+      .map(c => `vs ${c.brand}: ${c.comparison}`)
+      .join(' | ')
+    if (positiveComparisons) {
+      extras.push(`COMPETITIVE EDGE: ${positiveComparisons}`)
+    }
   }
 
   // 🔥 P1-2: 技术规格（关键参数）
@@ -864,15 +893,44 @@ async function buildAdCreativePrompt(
     try {
       const compAnalysis = JSON.parse(offer.competitor_analysis)
 
-      // 1. 价格优势（vs竞品的节省金额）
+      // 1. 价格定位营销标签（🔥 v4.2优化：完整价格区间定位）
       if (compAnalysis.pricePosition) {
         const pricePos = compAnalysis.pricePosition
+        // 价格节省信息
         if (pricePos.savingsVsAvg) {
           extras.push(`COMPETITIVE PRICE: ${pricePos.savingsVsAvg}`)
         }
-        if (pricePos.priceAdvantage === 'below_average') {
-          const percentile = pricePos.pricePercentile || 0
-          extras.push(`PRICE POSITION: Top ${percentile}% most affordable`)
+        // 🔥 新增：完整价格区间营销标签
+        switch (pricePos.priceAdvantage) {
+          case 'lowest':
+            extras.push(`MARKET POSITION: 🏆 BEST VALUE - Lowest priced in category`)
+            break
+          case 'below_average':
+            const percentile = pricePos.pricePercentile || 0
+            extras.push(`MARKET POSITION: 💰 VALUE PICK - Top ${percentile}% most affordable`)
+            break
+          case 'average':
+            extras.push(`MARKET POSITION: ⚖️ BALANCED - Competitive price with quality features`)
+            break
+          case 'above_average':
+            extras.push(`MARKET POSITION: ⭐ QUALITY CHOICE - Premium features at fair price`)
+            break
+          case 'premium':
+            extras.push(`MARKET POSITION: 👑 FLAGSHIP - Top-tier quality and performance`)
+            break
+        }
+      }
+
+      // 🔥 新增：评分优势营销标签
+      if (compAnalysis.ratingPosition) {
+        const ratingPos = compAnalysis.ratingPosition
+        switch (ratingPos.ratingAdvantage) {
+          case 'top_rated':
+            extras.push(`RATING ADVANTAGE: 🥇 TOP RATED - Highest customer satisfaction (${ratingPos.ourRating}★)`)
+            break
+          case 'above_average':
+            extras.push(`RATING ADVANTAGE: ⭐ HIGHLY RATED - Above average at ${ratingPos.ourRating}★`)
+            break
         }
       }
 
@@ -903,6 +961,28 @@ async function buildAdCreativePrompt(
           .map((f: any) => f.feature)
         if (ourAdvantages.length > 0) {
           extras.push(`COMPETITIVE FEATURES: ${ourAdvantages.slice(0, 3).join(', ')}`)
+        }
+      }
+
+      // 🔥 v3.2新增：竞品弱点（转化为我们的差异化卖点）
+      // 这是最有说服力的广告素材 - 直接点出竞品问题，暗示我们解决了这些问题
+      if (compAnalysis.competitorWeaknesses && compAnalysis.competitorWeaknesses.length > 0) {
+        // 提取高频竞品弱点的adCopy
+        const highFreqWeaknesses = compAnalysis.competitorWeaknesses
+          .filter((w: any) => w.frequency === 'high' || w.frequency === 'medium')
+          .slice(0, 3)
+          .map((w: any) => w.adCopy)
+          .filter((ad: string) => ad && ad.length > 0)
+        if (highFreqWeaknesses.length > 0) {
+          extras.push(`COMPETITOR WEAKNESSES (use to differentiate): ${highFreqWeaknesses.join(' | ')}`)
+        }
+
+        // 单独提取详细弱点描述，用于更深度的广告创意
+        const weaknessDetails = compAnalysis.competitorWeaknesses
+          .slice(0, 2)
+          .map((w: any) => `${w.weakness} → We offer: ${w.ourAdvantage}`)
+        if (weaknessDetails.length > 0) {
+          extras.push(`AVOID COMPETITOR ISSUES: ${weaknessDetails.join(' | ')}`)
         }
       }
 

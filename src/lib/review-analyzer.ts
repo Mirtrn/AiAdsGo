@@ -89,6 +89,26 @@ export interface PainPoint {
 }
 
 /**
+ * 🔥 v3.2新增：量化数据亮点（评论中提到的具体数字）
+ * 这些数字是广告创意的黄金素材！
+ */
+export interface QuantitativeHighlight {
+  metric: string           // "Battery Life", "Suction Power", "Coverage Area"
+  value: string            // "8 hours", "2000Pa", "2000 sq ft"
+  source: string           // "multiple reviews", "verified purchase"
+  adCopy: string           // 适合用于广告的文案格式 "8-Hour Battery Life"
+}
+
+/**
+ * 🔥 v3.2新增：用户提及的竞品
+ */
+export interface CompetitorMention {
+  brand: string            // "Roomba", "Dyson", "iRobot"
+  comparison: string       // "cheaper than", "better than", "similar to"
+  sentiment: 'positive' | 'neutral' | 'negative'
+}
+
+/**
  * 完整的评论分析结果
  */
 export interface ReviewAnalysisResult {
@@ -114,6 +134,12 @@ export interface ReviewAnalysisResult {
 
   // 痛点挖掘
   commonPainPoints: PainPoint[]
+
+  // 🔥 v3.2新增：量化数据亮点
+  quantitativeHighlights?: QuantitativeHighlight[]
+
+  // 🔥 v3.2新增：用户提及的竞品
+  competitorMentions?: CompetitorMention[]
 
   // 原始数据统计
   analyzedReviewCount: number      // 实际分析的评论数
@@ -601,6 +627,9 @@ export async function analyzeReviewsWithAI(
       purchaseReasons: analysisData.purchaseReasons || [],
       userProfiles: analysisData.userProfiles || [],
       commonPainPoints: analysisData.commonPainPoints || [],
+      // 🔥 v3.2新增字段
+      quantitativeHighlights: analysisData.quantitativeHighlights || [],
+      competitorMentions: analysisData.competitorMentions || [],
       analyzedReviewCount: reviews.length,
       verifiedReviewCount: verifiedCount,
     }
@@ -610,6 +639,13 @@ export async function analyzeReviewsWithAI(
     console.log(`   - 负面关键词: ${result.topNegativeKeywords.length}个`)
     console.log(`   - 使用场景: ${result.realUseCases.length}个`)
     console.log(`   - 痛点: ${result.commonPainPoints.length}个`)
+    // 🔥 v3.2新增日志
+    if (result.quantitativeHighlights && result.quantitativeHighlights.length > 0) {
+      console.log(`   - 量化数据: ${result.quantitativeHighlights.length}个 (${result.quantitativeHighlights.map(q => q.adCopy).join(', ')})`)
+    }
+    if (result.competitorMentions && result.competitorMentions.length > 0) {
+      console.log(`   - 竞品提及: ${result.competitorMentions.map(c => c.brand).join(', ')}`)
+    }
 
     return result
 
