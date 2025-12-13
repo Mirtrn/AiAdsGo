@@ -74,7 +74,7 @@ export class UnifiedQueueManager {
         'ad-creative': 1            // 创意生成任务（AI密集型，串行避免API限流）
       },
       maxQueueSize: config.maxQueueSize || 1000,
-      taskTimeout: config.taskTimeout || 600000,  // 10分钟超时（Offer提取等长耗时任务）
+      taskTimeout: config.taskTimeout || 900000,  // 15分钟超时（店铺深度抓取+竞品分析可能需要10-15分钟）
       defaultMaxRetries: config.defaultMaxRetries || 3,
       retryDelay: config.retryDelay || 5000,
       redisUrl: config.redisUrl || process.env.REDIS_URL,

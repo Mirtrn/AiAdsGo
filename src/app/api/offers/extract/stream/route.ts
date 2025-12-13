@@ -24,7 +24,7 @@ import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { OfferExtractionTaskData } from '@/lib/queue/executors/offer-extraction-executor'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 600 // 10分钟（与任务超时和SSE超时一致）
+export const maxDuration = 900 // 15分钟（店铺深度抓取+竞品分析可能需要10-15分钟）
 
 interface OfferTask {
   id: string
@@ -222,7 +222,7 @@ export async function POST(req: NextRequest) {
           }
         })
 
-        // 超时保护：10分钟后自动关闭（与任务超时时间一致）
+        // 超时保护：15分钟后自动关闭（店铺深度抓取+竞品分析可能需要10-15分钟）
         setTimeout(() => {
           console.log(`⏱️ SSE timeout for task: ${taskId}`)
           clearInterval(pollInterval)
@@ -238,7 +238,7 @@ export async function POST(req: NextRequest) {
             controller.close()
             isClosed = true
           }
-        }, 600000) // 10分钟 = 600000ms
+        }, 900000) // 15分钟 = 900000ms
       }
     })
 
