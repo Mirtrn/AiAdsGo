@@ -292,6 +292,48 @@ export async function scrapeAmazonProductWithContext(
       console.log(`✅ [复用Context] feature-bullets已加载`)
     }
 
+    // 🔥 2025-12-13修复：当需要竞品ASIN时，额外滚动到页面底部触发竞品推荐懒加载
+    // 竞品推荐区域通常在页面80%-100%位置，需要滚动触发
+    if (!skipCompetitorExtraction) {
+      console.log(`🔍 [复用Context] 需要竞品ASIN，额外滚动触发推荐区域懒加载...`)
+
+      // 滚动到页面底部区域（分两步，确保懒加载触发）
+      await page.evaluate(() => {
+        const scrollHeight = document.body.scrollHeight
+        window.scrollTo(0, scrollHeight * 0.85)
+      }).catch(() => {})
+      await randomDelay(1500, 2000)
+
+      // 滚动到接近页面底部
+      await page.evaluate(() => {
+        const scrollHeight = document.body.scrollHeight
+        window.scrollTo(0, scrollHeight * 0.95)
+      }).catch(() => {})
+      await randomDelay(1500, 2000)
+
+      // 检查是否有竞品推荐区域加载
+      const hasCompetitorSections = await page.evaluate(() => {
+        const selectors = [
+          '#HLCXComparisonTable',                    // Compare with similar items
+          '#sp_detail',                               // Products related to this item
+          '#sims-simsContainer_feature_div_01',       // Customers who viewed this
+          '#aplus table',                             // A+ comparison table
+          '[data-component-type="sp_detail"]',
+          '#similarities_feature_div',
+        ]
+        for (const sel of selectors) {
+          if (document.querySelector(sel)) return sel
+        }
+        return null
+      }).catch(() => null)
+
+      if (hasCompetitorSections) {
+        console.log(`✅ [复用Context] 发现竞品推荐区域: ${hasCompetitorSections}`)
+      } else {
+        console.warn(`⚠️ [复用Context] 未发现竞品推荐区域，可能页面未包含或选择器需更新`)
+      }
+    }
+
     // 模拟人类滚动回顶部
     await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
     await randomDelay(300, 500)
@@ -885,6 +927,11 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
         '[data-component-type="sp_detail"] .a-carousel-card a[href*="/dp/"]',
         '#similarities_feature_div a[href*="/dp/"]',
         '[data-feature-name="similarities"] a[href*="/dp/"]',
+        // 🔥 2025-12-13新增：更多Amazon推荐区域选择器
+        '#sp_detail2 a[href*="/dp/"]',                            // 第二个推荐区域
+        '[data-component-type="sp_detail2"] a[href*="/dp/"]',
+        '#sponsored-products-detail a[href*="/dp/"]',             // 赞助商品
+        '.a-carousel-container a[href*="/dp/"]',                  // 通用轮播
       ]
       for (const selector of relatedSelectors) {
         $(selector).each((_i: number, el: any) => {
@@ -905,6 +952,12 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
         '#sims-simsContainer_feature_div_01 a[href*="/dp/"]',
         '[data-csa-c-slot-id="sims_viewed"] a[href*="/dp/"]',
         '#sims-simsContainer_feature_div_11 a[href*="/dp/"]',
+        // 🔥 2025-12-13新增：更多浏览历史相关选择器
+        '#sims-consolidated-1_feature_div a[href*="/dp/"]',       // 合并的推荐区域
+        '#sims-consolidated-2_feature_div a[href*="/dp/"]',
+        '[data-component-type="s-product-image"] a[href*="/dp/"]', // 产品图片链接
+        '#rhf-container a[href*="/dp/"]',                          // 相关历史记录
+        '#day0-sims-feature a[href*="/dp/"]',                      // 当日推荐
       ]
       for (const selector of viewedSelectors) {
         $(selector).each((_i: number, el: any) => {
