@@ -740,7 +740,7 @@ async function buildAdCreativePrompt(
 
   // 如果是Store页面，添加热销洞察到Prompt
   if (hotInsights && topProducts.length > 0) {
-    extras.push(`STORE HOT PRODUCTS: ${topProducts.slice(0, 3).join(', ')} (Avg: ${hotInsights.avgRating.toFixed(1)}⭐, ${hotInsights.avgReviews} reviews)`)
+    extras.push(`STORE HOT PRODUCTS: ${topProducts.slice(0, 3).join(', ')} (Avg: ${hotInsights.avgRating.toFixed(1)} stars, ${hotInsights.avgReviews} reviews)`)
   }
 
   // 🔥 2025-12-10优化：添加销售热度数据到Prompt（强社会证明信号）
@@ -750,7 +750,7 @@ async function buildAdCreativePrompt(
 
   // 🔥 2025-12-10优化：添加折扣数据到Prompt（促销信号）
   if (storeDiscounts.length > 0) {
-    extras.push(`💰 ACTIVE DISCOUNTS: ${storeDiscounts.join(', ')}`)
+    extras.push(`ACTIVE DISCOUNTS: ${storeDiscounts.join(', ')}`)
   }
 
   // 🔥 v4.1优化（2025-12-09）：提取店铺深度抓取数据
@@ -903,20 +903,20 @@ async function buildAdCreativePrompt(
         // 🔥 新增：完整价格区间营销标签
         switch (pricePos.priceAdvantage) {
           case 'lowest':
-            extras.push(`MARKET POSITION: 🏆 BEST VALUE - Lowest priced in category`)
+            extras.push(`MARKET POSITION: [BEST VALUE] Lowest priced in category`)
             break
           case 'below_average':
             const percentile = pricePos.pricePercentile || 0
-            extras.push(`MARKET POSITION: 💰 VALUE PICK - Top ${percentile}% most affordable`)
+            extras.push(`MARKET POSITION: [VALUE PICK] Top ${percentile}% most affordable`)
             break
           case 'average':
-            extras.push(`MARKET POSITION: ⚖️ BALANCED - Competitive price with quality features`)
+            extras.push(`MARKET POSITION: [BALANCED] Competitive price with quality features`)
             break
           case 'above_average':
-            extras.push(`MARKET POSITION: ⭐ QUALITY CHOICE - Premium features at fair price`)
+            extras.push(`MARKET POSITION: [QUALITY] Premium features at fair price`)
             break
           case 'premium':
-            extras.push(`MARKET POSITION: 👑 FLAGSHIP - Top-tier quality and performance`)
+            extras.push(`MARKET POSITION: [FLAGSHIP] Top-tier quality and performance`)
             break
         }
       }
@@ -926,10 +926,10 @@ async function buildAdCreativePrompt(
         const ratingPos = compAnalysis.ratingPosition
         switch (ratingPos.ratingAdvantage) {
           case 'top_rated':
-            extras.push(`RATING ADVANTAGE: 🥇 TOP RATED - Highest customer satisfaction (${ratingPos.ourRating}★)`)
+            extras.push(`RATING ADVANTAGE: [TOP RATED] Highest customer satisfaction (${ratingPos.ourRating} stars)`)
             break
           case 'above_average':
-            extras.push(`RATING ADVANTAGE: ⭐ HIGHLY RATED - Above average at ${ratingPos.ourRating}★`)
+            extras.push(`RATING ADVANTAGE: [HIGHLY RATED] Above average at ${ratingPos.ourRating} stars`)
             break
         }
       }
