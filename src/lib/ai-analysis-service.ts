@@ -1411,63 +1411,68 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             result.competitorAnalysisSuccess = true  // 不视为失败
           }
         }
-        // 🔥 修复（2025-12-08）：店铺页面判断逻辑优化
-        // 问题：之前的条件 (isAmazonStore || extractResult.products) && extractResult.products && extractResult.products.length > 0
-        // 当 isAmazonStore=true 但 products=[] 时，条件失败，导致跳过分析
-        // 修复：优先判断 isAmazonStore，如果是店铺页面，即使没有产品也应该尝试分析
+        // 🔥 修复（2025-12-13）：店铺页面使用真正的竞品数据
+        // 问题：之前错误地将店铺自家产品当作竞品分析
+        // 修复：优先使用 deepScrapeResults.aggregatedCompetitorAsins（从热销商品详情页抓取的真正竞品）
         else if (isAmazonStore) {
-          // Amazon Store页面：即使没有产品数据，也标记为成功（可能是抓取失败，不应阻塞流程）
-          if (!extractResult.products || extractResult.products.length === 0) {
+          // Amazon Store页面：优先使用聚合的真实竞品ASIN
+          const aggregatedCompetitorAsins = extractResult.deepScrapeResults?.aggregatedCompetitorAsins || []
+
+          if (aggregatedCompetitorAsins.length > 0) {
+            // 🔥 使用从热销商品详情页抓取的真正竞品ASIN
+            console.log(`📊 [STORE] 使用聚合的真实竞品ASIN进行分析 (${aggregatedCompetitorAsins.length}个)...`)
+
+            try {
+              // 获取代理URL
+              const competitorProxyUrl = await getProxyUrlForCountry(targetCountry, userId)
+
+              // 抓取竞品详情（最多10个，过滤同品牌）
+              // 复用现有的 batchScrapeCompetitorDetails 函数
+              const realCompetitors = await batchScrapeCompetitorDetails(
+                aggregatedCompetitorAsins.slice(0, 15),  // 多取一些，因为会过滤同品牌
+                targetCountry,
+                extractResult.brand || null,  // 主品牌，用于过滤
+                competitorProxyUrl,
+                10  // 最多抓取10个竞品
+              )
+
+              if (realCompetitors.length >= 2) {
+                // 构建"我们的产品"对象（使用店铺热销商品的平均数据）
+                const hotInsights = extractResult.hotInsights || {}
+                const ourProduct = {
+                  name: extractResult.productName || extractResult.brand || 'Store Products',
+                  brand: extractResult.brand || null,
+                  price: parsePrice(extractResult.price),
+                  rating: hotInsights.avgRating || null,
+                  reviewCount: hotInsights.avgReviews || null,
+                  features: extractResult.deepScrapeResults?.aggregatedFeatures?.slice(0, 10) || [],
+                }
+
+                const competitorAnalysis = await analyzeCompetitorsWithAI(
+                  ourProduct,
+                  realCompetitors,
+                  targetCountry,
+                  userId
+                )
+
+                result.competitorAnalysis = competitorAnalysis
+                result.competitorAnalysisSuccess = true
+                console.log(`✅ [STORE] 真实竞品分析完成 (对比${realCompetitors.length}个其他品牌竞品)`)
+              } else {
+                console.log(`⚠️ [STORE] 过滤同品牌后竞品不足 (${realCompetitors.length}个)，跳过竞品分析`)
+                result.competitorAnalysisSuccess = true  // 不视为失败
+              }
+            } catch (fetchError: any) {
+              console.warn(`⚠️ [STORE] 抓取竞品详情失败: ${fetchError.message}，跳过竞品分析`)
+              result.competitorAnalysisSuccess = true  // 不视为失败
+            }
+          } else if (!extractResult.products || extractResult.products.length === 0) {
             console.log(`⚠️ Amazon Store页面未提取到产品数据，跳过竞品分析`)
             result.competitorAnalysisSuccess = true  // 标记为成功，不阻塞流程
           } else {
-            // 店铺页面：从产品数据中提取竞品
-            console.log(`📊 从店铺产品中提取竞品数据 (${extractResult.products.length}个产品)...`)
-            // 将店铺中的其他产品视为竞品
-            extractResult.products.slice(0, 10).forEach((product: any) => {
-              const priceNum = parsePrice(product.price)  // 🔧 修复：使用统一价格解析函数
-              const ratingNum = product.rating ? parseFloat(product.rating) : null
-              competitors.push({
-                asin: product.asin || null,
-                name: product.name || 'Unknown',
-                brand: extractResult.brand || null,
-                price: priceNum,
-                priceText: product.price || null,
-                rating: ratingNum,
-                reviewCount: product.reviews || null,
-                imageUrl: product.imageUrl || null,
-                source: 'same_category',
-                features: [],
-              })
-            })
-
-            if (competitors.length >= 2) {
-              // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
-              const productPrice = parsePrice(extractResult.price)
-
-              const ourProduct = {
-                name: extractResult.productName || extractResult.brand || 'Unknown',
-                brand: extractResult.brand || null,
-                price: productPrice,
-                rating: null,
-                reviewCount: null,
-                features: [],
-              }
-
-              const competitorAnalysis = await analyzeCompetitorsWithAI(
-                ourProduct,
-                competitors,
-                targetCountry,
-                userId
-              )
-
-              result.competitorAnalysis = competitorAnalysis
-              result.competitorAnalysisSuccess = true
-              console.log(`✅ 竞品分析完成 (对比${competitors.length}个竞品)`)
-            } else {
-              console.log('⚠️ 店铺产品数据不足（需要>=2个产品）')
-              result.competitorAnalysisSuccess = true  // 不视为失败
-            }
+            // 🔥 没有聚合竞品ASIN时的降级策略：记录日志但不使用自家产品作为竞品
+            console.log(`ℹ️ [STORE] 未找到聚合竞品ASIN，店铺页面跳过竞品分析（避免将自家产品误判为竞品）`)
+            result.competitorAnalysisSuccess = true  // 不视为失败
           }
         }
         // 非Amazon店铺，但有产品数据（独立站等）
