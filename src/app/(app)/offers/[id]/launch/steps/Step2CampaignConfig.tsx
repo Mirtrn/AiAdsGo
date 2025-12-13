@@ -24,6 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import { generateNamingScheme } from '@/lib/naming-convention'
+import { CURRENCY_SYMBOLS, formatCurrency, calculateMaxCPC } from '@/lib/currency'  // 🔧 修复(2025-12-13): 导入货币工具
 
 // 格式化搜索量显示
 const formatSearchVolume = (volume?: number): string => {
@@ -37,6 +38,7 @@ const formatSearchVolume = (volume?: number): string => {
 interface Props {
   offer: any
   selectedCreative: any
+  selectedAccount: any  // 🔧 修复(2025-12-13): 新增selectedAccount参数，用于获取货币信息
   onConfigured: (config: any) => void
   initialConfig: any | null
 }
@@ -70,11 +72,52 @@ interface CampaignConfig {
   sitelinks: Array<{ text: string; description: string; url: string }>
 }
 
-export default function Step2CampaignConfig({ offer, selectedCreative, onConfigured, initialConfig }: Props) {
+export default function Step2CampaignConfig({ offer, selectedCreative, selectedAccount, onConfigured, initialConfig }: Props) {
+  // 🔧 修复(2025-12-13): 从selectedAccount获取货币信息
+  const accountCurrency = selectedAccount?.currencyCode || 'USD'
+  const currencySymbol = CURRENCY_SYMBOLS[accountCurrency] || '$'
+
+  // 🔧 修复(2025-12-13): 根据货币提供合理的默认值
+  const getDefaultBudget = (currency: string): number => {
+    const defaults: Record<string, number> = {
+      USD: 10,
+      CNY: 70,
+      EUR: 10,
+      GBP: 8,
+      JPY: 1500,
+      KRW: 13000,
+      AUD: 15,
+      CAD: 14,
+      HKD: 78,
+      TWD: 315,
+      SGD: 13,
+      INR: 830,
+    }
+    return defaults[currency] || 10
+  }
+
+  const getDefaultCPC = (currency: string): number => {
+    const defaults: Record<string, number> = {
+      USD: 0.17,
+      CNY: 1.2,
+      EUR: 0.16,
+      GBP: 0.13,
+      JPY: 25,
+      KRW: 220,
+      AUD: 0.26,
+      CAD: 0.24,
+      HKD: 1.3,
+      TWD: 5.4,
+      SGD: 0.23,
+      INR: 14,
+    }
+    return defaults[currency] || 0.17
+  }
+
   // 使用统一命名规范生成初始名称
   const getInitialNaming = useCallback(() => {
-    const budgetAmount = initialConfig?.budgetAmount || 10
-    const maxCpcBid = initialConfig?.maxCpcBid || 0.17
+    const budgetAmount = initialConfig?.budgetAmount || getDefaultBudget(accountCurrency)
+    const maxCpcBid = initialConfig?.maxCpcBid || getDefaultCPC(accountCurrency)
     const biddingStrategy = initialConfig?.biddingStrategy || 'MAXIMIZE_CLICKS'
 
     return generateNamingScheme({
@@ -103,7 +146,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
     initialConfig || {
       // Campaign Level - 使用统一命名规范
       campaignName: initialNaming.campaignName,
-      budgetAmount: 10,  // 10 USD（业务规范）
+      budgetAmount: getDefaultBudget(accountCurrency),  // 🔧 修复(2025-12-13): 根据货币提供合理的默认值
       budgetType: 'DAILY' as const,  // 固定每日预算
       // 🔒 Target Country/Language 强制与 Offer 保持一致
       // 🔧 修复(2025-12-11): 使用驼峰命名 targetCountry（与API返回一致）
@@ -115,7 +158,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
 
       // Ad Group Level - 使用统一命名规范
       adGroupName: initialNaming.adGroupName,
-      maxCpcBid: 0.17,  // 0.17 USD（业务规范）
+      maxCpcBid: getDefaultCPC(accountCurrency),  // 🔧 修复(2025-12-13): 根据货币提供合理的默认值
 
       // Keywords Level - 优先使用keywordsWithVolume（包含搜索量）
       keywords: (selectedCreative?.keywordsWithVolume || selectedCreative?.keywords || []).map((k: any) => {
@@ -419,22 +462,22 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
               />
             </div>
 
-            {/* Budget Amount + Type */}
+            {/* Budget Amount + Type - 🔧 修复(2025-12-13): 使用动态货币符号 */}
             <div className="space-y-2">
               <Label>
                 Budget <Badge variant="destructive" className="ml-1">必需</Badge>
-                <Badge className="ml-1">默认10 USD</Badge>
+                <Badge className="ml-1">默认{getDefaultBudget(accountCurrency)} {accountCurrency}</Badge>
               </Label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{currencySymbol}</span>
                   <Input
                     type="number"
                     value={config.budgetAmount}
                     onChange={(e) => handleChange('budgetAmount', parseFloat(e.target.value))}
                     className="pl-7"
                     min="0"
-                    step="10"
+                    step={accountCurrency === 'JPY' || accountCurrency === 'KRW' ? '100' : '1'}
                   />
                 </div>
                 <Select
@@ -571,40 +614,41 @@ export default function Step2CampaignConfig({ offer, selectedCreative, onConfigu
               />
             </div>
 
-            {/* Max CPC Bid */}
+            {/* Max CPC Bid - 🔧 修复(2025-12-13): 使用动态货币符号 */}
             <div className="space-y-2">
               <Label>
                 CPC Bid <Badge variant="destructive" className="ml-1">必需</Badge>
-                <Badge className="ml-1">默认0.17 USD</Badge>
+                <Badge className="ml-1">默认{getDefaultCPC(accountCurrency)} {accountCurrency}</Badge>
               </Label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{currencySymbol}</span>
                 <Input
                   type="number"
                   value={config.maxCpcBid}
                   onChange={(e) => handleChange('maxCpcBid', parseFloat(e.target.value))}
                   className="pl-7"
                   min="0"
-                  step="0.01"
+                  step={accountCurrency === 'JPY' || accountCurrency === 'KRW' ? '1' : '0.01'}
                 />
               </div>
-              {/* 🔧 修复(2025-12-11): 使用驼峰命名 productPrice/commissionPayout（与API返回一致） */}
+              {/* 🔧 修复(2025-12-13): 使用货币转换工具计算建议CPC */}
               {offer.productPrice && offer.commissionPayout && (() => {
-                // 需求31: 计算建议最大CPC = productPrice * commissionPayout / 50
-                const priceMatch = String(offer.productPrice).match(/[\d.,]+/)
-                const commissionMatch = String(offer.commissionPayout).match(/[\d.]+/)
+                // 使用货币转换工具计算建议最大CPC
+                const cpcResult = calculateMaxCPC(
+                  offer.productPrice,
+                  offer.commissionPayout,
+                  'USD',  // 产品价格通常是USD
+                  accountCurrency,  // 转换为账号货币
+                  50  // 假设50个点击出一单
+                )
 
-                if (priceMatch && commissionMatch) {
-                  const price = parseFloat(priceMatch[0].replace(/,/g, ''))
-                  const commission = parseFloat(commissionMatch[0]) / 100
-                  const suggestedCPC = (price * commission / 50).toFixed(2)
-
+                if (cpcResult) {
                   return (
                     <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
                       <Info className="inline h-4 w-4 mr-1" />
-                      <strong>建议最大CPC</strong>: ${suggestedCPC}
+                      <strong>建议最大CPC</strong>: {cpcResult.maxCPCFormatted}
                       <span className="ml-1 text-xs text-blue-600">
-                        (${price} × {(commission * 100).toFixed(2)}% ÷ 50，假设50个点击出一单)
+                        (${cpcResult.calculationDetails.productPrice} × {cpcResult.calculationDetails.commissionRate.toFixed(2)}% ÷ {cpcResult.calculationDetails.clicksPerSale}，假设{cpcResult.calculationDetails.clicksPerSale}个点击出一单)
                       </span>
                     </div>
                   )

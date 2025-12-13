@@ -3,10 +3,11 @@
 /**
  * One-Click Ad Launch Page - 一键上广告
  *
+ * 🔧 修复(2025-12-13): 调整流程顺序，先绑定账号再配置预算
  * 四步流程：
  * 1. 生成广告创意并评分
- * 2. 配置广告系列参数
- * 3. 关联Google Ads账号
+ * 2. 关联Google Ads账号（提前到第二步，获取货币信息）
+ * 3. 配置广告系列参数（移到第三步，此时已知账号货币）
  * 4. 发布广告
  */
 
@@ -22,11 +23,11 @@ import Step2CampaignConfig from './steps/Step2CampaignConfig'
 import Step3AccountLinking from './steps/Step3AccountLinking'
 import Step4PublishSummary from './steps/Step4PublishSummary'
 
-// 定义步骤
+// 定义步骤 - 🔧 修复(2025-12-13): 调整顺序，先绑定账号再配置预算
 const STEPS: Step[] = [
   { id: 1, label: '生成创意', description: 'AI生成广告创意' },
-  { id: 2, label: '配置广告', description: '设置广告系列参数' },
-  { id: 3, label: '关联账号', description: '绑定Google Ads' },
+  { id: 2, label: '关联账号', description: '绑定Google Ads' },
+  { id: 3, label: '配置广告', description: '设置广告系列参数' },
   { id: 4, label: '发布上线', description: '确认并发布' }
 ]
 
@@ -88,6 +89,7 @@ interface GoogleAdsAccount {
   customerId: string
   accountName?: string
   isActive: boolean
+  currencyCode?: string  // 🔧 修复(2025-12-13): 新增货币代码字段
 }
 
 export default function LaunchAdPage() {
@@ -223,7 +225,7 @@ export default function LaunchAdPage() {
           </div>
         </div>
 
-        {/* Step Content */}
+        {/* Step Content - 🔧 修复(2025-12-13): 调整顺序，Step2和Step3互换 */}
         <div className="mb-6 min-h-[400px]">
           {currentStep === 1 && (
             <Step1CreativeGeneration
@@ -234,19 +236,20 @@ export default function LaunchAdPage() {
           )}
 
           {currentStep === 2 && (
-            <Step2CampaignConfig
-              offer={offer}
-              selectedCreative={selectedCreative!}
-              onConfigured={handleCampaignConfigured}
-              initialConfig={campaignConfig}
-            />
-          )}
-
-          {currentStep === 3 && (
             <Step3AccountLinking
               offer={offer}
               onAccountLinked={handleAccountLinked}
               selectedAccount={selectedAccount}
+            />
+          )}
+
+          {currentStep === 3 && (
+            <Step2CampaignConfig
+              offer={offer}
+              selectedCreative={selectedCreative!}
+              selectedAccount={selectedAccount!}
+              onConfigured={handleCampaignConfigured}
+              initialConfig={campaignConfig}
             />
           )}
 
