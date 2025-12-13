@@ -609,7 +609,7 @@ ${p.highlights.map(h => `- ${h}`).join('\n')}
             operationType: 'store_highlights_synthesis',
             prompt: synthesisPrompt,
             temperature: 0.7,
-            maxOutputTokens: 1024,
+            maxOutputTokens: 2048,  // 提升到2048以提供100%安全余量，避免中文场景被截断
           }, userId)
 
           // 记录token使用
