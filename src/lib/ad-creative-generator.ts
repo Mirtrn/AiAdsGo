@@ -21,7 +21,7 @@ export interface KeywordWithVolume {
   competition?: string
   competitionIndex?: number
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
-  matchType?: 'EXACT' | 'BROAD' // 匹配类型
+  matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
 }
 
 /**
@@ -1783,6 +1783,34 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
       console.log('📊 关键词相关性:', qualityMetrics.keyword_relevance_score)
     }
 
+    // 🆕 v4.7: 解析 Display Path (path1/path2)
+    let path1: string | undefined = data.path1
+    let path2: string | undefined = data.path2
+
+    // 验证并截断 path1/path2 (最多15字符)
+    if (path1 && path1.length > 15) {
+      console.warn(`⚠️ path1 超过15字符限制: "${path1}" (${path1.length}字符)`)
+      path1 = path1.substring(0, 15)
+      console.log(`  截断为: "${path1}"`)
+    }
+    if (path2 && path2.length > 15) {
+      console.warn(`⚠️ path2 超过15字符限制: "${path2}" (${path2.length}字符)`)
+      path2 = path2.substring(0, 15)
+      console.log(`  截断为: "${path2}"`)
+    }
+
+    // 移除path中的空格（Google Ads Display Path不允许空格）
+    if (path1) {
+      path1 = path1.replace(/\s+/g, '-')
+    }
+    if (path2) {
+      path2 = path2.replace(/\s+/g, '-')
+    }
+
+    if (path1 || path2) {
+      console.log(`📍 Display Path: ${path1 || '(无)'}/${path2 || '(无)'}`)
+    }
+
     return {
       // 核心字段（向后兼容）
       headlines: headlinesArray,
@@ -1792,6 +1820,10 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
       sitelinks: sitelinksArray, // 使用验证后的 sitelinks
       theme: data.theme || '通用广告',
       explanation: data.explanation || '基于产品信息生成的广告创意',
+
+      // 🆕 v4.7: RSA Display Path
+      path1,
+      path2,
 
       // 新增字段（可选）
       headlinesWithMetadata,
@@ -2155,16 +2187,56 @@ export async function generateAdCreative(
       brandName
     })
 
-    keywordsWithVolume = unifiedData.map(v => ({
-      keyword: v.keyword,
-      searchVolume: v.searchVolume,
-      competition: v.competition,
-      competitionIndex: v.competitionIndex
-    }))
+    // 🎯 修复：添加matchType字段（智能分配）
+    const brandNameLower = brandName?.toLowerCase() || ''
+    keywordsWithVolume = unifiedData.map(v => {
+      const keywordLower = v.keyword.toLowerCase()
+      const isBrandKeyword = keywordLower === brandNameLower || keywordLower.startsWith(brandNameLower + ' ')
+      const wordCount = v.keyword.split(' ').length
+
+      // 智能分配匹配类型
+      let matchType: 'BROAD' | 'PHRASE' | 'EXACT'
+      if (isBrandKeyword) {
+        matchType = 'EXACT' // 品牌词用精准匹配
+      } else if (wordCount >= 3) {
+        matchType = 'PHRASE' // 长尾词用词组匹配
+      } else {
+        matchType = 'BROAD' // 短词用广泛匹配
+      }
+
+      return {
+        keyword: v.keyword,
+        searchVolume: v.searchVolume,
+        competition: v.competition,
+        competitionIndex: v.competitionIndex,
+        matchType
+      }
+    })
     console.log(`✅ 关键词精确搜索量获取完成（来源: Historical Metrics API）`)
   } catch (error) {
     console.warn('⚠️ 获取关键词搜索量失败，使用默认值:', error)
-    keywordsWithVolume = result.keywords.map(kw => ({ keyword: kw, searchVolume: 0 }))
+    // 🎯 修复：即使失败也要添加matchType
+    const brandNameLower = brandName?.toLowerCase() || ''
+    keywordsWithVolume = result.keywords.map(kw => {
+      const keywordLower = kw.toLowerCase()
+      const isBrandKeyword = keywordLower === brandNameLower || keywordLower.startsWith(brandNameLower + ' ')
+      const wordCount = kw.split(' ').length
+
+      let matchType: 'BROAD' | 'PHRASE' | 'EXACT'
+      if (isBrandKeyword) {
+        matchType = 'EXACT'
+      } else if (wordCount >= 3) {
+        matchType = 'PHRASE'
+      } else {
+        matchType = 'BROAD'
+      }
+
+      return {
+        keyword: kw,
+        searchVolume: 0,
+        matchType
+      }
+    })
   }
   console.timeEnd('⏱️ 获取关键词搜索量')
 

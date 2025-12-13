@@ -1,6 +1,6 @@
 import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
-import { loadPrompt, interpolateTemplate } from './prompt-loader'
+import { loadPrompt } from './prompt-loader'
 import type { ScoreAnalysis } from './launch-scores'
 import type { Offer } from './offers'
 import type { AdCreative, HeadlineAsset, DescriptionAsset } from './ad-creative'
@@ -16,101 +16,135 @@ import {
 } from './google-ads-strength-api'
 
 /**
- * 计算Launch Score - 5维度评分系统
+ * Launch Score 4维度评分系统 v4.0
  *
  * 维度权重：
- * - 关键词质量：30分
- * - 市场契合度：25分
- * - 着陆页质量：20分
- * - 预算合理性：15分
- * - 内容创意质量：10分
+ * - 投放可行性：35分（品牌词搜索量15 + 利润空间10 + 竞争度10）
+ * - 广告质量：30分（Ad Strength 15 + 标题多样性8 + 描述质量7）
+ * - 关键词策略：20分（相关性8 + 匹配类型6 + 否定关键词6）
+ * - 基础配置：15分（国家/语言5 + Final URL 5 + 预算5）
  */
 export async function calculateLaunchScore(
   offer: Offer,
   creative: AdCreative,
-  userId: number
+  userId: number,
+  campaignConfig?: {
+    budgetAmount?: number
+    maxCpcBid?: number
+    budgetType?: string
+  }
 ): Promise<{
   totalScore: number
   analysis: {
-    keywordsQuality: { score: number; issues?: string[]; suggestions?: string[] }
-    marketFit: { score: number; issues?: string[]; suggestions?: string[] }
-    landingPageQuality: { score: number; issues?: string[]; suggestions?: string[] }
-    budgetRationality: { score: number; issues?: string[]; suggestions?: string[] }
-    contentCreativeQuality: { score: number; issues?: string[]; suggestions?: string[] }
+    launchViability: ScoreAnalysis['launchViability']
+    adQuality: ScoreAnalysis['adQuality']
+    keywordStrategy: ScoreAnalysis['keywordStrategy']
+    basicConfig: ScoreAnalysis['basicConfig']
   }
   recommendations: string[]
-  scoreAnalysis: ScoreAnalysis  // Add ScoreAnalysis for createLaunchScore
+  scoreAnalysis: ScoreAnalysis
 }> {
   try {
-    // 🎯 获取创意中的关键词和否定关键词数据
+    // 🎯 获取创意中的关键词数据
     const creativeKeywords = creative.keywords || []
-    const negativeKeywords = (creative as any).negativeKeywords || []  // 否定关键词列表
-    const keywordsWithVolume = (creative as any).keywordsWithVolume || []  // 带搜索量和竞争度的关键词
+    const negativeKeywords = (creative as any).negativeKeywords || []
+    const keywordsWithVolume = (creative as any).keywordsWithVolume || []
 
-    // 📦 从数据库加载prompt模板 (版本管理)
-    const promptTemplate = await loadPrompt('launch_score_evaluation')
+    // 📦 加载新版prompt模板 (v4.0)
+    const promptTemplate = await loadPrompt('投放评分v4.0')
 
-    // 🔧 准备模板变量
-    const keywordsWithVolumeText = keywordsWithVolume.length > 0
-      ? `关键词竞争度数据（0-100，数值越高竞争越激烈）：\n${
-          keywordsWithVolume.slice(0, 10).map((kw: any) =>
-            `- ${kw.keyword}: 搜索量${kw.searchVolume || 0}/月, 竞争度${kw.competitionIndex || 0}, 竞争级别${kw.competition || '未知'}`
-          ).join('\n')
-        }`
-      : '⚠️ 缺少关键词竞争度数据'
+    // 🎯 计算品牌词搜索量（从keywordsWithVolume中提取品牌相关词）
+    const brandKeywords = keywordsWithVolume.filter((kw: any) =>
+      kw.keyword?.toLowerCase().includes(offer.brand?.toLowerCase() || '')
+    )
+    const brandSearchVolume = brandKeywords.length > 0
+      ? Math.max(...brandKeywords.map((kw: any) => kw.searchVolume || 0))
+      : 0
+    const brandCompetition = brandKeywords.length > 0
+      ? brandKeywords[0]?.competition || 'MEDIUM'
+      : 'MEDIUM'
 
-    const negativeKeywordsText = negativeKeywords.length > 0
-      ? negativeKeywords.join(', ')
-      : '❌ 未设置（重要缺失！）'
+    // 🎯 计算利润空间
+    const productPrice = Number(offer.product_price) || 0
+    const commissionRate = Number(offer.commission_payout) || 0
+    const profitPerSale = productPrice * (commissionRate / 100)
+    const breakEvenCpc = profitPerSale / 50 // 假设50个点击出一单
 
-    // 🎯 P1修复: 准备prompt模板期望的变量
-    const keywordCount = creativeKeywords.length
-    const headlineCount = creative.headlines.length
-    const descriptionCount = creative.descriptions.length
+    // 🎯 计算标题多样性
+    const headlines = creative.headlines || []
+    const uniqueHeadlines = new Set(headlines.map((h: string) => h.toLowerCase().trim()))
+    const headlineDiversity = headlines.length > 0
+      ? Math.round((uniqueHeadlines.size / headlines.length) * 100)
+      : 0
 
-    // 计算匹配类型分布
-    let matchTypeDistribution = 'Not available'
-    if (keywordsWithVolume.length > 0) {
-      const matchTypes: Record<string, number> = {}
-      keywordsWithVolume.forEach((kw: any) => {
-        const type = kw.matchType || 'BROAD'
-        matchTypes[type] = (matchTypes[type] || 0) + 1
-      })
-      matchTypeDistribution = Object.entries(matchTypes)
-        .map(([type, count]) => `${type}: ${count}`)
-        .join(', ')
+    // 🎯 获取Ad Strength（优先使用已有的，否则评估）
+    let adStrength: AdStrengthRating = 'AVERAGE'
+    if ((creative as any).ad_strength) {
+      adStrength = (creative as any).ad_strength as AdStrengthRating
+    } else if (headlines.length >= 3 && creative.descriptions.length >= 2) {
+      // 快速评估Ad Strength
+      const headlineAssets: HeadlineAsset[] = headlines.map((h: string) => ({ text: h, length: h.length }))
+      const descAssets: DescriptionAsset[] = creative.descriptions.map((d: string) => ({ text: d, length: d.length }))
+      adStrength = await getQuickAdStrength(headlineAssets, descAssets, creativeKeywords)
     }
 
-    // 构建关键词列表文本
-    const keywordsListText = creativeKeywords.slice(0, 20).join(', ')
+    // 🎯 准备关键词搜索量文本
+    const keywordsWithVolumeText = keywordsWithVolume.length > 0
+      ? keywordsWithVolume.slice(0, 15).map((kw: any) =>
+          `- ${kw.keyword}: ${kw.searchVolume || 0}/月, 竞争度:${kw.competition || '未知'}`
+        ).join('\n')
+      : '暂无关键词搜索量数据'
 
-    // 🎨 插值替换模板变量 - 匹配prompt模板中的变量名
+    // 🎯 计算匹配类型分布
+    const matchTypes: Record<string, number> = {}
+    keywordsWithVolume.forEach((kw: any) => {
+      const type = kw.matchType || 'BROAD'
+      matchTypes[type] = (matchTypes[type] || 0) + 1
+    })
+    const matchTypeDistribution = Object.entries(matchTypes)
+      .map(([type, count]) => `${type}: ${count}`)
+      .join(', ') || 'Not specified'
+
+    // 🎨 插值替换模板变量
     const prompt = promptTemplate
       // Campaign Overview
-      .replace('{{brand}}', offer.brand)
-      .replace('{{productName}}', offer.brand_description || offer.brand)
-      .replace('{{targetCountry}}', offer.target_country)
-      .replace('{{budget}}', 'Based on keyword competition')
+      .replace('{{brand}}', offer.brand || 'Unknown')
+      .replace('{{productName}}', offer.brand_description || offer.brand || 'Unknown')
+      .replace('{{targetCountry}}', offer.target_country || 'US')
+      .replace('{{targetLanguage}}', offer.target_language || 'English')
+      .replace('{{budget}}', campaignConfig?.budgetAmount ? `$${campaignConfig.budgetAmount}/day` : '$10/day')
+      .replace('{{maxCpc}}', campaignConfig?.maxCpcBid ? `$${campaignConfig.maxCpcBid}` : '$0.17')
+      // Product Economics
+      .replace('{{productPrice}}', productPrice > 0 ? `$${productPrice}` : 'Not specified')
+      .replace('{{commissionRate}}', commissionRate > 0 ? `${commissionRate}%` : 'Not specified')
+      .replace('{{profitPerSale}}', profitPerSale > 0 ? `$${profitPerSale.toFixed(2)}` : 'Not calculated')
+      .replace('{{breakEvenCpc}}', breakEvenCpc > 0 ? `$${breakEvenCpc.toFixed(2)}` : 'Not calculated')
+      // Brand Search Data
+      .replace('{{brandSearchVolume}}', brandSearchVolume.toString())
+      .replace('{{brandCompetition}}', brandCompetition)
       // Keywords Data
-      .replace('{{keywordCount}}', keywordCount.toString())
+      .replace('{{keywordCount}}', creativeKeywords.length.toString())
       .replace('{{matchTypeDistribution}}', matchTypeDistribution)
-      .replace('{{keywordsList}}', keywordsListText + '\n\n' + keywordsWithVolumeText)
-      .replace('{{negativeKeywords}}', negativeKeywordsText)
-      // Landing Page
-      .replace('{{landingPageUrl}}', creative.final_url)
-      .replace('{{pageType}}', offer.url.includes('/stores/') || offer.url.includes('/store/') ? 'Store Page' : 'Product Page')
+      .replace('{{keywordsWithVolume}}', keywordsWithVolumeText)
+      .replace('{{negativeKeywordsCount}}', negativeKeywords.length.toString())
+      .replace('{{negativeKeywords}}', negativeKeywords.length > 0 ? negativeKeywords.join(', ') : 'NONE (Critical Issue!)')
       // Ad Creatives
-      .replace('{{headlineCount}}', headlineCount.toString())
-      .replace('{{descriptionCount}}', descriptionCount.toString())
-      .replace('{{sampleHeadlines}}', creative.headlines.slice(0, 5).join(', '))
+      .replace('{{headlineCount}}', headlines.length.toString())
+      .replace('{{descriptionCount}}', creative.descriptions.length.toString())
+      .replace('{{sampleHeadlines}}', headlines.slice(0, 5).join(', '))
       .replace('{{sampleDescriptions}}', creative.descriptions.join(', '))
+      .replace('{{headlineDiversity}}', headlineDiversity.toString())
+      .replace('{{adStrength}}', adStrength)
+      // Landing Page
+      .replace('{{finalUrl}}', creative.final_url || offer.final_url || '')
+      .replace('{{pageType}}', offer.url?.includes('/stores/') || offer.url?.includes('/store/') ? 'Store Page' : 'Product Page')
 
-    // 智能模型选择：Launch Score计算使用Pro模型
+    // 🤖 调用AI评分
     const aiResponse = await generateContent({
       operationType: 'launch_score_calculation',
       prompt,
-      temperature: 0.7,
-      maxOutputTokens: 8192, // 增加到8192以确保完整的JSON响应
+      temperature: 0.5,
+      maxOutputTokens: 8192,
     }, userId)
 
     // 记录token使用
@@ -138,77 +172,53 @@ export async function calculateLaunchScore(
       throw new Error('AI返回格式错误，未找到JSON')
     }
 
-    // Sanitize JSON: remove trailing commas, fix common JSON errors
+    // 清理JSON
     let jsonString = jsonMatch[0]
-      .replace(/,(\s*[}\]])/g, '$1')  // Remove trailing commas
-      .replace(/\r?\n/g, ' ')          // Remove newlines
-      .replace(/\s+/g, ' ')            // Normalize whitespace
+      .replace(/,(\s*[}\]])/g, '$1')
+      .replace(/\r?\n/g, ' ')
+      .replace(/\s+/g, ' ')
 
     const rawAnalysis = JSON.parse(jsonString) as ScoreAnalysis
 
     // 验证必需字段存在
-    if (!rawAnalysis.keywordAnalysis || !rawAnalysis.marketFitAnalysis ||
-        !rawAnalysis.landingPageAnalysis || !rawAnalysis.budgetAnalysis ||
-        !rawAnalysis.contentAnalysis) {
+    if (!rawAnalysis.launchViability || !rawAnalysis.adQuality ||
+        !rawAnalysis.keywordStrategy || !rawAnalysis.basicConfig) {
       console.error('AI返回的JSON结构不完整:', JSON.stringify(rawAnalysis, null, 2))
       throw new Error(`AI返回的JSON缺少必需的分析字段。已有字段: ${Object.keys(rawAnalysis).join(', ')}`)
     }
 
     // 验证评分范围
-    validateScores(rawAnalysis)
+    validateScoresV4(rawAnalysis)
 
-    // 🎯 Post-processing: Add negative keyword warnings if missing
-    if (negativeKeywords.length === 0) {
-      // Prepend critical warning to keyword analysis
-      rawAnalysis.keywordAnalysis.issues = [
-        '❌ 缺少否定关键词列表，可能导致广告展示给意图不符的用户（如搜索"维修"、"评论"、"免费"等）',
-        ...(rawAnalysis.keywordAnalysis.issues || [])
-      ]
-      rawAnalysis.keywordAnalysis.suggestions = [
-        '建议添加否定关键词：free, repair, review, broken, crack, torrent, download等',
-        ...(rawAnalysis.keywordAnalysis.suggestions || [])
-      ]
-    }
+    // 🎯 补充缺失数据
+    rawAnalysis.launchViability.brandSearchVolume = rawAnalysis.launchViability.brandSearchVolume || brandSearchVolume
+    rawAnalysis.adQuality.adStrength = rawAnalysis.adQuality.adStrength || adStrength
+    rawAnalysis.adQuality.headlineDiversity = rawAnalysis.adQuality.headlineDiversity || headlineDiversity
+    rawAnalysis.keywordStrategy.totalKeywords = rawAnalysis.keywordStrategy.totalKeywords || creativeKeywords.length
+    rawAnalysis.keywordStrategy.negativeKeywordsCount = rawAnalysis.keywordStrategy.negativeKeywordsCount || negativeKeywords.length
+    rawAnalysis.basicConfig.targetCountry = rawAnalysis.basicConfig.targetCountry || offer.target_country
+    rawAnalysis.basicConfig.targetLanguage = rawAnalysis.basicConfig.targetLanguage || offer.target_language || 'English'
+    rawAnalysis.basicConfig.finalUrl = rawAnalysis.basicConfig.finalUrl || creative.final_url || ''
+    rawAnalysis.basicConfig.dailyBudget = rawAnalysis.basicConfig.dailyBudget || campaignConfig?.budgetAmount || 10
+    rawAnalysis.basicConfig.maxCpc = rawAnalysis.basicConfig.maxCpc || campaignConfig?.maxCpcBid || 0.17
 
-    // 🎯 转换为route.ts期望的格式
+    // 🎯 计算总分
     const totalScore =
-      rawAnalysis.keywordAnalysis.score +
-      rawAnalysis.marketFitAnalysis.score +
-      rawAnalysis.landingPageAnalysis.score +
-      rawAnalysis.budgetAnalysis.score +
-      rawAnalysis.contentAnalysis.score
+      rawAnalysis.launchViability.score +
+      rawAnalysis.adQuality.score +
+      rawAnalysis.keywordStrategy.score +
+      rawAnalysis.basicConfig.score
 
     return {
       totalScore,
       analysis: {
-        keywordsQuality: {
-          score: rawAnalysis.keywordAnalysis.score,
-          issues: rawAnalysis.keywordAnalysis.issues,
-          suggestions: rawAnalysis.keywordAnalysis.suggestions
-        },
-        marketFit: {
-          score: rawAnalysis.marketFitAnalysis.score,
-          issues: rawAnalysis.marketFitAnalysis.issues,
-          suggestions: rawAnalysis.marketFitAnalysis.suggestions
-        },
-        landingPageQuality: {
-          score: rawAnalysis.landingPageAnalysis.score,
-          issues: rawAnalysis.landingPageAnalysis.issues,
-          suggestions: rawAnalysis.landingPageAnalysis.suggestions
-        },
-        budgetRationality: {
-          score: rawAnalysis.budgetAnalysis.score,
-          issues: rawAnalysis.budgetAnalysis.issues,
-          suggestions: rawAnalysis.budgetAnalysis.suggestions
-        },
-        contentCreativeQuality: {
-          score: rawAnalysis.contentAnalysis.score,
-          issues: rawAnalysis.contentAnalysis.issues,
-          suggestions: rawAnalysis.contentAnalysis.suggestions
-        }
+        launchViability: rawAnalysis.launchViability,
+        adQuality: rawAnalysis.adQuality,
+        keywordStrategy: rawAnalysis.keywordStrategy,
+        basicConfig: rawAnalysis.basicConfig,
       },
-      recommendations: rawAnalysis.overallRecommendations,
-      scoreAnalysis: rawAnalysis  // Return ScoreAnalysis for createLaunchScore
+      recommendations: rawAnalysis.overallRecommendations || [],
+      scoreAnalysis: rawAnalysis
     }
   } catch (error: any) {
     console.error('计算Launch Score失败:', error)
@@ -217,23 +227,20 @@ export async function calculateLaunchScore(
 }
 
 /**
- * 验证评分是否在合理范围内
+ * 验证评分是否在合理范围内（v4.0 - 4维度）
  */
-function validateScores(analysis: ScoreAnalysis): void {
-  if (analysis.keywordAnalysis.score < 0 || analysis.keywordAnalysis.score > 30) {
-    throw new Error('关键词评分超出范围(0-30)')
+function validateScoresV4(analysis: ScoreAnalysis): void {
+  if (analysis.launchViability.score < 0 || analysis.launchViability.score > 35) {
+    throw new Error('投放可行性评分超出范围(0-35)')
   }
-  if (analysis.marketFitAnalysis.score < 0 || analysis.marketFitAnalysis.score > 25) {
-    throw new Error('市场契合度评分超出范围(0-25)')
+  if (analysis.adQuality.score < 0 || analysis.adQuality.score > 30) {
+    throw new Error('广告质量评分超出范围(0-30)')
   }
-  if (analysis.landingPageAnalysis.score < 0 || analysis.landingPageAnalysis.score > 20) {
-    throw new Error('着陆页评分超出范围(0-20)')
+  if (analysis.keywordStrategy.score < 0 || analysis.keywordStrategy.score > 20) {
+    throw new Error('关键词策略评分超出范围(0-20)')
   }
-  if (analysis.budgetAnalysis.score < 0 || analysis.budgetAnalysis.score > 15) {
-    throw new Error('预算评分超出范围(0-15)')
-  }
-  if (analysis.contentAnalysis.score < 0 || analysis.contentAnalysis.score > 10) {
-    throw new Error('内容评分超出范围(0-10)')
+  if (analysis.basicConfig.score < 0 || analysis.basicConfig.score > 15) {
+    throw new Error('基础配置评分超出范围(0-15)')
   }
 }
 

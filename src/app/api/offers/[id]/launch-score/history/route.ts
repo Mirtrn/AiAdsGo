@@ -3,7 +3,7 @@ import { findLaunchScoresByOfferId, parseLaunchScoreAnalysis } from '@/lib/launc
 
 /**
  * GET /api/offers/[id]/launch-score/history
- * 获取Offer的历史Launch Score记录
+ * 获取Offer的历史Launch Score记录 (v4.0 - 4维度)
  */
 export async function GET(
   request: NextRequest,
@@ -31,7 +31,7 @@ export async function GET(
     // 获取所有历史评分
     const scores = await findLaunchScoresByOfferId(offerId, parseInt(userId, 10))
 
-    // 转换为前端需要的格式
+    // 转换为前端需要的格式 (v4.0 - 4维度)
     const history = scores.map(score => {
       const analysis = parseLaunchScoreAnalysis(score)
 
@@ -40,19 +40,17 @@ export async function GET(
         totalScore: score.totalScore,
         calculatedAt: score.calculatedAt,
         dimensions: {
-          keyword: score.keywordScore,
-          marketFit: score.marketFitScore,
-          landingPage: score.landingPageScore,
-          budget: score.budgetScore,
-          content: score.contentScore,
+          launchViability: score.launchViabilityScore,
+          adQuality: score.adQualityScore,
+          keywordStrategy: score.keywordStrategyScore,
+          basicConfig: score.basicConfigScore,
         },
-        // 完整分析数据（用于详细对比）
+        // 完整分析数据
         analysis: {
-          keywordAnalysis: analysis.keywordAnalysis,
-          marketFitAnalysis: analysis.marketFitAnalysis,
-          landingPageAnalysis: analysis.landingPageAnalysis,
-          budgetAnalysis: analysis.budgetAnalysis,
-          contentAnalysis: analysis.contentAnalysis,
+          launchViability: analysis.launchViability,
+          adQuality: analysis.adQuality,
+          keywordStrategy: analysis.keywordStrategy,
+          basicConfig: analysis.basicConfig,
           overallRecommendations: analysis.overallRecommendations,
         }
       }

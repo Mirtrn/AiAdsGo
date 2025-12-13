@@ -32,6 +32,8 @@ function transformCreativeToApiResponse(creative: any) {
     lastSyncAt: creative.last_sync_at,
     createdAt: creative.created_at,
     updatedAt: creative.updated_at,
+    // 🔧 修复：确保 adStrength 数据被正确传递（用于雷达图显示）
+    adStrength: creative.adStrength,
   }
 }
 

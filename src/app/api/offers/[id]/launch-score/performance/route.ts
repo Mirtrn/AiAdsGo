@@ -69,7 +69,7 @@ export async function GET(
       avgOrderValue
     )
 
-    // 6. 返回结果
+    // 6. 返回结果（v4.0 - 4维度）
     return NextResponse.json({
       success: true,
       hasLaunchScore: true,
@@ -79,11 +79,10 @@ export async function GET(
         totalScore: launchScore.totalScore,
         calculatedAt: launchScore.calculatedAt,
         dimensions: {
-          keyword: launchScore.keywordScore,
-          marketFit: launchScore.marketFitScore,
-          landingPage: launchScore.landingPageScore,
-          budget: launchScore.budgetScore,
-          content: launchScore.contentScore
+          launchViability: launchScore.launchViabilityScore,
+          adQuality: launchScore.adQualityScore,
+          keywordStrategy: launchScore.keywordStrategyScore,
+          basicConfig: launchScore.basicConfigScore
         }
       },
       performanceData: enhancedAnalysis.performanceData,

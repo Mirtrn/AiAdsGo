@@ -4,7 +4,7 @@ import { findAdCreativeById } from '@/lib/ad-creative'
 
 /**
  * POST /api/offers/[id]/launch-score/compare
- * 批量获取多个Creative的Launch Score用于对比
+ * 批量获取多个Creative的Launch Score用于对比 (v4.0 - 4维度)
  */
 export async function POST(
   request: NextRequest,
@@ -66,6 +66,7 @@ export async function POST(
       if (score) {
         const analysis = parseLaunchScoreAnalysis(score)
 
+        // v4.0 - 4维度
         comparisons.push({
           creativeId,
           creative: {
@@ -79,18 +80,16 @@ export async function POST(
             totalScore: score.totalScore,
             calculatedAt: score.calculatedAt,
             dimensions: {
-              keyword: score.keywordScore,
-              marketFit: score.marketFitScore,
-              landingPage: score.landingPageScore,
-              budget: score.budgetScore,
-              content: score.contentScore,
+              launchViability: score.launchViabilityScore,
+              adQuality: score.adQualityScore,
+              keywordStrategy: score.keywordStrategyScore,
+              basicConfig: score.basicConfigScore,
             },
             analysis: {
-              keywordAnalysis: analysis.keywordAnalysis,
-              marketFitAnalysis: analysis.marketFitAnalysis,
-              landingPageAnalysis: analysis.landingPageAnalysis,
-              budgetAnalysis: analysis.budgetAnalysis,
-              contentAnalysis: analysis.contentAnalysis,
+              launchViability: analysis.launchViability,
+              adQuality: analysis.adQuality,
+              keywordStrategy: analysis.keywordStrategy,
+              basicConfig: analysis.basicConfig,
             }
           }
         })

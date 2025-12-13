@@ -100,49 +100,19 @@ export async function getPerformanceDataForOffer(
 }
 
 /**
- * 对比Launch Score预测与实际表现
+ * 对比Launch Score预测与实际表现 (v4.0 - 4维度)
  */
 export function comparePredictionVsActual(
   launchScore: LaunchScore,
   performanceData: PerformanceData,
   avgOrderValue?: number
 ): PredictionComparison[] {
-  const analysis = parseLaunchScoreAnalysis(launchScore)
   const comparisons: PredictionComparison[] = []
 
-  // 1. CPC对比
-  if (analysis.budgetAnalysis.estimatedCpc !== undefined) {
-    const predictedCpc = analysis.budgetAnalysis.estimatedCpc
-    const actualCpc = performanceData.avgCpcUsd
+  // v4.0 Launch Score不包含详细的CPC/ROI预测
+  // 主要展示实际数据
 
-    let accuracy: number | null = null
-    let variance: string
-
-    if (actualCpc > 0 && predictedCpc > 0) {
-      // 计算准确度：1 - abs(预测-实际)/实际
-      const error = Math.abs(predictedCpc - actualCpc) / actualCpc
-      accuracy = Math.max(0, Math.min(100, (1 - error) * 100))
-
-      const diff = ((actualCpc - predictedCpc) / predictedCpc * 100).toFixed(1)
-      if (actualCpc > predictedCpc) {
-        variance = `实际CPC比预测高${diff}%`
-      } else {
-        variance = `实际CPC比预测低${Math.abs(parseFloat(diff))}%`
-      }
-    } else {
-      variance = '无法计算差异'
-    }
-
-    comparisons.push({
-      metric: 'CPC (每次点击成本)',
-      predicted: `$${predictedCpc.toFixed(2)}`,
-      actual: `$${actualCpc.toFixed(2)}`,
-      accuracy,
-      variance
-    })
-  }
-
-  // 2. CTR对比 (Launch Score没有预测CTR，这里显示实际值)
+  // 1. CTR对比 (Launch Score没有预测CTR，这里显示实际值)
   comparisons.push({
     metric: 'CTR (点击率)',
     predicted: '未预测',
@@ -151,7 +121,7 @@ export function comparePredictionVsActual(
     variance: '实际表现数据'
   })
 
-  // 3. 转化率对比
+  // 2. 转化率对比
   comparisons.push({
     metric: '转化率',
     predicted: '未预测',
@@ -160,37 +130,28 @@ export function comparePredictionVsActual(
     variance: '实际表现数据'
   })
 
+  // 3. CPC对比
+  comparisons.push({
+    metric: 'CPC (每次点击成本)',
+    predicted: '未预测',
+    actual: `$${performanceData.avgCpcUsd.toFixed(2)}`,
+    accuracy: null,
+    variance: '实际表现数据'
+  })
+
   // 4. ROI对比 (如果提供了平均订单价值)
-  if (analysis.budgetAnalysis.roi !== undefined && avgOrderValue && avgOrderValue > 0) {
-    const predictedRoi = analysis.budgetAnalysis.roi
+  if (avgOrderValue && avgOrderValue > 0) {
     const revenue = performanceData.totalConversions * avgOrderValue
     const actualRoi = performanceData.totalCostUsd > 0
       ? ((revenue - performanceData.totalCostUsd) / performanceData.totalCostUsd) * 100
       : 0
 
-    let accuracy: number | null = null
-    let variance: string
-
-    if (actualRoi !== 0 && predictedRoi !== 0) {
-      const error = Math.abs(predictedRoi - actualRoi) / Math.abs(actualRoi)
-      accuracy = Math.max(0, Math.min(100, (1 - error) * 100))
-
-      const diff = actualRoi - predictedRoi
-      if (diff > 0) {
-        variance = `实际ROI比预测高${diff.toFixed(1)}个百分点`
-      } else {
-        variance = `实际ROI比预测低${Math.abs(diff).toFixed(1)}个百分点`
-      }
-    } else {
-      variance = '无法计算差异'
-    }
-
     comparisons.push({
       metric: 'ROI (投资回报率)',
-      predicted: `${predictedRoi}%`,
+      predicted: '未预测',
       actual: `${actualRoi.toFixed(1)}%`,
-      accuracy,
-      variance
+      accuracy: null,
+      variance: '实际表现数据'
     })
   }
 
@@ -247,7 +208,7 @@ export function calculateOverallAccuracy(comparisons: PredictionComparison[]): n
 }
 
 /**
- * 生成基于实际表现的调整建议
+ * 生成基于实际表现的调整建议 (v4.0 - 4维度)
  */
 export function generatePerformanceAdjustedRecommendations(
   launchScore: LaunchScore,
@@ -255,38 +216,22 @@ export function generatePerformanceAdjustedRecommendations(
   comparisons: PredictionComparison[]
 ): string[] {
   const recommendations: string[] = []
-  const analysis = parseLaunchScoreAnalysis(launchScore)
 
-  // 1. CPC分析
-  const cpcComparison = comparisons.find(c => c.metric.includes('CPC'))
-  if (cpcComparison && cpcComparison.accuracy !== null) {
-    if (cpcComparison.accuracy < 70) {
-      const predictedCpc = analysis.budgetAnalysis.estimatedCpc || 0
-      const actualCpc = performanceData.avgCpcUsd
-
-      if (actualCpc > predictedCpc * 1.5) {
-        recommendations.push(`⚠️ 实际CPC ($${actualCpc.toFixed(2)}) 远高于预测 ($${predictedCpc.toFixed(2)})，建议优化关键词质量得分或降低出价`)
-      } else if (actualCpc < predictedCpc * 0.5) {
-        recommendations.push(`✅ 实际CPC ($${actualCpc.toFixed(2)}) 远低于预测，表现优秀！可以考虑提高出价以获取更多流量`)
-      }
-    }
-  }
-
-  // 2. CTR分析
+  // 1. CTR分析
   if (performanceData.avgCtr < 0.01) {
     recommendations.push(`📉 点击率过低 (${(performanceData.avgCtr * 100).toFixed(2)}%)，建议优化广告文案和标题吸引力`)
   } else if (performanceData.avgCtr > 0.05) {
     recommendations.push(`🎯 点击率表现优秀 (${(performanceData.avgCtr * 100).toFixed(2)}%)，继续保持创意质量`)
   }
 
-  // 3. 转化率分析
+  // 2. 转化率分析
   if (performanceData.conversionRate < 0.02) {
     recommendations.push(`🔧 转化率较低 (${(performanceData.conversionRate * 100).toFixed(2)}%)，建议检查着陆页体验和目标受众定位`)
   } else if (performanceData.conversionRate > 0.05) {
     recommendations.push(`🌟 转化率表现出色 (${(performanceData.conversionRate * 100).toFixed(2)}%)，可以考虑扩大预算规模`)
   }
 
-  // 4. 预算使用分析
+  // 3. 预算使用分析
   if (performanceData.totalCostUsd > 100) {
     const costPerConversion = performanceData.totalConversions > 0
       ? performanceData.totalCostUsd / performanceData.totalConversions
@@ -297,14 +242,13 @@ export function generatePerformanceAdjustedRecommendations(
     }
   }
 
-  // 5. Launch Score维度反馈
-  if (performanceData.avgCtr < 0.02 && analysis.contentAnalysis.score < 7) {
-    recommendations.push(`📝 低点击率可能与内容创意得分较低有关 (${analysis.contentAnalysis.score}/10)，建议重新优化广告文案`)
+  // 4. 基于Launch Score维度的建议 (v4.0 - 4维度)
+  if (performanceData.avgCtr < 0.02 && launchScore.adQualityScore < 20) {
+    recommendations.push(`📝 低点击率可能与广告质量得分较低有关 (${launchScore.adQualityScore}/30)，建议重新优化广告文案`)
   }
 
-  if (performanceData.avgCpcUsd > (analysis.budgetAnalysis.estimatedCpc || 0) * 1.5
-      && analysis.keywordAnalysis.score < 20) {
-    recommendations.push(`🔑 高CPC可能与关键词质量得分较低有关 (${analysis.keywordAnalysis.score}/30)，建议优化关键词相关性`)
+  if (performanceData.avgCpcUsd > 3 && launchScore.keywordStrategyScore < 15) {
+    recommendations.push(`🔑 高CPC可能与关键词策略得分较低有关 (${launchScore.keywordStrategyScore}/20)，建议优化关键词相关性`)
   }
 
   // 如果没有生成任何建议，添加默认建议
@@ -362,20 +306,4 @@ export async function getPerformanceEnhancedAnalysis(
     adjustedRecommendations,
     accuracyScore
   }
-}
-
-/**
- * 解析Launch Score的详细分析数据
- */
-function parseLaunchScoreAnalysis(score: LaunchScore): ScoreAnalysis {
-  return {
-    keywordAnalysis: score.keywordAnalysisData ? JSON.parse(score.keywordAnalysisData) : {},
-    marketFitAnalysis: score.marketAnalysisData ? JSON.parse(score.marketAnalysisData) : {},
-    landingPageAnalysis: score.landingPageAnalysisData
-      ? JSON.parse(score.landingPageAnalysisData)
-      : {},
-    budgetAnalysis: score.budgetAnalysisData ? JSON.parse(score.budgetAnalysisData) : {},
-    contentAnalysis: score.contentAnalysisData ? JSON.parse(score.contentAnalysisData) : {},
-    overallRecommendations: score.recommendations ? JSON.parse(score.recommendations) : [],
-  } as ScoreAnalysis
 }

@@ -179,7 +179,7 @@ export async function executeAdCreativeGeneration(
       WHERE id = ?
     `, [task.id])
 
-    // 保存到数据库
+    // 保存到数据库（包含完整的7维度Ad Strength数据）
     const savedCreative = await createAdCreative(task.userId, offerId, {
       headlines: bestCreative.headlines,
       descriptions: bestCreative.descriptions,
@@ -198,10 +198,21 @@ export async function executeAdCreativeGeneration(
         quality: bestEvaluation.localEvaluation.dimensions.quality.score,
         engagement: bestEvaluation.localEvaluation.dimensions.completeness.score,
         diversity: bestEvaluation.localEvaluation.dimensions.diversity.score,
-        clarity: bestEvaluation.localEvaluation.dimensions.compliance.score
+        clarity: bestEvaluation.localEvaluation.dimensions.compliance.score,
+        // 🔧 修复：添加品牌搜索量和竞争定位维度
+        brandSearchVolume: bestEvaluation.localEvaluation.dimensions.brandSearchVolume?.score || 0,
+        competitivePositioning: bestEvaluation.localEvaluation.dimensions.competitivePositioning?.score || 0
       },
       generation_round: attempts,
-      ai_model: bestCreative.ai_model
+      ai_model: bestCreative.ai_model,
+      // 🔧 修复：传递完整的 adStrength 数据，确保刷新后雷达图显示正确
+      adStrength: {
+        rating: bestEvaluation.finalRating,
+        score: bestEvaluation.finalScore,
+        isExcellent: bestEvaluation.finalRating === 'EXCELLENT',
+        dimensions: bestEvaluation.localEvaluation.dimensions,
+        suggestions: bestEvaluation.combinedSuggestions
+      }
     })
 
     // 计算Launch Score

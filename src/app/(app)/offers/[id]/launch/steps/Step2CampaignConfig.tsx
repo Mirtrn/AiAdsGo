@@ -474,7 +474,10 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
                   <Input
                     type="number"
                     value={config.budgetAmount}
-                    onChange={(e) => handleChange('budgetAmount', parseFloat(e.target.value))}
+                    onChange={(e) => {
+                      const value = e.target.value === '' ? 0 : parseFloat(e.target.value)
+                      handleChange('budgetAmount', isNaN(value) ? 0 : value)
+                    }}
                     className="pl-7"
                     min="0"
                     step={accountCurrency === 'JPY' || accountCurrency === 'KRW' ? '100' : '1'}
@@ -625,7 +628,10 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
                 <Input
                   type="number"
                   value={config.maxCpcBid}
-                  onChange={(e) => handleChange('maxCpcBid', parseFloat(e.target.value))}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? 0 : parseFloat(e.target.value)
+                    handleChange('maxCpcBid', isNaN(value) ? 0 : value)
+                  }}
                   className="pl-7"
                   min="0"
                   step={accountCurrency === 'JPY' || accountCurrency === 'KRW' ? '1' : '0.01'}

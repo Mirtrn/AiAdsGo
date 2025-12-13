@@ -13,7 +13,7 @@ export interface KeywordWithVolume {
   competition?: string
   competitionIndex?: number
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
-  matchType?: 'EXACT' | 'BROAD' // 匹配类型（统一使用EXACT）
+  matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
 }
 
 /**
@@ -131,6 +131,10 @@ export interface GeneratedAdCreativeData {
   explanation: string           // 创意说明
   ai_model?: string              // 🎯 新增：实际使用的AI模型
 
+  // 🆕 v4.7: RSA Display Path (展示URL路径)
+  path1?: string                // RSA Display URL路径1，最多15字符
+  path2?: string                // RSA Display URL路径2，最多15字符
+
   // 新增：带标注的资产（可选，用于Ad Strength评估）
   headlinesWithMetadata?: HeadlineAsset[]
   descriptionsWithMetadata?: DescriptionAsset[]
@@ -184,11 +188,11 @@ export async function createAdCreative(
     INSERT INTO ad_creatives (
       offer_id, user_id,
       headlines, descriptions, keywords, keywords_with_volume, negative_keywords, callouts, sitelinks,
-      final_url, final_url_suffix,
+      final_url, final_url_suffix, path1, path2,
       score, score_breakdown, score_explanation,
       generation_round, theme, ai_model,
       ad_strength_data
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     offerId,
     userId,
@@ -201,6 +205,8 @@ export async function createAdCreative(
     data.sitelinks ? JSON.stringify(data.sitelinks) : null,
     data.final_url,
     data.final_url_suffix || null,
+    data.path1 || null,  // 🆕 v4.7: RSA Display Path
+    data.path2 || null,  // 🆕 v4.7: RSA Display Path
     scoreResult.total_score,
     JSON.stringify(scoreResult.breakdown),
     scoreResult.explanation,

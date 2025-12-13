@@ -11,9 +11,9 @@ import ScoreTrendChart from "./ScoreTrendChart";
 import type {
   LaunchScoreModalProps,
   Creative,
-  ScoreDimension,
   LaunchScoreData,
 } from "./launch-score/types";
+import { DIMENSION_CONFIG } from "./launch-score/types";
 
 export default function LaunchScoreModal({
   isOpen,
@@ -69,7 +69,6 @@ export default function LaunchScoreModal({
       if (response.ok) {
         const data = await response.json();
         setCreatives(data.data.creatives);
-        // 默认选择最新的Creative（第一个）
         if (data.data.creatives.length > 0) {
           setSelectedCreativeId(data.data.creatives[0].id);
         }
@@ -164,7 +163,6 @@ export default function LaunchScoreModal({
       if (prev.includes(creativeId)) {
         return prev.filter((id) => id !== creativeId);
       } else {
-        // 最多选择3个
         if (prev.length >= 3) {
           return prev;
         }
@@ -174,12 +172,10 @@ export default function LaunchScoreModal({
   };
 
   const loadExistingScore = async () => {
-    // 如果没有选中Creative，先不加载
     if (!selectedCreativeId) {
       return;
     }
 
-    // 首先检查缓存
     const cached = getCachedLaunchScore(offer.id, selectedCreativeId);
     if (cached) {
       console.log("✅ 从缓存加载Launch Score");
@@ -196,25 +192,18 @@ export default function LaunchScoreModal({
       if (response.ok) {
         const data = await response.json();
         if (data.launchScore) {
-          const scoreData = {
+          // v4.0 - 4维度数据
+          const scoreData: LaunchScoreData = {
             totalScore: data.launchScore.totalScore,
-            keywordAnalysis: JSON.parse(data.launchScore.keywordAnalysisData),
-            marketFitAnalysis: JSON.parse(
-              data.launchScore.marketAnalysisData,
-            ),
-            landingPageAnalysis: JSON.parse(
-              data.launchScore.landingPageAnalysisData,
-            ),
-            budgetAnalysis: JSON.parse(data.launchScore.budgetAnalysisData),
-            contentAnalysis: JSON.parse(data.launchScore.contentAnalysisData),
-            overallRecommendations: JSON.parse(
-              data.launchScore.recommendations || "[]",
-            ),
+            launchViability: JSON.parse(data.launchScore.launchViabilityData || '{}'),
+            adQuality: JSON.parse(data.launchScore.adQualityData || '{}'),
+            keywordStrategy: JSON.parse(data.launchScore.keywordStrategyData || '{}'),
+            basicConfig: JSON.parse(data.launchScore.basicConfigData || '{}'),
+            overallRecommendations: JSON.parse(data.launchScore.recommendations || "[]"),
           };
           setScoreData(scoreData);
-          // 设置缓存
           setCachedLaunchScore(offer.id, selectedCreativeId, scoreData);
-          console.log("✅ Launch Score已缓存");
+          console.log("✅ Launch Score已缓存 (v4.0)");
         }
       }
     } catch (err) {
@@ -232,8 +221,6 @@ export default function LaunchScoreModal({
 
     setAnalyzing(true);
     setError("");
-
-    // 清除旧缓存（因为要重新分析）
     clearCachedLaunchScore(offer.id);
 
     try {
@@ -255,7 +242,6 @@ export default function LaunchScoreModal({
 
       const data = await response.json();
       setScoreData(data.analysis);
-      // 缓存新分析结果
       setCachedLaunchScore(offer.id, selectedCreativeId, data.analysis);
       console.log("✅ 新分析结果已缓存");
     } catch (err: any) {
@@ -265,14 +251,12 @@ export default function LaunchScoreModal({
     }
   };
 
-  // 当选择的Creative变化时，重新加载评分
   useEffect(() => {
     if (selectedCreativeId && isOpen) {
       loadExistingScore();
     }
   }, [selectedCreativeId]);
 
-  // 当对比选择变化时，重新加载对比数据
   useEffect(() => {
     if (selectedCompareIds.length >= 2 && isOpen && activeTab === "compare") {
       loadCompareData(selectedCompareIds);
@@ -546,74 +530,64 @@ export default function LaunchScoreModal({
                     </div>
                   </div>
 
-                  {/* 雷达图可视化 */}
+                  {/* 雷达图可视化 - 4维度 */}
                   <div className="bg-white rounded-lg border border-gray-200 p-6">
                     <h4 className="text-lg font-semibold text-gray-900 mb-4 text-center">
-                      5维度评分雷达图
+                      4维度评分雷达图
                     </h4>
                     <RadarChart
                       data={[
                         {
-                          label: "关键词",
-                          value: scoreData.keywordAnalysis.score,
+                          label: "投放可行性",
+                          value: scoreData.launchViability?.score || 0,
+                          max: 35,
+                        },
+                        {
+                          label: "广告质量",
+                          value: scoreData.adQuality?.score || 0,
                           max: 30,
                         },
                         {
-                          label: "市场契合",
-                          value: scoreData.marketFitAnalysis.score,
-                          max: 25,
-                        },
-                        {
-                          label: "着陆页",
-                          value: scoreData.landingPageAnalysis.score,
+                          label: "关键词策略",
+                          value: scoreData.keywordStrategy?.score || 0,
                           max: 20,
                         },
                         {
-                          label: "预算",
-                          value: scoreData.budgetAnalysis.score,
+                          label: "基础配置",
+                          value: scoreData.basicConfig?.score || 0,
                           max: 15,
-                        },
-                        {
-                          label: "内容",
-                          value: scoreData.contentAnalysis.score,
-                          max: 10,
                         },
                       ]}
                       size={350}
                     />
                   </div>
 
-                  <div className="grid grid-cols-5 gap-4">
+                  {/* 4维度评分卡片 */}
+                  <div className="grid gap-4 grid-cols-4">
                     {[
                       {
-                        name: "关键词",
-                        score: scoreData.keywordAnalysis.score,
+                        name: "投放可行性",
+                        score: scoreData.launchViability?.score || 0,
+                        max: 35,
+                        key: "launchViability",
+                      },
+                      {
+                        name: "广告质量",
+                        score: scoreData.adQuality?.score || 0,
                         max: 30,
-                        key: "keyword",
+                        key: "adQuality",
                       },
                       {
-                        name: "市场契合",
-                        score: scoreData.marketFitAnalysis.score,
-                        max: 25,
-                        key: "market",
-                      },
-                      {
-                        name: "着陆页",
-                        score: scoreData.landingPageAnalysis.score,
+                        name: "关键词策略",
+                        score: scoreData.keywordStrategy?.score || 0,
                         max: 20,
-                        key: "landing",
+                        key: "keywordStrategy",
                       },
                       {
-                        name: "预算",
-                        score: scoreData.budgetAnalysis.score,
+                        name: "基础配置",
+                        score: scoreData.basicConfig?.score || 0,
                         max: 15,
-                        key: "budget",
-                      },
-                      {
-                        name: "内容",
-                        score: scoreData.contentAnalysis.score,
-                        max: 10,
-                        key: "content",
+                        key: "basicConfig",
                       },
                     ].map((dim) => (
                       <button
@@ -648,376 +622,264 @@ export default function LaunchScoreModal({
                   {/* 维度详情展开区域 */}
                   {expandedSection && (
                     <div className="mt-6 bg-gray-50 border border-gray-200 rounded-lg p-6">
-                      {expandedSection === "keyword" &&
-                        scoreData.keywordAnalysis && (
-                          <div>
-                            <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                              关键词分析详情
-                            </h4>
-                            <div className="grid grid-cols-2 gap-4 mb-4">
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  相关性评分：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.keywordAnalysis.relevance}/100
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  竞争程度：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.keywordAnalysis.competition}
-                                </span>
-                              </div>
+                      {expandedSection === "launchViability" && scoreData.launchViability && (
+                        <div>
+                          <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                            投放可行性详情
+                          </h4>
+                          <div className="grid grid-cols-3 gap-4 mb-4">
+                            <div>
+                              <span className="text-sm text-gray-600">品牌词月搜索量：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.launchViability.brandSearchVolume?.toLocaleString() || 0}
+                              </span>
+                              <span className="ml-2 text-xs text-gray-500">
+                                ({scoreData.launchViability.brandSearchScore}/15分)
+                              </span>
                             </div>
-                            {scoreData.keywordAnalysis.issues.length > 0 && (
-                              <div className="mb-4">
-                                <h5 className="text-sm font-medium text-red-700 mb-2">
-                                  ⚠️ 发现问题
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
-                                  {scoreData.keywordAnalysis.issues.map(
-                                    (issue, i) => (
-                                      <li key={i}>{issue}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
-                            {scoreData.keywordAnalysis.suggestions.length >
-                              0 && (
-                              <div>
-                                <h5 className="text-sm font-medium text-green-700 mb-2">
-                                  💡 优化建议
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
-                                  {scoreData.keywordAnalysis.suggestions.map(
-                                    (suggestion, i) => (
-                                      <li key={i}>{suggestion}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
+                            <div>
+                              <span className="text-sm text-gray-600">利润空间：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {((scoreData.launchViability.profitMargin || 0) * 100).toFixed(1)}%
+                              </span>
+                              <span className="ml-2 text-xs text-gray-500">
+                                ({scoreData.launchViability.profitScore}/10分)
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-sm text-gray-600">竞争度：</span>
+                              <span className={`ml-2 font-semibold ${
+                                scoreData.launchViability.competitionLevel === 'LOW' ? 'text-green-600' :
+                                scoreData.launchViability.competitionLevel === 'MEDIUM' ? 'text-yellow-600' : 'text-red-600'
+                              }`}>
+                                {scoreData.launchViability.competitionLevel === 'LOW' ? '低' :
+                                 scoreData.launchViability.competitionLevel === 'MEDIUM' ? '中' : '高'}
+                              </span>
+                              <span className="ml-2 text-xs text-gray-500">
+                                ({scoreData.launchViability.competitionScore}/10分)
+                              </span>
+                            </div>
                           </div>
-                        )}
+                          {scoreData.launchViability.issues && scoreData.launchViability.issues.length > 0 && (
+                            <div className="mb-4">
+                              <h5 className="text-sm font-medium text-red-700 mb-2">问题</h5>
+                              <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+                                {scoreData.launchViability.issues.map((issue, i) => (
+                                  <li key={i}>{issue}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {scoreData.launchViability.suggestions && scoreData.launchViability.suggestions.length > 0 && (
+                            <div>
+                              <h5 className="text-sm font-medium text-green-700 mb-2">优化建议</h5>
+                              <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
+                                {scoreData.launchViability.suggestions.map((suggestion, i) => (
+                                  <li key={i}>{suggestion}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
-                      {expandedSection === "market" &&
-                        scoreData.marketFitAnalysis && (
-                          <div>
-                            <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                              市场契合度详情
-                            </h4>
-                            <div className="grid grid-cols-3 gap-4 mb-4">
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  目标受众匹配：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {
-                                    scoreData.marketFitAnalysis
-                                      .targetAudienceMatch
-                                  }
-                                  /100
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  地理相关性：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {
-                                    scoreData.marketFitAnalysis
-                                      .geographicRelevance
-                                  }
-                                  /100
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  竞争对手：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {
-                                    scoreData.marketFitAnalysis
-                                      .competitorPresence
-                                  }
-                                </span>
-                              </div>
+                      {expandedSection === "adQuality" && scoreData.adQuality && (
+                        <div>
+                          <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                            广告质量详情
+                          </h4>
+                          <div className="grid grid-cols-3 gap-4 mb-4">
+                            <div>
+                              <span className="text-sm text-gray-600">Ad Strength：</span>
+                              <span className={`ml-2 font-semibold ${
+                                scoreData.adQuality.adStrength === 'EXCELLENT' ? 'text-green-600' :
+                                scoreData.adQuality.adStrength === 'GOOD' ? 'text-blue-600' :
+                                scoreData.adQuality.adStrength === 'AVERAGE' ? 'text-yellow-600' : 'text-red-600'
+                              }`}>
+                                {scoreData.adQuality.adStrength === 'EXCELLENT' ? '优秀' :
+                                 scoreData.adQuality.adStrength === 'GOOD' ? '良好' :
+                                 scoreData.adQuality.adStrength === 'AVERAGE' ? '一般' : '较差'}
+                              </span>
+                              <span className="ml-2 text-xs text-gray-500">
+                                ({scoreData.adQuality.adStrengthScore}/15分)
+                              </span>
                             </div>
-                            {scoreData.marketFitAnalysis.issues.length > 0 && (
-                              <div className="mb-4">
-                                <h5 className="text-sm font-medium text-red-700 mb-2">
-                                  ⚠️ 发现问题
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
-                                  {scoreData.marketFitAnalysis.issues.map(
-                                    (issue, i) => (
-                                      <li key={i}>{issue}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
-                            {scoreData.marketFitAnalysis.suggestions.length >
-                              0 && (
-                              <div>
-                                <h5 className="text-sm font-medium text-green-700 mb-2">
-                                  💡 优化建议
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
-                                  {scoreData.marketFitAnalysis.suggestions.map(
-                                    (suggestion, i) => (
-                                      <li key={i}>{suggestion}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
+                            <div>
+                              <span className="text-sm text-gray-600">标题多样性：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.adQuality.headlineDiversity}%
+                              </span>
+                              <span className="ml-2 text-xs text-gray-500">
+                                ({scoreData.adQuality.headlineDiversityScore}/8分)
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-sm text-gray-600">描述质量：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.adQuality.descriptionQuality}%
+                              </span>
+                              <span className="ml-2 text-xs text-gray-500">
+                                ({scoreData.adQuality.descriptionQualityScore}/7分)
+                              </span>
+                            </div>
                           </div>
-                        )}
+                          {scoreData.adQuality.issues && scoreData.adQuality.issues.length > 0 && (
+                            <div className="mb-4">
+                              <h5 className="text-sm font-medium text-red-700 mb-2">问题</h5>
+                              <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+                                {scoreData.adQuality.issues.map((issue, i) => (
+                                  <li key={i}>{issue}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {scoreData.adQuality.suggestions && scoreData.adQuality.suggestions.length > 0 && (
+                            <div>
+                              <h5 className="text-sm font-medium text-green-700 mb-2">优化建议</h5>
+                              <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
+                                {scoreData.adQuality.suggestions.map((suggestion, i) => (
+                                  <li key={i}>{suggestion}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
-                      {expandedSection === "landing" &&
-                        scoreData.landingPageAnalysis && (
-                          <div>
-                            <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                              着陆页质量详情
-                            </h4>
-                            <div className="grid grid-cols-3 gap-4 mb-4">
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  加载速度：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.landingPageAnalysis.loadSpeed}/100
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  移动优化：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.landingPageAnalysis
-                                    .mobileOptimization
-                                    ? "是"
-                                    : "否"}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  内容相关性：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {
-                                    scoreData.landingPageAnalysis
-                                      .contentRelevance
-                                  }
-                                  /100
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  行动召唤：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.landingPageAnalysis.callToAction
-                                    ? "有"
-                                    : "无"}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  信任信号：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.landingPageAnalysis.trustSignals}
-                                  /100
-                                </span>
-                              </div>
+                      {expandedSection === "keywordStrategy" && scoreData.keywordStrategy && (
+                        <div>
+                          <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                            关键词策略详情
+                          </h4>
+                          <div className="grid grid-cols-3 gap-4 mb-4">
+                            <div>
+                              <span className="text-sm text-gray-600">关键词相关性：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.keywordStrategy.relevanceScore}/8分
+                              </span>
                             </div>
-                            {scoreData.landingPageAnalysis.issues.length >
-                              0 && (
-                              <div className="mb-4">
-                                <h5 className="text-sm font-medium text-red-700 mb-2">
-                                  ⚠️ 发现问题
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
-                                  {scoreData.landingPageAnalysis.issues.map(
-                                    (issue, i) => (
-                                      <li key={i}>{issue}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
-                            {scoreData.landingPageAnalysis.suggestions.length >
-                              0 && (
-                              <div>
-                                <h5 className="text-sm font-medium text-green-700 mb-2">
-                                  💡 优化建议
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
-                                  {scoreData.landingPageAnalysis.suggestions.map(
-                                    (suggestion, i) => (
-                                      <li key={i}>{suggestion}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
+                            <div>
+                              <span className="text-sm text-gray-600">匹配类型策略：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.keywordStrategy.matchTypeScore}/6分
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-sm text-gray-600">否定关键词：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.keywordStrategy.negativeKeywordsScore}/6分
+                              </span>
+                            </div>
                           </div>
-                        )}
+                          <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                            <div className="bg-white p-3 rounded border">
+                              <span className="text-gray-600">关键词总数：</span>
+                              <span className="ml-2 font-semibold">{scoreData.keywordStrategy.totalKeywords}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded border">
+                              <span className="text-gray-600">否定关键词数：</span>
+                              <span className="ml-2 font-semibold">{scoreData.keywordStrategy.negativeKeywordsCount}</span>
+                            </div>
+                          </div>
+                          {scoreData.keywordStrategy.issues && scoreData.keywordStrategy.issues.length > 0 && (
+                            <div className="mb-4">
+                              <h5 className="text-sm font-medium text-red-700 mb-2">问题</h5>
+                              <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+                                {scoreData.keywordStrategy.issues.map((issue, i) => (
+                                  <li key={i}>{issue}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {scoreData.keywordStrategy.suggestions && scoreData.keywordStrategy.suggestions.length > 0 && (
+                            <div>
+                              <h5 className="text-sm font-medium text-green-700 mb-2">优化建议</h5>
+                              <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
+                                {scoreData.keywordStrategy.suggestions.map((suggestion, i) => (
+                                  <li key={i}>{suggestion}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
-                      {expandedSection === "budget" &&
-                        scoreData.budgetAnalysis && (
-                          <div>
-                            <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                              预算分析详情
-                            </h4>
-                            <div className="grid grid-cols-3 gap-4 mb-4">
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  预估CPC：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  $
-                                  {scoreData.budgetAnalysis.estimatedCpc.toFixed(
-                                    2,
-                                  )}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  竞争激烈度：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.budgetAnalysis.competitiveness}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  预估ROI：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.budgetAnalysis.roi}%
-                                </span>
-                              </div>
+                      {expandedSection === "basicConfig" && scoreData.basicConfig && (
+                        <div>
+                          <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                            基础配置详情
+                          </h4>
+                          <div className="grid grid-cols-3 gap-4 mb-4">
+                            <div>
+                              <span className="text-sm text-gray-600">国家/语言匹配：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.basicConfig.countryLanguageScore}/5分
+                              </span>
                             </div>
-                            {scoreData.budgetAnalysis.issues.length > 0 && (
-                              <div className="mb-4">
-                                <h5 className="text-sm font-medium text-red-700 mb-2">
-                                  ⚠️ 发现问题
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
-                                  {scoreData.budgetAnalysis.issues.map(
-                                    (issue, i) => (
-                                      <li key={i}>{issue}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
-                            {scoreData.budgetAnalysis.suggestions.length >
-                              0 && (
-                              <div>
-                                <h5 className="text-sm font-medium text-green-700 mb-2">
-                                  💡 优化建议
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
-                                  {scoreData.budgetAnalysis.suggestions.map(
-                                    (suggestion, i) => (
-                                      <li key={i}>{suggestion}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                      {expandedSection === "content" &&
-                        scoreData.contentAnalysis && (
-                          <div>
-                            <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                              内容创意详情
-                            </h4>
-                            <div className="grid grid-cols-2 gap-4 mb-4">
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  标题质量：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.contentAnalysis.headlineQuality}
-                                  /100
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  描述质量：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.contentAnalysis.descriptionQuality}
-                                  /100
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  关键词对齐：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.contentAnalysis.keywordAlignment}
-                                  /100
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-sm text-gray-600">
-                                  独特性：
-                                </span>
-                                <span className="ml-2 font-semibold text-gray-900">
-                                  {scoreData.contentAnalysis.uniqueness}/100
-                                </span>
-                              </div>
+                            <div>
+                              <span className="text-sm text-gray-600">Final URL有效性：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.basicConfig.finalUrlScore}/5分
+                              </span>
                             </div>
-                            {scoreData.contentAnalysis.issues.length > 0 && (
-                              <div className="mb-4">
-                                <h5 className="text-sm font-medium text-red-700 mb-2">
-                                  ⚠️ 发现问题
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
-                                  {scoreData.contentAnalysis.issues.map(
-                                    (issue, i) => (
-                                      <li key={i}>{issue}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
-                            {scoreData.contentAnalysis.suggestions.length >
-                              0 && (
-                              <div>
-                                <h5 className="text-sm font-medium text-green-700 mb-2">
-                                  💡 优化建议
-                                </h5>
-                                <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
-                                  {scoreData.contentAnalysis.suggestions.map(
-                                    (suggestion, i) => (
-                                      <li key={i}>{suggestion}</li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            )}
+                            <div>
+                              <span className="text-sm text-gray-600">预算合理性：</span>
+                              <span className="ml-2 font-semibold text-gray-900">
+                                {scoreData.basicConfig.budgetScore}/5分
+                              </span>
+                            </div>
                           </div>
-                        )}
+                          <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                            <div className="bg-white p-3 rounded border">
+                              <span className="text-gray-600">目标国家：</span>
+                              <span className="ml-2 font-semibold">{scoreData.basicConfig.targetCountry || '-'}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded border">
+                              <span className="text-gray-600">目标语言：</span>
+                              <span className="ml-2 font-semibold">{scoreData.basicConfig.targetLanguage || '-'}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded border col-span-2">
+                              <span className="text-gray-600">Final URL：</span>
+                              <span className="ml-2 font-semibold break-all">{scoreData.basicConfig.finalUrl || '-'}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded border">
+                              <span className="text-gray-600">日预算：</span>
+                              <span className="ml-2 font-semibold">${scoreData.basicConfig.dailyBudget?.toFixed(2) || '0.00'}</span>
+                            </div>
+                            <div className="bg-white p-3 rounded border">
+                              <span className="text-gray-600">最高CPC：</span>
+                              <span className="ml-2 font-semibold">${scoreData.basicConfig.maxCpc?.toFixed(2) || '0.00'}</span>
+                            </div>
+                          </div>
+                          {scoreData.basicConfig.issues && scoreData.basicConfig.issues.length > 0 && (
+                            <div className="mb-4">
+                              <h5 className="text-sm font-medium text-red-700 mb-2">问题</h5>
+                              <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+                                {scoreData.basicConfig.issues.map((issue, i) => (
+                                  <li key={i}>{issue}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {scoreData.basicConfig.suggestions && scoreData.basicConfig.suggestions.length > 0 && (
+                            <div>
+                              <h5 className="text-sm font-medium text-green-700 mb-2">优化建议</h5>
+                              <ul className="list-disc list-inside text-sm text-green-600 space-y-1">
+                                {scoreData.basicConfig.suggestions.map((suggestion, i) => (
+                                  <li key={i}>{suggestion}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {scoreData.overallRecommendations.length > 0 && (
+                  {scoreData.overallRecommendations && scoreData.overallRecommendations.length > 0 && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                       <h4 className="font-semibold text-blue-900 mb-2">
-                        💡 优化建议
+                        优化建议
                       </h4>
                       <ul className="space-y-2 text-sm text-blue-800">
                         {scoreData.overallRecommendations.map((rec, i) => (
@@ -1058,7 +920,7 @@ export default function LaunchScoreModal({
                 </div>
               )
             ) : activeTab === "history" ? (
-              /* 历史对比Tab */
+              /* 历史对比Tab - 简化为4维度 */
               <div className="space-y-6">
                 {loadingHistory ? (
                   <div className="text-center py-12">
@@ -1104,7 +966,7 @@ export default function LaunchScoreModal({
                       />
                     </div>
 
-                    {/* 历史记录表格 */}
+                    {/* 历史记录表格 - 4维度 */}
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                       <div className="px-6 py-4 border-b border-gray-200">
                         <h4 className="text-lg font-semibold text-gray-900">
@@ -1122,19 +984,16 @@ export default function LaunchScoreModal({
                                 总分
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                关键词
+                                投放可行性
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                市场契合
+                                广告质量
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                着陆页
+                                关键词策略
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                预算
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                内容
+                                基础配置
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 等级
@@ -1171,19 +1030,16 @@ export default function LaunchScoreModal({
                                     </span>
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {record.dimensions.keyword}/30
+                                    {record.dimensions?.launchViability || 0}/35
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {record.dimensions.marketFit}/25
+                                    {record.dimensions?.adQuality || 0}/30
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {record.dimensions.landingPage}/20
+                                    {record.dimensions?.keywordStrategy || 0}/20
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {record.dimensions.budget}/15
-                                  </td>
-                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {record.dimensions.content}/10
+                                    {record.dimensions?.basicConfig || 0}/15
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
                                     <span
@@ -1200,144 +1056,6 @@ export default function LaunchScoreModal({
                       </div>
                     </div>
 
-                    {/* 维度对比雷达图（对比最新和最旧） */}
-                    {historyData.length >= 2 && (
-                      <div className="bg-white rounded-lg border border-gray-200 p-6">
-                        <h4 className="text-lg font-semibold text-gray-900 mb-4">
-                          首次 vs 最新评分对比
-                        </h4>
-                        <div className="grid grid-cols-2 gap-8">
-                          <div>
-                            <h5 className="text-sm font-medium text-gray-700 mb-3 text-center">
-                              首次评分 (
-                              {new Date(
-                                historyData[
-                                  historyData.length - 1
-                                ].calculatedAt,
-                              ).toLocaleDateString("zh-CN")}
-                              )
-                            </h5>
-                            <RadarChart
-                              data={[
-                                {
-                                  label: "关键词",
-                                  value:
-                                    historyData[historyData.length - 1]
-                                      .dimensions.keyword,
-                                  max: 30,
-                                },
-                                {
-                                  label: "市场契合",
-                                  value:
-                                    historyData[historyData.length - 1]
-                                      .dimensions.marketFit,
-                                  max: 25,
-                                },
-                                {
-                                  label: "着陆页",
-                                  value:
-                                    historyData[historyData.length - 1]
-                                      .dimensions.landingPage,
-                                  max: 20,
-                                },
-                                {
-                                  label: "预算",
-                                  value:
-                                    historyData[historyData.length - 1]
-                                      .dimensions.budget,
-                                  max: 15,
-                                },
-                                {
-                                  label: "内容",
-                                  value:
-                                    historyData[historyData.length - 1]
-                                      .dimensions.content,
-                                  max: 10,
-                                },
-                              ]}
-                              size={300}
-                            />
-                          </div>
-                          <div>
-                            <h5 className="text-sm font-medium text-gray-700 mb-3 text-center">
-                              最新评分 (
-                              {new Date(
-                                historyData[0].calculatedAt,
-                              ).toLocaleDateString("zh-CN")}
-                              )
-                            </h5>
-                            <RadarChart
-                              data={[
-                                {
-                                  label: "关键词",
-                                  value: historyData[0].dimensions.keyword,
-                                  max: 30,
-                                },
-                                {
-                                  label: "市场契合",
-                                  value: historyData[0].dimensions.marketFit,
-                                  max: 25,
-                                },
-                                {
-                                  label: "着陆页",
-                                  value: historyData[0].dimensions.landingPage,
-                                  max: 20,
-                                },
-                                {
-                                  label: "预算",
-                                  value: historyData[0].dimensions.budget,
-                                  max: 15,
-                                },
-                                {
-                                  label: "内容",
-                                  value: historyData[0].dimensions.content,
-                                  max: 10,
-                                },
-                              ]}
-                              size={300}
-                            />
-                          </div>
-                        </div>
-                        <div className="mt-6 text-center">
-                          <div className="inline-flex items-center gap-4 text-sm">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-gray-700">
-                                总分变化：
-                              </span>
-                              <span className="font-bold text-gray-900">
-                                {historyData[historyData.length - 1].totalScore}{" "}
-                                → {historyData[0].totalScore}
-                              </span>
-                              <span
-                                className={`font-bold ${
-                                  historyData[0].totalScore >
-                                  historyData[historyData.length - 1].totalScore
-                                    ? "text-green-600"
-                                    : historyData[0].totalScore <
-                                        historyData[historyData.length - 1]
-                                          .totalScore
-                                      ? "text-red-600"
-                                      : "text-gray-600"
-                                }`}
-                              >
-                                (
-                                {historyData[0].totalScore -
-                                  historyData[historyData.length - 1]
-                                    .totalScore >=
-                                0
-                                  ? "+"
-                                  : ""}
-                                {historyData[0].totalScore -
-                                  historyData[historyData.length - 1]
-                                    .totalScore}
-                                )
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
                     <div className="flex justify-end">
                       <button
                         onClick={onClose}
@@ -1350,7 +1068,7 @@ export default function LaunchScoreModal({
                 )}
               </div>
             ) : activeTab === "compare" ? (
-              /* 对比分析Tab */
+              /* 对比分析Tab - 简化为4维度 */
               <div className="space-y-6">
                 {/* Creative多选器 */}
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
@@ -1421,7 +1139,7 @@ export default function LaunchScoreModal({
                   </div>
                 ) : (
                   <>
-                    {/* 并排雷达图对比 */}
+                    {/* 并排雷达图对比 - 4维度 */}
                     <div className="bg-white rounded-lg border border-gray-200 p-6">
                       <h4 className="text-lg font-semibold text-gray-900 mb-4 text-center">
                         Creative评分雷达图对比
@@ -1437,7 +1155,7 @@ export default function LaunchScoreModal({
                           <div key={item.creativeId} className="text-center">
                             <h5 className="text-sm font-medium text-gray-700 mb-2">
                               v{item.creative.version} -{" "}
-                              {item.creative.headline1.substring(0, 20)}...
+                              {item.creative.headlines?.[0]?.substring(0, 20) || item.creative.headline1?.substring(0, 20)}...
                             </h5>
                             {item.score ? (
                               <>
@@ -1457,29 +1175,24 @@ export default function LaunchScoreModal({
                                 <RadarChart
                                   data={[
                                     {
-                                      label: "关键词",
-                                      value: item.score.dimensions.keyword,
+                                      label: "投放可行性",
+                                      value: item.score.dimensions?.launchViability || 0,
+                                      max: 35,
+                                    },
+                                    {
+                                      label: "广告质量",
+                                      value: item.score.dimensions?.adQuality || 0,
                                       max: 30,
                                     },
                                     {
-                                      label: "市场",
-                                      value: item.score.dimensions.marketFit,
-                                      max: 25,
-                                    },
-                                    {
-                                      label: "着陆页",
-                                      value: item.score.dimensions.landingPage,
+                                      label: "关键词策略",
+                                      value: item.score.dimensions?.keywordStrategy || 0,
                                       max: 20,
                                     },
                                     {
-                                      label: "预算",
-                                      value: item.score.dimensions.budget,
+                                      label: "基础配置",
+                                      value: item.score.dimensions?.basicConfig || 0,
                                       max: 15,
-                                    },
-                                    {
-                                      label: "内容",
-                                      value: item.score.dimensions.content,
-                                      max: 10,
                                     },
                                   ]}
                                   size={compareData.length === 2 ? 300 : 250}
@@ -1495,7 +1208,7 @@ export default function LaunchScoreModal({
                       </div>
                     </div>
 
-                    {/* 对比数据表格 */}
+                    {/* 对比数据表格 - 4维度 */}
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                       <div className="px-6 py-4 border-b border-gray-200">
                         <h4 className="text-lg font-semibold text-gray-900">
@@ -1551,7 +1264,7 @@ export default function LaunchScoreModal({
                             </tr>
                             <tr className="bg-gray-50">
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                关键词分析
+                                投放可行性
                               </td>
                               {compareData.map((item) => (
                                 <td
@@ -1559,14 +1272,14 @@ export default function LaunchScoreModal({
                                   className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
                                 >
                                   {item.score
-                                    ? `${item.score.dimensions.keyword}/30`
+                                    ? `${item.score.dimensions?.launchViability || 0}/35`
                                     : "-"}
                                 </td>
                               ))}
                             </tr>
                             <tr>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                市场契合
+                                广告质量
                               </td>
                               {compareData.map((item) => (
                                 <td
@@ -1574,14 +1287,14 @@ export default function LaunchScoreModal({
                                   className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
                                 >
                                   {item.score
-                                    ? `${item.score.dimensions.marketFit}/25`
+                                    ? `${item.score.dimensions?.adQuality || 0}/30`
                                     : "-"}
                                 </td>
                               ))}
                             </tr>
                             <tr className="bg-gray-50">
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                着陆页质量
+                                关键词策略
                               </td>
                               {compareData.map((item) => (
                                 <td
@@ -1589,14 +1302,14 @@ export default function LaunchScoreModal({
                                   className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
                                 >
                                   {item.score
-                                    ? `${item.score.dimensions.landingPage}/20`
+                                    ? `${item.score.dimensions?.keywordStrategy || 0}/20`
                                     : "-"}
                                 </td>
                               ))}
                             </tr>
                             <tr>
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                预算效率
+                                基础配置
                               </td>
                               {compareData.map((item) => (
                                 <td
@@ -1604,37 +1317,7 @@ export default function LaunchScoreModal({
                                   className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
                                 >
                                   {item.score
-                                    ? `${item.score.dimensions.budget}/15`
-                                    : "-"}
-                                </td>
-                              ))}
-                            </tr>
-                            <tr className="bg-gray-50">
-                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                内容创意
-                              </td>
-                              {compareData.map((item) => (
-                                <td
-                                  key={item.creativeId}
-                                  className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
-                                >
-                                  {item.score
-                                    ? `${item.score.dimensions.content}/10`
-                                    : "-"}
-                                </td>
-                              ))}
-                            </tr>
-                            <tr>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                质量评分
-                              </td>
-                              {compareData.map((item) => (
-                                <td
-                                  key={item.creativeId}
-                                  className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
-                                >
-                                  {item.creative.qualityScore
-                                    ? `${item.creative.qualityScore}/100`
+                                    ? `${item.score.dimensions?.basicConfig || 0}/15`
                                     : "-"}
                                 </td>
                               ))}
@@ -1680,7 +1363,7 @@ export default function LaunchScoreModal({
                                 最佳Creative：
                               </span>
                               v{bestCreative?.creative.version} -{" "}
-                              {bestCreative?.creative.headline1}
+                              {bestCreative?.creative.headlines?.[0] || bestCreative?.creative.headline1}
                             </p>
                             <p>
                               <span className="font-medium">总分：</span>

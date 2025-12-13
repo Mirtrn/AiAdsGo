@@ -154,13 +154,13 @@ export function useLaunchScoreData({
       if (response.ok) {
         const data = await response.json()
         if (data.launchScore) {
+          // v4.0 - 4维度格式
           const parsed: LaunchScoreData = {
             totalScore: data.launchScore.total_score,
-            keywordAnalysis: JSON.parse(data.launchScore.keyword_analysis_data),
-            marketFitAnalysis: JSON.parse(data.launchScore.market_analysis_data),
-            landingPageAnalysis: JSON.parse(data.launchScore.landing_page_analysis_data),
-            budgetAnalysis: JSON.parse(data.launchScore.budget_analysis_data),
-            contentAnalysis: JSON.parse(data.launchScore.content_analysis_data),
+            launchViability: JSON.parse(data.launchScore.launch_viability_data || '{}'),
+            adQuality: JSON.parse(data.launchScore.ad_quality_data || '{}'),
+            keywordStrategy: JSON.parse(data.launchScore.keyword_strategy_data || '{}'),
+            basicConfig: JSON.parse(data.launchScore.basic_config_data || '{}'),
             overallRecommendations: JSON.parse(data.launchScore.recommendations || '[]'),
           }
           setScoreData(parsed)

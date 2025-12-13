@@ -201,6 +201,8 @@ export const TABLES: TableDef[] = [
       { name: 'orientation', type: 'TEXT' },  // 创意导向类型（brand/product/promotion）
       { name: 'brand', type: 'TEXT' },  // 品牌名称（从offer复制用于评分）
       { name: 'url', type: 'TEXT' },  // 产品URL或落地页URL
+      { name: 'path1', type: 'TEXT' },  // RSA Display URL路径1，如"Cameras"，最多15字符
+      { name: 'path2', type: 'TEXT' },  // RSA Display URL路径2，如"Wireless"，最多15字符
       { name: 'created_at', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
       { name: 'updated_at', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
     ],

@@ -48,6 +48,7 @@ export default function Step4PublishSummary({
   onPublishComplete
 }: Props) {
   const [pauseOldCampaigns, setPauseOldCampaigns] = useState(false)
+  const [enableCampaignImmediately, setEnableCampaignImmediately] = useState(false)  // 默认不启用
   const [publishing, setPublishing] = useState(false)
   const [publishStatus, setPublishStatus] = useState<{
     step: string
@@ -136,6 +137,7 @@ export default function Step4PublishSummary({
           googleAdsAccountId: selectedAccount.id,
           campaignConfig: campaignConfig,
           pauseOldCampaigns: pauseOldCampaigns,
+          enableCampaignImmediately: enableCampaignImmediately,  // 是否立即启用Campaign
           forcePublish: false // 第一次调用不强制发布
         })
       })
@@ -224,6 +226,7 @@ export default function Step4PublishSummary({
           googleAdsAccountId: selectedAccount.id,
           campaignConfig: campaignConfig,
           pauseOldCampaigns: true, // 用户确认暂停
+          enableCampaignImmediately: enableCampaignImmediately,  // 是否立即启用Campaign
           forcePublish: false
         })
       })
@@ -281,6 +284,7 @@ export default function Step4PublishSummary({
           googleAdsAccountId: selectedAccount.id,
           campaignConfig: campaignConfig,
           pauseOldCampaigns: false, // 不暂停
+          enableCampaignImmediately: enableCampaignImmediately,  // 是否立即启用Campaign
           forcePublish: true // 强制发布（跳过确认）
         })
       })
@@ -338,19 +342,37 @@ export default function Step4PublishSummary({
 
       {/* Pause Option & Publish Button - Combined in one row */}
       <div className="flex items-center justify-between gap-4 py-2">
-        {/* Left: Pause Option */}
-        <div className="flex items-center space-x-3">
-          <Checkbox
-            id="pauseOld"
-            checked={pauseOldCampaigns}
-            onCheckedChange={(checked) => setPauseOldCampaigns(checked as boolean)}
-          />
-          <Label
-            htmlFor="pauseOld"
-            className="text-sm font-medium cursor-pointer"
-          >
-            暂停所有已存在的广告系列
-          </Label>
+        {/* Left: Options */}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center space-x-3">
+            <Checkbox
+              id="enableImmediately"
+              checked={enableCampaignImmediately}
+              onCheckedChange={(checked) => setEnableCampaignImmediately(checked as boolean)}
+            />
+            <Label
+              htmlFor="enableImmediately"
+              className="text-sm font-medium cursor-pointer"
+            >
+              立即启用Campaign
+            </Label>
+            <span className="text-xs text-gray-500">
+              {enableCampaignImmediately ? '发布后立即投放' : '发布后保持暂停状态，可在Google Ads后台启用'}
+            </span>
+          </div>
+          <div className="flex items-center space-x-3">
+            <Checkbox
+              id="pauseOld"
+              checked={pauseOldCampaigns}
+              onCheckedChange={(checked) => setPauseOldCampaigns(checked as boolean)}
+            />
+            <Label
+              htmlFor="pauseOld"
+              className="text-sm font-medium cursor-pointer"
+            >
+              暂停所有已存在的广告系列
+            </Label>
+          </div>
         </div>
 
         {/* Right: Publish Button */}

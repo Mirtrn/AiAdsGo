@@ -843,7 +843,12 @@ export default function OfferDetailPage() {
                           <ul className="list-disc list-inside space-y-2">
                             {reviewData.topPositiveKeywords.map((item: any, idx: number) => (
                               <li key={idx} className="text-green-700">
-                                <strong>{item.keyword}</strong>（提及{item.frequency}次）
+                                <strong>{item.keyword}</strong>
+                                {item.frequency && (
+                                  <span className="text-gray-600 text-xs ml-1">
+                                    （提及频率: {typeof item.frequency === 'number' ? `${item.frequency}次` : item.frequency}）
+                                  </span>
+                                )}
                                 {item.context && <p className="ml-5 text-gray-600 text-xs mt-1">{item.context}</p>}
                               </li>
                             ))}
@@ -859,7 +864,12 @@ export default function OfferDetailPage() {
                           <ul className="list-disc list-inside space-y-2">
                             {reviewData.topNegativeKeywords.map((item: any, idx: number) => (
                               <li key={idx} className="text-red-700">
-                                <strong>{item.keyword}</strong>（提及{item.frequency}次）
+                                <strong>{item.keyword}</strong>
+                                {item.frequency && (
+                                  <span className="text-gray-600 text-xs ml-1">
+                                    （提及频率: {typeof item.frequency === 'number' ? `${item.frequency}次` : item.frequency}）
+                                  </span>
+                                )}
                                 {item.context && <p className="ml-5 text-gray-600 text-xs mt-1">{item.context}</p>}
                               </li>
                             ))}
@@ -876,7 +886,11 @@ export default function OfferDetailPage() {
                             {reviewData.purchaseReasons.map((item: any, idx: number) => (
                               <li key={idx}>
                                 {typeof item === 'string' ? item : item.reason}
-                                {item.frequency && <span className="text-gray-500 text-xs ml-1">（{item.frequency}人）</span>}
+                                {item.frequency && (
+                                  <span className="text-gray-500 text-xs ml-1">
+                                    （{typeof item.frequency === 'number' ? `${item.frequency}人` : item.frequency}）
+                                  </span>
+                                )}
                               </li>
                             ))}
                           </ul>
@@ -891,7 +905,12 @@ export default function OfferDetailPage() {
                           <ul className="list-disc list-inside space-y-2">
                             {reviewData.realUseCases.map((item: any, idx: number) => (
                               <li key={idx}>
-                                <strong>{item.scenario}</strong>（提及{item.mentions}次）
+                                <strong>{item.scenario}</strong>
+                                {item.mentions && (
+                                  <span className="text-gray-600 text-xs ml-1">
+                                    （提及频率: {typeof item.mentions === 'number' ? `${item.mentions}次` : item.mentions}）
+                                  </span>
+                                )}
                                 {item.examples && item.examples.length > 0 && (
                                   <ul className="ml-5 mt-1 text-gray-600 text-xs list-none">
                                     {item.examples.map((ex: string, exIdx: number) => (

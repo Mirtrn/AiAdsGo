@@ -15,7 +15,32 @@ import { createError, ErrorCode, AppError } from '@/lib/errors'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { calculateLaunchScore } from '@/lib/scoring'
 import type { AdCreative } from '@/lib/ad-creative'
+import type { ScoreAnalysis } from '@/lib/launch-scores'
 import { generateNamingScheme } from '@/lib/naming-convention'
+
+/**
+ * 从ScoreAnalysis中提取所有问题（v4.0 - 4维度）
+ */
+function extractAllIssues(analysis: ScoreAnalysis): string[] {
+  return [
+    ...(analysis.launchViability?.issues || []),
+    ...(analysis.adQuality?.issues || []),
+    ...(analysis.keywordStrategy?.issues || []),
+    ...(analysis.basicConfig?.issues || []),
+  ]
+}
+
+/**
+ * 从ScoreAnalysis中提取所有建议（v4.0 - 4维度）
+ */
+function extractAllSuggestions(analysis: ScoreAnalysis): string[] {
+  return [
+    ...(analysis.launchViability?.suggestions || []),
+    ...(analysis.adQuality?.suggestions || []),
+    ...(analysis.keywordStrategy?.suggestions || []),
+    ...(analysis.basicConfig?.suggestions || []),
+  ]
+}
 
 /**
  * POST /api/campaigns/publish
@@ -65,6 +90,7 @@ export async function POST(request: NextRequest) {
       googleAdsAccountId,
       campaignConfig,
       pauseOldCampaigns,
+      enableCampaignImmediately = false,  // 是否立即启用Campaign，默认false（PAUSED状态）
       enableSmartOptimization = false,
       variantCount = 3,
       forcePublish = false, // 强制发布标志（用于绕过60-80分警告）
@@ -74,6 +100,7 @@ export async function POST(request: NextRequest) {
       google_ads_account_id,
       campaign_config,
       pause_old_campaigns,
+      enable_campaign_immediately,
       enable_smart_optimization,
       variant_count,
       force_publish
@@ -85,6 +112,7 @@ export async function POST(request: NextRequest) {
     const _googleAdsAccountId = googleAdsAccountId ?? google_ads_account_id
     const _campaignConfig = campaignConfig ?? campaign_config
     const _pauseOldCampaigns = pauseOldCampaigns ?? pause_old_campaigns
+    const _enableCampaignImmediately = enableCampaignImmediately ?? enable_campaign_immediately ?? false
     const _enableSmartOptimization = enableSmartOptimization ?? enable_smart_optimization ?? false
     const _variantCount = variantCount ?? variant_count ?? 3
     const _forcePublish = forcePublish ?? force_publish ?? false
@@ -322,23 +350,23 @@ export async function POST(request: NextRequest) {
           callouts: creativeData.callouts,
           sitelinks: creativeData.sitelinks
         } as AdCreative,
-        userId
+        userId,
+        {
+          budgetAmount: _campaignConfig.budgetAmount,
+          maxCpcBid: _campaignConfig.maxCpcBid,
+          budgetType: _campaignConfig.budgetType
+        }
       )
 
-      // 从scoreAnalysis中提取各维度分数
-      const keywordScore = launchScoreResult.scoreAnalysis.keywordAnalysis.score
-      const marketFitScore = launchScoreResult.scoreAnalysis.marketFitAnalysis.score
-      const landingPageScore = launchScoreResult.scoreAnalysis.landingPageAnalysis.score
-      const budgetScore = launchScoreResult.scoreAnalysis.budgetAnalysis.score
-      const contentScore = launchScoreResult.scoreAnalysis.contentAnalysis.score
-      const launchScore = keywordScore + marketFitScore + landingPageScore + budgetScore + contentScore
+      // 🎯 从scoreAnalysis中提取各维度分数（v4.0 - 4维度）
+      const analysis = launchScoreResult.scoreAnalysis
+      const launchScore = launchScoreResult.totalScore
 
-      console.log(`📊 Launch Score评估结果: ${launchScore}分`)
-      console.log(`   - 关键词: ${keywordScore}/30`)
-      console.log(`   - 市场契合: ${marketFitScore}/25`)
-      console.log(`   - 着陆页: ${landingPageScore}/20`)
-      console.log(`   - 预算: ${budgetScore}/15`)
-      console.log(`   - 内容: ${contentScore}/10`)
+      console.log(`📊 Launch Score评估结果 (v4.0): ${launchScore}分`)
+      console.log(`   - 投放可行性: ${analysis.launchViability.score}/35`)
+      console.log(`   - 广告质量: ${analysis.adQuality.score}/30`)
+      console.log(`   - 关键词策略: ${analysis.keywordStrategy.score}/20`)
+      console.log(`   - 基础配置: ${analysis.basicConfig.score}/15`)
 
       // 阻断规则
       const CRITICAL_THRESHOLD = 60  // 严重问题阈值
@@ -348,6 +376,10 @@ export async function POST(request: NextRequest) {
         // 强制阻断：<60分
         console.error(`❌ Launch Score过低: ${launchScore}分 < ${CRITICAL_THRESHOLD}分，强制阻断`)
 
+        // 🎯 收集所有维度的问题和建议
+        const allIssues = extractAllIssues(launchScoreResult.scoreAnalysis)
+        const allSuggestions = extractAllSuggestions(launchScoreResult.scoreAnalysis)
+
         return NextResponse.json(
           {
             error: `投放风险过高（Launch Score: ${launchScore}分），无法发布`,
@@ -355,22 +387,26 @@ export async function POST(request: NextRequest) {
               launchScore,
               threshold: CRITICAL_THRESHOLD,
               breakdown: {
-                keyword: keywordScore,
-                marketFit: marketFitScore,
-                landingPage: landingPageScore,
-                budget: budgetScore,
-                content: contentScore
+                launchViability: { score: analysis.launchViability.score, max: 35 },
+                adQuality: { score: analysis.adQuality.score, max: 30 },
+                keywordStrategy: { score: analysis.keywordStrategy.score, max: 20 },
+                basicConfig: { score: analysis.basicConfig.score, max: 15 }
               },
-              issues: launchScoreResult.scoreAnalysis.keywordAnalysis?.issues || [],
-              recommendations: launchScoreResult.scoreAnalysis.overallRecommendations || []
+              issues: allIssues,
+              suggestions: allSuggestions,
+              overallRecommendations: launchScoreResult.scoreAnalysis.overallRecommendations || []
             },
             action: 'LAUNCH_SCORE_BLOCKED'
           },
           { status: 422 } // 422 Unprocessable Entity
         )
-      } else if (launchScore < WARNING_THRESHOLD && !force_publish) {
+      } else if (launchScore < WARNING_THRESHOLD && !_forcePublish) {
         // 警告但可绕过：60-80分
         console.warn(`⚠️ Launch Score偏低: ${launchScore}分 < ${WARNING_THRESHOLD}分，建议优化后再发布`)
+
+        // 🎯 收集所有维度的问题和建议
+        const allIssues = extractAllIssues(launchScoreResult.scoreAnalysis)
+        const allSuggestions = extractAllSuggestions(launchScoreResult.scoreAnalysis)
 
         return NextResponse.json(
           {
@@ -379,14 +415,14 @@ export async function POST(request: NextRequest) {
               launchScore,
               threshold: WARNING_THRESHOLD,
               breakdown: {
-                keyword: keywordScore,
-                marketFit: marketFitScore,
-                landingPage: landingPageScore,
-                budget: budgetScore,
-                content: contentScore
+                launchViability: { score: analysis.launchViability.score, max: 35 },
+                adQuality: { score: analysis.adQuality.score, max: 30 },
+                keywordStrategy: { score: analysis.keywordStrategy.score, max: 20 },
+                basicConfig: { score: analysis.basicConfig.score, max: 15 }
               },
-              issues: launchScoreResult.scoreAnalysis.keywordAnalysis?.issues || [],
-              recommendations: launchScoreResult.scoreAnalysis.overallRecommendations || [],
+              issues: allIssues,
+              suggestions: allSuggestions,
+              overallRecommendations: launchScoreResult.scoreAnalysis.overallRecommendations || [],
               canForcePublish: true // 允许强制发布
             },
             action: 'LAUNCH_SCORE_WARNING'
@@ -546,6 +582,14 @@ export async function POST(request: NextRequest) {
           let headlines = JSON.parse(creative.headlines) as string[]
           const descriptions = JSON.parse(creative.descriptions) as string[]
 
+          // 🎯 验证RSA最小要求（至少10个headlines和4个descriptions）
+          if (headlines.length < 10) {
+            throw new Error(`RSA广告至少需要10个headlines，当前只有${headlines.length}个`)
+          }
+          if (descriptions.length < 4) {
+            throw new Error(`RSA广告至少需要4个descriptions，当前只有${descriptions.length}个`)
+          }
+
           // 🔥 修复未闭合的DKI标签（防御性处理已存储的数据）
           headlines = headlines.map((h: string) => {
             const unclosedPattern = /\{KeyWord:([^}]*?)$/i
@@ -566,9 +610,47 @@ export async function POST(request: NextRequest) {
             return h
           })
 
+          // 🎯 修复：从creative的keywordsWithVolume中读取matchType
+          const keywordsWithVolume = JSON.parse(creative.keywords_with_volume || '[]') as Array<{
+            keyword: string
+            matchType?: 'EXACT' | 'PHRASE' | 'BROAD'
+            searchVolume?: number
+          }>
+
+          // 构建关键词映射表（keyword -> matchType）
+          const keywordMatchTypeMap = new Map<string, 'EXACT' | 'PHRASE' | 'BROAD'>()
+          keywordsWithVolume.forEach(kw => {
+            if (kw.matchType) {
+              keywordMatchTypeMap.set(kw.keyword.toLowerCase(), kw.matchType)
+            }
+          })
+
+          // 智能分配matchType的辅助函数
+          const getMatchType = (keyword: string): 'EXACT' | 'PHRASE' | 'BROAD' => {
+            // 1. 优先使用keywordsWithVolume中的matchType
+            const mappedType = keywordMatchTypeMap.get(keyword.toLowerCase())
+            if (mappedType) {
+              return mappedType
+            }
+
+            // 2. 智能分配：品牌词EXACT，长尾词PHRASE，短词BROAD
+            const keywordLower = keyword.toLowerCase()
+            const brandLower = offer.brand?.toLowerCase() || ''
+            const isBrandKeyword = keywordLower === brandLower || keywordLower.startsWith(brandLower + ' ')
+            const wordCount = keyword.split(' ').length
+
+            if (isBrandKeyword) {
+              return 'EXACT'
+            } else if (wordCount >= 3) {
+              return 'PHRASE'
+            } else {
+              return 'BROAD'
+            }
+          }
+
           const keywordOperations = _campaignConfig.keywords.map((keyword: string) => ({
             keywordText: keyword,
-            matchType: 'BROAD' as const,
+            matchType: getMatchType(keyword),
             status: 'ENABLED' as const
           }))
 
@@ -614,6 +696,8 @@ export async function POST(request: NextRequest) {
             headlines: headlines.slice(0, 15),
             descriptions: descriptions.slice(0, 4),
             finalUrls: [creative.final_url],
+            path1: creative.path1 || undefined,  // RSA Display URL路径1
+            path2: creative.path2 || undefined,  // RSA Display URL路径2
             accountId: adsAccount.id,
             userId
           })
@@ -666,6 +750,31 @@ export async function POST(request: NextRequest) {
             console.warn(`⚠️ 广告扩展创建失败（非致命错误）:`, extensionError.message)
           }
 
+          // 🎯 启用Campaign（如果用户选择立即启用）
+          // Campaign创建时默认是PAUSED状态，需要在所有组件（Ad Group、Keywords、Ad、Extensions）创建完成后启用
+          let finalCampaignStatus: 'ENABLED' | 'PAUSED' = 'PAUSED'
+          if (_enableCampaignImmediately) {
+            try {
+              totalApiOperations++ // Campaign status update = 1 operation
+              await updateGoogleAdsCampaignStatus({
+                customerId: adsAccount.customer_id,
+                refreshToken: credentials.refresh_token,
+                campaignId: googleCampaignId,
+                status: 'ENABLED',
+                accountId: adsAccount.id,
+                userId
+              })
+              finalCampaignStatus = 'ENABLED'
+              console.log(`✅ Campaign ${googleCampaignId} 已启用`)
+            } catch (enableError: any) {
+              // 启用失败不阻止流程，Campaign会保持PAUSED状态
+              console.warn(`⚠️ Campaign启用失败（非致命错误）:`, enableError.message)
+              console.warn('Campaign将保持PAUSED状态，请在Google Ads后台手动启用')
+            }
+          } else {
+            console.log(`ℹ️ Campaign ${googleCampaignId} 保持PAUSED状态（用户选择不立即启用）`)
+          }
+
           // 更新数据库记录
           await db.exec(`
             UPDATE campaigns
@@ -673,12 +782,13 @@ export async function POST(request: NextRequest) {
               google_campaign_id = ?,
               google_ad_group_id = ?,
               google_ad_id = ?,
+              status = ?,
               creation_status = 'synced',
               creation_error = NULL,
               last_sync_at = CURRENT_TIMESTAMP,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-          `, [googleCampaignId, googleAdGroupId, googleAdId, campaignId])
+          `, [googleCampaignId, googleAdGroupId, googleAdId, finalCampaignStatus, campaignId])
 
           // 🔧 修复(2025-12-11): snake_case → camelCase
           publishResults.push({
@@ -687,7 +797,7 @@ export async function POST(request: NextRequest) {
             googleAdGroupId: googleAdGroupId,
             googleAdId: googleAdId,
             variantName: variantName,
-            status: 'ENABLED',
+            status: finalCampaignStatus,  // 使用实际的Campaign状态
             creationStatus: 'synced'
           })
 

@@ -4,15 +4,17 @@ import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { showSuccess } from '@/lib/toast-utils'
 
+/**
+ * Launch Score v4.0 - 4维度评分系统
+ */
 interface LaunchScore {
   id: number
   offerId: number
   totalScore: number
-  keywordScore: number
-  marketFitScore: number
-  landingPageScore: number
-  budgetScore: number
-  contentScore: number
+  launchViabilityScore: number // 投放可行性 (35分)
+  adQualityScore: number // 广告质量 (30分)
+  keywordStrategyScore: number // 关键词策略 (20分)
+  basicConfigScore: number // 基础配置 (15分)
   calculatedAt: string
 }
 
@@ -24,11 +26,10 @@ interface ScoreDimension {
 }
 
 interface Analysis {
-  keywordAnalysis: ScoreDimension
-  marketFitAnalysis: ScoreDimension
-  landingPageAnalysis: ScoreDimension
-  budgetAnalysis: ScoreDimension
-  contentAnalysis: ScoreDimension
+  launchViability: ScoreDimension
+  adQuality: ScoreDimension
+  keywordStrategy: ScoreDimension
+  basicConfig: ScoreDimension
   overallRecommendations: string[]
 }
 
@@ -323,146 +324,117 @@ export default function LaunchScorePage() {
                 </div>
               </div>
 
-              {/* 各维度评分 */}
+              {/* 各维度评分 - v4.0 4维度 */}
               <div className="bg-white shadow rounded-lg p-6">
                 <h2 className="text-h4 mb-4">维度评分详情</h2>
                 <div className="space-y-4">
-                  {/* 关键词质量 */}
+                  {/* 投放可行性 */}
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-body-sm font-medium text-gray-700">
-                        关键词质量 (30分满分)
+                        投放可行性 (35分满分)
                       </span>
                       <span className="text-body-sm font-semibold text-gray-900">
-                        {launchScore.keywordScore}分
+                        {launchScore.launchViabilityScore}分
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full ${getScoreColor(
-                          launchScore.keywordScore,
+                          launchScore.launchViabilityScore,
+                          35
+                        )}`}
+                        style={{ width: `${(launchScore.launchViabilityScore / 35) * 100}%` }}
+                      ></div>
+                    </div>
+                    {analysis?.launchViability?.issues &&
+                      analysis.launchViability.issues.length > 0 && (
+                        <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
+                          {analysis.launchViability.issues.map((issue, i) => (
+                            <li key={i}>{issue}</li>
+                          ))}
+                        </ul>
+                      )}
+                  </div>
+
+                  {/* 广告质量 */}
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <span className="text-body-sm font-medium text-gray-700">
+                        广告质量 (30分满分)
+                      </span>
+                      <span className="text-body-sm font-semibold text-gray-900">
+                        {launchScore.adQualityScore}分
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full ${getScoreColor(
+                          launchScore.adQualityScore,
                           30
                         )}`}
-                        style={{ width: `${(launchScore.keywordScore / 30) * 100}%` }}
+                        style={{ width: `${(launchScore.adQualityScore / 30) * 100}%` }}
                       ></div>
                     </div>
-                    {analysis?.keywordAnalysis.issues &&
-                      analysis.keywordAnalysis.issues.length > 0 && (
+                    {analysis?.adQuality?.issues &&
+                      analysis.adQuality.issues.length > 0 && (
                         <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
-                          {analysis.keywordAnalysis.issues.map((issue, i) => (
+                          {analysis.adQuality.issues.map((issue, i) => (
                             <li key={i}>{issue}</li>
                           ))}
                         </ul>
                       )}
                   </div>
 
-                  {/* 市场契合度 */}
+                  {/* 关键词策略 */}
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-body-sm font-medium text-gray-700">
-                        市场契合度 (25分满分)
+                        关键词策略 (20分满分)
                       </span>
                       <span className="text-body-sm font-semibold text-gray-900">
-                        {launchScore.marketFitScore}分
+                        {launchScore.keywordStrategyScore}分
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full ${getScoreColor(
-                          launchScore.marketFitScore,
-                          25
-                        )}`}
-                        style={{ width: `${(launchScore.marketFitScore / 25) * 100}%` }}
-                      ></div>
-                    </div>
-                    {analysis?.marketFitAnalysis.issues &&
-                      analysis.marketFitAnalysis.issues.length > 0 && (
-                        <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
-                          {analysis.marketFitAnalysis.issues.map((issue, i) => (
-                            <li key={i}>{issue}</li>
-                          ))}
-                        </ul>
-                      )}
-                  </div>
-
-                  {/* 着陆页质量 */}
-                  <div>
-                    <div className="flex justify-between mb-1">
-                      <span className="text-body-sm font-medium text-gray-700">
-                        着陆页质量 (20分满分)
-                      </span>
-                      <span className="text-body-sm font-semibold text-gray-900">
-                        {launchScore.landingPageScore}分
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full ${getScoreColor(
-                          launchScore.landingPageScore,
+                          launchScore.keywordStrategyScore,
                           20
                         )}`}
-                        style={{ width: `${(launchScore.landingPageScore / 20) * 100}%` }}
+                        style={{ width: `${(launchScore.keywordStrategyScore / 20) * 100}%` }}
                       ></div>
                     </div>
-                    {analysis?.landingPageAnalysis.issues &&
-                      analysis.landingPageAnalysis.issues.length > 0 && (
+                    {analysis?.keywordStrategy?.issues &&
+                      analysis.keywordStrategy.issues.length > 0 && (
                         <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
-                          {analysis.landingPageAnalysis.issues.map((issue, i) => (
+                          {analysis.keywordStrategy.issues.map((issue, i) => (
                             <li key={i}>{issue}</li>
                           ))}
                         </ul>
                       )}
                   </div>
 
-                  {/* 预算合理性 */}
+                  {/* 基础配置 */}
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-body-sm font-medium text-gray-700">
-                        预算合理性 (15分满分)
+                        基础配置 (15分满分)
                       </span>
                       <span className="text-body-sm font-semibold text-gray-900">
-                        {launchScore.budgetScore}分
+                        {launchScore.basicConfigScore}分
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
-                        className={`h-2 rounded-full ${getScoreColor(launchScore.budgetScore, 15)}`}
-                        style={{ width: `${(launchScore.budgetScore / 15) * 100}%` }}
+                        className={`h-2 rounded-full ${getScoreColor(launchScore.basicConfigScore, 15)}`}
+                        style={{ width: `${(launchScore.basicConfigScore / 15) * 100}%` }}
                       ></div>
                     </div>
-                    {analysis?.budgetAnalysis.issues &&
-                      analysis.budgetAnalysis.issues.length > 0 && (
+                    {analysis?.basicConfig?.issues &&
+                      analysis.basicConfig.issues.length > 0 && (
                         <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
-                          {analysis.budgetAnalysis.issues.map((issue, i) => (
-                            <li key={i}>{issue}</li>
-                          ))}
-                        </ul>
-                      )}
-                  </div>
-
-                  {/* 内容创意质量 */}
-                  <div>
-                    <div className="flex justify-between mb-1">
-                      <span className="text-body-sm font-medium text-gray-700">
-                        内容创意质量 (10分满分)
-                      </span>
-                      <span className="text-body-sm font-semibold text-gray-900">
-                        {launchScore.contentScore}分
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full ${getScoreColor(
-                          launchScore.contentScore,
-                          10
-                        )}`}
-                        style={{ width: `${(launchScore.contentScore / 10) * 100}%` }}
-                      ></div>
-                    </div>
-                    {analysis?.contentAnalysis.issues &&
-                      analysis.contentAnalysis.issues.length > 0 && (
-                        <ul className="mt-2 text-caption text-red-600 list-disc list-inside">
-                          {analysis.contentAnalysis.issues.map((issue, i) => (
+                          {analysis.basicConfig.issues.map((issue, i) => (
                             <li key={i}>{issue}</li>
                           ))}
                         </ul>

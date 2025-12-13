@@ -252,11 +252,10 @@ export async function POST(
 
     console.timeEnd('⏱️ Launch Score计算')
     console.log(`📊 Launch Score: ${launchScore.totalScore}分`)
-    console.log(`   - 关键词质量: ${launchScore.analysis.keywordsQuality.score}/30`)
-    console.log(`   - 市场契合度: ${launchScore.analysis.marketFit.score}/25`)
-    console.log(`   - 着陆页质量: ${launchScore.analysis.landingPageQuality.score}/20`)
-    console.log(`   - 预算合理性: ${launchScore.analysis.budgetRationality.score}/15`)
-    console.log(`   - 内容创意质量: ${launchScore.analysis.contentCreativeQuality.score}/10`)
+    console.log(`   - 投放可行性: ${launchScore.analysis.launchViability.score}/35`)
+    console.log(`   - 广告质量: ${launchScore.analysis.adQuality.score}/30`)
+    console.log(`   - 关键词策略: ${launchScore.analysis.keywordStrategy.score}/20`)
+    console.log(`   - 基础配置: ${launchScore.analysis.basicConfig.score}/15`)
 
     // Launch Score警告（不阻断，仅提示）
     const LAUNCH_SCORE_WARNING_THRESHOLD = 60

@@ -24,7 +24,7 @@ export interface KeywordWithVolume {
   competition?: string
   competitionIndex?: number
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
-  matchType?: 'EXACT' | 'BROAD' // 匹配类型
+  matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
 }
 
 /**
