@@ -1473,12 +1473,13 @@ export async function scrapeAmazonStoreDeep(
       // 缓存未命中或质量不合格，需要重新抓取
 
       try {
-        // 🔥 使用复用Context的抓取函数
+        // 🔥 修复（2025-12-13）：店铺场景跳过竞品提取
+        // 原因：店铺场景不需要竞品分析，跳过竞品ASIN提取可节省大量时间
         const productData = await scrapeAmazonProductWithContext(
           browserResult.context,
           productUrl,
           targetCountry,
-          false  // 不跳过竞品提取，店铺场景需要收集竞品
+          true  // 跳过竞品提取，店铺场景只需要产品特性和评论
         )
 
         // 保存到缓存
