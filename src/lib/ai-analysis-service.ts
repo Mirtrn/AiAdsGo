@@ -562,6 +562,21 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
       // 添加热销产品列表
       textParts.push('\n=== HOT-SELLING PRODUCTS (Top 15) ===', productSummaries)
 
+      // 🔥 2025-12-13诊断：追踪deepScrapeResults数据流
+      const dsr = extractResult.deepScrapeResults
+      console.log(`🔍 [STORE] deepScrapeResults诊断:`)
+      console.log(`  - deepScrapeResults存在: ${!!dsr}`)
+      if (dsr) {
+        console.log(`  - aggregatedFeatures数量: ${dsr.aggregatedFeatures?.length ?? '(undefined)'}`)
+        console.log(`  - aggregatedReviews数量: ${dsr.aggregatedReviews?.length ?? '(undefined)'}`)
+        console.log(`  - aggregatedCompetitorAsins数量: ${dsr.aggregatedCompetitorAsins?.length ?? '(undefined)'}`)
+        console.log(`  - topProducts数量: ${dsr.topProducts?.length ?? '(undefined)'}`)
+        console.log(`  - successCount: ${dsr.successCount ?? '(undefined)'}`)
+        if (dsr.aggregatedFeatures && dsr.aggregatedFeatures.length > 0) {
+          console.log(`  - 首条feature: ${dsr.aggregatedFeatures[0]?.substring(0, 60)}...`)
+        }
+      }
+
       // 🔥 修复（2025-12-11）：添加深度抓取的聚合特性数据，用于生成"产品亮点"
       if (extractResult.deepScrapeResults?.aggregatedFeatures &&
           extractResult.deepScrapeResults.aggregatedFeatures.length > 0) {

@@ -588,19 +588,42 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
       console.log(`🔍 选择器 "${selector}" 匹配到 ${matchCount} 个元素`)
     }
 
+    // 🔥 2025-12-13诊断：追踪features提取过程
+    let filteredByRecommendation = 0
+    let filteredByLength = 0
+    let filteredByDuplicate = 0
+
     $(selector).each((i: number, el: any) => {
       if (features.length >= 10) return false
-      if (isInRecommendationArea(el)) return  // 跳过推荐区域
+
+      // 🔥 诊断：检查isInRecommendationArea是否误判
+      if (isInRecommendationArea(el)) {
+        filteredByRecommendation++
+        return  // 跳过推荐区域
+      }
 
       const text = $(el).text().trim()
       // 🔥 调试：记录被过滤的文本
-      if (text && text.length <= 10 && features.length < 3) {
-        console.log(`🔍 跳过短文本(${text.length}字): "${text.substring(0, 30)}"`)
+      if (text && text.length <= 10) {
+        filteredByLength++
+        if (features.length < 3) {
+          console.log(`🔍 跳过短文本(${text.length}字): "${text.substring(0, 30)}"`)
+        }
+        return
       }
-      if (text && text.length > 10 && !features.includes(text)) {
+      if (text && features.includes(text)) {
+        filteredByDuplicate++
+        return
+      }
+      if (text && text.length > 10) {
         features.push(text)
       }
     })
+
+    // 🔥 2025-12-13诊断：输出过滤统计
+    if (matchCount > 0 && features.length === 0) {
+      console.log(`🔍 选择器 "${selector}" 过滤统计: 推荐区域=${filteredByRecommendation}, 短文本=${filteredByLength}, 重复=${filteredByDuplicate}`)
+    }
   }
 
   // 🔥 2025-12-12调试：记录features提取结果

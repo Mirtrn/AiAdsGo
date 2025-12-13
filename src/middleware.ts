@@ -72,7 +72,12 @@ const passwordChangeAllowedPaths = [
   '/api/auth/me',               // 获取用户信息API（页面需要）
 ]
 
-// 🛡️ 恶意请求拦截：直接返回404，不记录日志，节省资源
+// 🛡️ 第一层防御：通用危险文件扩展名拦截
+// 这些扩展名在Web根目录下不应该被公开访问，直接返回404
+// 这比黑名单更有效，因为它基于"行为模式"而非"具体文件名"
+const DANGEROUS_EXTENSIONS = /^\/?[^\/]+\.(zip|rar|tar|tgz|tar\.gz|7z|bz2|gz|sql|mdb|accdb|bak|backup|old|orig|swp|swo|tmp|temp|log|env|ini|conf|cfg|config|yml|yaml|json\.bak|xml\.bak|htaccess|htpasswd|npmrc|dockerignore|gitignore|ssh|pem|key|crt|pfx|p12)$/i
+
+// 🛡️ 第二层防御：恶意请求路径模式拦截
 // 这些是自动化漏洞扫描器常见的攻击路径
 const MALICIOUS_PATTERNS = [
   // PHP文件（本项目是Next.js，不存在PHP）
@@ -223,8 +228,13 @@ const LEGITIMATE_PATHS = [
 export async function middleware(request: NextRequest) {
   const { pathname} = request.nextUrl
 
-  // 🛡️ 第一道防线：拦截恶意请求，直接返回404
-  // 不记录日志、不重定向、不渲染页面，最小化资源消耗
+  // 🛡️ 第一道防线：危险文件扩展名拦截（最高优先级）
+  // 无论文件名是什么，根目录下的 .zip/.sql/.bak 等文件都不应该被访问
+  if (DANGEROUS_EXTENSIONS.test(pathname)) {
+    return new NextResponse(null, { status: 404 })
+  }
+
+  // 🛡️ 第二道防线：恶意路径模式拦截
   // 先检查白名单，避免误拦截合法路径
   const isLegitimate = LEGITIMATE_PATHS.some(pattern => pattern.test(pathname))
   if (!isLegitimate && MALICIOUS_PATTERNS.some(pattern => pattern.test(pathname))) {
@@ -263,7 +273,6 @@ export async function middleware(request: NextRequest) {
       // 页面路径：重定向到登录页
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('redirect', pathname)
-      console.log(`[Middleware] Redirecting ${pathname} to ${loginUrl.toString()}`)
       return NextResponse.redirect(loginUrl)
     }
   }
