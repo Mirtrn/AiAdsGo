@@ -589,34 +589,21 @@ export async function analyzeProductPage(
         })
 
         if (allProductHighlights.length > 0) {
-          // 调用AI整合提炼产品亮点
-          const synthesisPrompt = `You are a product marketing expert. Analyze the product highlights from ${allProductHighlights.length} hot-selling products in a brand store and synthesize them into 5-8 key store-level product highlights.
+          // 📦 从数据库加载prompt模板(版本管理)
+          const promptTemplate = await loadPrompt('store_highlights_synthesis')
 
-=== INPUT: Product Highlights by Product ===
-${allProductHighlights.map((p, i) => `
+          // 🎨 准备模板变量
+          const productCount = allProductHighlights.length.toString()
+          const productHighlightsText = allProductHighlights.map((p, i) => `
 Product ${i + 1}: ${p.productName}
 ${p.highlights.map(h => `- ${h}`).join('\n')}
-`).join('\n')}
+`).join('\n')
 
-=== TASK ===
-Synthesize these product-level highlights into 5-8 concise, store-level product highlights that:
-1. Identify common themes and technologies across products
-2. Highlight unique innovations that differentiate the brand
-3. Focus on customer benefits, not just features
-4. Use clear, compelling language
-5. Avoid repetition
-
-=== OUTPUT FORMAT ===
-Return a JSON object with this structure:
-{
-  "storeHighlights": [
-    "Highlight 1 - Brief explanation",
-    "Highlight 2 - Brief explanation",
-    ...
-  ]
-}
-
-Output in ${langName}.`
+          // 🎨 插值替换模板变量
+          const synthesisPrompt = promptTemplate
+            .replace('{{productCount}}', productCount)
+            .replace('{{productHighlights}}', productHighlightsText)
+            .replace('{{langName}}', langName)
 
           const synthesisResult = await generateContent({
             operationType: 'store_highlights_synthesis',
