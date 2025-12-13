@@ -42,6 +42,7 @@ async function syncDataTask() {
 
   try {
     // 获取所有活跃用户及其同步配置
+    // 🔥 修复（2025-12-13）：只选择配置了Google Ads凭证（refresh_token）的用户
     const activeUsers = await db.query<{
       id: number
       username: string
@@ -60,7 +61,10 @@ async function syncDataTask() {
       LEFT JOIN system_settings ss ON ss.user_id = u.id
         AND ss.category = 'system'
         AND ss.key = 'sync_interval_hours'
-      WHERE u.is_active = ? AND ga.is_active = ?
+      WHERE u.is_active = ?
+        AND ga.is_active = ?
+        AND ga.refresh_token IS NOT NULL
+        AND ga.refresh_token != ''
     `, [true, true])
 
     log(`找到 ${activeUsers.length} 个活跃用户`)
