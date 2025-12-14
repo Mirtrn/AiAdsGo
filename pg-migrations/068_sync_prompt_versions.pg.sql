@@ -285,9 +285,14 @@ WHERE prompt_id = 'creative_quality_scoring';
 UPDATE prompt_versions SET is_active = false
 WHERE prompt_id = 'launch_score_evaluation';
 
--- 停用冗余的 launch_score (使用 launch_score_v4 作为统一入口)
+-- launch_score v4.0 保持激活 (替代了 launch_score_evaluation)
+-- 停用 launch_score_v4 (冗余，统一使用 launch_score)
 UPDATE prompt_versions SET is_active = false
-WHERE prompt_id = 'launch_score';
+WHERE prompt_id = 'launch_score_v4';
+
+-- 修复 keywords_generation category
+UPDATE prompt_versions SET category = '关键词生成'
+WHERE prompt_id = 'keywords_generation';
 
 -- ============================================================================
 -- VERIFICATION
