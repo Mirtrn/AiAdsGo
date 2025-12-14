@@ -7,6 +7,7 @@
 --   - ad_creative_generation v4.8 (关键词嵌入率强化)
 --   - ad_elements_headlines v3.3 (CTR优化增强)
 --   - ad_elements_descriptions v3.3 (CTR优化增强)
+--   - creative_quality_scoring v3.2 (变量名修复，匹配代码)
 -- =====================================================
 
 -- ============================================================
@@ -263,6 +264,77 @@ Return JSON with descriptions, descriptionTemplates, ctrOptimization, dataUtiliz
 );
 
 -- ============================================================
+-- PART 5: creative_quality_scoring v3.2 (变量名修复)
+-- ============================================================
+-- 修复: prompt模板变量名与代码实际传入的变量名不匹配
+-- 旧版本期望: {{headline}}, {{description}}, {{brand}}, {{productName}}, {{targetCountry}}
+-- 代码实际传: {{creative.headline1}}, {{creative.description1}}, {{creative.brand}}, {{creative.orientationText}}
+
+UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'creative_quality_scoring';
+
+INSERT INTO prompt_versions (
+  prompt_id, version, category, name, description,
+  file_path, function_name, prompt_content, language,
+  is_active, change_notes, created_at
+) VALUES (
+  'creative_quality_scoring',
+  'v3.2',
+  '广告创意',
+  '创意质量评分v3.2',
+  '修复变量名不匹配问题，支持多标题多描述评估',
+  'src/lib/scoring.ts',
+  'calculateCreativeQualityScore',
+  $$You are a Google Ads RSA (Responsive Search Ad) creative quality evaluator.
+
+=== CREATIVE TO EVALUATE ===
+Brand: {{creative.brand}}
+Orientation: {{creative.orientationText}}
+
+**Headlines:**
+1. {{creative.headline1}}
+2. {{creative.headline2}}
+3. {{creative.headline3}}
+
+**Descriptions:**
+1. {{creative.description1}}
+2. {{creative.description2}}
+
+=== EVALUATION CRITERIA (Total 100 points) ===
+
+**1. Headline Quality (40 points)**
+- Attractiveness & Hook (0-15): Do headlines grab attention?
+- Length Compliance (0-10): All within 30 chars, optimal length?
+- Differentiation (0-10): Headlines varied vs repetitive?
+- Keyword Naturalness (0-5): Keywords flow naturally?
+
+**2. Description Quality (30 points)**
+- Persuasiveness (0-15): Compelling value proposition?
+- Length Compliance (0-10): Within 90 chars, well-utilized?
+- Call-to-Action (0-5): Clear action for user?
+
+**3. Overall Appeal (20 points)**
+- Brand Alignment (0-10): Matches brand voice and orientation?
+- Interest Generation (0-10): Makes user want to click?
+
+**4. Policy Compliance (10 points)**
+- No Exaggeration (0-5): Avoids superlatives, false claims?
+- Google Ads Policy (0-5): Compliant with ad policies?
+
+=== OUTPUT FORMAT ===
+Return ONLY the total score as a single integer (0-100).
+Example: 85
+
+CRITICAL: Return only the number, no JSON or explanation.$$,
+  'English',
+  1,
+  'v3.2修复: 变量名从{{headline}}改为{{creative.headline1}}等，匹配代码实际传入的变量',
+  NOW()
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = 1,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
+
+-- ============================================================
 -- VERIFICATION
 -- ============================================================
--- SELECT prompt_id, version, is_active FROM prompt_versions WHERE prompt_id IN ('ad_creative_generation', 'ad_elements_headlines', 'ad_elements_descriptions') ORDER BY prompt_id, version DESC;
+-- SELECT prompt_id, version, is_active FROM prompt_versions WHERE prompt_id IN ('ad_creative_generation', 'ad_elements_headlines', 'ad_elements_descriptions', 'creative_quality_scoring') ORDER BY prompt_id, version DESC;
