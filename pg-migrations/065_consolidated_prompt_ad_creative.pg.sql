@@ -134,7 +134,11 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
   'v4.8合并版: 整合v4.1-v4.8所有优化，关键词嵌入率强化53%+',
   true,
   NOW()
-);
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  name = EXCLUDED.name,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
 
 -- ============================================================
 -- PART 3: ad_elements_headlines v3.3
@@ -198,7 +202,11 @@ Return JSON with headlines, headlineAnalysis, ctrOptimization',
   true,
   'v3.3 CTR优化: DKI模板、数字具体化、情感触发、问句式标题、关键词嵌入率(8/15)',
   NOW()
-);
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  name = EXCLUDED.name,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
 
 -- ============================================================
 -- PART 4: ad_elements_descriptions v3.3
@@ -260,7 +268,11 @@ Return JSON with descriptions, descriptionTemplates, ctrOptimization, dataUtiliz
   true,
   'v3.3 CTR优化: 结构化描述模板(4种)、USP前置规则(前30字符)、社会证明嵌入、竞品差异化暗示',
   NOW()
-);
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  name = EXCLUDED.name,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
 
 -- ============================================================
 -- VERIFICATION

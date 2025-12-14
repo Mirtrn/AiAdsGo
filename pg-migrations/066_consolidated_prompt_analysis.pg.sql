@@ -39,7 +39,12 @@ SELECT
   '🔧 修复：将AI返回字段从technicalHighlights统一为productHighlights' as change_notes,
   NOW() as created_at
 FROM prompt_versions
-WHERE prompt_id = 'product_analysis_single' AND version = 'v3.1';
+WHERE prompt_id = 'product_analysis_single' AND version = 'v3.1'
+ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  name = EXCLUDED.name,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
 
 -- ============================================================
 -- PART 2: brand_analysis_store v3.2 (字段添加)
@@ -72,7 +77,12 @@ SELECT
   '🔧 增强：为热销商品添加productHighlights字段' as change_notes,
   NOW() as created_at
 FROM prompt_versions
-WHERE prompt_id = 'brand_analysis_store' AND version = 'v3.1';
+WHERE prompt_id = 'brand_analysis_store' AND version = 'v3.1'
+ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  name = EXCLUDED.name,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
 
 -- ============================================================
 -- PART 3: review_analysis v3.2 (增强数字提取)
@@ -236,7 +246,11 @@ Return JSON with keywords, estimatedBudget, recommendations',
   true,
   '禁止生成竞品品牌关键词，避免与否定关键词冲突',
   NOW()
-);
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  name = EXCLUDED.name,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
 
 -- ============================================================
 -- PART 6: store_highlights_synthesis v1.0
@@ -267,7 +281,10 @@ Return JSON: {"storeHighlights": ["Highlight 1", ...]}
 Output in {{langName}}.',
   true,
   NOW()
-);
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  name = EXCLUDED.name,
+  prompt_content = EXCLUDED.prompt_content;
 
 -- ============================================================
 -- PART 7: launch_score v4.0 (4维度投放评分体系)
