@@ -23,6 +23,7 @@
 UPDATE prompt_versions
 SET
   version = 'v3.2',
+  name = '品牌名称提取v3.2',
   prompt_content = 'You are a brand name extraction expert. Extract the brand name from product information.
 
 === INPUT DATA ===
@@ -77,6 +78,7 @@ WHERE prompt_id = 'brand_name_extraction' AND is_active = 1;
 UPDATE prompt_versions
 SET
   version = 'v3.4',
+  name = '广告标题生成v3.4 - CTR优化增强版',
   prompt_content = 'You are a professional Google Ads copywriter specializing in high-CTR headlines.
 
 === PRODUCT INFORMATION ===
@@ -189,6 +191,7 @@ WHERE prompt_id = 'ad_elements_headlines' AND is_active = 1;
 UPDATE prompt_versions
 SET
   version = 'v3.4',
+  name = '品牌店铺分析v3.4',
   prompt_content = 'You are a professional brand analyst. Analyze the BRAND STORE PAGE data and extract comprehensive brand information.
 
 === INPUT DATA ===
