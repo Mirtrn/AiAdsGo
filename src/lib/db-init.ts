@@ -845,10 +845,10 @@ async function ensureMigrationHistoryTable(): Promise<void> {
       )
     `)
     // 添加 file_hash 列（如果不存在）
-    try {
-      db.exec(`ALTER TABLE migration_history ADD COLUMN file_hash TEXT`)
-    } catch (e) {
-      // 列已存在，忽略
+    const columns = await db.query<{ name: string }>(`PRAGMA table_info(migration_history)`)
+    const hasFileHash = columns.some(col => col.name === 'file_hash')
+    if (!hasFileHash) {
+      await db.exec(`ALTER TABLE migration_history ADD COLUMN file_hash TEXT`)
     }
   } else {
     await db.query(`
