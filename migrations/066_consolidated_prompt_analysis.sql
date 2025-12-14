@@ -88,14 +88,21 @@ WHERE prompt_id = 'brand_analysis_store' AND version = 'v3.1';
 -- ============================================================
 -- 新增quantitativeHighlights和competitorMentions字段
 
-UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'review_analysis' AND is_active = 1;
+UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'review_analysis';
 
-UPDATE prompt_versions
-SET version = 'v3.2',
-    description = '评论分析v3.2 - 增强数字提取和竞品提及分析',
-    prompt_content = 'You are an expert e-commerce review analyst. Analyze the following product reviews comprehensively.
+INSERT OR REPLACE INTO prompt_versions (
+  prompt_id, version, category, name, description,
+  file_path, function_name, prompt_content, language,
+  is_active, change_notes
+) VALUES (
+  'review_analysis',
+  'v3.2',
+  '产品分析',
+  '评论分析v3.2',
+  '评论分析v3.2 - 增强数字提取和竞品提及分析',
+  'src/lib/review-analyzer.ts',
+  'analyzeReviews',
+  'You are an expert e-commerce review analyst. Analyze the following product reviews comprehensively.
 
 === INPUT DATA ===
 Product Name: {{productName}}
@@ -209,21 +216,30 @@ Return a COMPLETE JSON object:
     "marketingAngles": ["Angle 1 for ads", "Angle 2 for ads"]
   }
 }',
-    change_notes = 'v3.2更新: 1. 新增quantitativeHighlights提取评论中的具体数字 2. 新增competitorMentions追踪用户提及的竞品品牌'
-WHERE prompt_id = 'review_analysis' AND is_active = 1;
+  'English',
+  1,
+  'v3.2更新: 1. 新增quantitativeHighlights提取评论中的具体数字 2. 新增competitorMentions追踪用户提及的竞品品牌'
+);
 
 -- ============================================================
 -- PART 4: competitor_analysis v3.2 (竞品弱点挖掘)
 -- ============================================================
 
-UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'competitor_analysis' AND is_active = 1;
+UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'competitor_analysis';
 
-UPDATE prompt_versions
-SET version = 'v3.2',
-    description = '竞品分析v3.2 - 新增竞品弱点挖掘',
-    prompt_content = 'You are an e-commerce competitive analysis expert specializing in Amazon marketplace.
+INSERT OR REPLACE INTO prompt_versions (
+  prompt_id, version, category, name, description,
+  file_path, function_name, prompt_content, language,
+  is_active, change_notes
+) VALUES (
+  'competitor_analysis',
+  'v3.2',
+  '产品分析',
+  '竞品分析v3.2',
+  '竞品分析v3.2 - 新增竞品弱点挖掘',
+  'src/lib/competitor-analyzer.ts',
+  'analyzeCompetitors',
+  'You are an e-commerce competitive analysis expert specializing in Amazon marketplace.
 
 === OUR PRODUCT ===
 Product Name: {{productName}}
@@ -302,8 +318,10 @@ Return ONLY a valid JSON object with this exact structure:
   * Unique differentiation (20%): More USPs = higher score
 
 **Important**: Return ONLY the JSON object, no markdown code blocks, no explanations.',
-    change_notes = 'v3.2更新: 新增competitorWeaknesses字段，从竞品常见问题中提取可用于广告的差异化卖点'
-WHERE prompt_id = 'competitor_analysis' AND is_active = 1;
+  'English',
+  1,
+  'v3.2更新: 新增competitorWeaknesses字段，从竞品常见问题中提取可用于广告的差异化卖点'
+);
 
 -- ============================================================
 -- PART 5: keywords_generation v3.2 (禁止竞品关键词)

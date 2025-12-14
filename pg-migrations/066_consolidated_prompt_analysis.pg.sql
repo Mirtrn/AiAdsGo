@@ -78,14 +78,21 @@ WHERE prompt_id = 'brand_analysis_store' AND version = 'v3.1';
 -- PART 3: review_analysis v3.2 (增强数字提取)
 -- ============================================================
 
-UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'review_analysis' AND is_active = 1;
+UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'review_analysis';
 
-UPDATE prompt_versions
-SET version = 'v3.2',
-    description = '评论分析v3.2 - 增强数字提取和竞品提及分析',
-    prompt_content = 'You are an expert e-commerce review analyst.
+INSERT INTO prompt_versions (
+  prompt_id, version, category, name, description,
+  file_path, function_name, prompt_content, language,
+  is_active, change_notes, created_at
+) VALUES (
+  'review_analysis',
+  'v3.2',
+  '产品分析',
+  '评论分析v3.2',
+  '评论分析v3.2 - 增强数字提取和竞品提及分析',
+  'src/lib/review-analyzer.ts',
+  'analyzeReviews',
+  $$You are an expert e-commerce review analyst.
 
 === INPUT DATA ===
 Product Name: {{productName}}
@@ -107,22 +114,35 @@ Target Language: {{langName}}
 9. **Competitor Mentions** (NEW - brand comparisons)
 
 === OUTPUT FORMAT ===
-Return JSON with all analysis fields including quantitativeHighlights and competitorMentions',
-    change_notes = 'v3.2: quantitativeHighlights + competitorMentions'
-WHERE prompt_id = 'review_analysis' AND is_active = 1;
+Return JSON with all analysis fields including quantitativeHighlights and competitorMentions$$,
+  'English',
+  true,
+  'v3.2: quantitativeHighlights + competitorMentions',
+  NOW()
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
 
 -- ============================================================
 -- PART 4: competitor_analysis v3.2 (竞品弱点挖掘)
 -- ============================================================
 
-UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'competitor_analysis' AND is_active = 1;
+UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'competitor_analysis';
 
-UPDATE prompt_versions
-SET version = 'v3.2',
-    description = '竞品分析v3.2 - 新增竞品弱点挖掘',
-    prompt_content = 'You are an e-commerce competitive analysis expert.
+INSERT INTO prompt_versions (
+  prompt_id, version, category, name, description,
+  file_path, function_name, prompt_content, language,
+  is_active, change_notes, created_at
+) VALUES (
+  'competitor_analysis',
+  'v3.2',
+  '产品分析',
+  '竞品分析v3.2',
+  '竞品分析v3.2 - 新增竞品弱点挖掘',
+  'src/lib/competitor-analyzer.ts',
+  'analyzeCompetitors',
+  $$You are an e-commerce competitive analysis expert.
 
 === OUR PRODUCT ===
 Product Name: {{productName}}
@@ -143,9 +163,15 @@ Selling Points: {{sellingPoints}}
 5. **Overall Competitiveness** (0-100)
 
 === OUTPUT FORMAT ===
-Return JSON with featureComparison, uniqueSellingPoints, competitorAdvantages, competitorWeaknesses, overallCompetitiveness',
-    change_notes = 'v3.2: competitorWeaknesses for ad differentiation'
-WHERE prompt_id = 'competitor_analysis' AND is_active = 1;
+Return JSON with featureComparison, uniqueSellingPoints, competitorAdvantages, competitorWeaknesses, overallCompetitiveness$$,
+  'English',
+  true,
+  'v3.2: competitorWeaknesses for ad differentiation',
+  NOW()
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  is_active = true,
+  prompt_content = EXCLUDED.prompt_content,
+  change_notes = EXCLUDED.change_notes;
 
 -- ============================================================
 -- PART 5: keywords_generation v3.2 (禁止竞品关键词)
