@@ -42,9 +42,6 @@ export interface ModelSelection {
  * - 创意生成主流程
  */
 const FLASH_OPERATIONS = new Set<string>([
-  // 🟢 简单评分任务 - Flash
-  'creative_quality_scoring', // 输出单个数字，简单
-
   // 🟢 广告元素提取（4个函数）- Flash
   // 输出固定JSON格式：15个标题或4个描述
   'ad_headline_extraction_single',
