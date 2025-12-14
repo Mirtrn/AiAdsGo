@@ -78,46 +78,23 @@ Please strictly follow JSON format and ensure 4 descriptions.`,
     promptId: 'keywords_generation',
     version: 'v1.0',
     category: '关键词',
-    name: '关键词生成',
-    description: '基于产品和竞品信息生成30个高质量关键词',
+    name: '关键词生成（已废弃）',
+    description: '⚠️ 已废弃 (2025-12-14): 正向关键词生成已迁移到Keyword Planner API。请使用 unified-keyword-service.ts',
     filePath: 'src/lib/keyword-generator.ts',
     functionName: 'generateKeywords',
-    promptContent: `You are a Google Ads keyword expert. Based on the following product information, generate 30 high-quality keywords.
+    promptContent: `⚠️ DEPRECATED (2025-12-14)
 
-Product Information:
-- Product Name: {productName}
-- Category: {category}
-- Features: {features}
+This prompt is no longer in use.
 
-Competitor Products:
-{competitors}
+MIGRATION PATH:
+- Positive keyword generation → unified-keyword-service.ts getUnifiedKeywordData()
+- Uses Google Ads Keyword Planner API
+- Brand whitelist filtering for relevance
+- Search volume sorting (DESC) for high-value keywords
 
-Requirements:
-1. Generate 30 keywords with different match types
-2. Include brand keywords, category keywords, feature keywords
-3. Consider search intent (informational, commercial, transactional)
-4. Assign priority levels (HIGH, MEDIUM, LOW)
-
-Output Format (JSON):
-{
-  "keywords": [
-    {
-      "keyword": "keyword text",
-      "matchType": "BROAD|PHRASE|EXACT",
-      "priority": "HIGH|MEDIUM|LOW",
-      "category": "brand|category|feature|competitor",
-      "searchIntent": "informational|commercial|transactional"
-    }
-  ],
-  "estimatedBudget": {
-    "minDaily": 100,
-    "maxDaily": 500,
-    "currency": "CNY"
-  },
-  "recommendations": ["recommendation1", "recommendation2"]
-}`,
+For negative keywords, use keyword-generator.ts generateNegativeKeywords() which is still active.`,
     language: 'English',
-    changeNotes: '初始版本 - 支持多匹配类型和意图分类'
+    changeNotes: '⚠️ 废弃: AI关键词生成被Keyword Planner API + 白名单过滤替代'
   },
   {
     promptId: 'competitor_analysis',

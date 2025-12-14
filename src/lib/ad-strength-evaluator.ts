@@ -1243,23 +1243,62 @@ async function calculateBrandSearchVolume(
       dataSource = monthlySearchVolume > 0 ? 'cached' : 'keyword_planner'
     }
 
-    // 根据搜索量确定流量级别和分数
+    // 根据搜索量确定流量级别和分数（优化版：对数缩放 + 层级内细分）
+    // 设计原则：
+    // 1. 对数缩放：搜索量差异巨大（1 vs 100000），用对数平滑分布
+    // 2. 连续评分：层级内部有梯度，不再是离散跳跃
+    // 3. 保底分数：微型搜索量也给予基础分（1-3分），鼓励新品牌
+    // 4. 有效区分：确保高/中/低搜索量offer有明显分数差异
+
     let volumeLevel: 'micro' | 'small' | 'medium' | 'large' | 'xlarge'
     let score: number
 
     if (monthlySearchVolume >= 100001) {
+      // xlarge: 100001+ → 18-20分（层级内细分）
       volumeLevel = 'xlarge'
-      score = 20
+      // 100001-500000: 18分, 500001-1000000: 19分, 1000001+: 20分
+      if (monthlySearchVolume >= 1000001) {
+        score = 20
+      } else if (monthlySearchVolume >= 500001) {
+        score = 19
+      } else {
+        score = 18
+      }
     } else if (monthlySearchVolume >= 10001) {
+      // large: 10001-100000 → 13-17分（对数插值）
       volumeLevel = 'large'
-      score = 15
+      // 使用对数插值：log10(10001)≈4, log10(100000)=5
+      const logMin = Math.log10(10001)  // ≈4.0
+      const logMax = Math.log10(100000) // =5.0
+      const logValue = Math.log10(monthlySearchVolume)
+      const ratio = (logValue - logMin) / (logMax - logMin)
+      score = Math.round(13 + ratio * 4) // 13-17分
     } else if (monthlySearchVolume >= 1001) {
+      // medium: 1001-10000 → 8-12分（对数插值）
       volumeLevel = 'medium'
-      score = 10
+      const logMin = Math.log10(1001)   // ≈3.0
+      const logMax = Math.log10(10000)  // =4.0
+      const logValue = Math.log10(monthlySearchVolume)
+      const ratio = (logValue - logMin) / (logMax - logMin)
+      score = Math.round(8 + ratio * 4) // 8-12分
     } else if (monthlySearchVolume >= 100) {
+      // small: 100-1000 → 4-7分（对数插值）
       volumeLevel = 'small'
-      score = 5
+      const logMin = Math.log10(100)    // =2.0
+      const logMax = Math.log10(1000)   // =3.0
+      const logValue = Math.log10(monthlySearchVolume)
+      const ratio = (logValue - logMin) / (logMax - logMin)
+      score = Math.round(4 + ratio * 3) // 4-7分
+    } else if (monthlySearchVolume >= 10) {
+      // micro-high: 10-99 → 2-3分（给新品牌机会）
+      volumeLevel = 'micro'
+      score = monthlySearchVolume >= 50 ? 3 : 2
+    } else if (monthlySearchVolume >= 1) {
+      // micro-low: 1-9 → 1分（有搜索量就给分）
+      volumeLevel = 'micro'
+      score = 1
     } else {
+      // zero: 0 → 0分
       volumeLevel = 'micro'
       score = 0
     }

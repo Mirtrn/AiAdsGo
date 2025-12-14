@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findAdGroupById } from '@/lib/ad-groups'
 import { findCampaignById } from '@/lib/campaigns'
 import { findOfferById } from '@/lib/offers'
-import { generateKeywords, generateNegativeKeywords } from '@/lib/keyword-generator'
+import { generateNegativeKeywords } from '@/lib/keyword-generator'
+import { getUnifiedKeywordData } from '@/lib/unified-keyword-service'
 import { createKeywordsBatch, CreateKeywordInput } from '@/lib/keywords'
 
 /**
  * POST /api/ad-groups/:id/generate-keywords
- * 使用AI为Ad Group生成关键词
+ * 使用Keyword Planner API + 白名单过滤为Ad Group生成关键词
+ *
+ * @deprecated 此API将被废弃，推荐使用创意生成流程中的关键词生成
+ * 保留仅为向后兼容
  */
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -65,9 +69,45 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       )
     }
 
-    // 生成关键词（使用用户级AI配置）
+    // 使用统一关键词服务生成关键词
     const userIdNum = parseInt(userId, 10)
-    const generationResult = await generateKeywords(offer, userIdNum)
+
+    // 从 scraped_data 提取产品信息（如果有的话）
+    let productTitle: string | undefined
+    let productFeatures: string | undefined
+    let storeProductNames: string[] | undefined
+
+    if (offer.scraped_data) {
+      try {
+        const scrapedData = JSON.parse(offer.scraped_data as string)
+        productTitle = scrapedData.title || scrapedData.product_name || scrapedData.name
+        productFeatures = scrapedData.features ? JSON.stringify(scrapedData.features) : undefined
+        // 店铺产品列表
+        if (scrapedData.products && Array.isArray(scrapedData.products)) {
+          storeProductNames = scrapedData.products.map((p: any) => p.name || p.title).filter(Boolean)
+        }
+      } catch {
+        // scraped_data解析失败，继续使用基本信息
+      }
+    }
+
+    // 转换 Offer 为 OfferData
+    const offerData = {
+      brand: offer.brand,
+      category: offer.category,
+      productTitle,
+      productFeatures,
+      storeProductNames,
+      scrapedData: offer.scraped_data || undefined
+    }
+
+    const unifiedKeywords = await getUnifiedKeywordData({
+      offer: offerData,
+      country: offer.target_country,
+      language: offer.target_language || 'English',
+      userId: userIdNum,
+      minSearchVolume: 10  // 默认最低搜索量
+    })
 
     // 生成否定关键词（如果需要）
     let negativeKeywords: string[] = []
@@ -76,14 +116,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // 将生成的关键词保存到数据库
-    const keywordsToCreate: CreateKeywordInput[] = generationResult.keywords.map(kw => ({
+    const keywordsToCreate: CreateKeywordInput[] = unifiedKeywords.map(kw => ({
       userId: parseInt(userId, 10),
       adGroupId: adGroup.id,
       keywordText: kw.keyword,
       matchType: kw.matchType,
       status: 'PAUSED', // 默认暂停状态
-      aiGenerated: true,
-      generationSource: 'gemini-pro',
+      aiGenerated: false,  // Keyword Planner 生成，非AI生成
+      generationSource: 'keyword-planner',
     }))
 
     // 如果有否定关键词，也添加到列表
@@ -96,8 +136,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           matchType: 'EXACT', // 否定关键词通常使用完全匹配
           status: 'PAUSED',
           isNegative: true,
-          aiGenerated: true,
-          generationSource: 'gemini-pro-negative',
+          aiGenerated: true,  // 否定关键词仍然由AI生成
+          generationSource: 'gemini-negative',
         })
       })
     }
@@ -105,15 +145,26 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // 批量创建关键词
     const createdKeywords = await createKeywordsBatch(keywordsToCreate)
 
+    // 提取关键词类别统计
+    const categoryStats = unifiedKeywords.reduce((acc, kw) => {
+      const source = kw.source || 'UNKNOWN'
+      acc[source] = (acc[source] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+
     return NextResponse.json({
       success: true,
       keywords: createdKeywords,
       count: createdKeywords.length,
-      positiveCount: generationResult.keywords.length,
+      positiveCount: unifiedKeywords.length,
       negativeCount: negativeKeywords.length,
-      categories: generationResult.categories,
-      estimatedBudget: generationResult.estimatedBudget,
-      recommendations: generationResult.recommendations,
+      categories: Object.keys(categoryStats),
+      categoryStats,
+      recommendations: [
+        '关键词已通过品牌白名单过滤，确保相关性',
+        '关键词按搜索量降序排列，优先展示高价值词',
+        '建议定期监控关键词表现并优化'
+      ],
     })
   } catch (error: any) {
     console.error('生成关键词失败:', error)

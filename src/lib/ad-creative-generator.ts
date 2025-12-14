@@ -2177,10 +2177,9 @@ export async function generateAdCreative(
     console.log(`🔍 获取关键词精确搜索量: ${result.keywords.length}个关键词, 国家=${country}, 语言=${language} (${targetLanguage})`)
 
     // 🎯 使用统一服务：确保所有搜索量来自Historical Metrics API（精确匹配）
-    const { getUnifiedKeywordData } = await import('@/lib/unified-keyword-service')
-    const unifiedData = await getUnifiedKeywordData({
+    const { getKeywordVolumesForExisting } = await import('@/lib/unified-keyword-service')
+    const unifiedData = await getKeywordVolumesForExisting({
       baseKeywords: result.keywords,
-      enableExpansion: false, // 此阶段仅获取基础关键词数据
       country,
       language,
       userId,
@@ -2392,10 +2391,8 @@ export async function generateAdCreative(
             console.log(`   种子关键词 (${seedKeywords.length}个): ${seedKeywords.join(', ')}`)
 
             // 🎯 使用统一服务：扩展关键词并获取精确搜索量
-            const { getUnifiedKeywordData } = await import('@/lib/unified-keyword-service')
-            const roundKeywords = await getUnifiedKeywordData({
-              baseKeywords: [], // 扩展模式不需要基础关键词
-              enableExpansion: true,
+            const { expandKeywordsWithSeeds } = await import('@/lib/unified-keyword-service')
+            const roundKeywords = await expandKeywordsWithSeeds({
               expansionSeeds: seedKeywords,
               country,
               language,

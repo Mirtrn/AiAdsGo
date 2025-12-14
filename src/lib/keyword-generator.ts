@@ -1,8 +1,17 @@
+/**
+ * 关键词生成器 v2.0 (精简版)
+ *
+ * ⚠️ 重要变更 (2025-12-14):
+ * - 正向关键词生成已迁移到 unified-keyword-service.ts
+ * - 本文件只保留否定关键词生成功能
+ * - generateKeywords() 已废弃，请使用 getUnifiedKeywordData()
+ *
+ * @see unified-keyword-service.ts 获取正向关键词
+ */
+
 import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
-import { getKeywordSearchVolumes, getKeywordSuggestions } from './keyword-planner'
 import type { Offer } from './offers'
-import { loadPrompt } from './prompt-loader'
 
 /**
  * 获取否定关键词的语言指令
@@ -58,6 +67,7 @@ function getLanguageInstructionForNegativeKeywords(targetLanguage: string): stri
 
 /**
  * AI生成的关键词数据结构
+ * @deprecated 正向关键词请使用 unified-keyword-service.ts 的 UnifiedKeywordData
  */
 export interface GeneratedKeyword {
   keyword: string
@@ -67,37 +77,12 @@ export interface GeneratedKeyword {
   estimatedCpc?: number
   searchIntent?: string
   reasoning?: string
-  searchVolume?: number // 搜索量（可选）
+  searchVolume?: number
 }
-
-/**
- * 关键词生成选项
- */
-export interface KeywordGenerationOptions {
-  minSearchVolume?: number // 最小搜索量阈值，默认500
-  expandBrandKeywords?: boolean // 是否扩展品牌关键词，默认true
-  maxBrandKeywords?: number // 最大品牌关键词数量，默认10
-  minEfficiencyScore?: number // 最小CPC效率分（搜索量/CPC），默认100
-  maxCompetitionIndex?: number // 🎯 最大竞争度指数（0-100），可选，用于手动过滤（不建议使用）
-  filterByIntent?: boolean // 是否过滤研究意图关键词，默认true
-  smartMatchType?: boolean // 是否智能分配匹配类型，默认true
-}
-
-// 研究意图关键词标识（需要过滤）
-const RESEARCH_INTENT_PATTERNS = [
-  'review', 'reviews', 'vs', 'versus', 'comparison', 'compare',
-  'alternative', 'alternatives', 'how to', 'what is', 'guide',
-  'tutorial', 'reddit', 'forum', 'blog', 'article', 'best'
-]
-
-// 购买意图关键词标识（优先保留）
-const PURCHASE_INTENT_PATTERNS = [
-  'buy', 'shop', 'store', 'amazon', 'price', 'sale', 'discount',
-  'coupon', 'deal', 'order', 'purchase', 'official', 'online'
-]
 
 /**
  * 关键词生成结果
+ * @deprecated 正向关键词请使用 unified-keyword-service.ts
  */
 export interface KeywordGenerationResult {
   keywords: GeneratedKeyword[]
@@ -109,459 +94,26 @@ export interface KeywordGenerationResult {
     currency: string
   }
   recommendations: string[]
-  filteredCount?: number // 被过滤的关键词数量
-  brandKeywordsCount?: number // 品牌关键词数量
+  filteredCount?: number
+  brandKeywordsCount?: number
 }
 
 /**
  * 使用AI生成关键词
- * @param offer - Offer信息
- * @param userId - 用户ID（必需，用于获取用户的AI配置）
- * @param options - 关键词生成选项
+ *
+ * @deprecated 已废弃 (2025-12-14)
+ * 正向关键词生成已迁移到 unified-keyword-service.ts
+ * 请使用 getUnifiedKeywordData() 代替
+ *
+ * @see unified-keyword-service.ts
  */
 export async function generateKeywords(
-  offer: Offer,
-  userId: number,
-  options?: KeywordGenerationOptions
+  _offer: Offer,
+  _userId: number,
+  _options?: { minSearchVolume?: number }
 ): Promise<KeywordGenerationResult> {
-  const minSearchVolume = options?.minSearchVolume ?? 500
-  const expandBrandKeywords = options?.expandBrandKeywords ?? true
-  const maxBrandKeywords = options?.maxBrandKeywords ?? 10
-  const minEfficiencyScore = options?.minEfficiencyScore ?? 100
-  const maxCompetitionIndex = options?.maxCompetitionIndex  // 🎯 移除默认值，只在用户明确指定时才过滤
-  const filterByIntent = options?.filterByIntent ?? true
-  const smartMatchType = options?.smartMatchType ?? true
-
-  // 📦 从数据库加载prompt模板 (版本管理)
-  const promptTemplate = await loadPrompt('keywords_generation')
-
-  // 🎯 P0修复: 从offer中提取产品详情数据
-  let productName = offer.brand
-  let productFeatures = ''
-  let sellingPoints = offer.unique_selling_points || ''
-  let pricePoint = ''
-  let reviewPositives = ''
-  let reviewUseCases = ''
-  let purchaseReasons = ''
-  let competitorKeywords = ''
-
-  // 从scraped_data提取产品名称和价格
-  // 🔧 优化(2025-12-12): 支持店铺页面多商品关键词聚合
-  let storeProductNames: string[] = []  // 存储店铺多个产品名称
-  if (offer.scraped_data) {
-    try {
-      const scrapedData = JSON.parse(offer.scraped_data)
-      productName = scrapedData.productName || scrapedData.title || offer.brand
-      pricePoint = scrapedData.productPrice || scrapedData.price || ''
-      // 提取产品特性
-      if (scrapedData.features && Array.isArray(scrapedData.features)) {
-        productFeatures = scrapedData.features.slice(0, 8).join('; ')
-      }
-      if (scrapedData.aboutThisItem && Array.isArray(scrapedData.aboutThisItem)) {
-        productFeatures = productFeatures
-          ? productFeatures + '; ' + scrapedData.aboutThisItem.slice(0, 5).join('; ')
-          : scrapedData.aboutThisItem.slice(0, 8).join('; ')
-      }
-
-      // 🔧 优化(2025-12-12): 从店铺页面提取多个产品名称
-      // 店铺数据结构: { products: [{ title, asin, ... }, ...] }
-      if (scrapedData.products && Array.isArray(scrapedData.products)) {
-        storeProductNames = scrapedData.products
-          .slice(0, 10)  // 最多取10个产品
-          .map((p: any) => p.title || p.productName || p.name)
-          .filter((name: string) => name && name.length > 3)
-        console.log(`🏪 店铺多商品聚合: 发现${storeProductNames.length}个产品`)
-      }
-    } catch {}
-  }
-
-  // 从product_highlights补充产品特性
-  if (!productFeatures && offer.product_highlights) {
-    productFeatures = offer.product_highlights
-  }
-
-  // 从review_analysis提取评论洞察
-  if (offer.review_analysis) {
-    try {
-      const reviewAnalysis = JSON.parse(offer.review_analysis)
-      // 提取正面关键词
-      if (reviewAnalysis.topPositiveKeywords && Array.isArray(reviewAnalysis.topPositiveKeywords)) {
-        reviewPositives = reviewAnalysis.topPositiveKeywords
-          .slice(0, 5)
-          .map((k: any) => typeof k === 'string' ? k : k.keyword)
-          .join(', ')
-      } else if (reviewAnalysis.commonPraises && Array.isArray(reviewAnalysis.commonPraises)) {
-        reviewPositives = reviewAnalysis.commonPraises.slice(0, 5).join(', ')
-      }
-      // 提取使用场景
-      if (reviewAnalysis.realUseCases && Array.isArray(reviewAnalysis.realUseCases)) {
-        reviewUseCases = reviewAnalysis.realUseCases
-          .slice(0, 3)
-          .map((u: any) => typeof u === 'string' ? u : u.scenario || u)
-          .join(', ')
-      }
-      // 提取购买理由
-      if (reviewAnalysis.purchaseReasons && Array.isArray(reviewAnalysis.purchaseReasons)) {
-        purchaseReasons = reviewAnalysis.purchaseReasons
-          .slice(0, 3)
-          .map((r: any) => typeof r === 'string' ? r : r.reason || r)
-          .join(', ')
-      }
-    } catch {}
-  }
-
-  // 从competitor_analysis提取竞品关键词
-  if (offer.competitor_analysis) {
-    try {
-      const compAnalysis = JSON.parse(offer.competitor_analysis)
-      // 从竞品分析中提取可能的关键词
-      if (compAnalysis.uniqueSellingPoints && Array.isArray(compAnalysis.uniqueSellingPoints)) {
-        competitorKeywords = compAnalysis.uniqueSellingPoints
-          .slice(0, 3)
-          .map((u: any) => u.usp || u)
-          .join(', ')
-      }
-    } catch {}
-  }
-
-  // 从ai_keywords获取已生成的关键词作为参考
-  if (offer.ai_keywords) {
-    try {
-      const aiKeywords = JSON.parse(offer.ai_keywords)
-      if (Array.isArray(aiKeywords) && aiKeywords.length > 0) {
-        competitorKeywords = competitorKeywords
-          ? competitorKeywords + '; ' + aiKeywords.slice(0, 5).join(', ')
-          : aiKeywords.slice(0, 5).join(', ')
-      }
-    } catch {}
-  }
-
-  // 🎨 插值替换模板变量
-  const prompt = promptTemplate
-    .replace('{{offer.brand}}', offer.brand)
-    .replace('{{offer.brand_description}}', offer.brand_description || '未提供')
-    .replace('{{offer.target_country}}', offer.target_country)
-    .replace(/\{\{offer\.target_country\}\}/g, offer.target_country) // 替换所有出现的地方
-    .replace('{{offer.category}}', offer.category || '未分类')
-    // 🎯 P0修复: 添加缺失的8个变量
-    .replace('{{productName}}', productName)
-    .replace('{{productFeatures}}', productFeatures || '未提供')
-    .replace('{{sellingPoints}}', sellingPoints || '未提供')
-    .replace('{{pricePoint}}', pricePoint || '未提供')
-    .replace('{{reviewPositives}}', reviewPositives || '未提供')
-    .replace('{{reviewUseCases}}', reviewUseCases || '未提供')
-    .replace('{{purchaseReasons}}', purchaseReasons || '未提供')
-    .replace('{{competitorKeywords}}', competitorKeywords || '未提供')
-
-  // 🆕 Token优化：定义结构化JSON schema
-  const responseSchema = {
-    type: 'OBJECT' as const,
-    properties: {
-      keywords: {
-        type: 'ARRAY' as const,
-        description: '30个高质量关键词数组',
-        items: {
-          type: 'OBJECT' as const,
-          properties: {
-            keyword: { type: 'STRING' as const, description: '关键词文本' },
-            matchType: { type: 'STRING' as const, enum: ['BROAD', 'PHRASE', 'EXACT'], description: '匹配类型' },
-            priority: { type: 'STRING' as const, enum: ['HIGH', 'MEDIUM', 'LOW'], description: '优先级' },
-            category: { type: 'STRING' as const, description: '关键词类别' },
-            searchIntent: { type: 'STRING' as const, description: '搜索意图' }
-          },
-          required: ['keyword', 'matchType', 'priority', 'category', 'searchIntent']
-        }
-      },
-      estimatedBudget: {
-        type: 'OBJECT' as const,
-        properties: {
-          minDaily: { type: 'NUMBER' as const, description: '最小日预算' },
-          maxDaily: { type: 'NUMBER' as const, description: '最大日预算' },
-          currency: { type: 'STRING' as const, description: '货币单位' }
-        }
-      },
-      recommendations: {
-        type: 'ARRAY' as const,
-        description: '策略建议',
-        items: { type: 'STRING' as const }
-      }
-    },
-    required: ['keywords']
-  }
-
-  try {
-    // 智能模型选择：关键词生成使用Pro模型
-    const aiResponse = await generateContent({
-      operationType: 'keyword_generation',
-      prompt,
-      temperature: 0.7,
-      maxOutputTokens: 8192,  // 增加到8192以避免关键词生成输出被截断
-      responseSchema,  // 🆕 传递JSON schema约束
-      responseMimeType: 'application/json'  // 🆕 强制JSON输出
-    }, userId)
-
-    // 记录token使用
-    if (aiResponse.usage) {
-      const cost = estimateTokenCost(
-        aiResponse.model,
-        aiResponse.usage.inputTokens,
-        aiResponse.usage.outputTokens
-      )
-      await recordTokenUsage({
-        userId,
-        model: aiResponse.model,
-        operationType: 'keyword_generation',
-        inputTokens: aiResponse.usage.inputTokens,
-        outputTokens: aiResponse.usage.outputTokens,
-        totalTokens: aiResponse.usage.totalTokens,
-        cost,
-        apiType: aiResponse.apiType
-      })
-    }
-
-    const text = aiResponse.text
-
-    // 提取JSON（尝试移除markdown代码块标记）
-    let jsonText = text
-    if (text.includes('```json')) {
-      const match = text.match(/```json\s*([\s\S]*?)```/)
-      if (match) {
-        jsonText = match[1].trim()
-      }
-    } else if (text.includes('```')) {
-      const match = text.match(/```\s*([\s\S]*?)```/)
-      if (match) {
-        jsonText = match[1].trim()
-      }
-    }
-
-    const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      console.error('AI返回内容:', text.substring(0, 500))
-      throw new Error('AI返回的数据格式无效')
-    }
-
-    let data: {
-      keywords: GeneratedKeyword[]
-      estimatedBudget?: {
-        minDaily: number
-        maxDaily: number
-        currency: string
-      }
-      recommendations: string[]
-    }
-
-    try {
-      data = JSON.parse(jsonMatch[0])
-    } catch (parseError: any) {
-      console.error('JSON解析失败:', parseError.message)
-      console.error('JSON内容（前1000字符）:', jsonMatch[0].substring(0, 1000))
-      throw new Error(`AI返回的JSON格式错误: ${parseError.message}`)
-    }
-
-    // 验证数据
-    if (!data.keywords || !Array.isArray(data.keywords)) {
-      throw new Error('AI返回的关键词列表格式无效')
-    }
-
-    let allKeywords = data.keywords
-    let filteredCount = 0
-    let brandKeywordsCount = 0
-
-    // 获取目标国家和语言
-    const targetCountry = offer.target_country || 'US'
-    const targetLanguage = offer.target_language || 'en'
-
-    // 1. 扩展品牌关键词（如果启用）
-    if (expandBrandKeywords && offer.brand) {
-      const brandKeywords = await expandBrandKeywordsWithPlanner(
-        offer.brand,
-        targetCountry,
-        targetLanguage,
-        maxBrandKeywords,
-        userId,
-        minSearchVolume,
-        productName,  // 🔧 优化(2025-12-12): 传递产品名称用于生成更精准的种子词
-        offer.category || undefined  // 🔧 优化(2025-12-12): 传递品类用于生成品牌+品类组合
-      )
-
-      // 将品牌关键词添加到列表开头（高优先级）
-      if (brandKeywords.length > 0) {
-        allKeywords = [...brandKeywords, ...allKeywords]
-        brandKeywordsCount = brandKeywords.length
-      }
-    }
-
-    // 🔧 优化(2025-12-12): 1.5 店铺多商品关键词聚合
-    // 从店铺的多个产品名称中提取关键词，增加品牌相关关键词覆盖
-    if (storeProductNames.length > 0 && offer.brand) {
-      const storeKeywords = aggregateStoreProductKeywords(
-        storeProductNames,
-        offer.brand,
-        offer.category
-      )
-      if (storeKeywords.length > 0) {
-        console.log(`🏪 店铺多商品聚合: 生成${storeKeywords.length}个关键词`)
-        allKeywords = [...allKeywords, ...storeKeywords]
-      }
-    }
-
-    // 🔧 优化(2025-12-12): 1.6 从产品特性生成关键词
-    // 将产品特性转换为搜索关键词（如 "4K resolution" → "brand 4K camera"）
-    if (productFeatures && offer.brand) {
-      const featureKeywords = generateKeywordsFromFeatures(
-        productFeatures,
-        offer.brand,
-        offer.category
-      )
-      if (featureKeywords.length > 0) {
-        console.log(`🔧 产品特性关键词: 生成${featureKeywords.length}个关键词`)
-        allKeywords = [...allKeywords, ...featureKeywords]
-      }
-    }
-
-    // 2. 获取所有关键词的搜索量和CPC数据
-    const keywordTexts = allKeywords.map(kw => kw.keyword)
-    const volumeData = await getKeywordSearchVolumes(
-      keywordTexts,
-      targetCountry,
-      targetLanguage,
-      userId
-    )
-
-    // 创建搜索量和CPC映射
-    const volumeMap = new Map<string, number>()
-    const cpcMap = new Map<string, number>()
-    const competitionIndexMap = new Map<string, number>()  // 🎯 新增：竞争度指数映射
-    volumeData.forEach(v => {
-      const key = v.keyword.toLowerCase()
-      volumeMap.set(key, v.avgMonthlySearches)
-      // 使用平均CPC
-      const avgCpc = (v.lowTopPageBid + v.highTopPageBid) / 2
-      cpcMap.set(key, avgCpc || 1) // 避免除以0
-      competitionIndexMap.set(key, v.competitionIndex || 0)  // 🎯 新增：存储竞争度指数
-    })
-
-    // 3. 过滤关键词
-    let filteredKeywords = allKeywords.filter(kw => {
-      const kwLower = kw.keyword.toLowerCase()
-      const volume = volumeMap.get(kwLower) || 0
-      const avgCpc = cpcMap.get(kwLower) || 1
-      const competitionIndex = competitionIndexMap.get(kwLower) || 0
-
-      // 过滤搜索量
-      if (volume < minSearchVolume) {
-        filteredCount++
-        return false
-      }
-
-      // 🎯 竞争度过滤（仅在用户明确指定时）
-      if (maxCompetitionIndex !== undefined && competitionIndex > maxCompetitionIndex) {
-        console.log(`⚠️ 过滤高竞争度关键词: "${kw.keyword}" (竞争度指数: ${competitionIndex})`)
-        filteredCount++
-        return false
-      }
-
-      // 过滤研究意图关键词
-      if (filterByIntent) {
-        const hasResearchIntent = RESEARCH_INTENT_PATTERNS.some(pattern =>
-          kwLower.includes(pattern)
-        )
-        // 如果包含研究意图词且不包含购买意图词，则过滤
-        const hasPurchaseIntent = PURCHASE_INTENT_PATTERNS.some(pattern =>
-          kwLower.includes(pattern)
-        )
-        if (hasResearchIntent && !hasPurchaseIntent) {
-          filteredCount++
-          return false
-        }
-      }
-
-      // 过滤CPC效率（搜索量/CPC）
-      const efficiencyScore = volume / avgCpc
-      if (efficiencyScore < minEfficiencyScore) {
-        filteredCount++
-        return false
-      }
-
-      return true
-    }).map(kw => {
-      const kwLower = kw.keyword.toLowerCase()
-      const volume = volumeMap.get(kwLower) || 0
-      const avgCpc = cpcMap.get(kwLower) || 1
-      const competitionIndex = competitionIndexMap.get(kwLower) || 0  // 保留竞争度信息用于排序
-
-      // 智能分配匹配类型
-      let matchType = kw.matchType
-      if (smartMatchType) {
-        if (kw.category === '品牌词') {
-          matchType = 'EXACT' // 品牌词用精准匹配
-        } else if (kw.category === '产品词' || kw.category === '解决方案词') {
-          matchType = 'PHRASE' // 产品词用词组匹配
-        } else {
-          matchType = 'BROAD' // 长尾词用广泛匹配
-        }
-      }
-
-      return {
-        ...kw,
-        matchType,
-        searchVolume: volume,
-        estimatedCpc: avgCpc
-      }
-    })
-
-    // 4. 按效率分和优先级排序（考虑竞争度）
-    // 品牌词 > HIGH > MEDIUM > LOW，同优先级按综合得分降序
-    filteredKeywords.sort((a, b) => {
-      // 品牌词优先
-      const aIsBrand = a.category === '品牌词'
-      const bIsBrand = b.category === '品牌词'
-      if (aIsBrand && !bIsBrand) return -1
-      if (!aIsBrand && bIsBrand) return 1
-
-      // 按优先级排序
-      const priorityOrder = { HIGH: 0, MEDIUM: 1, LOW: 2 }
-      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority]
-      if (priorityDiff !== 0) return priorityDiff
-
-      // 🎯 同优先级按综合得分降序（效率分70% + 竞争度加分30%）
-      const aEfficiency = (a.searchVolume || 0) / (a.estimatedCpc || 1)
-      const bEfficiency = (b.searchVolume || 0) / (b.estimatedCpc || 1)
-
-      // 获取竞争度指数
-      const aCompetitionIndex = competitionIndexMap.get(a.keyword.toLowerCase()) || 50
-      const bCompetitionIndex = competitionIndexMap.get(b.keyword.toLowerCase()) || 50
-
-      // 竞争度加分：竞争度越低加分越多（0-100转换为0-1的加成）
-      const aCompetitionBonus = (100 - aCompetitionIndex) / 100
-      const bCompetitionBonus = (100 - bCompetitionIndex) / 100
-
-      // 综合得分：效率分 × (1 + 竞争度加成 × 0.3)
-      const aScore = aEfficiency * (1 + aCompetitionBonus * 0.3)
-      const bScore = bEfficiency * (1 + bCompetitionBonus * 0.3)
-
-      return bScore - aScore
-    })
-
-    // 提取分类
-    const categories = Array.from(new Set(filteredKeywords.map(kw => kw.category)))
-
-    const result: KeywordGenerationResult = {
-      keywords: filteredKeywords,
-      totalCount: filteredKeywords.length,
-      categories,
-      estimatedBudget: data.estimatedBudget,
-      recommendations: data.recommendations || [],
-      filteredCount,
-      brandKeywordsCount,
-    }
-
-    return result
-  } catch (error: any) {
-    console.error('生成关键词失败:', error)
-    throw new Error(`AI关键词生成失败: ${error.message}`)
-  }
+  console.warn('⚠️ generateKeywords() 已废弃，请使用 getUnifiedKeywordData() 代替')
+  throw new Error('generateKeywords() 已废弃。请使用 unified-keyword-service.ts 的 getUnifiedKeywordData()')
 }
 
 /**
@@ -679,444 +231,69 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
 
 /**
  * 关键词扩展（基于已有关键词生成更多变体）
- * @param baseKeywords - 基础关键词列表
- * @param offer - Offer信息
- * @param userId - 用户ID（必需，用于获取用户的AI配置）
+ *
+ * @deprecated 已废弃 (2025-12-14)
+ * 关键词扩展已迁移到 unified-keyword-service.ts
+ * 请使用 getUnifiedKeywordData() 代替
+ *
+ * @see unified-keyword-service.ts
  */
 export async function expandKeywords(
-  baseKeywords: string[],
-  offer: Offer,
-  userId: number
+  _baseKeywords: string[],
+  _offer: Offer,
+  _userId: number
 ): Promise<GeneratedKeyword[]> {
-  const prompt = `你是一个关键词扩展专家。请基于以下基础关键词，为${offer.brand}产品生成更多关键词变体。
-
-# 基础关键词
-${baseKeywords.join(', ')}
-
-# 产品信息
-品牌：${offer.brand}
-类别：${offer.category || '未分类'}
-目标国家：${offer.target_country}
-
-# 扩展策略
-1. 同义词和近义词
-2. 不同表述方式
-3. 添加修饰词（最新、专业、高效等）
-4. 添加用户意图词（购买、对比、评测等）
-5. 添加地域词（如适用）
-
-# 输出格式
-{
-  "expandedKeywords": [
-    {
-      "keyword": "扩展后的关键词",
-      "matchType": "BROAD|PHRASE|EXACT",
-      "priority": "HIGH|MEDIUM|LOW",
-      "category": "扩展类型",
-      "searchIntent": "informational|navigational|transactional"
-    }
-  ]
+  console.warn('⚠️ expandKeywords() 已废弃，请使用 getUnifiedKeywordData() 代替')
+  throw new Error('expandKeywords() 已废弃。请使用 unified-keyword-service.ts 的 getUnifiedKeywordData()')
 }
 
-请生成10-20个高质量扩展关键词。
-`
-
-  try {
-    // 智能模型选择：否定关键词生成使用Flash模型（简单列表任务）
-    const aiResponse = await generateContent({
-      operationType: 'negative_keyword_generation',
-      prompt,
-      temperature: 0.7,
-      maxOutputTokens: 2048,  // ✅ 优化：输出20-50个否定关键词约500-1000 tokens,2048足够(原8192浪费75%)
-    }, userId)
-
-    // 记录token使用
-    if (aiResponse.usage) {
-      const cost = estimateTokenCost(
-        aiResponse.model,
-        aiResponse.usage.inputTokens,
-        aiResponse.usage.outputTokens
-      )
-      await recordTokenUsage({
-        userId,
-        model: aiResponse.model,
-        operationType: 'keyword_expansion',
-        inputTokens: aiResponse.usage.inputTokens,
-        outputTokens: aiResponse.usage.outputTokens,
-        totalTokens: aiResponse.usage.totalTokens,
-        cost,
-        apiType: aiResponse.apiType
-      })
-    }
-
-    const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      throw new Error('AI返回的数据格式无效')
-    }
-
-    const data = JSON.parse(jsonMatch[0]) as { expandedKeywords: GeneratedKeyword[] }
-
-    return data.expandedKeywords || []
-  } catch (error: any) {
-    console.error('扩展关键词失败:', error)
-    throw new Error(`AI关键词扩展失败: ${error.message}`)
-  }
-}
+// ============================================
+// 以下函数已迁移到 unified-keyword-service.ts
+// 保留空实现以避免编译错误（向后兼容）
+// ============================================
 
 /**
- * 使用Keyword Planner扩展品牌关键词
- * 通过Keyword Planner API获取真实的品牌相关关键词建议
- *
- * 🔧 优化(2025-12-12): 增强种子词策略
- * - 原来：只用品牌名作为种子词
- * - 现在：使用品牌名、品牌+品类、品牌+产品名等多个种子词
- *
- * @param brandName - 品牌名称
- * @param targetCountry - 目标国家
- * @param targetLanguage - 目标语言
- * @param maxKeywords - 最大关键词数量
- * @param userId - 用户ID
- * @param minSearchVolume - 最小搜索量阈值
- * @param productName - 产品名称（可选，用于生成更精准的种子词）
- * @param category - 产品品类（可选，用于生成更精准的种子词）
+ * @deprecated 已迁移到 unified-keyword-service.ts
+ * @see unified-keyword-service.ts buildSmartSeedPool
  */
-async function expandBrandKeywordsWithPlanner(
-  brandName: string,
-  targetCountry: string,
-  targetLanguage: string,
-  maxKeywords: number,
-  userId: number,
-  minSearchVolume: number = 500,
-  productName?: string,
-  category?: string
-): Promise<GeneratedKeyword[]> {
-  try {
-    // 🔧 优化(2025-12-12): 构建多样化的种子关键词
-    // 策略：品牌名 + 品牌+品类 + 品牌+产品名 + 从产品标题提取的关键词
-    const seedKeywords: string[] = [brandName]
-
-    // 添加品牌+品类组合（如 "Reolink camera"）
-    if (category) {
-      const categoryClean = category.replace(/[&,]/g, ' ').trim()
-      if (categoryClean && !categoryClean.toLowerCase().includes(brandName.toLowerCase())) {
-        seedKeywords.push(`${brandName} ${categoryClean}`)
-      }
-    }
-
-    // 从产品名称提取核心词并与品牌组合
-    if (productName) {
-      const extractedKeywords = extractKeywordsFromProductTitle(productName, brandName)
-      seedKeywords.push(...extractedKeywords)
-    }
-
-    // 去重并限制种子词数量（API限制）
-    const uniqueSeeds = [...new Set(seedKeywords)].slice(0, 5)
-    console.log(`🔍 品牌词扩展种子词: ${uniqueSeeds.join(', ')}`)
-
-    // 使用多个种子关键词，通过Keyword Planner获取相关关键词建议
-    // 🔧 修复(2025-12-12): 独立账号模式 - 传递 userId
-    const suggestions = await getKeywordSuggestions(
-      uniqueSeeds,
-      targetCountry,
-      targetLanguage,
-      maxKeywords * 3, // 请求更多以便过滤后有足够数量
-      userId
-    )
-
-    // 过滤：只保留包含品牌名且搜索量>=阈值的关键词
-    const brandLower = brandName.toLowerCase()
-    const validKeywords = suggestions
-      .filter(v =>
-        v.avgMonthlySearches >= minSearchVolume &&
-        v.keyword.toLowerCase().includes(brandLower)
-      )
-      .sort((a, b) => b.avgMonthlySearches - a.avgMonthlySearches)
-      .slice(0, maxKeywords)
-
-    console.log(`✅ 品牌词扩展结果: ${validKeywords.length}个 (种子词${uniqueSeeds.length}个)`)
-
-    // 转换为GeneratedKeyword格式
-    return validKeywords.map(v => ({
-      keyword: v.keyword,
-      matchType: 'EXACT' as const, // 品牌词使用精准匹配，提高CTR
-      priority: 'HIGH' as const, // 品牌词优先级最高
-      category: '品牌词',
-      searchIntent: 'navigational',
-      searchVolume: v.avgMonthlySearches,
-      estimatedCpc: v.highTopPageBid || undefined
-    }))
-  } catch (error) {
-    console.error('扩展品牌关键词失败:', error)
-    return [] // 失败时返回空数组，不影响主流程
-  }
+function expandBrandKeywordsWithPlanner(): Promise<GeneratedKeyword[]> {
+  throw new Error('已迁移到 unified-keyword-service.ts')
 }
 
 /**
- * 从产品标题中提取关键词（需求34）
- *
- * 示例输入: "Teslong Inspection Camera 1080P HD Borescope with 4.5" Screen"
- * 示例输出: ["Teslong Inspection Camera", "Teslong Borescope"]
- *
- * @param productTitle - 产品标题
- * @param brandName - 品牌名称
- * @returns 提取的关键词数组
+ * @deprecated 已迁移到 unified-keyword-service.ts
+ * @see unified-keyword-service.ts extractKeywordsFromProductTitle
  */
-function extractKeywordsFromProductTitle(productTitle: string, brandName: string): string[] {
-  if (!productTitle || !brandName) return []
-
-  const keywords: string[] = []
-  const brandLower = brandName.toLowerCase()
-  const titleLower = productTitle.toLowerCase()
-
-  // 移除品牌名，获取产品描述部分
-  const titleWithoutBrand = productTitle
-    .replace(new RegExp(brandName, 'gi'), '')
-    .replace(/^\s*[-–—]\s*/, '') // 移除开头的连字符
-    .trim()
-
-  // 分词并过滤
-  const words = titleWithoutBrand
-    .split(/\s+/)
-    .filter(w => {
-      // 过滤掉：
-      // 1. 太短的词（<3字符）
-      // 2. 纯数字或规格参数（如 1080P, 4.5", 32GB）
-      // 3. 常见无意义词
-      const isShort = w.length < 3
-      const isSpec = /^[\d.]+[pPkKgGmMtT"']*$/.test(w) || /^\d+x\d+$/i.test(w)
-      const isCommon = /^(with|for|and|the|a|an|in|on|of|to|by|from|new|pro|plus|max|mini|lite)$/i.test(w)
-      return !isShort && !isSpec && !isCommon
-    })
-
-  // 策略1: 品牌名 + 前2个核心词（如 "Teslong Inspection Camera"）
-  if (words.length >= 2) {
-    const combo1 = `${brandName} ${words.slice(0, 2).join(' ')}`
-    if (!keywords.includes(combo1)) {
-      keywords.push(combo1)
-    }
-  }
-
-  // 策略2: 品牌名 + 单个核心产品词（如 "Teslong Borescope"）
-  // 查找可能的产品类型词（通常是名词，首字母大写或全小写）
-  const productTypeWords = words.filter(w =>
-    /^[A-Z][a-z]+$/.test(w) || // 首字母大写
-    /^[a-z]+$/.test(w) // 全小写
-  )
-
-  for (const word of productTypeWords.slice(0, 2)) {
-    const combo2 = `${brandName} ${word}`
-    if (!keywords.includes(combo2) && word.toLowerCase() !== words[0]?.toLowerCase()) {
-      keywords.push(combo2)
-    }
-  }
-
-  // 策略3: 如果标题中已包含品牌名，直接提取品牌+后续词
-  if (titleLower.includes(brandLower)) {
-    const brandIndex = titleLower.indexOf(brandLower)
-    const afterBrand = productTitle.substring(brandIndex + brandName.length).trim()
-    const afterWords = afterBrand.split(/\s+/).filter(w => w.length >= 3)
-
-    if (afterWords.length >= 2) {
-      const combo3 = `${brandName} ${afterWords.slice(0, 2).join(' ')}`
-      if (!keywords.includes(combo3)) {
-        keywords.push(combo3)
-      }
-    }
-  }
-
-  return keywords.slice(0, 3) // 最多返回3个
+function extractKeywordsFromProductTitle(_productTitle: string, _brandName: string): string[] {
+  return []
 }
 
 /**
- * 🔧 优化(2025-12-12): 店铺多商品关键词聚合
- * 从店铺的多个产品名称中提取共同的产品类型词，生成品牌相关关键词
- *
- * @param productNames - 店铺产品名称数组
- * @param brandName - 品牌名称
- * @param category - 产品品类（可选）
- * @returns 聚合后的关键词数组
+ * @deprecated 已迁移到 unified-keyword-service.ts
+ * @see unified-keyword-service.ts aggregateStoreProductSeeds
  */
 function aggregateStoreProductKeywords(
-  productNames: string[],
-  brandName: string,
-  category?: string | null
+  _productNames: string[],
+  _brandName: string,
+  _category?: string | null
 ): GeneratedKeyword[] {
-  if (!productNames || productNames.length === 0 || !brandName) return []
-
-  const keywords: GeneratedKeyword[] = []
-  const seenKeywords = new Set<string>()
-  const brandLower = brandName.toLowerCase()
-
-  // 统计产品类型词出现频率
-  const wordFrequency = new Map<string, number>()
-
-  for (const productName of productNames) {
-    // 移除品牌名，提取核心词
-    const nameWithoutBrand = productName
-      .replace(new RegExp(brandName, 'gi'), '')
-      .trim()
-
-    const words = nameWithoutBrand
-      .split(/[\s\-–—,]+/)
-      .filter(w => {
-        if (w.length < 3) return false
-        // 过滤规格参数
-        if (/^[\d.]+[pPkKgGmMtThHzZ"']*$/.test(w)) return false
-        if (/^\d+x\d+$/i.test(w)) return false
-        // 过滤常见无意义词
-        if (/^(with|for|and|the|a|an|in|on|of|to|by|from|new|pro|plus|max|mini|lite|version|edition|series|gen|generation|pack|set|kit|bundle)$/i.test(w)) return false
-        return true
-      })
-
-    // 统计词频
-    for (const word of words) {
-      const wordLower = word.toLowerCase()
-      wordFrequency.set(wordLower, (wordFrequency.get(wordLower) || 0) + 1)
-    }
-  }
-
-  // 按频率排序，取出现次数>=2的高频词
-  const frequentWords = Array.from(wordFrequency.entries())
-    .filter(([_, count]) => count >= 2)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([word]) => word)
-
-  // 生成品牌+高频产品词组合
-  for (const word of frequentWords) {
-    const keyword = `${brandName} ${word}`
-    const keywordLower = keyword.toLowerCase()
-
-    if (!seenKeywords.has(keywordLower)) {
-      seenKeywords.add(keywordLower)
-      keywords.push({
-        keyword,
-        matchType: 'PHRASE',
-        priority: 'MEDIUM',
-        category: '产品词',
-        searchIntent: 'transactional',
-      })
-    }
-  }
-
-  // 如果有品类，生成品牌+品类组合
-  if (category && !seenKeywords.has(`${brandName} ${category}`.toLowerCase())) {
-    const categoryClean = category.replace(/[&,]/g, ' ').trim().split(' ')[0]
-    if (categoryClean && categoryClean.length > 2) {
-      keywords.push({
-        keyword: `${brandName} ${categoryClean}`,
-        matchType: 'PHRASE',
-        priority: 'MEDIUM',
-        category: '产品词',
-        searchIntent: 'transactional',
-      })
-    }
-  }
-
-  return keywords.slice(0, 8) // 最多返回8个
+  return []
 }
 
 /**
- * 🔧 优化(2025-12-12): 从产品特性生成关键词
- * 将产品特性转换为搜索关键词
- *
- * @example
- * 输入特性: "4K Ultra HD resolution; Night vision; Two-way audio"
- * 输出: ["Reolink 4K camera", "Reolink night vision", "Reolink two-way audio"]
- *
- * @param features - 产品特性字符串（分号分隔）
- * @param brandName - 品牌名称
- * @param category - 产品品类（可选）
- * @returns 生成的关键词数组
+ * @deprecated 已迁移到 unified-keyword-service.ts
+ * @see unified-keyword-service.ts extractFeatureSeeds
  */
 function generateKeywordsFromFeatures(
-  features: string,
-  brandName: string,
-  category?: string | null
+  _features: string,
+  _brandName: string,
+  _category?: string | null
 ): GeneratedKeyword[] {
-  if (!features || !brandName) return []
-
-  const keywords: GeneratedKeyword[] = []
-  const seenKeywords = new Set<string>()
-
-  // 常见的高价值特性关键词（用户搜索时常用的词）
-  const highValueFeatures: Record<string, string[]> = {
-    // 视频/相机相关
-    '4k': ['4K', '4K camera', '4K video'],
-    '1080p': ['1080P', 'HD'],
-    'night vision': ['night vision'],
-    'infrared': ['infrared', 'IR'],
-    'motion detection': ['motion detection', 'motion sensor'],
-    'two-way audio': ['two-way audio', '2-way audio'],
-    'wireless': ['wireless', 'WiFi'],
-    'solar': ['solar', 'solar powered'],
-    'battery': ['battery', 'rechargeable'],
-    'waterproof': ['waterproof', 'outdoor'],
-    'ptz': ['PTZ', 'pan tilt'],
-    // 智能设备相关
-    'smart': ['smart'],
-    'alexa': ['Alexa compatible', 'Alexa'],
-    'google': ['Google Home', 'Google Assistant'],
-    'app': ['app control', 'mobile app'],
-    'cloud': ['cloud storage'],
-    // 音频相关
-    'bluetooth': ['bluetooth'],
-    'noise cancelling': ['noise cancelling', 'ANC'],
-    // 通用高价值词
-    'professional': ['professional', 'pro'],
-    'portable': ['portable'],
-    'compact': ['compact'],
-  }
-
-  // 分割特性
-  const featureList = features
-    .split(/[;,]/)
-    .map(f => f.trim().toLowerCase())
-    .filter(f => f.length > 3)
-
-  // 匹配高价值特性
-  for (const feature of featureList) {
-    for (const [pattern, variants] of Object.entries(highValueFeatures)) {
-      if (feature.includes(pattern)) {
-        // 使用第一个变体生成关键词
-        const featureWord = variants[0]
-        const keyword = `${brandName} ${featureWord}`
-        const keywordLower = keyword.toLowerCase()
-
-        if (!seenKeywords.has(keywordLower)) {
-          seenKeywords.add(keywordLower)
-          keywords.push({
-            keyword,
-            matchType: 'PHRASE',
-            priority: 'LOW',
-            category: '特性词',
-            searchIntent: 'transactional',
-          })
-        }
-
-        // 如果有品类，生成品类+特性组合
-        if (category) {
-          const categoryClean = category.replace(/[&,]/g, ' ').trim().split(' ')[0]
-          if (categoryClean && categoryClean.length > 2) {
-            const categoryKeyword = `${featureWord} ${categoryClean}`
-            const categoryKeywordLower = categoryKeyword.toLowerCase()
-
-            if (!seenKeywords.has(categoryKeywordLower)) {
-              seenKeywords.add(categoryKeywordLower)
-              keywords.push({
-                keyword: categoryKeyword,
-                matchType: 'BROAD',
-                priority: 'LOW',
-                category: '特性词',
-                searchIntent: 'informational',
-              })
-            }
-          }
-        }
-        break // 每个特性只匹配一次
-      }
-    }
-  }
-
-  return keywords.slice(0, 6) // 最多返回6个
+  return []
 }
+
+// 防止 unused variable 警告
+void expandBrandKeywordsWithPlanner
+void extractKeywordsFromProductTitle
+void aggregateStoreProductKeywords
+void generateKeywordsFromFeatures
