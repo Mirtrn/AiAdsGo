@@ -194,10 +194,12 @@ npm run db:migrate
 
 # PostgreSQL 迁移
 DATABASE_URL='postgresql://...' npm run db:migrate
-
-# 或使用自动迁移脚本（检测初始化状态）
-npm run db:auto-migrate
 ```
+
+**注意**：生产环境启动时，`instrumentation.ts` 会自动调用 `db-init.ts` 执行迁移，支持：
+- 自动检测新迁移文件
+- 检测迁移文件内容变更（MD5哈希）并重新执行
+- 幂等操作（使用 `ON CONFLICT` 处理重复）
 
 迁移脚本会：
 1. 自动检测数据库类型（SQLite 或 PostgreSQL）
