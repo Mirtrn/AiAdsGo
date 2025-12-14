@@ -376,3 +376,145 @@ export function generatePriorityDistributionSummary(report: PriorityDistribution
 
   return lines.join('\n')
 }
+
+// ============================================
+// 🆕 P1-2优化：关键词购买意图强度评分
+// ============================================
+
+/**
+ * 购买意图信号词及对应分数
+ * 分数范围: 0-100
+ * - 高购买意图 (80-100): buy, purchase, order, shop, get, need
+ * - 中等购买意图 (50-79): price, cost, deal, discount, best, top, cheap, affordable
+ * - 低购买意图 (20-49): review, compare, vs, alternative
+ * - 信息查询意图 (0-19): how to, what is, tutorial, guide
+ */
+const INTENT_SIGNALS: Record<string, number> = {
+  // 高购买意图 (80-100)
+  'buy': 95,
+  'purchase': 95,
+  'order': 90,
+  'shop': 85,
+  'get': 80,
+  'need': 80,
+
+  // 中等购买意图 (50-79)
+  'price': 70,
+  'cost': 70,
+  'deal': 65,
+  'discount': 60,
+  'coupon': 60,
+  'promo': 55,
+  'best': 55,
+  'top': 55,
+  'cheap': 50,
+  'affordable': 50,
+  'sale': 50,
+
+  // 低购买意图 (20-49)
+  'review': 35,
+  'reviews': 35,
+  'compare': 30,
+  'comparison': 30,
+  'vs': 25,
+  'versus': 25,
+  'alternative': 25,
+  'alternatives': 25,
+  'rating': 25,
+  'ratings': 25,
+
+  // 信息查询意图 (0-19)
+  'how to': 10,
+  'what is': 5,
+  'tutorial': 5,
+  'guide': 5,
+  'learn': 5,
+  'help': 5,
+  'setup': 10,
+  'install': 10
+}
+
+/**
+ * 计算关键词的购买意图强度
+ *
+ * @param keyword - 关键词
+ * @returns 0-100的意图分数
+ *
+ * @example
+ * calculateIntentScore('buy reolink camera') // → 95 (高购买意图)
+ * calculateIntentScore('best security camera') // → 55 (中等意图)
+ * calculateIntentScore('reolink camera review') // → 35 (低意图)
+ * calculateIntentScore('how to install camera') // → 10 (信息查询)
+ * calculateIntentScore('security camera') // → 40 (默认中等)
+ */
+export function calculateIntentScore(keyword: string): number {
+  const kwLower = keyword.toLowerCase()
+  let maxScore = 40  // 默认中等意图
+
+  for (const [signal, score] of Object.entries(INTENT_SIGNALS)) {
+    if (kwLower.includes(signal)) {
+      maxScore = Math.max(maxScore, score)
+    }
+  }
+
+  return maxScore
+}
+
+/**
+ * 批量计算关键词意图分数并排序
+ *
+ * 排序规则：意图分数 * log10(搜索量+1)
+ * 这样既考虑购买意图，也考虑搜索量
+ *
+ * @param keywords - 关键词数组（带搜索量）
+ * @param brandName - 品牌名称（品牌词优先）
+ * @returns 排序后的关键词数组（带意图分数）
+ */
+export function sortKeywordsByIntent<T extends { keyword: string; searchVolume?: number }>(
+  keywords: T[],
+  brandName?: string
+): Array<T & { intentScore: number }> {
+  const brandLower = brandName?.toLowerCase()
+
+  const keywordsWithIntent = keywords.map(kw => ({
+    ...kw,
+    intentScore: calculateIntentScore(kw.keyword)
+  }))
+
+  keywordsWithIntent.sort((a, b) => {
+    // 1. 品牌词优先
+    if (brandLower) {
+      const aIsBrand = a.keyword.toLowerCase().includes(brandLower) ? 1 : 0
+      const bIsBrand = b.keyword.toLowerCase().includes(brandLower) ? 1 : 0
+      if (aIsBrand !== bIsBrand) {
+        return bIsBrand - aIsBrand
+      }
+    }
+
+    // 2. 意图强度 * log10(搜索量+1) 综合评分
+    const aScore = a.intentScore * Math.log10((a.searchVolume || 0) + 1)
+    const bScore = b.intentScore * Math.log10((b.searchVolume || 0) + 1)
+    return bScore - aScore
+  })
+
+  return keywordsWithIntent
+}
+
+/**
+ * 获取意图强度等级描述
+ */
+export function getIntentLevel(score: number): {
+  level: 'high' | 'medium' | 'low' | 'informational'
+  label: string
+  color: string
+} {
+  if (score >= 80) {
+    return { level: 'high', label: '高购买意图', color: 'green' }
+  } else if (score >= 50) {
+    return { level: 'medium', label: '中等意图', color: 'amber' }
+  } else if (score >= 20) {
+    return { level: 'low', label: '低购买意图', color: 'orange' }
+  } else {
+    return { level: 'informational', label: '信息查询', color: 'gray' }
+  }
+}

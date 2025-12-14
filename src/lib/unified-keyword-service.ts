@@ -31,6 +31,32 @@ export interface UnifiedKeywordData {
   matchType: 'EXACT' | 'PHRASE' | 'BROAD'
 }
 
+/**
+ * 白名单过滤结果（P0-2优化：包含竞品品牌提取）
+ */
+export interface WhitelistFilterResult<T> {
+  /** 过滤后的关键词 */
+  filtered: T[]
+  /** 识别到的竞品品牌（可用作否定关键词） */
+  competitorBrands: string[]
+  /** 统计信息 */
+  stats: {
+    brandKept: number      // 品牌词保留数
+    genericKept: number    // 通用词保留数
+    competitorFiltered: number  // 竞品词过滤数
+  }
+}
+
+/**
+ * 统一关键词服务返回结果（P0-2优化：包含竞品品牌）
+ */
+export interface UnifiedKeywordResult {
+  /** 关键词列表 */
+  keywords: UnifiedKeywordData[]
+  /** 识别到的竞品品牌（建议用作否定关键词） */
+  competitorBrands: string[]
+}
+
 export interface OfferData {
   brand: string
   category?: string | null
@@ -386,21 +412,26 @@ function detectBrandInKeyword(keyword: string): string | null {
 }
 
 /**
- * 白名单过滤
+ * 白名单过滤（P0-2优化：提取竞品品牌用作否定关键词）
  *
  * 规则：
  * 1. ✅ 保留: 包含自身品牌名的关键词
  * 2. ✅ 保留: 不含任何品牌名的通用品类词
  * 3. ❌ 排除: 包含其他品牌名的关键词（竞品）
+ *
+ * 🆕 优化(2025-12): 返回识别到的竞品品牌列表，可用于创建否定关键词
  */
-export function filterByWhitelist(
-  keywords: Array<{ keyword: string; [key: string]: any }>,
+export function filterByWhitelist<T extends { keyword: string }>(
+  keywords: T[],
   brandName: string
-): Array<{ keyword: string; [key: string]: any }> {
+): WhitelistFilterResult<T> {
   const brandLower = brandName.toLowerCase()
   let brandKept = 0
   let genericKept = 0
   let competitorFiltered = 0
+
+  // 🆕 收集识别到的竞品品牌
+  const competitorBrandsSet = new Set<string>()
 
   const filtered = keywords.filter(kw => {
     const keywordLower = kw.keyword.toLowerCase()
@@ -417,6 +448,7 @@ export function filterByWhitelist(
     if (detectedBrand) {
       // 包含其他品牌名 → 排除（竞品）
       competitorFiltered++
+      competitorBrandsSet.add(detectedBrand)  // 🆕 收集竞品品牌
       console.log(`   ❌ 过滤竞品词: "${kw.keyword}" (检测到: ${detectedBrand})`)
       return false
     }
@@ -426,12 +458,36 @@ export function filterByWhitelist(
     return true
   })
 
+  const competitorBrands = Array.from(competitorBrandsSet)
+
   console.log(`\n📋 白名单过滤结果:`)
   console.log(`   ✅ 品牌词保留: ${brandKept}`)
   console.log(`   ✅ 通用词保留: ${genericKept}`)
   console.log(`   ❌ 竞品词过滤: ${competitorFiltered}`)
+  if (competitorBrands.length > 0) {
+    console.log(`   🏷️ 识别竞品品牌: ${competitorBrands.join(', ')}`)
+  }
 
-  return filtered
+  return {
+    filtered,
+    competitorBrands,
+    stats: {
+      brandKept,
+      genericKept,
+      competitorFiltered
+    }
+  }
+}
+
+/**
+ * 白名单过滤（简化版，向后兼容）
+ * @deprecated 建议使用 filterByWhitelist 获取完整结果
+ */
+export function filterByWhitelistSimple<T extends { keyword: string }>(
+  keywords: T[],
+  brandName: string
+): T[] {
+  return filterByWhitelist(keywords, brandName).filtered
 }
 
 // ============================================
@@ -557,7 +613,7 @@ export function assignMatchTypes(
  * 4. 白名单过滤
  * 5. 智能过滤 + 匹配类型分配
  */
-export async function getUnifiedKeywordData(params: KeywordServiceParams): Promise<UnifiedKeywordData[]> {
+export async function getUnifiedKeywordData(params: KeywordServiceParams): Promise<UnifiedKeywordResult> {
   const {
     offer,
     country,
@@ -587,7 +643,7 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
 
   if (smartSeeds.length === 0) {
     console.log('   ⚠️ 无法构建种子词池，返回空结果')
-    return []
+    return { keywords: [], competitorBrands: [] }
   }
 
   // ==========================================
@@ -726,7 +782,10 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
   // ==========================================
   console.log('\n📍 Step 4: 白名单过滤')
 
-  allKeywords = filterByWhitelist(allKeywords, offer.brand) as UnifiedKeywordData[]
+  // 🆕 P0-2优化：提取竞品品牌用于否定关键词
+  const whitelistResult = filterByWhitelist(allKeywords, offer.brand)
+  allKeywords = whitelistResult.filtered as UnifiedKeywordData[]
+  const competitorBrands = whitelistResult.competitorBrands
 
   // ==========================================
   // Step 5: 智能过滤
@@ -769,7 +828,18 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
     console.log(`   ${type}: ${count}`)
   })
 
-  return finalKeywords
+  // 🆕 P0-2优化：输出识别到的竞品品牌
+  if (competitorBrands.length > 0) {
+    console.log(`\n🏷️ 识别竞品品牌 (${competitorBrands.length}个，可用作否定关键词):`)
+    competitorBrands.forEach(brand => {
+      console.log(`   - ${brand}`)
+    })
+  }
+
+  return {
+    keywords: finalKeywords,
+    competitorBrands
+  }
 }
 
 // ============================================
@@ -803,7 +873,8 @@ export async function getUnifiedKeywordDataWithMultiRounds(params: {
     brand: params.brandName,
   }
 
-  return getUnifiedKeywordData({
+  // 🆕 P0-2: 向后兼容，只返回关键词数组
+  const result = await getUnifiedKeywordData({
     offer,
     country: params.country,
     language: params.language,
@@ -812,6 +883,7 @@ export async function getUnifiedKeywordDataWithMultiRounds(params: {
     accountId: params.accountId,
     userId: params.userId,
   })
+  return result.keywords
 }
 
 // ============================================
@@ -1021,7 +1093,7 @@ export async function expandKeywordsWithSeeds(params: {
 
     // 白名单过滤（如果有品牌名）
     if (brandName) {
-      results = filterByWhitelist(results, brandName) as UnifiedKeywordData[]
+      results = filterByWhitelistSimple(results, brandName)
     }
 
     // 搜索量过滤

@@ -101,7 +101,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       scrapedData: offer.scraped_data || undefined
     }
 
-    const unifiedKeywords = await getUnifiedKeywordData({
+    // 🆕 P0-2优化：获取关键词和竞品品牌
+    const { keywords: unifiedKeywords, competitorBrands } = await getUnifiedKeywordData({
       offer: offerData,
       country: offer.target_country,
       language: offer.target_language || 'English',
@@ -112,7 +113,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // 生成否定关键词（如果需要）
     let negativeKeywords: string[] = []
     if (includeNegativeKeywords) {
-      negativeKeywords = await generateNegativeKeywords(offer, userIdNum)
+      const aiNegativeKeywords = await generateNegativeKeywords(offer, userIdNum)
+      // 🆕 P0-2优化：将竞品品牌添加为否定关键词
+      negativeKeywords = [...aiNegativeKeywords, ...competitorBrands]
+    } else if (competitorBrands.length > 0) {
+      // 即使不包含AI生成的否定词，也添加竞品品牌作为否定词
+      negativeKeywords = competitorBrands
     }
 
     // 将生成的关键词保存到数据库
@@ -158,11 +164,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       count: createdKeywords.length,
       positiveCount: unifiedKeywords.length,
       negativeCount: negativeKeywords.length,
+      competitorBrands,  // 🆕 P0-2优化：返回识别的竞品品牌
       categories: Object.keys(categoryStats),
       categoryStats,
       recommendations: [
         '关键词已通过品牌白名单过滤，确保相关性',
         '关键词按搜索量降序排列，优先展示高价值词',
+        competitorBrands.length > 0
+          ? `已识别${competitorBrands.length}个竞品品牌并添加为否定关键词: ${competitorBrands.join(', ')}`
+          : '未检测到竞品品牌词',
         '建议定期监控关键词表现并优化'
       ],
     })

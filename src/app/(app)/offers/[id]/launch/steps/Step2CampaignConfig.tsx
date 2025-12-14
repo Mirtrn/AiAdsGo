@@ -21,7 +21,8 @@ import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import { generateNamingScheme } from '@/lib/naming-convention'
 import { CURRENCY_SYMBOLS, formatCurrency, calculateMaxCPC } from '@/lib/currency'  // 🔧 修复(2025-12-13): 导入货币工具
@@ -33,6 +34,46 @@ const formatSearchVolume = (volume?: number): string => {
   if (volume < 10000) return `${(volume / 1000).toFixed(1)}K`
   if (volume < 1000000) return `${Math.floor(volume / 1000)}K`
   return `${(volume / 1000000).toFixed(1)}M`
+}
+
+/**
+ * 🆕 P0-1优化：动态CPC出价计算
+ * 基于关键词的lowTopPageBid平均值，上浮20%确保竞争力
+ */
+const calculateDynamicCpc = (
+  keywords: Array<{ lowTopPageBid?: number; highTopPageBid?: number }>,
+  currency: string
+): number | null => {
+  // 过滤有效的关键词出价
+  const validBids = keywords
+    .map(kw => kw.lowTopPageBid || 0)
+    .filter(bid => bid > 0)
+
+  if (validBids.length === 0) return null
+
+  // 计算平均值
+  const avgBid = validBids.reduce((sum, bid) => sum + bid, 0) / validBids.length
+
+  // 上浮20%确保竞争力
+  const suggestedCpc = avgBid * 1.2
+
+  // 根据货币设置最低CPC
+  const minCpc: Record<string, number> = {
+    USD: 0.10,
+    CNY: 0.70,
+    EUR: 0.09,
+    GBP: 0.08,
+    JPY: 15,
+    KRW: 130,
+    AUD: 0.15,
+    CAD: 0.14,
+    HKD: 0.78,
+    TWD: 3.15,
+    SGD: 0.13,
+    INR: 8.3,
+  }
+
+  return Math.max(suggestedCpc, minCpc[currency] || 0.10)
 }
 
 interface Props {
@@ -57,8 +98,14 @@ interface CampaignConfig {
   adGroupName: string
   maxCpcBid: number
 
-  // Keywords Level
-  keywords: Array<{ text: string; matchType: 'BROAD' | 'PHRASE' | 'EXACT'; searchVolume?: number }>
+  // Keywords Level - 🆕 P0-1优化：增加lowTopPageBid和highTopPageBid用于动态CPC计算
+  keywords: Array<{
+    text: string
+    matchType: 'BROAD' | 'PHRASE' | 'EXACT'
+    searchVolume?: number
+    lowTopPageBid?: number
+    highTopPageBid?: number
+  }>
   negativeKeywords: string[]
 
   // Ad Level
@@ -161,6 +208,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
       maxCpcBid: getDefaultCPC(accountCurrency),  // 🔧 修复(2025-12-13): 根据货币提供合理的默认值
 
       // Keywords Level - 优先使用keywordsWithVolume（包含搜索量）
+      // 🆕 P0-1优化：同时提取lowTopPageBid和highTopPageBid用于动态CPC计算
       keywords: (selectedCreative?.keywordsWithVolume || selectedCreative?.keywords || []).map((k: any) => {
         if (typeof k === 'string') {
           return { text: k, matchType: 'PHRASE' as const }
@@ -168,7 +216,9 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
         return {
           text: k.keyword || k.text,
           matchType: 'PHRASE' as const,
-          searchVolume: k.searchVolume || 0
+          searchVolume: k.searchVolume || 0,
+          lowTopPageBid: k.lowTopPageBid || 0,
+          highTopPageBid: k.highTopPageBid || 0
         }
       }),
       // 🎯 新增：从创意中读取否定关键词
@@ -189,6 +239,18 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
 
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [showPreview, setShowPreview] = useState(false)
+  // 🆕 P0-1优化：动态CPC出价开关
+  const [enableDynamicCpc, setEnableDynamicCpc] = useState(false)
+
+  // 🆕 P0-1优化：计算动态CPC建议值
+  const suggestedCpc = calculateDynamicCpc(config.keywords, accountCurrency)
+
+  // 🆕 P0-1优化：当启用动态CPC时，自动更新出价
+  useEffect(() => {
+    if (enableDynamicCpc && suggestedCpc !== null) {
+      handleChange('maxCpcBid', suggestedCpc)
+    }
+  }, [enableDynamicCpc, suggestedCpc])
 
   const handleChange = (field: keyof CampaignConfig, value: any) => {
     setConfig({
@@ -631,12 +693,56 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
                   onChange={(e) => {
                     const value = e.target.value === '' ? 0 : parseFloat(e.target.value)
                     handleChange('maxCpcBid', isNaN(value) ? 0 : value)
+                    // 🆕 P0-1优化：手动修改CPC时关闭动态CPC
+                    if (enableDynamicCpc) {
+                      setEnableDynamicCpc(false)
+                    }
                   }}
                   className="pl-7"
                   min="0"
                   step={accountCurrency === 'JPY' || accountCurrency === 'KRW' ? '1' : '0.01'}
                 />
               </div>
+
+              {/* 🆕 P0-1优化：动态CPC出价开关 */}
+              <div className="flex items-center justify-between p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-600" />
+                  <div>
+                    <div className="text-sm font-medium">启用动态CPC出价</div>
+                    <div className="text-xs text-gray-500">根据关键词竞争度自动计算建议出价</div>
+                  </div>
+                </div>
+                <Switch
+                  checked={enableDynamicCpc}
+                  onCheckedChange={(checked) => {
+                    setEnableDynamicCpc(checked)
+                    if (checked && suggestedCpc !== null) {
+                      handleChange('maxCpcBid', suggestedCpc)
+                    }
+                  }}
+                  disabled={suggestedCpc === null}
+                />
+              </div>
+
+              {/* 🆕 P0-1优化：显示动态CPC建议值 */}
+              {enableDynamicCpc && suggestedCpc !== null && (
+                <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                  <CheckCircle2 className="inline h-4 w-4 mr-1" />
+                  <strong>动态CPC已启用</strong>: {currencySymbol}{suggestedCpc.toFixed(2)}
+                  <span className="ml-1 text-xs text-green-600">
+                    (基于{config.keywords.filter(k => k.lowTopPageBid && k.lowTopPageBid > 0).length}个关键词的平均竞价 +20%)
+                  </span>
+                </div>
+              )}
+
+              {suggestedCpc === null && config.keywords.length > 0 && (
+                <div className="p-2 bg-gray-50 border border-gray-200 rounded text-sm text-gray-600">
+                  <Info className="inline h-4 w-4 mr-1" />
+                  暂无关键词竞价数据，无法启用动态CPC
+                </div>
+              )}
+
               {/* 🔧 修复(2025-12-13): 使用货币转换工具计算建议CPC */}
               {offer.productPrice && offer.commissionPayout && (() => {
                 // 使用货币转换工具计算建议最大CPC

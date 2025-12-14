@@ -40,6 +40,9 @@ export interface CampaignMetrics {
   conversionRate: number
   roi: number
   daysRunning: number
+  // 🆕 P1-1优化：广告疲劳检测所需字段
+  ctrTrend?: number  // CTR变化趋势（正值=增长，负值=下降）
+  previousCtr?: number  // 上一周期的CTR
 }
 
 export interface OptimizationRecommendation {
@@ -188,6 +191,10 @@ export class OptimizationRulesEngine {
     // 规则9: 新Campaign观察期
     const newCampaignRec = this.checkNewCampaign(metrics)
     if (newCampaignRec) recommendations.push(newCampaignRec)
+
+    // 🆕 规则10: 广告疲劳检测
+    const adFatigueRec = this.checkAdFatigue(metrics)
+    if (adFatigueRec) recommendations.push(adFatigueRec)
 
     return recommendations
   }
@@ -434,6 +441,45 @@ export class OptimizationRulesEngine {
         expectedImpact: '获取充足数据后可做出更准确的优化决策',
         metrics: {
           current: { daysRunning: metrics.daysRunning, impressions: metrics.impressions }
+        }
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * 🆕 规则10: 广告疲劳检测 (P1-1优化)
+   *
+   * 检测条件：
+   * - 运行超过30天
+   * - CTR下降超过15%
+   *
+   * 广告疲劳现象：长期投放同一创意导致用户审美疲劳，点击率持续下降
+   */
+  private checkAdFatigue(metrics: CampaignMetrics): OptimizationRecommendation | null {
+    // 需要ctrTrend数据才能检测疲劳
+    if (metrics.ctrTrend === undefined) return null
+
+    // 条件：运行>30天 且 CTR下降>15%
+    if (metrics.daysRunning > 30 && metrics.ctrTrend < -0.15) {
+      const ctrDecreasePercent = Math.abs(metrics.ctrTrend * 100).toFixed(1)
+
+      return {
+        campaignId: metrics.campaignId,
+        campaignName: metrics.campaignName,
+        priority: 'medium',
+        type: 'optimize_creative',
+        reason: `广告疲劳：运行${metrics.daysRunning}天，CTR下降${ctrDecreasePercent}%`,
+        action: '建议更新广告创意，测试新的标题和描述组合，刷新视觉元素',
+        expectedImpact: '预计可恢复CTR至正常水平（+3~8%）',
+        metrics: {
+          current: {
+            daysRunning: metrics.daysRunning,
+            ctrTrend: metrics.ctrTrend,
+            ctr: metrics.ctr,
+            previousCtr: metrics.previousCtr || 0
+          }
         }
       }
     }
