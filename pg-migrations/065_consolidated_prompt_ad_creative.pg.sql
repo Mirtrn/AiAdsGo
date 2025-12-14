@@ -13,9 +13,9 @@
 -- PART 1: Deactivate all old versions
 -- ============================================================
 
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'ad_creative_generation' AND is_active = 1;
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'ad_elements_headlines' AND is_active = 1;
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'ad_elements_descriptions' AND is_active = 1;
+UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'ad_creative_generation' AND is_active = true;
+UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'ad_elements_headlines' AND is_active = true;
+UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'ad_elements_descriptions' AND is_active = true;
 
 -- ============================================================
 -- PART 2: ad_creative_generation v4.8 (最终版本)
@@ -132,7 +132,7 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
   "ctr_optimization": {...}
 }',
   'v4.8合并版: 整合v4.1-v4.8所有优化，关键词嵌入率强化53%+',
-  1,
+  true,
   NOW()
 );
 
@@ -195,7 +195,7 @@ Generate 15 Google Search ad headlines (max 30 characters each).
 
 === OUTPUT FORMAT ===
 Return JSON with headlines, headlineAnalysis, ctrOptimization',
-  1,
+  true,
   'v3.3 CTR优化: DKI模板、数字具体化、情感触发、问句式标题、关键词嵌入率(8/15)',
   NOW()
 );
@@ -257,7 +257,7 @@ First 30 characters of each description are most important!
 
 === OUTPUT FORMAT ===
 Return JSON with descriptions, descriptionTemplates, ctrOptimization, dataUtilization',
-  1,
+  true,
   'v3.3 CTR优化: 结构化描述模板(4种)、USP前置规则(前30字符)、社会证明嵌入、竞品差异化暗示',
   NOW()
 );

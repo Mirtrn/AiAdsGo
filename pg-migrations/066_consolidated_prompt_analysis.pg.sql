@@ -17,8 +17,8 @@
 -- PART 1: product_analysis_single v3.2 (字段修复)
 -- ============================================================
 
-UPDATE prompt_versions SET is_active = 0
-WHERE prompt_id = 'product_analysis_single' AND is_active = 1;
+UPDATE prompt_versions SET is_active = false
+WHERE prompt_id = 'product_analysis_single' AND is_active = true;
 
 INSERT INTO prompt_versions (
   prompt_id, version, category, name, description,
@@ -35,7 +35,7 @@ SELECT
   function_name,
   REPLACE(prompt_content, '"technicalHighlights"', '"productHighlights"') as prompt_content,
   language,
-  1 as is_active,
+  true as is_active,
   '🔧 修复：将AI返回字段从technicalHighlights统一为productHighlights' as change_notes,
   NOW() as created_at
 FROM prompt_versions
@@ -45,8 +45,8 @@ WHERE prompt_id = 'product_analysis_single' AND version = 'v3.1';
 -- PART 2: brand_analysis_store v3.2 (字段添加)
 -- ============================================================
 
-UPDATE prompt_versions SET is_active = 0
-WHERE prompt_id = 'brand_analysis_store' AND is_active = 1;
+UPDATE prompt_versions SET is_active = false
+WHERE prompt_id = 'brand_analysis_store' AND is_active = true;
 
 INSERT INTO prompt_versions (
   prompt_id, version, category, name, description,
@@ -68,7 +68,7 @@ SELECT
       "productHighlights": ["Key feature 1", "Key feature 2", "Key feature 3"]'
   ) as prompt_content,
   language,
-  1 as is_active,
+  true as is_active,
   '🔧 增强：为热销商品添加productHighlights字段' as change_notes,
   NOW() as created_at
 FROM prompt_versions
@@ -78,7 +78,7 @@ WHERE prompt_id = 'brand_analysis_store' AND version = 'v3.1';
 -- PART 3: review_analysis v3.2 (增强数字提取)
 -- ============================================================
 
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'review_analysis';
+UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'review_analysis';
 
 INSERT INTO prompt_versions (
   prompt_id, version, category, name, description,
@@ -128,7 +128,7 @@ Return JSON with all analysis fields including quantitativeHighlights and compet
 -- PART 4: competitor_analysis v3.2 (竞品弱点挖掘)
 -- ============================================================
 
-UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'competitor_analysis';
+UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'competitor_analysis';
 
 INSERT INTO prompt_versions (
   prompt_id, version, category, name, description,
@@ -178,8 +178,8 @@ Return JSON with featureComparison, uniqueSellingPoints, competitorAdvantages, c
 -- ============================================================
 
 UPDATE prompt_versions
-SET is_active = 0
-WHERE prompt_id = 'keywords_generation' AND is_active = 1;
+SET is_active = false
+WHERE prompt_id = 'keywords_generation' AND is_active = true;
 
 INSERT INTO prompt_versions (
   prompt_id,
@@ -233,7 +233,7 @@ Generate 30 high-quality Google Ads keywords.
 Return JSON with keywords, estimatedBudget, recommendations',
   'English',
   1,
-  1,
+  true,
   '禁止生成竞品品牌关键词，避免与否定关键词冲突',
   NOW()
 );
@@ -265,7 +265,7 @@ Synthesize into 5-8 concise, store-level product highlights.
 Return JSON: {"storeHighlights": ["Highlight 1", ...]}
 
 Output in {{langName}}.',
-  1,
+  true,
   NOW()
 );
 
