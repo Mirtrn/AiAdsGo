@@ -51,7 +51,7 @@ export async function calculateLaunchScore(
     const keywordsWithVolume = (creative as any).keywordsWithVolume || []
 
     // 📦 加载新版prompt模板 (v4.0)
-    const promptTemplate = await loadPrompt('launch_score_v4')
+    const promptTemplate = await loadPrompt('launch_score')
 
     // 🎯 计算品牌词搜索量（从keywordsWithVolume中提取品牌相关词）
     const brandKeywords = keywordsWithVolume.filter((kw: any) =>

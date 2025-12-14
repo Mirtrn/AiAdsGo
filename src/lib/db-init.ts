@@ -683,13 +683,21 @@ async function initializeQueueSystem(): Promise<void> {
 }
 
 /**
- * 自动执行增量迁移
+ * 计算文件内容的 MD5 hash
+ */
+function calculateFileHash(content: string): string {
+  return crypto.createHash('md5').update(content).digest('hex')
+}
+
+/**
+ * 自动执行增量迁移（支持内容变更检测）
  *
  * 核心功能：
  * 1. 扫描 migrations/ 目录下的所有 .sql 文件
- * 2. 检查 migration_history 表，跳过已执行的迁移
- * 3. 按文件名顺序执行未执行的迁移
- * 4. 记录执行结果到 migration_history 表
+ * 2. 检查 migration_history 表，跳过已执行且内容未变更的迁移
+ * 3. 🆕 如果迁移文件内容有变更，重新执行该迁移
+ * 4. 按文件名顺序执行未执行的迁移
+ * 5. 记录执行结果和文件 hash 到 migration_history 表
  *
  * 迁移文件命名规范：
  * - SQLite: {编号}_{描述}.sql (如 037_add_keywords.sql)
@@ -728,6 +736,8 @@ async function runPendingMigrations(): Promise<void> {
       if (!file.endsWith('.sql')) return false
       // 排除初始化 schema（000 开头）
       if (file.startsWith('000_')) return false
+      // 排除归档目录中的文件
+      if (file.includes('archived')) return false
       // PostgreSQL: 只选择 .pg.sql 文件
       if (db.type === 'postgres') {
         return file.endsWith('.pg.sql')
@@ -742,36 +752,64 @@ async function runPendingMigrations(): Promise<void> {
     return
   }
 
-  // 获取已执行的迁移
+  // 获取已执行的迁移（含 hash）
   const executedMigrations = await getExecutedMigrations()
 
-  // 过滤出未执行的迁移（已执行集合已包含所有可能的变体）
-  const pendingMigrations = migrationFiles.filter(file => {
-    return !executedMigrations.has(file)
-  })
+  // 分类迁移文件：新文件 vs 内容变更
+  const pendingMigrations: Array<{ file: string; reason: 'new' | 'changed' }> = []
+
+  for (const file of migrationFiles) {
+    const filePath = path.join(migrationsDir, file)
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const currentHash = calculateFileHash(content)
+
+    if (!executedMigrations.has(file)) {
+      // 新迁移文件
+      pendingMigrations.push({ file, reason: 'new' })
+    } else {
+      // 检查内容是否变更
+      const recordedHash = executedMigrations.get(file)
+      if (recordedHash && recordedHash !== currentHash) {
+        pendingMigrations.push({ file, reason: 'changed' })
+      }
+    }
+  }
 
   if (pendingMigrations.length === 0) {
     console.log('✅ All migrations are up to date')
     return
   }
 
-  console.log(`\n📦 Found ${pendingMigrations.length} pending migrations:`)
-  pendingMigrations.forEach(f => console.log(`   - ${f}`))
+  // 统计并显示待执行的迁移
+  const newMigrations = pendingMigrations.filter(m => m.reason === 'new')
+  const changedMigrations = pendingMigrations.filter(m => m.reason === 'changed')
+
+  console.log(`\n📦 Found ${pendingMigrations.length} migrations to execute:`)
+  if (newMigrations.length > 0) {
+    console.log(`   🆕 New: ${newMigrations.length}`)
+    newMigrations.forEach(m => console.log(`      - ${m.file}`))
+  }
+  if (changedMigrations.length > 0) {
+    console.log(`   🔄 Changed: ${changedMigrations.length}`)
+    changedMigrations.forEach(m => console.log(`      - ${m.file}`))
+  }
   console.log('')
 
   // 执行每个迁移
   let successCount = 0
   let failCount = 0
 
-  for (const migrationFile of pendingMigrations) {
+  for (const { file: migrationFile, reason } of pendingMigrations) {
     const filePath = path.join(migrationsDir, migrationFile)
     const sqlContent = fs.readFileSync(filePath, 'utf-8')
+    const fileHash = calculateFileHash(sqlContent)
 
-    console.log(`🔄 Executing: ${migrationFile}`)
+    const reasonIcon = reason === 'new' ? '🆕' : '🔄'
+    console.log(`${reasonIcon} Executing: ${migrationFile}`)
 
     try {
       await executeMigration(migrationFile, sqlContent)
-      await recordMigration(migrationFile)
+      await recordMigration(migrationFile, fileHash)
       console.log(`✅ Completed: ${migrationFile}`)
       successCount++
     } catch (error) {
@@ -792,7 +830,7 @@ async function runPendingMigrations(): Promise<void> {
 }
 
 /**
- * 确保 migration_history 表存在
+ * 确保 migration_history 表存在（含 file_hash 列）
  */
 async function ensureMigrationHistoryTable(): Promise<void> {
   const db = await getDatabase()
@@ -802,48 +840,66 @@ async function ensureMigrationHistoryTable(): Promise<void> {
       CREATE TABLE IF NOT EXISTS migration_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         migration_name TEXT NOT NULL UNIQUE,
+        file_hash TEXT,
         executed_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `)
+    // 添加 file_hash 列（如果不存在）
+    try {
+      db.exec(`ALTER TABLE migration_history ADD COLUMN file_hash TEXT`)
+    } catch (e) {
+      // 列已存在，忽略
+    }
   } else {
     await db.query(`
       CREATE TABLE IF NOT EXISTS migration_history (
         id SERIAL PRIMARY KEY,
         migration_name TEXT NOT NULL UNIQUE,
+        file_hash TEXT,
         executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
+    `)
+    // 添加 file_hash 列（如果不存在）
+    await db.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'migration_history' AND column_name = 'file_hash'
+        ) THEN
+          ALTER TABLE migration_history ADD COLUMN file_hash TEXT;
+        END IF;
+      END $$;
     `)
   }
 }
 
 /**
- * 获取已执行的迁移列表
+ * 获取已执行的迁移列表（含 file_hash）
  */
-async function getExecutedMigrations(): Promise<Set<string>> {
+async function getExecutedMigrations(): Promise<Map<string, string | null>> {
   const db = await getDatabase()
-  const executed = new Set<string>()
+  const executed = new Map<string, string | null>()
 
   try {
     // 注意：db.query() 返回 Promise<T[]>，需要 await
-    const results = await db.query<{ migration_name: string }>(
-      'SELECT migration_name FROM migration_history'
+    const results = await db.query<{ migration_name: string; file_hash: string | null }>(
+      'SELECT migration_name, file_hash FROM migration_history'
     )
 
-    // 标准化所有迁移名称（处理历史记录中可能存在的不同格式）
+    // 存储迁移名称和对应的hash
     results.forEach(row => {
       const name = row.migration_name
-      executed.add(name)
+      executed.set(name, row.file_hash)
       // 标准化：同时添加基础名称（去除 .sql 和 .pg.sql 后缀）
       const baseName = name.replace(/\.(pg\.)?sql$/, '')
       if (baseName !== name) {
-        // 如果原始记录有后缀，也添加不带后缀和带其他后缀的版本
-        executed.add(baseName)
-        executed.add(baseName + '.sql')
-        executed.add(baseName + '.pg.sql')
+        executed.set(baseName, row.file_hash)
+        executed.set(baseName + '.sql', row.file_hash)
+        executed.set(baseName + '.pg.sql', row.file_hash)
       } else {
-        // 如果原始记录没有后缀，添加带后缀的版本
-        executed.add(name + '.sql')
-        executed.add(name + '.pg.sql')
+        executed.set(name + '.sql', row.file_hash)
+        executed.set(name + '.pg.sql', row.file_hash)
       }
     })
   } catch (error) {
@@ -910,20 +966,29 @@ async function executeMigration(name: string, sql: string): Promise<void> {
 }
 
 /**
- * 记录迁移执行历史
+ * 记录迁移执行历史（含 file_hash）
  */
-async function recordMigration(name: string): Promise<void> {
+async function recordMigration(name: string, fileHash: string): Promise<void> {
   const db = await getDatabase()
 
   if (db.type === 'sqlite') {
+    // 先尝试更新（如果存在），否则插入
     db.exec(
-      'INSERT OR IGNORE INTO migration_history (migration_name) VALUES (?)',
-      [name]
+      `INSERT INTO migration_history (migration_name, file_hash, executed_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(migration_name) DO UPDATE SET
+         file_hash = excluded.file_hash,
+         executed_at = datetime('now')`,
+      [name, fileHash]
     )
   } else {
     await db.query(
-      'INSERT INTO migration_history (migration_name) VALUES ($1) ON CONFLICT DO NOTHING',
-      [name]
+      `INSERT INTO migration_history (migration_name, file_hash)
+       VALUES ($1, $2)
+       ON CONFLICT (migration_name) DO UPDATE SET
+         file_hash = EXCLUDED.file_hash,
+         executed_at = CURRENT_TIMESTAMP`,
+      [name, fileHash]
     )
   }
 }

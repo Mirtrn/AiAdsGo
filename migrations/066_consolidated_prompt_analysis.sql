@@ -8,7 +8,7 @@
 --   - 074: review_analysis v3.2, competitor_analysis v3.2
 --   - 075: store_highlights_synthesis v1.0
 --   - 077: keywords_generation v3.2
---   - 077: launch_score_v4 4.0 (原遗漏)
+--   - 077: launch_score v4.0 (原遗漏)
 --
 -- 最终版本:
 --   - product_analysis_single v3.2 (productHighlights字段修复)
@@ -17,7 +17,7 @@
 --   - competitor_analysis v3.2 (competitorWeaknesses)
 --   - keywords_generation v3.2 (禁止竞品关键词)
 --   - store_highlights_synthesis v1.0 (店铺产品亮点整合)
---   - launch_score_v4 4.0 (4维度投放评分体系)
+--   - launch_score v4.0 (4维度投放评分体系)
 -- =====================================================
 
 -- ============================================================
@@ -496,10 +496,10 @@ Output in {{langName}}.',
 );
 
 -- ============================================================
--- PART 7: launch_score_v4 4.0 (4维度投放评分体系)
+-- PART 7: launch_score v4.0 (4维度投放评分体系)
 -- ============================================================
 -- 问题修复：077迁移文件遗漏了此prompt的插入
--- 代码 src/lib/scoring.ts 调用 loadPrompt('launch_score_v4')
+-- 代码 src/lib/scoring.ts 调用 loadPrompt('launch_score')
 
 INSERT OR REPLACE INTO prompt_versions (
   prompt_id,
@@ -515,8 +515,8 @@ INSERT OR REPLACE INTO prompt_versions (
   change_notes,
   created_at
 ) VALUES (
-  'launch_score_v4',
-  '4.0',
+  'launch_score',
+  'v4.0',
   '投放评分',
   '投放评分v4.0',
   'Launch Score 4维度评分体系 - 投放可行性/广告质量/关键词策略/基础配置',
@@ -716,4 +716,4 @@ CRITICAL RULES:
 -- VERIFICATION
 -- ============================================================
 -- Run these queries to verify migration success:
--- SELECT prompt_id, version, is_active FROM prompt_versions WHERE prompt_id IN ('product_analysis_single', 'brand_analysis_store', 'review_analysis', 'competitor_analysis', 'keywords_generation', 'store_highlights_synthesis', 'launch_score_v4') ORDER BY prompt_id, version DESC;
+-- SELECT prompt_id, version, is_active FROM prompt_versions WHERE prompt_id IN ('product_analysis_single', 'brand_analysis_store', 'review_analysis', 'competitor_analysis', 'keywords_generation', 'store_highlights_synthesis', 'launch_score') ORDER BY prompt_id, version DESC;
