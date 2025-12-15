@@ -940,10 +940,10 @@ export default function OfferDetailPage() {
                                     </span>
                                   )}
                                 </div>
-                                {profile.primaryNeed && (
-                                  <p className="mt-1 text-xs text-gray-600">{profile.primaryNeed}</p>
+                                {(profile.primaryNeed || profile.description) && (
+                                  <p className="mt-1 text-xs text-gray-600">{profile.primaryNeed || profile.description}</p>
                                 )}
-                                {profile.indicators && (
+                                {profile.indicators && profile.indicators.length > 0 && (
                                   <ul className="mt-1 text-xs text-gray-600">
                                     {profile.indicators.map((ind: string, indIdx: number) => (
                                       <li key={indIdx}>• {ind}</li>
