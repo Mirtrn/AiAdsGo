@@ -60,7 +60,7 @@ For negative keywords, use keyword-generator.ts generateNegativeKeywords() which
 
 旧prompt内容已归档，不再使用。',
   'en',
-  'system',
+  NULL,  -- created_by: NULL表示系统创建（列类型为INTEGER外键）
   FALSE,
   '⚠️ 废弃原因: AI关键词生成被Keyword Planner API + 白名单过滤替代。新方案提供真实搜索量数据，100%避免竞品关键词冲突。'
 )
