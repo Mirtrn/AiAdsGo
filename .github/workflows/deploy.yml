@@ -29,7 +29,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: Checkout代码
@@ -60,16 +59,16 @@ jobs:
         continue-on-error: true
 
   # ============================================
-  # Job 2: 构建Docker镜像并推送到GHCR
+  # Job 2: 单次构建，推送到GHCR和Artifact Registry
   # ============================================
-  build-and-push-ghcr:
+  build-and-push:
     needs: build-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      id-token: write
     outputs:
-      image_tag: ${{ steps.meta.outputs.version }}
       short_sha: ${{ steps.vars.outputs.short_sha }}
 
     steps:
@@ -87,82 +86,61 @@ jobs:
         env:
           DOCKER_BUILD_RECORD_UPLOAD: false
 
-      - name: 登录GitHub Container Registry
+      # 登录 GitHub Container Registry
+      - name: 登录GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 提取元数据
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            # main分支推送: prod-latest 和 prod-[commitid]
-            type=raw,value=prod-latest,enable={{is_default_branch}}
-            type=sha,prefix=prod-,format=short,enable={{is_default_branch}}
-            # tag推送 (如v3.0.0): prod-[tag] 和 prod-[commitid]
-            type=match,pattern=v(.*),group=1,prefix=prod-,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=prod-,format=short,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-
-      - name: 构建并推送Docker镜像到GHCR
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            NODE_ENV=production
-
-  # ============================================
-  # Job 3: 推送镜像到GCP Artifact Registry
-  # ============================================
-  push-to-artifact-registry:
-    needs: build-and-push-ghcr
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write  # 用于Workload Identity Federation
-
-    steps:
-      - name: Checkout代码
-        uses: actions/checkout@v4
-
+      # 登录 GCP Artifact Registry
       - name: 认证GCP
         id: auth
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: 设置gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
-
       - name: 配置Docker认证到Artifact Registry
         run: |
           gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
-      - name: 设置Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: true
+      # 生成镜像标签
+      - name: 生成镜像标签
+        id: tags
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
 
-      - name: 构建并推送镜像到Artifact Registry
+          # GHCR标签
+          GHCR_TAGS="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-latest"
+          GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${SHORT_SHA}"
+
+          # Artifact Registry标签
+          AR_TAGS="${{ env.GCP_AR_IMAGE }}:latest"
+          AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:${SHORT_SHA}"
+
+          # 如果是版本标签，添加版本号
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${VERSION}"
+            AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:${VERSION}"
+          fi
+
+          # 合并所有标签
+          ALL_TAGS="${GHCR_TAGS},${AR_TAGS}"
+          echo "tags=${ALL_TAGS}" >> $GITHUB_OUTPUT
+
+          echo "📦 将推送以下标签:"
+          echo "${ALL_TAGS}" | tr ',' '\n'
+
+      # 单次构建，推送到两个Registry
+      - name: 构建并推送Docker镜像
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: |
-            ${{ env.GCP_AR_IMAGE }}:latest
-            ${{ env.GCP_AR_IMAGE }}:${{ needs.build-and-push-ghcr.outputs.short_sha }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -170,24 +148,27 @@ jobs:
 
       - name: 输出镜像信息
         run: |
-          echo "✅ 镜像已推送到 Artifact Registry"
-          echo "📦 镜像: ${{ env.GCP_AR_IMAGE }}:latest"
-          echo "📦 镜像: ${{ env.GCP_AR_IMAGE }}:${{ needs.build-and-push-ghcr.outputs.short_sha }}"
+          echo "✅ 镜像已推送到两个Registry"
+          echo ""
+          echo "📦 GHCR:"
+          echo "   - ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-latest"
+          echo "   - ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${{ steps.vars.outputs.short_sha }}"
+          echo ""
+          echo "📦 Artifact Registry:"
+          echo "   - ${{ env.GCP_AR_IMAGE }}:latest"
+          echo "   - ${{ env.GCP_AR_IMAGE }}:${{ steps.vars.outputs.short_sha }}"
 
   # ============================================
-  # Job 4: 部署到Cloud Run (从Secret Manager获取环境变量)
+  # Job 3: 部署到Cloud Run
   # ============================================
   deploy-to-cloud-run:
-    needs: push-to-artifact-registry
+    needs: build-and-push
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - name: Checkout代码
-        uses: actions/checkout@v4
-
       - name: 认证GCP
         id: auth
         uses: google-github-actions/auth@v2
@@ -227,29 +208,35 @@ jobs:
               TZ=TZ:latest" \
             --quiet
 
-      - name: 获取服务URL
+      - name: 获取服务URL并验证
         run: |
           SERVICE_URL=$(gcloud run services describe ${{ env.GCP_SERVICE_NAME }} \
             --region=${{ env.GCP_REGION }} \
             --format='value(status.url)')
           echo "✅ 部署成功!"
           echo "🌐 服务URL: $SERVICE_URL"
-          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_OUTPUT
 
-      - name: 验证服务健康状态
-        run: |
-          SERVICE_URL=$(gcloud run services describe ${{ env.GCP_SERVICE_NAME }} \
-            --region=${{ env.GCP_REGION }} \
-            --format='value(status.url)')
+          # 等待服务启动并健康检查
           echo "🔍 验证服务健康状态..."
-          # 等待服务启动
           sleep 10
-          # 健康检查 (允许失败，不阻塞部署)
-          curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/api/health" || echo "健康检查跳过"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/api/health" || echo "000")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ 健康检查通过"
+          else
+            echo "⚠️ 健康检查返回: $HTTP_CODE (服务可能仍在启动中)"
+          fi
 
 # ============================================
 # 部署说明
 # ============================================
+#
+# 🚀 优化后的部署流程 (3个Jobs):
+#    build-and-test → build-and-push → deploy-to-cloud-run
+#
+# ⚡ 优化点:
+#    - 单次构建，同时推送到GHCR和Artifact Registry
+#    - 节省约3-5分钟构建时间
+#    - 保证两个仓库镜像完全一致
 #
 # 📋 GitHub Secrets 配置要求:
 #
@@ -264,39 +251,15 @@ jobs:
 #      * Secret Manager Secret Accessor (roles/secretmanager.secretAccessor)
 #
 # 2. Secret Manager 中已配置的密钥 (2025-12-15):
-#    ✅ DATABASE_URL: PostgreSQL连接字符串
-#    ✅ JWT_SECRET: JWT签名密钥
-#    ✅ ENCRYPTION_KEY: 数据加密密钥
-#    ✅ REDIS_URL: Redis连接字符串
-#    ✅ NEXT_PUBLIC_APP_URL: 应用公开URL
-#    ✅ DEFAULT_ADMIN_PASSWORD: 默认管理员密码
-#    ✅ NEXT_PUBLIC_CAPTCHA_ENABLED: 是否启用验证码
-#    ✅ NEXT_PUBLIC_TURNSTILE_SITE_KEY: Turnstile站点密钥
-#    ✅ TURNSTILE_SECRET_KEY: Turnstile密钥
-#    ✅ NODE_ENV: 运行环境
-#    ✅ TZ: 时区设置
+#    ✅ DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY, REDIS_URL
+#    ✅ NEXT_PUBLIC_APP_URL, DEFAULT_ADMIN_PASSWORD, NODE_ENV, TZ
+#    ✅ NEXT_PUBLIC_CAPTCHA_ENABLED, NEXT_PUBLIC_TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY
 #
 # 3. 如需额外功能，请添加以下密钥到Secret Manager:
-#    - GEMINI_API_KEY: Gemini API密钥 (AI生成)
-#    - GOOGLE_ADS_DEVELOPER_TOKEN: Google Ads开发者令牌
-#    - GOOGLE_ADS_CLIENT_ID: Google Ads OAuth客户端ID
-#    - GOOGLE_ADS_CLIENT_SECRET: Google Ads OAuth客户端密钥
-#    - GOOGLE_CLIENT_ID: Google OAuth登录客户端ID
-#    - GOOGLE_CLIENT_SECRET: Google OAuth登录客户端密钥
-#
-# 🚀 部署流程:
-# 1. 推送代码到main分支或创建版本标签
-# 2. GitHub Actions自动:
-#    a. 运行构建和测试
-#    b. 推送镜像到GitHub Container Registry (ghcr.io)
-#    c. 推送镜像到GCP Artifact Registry
-#    d. 部署到Cloud Run并从Secret Manager注入环境变量
+#    - GEMINI_API_KEY, GOOGLE_ADS_*, GOOGLE_CLIENT_*
 #
 # 🔗 相关资源:
+# - GHCR: ghcr.io/xxrenzhe/autobb
 # - Artifact Registry: asia-northeast1-docker.pkg.dev/gen-lang-client-0944935873/autobb
-# - Cloud Run服务: autobb (asia-northeast1)
+# - Cloud Run: autobb (asia-northeast1)
 # - Secret Manager: https://console.cloud.google.com/security/secret-manager?project=gen-lang-client-0944935873
-#
-# 📝 添加新密钥到Secret Manager的命令:
-# gcloud secrets create SECRET_NAME --project=gen-lang-client-0944935873
-# echo -n "secret_value" | gcloud secrets versions add SECRET_NAME --data-file=- --project=gen-lang-client-0944935873
