@@ -2339,6 +2339,16 @@ export async function generateAdCreative(
 
           // 第2轮：品牌组合词（品牌名 + 产品类别）
           const brandCombinations: string[] = []
+
+          // 🆕 提取纯品牌词（品牌名的第一个单词，如 "Eufy Security" → "eufy"）
+          const coreBrandName = brandName.split(' ')[0]
+          if (coreBrandName.toLowerCase() !== brandName.toLowerCase()) {
+            brandCombinations.push(coreBrandName) // 添加纯品牌词（搜索量最高）
+          }
+
+          // 添加品牌全称
+          brandCombinations.push(brandName)
+
           // 从现有关键词中提取产品类别词
           const productCategories = keywordsWithVolume
             .filter(kw => !kw.keyword.toLowerCase().includes(brandName.toLowerCase()))
@@ -2348,10 +2358,6 @@ export async function generateAdCreative(
           productCategories.forEach(cat => {
             brandCombinations.push(`${brandName} ${cat}`)
           })
-          // 添加品牌词本身
-          if (!brandCombinations.some(kw => kw.toLowerCase() === brandName.toLowerCase())) {
-            brandCombinations.unshift(brandName)
-          }
 
           // 第3轮：从前两轮结果中选择高搜索量词（动态生成）
           // 这一轮的种子词将在前两轮完成后确定
