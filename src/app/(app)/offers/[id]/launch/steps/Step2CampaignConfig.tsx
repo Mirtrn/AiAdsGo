@@ -38,24 +38,34 @@ const formatSearchVolume = (volume?: number): string => {
 
 /**
  * 🆕 P0-1优化：动态CPC出价计算
- * 基于关键词的lowTopPageBid平均值，上浮20%确保竞争力
+ * 基于关键词的lowTopPageBid搜索量加权平均，上浮20%确保竞争力
+ * 公式：Σ(lowTopPageBid × searchVolume) / Σ(searchVolume) × 1.2
  */
 const calculateDynamicCpc = (
-  keywords: Array<{ lowTopPageBid?: number; highTopPageBid?: number }>,
+  keywords: Array<{ lowTopPageBid?: number; highTopPageBid?: number; searchVolume?: number }>,
   currency: string
 ): number | null => {
-  // 过滤有效的关键词出价
-  const validBids = keywords
-    .map(kw => kw.lowTopPageBid || 0)
-    .filter(bid => bid > 0)
+  // 过滤有效的关键词（有出价且出价>0）
+  const validKeywords = keywords.filter(kw => (kw.lowTopPageBid || 0) > 0)
 
-  if (validBids.length === 0) return null
+  if (validKeywords.length === 0) return null
 
-  // 计算平均值
-  const avgBid = validBids.reduce((sum, bid) => sum + bid, 0) / validBids.length
+  // 计算搜索量加权平均
+  let totalWeightedBid = 0
+  let totalWeight = 0
+
+  validKeywords.forEach(kw => {
+    const bid = kw.lowTopPageBid || 0
+    // 搜索量作为权重，最低权重为100（避免0搜索量的词被忽略）
+    const weight = Math.max(kw.searchVolume || 0, 100)
+    totalWeightedBid += bid * weight
+    totalWeight += weight
+  })
+
+  const weightedAvgBid = totalWeightedBid / totalWeight
 
   // 上浮20%确保竞争力
-  const suggestedCpc = avgBid * 1.2
+  const suggestedCpc = weightedAvgBid * 1.2
 
   // 根据货币设置最低CPC
   const minCpc: Record<string, number> = {
