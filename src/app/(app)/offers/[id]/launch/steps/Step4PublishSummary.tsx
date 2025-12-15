@@ -144,6 +144,44 @@ export default function Step4PublishSummary({
 
       const data = await response.json()
 
+      // 🔥 处理Launch Score过低的情况（422状态码）
+      if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
+        console.error('❌ Launch Score过低:', data)
+        const details = data.details || {}
+        const breakdown = details.breakdown || {}
+        const issues = details.issues || []
+        const suggestions = details.suggestions || []
+
+        let errorMsg = `投放风险过高（Launch Score: ${details.launchScore || 0}分，需要≥${details.threshold || 60}分）\n\n`
+
+        // 显示各维度得分
+        errorMsg += '📊 各维度得分：\n'
+        if (breakdown.launchViability) errorMsg += `• 投放可行性: ${breakdown.launchViability.score}/${breakdown.launchViability.max}分\n`
+        if (breakdown.adQuality) errorMsg += `• 广告质量: ${breakdown.adQuality.score}/${breakdown.adQuality.max}分\n`
+        if (breakdown.keywordStrategy) errorMsg += `• 关键词策略: ${breakdown.keywordStrategy.score}/${breakdown.keywordStrategy.max}分\n`
+        if (breakdown.basicConfig) errorMsg += `• 基础配置: ${breakdown.basicConfig.score}/${breakdown.basicConfig.max}分\n`
+
+        // 显示主要问题
+        if (issues.length > 0) {
+          errorMsg += '\n⚠️ 主要问题：\n'
+          issues.slice(0, 5).forEach((issue: string) => {
+            errorMsg += `• ${issue}\n`
+          })
+        }
+
+        // 显示改进建议
+        if (suggestions.length > 0) {
+          errorMsg += '\n💡 改进建议：\n'
+          suggestions.slice(0, 5).forEach((suggestion: string) => {
+            errorMsg += `• ${suggestion}\n`
+          })
+        }
+
+        showError('Launch Score过低', errorMsg)
+        setPublishing(false)
+        return
+      }
+
       // 🔥 处理需要确认暂停的情况（422状态码）
       if (response.status === 422 && data.action === 'CONFIRM_PAUSE_OLD_CAMPAIGNS') {
         console.log('⚠️ 需要用户确认是否暂停旧Campaign:', data)
@@ -233,6 +271,40 @@ export default function Step4PublishSummary({
 
       const data = await response.json()
 
+      // 🔥 处理Launch Score过低的情况
+      if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
+        console.error('❌ Launch Score过低:', data)
+        const details = data.details || {}
+        const breakdown = details.breakdown || {}
+        const issues = details.issues || []
+        const suggestions = details.suggestions || []
+
+        let errorMsg = `投放风险过高（Launch Score: ${details.launchScore || 0}分，需要≥${details.threshold || 60}分）\n\n`
+        errorMsg += '📊 各维度得分：\n'
+        if (breakdown.launchViability) errorMsg += `• 投放可行性: ${breakdown.launchViability.score}/${breakdown.launchViability.max}分\n`
+        if (breakdown.adQuality) errorMsg += `• 广告质量: ${breakdown.adQuality.score}/${breakdown.adQuality.max}分\n`
+        if (breakdown.keywordStrategy) errorMsg += `• 关键词策略: ${breakdown.keywordStrategy.score}/${breakdown.keywordStrategy.max}分\n`
+        if (breakdown.basicConfig) errorMsg += `• 基础配置: ${breakdown.basicConfig.score}/${breakdown.basicConfig.max}分\n`
+
+        if (issues.length > 0) {
+          errorMsg += '\n⚠️ 主要问题：\n'
+          issues.slice(0, 5).forEach((issue: string) => {
+            errorMsg += `• ${issue}\n`
+          })
+        }
+
+        if (suggestions.length > 0) {
+          errorMsg += '\n💡 改进建议：\n'
+          suggestions.slice(0, 5).forEach((suggestion: string) => {
+            errorMsg += `• ${suggestion}\n`
+          })
+        }
+
+        showError('Launch Score过低', errorMsg)
+        setPublishing(false)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(data.error || data.message || '发布失败')
       }
@@ -290,6 +362,40 @@ export default function Step4PublishSummary({
       })
 
       const data = await response.json()
+
+      // 🔥 处理Launch Score过低的情况
+      if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
+        console.error('❌ Launch Score过低:', data)
+        const details = data.details || {}
+        const breakdown = details.breakdown || {}
+        const issues = details.issues || []
+        const suggestions = details.suggestions || []
+
+        let errorMsg = `投放风险过高（Launch Score: ${details.launchScore || 0}分，需要≥${details.threshold || 60}分）\n\n`
+        errorMsg += '📊 各维度得分：\n'
+        if (breakdown.launchViability) errorMsg += `• 投放可行性: ${breakdown.launchViability.score}/${breakdown.launchViability.max}分\n`
+        if (breakdown.adQuality) errorMsg += `• 广告质量: ${breakdown.adQuality.score}/${breakdown.adQuality.max}分\n`
+        if (breakdown.keywordStrategy) errorMsg += `• 关键词策略: ${breakdown.keywordStrategy.score}/${breakdown.keywordStrategy.max}分\n`
+        if (breakdown.basicConfig) errorMsg += `• 基础配置: ${breakdown.basicConfig.score}/${breakdown.basicConfig.max}分\n`
+
+        if (issues.length > 0) {
+          errorMsg += '\n⚠️ 主要问题：\n'
+          issues.slice(0, 5).forEach((issue: string) => {
+            errorMsg += `• ${issue}\n`
+          })
+        }
+
+        if (suggestions.length > 0) {
+          errorMsg += '\n💡 改进建议：\n'
+          suggestions.slice(0, 5).forEach((suggestion: string) => {
+            errorMsg += `• ${suggestion}\n`
+          })
+        }
+
+        showError('Launch Score过低', errorMsg)
+        setPublishing(false)
+        return
+      }
 
       if (!response.ok) {
         throw new Error(data.error || data.message || '发布失败')
