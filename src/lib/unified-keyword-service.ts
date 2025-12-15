@@ -1012,6 +1012,10 @@ export async function expandKeywordsWithSeeds(params: {
     brandName,
     customerId,
     refreshToken,
+    accountId,
+    clientId,
+    clientSecret,
+    developerToken,
     minSearchVolume = 500,
     maxKeywords = 100
   } = params
@@ -1035,6 +1039,10 @@ export async function expandKeywordsWithSeeds(params: {
         targetCountry: country,
         targetLanguage: language,
         userId,
+        accountId,
+        clientId,
+        clientSecret,
+        developerToken,
       })
 
       console.log(`   📋 Keyword Planner 返回 ${keywordIdeas.length} 个关键词建议`)
