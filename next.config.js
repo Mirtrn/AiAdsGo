@@ -53,12 +53,16 @@ const nextConfig = {
         'app.autoads.dev',
         'localhost:3000',
         'localhost',
+        // GCP Cloud Run
+        'autobb-yt54xvsg5q-an.a.run.app',
       ],
       // 允许转发的请求（nginx反向代理场景）
       allowedForwardedHosts: [
         'autoads.dev',
         'www.autoads.dev',
         'app.autoads.dev',
+        // GCP Cloud Run
+        'autobb-yt54xvsg5q-an.a.run.app',
       ],
     },
   },
