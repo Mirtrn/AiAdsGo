@@ -34,6 +34,10 @@ function transformCreativeToApiResponse(creative: any) {
     updatedAt: creative.updated_at,
     // 🔧 修复：确保 adStrength 数据被正确传递（用于雷达图显示）
     adStrength: creative.adStrength,
+    // 🆕 v4.10: 关键词分桶字段
+    keywordBucket: creative.keyword_bucket,
+    bucketIntent: creative.bucket_intent,
+    keywordPoolId: creative.keyword_pool_id,
   }
 }
 

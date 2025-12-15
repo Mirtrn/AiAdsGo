@@ -83,6 +83,10 @@ interface Creative {
   theme: string
   aiModel: string
 
+  // 🆕 关键词分桶字段 (v4.10)
+  keywordBucket?: 'A' | 'B' | 'C'  // 关键词桶标识
+  bucketIntent?: string            // 桶意图描述（产品导向/场景导向/需求导向）
+
   // AD_STRENGTH新增字段
   headlinesWithMetadata?: HeadlineAsset[]
   descriptionsWithMetadata?: DescriptionAsset[]
@@ -719,8 +723,22 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                           {creative.generationRound}
                         </Badge>
                       </CardTitle>
-                      <div className="text-xs text-muted-foreground mt-1">
+                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
                         <span>{creative.theme || '综合推广'}</span>
+                        {/* 🆕 v4.10 意图分类标签 */}
+                        {creative.bucketIntent && (
+                          <Badge
+                            variant="outline"
+                            className={`
+                              text-[10px] px-1.5 py-0 h-4 font-medium border
+                              ${creative.keywordBucket === 'A' ? 'bg-blue-50 text-blue-600 border-blue-200' : ''}
+                              ${creative.keywordBucket === 'B' ? 'bg-green-50 text-green-600 border-green-200' : ''}
+                              ${creative.keywordBucket === 'C' ? 'bg-orange-50 text-orange-600 border-orange-200' : ''}
+                            `}
+                          >
+                            {creative.bucketIntent}
+                          </Badge>
+                        )}
                       </div>
                     </div>
 
