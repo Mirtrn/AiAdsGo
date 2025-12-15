@@ -267,22 +267,23 @@ export default function LaunchAdPage() {
 
       {/* Sticky Navigation Footer */}
       <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-200 z-20 py-4">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <Button
-            variant="outline"
-            onClick={handleBack}
-            disabled={currentStep === 1}
-            className="min-w-[100px]"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            上一步
-          </Button>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-center items-center">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              onClick={handleBack}
+              disabled={currentStep === 1}
+              className="min-w-[100px]"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              上一步
+            </Button>
 
-          {currentStep < 4 && (
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-gray-500">
-                步骤 {currentStep} / {STEPS.length}
-              </div>
+            <div className="text-sm text-gray-500 min-w-[80px] text-center">
+              步骤 {currentStep} / {STEPS.length}
+            </div>
+
+            {currentStep < 4 ? (
               <Button
                 onClick={handleNext}
                 disabled={!canProceed}
@@ -291,14 +292,10 @@ export default function LaunchAdPage() {
                 下一步
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
-            </div>
-          )}
-
-          {currentStep === 4 && (
-            <div className="text-sm text-gray-500">
-              步骤 {currentStep} / {STEPS.length}
-            </div>
-          )}
+            ) : (
+              <div className="min-w-[120px]" />
+            )}
+          </div>
         </div>
       </div>
     </div>
