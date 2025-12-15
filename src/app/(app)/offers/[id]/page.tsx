@@ -905,11 +905,14 @@ export default function OfferDetailPage() {
                           <ul className="list-disc list-inside space-y-2">
                             {reviewData.realUseCases.map((item: any, idx: number) => (
                               <li key={idx}>
-                                <strong>{typeof item === 'string' ? item : item.scenario}</strong>
+                                <strong>{typeof item === 'string' ? item : (item.scenario || item.useCase)}</strong>
                                 {typeof item === 'object' && item.mentions && (
                                   <span className="text-gray-600 text-xs ml-1">
                                     （提及频率: {typeof item.mentions === 'number' ? `${item.mentions}次` : item.mentions}）
                                   </span>
+                                )}
+                                {typeof item === 'object' && (item.description || item.evidence) && (
+                                  <p className="ml-5 text-gray-600 text-xs mt-1">{item.description || item.evidence}</p>
                                 )}
                                 {typeof item === 'object' && item.examples && item.examples.length > 0 && (
                                   <ul className="ml-5 mt-1 text-gray-600 text-xs list-none">
@@ -965,13 +968,16 @@ export default function OfferDetailPage() {
                             {reviewData.commonPainPoints.map((item: any, idx: number) => (
                               <li key={idx} className="bg-red-50 p-2 rounded">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-red-700 font-medium">{typeof item === 'string' ? item : item.issue}</span>
+                                  <span className="text-red-700 font-medium">{typeof item === 'string' ? item : (item.issue || item.painPoint)}</span>
                                   {item.severity && (
                                     <Badge variant={item.severity === 'high' ? 'destructive' : item.severity === 'moderate' ? 'secondary' : 'outline'}>
                                       {item.severity === 'high' ? '严重' : item.severity === 'moderate' ? '中等' : '轻微'}
                                     </Badge>
                                   )}
                                 </div>
+                                {typeof item === 'object' && (item.description || item.evidence) && (
+                                  <p className="mt-1 text-xs text-gray-600">{item.description || item.evidence}</p>
+                                )}
                                 {item.workarounds && item.workarounds.length > 0 && (
                                   <div className="mt-1 text-xs text-gray-600">
                                     解决方案：{item.workarounds.join('；')}
