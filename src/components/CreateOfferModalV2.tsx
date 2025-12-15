@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,8 @@ interface ExtractedData {
   extractedHeadlines: any[] | null
   extractedDescriptions: any[] | null
   extractionMetadata: any | null
+  // 🔥 2025-12-16新增：后端自动创建的Offer ID
+  offerId: number | null
 }
 
 export default function CreateOfferModalV2({
@@ -75,6 +78,7 @@ export default function CreateOfferModalV2({
   onOpenChange,
   onSuccess,
 }: CreateOfferModalV2Props) {
+  const router = useRouter()
   const [currentStep, setCurrentStep] = useState<Step>('input')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -115,7 +119,8 @@ export default function CreateOfferModalV2({
 
     if (extractionResult && currentStage === 'completed') {
       console.log('✅ Extraction completed, switching to confirm step')
-      // 保存提取的数据（包含所有AI分析结果）
+      console.log('🆔 Offer ID from backend:', extractionResult.offerId)
+      // 保存提取的数据（包含所有AI分析结果和后端自动创建的offerId）
       setExtractedData({
         finalUrl: extractionResult.finalUrl,
         finalUrlSuffix: extractionResult.finalUrlSuffix || '',
@@ -141,6 +146,8 @@ export default function CreateOfferModalV2({
         extractedHeadlines: extractionResult.extractedHeadlines || null,
         extractedDescriptions: extractionResult.extractedDescriptions || null,
         extractionMetadata: extractionResult.extractionMetadata || null,
+        // 🔥 2025-12-16新增：后端自动创建的Offer ID
+        offerId: extractionResult.offerId || null,
       })
       setBrandName(extractionResult.brand || '')
       setCurrentStep('confirm')
@@ -171,71 +178,21 @@ export default function CreateOfferModalV2({
     startExtraction(affiliateLink, targetCountry)
   }
 
-  // ========== 步骤3: 用户确认后创建Offer ==========
-  const handleCreate = async () => {
-    setError('')
-    setLoading(true)
-
-    try {
-      if (!extractedData) {
-        throw new Error('缺少提取的数据')
-      }
-
-      // 品牌名称必填
-      if (!brandName.trim()) {
-        throw new Error('品牌名称不能为空')
-      }
-
-      const response = await fetch('/api/offers', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          affiliate_link: affiliateLink || undefined,
-          brand: brandName.trim(),
-          target_country: targetCountry,
-          url: extractedData.finalUrl,  // 原始URL（推广链接解析后的最终落地页）
-          final_url: extractedData.finalUrl,  // ✅ 同时保存到final_url字段，标记SSE已完成
-          final_url_suffix: extractedData.finalUrlSuffix || undefined,
-          product_price: productPrice || undefined,
-          commission_payout: commissionPayout || undefined,
-          // 传递AI分析结果
-          brand_description: extractedData.brandDescription || undefined,
-          unique_selling_points: extractedData.uniqueSellingPoints || undefined,
-          product_highlights: extractedData.productHighlights || undefined,
-          target_audience: extractedData.targetAudience || undefined,
-          category: extractedData.category || undefined,
-          target_language: extractedData.targetLanguage,
-          // 🔥 页面类型标识（店铺/单品）
-          page_type: extractedData.pageType || 'product',
-          // P0评论深度分析和竞品分析（JSON格式）
-          review_analysis: extractedData.reviewAnalysis ? JSON.stringify(extractedData.reviewAnalysis) : undefined,
-          competitor_analysis: extractedData.competitorAnalysis ? JSON.stringify(extractedData.competitorAnalysis) : undefined,
-          // 广告元素提取（JSON格式）
-          extracted_keywords: extractedData.extractedKeywords ? JSON.stringify(extractedData.extractedKeywords) : undefined,
-          extracted_headlines: extractedData.extractedHeadlines ? JSON.stringify(extractedData.extractedHeadlines) : undefined,
-          extracted_descriptions: extractedData.extractedDescriptions ? JSON.stringify(extractedData.extractedDescriptions) : undefined,
-          extraction_metadata: extractedData.extractionMetadata ? JSON.stringify(extractedData.extractionMetadata) : undefined,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || '创建Offer失败')
-      }
-
-      // 成功后重置表单并关闭弹窗
-      resetForm()
-      onOpenChange(false)
-      if (onSuccess) onSuccess()
-    } catch (err: any) {
-      setError(err.message || '创建Offer失败，请稍后重试')
-    } finally {
-      setLoading(false)
+  // ========== 步骤3: 用户确认后跳转到Offer详情页 ==========
+  // 🔥 2025-12-16重构：Offer已在后端自动创建，用户确认只是跳转到详情页
+  const handleConfirm = () => {
+    if (!extractedData?.offerId) {
+      setError('Offer创建失败，请重试')
+      return
     }
+
+    // 成功后重置表单并关闭弹窗
+    resetForm()
+    onOpenChange(false)
+    if (onSuccess) onSuccess()
+
+    // 跳转到Offer详情页
+    router.push(`/offers/${extractedData.offerId}`)
   }
 
   const resetForm = () => {
@@ -273,7 +230,7 @@ export default function CreateOfferModalV2({
           <DialogDescription>
             {currentStep === 'input' && '输入推广链接和国家，系统将自动提取Offer信息'}
             {currentStep === 'extracting' && '实时跟踪提取进度，了解每个步骤的执行情况'}
-            {currentStep === 'confirm' && '确认自动提取的信息，可修正品牌名称'}
+            {currentStep === 'confirm' && 'Offer已创建成功，请确认信息后查看详情'}
           </DialogDescription>
         </DialogHeader>
 
@@ -479,14 +436,17 @@ export default function CreateOfferModalV2({
               <Button type="button" variant="outline" onClick={handleBack} disabled={loading}>
                 返回修改
               </Button>
-              <Button onClick={handleCreate} disabled={loading || !brandName.trim()}>
-                {loading ? (
+              <Button onClick={handleConfirm} disabled={!extractedData?.offerId}>
+                {extractedData?.offerId ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    查看Offer详情
+                  </>
+                ) : (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     创建中...
                   </>
-                ) : (
-                  '确认创建Offer'
                 )}
               </Button>
             </DialogFooter>

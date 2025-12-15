@@ -92,6 +92,68 @@ export async function executeOfferExtraction(
       throw new Error(extractResult.error?.message || '提取失败')
     }
 
+    // ========== 🔥 2025-12-16重构：提取完成后立即创建Offer（增量保存第一阶段）==========
+    // 问题：之前等到SSE流程完全结束才创建Offer，如果AI分析失败或用户刷新页面，数据全部丢失
+    // 修复：提取完成后立即创建Offer，AI分析结果后续增量更新
+    let createdOfferId: number | null = null
+    const taskRow = await db.queryOne<{ batch_id: string | null; offer_id: number | null }>(`
+      SELECT batch_id, offer_id FROM offer_tasks WHERE id = ?
+    `, [task.id])
+
+    if (taskRow?.offer_id && !taskRow?.batch_id) {
+      // 重建任务：已有Offer记录，更新基础数据
+      createdOfferId = taskRow.offer_id
+      console.log(`🔄 重建任务，更新现有Offer基础数据: taskId=${task.id}, offerId=${taskRow.offer_id}`)
+      await updateOfferScrapeStatus(taskRow.offer_id, task.userId, 'in_progress', undefined, {
+        brand: extractResult.data.brand || undefined,
+        url: extractResult.data.finalUrl || undefined,
+        scraped_data: JSON.stringify(extractResult.data),
+        page_type: extractResult.data.pageType || undefined,
+      })
+    } else if (taskRow?.batch_id) {
+      // 批量任务：创建新Offer记录（基础数据）
+      console.log(`📦 批量任务，创建Offer基础记录: ${task.id}`)
+      const offer = await createOffer(task.userId, {
+        url: extractResult.data.finalUrl || affiliateLink,
+        brand: extractResult.data.brand || '提取中...',
+        target_country: targetCountry,
+        affiliate_link: affiliateLink,
+        final_url: extractResult.data.finalUrl || undefined,
+        product_price: productPrice || extractResult.data.price || undefined,
+        commission_payout: commissionPayout || undefined,
+        page_type: extractResult.data.pageType || 'product',
+      })
+      createdOfferId = offer.id
+      // 保存scraped_data
+      await updateOfferScrapeStatus(offer.id, task.userId, 'in_progress', undefined, {
+        scraped_data: JSON.stringify(extractResult.data),
+      })
+      // 更新offer_tasks关联
+      await db.exec(`UPDATE offer_tasks SET offer_id = ? WHERE id = ?`, [offer.id, task.id])
+      console.log(`✅ 批量任务Offer基础创建成功: offer_id=${offer.id}`)
+    } else {
+      // 普通SSE任务：创建新Offer记录（基础数据）
+      console.log(`🆕 普通SSE任务，创建Offer基础记录: ${task.id}`)
+      const offer = await createOffer(task.userId, {
+        url: extractResult.data.finalUrl || affiliateLink,
+        brand: extractResult.data.brand || '提取中...',
+        target_country: targetCountry,
+        affiliate_link: affiliateLink,
+        final_url: extractResult.data.finalUrl || undefined,
+        product_price: productPrice || extractResult.data.price || undefined,
+        commission_payout: commissionPayout || undefined,
+        page_type: extractResult.data.pageType || 'product',
+      })
+      createdOfferId = offer.id
+      // 保存scraped_data
+      await updateOfferScrapeStatus(offer.id, task.userId, 'in_progress', undefined, {
+        scraped_data: JSON.stringify(extractResult.data),
+      })
+      // 更新offer_tasks关联
+      await db.exec(`UPDATE offer_tasks SET offer_id = ? WHERE id = ?`, [offer.id, task.id])
+      console.log(`✅ 普通SSE任务Offer基础创建成功: offer_id=${offer.id}`)
+    }
+
     // ========== 执行AI分析 ==========
     console.log(`🤖 开始AI分析: ${task.id}`)
 
@@ -146,22 +208,11 @@ export async function executeOfferExtraction(
       extractionMetadata: aiAnalysisResult?.extractionMetadata || null,
     }
 
-    // ========== 🔥 修复（2025-12-08）：批量上传自动创建Offer记录 ==========
-    // ========== 🔥 修复（2025-12-11）：支持Rebuild任务更新现有Offer记录 ==========
-    // 检查是否是批量任务（有batch_id）或重建任务（有offer_id）
-    const taskRow = await db.queryOne<{ batch_id: string | null; offer_id: number | null }>(`
-      SELECT batch_id, offer_id FROM offer_tasks WHERE id = ?
-    `, [task.id])
-
-    let createdOfferId: number | null = null
-
-    if (taskRow?.offer_id && !taskRow?.batch_id) {
-      // 这是重建任务，需要更新现有Offer记录
-      console.log(`🔄 重建任务，更新现有Offer记录: taskId=${task.id}, offerId=${taskRow.offer_id}`)
-
+    // ========== 🔥 2025-12-16重构：AI分析完成后更新Offer（增量保存第二阶段）==========
+    // Offer已在提取完成后创建，这里只更新AI分析结果
+    if (createdOfferId) {
       try {
-        // 使用updateOfferScrapeStatus更新所有字段
-        await updateOfferScrapeStatus(taskRow.offer_id, task.userId, 'completed', undefined, {
+        await updateOfferScrapeStatus(createdOfferId, task.userId, 'completed', undefined, {
           brand: extractResult.data.brand || undefined,
           url: extractResult.data.finalUrl || undefined,
           brand_description: aiProductInfo.brandDescription || undefined,
@@ -189,98 +240,12 @@ export async function executeOfferExtraction(
             JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
           extracted_at: new Date().toISOString(),
           scraped_data: JSON.stringify(extractResult.data),
-          // 🔥 页面类型更新（重建时也需要更新）
           page_type: extractResult.data.pageType || undefined,
         })
-
-        createdOfferId = taskRow.offer_id
-        console.log(`✅ 重建任务Offer更新完成: offer_id=${taskRow.offer_id}`)
+        console.log(`✅ AI分析结果已更新到Offer: offer_id=${createdOfferId}`)
       } catch (offerError: any) {
-        console.error(`❌ 重建任务更新Offer失败: ${task.id}:`, offerError.message)
-        // 更新Offer失败不中断流程，任务本身的result仍然保存
-      }
-    } else if (taskRow?.batch_id) {
-      // 这是批量上传任务，需要创建Offer记录
-      console.log(`📦 批量任务，创建Offer记录: ${task.id}`)
-
-      try {
-        // 1. 创建基础Offer记录
-        const offer = await createOffer(task.userId, {
-          url: extractResult.data.finalUrl || affiliateLink,
-          brand: extractResult.data.brand || '提取中...',
-          target_country: targetCountry,
-          affiliate_link: affiliateLink,
-          final_url: extractResult.data.finalUrl || undefined,
-          product_price: productPrice || extractResult.data.price || undefined,
-          commission_payout: commissionPayout || undefined,
-          // AI分析结果
-          brand_description: aiProductInfo.brandDescription || undefined,
-          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
-            (Array.isArray(aiProductInfo.uniqueSellingPoints)
-              ? aiProductInfo.uniqueSellingPoints.join('\n')
-              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
-          product_highlights: aiProductInfo.productHighlights ?
-            (Array.isArray(aiProductInfo.productHighlights)
-              ? aiProductInfo.productHighlights.join('\n')
-              : String(aiProductInfo.productHighlights)) : undefined,
-          target_audience: aiProductInfo.targetAudience || undefined,
-          category: aiProductInfo.category || undefined,
-          // 评论和竞品分析
-          review_analysis: aiAnalysisResult?.reviewAnalysis ?
-            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
-          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
-            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
-          // 广告元素
-          extracted_keywords: aiAnalysisResult?.extractedKeywords ?
-            JSON.stringify(aiAnalysisResult.extractedKeywords) : undefined,
-          extracted_headlines: aiAnalysisResult?.extractedHeadlines ?
-            JSON.stringify(aiAnalysisResult.extractedHeadlines) : undefined,
-          extracted_descriptions: aiAnalysisResult?.extractedDescriptions ?
-            JSON.stringify(aiAnalysisResult.extractedDescriptions) : undefined,
-          extraction_metadata: aiAnalysisResult?.extractionMetadata ?
-            JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
-          // 🔥 页面类型标识（从extractResult中提取）
-          page_type: extractResult.data.pageType || 'product',
-        })
-
-        createdOfferId = offer.id
-        console.log(`✅ 批量任务Offer创建成功: offer_id=${offer.id}`)
-
-        // 2. 更新Offer状态为completed（包含完整的scraped_data）
-        await updateOfferScrapeStatus(offer.id, task.userId, 'completed', undefined, {
-          brand: extractResult.data.brand || undefined,
-          url: extractResult.data.finalUrl || undefined,
-          brand_description: aiProductInfo.brandDescription || undefined,
-          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
-            (Array.isArray(aiProductInfo.uniqueSellingPoints)
-              ? aiProductInfo.uniqueSellingPoints.join('\n')
-              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
-          product_highlights: aiProductInfo.productHighlights ?
-            (Array.isArray(aiProductInfo.productHighlights)
-              ? aiProductInfo.productHighlights.join('\n')
-              : String(aiProductInfo.productHighlights)) : undefined,
-          target_audience: aiProductInfo.targetAudience || undefined,
-          category: aiProductInfo.category || undefined,
-          review_analysis: aiAnalysisResult?.reviewAnalysis ?
-            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
-          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
-            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
-          extracted_keywords: aiAnalysisResult?.extractedKeywords ?
-            JSON.stringify(aiAnalysisResult.extractedKeywords) : undefined,
-          extracted_headlines: aiAnalysisResult?.extractedHeadlines ?
-            JSON.stringify(aiAnalysisResult.extractedHeadlines) : undefined,
-          extracted_descriptions: aiAnalysisResult?.extractedDescriptions ?
-            JSON.stringify(aiAnalysisResult.extractedDescriptions) : undefined,
-          extraction_metadata: aiAnalysisResult?.extractionMetadata ?
-            JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
-          extracted_at: new Date().toISOString(),
-          scraped_data: JSON.stringify(extractResult.data),
-        })
-
-        console.log(`✅ 批量任务Offer状态更新完成: offer_id=${offer.id}`)
-      } catch (offerError: any) {
-        console.error(`❌ 批量任务创建Offer失败: ${task.id}:`, offerError.message)
-        // 创建Offer失败不中断流程，任务本身的result仍然保存
+        console.error(`❌ 更新Offer AI分析结果失败: ${task.id}:`, offerError.message)
+        // 更新失败不中断流程
       }
     }
 
@@ -300,7 +265,11 @@ export async function executeOfferExtraction(
 
     console.log(`✅ Offer提取任务完成: ${task.id}`)
 
-    return finalResult
+    // 🔥 2025-12-16修复：返回结果中包含offerId，让前端知道已自动创建的Offer
+    return {
+      ...finalResult,
+      offerId: createdOfferId,
+    }
   } catch (error: any) {
     console.error(`❌ Offer提取任务失败: ${task.id}:`, error.message)
 
