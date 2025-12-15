@@ -882,14 +882,17 @@ export default function OfferDetailPage() {
                       <div>
                         <dt className="text-sm font-medium text-gray-500 mb-2">购买原因</dt>
                         <dd className="text-sm text-gray-900">
-                          <ul className="list-disc list-inside space-y-1">
+                          <ul className="list-disc list-inside space-y-2">
                             {reviewData.purchaseReasons.map((item: any, idx: number) => (
                               <li key={idx}>
-                                {typeof item === 'string' ? item : item.reason}
-                                {item.frequency && (
+                                <strong>{typeof item === 'string' ? item : item.reason}</strong>
+                                {typeof item === 'object' && item.frequency && (
                                   <span className="text-gray-500 text-xs ml-1">
                                     （{typeof item.frequency === 'number' ? `${item.frequency}人` : item.frequency}）
                                   </span>
+                                )}
+                                {typeof item === 'object' && (item.description || item.evidence) && (
+                                  <p className="ml-5 text-gray-600 text-xs mt-1">{item.description || item.evidence}</p>
                                 )}
                               </li>
                             ))}
@@ -983,6 +986,47 @@ export default function OfferDetailPage() {
                                     解决方案：{item.workarounds.join('；')}
                                   </div>
                                 )}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 量化亮点 */}
+                    {reviewData.quantitativeHighlights && reviewData.quantitativeHighlights.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">量化亮点</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="space-y-2">
+                            {reviewData.quantitativeHighlights.map((item: any, idx: number) => (
+                              <li key={idx} className="bg-blue-50 p-2 rounded">
+                                <div className="font-medium text-blue-800">{item.highlight}</div>
+                                {(item.description || item.evidence) && (
+                                  <p className="mt-1 text-xs text-gray-600">{item.description || item.evidence}</p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </dd>
+                      </div>
+                    )}
+                    {/* 竞品对比提及 */}
+                    {reviewData.competitorMentions && reviewData.competitorMentions.length > 0 && (
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500 mb-2">竞品对比提及</dt>
+                        <dd className="text-sm text-gray-900">
+                          <ul className="space-y-2">
+                            {reviewData.competitorMentions.map((item: any, idx: number) => (
+                              <li key={idx} className="bg-gray-50 p-2 rounded">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{item.competitor}</span>
+                                  {item.sentiment && (
+                                    <Badge variant={item.sentiment === 'positive' ? 'default' : item.sentiment === 'neutral' ? 'secondary' : 'outline'}>
+                                      {item.sentiment}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {item.context && <p className="mt-1 text-xs text-gray-600">{item.context}</p>}
                               </li>
                             ))}
                           </ul>
