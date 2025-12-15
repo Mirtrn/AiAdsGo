@@ -246,9 +246,11 @@ INSERT INTO prompt_versions (
 );
 
 -- ============================================================
--- PART 4: ad_creative_generation v4.9 (主题一致性增强)
+-- PART 4: ad_creative_generation v4.10 (关键词分层嵌入)
 -- ============================================================
--- 停用v4.8，激活v4.9
+-- 停用旧版本，激活v4.10
+-- v4.10核心改进：解决关键词嵌入与主题一致性的冲突
+-- 方案：先分桶再嵌入，关键词来源 = 品牌词(共享) + 桶匹配词(独占)
 
 UPDATE prompt_versions SET is_active = false WHERE prompt_id = 'ad_creative_generation' AND is_active = true;
 
@@ -265,11 +267,11 @@ INSERT INTO prompt_versions (
   is_active
 ) VALUES (
   'ad_creative_generation',
-  '广告创意生成v4.9 - 主题一致性增强版',
-  'v4.9',
+  '广告创意生成v4.10 - 关键词分层嵌入版',
+  'v4.10',
   '广告创意生成',
-  '基于v4.8增强：新增主题一致性约束，支持关键词桶信息注入，确保headline/description与桶主题匹配',
-  'prompts/ad_creative_generation_v4.9.txt',
+  '解决v4.9关键词嵌入与主题一致性冲突：采用分层关键词策略，品牌词(共享层)+桶匹配词(独占层)，确保嵌入率和主题一致性同时满足',
+  'prompts/ad_creative_generation_v4.10.txt',
   'generateAdCreative',
   '{{language_instruction}}
 
@@ -283,24 +285,38 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 {{extras_data}}
 {{promotion_section}}{{theme_section}}{{reference_performance_section}}{{extracted_elements_section}}
 
-🎯 **AI增强数据 (v4.9优化 - 2025-12-15)**:
+## 🆕 v4.10 关键词分层架构 (CRITICAL)
+
+### 📊 关键词数据说明
+
 {{ai_keywords_section}}
 {{ai_competitive_section}}
 {{ai_reviews_section}}
 
-## 🚨 v4.8 关键词嵌入率强化 (继承)
+**⚠️ 重要：上述关键词已经过分层筛选，只包含以下两类：**
+
+1. **品牌词（共享层）** - 所有创意都可以使用
+   - 纯品牌词：{{brand}}, {{brand}} official, {{brand}} store
+   - 品牌+品类词：{{brand}} camera, {{brand}} security
+
+2. **桶匹配词（独占层）** - 只包含与当前桶主题匹配的关键词
+   - 当前桶类型：{{bucket_type}}
+   - 当前桶主题：{{bucket_intent}}
+
+**✅ 这意味着：{{ai_keywords_section}}中的所有关键词都与{{bucket_intent}}主题兼容**
+**✅ 关键词嵌入和主题一致性不会冲突**
+
+## 🔥 v4.10 关键词嵌入规则 (MANDATORY)
 
 ### ⚠️ 强制要求：8/15 (53%+) 标题必须包含关键词
 
-**这是Ad Strength评估的核心指标，必须严格遵守！**
+**🔑 嵌入规则**:
 
-**🔑 关键词嵌入规则 (MANDATORY)**:
-
-**规则1: 关键词来源 (从{{ai_keywords_section}}选择)**
+**规则1: 关键词全部来自{{ai_keywords_section}}**
+- 这些关键词已经是"品牌词 + 桶匹配词"的组合
 - 优先选择搜索量>1000的高价值关键词
 - 品牌词必须出现在至少2个标题中
-- 产品核心词必须出现在至少4个标题中
-- 功能特性词必须出现在至少2个标题中
+- 桶匹配词必须出现在至少6个标题中
 
 **规则2: 嵌入方式 (自然融入，非堆砌)**
 - ✅ 正确: "4K Security Camera Sale" (关键词: security camera)
@@ -308,51 +324,44 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 - ❌ 错误: "Camera Camera Security" (关键词堆砌)
 - ❌ 错误: "Best Quality Product" (无关键词)
 
-## 🆕 v4.9 主题一致性要求 (NEW)
+**规则3: 嵌入与主题双重验证**
+- 每个嵌入的关键词必须同时满足：
+  - ✅ 来自{{ai_keywords_section}}
+  - ✅ 符合{{bucket_intent}}主题
+- 由于关键词已预筛选，两个条件天然兼容
+
+## 🎯 v4.10 主题一致性要求
 
 {{bucket_info_section}}
 
-### 🎯 主题约束规则 (当bucket_info=true时生效)
-
-**当提供关键词桶信息时，必须严格遵守以下主题约束：**
+### 主题约束规则
 
 **桶A（产品导向）文案风格**:
 - Headlines: 突出产品线丰富、型号多样、品类齐全
 - Descriptions: 介绍产品系列、规格参数、产品优势
 - ✅ 示例: "Eufy Indoor & Outdoor Cams | Full Product Line"
-- ❌ 避免: "Protect Your Home 24/7"（这是场景导向）
 
 **桶B（场景导向）文案风格**:
 - Headlines: 突出应用场景、解决方案、使用环境
 - Descriptions: 描述使用场景、用户收益、痛点解决
 - ✅ 示例: "Protect Your Home 24/7 | Eufy Smart Security"
-- ❌ 避免: "4K Ultra HD Resolution"（这是需求导向）
 
 **桶C（需求导向）文案风格**:
 - Headlines: 突出核心功能、技术优势、性能参数
 - Descriptions: 强调差异化功能、技术参数、用户评价
 - ✅ 示例: "4K Ultra HD Night Vision | Eufy Camera"
-- ❌ 避免: "Complete Camera Selection"（这是产品导向）
 
-### 🎯 主题一致性检查清单
+### 主题一致性检查清单
 
-当bucket_info=true时，验证：
 - [ ] 100% Headlines体现{{bucket_intent}}主题
 - [ ] 100% Descriptions体现{{bucket_intent}}主题
-- [ ] 100% Callouts与{{bucket_intent}}相关
-- [ ] 100% Sitelinks与{{bucket_intent}}一致
+- [ ] 100% 嵌入的关键词来自{{ai_keywords_section}}（已预筛选）
+- [ ] 53%+ Headlines包含关键词
 
-## 🆕 v4.7 RSA Display Path (继承)
+## v4.7 RSA Display Path (继承)
 
-### 🎯 Display Path要求 (PATH REQUIREMENTS)
-
-**path1 (必填，最多15字符)**:
-- 应包含核心产品类别或品牌关键词
-- 使用目标语言 {{target_language}}
-
-**path2 (可选，最多15字符)**:
-- 应包含产品特性、型号或促销信息
-- 与path1形成逻辑层级
+**path1 (必填，最多15字符)**: 核心产品类别或品牌关键词
+**path2 (可选，最多15字符)**: 产品特性、型号或促销信息
 
 ## REQUIREMENTS (Target: EXCELLENT Ad Strength)
 
@@ -360,24 +369,25 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 **FIRST HEADLINE (MANDATORY)**: "{KeyWord:{{brand}}} Official" - If exceeds 30 chars, use "{KeyWord:{{brand}}}"
 **⚠️ CRITICAL**: ONLY the first headline can use {KeyWord:...} format.
 
-**🚨 v4.9 HEADLINE REQUIREMENTS**:
-- 🔥 **Keyword Embedding**: 8/15 (53%+) headlines MUST contain keywords
-- 🔥 **Theme Consistency**: 100% headlines MUST match {{bucket_intent}} theme (when bucket_info=true)
+**🚨 v4.10 HEADLINE REQUIREMENTS**:
+- 🔥 **Keyword Embedding**: 8/15 (53%+) headlines MUST contain keywords from {{ai_keywords_section}}
+- 🔥 **Theme Consistency**: 100% headlines MUST match {{bucket_intent}} theme
 - 🔥 **Emotional Triggers**: 3+ headlines with emotional power words
 - 🔥 **Question Headlines**: 1-2 question-style headlines
 - 🔥 **Number Usage**: 5+ headlines with specific numbers
-- 🔥 **Diversity**: <20% text similarity, no 2+ shared words
+- 🔥 **Diversity**: <20% text similarity, no 2+ shared words (excluding embedded keywords from {{ai_keywords_section}})
 
 ### DESCRIPTIONS (4 required, ≤90 chars each)
 
-**🎯 v4.9 DESCRIPTION REQUIREMENTS**:
-- 🔥 **Theme Consistency**: 100% descriptions MUST match {{bucket_intent}} theme (when bucket_info=true)
-- 🔥 **Structured Templates**: Each description MUST follow a DIFFERENT template
+**🎯 v4.10 DESCRIPTION REQUIREMENTS**:
+- 🔥 **Theme Consistency**: 100% descriptions MUST match {{bucket_intent}} theme
+- 🔥 **Keyword Integration**: Include 1-2 keywords from {{ai_keywords_section}} per description
 - 🔥 **USP Front-Loading**: Strongest USP in first 30 characters
 - 🔥 **Social Proof**: 2/4 descriptions must include proof element
 
-### KEYWORDS (20-30 required)
-**⚠️ 强制约束：所有关键词必须使用目标语言 {{target_language}}**
+### KEYWORDS (输出{{ai_keywords_section}}中的全部关键词)
+**⚠️ 直接输出{{ai_keywords_section}}中的所有关键词，不要生成新关键词**
+**⚠️ 所有关键词必须使用目标语言 {{target_language}}**
 
 {{exclude_keywords_section}}
 
@@ -393,8 +403,8 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 
 ## OUTPUT (JSON only, no markdown):
 {
-  "headlines": [{"text":"...", "type":"brand|feature|promo|cta|urgency|social_proof|question|emotional", "length":N, "keywords":["keyword1"], "hasNumber":bool, "hasUrgency":bool, "hasEmotionalTrigger":bool, "isQuestion":bool}...],
-  "descriptions": [{"text":"...", "type":"feature-benefit-cta|problem-solution-proof|offer-urgency-trust|usp-differentiation", "length":N, "hasCTA":bool, "first30Chars":"...", "hasSocialProof":bool}...],
+  "headlines": [{"text":"...", "type":"brand|feature|promo|cta|urgency|social_proof|question|emotional", "length":N, "keywords":["keyword1"], "hasNumber":bool, "hasUrgency":bool, "hasEmotionalTrigger":bool, "isQuestion":bool, "themeMatch":true}...],
+  "descriptions": [{"text":"...", "type":"feature-benefit-cta|problem-solution-proof|offer-urgency-trust|usp-differentiation", "length":N, "hasCTA":bool, "first30Chars":"...", "hasSocialProof":bool, "keywords":["keyword1"], "themeMatch":true}...],
   "keywords": ["..."],
   "callouts": ["..."],
   "sitelinks": [{"text":"...", "url":"/", "description":"..."}],
@@ -403,15 +413,20 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
   "theme": "...",
   "bucket_type": "{{bucket_type}}",
   "bucket_intent": "{{bucket_intent}}",
+  "keyword_layer_validation": {
+    "brand_keywords_used": ["brand1", "brand2"],
+    "bucket_keywords_used": ["kw1", "kw2", "kw3"],
+    "total_keywords_embedded": 8,
+    "embedding_rate": 0.53
+  },
   "theme_consistency": {
     "headline_match_rate": 1.0,
     "description_match_rate": 1.0,
     "overall_score": 1.0
   },
-  "quality_metrics": {"headline_diversity_score":N, "keyword_embedding_rate":0.53, "emotional_trigger_count":N, "question_headline_count":N, "usp_front_loaded_count":N, "estimated_ad_strength":"EXCELLENT"},
-  "ctr_optimization": {"keywordEmbeddingRate":0.53, "emotionalTriggerCount":3, "questionHeadlineCount":2, "uspFrontLoadedDescriptions":4, "displayPathOptimized":true}
+  "quality_metrics": {"headline_diversity_score":N, "keyword_embedding_rate":0.53, "emotional_trigger_count":N, "question_headline_count":N, "usp_front_loaded_count":N, "estimated_ad_strength":"EXCELLENT"}
 }',
-  'v4.9 主题一致性增强：新增bucket_info参数，支持关键词桶主题注入，确保headline/description与桶主题100%匹配',
+  'v4.10 关键词分层嵌入：解决v4.9关键词嵌入与主题一致性冲突，采用品牌词(共享)+桶匹配词(独占)分层策略，确保两者天然兼容',
   true
 );
 
