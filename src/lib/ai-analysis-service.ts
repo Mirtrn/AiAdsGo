@@ -766,7 +766,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                   extractResult.brand || extractResult.productName || 'Unknown Product',
                   targetCountry,
                   userId,
-                  { enableCompression: true, enableCache: true }
+                  { enableCompression: true, enableCache: true, cacheKey: url }
                 )
 
                 result.reviewAnalysis = reviewAnalysis
@@ -839,7 +839,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                 extractResult.brand || extractResult.productName || 'Unknown Product',
                 targetCountry,
                 userId,
-                { enableCompression: true, enableCache: true }
+                { enableCompression: true, enableCache: true, cacheKey: url }
               )
 
               result.reviewAnalysis = reviewAnalysis
@@ -901,7 +901,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                 extractResult.brand || extractResult.storeName || 'Unknown Store',
                 targetCountry,
                 userId,
-                { enableCompression: true, enableCache: true }
+                { enableCompression: true, enableCache: true, cacheKey: url }
               )
 
               result.reviewAnalysis = reviewAnalysis
@@ -952,7 +952,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                 extractResult.brand || extractResult.storeName || 'Unknown Store',
                 targetCountry,
                 userId,
-                { enableCompression: true, enableCache: true }
+                { enableCompression: true, enableCache: true, cacheKey: url }
               )
 
               result.reviewAnalysis = reviewAnalysis
@@ -990,7 +990,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                 extractResult.brand || 'Unknown Product',
                 targetCountry,
                 userId,
-                { enableCompression: true, enableCache: true }
+                { enableCompression: true, enableCache: true, cacheKey: url }
               )
 
               result.reviewAnalysis = reviewAnalysis
@@ -1027,7 +1027,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
               extractResult.brand || 'Unknown Product',
               targetCountry,
               userId,
-              { enableCompression: true, enableCache: true }
+              { enableCompression: true, enableCache: true, cacheKey: url }
             )
 
             result.reviewAnalysis = reviewAnalysis

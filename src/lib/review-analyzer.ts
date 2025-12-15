@@ -488,7 +488,7 @@ export async function analyzeReviewsWithAI(
   options?: {
     enableCompression?: boolean  // 启用评论压缩（默认false，零破坏性）
     enableCache?: boolean        // 启用缓存（默认false，零破坏性）
-    cacheKey?: string            // 自定义缓存键（默认使用productName）
+    cacheKey?: string            // 自定义缓存键（必须包含URL以避免不同offer共享缓存）
   }
 ): Promise<ReviewAnalysisResult> {
 
@@ -568,8 +568,12 @@ export async function analyzeReviewsWithAI(
     }
 
     // 🆕 Token优化：支持缓存（7天TTL）
-    // 🔥 2025-12-13修复：cacheKey必须包含targetCountry，避免不同语言的缓存混淆
+    // 🔥 2025-12-16修复：cacheKey必须包含URL，避免不同offer共享缓存
+    // 如果未提供cacheKey，使用productName+targetCountry作为fallback（但强烈建议传入URL）
     const cacheKey = options?.cacheKey || `${productName}_${targetCountry}`
+    if (!options?.cacheKey) {
+      console.warn('⚠️ 未提供cacheKey，使用productName作为fallback。建议传入URL以避免缓存冲突。')
+    }
     const performAnalysis = async () => {
       const aiResponse = await generateContent({
         operationType: 'review_analysis',

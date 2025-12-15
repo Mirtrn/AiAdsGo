@@ -169,7 +169,8 @@ async function saveDeepScrapeResults(
           reviewObjects,
           product.productData.brandName || 'Unknown',
           targetCountry,
-          userId
+          userId,
+          { enableCache: true, cacheKey: product.productData.productUrl || product.asin || 'unknown' }
         )
         console.log(`  ✅ 评论分析完成`)
       } catch (reviewError: any) {
@@ -1074,7 +1075,8 @@ export async function performScrapeAndAnalysis(
                   reviews,
                   extractedBrand || brand,
                   targetCountry,
-                  userId
+                  userId,
+                  { enableCache: true, cacheKey: urlForScraping }
                 )
                 console.log('✅ 评论分析完成')
                 return analysis

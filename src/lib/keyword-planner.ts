@@ -238,47 +238,62 @@ export async function getKeywordSearchVolumes(
         const geoTargetId = getGoogleAdsGeoTargetId(country)
         const languageId = getGoogleAdsLanguageIdString(language)
 
-        // Process each batch using generateKeywordHistoricalMetrics
-        // This API returns exact search volume for the specified keywords,
-        // unlike generateKeywordIdeas which returns related keyword suggestions
+        // Process each batch with exponential backoff retry
         for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
           const batch = keywordBatches[batchIndex]
           console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
 
-          // Use generateKeywordHistoricalMetrics for EXACT keyword search volumes
-          const response = await customer.keywordPlanIdeas.generateKeywordHistoricalMetrics({
-            customer_id: config.customerId,
-            keywords: batch,
-            language: `languageConstants/${languageId}`,
-            geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
-            keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
-          } as any)
+          let retries = 0
+          const maxRetries = 3
+          let success = false
 
-          totalApiCalls++
+          while (!success && retries <= maxRetries) {
+            try {
+              const response = await customer.keywordPlanIdeas.generateKeywordHistoricalMetrics({
+                customer_id: config.customerId,
+                keywords: batch,
+                language: `languageConstants/${languageId}`,
+                geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
+                keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
+              } as any)
 
-          // 🔥 修复（2025-12-10）：添加详细日志，便于排查API返回为空的问题
-          console.log(`[KeywordPlanner] API响应类型: ${typeof response}, 结构: ${Object.keys(response || {}).join(', ')}`)
-          const results = (response as any).results || response || []
-          console.log(`[KeywordPlanner] 解析结果数量: ${Array.isArray(results) ? results.length : 'N/A'}`)
+              totalApiCalls++
 
-          for (const result of results) {
-            // generateKeywordHistoricalMetrics returns { text, keyword_metrics }
-            if (result.text && result.keyword_metrics) {
-              const metrics = result.keyword_metrics
-              apiVolumes.set(result.text.toLowerCase(), {
-                keyword: result.text,
-                avgMonthlySearches: Number(metrics.avg_monthly_searches) || 0,
-                competition: metrics.competition?.toString() || 'UNKNOWN',
-                competitionIndex: Number(metrics.competition_index) || 0,
-                lowTopPageBid: Number(metrics.low_top_of_page_bid_micros) / 1_000_000 || 0,
-                highTopPageBid: Number(metrics.high_top_of_page_bid_micros) / 1_000_000 || 0,
-              })
+              console.log(`[KeywordPlanner] API响应类型: ${typeof response}, 结构: ${Object.keys(response || {}).join(', ')}`)
+              const results = (response as any).results || response || []
+              console.log(`[KeywordPlanner] 解析结果数量: ${Array.isArray(results) ? results.length : 'N/A'}`)
+
+              for (const result of results) {
+                if (result.text && result.keyword_metrics) {
+                  const metrics = result.keyword_metrics
+                  apiVolumes.set(result.text.toLowerCase(), {
+                    keyword: result.text,
+                    avgMonthlySearches: Number(metrics.avg_monthly_searches) || 0,
+                    competition: metrics.competition?.toString() || 'UNKNOWN',
+                    competitionIndex: Number(metrics.competition_index) || 0,
+                    lowTopPageBid: Number(metrics.low_top_of_page_bid_micros) / 1_000_000 || 0,
+                    highTopPageBid: Number(metrics.high_top_of_page_bid_micros) / 1_000_000 || 0,
+                  })
+                }
+              }
+
+              success = true
+            } catch (batchError: any) {
+              const errorMsg = batchError.errors?.[0]?.message || batchError.message || ''
+              if (errorMsg.includes('Too many requests')) {
+                retries++
+                const waitTime = Math.min(5000 * Math.pow(2, retries - 1), 30000) // 5s, 10s, 20s, max 30s
+                console.log(`[KeywordPlanner] Rate limit hit, retry ${retries}/${maxRetries} after ${waitTime}ms`)
+                await new Promise(resolve => setTimeout(resolve, waitTime))
+              } else {
+                throw batchError
+              }
             }
           }
 
-          // Small delay between batches to respect rate limits
+          // Delay between batches
           if (batchIndex < keywordBatches.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100))
+            await new Promise(resolve => setTimeout(resolve, 2000))
           }
         }
 
