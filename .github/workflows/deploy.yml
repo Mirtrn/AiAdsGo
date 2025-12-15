@@ -189,9 +189,9 @@ jobs:
             --platform=managed \
             --allow-unauthenticated \
             --port=80 \
-            --cpu=1 \
-            --memory=512Mi \
-            --min-instances=0 \
+            --cpu=4 \
+            --memory=8Gi \
+            --min-instances=1 \
             --max-instances=3 \
             --timeout=300 \
             --set-secrets="\
