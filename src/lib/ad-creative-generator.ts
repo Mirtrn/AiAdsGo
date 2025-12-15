@@ -276,6 +276,13 @@ async function buildAdCreativePrompt(
       sellingPoints?: string[]
     }
     qualityScore?: number
+    // 🆕 v4.10: 关键词池桶信息
+    bucketInfo?: {
+      bucket: string
+      intent?: string
+      intentEn?: string
+      keywordCount: number
+    }
   }
 ): Promise<string> {
   // 🎯 v3.0 REFACTOR: Load template from database (migration 056)
@@ -301,6 +308,20 @@ async function buildAdCreativePrompt(
   let enhanced_features_section = ''
   let localization_section = ''
   let brand_analysis_section = ''
+  // 🆕 v4.10: 关键词池桶section
+  let keyword_bucket_section = ''
+
+  // 🆕 v4.10: 添加关键词池桶指令
+  if (extractedElements?.bucketInfo) {
+    const { bucket, intent, intentEn, keywordCount } = extractedElements.bucketInfo
+    keyword_bucket_section = `
+**📦 KEYWORD POOL BUCKET ${bucket} - ${intent || intentEn}**
+This creative MUST focus on the "${intent || intentEn}" user intent.
+- You have ${keywordCount} pre-selected keywords optimized for this intent
+- Prioritize these KEYWORD_POOL keywords over others (they appear first in the keyword list)
+- Ensure headlines and descriptions align with the "${intent || intentEn}" messaging strategy
+- Do NOT mix intents - stay focused on this single theme`
+  }
 
   // 🎯 P0优化：使用增强产品信息
   if (extractedElements?.productInfo) {
@@ -1218,6 +1239,26 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   }
   variables.competitive_guidance_section = competitive_guidance_section
 
+  // 🆕 v4.10: 添加关键词池桶相关变量
+  // 这些变量名需要与 prompt 模板中的占位符匹配
+  if (extractedElements?.bucketInfo) {
+    const { bucket, intent, intentEn, keywordCount } = extractedElements.bucketInfo
+    variables.bucket_type = bucket
+    variables.bucket_intent = intent || intentEn || ''
+    variables.bucket_info_section = `
+**📦 当前创意桶：${bucket} - ${intent || intentEn}**
+- 桶主题：${intent || intentEn}
+- 预选关键词数量：${keywordCount}
+- 文案风格要求：所有 Headlines 和 Descriptions 必须与"${intent || intentEn}"主题一致`
+  } else {
+    // 未使用关键词池时的默认值
+    variables.bucket_type = ''
+    variables.bucket_intent = ''
+    variables.bucket_info_section = ''
+  }
+  // 兼容性：保留旧的占位符名称
+  variables.keyword_bucket_section = keyword_bucket_section
+
   // Substitute all placeholders and return
   return substitutePlaceholders(promptTemplate, variables)
 }
@@ -1920,6 +1961,12 @@ export async function generateAdCreative(
     referencePerformance?: any
     skipCache?: boolean
     excludeKeywords?: string[] // 需要排除的关键词（用于多次生成时避免重复）
+    // 🆕 v4.10: 关键词池参数
+    keywordPool?: any  // OfferKeywordPool
+    bucket?: 'A' | 'B' | 'C'
+    bucketKeywords?: string[]
+    bucketIntent?: string
+    bucketIntentEn?: string
   }
 ): Promise<GeneratedAdCreativeData & { ai_model: string }> {
   // 生成缓存键
@@ -2045,14 +2092,27 @@ export async function generateAdCreative(
     priority: kw.score > 80 ? 'HIGH' : kw.score > 60 ? 'MEDIUM' : 'LOW'
   }))
 
-  const mergedKeywords = [...normalizedEnhancedKeywords, ...(extractedElements.keywords || [])]
+  // 🆕 v4.10: 如果传入了桶关键词，将其作为最高优先级关键词
+  let bucketKeywordsNormalized: Array<{ keyword: string; searchVolume: number; source: string; priority: string }> = []
+  if (options?.bucketKeywords && options.bucketKeywords.length > 0) {
+    bucketKeywordsNormalized = options.bucketKeywords.map(kw => ({
+      keyword: kw,
+      searchVolume: 0, // 搜索量会在后续步骤中填充
+      source: 'KEYWORD_POOL',
+      priority: 'HIGH' // 桶关键词优先级最高
+    }))
+    console.log(`📦 v4.10 关键词池: 使用桶 ${options.bucket} (${options.bucketIntent}) 的 ${bucketKeywordsNormalized.length} 个关键词`)
+  }
+
+  // 🆕 v4.10: 桶关键词优先，然后是增强关键词，最后是基础关键词
+  const mergedKeywords = [...bucketKeywordsNormalized, ...normalizedEnhancedKeywords, ...(extractedElements.keywords || [])]
   const mergedHeadlines = [...(enhancedData.headlines || []), ...(extractedElements.headlines || [])]
   const mergedDescriptions = [...(enhancedData.descriptions || []), ...(extractedElements.descriptions || [])]
 
-  // 关键词去重（基于keyword字段）
+  // 关键词去重（基于keyword字段，保留第一个出现的，即桶关键词优先）
   const uniqueKeywords = Array.from(
     new Map(
-      mergedKeywords.map(kw => [kw.keyword, kw])
+      mergedKeywords.map(kw => [kw.keyword.toLowerCase(), kw])
     ).values()
   )
 
@@ -2068,11 +2128,23 @@ export async function generateAdCreative(
     reviewAnalysis: enhancedData.reviewAnalysis,
     localization: enhancedData.localization,
     brandAnalysis: enhancedData.brandAnalysis,
-    qualityScore: enhancedData.qualityScore
+    qualityScore: enhancedData.qualityScore,
+    // 🆕 v4.10: 添加桶信息到合并数据中
+    bucketInfo: options?.bucket ? {
+      bucket: options.bucket,
+      intent: options.bucketIntent,
+      intentEn: options.bucketIntentEn,
+      keywordCount: bucketKeywordsNormalized.length
+    } : undefined
   }
 
   console.log('📊 合并后的数据:')
-  console.log(`   - 关键词: ${mergedData.keywords?.length || 0}个 (基础${extractedElements.keywords?.length || 0} + 增强${enhancedData.keywords?.length || 0})`)
+  if (options?.bucket) {
+    console.log(`   - 🆕 关键词池桶: ${options.bucket} (${options.bucketIntent})`)
+    console.log(`   - 关键词: ${mergedData.keywords?.length || 0}个 (桶${bucketKeywordsNormalized.length} + 增强${enhancedData.keywords?.length || 0} + 基础${extractedElements.keywords?.length || 0})`)
+  } else {
+    console.log(`   - 关键词: ${mergedData.keywords?.length || 0}个 (基础${extractedElements.keywords?.length || 0} + 增强${enhancedData.keywords?.length || 0})`)
+  }
   console.log(`   - 标题: ${mergedData.headlines?.length || 0}个 (基础${extractedElements.headlines?.length || 0} + 增强${enhancedData.headlines?.length || 0})`)
   console.log(`   - 描述: ${mergedData.descriptions?.length || 0}个 (基础${extractedElements.descriptions?.length || 0} + 增强${enhancedData.descriptions?.length || 0})`)
   console.log(`   - 产品信息: ${mergedData.productInfo ? '有✨' : '无'}`)
@@ -2329,49 +2401,75 @@ export async function generateAdCreative(
           const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
           let totalNewKeywords = 0
 
-          // 🎯 准备3轮不同角度的种子关键词
-          // 第1轮：产品通用词（高搜索量非品牌词）
-          const genericKeywords = keywordsWithVolume
-            .filter(kw => kw.searchVolume > 500 && !kw.keyword.toLowerCase().includes(brandName.toLowerCase()))
-            .sort((a, b) => b.searchVolume - a.searchVolume)
-            .slice(0, 5)
-            .map(kw => kw.keyword)
+          // 🎯 v4.11: 重构种子词策略 - 所有种子词必须围绕品牌构建
+          // 目的：避免产生与品牌/产品完全无关的关键词（如solar panels, 4k television）
 
-          // 第2轮：品牌组合词（品牌名 + 产品类别）
-          const brandCombinations: string[] = []
-
-          // 🆕 提取纯品牌词（品牌名的第一个单词，如 "Eufy Security" → "eufy"）
+          // 提取品牌核心词（如 "Eufy Security" → "eufy", "Eufy" → "eufy"）
           const coreBrandName = brandName.split(' ')[0]
-          if (coreBrandName.toLowerCase() !== brandName.toLowerCase()) {
-            brandCombinations.push(coreBrandName) // 添加纯品牌词（搜索量最高）
+          const brandLower = brandName.toLowerCase()
+          const coreBrandLower = coreBrandName.toLowerCase()
+
+          // 第1轮：品牌核心词扩展（纯品牌词 + 品牌全称）
+          const brandCoreSeeds: string[] = []
+          // 添加纯品牌词（搜索量通常最高）
+          if (coreBrandLower !== brandLower) {
+            brandCoreSeeds.push(coreBrandName)
           }
-
           // 添加品牌全称
-          brandCombinations.push(brandName)
+          brandCoreSeeds.push(brandName)
 
-          // 从现有关键词中提取产品类别词
-          const productCategories = keywordsWithVolume
-            .filter(kw => !kw.keyword.toLowerCase().includes(brandName.toLowerCase()))
-            .map(kw => kw.keyword.split(' ').slice(0, 2).join(' ')) // 取前两个词作为产品类别
-            .filter((v, i, a) => a.indexOf(v) === i) // 去重
-            .slice(0, 3)
-          productCategories.forEach(cat => {
-            brandCombinations.push(`${brandName} ${cat}`)
+          // 第2轮：品牌+品类组合词（从现有品牌相关关键词中提取品类）
+          const brandCategorySeeds: string[] = []
+          // 从现有关键词中提取包含品牌名的关键词，并提取品类后缀
+          const brandRelatedKeywords = keywordsWithVolume
+            .filter(kw => {
+              const kwLower = kw.keyword.toLowerCase()
+              return kwLower.includes(brandLower) || kwLower.includes(coreBrandLower)
+            })
+            .sort((a, b) => b.searchVolume - a.searchVolume)
+
+          // 提取品牌关键词中的品类词（如 "eufy security camera" → "camera"）
+          const categoryWords = new Set<string>()
+          brandRelatedKeywords.forEach(kw => {
+            const words = kw.keyword.toLowerCase()
+              .replace(brandLower, '')
+              .replace(coreBrandLower, '')
+              .trim()
+              .split(/\s+/)
+              .filter(w => w.length > 2 && !['the', 'and', 'for', 'with'].includes(w))
+            words.forEach(w => categoryWords.add(w))
           })
 
-          // 第3轮：从前两轮结果中选择高搜索量词（动态生成）
-          // 这一轮的种子词将在前两轮完成后确定
+          // 构建品牌+品类组合种子词
+          const topCategories = Array.from(categoryWords).slice(0, 5)
+          topCategories.forEach(cat => {
+            brandCategorySeeds.push(`${coreBrandName} ${cat}`)
+          })
+          // 如果品类词不足，添加通用品类组合
+          if (brandCategorySeeds.length < 3) {
+            const defaultCategories = ['camera', 'security', 'doorbell', 'smart home', 'wireless']
+            defaultCategories.forEach(cat => {
+              const seed = `${coreBrandName} ${cat}`
+              if (!brandCategorySeeds.includes(seed)) {
+                brandCategorySeeds.push(seed)
+              }
+            })
+          }
+          brandCategorySeeds.splice(5) // 最多5个
+
+          // 第3轮：品牌相关高搜索量词扩展（从前两轮结果中选择品牌相关的高搜索量词）
+          // 这一轮的种子词将在前两轮完成后确定，且必须包含品牌名
 
           const roundSeeds: { round: number; name: string; seeds: string[] }[] = [
-            { round: 1, name: '产品通用词', seeds: genericKeywords },
-            { round: 2, name: '品牌组合词', seeds: brandCombinations },
-            { round: 3, name: '扩展词（动态）', seeds: [] } // 第3轮种子将动态生成
+            { round: 1, name: '品牌核心词', seeds: brandCoreSeeds },
+            { round: 2, name: '品牌+品类词', seeds: brandCategorySeeds },
+            { round: 3, name: '品牌扩展词（动态）', seeds: [] } // 第3轮种子将动态生成
           ]
 
-          console.log(`\n📋 3轮查询种子词准备:`)
-          console.log(`   第1轮 [产品通用词]: ${genericKeywords.length > 0 ? genericKeywords.join(', ') : '(无)'}`)
-          console.log(`   第2轮 [品牌组合词]: ${brandCombinations.join(', ')}`)
-          console.log(`   第3轮 [扩展词]: (根据前两轮结果动态生成)`)
+          console.log(`\n📋 v4.11 品牌导向种子词策略:`)
+          console.log(`   第1轮 [品牌核心词]: ${brandCoreSeeds.join(', ')}`)
+          console.log(`   第2轮 [品牌+品类词]: ${brandCategorySeeds.join(', ')}`)
+          console.log(`   第3轮 [品牌扩展词]: (根据前两轮品牌相关结果动态生成)`)
 
           // 收集所有轮次新增的高搜索量关键词，用于第3轮
           const allNewHighVolumeKeywords: string[] = []
@@ -2381,14 +2479,24 @@ export async function generateAdCreative(
             const roundInfo = roundSeeds[roundIndex]
             let seedKeywords = roundInfo.seeds
 
-            // 第3轮：使用前两轮新增的高搜索量关键词作为种子
+            // 第3轮：使用前两轮新增的品牌相关高搜索量关键词作为种子
             if (roundIndex === 2) {
-              seedKeywords = allNewHighVolumeKeywords.slice(0, 5) // 取前5个
+              // 🎯 v4.11: 第3轮种子词必须包含品牌名
+              seedKeywords = allNewHighVolumeKeywords
+                .filter(kw => {
+                  const kwLower = kw.toLowerCase()
+                  return kwLower.includes(brandLower) || kwLower.includes(coreBrandLower)
+                })
+                .slice(0, 5)
               roundInfo.seeds = seedKeywords
               if (seedKeywords.length === 0) {
-                // 如果前两轮没有新增关键词，使用所有现有高搜索量关键词
+                // 如果前两轮没有新增品牌相关关键词，使用所有现有品牌相关高搜索量关键词
                 seedKeywords = keywordsWithVolume
-                  .filter(kw => kw.searchVolume > 1000)
+                  .filter(kw => {
+                    const kwLower = kw.keyword.toLowerCase()
+                    return kw.searchVolume > 1000 &&
+                           (kwLower.includes(brandLower) || kwLower.includes(coreBrandLower))
+                  })
                   .sort((a, b) => b.searchVolume - a.searchVolume)
                   .slice(0, 5)
                   .map(kw => kw.keyword)

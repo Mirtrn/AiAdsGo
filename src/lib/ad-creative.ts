@@ -172,6 +172,10 @@ export async function createAdCreative(
       dimensions: any
       suggestions?: string[]
     }
+    // 🆕 v4.10: 关键词池桶信息
+    keyword_bucket?: 'A' | 'B' | 'C'
+    keyword_pool_id?: number
+    bucket_intent?: string
   }
 ): Promise<AdCreative> {
   const db = await getDatabase()
@@ -193,8 +197,9 @@ export async function createAdCreative(
       final_url, final_url_suffix, path1, path2,
       score, score_breakdown, score_explanation,
       generation_round, theme, ai_model,
-      ad_strength_data
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ad_strength_data,
+      keyword_bucket, keyword_pool_id, bucket_intent
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     offerId,
     userId,
@@ -215,7 +220,11 @@ export async function createAdCreative(
     data.generation_round || 1,
     data.theme,
     data.ai_model || 'gemini-2.5-flash',
-    data.adStrength ? JSON.stringify(data.adStrength) : null  // 🔧 保存完整的 Ad Strength 数据
+    data.adStrength ? JSON.stringify(data.adStrength) : null,  // 🔧 保存完整的 Ad Strength 数据
+    // 🆕 v4.10: 关键词池桶信息
+    data.keyword_bucket || null,
+    data.keyword_pool_id || null,
+    data.bucket_intent || null
   ])
 
   const creative = await findAdCreativeById(result.lastInsertRowid!, userId)

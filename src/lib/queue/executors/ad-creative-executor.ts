@@ -16,6 +16,14 @@ import {
 } from '@/lib/scoring'
 import { findOfferById } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
+// 🆕 v4.10: 关键词池集成
+import {
+  getOrCreateKeywordPool,
+  getAvailableBuckets,
+  getBucketInfo,
+  type BucketType,
+  type OfferKeywordPool
+} from '@/lib/offer-keyword-pool'
 
 /**
  * 广告创意生成任务数据接口
@@ -58,6 +66,42 @@ export async function executeAdCreativeGeneration(
       throw new Error('Offer信息抓取失败，请重新抓取')
     }
 
+    // 🆕 v4.10: 获取或创建关键词池（复用已有数据，避免重复AI调用）
+    let keywordPool: OfferKeywordPool | null = null
+    let selectedBucket: BucketType | null = null
+    let bucketInfo: { keywords: string[]; intent: string; intentEn: string } | null = null
+
+    try {
+      // 更新进度：准备关键词池
+      await db.exec(`
+        UPDATE creative_tasks
+        SET stage = 'preparing', progress = 5, message = '正在准备关键词池...', updated_at = ${nowFunc}
+        WHERE id = ?
+      `, [task.id])
+
+      keywordPool = await getOrCreateKeywordPool(offerId, task.userId, false)
+
+      // 获取可用桶（未被占用的）
+      const availableBuckets = await getAvailableBuckets(offerId)
+
+      if (availableBuckets.length > 0) {
+        // 选择第一个可用桶
+        selectedBucket = availableBuckets[0]
+        bucketInfo = getBucketInfo(keywordPool, selectedBucket)
+        console.log(`📦 使用关键词池桶 ${selectedBucket} (${bucketInfo.intent}): ${bucketInfo.keywords.length} 个关键词`)
+      } else {
+        // 所有桶都已使用，轮询使用（A -> B -> C -> A...）
+        const usedCount = 3 - availableBuckets.length
+        const bucketOrder: BucketType[] = ['A', 'B', 'C']
+        selectedBucket = bucketOrder[usedCount % 3]
+        bucketInfo = getBucketInfo(keywordPool, selectedBucket)
+        console.log(`📦 所有桶已使用，轮询选择桶 ${selectedBucket} (${bucketInfo.intent})`)
+      }
+    } catch (poolError: any) {
+      console.warn(`⚠️ 关键词池创建失败，使用传统模式: ${poolError.message}`)
+      // 继续使用传统模式，不中断流程
+    }
+
     let bestCreative: any = null
     let bestEvaluation: any = null
     let attempts = 0
@@ -77,21 +121,28 @@ export async function executeAdCreativeGeneration(
       const attemptBaseProgress = 10 + (attempts - 1) * 25
 
       // 更新进度：生成中
+      const bucketLabel = selectedBucket ? ` [桶${selectedBucket}]` : ''
       await db.exec(`
         UPDATE creative_tasks
         SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = ${nowFunc}
         WHERE id = ?
-      `, [attemptBaseProgress, `第${attempts}次生成: AI正在创作广告文案...`, attempts, task.id])
+      `, [attemptBaseProgress, `第${attempts}次生成${bucketLabel}: AI正在创作广告文案...`, attempts, task.id])
 
       // 1. 生成创意
       // 🔥 2025-12-12修复：始终跳过缓存，确保每次重新生成都产生新创意
-      // 用户点击"重新生成"时期望获得不同的创意，不应使用缓存
+      // 🆕 v4.10: 传递关键词池信息，实现分层关键词策略
       const creative = await generateAdCreative(
         offerId,
         task.userId,
         {
           skipCache: true,  // 始终跳过缓存
-          excludeKeywords: attempts > 1 ? usedKeywords : undefined
+          excludeKeywords: attempts > 1 ? usedKeywords : undefined,
+          // 🆕 v4.10: 关键词池参数
+          keywordPool: keywordPool || undefined,
+          bucket: selectedBucket || undefined,
+          bucketKeywords: bucketInfo?.keywords,
+          bucketIntent: bucketInfo?.intent,
+          bucketIntentEn: bucketInfo?.intentEn
         }
       )
 
@@ -212,7 +263,11 @@ export async function executeAdCreativeGeneration(
         isExcellent: bestEvaluation.finalRating === 'EXCELLENT',
         dimensions: bestEvaluation.localEvaluation.dimensions,
         suggestions: bestEvaluation.combinedSuggestions
-      }
+      },
+      // 🆕 v4.10: 关键词桶信息
+      keyword_bucket: selectedBucket || undefined,
+      keyword_pool_id: keywordPool?.id || undefined,
+      bucket_intent: bucketInfo?.intent || undefined
     })
 
     // 计算Launch Score
