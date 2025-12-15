@@ -1309,11 +1309,18 @@ async function scrapeStoreCategories(
   const categories: Array<{ name: string; count: number; url?: string }> = []
 
   const categorySelectors = [
+    // 🔥 优先级1: 店铺专属导航选择器（最精确）
     'nav[aria-label*="categor"] a, nav[aria-label*="Categor"] a',
+    'nav a[href*="/stores/page/"]',  // 🆕 店铺页面导航（Dreame等现代店铺）
     '#nav-subnav a[href*="/s?"]',
     '.store-nav-category a, .store-categories a',
     '[class*="StoreNav"] a, [class*="store-nav"] a',
     '[data-component-type="category-link"]',
+    // 🔥 优先级2: 店铺内容区域的分类链接（排除全局导航）
+    'main a[href*="node="], main a[href*="rh="]',
+    '#storeContent a[href*="node="], #storeContent a[href*="rh="]',
+    '[id*="store"] a[href*="node="], [id*="store"] a[href*="rh="]',
+    // 🔥 优先级3: 通用分类链接（最后备选，但会被过滤）
     'a[href*="node="], a[href*="rh="]'
   ]
 
