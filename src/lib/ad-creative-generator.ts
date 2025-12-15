@@ -21,6 +21,8 @@ export interface KeywordWithVolume {
   searchVolume: number // 精确搜索量（来自Historical Metrics API）
   competition?: string
   competitionIndex?: number
+  lowTopPageBid?: number // 页首最低出价（用于动态CPC）
+  highTopPageBid?: number // 页首最高出价（用于动态CPC）
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
 }
@@ -2187,7 +2189,7 @@ export async function generateAdCreative(
       brandName
     })
 
-    // 🎯 修复：添加matchType字段（智能分配）
+    // 🎯 修复：添加matchType字段（智能分配）+ lowTopPageBid/highTopPageBid竞价数据
     const brandNameLower = brandName?.toLowerCase() || ''
     keywordsWithVolume = unifiedData.map(v => {
       const keywordLower = v.keyword.toLowerCase()
@@ -2209,13 +2211,15 @@ export async function generateAdCreative(
         searchVolume: v.searchVolume,
         competition: v.competition,
         competitionIndex: v.competitionIndex,
+        lowTopPageBid: v.lowTopPageBid || 0,  // 🆕 添加页首最低出价
+        highTopPageBid: v.highTopPageBid || 0, // 🆕 添加页首最高出价
         matchType
       }
     })
     console.log(`✅ 关键词精确搜索量获取完成（来源: Historical Metrics API）`)
   } catch (error) {
     console.warn('⚠️ 获取关键词搜索量失败，使用默认值:', error)
-    // 🎯 修复：即使失败也要添加matchType
+    // 🎯 修复：即使失败也要添加matchType和竞价数据
     const brandNameLower = brandName?.toLowerCase() || ''
     keywordsWithVolume = result.keywords.map(kw => {
       const keywordLower = kw.toLowerCase()
@@ -2234,6 +2238,8 @@ export async function generateAdCreative(
       return {
         keyword: kw,
         searchVolume: 0,
+        lowTopPageBid: 0,  // 🆕 默认为0
+        highTopPageBid: 0, // 🆕 默认为0
         matchType
       }
     })
