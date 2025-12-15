@@ -160,10 +160,15 @@ jobs:
 
   # ============================================
   # Job 3: 部署到Cloud Run
+  # 条件: ENABLE_CLOUD_RUN_DEPLOY 变量为 'true' 时执行
   # ============================================
   deploy-to-cloud-run:
     needs: build-and-push
     runs-on: ubuntu-latest
+    # 🔧 通过 GitHub Repository Variable 控制是否执行部署
+    # 设置方法: Repository Settings → Secrets and variables → Actions → Variables
+    # 变量名: ENABLE_CLOUD_RUN_DEPLOY, 值: true (启用) 或 false/空 (禁用)
+    if: ${{ vars.ENABLE_CLOUD_RUN_DEPLOY == 'true' }}
     permissions:
       contents: read
       id-token: write
