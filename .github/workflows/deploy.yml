@@ -105,7 +105,7 @@ jobs:
         run: |
           gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
-      # 生成镜像标签
+      # 生成镜像标签 (统一使用prod-前缀)
       - name: 生成镜像标签
         id: tags
         run: |
@@ -115,15 +115,15 @@ jobs:
           GHCR_TAGS="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-latest"
           GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${SHORT_SHA}"
 
-          # Artifact Registry标签
-          AR_TAGS="${{ env.GCP_AR_IMAGE }}:latest"
-          AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:${SHORT_SHA}"
+          # Artifact Registry标签 (统一prod-前缀)
+          AR_TAGS="${{ env.GCP_AR_IMAGE }}:prod-latest"
+          AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:prod-${SHORT_SHA}"
 
           # 如果是版本标签，添加版本号
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/v}
             GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${VERSION}"
-            AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:${VERSION}"
+            AR_TAGS="${AR_TAGS},${{ env.GCP_AR_IMAGE }}:prod-${VERSION}"
           fi
 
           # 合并所有标签
@@ -155,8 +155,8 @@ jobs:
           echo "   - ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${{ steps.vars.outputs.short_sha }}"
           echo ""
           echo "📦 Artifact Registry:"
-          echo "   - ${{ env.GCP_AR_IMAGE }}:latest"
-          echo "   - ${{ env.GCP_AR_IMAGE }}:${{ steps.vars.outputs.short_sha }}"
+          echo "   - ${{ env.GCP_AR_IMAGE }}:prod-latest"
+          echo "   - ${{ env.GCP_AR_IMAGE }}:prod-${{ steps.vars.outputs.short_sha }}"
 
   # ============================================
   # Job 3: 部署到Cloud Run
@@ -184,7 +184,7 @@ jobs:
         id: deploy
         run: |
           gcloud run deploy ${{ env.GCP_SERVICE_NAME }} \
-            --image=${{ env.GCP_AR_IMAGE }}:latest \
+            --image=${{ env.GCP_AR_IMAGE }}:prod-latest \
             --region=${{ env.GCP_REGION }} \
             --platform=managed \
             --allow-unauthenticated \
