@@ -340,61 +340,81 @@ export default function Step4PublishSummary({
         </CardHeader>
       </Card>
 
-      {/* Pause Option & Publish Button - Combined in one row */}
-      <div className="flex items-center justify-between gap-4 py-2">
-        {/* Left: Options */}
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center space-x-3">
-            <Checkbox
-              id="enableImmediately"
-              checked={enableCampaignImmediately}
-              onCheckedChange={(checked) => setEnableCampaignImmediately(checked as boolean)}
-            />
-            <Label
-              htmlFor="enableImmediately"
-              className="text-sm font-medium cursor-pointer"
-            >
-              立即启用Campaign
-            </Label>
-            <span className="text-xs text-gray-500">
-              {enableCampaignImmediately ? '发布后立即投放' : '发布后保持暂停状态，可在Google Ads后台启用'}
-            </span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <Checkbox
-              id="pauseOld"
-              checked={pauseOldCampaigns}
-              onCheckedChange={(checked) => setPauseOldCampaigns(checked as boolean)}
-            />
-            <Label
-              htmlFor="pauseOld"
-              className="text-sm font-medium cursor-pointer"
-            >
-              暂停所有已存在的广告系列
-            </Label>
-          </div>
-        </div>
+      {/* Publish Options & Button */}
+      <Card className="border-2 border-blue-200 bg-blue-50/50">
+        <CardContent className="pt-6">
+          <div className="space-y-4">
+            {/* Options */}
+            <div className="space-y-3">
+              <div className="flex items-start space-x-3 p-3 bg-white rounded-lg border hover:border-blue-300 transition-colors">
+                <Checkbox
+                  id="enableImmediately"
+                  checked={enableCampaignImmediately}
+                  onCheckedChange={(checked) => setEnableCampaignImmediately(checked as boolean)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <Label
+                    htmlFor="enableImmediately"
+                    className="text-sm font-medium cursor-pointer flex items-center gap-2"
+                  >
+                    立即启用新广告系列
+                    <Badge variant={enableCampaignImmediately ? "default" : "outline"} className="text-xs">
+                      {enableCampaignImmediately ? '立即投放' : '暂停状态'}
+                    </Badge>
+                  </Label>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {enableCampaignImmediately ? '发布后立即开始投放广告' : '发布后保持暂停，可在Google Ads后台手动启用'}
+                  </p>
+                </div>
+              </div>
 
-        {/* Right: Publish Button */}
-        <Button
-          onClick={handlePublish}
-          disabled={publishing}
-          size="default"
-          className="min-w-[140px]"
-        >
-          {publishing ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              发布中...
-            </>
-          ) : (
-            <>
-              <Rocket className="w-4 h-4 mr-2" />
-              发布广告
-            </>
-          )}
-        </Button>
-      </div>
+              <div className="flex items-start space-x-3 p-3 bg-white rounded-lg border hover:border-blue-300 transition-colors">
+                <Checkbox
+                  id="pauseOld"
+                  checked={pauseOldCampaigns}
+                  onCheckedChange={(checked) => setPauseOldCampaigns(checked as boolean)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <Label
+                    htmlFor="pauseOld"
+                    className="text-sm font-medium cursor-pointer flex items-center gap-2"
+                  >
+                    暂停所有旧广告系列
+                    <Badge variant={pauseOldCampaigns ? "destructive" : "outline"} className="text-xs">
+                      {pauseOldCampaigns ? '将暂停' : '保持运行'}
+                    </Badge>
+                  </Label>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {pauseOldCampaigns ? '发布新广告前，先暂停该Offer的所有旧广告系列' : '新旧广告同时运行（A/B测试模式）'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Publish Button */}
+            <Button
+              onClick={handlePublish}
+              disabled={publishing}
+              size="lg"
+              className="w-full h-12 text-base font-semibold"
+            >
+              {publishing ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  发布中...
+                </>
+              ) : (
+                <>
+                  <Rocket className="w-5 h-5 mr-2" />
+                  发布广告
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Publish Status */}
       {publishStatus && (
