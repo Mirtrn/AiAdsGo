@@ -12,6 +12,7 @@ import { generateContent, getGeminiMode } from './gemini'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'  // 🎯 新增：导入token追踪函数
 import { loadPrompt } from './prompt-loader'  // 🎯 v3.0: 导入数据库prompt加载函数
+import { calculateIntentScore, getIntentLevel } from './keyword-priority-classifier'  // 🎯 购买意图评分
 
 // Keyword with search volume data
 // 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
@@ -2598,11 +2599,55 @@ export async function generateAdCreative(
   }
   console.log(`   ✅ 最终保留 ${finalKeywords.length} 个有搜索量的关键词`)
 
-  // 🎯 第6步：品牌词优先排序 + 比例控制
-  // 优化(2025-12-15): 确保品牌词至少占30%，避免被高搜索量通用词淹没
-  console.log(`\n📊 关键词排序规则: 品牌词优先 + 比例控制（品牌词至少30%）`)
+  // 🎯 第6.5步：购买意图评分过滤
+  // 优化(2025-12-15): 过滤掉低购买意图关键词（信息查询类），避免浪费广告预算
+  console.log(`\n📌 强制约束5: 购买意图评分过滤（移除纯信息查询词）`)
+  const MIN_INTENT_SCORE = 20  // 最低意图分数阈值（低于此分数视为纯信息查询）
+  const beforeIntentFilter = finalKeywords.length
 
-  // 6.1 分离品牌词和非品牌词（包含品牌名的关键词 vs 不包含的）
+  // 计算每个关键词的意图分数
+  const keywordsWithIntent = finalKeywords.map(kw => ({
+    ...kw,
+    intentScore: calculateIntentScore(kw.keyword),
+    intentLevel: getIntentLevel(calculateIntentScore(kw.keyword))
+  }))
+
+  // 分类统计
+  const highIntentKws = keywordsWithIntent.filter(kw => kw.intentScore >= 80)
+  const mediumIntentKws = keywordsWithIntent.filter(kw => kw.intentScore >= 50 && kw.intentScore < 80)
+  const lowIntentKws = keywordsWithIntent.filter(kw => kw.intentScore >= 20 && kw.intentScore < 50)
+  const infoIntentKws = keywordsWithIntent.filter(kw => kw.intentScore < 20)
+
+  console.log(`   📊 意图分布统计:`)
+  console.log(`      🟢 高购买意图 (≥80): ${highIntentKws.length} 个`)
+  console.log(`      🟡 中等意图 (50-79): ${mediumIntentKws.length} 个`)
+  console.log(`      🟠 低购买意图 (20-49): ${lowIntentKws.length} 个`)
+  console.log(`      ⚪ 信息查询 (<20): ${infoIntentKws.length} 个`)
+
+  // 过滤掉纯信息查询关键词（意图分数 < 20）
+  if (infoIntentKws.length > 0) {
+    console.log(`\n   ⚠️ 将移除 ${infoIntentKws.length} 个信息查询类关键词:`)
+    infoIntentKws.slice(0, 5).forEach(kw => {
+      console.log(`      - "${kw.keyword}" (意图分数: ${kw.intentScore}, ${kw.intentLevel.label})`)
+    })
+    if (infoIntentKws.length > 5) {
+      console.log(`      ... 及其他 ${infoIntentKws.length - 5} 个`)
+    }
+  }
+
+  // 应用过滤：移除信息查询类关键词
+  finalKeywords = keywordsWithIntent
+    .filter(kw => kw.intentScore >= MIN_INTENT_SCORE)
+    .map(({ intentScore, intentLevel, ...rest }) => rest)  // 移除临时属性
+
+  const removedByIntent = beforeIntentFilter - finalKeywords.length
+  console.log(`   ✅ 意图过滤完成: 移除 ${removedByIntent} 个低意图词，保留 ${finalKeywords.length} 个`)
+
+  // 🎯 第7步：品牌词优先排序 + 比例控制
+  // 优化(2025-12-15): 确保品牌词至少占50%，避免被高搜索量通用词淹没
+  console.log(`\n📊 关键词排序规则: 品牌词优先 + 比例控制（品牌词至少50%）`)
+
+  // 7.1 分离品牌词和非品牌词（包含品牌名的关键词 vs 不包含的）
   const brandRelatedKws = finalKeywords.filter(kw =>
     kw.keyword.toLowerCase().includes(brandKeywordLower)
   )
@@ -2610,14 +2655,14 @@ export async function generateAdCreative(
     !kw.keyword.toLowerCase().includes(brandKeywordLower)
   )
 
-  // 6.2 各自按搜索量排序
+  // 7.2 各自按搜索量排序
   brandRelatedKws.sort((a, b) => b.searchVolume - a.searchVolume)
   genericKws.sort((a, b) => b.searchVolume - a.searchVolume)
 
-  // 6.3 品牌词比例控制（至少30%，最少10个）
+  // 7.3 品牌词比例控制（至少50%，最少15个）
   const totalCount = finalKeywords.length
-  const targetBrandRatio = 0.30  // 品牌词目标比例30%
-  const minBrandCount = 10       // 最少品牌词数量
+  const targetBrandRatio = 0.50  // 品牌词目标比例50%
+  const minBrandCount = 15       // 最少品牌词数量
   const targetBrandCount = Math.max(minBrandCount, Math.ceil(totalCount * targetBrandRatio))
   const actualBrandCount = Math.min(brandRelatedKws.length, targetBrandCount)
   const genericCount = Math.max(0, totalCount - actualBrandCount)
@@ -2625,13 +2670,13 @@ export async function generateAdCreative(
   console.log(`   🏷️ 品牌词: ${brandRelatedKws.length}个可用, 目标${targetBrandCount}个, 实际选取${actualBrandCount}个`)
   console.log(`   📦 通用词: ${genericKws.length}个可用, 选取${Math.min(genericKws.length, genericCount)}个`)
 
-  // 6.4 组合最终关键词列表：品牌词在前，通用词在后
+  // 7.4 组合最终关键词列表：品牌词在前，通用词在后
   finalKeywords = [
     ...brandRelatedKws.slice(0, actualBrandCount),
     ...genericKws.slice(0, genericCount)
   ]
 
-  // 6.5 输出品牌词详情
+  // 7.5 输出品牌词详情
   if (actualBrandCount > 0) {
     console.log(`\n   🏷️ 已选品牌词 TOP 5:`)
     brandRelatedKws.slice(0, Math.min(5, actualBrandCount)).forEach((kw, i) => {

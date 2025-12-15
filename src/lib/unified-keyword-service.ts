@@ -106,6 +106,7 @@ const KNOWN_BRAND_PATTERNS = [
  * - 带空格/不带空格变体
  * - 常见拼写错误（双字母简化）
  * - CamelCase 分词
+ * - 🆕 核心品牌词提取（首词）
  */
 export function generateBrandVariants(brand: string): string[] {
   if (!brand || brand.length < 2) return []
@@ -122,6 +123,18 @@ export function generateBrandVariants(brand: string): string[] {
   if (brand.includes(' ')) {
     // "Reo Link" → "reolink"
     variants.add(brand.replace(/\s+/g, '').toLowerCase())
+
+    // 🆕 核心品牌词提取：提取首词作为独立品牌词
+    // "Eufy Security" → "eufy"（用户最常搜索的核心词）
+    const words = brand.split(/\s+/)
+    if (words.length >= 2) {
+      const firstWord = words[0].toLowerCase()
+      // 首词长度>=3才添加（避免"a", "the"等无意义词）
+      if (firstWord.length >= 3) {
+        variants.add(firstWord)
+        console.log(`   🎯 核心品牌词: "${firstWord}"`)
+      }
+    }
   } else if (brand.length > 5) {
     // CamelCase 分词: "ReoLink" → "reo link"
     const camelSplit = brand.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
