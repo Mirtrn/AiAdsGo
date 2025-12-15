@@ -170,7 +170,7 @@ async function saveDeepScrapeResults(
           product.productData.brandName || 'Unknown',
           targetCountry,
           userId,
-          { enableCache: true, cacheKey: product.productData.productUrl || product.asin || 'unknown' }
+          { enableCache: true, cacheKey: product.asin || 'unknown' }
         )
         console.log(`  ✅ 评论分析完成`)
       } catch (reviewError: any) {
