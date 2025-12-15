@@ -1862,7 +1862,7 @@ async function generateWithVertexAI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
+      maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5 Pro思考过程消耗~6K tokens，需要16384确保输出完整
     },
   })
 
@@ -1896,7 +1896,7 @@ async function generateWithGeminiAPI(
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
+      maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5 Pro思考过程消耗~6K tokens，需要16384确保输出完整
     },
   })
 
@@ -2101,7 +2101,7 @@ export async function generateAdCreative(
     operationType: 'ad_creative_generation_main',
     prompt,
     temperature: 0.9,
-    maxOutputTokens: 8192,  // ✅ 优化：8192足够(15标题+4描述+metadata约2-4K),原16384浪费50%
+    maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5 Pro思考过程消耗~6K tokens，需要16384确保输出完整
   }, userId)
   console.timeEnd('⏱️ AI生成创意')
 

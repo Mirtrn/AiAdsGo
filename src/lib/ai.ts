@@ -1083,7 +1083,7 @@ ${currentOrientation === 'brand' ? `
       operationType: 'ad_creative_generation_main',
       prompt: basePrompt,
       temperature: 0.7,
-      maxOutputTokens: 8192,  // 增加到8192以避免广告创意输出被截断
+      maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5 Pro思考过程消耗~6K tokens，需要16384确保输出完整
     }, options.userId)
 
     const text = result.text
