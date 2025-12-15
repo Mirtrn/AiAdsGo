@@ -1118,6 +1118,39 @@ export const TABLES: TableDef[] = [
       { name: 'executed_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
     ],
   },
+
+  // -------------------------------------------------------------------------
+  // 40. offer_keyword_pools - Offer级关键词池 (Database v2.1)
+  // -------------------------------------------------------------------------
+  {
+    name: 'offer_keyword_pools',
+    columns: [
+      { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
+      { name: 'offer_id', type: 'INTEGER', notNull: true, references: { table: 'offers', column: 'id', onDelete: 'CASCADE' } },
+      { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
+      // 共享层：纯品牌词
+      { name: 'brand_keywords', type: 'TEXT', notNull: true },  // JSON数组
+      // 独占层：语义分桶
+      { name: 'bucket_a_keywords', type: 'TEXT', notNull: true },  // JSON数组，产品导向
+      { name: 'bucket_b_keywords', type: 'TEXT', notNull: true },  // JSON数组，场景导向
+      { name: 'bucket_c_keywords', type: 'TEXT', notNull: true },  // JSON数组，需求导向
+      // 桶意图描述
+      { name: 'bucket_a_intent', type: 'TEXT', default: '产品导向' },
+      { name: 'bucket_b_intent', type: 'TEXT', default: '场景导向' },
+      { name: 'bucket_c_intent', type: 'TEXT', default: '需求导向' },
+      // 元数据
+      { name: 'total_keywords', type: 'INTEGER', notNull: true },
+      { name: 'clustering_model', type: 'TEXT' },  // 使用的AI模型
+      { name: 'clustering_prompt_version', type: 'TEXT' },  // 聚类prompt版本
+      { name: 'balance_score', type: 'REAL' },  // 分桶均衡度评分 0-1
+      { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+      { name: 'updated_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+    ],
+    indexes: [
+      { name: 'idx_offer_keyword_pools_offer', columns: ['offer_id'], unique: true },
+      { name: 'idx_offer_keyword_pools_user', columns: ['user_id'] },
+    ],
+  },
 ]
 
 // ============================================================================

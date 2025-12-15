@@ -269,15 +269,18 @@ export default function LaunchAdPage() {
       <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-gray-200 z-20 py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-center items-center">
           <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              onClick={handleBack}
-              disabled={currentStep === 1}
-              className="min-w-[100px]"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              上一步
-            </Button>
+            {currentStep > 1 ? (
+              <Button
+                variant="outline"
+                onClick={handleBack}
+                className="min-w-[100px]"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                上一步
+              </Button>
+            ) : (
+              <div className="min-w-[100px]" />
+            )}
 
             <div className="text-sm text-gray-500 min-w-[80px] text-center">
               步骤 {currentStep} / {STEPS.length}
