@@ -829,9 +829,9 @@ export default function OfferDetailPage() {
                       <div>
                         <dt className="text-sm font-medium text-gray-500 mb-2">情感分布</dt>
                         <dd className="flex gap-4 text-sm">
-                          <span className="text-green-600">👍 好评 {reviewData.sentimentDistribution.positive}%</span>
-                          <span className="text-gray-600">😐 中立 {reviewData.sentimentDistribution.neutral}%</span>
-                          <span className="text-red-600">👎 差评 {reviewData.sentimentDistribution.negative}%</span>
+                          <span className="text-green-600">👍 好评 {typeof reviewData.sentimentDistribution.positive === 'number' ? reviewData.sentimentDistribution.positive : reviewData.sentimentDistribution.positive?.percentage || 0}%</span>
+                          <span className="text-gray-600">😐 中立 {typeof reviewData.sentimentDistribution.neutral === 'number' ? reviewData.sentimentDistribution.neutral : reviewData.sentimentDistribution.neutral?.percentage || 0}%</span>
+                          <span className="text-red-600">👎 差评 {typeof reviewData.sentimentDistribution.negative === 'number' ? reviewData.sentimentDistribution.negative : reviewData.sentimentDistribution.negative?.percentage || 0}%</span>
                         </dd>
                       </div>
                     )}
