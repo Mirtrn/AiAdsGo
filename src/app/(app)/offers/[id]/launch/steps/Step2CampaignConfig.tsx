@@ -531,7 +531,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
                 <Badge className="ml-1">默认{getDefaultBudget(accountCurrency)} {accountCurrency}</Badge>
               </Label>
               <div className="flex gap-2">
-                <div className="relative flex-1">
+                <div className="relative w-[180px]">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{currencySymbol}</span>
                   <Input
                     type="number"
@@ -549,7 +549,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
                   value={config.budgetType}
                   onValueChange={(value) => handleChange('budgetType', value)}
                 >
-                  <SelectTrigger className="w-[140px]">
+                  <SelectTrigger className="w-[120px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
