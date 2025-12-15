@@ -2598,26 +2598,62 @@ export async function generateAdCreative(
   }
   console.log(`   ✅ 最终保留 ${finalKeywords.length} 个有搜索量的关键词`)
 
-  // 第6步：按搜索量从高到低排序
-  // 需求: 高搜索量的非品牌词优先级 > 低搜索量的品牌组合词
-  // 排序规则: 完全按搜索量排序，不特殊处理品牌词位置
-  finalKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
+  // 🎯 第6步：品牌词优先排序 + 比例控制
+  // 优化(2025-12-15): 确保品牌词至少占30%，避免被高搜索量通用词淹没
+  console.log(`\n📊 关键词排序规则: 品牌词优先 + 比例控制（品牌词至少30%）`)
 
-  console.log(`\n📊 关键词排序规则: 按搜索量从高到低（高搜索量非品牌词 > 低搜索量品牌组合词）`)
+  // 6.1 分离品牌词和非品牌词（包含品牌名的关键词 vs 不包含的）
+  const brandRelatedKws = finalKeywords.filter(kw =>
+    kw.keyword.toLowerCase().includes(brandKeywordLower)
+  )
+  const genericKws = finalKeywords.filter(kw =>
+    !kw.keyword.toLowerCase().includes(brandKeywordLower)
+  )
+
+  // 6.2 各自按搜索量排序
+  brandRelatedKws.sort((a, b) => b.searchVolume - a.searchVolume)
+  genericKws.sort((a, b) => b.searchVolume - a.searchVolume)
+
+  // 6.3 品牌词比例控制（至少30%，最少10个）
+  const totalCount = finalKeywords.length
+  const targetBrandRatio = 0.30  // 品牌词目标比例30%
+  const minBrandCount = 10       // 最少品牌词数量
+  const targetBrandCount = Math.max(minBrandCount, Math.ceil(totalCount * targetBrandRatio))
+  const actualBrandCount = Math.min(brandRelatedKws.length, targetBrandCount)
+  const genericCount = Math.max(0, totalCount - actualBrandCount)
+
+  console.log(`   🏷️ 品牌词: ${brandRelatedKws.length}个可用, 目标${targetBrandCount}个, 实际选取${actualBrandCount}个`)
+  console.log(`   📦 通用词: ${genericKws.length}个可用, 选取${Math.min(genericKws.length, genericCount)}个`)
+
+  // 6.4 组合最终关键词列表：品牌词在前，通用词在后
+  finalKeywords = [
+    ...brandRelatedKws.slice(0, actualBrandCount),
+    ...genericKws.slice(0, genericCount)
+  ]
+
+  // 6.5 输出品牌词详情
+  if (actualBrandCount > 0) {
+    console.log(`\n   🏷️ 已选品牌词 TOP 5:`)
+    brandRelatedKws.slice(0, Math.min(5, actualBrandCount)).forEach((kw, i) => {
+      console.log(`      ${i + 1}. "${kw.keyword}" (${kw.searchVolume.toLocaleString()}/月)`)
+    })
+  }
 
   keywordsWithVolume = finalKeywords
   const afterFilterCount = keywordsWithVolume.length
   const filteredOutCount = beforeFilterCount - afterFilterCount
 
+  // 计算最终品牌词比例
+  const finalBrandCount = keywordsWithVolume.filter(kw =>
+    kw.keyword.toLowerCase().includes(brandKeywordLower)
+  ).length
+  const brandRatio = afterFilterCount > 0 ? Math.round(finalBrandCount / afterFilterCount * 100) : 0
+
   console.log(`\n✅ 过滤完成:`)
   console.log(`   原始关键词: ${beforeFilterCount} 个`)
   console.log(`   最终保留: ${afterFilterCount} 个`)
-  console.log(`   - 品牌词 "${offerBrand}" (搜索量>0): ${brandKeywords.filter(kw => kw.searchVolume > 0).length} 个`)
-  console.log(`   - 非品牌词 (搜索量 >= 500): ${filteredNonBrandKeywords.length} 个`)
-  const supplementCount = afterFilterCount - brandKeywords.filter(kw => kw.searchVolume > 0).length - filteredNonBrandKeywords.length
-  if (supplementCount > 0) {
-    console.log(`   - 补充词 (0 < 搜索量 < 500): ${supplementCount} 个`)
-  }
+  console.log(`   - 品牌相关词: ${finalBrandCount} 个 (${brandRatio}%)`)
+  console.log(`   - 通用词: ${afterFilterCount - finalBrandCount} 个 (${100 - brandRatio}%)`)
 
   // 更新 result.keywords 为过滤后的关键词
   result.keywords = keywordsWithVolume.map(kw => kw.keyword)
