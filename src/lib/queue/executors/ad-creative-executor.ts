@@ -196,6 +196,7 @@ export async function executeAdCreativeGeneration(
       // 收集已使用关键词
       if (creative.keywords && creative.keywords.length > 0) {
         const nonBrandKeywords = creative.keywords.filter(kw => {
+          if (!kw || typeof kw !== 'string') return false
           const kwLower = kw.toLowerCase()
           return !brandKeywords.some(brand => kwLower.includes(brand) || brand.includes(kwLower))
         })
