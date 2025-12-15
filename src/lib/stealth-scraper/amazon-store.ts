@@ -781,11 +781,12 @@ function extractFromProductGridItems(
 
   let extractedCount = 0
 
-  // 选择器优先级：data-testid > class名
+  // 选择器优先级：data-testid > class名 > menuitem
   const productSelectors = [
     'li[data-testid="product-grid-item"]',
     '[class*="ProductGridItem__itemOuter"]',
-    'li[data-csa-c-item-type="asin"]'
+    'li[data-csa-c-item-type="asin"]',
+    'menuitem[description*="view product"]'  // 🔥 Dreame等店铺使用menuitem展示产品
   ]
 
   for (const selector of productSelectors) {
@@ -804,7 +805,16 @@ function extractFromProductGridItems(
         asin = cleanAsin(csaItemId.replace('amzn1.asin.', ''))
       }
 
-      // 备选：从链接提取ASIN
+      // 备选1：从description属性提取ASIN（menuitem专用）
+      if (!asin) {
+        const description = $item.attr('description')
+        if (description) {
+          const match = description.match(/([A-Z0-9]{10})/)
+          if (match) asin = cleanAsin(match[1])
+        }
+      }
+
+      // 备选2：从链接提取ASIN
       if (!asin) {
         const href = $item.find('a[href*="/dp/"]').attr('href')
         if (href) {
@@ -819,6 +829,7 @@ function extractFromProductGridItems(
       // 2. 提取产品标题
       const titleEl = $item.find('a[title]').first()
       const title = titleEl.attr('title') ||
+                   $item.attr('description') ||  // 🔥 menuitem的description包含完整标题
                    $item.find('[class*="title"]').text().trim() ||
                    $item.find('img').attr('alt')?.replace('Image of ', '') ||
                    `Product ${asin}`
