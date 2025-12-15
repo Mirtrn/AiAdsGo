@@ -537,7 +537,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
                     type="number"
                     value={config.budgetAmount}
                     onChange={(e) => {
-                      const value = e.target.value === '' ? 0 : parseFloat(e.target.value)
+                      const value = parseFloat(e.target.value)
                       handleChange('budgetAmount', isNaN(value) ? 0 : value)
                     }}
                     className="pl-7"
@@ -691,7 +691,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
                   type="number"
                   value={config.maxCpcBid}
                   onChange={(e) => {
-                    const value = e.target.value === '' ? 0 : parseFloat(e.target.value)
+                    const value = parseFloat(e.target.value)
                     handleChange('maxCpcBid', isNaN(value) ? 0 : value)
                     // 🆕 P0-1优化：手动修改CPC时关闭动态CPC
                     if (enableDynamicCpc) {
