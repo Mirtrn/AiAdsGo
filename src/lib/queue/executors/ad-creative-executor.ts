@@ -113,7 +113,7 @@ export async function executeAdCreativeGeneration(
     }> = []
 
     let usedKeywords: string[] = []
-    const brandKeywords = [offer.brand.toLowerCase()]
+    const brandKeywords = offer.brand ? [offer.brand.toLowerCase()] : []
 
     // 多轮生成循环
     while (attempts < maxRetries) {

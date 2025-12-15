@@ -636,7 +636,7 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
   // 从现有创意中提取关键词
   const creatives = await db.query<{ keywords: string }>(
     `SELECT keywords FROM ad_creatives
-     WHERE offer_id = ? AND user_id = ? AND is_deleted = 0
+     WHERE offer_id = ? AND user_id = ?
      ORDER BY created_at DESC
      LIMIT 3`,
     [offerId, userId]
@@ -729,7 +729,7 @@ export async function getAvailableBuckets(offerId: number): Promise<BucketType[]
 
   const usedBuckets = await db.query<{ keyword_bucket: string }>(
     `SELECT DISTINCT keyword_bucket FROM ad_creatives
-     WHERE offer_id = ? AND keyword_bucket IS NOT NULL AND is_deleted = 0`,
+     WHERE offer_id = ? AND keyword_bucket IS NOT NULL`,
     [offerId]
   )
 
@@ -750,7 +750,7 @@ export async function getUsedBuckets(offerId: number): Promise<BucketType[]> {
 
   const usedBuckets = await db.query<{ keyword_bucket: string }>(
     `SELECT DISTINCT keyword_bucket FROM ad_creatives
-     WHERE offer_id = ? AND keyword_bucket IS NOT NULL AND is_deleted = 0`,
+     WHERE offer_id = ? AND keyword_bucket IS NOT NULL`,
     [offerId]
   )
 
@@ -768,7 +768,7 @@ export async function isCreativeLimitReached(offerId: number): Promise<boolean> 
 
   const result = await db.queryOne<{ count: number }>(
     `SELECT COUNT(*) as count FROM ad_creatives
-     WHERE offer_id = ? AND is_deleted = 0`,
+     WHERE offer_id = ?`,
     [offerId]
   )
 
