@@ -905,13 +905,13 @@ export default function OfferDetailPage() {
                           <ul className="list-disc list-inside space-y-2">
                             {reviewData.realUseCases.map((item: any, idx: number) => (
                               <li key={idx}>
-                                <strong>{item.scenario}</strong>
-                                {item.mentions && (
+                                <strong>{typeof item === 'string' ? item : item.scenario}</strong>
+                                {typeof item === 'object' && item.mentions && (
                                   <span className="text-gray-600 text-xs ml-1">
                                     （提及频率: {typeof item.mentions === 'number' ? `${item.mentions}次` : item.mentions}）
                                   </span>
                                 )}
-                                {item.examples && item.examples.length > 0 && (
+                                {typeof item === 'object' && item.examples && item.examples.length > 0 && (
                                   <ul className="ml-5 mt-1 text-gray-600 text-xs list-none">
                                     {item.examples.map((ex: string, exIdx: number) => (
                                       <li key={exIdx}>• {ex}</li>
