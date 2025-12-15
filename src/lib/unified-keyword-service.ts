@@ -439,6 +439,9 @@ export function filterByWhitelist<T extends { keyword: string }>(
   brandName: string
 ): WhitelistFilterResult<T> {
   const brandLower = brandName.toLowerCase()
+  // 🆕 提取品牌核心词（如 "Eufy Security" → "eufy"）
+  const coreBrandLower = brandName.split(' ')[0].toLowerCase()
+
   let brandKept = 0
   let genericKept = 0
   let competitorFiltered = 0
@@ -449,8 +452,8 @@ export function filterByWhitelist<T extends { keyword: string }>(
   const filtered = keywords.filter(kw => {
     const keywordLower = kw.keyword.toLowerCase()
 
-    // 1. 包含自身品牌名 → 保留
-    if (keywordLower.includes(brandLower)) {
+    // 1. 包含自身品牌名（完整或核心） → 保留
+    if (keywordLower.includes(brandLower) || keywordLower.includes(coreBrandLower)) {
       brandKept++
       return true
     }
@@ -459,10 +462,17 @@ export function filterByWhitelist<T extends { keyword: string }>(
     const detectedBrand = detectBrandInKeyword(kw.keyword)
 
     if (detectedBrand) {
+      // 🆕 检查检测到的品牌是否是自身品牌核心词
+      if (detectedBrand.toLowerCase() === coreBrandLower) {
+        // 检测到的是自身品牌核心词，保留（不应被过滤）
+        brandKept++
+        return true
+      }
+
       // 包含其他品牌名 → 排除（竞品）
       competitorFiltered++
       competitorBrandsSet.add(detectedBrand)  // 🆕 收集竞品品牌
-      console.log(`   ❌ 过滤竞品词: "${kw.keyword}" (检测到: ${detectedBrand})`)
+      console.log(`   ❌ 过滤竞品词: "${kw.keyword}" (检测到竞品: ${detectedBrand})`)
       return false
     }
 
