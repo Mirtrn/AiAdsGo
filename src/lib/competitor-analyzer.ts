@@ -908,11 +908,24 @@ async function scrapeRelatedToItemsYouViewed(page: any, limit: number): Promise<
 
             if (!name) name = 'Unknown'
 
-            const priceEl = el.querySelector('.a-price .a-offscreen, .p13n-sc-price, .a-price-whole')
-            const priceText = priceEl?.textContent?.trim() || null
+            // 🔧 修复：精确提取价格，排除CSS样式代码
+            const priceEl = el.querySelector('.a-price .a-offscreen')
+            let priceText = priceEl?.textContent?.trim() || null
 
-            const ratingEl = el.querySelector('.a-icon-star-small, .a-icon-star, [class*="a-star"]')
-            const ratingText = ratingEl?.getAttribute('aria-label') || ratingEl?.textContent || null
+            // 清理价格文本中的CSS代码
+            if (priceText && (priceText.includes('{') || priceText.includes('font-weight') || priceText.includes('color:'))) {
+              // 尝试从混乱文本中提取实际价格（如 S$409.46）
+              const priceMatch = priceText.match(/([S$£€¥₹]\$?[\d,]+\.?\d*)/g)
+              if (priceMatch && priceMatch.length > 0) {
+                // 取最后一个匹配的价格（通常是实际价格）
+                priceText = priceMatch[priceMatch.length - 1]
+              } else {
+                priceText = null
+              }
+            }
+
+            const ratingEl = el.querySelector('.a-icon-star-small .a-icon-alt, .a-icon-star .a-icon-alt')
+            const ratingText = ratingEl?.textContent?.trim() || null
             const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
 
             const reviewEl = el.querySelector('[aria-label*="ratings"]')
@@ -987,11 +1000,22 @@ async function scrapeAlsoViewed(page: any, limit: number): Promise<CompetitorPro
             const nameEl = el.querySelector('.a-truncate-full, .p13n-sc-truncated')
             const name = nameEl?.textContent?.trim() || 'Unknown'
 
-            const priceEl = el.querySelector('.a-price .a-offscreen, .p13n-sc-price')
-            const priceText = priceEl?.textContent?.trim() || null
+            // 🔧 修复：精确提取价格，排除CSS样式代码
+            const priceEl = el.querySelector('.a-price .a-offscreen')
+            let priceText = priceEl?.textContent?.trim() || null
 
-            const ratingEl = el.querySelector('.a-icon-star-small, .a-icon-star')
-            const ratingText = ratingEl?.getAttribute('aria-label') || ratingEl?.textContent || null
+            // 清理价格文本中的CSS代码
+            if (priceText && (priceText.includes('{') || priceText.includes('font-weight') || priceText.includes('color:'))) {
+              const priceMatch = priceText.match(/([S$£€¥₹]\$?[\d,]+\.?\d*)/g)
+              if (priceMatch && priceMatch.length > 0) {
+                priceText = priceMatch[priceMatch.length - 1]
+              } else {
+                priceText = null
+              }
+            }
+
+            const ratingEl = el.querySelector('.a-icon-star-small .a-icon-alt, .a-icon-star .a-icon-alt')
+            const ratingText = ratingEl?.textContent?.trim() || null
             const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
 
             const reviewEl = el.querySelector('[aria-label*="ratings"]')
@@ -1148,12 +1172,25 @@ async function scrapeSimilarItems(page: any, limit: number): Promise<CompetitorP
             const asin = extractAsin(el)
             const name = extractName(el)
 
-            const priceEl = el.querySelector('.a-price .a-offscreen, .a-color-price')
-            const priceText = priceEl?.textContent?.trim() || null
+            // 🔧 修复：精确提取价格，排除CSS样式代码
+            const priceEl = el.querySelector('.a-price .a-offscreen')
+            let priceText = priceEl?.textContent?.trim() || null
 
-            const ratingEl = el.querySelector('.a-icon-star-small, [class*="star"]')
-            const ratingText = ratingEl?.getAttribute('aria-label') || ratingEl?.textContent || null
-            const rating = ratingText ? parseFloat(ratingText.match(/[\d.,]+/)?.[0]?.replace(',', '.') || '0') : null
+            // 清理价格文本中的CSS代码
+            if (priceText && (priceText.includes('{') || priceText.includes('font-weight') || priceText.includes('color:'))) {
+              // 尝试从混乱文本中提取实际价格（如 S$409.46）
+              const priceMatch = priceText.match(/([S$£€¥₹]\$?[\d,]+\.?\d*)/g)
+              if (priceMatch && priceMatch.length > 0) {
+                // 取最后一个匹配的价格（通常是实际价格）
+                priceText = priceMatch[priceMatch.length - 1]
+              } else {
+                priceText = null
+              }
+            }
+
+            const ratingEl = el.querySelector('.a-icon-star-small .a-icon-alt, .a-icon-star .a-icon-alt')
+            const ratingText = ratingEl?.textContent?.trim() || null
+            const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0] || '0') : null
 
             const imageEl = el.querySelector('img')
             const imageUrl = imageEl?.src || imageEl?.getAttribute('data-src') || null
