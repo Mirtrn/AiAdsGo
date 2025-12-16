@@ -809,9 +809,9 @@ export async function generateOfferKeywordPool(
   const expandedKeywords = await expandAllKeywords(
     initialKeywords,
     offer.brand,
-    offer.category,
+    offer.category || '',
     offer.target_country,
-    offer.target_language,
+    offer.target_language || 'en',
     userId,
     customerId,
     refreshToken,
@@ -822,7 +822,7 @@ export async function generateOfferKeywordPool(
   const filteredKeywords = filterKeywords(
     expandedKeywords,
     offer.brand,
-    offer.category
+    offer.category || ''
   )
 
   console.log(`📝 过滤后关键词数: ${filteredKeywords.length}`)
@@ -1049,19 +1049,19 @@ export async function getSyntheticBucketKeywords(
 ): Promise<Array<{ keyword: string; searchVolume: number; isBrand: boolean }>> {
   console.log(`\n🔮 开始构建综合创意关键词池...`)
 
-  // 1. 收集所有品牌词
+  // 1. 收集所有品牌词（从 PoolKeywordData[] 提取）
   const brandKeywords = pool.brandKeywords.map(kw => ({
-    keyword: kw,
-    searchVolume: 0,  // 品牌词不需要搜索量排序
+    keyword: typeof kw === 'string' ? kw : kw.keyword,
+    searchVolume: typeof kw === 'string' ? 0 : (kw.searchVolume || 0),
     isBrand: true
   }))
   console.log(`   品牌词: ${brandKeywords.length}个`)
 
-  // 2. 收集所有非品牌词（去重）
+  // 2. 收集所有非品牌词（去重）- 从 PoolKeywordData[] 提取 keyword 字符串
   const allNonBrandKeywords = new Set<string>([
-    ...pool.bucketAKeywords,
-    ...pool.bucketBKeywords,
-    ...pool.bucketCKeywords
+    ...pool.bucketAKeywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
+    ...pool.bucketBKeywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
+    ...pool.bucketCKeywords.map(kw => typeof kw === 'string' ? kw : kw.keyword)
   ])
   console.log(`   非品牌词（去重后）: ${allNonBrandKeywords.size}个`)
 
@@ -1076,7 +1076,7 @@ export async function getSyntheticBucketKeywords(
         country,
         language: 'en',  // TODO: 从offer获取语言
         userId,
-        brandName: pool.brandKeywords[0] || ''
+        brandName: pool.brandKeywords[0] ? (typeof pool.brandKeywords[0] === 'string' ? pool.brandKeywords[0] : pool.brandKeywords[0].keyword) : ''
       })
 
       // 构建搜索量映射

@@ -22,7 +22,8 @@ import {
   getAvailableBuckets,
   getBucketInfo,
   type BucketType,
-  type OfferKeywordPool
+  type OfferKeywordPool,
+  type PoolKeywordData
 } from '@/lib/offer-keyword-pool'
 
 /**
@@ -70,7 +71,7 @@ export async function executeAdCreativeGeneration(
     // 🆕 v4.10: 获取或创建关键词池（复用已有数据，避免重复AI调用）
     let keywordPool: OfferKeywordPool | null = null
     let selectedBucket: BucketType | null = null
-    let bucketInfo: { keywords: string[]; intent: string; intentEn: string } | null = null
+    let bucketInfo: { keywords: PoolKeywordData[]; intent: string; intentEn: string } | null = null
 
     try {
       // 更新进度：准备关键词池
@@ -152,7 +153,7 @@ export async function executeAdCreativeGeneration(
           // 🆕 v4.10: 关键词池参数
           keywordPool: keywordPool || undefined,
           bucket: selectedBucket || undefined,
-          bucketKeywords: bucketInfo?.keywords,
+          bucketKeywords: bucketInfo?.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword),
           bucketIntent: bucketInfo?.intent,
           bucketIntentEn: bucketInfo?.intentEn
         }

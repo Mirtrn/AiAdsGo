@@ -2469,17 +2469,14 @@ export async function generateAdCreative(
 
           const keywordPool = await getOrCreateKeywordPool(
             offer.id,
-            userId,
-            brandName,
-            country,
-            language
+            userId
           )
 
           if (keywordPool) {
             const poolKeywords = [
-              ...keywordPool.bucketA,
-              ...keywordPool.bucketB,
-              ...keywordPool.bucketC
+              ...keywordPool.bucketAKeywords,
+              ...keywordPool.bucketBKeywords,
+              ...keywordPool.bucketCKeywords
             ]
 
             const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
@@ -2492,9 +2489,8 @@ export async function generateAdCreative(
                 searchVolume: kw.searchVolume,
                 competition: kw.competition,
                 competitionIndex: kw.competitionIndex,
-                source: kw.source,
-                matchType: kw.matchType,
-                intentCategory: kw.intentCategory
+                source: (kw.source === 'AI_GENERATED' || kw.source === 'KEYWORD_EXPANSION' || kw.source === 'MERGED') ? kw.source as 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' : undefined,
+                matchType: kw.matchType
               }))
             ]
 

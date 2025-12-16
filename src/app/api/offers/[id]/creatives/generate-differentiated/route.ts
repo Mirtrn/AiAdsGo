@@ -17,7 +17,8 @@ import {
   calculateKeywordOverlapRate,
   determineClusteringStrategy,
   type BucketType,
-  type OfferKeywordPool
+  type OfferKeywordPool,
+  type PoolKeywordData
 } from '@/lib/offer-keyword-pool'
 
 /**
@@ -250,7 +251,7 @@ async function generateCreativeWithBucket(
   offer: any,
   pool: OfferKeywordPool,
   bucket: BucketType,
-  bucketInfo: { keywords: string[]; intent: string; intentEn: string },
+  bucketInfo: { keywords: PoolKeywordData[]; intent: string; intentEn: string },
   maxRetries: number
 ): Promise<{
   creative: any
@@ -261,6 +262,9 @@ async function generateCreativeWithBucket(
   let bestCreative: GeneratedAdCreativeData | null = null
   let bestEvaluation: ComprehensiveAdStrengthResult | null = null
   let attempts = 0
+
+  // 从 PoolKeywordData[] 提取关键词字符串
+  const keywordStrings = bucketInfo.keywords.map(kw => typeof kw === 'string' ? kw : kw.keyword)
 
   while (attempts < maxRetries) {
     attempts++
@@ -276,7 +280,7 @@ async function generateCreativeWithBucket(
       })
 
       // 用桶的关键词替换创意关键词
-      creative.keywords = bucketInfo.keywords.slice(0, 30) // 最多 30 个关键词
+      creative.keywords = keywordStrings.slice(0, 30) // 最多 30 个关键词
 
       // 评估 Ad Strength
       const headlinesWithMetadata = creative.headlinesWithMetadata || creative.headlines.map(text => ({
