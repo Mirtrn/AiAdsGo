@@ -249,6 +249,12 @@ export async function executeOfferExtraction(
       }
     }
 
+    // 🔥 2025-12-16修复：保存到数据库的result必须包含offerId，否则前端无法获取
+    const resultWithOfferId = {
+      ...finalResult,
+      offerId: createdOfferId,
+    }
+
     // 更新任务为完成状态（包含创建的offer_id）
     await db.exec(`
       UPDATE offer_tasks
@@ -261,15 +267,11 @@ export async function executeOfferExtraction(
         completed_at = ${nowFunc},
         updated_at = ${nowFunc}
       WHERE id = ?
-    `, [JSON.stringify(finalResult), createdOfferId, task.id])
+    `, [JSON.stringify(resultWithOfferId), createdOfferId, task.id])
 
-    console.log(`✅ Offer提取任务完成: ${task.id}`)
+    console.log(`✅ Offer提取任务完成: ${task.id}, offerId=${createdOfferId}`)
 
-    // 🔥 2025-12-16修复：返回结果中包含offerId，让前端知道已自动创建的Offer
-    return {
-      ...finalResult,
-      offerId: createdOfferId,
-    }
+    return resultWithOfferId
   } catch (error: any) {
     console.error(`❌ Offer提取任务失败: ${task.id}:`, error.message)
 
