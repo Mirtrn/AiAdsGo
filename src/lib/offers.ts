@@ -781,6 +781,8 @@ export async function updateOfferScrapeStatus(
   scrapedData?: {
     brand?: string
     url?: string
+    // 🔥 2025-12-16修复：添加final_url_suffix字段到类型定义
+    final_url_suffix?: string
     brand_description?: string
     unique_selling_points?: string
     product_highlights?: string
@@ -860,6 +862,7 @@ export async function updateOfferScrapeStatus(
           brand = COALESCE(?, brand),
           offer_name = COALESCE(?, offer_name),
           url = COALESCE(?, url),
+          final_url_suffix = COALESCE(?, final_url_suffix),
           brand_description = COALESCE(?, brand_description),
           unique_selling_points = COALESCE(?, unique_selling_points),
           product_highlights = COALESCE(?, product_highlights),
@@ -885,6 +888,7 @@ export async function updateOfferScrapeStatus(
       scrapedData.brand || null,
       newOfferName,
       scrapedData.url || null,
+      scrapedData.final_url_suffix || null,
       scrapedData.brand_description || null,
       scrapedData.unique_selling_points || null,
       scrapedData.product_highlights || null,
