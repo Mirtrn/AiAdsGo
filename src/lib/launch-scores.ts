@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import crypto from 'crypto'
 
 /**
  * Launch Score 数据库记录（v4.0 - 4维度）
@@ -20,6 +21,12 @@ export interface LaunchScore {
   basicConfigData: string | null
   recommendations: string | null
   calculatedAt: string
+  // v4.1 - 缓存支持字段
+  adCreativeId: number | null // 关联的广告创意ID
+  issues: string | null // 主要问题 (JSON array)
+  suggestions: string | null // 改进建议 (JSON array)
+  contentHash: string | null // 创意内容哈希（用于缓存失效）
+  campaignConfigHash: string | null // 投放配置哈希（用于缓存失效）
 }
 
 /**
@@ -90,12 +97,178 @@ export interface ScoreAnalysis {
 }
 
 /**
- * 创建Launch Score记录（v4.0 - 4维度）
+ * 创意内容数据（用于计算哈希）
+ */
+export interface CreativeContentData {
+  headlines: string[]
+  descriptions: string[]
+  keywords: string[]
+  negativeKeywords: string[]
+  finalUrl: string
+}
+
+/**
+ * 投放配置数据（用于计算哈希）
+ */
+export interface CampaignConfigData {
+  targetCountry: string
+  targetLanguage: string
+  dailyBudget: number
+  maxCpc: number
+}
+
+/**
+ * 计算创意内容哈希
+ * 用于检测创意内容是否发生变化
+ */
+export function computeContentHash(content: CreativeContentData): string {
+  const normalized = {
+    headlines: [...content.headlines].sort(),
+    descriptions: [...content.descriptions].sort(),
+    keywords: [...content.keywords].sort(),
+    negativeKeywords: [...content.negativeKeywords].sort(),
+    finalUrl: content.finalUrl.toLowerCase().trim(),
+  }
+  const str = JSON.stringify(normalized)
+  return crypto.createHash('sha256').update(str).digest('hex').substring(0, 32)
+}
+
+/**
+ * 计算投放配置哈希
+ * 用于检测投放配置是否发生变化
+ */
+export function computeCampaignConfigHash(config: CampaignConfigData): string {
+  const normalized = {
+    targetCountry: config.targetCountry.toUpperCase().trim(),
+    targetLanguage: config.targetLanguage.toLowerCase().trim(),
+    dailyBudget: Math.round(config.dailyBudget * 100) / 100,
+    maxCpc: Math.round(config.maxCpc * 100) / 100,
+  }
+  const str = JSON.stringify(normalized)
+  return crypto.createHash('sha256').update(str).digest('hex').substring(0, 16)
+}
+
+/**
+ * 查找缓存的Launch Score
+ * 通过 creative_id + content_hash + campaign_config_hash 精确匹配
+ */
+export async function findCachedLaunchScore(
+  creativeId: number,
+  contentHash: string,
+  campaignConfigHash: string,
+  userId: number
+): Promise<LaunchScore | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
+    SELECT * FROM launch_scores
+    WHERE ad_creative_id = ?
+      AND content_hash = ?
+      AND campaign_config_hash = ?
+      AND user_id = ?
+    ORDER BY calculated_at DESC
+    LIMIT 1
+  `, [creativeId, contentHash, campaignConfigHash, userId]) as any
+
+  if (!row) {
+    return null
+  }
+
+  return mapRowToLaunchScore(row)
+}
+
+/**
+ * 通过creative_id查找最新的Launch Score
+ */
+export async function findLaunchScoreByCreativeId(
+  creativeId: number,
+  userId: number
+): Promise<LaunchScore | null> {
+  const db = await getDatabase()
+
+  const row = await db.queryOne(`
+    SELECT * FROM launch_scores
+    WHERE ad_creative_id = ?
+      AND user_id = ?
+    ORDER BY calculated_at DESC
+    LIMIT 1
+  `, [creativeId, userId]) as any
+
+  if (!row) {
+    return null
+  }
+
+  return mapRowToLaunchScore(row)
+}
+
+/**
+ * 从ScoreAnalysis中提取所有issues
+ */
+export function extractAllIssues(analysis: ScoreAnalysis): string[] {
+  const issues: string[] = []
+  if (analysis.launchViability.issues) {
+    issues.push(...analysis.launchViability.issues)
+  }
+  if (analysis.adQuality.issues) {
+    issues.push(...analysis.adQuality.issues)
+  }
+  if (analysis.keywordStrategy.issues) {
+    issues.push(...analysis.keywordStrategy.issues)
+  }
+  if (analysis.basicConfig.issues) {
+    issues.push(...analysis.basicConfig.issues)
+  }
+  return issues
+}
+
+/**
+ * 从ScoreAnalysis中提取所有suggestions
+ */
+export function extractAllSuggestions(analysis: ScoreAnalysis): string[] {
+  const suggestions: string[] = []
+  if (analysis.launchViability.suggestions) {
+    suggestions.push(...analysis.launchViability.suggestions)
+  }
+  if (analysis.adQuality.suggestions) {
+    suggestions.push(...analysis.adQuality.suggestions)
+  }
+  if (analysis.keywordStrategy.suggestions) {
+    suggestions.push(...analysis.keywordStrategy.suggestions)
+  }
+  if (analysis.basicConfig.suggestions) {
+    suggestions.push(...analysis.basicConfig.suggestions)
+  }
+  // 添加总体建议
+  if (analysis.overallRecommendations) {
+    suggestions.push(...analysis.overallRecommendations)
+  }
+  return suggestions
+}
+
+/**
+ * 创建Launch Score记录参数
+ */
+export interface CreateLaunchScoreParams {
+  userId: number
+  offerId: number
+  analysis: ScoreAnalysis
+  adCreativeId?: number
+  contentHash?: string
+  campaignConfigHash?: string
+}
+
+/**
+ * 创建Launch Score记录（v4.1 - 支持缓存）
  */
 export async function createLaunchScore(
   userId: number,
   offerId: number,
-  analysis: ScoreAnalysis
+  analysis: ScoreAnalysis,
+  options?: {
+    adCreativeId?: number
+    contentHash?: string
+    campaignConfigHash?: string
+  }
 ): Promise<LaunchScore> {
   const db = await getDatabase()
 
@@ -105,14 +278,19 @@ export async function createLaunchScore(
     analysis.keywordStrategy.score +
     analysis.basicConfig.score
 
+  // 提取所有issues和suggestions
+  const allIssues = extractAllIssues(analysis)
+  const allSuggestions = extractAllSuggestions(analysis)
+
   const info = await db.exec(`
     INSERT INTO launch_scores (
       user_id, offer_id,
       total_score,
       launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
       launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
-      recommendations
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      recommendations,
+      ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     userId,
     offerId,
@@ -125,7 +303,12 @@ export async function createLaunchScore(
     JSON.stringify(analysis.adQuality),
     JSON.stringify(analysis.keywordStrategy),
     JSON.stringify(analysis.basicConfig),
-    JSON.stringify(analysis.overallRecommendations)
+    JSON.stringify(analysis.overallRecommendations),
+    options?.adCreativeId || null,
+    JSON.stringify(allIssues),
+    JSON.stringify(allSuggestions),
+    options?.contentHash || null,
+    options?.campaignConfigHash || null
   ])
 
   return (await findLaunchScoreById(info.lastInsertRowid as number, userId))!
@@ -199,7 +382,7 @@ export async function deleteLaunchScore(id: number, userId: number): Promise<boo
 }
 
 /**
- * 数据库行映射为LaunchScore对象（v4.0 - 4维度）
+ * 数据库行映射为LaunchScore对象（v4.1 - 支持缓存）
  */
 function mapRowToLaunchScore(row: any): LaunchScore {
   return {
@@ -218,6 +401,12 @@ function mapRowToLaunchScore(row: any): LaunchScore {
     basicConfigData: row.basic_config_data,
     recommendations: row.recommendations,
     calculatedAt: row.calculated_at,
+    // v4.1 缓存字段
+    adCreativeId: row.ad_creative_id || null,
+    issues: row.issues || null,
+    suggestions: row.suggestions || null,
+    contentHash: row.content_hash || null,
+    campaignConfigHash: row.campaign_config_hash || null,
   }
 }
 

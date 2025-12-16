@@ -16,6 +16,15 @@ import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { calculateLaunchScore } from '@/lib/scoring'
 import type { AdCreative } from '@/lib/ad-creative'
 import type { ScoreAnalysis } from '@/lib/launch-scores'
+import {
+  createLaunchScore,
+  findCachedLaunchScore,
+  computeContentHash,
+  computeCampaignConfigHash,
+  parseLaunchScoreAnalysis,
+  type CreativeContentData,
+  type CampaignConfigData
+} from '@/lib/launch-scores'
 import { generateNamingScheme } from '@/lib/naming-convention'
 
 /**
@@ -338,29 +347,98 @@ export async function POST(request: NextRequest) {
       sitelinks: JSON.parse(primaryCreative.sitelinks || '[]')
     }
 
+    // 🔥 新增(2025-12-17): 计算缓存哈希
+    const contentHashData: CreativeContentData = {
+      headlines: creativeData.headlines,
+      descriptions: creativeData.descriptions,
+      keywords: creativeData.keywords,
+      negativeKeywords: creativeData.negativeKeywords,
+      finalUrl: primaryCreative.final_url || ''
+    }
+    const campaignConfigHashData: CampaignConfigData = {
+      targetCountry: _campaignConfig.targetCountry || '',
+      targetLanguage: _campaignConfig.targetLanguage || '',
+      dailyBudget: _campaignConfig.budgetAmount || 0,
+      maxCpc: _campaignConfig.maxCpcBid || 0
+    }
+    const contentHash = computeContentHash(contentHashData)
+    const campaignConfigHash = computeCampaignConfigHash(campaignConfigHashData)
+    console.log(`📝 内容哈希: ${contentHash}, 配置哈希: ${campaignConfigHash}`)
+
+    // 🔥 新增(2025-12-17): 检查缓存的Launch Score
+    let cachedLaunchScore = null
     try {
-      const launchScoreResult = await calculateLaunchScore(
-        offer,
-        {
-          ...primaryCreative,
-          headlines: creativeData.headlines,
-          descriptions: creativeData.descriptions,
-          keywords: creativeData.keywords,
-          negativeKeywords: creativeData.negativeKeywords,  // 🔥 修复：传递否定关键词给Launch Score评估
-          callouts: creativeData.callouts,
-          sitelinks: creativeData.sitelinks
-        } as AdCreative,
-        userId,
-        {
-          budgetAmount: _campaignConfig.budgetAmount,
-          maxCpcBid: _campaignConfig.maxCpcBid,
-          budgetType: _campaignConfig.budgetType
-        }
+      cachedLaunchScore = await findCachedLaunchScore(
+        primaryCreative.id,
+        contentHash,
+        campaignConfigHash,
+        userId
       )
+      if (cachedLaunchScore) {
+        console.log(`✅ 找到缓存的Launch Score (ID: ${cachedLaunchScore.id})，跳过重新计算`)
+      }
+    } catch (cacheError: any) {
+      console.warn(`⚠️ 缓存查询失败: ${cacheError.message}，将重新计算`)
+    }
+
+    try {
+      let launchScore: number
+      let scoreAnalysis: ScoreAnalysis
+
+      if (cachedLaunchScore) {
+        // 使用缓存的数据
+        launchScore = cachedLaunchScore.totalScore
+        scoreAnalysis = parseLaunchScoreAnalysis(cachedLaunchScore)
+        console.log(`📦 使用缓存的Launch Score: ${launchScore}分`)
+      } else {
+        // 重新计算Launch Score
+        const launchScoreResult = await calculateLaunchScore(
+          offer,
+          {
+            ...primaryCreative,
+            headlines: creativeData.headlines,
+            descriptions: creativeData.descriptions,
+            keywords: creativeData.keywords,
+            negativeKeywords: creativeData.negativeKeywords,  // 🔥 修复：传递否定关键词给Launch Score评估
+            callouts: creativeData.callouts,
+            sitelinks: creativeData.sitelinks
+          } as AdCreative,
+          userId,
+          {
+            budgetAmount: _campaignConfig.budgetAmount,
+            maxCpcBid: _campaignConfig.maxCpcBid,
+            budgetType: _campaignConfig.budgetType
+          }
+        )
+
+        launchScore = launchScoreResult.totalScore
+        scoreAnalysis = launchScoreResult.scoreAnalysis
+
+        // 🔥 修复(2025-12-17): 保存Launch Score到数据库（带缓存信息）
+        try {
+          // 1. 保存到launch_scores表（带缓存哈希）
+          await createLaunchScore(userId, _offerId, scoreAnalysis, {
+            adCreativeId: primaryCreative.id,
+            contentHash,
+            campaignConfigHash
+          })
+          console.log(`✅ Launch Score已保存到launch_scores表（带缓存信息）`)
+
+          // 2. 更新ad_creatives表的launch_score字段
+          await db.exec(`
+            UPDATE ad_creatives
+            SET launch_score = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `, [launchScore, primaryCreative.id])
+          console.log(`✅ ad_creatives.launch_score已更新为${launchScore}`)
+        } catch (saveError: any) {
+          // 保存失败不阻断流程，只记录警告
+          console.warn(`⚠️ 保存Launch Score失败: ${saveError.message}`)
+        }
+      }
 
       // 🎯 从scoreAnalysis中提取各维度分数（v4.0 - 4维度）
-      const analysis = launchScoreResult.scoreAnalysis
-      const launchScore = launchScoreResult.totalScore
+      const analysis = scoreAnalysis
 
       console.log(`📊 Launch Score评估结果 (v4.0): ${launchScore}分`)
       console.log(`   - 投放可行性: ${analysis.launchViability.score}/35`)
@@ -377,8 +455,8 @@ export async function POST(request: NextRequest) {
         console.error(`❌ Launch Score过低: ${launchScore}分 < ${CRITICAL_THRESHOLD}分，强制阻断`)
 
         // 🎯 收集所有维度的问题和建议
-        const allIssues = extractAllIssues(launchScoreResult.scoreAnalysis)
-        const allSuggestions = extractAllSuggestions(launchScoreResult.scoreAnalysis)
+        const allIssues = extractAllIssues(scoreAnalysis)
+        const allSuggestions = extractAllSuggestions(scoreAnalysis)
 
         return NextResponse.json(
           {
@@ -394,7 +472,7 @@ export async function POST(request: NextRequest) {
               },
               issues: allIssues,
               suggestions: allSuggestions,
-              overallRecommendations: launchScoreResult.scoreAnalysis.overallRecommendations || []
+              overallRecommendations: scoreAnalysis.overallRecommendations || []
             },
             action: 'LAUNCH_SCORE_BLOCKED'
           },
@@ -405,8 +483,8 @@ export async function POST(request: NextRequest) {
         console.warn(`⚠️ Launch Score偏低: ${launchScore}分 < ${WARNING_THRESHOLD}分，建议优化后再发布`)
 
         // 🎯 收集所有维度的问题和建议
-        const allIssues = extractAllIssues(launchScoreResult.scoreAnalysis)
-        const allSuggestions = extractAllSuggestions(launchScoreResult.scoreAnalysis)
+        const allIssues = extractAllIssues(scoreAnalysis)
+        const allSuggestions = extractAllSuggestions(scoreAnalysis)
 
         return NextResponse.json(
           {
@@ -422,7 +500,7 @@ export async function POST(request: NextRequest) {
               },
               issues: allIssues,
               suggestions: allSuggestions,
-              overallRecommendations: launchScoreResult.scoreAnalysis.overallRecommendations || [],
+              overallRecommendations: scoreAnalysis.overallRecommendations || [],
               canForcePublish: true // 允许强制发布
             },
             action: 'LAUNCH_SCORE_WARNING'
@@ -431,7 +509,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      console.log(`✅ Launch Score评估通过: ${launchScore}分 ${force_publish ? '(强制发布)' : ''}`)
+      console.log(`✅ Launch Score评估通过: ${launchScore}分 ${_forcePublish ? '(强制发布)' : ''}`)
 
     } catch (error: any) {
       console.error('Launch Score评估失败:', error.message)
