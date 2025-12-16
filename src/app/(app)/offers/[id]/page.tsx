@@ -936,28 +936,40 @@ export default function OfferDetailPage() {
                         <dt className="text-sm font-medium text-gray-500 mb-2">用户画像</dt>
                         <dd className="text-sm text-gray-900">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {reviewData.userProfiles.map((profile: any, idx: number) => (
-                              <div key={idx} className="bg-gray-50 p-3 rounded">
-                                <div className="flex justify-between items-start">
-                                  <div className="font-medium text-blue-700">{profile.type || profile.profile}</div>
-                                  {profile.percentage && (
-                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                                      {profile.percentage}%
-                                    </span>
+                            {reviewData.userProfiles.map((profile: any, idx: number) => {
+                              // 🔥 2025-12-16修复：适配字符串格式（AI返回）和对象格式（TypeScript定义）
+                              const isString = typeof profile === 'string'
+                              // 解析字符串格式："The Multi-Pet Owner: Their primary challenge..."
+                              const [title, ...descParts] = isString ? profile.split(': ') : []
+                              const description = descParts.join(': ')
+
+                              return (
+                                <div key={idx} className="bg-gray-50 p-3 rounded">
+                                  <div className="flex justify-between items-start">
+                                    <div className="font-medium text-blue-700">
+                                      {isString ? title : (profile.type || profile.profile)}
+                                    </div>
+                                    {!isString && profile.percentage && (
+                                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                        {profile.percentage}%
+                                      </span>
+                                    )}
+                                  </div>
+                                  {(isString ? description : (profile.primaryNeed || profile.description)) && (
+                                    <p className="mt-1 text-xs text-gray-600">
+                                      {isString ? description : (profile.primaryNeed || profile.description)}
+                                    </p>
+                                  )}
+                                  {!isString && profile.indicators && profile.indicators.length > 0 && (
+                                    <ul className="mt-1 text-xs text-gray-600">
+                                      {profile.indicators.map((ind: string, indIdx: number) => (
+                                        <li key={indIdx}>• {ind}</li>
+                                      ))}
+                                    </ul>
                                   )}
                                 </div>
-                                {(profile.primaryNeed || profile.description) && (
-                                  <p className="mt-1 text-xs text-gray-600">{profile.primaryNeed || profile.description}</p>
-                                )}
-                                {profile.indicators && profile.indicators.length > 0 && (
-                                  <ul className="mt-1 text-xs text-gray-600">
-                                    {profile.indicators.map((ind: string, indIdx: number) => (
-                                      <li key={indIdx}>• {ind}</li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         </dd>
                       </div>
@@ -1000,9 +1012,18 @@ export default function OfferDetailPage() {
                           <ul className="space-y-2">
                             {reviewData.quantitativeHighlights.map((item: any, idx: number) => (
                               <li key={idx} className="bg-blue-50 p-2 rounded">
-                                <div className="font-medium text-blue-800">{item.highlight}</div>
-                                {(item.description || item.evidence) && (
-                                  <p className="mt-1 text-xs text-gray-600">{item.description || item.evidence}</p>
+                                {/* 🔥 2025-12-16修复：适配多种数据格式 */}
+                                {/* AI返回格式: {label, quote, value} */}
+                                {/* TypeScript定义: {metric, value, source, adCopy} */}
+                                {/* 旧格式: {highlight, description/evidence} */}
+                                <div className="font-medium text-blue-800">
+                                  {item.label || item.metric || item.highlight || item.adCopy}
+                                  {item.value && <span className="ml-2 text-blue-600">({item.value})</span>}
+                                </div>
+                                {(item.quote || item.description || item.evidence || item.source) && (
+                                  <p className="mt-1 text-xs text-gray-600 italic">
+                                    {item.quote ? `"${item.quote}"` : (item.description || item.evidence || item.source)}
+                                  </p>
                                 )}
                               </li>
                             ))}
@@ -1019,7 +1040,11 @@ export default function OfferDetailPage() {
                             {reviewData.competitorMentions.map((item: any, idx: number) => (
                               <li key={idx} className="bg-gray-50 p-2 rounded">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-medium">{item.competitor}</span>
+                                  {/* 🔥 2025-12-16修复：适配多种数据格式 */}
+                                  {/* AI返回格式: {brand, context} */}
+                                  {/* TypeScript定义: {brand, context, sentiment} */}
+                                  {/* 旧格式: {competitor, sentiment, context} */}
+                                  <span className="font-medium">{item.brand || item.competitor}</span>
                                   {item.sentiment && (
                                     <Badge variant={item.sentiment === 'positive' ? 'default' : item.sentiment === 'neutral' ? 'secondary' : 'outline'}>
                                       {item.sentiment}
