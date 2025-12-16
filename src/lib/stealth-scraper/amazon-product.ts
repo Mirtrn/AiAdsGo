@@ -345,6 +345,41 @@ export async function scrapeAmazonProductWithContext(
       }
     }
 
+    // 🔥 2025-12-16修复：等待评论区加载，确保topReviews数据可用
+    // 问题：offer 150抓取时topReviews为空，导致后续评论分析无法执行
+    console.log(`📝 [复用Context] 等待评论区加载...`)
+    try {
+      // 先滚动到评论区位置（通常在页面中下部）
+      await page.evaluate(() => {
+        const reviewSection = document.querySelector('#customer-reviews_feature_div') ||
+                              document.querySelector('#reviews-medley-footer') ||
+                              document.querySelector('#reviewsMedley')
+        if (reviewSection) {
+          reviewSection.scrollIntoView({ behavior: 'instant', block: 'center' })
+        } else {
+          // 没找到则滚动到80%位置
+          window.scrollTo(0, document.body.scrollHeight * 0.8)
+        }
+      }).catch(() => {})
+      await randomDelay(1500, 2000)
+
+      // 等待评论元素出现
+      const reviewLoaded = await page.waitForSelector('[data-hook="review"]', {
+        timeout: 5000,
+        state: 'visible'
+      }).then(() => true).catch(() => false)
+
+      if (reviewLoaded) {
+        // 额外等待评论内容渲染
+        await randomDelay(1000, 1500)
+        console.log(`✅ [复用Context] 评论区已加载`)
+      } else {
+        console.warn(`⚠️ [复用Context] 评论区未加载，可能产品无评论或页面结构不同`)
+      }
+    } catch (reviewError: any) {
+      console.warn(`⚠️ [复用Context] 评论区加载失败: ${reviewError.message}`)
+    }
+
     // 模拟人类滚动回顶部
     await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
     await randomDelay(300, 500)
@@ -778,13 +813,28 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
   })
 
   // Extract top reviews
+  // 🔥 2025-12-16修复：过滤掉未渲染的JavaScript代码
   const topReviews: string[] = []
   $('[data-hook="review"]').slice(0, 5).each((i: number, el: any) => {
-    const reviewText = $(el).find('[data-hook="review-body"]').text().trim().substring(0, 300)
+    let reviewText = $(el).find('[data-hook="review-body"]').text().trim().substring(0, 300)
     const reviewTitle = $(el).find('[data-hook="review-title"]').text().trim()
     const reviewRating = $(el).find('.a-icon-star').text().trim()
-    if (reviewText) {
-      topReviews.push(`${reviewRating} - ${reviewTitle}: ${reviewText}`)
+
+    // 过滤掉包含JavaScript代码的无效评论内容
+    if (reviewText && reviewText.includes('function()') || reviewText.includes('P.when(')) {
+      console.log(`⚠️ 跳过未渲染的评论: ${reviewText.substring(0, 50)}...`)
+      reviewText = ''  // 清空无效内容
+    }
+
+    // 清理评论标题中的重复评分信息
+    let cleanTitle = reviewTitle
+    if (cleanTitle.includes('out of 5 stars')) {
+      // 移除标题开头的评分信息（如 "5.0 out of 5 stars\n\n\n\n..."）
+      cleanTitle = cleanTitle.replace(/^[\d.]+\s*out of 5 stars[\s\n]*/, '').trim()
+    }
+
+    if (reviewText && !reviewText.includes('function')) {
+      topReviews.push(`${reviewRating} - ${cleanTitle}: ${reviewText}`)
     }
   })
 
