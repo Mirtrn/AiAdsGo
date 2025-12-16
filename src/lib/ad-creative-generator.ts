@@ -2524,11 +2524,17 @@ export async function generateAdCreative(
   // 🔥 优化(2025-12-16): 使用AI语义分类（keyword_intent_clustering prompt）
   if (extractedElements.keywords && extractedElements.keywords.length > 0) {
     console.log(`\n🔗 合并extracted_keywords到关键词列表...`)
-    const existingKeywordsLower = new Set(keywordsWithVolume.map(k => k.keyword.toLowerCase()))
+    // 🔧 修复(2025-12-16): 过滤掉undefined/null的keyword，避免toLowerCase()报错
+    const existingKeywordsLower = new Set(
+      keywordsWithVolume
+        .filter(k => k.keyword)
+        .map(k => k.keyword.toLowerCase())
+    )
     const brandNameLowerForMerge = brandName?.toLowerCase() || ''
 
     // 1. 筛选需要合并的关键词（去重 + 搜索量过滤）
     const keywordsToMerge = extractedElements.keywords.filter(kw => {
+      if (!kw.keyword) return false  // 🔧 过滤undefined/null
       const kwLower = kw.keyword.toLowerCase()
       if (existingKeywordsLower.has(kwLower)) return false  // 去重
       if (kw.searchVolume < 500) return false  // 质量过滤
@@ -2545,16 +2551,17 @@ export async function generateAdCreative(
       try {
         console.log(`   🤖 调用AI语义分类: ${keywordsToMerge.length} 个关键词`)
         const buckets = await clusterKeywordsByIntent(
-          keywordsToMerge.map(k => k.keyword),
+          keywordsToMerge.map(k => k.keyword).filter(Boolean),  // 🔧 过滤undefined
           brandName || '',
           productCategory,
           userId!
         )
 
         // 3. 构建反向映射: keyword → intentCategory
-        buckets.bucketA.keywords.forEach(k => intentMap.set(k.toLowerCase(), 'brand'))
-        buckets.bucketB.keywords.forEach(k => intentMap.set(k.toLowerCase(), 'scenario'))
-        buckets.bucketC.keywords.forEach(k => intentMap.set(k.toLowerCase(), 'function'))
+        // 🔧 修复(2025-12-16): 添加空值检查
+        buckets.bucketA.keywords.filter(Boolean).forEach(k => intentMap.set(k.toLowerCase(), 'brand'))
+        buckets.bucketB.keywords.filter(Boolean).forEach(k => intentMap.set(k.toLowerCase(), 'scenario'))
+        buckets.bucketC.keywords.filter(Boolean).forEach(k => intentMap.set(k.toLowerCase(), 'function'))
 
         console.log(`   ✅ AI分类完成:`)
         console.log(`      品牌导向: ${buckets.bucketA.keywords.length} 个`)
@@ -2564,7 +2571,9 @@ export async function generateAdCreative(
         // 🔥 统一架构(2025-12-16): AI分类失败时使用默认分类
         console.warn(`   ⚠️ AI语义分类失败，使用默认分类: ${clusterError.message}`)
         // 默认将所有关键词标记为function类型
-        keywordsToMerge.forEach(kw => intentMap.set(kw.keyword.toLowerCase(), 'function'))
+        keywordsToMerge.forEach(kw => {
+          if (kw.keyword) intentMap.set(kw.keyword.toLowerCase(), 'function')
+        })
       }
 
       // 4. 添加关键词到列表（带intentCategory）
