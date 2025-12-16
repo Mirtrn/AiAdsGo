@@ -189,32 +189,39 @@ export default function QueueManagementPage() {
           toast.success(`队列数据已更新：运行 ${adaptedStats.global.running}，排队 ${adaptedStats.global.queued}`)
         }
 
-        // 同步配置到表单（适配新字段）
-        const newConfig = data.data?.config || data.stats?.config || {}
-        setConfig({
-          globalConcurrency: newConfig.globalConcurrency || 5,
-          perUserConcurrency: newConfig.perUserConcurrency || 2,
-          perTypeConcurrency: newConfig.perTypeConcurrency || {
-            scrape: 3,
-            'ai-analysis': 2,
-            sync: 1,
-            backup: 1,
-            email: 3,
-            export: 2,
-            'link-check': 2,
-            cleanup: 1,
-            'offer-extraction': 2,
-            'batch-offer-creation': 1,
-            'ad-creative': 3
-          },
-          maxQueueSize: newConfig.maxQueueSize || 1000,
-          taskTimeout: newConfig.taskTimeout || 60000,
-          enablePriority: newConfig.enablePriority !== false,
-          // 新增字段
-          defaultMaxRetries: newConfig.defaultMaxRetries || 3,
-          retryDelay: newConfig.retryDelay || 5000,
-          storageType: newConfig.storageType || 'redis'
-        })
+        // 🔥 修复：从 /api/queue/config 获取配置，而不是用硬编码默认值
+        // stats API 不返回 perTypeConcurrency，需要单独获取
+        try {
+          const configResult = await fetchWithRetry('/api/queue/config')
+          if (configResult.success && configResult.data?.config) {
+            const dbConfig = configResult.data.config
+            setConfig({
+              globalConcurrency: dbConfig.globalConcurrency || 5,
+              perUserConcurrency: dbConfig.perUserConcurrency || 2,
+              perTypeConcurrency: dbConfig.perTypeConcurrency || {
+                scrape: 3,
+                'ai-analysis': 2,
+                sync: 1,
+                backup: 1,
+                email: 3,
+                export: 2,
+                'link-check': 2,
+                cleanup: 1,
+                'offer-extraction': 2,
+                'batch-offer-creation': 1,
+                'ad-creative': 3
+              },
+              maxQueueSize: dbConfig.maxQueueSize || 1000,
+              taskTimeout: dbConfig.taskTimeout || 60000,
+              enablePriority: dbConfig.enablePriority !== false,
+              defaultMaxRetries: dbConfig.defaultMaxRetries || 3,
+              retryDelay: dbConfig.retryDelay || 5000,
+              storageType: dbConfig.storageType || 'redis'
+            })
+          }
+        } catch (configError) {
+          console.warn('获取队列配置失败，使用默认值:', configError)
+        }
       } else {
         if (activeTab === 'monitor') {
           toast.error(data.error || '获取队列统计失败')
@@ -247,10 +254,25 @@ export default function QueueManagementPage() {
         return
       }
 
+      // 🔥 修复：使用API返回的新配置更新状态，而不是重新fetchStats
+      const savedConfig = result.data?.config
+      if (savedConfig) {
+        setConfig(prev => ({
+          ...prev,
+          globalConcurrency: savedConfig.globalConcurrency ?? prev.globalConcurrency,
+          perUserConcurrency: savedConfig.perUserConcurrency ?? prev.perUserConcurrency,
+          perTypeConcurrency: savedConfig.perTypeConcurrency ?? prev.perTypeConcurrency,
+          maxQueueSize: savedConfig.maxQueueSize ?? prev.maxQueueSize,
+          taskTimeout: savedConfig.taskTimeout ?? prev.taskTimeout,
+          defaultMaxRetries: savedConfig.defaultMaxRetries ?? prev.defaultMaxRetries,
+          retryDelay: savedConfig.retryDelay ?? prev.retryDelay,
+        }))
+      }
+
       toast.success('配置已保存并生效')
 
-      // 刷新统计信息
-      await fetchStats()
+      // 刷新统计信息（但不覆盖刚保存的配置）
+      // await fetchStats()  // 移除：避免用旧配置覆盖新配置
     } catch (error: any) {
       console.error('保存配置失败:', error)
       toast.error('保存配置时发生未知错误')
