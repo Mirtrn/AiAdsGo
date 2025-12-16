@@ -1079,14 +1079,20 @@ export default function OfferDetailPage() {
                         （分析了 {competitorData.totalCompetitors} 个竞品）
                       </span>
                     )}
-                    {competitorData.overallCompetitiveness !== undefined && (
-                      <Badge
-                        variant={competitorData.overallCompetitiveness >= 70 ? 'default' : competitorData.overallCompetitiveness >= 50 ? 'secondary' : 'destructive'}
-                        className="ml-2"
-                      >
-                        竞争力 {competitorData.overallCompetitiveness}/100
-                      </Badge>
-                    )}
+                    {competitorData.overallCompetitiveness !== undefined && (() => {
+                      // 🔥 2025-12-16修复：适配对象格式 {score, summary} 和数字格式
+                      const competitivenessScore = typeof competitorData.overallCompetitiveness === 'object'
+                        ? competitorData.overallCompetitiveness.score
+                        : competitorData.overallCompetitiveness
+                      return (
+                        <Badge
+                          variant={competitivenessScore >= 70 ? 'default' : competitivenessScore >= 50 ? 'secondary' : 'destructive'}
+                          className="ml-2"
+                        >
+                          竞争力 {competitivenessScore}/100
+                        </Badge>
+                      )
+                    })()}
                   </h2>
                   <dl className="space-y-4">
                     {/* 价格竞争力 */}
