@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
     // 5. 查询Ad Strength分布（当前总量）
     let adStrengthQuery = `
       SELECT
-        COALESCE(ad_strength, 'UNKNOWN') as ad_strength,
+        COALESCE(ad_strength_data, 'UNKNOWN') as ad_strength,
         COUNT(*) as count
       FROM ad_creatives
       WHERE user_id = ?
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
       adStrengthParams.push(parseInt(offerId))
     }
 
-    adStrengthQuery += ` GROUP BY ad_strength`
+    adStrengthQuery += ` GROUP BY ad_strength_data`
 
     const adStrengthDistribution = await db.query(adStrengthQuery, adStrengthParams) as any[]
 
