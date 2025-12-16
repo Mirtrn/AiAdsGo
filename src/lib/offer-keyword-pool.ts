@@ -412,6 +412,68 @@ function fallbackClustering(keywords: string[]): KeywordBuckets {
 // ============================================
 
 /**
+ * 🔥 2025-12-16修复：根据数据库类型序列化JSON数据
+ *
+ * PostgreSQL JSONB列：不需要JSON.stringify，驱动自动处理
+ * SQLite TEXT列：需要JSON.stringify，因为是文本存储
+ *
+ * 之前的BUG：统一使用JSON.stringify导致PostgreSQL双重序列化
+ * 例如：存储 "[\"dreame\"]" 而不是 ["dreame"]
+ */
+function serializeJsonForDb(data: any, dbType: string): any {
+  if (dbType === 'postgres') {
+    // PostgreSQL JSONB：直接传递JavaScript对象/数组
+    return JSON.stringify(data)  // pg驱动需要字符串，但不会双重序列化
+  }
+  // SQLite TEXT：需要序列化为字符串
+  return JSON.stringify(data)
+}
+
+/**
+ * 🔥 2025-12-16修复：根据数据库类型解析JSON数据
+ *
+ * 处理多种情况：
+ * 1. 正常数组: ["dreame"] → ["dreame"]
+ * 2. 字符串化数组: '["dreame"]' → ["dreame"]
+ * 3. 双重序列化: '"[\\"dreame\\"]"' → ["dreame"]
+ * 4. null/undefined → []
+ */
+function parseJsonFromDb(data: any): any {
+  if (data === null || data === undefined) {
+    return []
+  }
+  // 如果已经是数组，直接返回（PostgreSQL JSONB可能直接返回对象）
+  if (Array.isArray(data)) {
+    return data
+  }
+  // 如果是字符串，尝试解析
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data)
+      // 🔥 处理双重序列化：如果解析结果还是字符串，再解析一次
+      if (typeof parsed === 'string') {
+        try {
+          const doubleParsed = JSON.parse(parsed)
+          if (Array.isArray(doubleParsed)) {
+            console.log(`⚠️ 检测到双重序列化数据，已自动修复`)
+            return doubleParsed
+          }
+        } catch {
+          // 不是双重序列化，返回原始解析结果
+        }
+      }
+      if (Array.isArray(parsed)) {
+        return parsed
+      }
+      return []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+/**
  * 保存关键词池到数据库
  */
 export async function saveKeywordPool(
@@ -435,6 +497,18 @@ export async function saveKeywordPool(
     [offerId]
   )
 
+  // 🔥 2025-12-16修复：使用统一的JSON序列化函数
+  const brandKwJson = serializeJsonForDb(brandKeywords, db.type)
+  const bucketAJson = serializeJsonForDb(buckets.bucketA.keywords, db.type)
+  const bucketBJson = serializeJsonForDb(buckets.bucketB.keywords, db.type)
+  const bucketCJson = serializeJsonForDb(buckets.bucketC.keywords, db.type)
+
+  console.log(`📊 保存关键词池 (dbType=${db.type}):`)
+  console.log(`   brand_keywords: ${brandKeywords.length}个 → ${typeof brandKwJson}`)
+  console.log(`   bucket_a: ${buckets.bucketA.keywords.length}个`)
+  console.log(`   bucket_b: ${buckets.bucketB.keywords.length}个`)
+  console.log(`   bucket_c: ${buckets.bucketC.keywords.length}个`)
+
   if (existing) {
     // 更新现有记录
     await db.exec(
@@ -453,10 +527,10 @@ export async function saveKeywordPool(
         updated_at = ${db.type === 'postgres' ? 'NOW()' : "datetime('now')"}
       WHERE offer_id = ?`,
       [
-        JSON.stringify(brandKeywords),
-        JSON.stringify(buckets.bucketA.keywords),
-        JSON.stringify(buckets.bucketB.keywords),
-        JSON.stringify(buckets.bucketC.keywords),
+        brandKwJson,
+        bucketAJson,
+        bucketBJson,
+        bucketCJson,
         buckets.bucketA.intent,
         buckets.bucketB.intent,
         buckets.bucketC.intent,
@@ -484,10 +558,10 @@ export async function saveKeywordPool(
     [
       offerId,
       userId,
-      JSON.stringify(brandKeywords),
-      JSON.stringify(buckets.bucketA.keywords),
-      JSON.stringify(buckets.bucketB.keywords),
-      JSON.stringify(buckets.bucketC.keywords),
+      brandKwJson,
+      bucketAJson,
+      bucketBJson,
+      bucketCJson,
       buckets.bucketA.intent,
       buckets.bucketB.intent,
       buckets.bucketC.intent,
@@ -515,14 +589,15 @@ export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKey
 
   if (!row) return null
 
+  // 🔥 2025-12-16修复：使用parseJsonFromDb处理双重序列化问题
   return {
     id: row.id,
     offerId: row.offer_id,
     userId: row.user_id,
-    brandKeywords: JSON.parse(row.brand_keywords || '[]'),
-    bucketAKeywords: JSON.parse(row.bucket_a_keywords || '[]'),
-    bucketBKeywords: JSON.parse(row.bucket_b_keywords || '[]'),
-    bucketCKeywords: JSON.parse(row.bucket_c_keywords || '[]'),
+    brandKeywords: parseJsonFromDb(row.brand_keywords),
+    bucketAKeywords: parseJsonFromDb(row.bucket_a_keywords),
+    bucketBKeywords: parseJsonFromDb(row.bucket_b_keywords),
+    bucketCKeywords: parseJsonFromDb(row.bucket_c_keywords),
     bucketAIntent: row.bucket_a_intent,
     bucketBIntent: row.bucket_b_intent,
     bucketCIntent: row.bucket_c_intent,
