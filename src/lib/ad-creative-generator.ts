@@ -2104,8 +2104,28 @@ export async function generateAdCreative(
     console.log(`📦 v4.10 关键词池: 使用桶 ${options.bucket} (${options.bucketIntent}) 的 ${bucketKeywordsNormalized.length} 个关键词`)
   }
 
+  // 🔥 2025-12-16修复：统一extracted关键词格式（可能是字符串数组或对象数组）
+  const normalizedExtractedKeywords = (extractedElements.keywords || []).map((kw: any) => {
+    // 如果是字符串，转换为对象格式
+    if (typeof kw === 'string') {
+      return {
+        keyword: kw,
+        searchVolume: 0,
+        source: 'EXTRACTED',
+        priority: 'MEDIUM'
+      }
+    }
+    // 已经是对象格式
+    return {
+      keyword: String(kw.keyword || ''),
+      searchVolume: kw.searchVolume || kw.volume || 0,
+      source: kw.source || 'EXTRACTED',
+      priority: kw.priority || 'MEDIUM'
+    }
+  }).filter((kw: { keyword: string }) => kw.keyword.length > 0)
+
   // 🆕 v4.10: 桶关键词优先，然后是增强关键词，最后是基础关键词
-  const mergedKeywords = [...bucketKeywordsNormalized, ...normalizedEnhancedKeywords, ...(extractedElements.keywords || [])]
+  const mergedKeywords = [...bucketKeywordsNormalized, ...normalizedEnhancedKeywords, ...normalizedExtractedKeywords]
   const mergedHeadlines = [...(enhancedData.headlines || []), ...(extractedElements.headlines || [])]
   const mergedDescriptions = [...(enhancedData.descriptions || []), ...(extractedElements.descriptions || [])]
 
