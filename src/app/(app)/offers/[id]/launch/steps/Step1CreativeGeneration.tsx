@@ -725,17 +725,31 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                       </CardTitle>
                       <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
                         <span>{(() => {
-                          // 🔥 2025-12-16: 将英文主题映射为中文显示
-                          const themeMap: Record<string, string> = {
-                            'Brand-Oriented': '品牌导向',
-                            'Product-Oriented': '品牌导向',  // 兼容旧数据
-                            'Scene-Oriented': '场景导向',
-                            'Scenario-Oriented': '场景导向',
-                            'Feature-Oriented': '功能导向',
-                            'Benefit-Oriented': '功能导向',  // 兼容旧数据
-                            'Demand-Oriented': '功能导向',   // 兼容旧数据
+                          // 🔥 2025-12-16: 将英文主题映射为中文显示（支持大小写不敏感匹配）
+                          const themeValue = (creative.theme || '').toLowerCase().trim()
+
+                          // 标准主题映射（大小写不敏感）
+                          if (themeValue.includes('brand') || themeValue.includes('product')) {
+                            return '品牌导向'
                           }
-                          return themeMap[creative.theme] || creative.theme || '综合推广'
+                          if (themeValue.includes('scene') || themeValue.includes('scenario') || themeValue.includes('lifestyle') || themeValue.includes('environment')) {
+                            return '场景导向'
+                          }
+                          if (themeValue.includes('feature') || themeValue.includes('benefit') || themeValue.includes('demand') || themeValue.includes('function')) {
+                            return '功能导向'
+                          }
+
+                          // 如果theme是长文本（超过30字符），说明存储的不是标准主题，返回默认值
+                          if (themeValue.length > 30) {
+                            return '综合推广'
+                          }
+
+                          // 已经是中文的情况
+                          if (themeValue.includes('品牌') || themeValue.includes('场景') || themeValue.includes('功能') || themeValue.includes('综合')) {
+                            return creative.theme
+                          }
+
+                          return '综合推广'
                         })()}</span>
                         {/* 🆕 v4.10 意图分类标签 */}
                         {creative.bucketIntent && (
