@@ -4,12 +4,12 @@
  * 核心功能：
  * 1. 生成 Offer 级关键词池（一次生成多次复用）
  * 2. 纯品牌词共享 + 语义分桶独占
- * 3. AI 语义聚类（产品导向/场景导向/需求导向）
+ * 3. AI 语义聚类（品牌导向/场景导向/功能导向）
  * 4. 支持 3 个差异化创意生成
  *
  * 关键词分层策略：
  * - 共享层：纯品牌词（仅品牌名本身，如 "eufy"）
- * - 独占层：语义分桶（产品导向/场景导向/需求导向）
+ * - 独占层：语义分桶（品牌导向/场景导向/功能导向）
  *
  * @see docs/Offer 级广告创意优化方案.md
  */
@@ -37,9 +37,9 @@ export interface OfferKeywordPool {
   brandKeywords: string[]
 
   // 独占层：语义分桶
-  bucketAKeywords: string[]  // 产品导向
+  bucketAKeywords: string[]  // 品牌导向
   bucketBKeywords: string[]  // 场景导向
-  bucketCKeywords: string[]  // 需求导向
+  bucketCKeywords: string[]  // 功能导向
 
   // 桶意图描述
   bucketAIntent: string
@@ -171,9 +171,9 @@ export function separateBrandKeywords(
 /**
  * AI 语义聚类：将非品牌关键词分成 3 个语义桶
  *
- * 桶A：产品导向（知道要买什么产品）
+ * 桶A：品牌导向（知道要买什么品牌）
  * 桶B：场景导向（知道要解决什么问题）
- * 桶C：需求导向（关注具体功能需求）
+ * 桶C：功能导向（关注技术规格/功能特性）
  *
  * @param keywords - 非品牌关键词列表
  * @param brandName - 品牌名称
@@ -294,9 +294,9 @@ export async function clusterKeywordsByIntent(
     validateBuckets(buckets, keywords)
 
     console.log(`✅ AI 聚类完成:`)
-    console.log(`   桶A [产品导向]: ${buckets.bucketA.keywords.length} 个`)
+    console.log(`   桶A [品牌导向]: ${buckets.bucketA.keywords.length} 个`)
     console.log(`   桶B [场景导向]: ${buckets.bucketB.keywords.length} 个`)
-    console.log(`   桶C [需求导向]: ${buckets.bucketC.keywords.length} 个`)
+    console.log(`   桶C [功能导向]: ${buckets.bucketC.keywords.length} 个`)
     console.log(`   均衡度得分: ${buckets.statistics.balanceScore.toFixed(2)}`)
 
     return buckets
@@ -314,9 +314,9 @@ export async function clusterKeywordsByIntent(
  */
 function createEmptyBuckets(): KeywordBuckets {
   return {
-    bucketA: { intent: '产品导向', intentEn: 'Product-Oriented', description: '用户知道要买什么产品', keywords: [] },
+    bucketA: { intent: '品牌导向', intentEn: 'Brand-Oriented', description: '用户知道要买什么品牌', keywords: [] },
     bucketB: { intent: '场景导向', intentEn: 'Scenario-Oriented', description: '用户知道要解决什么问题', keywords: [] },
-    bucketC: { intent: '需求导向', intentEn: 'Demand-Oriented', description: '用户关注具体功能需求', keywords: [] },
+    bucketC: { intent: '功能导向', intentEn: 'Feature-Oriented', description: '用户关注技术规格/功能特性', keywords: [] },
     statistics: { totalKeywords: 0, bucketACount: 0, bucketBCount: 0, bucketCCount: 0, balanceScore: 1.0 }
   }
 }
@@ -380,7 +380,7 @@ function fallbackClustering(keywords: string[]): KeywordBuckets {
     else if (scenarioKeywords.some(s => lower.includes(s))) {
       bucketB.push(keyword)
     }
-    // 默认为产品导向
+    // 默认为品牌导向
     else {
       bucketA.push(keyword)
     }
@@ -394,9 +394,9 @@ function fallbackClustering(keywords: string[]): KeywordBuckets {
   )
 
   return {
-    bucketA: { intent: '产品导向', intentEn: 'Product-Oriented', description: '用户知道要买什么产品', keywords: bucketA },
+    bucketA: { intent: '品牌导向', intentEn: 'Brand-Oriented', description: '用户知道要买什么品牌', keywords: bucketA },
     bucketB: { intent: '场景导向', intentEn: 'Scenario-Oriented', description: '用户知道要解决什么问题', keywords: bucketB },
-    bucketC: { intent: '需求导向', intentEn: 'Demand-Oriented', description: '用户关注具体功能需求', keywords: bucketC },
+    bucketC: { intent: '功能导向', intentEn: 'Feature-Oriented', description: '用户关注技术规格/功能特性', keywords: bucketC },
     statistics: {
       totalKeywords: total,
       bucketACount: bucketA.length,
@@ -702,7 +702,7 @@ export function getBucketInfo(
       return {
         keywords: [...pool.brandKeywords, ...pool.bucketAKeywords],
         intent: pool.bucketAIntent,
-        intentEn: 'Product-Oriented'
+        intentEn: 'Brand-Oriented'
       }
     case 'B':
       return {
@@ -714,7 +714,7 @@ export function getBucketInfo(
       return {
         keywords: [...pool.brandKeywords, ...pool.bucketCKeywords],
         intent: pool.bucketCIntent,
-        intentEn: 'Demand-Oriented'
+        intentEn: 'Feature-Oriented'
       }
     default:
       throw new Error(`Invalid bucket type: ${bucket}`)

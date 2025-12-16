@@ -171,96 +171,291 @@ export function generateBrandVariants(brand: string): string[] {
 }
 
 // ============================================
+// 品类场景/功能词库（用于意图导向种子词生成）
+// ============================================
+
+/**
+ * 品类对应的常见使用场景词（桶B: 场景导向）
+ * - 这些词描述"在哪里用/为什么用"（Where/Why）
+ * - 不包含技术规格或功能特性
+ */
+const CATEGORY_SCENARIO_SEEDS: Record<string, string[]> = {
+  // 安防摄像头
+  'camera': ['home security', 'baby monitor', 'pet watching', 'garage security', 'driveway monitoring', 'backyard security', 'front door security', 'home protection', 'property surveillance'],
+  'security camera': ['home security system', 'house protection', 'apartment security', 'office security', 'small business security', 'remote monitoring', 'elderly care', 'nanny cam'],
+  'doorbell': ['front door security', 'package theft protection', 'visitor monitoring', 'home entrance security', 'delivery notification'],
+
+  // 智能家居
+  'smart home': ['home automation', 'voice control home', 'connected home', 'smart living'],
+  'vacuum': ['home cleaning', 'pet hair cleaning', 'floor cleaning', 'carpet cleaning', 'hardwood floor care'],
+  'robot vacuum': ['automatic cleaning', 'hands-free cleaning', 'scheduled cleaning', 'whole home cleaning'],
+
+  // 音频设备
+  'headphones': ['music listening', 'work from home', 'commute audio', 'gaming audio', 'workout music'],
+  'speaker': ['home audio', 'party music', 'outdoor entertainment', 'room audio'],
+
+  // 通用
+  'default': ['home use', 'office use', 'outdoor use', 'daily use', 'professional use']
+}
+
+/**
+ * 品类对应的常见功能/规格词（桶C: 功能导向）
+ * - 这些词描述"要什么功能/什么规格"（What/How）
+ * - 技术规格、功能特性、购买意图词
+ */
+const CATEGORY_FEATURE_SEEDS: Record<string, string[]> = {
+  // 安防摄像头
+  'camera': ['wireless', 'night vision', '4k', '2k', '1080p', 'solar powered', 'battery powered', 'motion detection', 'two-way audio', 'cloud storage', 'local storage', 'waterproof', 'outdoor', 'indoor', 'ptz', '360 degree', 'color night vision'],
+  'security camera': ['no monthly fee', 'free cloud storage', 'continuous recording', 'ai detection', 'person detection', 'vehicle detection', 'package detection', 'smart alerts'],
+  'doorbell': ['video doorbell', 'wireless doorbell', 'battery doorbell', 'wired doorbell', 'smart doorbell', 'doorbell with camera'],
+
+  // 智能家居
+  'smart home': ['alexa compatible', 'google home', 'apple homekit', 'wifi', 'zigbee', 'matter', 'smart hub'],
+  'vacuum': ['powerful suction', 'quiet', 'self-emptying', 'mopping', 'lidar navigation', 'app control', 'scheduling'],
+  'robot vacuum': ['obstacle avoidance', 'auto empty', 'self cleaning', 'mapping', 'multi-floor'],
+
+  // 音频设备
+  'headphones': ['noise cancelling', 'wireless', 'bluetooth', 'over ear', 'in ear', 'long battery life', 'comfortable', 'hi-fi', 'anc'],
+  'speaker': ['portable', 'waterproof', 'bluetooth', 'wifi', 'bass', 'surround sound', 'multi-room'],
+
+  // 通用
+  'default': ['best', 'top rated', 'affordable', 'cheap', 'budget', 'premium', 'professional', 'high quality', 'durable', 'reliable']
+}
+
+/**
+ * 购买意图/比较词（适用于所有品类，桶C）
+ */
+const PURCHASE_INTENT_WORDS = [
+  'best', 'top', 'review', 'vs', 'alternative', 'cheap', 'affordable',
+  'budget', 'premium', 'compare', 'which', 'recommendation'
+]
+
+// ============================================
 // 智能种子词构建
 // ============================================
 
 /**
- * 构建智能种子词池
- *
- * 从 Offer 数据提取品牌相关的种子词，用于 Keyword Planner 查询
- * 品牌相关种子词 → Keyword Planner 返回更相关结果
- *
- * 优化(2025-12-14): 添加品牌名变体生成，覆盖常见搜索变体
+ * 意图导向的种子词结果
  */
-export function buildSmartSeedPool(offer: OfferData): string[] {
-  const seeds: string[] = []
-  const seenSeeds = new Set<string>()
+export interface IntentAwareSeedPool {
+  /** 品牌导向种子词 (桶A) */
+  brandOrientedSeeds: string[]
+  /** 场景导向种子词 (桶B) */
+  scenarioOrientedSeeds: string[]
+  /** 功能导向种子词 (桶C) */
+  featureOrientedSeeds: string[]
+  /** 所有种子词（合并去重） */
+  allSeeds: string[]
+}
+
+/**
+ * 构建意图感知的种子词池 v2.0
+ *
+ * 三桶意图导向的种子词生成策略：
+ * - 桶A (品牌导向): 品牌名 + 产品类型/型号/官方词
+ * - 桶B (场景导向): 使用场景/应用环境/问题解决
+ * - 桶C (功能导向): 技术规格/功能特性/购买意图
+ *
+ * @param offer - Offer 数据
+ * @returns 按意图分类的种子词池
+ */
+export function buildIntentAwareSeedPool(offer: OfferData): IntentAwareSeedPool {
   const brandName = offer.brand
+  const category = offer.category?.toLowerCase() || ''
 
-  if (!brandName) return seeds
-
-  const addSeed = (seed: string) => {
-    const normalized = seed.toLowerCase().trim()
-    if (normalized && !seenSeeds.has(normalized) && normalized.length > 2) {
-      seenSeeds.add(normalized)
-      seeds.push(seed.trim())
-    }
+  if (!brandName) {
+    return { brandOrientedSeeds: [], scenarioOrientedSeeds: [], featureOrientedSeeds: [], allSeeds: [] }
   }
 
-  // 🆕 0. 品牌名变体（覆盖用户搜索时的常见变体）
-  console.log('\n   📌 Step 0: 生成品牌名变体')
+  console.log('\n🎯 构建意图感知种子词池 v2.0')
+  console.log(`   品牌: ${brandName}, 品类: ${category || '未分类'}`)
+
+  // ==========================================
+  // 桶A: 品牌导向种子词
+  // ==========================================
+  const brandSeeds = new Set<string>()
+
+  // A1. 品牌名变体
   const brandVariants = generateBrandVariants(brandName)
-  brandVariants.forEach(addSeed)
+  brandVariants.forEach(v => brandSeeds.add(v))
 
-  // 1. 品牌+品类（为每个品牌变体生成组合）
-  if (offer.category) {
-    const categoryClean = offer.category.replace(/[&,]/g, ' ').trim().split(/\s+/)[0]
-    if (categoryClean && categoryClean.length > 2) {
-      // 主品牌名 + 品类
-      addSeed(`${brandName} ${categoryClean}`)
-      // 品牌变体 + 品类（取前2个变体）
-      brandVariants.slice(0, 2).forEach(variant => {
-        if (variant !== brandName.toLowerCase()) {
-          addSeed(`${variant} ${categoryClean.toLowerCase()}`)
-        }
-      })
-    }
+  // A2. 品牌 + 品类
+  if (category) {
+    const categoryCore = category.split(/[\s&,]+/)[0]
+    brandSeeds.add(`${brandName} ${categoryCore}`)
   }
 
-  // 3. 从产品标题提取
+  // A3. 从产品标题提取品牌+产品词
   if (offer.productTitle) {
     const titleSeeds = extractKeywordsFromProductTitle(offer.productTitle, brandName)
-    titleSeeds.forEach(addSeed)
+    titleSeeds.forEach(s => brandSeeds.add(s))
   }
 
-  // 4. 从 scraped_data 提取
+  // A4. 从 scrapedData 提取
   if (offer.scrapedData) {
     try {
       const scrapedData = JSON.parse(offer.scrapedData)
-
-      // 4.1 产品名称
       const productName = scrapedData.productName || scrapedData.title
       if (productName && productName !== brandName) {
         const titleSeeds = extractKeywordsFromProductTitle(productName, brandName)
-        titleSeeds.forEach(addSeed)
+        titleSeeds.forEach(s => brandSeeds.add(s))
       }
-
-      // 4.2 店铺多商品聚合
+      // 店铺多商品聚合
       if (scrapedData.products && Array.isArray(scrapedData.products)) {
         const storeProductNames = scrapedData.products
           .slice(0, 10)
           .map((p: any) => p.title || p.productName || p.name)
           .filter((name: string) => name && name.length > 3)
-
         const storeSeeds = aggregateStoreProductSeeds(storeProductNames, brandName)
-        storeSeeds.forEach(addSeed)
+        storeSeeds.forEach(s => brandSeeds.add(s))
       }
     } catch {}
   }
 
-  // 5. 从产品特性提取
+  // ==========================================
+  // 桶B: 场景导向种子词
+  // ==========================================
+  const scenarioSeeds = new Set<string>()
+
+  // B1. 从品类词库获取场景词
+  const categoryKey = findCategoryKey(category, CATEGORY_SCENARIO_SEEDS)
+  const categoryScenarios = CATEGORY_SCENARIO_SEEDS[categoryKey] || CATEGORY_SCENARIO_SEEDS['default']
+
+  // B2. 添加场景词（不带品牌名，用于获取通用场景关键词）
+  categoryScenarios.slice(0, 8).forEach(scenario => {
+    scenarioSeeds.add(scenario)
+    // 也添加品牌+场景组合，捕获"eufy home security"这类搜索
+    scenarioSeeds.add(`${brandName.toLowerCase()} ${scenario}`)
+  })
+
+  // B3. 从产品特性中提取场景相关词
   if (offer.productFeatures) {
-    const featureSeeds = extractFeatureSeeds(offer.productFeatures, brandName)
-    featureSeeds.forEach(addSeed)
+    const scenarioFromFeatures = extractScenarioFromFeatures(offer.productFeatures)
+    scenarioFromFeatures.forEach(s => scenarioSeeds.add(s))
   }
 
-  // 限制种子词数量（API 限制）
-  const finalSeeds = seeds.slice(0, 20)
+  // ==========================================
+  // 桶C: 功能导向种子词
+  // ==========================================
+  const featureSeeds = new Set<string>()
 
-  console.log(`🌱 智能种子词池: ${finalSeeds.length}个`)
-  finalSeeds.forEach((seed, i) => console.log(`   ${i + 1}. "${seed}"`))
+  // C1. 从品类词库获取功能词
+  const featureCategoryKey = findCategoryKey(category, CATEGORY_FEATURE_SEEDS)
+  const categoryFeatures = CATEGORY_FEATURE_SEEDS[featureCategoryKey] || CATEGORY_FEATURE_SEEDS['default']
 
-  return finalSeeds
+  // C2. 添加功能词组合
+  categoryFeatures.slice(0, 10).forEach(feature => {
+    // 功能词 + 品类核心词
+    const categoryCore = category.split(/[\s&,]+/)[0] || 'product'
+    featureSeeds.add(`${feature} ${categoryCore}`)
+    // 品牌 + 功能词（捕获"eufy wireless camera"）
+    featureSeeds.add(`${brandName.toLowerCase()} ${feature}`)
+  })
+
+  // C3. 添加购买意图词
+  PURCHASE_INTENT_WORDS.slice(0, 5).forEach(intent => {
+    const categoryCore = category.split(/[\s&,]+/)[0] || 'product'
+    featureSeeds.add(`${intent} ${categoryCore}`)
+  })
+
+  // C4. 从产品特性提取功能相关词
+  if (offer.productFeatures) {
+    const featureFromDesc = extractFeatureSeeds(offer.productFeatures, brandName)
+    featureFromDesc.forEach(s => featureSeeds.add(s))
+  }
+
+  // ==========================================
+  // 合并去重
+  // ==========================================
+  const allSeedsSet = new Set<string>()
+  brandSeeds.forEach(s => allSeedsSet.add(s.toLowerCase().trim()))
+  scenarioSeeds.forEach(s => allSeedsSet.add(s.toLowerCase().trim()))
+  featureSeeds.forEach(s => allSeedsSet.add(s.toLowerCase().trim()))
+
+  const result: IntentAwareSeedPool = {
+    brandOrientedSeeds: Array.from(brandSeeds).slice(0, 10),
+    scenarioOrientedSeeds: Array.from(scenarioSeeds).slice(0, 10),
+    featureOrientedSeeds: Array.from(featureSeeds).slice(0, 10),
+    allSeeds: Array.from(allSeedsSet).slice(0, 25)
+  }
+
+  // 输出统计
+  console.log(`\n📊 种子词统计:`)
+  console.log(`   🏷️ 品牌导向 (桶A): ${result.brandOrientedSeeds.length} 个`)
+  result.brandOrientedSeeds.slice(0, 5).forEach(s => console.log(`      - "${s}"`))
+  console.log(`   🏠 场景导向 (桶B): ${result.scenarioOrientedSeeds.length} 个`)
+  result.scenarioOrientedSeeds.slice(0, 5).forEach(s => console.log(`      - "${s}"`))
+  console.log(`   ⚙️ 功能导向 (桶C): ${result.featureOrientedSeeds.length} 个`)
+  result.featureOrientedSeeds.slice(0, 5).forEach(s => console.log(`      - "${s}"`))
+  console.log(`   📝 总计: ${result.allSeeds.length} 个去重种子词`)
+
+  return result
+}
+
+/**
+ * 查找匹配的品类键
+ */
+function findCategoryKey(category: string, seedMap: Record<string, string[]>): string {
+  if (!category) return 'default'
+
+  const categoryLower = category.toLowerCase()
+
+  // 精确匹配
+  if (seedMap[categoryLower]) return categoryLower
+
+  // 部分匹配
+  for (const key of Object.keys(seedMap)) {
+    if (categoryLower.includes(key) || key.includes(categoryLower)) {
+      return key
+    }
+  }
+
+  return 'default'
+}
+
+/**
+ * 从产品特性中提取场景相关词
+ */
+function extractScenarioFromFeatures(features: string): string[] {
+  const scenarios: string[] = []
+  const featureLower = features.toLowerCase()
+
+  // 场景关键词映射
+  const scenarioPatterns: Record<string, string> = {
+    'baby': 'baby monitor',
+    'pet': 'pet watching',
+    'home': 'home security',
+    'outdoor': 'outdoor monitoring',
+    'indoor': 'indoor security',
+    'garage': 'garage security',
+    'front door': 'front door security',
+    'backyard': 'backyard monitoring',
+    'office': 'office security',
+    'business': 'business security'
+  }
+
+  for (const [pattern, scenario] of Object.entries(scenarioPatterns)) {
+    if (featureLower.includes(pattern)) {
+      scenarios.push(scenario)
+    }
+  }
+
+  return scenarios.slice(0, 5)
+}
+
+/**
+ * 构建智能种子词池（向后兼容）
+ *
+ * 从 Offer 数据提取品牌相关的种子词，用于 Keyword Planner 查询
+ * 品牌相关种子词 → Keyword Planner 返回更相关结果
+ *
+ * 优化(2025-12-14): 添加品牌名变体生成，覆盖常见搜索变体
+ * 优化(2025-12-16): 使用意图感知种子词构建，最大化覆盖三个意图桶
+ */
+export function buildSmartSeedPool(offer: OfferData): string[] {
+  // 🆕 v2.0: 使用意图感知种子词构建
+  const intentPool = buildIntentAwareSeedPool(offer)
+  return intentPool.allSeeds
 }
 
 /**
@@ -625,6 +820,279 @@ export function assignMatchTypes(
 // ============================================
 // 主服务函数
 // ============================================
+
+/**
+ * 多轮意图感知扩展结果
+ */
+export interface MultiRoundExpansionResult {
+  /** 品牌导向关键词 (桶A) */
+  brandOrientedKeywords: UnifiedKeywordData[]
+  /** 场景导向关键词 (桶B) */
+  scenarioOrientedKeywords: UnifiedKeywordData[]
+  /** 功能导向关键词 (桶C) */
+  featureOrientedKeywords: UnifiedKeywordData[]
+  /** 所有关键词（合并去重） */
+  allKeywords: UnifiedKeywordData[]
+  /** 识别到的竞品品牌 */
+  competitorBrands: string[]
+  /** 扩展统计 */
+  stats: {
+    round1Count: number  // 品牌导向
+    round2Count: number  // 场景导向
+    round3Count: number  // 功能导向
+    totalBeforeDedup: number
+    totalAfterDedup: number
+  }
+}
+
+/**
+ * 多轮意图感知关键词扩展 v2.0
+ *
+ * 三轮扩展策略：
+ * - Round 1: 使用品牌导向种子词 → 获取品牌+产品关键词
+ * - Round 2: 使用场景导向种子词 → 获取使用场景关键词
+ * - Round 3: 使用功能导向种子词 → 获取功能特性关键词
+ *
+ * @param params - 扩展参数
+ * @returns 按意图分类的关键词结果
+ */
+export async function getMultiRoundIntentAwareKeywords(params: KeywordServiceParams): Promise<MultiRoundExpansionResult> {
+  const {
+    offer,
+    country,
+    language,
+    customerId,
+    refreshToken,
+    accountId,
+    userId,
+    minSearchVolume = 100,  // 多轮扩展使用较低阈值
+    maxKeywords = 500
+  } = params
+
+  console.log('\n' + '='.repeat(60))
+  console.log('🎯 多轮意图感知关键词扩展 v2.0')
+  console.log('='.repeat(60))
+  console.log(`品牌: ${offer.brand}`)
+  console.log(`品类: ${offer.category || '未分类'}`)
+  console.log(`国家: ${country}, 语言: ${language}`)
+
+  // 1. 构建意图感知种子词池
+  console.log('\n📍 Step 1: 构建意图感知种子词池')
+  const intentSeeds = buildIntentAwareSeedPool(offer)
+
+  const keywordMap = new Map<string, UnifiedKeywordData>()
+  const competitorBrandsSet = new Set<string>()
+
+  // 统计
+  let round1Count = 0
+  let round2Count = 0
+  let round3Count = 0
+
+  // 辅助函数：执行单轮扩展
+  const runExpansionRound = async (
+    roundName: string,
+    roundSeeds: string[],
+    roundNum: number
+  ): Promise<UnifiedKeywordData[]> => {
+    if (roundSeeds.length === 0) {
+      console.log(`   ⚠️ ${roundName}: 无种子词，跳过`)
+      return []
+    }
+
+    console.log(`\n📍 Round ${roundNum}: ${roundName}`)
+    console.log(`   种子词: ${roundSeeds.slice(0, 5).join(', ')}${roundSeeds.length > 5 ? '...' : ''}`)
+
+    const roundKeywords: UnifiedKeywordData[] = []
+
+    if (customerId && refreshToken) {
+      try {
+        const keywordIdeas = await getKeywordIdeas({
+          customerId,
+          refreshToken,
+          seedKeywords: roundSeeds,
+          targetCountry: country,
+          targetLanguage: language,
+          accountId,
+          userId,
+        })
+
+        console.log(`   📋 Keyword Planner 返回 ${keywordIdeas.length} 个建议`)
+
+        keywordIdeas.forEach(idea => {
+          roundKeywords.push({
+            keyword: idea.text,
+            searchVolume: idea.avgMonthlySearches || 0,
+            competition: idea.competition || 'UNKNOWN',
+            competitionIndex: idea.competitionIndex || 0,
+            lowTopPageBid: (idea.lowTopOfPageBidMicros || 0) / 1_000_000,
+            highTopPageBid: (idea.highTopOfPageBidMicros || 0) / 1_000_000,
+            source: 'EXPANSION',
+            matchType: 'PHRASE'
+          })
+        })
+      } catch (error: any) {
+        console.error(`   ❌ ${roundName} 扩展失败:`, error.message)
+      }
+    }
+
+    return roundKeywords
+  }
+
+  // 2. Round 1: 品牌导向扩展
+  const brandKeywords = await runExpansionRound(
+    '品牌导向 (Brand-Oriented)',
+    intentSeeds.brandOrientedSeeds,
+    1
+  )
+  round1Count = brandKeywords.length
+
+  // 3. Round 2: 场景导向扩展
+  const scenarioKeywords = await runExpansionRound(
+    '场景导向 (Scenario-Oriented)',
+    intentSeeds.scenarioOrientedSeeds,
+    2
+  )
+  round2Count = scenarioKeywords.length
+
+  // 4. Round 3: 功能导向扩展
+  const featureKeywords = await runExpansionRound(
+    '功能导向 (Feature-Oriented)',
+    intentSeeds.featureOrientedSeeds,
+    3
+  )
+  round3Count = featureKeywords.length
+
+  // 5. 合并去重
+  console.log('\n📍 Step 5: 合并去重')
+  const totalBeforeDedup = brandKeywords.length + scenarioKeywords.length + featureKeywords.length
+
+  // 添加到 keywordMap（自动去重）
+  const addToMap = (keywords: UnifiedKeywordData[], source: string) => {
+    keywords.forEach(kw => {
+      const canonical = kw.keyword.toLowerCase().trim()
+      if (!keywordMap.has(canonical)) {
+        keywordMap.set(canonical, { ...kw, source: source as any })
+      } else {
+        // 如果已存在，保留搜索量更高的
+        const existing = keywordMap.get(canonical)!
+        if (kw.searchVolume > existing.searchVolume) {
+          keywordMap.set(canonical, { ...kw, source: source as any })
+        }
+      }
+    })
+  }
+
+  addToMap(brandKeywords, 'BRAND')
+  addToMap(scenarioKeywords, 'CATEGORY')
+  addToMap(featureKeywords, 'FEATURE')
+
+  // 6. 白名单过滤
+  console.log('\n📍 Step 6: 白名单过滤')
+  let allKeywords = Array.from(keywordMap.values())
+  const whitelistResult = filterByWhitelist(allKeywords, offer.brand)
+  allKeywords = whitelistResult.filtered as UnifiedKeywordData[]
+  whitelistResult.competitorBrands.forEach(b => competitorBrandsSet.add(b))
+
+  // 7. 获取精确搜索量
+  console.log('\n📍 Step 7: 获取精确搜索量')
+  try {
+    const volumes = await getKeywordSearchVolumes(
+      allKeywords.slice(0, 1000).map(kw => kw.keyword),
+      country,
+      language,
+      userId
+    )
+
+    volumes.forEach(vol => {
+      const canonical = vol.keyword.toLowerCase().trim()
+      // 更新 keywordMap 中的搜索量
+      allKeywords.forEach((kw, idx) => {
+        if (kw.keyword.toLowerCase().trim() === canonical) {
+          allKeywords[idx] = {
+            ...kw,
+            searchVolume: vol.avgMonthlySearches,
+            competition: vol.competition,
+            competitionIndex: vol.competitionIndex,
+            lowTopPageBid: vol.lowTopPageBid,
+            highTopPageBid: vol.highTopPageBid,
+          }
+        }
+      })
+    })
+    console.log(`   ✅ 更新 ${volumes.length} 个关键词的搜索量`)
+  } catch (error: any) {
+    console.error('   ❌ 获取搜索量失败:', error.message)
+  }
+
+  // 8. 智能过滤 + 匹配类型分配
+  console.log('\n📍 Step 8: 智能过滤')
+  allKeywords = applySmartFilters(allKeywords, minSearchVolume, 30)
+  allKeywords = assignMatchTypes(allKeywords, offer.brand)
+
+  // 9. 按搜索量排序
+  allKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
+
+  // 10. 限制数量
+  allKeywords = allKeywords.slice(0, maxKeywords)
+
+  // 11. 按意图重新分类（基于关键词内容）
+  const classifyByIntent = (kw: UnifiedKeywordData): 'brand' | 'scenario' | 'feature' => {
+    const kwLower = kw.keyword.toLowerCase()
+    const brandLower = offer.brand.toLowerCase()
+
+    // 品牌导向：包含品牌名
+    if (kwLower.includes(brandLower)) {
+      return 'brand'
+    }
+
+    // 功能导向：包含功能/规格词
+    const featurePatterns = ['wireless', 'night vision', '4k', '2k', '1080p', 'solar', 'battery', 'motion', 'detection', 'audio', 'storage', 'waterproof', 'ptz', 'hd', 'best', 'top', 'cheap', 'affordable', 'budget']
+    if (featurePatterns.some(p => kwLower.includes(p))) {
+      return 'feature'
+    }
+
+    // 默认：场景导向
+    return 'scenario'
+  }
+
+  const brandOrientedKeywords = allKeywords.filter(kw => classifyByIntent(kw) === 'brand')
+  const scenarioOrientedKeywords = allKeywords.filter(kw => classifyByIntent(kw) === 'scenario')
+  const featureOrientedKeywords = allKeywords.filter(kw => classifyByIntent(kw) === 'feature')
+
+  // 输出统计
+  console.log('\n' + '='.repeat(60))
+  console.log('✅ 多轮意图感知扩展完成')
+  console.log('='.repeat(60))
+  console.log(`📊 扩展统计:`)
+  console.log(`   Round 1 (品牌导向): ${round1Count} 个`)
+  console.log(`   Round 2 (场景导向): ${round2Count} 个`)
+  console.log(`   Round 3 (功能导向): ${round3Count} 个`)
+  console.log(`   合并前总计: ${totalBeforeDedup} 个`)
+  console.log(`   去重后总计: ${allKeywords.length} 个`)
+  console.log(`\n📊 意图分类结果:`)
+  console.log(`   🏷️ 品牌导向: ${brandOrientedKeywords.length} 个`)
+  console.log(`   🏠 场景导向: ${scenarioOrientedKeywords.length} 个`)
+  console.log(`   ⚙️ 功能导向: ${featureOrientedKeywords.length} 个`)
+
+  if (competitorBrandsSet.size > 0) {
+    console.log(`\n🏷️ 识别竞品品牌: ${Array.from(competitorBrandsSet).join(', ')}`)
+  }
+
+  return {
+    brandOrientedKeywords,
+    scenarioOrientedKeywords,
+    featureOrientedKeywords,
+    allKeywords,
+    competitorBrands: Array.from(competitorBrandsSet),
+    stats: {
+      round1Count,
+      round2Count,
+      round3Count,
+      totalBeforeDedup,
+      totalAfterDedup: allKeywords.length
+    }
+  }
+}
 
 /**
  * 统一关键词数据获取服务 v2.0

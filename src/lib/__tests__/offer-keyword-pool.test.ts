@@ -29,9 +29,9 @@ const mockKeywordPool: OfferKeywordPool = {
   bucketAKeywords: ['eufy camera', 'indoor camera', 'outdoor camera', 'doorbell cam', 'eufycam'],
   bucketBKeywords: ['home security', 'baby monitor', 'pet watching', 'garage cam', 'driveway security'],
   bucketCKeywords: ['wireless camera', 'night vision', '2k camera', 'motion detection', 'best camera'],
-  bucketAIntent: '产品导向',
+  bucketAIntent: '品牌导向',
   bucketBIntent: '场景导向',
-  bucketCIntent: '需求导向',
+  bucketCIntent: '功能导向',
   totalKeywords: 16,
   clusteringModel: 'gemini',
   clusteringPromptVersion: 'v1.0',
@@ -136,8 +136,8 @@ describe('OfferKeywordPool', () => {
     it('should return correct info for bucket A', () => {
       const info = getBucketInfo(mockKeywordPool, 'A')
 
-      expect(info.intent).toBe('产品导向')
-      expect(info.intentEn).toBe('Product-Oriented')
+      expect(info.intent).toBe('品牌导向')
+      expect(info.intentEn).toBe('Brand-Oriented')
       expect(info.keywords).toContain('eufy')  // 品牌词
       expect(info.keywords).toContain('eufy camera')  // 桶A关键词
       expect(info.keywords).toHaveLength(6)  // 1 品牌词 + 5 桶A关键词
@@ -156,8 +156,8 @@ describe('OfferKeywordPool', () => {
     it('should return correct info for bucket C', () => {
       const info = getBucketInfo(mockKeywordPool, 'C')
 
-      expect(info.intent).toBe('需求导向')
-      expect(info.intentEn).toBe('Demand-Oriented')
+      expect(info.intent).toBe('功能导向')
+      expect(info.intentEn).toBe('Feature-Oriented')
       expect(info.keywords).toContain('eufy')  // 品牌词
       expect(info.keywords).toContain('wireless camera')  // 桶C关键词
       expect(info.keywords).toHaveLength(6)  // 1 品牌词 + 5 桶C关键词
@@ -331,7 +331,7 @@ describe('OfferKeywordPool', () => {
         'security camera'
       ]
 
-      // 产品导向词通常包含产品类型
+      // 品牌导向词通常包含产品类型
       for (const kw of productKeywords) {
         expect(kw.toLowerCase()).toMatch(/camera|cam|doorbell/i)
       }

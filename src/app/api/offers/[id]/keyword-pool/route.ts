@@ -109,11 +109,11 @@ export async function GET(
         },
         A: {
           intent: pool.bucketAIntent,
-          intentEn: 'Product-Oriented',
+          intentEn: 'Brand-Oriented',
           keywords: pool.bucketAKeywords,
           count: pool.bucketAKeywords.length,
           isUsed: usedBuckets.includes('A'),
-          description: '用户知道要买什么产品'
+          description: '用户知道要买什么品牌'
         },
         B: {
           intent: pool.bucketBIntent,
@@ -125,11 +125,11 @@ export async function GET(
         },
         C: {
           intent: pool.bucketCIntent,
-          intentEn: 'Demand-Oriented',
+          intentEn: 'Feature-Oriented',
           keywords: pool.bucketCKeywords,
           count: pool.bucketCKeywords.length,
           isUsed: usedBuckets.includes('C'),
-          description: '用户关注具体功能需求'
+          description: '用户关注技术规格/功能特性'
         }
       }
     }

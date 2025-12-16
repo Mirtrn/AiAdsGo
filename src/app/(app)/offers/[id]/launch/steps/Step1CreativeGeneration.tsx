@@ -85,7 +85,7 @@ interface Creative {
 
   // 🆕 关键词分桶字段 (v4.10)
   keywordBucket?: 'A' | 'B' | 'C'  // 关键词桶标识
-  bucketIntent?: string            // 桶意图描述（产品导向/场景导向/需求导向）
+  bucketIntent?: string            // 桶意图描述（品牌导向/场景导向/功能导向）
 
   // AD_STRENGTH新增字段
   headlinesWithMetadata?: HeadlineAsset[]
@@ -727,11 +727,13 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                         <span>{(() => {
                           // 🔥 2025-12-16: 将英文主题映射为中文显示
                           const themeMap: Record<string, string> = {
-                            'Product-Oriented': '产品导向',
+                            'Brand-Oriented': '品牌导向',
+                            'Product-Oriented': '品牌导向',  // 兼容旧数据
                             'Scene-Oriented': '场景导向',
                             'Scenario-Oriented': '场景导向',
-                            'Benefit-Oriented': '需求导向',
-                            'Demand-Oriented': '需求导向',
+                            'Feature-Oriented': '功能导向',
+                            'Benefit-Oriented': '功能导向',  // 兼容旧数据
+                            'Demand-Oriented': '功能导向',   // 兼容旧数据
                           }
                           return themeMap[creative.theme] || creative.theme || '综合推广'
                         })()}</span>

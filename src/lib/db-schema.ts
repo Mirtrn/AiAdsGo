@@ -1131,13 +1131,13 @@ export const TABLES: TableDef[] = [
       // 共享层：纯品牌词
       { name: 'brand_keywords', type: 'TEXT', notNull: true },  // JSON数组
       // 独占层：语义分桶
-      { name: 'bucket_a_keywords', type: 'TEXT', notNull: true },  // JSON数组，产品导向
+      { name: 'bucket_a_keywords', type: 'TEXT', notNull: true },  // JSON数组，品牌导向
       { name: 'bucket_b_keywords', type: 'TEXT', notNull: true },  // JSON数组，场景导向
-      { name: 'bucket_c_keywords', type: 'TEXT', notNull: true },  // JSON数组，需求导向
+      { name: 'bucket_c_keywords', type: 'TEXT', notNull: true },  // JSON数组，功能导向
       // 桶意图描述
-      { name: 'bucket_a_intent', type: 'TEXT', default: '产品导向' },
+      { name: 'bucket_a_intent', type: 'TEXT', default: '品牌导向' },
       { name: 'bucket_b_intent', type: 'TEXT', default: '场景导向' },
-      { name: 'bucket_c_intent', type: 'TEXT', default: '需求导向' },
+      { name: 'bucket_c_intent', type: 'TEXT', default: '功能导向' },
       // 元数据
       { name: 'total_keywords', type: 'INTEGER', notNull: true },
       { name: 'clustering_model', type: 'TEXT' },  // 使用的AI模型
