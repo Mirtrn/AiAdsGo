@@ -84,44 +84,80 @@ export async function getKeywordIdeas(params: {
   let errorMessage: string | undefined
 
   try {
-    // 构建Keyword Ideas请求
-    const request: any = {
-      customer_id: params.customerId,
-      language: getLanguageCode(params.targetLanguage),
-      geo_target_constants: [getGeoTargetConstant(params.targetCountry)],
-      include_adult_keywords: false,
-    }
+    // 🔧 修复(2025-12-16): Google Ads API限制每次请求最多20个种子关键词
+    // 需要分批处理
+    const BATCH_SIZE = 20
+    const allKeywordIdeas: KeywordIdea[] = []
 
-    // 添加种子关键词
+    // 将种子词分批
+    const seedBatches: string[][] = []
     if (params.seedKeywords && params.seedKeywords.length > 0) {
-      request.keyword_seed = {
-        keywords: params.seedKeywords,
+      for (let i = 0; i < params.seedKeywords.length; i += BATCH_SIZE) {
+        seedBatches.push(params.seedKeywords.slice(i, i + BATCH_SIZE))
       }
+    } else {
+      // 如果没有种子词，创建一个空批次（用于URL种子）
+      seedBatches.push([])
     }
 
-    // 添加URL种子
-    if (params.pageUrl) {
-      request.url_seed = {
-        url: params.pageUrl,
+    console.log(`   📦 种子词分批: ${params.seedKeywords?.length || 0} 个词 → ${seedBatches.length} 批`)
+
+    for (let batchIndex = 0; batchIndex < seedBatches.length; batchIndex++) {
+      const batch = seedBatches[batchIndex]
+
+      // 构建Keyword Ideas请求
+      const request: any = {
+        customer_id: params.customerId,
+        language: getLanguageCode(params.targetLanguage),
+        geo_target_constants: [getGeoTargetConstant(params.targetCountry)],
+        include_adult_keywords: false,
       }
+
+      // 添加种子关键词（仅当批次非空时）
+      if (batch.length > 0) {
+        request.keyword_seed = {
+          keywords: batch,
+        }
+      }
+
+      // 添加URL种子（仅第一批添加，避免重复）
+      if (batchIndex === 0 && params.pageUrl) {
+        request.url_seed = {
+          url: params.pageUrl,
+        }
+      }
+
+      // 跳过既没有种子词也没有URL的请求
+      if (batch.length === 0 && !request.url_seed) {
+        continue
+      }
+
+      // 调用Keyword Planner API
+      const ideas = await customer.keywordPlanIdeas.generateKeywordIdeas(request)
+
+      // 转换结果格式
+      const batchIdeas: KeywordIdea[] = (ideas as any).map((idea: any) => ({
+        text: idea.text,
+        avgMonthlySearches: idea.keyword_idea_metrics?.avg_monthly_searches || 0,
+        competition: mapCompetition(idea.keyword_idea_metrics?.competition),
+        competitionIndex: idea.keyword_idea_metrics?.competition_index || 0,
+        lowTopOfPageBidMicros: idea.keyword_idea_metrics?.low_top_of_page_bid_micros || 0,
+        highTopOfPageBidMicros: idea.keyword_idea_metrics?.high_top_of_page_bid_micros || 0,
+        keyword_annotations: idea.keyword_annotations,
+      }))
+
+      // 合并结果（去重）
+      batchIdeas.forEach(idea => {
+        if (!allKeywordIdeas.find(k => k.text.toLowerCase() === idea.text.toLowerCase())) {
+          allKeywordIdeas.push(idea)
+        }
+      })
+
+      console.log(`   📦 批次 ${batchIndex + 1}/${seedBatches.length}: 获取 ${batchIdeas.length} 个关键词，累计 ${allKeywordIdeas.length} 个`)
     }
-
-    // 调用Keyword Planner API
-    const ideas = await customer.keywordPlanIdeas.generateKeywordIdeas(request)
-
-    // 转换结果格式
-    const keywordIdeas: KeywordIdea[] = (ideas as any).map((idea: any) => ({
-      text: idea.text,
-      avgMonthlySearches: idea.keyword_idea_metrics?.avg_monthly_searches || 0,
-      competition: mapCompetition(idea.keyword_idea_metrics?.competition),
-      competitionIndex: idea.keyword_idea_metrics?.competition_index || 0,
-      lowTopOfPageBidMicros: idea.keyword_idea_metrics?.low_top_of_page_bid_micros || 0,
-      highTopOfPageBidMicros: idea.keyword_idea_metrics?.high_top_of_page_bid_micros || 0,
-      keyword_annotations: idea.keyword_annotations,
-    }))
 
     success = true
-    return keywordIdeas
+    return allKeywordIdeas
   } catch (error: any) {
     success = false
     errorMessage = error.message
