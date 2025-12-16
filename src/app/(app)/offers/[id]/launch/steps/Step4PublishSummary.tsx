@@ -62,6 +62,26 @@ export default function Step4PublishSummary({
     success: boolean
   } | null>(null)
 
+  // 🔥 新增：发布流程步骤记录
+  const [publishSteps, setPublishSteps] = useState<Array<{
+    step: string
+    message: string
+    status: 'pending' | 'running' | 'success' | 'failed'
+    timestamp?: Date
+  }>>([])
+
+  // 🔥 新增：发布结果模式（点击发布后切换）
+  const [showPublishResult, setShowPublishResult] = useState(false)
+
+  // 🔥 新增：Launch Score 阻止详情
+  const [launchScoreBlockDetails, setLaunchScoreBlockDetails] = useState<{
+    launchScore: number
+    threshold: number
+    breakdown: any
+    issues: string[]
+    suggestions: string[]
+  } | null>(null)
+
   // 🔥 新增：确认暂停对话框相关state
   const [showPauseConfirm, setShowPauseConfirm] = useState(false)
   const [existingCampaigns, setExistingCampaigns] = useState<any[]>([])
@@ -141,9 +161,25 @@ export default function Step4PublishSummary({
     loadLaunchScore()
   }, [loadLaunchScore])
 
+  // 🔥 辅助函数：添加/更新发布步骤
+  const addPublishStep = (step: string, message: string, status: 'pending' | 'running' | 'success' | 'failed') => {
+    setPublishSteps(prev => {
+      const existing = prev.find(s => s.step === step)
+      if (existing) {
+        return prev.map(s => s.step === step ? { ...s, message, status, timestamp: new Date() } : s)
+      }
+      return [...prev, { step, message, status, timestamp: new Date() }]
+    })
+  }
+
   const handlePublish = async () => {
     try {
       setPublishing(true)
+      setShowPublishResult(true)  // 🔥 切换到发布结果模式
+      setPublishSteps([])  // 清空之前的步骤
+      setLaunchScoreBlockDetails(null)  // 清空之前的阻止详情
+
+      addPublishStep('preparing', '准备发布数据...', 'running')
       setPublishStatus({
         step: 'preparing',
         message: '准备发布数据...',
@@ -151,7 +187,10 @@ export default function Step4PublishSummary({
       })
 
       // Step 1: Pause old campaigns if requested
+      addPublishStep('preparing', '准备发布数据', 'success')
+
       if (pauseOldCampaigns) {
+        addPublishStep('pausing', '暂停已存在的广告系列...', 'running')
         setPublishStatus({
           step: 'pausing',
           message: '暂停已存在的广告系列...',
@@ -171,13 +210,14 @@ export default function Step4PublishSummary({
 
           if (!pauseResponse.ok) {
             console.warn('暂停旧广告系列失败:', pauseData.error)
-            // 不阻止发布流程，只记录警告
+            addPublishStep('pausing', `暂停部分失败 (${pauseData.message || pauseData.error})`, 'failed')
             setPublishStatus({
               step: 'pausing',
               message: `暂停旧广告系列部分失败 (${pauseData.message || pauseData.error})`,
               success: false
             })
           } else {
+            addPublishStep('pausing', `已暂停 ${pauseData.pausedCount} 个广告系列`, 'success')
             setPublishStatus({
               step: 'pausing',
               message: `已暂停 ${pauseData.pausedCount} 个广告系列`,
@@ -186,7 +226,7 @@ export default function Step4PublishSummary({
           }
         } catch (error: any) {
           console.error('暂停旧广告系列错误:', error)
-          // 不阻止发布流程
+          addPublishStep('pausing', '暂停失败，继续发布新广告', 'failed')
           setPublishStatus({
             step: 'pausing',
             message: '暂停旧广告系列失败，但继续发布新广告',
@@ -194,11 +234,11 @@ export default function Step4PublishSummary({
           })
         }
 
-        // 稍微延迟，让用户看到状态更新
         await new Promise(resolve => setTimeout(resolve, 500))
       }
 
       // Step 2: Create campaign structure
+      addPublishStep('creating', '创建广告系列结构...', 'running')
       setPublishStatus({
         step: 'creating',
         message: '创建广告系列结构...',
@@ -217,47 +257,33 @@ export default function Step4PublishSummary({
           googleAdsAccountId: selectedAccount.id,
           campaignConfig: campaignConfig,
           pauseOldCampaigns: pauseOldCampaigns,
-          enableCampaignImmediately: enableCampaignImmediately,  // 是否立即启用Campaign
-          forcePublish: false // 第一次调用不强制发布
+          enableCampaignImmediately: enableCampaignImmediately,
+          forcePublish: false
         })
       })
 
       const data = await response.json()
 
-      // 🔥 处理Launch Score过低的情况（422状态码）
+      // 🔥 处理Launch Score过低的情况（422状态码）- 在卡片中显示而不是toast
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
         console.error('❌ Launch Score过低:', data)
         const details = data.details || {}
-        const breakdown = details.breakdown || {}
-        const issues = details.issues || []
-        const suggestions = details.suggestions || []
 
-        let errorMsg = `投放风险过高（Launch Score: ${details.launchScore || 0}分，需要≥${details.threshold || 60}分）\n\n`
+        // 存储Launch Score阻止详情，在卡片中显示
+        setLaunchScoreBlockDetails({
+          launchScore: details.launchScore || 0,
+          threshold: details.threshold || 60,
+          breakdown: details.breakdown || {},
+          issues: details.issues || [],
+          suggestions: details.suggestions || []
+        })
 
-        // 显示各维度得分
-        errorMsg += '📊 各维度得分：\n'
-        if (breakdown.launchViability) errorMsg += `• 投放可行性: ${breakdown.launchViability.score}/${breakdown.launchViability.max}分\n`
-        if (breakdown.adQuality) errorMsg += `• 广告质量: ${breakdown.adQuality.score}/${breakdown.adQuality.max}分\n`
-        if (breakdown.keywordStrategy) errorMsg += `• 关键词策略: ${breakdown.keywordStrategy.score}/${breakdown.keywordStrategy.max}分\n`
-        if (breakdown.basicConfig) errorMsg += `• 基础配置: ${breakdown.basicConfig.score}/${breakdown.basicConfig.max}分\n`
-
-        // 显示主要问题
-        if (issues.length > 0) {
-          errorMsg += '\n⚠️ 主要问题：\n'
-          issues.slice(0, 5).forEach((issue: string) => {
-            errorMsg += `• ${issue}\n`
-          })
-        }
-
-        // 显示改进建议
-        if (suggestions.length > 0) {
-          errorMsg += '\n💡 改进建议：\n'
-          suggestions.slice(0, 5).forEach((suggestion: string) => {
-            errorMsg += `• ${suggestion}\n`
-          })
-        }
-
-        showError('Launch Score过低', errorMsg)
+        addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，发布被阻止`, 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          success: false
+        })
         setPublishing(false)
         return
       }
@@ -268,16 +294,22 @@ export default function Step4PublishSummary({
         setExistingCampaigns(data.existingCampaigns || [])
         setPauseConfirmMessage(data.message || '')
         setShowPauseConfirm(true)
+        setShowPublishResult(false)  // 退出发布结果模式
         setPublishing(false)
         return
       }
 
-      // 🔥 处理Ads账号被其他Offer占用的情况（409状态码）
+      // 🔥 处理Ads账号被其他Offer占用的情况（409状态码）- 在卡片中显示而不是toast
       if (response.status === 409) {
         console.error('❌ Ads账号冲突:', data)
         const errorMessage = data.message || data.error?.error?.message || 'Ads账号已被其他Offer占用'
         const suggestion = data.suggestion || '请选择其他Ads账号'
-        showError('账号冲突', `${errorMessage}\n\n${suggestion}`)
+        addPublishStep('creating', `账号冲突: ${errorMessage}`, 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: `${errorMessage}\n${suggestion}`,
+          success: false
+        })
         setPublishing(false)
         return
       }
@@ -287,6 +319,8 @@ export default function Step4PublishSummary({
       }
 
       // Step 3: Sync to Google Ads
+      addPublishStep('creating', '创建广告系列结构', 'success')
+      addPublishStep('syncing', '同步到Google Ads...', 'running')
       setPublishStatus({
         step: 'syncing',
         message: '同步到Google Ads...',
@@ -296,26 +330,27 @@ export default function Step4PublishSummary({
       // TODO: Implement actual Google Ads API sync
       await new Promise(resolve => setTimeout(resolve, 2000))
 
-      // Success
+      // Success - 在卡片中显示而不是toast
+      addPublishStep('syncing', '同步完成', 'success')
+      addPublishStep('completed', '广告系列已成功发布到Google Ads', 'success')
       setPublishStatus({
         step: 'completed',
         message: '发布成功！广告系列已上线',
         success: true
       })
 
-      showSuccess('发布成功', '广告系列已成功发布到Google Ads')
-
-      // Redirect after 2 seconds
+      // Redirect after 3 seconds (给用户更多时间查看结果)
       setTimeout(() => {
         onPublishComplete()
-      }, 2000)
+      }, 3000)
     } catch (error: any) {
+      // 发布失败 - 在卡片中显示而不是toast
+      addPublishStep('error', error.message || '发布失败', 'failed')
       setPublishStatus({
         step: 'failed',
         message: error.message || '发布失败',
         success: false
       })
-      showError('发布失败', error.message)
     } finally {
       setPublishing(false)
     }
@@ -326,6 +361,11 @@ export default function Step4PublishSummary({
     try {
       setShowPauseConfirm(false)
       setPublishing(true)
+      setShowPublishResult(true)  // 🔥 切换到发布结果模式
+      setPublishSteps([])  // 清空之前的步骤
+      setLaunchScoreBlockDetails(null)  // 清空之前的阻止详情
+
+      addPublishStep('pausing', `正在暂停${existingCampaigns.length}个旧广告系列...`, 'running')
       setPublishStatus({
         step: 'pausing',
         message: `正在暂停${existingCampaigns.length}个旧广告系列...`,
@@ -351,36 +391,27 @@ export default function Step4PublishSummary({
 
       const data = await response.json()
 
-      // 🔥 处理Launch Score过低的情况
+      // 🔥 处理Launch Score过低的情况 - 在卡片中显示而不是toast (handleConfirmPauseAndPublish)
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
         console.error('❌ Launch Score过低:', data)
         const details = data.details || {}
-        const breakdown = details.breakdown || {}
-        const issues = details.issues || []
-        const suggestions = details.suggestions || []
 
-        let errorMsg = `投放风险过高（Launch Score: ${details.launchScore || 0}分，需要≥${details.threshold || 60}分）\n\n`
-        errorMsg += '📊 各维度得分：\n'
-        if (breakdown.launchViability) errorMsg += `• 投放可行性: ${breakdown.launchViability.score}/${breakdown.launchViability.max}分\n`
-        if (breakdown.adQuality) errorMsg += `• 广告质量: ${breakdown.adQuality.score}/${breakdown.adQuality.max}分\n`
-        if (breakdown.keywordStrategy) errorMsg += `• 关键词策略: ${breakdown.keywordStrategy.score}/${breakdown.keywordStrategy.max}分\n`
-        if (breakdown.basicConfig) errorMsg += `• 基础配置: ${breakdown.basicConfig.score}/${breakdown.basicConfig.max}分\n`
+        // 存储Launch Score阻止详情，在卡片中显示
+        setLaunchScoreBlockDetails({
+          launchScore: details.launchScore || 0,
+          threshold: details.threshold || 60,
+          breakdown: details.breakdown || {},
+          issues: details.issues || [],
+          suggestions: details.suggestions || []
+        })
 
-        if (issues.length > 0) {
-          errorMsg += '\n⚠️ 主要问题：\n'
-          issues.slice(0, 5).forEach((issue: string) => {
-            errorMsg += `• ${issue}\n`
-          })
-        }
-
-        if (suggestions.length > 0) {
-          errorMsg += '\n💡 改进建议：\n'
-          suggestions.slice(0, 5).forEach((suggestion: string) => {
-            errorMsg += `• ${suggestion}\n`
-          })
-        }
-
-        showError('Launch Score过低', errorMsg)
+        addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
+        addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，发布被阻止`, 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          success: false
+        })
         setPublishing(false)
         return
       }
@@ -389,25 +420,28 @@ export default function Step4PublishSummary({
         throw new Error(data.error || data.message || '发布失败')
       }
 
+      // 发布成功 - 在卡片中显示而不是toast
+      addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
+      addPublishStep('creating', '创建广告系列结构', 'success')
+      addPublishStep('completed', '新广告已创建', 'success')
       setPublishStatus({
         step: 'completed',
         message: '发布成功！广告系列已上线',
         success: true
       })
 
-      showSuccess('发布成功', `已暂停${existingCampaigns.length}个旧广告，新广告已创建`)
-
       setTimeout(() => {
         onPublishComplete()
-      }, 2000)
+      }, 3000)
 
     } catch (error: any) {
+      // 发布失败 - 在卡片中显示而不是toast
+      addPublishStep('error', error.message || '发布失败', 'failed')
       setPublishStatus({
         step: 'failed',
         message: error.message || '发布失败',
         success: false
       })
-      showError('发布失败', error.message)
     } finally {
       setPublishing(false)
     }
@@ -418,6 +452,11 @@ export default function Step4PublishSummary({
     try {
       setShowPauseConfirm(false)
       setPublishing(true)
+      setShowPublishResult(true)  // 🔥 切换到发布结果模式
+      setPublishSteps([])  // 清空之前的步骤
+      setLaunchScoreBlockDetails(null)  // 清空之前的阻止详情
+
+      addPublishStep('creating', '创建新广告（A/B测试模式）...', 'running')
       setPublishStatus({
         step: 'creating',
         message: '创建新广告（A/B测试模式）...',
@@ -443,36 +482,26 @@ export default function Step4PublishSummary({
 
       const data = await response.json()
 
-      // 🔥 处理Launch Score过低的情况
+      // 🔥 处理Launch Score过低的情况 - 在卡片中显示而不是toast (handlePublishTogether)
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
         console.error('❌ Launch Score过低:', data)
         const details = data.details || {}
-        const breakdown = details.breakdown || {}
-        const issues = details.issues || []
-        const suggestions = details.suggestions || []
 
-        let errorMsg = `投放风险过高（Launch Score: ${details.launchScore || 0}分，需要≥${details.threshold || 60}分）\n\n`
-        errorMsg += '📊 各维度得分：\n'
-        if (breakdown.launchViability) errorMsg += `• 投放可行性: ${breakdown.launchViability.score}/${breakdown.launchViability.max}分\n`
-        if (breakdown.adQuality) errorMsg += `• 广告质量: ${breakdown.adQuality.score}/${breakdown.adQuality.max}分\n`
-        if (breakdown.keywordStrategy) errorMsg += `• 关键词策略: ${breakdown.keywordStrategy.score}/${breakdown.keywordStrategy.max}分\n`
-        if (breakdown.basicConfig) errorMsg += `• 基础配置: ${breakdown.basicConfig.score}/${breakdown.basicConfig.max}分\n`
+        // 存储Launch Score阻止详情，在卡片中显示
+        setLaunchScoreBlockDetails({
+          launchScore: details.launchScore || 0,
+          threshold: details.threshold || 60,
+          breakdown: details.breakdown || {},
+          issues: details.issues || [],
+          suggestions: details.suggestions || []
+        })
 
-        if (issues.length > 0) {
-          errorMsg += '\n⚠️ 主要问题：\n'
-          issues.slice(0, 5).forEach((issue: string) => {
-            errorMsg += `• ${issue}\n`
-          })
-        }
-
-        if (suggestions.length > 0) {
-          errorMsg += '\n💡 改进建议：\n'
-          suggestions.slice(0, 5).forEach((suggestion: string) => {
-            errorMsg += `• ${suggestion}\n`
-          })
-        }
-
-        showError('Launch Score过低', errorMsg)
+        addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，发布被阻止`, 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          success: false
+        })
         setPublishing(false)
         return
       }
@@ -481,25 +510,27 @@ export default function Step4PublishSummary({
         throw new Error(data.error || data.message || '发布失败')
       }
 
+      // 发布成功 - 在卡片中显示而不是toast
+      addPublishStep('creating', '创建广告系列结构', 'success')
+      addPublishStep('completed', '新广告已创建，旧广告继续运行（A/B测试模式）', 'success')
       setPublishStatus({
         step: 'completed',
         message: '发布成功！新旧广告同时运行',
         success: true
       })
 
-      showSuccess('发布成功', '新广告已创建，旧广告继续运行（A/B测试模式）')
-
       setTimeout(() => {
         onPublishComplete()
-      }, 2000)
+      }, 3000)
 
     } catch (error: any) {
+      // 发布失败 - 在卡片中显示而不是toast
+      addPublishStep('error', error.message || '发布失败', 'failed')
       setPublishStatus({
         step: 'failed',
         message: error.message || '发布失败',
         success: false
       })
-      showError('发布失败', error.message)
     } finally {
       setPublishing(false)
     }
@@ -623,45 +654,211 @@ export default function Step4PublishSummary({
           </CardContent>
         </Card>
 
-        {/* 右列：Launch Score 评估面板 */}
-        <Card className="border-2 border-purple-200 bg-purple-50/30">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
+        {/* 右列：发布结果 或 Launch Score 评估面板 */}
+        {showPublishResult ? (
+          /* 🔥 发布结果卡片 */
+          <Card className={`border-2 ${publishStatus?.success ? 'border-green-200 bg-green-50/30' : publishStatus?.step === 'failed' ? 'border-red-200 bg-red-50/30' : 'border-blue-200 bg-blue-50/30'}`}>
+            <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Target className="w-4 h-4 text-purple-600" />
-                Launch Score 投放评估
+                {publishStatus?.success ? (
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                ) : publishStatus?.step === 'failed' ? (
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                ) : (
+                  <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                )}
+                发布结果
               </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleAnalyzeLaunchScore}
-                  disabled={analyzingLaunchScore || loadingLaunchScore}
-                  className="h-7 px-2"
-                >
-                  {analyzingLaunchScore ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setLaunchScoreExpanded(!launchScoreExpanded)}
-                  className="h-7 px-2"
-                >
-                  {launchScoreExpanded ? (
-                    <ChevronUp className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  )}
-                </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* 发布步骤列表 */}
+                <div className="space-y-2">
+                  {publishSteps.map((step, idx) => (
+                    <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded border">
+                      {step.status === 'running' ? (
+                        <Loader2 className="w-4 h-4 text-blue-600 animate-spin flex-shrink-0" />
+                      ) : step.status === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                      ) : step.status === 'failed' ? (
+                        <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0" />
+                      )}
+                      <span className={`text-sm ${step.status === 'failed' ? 'text-red-700' : step.status === 'success' ? 'text-green-700' : 'text-gray-700'}`}>
+                        {step.message}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 投放评分阻止详情 */}
+                {launchScoreBlockDetails && (
+                  <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+                    {/* 标题和总分 */}
+                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-red-200">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-5 h-5 text-red-600" />
+                        <span className="text-sm font-semibold text-red-800">
+                          投放评分不足
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-red-600">
+                          {launchScoreBlockDetails.launchScore}
+                          <span className="text-sm font-normal text-gray-500">分</span>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          最低要求 {launchScoreBlockDetails.threshold} 分
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 各维度得分 */}
+                    {launchScoreBlockDetails.breakdown && Object.keys(launchScoreBlockDetails.breakdown).length > 0 && (
+                      <div className="mb-3">
+                        <div className="text-xs font-semibold text-gray-700 mb-2">各维度得分</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {launchScoreBlockDetails.breakdown.launchViability && (
+                            <div className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-xs text-gray-600">投放可行性</span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {launchScoreBlockDetails.breakdown.launchViability.score}/{launchScoreBlockDetails.breakdown.launchViability.max}
+                              </span>
+                            </div>
+                          )}
+                          {launchScoreBlockDetails.breakdown.adQuality && (
+                            <div className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-xs text-gray-600">广告质量</span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {launchScoreBlockDetails.breakdown.adQuality.score}/{launchScoreBlockDetails.breakdown.adQuality.max}
+                              </span>
+                            </div>
+                          )}
+                          {launchScoreBlockDetails.breakdown.keywordStrategy && (
+                            <div className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-xs text-gray-600">关键词策略</span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {launchScoreBlockDetails.breakdown.keywordStrategy.score}/{launchScoreBlockDetails.breakdown.keywordStrategy.max}
+                              </span>
+                            </div>
+                          )}
+                          {launchScoreBlockDetails.breakdown.basicConfig && (
+                            <div className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-xs text-gray-600">基础配置</span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {launchScoreBlockDetails.breakdown.basicConfig.score}/{launchScoreBlockDetails.breakdown.basicConfig.max}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 主要问题 */}
+                    {launchScoreBlockDetails.issues && launchScoreBlockDetails.issues.length > 0 && (
+                      <div className="mb-3">
+                        <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-amber-500" />
+                          主要问题
+                        </div>
+                        <ul className="space-y-1">
+                          {launchScoreBlockDetails.issues.slice(0, 5).map((issue, idx) => (
+                            <li key={idx} className="text-xs text-gray-600 flex items-start gap-2 p-1.5 bg-white rounded">
+                              <span className="text-amber-500 mt-0.5">•</span>
+                              <span>{issue}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* 改进建议 */}
+                    {launchScoreBlockDetails.suggestions && launchScoreBlockDetails.suggestions.length > 0 && (
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-green-500" />
+                          改进建议
+                        </div>
+                        <ul className="space-y-1">
+                          {launchScoreBlockDetails.suggestions.slice(0, 5).map((suggestion, idx) => (
+                            <li key={idx} className="text-xs text-gray-600 flex items-start gap-2 p-1.5 bg-white rounded">
+                              <span className="text-green-500 mt-0.5">•</span>
+                              <span>{suggestion}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 成功后的提示 */}
+                {publishStatus?.success && (
+                  <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      <span className="text-sm text-green-800">
+                        广告系列已成功发布，即将跳转...
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 返回按钮（失败时显示） */}
+                {publishStatus?.step === 'failed' && !publishing && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowPublishResult(false)}
+                    className="w-full mt-2"
+                  >
+                    返回修改
+                  </Button>
+                )}
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loadingLaunchScore ? (
+            </CardContent>
+          </Card>
+        ) : (
+          /* Launch Score 评估面板 */
+          <Card className="border-2 border-purple-200 bg-purple-50/30">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Target className="w-4 h-4 text-purple-600" />
+                  投放评分
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleAnalyzeLaunchScore}
+                    disabled={analyzingLaunchScore || loadingLaunchScore}
+                    className="h-7 px-2"
+                  >
+                    {analyzingLaunchScore ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setLaunchScoreExpanded(!launchScoreExpanded)}
+                    className="h-7 px-2"
+                  >
+                    {launchScoreExpanded ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingLaunchScore ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
                 <span className="ml-2 text-sm text-gray-500">加载中...</span>
@@ -839,12 +1036,13 @@ export default function Step4PublishSummary({
                 )}
               </div>
             )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      {/* Publish Status */}
-      {publishStatus && (
+      {/* Publish Status - 仅在非发布结果模式下显示 */}
+      {!showPublishResult && publishStatus && (
         <Alert
           className={
             publishStatus.success
