@@ -271,15 +271,19 @@ async function generateCreativeWithBucket(
     console.log(`   📝 第 ${attempts} 次尝试 (桶 ${bucket})...`)
 
     try {
-      // 生成创意
-      // 注意：当前 generateAdCreative 不支持 bucket_info，
-      // 我们通过 theme 参数传递桶意图，并在保存时关联桶信息
+      // 🔧 2025-12-17: 修复关键词分桶差异化问题
+      // 传递完整的桶信息给 generateAdCreative，使 AI 生成的 headlines/descriptions 能够基于桶关键词差异化
       const creative = await generateAdCreative(offerId, userId, {
         theme: `${bucketInfo.intent} - ${bucketInfo.intentEn}`,
-        skipCache: attempts > 1
+        skipCache: attempts > 1,
+        keywordPool: pool,
+        bucket: bucket,
+        bucketKeywords: keywordStrings,
+        bucketIntent: bucketInfo.intent,
+        bucketIntentEn: bucketInfo.intentEn
       })
 
-      // 用桶的关键词替换创意关键词
+      // 确保创意关键词与桶关键词一致
       creative.keywords = keywordStrings.slice(0, 30) // 最多 30 个关键词
 
       // 评估 Ad Strength

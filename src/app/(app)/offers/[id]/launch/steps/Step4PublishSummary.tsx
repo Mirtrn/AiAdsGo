@@ -4,10 +4,10 @@
  * Step 4: Publish Summary and Confirmation
  * 汇总信息、确认发布
  *
- * v2.0 - 两列布局：左侧发布选项/按钮，右侧Launch Score评估面板
+ * v2.1 - 两列布局：左侧发布选项/按钮，右侧发布结果
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -15,8 +15,6 @@ import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Progress } from '@/components/ui/progress'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -33,10 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Rocket, CheckCircle2, AlertCircle, Loader2, TrendingUp, Settings, Link2, Info, Target, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
-import { showError, showSuccess } from '@/lib/toast-utils'
-import type { LaunchScoreData, ScoreDimension } from '@/components/launch-score/types'
-import { DIMENSION_CONFIG } from '@/components/launch-score/types'
+import { Rocket, CheckCircle2, AlertCircle, Loader2, TrendingUp, Settings, Link2 } from 'lucide-react'
 
 interface Props {
   offer: any
@@ -86,80 +81,6 @@ export default function Step4PublishSummary({
   const [showPauseConfirm, setShowPauseConfirm] = useState(false)
   const [existingCampaigns, setExistingCampaigns] = useState<any[]>([])
   const [pauseConfirmMessage, setPauseConfirmMessage] = useState('')
-
-  // 🚀 Launch Score 相关状态
-  const [launchScoreData, setLaunchScoreData] = useState<LaunchScoreData | null>(null)
-  const [loadingLaunchScore, setLoadingLaunchScore] = useState(false)
-  const [analyzingLaunchScore, setAnalyzingLaunchScore] = useState(false)
-  const [launchScoreError, setLaunchScoreError] = useState('')
-  const [launchScoreExpanded, setLaunchScoreExpanded] = useState(true)
-
-  // 🚀 加载已有Launch Score
-  const loadLaunchScore = useCallback(async () => {
-    if (!offer?.id || !selectedCreative?.id) return
-
-    setLoadingLaunchScore(true)
-    setLaunchScoreError('')
-
-    try {
-      const response = await fetch(`/api/offers/${offer.id}/launch-score`, {
-        credentials: 'include',
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.launchScore) {
-          const parsed: LaunchScoreData = {
-            totalScore: data.launchScore.total_score,
-            launchViability: JSON.parse(data.launchScore.launch_viability_data || '{}'),
-            adQuality: JSON.parse(data.launchScore.ad_quality_data || '{}'),
-            keywordStrategy: JSON.parse(data.launchScore.keyword_strategy_data || '{}'),
-            basicConfig: JSON.parse(data.launchScore.basic_config_data || '{}'),
-            overallRecommendations: JSON.parse(data.launchScore.recommendations || '[]'),
-          }
-          setLaunchScoreData(parsed)
-        }
-      }
-    } catch (err: any) {
-      console.error('加载Launch Score失败:', err)
-    } finally {
-      setLoadingLaunchScore(false)
-    }
-  }, [offer?.id, selectedCreative?.id])
-
-  // 🚀 执行Launch Score分析
-  const handleAnalyzeLaunchScore = useCallback(async () => {
-    if (!offer?.id || !selectedCreative?.id) return
-
-    setAnalyzingLaunchScore(true)
-    setLaunchScoreError('')
-
-    try {
-      const response = await fetch(`/api/offers/${offer.id}/launch-score`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ creativeId: selectedCreative.id }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || '分析失败')
-      }
-
-      setLaunchScoreData(data)
-    } catch (err: any) {
-      setLaunchScoreError(err.message)
-    } finally {
-      setAnalyzingLaunchScore(false)
-    }
-  }, [offer?.id, selectedCreative?.id])
-
-  // 组件挂载时加载Launch Score
-  useEffect(() => {
-    loadLaunchScore()
-  }, [loadLaunchScore])
 
   // 🔥 辅助函数：添加/更新发布步骤
   const addPublishStep = (step: string, message: string, status: 'pending' | 'running' | 'success' | 'failed') => {
@@ -542,19 +463,6 @@ export default function Step4PublishSummary({
     return 'text-red-600'
   }
 
-  // 🚀 Launch Score 辅助函数
-  const getScoreGrade = (score: number) => {
-    if (score >= 80) return { grade: 'A', label: '优秀', color: 'text-green-600', bgColor: 'bg-green-100' }
-    if (score >= 60) return { grade: 'B', label: '良好', color: 'text-yellow-600', bgColor: 'bg-yellow-100' }
-    if (score >= 40) return { grade: 'C', label: '一般', color: 'text-orange-600', bgColor: 'bg-orange-100' }
-    return { grade: 'D', label: '较差', color: 'text-red-600', bgColor: 'bg-red-100' }
-  }
-
-  const getDimensionProgress = (dimension: ScoreDimension & { score?: number }, maxScore: number) => {
-    const score = dimension?.score || 0
-    return Math.round((score / maxScore) * 100)
-  }
-
   return (
     <div className="space-y-6">
       {/* Header Card */}
@@ -570,17 +478,17 @@ export default function Step4PublishSummary({
         </CardHeader>
       </Card>
 
-      {/* 🚀 两列布局：左侧发布选项，右侧Launch Score */}
+      {/* 🚀 两列布局：左侧发布选项，右侧发布结果 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 左列：Publish Options & Button */}
-        <Card className="border-2 border-blue-200 bg-blue-50/50">
-          <CardHeader className="pb-3">
+        <Card className="border-2 border-blue-200 bg-blue-50/50 h-[400px] flex flex-col">
+          <CardHeader className="pb-3 flex-shrink-0">
             <CardTitle className="text-base flex items-center gap-2">
               <Rocket className="w-4 h-4 text-blue-600" />
               发布选项
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex-1 overflow-y-auto">
             <div className="space-y-4">
               {/* Options */}
               <div className="space-y-3">
@@ -654,11 +562,10 @@ export default function Step4PublishSummary({
           </CardContent>
         </Card>
 
-        {/* 右列：发布结果 或 Launch Score 评估面板 */}
-        {showPublishResult ? (
-          /* 🔥 发布结果卡片 */
-          <Card className={`border-2 ${publishStatus?.success ? 'border-green-200 bg-green-50/30' : publishStatus?.step === 'failed' ? 'border-red-200 bg-red-50/30' : 'border-blue-200 bg-blue-50/30'}`}>
-            <CardHeader className="pb-3">
+        {/* 右列：发布结果卡片 */}
+        {showPublishResult && (
+          <Card className={`border-2 h-[400px] flex flex-col ${publishStatus?.success ? 'border-green-200 bg-green-50/30' : publishStatus?.step === 'failed' ? 'border-red-200 bg-red-50/30' : 'border-blue-200 bg-blue-50/30'}`}>
+            <CardHeader className="pb-3 flex-shrink-0">
               <CardTitle className="text-base flex items-center gap-2">
                 {publishStatus?.success ? (
                   <CheckCircle2 className="w-4 h-4 text-green-600" />
@@ -670,7 +577,7 @@ export default function Step4PublishSummary({
                 发布结果
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1 overflow-y-auto">
               <div className="space-y-4">
                 {/* 发布步骤列表 */}
                 <div className="space-y-2">
@@ -819,226 +726,7 @@ export default function Step4PublishSummary({
               </div>
             </CardContent>
           </Card>
-        ) : (
-          /* Launch Score 评估面板 */
-          <Card className="border-2 border-purple-200 bg-purple-50/30">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Target className="w-4 h-4 text-purple-600" />
-                  投放评分
-                </CardTitle>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleAnalyzeLaunchScore}
-                    disabled={analyzingLaunchScore || loadingLaunchScore}
-                    className="h-7 px-2"
-                  >
-                    {analyzingLaunchScore ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setLaunchScoreExpanded(!launchScoreExpanded)}
-                    className="h-7 px-2"
-                  >
-                    {launchScoreExpanded ? (
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {loadingLaunchScore ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
-                <span className="ml-2 text-sm text-gray-500">加载中...</span>
-              </div>
-            ) : launchScoreError ? (
-              <Alert className="bg-red-50 border-red-200">
-                <AlertCircle className="h-4 w-4 text-red-600" />
-                <AlertDescription className="text-red-800">{launchScoreError}</AlertDescription>
-              </Alert>
-            ) : !launchScoreData ? (
-              <div className="text-center py-6">
-                <Target className="w-10 h-10 mx-auto text-gray-300 mb-2" />
-                <p className="text-sm text-gray-500 mb-3">暂无评分数据</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAnalyzeLaunchScore}
-                  disabled={analyzingLaunchScore}
-                >
-                  {analyzingLaunchScore ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      分析中...
-                    </>
-                  ) : (
-                    <>
-                      <Target className="w-4 h-4 mr-2" />
-                      开始评估
-                    </>
-                  )}
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* 总分显示 */}
-                <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
-                  <div className="flex items-center gap-3">
-                    <div className={`text-3xl font-bold ${getScoreGrade(launchScoreData.totalScore).color}`}>
-                      {launchScoreData.totalScore}
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">总分 / 100</div>
-                      <Badge className={`${getScoreGrade(launchScoreData.totalScore).bgColor} ${getScoreGrade(launchScoreData.totalScore).color} border-0`}>
-                        {getScoreGrade(launchScoreData.totalScore).grade} - {getScoreGrade(launchScoreData.totalScore).label}
-                      </Badge>
-                    </div>
-                  </div>
-                  {launchScoreData.totalScore < 60 && (
-                    <Badge variant="destructive" className="text-xs">
-                      <AlertCircle className="w-3 h-3 mr-1" />
-                      发布风险较高
-                    </Badge>
-                  )}
-                </div>
-
-                {/* 四维度评分 - 可折叠 */}
-                {launchScoreExpanded && (
-                  <TooltipProvider>
-                    <div className="space-y-2">
-                      {/* 投放可行性 */}
-                      <div className="p-2 bg-white rounded border">
-                        <div className="flex items-center justify-between mb-1">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="text-xs font-medium text-gray-700 cursor-help flex items-center gap-1">
-                                {DIMENSION_CONFIG.launchViability.name}
-                                <Info className="w-3 h-3 text-gray-400" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">{DIMENSION_CONFIG.launchViability.description}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                          <span className="text-xs font-semibold">
-                            {launchScoreData.launchViability?.score || 0}/{DIMENSION_CONFIG.launchViability.maxScore}
-                          </span>
-                        </div>
-                        <Progress
-                          value={getDimensionProgress(launchScoreData.launchViability, DIMENSION_CONFIG.launchViability.maxScore)}
-                          className="h-1.5"
-                        />
-                      </div>
-
-                      {/* 广告质量 */}
-                      <div className="p-2 bg-white rounded border">
-                        <div className="flex items-center justify-between mb-1">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="text-xs font-medium text-gray-700 cursor-help flex items-center gap-1">
-                                {DIMENSION_CONFIG.adQuality.name}
-                                <Info className="w-3 h-3 text-gray-400" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">{DIMENSION_CONFIG.adQuality.description}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                          <span className="text-xs font-semibold">
-                            {launchScoreData.adQuality?.score || 0}/{DIMENSION_CONFIG.adQuality.maxScore}
-                          </span>
-                        </div>
-                        <Progress
-                          value={getDimensionProgress(launchScoreData.adQuality, DIMENSION_CONFIG.adQuality.maxScore)}
-                          className="h-1.5"
-                        />
-                      </div>
-
-                      {/* 关键词策略 */}
-                      <div className="p-2 bg-white rounded border">
-                        <div className="flex items-center justify-between mb-1">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="text-xs font-medium text-gray-700 cursor-help flex items-center gap-1">
-                                {DIMENSION_CONFIG.keywordStrategy.name}
-                                <Info className="w-3 h-3 text-gray-400" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">{DIMENSION_CONFIG.keywordStrategy.description}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                          <span className="text-xs font-semibold">
-                            {launchScoreData.keywordStrategy?.score || 0}/{DIMENSION_CONFIG.keywordStrategy.maxScore}
-                          </span>
-                        </div>
-                        <Progress
-                          value={getDimensionProgress(launchScoreData.keywordStrategy, DIMENSION_CONFIG.keywordStrategy.maxScore)}
-                          className="h-1.5"
-                        />
-                      </div>
-
-                      {/* 基础配置 */}
-                      <div className="p-2 bg-white rounded border">
-                        <div className="flex items-center justify-between mb-1">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="text-xs font-medium text-gray-700 cursor-help flex items-center gap-1">
-                                {DIMENSION_CONFIG.basicConfig.name}
-                                <Info className="w-3 h-3 text-gray-400" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">{DIMENSION_CONFIG.basicConfig.description}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                          <span className="text-xs font-semibold">
-                            {launchScoreData.basicConfig?.score || 0}/{DIMENSION_CONFIG.basicConfig.maxScore}
-                          </span>
-                        </div>
-                        <Progress
-                          value={getDimensionProgress(launchScoreData.basicConfig, DIMENSION_CONFIG.basicConfig.maxScore)}
-                          className="h-1.5"
-                        />
-                      </div>
-                    </div>
-
-                    {/* 主要问题和建议 */}
-                    {launchScoreData.overallRecommendations && launchScoreData.overallRecommendations.length > 0 && (
-                      <div className="pt-2 border-t">
-                        <div className="text-xs font-medium text-gray-700 mb-2 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3 text-amber-500" />
-                          改进建议
-                        </div>
-                        <ul className="space-y-1">
-                          {launchScoreData.overallRecommendations.slice(0, 3).map((rec: string, idx: number) => (
-                            <li key={idx} className="text-xs text-gray-600 flex items-start gap-1.5">
-                              <span className="text-amber-500 mt-0.5">•</span>
-                              <span>{rec}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </TooltipProvider>
-                )}
-              </div>
-            )}
-            </CardContent>
-          </Card>
-        )}
+)}
       </div>
 
       {/* Publish Status - 仅在非发布结果模式下显示 */}

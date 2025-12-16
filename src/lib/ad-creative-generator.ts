@@ -2463,24 +2463,29 @@ export async function generateAdCreative(
 
           console.log(`🌍 Keyword Planner 查询语言: ${language} (${targetLanguage})`)
 
-          // 🔥 统一架构(2025-12-16): 使用关键词池替代3轮Keyword Planner扩展
-          console.log(`\n🔍 从关键词池获取关键词...`)
-          const { getOrCreateKeywordPool } = await import('@/lib/offer-keyword-pool')
+          // 🔧 2025-12-17: 如果已传入特定桶的关键词，跳过从关键词池获取所有关键词
+          // 这确保差异化创意只使用对应桶的关键词，而不是所有桶的关键词混合
+          if (options?.bucketKeywords && options.bucketKeywords.length > 0) {
+            console.log(`📦 已有桶 ${options.bucket} (${options.bucketIntent}) 的 ${options.bucketKeywords.length} 个关键词，跳过关键词池合并`)
+          } else {
+            // 🔥 统一架构(2025-12-16): 使用关键词池替代3轮Keyword Planner扩展
+            console.log(`\n🔍 从关键词池获取关键词...`)
+            const { getOrCreateKeywordPool } = await import('@/lib/offer-keyword-pool')
 
-          const keywordPool = await getOrCreateKeywordPool(
-            offer.id,
-            userId
-          )
+            const keywordPool = await getOrCreateKeywordPool(
+              offer.id,
+              userId
+            )
 
-          if (keywordPool) {
-            const poolKeywords = [
-              ...keywordPool.bucketAKeywords,
-              ...keywordPool.bucketBKeywords,
-              ...keywordPool.bucketCKeywords
-            ]
+            if (keywordPool) {
+              const poolKeywords = [
+                ...keywordPool.bucketAKeywords,
+                ...keywordPool.bucketBKeywords,
+                ...keywordPool.bucketCKeywords
+              ]
 
-            const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
-            const newKeywords = poolKeywords.filter(kw => !existingKeywordsSet.has(kw.keyword.toLowerCase()))
+              const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
+              const newKeywords = poolKeywords.filter(kw => !existingKeywordsSet.has(kw.keyword.toLowerCase()))
 
             keywordsWithVolume = [
               ...keywordsWithVolume,
@@ -2500,6 +2505,7 @@ export async function generateAdCreative(
           } else {
             console.warn('   ⚠️ 关键词池不存在，跳过关键词扩展')
           }
+          } // 闭合 bucketKeywords 条件检查的 else 块
         } else {
           console.warn('⚠️ 未找到Google Ads OAuth凭证，跳过Keyword Planner扩展')
         }
