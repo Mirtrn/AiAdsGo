@@ -43,7 +43,10 @@ export async function expandAllKeywords(
   userId?: number,
   customerId?: string,
   refreshToken?: string,
-  accountId?: number
+  accountId?: number,
+  clientId?: string,
+  clientSecret?: string,
+  developerToken?: string
 ): Promise<PoolKeywordData[]> {
   console.log(`\n📋 全量关键词扩展策略:`)
   console.log(`   初始关键词数量: ${initialKeywords.length}`)
@@ -63,7 +66,10 @@ export async function expandAllKeywords(
       brandName,
       customerId,
       refreshToken,
-      accountId
+      accountId,
+      clientId,
+      clientSecret,
+      developerToken
     })
 
     // 合并结果（去重）
@@ -117,7 +123,10 @@ export function filterKeywords(
     if (!hasBrand) return false
 
     // 第3层：搜索量过滤
-    if (kw.searchVolume < 100) return false
+    // 🔧 容错处理：当searchVolume未知时（undefined/null/0），保留关键词
+    // 这样当Google Ads API不可用时，初始关键词不会被全部过滤掉
+    const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
+    if (hasSearchVolumeData && kw.searchVolume < 100) return false
 
     return true
   })

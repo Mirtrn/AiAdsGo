@@ -781,6 +781,9 @@ export async function generateOfferKeywordPool(
   let customerId: string | undefined
   let refreshToken: string | undefined
   let accountId: number | undefined
+  let clientId: string | undefined
+  let clientSecret: string | undefined
+  let developerToken: string | undefined
 
   try {
     const { getGoogleAdsCredentials } = await import('./google-ads-oauth')
@@ -800,6 +803,10 @@ export async function generateOfferKeywordPool(
         customerId = adsAccount.customer_id
         refreshToken = credentials.refresh_token
         accountId = adsAccount.id
+        // 从 credentials 获取 API 配置
+        clientId = credentials.client_id
+        clientSecret = credentials.client_secret
+        developerToken = credentials.developer_token
       }
     }
   } catch (error) {
@@ -815,7 +822,10 @@ export async function generateOfferKeywordPool(
     userId,
     customerId,
     refreshToken,
-    accountId
+    accountId,
+    clientId,
+    clientSecret,
+    developerToken
   )
 
   // 4. 🆕 智能过滤（竞品+品类+搜索量）
