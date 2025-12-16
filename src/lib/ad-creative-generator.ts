@@ -8,6 +8,7 @@ import type {
 import type { Offer } from './offers'
 import { creativeCache, generateCreativeCacheKey } from './cache'
 import { getKeywordSearchVolumes } from './keyword-planner'
+import { clusterKeywordsByIntent } from './offer-keyword-pool'  // 🔥 AI语义分类
 import { generateContent, getGeminiMode } from './gemini'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'  // 🎯 新增：导入token追踪函数
@@ -16,6 +17,9 @@ import { calculateIntentScore, getIntentLevel } from './keyword-priority-classif
 
 // Keyword with search volume data
 // 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
+// 🎯 意图分类（3类）
+export type IntentCategory = 'brand' | 'scenario' | 'function'
+
 export interface KeywordWithVolume {
   keyword: string
   searchVolume: number // 精确搜索量（来自Historical Metrics API）
@@ -25,6 +29,7 @@ export interface KeywordWithVolume {
   highTopPageBid?: number // 页首最高出价（用于动态CPC）
   source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED' // 数据来源标记
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD' // 匹配类型（可选）
+  intentCategory?: IntentCategory // 🔥 意图分类（品牌/场景/功能）
 }
 
 /**
@@ -2653,62 +2658,108 @@ export async function generateAdCreative(
   // 🔥 方案A优化(2025-12-16): 合并extracted_keywords到最终关键词列表
   // 原问题：31个高质量Google下拉词仅作为prompt参考，未直接使用
   // 解决方案：将已验证搜索量的extracted_keywords直接合并，确保100%利用
+  // 🔥 优化(2025-12-16): 使用AI语义分类（keyword_intent_clustering prompt）
   if (extractedElements.keywords && extractedElements.keywords.length > 0) {
     console.log(`\n🔗 合并extracted_keywords到关键词列表...`)
     const existingKeywordsLower = new Set(keywordsWithVolume.map(k => k.keyword.toLowerCase()))
     const brandNameLowerForMerge = brandName?.toLowerCase() || ''
-    let mergedCount = 0
-    let skippedCount = 0
 
-    extractedElements.keywords.forEach(kw => {
+    // 1. 筛选需要合并的关键词（去重 + 搜索量过滤）
+    const keywordsToMerge = extractedElements.keywords.filter(kw => {
       const kwLower = kw.keyword.toLowerCase()
-
-      // 跳过已存在的关键词（去重）
-      if (existingKeywordsLower.has(kwLower)) {
-        skippedCount++
-        return
-      }
-
-      // 跳过搜索量<500的关键词（质量过滤）
-      if (kw.searchVolume < 500) {
-        return
-      }
-
-      // 智能分配matchType（意图分类）
-      const isBrandKeyword = kwLower === brandNameLowerForMerge || kwLower.startsWith(brandNameLowerForMerge + ' ')
-      const wordCount = kw.keyword.split(' ').length
-      let matchType: 'BROAD' | 'PHRASE' | 'EXACT'
-
-      if (isBrandKeyword) {
-        matchType = 'EXACT'  // 品牌词用精准匹配
-      } else if (wordCount >= 3) {
-        matchType = 'PHRASE' // 长尾词用词组匹配
-      } else {
-        matchType = 'BROAD'  // 短词用广泛匹配
-      }
-
-      // 添加到关键词列表
-      keywordsWithVolume.push({
-        keyword: kw.keyword,
-        searchVolume: kw.searchVolume,
-        competition: undefined,
-        competitionIndex: undefined,
-        lowTopPageBid: 0,
-        highTopPageBid: 0,
-        matchType
-      })
-      existingKeywordsLower.add(kwLower)
-      mergedCount++
+      if (existingKeywordsLower.has(kwLower)) return false  // 去重
+      if (kw.searchVolume < 500) return false  // 质量过滤
+      return true
     })
 
-    console.log(`   ✅ 合并完成: 新增 ${mergedCount} 个关键词 (跳过 ${skippedCount} 个重复)`)
-    console.log(`   📊 当前关键词总数: ${keywordsWithVolume.length} 个`)
+    if (keywordsToMerge.length === 0) {
+      console.log(`   ℹ️ 无新关键词需要合并（全部重复或搜索量不足）`)
+    } else {
+      // 2. 调用AI语义分类
+      let intentMap = new Map<string, IntentCategory>()
+      const productCategory = (offer as { category?: string }).category || '未分类'
 
-    // 按matchType统计
-    const exactCount = keywordsWithVolume.filter(k => k.matchType === 'EXACT').length
-    const phraseCount = keywordsWithVolume.filter(k => k.matchType === 'PHRASE').length
-    const broadCount = keywordsWithVolume.filter(k => k.matchType === 'BROAD').length
-    console.log(`   📊 意图分类: EXACT(品牌)=${exactCount}, PHRASE(长尾)=${phraseCount}, BROAD(通用)=${broadCount}`)
+      try {
+        console.log(`   🤖 调用AI语义分类: ${keywordsToMerge.length} 个关键词`)
+        const buckets = await clusterKeywordsByIntent(
+          keywordsToMerge.map(k => k.keyword),
+          brandName || '',
+          productCategory,
+          userId!
+        )
+
+        // 3. 构建反向映射: keyword → intentCategory
+        buckets.bucketA.keywords.forEach(k => intentMap.set(k.toLowerCase(), 'brand'))
+        buckets.bucketB.keywords.forEach(k => intentMap.set(k.toLowerCase(), 'scenario'))
+        buckets.bucketC.keywords.forEach(k => intentMap.set(k.toLowerCase(), 'function'))
+
+        console.log(`   ✅ AI分类完成:`)
+        console.log(`      品牌导向: ${buckets.bucketA.keywords.length} 个`)
+        console.log(`      场景导向: ${buckets.bucketB.keywords.length} 个`)
+        console.log(`      功能导向: ${buckets.bucketC.keywords.length} 个`)
+      } catch (clusterError: any) {
+        console.warn(`   ⚠️ AI分类失败，使用规则降级: ${clusterError.message}`)
+        // 降级：使用简单规则分类
+        keywordsToMerge.forEach(kw => {
+          const kwLower = kw.keyword.toLowerCase()
+          if (brandNameLowerForMerge && (
+            kwLower === brandNameLowerForMerge ||
+            kwLower.startsWith(brandNameLowerForMerge + ' ') ||
+            kwLower.includes(' ' + brandNameLowerForMerge)
+          )) {
+            intentMap.set(kwLower, 'brand')
+          } else if (kw.keyword.split(' ').length >= 4) {
+            intentMap.set(kwLower, 'scenario')
+          } else {
+            intentMap.set(kwLower, 'function')
+          }
+        })
+      }
+
+      // 4. 添加关键词到列表（带intentCategory）
+      let mergedCount = 0
+      keywordsToMerge.forEach(kw => {
+        const kwLower = kw.keyword.toLowerCase()
+
+        // matchType逻辑保持不变
+        const isBrandKeyword = kwLower === brandNameLowerForMerge || kwLower.startsWith(brandNameLowerForMerge + ' ')
+        const wordCount = kw.keyword.split(' ').length
+        let matchType: 'BROAD' | 'PHRASE' | 'EXACT'
+
+        if (isBrandKeyword) {
+          matchType = 'EXACT'
+        } else if (wordCount >= 3) {
+          matchType = 'PHRASE'
+        } else {
+          matchType = 'BROAD'
+        }
+
+        // 添加到关键词列表（含intentCategory）
+        keywordsWithVolume.push({
+          keyword: kw.keyword,
+          searchVolume: kw.searchVolume,
+          competition: undefined,
+          competitionIndex: undefined,
+          lowTopPageBid: 0,
+          highTopPageBid: 0,
+          matchType,
+          intentCategory: intentMap.get(kwLower) || 'function',
+          source: 'MERGED'
+        })
+        existingKeywordsLower.add(kwLower)
+        mergedCount++
+      })
+
+      const skippedCount = extractedElements.keywords.length - keywordsToMerge.length
+      console.log(`   ✅ 合并完成: 新增 ${mergedCount} 个关键词 (跳过 ${skippedCount} 个重复/低质量)`)
+      console.log(`   📊 当前关键词总数: ${keywordsWithVolume.length} 个`)
+
+      // 按意图分类统计
+      const brandCount = keywordsToMerge.filter(k => intentMap.get(k.keyword.toLowerCase()) === 'brand').length
+      const scenarioCount = keywordsToMerge.filter(k => intentMap.get(k.keyword.toLowerCase()) === 'scenario').length
+      const functionCount = keywordsToMerge.filter(k => intentMap.get(k.keyword.toLowerCase()) === 'function').length
+      console.log(`   📊 意图分类: 品牌=${brandCount}, 场景=${scenarioCount}, 功能=${functionCount}`)
+    }
   }
 
   // 🎯 最终关键词过滤：强制约束
