@@ -4,6 +4,7 @@
 
 import axios from 'axios';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { maskProxyUrl } from './proxy/validate-url';
 
 /**
  * 解析代理IP字符串
@@ -316,9 +317,7 @@ export async function warmupAffiliateLink(
   affiliateLink: string
 ): Promise<boolean> {
   try {
-    console.log(`🔥 开始推广链接预热流程...`);
-    console.log(`   代理URL: ${proxyUrl}`);
-    console.log(`   推广链接: ${affiliateLink}`);
+    console.log(`🔥 开始推广链接预热: ${maskProxyUrl(proxyUrl)}`);
 
     // 步骤1: 获取12个代理IP（等待完成）
     const proxyIPs = await fetch12ProxyIPs(proxyUrl);

@@ -603,65 +603,42 @@ function parseAmazonProductHtml($: any, url: string, skipCompetitorExtraction: b
     '[data-csa-c-slot-id="productDetails_feature_div"] li',
   ]
 
-  // 🔥 2025-12-12增强调试：检查HTML中feature-bullets元素是否存在
+  // 检查feature-bullets元素
   const featureBulletsExists = $('#feature-bullets').length > 0
   const featureBulletsLiCount = $('#feature-bullets li').length
   const featureBulletsDivExists = $('#featurebullets_feature_div').length > 0
-  console.log(`🔍 feature-bullets调试: #feature-bullets存在=${featureBulletsExists}, li数量=${featureBulletsLiCount}, featurebullets_feature_div存在=${featureBulletsDivExists}`)
 
-  // 如果元素存在但li为空，输出HTML片段用于分析
+  // 仅在异常情况下输出调试信息
   if (featureBulletsExists && featureBulletsLiCount === 0) {
-    const featureBulletsHtml = $('#feature-bullets').html()?.substring(0, 500) || '(empty)'
-    console.log(`🔍 #feature-bullets内部HTML (前500字): ${featureBulletsHtml}`)
+    console.log(`⚠️ feature-bullets元素存在但li为空，可能需要检查页面结构`)
   }
 
   for (const selector of featureSelectors) {
     if (features.length >= 10) break  // 限制最多10个特点
 
-    const matchCount = $(selector).length
-    if (matchCount > 0) {
-      console.log(`🔍 选择器 "${selector}" 匹配到 ${matchCount} 个元素`)
-    }
-
-    // 🔥 2025-12-13诊断：追踪features提取过程
-    let filteredByRecommendation = 0
-    let filteredByLength = 0
-    let filteredByDuplicate = 0
-
     $(selector).each((i: number, el: any) => {
       if (features.length >= 10) return false
 
-      // 🔥 诊断：检查isInRecommendationArea是否误判
+      // 跳过推荐区域
       if (isInRecommendationArea(el)) {
-        filteredByRecommendation++
-        return  // 跳过推荐区域
+        return
       }
 
       const text = $(el).text().trim()
-      // 🔥 调试：记录被过滤的文本
+      // 过滤短文本和重复文本
       if (text && text.length <= 10) {
-        filteredByLength++
-        if (features.length < 3) {
-          console.log(`🔍 跳过短文本(${text.length}字): "${text.substring(0, 30)}"`)
-        }
         return
       }
       if (text && features.includes(text)) {
-        filteredByDuplicate++
         return
       }
       if (text && text.length > 10) {
         features.push(text)
       }
     })
-
-    // 🔥 2025-12-13诊断：输出过滤统计
-    if (matchCount > 0 && features.length === 0) {
-      console.log(`🔍 选择器 "${selector}" 过滤统计: 推荐区域=${filteredByRecommendation}, 短文本=${filteredByLength}, 重复=${filteredByDuplicate}`)
-    }
   }
 
-  // 🔥 2025-12-12调试：记录features提取结果
+  // 记录features提取结果
   if (features.length > 0) {
     console.log(`📝 产品特性提取成功: ${features.length} 条 (前50字: ${features[0]?.substring(0, 50)}...)`)
   } else {

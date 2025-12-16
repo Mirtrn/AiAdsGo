@@ -3,6 +3,7 @@ import { getAllProxyUrls } from '@/lib/settings'
 import { getProxyPool } from '@/lib/url-resolver-enhanced'
 import { getLanguageNameForCountry, getSupportedCountries, getCountryChineseName } from '@/lib/language-country-codes'
 import { parsePrice } from '@/lib/pricing-utils'
+import { maskProxyUrl } from '@/lib/proxy/validate-url'
 
 /**
  * Offer相关的辅助函数库
@@ -177,15 +178,10 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
     return
   }
 
-  console.log(`🔍 [initializeProxyPool] 开始初始化代理池...`)
-  console.log(`   - userId: ${userId}`)
-  console.log(`   - targetCountry: ${targetCountry}`)
-  console.log(`   - 之前初始化用户: ${proxyPoolInitializedForUser || '无'}`)
+  console.log(`🔍 [initializeProxyPool] 开始初始化代理池 (userId=${userId}, country=${targetCountry})`)
 
   // 获取用户配置的代理URL列表
   const proxyUrls = await getAllProxyUrls(userId)
-
-  console.log(`🔍 [initializeProxyPool] getAllProxyUrls返回:`, proxyUrls)
 
   if (!proxyUrls || proxyUrls.length === 0) {
     console.error(`❌ [initializeProxyPool] 未找到代理配置`)

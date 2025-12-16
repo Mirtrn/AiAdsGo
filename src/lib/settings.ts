@@ -184,8 +184,6 @@ export async function getUserOnlySetting(category: string, key: string, userId: 
   const query = 'SELECT * FROM system_settings WHERE category = ? AND key = ? AND user_id = ? LIMIT 1'
   const params = [category, key, userId]
 
-  console.log(`SELECT * FROM system_settings WHERE category = '${category}' AND key = '${key}' AND user_id = ${userId} LIMIT 1`)
-
   const setting = await db.queryOne(query, params) as SystemSetting | undefined
 
   if (!setting) return null

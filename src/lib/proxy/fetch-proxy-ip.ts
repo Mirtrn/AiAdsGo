@@ -1,4 +1,4 @@
-import { validateProxyUrl } from './validate-url'
+import { validateProxyUrl, maskProxyUrl } from './validate-url'
 import axios from 'axios'
 
 /**
@@ -612,7 +612,7 @@ export async function getProxyIp(
 export function clearProxyCache(proxyUrl?: string): void {
   if (proxyUrl) {
     proxyCache.delete(proxyUrl)
-    console.log(`已清除代理缓存: ${proxyUrl}`)
+    console.log(`已清除代理缓存: ${maskProxyUrl(proxyUrl)}`)
   } else {
     const size = proxyCache.size
     proxyCache.clear()

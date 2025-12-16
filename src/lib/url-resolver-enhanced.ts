@@ -89,26 +89,14 @@ export class ProxyPoolManager {
    * 优先级：目标国家健康代理 > 目标国家不健康代理 > 其他国家健康代理 > 第一个代理（默认）
    */
   getBestProxyForCountry(targetCountry: string): ProxyConfig | null {
-    console.log(`🔍 [getBestProxyForCountry] 查找目标国家代理: ${targetCountry}`)
-    console.log(`🔍 [getBestProxyForCountry] 代理池中共有 ${this.proxies.size} 个代理`)
-
     const allProxies = Array.from(this.proxies.values())
-
-    // 🔥 调试：打印所有代理的状态
-    console.log(`🔍 [getBestProxyForCountry] 所有代理状态:`)
-    allProxies.forEach((p, i) => {
-      console.log(`   ${i + 1}. ${p.country} - healthy:${p.isHealthy}, failures:${p.failureCount}, url:${p.url.substring(0, 50)}...`)
-    })
 
     // 1. 优先使用目标国家的健康代理
     const countryProxies = allProxies
       .filter(p => p.country === targetCountry && p.isHealthy)
       .sort((a, b) => a.failureCount - b.failureCount || a.avgResponseTime - b.avgResponseTime)
 
-    console.log(`🔍 [getBestProxyForCountry] 目标国家(${targetCountry})健康代理数量: ${countryProxies.length}`)
-
     if (countryProxies.length > 0) {
-      console.log(`✅ [getBestProxyForCountry] 使用目标国家(${targetCountry})健康代理`)
       return countryProxies[0]
     }
 
@@ -118,7 +106,7 @@ export class ProxyPoolManager {
       .sort((a, b) => a.failureCount - b.failureCount)
 
     if (unhealthyCountryProxies.length > 0 && unhealthyCountryProxies[0].failureCount < 10) {
-      console.log(`⚠️ 目标国家(${targetCountry})代理不健康，但尝试使用 (失败次数: ${unhealthyCountryProxies[0].failureCount})`)
+      console.log(`⚠️ [Proxy] ${targetCountry}代理不健康，尝试使用 (failures:${unhealthyCountryProxies[0].failureCount})`)
       return unhealthyCountryProxies[0]
     }
 
@@ -127,20 +115,18 @@ export class ProxyPoolManager {
       .filter(p => p.isHealthy)
       .sort((a, b) => a.failureCount - b.failureCount || a.avgResponseTime - b.avgResponseTime)
 
-    console.log(`🔍 [getBestProxyForCountry] 其他国家健康代理数量: ${healthyProxies.length}`)
-
     if (healthyProxies.length > 0) {
-      console.log(`⚠️ 目标国家(${targetCountry})代理不可用，使用其他国家代理: ${healthyProxies[0].country}`)
+      console.log(`⚠️ [Proxy] ${targetCountry}不可用，降级使用${healthyProxies[0].country}`)
       return healthyProxies[0]
     }
 
     // 4. 使用第一个代理作为最后的兜底
     if (allProxies.length > 0) {
-      console.log(`⚠️ 所有代理都不健康，使用第一个代理作为兜底: ${allProxies[0].country}`)
+      console.log(`⚠️ [Proxy] 所有代理不健康，兜底使用${allProxies[0].country}`)
       return allProxies[0]
     }
 
-    console.log(`❌ 没有可用的代理`)
+    console.log(`❌ [Proxy] 没有可用代理`)
     return null
   }
 

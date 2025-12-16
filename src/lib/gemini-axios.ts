@@ -161,15 +161,9 @@ export async function generateContent(params: {
       }
     )
 
-    // 🔍 详细的响应日志（用于诊断）
-    console.log('📋 Gemini API完整响应结构:')
-    console.log('   - HTTP状态:', response.status)
-    console.log('   - 响应体:', JSON.stringify(response.data, null, 2))
-
     // 检查响应基本结构
     if (!response.data.candidates || response.data.candidates.length === 0) {
-      console.error('❌ Gemini API响应结构异常: 没有候选响应')
-      console.error('   - 完整响应:', JSON.stringify(response.data, null, 2))
+      console.error('❌ Gemini API响应异常: 没有candidates')
       throw new Error('Gemini API 返回了空响应（没有candidates）')
     }
 
@@ -190,10 +184,7 @@ export async function generateContent(params: {
       candidate.content.parts.length === 0 ||
       !candidate.content.parts[0].text
     ) {
-      console.error('❌ Gemini API响应结构异常: content.parts为空或缺失')
-      console.error('   - candidate:', candidate)
-      console.error('   - finishReason:', candidate.finishReason)
-      console.error('   - 完整响应:', JSON.stringify(response.data, null, 2))
+      console.error('❌ Gemini API响应异常: content.parts为空', { finishReason: candidate.finishReason })
       throw new Error('Gemini API 返回了空响应（content.parts为空）')
     }
 
