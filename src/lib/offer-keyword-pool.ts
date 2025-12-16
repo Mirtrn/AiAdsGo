@@ -26,6 +26,21 @@ import type { UnifiedKeywordData } from './unified-keyword-service'
 // ============================================
 
 /**
+ * 🆕 关键词池数据结构 - 包含完整元数据
+ * 用途：存储关键词的搜索量、CPC、竞争度等数据，避免重复调用 Keyword Planner
+ */
+export interface PoolKeywordData {
+  keyword: string
+  searchVolume: number
+  competition?: string
+  competitionIndex?: number
+  lowTopPageBid?: number  // CPC 数据
+  highTopPageBid?: number // CPC 数据
+  source: string
+  matchType?: 'EXACT' | 'PHRASE' | 'BROAD'
+}
+
+/**
  * Offer 级关键词池
  */
 export interface OfferKeywordPool {
@@ -33,13 +48,13 @@ export interface OfferKeywordPool {
   offerId: number
   userId: number
 
-  // 共享层：纯品牌词
-  brandKeywords: string[]
+  // 共享层：纯品牌词（🔥 升级为 PoolKeywordData[]）
+  brandKeywords: PoolKeywordData[]
 
-  // 独占层：语义分桶
-  bucketAKeywords: string[]  // 品牌导向
-  bucketBKeywords: string[]  // 场景导向
-  bucketCKeywords: string[]  // 功能导向
+  // 独占层：语义分桶（🔥 升级为 PoolKeywordData[]）
+  bucketAKeywords: PoolKeywordData[]  // 品牌导向
+  bucketBKeywords: PoolKeywordData[]  // 场景导向
+  bucketCKeywords: PoolKeywordData[]  // 功能导向
 
   // 桶意图描述
   bucketAIntent: string
@@ -326,11 +341,9 @@ export async function clusterKeywordsByIntent(
 
     return buckets
   } catch (error: any) {
+    // 🔥 统一架构(2025-12-16): 不再降级，直接抛错让上层处理
     console.error('❌ AI 语义聚类失败:', error.message)
-
-    // 降级：使用简单规则分桶
-    console.log('⚠️ 降级到规则分桶')
-    return fallbackClustering(keywords)
+    throw new Error(`关键词AI语义分类失败: ${error.message}`)
   }
 }
 
@@ -381,56 +394,8 @@ function validateBuckets(buckets: KeywordBuckets, originalKeywords: string[]): v
   }
 }
 
-/**
- * 降级分桶策略（基于简单规则）
- */
-function fallbackClustering(keywords: string[]): KeywordBuckets {
-  const bucketA: string[] = []
-  const bucketB: string[] = []
-  const bucketC: string[] = []
-
-  // 简单规则分桶
-  const productKeywords = ['camera', 'cam', 'doorbell', 'indoor', 'outdoor', 'floodlight', 'model', 'pro', 'plus']
-  const scenarioKeywords = ['home', 'security', 'baby', 'pet', 'monitor', 'garage', 'driveway', 'backyard', 'watching']
-  const demandKeywords = ['best', 'top', 'cheap', 'affordable', 'wireless', 'night', 'vision', '4k', '2k', 'hd', 'solar', 'battery']
-
-  for (const keyword of keywords) {
-    const lower = keyword.toLowerCase()
-
-    // 检查需求导向词（优先级最高）
-    if (demandKeywords.some(d => lower.includes(d))) {
-      bucketC.push(keyword)
-    }
-    // 检查场景导向词
-    else if (scenarioKeywords.some(s => lower.includes(s))) {
-      bucketB.push(keyword)
-    }
-    // 默认为品牌导向
-    else {
-      bucketA.push(keyword)
-    }
-  }
-
-  const total = keywords.length
-  const balanceScore = 1 - Math.max(
-    Math.abs(bucketA.length / total - 0.33),
-    Math.abs(bucketB.length / total - 0.33),
-    Math.abs(bucketC.length / total - 0.33)
-  )
-
-  return {
-    bucketA: { intent: '品牌导向', intentEn: 'Brand-Oriented', description: '用户知道要买什么品牌', keywords: bucketA },
-    bucketB: { intent: '场景导向', intentEn: 'Scenario-Oriented', description: '用户知道要解决什么问题', keywords: bucketB },
-    bucketC: { intent: '功能导向', intentEn: 'Feature-Oriented', description: '用户关注技术规格/功能特性', keywords: bucketC },
-    statistics: {
-      totalKeywords: total,
-      bucketACount: bucketA.length,
-      bucketBCount: bucketB.length,
-      bucketCCount: bucketC.length,
-      balanceScore
-    }
-  }
-}
+// 🔥 统一架构(2025-12-16): 已移除 fallbackClustering 降级函数
+// 关键词必须经过AI语义分类，不再支持规则降级
 
 // ============================================
 // 关键词池数据库操作
@@ -602,6 +567,126 @@ export async function saveKeywordPool(
 }
 
 /**
+ * 🆕 保存关键词池（PoolKeywordData[] 版本）
+ */
+async function saveKeywordPoolWithData(
+  offerId: number,
+  userId: number,
+  brandKeywords: PoolKeywordData[],
+  buckets: {
+    bucketA: { intent: string; keywords: PoolKeywordData[] }
+    bucketB: { intent: string; keywords: PoolKeywordData[] }
+    bucketC: { intent: string; keywords: PoolKeywordData[] }
+    statistics: { totalKeywords: number; balanceScore: number }
+  },
+  model?: string,
+  promptVersion?: string
+): Promise<OfferKeywordPool> {
+  const db = await getDatabase()
+
+  const brandKwJson = JSON.stringify(brandKeywords)
+  const bucketAJson = JSON.stringify(buckets.bucketA.keywords)
+  const bucketBJson = JSON.stringify(buckets.bucketB.keywords)
+  const bucketCJson = JSON.stringify(buckets.bucketC.keywords)
+  const totalKeywords = brandKeywords.length + buckets.bucketA.keywords.length + buckets.bucketB.keywords.length + buckets.bucketC.keywords.length
+
+  // 检查是否已存在
+  const existing = await db.queryOne<{ id: number }>(
+    'SELECT id FROM offer_keyword_pools WHERE offer_id = ?',
+    [offerId]
+  )
+
+  if (existing) {
+    // 更新现有记录
+    await db.exec(
+      `UPDATE offer_keyword_pools SET
+        brand_keywords = ?,
+        bucket_a_keywords = ?,
+        bucket_b_keywords = ?,
+        bucket_c_keywords = ?,
+        bucket_a_intent = ?,
+        bucket_b_intent = ?,
+        bucket_c_intent = ?,
+        total_keywords = ?,
+        clustering_model = ?,
+        clustering_prompt_version = ?,
+        balance_score = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE offer_id = ?`,
+      [
+        brandKwJson,
+        bucketAJson,
+        bucketBJson,
+        bucketCJson,
+        buckets.bucketA.intent,
+        buckets.bucketB.intent,
+        buckets.bucketC.intent,
+        totalKeywords,
+        model || null,
+        promptVersion || null,
+        buckets.statistics.balanceScore,
+        offerId
+      ]
+    )
+
+    console.log(`✅ 关键词池已更新: Offer #${offerId}`)
+    return getKeywordPoolByOfferId(offerId) as Promise<OfferKeywordPool>
+  }
+
+  // 创建新记录
+  const result = await db.exec(
+    `INSERT INTO offer_keyword_pools (
+      offer_id, user_id,
+      brand_keywords,
+      bucket_a_keywords, bucket_b_keywords, bucket_c_keywords,
+      bucket_a_intent, bucket_b_intent, bucket_c_intent,
+      total_keywords, clustering_model, clustering_prompt_version, balance_score
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      offerId,
+      userId,
+      brandKwJson,
+      bucketAJson,
+      bucketBJson,
+      bucketCJson,
+      buckets.bucketA.intent,
+      buckets.bucketB.intent,
+      buckets.bucketC.intent,
+      totalKeywords,
+      model || null,
+      promptVersion || null,
+      buckets.statistics.balanceScore
+    ]
+  )
+
+  console.log(`✅ 关键词池已创建: Offer #${offerId}, ID #${result.lastInsertRowid}`)
+  return getKeywordPoolByOfferId(offerId) as Promise<OfferKeywordPool>
+}
+
+/**
+ * 🆕 解析关键词数组（向后兼容）
+ * 处理新格式 PoolKeywordData[] 和旧格式 string[]
+ */
+function parseKeywordArray(data: string): PoolKeywordData[] {
+  const parsed = parseJsonFromDb(data)
+
+  if (!Array.isArray(parsed) || parsed.length === 0) return []
+
+  // 新格式：PoolKeywordData[]
+  if (typeof parsed[0] === 'object' && parsed[0].keyword) {
+    return parsed as PoolKeywordData[]
+  }
+
+  // 旧格式：string[] - 转换为 PoolKeywordData[]
+  return parsed.map((kw: string) => ({
+    keyword: kw,
+    searchVolume: 0,
+    source: 'LEGACY',
+    matchType: 'BROAD'
+  }))
+}
+
+/**
  * 根据 Offer ID 获取关键词池
  */
 export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKeywordPool | null> {
@@ -614,15 +699,15 @@ export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKey
 
   if (!row) return null
 
-  // 🔥 2025-12-16修复：使用parseJsonFromDb处理双重序列化问题
+  // 🔥 2025-12-16升级：使用parseKeywordArray处理新旧格式
   return {
     id: row.id,
     offerId: row.offer_id,
     userId: row.user_id,
-    brandKeywords: parseJsonFromDb(row.brand_keywords),
-    bucketAKeywords: parseJsonFromDb(row.bucket_a_keywords),
-    bucketBKeywords: parseJsonFromDb(row.bucket_b_keywords),
-    bucketCKeywords: parseJsonFromDb(row.bucket_c_keywords),
+    brandKeywords: parseKeywordArray(row.brand_keywords),
+    bucketAKeywords: parseKeywordArray(row.bucket_a_keywords),
+    bucketBKeywords: parseKeywordArray(row.bucket_b_keywords),
+    bucketCKeywords: parseKeywordArray(row.bucket_c_keywords),
     bucketAIntent: row.bucket_a_intent,
     bucketBIntent: row.bucket_b_intent,
     bucketCIntent: row.bucket_c_intent,
@@ -669,33 +754,85 @@ export async function generateOfferKeywordPool(
     throw new Error(`Offer #${offerId} 不存在`)
   }
 
-  // 2. 获取关键词列表
-  const keywords = allKeywords || await extractKeywordsFromOffer(offerId, userId)
-  if (keywords.length === 0) {
+  // 2. 提取初始关键词（保留 searchVolume）
+  let initialKeywords: PoolKeywordData[]
+  if (allKeywords) {
+    // 如果提供了关键词列表，转换为 PoolKeywordData[]
+    initialKeywords = allKeywords.map(kw => ({
+      keyword: kw,
+      searchVolume: 0,
+      source: 'PROVIDED',
+      matchType: 'BROAD'
+    }))
+  } else {
+    initialKeywords = await extractKeywordsFromOffer(offerId, userId)
+  }
+
+  if (initialKeywords.length === 0) {
     throw new Error('无可用关键词，请先生成关键词')
   }
 
-  console.log(`📝 总关键词数: ${keywords.length}`)
+  console.log(`📝 初始关键词数: ${initialKeywords.length}`)
 
-  // 3. 分离纯品牌词和非品牌词
-  const { brandKeywords, nonBrandKeywords } = separateBrandKeywords(keywords, offer.brand)
+  // 3. 🆕 全量扩展（替换3轮品牌种子词策略）
+  const { expandAllKeywords, filterKeywords } = await import('./keyword-pool-helpers')
+  const expandedKeywords = await expandAllKeywords(
+    initialKeywords,
+    offer.brand,
+    offer.category,
+    offer.target_country,
+    offer.target_language
+  )
 
-  // 4. AI 语义聚类
+  // 4. 🆕 智能过滤（竞品+品类+搜索量）
+  const filteredKeywords = filterKeywords(
+    expandedKeywords,
+    offer.brand,
+    offer.category
+  )
+
+  console.log(`📝 过滤后关键词数: ${filteredKeywords.length}`)
+
+  // 5. 分离纯品牌词和非品牌词
+  const keywordStrings = filteredKeywords.map(kw => kw.keyword)
+  const { brandKeywords: brandKwStrings, nonBrandKeywords: nonBrandKwStrings } = separateBrandKeywords(keywordStrings, offer.brand)
+
+  // 转换回 PoolKeywordData[]
+  const brandKeywordsData = filteredKeywords.filter(kw => brandKwStrings.includes(kw.keyword))
+  const nonBrandKeywordsData = filteredKeywords.filter(kw => nonBrandKwStrings.includes(kw.keyword))
+
+  // 6. AI 语义聚类（保持不变）
   const buckets = await clusterKeywordsByIntent(
-    nonBrandKeywords,
+    nonBrandKwStrings,
     offer.brand,
     offer.category,
     userId
   )
 
-  // 5. 保存到数据库
-  const pool = await saveKeywordPool(
+  // 7. 将 PoolKeywordData 映射到桶中
+  const bucketAData = buckets.bucketA.keywords.map(kw =>
+    nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+  )
+  const bucketBData = buckets.bucketB.keywords.map(kw =>
+    nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+  )
+  const bucketCData = buckets.bucketC.keywords.map(kw =>
+    nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+  )
+
+  // 8. 保存到数据库
+  const pool = await saveKeywordPoolWithData(
     offerId,
     userId,
-    brandKeywords,
-    buckets,
+    brandKeywordsData,
+    {
+      bucketA: { intent: buckets.bucketA.intent, keywords: bucketAData },
+      bucketB: { intent: buckets.bucketB.intent, keywords: bucketBData },
+      bucketC: { intent: buckets.bucketC.intent, keywords: bucketCData },
+      statistics: buckets.statistics
+    },
     'gemini',
-    'v1.0'
+    'v1.1'
   )
 
   return pool
@@ -729,9 +866,11 @@ export async function getOrCreateKeywordPool(
 
 /**
  * 从 Offer 现有数据提取关键词
+ * 🔥 2025-12-16升级：返回 PoolKeywordData[]，保留完整元数据
  */
-async function extractKeywordsFromOffer(offerId: number, userId: number): Promise<string[]> {
+async function extractKeywordsFromOffer(offerId: number, userId: number): Promise<PoolKeywordData[]> {
   const db = await getDatabase()
+  const keywordMap = new Map<string, PoolKeywordData>()
 
   // 从现有创意中提取关键词
   const creatives = await db.query<{ keywords: string }>(
@@ -742,36 +881,24 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
     [offerId, userId]
   )
 
-  const allKeywords = new Set<string>()
-
   for (const creative of creatives) {
     if (creative.keywords) {
       try {
-        const keywords = JSON.parse(creative.keywords) as string[]
-        keywords.forEach(kw => allKeywords.add(kw))
-      } catch {}
-    }
-  }
-
-  // 如果没有创意关键词，从 AI 分析结果提取
-  if (allKeywords.size === 0) {
-    const offer = await db.queryOne<{ ai_keywords: string; extracted_keywords: string }>(
-      'SELECT ai_keywords, extracted_keywords FROM offers WHERE id = ?',
-      [offerId]
-    )
-
-    // 🔥 2025-12-16修复：优先使用ai_keywords，如果没有则使用extracted_keywords
-    const keywordsJson = offer?.ai_keywords || offer?.extracted_keywords
-
-    if (keywordsJson) {
-      try {
-        const parsedKeywords = JSON.parse(keywordsJson)
-        if (Array.isArray(parsedKeywords)) {
-          parsedKeywords.forEach((kw: any) => {
-            if (typeof kw === 'string') {
-              allKeywords.add(kw)
-            } else if (kw.keyword) {
-              allKeywords.add(kw.keyword)
+        const keywords = JSON.parse(creative.keywords)
+        if (Array.isArray(keywords)) {
+          keywords.forEach((kw: any) => {
+            const kwStr = typeof kw === 'string' ? kw : kw.keyword
+            if (kwStr && !keywordMap.has(kwStr)) {
+              keywordMap.set(kwStr, {
+                keyword: kwStr,
+                searchVolume: typeof kw === 'object' ? (kw.searchVolume || 0) : 0,
+                competition: typeof kw === 'object' ? kw.competition : undefined,
+                competitionIndex: typeof kw === 'object' ? kw.competitionIndex : undefined,
+                lowTopPageBid: typeof kw === 'object' ? kw.lowTopPageBid : undefined,
+                highTopPageBid: typeof kw === 'object' ? kw.highTopPageBid : undefined,
+                source: 'CREATIVE',
+                matchType: typeof kw === 'object' ? kw.matchType : 'BROAD'
+              })
             }
           })
         }
@@ -779,7 +906,40 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
     }
   }
 
-  return Array.from(allKeywords)
+  // 如果没有创意关键词，从 AI 分析结果提取
+  if (keywordMap.size === 0) {
+    const offer = await db.queryOne<{ ai_keywords: string; extracted_keywords: string }>(
+      'SELECT ai_keywords, extracted_keywords FROM offers WHERE id = ?',
+      [offerId]
+    )
+
+    const keywordsJson = offer?.ai_keywords || offer?.extracted_keywords
+
+    if (keywordsJson) {
+      try {
+        const parsedKeywords = JSON.parse(keywordsJson)
+        if (Array.isArray(parsedKeywords)) {
+          parsedKeywords.forEach((kw: any) => {
+            const kwStr = typeof kw === 'string' ? kw : kw.keyword
+            if (kwStr && !keywordMap.has(kwStr)) {
+              keywordMap.set(kwStr, {
+                keyword: kwStr,
+                searchVolume: typeof kw === 'object' ? (kw.searchVolume || 0) : 0,
+                competition: typeof kw === 'object' ? kw.competition : undefined,
+                competitionIndex: typeof kw === 'object' ? kw.competitionIndex : undefined,
+                lowTopPageBid: typeof kw === 'object' ? kw.lowTopPageBid : undefined,
+                highTopPageBid: typeof kw === 'object' ? kw.highTopPageBid : undefined,
+                source: 'OFFER_DATA',
+                matchType: typeof kw === 'object' ? kw.matchType : 'BROAD'
+              })
+            }
+          })
+        }
+      } catch {}
+    }
+  }
+
+  return Array.from(keywordMap.values())
 }
 
 // ============================================
@@ -796,7 +956,7 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
 export function getBucketInfo(
   pool: OfferKeywordPool,
   bucket: BucketType
-): { keywords: string[]; intent: string; intentEn: string } {
+): { keywords: PoolKeywordData[]; intent: string; intentEn: string } {
   switch (bucket) {
     case 'A':
       return {

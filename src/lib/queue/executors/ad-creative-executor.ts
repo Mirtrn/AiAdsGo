@@ -106,8 +106,9 @@ export async function executeAdCreativeGeneration(
         }
       }
     } catch (poolError: any) {
-      console.warn(`⚠️ 关键词池创建失败，使用传统模式: ${poolError.message}`)
-      // 继续使用传统模式，不中断流程
+      // 🔥 统一架构(2025-12-16): 关键词池是必需的，失败直接抛错
+      console.error(`❌ 关键词池创建失败: ${poolError.message}`)
+      throw new Error(`关键词池创建失败，无法生成创意: ${poolError.message}`)
     }
 
     let bestCreative: any = null

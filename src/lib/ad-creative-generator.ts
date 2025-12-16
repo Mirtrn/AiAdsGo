@@ -2463,180 +2463,47 @@ export async function generateAdCreative(
 
           console.log(`🌍 Keyword Planner 查询语言: ${language} (${targetLanguage})`)
 
-          const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
-          let totalNewKeywords = 0
+          // 🔥 统一架构(2025-12-16): 使用关键词池替代3轮Keyword Planner扩展
+          console.log(`\n🔍 从关键词池获取关键词...`)
+          const { getOrCreateKeywordPool } = await import('@/lib/offer-keyword-pool')
 
-          // 🎯 v4.11: 重构种子词策略 - 所有种子词必须围绕品牌构建
-          // 目的：避免产生与品牌/产品完全无关的关键词（如solar panels, 4k television）
+          const keywordPool = await getOrCreateKeywordPool(
+            offer.id,
+            userId,
+            brandName,
+            country,
+            language
+          )
 
-          // 提取品牌核心词（如 "Eufy Security" → "eufy", "Eufy" → "eufy"）
-          const coreBrandName = brandName.split(' ')[0]
-          const brandLower = brandName.toLowerCase()
-          const coreBrandLower = coreBrandName.toLowerCase()
+          if (keywordPool) {
+            const poolKeywords = [
+              ...keywordPool.bucketA,
+              ...keywordPool.bucketB,
+              ...keywordPool.bucketC
+            ]
 
-          // 第1轮：品牌核心词扩展（纯品牌词 + 品牌全称）
-          const brandCoreSeeds: string[] = []
-          // 添加纯品牌词（搜索量通常最高）
-          if (coreBrandLower !== brandLower) {
-            brandCoreSeeds.push(coreBrandName)
-          }
-          // 添加品牌全称
-          brandCoreSeeds.push(brandName)
+            const existingKeywordsSet = new Set(result.keywords.map(kw => kw.toLowerCase()))
+            const newKeywords = poolKeywords.filter(kw => !existingKeywordsSet.has(kw.keyword.toLowerCase()))
 
-          // 第2轮：品牌+品类组合词（从现有品牌相关关键词中提取品类）
-          const brandCategorySeeds: string[] = []
-          // 从现有关键词中提取包含品牌名的关键词，并提取品类后缀
-          const brandRelatedKeywords = keywordsWithVolume
-            .filter(kw => {
-              const kwLower = kw.keyword.toLowerCase()
-              return kwLower.includes(brandLower) || kwLower.includes(coreBrandLower)
-            })
-            .sort((a, b) => b.searchVolume - a.searchVolume)
-
-          // 提取品牌关键词中的品类词（如 "eufy security camera" → "camera"）
-          const categoryWords = new Set<string>()
-          brandRelatedKeywords.forEach(kw => {
-            const words = kw.keyword.toLowerCase()
-              .replace(brandLower, '')
-              .replace(coreBrandLower, '')
-              .trim()
-              .split(/\s+/)
-              .filter(w => w.length > 2 && !['the', 'and', 'for', 'with'].includes(w))
-            words.forEach(w => categoryWords.add(w))
-          })
-
-          // 构建品牌+品类组合种子词
-          const topCategories = Array.from(categoryWords).slice(0, 5)
-          topCategories.forEach(cat => {
-            brandCategorySeeds.push(`${coreBrandName} ${cat}`)
-          })
-          // 如果品类词不足，添加通用品类组合
-          if (brandCategorySeeds.length < 3) {
-            const defaultCategories = ['camera', 'security', 'doorbell', 'smart home', 'wireless']
-            defaultCategories.forEach(cat => {
-              const seed = `${coreBrandName} ${cat}`
-              if (!brandCategorySeeds.includes(seed)) {
-                brandCategorySeeds.push(seed)
-              }
-            })
-          }
-          brandCategorySeeds.splice(5) // 最多5个
-
-          // 第3轮：品牌相关高搜索量词扩展（从前两轮结果中选择品牌相关的高搜索量词）
-          // 这一轮的种子词将在前两轮完成后确定，且必须包含品牌名
-
-          const roundSeeds: { round: number; name: string; seeds: string[] }[] = [
-            { round: 1, name: '品牌核心词', seeds: brandCoreSeeds },
-            { round: 2, name: '品牌+品类词', seeds: brandCategorySeeds },
-            { round: 3, name: '品牌扩展词（动态）', seeds: [] } // 第3轮种子将动态生成
-          ]
-
-          console.log(`\n📋 v4.11 品牌导向种子词策略:`)
-          console.log(`   第1轮 [品牌核心词]: ${brandCoreSeeds.join(', ')}`)
-          console.log(`   第2轮 [品牌+品类词]: ${brandCategorySeeds.join(', ')}`)
-          console.log(`   第3轮 [品牌扩展词]: (根据前两轮品牌相关结果动态生成)`)
-
-          // 收集所有轮次新增的高搜索量关键词，用于第3轮
-          const allNewHighVolumeKeywords: string[] = []
-
-          // 执行3轮查询
-          for (let roundIndex = 0; roundIndex < 3; roundIndex++) {
-            const roundInfo = roundSeeds[roundIndex]
-            let seedKeywords = roundInfo.seeds
-
-            // 第3轮：使用前两轮新增的品牌相关高搜索量关键词作为种子
-            if (roundIndex === 2) {
-              // 🎯 v4.11: 第3轮种子词必须包含品牌名
-              seedKeywords = allNewHighVolumeKeywords
-                .filter(kw => {
-                  const kwLower = kw.toLowerCase()
-                  return kwLower.includes(brandLower) || kwLower.includes(coreBrandLower)
-                })
-                .slice(0, 5)
-              roundInfo.seeds = seedKeywords
-              if (seedKeywords.length === 0) {
-                // 如果前两轮没有新增品牌相关关键词，使用所有现有品牌相关高搜索量关键词
-                seedKeywords = keywordsWithVolume
-                  .filter(kw => {
-                    const kwLower = kw.keyword.toLowerCase()
-                    return kw.searchVolume > 1000 &&
-                           (kwLower.includes(brandLower) || kwLower.includes(coreBrandLower))
-                  })
-                  .sort((a, b) => b.searchVolume - a.searchVolume)
-                  .slice(0, 5)
-                  .map(kw => kw.keyword)
-              }
-            }
-
-            if (seedKeywords.length === 0) {
-              console.log(`\n📍 第 ${roundInfo.round} 轮 [${roundInfo.name}]: 跳过（无种子关键词）`)
-              continue
-            }
-
-            console.log(`\n📍 第 ${roundInfo.round} 轮 [${roundInfo.name}] Keyword Planner 查询`)
-            console.log(`   种子关键词 (${seedKeywords.length}个): ${seedKeywords.join(', ')}`)
-
-            // 🎯 使用统一服务：扩展关键词并获取精确搜索量
-            const { expandKeywordsWithSeeds } = await import('@/lib/unified-keyword-service')
-            const roundKeywords = await expandKeywordsWithSeeds({
-              expansionSeeds: seedKeywords,
-              country,
-              language,
-              customerId: adsAccount.customer_id,
-              refreshToken: credentials.refresh_token,
-              accountId: adsAccount.id,
-              userId,
-              brandName,
-              // 传递Google Ads API凭证
-              clientId: credentials.client_id || undefined,
-              clientSecret: credentials.client_secret || undefined,
-              developerToken: credentials.developer_token || undefined
-            })
-
-            console.log(`   ✅ 获取 ${roundKeywords.length} 个扩展关键词（精确搜索量）`)
-
-            // 去重：排除已存在的关键词
-            const newExpandedKeywords: KeywordWithVolume[] = roundKeywords
-              .filter(kw => !existingKeywordsSet.has(kw.keyword.toLowerCase()))
-              .map(kw => ({
+            keywordsWithVolume = [
+              ...keywordsWithVolume,
+              ...newKeywords.map(kw => ({
                 keyword: kw.keyword,
-                searchVolume: kw.searchVolume, // 已经是精确值
+                searchVolume: kw.searchVolume,
                 competition: kw.competition,
                 competitionIndex: kw.competitionIndex,
-                source: 'KEYWORD_EXPANSION' as const
+                source: kw.source,
+                matchType: kw.matchType,
+                intentCategory: kw.intentCategory
               }))
+            ]
 
-            if (newExpandedKeywords.length > 0) {
-              console.log(`   🆕 添加 ${newExpandedKeywords.length} 个新的扩展关键词:`)
-              newExpandedKeywords.slice(0, 10).forEach(kw => {
-                console.log(`      - "${kw.keyword}" (搜索量: ${kw.searchVolume.toLocaleString()}/月)`)
-              })
-              if (newExpandedKeywords.length > 10) {
-                console.log(`      ... 及其他 ${newExpandedKeywords.length - 10} 个关键词`)
-              }
-
-              // 添加到已存在集合
-              newExpandedKeywords.forEach(kw => {
-                existingKeywordsSet.add(kw.keyword.toLowerCase())
-              })
-
-              // 添加到关键词列表
-              result.keywords = [...result.keywords, ...newExpandedKeywords.map(kw => kw.keyword)]
-              keywordsWithVolume = [...keywordsWithVolume, ...newExpandedKeywords]
-              totalNewKeywords += newExpandedKeywords.length
-
-              // 收集高搜索量关键词用于下一轮
-              const highVolumeNew = newExpandedKeywords
-                .filter(kw => kw.searchVolume > 1000)
-                .map(kw => kw.keyword)
-              allNewHighVolumeKeywords.push(...highVolumeNew)
-            } else {
-              console.log(`   ℹ️ 未发现新的扩展关键词`)
-            }
+            result.keywords = [...result.keywords, ...newKeywords.map(kw => kw.keyword)]
+            console.log(`   ✅ 从关键词池获取 ${newKeywords.length} 个新关键词`)
+            console.log(`   📊 当前关键词总数: ${keywordsWithVolume.length} 个`)
+          } else {
+            console.warn('   ⚠️ 关键词池不存在，跳过关键词扩展')
           }
-
-          console.log(`\n📊 Keyword Planner 扩展完成: 共进行 3 轮查询，新增 ${totalNewKeywords} 个关键词`)
-          console.log(`   当前关键词总数: ${keywordsWithVolume.length} 个`)
         } else {
           console.warn('⚠️ 未找到Google Ads OAuth凭证，跳过Keyword Planner扩展')
         }
@@ -2698,22 +2565,10 @@ export async function generateAdCreative(
         console.log(`      场景导向: ${buckets.bucketB.keywords.length} 个`)
         console.log(`      功能导向: ${buckets.bucketC.keywords.length} 个`)
       } catch (clusterError: any) {
-        console.warn(`   ⚠️ AI分类失败，使用规则降级: ${clusterError.message}`)
-        // 降级：使用简单规则分类
-        keywordsToMerge.forEach(kw => {
-          const kwLower = kw.keyword.toLowerCase()
-          if (brandNameLowerForMerge && (
-            kwLower === brandNameLowerForMerge ||
-            kwLower.startsWith(brandNameLowerForMerge + ' ') ||
-            kwLower.includes(' ' + brandNameLowerForMerge)
-          )) {
-            intentMap.set(kwLower, 'brand')
-          } else if (kw.keyword.split(' ').length >= 4) {
-            intentMap.set(kwLower, 'scenario')
-          } else {
-            intentMap.set(kwLower, 'function')
-          }
-        })
+        // 🔥 统一架构(2025-12-16): AI分类失败时使用默认分类
+        console.warn(`   ⚠️ AI语义分类失败，使用默认分类: ${clusterError.message}`)
+        // 默认将所有关键词标记为function类型
+        keywordsToMerge.forEach(kw => intentMap.set(kw.keyword.toLowerCase(), 'function'))
       }
 
       // 4. 添加关键词到列表（带intentCategory）
