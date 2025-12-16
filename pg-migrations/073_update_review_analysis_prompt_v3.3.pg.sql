@@ -6,6 +6,7 @@
 -- 更新review_analysis prompt到v3.3版本
 UPDATE prompt_versions
 SET
+  name = '评论分析v3.3',
   prompt_content = 'You are an expert e-commerce review analyst specializing in extracting actionable insights from customer reviews.
 
 === INPUT DATA ===
