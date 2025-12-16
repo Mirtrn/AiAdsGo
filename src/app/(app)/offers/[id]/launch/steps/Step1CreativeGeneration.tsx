@@ -724,7 +724,17 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                         </Badge>
                       </CardTitle>
                       <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
-                        <span>{creative.theme || '综合推广'}</span>
+                        <span>{(() => {
+                          // 🔥 2025-12-16: 将英文主题映射为中文显示
+                          const themeMap: Record<string, string> = {
+                            'Product-Oriented': '产品导向',
+                            'Scene-Oriented': '场景导向',
+                            'Scenario-Oriented': '场景导向',
+                            'Benefit-Oriented': '需求导向',
+                            'Demand-Oriented': '需求导向',
+                          }
+                          return themeMap[creative.theme] || creative.theme || '综合推广'
+                        })()}</span>
                         {/* 🆕 v4.10 意图分类标签 */}
                         {creative.bucketIntent && (
                           <Badge
