@@ -1130,9 +1130,11 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   let extracted_elements_section = ''
   if (extractedElements) {
     if (extractedElements.keywords && extractedElements.keywords.length > 0) {
+      // 🔥 修复(2025-12-16): 从10个提升到25个，充分利用提取的关键词
+      // 原问题：31个高搜索量关键词仅使用10个，68%被浪费
       const topKeywords = extractedElements.keywords
         .filter(k => k.searchVolume >= 500)
-        .slice(0, 10)
+        .slice(0, 25)
         .map(k => `"${k.keyword}" (${k.searchVolume}/mo, ${k.source})`)
       if (topKeywords.length > 0) {
         extracted_elements_section += `\n**EXTRACTED KEYWORDS** (from product data, validated by Keyword Planner):\n${topKeywords.join(', ')}\n`
