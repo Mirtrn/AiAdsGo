@@ -73,6 +73,48 @@ function sanitize(text: string): string {
 }
 
 /**
+ * 🔧 修复(2025-12-16): 简化分类名称
+ * - 如果是层级分类（包含 ">"），只取第一级
+ * - 移除特殊字符
+ * - 截断到最大20个字符
+ */
+function simplifyCategory(category: string): string {
+  if (!category) return 'General'
+
+  // 如果包含层级分隔符 ">"，只取第一级
+  const firstLevel = category.split('>')[0].trim()
+
+  // 清理特殊字符
+  const cleaned = sanitize(firstLevel)
+
+  // 截断到最大20个字符
+  if (cleaned.length > 20) {
+    return cleaned.substring(0, 20)
+  }
+
+  return cleaned || 'General'
+}
+
+/**
+ * 🔧 修复(2025-12-16): 简化主题名称
+ * - 移除特殊字符
+ * - 截断到最大25个字符
+ */
+function simplifyTheme(theme: string): string {
+  if (!theme) return 'Default'
+
+  // 清理特殊字符
+  const cleaned = sanitize(theme)
+
+  // 截断到最大25个字符
+  if (cleaned.length > 25) {
+    return cleaned.substring(0, 25)
+  }
+
+  return cleaned || 'Default'
+}
+
+/**
  * 截断字符串到指定长度，保留完整的单词
  */
 function truncate(text: string, maxLength: number): string {
@@ -120,7 +162,7 @@ export function generateCampaignName(params: {
   const parts = [
     sanitize(brand),
     sanitize(country.toUpperCase()),
-    category ? sanitize(category) : 'General',
+    simplifyCategory(category || ''),  // 🔧 修复(2025-12-16): 使用简化分类函数
     `${Math.round(budgetAmount)}${NAMING_CONFIG.BUDGET_TYPE[budgetType]}`,
     NAMING_CONFIG.BIDDING_STRATEGY[biddingStrategy as keyof typeof NAMING_CONFIG.BIDDING_STRATEGY] || sanitize(biddingStrategy.substring(0, 6).toUpperCase()),
     formatDateTime(date), // 使用完整日期时间确保唯一性
@@ -156,7 +198,7 @@ export function generateAdGroupName(params: {
   const parts = [
     sanitize(brand),
     sanitize(country.toUpperCase()),
-    theme ? sanitize(theme) : 'Default',
+    simplifyTheme(theme || ''),  // 🔧 修复(2025-12-16): 使用简化主题函数
   ]
 
   // 添加CPC（如果提供）
@@ -193,7 +235,7 @@ export function generateAdName(params: {
 
   const parts = [
     'RSA',
-    theme ? sanitize(theme.substring(0, 15)) : 'Default',
+    simplifyTheme(theme || '').substring(0, 15),  // 🔧 修复(2025-12-16): 使用简化主题函数
     `C${creativeId}`,
   ]
 
