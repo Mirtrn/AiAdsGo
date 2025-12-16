@@ -741,6 +741,11 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                       </CardTitle>
                       <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
                         <span>{(() => {
+                          // 🔧 修复(2025-12-16): 综合创意优先显示"综合创意"，不走主题映射逻辑
+                          if (creative.isSynthetic || creative.keywordBucket === 'S') {
+                            return '综合创意'
+                          }
+
                           // 🔥 2025-12-16: 将英文主题映射为中文显示（支持大小写不敏感匹配）
                           const themeValue = (creative.theme || '').toLowerCase().trim()
 
@@ -767,8 +772,8 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
                           return '综合推广'
                         })()}</span>
-                        {/* 🆕 v4.10 意图分类标签 */}
-                        {(creative.bucketIntent || creative.keywordBucket === 'S' || creative.isSynthetic) && (
+                        {/* 🆕 v4.10 意图分类标签 - 仅对非综合创意显示桶意图 */}
+                        {creative.bucketIntent && !creative.isSynthetic && creative.keywordBucket !== 'S' && (
                           <Badge
                             variant="outline"
                             className={`
@@ -776,10 +781,9 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                               ${creative.keywordBucket === 'A' ? 'bg-blue-50 text-blue-600 border-blue-200' : ''}
                               ${creative.keywordBucket === 'B' ? 'bg-green-50 text-green-600 border-green-200' : ''}
                               ${creative.keywordBucket === 'C' ? 'bg-orange-50 text-orange-600 border-orange-200' : ''}
-                              ${creative.keywordBucket === 'S' || creative.isSynthetic ? 'bg-amber-50 text-amber-700 border-amber-300' : ''}
                             `}
                           >
-                            {creative.keywordBucket === 'S' || creative.isSynthetic ? '综合推广' : creative.bucketIntent}
+                            {creative.bucketIntent}
                           </Badge>
                         )}
                       </div>
