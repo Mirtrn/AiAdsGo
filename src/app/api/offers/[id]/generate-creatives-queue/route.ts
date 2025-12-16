@@ -29,7 +29,8 @@ export async function POST(
   const body = await request.json()
   const {
     maxRetries = 3,
-    targetRating = 'EXCELLENT'
+    targetRating = 'EXCELLENT',
+    synthetic = false  // 🆕 是否生成综合创意
   } = body
 
   // 验证Offer存在
@@ -66,7 +67,8 @@ export async function POST(
     const taskData: AdCreativeTaskData = {
       offerId: parseInt(id, 10),
       maxRetries,
-      targetRating
+      targetRating,
+      synthetic  // 🆕 综合创意标记
     }
 
     await queue.enqueue('ad-creative', taskData, parseInt(userId, 10), {

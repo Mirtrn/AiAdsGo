@@ -173,7 +173,7 @@ export async function createAdCreative(
       suggestions?: string[]
     }
     // 🆕 v4.10: 关键词池桶信息
-    keyword_bucket?: 'A' | 'B' | 'C'
+    keyword_bucket?: 'A' | 'B' | 'C' | 'S'  // S=综合创意
     keyword_pool_id?: number
     bucket_intent?: string
   }

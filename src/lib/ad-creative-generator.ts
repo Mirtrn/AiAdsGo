@@ -314,13 +314,48 @@ async function buildAdCreativePrompt(
   // 🆕 v4.10: 添加关键词池桶指令
   if (extractedElements?.bucketInfo) {
     const { bucket, intent, intentEn, keywordCount } = extractedElements.bucketInfo
-    keyword_bucket_section = `
+
+    // 🆕 2025-12-16: 综合创意（S桶）的特殊指令
+    if (bucket === 'S') {
+      keyword_bucket_section = `
+**🔮 SYNTHETIC CREATIVE - MAXIMUM AD STRENGTH OPTIMIZATION**
+This is a SYNTHETIC creative that must achieve the HIGHEST possible Ad Strength rating ("Excellent").
+
+**CRITICAL REQUIREMENTS:**
+1. **Brand Coverage**: Include ALL brand-related keywords naturally in headlines and descriptions
+2. **High-Volume Keywords**: Prioritize the top-performing non-brand keywords by search volume
+3. **Keyword-Copy Alignment**: Every headline and description MUST contain at least one keyword
+4. **Diversity**: Use ALL 15 headlines and ALL 4 descriptions - no shortcuts
+5. **Ad Strength Optimization**:
+   - Include brand name in at least 3 headlines
+   - Use power words (Buy, Shop, Save, Free, Official, etc.)
+   - Include numbers and statistics when possible
+   - Use Dynamic Keyword Insertion: {KeyWord:${offer.brand}} in first headline
+   - Each headline should be unique and address different user intents
+   - Descriptions should complement headlines, not repeat them
+
+**KEYWORD PRIORITY (from ${keywordCount} pre-selected keywords):**
+- Brand keywords: MUST be included (highest priority)
+- High-volume generic keywords: Include top performers
+- Long-tail variations: Use for diversity
+
+**AD STRENGTH CHECKLIST:**
+☑️ 15 unique headlines with varied messaging
+☑️ 4 compelling descriptions with clear CTAs
+☑️ Strong keyword density without keyword stuffing
+☑️ Mix of branded and generic appeal
+☑️ Clear value propositions
+☑️ Urgency elements (limited time, exclusive, etc.)
+☑️ Trust signals (official, authorized, warranty, etc.)`
+    } else {
+      keyword_bucket_section = `
 **📦 KEYWORD POOL BUCKET ${bucket} - ${intent || intentEn}**
 This creative MUST focus on the "${intent || intentEn}" user intent.
 - You have ${keywordCount} pre-selected keywords optimized for this intent
 - Prioritize these KEYWORD_POOL keywords over others (they appear first in the keyword list)
 - Ensure headlines and descriptions align with the "${intent || intentEn}" messaging strategy
 - Do NOT mix intents - stay focused on this single theme`
+    }
   }
 
   // 🎯 P0优化：使用增强产品信息
@@ -1963,10 +1998,13 @@ export async function generateAdCreative(
     excludeKeywords?: string[] // 需要排除的关键词（用于多次生成时避免重复）
     // 🆕 v4.10: 关键词池参数
     keywordPool?: any  // OfferKeywordPool
-    bucket?: 'A' | 'B' | 'C'
+    bucket?: 'A' | 'B' | 'C' | 'S'  // 🆕 2025-12-16: 添加S（综合）桶支持
     bucketKeywords?: string[]
     bucketIntent?: string
     bucketIntentEn?: string
+    // 🆕 2025-12-16: 综合创意专用参数
+    isSyntheticCreative?: boolean  // 是否为综合创意
+    syntheticKeywordsWithVolume?: Array<{ keyword: string; searchVolume: number; isBrand: boolean }>  // 带搜索量的综合关键词
   }
 ): Promise<GeneratedAdCreativeData & { ai_model: string }> {
   // 生成缓存键
@@ -2964,6 +3002,88 @@ export async function generateAdCreativesBatch(
   console.log(`   平均每个: ${(parseFloat(duration) / validCount).toFixed(2)}秒`)
 
   return results
+}
+
+/**
+ * 🆕 2025-12-16: 生成综合广告创意（第4个创意）
+ *
+ * 综合创意特点：
+ * 1. 包含所有品牌关键词（100%覆盖）
+ * 2. 包含高搜索量的非品牌关键词（Top15）
+ * 3. 优化Ad Strength评分（目标：Excellent）
+ * 4. 标题/描述与关键词高度匹配
+ *
+ * @param offerId Offer ID
+ * @param userId 用户ID
+ * @param keywordPool 关键词池
+ * @param options 可选配置
+ * @returns 生成的综合创意
+ */
+export async function generateSyntheticCreative(
+  offerId: number,
+  userId: number,
+  keywordPool: any,  // OfferKeywordPool
+  options?: {
+    skipCache?: boolean
+    maxNonBrandKeywords?: number
+    minSearchVolume?: number
+  }
+): Promise<GeneratedAdCreativeData & { ai_model: string }> {
+  console.log(`\n🔮 开始生成综合广告创意 (Offer #${offerId})...`)
+
+  // 1. 获取offer信息
+  const db = await getDatabase()
+  const offer = await db.queryOne('SELECT * FROM offers WHERE id = ? AND user_id = ?', [offerId, userId])
+  if (!offer) {
+    throw new Error('Offer不存在或无权访问')
+  }
+
+  // 2. 使用关键词池服务获取综合关键词
+  const { getSyntheticBucketKeywords, DEFAULT_SYNTHETIC_CONFIG } = await import('./offer-keyword-pool')
+
+  const config = {
+    ...DEFAULT_SYNTHETIC_CONFIG,
+    maxNonBrandKeywords: options?.maxNonBrandKeywords || DEFAULT_SYNTHETIC_CONFIG.maxNonBrandKeywords,
+    minSearchVolume: options?.minSearchVolume || DEFAULT_SYNTHETIC_CONFIG.minSearchVolume,
+  }
+
+  const targetCountry = (offer as any).target_country || 'US'
+  const syntheticKeywords = await getSyntheticBucketKeywords(
+    keywordPool,
+    userId,
+    targetCountry,
+    config
+  )
+
+  // 3. 提取关键词列表
+  const bucketKeywords = syntheticKeywords.map(k => k.keyword)
+  const brandKeywordCount = syntheticKeywords.filter(k => k.isBrand).length
+  const nonBrandKeywordCount = syntheticKeywords.filter(k => !k.isBrand).length
+
+  console.log(`📊 综合关键词准备完成:`)
+  console.log(`   - 品牌词: ${brandKeywordCount}个`)
+  console.log(`   - 高搜索量非品牌词: ${nonBrandKeywordCount}个`)
+  console.log(`   - 总计: ${bucketKeywords.length}个`)
+
+  // 4. 调用通用创意生成函数（带综合创意特殊参数）
+  const result = await generateAdCreative(offerId, userId, {
+    theme: '综合推广 - Synthetic Creative for Maximum Ad Strength',
+    skipCache: options?.skipCache ?? true,  // 综合创意默认不使用缓存
+    keywordPool,
+    bucket: 'S',
+    bucketKeywords,
+    bucketIntent: '综合推广',
+    bucketIntentEn: 'Synthetic',
+    isSyntheticCreative: true,
+    syntheticKeywordsWithVolume: syntheticKeywords,
+  })
+
+  console.log(`✅ 综合广告创意生成完成`)
+  console.log(`   - Headlines: ${result.headlines?.length || 0}个`)
+  console.log(`   - Descriptions: ${result.descriptions?.length || 0}个`)
+  console.log(`   - Keywords: ${result.keywords?.length || 0}个`)
+
+  return result
 }
 
 /**

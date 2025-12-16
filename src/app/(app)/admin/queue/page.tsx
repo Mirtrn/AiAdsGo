@@ -28,28 +28,50 @@ interface QueueStats {
   config: {
     globalConcurrency: number
     perUserConcurrency: number
+    perTypeConcurrency?: PerTypeConcurrency  // 新增：类型并发配置
     maxQueueSize: number
     taskTimeout: number
     enablePriority: boolean
   }
   // 新增字段 (New Unified Queue Feature)
   byType?: Record<string, number>
-  proxy?: {
-    total: number
-    available: number
-    failed: number
-    details?: Array<{
-      proxy: string
-      success: number
-      failed: number
-      available: boolean
-    }>
-  }
+}
+
+// 任务类型并发配置
+interface PerTypeConcurrency {
+  scrape: number
+  'ai-analysis': number
+  sync: number
+  backup: number
+  email: number
+  export: number
+  'link-check': number
+  cleanup: number
+  'offer-extraction': number
+  'batch-offer-creation': number
+  'ad-creative': number
+  [key: string]: number  // 允许其他自定义类型
+}
+
+// 任务类型中文名称映射
+const TASK_TYPE_LABELS: Record<string, string> = {
+  'scrape': '网页抓取',
+  'ai-analysis': 'AI分析',
+  'sync': '数据同步',
+  'backup': '数据备份',
+  'email': '邮件发送',
+  'export': '数据导出',
+  'link-check': '链接检查',
+  'cleanup': '清理任务',
+  'offer-extraction': 'Offer提取',
+  'batch-offer-creation': '批量创建',
+  'ad-creative': '广告创意生成',
 }
 
 interface QueueConfig {
   globalConcurrency: number
   perUserConcurrency: number
+  perTypeConcurrency: PerTypeConcurrency  // 新增：类型并发配置
   maxQueueSize: number
   taskTimeout: number
   enablePriority: boolean
@@ -76,6 +98,19 @@ export default function QueueManagementPage() {
     return {
       globalConcurrency: optimalGlobalConcurrency,
       perUserConcurrency: optimalPerUserConcurrency,
+      perTypeConcurrency: {
+        scrape: 3,
+        'ai-analysis': 2,
+        sync: 1,
+        backup: 1,
+        email: 3,
+        export: 2,
+        'link-check': 2,
+        cleanup: 1,
+        'offer-extraction': 2,
+        'batch-offer-creation': 1,
+        'ad-creative': 3
+      },
       maxQueueSize: 1000,
       taskTimeout: 300000,
       enablePriority: true,
@@ -121,17 +156,30 @@ export default function QueueManagementPage() {
               ...userStats
             })) :
             data.stats?.perUser || [],
-          config: data.data?.config || data.stats?.config || {
+          config: {
             globalConcurrency: 5,
             perUserConcurrency: 2,
+            perTypeConcurrency: {
+              scrape: 3,
+              'ai-analysis': 2,
+              sync: 1,
+              backup: 1,
+              email: 3,
+              export: 2,
+              'link-check': 2,
+              cleanup: 1,
+              'offer-extraction': 2,
+              'batch-offer-creation': 1,
+              'ad-creative': 3
+            },
             maxQueueSize: 1000,
             taskTimeout: 60000,
             enablePriority: true,
-            storageType: 'redis'
+            storageType: 'redis',
+            ...(data.data?.config || data.stats?.config || {})
           },
           // 新增字段
-          byType: data.data?.byType || {},
-          proxy: data.data?.proxy || data.stats?.proxy || null
+          byType: data.data?.byType || {}
         }
 
         setStats(adaptedStats)
@@ -146,6 +194,19 @@ export default function QueueManagementPage() {
         setConfig({
           globalConcurrency: newConfig.globalConcurrency || 5,
           perUserConcurrency: newConfig.perUserConcurrency || 2,
+          perTypeConcurrency: newConfig.perTypeConcurrency || {
+            scrape: 3,
+            'ai-analysis': 2,
+            sync: 1,
+            backup: 1,
+            email: 3,
+            export: 2,
+            'link-check': 2,
+            cleanup: 1,
+            'offer-extraction': 2,
+            'batch-offer-creation': 1,
+            'ad-creative': 3
+          },
           maxQueueSize: newConfig.maxQueueSize || 1000,
           taskTimeout: newConfig.taskTimeout || 60000,
           enablePriority: newConfig.enablePriority !== false,
@@ -369,76 +430,41 @@ export default function QueueManagementPage() {
             </div>
           </div>
 
-          {/* Proxy Stats Card (New Unified Queue Feature) */}
-          {stats.proxy && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <Activity className="w-5 h-5 mr-2" />
-                代理IP池状态
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm font-medium text-gray-600">代理总数</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.proxy.total}</p>
-                </div>
-                <div className="bg-green-50 rounded-lg p-4">
-                  <p className="text-sm font-medium text-green-600">可用</p>
-                  <p className="text-2xl font-bold text-green-700">{stats.proxy.available}</p>
-                </div>
-                <div className="bg-red-50 rounded-lg p-4">
-                  <p className="text-sm font-medium text-red-600">不可用</p>
-                  <p className="text-2xl font-bold text-red-700">{stats.proxy.failed}</p>
-                </div>
-              </div>
-              {stats.proxy.details && stats.proxy.details.length > 0 && (
-                <div className="mt-4 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-t border-gray-200">
-                        <th className="text-left py-2 px-3 font-medium text-gray-600">代理</th>
-                        <th className="text-center py-2 px-3 font-medium text-gray-600">成功</th>
-                        <th className="text-center py-2 px-3 font-medium text-gray-600">失败</th>
-                        <th className="text-center py-2 px-3 font-medium text-gray-600">状态</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stats.proxy.details.slice(0, 5).map((proxy: any, idx: number) => (
-                        <tr key={idx} className="border-t border-gray-100">
-                          <td className="py-2 px-3 text-gray-900">{proxy.proxy}</td>
-                          <td className="text-center py-2 px-3 text-gray-600">{proxy.success}</td>
-                          <td className="text-center py-2 px-3 text-gray-600">{proxy.failed}</td>
-                          <td className="text-center py-2 px-3">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                              proxy.available
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-red-100 text-red-800'
-                            }`}>
-                              {proxy.available ? '可用' : '禁用'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Task Type Stats (New Unified Queue Feature) */}
+          {/* Task Type Stats with Concurrency Limits (Enhanced) */}
           {stats.byType && Object.keys(stats.byType).length > 0 && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                 <Settings className="w-5 h-5 mr-2" />
-                任务类型分布
+                任务类型分布与并发限制
               </h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {Object.entries(stats.byType).map(([type, count]: [string, any]) => (
-                  <div key={type} className="bg-gray-50 rounded-lg p-4">
-                    <p className="text-sm font-medium text-gray-600 capitalize">{type}</p>
-                    <p className="text-2xl font-bold text-gray-900">{count}</p>
-                  </div>
-                ))}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {Object.entries(stats.byType).map(([type, count]: [string, any]) => {
+                  const limit = stats.config.perTypeConcurrency?.[type] || 2
+                  const utilization = limit > 0 ? Math.round((count / limit) * 100) : 0
+                  return (
+                    <div key={type} className="bg-gray-50 rounded-lg p-4">
+                      <p className="text-sm font-medium text-gray-600">
+                        {TASK_TYPE_LABELS[type] || type}
+                      </p>
+                      <div className="flex items-baseline justify-between mt-1">
+                        <p className="text-2xl font-bold text-gray-900">{count}</p>
+                        <p className="text-sm text-gray-500">/ {limit}</p>
+                      </div>
+                      <div className="mt-2">
+                        <div className="w-full bg-gray-200 rounded-full h-1.5">
+                          <div
+                            className={`h-1.5 rounded-full transition-all duration-500 ${
+                              utilization >= 100 ? 'bg-red-500' :
+                              utilization >= 70 ? 'bg-yellow-500' : 'bg-green-500'
+                            }`}
+                            style={{ width: `${Math.min(utilization, 100)}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">{utilization}%</p>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -703,6 +729,40 @@ export default function QueueManagementPage() {
               </div>
             </div>
 
+            {/* Per-Type Concurrency Configuration (New Section) */}
+            <div className="mt-8 pt-6 border-t border-gray-200">
+              <h3 className="text-base font-semibold text-gray-900 mb-4">任务类型并发限制</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                针对不同类型的任务设置独立的并发限制。系统会取三层限制（全局、用户、类型）中最严格的值。
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Object.entries(config.perTypeConcurrency).map(([type, limit]) => (
+                  <div key={type} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <Label className="text-sm font-medium text-gray-700">
+                        {TASK_TYPE_LABELS[type] || type}
+                      </Label>
+                      <p className="text-xs text-gray-400">{type}</p>
+                    </div>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={limit}
+                      onChange={(e) => setConfig({
+                        ...config,
+                        perTypeConcurrency: {
+                          ...config.perTypeConcurrency,
+                          [type]: parseInt(e.target.value) || 1
+                        }
+                      })}
+                      className="w-20 text-center"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Save Button */}
             <div className="mt-8 flex justify-end">
               <Button
@@ -752,6 +812,23 @@ export default function QueueManagementPage() {
                 </span>
               </div>
             </div>
+
+            {/* Per-Type Concurrency Current Values */}
+            {stats.config.perTypeConcurrency && (
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <h3 className="text-sm font-medium text-gray-700 mb-3">任务类型并发限制</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
+                  {Object.entries(stats.config.perTypeConcurrency).map(([type, limit]) => (
+                    <div key={type} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                      <span className="text-gray-600 truncate" title={type}>
+                        {TASK_TYPE_LABELS[type] || type}
+                      </span>
+                      <span className="font-bold text-gray-900 ml-2">{limit}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

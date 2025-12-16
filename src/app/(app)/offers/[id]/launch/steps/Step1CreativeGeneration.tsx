@@ -84,8 +84,9 @@ interface Creative {
   aiModel: string
 
   // 🆕 关键词分桶字段 (v4.10)
-  keywordBucket?: 'A' | 'B' | 'C'  // 关键词桶标识
-  bucketIntent?: string            // 桶意图描述（品牌导向/场景导向/功能导向）
+  keywordBucket?: 'A' | 'B' | 'C' | 'S'  // 关键词桶标识: A=品牌, B=场景, C=功能, S=综合
+  bucketIntent?: string            // 桶意图描述（品牌导向/场景导向/功能导向/综合推广）
+  isSynthetic?: boolean            // 是否为综合创意
 
   // AD_STRENGTH新增字段
   headlinesWithMetadata?: HeadlineAsset[]
@@ -319,7 +320,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
             const timeB = new Date(b.createdAt).getTime()
             return timeB - timeA
           })
-          // 🎯 只取前 3 个最佳创意
+          // 🎯 只取前 3 个最佳创意（包括综合创意S桶）
           .slice(0, 3)
 
         setCreatives(sortedCreatives)
@@ -337,17 +338,28 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   }
 
   const handleGenerate = async () => {
+    // 🆕 第4次生成时，调用综合创意API
+    const isSyntheticGeneration = generationCount >= 3
+
     try {
       setGenerating(true)
       setGenerationStartTime(Date.now())
-      setGenerationProgress({ step: 'init', progress: 0, message: '正在初始化...' })
+      setGenerationProgress({
+        step: 'init',
+        progress: 0,
+        message: isSyntheticGeneration ? '正在生成综合创意...' : '正在初始化...'
+      })
 
-      // 🔥 Step 1: 入队获取taskId
+      // 🔥 Step 1: 入队获取taskId（第4次传递synthetic参数）
       const enqueueResponse = await fetch(`/api/offers/${offer.id}/generate-creatives-queue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ maxRetries: 3, targetRating: 'EXCELLENT' })
+        body: JSON.stringify({
+          maxRetries: 3,
+          targetRating: 'EXCELLENT',
+          synthetic: isSyntheticGeneration  // 🆕 综合创意标记
+        })
       })
 
       if (!enqueueResponse.ok) {
@@ -574,18 +586,22 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
           <Button
             onClick={handleGenerate}
             disabled={generating}
-            className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-md shadow-purple-500/20 border-0"
-            title={generating ? 'AI正在生成创意，最多可能需要2分钟，请耐心等待...' : ''}
+            className={`shadow-md border-0 ${
+              generationCount >= 3
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-amber-500/20'
+                : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-purple-500/20'
+            } text-white`}
+            title={generating ? 'AI正在生成创意，最多可能需要2分钟，请耐心等待...' : (generationCount >= 3 ? '生成包含所有品牌关键词和高搜索量关键词的综合创意' : '')}
           >
             {generating ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                AI生成中...
+                {generationCount >= 3 ? '生成综合创意中...' : 'AI生成中...'}
               </>
             ) : (
               <>
                 <RefreshCw className="w-4 h-4 mr-2" />
-                {generationCount === 0 ? '开始生成创意' : '再次生成'}
+                {generationCount === 0 ? '开始生成创意' : generationCount >= 3 ? '生成综合创意' : '再次生成'}
               </>
             )}
           </Button>
@@ -752,7 +768,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                           return '综合推广'
                         })()}</span>
                         {/* 🆕 v4.10 意图分类标签 */}
-                        {creative.bucketIntent && (
+                        {(creative.bucketIntent || creative.keywordBucket === 'S' || creative.isSynthetic) && (
                           <Badge
                             variant="outline"
                             className={`
@@ -760,9 +776,10 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                               ${creative.keywordBucket === 'A' ? 'bg-blue-50 text-blue-600 border-blue-200' : ''}
                               ${creative.keywordBucket === 'B' ? 'bg-green-50 text-green-600 border-green-200' : ''}
                               ${creative.keywordBucket === 'C' ? 'bg-orange-50 text-orange-600 border-orange-200' : ''}
+                              ${creative.keywordBucket === 'S' || creative.isSynthetic ? 'bg-amber-50 text-amber-700 border-amber-300' : ''}
                             `}
                           >
-                            {creative.bucketIntent}
+                            {creative.keywordBucket === 'S' || creative.isSynthetic ? '综合推广' : creative.bucketIntent}
                           </Badge>
                         )}
                       </div>

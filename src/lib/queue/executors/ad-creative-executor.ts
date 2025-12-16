@@ -32,6 +32,7 @@ export interface AdCreativeTaskData {
   offerId: number
   maxRetries?: number
   targetRating?: 'EXCELLENT' | 'GOOD' | 'AVERAGE' | 'POOR'
+  synthetic?: boolean  // 🆕 是否生成综合创意（第4个创意）
 }
 
 /**
@@ -40,7 +41,7 @@ export interface AdCreativeTaskData {
 export async function executeAdCreativeGeneration(
   task: Task<AdCreativeTaskData>
 ): Promise<any> {
-  const { offerId, maxRetries = 3, targetRating = 'EXCELLENT' } = task.data
+  const { offerId, maxRetries = 3, targetRating = 'EXCELLENT', synthetic = false } = task.data
   const db = getDatabase()
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
@@ -81,21 +82,28 @@ export async function executeAdCreativeGeneration(
 
       keywordPool = await getOrCreateKeywordPool(offerId, task.userId, false)
 
-      // 获取可用桶（未被占用的）
-      const availableBuckets = await getAvailableBuckets(offerId)
-
-      if (availableBuckets.length > 0) {
-        // 选择第一个可用桶
-        selectedBucket = availableBuckets[0]
-        bucketInfo = getBucketInfo(keywordPool, selectedBucket)
-        console.log(`📦 使用关键词池桶 ${selectedBucket} (${bucketInfo.intent}): ${bucketInfo.keywords.length} 个关键词`)
+      // 🆕 综合创意模式：使用S桶
+      if (synthetic) {
+        selectedBucket = 'S'
+        bucketInfo = getBucketInfo(keywordPool, 'S')
+        console.log(`🌟 综合创意模式: 使用S桶，包含 ${bucketInfo.keywords.length} 个关键词`)
       } else {
-        // 所有桶都已使用，轮询使用（A -> B -> C -> A...）
-        const usedCount = 3 - availableBuckets.length
-        const bucketOrder: BucketType[] = ['A', 'B', 'C']
-        selectedBucket = bucketOrder[usedCount % 3]
-        bucketInfo = getBucketInfo(keywordPool, selectedBucket)
-        console.log(`📦 所有桶已使用，轮询选择桶 ${selectedBucket} (${bucketInfo.intent})`)
+        // 获取可用桶（未被占用的）
+        const availableBuckets = await getAvailableBuckets(offerId)
+
+        if (availableBuckets.length > 0) {
+          // 选择第一个可用桶
+          selectedBucket = availableBuckets[0]
+          bucketInfo = getBucketInfo(keywordPool, selectedBucket)
+          console.log(`📦 使用关键词池桶 ${selectedBucket} (${bucketInfo.intent}): ${bucketInfo.keywords.length} 个关键词`)
+        } else {
+          // 所有桶都已使用，轮询使用（A -> B -> C -> A...）
+          const usedCount = 3 - availableBuckets.length
+          const bucketOrder: BucketType[] = ['A', 'B', 'C']
+          selectedBucket = bucketOrder[usedCount % 3]
+          bucketInfo = getBucketInfo(keywordPool, selectedBucket)
+          console.log(`📦 所有桶已使用，轮询选择桶 ${selectedBucket} (${bucketInfo.intent})`)
+        }
       }
     } catch (poolError: any) {
       console.warn(`⚠️ 关键词池创建失败，使用传统模式: ${poolError.message}`)
@@ -121,12 +129,15 @@ export async function executeAdCreativeGeneration(
       const attemptBaseProgress = 10 + (attempts - 1) * 25
 
       // 更新进度：生成中
-      const bucketLabel = selectedBucket ? ` [桶${selectedBucket}]` : ''
+      const bucketLabel = synthetic ? ' [综合创意]' : (selectedBucket ? ` [桶${selectedBucket}]` : '')
+      const progressMessage = synthetic
+        ? `第${attempts}次生成${bucketLabel}: AI正在创作包含所有品牌关键词的综合广告...`
+        : `第${attempts}次生成${bucketLabel}: AI正在创作广告文案...`
       await db.exec(`
         UPDATE creative_tasks
         SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = ${nowFunc}
         WHERE id = ?
-      `, [attemptBaseProgress, `第${attempts}次生成${bucketLabel}: AI正在创作广告文案...`, attempts, task.id])
+      `, [attemptBaseProgress, progressMessage, attempts, task.id])
 
       // 1. 生成创意
       // 🔥 2025-12-12修复：始终跳过缓存，确保每次重新生成都产生新创意

@@ -27,7 +27,7 @@ const DEFAULT_QUEUE_CONFIG = {
     cleanup: 1,
     'offer-extraction': 2,
     'batch-offer-creation': 1,
-    'ad-creative': 1  // 创意生成任务（AI密集型，串行避免API限流）
+    'ad-creative': 3  // 创意生成任务（允许多用户同时生成）
   },
   maxQueueSize: 1000,
   taskTimeout: 600000,

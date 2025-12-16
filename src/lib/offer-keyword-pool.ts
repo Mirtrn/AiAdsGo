@@ -89,8 +89,33 @@ export interface KeywordBuckets {
 
 /**
  * 桶类型
+ * A = 品牌导向 (Brand-Oriented)
+ * B = 场景导向 (Scenario-Oriented)
+ * C = 功能导向 (Feature-Oriented)
+ * S = 综合 (Synthetic) - 第4个创意，包含所有品牌词+高搜索量非品牌词
  */
-export type BucketType = 'A' | 'B' | 'C'
+export type BucketType = 'A' | 'B' | 'C' | 'S'
+
+/**
+ * 综合创意关键词配置
+ */
+export interface SyntheticKeywordConfig {
+  /** 最大非品牌关键词数量 */
+  maxNonBrandKeywords: number
+  /** 是否按搜索量排序 */
+  sortByVolume: boolean
+  /** 最小搜索量阈值 */
+  minSearchVolume: number
+}
+
+/**
+ * 默认综合创意配置
+ */
+export const DEFAULT_SYNTHETIC_CONFIG: SyntheticKeywordConfig = {
+  maxNonBrandKeywords: 15,  // 从各桶中选择Top15高搜索量关键词
+  sortByVolume: true,
+  minSearchVolume: 100,
+}
 
 /**
  * 创意生成选项（带桶信息）
@@ -791,9 +816,157 @@ export function getBucketInfo(
         intent: pool.bucketCIntent,
         intentEn: 'Feature-Oriented'
       }
+    case 'S':
+      // 综合桶：所有品牌词 + 所有桶的关键词（不排序，排序在getSyntheticBucketKeywords中处理）
+      return {
+        keywords: [
+          ...pool.brandKeywords,
+          ...pool.bucketAKeywords,
+          ...pool.bucketBKeywords,
+          ...pool.bucketCKeywords
+        ],
+        intent: '综合推广',
+        intentEn: 'Synthetic'
+      }
     default:
       throw new Error(`Invalid bucket type: ${bucket}`)
   }
+}
+
+/**
+ * 🆕 2025-12-16: 获取综合桶关键词（第4个创意专用）
+ *
+ * 策略：
+ * 1. 包含所有品牌关键词（100%）
+ * 2. 从各桶中选择搜索量最高的非品牌关键词
+ * 3. 按搜索量降序排序
+ *
+ * @param pool - 关键词池
+ * @param userId - 用户ID（用于获取搜索量）
+ * @param country - 目标国家
+ * @param config - 综合关键词配置
+ * @returns 综合关键词列表（带搜索量）
+ */
+export async function getSyntheticBucketKeywords(
+  pool: OfferKeywordPool,
+  userId: number,
+  country: string = 'US',
+  config: SyntheticKeywordConfig = DEFAULT_SYNTHETIC_CONFIG
+): Promise<Array<{ keyword: string; searchVolume: number; isBrand: boolean }>> {
+  console.log(`\n🔮 开始构建综合创意关键词池...`)
+
+  // 1. 收集所有品牌词
+  const brandKeywords = pool.brandKeywords.map(kw => ({
+    keyword: kw,
+    searchVolume: 0,  // 品牌词不需要搜索量排序
+    isBrand: true
+  }))
+  console.log(`   品牌词: ${brandKeywords.length}个`)
+
+  // 2. 收集所有非品牌词（去重）
+  const allNonBrandKeywords = new Set<string>([
+    ...pool.bucketAKeywords,
+    ...pool.bucketBKeywords,
+    ...pool.bucketCKeywords
+  ])
+  console.log(`   非品牌词（去重后）: ${allNonBrandKeywords.size}个`)
+
+  // 3. 如果需要按搜索量排序，获取搜索量数据
+  let nonBrandWithVolume: Array<{ keyword: string; searchVolume: number; isBrand: boolean }> = []
+
+  if (config.sortByVolume && allNonBrandKeywords.size > 0) {
+    try {
+      const { getKeywordVolumesForExisting } = await import('@/lib/unified-keyword-service')
+      const volumeData = await getKeywordVolumesForExisting({
+        baseKeywords: Array.from(allNonBrandKeywords),
+        country,
+        language: 'en',  // TODO: 从offer获取语言
+        userId,
+        brandName: pool.brandKeywords[0] || ''
+      })
+
+      // 构建搜索量映射
+      const volumeMap = new Map(volumeData.map(v => [v.keyword.toLowerCase(), v.searchVolume]))
+
+      // 转换为带搜索量的格式
+      nonBrandWithVolume = Array.from(allNonBrandKeywords).map(kw => ({
+        keyword: kw,
+        searchVolume: volumeMap.get(kw.toLowerCase()) || 0,
+        isBrand: false
+      }))
+
+      // 按搜索量降序排序
+      nonBrandWithVolume.sort((a, b) => b.searchVolume - a.searchVolume)
+
+      // 过滤低于阈值的关键词
+      nonBrandWithVolume = nonBrandWithVolume.filter(
+        kw => kw.searchVolume >= config.minSearchVolume
+      )
+
+      console.log(`   获取搜索量成功，过滤后剩余: ${nonBrandWithVolume.length}个`)
+    } catch (error: any) {
+      console.warn(`   ⚠️ 获取搜索量失败，使用原始顺序:`, error.message)
+      nonBrandWithVolume = Array.from(allNonBrandKeywords).map(kw => ({
+        keyword: kw,
+        searchVolume: 0,
+        isBrand: false
+      }))
+    }
+  } else {
+    // 不需要排序，直接使用
+    nonBrandWithVolume = Array.from(allNonBrandKeywords).map(kw => ({
+      keyword: kw,
+      searchVolume: 0,
+      isBrand: false
+    }))
+  }
+
+  // 4. 取Top N非品牌词
+  const topNonBrandKeywords = nonBrandWithVolume.slice(0, config.maxNonBrandKeywords)
+  console.log(`   选取Top${config.maxNonBrandKeywords}高搜索量词: ${topNonBrandKeywords.length}个`)
+
+  // 5. 合并：品牌词 + 高搜索量非品牌词
+  const result = [...brandKeywords, ...topNonBrandKeywords]
+
+  console.log(`✅ 综合关键词池构建完成: 共${result.length}个关键词`)
+  console.log(`   - 品牌词: ${brandKeywords.length}个`)
+  console.log(`   - 高搜索量非品牌词: ${topNonBrandKeywords.length}个`)
+  if (topNonBrandKeywords.length > 0) {
+    console.log(`   - 最高搜索量: ${topNonBrandKeywords[0]?.keyword} (${topNonBrandKeywords[0]?.searchVolume})`)
+  }
+
+  return result
+}
+
+/**
+ * 🆕 2025-12-16: 检查是否可以生成综合创意（第4个）
+ *
+ * 条件：
+ * 1. A/B/C 三个桶的创意都已生成
+ * 2. 尚未生成综合创意（S桶）
+ *
+ * @param offerId - Offer ID
+ * @returns 是否可以生成综合创意
+ */
+export async function canGenerateSyntheticCreative(offerId: number): Promise<boolean> {
+  const db = await getDatabase()
+
+  const result = await db.query<{ keyword_bucket: string }>(
+    `SELECT DISTINCT keyword_bucket FROM ad_creatives
+     WHERE offer_id = ? AND keyword_bucket IS NOT NULL`,
+    [offerId]
+  )
+
+  const usedBuckets = new Set(result.map(r => r.keyword_bucket))
+
+  // 检查A/B/C是否都已使用，且S未使用
+  const hasAllABC = usedBuckets.has('A') && usedBuckets.has('B') && usedBuckets.has('C')
+  const notHasS = !usedBuckets.has('S')
+
+  console.log(`🔍 综合创意检查: A=${usedBuckets.has('A')}, B=${usedBuckets.has('B')}, C=${usedBuckets.has('C')}, S=${usedBuckets.has('S')}`)
+  console.log(`   可以生成综合创意: ${hasAllABC && notHasS}`)
+
+  return hasAllABC && notHasS
 }
 
 /**
@@ -850,7 +1023,8 @@ export async function isCreativeLimitReached(offerId: number): Promise<boolean> 
     [offerId]
   )
 
-  return (result?.count || 0) >= 3
+  // 🆕 2025-12-16: 支持4个创意（A/B/C + 综合S）
+  return (result?.count || 0) >= 4
 }
 
 /**
