@@ -2629,39 +2629,52 @@ export async function generateAdCreative(
   const targetCountry = (offer as { target_country?: string }).target_country || 'US'
   const brandKeywordLower = offerBrand.toLowerCase()
 
-  // 第1步：分离品牌词（单独的品牌名）和非品牌词
-  // 品牌词定义：关键词 === 品牌名（精确匹配，不包括品牌组合词）
-  const brandKeywords: typeof keywordsWithVolume = []
-  const nonBrandKeywords: typeof keywordsWithVolume = []
+  // 第1步：分离品牌词、品牌相关词和非品牌词
+  // 🔧 修复(2025-12-16): 品牌相关词（包含品牌名）也应该被保留，不受搜索量过滤
+  // - 纯品牌词：关键词 === 品牌名（精确匹配）
+  // - 品牌相关词：关键词包含品牌名（如 "Waterdrop filter"）
+  // - 非品牌词：不包含品牌名的关键词
+  const pureBrandKeywords: typeof keywordsWithVolume = []      // 精确匹配品牌名
+  const brandRelatedKeywords: typeof keywordsWithVolume = []   // 包含品牌名
+  const nonBrandKeywords: typeof keywordsWithVolume = []       // 不含品牌名
 
   keywordsWithVolume.forEach(kw => {
-    // 精确匹配：只有完全等于品牌名的才是品牌词
-    const isBrandKeyword = kw.keyword.toLowerCase() === brandKeywordLower
-    if (isBrandKeyword) {
-      brandKeywords.push(kw)
+    const kwLower = kw.keyword.toLowerCase()
+    const isPureBrand = kwLower === brandKeywordLower
+    const isBrandRelated = !isPureBrand && kwLower.includes(brandKeywordLower)
+
+    if (isPureBrand) {
+      pureBrandKeywords.push(kw)
+    } else if (isBrandRelated) {
+      brandRelatedKeywords.push(kw)
     } else {
       nonBrandKeywords.push(kw)
     }
   })
 
+  console.log(`   📊 关键词分类结果:`)
+  console.log(`      🏷️ 纯品牌词: ${pureBrandKeywords.length} 个`)
+  console.log(`      🔗 品牌相关词: ${brandRelatedKeywords.length} 个`)
+  console.log(`      📝 非品牌词: ${nonBrandKeywords.length} 个`)
+
+  // 合并品牌词（纯品牌 + 品牌相关）供后续使用
+  const brandKeywords: typeof keywordsWithVolume = [...pureBrandKeywords, ...brandRelatedKeywords]
+
   // 第2步：过滤非品牌词（只保留搜索量 >= 500）
   const filteredNonBrandKeywords = nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
 
-  // 第3步：强制约束1 - 品牌词必须添加（并确保有搜索量数据）
-  console.log(`\n📌 强制约束1: 品牌词 "${offerBrand}" 必须添加（需查询搜索量）`)
+  // 第3步：强制约束1 - 纯品牌词必须添加（并确保有搜索量数据）
+  console.log(`\n📌 强制约束1: 纯品牌词 "${offerBrand}" 必须添加`)
 
-  // 检查品牌词是否已存在于关键词列表中
-  const existingBrandKeyword = brandKeywords.find(kw => kw.searchVolume > 0)
+  // 检查纯品牌词是否已存在且有搜索量
+  const existingPureBrand = pureBrandKeywords.find(kw => kw.searchVolume > 0)
 
-  if (existingBrandKeyword) {
-    // 品牌词已存在且有搜索量
-    console.log(`   ✅ 找到品牌词: ${brandKeywords.length} 个`)
-    brandKeywords.forEach(kw => {
-      console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
-    })
+  if (existingPureBrand) {
+    // 纯品牌词已存在且有搜索量
+    console.log(`   ✅ 纯品牌词已存在: "${existingPureBrand.keyword}" (${existingPureBrand.searchVolume}/月)`)
   } else {
-    // 品牌词不存在或搜索量为0，需要查询搜索量
-    console.log(`   ⚠️ 品牌词 "${offerBrand}" 需要查询搜索量...`)
+    // 纯品牌词不存在或搜索量为0，需要查询搜索量
+    console.log(`   ⚠️ 纯品牌词 "${offerBrand}" 需要查询搜索量...`)
     let brandSearchVolume = 0
 
     try {
@@ -2695,21 +2708,30 @@ export async function generateAdCreative(
         }
       }
     } catch (err: any) {
-      console.warn(`   ⚠️ 查询品牌词搜索量失败: ${err.message}`)
+      console.warn(`   ⚠️ 查询纯品牌词搜索量失败: ${err.message}`)
     }
 
-    // 🎯 无论是否有搜索量，品牌词都必须添加
-    // 清空之前可能存在的搜索量为0的品牌词
-    brandKeywords.length = 0
-    brandKeywords.push({
+    // 添加纯品牌词到列表（无论搜索量）
+    pureBrandKeywords.push({
       keyword: offerBrand,
       searchVolume: brandSearchVolume
     })
 
     if (brandSearchVolume > 0) {
-      console.log(`   ✅ 品牌词 "${offerBrand}" 已添加 (搜索量: ${brandSearchVolume}/月)`)
+      console.log(`   ✅ 纯品牌词 "${offerBrand}" 已添加 (搜索量: ${brandSearchVolume}/月)`)
     } else {
-      console.log(`   ⚠️ 品牌词 "${offerBrand}" 已添加 (搜索量: 未知，建议手动验证)`)
+      console.log(`   ⚠️ 纯品牌词 "${offerBrand}" 已添加 (搜索量: 未知，建议手动验证)`)
+    }
+  }
+
+  // 打印品牌相关词统计
+  if (brandRelatedKeywords.length > 0) {
+    console.log(`\n   🔗 品牌相关词 (包含 "${offerBrand}"): ${brandRelatedKeywords.length} 个`)
+    brandRelatedKeywords.slice(0, 10).forEach(kw => {
+      console.log(`      - "${kw.keyword}" (${kw.searchVolume}/月)`)
+    })
+    if (brandRelatedKeywords.length > 10) {
+      console.log(`      ... 还有 ${brandRelatedKeywords.length - 10} 个`)
     }
   }
 
@@ -2718,8 +2740,14 @@ export async function generateAdCreative(
   console.log(`   - 搜索量 >= 500 的非品牌词: ${filteredNonBrandKeywords.length} 个`)
 
   // 第5步：强制约束3 - 保留最少 10 个关键词（只补充有搜索量的）
+  // 🔧 修复(2025-12-16): 品牌相关词不受>=500过滤限制，直接加入最终列表
   console.log(`\n📌 强制约束3: 保留最少 10 个关键词（只补充搜索量>0的关键词）`)
-  let finalKeywords = [...brandKeywords, ...filteredNonBrandKeywords]
+
+  // 合并所有品牌词（纯品牌 + 品牌相关）和过滤后的非品牌词
+  const allBrandKeywords = [...pureBrandKeywords, ...brandRelatedKeywords.filter(kw => kw.searchVolume > 0)]
+  let finalKeywords = [...allBrandKeywords, ...filteredNonBrandKeywords]
+
+  console.log(`   📊 初始合并: ${allBrandKeywords.length} 品牌词 + ${filteredNonBrandKeywords.length} 非品牌词 = ${finalKeywords.length} 个`)
 
   if (finalKeywords.length < 10) {
     // 如果不足 10 个，从被过滤的非品牌词中补充（按搜索量从高到低，但必须>0）
