@@ -4,7 +4,7 @@
  */
 
 import type { PoolKeywordData } from './offer-keyword-pool'
-import { getKeywordIdeas } from './unified-keyword-service'
+import { expandKeywordsWithSeeds } from './unified-keyword-service'
 
 // ============================================
 // 动态过滤逻辑（无硬编码配置）
@@ -39,7 +39,11 @@ export async function expandAllKeywords(
   brandName: string,
   category: string,
   targetCountry: string,
-  targetLanguage: string
+  targetLanguage: string,
+  userId?: number,
+  customerId?: string,
+  refreshToken?: string,
+  accountId?: number
 ): Promise<PoolKeywordData[]> {
   console.log(`\n📋 全量关键词扩展策略:`)
   console.log(`   初始关键词数量: ${initialKeywords.length}`)
@@ -51,11 +55,16 @@ export async function expandAllKeywords(
 
   try {
     // 批量调用 Keyword Planner（利用Redis缓存）
-    const expandedResults = await getKeywordIdeas(
-      seedKeywords,
-      targetCountry,
-      targetLanguage
-    )
+    const expandedResults = await expandKeywordsWithSeeds({
+      expansionSeeds: seedKeywords,
+      country: targetCountry,
+      language: targetLanguage,
+      userId,
+      brandName,
+      customerId,
+      refreshToken,
+      accountId
+    })
 
     // 合并结果（去重）
     expandedResults.forEach(kw => {

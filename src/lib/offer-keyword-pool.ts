@@ -776,12 +776,46 @@ export async function generateOfferKeywordPool(
 
   // 3. 🆕 全量扩展（替换3轮品牌种子词策略）
   const { expandAllKeywords, filterKeywords } = await import('./keyword-pool-helpers')
+
+  // 获取Google Ads凭证（用于扩展）
+  let customerId: string | undefined
+  let refreshToken: string | undefined
+  let accountId: number | undefined
+
+  try {
+    const { getGoogleAdsCredentials } = await import('./google-ads-oauth')
+    const { getDatabase } = await import('./db')
+    const db = await getDatabase()
+    const isActiveValue = db.type === 'postgres' ? true : 1
+
+    const adsAccount = await db.queryOne(`
+      SELECT id, customer_id FROM google_ads_accounts
+      WHERE user_id = ? AND is_active = ? AND status = 'ENABLED' AND is_manager_account = 0
+      ORDER BY created_at DESC LIMIT 1
+    `, [userId, isActiveValue]) as { id: number; customer_id: string } | undefined
+
+    if (adsAccount) {
+      const credentials = await getGoogleAdsCredentials(userId)
+      if (credentials) {
+        customerId = adsAccount.customer_id
+        refreshToken = credentials.refresh_token
+        accountId = adsAccount.id
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️ 无法获取Google Ads凭证，跳过关键词扩展')
+  }
+
   const expandedKeywords = await expandAllKeywords(
     initialKeywords,
     offer.brand,
     offer.category,
     offer.target_country,
-    offer.target_language
+    offer.target_language,
+    userId,
+    customerId,
+    refreshToken,
+    accountId
   )
 
   // 4. 🆕 智能过滤（竞品+品类+搜索量）
