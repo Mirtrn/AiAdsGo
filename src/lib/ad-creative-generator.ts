@@ -2650,6 +2650,67 @@ export async function generateAdCreative(
     console.warn('⚠️ Keyword Planner扩展失败（非致命错误）:', plannerError.message)
   }
 
+  // 🔥 方案A优化(2025-12-16): 合并extracted_keywords到最终关键词列表
+  // 原问题：31个高质量Google下拉词仅作为prompt参考，未直接使用
+  // 解决方案：将已验证搜索量的extracted_keywords直接合并，确保100%利用
+  if (extractedElements.keywords && extractedElements.keywords.length > 0) {
+    console.log(`\n🔗 合并extracted_keywords到关键词列表...`)
+    const existingKeywordsLower = new Set(keywordsWithVolume.map(k => k.keyword.toLowerCase()))
+    const brandNameLowerForMerge = brandName?.toLowerCase() || ''
+    let mergedCount = 0
+    let skippedCount = 0
+
+    extractedElements.keywords.forEach(kw => {
+      const kwLower = kw.keyword.toLowerCase()
+
+      // 跳过已存在的关键词（去重）
+      if (existingKeywordsLower.has(kwLower)) {
+        skippedCount++
+        return
+      }
+
+      // 跳过搜索量<500的关键词（质量过滤）
+      if (kw.searchVolume < 500) {
+        return
+      }
+
+      // 智能分配matchType（意图分类）
+      const isBrandKeyword = kwLower === brandNameLowerForMerge || kwLower.startsWith(brandNameLowerForMerge + ' ')
+      const wordCount = kw.keyword.split(' ').length
+      let matchType: 'BROAD' | 'PHRASE' | 'EXACT'
+
+      if (isBrandKeyword) {
+        matchType = 'EXACT'  // 品牌词用精准匹配
+      } else if (wordCount >= 3) {
+        matchType = 'PHRASE' // 长尾词用词组匹配
+      } else {
+        matchType = 'BROAD'  // 短词用广泛匹配
+      }
+
+      // 添加到关键词列表
+      keywordsWithVolume.push({
+        keyword: kw.keyword,
+        searchVolume: kw.searchVolume,
+        competition: undefined,
+        competitionIndex: undefined,
+        lowTopPageBid: 0,
+        highTopPageBid: 0,
+        matchType
+      })
+      existingKeywordsLower.add(kwLower)
+      mergedCount++
+    })
+
+    console.log(`   ✅ 合并完成: 新增 ${mergedCount} 个关键词 (跳过 ${skippedCount} 个重复)`)
+    console.log(`   📊 当前关键词总数: ${keywordsWithVolume.length} 个`)
+
+    // 按matchType统计
+    const exactCount = keywordsWithVolume.filter(k => k.matchType === 'EXACT').length
+    const phraseCount = keywordsWithVolume.filter(k => k.matchType === 'PHRASE').length
+    const broadCount = keywordsWithVolume.filter(k => k.matchType === 'BROAD').length
+    console.log(`   📊 意图分类: EXACT(品牌)=${exactCount}, PHRASE(长尾)=${phraseCount}, BROAD(通用)=${broadCount}`)
+  }
+
   // 🎯 最终关键词过滤：强制约束
   console.log('\n🔍 执行最终关键词过滤 (强制约束)...')
   const beforeFilterCount = keywordsWithVolume.length
