@@ -655,16 +655,19 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
 
   // 如果没有创意关键词，从 AI 分析结果提取
   if (allKeywords.size === 0) {
-    const offer = await db.queryOne<{ ai_keywords: string }>(
-      'SELECT ai_keywords FROM offers WHERE id = ?',
+    const offer = await db.queryOne<{ ai_keywords: string; extracted_keywords: string }>(
+      'SELECT ai_keywords, extracted_keywords FROM offers WHERE id = ?',
       [offerId]
     )
 
-    if (offer?.ai_keywords) {
+    // 🔥 2025-12-16修复：优先使用ai_keywords，如果没有则使用extracted_keywords
+    const keywordsJson = offer?.ai_keywords || offer?.extracted_keywords
+
+    if (keywordsJson) {
       try {
-        const aiKeywords = JSON.parse(offer.ai_keywords)
-        if (Array.isArray(aiKeywords)) {
-          aiKeywords.forEach((kw: any) => {
+        const parsedKeywords = JSON.parse(keywordsJson)
+        if (Array.isArray(parsedKeywords)) {
+          parsedKeywords.forEach((kw: any) => {
             if (typeof kw === 'string') {
               allKeywords.add(kw)
             } else if (kw.keyword) {
