@@ -103,6 +103,7 @@ export async function GET(request: NextRequest) {
         config: {
           globalConcurrency: currentConfig.globalConcurrency,
           perUserConcurrency: currentConfig.perUserConcurrency,
+          perTypeConcurrency: currentConfig.perTypeConcurrency,  // 🔥 新增：任务类型并发限制
           maxQueueSize: currentConfig.maxQueueSize,
           taskTimeout: currentConfig.taskTimeout,
           enablePriority: true,  // 统一队列始终启用优先级
