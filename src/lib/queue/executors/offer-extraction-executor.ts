@@ -109,6 +109,8 @@ export async function executeOfferExtraction(
         url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
         final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+        // 🔥 2025-12-16修复：保存product_name到数据库
+        product_name: extractResult.data.productName || undefined,
         scraped_data: JSON.stringify(extractResult.data),
         page_type: extractResult.data.pageType || undefined,
       })
@@ -123,6 +125,8 @@ export async function executeOfferExtraction(
         final_url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
         final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+        // 🔥 2025-12-16修复：保存product_name到数据库
+        product_name: extractResult.data.productName || undefined,
         product_price: productPrice || extractResult.data.price || undefined,
         commission_payout: commissionPayout || undefined,
         page_type: extractResult.data.pageType || 'product',
@@ -146,6 +150,8 @@ export async function executeOfferExtraction(
         final_url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
         final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+        // 🔥 2025-12-16修复：保存product_name到数据库
+        product_name: extractResult.data.productName || undefined,
         product_price: productPrice || extractResult.data.price || undefined,
         commission_payout: commissionPayout || undefined,
         page_type: extractResult.data.pageType || 'product',
@@ -223,6 +229,8 @@ export async function executeOfferExtraction(
           url: extractResult.data.finalUrl || undefined,
           // 🔥 2025-12-16修复：保存final_url_suffix到数据库
           final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+          // 🔥 2025-12-16修复：保存product_name到数据库
+          product_name: extractResult.data.productName || undefined,
           brand_description: aiProductInfo.brandDescription || undefined,
           unique_selling_points: aiProductInfo.uniqueSellingPoints ?
             (Array.isArray(aiProductInfo.uniqueSellingPoints)

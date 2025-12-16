@@ -80,6 +80,8 @@ export interface CreateOfferInput {
   // 需求28：产品价格和佣金比例（可选）
   product_price?: string
   commission_payout?: string
+  // 🔥 2025-12-16修复：添加product_name字段
+  product_name?: string
   // AI分析结果字段（JSON字符串格式）
   review_analysis?: string
   competitor_analysis?: string
@@ -182,6 +184,8 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     targetLanguage,  // 自动生成
     input.product_price || null,  // 需求28
     input.commission_payout || null,  // 需求28
+    // 🔥 2025-12-16修复：添加product_name字段
+    input.product_name || null,
     // 自动生成的JSON字段
     pricingJSON,      // 从product_price解析
     promotionsJSON,   // 初始化空结构
@@ -215,13 +219,13 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
       brand_description, unique_selling_points, product_highlights,
       target_audience, final_url, final_url_suffix, scrape_status,
       offer_name, target_language,
-      product_price, commission_payout,
+      product_price, commission_payout, product_name,
       pricing, promotions, scraped_data,
       review_analysis, competitor_analysis,
       extracted_keywords, extracted_headlines, extracted_descriptions, extraction_metadata,
       extracted_at,
       page_type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, params)
 
   const offer = await findOfferById(result.lastInsertRowid as number, userId)
@@ -783,6 +787,8 @@ export async function updateOfferScrapeStatus(
     url?: string
     // 🔥 2025-12-16修复：添加final_url_suffix字段到类型定义
     final_url_suffix?: string
+    // 🔥 2025-12-16修复：添加product_name字段到类型定义
+    product_name?: string
     brand_description?: string
     unique_selling_points?: string
     product_highlights?: string
@@ -863,6 +869,7 @@ export async function updateOfferScrapeStatus(
           offer_name = COALESCE(?, offer_name),
           url = COALESCE(?, url),
           final_url_suffix = COALESCE(?, final_url_suffix),
+          product_name = COALESCE(?, product_name),
           brand_description = COALESCE(?, brand_description),
           unique_selling_points = COALESCE(?, unique_selling_points),
           product_highlights = COALESCE(?, product_highlights),
@@ -889,6 +896,7 @@ export async function updateOfferScrapeStatus(
       newOfferName,
       scrapedData.url || null,
       scrapedData.final_url_suffix || null,
+      scrapedData.product_name || null,
       scrapedData.brand_description || null,
       scrapedData.unique_selling_points || null,
       scrapedData.product_highlights || null,
