@@ -152,12 +152,18 @@ export async function getKeywordSearchVolumes(
 ): Promise<KeywordVolume[]> {
   if (!keywords.length) return []
 
+  // 🔥 2025-12-16增强：添加详细日志显示缓存命中情况
+  console.log(`[KeywordPlanner] 接收 ${keywords.length} 个关键词查询请求`)
+
   // 1. Check Redis cache first
   const cachedVolumes = await getBatchCachedVolumes(keywords, country, language)
   const uncachedKeywords = keywords.filter(kw => !cachedVolumes.has(kw.toLowerCase()))
 
+  console.log(`[KeywordPlanner] Redis缓存命中: ${cachedVolumes.size}/${keywords.length} 个关键词`)
+
   // If all cached, return from cache
   if (uncachedKeywords.length === 0) {
+    console.log(`[KeywordPlanner] 全部命中Redis缓存，无需API调用`)
     return keywords.map(kw => ({
       keyword: kw,
       avgMonthlySearches: cachedVolumes.get(kw.toLowerCase()) || 0,
@@ -182,12 +188,15 @@ export async function getKeywordSearchVolumes(
         AND created_at > datetime('now', '-7 days')
     `, [...uncachedKeywords.map(k => k.toLowerCase()), country, language]) as Array<{ keyword: string; search_volume: number }>
     rows.forEach(row => dbVolumes.set(row.keyword, row.search_volume))
+    console.log(`[KeywordPlanner] 数据库缓存命中: ${dbVolumes.size}/${uncachedKeywords.length} 个关键词`)
   } catch {
     // Table might not exist yet
+    console.log(`[KeywordPlanner] 数据库缓存查询失败或表不存在`)
   }
 
   // Keywords still needing API call
   const needApiKeywords = uncachedKeywords.filter(kw => !dbVolumes.has(kw.toLowerCase()))
+  console.log(`[KeywordPlanner] 需要API查询: ${needApiKeywords.length} 个关键词 (总${keywords.length} - Redis${cachedVolumes.size} - DB${dbVolumes.size})`)
 
   // 3. Call Keyword Planner API for remaining
   const apiVolumes = new Map<string, KeywordVolume>()
