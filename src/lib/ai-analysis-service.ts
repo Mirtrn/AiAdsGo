@@ -336,6 +336,7 @@ function selectAsins(asins: string[], limit: number = 3): string[] {
  * @param mainBrand - 主产品品牌（用于过滤同品牌产品）
  * @param customProxyUrl - 自定义代理URL（可选）
  * @param limit - 最多抓取数量（默认3个）
+ * @param skipBrandFilter - 跳过品牌过滤（针对单商品页面，保留同品牌竞品用于差异化分析）
  * @returns 竞品产品详情列表（已过滤同品牌）
  */
 async function batchScrapeCompetitorDetails(
@@ -343,11 +344,16 @@ async function batchScrapeCompetitorDetails(
   targetCountry: string,
   mainBrand: string | null,
   customProxyUrl?: string,
-  limit: number = 3
+  limit: number = 3,
+  skipBrandFilter: boolean = false
 ): Promise<CompetitorProduct[]> {
   console.log(`🔍 批量抓取竞品详情 (最多${limit}个)...`)
   console.log(`📊 缓存状态: ${getCacheStats().hitRate}`)
-  console.log(`🏷️ 主产品品牌: ${mainBrand || '未知'}（将过滤同品牌竞品）`)
+  if (skipBrandFilter) {
+    console.log(`🏷️ 主产品品牌: ${mainBrand || '未知'}（单商品页面：保留同品牌竞品用于差异化分析）`)
+  } else {
+    console.log(`🏷️ 主产品品牌: ${mainBrand || '未知'}（将过滤同品牌竞品）`)
+  }
 
   // Step 1: 选择候选ASIN（多选一些以备品牌过滤和失败重试）
   const selectedAsins = selectAsins(candidateAsins, Math.min(limit + 5, candidateAsins.length))
@@ -455,19 +461,22 @@ async function batchScrapeCompetitorDetails(
   // 🔥 KISS优化：在详情页抓取后进行品牌过滤（更准确）
   const mainBrandNormalized = mainBrand?.toLowerCase().trim() || null
 
-  // Step 7: 过滤同品牌产品
-  const afterMainBrandFilter = mainBrandNormalized
-    ? allCompetitors.filter(c => {
-        const competitorBrand = c.brand?.toLowerCase().trim() || ''
-        const isSameBrand = competitorBrand === mainBrandNormalized ||
-                           competitorBrand.includes(mainBrandNormalized) ||
-                           mainBrandNormalized.includes(competitorBrand)
-        if (isSameBrand) {
-          console.log(`🛡️ 过滤同品牌竞品: ${c.asin} - ${c.brand}`)
-        }
-        return !isSameBrand
-      })
-    : allCompetitors
+  // Step 7: 过滤同品牌产品（支持跳过过滤）
+  // 🔥 新增（2025-12-17）：针对单商品页面，保留同品牌竞品用于差异化分析
+  const afterMainBrandFilter = skipBrandFilter
+    ? allCompetitors  // 跳过过滤，保留所有竞品（包括同品牌）
+    : mainBrandNormalized
+      ? allCompetitors.filter(c => {
+          const competitorBrand = c.brand?.toLowerCase().trim() || ''
+          const isSameBrand = competitorBrand === mainBrandNormalized ||
+                             competitorBrand.includes(mainBrandNormalized) ||
+                             mainBrandNormalized.includes(competitorBrand)
+          if (isSameBrand) {
+            console.log(`🛡️ 过滤同品牌竞品: ${c.asin} - ${c.brand}`)
+          }
+          return !isSameBrand
+        })
+      : allCompetitors
 
   // Step 8: 保证品牌多样性（每个品牌最多1个产品）
   const seenBrands = new Set<string>()
@@ -482,7 +491,11 @@ async function batchScrapeCompetitorDetails(
   })
 
   console.log(`✅ 批量抓取完成: 缓存${cachedCompetitors.length}个 + 新抓取${scrapedCompetitors.length}/${asinsToScrape.length}个`)
-  console.log(`🛡️ 品牌过滤: ${allCompetitors.length}个 → ${afterMainBrandFilter.length}个(排除主品牌) → ${diverseCompetitors.length}个(品牌多样化)`)
+  if (skipBrandFilter) {
+    console.log(`🔄 品牌过滤: 已跳过（单商品页面保留同品牌竞品）- ${allCompetitors.length}个 → ${diverseCompetitors.length}个(品牌多样化)`)
+  } else {
+    console.log(`🛡️ 品牌过滤: ${allCompetitors.length}个 → ${afterMainBrandFilter.length}个(排除主品牌) → ${diverseCompetitors.length}个(品牌多样化)`)
+  }
 
   return diverseCompetitors.slice(0, limit)
 }
@@ -1235,12 +1248,14 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             const MIN_COMPETITORS = 3  // 最少需要3个有效竞品
             const TARGET_COMPETITORS = 5  // 目标5个竞品
 
+            // 🔥 修复（2025-12-17）：单商品页面保留同品牌竞品用于差异化分析
             let competitors = await batchScrapeCompetitorDetails(
               extractResult.relatedAsins!,
               targetCountry,
               extractResult.brand || null,
               competitorProxyUrl,
-              TARGET_COMPETITORS
+              TARGET_COMPETITORS,
+              isAmazonProductPage  // 单商品页面跳过品牌过滤
             )
 
             console.log(`📊 [策略1] relatedAsins获取: ${competitors.length}个有效竞品`)

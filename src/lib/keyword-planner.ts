@@ -60,18 +60,24 @@ async function getUserRefreshToken(db: any, userId: number): Promise<string> {
 }
 
 // Helper: Get customer_id from google_ads_accounts table
+// 🔧 优化(2025-12-17): 优先选择余额最高的账号，确保Keyword Planner API可用
 // 只选择状态为ENABLED且非Manager账号的客户账号
 async function getUserCustomerId(db: any, userId: number): Promise<string> {
   const account = await db.queryOne(`
-    SELECT customer_id
+    SELECT customer_id, account_balance
     FROM google_ads_accounts
     WHERE user_id = ?
       AND CAST(is_active AS INTEGER) = 1
       AND status = 'ENABLED'
       AND CAST(is_manager_account AS INTEGER) = 0
-    ORDER BY id ASC
+      AND account_balance IS NOT NULL
+    ORDER BY account_balance DESC, id ASC
     LIMIT 1
-  `, [userId]) as { customer_id: string } | undefined
+  `, [userId]) as { customer_id: string; account_balance: number } | undefined
+
+  if (account) {
+    console.log(`[KeywordPlanner] Selected account ${account.customer_id} with balance ${account.account_balance / 1000000} (micros)`)
+  }
 
   return account?.customer_id || ''
 }
