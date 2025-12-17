@@ -157,6 +157,12 @@ export default function LaunchAdPage() {
     }
   }
 
+  // 🔥 新增：返回第3步（用于发布失败时的"返回修改"）
+  const handleGoBackToStep3 = () => {
+    setCurrentStep(3)
+    setCanProceed(true)  // 重新启用下一步，因为用户在第3步可以配置广告
+  }
+
   const handleCreativeSelected = (creative: SelectedCreative) => {
     setSelectedCreative(creative)
     setCanProceed(true)
@@ -260,6 +266,7 @@ export default function LaunchAdPage() {
               campaignConfig={campaignConfig!}
               selectedAccount={selectedAccount!}
               onPublishComplete={handlePublishComplete}
+              onGoBackToStep3={handleGoBackToStep3}  // 🔥 新增：传递返回第3步的回调
             />
           )}
         </div>

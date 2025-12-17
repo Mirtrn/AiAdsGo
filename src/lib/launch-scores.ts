@@ -282,19 +282,40 @@ export async function createLaunchScore(
   const allIssues = extractAllIssues(analysis)
   const allSuggestions = extractAllSuggestions(analysis)
 
+  // 🔧 修复(2025-12-17): 为兼容旧版本字段提供默认值（v3.0字段为NOT NULL）
+  // v3.0字段：keyword_score, market_fit_score, landing_page_score, budget_score, content_score
+  // v4.0字段：launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score
+  const legacyKeywordScore = analysis.keywordStrategy.score || 0
+  const legacyMarketFitScore = analysis.launchViability.score || 0
+  const legacyLandingPageScore = analysis.basicConfig.finalUrl ? 5 : 0  // 基于Final URL存在性评估
+  const legacyBudgetScore = analysis.basicConfig.budgetScore || 0
+  const legacyContentScore = analysis.adQuality.score || 0
+
+  console.log(`[LaunchScore] v4.0总分: ${totalScore}, v3.0兼容字段: 关键词${legacyKeywordScore}/市场${legacyMarketFitScore}/着陆页${legacyLandingPageScore}/预算${legacyBudgetScore}/内容${legacyContentScore}`)
+
   const info = await db.exec(`
     INSERT INTO launch_scores (
       user_id, offer_id,
       total_score,
+      -- v3.0旧字段（NOT NULL，需要提供默认值）
+      keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
+      -- v4.0新字段
       launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
       launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
       recommendations,
       ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     userId,
     offerId,
     totalScore,
+    // v3.0旧字段（兼容）
+    legacyKeywordScore,
+    legacyMarketFitScore,
+    legacyLandingPageScore,
+    legacyBudgetScore,
+    legacyContentScore,
+    // v4.0新字段
     analysis.launchViability.score,
     analysis.adQuality.score,
     analysis.keywordStrategy.score,

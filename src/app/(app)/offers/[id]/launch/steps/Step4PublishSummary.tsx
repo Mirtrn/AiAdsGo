@@ -40,6 +40,7 @@ interface Props {
   campaignConfig: any
   selectedAccount: any
   onPublishComplete: () => void
+  onGoBackToStep3: () => void  // 🔥 新增：返回第3步的回调函数
 }
 
 export default function Step4PublishSummary({
@@ -47,7 +48,8 @@ export default function Step4PublishSummary({
   selectedCreative,
   campaignConfig,
   selectedAccount,
-  onPublishComplete
+  onPublishComplete,
+  onGoBackToStep3  // 🔥 新增：返回第3步的回调函数
 }: Props) {
   const [pauseOldCampaigns, setPauseOldCampaigns] = useState(false)
   const [enableCampaignImmediately, setEnableCampaignImmediately] = useState(false)  // 默认不启用
@@ -92,6 +94,12 @@ export default function Step4PublishSummary({
       }
       return [...prev, { step, message, status, timestamp: new Date() }]
     })
+  }
+
+  // 🔥 新增：重置发布状态（用于"返回修改"）- 现在会直接跳转到第3步
+  const resetPublishState = () => {
+    // 直接跳转到第3步，让用户修改广告配置
+    onGoBackToStep3()
   }
 
   const handlePublish = async () => {
@@ -763,7 +771,7 @@ export default function Step4PublishSummary({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setShowPublishResult(false)}
+                    onClick={resetPublishState}
                     className="w-full mt-2"
                   >
                     返回修改
