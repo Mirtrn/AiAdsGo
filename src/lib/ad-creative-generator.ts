@@ -2095,9 +2095,11 @@ export async function generateAdCreative(
           // 字符串数组 → 转换为对象数组（searchVolume设为0，后续会查询真实数据）
           extractedElements.keywords = rawKeywords.map(kw => ({
             keyword: kw,
-            searchVolume: 0
+            searchVolume: 0,
+            source: 'EXTRACTED',
+            priority: 'MEDIUM'
           }))
-          console.log(`📦 读取到 ${extractedElements.keywords.length} 个提取的关键词（字符串格式，待查询搜索量）`)
+          console.log(`📦 读取到 ${extractedElements.keywords?.length || 0} 个提取的关键词（字符串格式，待查询搜索量）`)
         } else if (rawKeywords[0]?.keyword !== undefined) {
           // 对象数组 → 直接使用
           extractedElements.keywords = rawKeywords
@@ -2564,23 +2566,29 @@ export async function generateAdCreative(
     const brandNameLowerForMerge = brandName?.toLowerCase() || ''
 
     // 🔧 修复(2025-12-17): 为searchVolume=0的关键词查询真实搜索量
-    const keywordsNeedVolume = extractedElements.keywords.filter(kw =>
+    const keywordsNeedVolume = (extractedElements.keywords || []).filter(kw =>
       kw.keyword && kw.searchVolume === 0 && !existingKeywordsLower.has(kw.keyword.toLowerCase())
     )
 
     if (keywordsNeedVolume.length > 0) {
       console.log(`   📊 查询 ${keywordsNeedVolume.length} 个关键词的搜索量...`)
       try {
-        const volumes = await getKeywordVolumes(
+        const targetCountry = (offer as { target_country?: string }).target_country || 'US'
+        const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
+        const lang = targetLanguage.toLowerCase().substring(0, 2)
+        const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
+
+        const volumes = await getKeywordSearchVolumes(
           keywordsNeedVolume.map(k => k.keyword),
           targetCountry,
-          targetLanguage
+          language,
+          userId
         )
         // 更新searchVolume
         keywordsNeedVolume.forEach(kw => {
-          const volumeData = volumes.find(v => v.keyword.toLowerCase() === kw.keyword.toLowerCase())
+          const volumeData = volumes.find((v: any) => v.keyword.toLowerCase() === kw.keyword.toLowerCase())
           if (volumeData) {
-            kw.searchVolume = volumeData.searchVolume
+            kw.searchVolume = volumeData.avgMonthlySearches
           }
         })
         console.log(`   ✅ 搜索量查询完成`)

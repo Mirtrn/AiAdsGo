@@ -5,6 +5,7 @@
 
 import type { PoolKeywordData } from './offer-keyword-pool'
 import { expandKeywordsWithSeeds } from './unified-keyword-service'
+import { DEFAULTS } from './keyword-constants'
 
 // ============================================
 // 动态过滤逻辑（无硬编码配置）
@@ -70,8 +71,8 @@ export async function expandAllKeywords(
       clientId,
       clientSecret,
       developerToken,
-      maxKeywords: 5000,  // 🔥 修复(2025-12-17): 大幅增加关键词上限，避免过早截断
-      minSearchVolume: 100  // 🔥 降低搜索量门槛，保留更多有价值关键词
+      maxKeywords: DEFAULTS.maxKeywords,  // 🔥 修复(2025-12-17): 使用常量避免硬编码
+      minSearchVolume: DEFAULTS.minSearchVolume  // 🔥 降低搜索量门槛，保留更多有价值关键词
     })
 
     // 合并结果（去重）

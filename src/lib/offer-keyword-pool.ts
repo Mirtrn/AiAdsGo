@@ -1296,3 +1296,180 @@ export function determineClusteringStrategy(keywordCount: number): ClusteringStr
     }
   }
 }
+
+// ============================================
+// 🔥 KISS 优化：统一关键词检索 API
+// 替代 5 个重叠函数，简化开发者体验
+// ============================================
+
+/**
+ * 统一的关键词检索 API
+ *
+ * 简化了以下 5 个重叠函数：
+ * 1. getKeywordPoolByOfferId()
+ * 2. getOrCreateKeywordPool()
+ * 3. getMultiRoundIntentAwareKeywords()
+ * 4. getUnifiedKeywordData()
+ * 5. getUnifiedKeywordDataWithMultiRounds()
+ *
+ * 使用参数化选项替代多个函数，遵循 KISS 原则
+ *
+ * 注意：此函数仅负责检索。如需创建关键词池，请使用 getOrCreateKeywordPool()
+ */
+export interface GetKeywordsOptions {
+  /** 要检索的桶：A(品牌), B(场景), C(功能), ALL(全部) */
+  bucket?: 'A' | 'B' | 'C' | 'ALL'
+
+  /** 意图过滤：品牌、场景、功能 */
+  intent?: 'brand' | 'scenario' | 'feature'
+
+  /** 最小搜索量阈值 */
+  minSearchVolume?: number
+
+  /** 最大关键词数量 */
+  maxKeywords?: number
+}
+
+/**
+ * 统一关键词检索结果
+ */
+export interface GetKeywordsResult {
+  /** 关键词列表 */
+  keywords: PoolKeywordData[]
+
+  /** 桶信息（如果适用） */
+  buckets?: {
+    A?: { intent: string; keywords: PoolKeywordData[] }
+    B?: { intent: string; keywords: PoolKeywordData[] }
+    C?: { intent: string; keywords: PoolKeywordData[] }
+  }
+
+  /** 统计信息 */
+  stats: {
+    totalCount: number
+    bucketACount?: number
+    bucketBCount?: number
+    bucketCCount?: number
+    searchVolumeRange?: { min: number; max: number }
+  }
+
+  /** 元数据 */
+  meta: {
+    offerId: number
+    createdAt?: string
+    updatedAt?: string
+    hasMultipleRounds?: boolean
+  }
+}
+
+/**
+ * 🔥 核心 API：统一关键词检索
+ *
+ * 示例用法：
+ * ```typescript
+ * // 获取所有关键词
+ * const all = await getKeywords(123)
+ *
+ * // 只获取品牌桶
+ * const brand = await getKeywords(123, { bucket: 'A' })
+ *
+ * // 获取过滤后的关键词
+ * const filtered = await getKeywords(123, { minSearchVolume: 100, maxKeywords: 500 })
+ * ```
+ *
+ * 注意：此函数仅负责检索。如需创建关键词池，请使用 getOrCreateKeywordPool()
+ */
+export async function getKeywords(
+  offerId: number,
+  options: GetKeywordsOptions = {}
+): Promise<GetKeywordsResult> {
+  const {
+    bucket = 'ALL',
+    intent,
+    minSearchVolume = 100,
+    maxKeywords = 5000
+  } = options
+
+  // 1. 获取关键词池
+  const keywordPool = await getKeywordPoolByOfferId(offerId)
+
+  // 2. 如果没有，返回空结果
+  if (!keywordPool) {
+    return {
+      keywords: [],
+      stats: { totalCount: 0 },
+      meta: { offerId }
+    }
+  }
+
+  // 3. 根据选项过滤和返回关键词
+  let keywords: PoolKeywordData[] = []
+
+  // 选择要返回的桶
+  if (bucket === 'ALL') {
+    // 合并所有桶的关键词
+    keywords = [
+      ...keywordPool.brandKeywords,
+      ...keywordPool.bucketAKeywords,
+      ...keywordPool.bucketBKeywords,
+      ...keywordPool.bucketCKeywords
+    ]
+  } else if (bucket === 'A') {
+    keywords = keywordPool.bucketAKeywords
+  } else if (bucket === 'B') {
+    keywords = keywordPool.bucketBKeywords
+  } else if (bucket === 'C') {
+    keywords = keywordPool.bucketCKeywords
+  }
+
+  // 4. 应用意图过滤（如果指定）
+  if (intent) {
+    if (intent === 'brand' && bucket === 'A') {
+      keywords = keywordPool.bucketAKeywords
+    } else if (intent === 'scenario' && bucket === 'B') {
+      keywords = keywordPool.bucketBKeywords
+    } else if (intent === 'feature' && bucket === 'C') {
+      keywords = keywordPool.bucketCKeywords
+    }
+  }
+
+  // 5. 按搜索量过滤
+  keywords = keywords.filter(kw => kw.searchVolume >= minSearchVolume)
+
+  // 6. 限制数量
+  keywords = keywords.slice(0, maxKeywords)
+
+  // 7. 构建返回结果
+  const result: GetKeywordsResult = {
+    keywords,
+    stats: {
+      totalCount: keywords.length,
+      bucketACount: keywordPool.bucketAKeywords.length,
+      bucketBCount: keywordPool.bucketBKeywords.length,
+      bucketCCount: keywordPool.bucketCKeywords.length,
+      searchVolumeRange: keywords.length > 0
+        ? {
+            min: Math.min(...keywords.map(k => k.searchVolume)),
+            max: Math.max(...keywords.map(k => k.searchVolume))
+          }
+        : undefined
+    },
+    meta: {
+      offerId,
+      createdAt: keywordPool.createdAt,
+      updatedAt: keywordPool.updatedAt
+    }
+  }
+
+  // 8. 如果需要，返回桶信息
+  if (bucket === 'ALL') {
+    result.buckets = {
+      A: { intent: keywordPool.bucketAIntent, keywords: keywordPool.bucketAKeywords },
+      B: { intent: keywordPool.bucketBIntent, keywords: keywordPool.bucketBKeywords },
+      C: { intent: keywordPool.bucketCIntent, keywords: keywordPool.bucketCKeywords }
+    }
+  }
+
+  console.log(`[getKeywords] 完成: offerId=${offerId}, bucket=${bucket}, 返回${keywords.length}个关键词`)
+  return result
+}

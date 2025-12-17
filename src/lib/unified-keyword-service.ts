@@ -15,6 +15,7 @@
 
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { getKeywordIdeas } from './google-ads-keyword-planner'
+import { PLATFORMS, BRAND_PATTERNS, DEFAULTS, THRESHOLD_LEVELS } from './keyword-constants'
 
 // ============================================
 // 类型定义
@@ -79,34 +80,6 @@ export interface KeywordServiceParams {
   minSearchVolume?: number
   maxKeywords?: number
 }
-
-// ============================================
-// 常见品牌名列表（用于白名单过滤）
-// ============================================
-
-/**
- * 销售平台白名单（不应被当作竞品过滤）
- * 这些词表示销售渠道，包含这些词的关键词通常是高意图购买词
- */
-const PLATFORM_KEYWORDS = [
-  'amazon', 'ebay', 'walmart', 'target', 'bestbuy', 'homedepot', 'lowes',
-  'aliexpress', 'alibaba', 'etsy', 'newegg', 'costco', 'samsclub'
-]
-
-/**
- * 已知竞品品牌列表（用于竞品词过滤）
- * 注意：销售平台（如amazon）已从此列表移除
- */
-const KNOWN_BRAND_PATTERNS = [
-  // 安防/摄像头
-  'ring', 'arlo', 'nest', 'wyze', 'blink', 'eufy', 'lorex', 'swann', 'hikvision', 'dahua',
-  'adt', 'simplisafe', 'vivint', 'frontpoint', 'abode', 'cove', 'scout',
-  // 智能家居（移除了amazon作为销售平台）
-  'google', 'apple', 'samsung', 'philips', 'hue', 'lutron', 'ecobee', 'honeywell',
-  // 电子产品
-  'sony', 'panasonic', 'lg', 'canon', 'nikon', 'gopro', 'dji', 'anker', 'aukey',
-  // 通用检测模式（首字母大写的品牌格式）
-]
 
 // ============================================
 // 优化1: 品牌名变体自动生成
@@ -625,7 +598,7 @@ function detectBrandInKeyword(keyword: string): string | null {
 
   // 🔥 优先检查销售平台白名单（2025-12-17修复）
   // 如果关键词包含销售平台词（如 "argus 3 pro amazon"），不应视为竞品
-  for (const platform of PLATFORM_KEYWORDS) {
+  for (const platform of PLATFORMS) {
     const regex = new RegExp(`\\b${platform}\\b`, 'i')
     if (regex.test(keywordLower)) {
       // 包含销售平台词，不视为竞品，返回 null
@@ -634,7 +607,7 @@ function detectBrandInKeyword(keyword: string): string | null {
   }
 
   // 检查已知品牌列表
-  for (const brand of KNOWN_BRAND_PATTERNS) {
+  for (const brand of BRAND_PATTERNS) {
     // 完整词匹配（避免 "spring" 匹配 "ring"）
     const regex = new RegExp(`\\b${brand}\\b`, 'i')
     if (regex.test(keywordLower)) {
@@ -843,15 +816,15 @@ const RESEARCH_INTENT_PATTERNS = [
  */
 export function applySmartFilters(
   keywords: UnifiedKeywordData[],
-  minSearchVolume: number = 500,
-  minKeywordsTarget: number = 15  // 最小期望关键词数
+  minSearchVolume: number = DEFAULTS.minSearchVolume,
+  minKeywordsTarget: number = DEFAULTS.minKeywordsTarget
 ): UnifiedKeywordData[] {
   let currentThreshold = minSearchVolume
   let filtered: UnifiedKeywordData[] = []
   let attempts = 0
-  const maxAttempts = 4  // 最多尝试4次 (500 → 100 → 10 → 1)
+  const maxAttempts = DEFAULTS.maxFilterAttempts
 
-  const thresholdLevels = [minSearchVolume, 100, 10, 1]
+  const thresholdLevels = [minSearchVolume, ...THRESHOLD_LEVELS]
 
   while (attempts < maxAttempts) {
     currentThreshold = thresholdLevels[Math.min(attempts, thresholdLevels.length - 1)]
