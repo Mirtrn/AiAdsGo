@@ -196,7 +196,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -373,7 +374,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -513,7 +515,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -654,7 +657,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -735,7 +739,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -838,7 +843,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -946,7 +952,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -1095,7 +1102,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -1321,7 +1329,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -1463,7 +1472,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -1642,7 +1652,8 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
 
 -- ========================================
@@ -1706,5 +1717,6 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
-);
+)
+ON CONFLICT (prompt_id, version) DO NOTHING;
 
