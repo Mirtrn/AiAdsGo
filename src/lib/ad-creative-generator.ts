@@ -1837,17 +1837,18 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
     }
 
     // ============================================================================
-    // 验证关键词长度 (1-4 个单词)
-    // 注: 品牌词通常是1个单词，所以允许1-4个单词的关键词
+    // 验证关键词长度 (1-5 个单词)
+    // 🔧 优化(2025-12-17): 放宽到5个单词，支持更多长尾词（如"buy reolink argus 3 pro"）
+    // 注: 品牌词通常是1个单词，长尾词可能达到5个单词
     // ============================================================================
     let keywordsArray = Array.isArray(data.keywords) ? data.keywords : []
     const invalidKeywords = keywordsArray.filter((k: string) => {
       if (!k) return false
       const wordCount = k.trim().split(/\s+/).length
-      return wordCount < 1 || wordCount > 4
+      return wordCount < 1 || wordCount > 5
     })
     if (invalidKeywords.length > 0) {
-      console.warn(`警告: ${invalidKeywords.length}个keyword不符合1-4单词要求`)
+      console.warn(`警告: ${invalidKeywords.length}个keyword不符合1-5单词要求`)
       invalidKeywords.forEach((k: string) => {
         const wordCount = k.trim().split(/\s+/).length
         console.warn(`  "${k}"(${wordCount}个单词)`)
@@ -1857,7 +1858,7 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
       keywordsArray = keywordsArray.filter((k: string) => {
         if (!k) return false
         const wordCount = k.trim().split(/\s+/).length
-        return wordCount >= 1 && wordCount <= 4
+        return wordCount >= 1 && wordCount <= 5
       })
       console.warn(`  过滤后: ${originalCount} → ${keywordsArray.length}个关键词`)
     }
