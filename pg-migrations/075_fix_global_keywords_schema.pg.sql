@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS global_keywords_v2 (
 );
 
 -- Step 2: 从旧表迁移数据（keyword_text → keyword）
+-- 🔧 修复：将 TEXT 类型的时间戳转换为 TIMESTAMP
 INSERT INTO global_keywords_v2 (keyword, country, language, search_volume, competition_level, avg_cpc_micros, created_at)
 SELECT
   keyword_text,
@@ -27,7 +28,7 @@ SELECT
   search_volume,
   competition_level,
   avg_cpc_micros,
-  created_at
+  COALESCE(created_at::TIMESTAMP, NOW())
 FROM global_keywords
 WHERE keyword_text IS NOT NULL
 ON CONFLICT (keyword, country, language) DO NOTHING;
