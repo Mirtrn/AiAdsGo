@@ -191,20 +191,11 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 }',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -377,20 +368,11 @@ Return JSON:
 }',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -526,20 +508,11 @@ Return JSON:
 }',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -676,20 +649,11 @@ Return a COMPLETE JSON object:
 }',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -766,20 +730,11 @@ Page Content Preview: {{pageData.textPreview}}
 Output: Brand name only.',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -878,20 +833,11 @@ Return ONLY a valid JSON object with this exact structure:
 **Important**: Return ONLY the JSON object, no markdown code blocks, no explanations.',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -995,20 +941,11 @@ Return JSON:
 }',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -1153,20 +1090,11 @@ INSERT INTO prompt_versions (
 3. balanceScore计算方式：1 - (max差异 / 总数)，越接近1越均衡',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -1388,20 +1316,11 @@ INSERT INTO prompt_versions (
 9. overallRecommendations提供3-5条最重要的综合改进建议',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -1539,20 +1458,11 @@ Return a COMPLETE JSON object with this structure:
 }',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -1727,20 +1637,11 @@ Return ONLY valid JSON (no markdown, no code blocks) with this exact structure:
 IMPORTANT: Extract AT LEAST 8-12 quantitative highlights if the reviews contain numbers. Look for ANY mention of time, duration, frequency, measurements, percentages, or comparisons.',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
 
@@ -1800,19 +1701,10 @@ Return a JSON object with this structure:
 Output in {{langName}}.',
   'Chinese',
   TRUE,
-  'v4.14 更新内容:
+  '
+v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
-2. 从开发环境数据库导出最新Prompt内容'
-)
-ON CONFLICT (prompt_id, version) DO UPDATE SET
-    category = EXCLUDED.category,
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    file_path = EXCLUDED.file_path,
-    function_name = EXCLUDED.function_name,
-    prompt_content = EXCLUDED.prompt_content,
-    language = EXCLUDED.language,
-    is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes
+2. 从开发环境数据库导出最新Prompt内容
+'
 );
 
