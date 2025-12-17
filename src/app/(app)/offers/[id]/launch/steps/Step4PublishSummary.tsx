@@ -32,6 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Rocket, CheckCircle2, AlertCircle, Loader2, TrendingUp, Settings, Link2 } from 'lucide-react'
+import { translateIssues, translateSuggestions } from '@/lib/launch-score-i18n'
 
 interface Props {
   offer: any
@@ -707,7 +708,7 @@ export default function Step4PublishSummary({
                       </div>
                     )}
 
-                    {/* 主要问题 */}
+                    {/* 主要问题 - 🔥 添加中英文翻译 */}
                     {launchScoreBlockDetails.issues && launchScoreBlockDetails.issues.length > 0 && (
                       <div className="mb-3">
                         <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
@@ -715,7 +716,7 @@ export default function Step4PublishSummary({
                           主要问题
                         </div>
                         <ul className="space-y-1">
-                          {launchScoreBlockDetails.issues.slice(0, 5).map((issue, idx) => (
+                          {translateIssues(launchScoreBlockDetails.issues).slice(0, 5).map((issue, idx) => (
                             <li key={idx} className="text-xs text-gray-600 flex items-start gap-2 p-1.5 bg-white rounded">
                               <span className="text-amber-500 mt-0.5">•</span>
                               <span>{issue}</span>
@@ -725,7 +726,7 @@ export default function Step4PublishSummary({
                       </div>
                     )}
 
-                    {/* 改进建议 */}
+                    {/* 改进建议 - 🔥 添加中英文翻译 */}
                     {launchScoreBlockDetails.suggestions && launchScoreBlockDetails.suggestions.length > 0 && (
                       <div>
                         <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
@@ -733,7 +734,7 @@ export default function Step4PublishSummary({
                           改进建议
                         </div>
                         <ul className="space-y-1">
-                          {launchScoreBlockDetails.suggestions.slice(0, 5).map((suggestion, idx) => (
+                          {translateSuggestions(launchScoreBlockDetails.suggestions).slice(0, 5).map((suggestion, idx) => (
                             <li key={idx} className="text-xs text-gray-600 flex items-start gap-2 p-1.5 bg-white rounded">
                               <span className="text-green-500 mt-0.5">•</span>
                               <span>{suggestion}</span>
@@ -816,7 +817,7 @@ export default function Step4PublishSummary({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Score Display */}
+          {/* Score Display - 使用7维度新评分系统 */}
           <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
             <div>
               <div className="text-sm text-gray-600 mb-1">综合评分</div>
@@ -825,22 +826,67 @@ export default function Step4PublishSummary({
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-gray-600">相关性:</span>{' '}
-                <span className="font-semibold">{selectedCreative.scoreBreakdown.relevance}</span>
-              </div>
-              <div>
-                <span className="text-gray-600">质量:</span>{' '}
-                <span className="font-semibold">{selectedCreative.scoreBreakdown.quality}</span>
-              </div>
-              <div>
-                <span className="text-gray-600">吸引力:</span>{' '}
-                <span className="font-semibold">{selectedCreative.scoreBreakdown.engagement}</span>
-              </div>
-              <div>
-                <span className="text-gray-600">多样性:</span>{' '}
-                <span className="font-semibold">{selectedCreative.scoreBreakdown.diversity}</span>
-              </div>
+              {/* 显示7个维度 */}
+              {selectedCreative.adStrength?.dimensions ? (
+                <>
+                  <div>
+                    <span className="text-gray-600">相关性:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.adStrength.dimensions.relevance.score}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">质量:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.adStrength.dimensions.quality.score}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">吸引力:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.adStrength.dimensions.completeness.score}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">多样性:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.adStrength.dimensions.diversity.score}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">合规性:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.adStrength.dimensions.compliance.score}</span>
+                  </div>
+                  {selectedCreative.adStrength.dimensions.brandSearchVolume && (
+                    <div>
+                      <span className="text-gray-600">品牌影响力:</span>{' '}
+                      <span className="font-semibold">{selectedCreative.adStrength.dimensions.brandSearchVolume.score}</span>
+                    </div>
+                  )}
+                  {selectedCreative.adStrength.dimensions.competitivePositioning && (
+                    <div>
+                      <span className="text-gray-600">竞争定位:</span>{' '}
+                      <span className="font-semibold">{selectedCreative.adStrength.dimensions.competitivePositioning.score}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* 降级到旧的5维度显示（包含clarity） */
+                <>
+                  <div>
+                    <span className="text-gray-600">相关性:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.scoreBreakdown.relevance}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">质量:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.scoreBreakdown.quality}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">吸引力:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.scoreBreakdown.engagement}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">多样性:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.scoreBreakdown.diversity}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">清晰度:</span>{' '}
+                    <span className="font-semibold">{selectedCreative.scoreBreakdown.clarity}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
