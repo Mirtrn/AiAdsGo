@@ -819,6 +819,10 @@ export async function updateOfferScrapeStatus(
 ): Promise<void> {
   const db = await getDatabase()
 
+  // 🔥 2025-12-17修复：更新状态前先清理API缓存，确保前端显示最新状态
+  const { invalidateOfferCache } = await import('./api-cache')
+  invalidateOfferCache(userId, id)
+
   if (status === 'completed' && scrapedData) {
     // 🔧 修复：当品牌名更新时，同步更新offer_name
     // 需要先查询当前的offer_name以提取序号
