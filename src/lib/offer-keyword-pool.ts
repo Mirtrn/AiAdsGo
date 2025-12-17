@@ -294,15 +294,13 @@ export async function clusterKeywordsByIntent(
     }
 
     // 4. 调用 AI
-    // 🔥 2025-12-17修复：关键词聚类输出量大，增加maxOutputTokens到65536
-    // 场景：264个关键词需要聚类成3个桶，JSON输出可能达到20K+ tokens
-    // Gemini 2.5 Pro限制8192 tokens，导致输出被截断
-    // Gemini 2.0支持最大65536 tokens输出
+    // 🔥 2025-12-17优化：通过提高搜索量阈值(500)减少关键词数量，控制输出在16K以内
+    // 预期：100-200个高价值关键词聚类，JSON输出约10-15K tokens
     const aiResponse = await generateContent({
       operationType: 'keyword_clustering',
       prompt,
       temperature: 0.3,  // 低温度，保持一致性
-      maxOutputTokens: 65536,  // 🔥 修复：从16384增加到65536
+      maxOutputTokens: 16384,
       responseSchema,
       responseMimeType: 'application/json'
     }, userId)
