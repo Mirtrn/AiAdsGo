@@ -37,7 +37,7 @@ export const BRAND_PATTERNS = [
  */
 export const DEFAULTS = {
   /** 默认最小搜索量阈值 */
-  minSearchVolume: 100,
+  minSearchVolume: 500,  // 🔥 2025-12-17: 从100提高到500，只保留高价值关键词
 
   /** 默认最大关键词数量 */
   maxKeywords: 5000,

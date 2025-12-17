@@ -105,31 +105,35 @@ export async function expandAllKeywords(
 // ============================================
 
 /**
- * 智能过滤（2层过滤，无硬编码配置）
+ * 智能过滤（2层过滤：品牌词 + 搜索量）
+ *
+ * 🔥 2025-12-17优化：
+ * 1. 移除竞品词穷举过滤（无法穷举所有竞品）
+ * 2. 只保留核心品牌词过滤（如"eufy security" → "eufy"）
+ * 3. 提高搜索量阈值到500（保留高价值关键词）
  */
 export function filterKeywords(
   keywords: PoolKeywordData[],
   brandName: string,
   category: string
 ): PoolKeywordData[] {
-  const brandLower = brandName.toLowerCase()
+  // 提取核心品牌词（取第一个单词）
+  // 示例："eufy security" → "eufy", "Reolink" → "reolink"
   const coreBrandLower = brandName.split(' ')[0].toLowerCase()
 
   const filtered = keywords.filter(kw => {
     const kwLower = kw.keyword.toLowerCase()
 
-    // 第1层：竞品过滤（动态检测大写品牌词）
-    if (isCompetitorKeyword(kw.keyword, brandName)) return false
-
-    // 第2层：品牌相关性（必须包含品牌名）
-    const hasBrand = kwLower.includes(brandLower) || kwLower.includes(coreBrandLower)
+    // ✅ 第1层：品牌相关性（必须包含核心品牌词）
+    // 这是唯一的品牌过滤规则，不再穷举竞品词
+    const hasBrand = kwLower.includes(coreBrandLower)
     if (!hasBrand) return false
 
-    // 第3层：搜索量过滤
+    // ✅ 第2层：搜索量过滤（阈值500）
     // 🔧 容错处理：当searchVolume未知时（undefined/null/0），保留关键词
     // 这样当Google Ads API不可用时，初始关键词不会被全部过滤掉
     const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
-    if (hasSearchVolumeData && kw.searchVolume < 100) return false
+    if (hasSearchVolumeData && kw.searchVolume < 500) return false
 
     return true
   })
