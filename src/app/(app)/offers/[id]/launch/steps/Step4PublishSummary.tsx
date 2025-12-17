@@ -562,25 +562,70 @@ export default function Step4PublishSummary({
           </CardContent>
         </Card>
 
-        {/* 右列：发布结果卡片 */}
-        {showPublishResult && (
-          <Card className={`border-2 h-[400px] flex flex-col ${publishStatus?.success ? 'border-green-200 bg-green-50/30' : publishStatus?.step === 'failed' ? 'border-red-200 bg-red-50/30' : 'border-blue-200 bg-blue-50/30'}`}>
-            <CardHeader className="pb-3 flex-shrink-0">
-              <CardTitle className="text-base flex items-center gap-2">
-                {publishStatus?.success ? (
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                ) : publishStatus?.step === 'failed' ? (
-                  <AlertCircle className="w-4 h-4 text-red-600" />
-                ) : (
-                  <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-                )}
-                发布结果
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto">
-              <div className="space-y-4">
-                {/* 发布步骤列表 */}
-                <div className="space-y-2">
+        {/* 右列：发布结果卡片 - 始终显示 */}
+        <Card className={`border-2 h-[400px] flex flex-col ${
+          publishStatus?.success
+            ? 'border-green-200 bg-green-50/30'
+            : publishStatus?.step === 'failed'
+            ? 'border-red-200 bg-red-50/30'
+            : showPublishResult
+            ? 'border-blue-200 bg-blue-50/30'
+            : 'border-gray-200 bg-gray-50/30'
+        }`}>
+          <CardHeader className="pb-3 flex-shrink-0">
+            <CardTitle className="text-base flex items-center gap-2">
+              {publishStatus?.success ? (
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+              ) : publishStatus?.step === 'failed' ? (
+                <AlertCircle className="w-4 h-4 text-red-600" />
+              ) : showPublishResult ? (
+                <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-gray-400" />
+              )}
+              发布结果
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 overflow-y-auto">
+            <div className="space-y-4">
+              {/* 等待发布状态 - 显示准备信息 */}
+              {!showPublishResult && publishSteps.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-full py-8">
+                  <div className="text-center space-y-4">
+                    <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto">
+                      <Rocket className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 mb-2">准备发布数据</div>
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <div className="flex items-center justify-center gap-2">
+                          <CheckCircle2 className="w-3 h-3 text-green-600" />
+                          <span>已生成广告创意</span>
+                        </div>
+                        <div className="flex items-center justify-center gap-2">
+                          <CheckCircle2 className="w-3 h-3 text-green-600" />
+                          <span>已关联Google Ads账号</span>
+                        </div>
+                        <div className="flex items-center justify-center gap-2">
+                          <CheckCircle2 className="w-3 h-3 text-green-600" />
+                          <span>已配置广告系列参数</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pt-4 border-t border-gray-200 w-full">
+                      <div className="text-xs text-gray-500 text-center">
+                        已暂停 <span className="font-semibold text-gray-700">0</span> 个广告系列
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 发布中/已发布状态 - 显示步骤列表 */}
+              {(showPublishResult || publishSteps.length > 0) && (
+                <>
+                  {/* 发布步骤列表 */}
+                  <div className="space-y-2">
                   {publishSteps.map((step, idx) => (
                     <div key={idx} className="flex items-center gap-2 p-2 bg-white rounded border">
                       {step.status === 'running' ? (
@@ -723,10 +768,11 @@ export default function Step4PublishSummary({
                     返回修改
                   </Button>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-)}
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Publish Status - 仅在非发布结果模式下显示 */}
