@@ -109,13 +109,13 @@ export async function saveGoogleAdsCredentials(
 export async function getGoogleAdsCredentials(userId: number): Promise<GoogleAdsCredentials | null> {
   const db = await getDatabase()
 
-  // 🔧 PostgreSQL兼容性：is_active 在 PostgreSQL 是 BOOLEAN，在 SQLite 是 INTEGER
-  const isActiveValue = db.type === 'postgres' ? true : 1
+  // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
 
   const credentials = await db.queryOne<GoogleAdsCredentials>(`
     SELECT * FROM google_ads_credentials
-    WHERE user_id = ? AND is_active = ?
-  `, [userId, isActiveValue])
+    WHERE user_id = ? AND ${isActiveCondition}
+  `, [userId])
 
   return credentials || null
 }

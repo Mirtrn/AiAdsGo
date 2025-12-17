@@ -340,8 +340,11 @@ export async function listOffers(
     return { offers: [], total: count }
   }
 
-  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-  const isManagerValue = db.type === 'postgres' ? false : 0
+  // 🔧 PostgreSQL兼容性修复: is_manager_account在PostgreSQL中是BOOLEAN类型
+  // 使用SQL类型转换确保兼容性，而不是在参数中传递类型不匹配的值
+  const isManagerCondition = db.type === 'postgres'
+    ? 'gaa.is_manager_account = false'  // PostgreSQL: 直接使用false
+    : 'gaa.is_manager_account = 0'      // SQLite: 使用0
 
   // 构建offer IDs的占位符
   const offerIds = offers.map(o => o.id)
@@ -359,13 +362,13 @@ export async function listOffers(
     WHERE c.offer_id IN (${placeholders})
       AND c.user_id = ?
       AND c.status != 'REMOVED'
-      AND gaa.is_manager_account = ?
+      AND ${isManagerCondition}
       AND c.google_campaign_id IS NOT NULL
       AND c.google_campaign_id != ''
     ORDER BY c.offer_id, gaa.account_name
   `
 
-  const allLinkedAccounts = await db.query(linkedAccountsQuery, [...offerIds, userId, isManagerValue]) as Array<{
+  const allLinkedAccounts = await db.query(linkedAccountsQuery, [...offerIds, userId]) as Array<{
     offer_id: number
     account_id: number
     account_name: string | null
@@ -748,30 +751,30 @@ export async function unlinkOfferFromAccount(
 export async function getIdleAdsAccounts(userId: number): Promise<any[]> {
   const db = await getDatabase()
 
-  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-  const isActiveValue = db.type === 'postgres' ? true : 1
-  const isManagerValue = db.type === 'postgres' ? false : 0
-  const isDeletedValue = db.type === 'postgres' ? false : 0
+  // 🔧 PostgreSQL兼容性修复: 布尔字段直接在SQL中比较
+  const isActiveCondition = db.type === 'postgres' ? 'gaa.is_active = true' : 'gaa.is_active = 1'
+  const isManagerCondition = db.type === 'postgres' ? 'gaa.is_manager_account = false' : 'gaa.is_manager_account = 0'
+  const isDeletedCondition = db.type === 'postgres' ? 'o.is_deleted = false' : 'o.is_deleted = 0'
 
   // 通过子查询判断账号是否闲置（没有活跃的Campaign关联）
   return await db.query(`
     SELECT gaa.*
     FROM google_ads_accounts gaa
     WHERE gaa.user_id = ?
-      AND gaa.is_active = ?
+      AND ${isActiveCondition}
       AND gaa.status = 'ENABLED'
-      AND gaa.is_manager_account = ?
+      AND ${isManagerCondition}
       AND NOT EXISTS (
         SELECT 1
         FROM campaigns c
         JOIN offers o ON c.offer_id = o.id
         WHERE c.google_ads_account_id = gaa.id
           AND c.user_id = gaa.user_id
-          AND o.is_deleted = ?
+          AND ${isDeletedCondition}
           AND c.status != 'REMOVED'
       )
     ORDER BY gaa.updated_at DESC
-  `, [userId, isActiveValue, isManagerValue, isDeletedValue])
+  `, [userId])
 }
 
 /**

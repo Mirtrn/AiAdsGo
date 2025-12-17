@@ -121,14 +121,14 @@ export async function findGoogleAdsAccountsByUserId(userId: number): Promise<Goo
 export async function findActiveGoogleAdsAccounts(userId: number): Promise<GoogleAdsAccount[]> {
   const db = await getDatabase()
 
-  // 🔧 PostgreSQL兼容性：is_active 在 PostgreSQL 是 BOOLEAN，在 SQLite 是 INTEGER
-  const isActiveValue = db.type === 'postgres' ? true : 1
+  // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
 
   const rows = await db.query(`
     SELECT * FROM google_ads_accounts
-    WHERE user_id = ? AND is_active = ?
+    WHERE user_id = ? AND ${isActiveCondition}
     ORDER BY created_at DESC
-  `, [userId, isActiveValue]) as any[]
+  `, [userId]) as any[]
 
   return rows.map(mapRowToGoogleAdsAccount)
 }
@@ -139,18 +139,19 @@ export async function findActiveGoogleAdsAccounts(userId: number): Promise<Googl
 export async function findEnabledGoogleAdsAccounts(userId: number): Promise<GoogleAdsAccount[]> {
   const db = await getDatabase()
 
-  // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-  const isActiveValue = db.type === 'postgres' ? true : 1
-  const isManagerValue = db.type === 'postgres' ? false : 0
+  // 🔧 PostgreSQL兼容性修复: 布尔字段在PostgreSQL中是BOOLEAN类型
+  // 使用SQL条件而非参数绑定，避免类型不匹配
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  const isManagerCondition = db.type === 'postgres' ? 'is_manager_account = false' : 'is_manager_account = 0'
 
   const rows = await db.query(`
     SELECT * FROM google_ads_accounts
     WHERE user_id = ?
-      AND is_active = ?
+      AND ${isActiveCondition}
       AND status = 'ENABLED'
-      AND is_manager_account = ?
+      AND ${isManagerCondition}
     ORDER BY created_at DESC
-  `, [userId, isActiveValue, isManagerValue]) as any[]
+  `, [userId]) as any[]
 
   return rows.map(mapRowToGoogleAdsAccount)
 }
