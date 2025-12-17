@@ -2079,8 +2079,27 @@ export async function generateAdCreative(
 
   try {
     if ((offer as any).extracted_keywords) {
-      extractedElements.keywords = JSON.parse((offer as any).extracted_keywords)
-      console.log(`📦 读取到 ${extractedElements.keywords?.length || 0} 个提取的关键词`)
+      const rawKeywords = JSON.parse((offer as any).extracted_keywords)
+
+      // 🔧 修复(2025-12-17): 兼容两种数据格式
+      // 格式1: 字符串数组 ["Reolink", "reolink camera", ...]
+      // 格式2: 对象数组 [{keyword: "Reolink", searchVolume: 90500}, ...]
+      if (Array.isArray(rawKeywords) && rawKeywords.length > 0) {
+        if (typeof rawKeywords[0] === 'string') {
+          // 字符串数组 → 转换为对象数组（searchVolume设为0，后续会查询真实数据）
+          extractedElements.keywords = rawKeywords.map(kw => ({
+            keyword: kw,
+            searchVolume: 0
+          }))
+          console.log(`📦 读取到 ${extractedElements.keywords.length} 个提取的关键词（字符串格式，待查询搜索量）`)
+        } else if (rawKeywords[0]?.keyword !== undefined) {
+          // 对象数组 → 直接使用
+          extractedElements.keywords = rawKeywords
+          console.log(`📦 读取到 ${extractedElements.keywords.length} 个提取的关键词（对象格式）`)
+        } else {
+          console.warn(`⚠️ extracted_keywords格式未知，跳过`)
+        }
+      }
     }
     if ((offer as any).extracted_headlines) {
       extractedElements.headlines = JSON.parse((offer as any).extracted_headlines)
@@ -2537,6 +2556,32 @@ export async function generateAdCreative(
         .map(k => k.keyword.toLowerCase())
     )
     const brandNameLowerForMerge = brandName?.toLowerCase() || ''
+
+    // 🔧 修复(2025-12-17): 为searchVolume=0的关键词查询真实搜索量
+    const keywordsNeedVolume = extractedElements.keywords.filter(kw =>
+      kw.keyword && kw.searchVolume === 0 && !existingKeywordsLower.has(kw.keyword.toLowerCase())
+    )
+
+    if (keywordsNeedVolume.length > 0) {
+      console.log(`   📊 查询 ${keywordsNeedVolume.length} 个关键词的搜索量...`)
+      try {
+        const volumes = await getKeywordVolumes(
+          keywordsNeedVolume.map(k => k.keyword),
+          targetCountry,
+          targetLanguage
+        )
+        // 更新searchVolume
+        keywordsNeedVolume.forEach(kw => {
+          const volumeData = volumes.find(v => v.keyword.toLowerCase() === kw.keyword.toLowerCase())
+          if (volumeData) {
+            kw.searchVolume = volumeData.searchVolume
+          }
+        })
+        console.log(`   ✅ 搜索量查询完成`)
+      } catch (volumeError) {
+        console.warn(`   ⚠️ 搜索量查询失败，使用默认值0:`, volumeError)
+      }
+    }
 
     // 1. 筛选需要合并的关键词（去重 + 搜索量过滤）
     const keywordsToMerge = extractedElements.keywords.filter(kw => {
