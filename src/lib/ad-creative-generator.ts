@@ -1226,8 +1226,14 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   variables.exclude_keywords_section = excludeKeywords?.length ? `- 已用关键词: ${excludeKeywords.slice(0, 10).join(', ')}` : ''
 
   // 🎯 新增：AI关键词section
-  if (aiKeywords && aiKeywords.length > 0) {
-    variables.ai_keywords_section = `\n**AI生成高质量关键词** (基于产品深度分析):\n${aiKeywords.slice(0, 15).join(', ')}\n`
+  // 🔥 修复(2025-12-17): 优先使用mergedData中的关键词池数据，而非旧的ai_keywords字段
+  const keywordsForPrompt = extractedElements?.keywords && extractedElements.keywords.length > 0
+    ? extractedElements.keywords.slice(0, 50).map(kw => kw.keyword)  // 使用关键词池数据（最多50个）
+    : aiKeywords.slice(0, 15)  // fallback到旧的ai_keywords
+
+  if (keywordsForPrompt && keywordsForPrompt.length > 0) {
+    variables.ai_keywords_section = `\n**高价值关键词池** (已验证搜索量):\n${keywordsForPrompt.join(', ')}\n`
+    console.log(`[Prompt] 🔑 提供给AI的关键词数量: ${keywordsForPrompt.length}个 (来源: ${extractedElements?.keywords ? '关键词池' : 'ai_keywords'})`)
   } else {
     variables.ai_keywords_section = ''
   }
@@ -2839,8 +2845,8 @@ export async function generateAdCreative(
   // 计算每个关键词的意图分数
   const keywordsWithIntent = finalKeywords.map(kw => ({
     ...kw,
-    intentScore: calculateIntentScore(kw.keyword),
-    intentLevel: getIntentLevel(calculateIntentScore(kw.keyword))
+    intentScore: calculateIntentScore(kw.keyword, brandName),  // 🔧 修复：传入brandName
+    intentLevel: getIntentLevel(calculateIntentScore(kw.keyword, brandName))  // 🔧 修复：传入brandName
   }))
 
   // 分类统计

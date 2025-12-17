@@ -438,19 +438,54 @@ const INTENT_SIGNALS: Record<string, number> = {
  * 计算关键词的购买意图强度
  *
  * @param keyword - 关键词
+ * @param brandName - 品牌名称（可选，用于品牌词检测）
  * @returns 0-100的意图分数
  *
  * @example
  * calculateIntentScore('buy reolink camera') // → 95 (高购买意图)
+ * calculateIntentScore('reolink camera', 'Reolink') // → 85 (品牌+产品词)
+ * calculateIntentScore('reolink', 'Reolink') // → 75 (品牌词)
+ * calculateIntentScore('security camera') // → 55 (通用产品词)
  * calculateIntentScore('best security camera') // → 55 (中等意图)
  * calculateIntentScore('reolink camera review') // → 35 (低意图)
  * calculateIntentScore('how to install camera') // → 10 (信息查询)
- * calculateIntentScore('security camera') // → 40 (默认中等)
  */
-export function calculateIntentScore(keyword: string): number {
+export function calculateIntentScore(keyword: string, brandName?: string): number {
   const kwLower = keyword.toLowerCase()
   let maxScore = 40  // 默认中等意图
 
+  // 🔥 优化(2025-12-17): 品牌词和产品词隐性购买意图识别
+  // 问题：品牌词"reolink"和产品词"security camera"都被评为40分（低购买意图）
+  // 真实情况：品牌词本身就是高购买意图（用户已认品牌），产品词是中等购买意图
+
+  // 1. 品牌词检测（高购买意图 75-85分）
+  if (brandName) {
+    const brandLower = brandName.toLowerCase()
+    if (kwLower.includes(brandLower)) {
+      maxScore = 75  // 品牌词基础分（高购买意图）
+
+      // 品牌+产品组合词（更高购买意图 85分）
+      const productIndicators = [
+        'camera', 'security', 'system', 'doorbell', 'nvr', 'monitor',
+        'sensor', 'alarm', 'detector', 'device', 'kit', 'set'
+      ]
+      if (productIndicators.some(p => kwLower.includes(p))) {
+        maxScore = 85  // 品牌+产品词（明确购买目标）
+      }
+    }
+  }
+
+  // 2. 通用产品名词检测（中等购买意图 55分）
+  // 用户搜索具体产品，表明有购买需求，但未定品牌
+  const productNouns = [
+    'camera', 'doorbell', 'system', 'monitor', 'sensor', 'alarm',
+    'detector', 'nvr', 'dvr', 'recorder', 'security', 'surveillance'
+  ]
+  if (productNouns.some(p => kwLower.includes(p))) {
+    maxScore = Math.max(maxScore, 55)  // 通用产品词（中等购买意图）
+  }
+
+  // 3. 显性购买信号词检测（原有逻辑）
   for (const [signal, score] of Object.entries(INTENT_SIGNALS)) {
     if (kwLower.includes(signal)) {
       maxScore = Math.max(maxScore, score)
@@ -478,7 +513,7 @@ export function sortKeywordsByIntent<T extends { keyword: string; searchVolume?:
 
   const keywordsWithIntent = keywords.map(kw => ({
     ...kw,
-    intentScore: calculateIntentScore(kw.keyword)
+    intentScore: calculateIntentScore(kw.keyword, brandName)  // 🔧 修复：传入brandName
   }))
 
   keywordsWithIntent.sort((a, b) => {
