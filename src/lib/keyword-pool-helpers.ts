@@ -113,6 +113,7 @@ export async function expandAllKeywords(
  * 2. 只保留核心品牌词过滤（如"eufy security" → "eufy"）
  * 3. 提高搜索量阈值到500（保留高价值关键词）
  * 4. 🆕 新增地理位置过滤（过滤非目标国家的关键词）
+ * 5. 🆕 2025-12-18优化：保留高搜索量通用品类词（>10000）
  */
 export function filterKeywords(
   keywords: PoolKeywordData[],
@@ -125,14 +126,30 @@ export function filterKeywords(
   const coreBrandLower = brandName.split(' ')[0].toLowerCase()
 
   let geoFilteredCount = 0
+  let brandKeptCount = 0
+  let highVolumeGenericCount = 0
 
   const filtered = keywords.filter(kw => {
     const kwLower = kw.keyword.toLowerCase()
-
-    // ✅ 第1层：品牌相关性（必须包含核心品牌词）
-    // 这是唯一的品牌过滤规则，不再穷举竞品词
     const hasBrand = kwLower.includes(coreBrandLower)
-    if (!hasBrand) return false
+
+    // ✅ 第1层：品牌相关性过滤
+    // 保留2种关键词：
+    // 1. 包含核心品牌词的关键词（品牌词）
+    // 2. 搜索量>10000的通用品类词（高价值通用词）
+    const isHighVolumeGeneric = !hasBrand && kw.searchVolume >= 10000
+
+    if (!hasBrand && !isHighVolumeGeneric) {
+      return false
+    }
+
+    // 记录保留的品牌词和高搜索量通用词
+    if (hasBrand) {
+      brandKeptCount++
+    } else if (isHighVolumeGeneric) {
+      highVolumeGenericCount++
+      console.log(`   ✅ 保留高搜索量通用词: "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
+    }
 
     // ✅ 第2层：地理位置过滤（过滤非目标国家的关键词）
     // 🔧 修复(2025-12-17): 扩展阶段也需要地理过滤
@@ -146,16 +163,19 @@ export function filterKeywords(
       }
     }
 
-    // ✅ 第3层：搜索量过滤（阈值500）
+    // ✅ 第3层：搜索量过滤（使用动态自适应阈值）
     // 🔧 容错处理：当searchVolume未知时（undefined/null/0），保留关键词
     // 这样当Google Ads API不可用时，初始关键词不会被全部过滤掉
     const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
-    if (hasSearchVolumeData && kw.searchVolume < 500) return false
+    if (hasSearchVolumeData && kw.searchVolume < 1) return false  // 动态阈值由上层处理
 
     return true
   })
 
-  console.log(`   过滤: ${keywords.length} → ${filtered.length} (地理过滤: ${geoFilteredCount})`)
+  console.log(`   过滤: ${keywords.length} → ${filtered.length}`)
+  console.log(`      品牌词保留: ${brandKeptCount}`)
+  console.log(`      高搜索量通用词(>10000): ${highVolumeGenericCount}`)
+  console.log(`      地理过滤: ${geoFilteredCount}`)
 
   return filtered
 }

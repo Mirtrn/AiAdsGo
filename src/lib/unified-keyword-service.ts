@@ -824,7 +824,11 @@ export function applySmartFilters(
   let attempts = 0
   const maxAttempts = DEFAULTS.maxFilterAttempts
 
-  const thresholdLevels = [minSearchVolume, ...THRESHOLD_LEVELS]
+  // 🔥 2025-12-18优化: 动态阈值生成（基于初始关键词的搜索量分布）
+  // 计算合理的自适应阈值序列
+  const thresholdLevels = calculateAdaptiveThresholds(keywords, minSearchVolume)
+
+  console.log(`\n📊 自适应阈值序列: ${thresholdLevels.join(' → ')}`)
 
   while (attempts < maxAttempts) {
     currentThreshold = thresholdLevels[Math.min(attempts, thresholdLevels.length - 1)]
@@ -872,6 +876,50 @@ export function applySmartFilters(
   }
 
   return filtered
+}
+
+/**
+ * 🔥 2025-12-18新增: 计算动态自适应阈值
+ * 简化设计：基于关键词的实际搜索量分布，只保留高中等价值的词
+ * 低搜索量的词直接过滤掉，不需要逐步降低阈值
+ */
+function calculateAdaptiveThresholds(keywords: UnifiedKeywordData[], initialThreshold: number): number[] {
+  // 如果关键词为空，返回初始阈值
+  if (keywords.length === 0) {
+    return [initialThreshold, 1]
+  }
+
+  // 获取所有有效的搜索量数据
+  const validVolumes = keywords
+    .map(kw => kw.searchVolume)
+    .filter(vol => vol > 0)
+    .sort((a, b) => b - a)
+
+  if (validVolumes.length === 0) {
+    return [initialThreshold, 1]
+  }
+
+  // 计算中位数作为参考点
+  const medianVolume = validVolumes[Math.floor(validVolumes.length / 2)]
+
+  // 智能阈值：保留高中等价值的词（中位数的30%以上）
+  const adaptiveThreshold = Math.max(
+    Math.floor(medianVolume * 0.3),  // 中位数的30%
+    Math.floor(initialThreshold * 0.5)  // 至少是初始阈值的50%
+  )
+
+  const thresholds: number[] = [initialThreshold]
+
+  // 如果自适应阈值不同于初始阈值，添加到阈值序列
+  if (adaptiveThreshold < initialThreshold && !thresholds.includes(adaptiveThreshold)) {
+    thresholds.push(adaptiveThreshold)
+  }
+
+  // 最终兜底阈值
+  thresholds.push(1)
+
+  // 去重并按降序排列
+  return Array.from(new Set(thresholds)).sort((a, b) => b - a)
 }
 
 /**
