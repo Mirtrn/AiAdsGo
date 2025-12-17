@@ -196,6 +196,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -373,6 +384,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -513,6 +535,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -654,6 +687,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -735,6 +779,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -838,6 +893,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -946,6 +1012,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -1095,6 +1172,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -1321,6 +1409,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -1463,6 +1562,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -1642,6 +1752,17 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
 
@@ -1706,5 +1827,16 @@ v4.14 更新内容:
 1. 批量更新所有Prompt到v4.14
 2. 从开发环境数据库导出最新Prompt内容
 '
+  ON CONFLICT (prompt_id, version) DO UPDATE SET
+    category = EXCLUDED.category,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    file_path = EXCLUDED.file_path,
+    function_name = EXCLUDED.function_name,
+    prompt_content = EXCLUDED.prompt_content,
+    language = EXCLUDED.language,
+    is_active = EXCLUDED.is_active,
+    change_notes = EXCLUDED.change_notes,
+    updated_at = CURRENT_TIMESTAMP
 );
 
