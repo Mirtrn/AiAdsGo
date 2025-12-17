@@ -688,15 +688,9 @@ export default function OffersPage() {
                         />
                       </TableHead>
                       {/* P2-5: 可排序列头 */}
-                      <SortableTableHead
-                        field="id"
-                        currentSortBy={sortBy}
-                        sortOrder={sortOrder}
-                        onSort={handleSort}
-                        className="w-[100px] whitespace-nowrap"
-                      >
-                        产品编号
-                      </SortableTableHead>
+                      <TableHead className="w-[60px] whitespace-nowrap">
+                        序号
+                      </TableHead>
                       <SortableTableHead
                         field="offerName"
                         currentSortBy={sortBy}
@@ -746,7 +740,7 @@ export default function OffersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedOffers.map((offer) => (
+                    {paginatedOffers.map((offer, index) => (
                       <TableRow key={offer.id} className="hover:bg-gray-50/50">
                         {/* 选择checkbox */}
                         <TableCell>
@@ -756,8 +750,9 @@ export default function OffersPage() {
                             aria-label={`选择 ${offer.brand}`}
                           />
                         </TableCell>
+                        {/* 用户级别序号（基于分页计算，非全局ID） */}
                         <TableCell className="font-mono text-body-sm text-gray-600">
-                          #{offer.id}
+                          {(currentPage - 1) * pageSize + index + 1}
                         </TableCell>
                         <TableCell className="font-mono">
                           <a

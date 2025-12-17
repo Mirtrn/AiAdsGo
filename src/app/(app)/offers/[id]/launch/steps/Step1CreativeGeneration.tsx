@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -181,7 +182,118 @@ const getAdStrengthLabel = (rating: string) => {
   return labels[rating] || rating
 }
 
+// 错误类型与解决方案映射
+const ERROR_SOLUTIONS: Record<string, { title: string; description: string; action?: string; actionLabel?: string }> = {
+  '无可用关键词': {
+    title: '关键词数据不足',
+    description: '当前Offer还没有关键词数据。请返回Offer详情页检查网站数据抓取状态，确保抓取完成后再生成创意。',
+    action: 'offer-detail',
+    actionLabel: '返回Offer详情'
+  },
+  '关键词池创建失败': {
+    title: '关键词准备失败',
+    description: '无法创建关键词池。请检查Offer的网站数据是否抓取完成，如未完成请等待或重新创建Offer。',
+    action: 'offer-detail',
+    actionLabel: '返回Offer详情'
+  },
+  '请先生成关键词': {
+    title: '需要先完成数据抓取',
+    description: '创意生成需要关键词数据支持。请确保Offer的网站数据抓取已完成。',
+    action: 'offer-detail',
+    actionLabel: '返回Offer详情'
+  },
+  'Offer信息抓取失败': {
+    title: '网站数据抓取失败',
+    description: 'Offer的网站数据抓取失败，无法生成创意。请返回重新创建Offer或联系管理员检查代理配置。',
+    action: 'offer-detail',
+    actionLabel: '返回Offer详情'
+  },
+  '网站数据抓取失败': {
+    title: '数据获取失败',
+    description: '无法获取推广链接的网站数据。请检查推广链接是否有效，或稍后重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
+  '代理配置': {
+    title: '代理配置问题',
+    description: '代理服务配置异常或不可用。请检查设置中的代理URL配置是否正确。',
+    action: 'settings',
+    actionLabel: '检查代理配置'
+  },
+  'Vertex AI': {
+    title: 'AI服务配置问题',
+    description: 'Vertex AI 服务配置异常。请检查 GCP 项目ID、区域和服务账号配置。',
+    action: 'settings',
+    actionLabel: '检查AI配置'
+  },
+  'Gemini': {
+    title: 'AI服务配置问题',
+    description: 'Gemini API 配置异常或配额不足。请检查 API Key 是否有效。',
+    action: 'settings',
+    actionLabel: '检查AI配置'
+  },
+  'AI服务不可用': {
+    title: 'AI服务暂时不可用',
+    description: '当前AI服务繁忙或配置异常，请稍后重试或联系管理员检查配置。',
+    action: 'settings',
+    actionLabel: '检查配置'
+  },
+  'API Key': {
+    title: 'API配置问题',
+    description: 'API Key 未配置或已失效。请在设置页面检查并更新相关配置。',
+    action: 'settings',
+    actionLabel: '前往设置'
+  },
+  '超时': {
+    title: '生成超时',
+    description: '创意生成时间过长，可能是网络问题或AI服务响应缓慢。请稍后重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
+  'timeout': {
+    title: '请求超时',
+    description: '服务器响应超时，可能是网络不稳定或服务器负载较高。请稍后重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
+  '网络': {
+    title: '网络问题',
+    description: '网络连接不稳定或已断开。请检查网络连接后重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
+  '未授权': {
+    title: '登录已过期',
+    description: '您的登录状态已过期，请重新登录后再试。',
+    action: 'login',
+    actionLabel: '重新登录'
+  },
+  'Unauthorized': {
+    title: '登录已过期',
+    description: '您的登录状态已过期，请重新登录后再试。',
+    action: 'login',
+    actionLabel: '重新登录'
+  }
+}
+
+// 匹配错误信息到解决方案
+const getErrorSolution = (errorMessage: string) => {
+  for (const [key, solution] of Object.entries(ERROR_SOLUTIONS)) {
+    if (errorMessage.includes(key)) {
+      return solution
+    }
+  }
+  // 默认解决方案
+  return {
+    title: '生成失败',
+    description: errorMessage || '创意生成过程中出现错误，请稍后重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  }
+}
+
 export default function Step1CreativeGeneration({ offer, onCreativeSelected, selectedCreative }: Props) {
+  const router = useRouter()
   const [generating, setGenerating] = useState(false)
   const [creatives, setCreatives] = useState<Creative[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(
@@ -197,6 +309,12 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
     details?: any
   } | null>(null)
 
+  // 🆕 错误状态
+  const [generationError, setGenerationError] = useState<{
+    message: string
+    solution: ReturnType<typeof getErrorSolution>
+  } | null>(null)
+
   // 生成开始时间（用于计算总耗时）
   const [generationStartTime, setGenerationStartTime] = useState<number | null>(null)
   const [elapsedTime, setElapsedTime] = useState<number>(0)
@@ -208,6 +326,34 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
   const [selectedCreativeForFeedback, setSelectedCreativeForFeedback] = useState<number | null>(null)
   const [bonusScoreRefreshKey, setBonusScoreRefreshKey] = useState(0)
+
+  // 🆕 处理错误解决方案的操作
+  const handleErrorAction = (action?: string) => {
+    if (!action) return
+
+    switch (action) {
+      case 'offer-detail':
+        // 返回 Offer 详情页
+        router.push(`/offers/${offer.id}`)
+        break
+      case 'settings':
+        // 跳转到设置页面
+        router.push('/settings')
+        break
+      case 'login':
+        // 跳转到登录页面
+        router.push('/login')
+        break
+      case 'retry':
+        // 重新尝试生成
+        setGenerationError(null)
+        handleGenerate()
+        break
+      default:
+        break
+    }
+  }
+
   const toggleSection = (creativeId: number, section: string) => {
     setExpandedSections(prev => ({
       ...prev,
@@ -343,6 +489,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
     try {
       setGenerating(true)
+      setGenerationError(null)  // 🆕 清除之前的错误
       setGenerationStartTime(Date.now())
       setGenerationProgress({
         step: 'init',
@@ -463,7 +610,10 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         }
       }
     } catch (error: any) {
-      showError('生成失败', error.message)
+      const errorMessage = error.message || '生成失败'
+      const solution = getErrorSolution(errorMessage)
+      setGenerationError({ message: errorMessage, solution })
+      showError(solution.title, solution.description)
     } finally {
       setGenerating(false)
       setGenerationProgress(null)
@@ -608,6 +758,39 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         </div>
       </div>
 
+      {/* 🆕 错误提示（当已有创意但生成新创意失败时显示） */}
+      {generationError && creatives.length > 0 && (
+        <Alert className="border-red-200 bg-red-50">
+          <AlertCircle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="flex items-center justify-between">
+            <div className="text-red-700">
+              <span className="font-medium">{generationError.solution.title}：</span>
+              {generationError.solution.description}
+            </div>
+            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              {generationError.solution.action && generationError.solution.action !== 'retry' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleErrorAction(generationError.solution.action)}
+                  className="border-red-300 text-red-700 hover:bg-red-100"
+                >
+                  {generationError.solution.actionLabel}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setGenerationError(null)}
+                className="text-red-600 hover:text-red-800 hover:bg-red-100"
+              >
+                关闭
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Creatives List */}
       {creatives.length === 0 ? (
         <Card className="border-dashed border-2 border-gray-200 bg-gray-50/50 py-8">
@@ -681,6 +864,49 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 <p className="text-xs text-gray-400 mt-2">
                   AI正在努力创作最优质的广告文案，请稍候...
                 </p>
+              </div>
+            ) : generationError ? (
+              // 🆕 显示错误状态和解决方案
+              <div className="space-y-4">
+                <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto">
+                  <AlertCircle className="w-8 h-8 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-red-700 mb-1">
+                    {generationError.solution.title}
+                  </h3>
+                  <p className="text-gray-600 max-w-md mx-auto mb-4 text-sm">
+                    {generationError.solution.description}
+                  </p>
+                </div>
+
+                {/* 原始错误信息（折叠显示） */}
+                <div className="text-xs text-gray-400 bg-gray-50 rounded-lg p-2 max-w-md mx-auto">
+                  <span className="font-medium">错误详情：</span>{generationError.message}
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="flex items-center justify-center gap-3">
+                  {generationError.solution.action && generationError.solution.action !== 'retry' && (
+                    <Button
+                      onClick={() => handleErrorAction(generationError.solution.action)}
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 border-0"
+                    >
+                      {generationError.solution.actionLabel}
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => {
+                      setGenerationError(null)
+                      handleGenerate()
+                    }}
+                    variant={generationError.solution.action === 'retry' ? 'default' : 'outline'}
+                    className={generationError.solution.action === 'retry' ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 border-0' : ''}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    重新尝试
+                  </Button>
+                </div>
               </div>
             ) : (
               // 未生成时显示空状态
