@@ -274,23 +274,40 @@ export async function getKeywordSearchVolumes(
 
               // 🔧 修复(2025-12-17): generateKeywordHistoricalMetrics 返回字段可能是
               // snake_case (keyword_metrics) 或 camelCase (keywordMetrics)
-              // 同时处理两种情况
+              // 或者带下划线前缀 (_keyword_metrics) - protobuf 格式
               if (results.length > 0) {
                 console.log(`[KeywordPlanner] 首个结果结构: ${Object.keys(results[0] || {}).join(', ')}`)
+                // 🔍 调试：打印首个结果的完整内容
+                console.log(`[KeywordPlanner] 首个结果详情: ${JSON.stringify(results[0], null, 2).slice(0, 800)}`)
               }
 
               for (const result of results) {
-                // 兼容 snake_case 和 camelCase 两种字段命名
-                const text = result.text
-                const metrics = result.keyword_metrics || result.keywordMetrics
+                // 兼容多种字段命名：snake_case, camelCase, 和 protobuf 下划线前缀
+                const text = result.text || result._text
+                const metrics = result.keyword_metrics
+                  || result.keywordMetrics
+                  || result._keyword_metrics
+                  || result._keywordMetrics
 
                 if (text && metrics) {
-                  // 同样兼容两种命名风格
-                  const avgSearches = metrics.avg_monthly_searches ?? metrics.avgMonthlySearches ?? 0
-                  const comp = metrics.competition?.toString() || 'UNKNOWN'
-                  const compIndex = metrics.competition_index ?? metrics.competitionIndex ?? 0
-                  const lowBid = metrics.low_top_of_page_bid_micros ?? metrics.lowTopOfPageBidMicros ?? 0
-                  const highBid = metrics.high_top_of_page_bid_micros ?? metrics.highTopOfPageBidMicros ?? 0
+                  // 同样兼容多种命名风格（包括 protobuf 下划线前缀）
+                  const avgSearches = metrics.avg_monthly_searches
+                    ?? metrics.avgMonthlySearches
+                    ?? metrics._avg_monthly_searches
+                    ?? 0
+                  const comp = (metrics.competition ?? metrics._competition)?.toString() || 'UNKNOWN'
+                  const compIndex = metrics.competition_index
+                    ?? metrics.competitionIndex
+                    ?? metrics._competition_index
+                    ?? 0
+                  const lowBid = metrics.low_top_of_page_bid_micros
+                    ?? metrics.lowTopOfPageBidMicros
+                    ?? metrics._low_top_of_page_bid_micros
+                    ?? 0
+                  const highBid = metrics.high_top_of_page_bid_micros
+                    ?? metrics.highTopOfPageBidMicros
+                    ?? metrics._high_top_of_page_bid_micros
+                    ?? 0
 
                   apiVolumes.set(text.toLowerCase(), {
                     keyword: text,
@@ -302,7 +319,9 @@ export async function getKeywordSearchVolumes(
                   })
                 } else if (text) {
                   // 有关键词但没有指标数据，记录日志以便调试
-                  console.log(`[KeywordPlanner] 关键词"${text}"缺少metrics数据，结构: ${Object.keys(result).join(', ')}`)
+                  console.log(`[KeywordPlanner] 关键词"${text}"缺少metrics数据:`)
+                  console.log(`  - keyword_metrics: ${typeof result.keyword_metrics} = ${JSON.stringify(result.keyword_metrics)}`)
+                  console.log(`  - _keyword_metrics: ${typeof result._keyword_metrics} = ${JSON.stringify(result._keyword_metrics)}`)
                 }
               }
 

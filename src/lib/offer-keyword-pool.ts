@@ -777,6 +777,27 @@ export async function generateOfferKeywordPool(
 
   console.log(`📝 初始关键词数: ${initialKeywords.length}`)
 
+  // 2.5 🔧 修复(2025-12-17): 在扩展前过滤初始种子词中的地理关键词
+  // 避免 "reolink store sg" 等非目标国家的种子词扩展出更多无关关键词
+  const { detectCountryInKeyword } = await import('./google-suggestions')
+  const targetCountry = offer.target_country
+
+  if (targetCountry) {
+    const beforeCount = initialKeywords.length
+    initialKeywords = initialKeywords.filter(kw => {
+      const detectedCountries = detectCountryInKeyword(kw.keyword)
+      // 如果检测到国家，且不包含目标国家，则过滤
+      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
+        console.log(`   ⊗ 种子词地理过滤: "${kw.keyword}" (检测到: ${detectedCountries.join(',')}, 目标: ${targetCountry})`)
+        return false
+      }
+      return true
+    })
+    if (beforeCount !== initialKeywords.length) {
+      console.log(`📍 种子词地理过滤: ${beforeCount} → ${initialKeywords.length}`)
+    }
+  }
+
   // 3. 🆕 全量扩展（替换3轮品牌种子词策略）
   const { expandAllKeywords, filterKeywords } = await import('./keyword-pool-helpers')
 
