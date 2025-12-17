@@ -479,20 +479,25 @@ async function batchScrapeCompetitorDetails(
       : allCompetitors
 
   // Step 8: 保证品牌多样性（每个品牌最多1个产品）
-  const seenBrands = new Set<string>()
-  const diverseCompetitors = afterMainBrandFilter.filter(c => {
-    const brand = c.brand?.toLowerCase().trim() || `unknown_${c.asin}`
-    if (seenBrands.has(brand)) {
-      console.log(`🔄 跳过重复品牌: ${c.asin} - ${c.brand}`)
-      return false
-    }
-    seenBrands.add(brand)
-    return true
-  })
+  // 🔥 修复（2025-12-17）：单商品页面也跳过品牌多样性过滤，保留同品牌的所有竞品
+  const diverseCompetitors = skipBrandFilter
+    ? afterMainBrandFilter  // 跳过品牌多样性过滤，保留所有同品牌竞品
+    : (() => {
+        const seenBrands = new Set<string>()
+        return afterMainBrandFilter.filter(c => {
+          const brand = c.brand?.toLowerCase().trim() || `unknown_${c.asin}`
+          if (seenBrands.has(brand)) {
+            console.log(`🔄 跳过重复品牌: ${c.asin} - ${c.brand}`)
+            return false
+          }
+          seenBrands.add(brand)
+          return true
+        })
+      })()
 
   console.log(`✅ 批量抓取完成: 缓存${cachedCompetitors.length}个 + 新抓取${scrapedCompetitors.length}/${asinsToScrape.length}个`)
   if (skipBrandFilter) {
-    console.log(`🔄 品牌过滤: 已跳过（单商品页面保留同品牌竞品）- ${allCompetitors.length}个 → ${diverseCompetitors.length}个(品牌多样化)`)
+    console.log(`🔄 品牌过滤: 已跳过（单商品页面保留所有同品牌竞品）- ${allCompetitors.length}个可用`)
   } else {
     console.log(`🛡️ 品牌过滤: ${allCompetitors.length}个 → ${afterMainBrandFilter.length}个(排除主品牌) → ${diverseCompetitors.length}个(品牌多样化)`)
   }
