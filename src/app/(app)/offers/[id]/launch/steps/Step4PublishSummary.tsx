@@ -32,7 +32,6 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Rocket, CheckCircle2, AlertCircle, Loader2, TrendingUp, Settings, Link2 } from 'lucide-react'
-import { translateIssues, translateSuggestions } from '@/lib/launch-score-i18n'
 
 interface Props {
   offer: any
@@ -731,7 +730,7 @@ export default function Step4PublishSummary({
                           主要问题
                         </div>
                         <ul className="space-y-1">
-                          {translateIssues(launchScoreBlockDetails.issues).slice(0, 5).map((issue, idx) => (
+                          {launchScoreBlockDetails.issues.slice(0, 5).map((issue, idx) => (
                             <li key={idx} className="text-xs text-gray-600 flex items-start gap-2 p-1.5 bg-white rounded">
                               <span className="text-amber-500 mt-0.5">•</span>
                               <span>{issue}</span>
@@ -741,7 +740,7 @@ export default function Step4PublishSummary({
                       </div>
                     )}
 
-                    {/* 改进建议 - 🔥 添加中英文翻译 */}
+                    {/* 改进建议 */}
                     {launchScoreBlockDetails.suggestions && launchScoreBlockDetails.suggestions.length > 0 && (
                       <div>
                         <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
@@ -749,7 +748,7 @@ export default function Step4PublishSummary({
                           改进建议
                         </div>
                         <ul className="space-y-1">
-                          {translateSuggestions(launchScoreBlockDetails.suggestions).slice(0, 5).map((suggestion, idx) => (
+                          {launchScoreBlockDetails.suggestions.slice(0, 5).map((suggestion, idx) => (
                             <li key={idx} className="text-xs text-gray-600 flex items-start gap-2 p-1.5 bg-white rounded">
                               <span className="text-green-500 mt-0.5">•</span>
                               <span>{suggestion}</span>
