@@ -1,6 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import {
+  logUserUpdated,
+  logUserDisabled,
+  logUserEnabled,
+  logUserDeleted,
+  UserManagementContext,
+} from '@/lib/audit-logger'
+
+// 获取客户端IP地址
+function getClientIP(request: NextRequest): string {
+  const forwardedFor = request.headers.get('x-forwarded-for')
+  if (forwardedFor) {
+    return forwardedFor.split(',')[0].trim()
+  }
+  const realIP = request.headers.get('x-real-ip')
+  if (realIP) {
+    return realIP
+  }
+  return 'unknown'
+}
 
 // PATCH: Update user details
 export async function PATCH(
@@ -19,25 +39,43 @@ export async function PATCH(
 
     const db = getDatabase()
 
+    // 获取更新前的用户数据（用于审计日志）
+    const beforeUser = await db.queryOne(
+      'SELECT id, username, email, package_type, package_expires_at, is_active FROM users WHERE id = ?',
+      [userId]
+    ) as { id: number; username: string; email: string; package_type: string; package_expires_at: string; is_active: number } | undefined
+
+    if (!beforeUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
     // Build update query dynamically
     const updates: string[] = []
     const values: any[] = []
+    const changedFields: string[] = []
 
-    if (email !== undefined) {
+    if (email !== undefined && email !== beforeUser.email) {
       updates.push('email = ?')
       values.push(email)
+      changedFields.push('email')
     }
-    if (packageType !== undefined) {
+    if (packageType !== undefined && packageType !== beforeUser.package_type) {
       updates.push('package_type = ?')
       values.push(packageType)
+      changedFields.push('package_type')
     }
-    if (packageExpiresAt !== undefined) {
+    if (packageExpiresAt !== undefined && packageExpiresAt !== beforeUser.package_expires_at) {
       updates.push('package_expires_at = ?')
       values.push(packageExpiresAt)
+      changedFields.push('package_expires_at')
     }
     if (isActive !== undefined) {
-      updates.push('is_active = ?')
-      values.push(isActive ? 1 : 0)
+      const currentIsActive = beforeUser.is_active === 1
+      if (isActive !== currentIsActive) {
+        updates.push('is_active = ?')
+        values.push(isActive ? 1 : 0)
+        changedFields.push('is_active')
+      }
     }
 
     if (updates.length === 0) {
@@ -54,10 +92,40 @@ export async function PATCH(
     `, values)
 
     if (result.changes === 0) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
     }
 
-    const updatedUser = await db.queryOne('SELECT id, username, email, package_type, package_expires_at, is_active FROM users WHERE id = ?', [userId])
+    const updatedUser = await db.queryOne('SELECT id, username, email, package_type, package_expires_at, is_active FROM users WHERE id = ?', [userId]) as any
+
+    // 获取操作者的username（从数据库查询）
+    const operator = await db.queryOne('SELECT username FROM users WHERE id = ?', [auth.user!.userId]) as { username: string } | undefined
+
+    // 记录审计日志
+    const auditContext: UserManagementContext = {
+      operatorId: auth.user!.userId,
+      operatorUsername: operator?.username || `user_${auth.user!.userId}`, // 使用username或fallback到user_id
+      targetUserId: userId,
+      targetUsername: beforeUser.username,
+      ipAddress: getClientIP(request),
+      userAgent: request.headers.get('user-agent') || 'Unknown',
+    }
+
+    // 根据变更类型记录不同的审计日志
+    if (changedFields.includes('is_active')) {
+      const wasActive = beforeUser.is_active === 1
+      const isNowActive = updatedUser.is_active === 1
+      if (!wasActive && isNowActive) {
+        await logUserEnabled(auditContext)
+      } else if (wasActive && !isNowActive) {
+        await logUserDisabled(auditContext)
+      }
+    }
+
+    // 如果有其他字段变更，记录更新日志
+    const nonStatusFields = changedFields.filter(f => f !== 'is_active')
+    if (nonStatusFields.length > 0) {
+      await logUserUpdated(auditContext, beforeUser, updatedUser, nonStatusFields)
+    }
 
     return NextResponse.json({ success: true, user: updatedUser })
 
@@ -85,8 +153,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 })
     }
 
-    // Check if user exists and get status
-    const user = await db.queryOne('SELECT id, username, is_active FROM users WHERE id = ?', [userId]) as { id: number; username: string; is_active: number } | undefined
+    // Check if user exists and get full user data for audit
+    const user = await db.queryOne(
+      'SELECT id, username, email, role, package_type, is_active FROM users WHERE id = ?',
+      [userId]
+    ) as { id: number; username: string; email: string; role: string; package_type: string; is_active: number } | undefined
+
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
@@ -102,6 +174,20 @@ export async function DELETE(
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 })
     }
+
+    // 获取操作者的username（从数据库查询）
+    const operator = await db.queryOne('SELECT username FROM users WHERE id = ?', [auth.user!.userId]) as { username: string } | undefined
+
+    // 记录审计日志
+    const auditContext: UserManagementContext = {
+      operatorId: auth.user!.userId,
+      operatorUsername: operator?.username || `user_${auth.user!.userId}`,
+      targetUserId: userId,
+      targetUsername: user.username || user.email,
+      ipAddress: getClientIP(request),
+      userAgent: request.headers.get('user-agent') || 'Unknown',
+    }
+    await logUserDeleted(auditContext, user)
 
     return NextResponse.json({ success: true, message: 'User deleted permanently' })
 

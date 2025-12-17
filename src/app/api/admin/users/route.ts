@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth, createUser, generateUniqueUsername } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { logUserCreated, UserManagementContext } from '@/lib/audit-logger'
+
+// 获取客户端IP地址
+function getClientIP(request: NextRequest): string {
+  const forwardedFor = request.headers.get('x-forwarded-for')
+  if (forwardedFor) {
+    return forwardedFor.split(',')[0].trim()
+  }
+  const realIP = request.headers.get('x-real-ip')
+  if (realIP) {
+    return realIP
+  }
+  return 'unknown'
+}
 
 /**
  * 🔧 修复(2025-12-11): 转换数据库字段名为 camelCase
@@ -160,6 +174,29 @@ export async function POST(request: NextRequest) {
       packageType: packageType || 'trial',
       packageExpiresAt: expiresAt,
       mustChangePassword: 1 // Force password change
+    })
+
+    // 获取操作者的username（从数据库查询）
+    const db = getDatabase()
+    const operator = await db.queryOne('SELECT username FROM users WHERE id = ?', [auth.user!.userId]) as { username: string } | undefined
+
+    // 记录审计日志
+    const auditContext: UserManagementContext = {
+      operatorId: auth.user!.userId,
+      operatorUsername: operator?.username || `user_${auth.user!.userId}`,
+      targetUserId: newUser.id,
+      targetUsername: newUser.username || `user_${newUser.id}`,
+      ipAddress: getClientIP(request),
+      userAgent: request.headers.get('user-agent') || 'Unknown',
+    }
+    await logUserCreated(auditContext, {
+      id: newUser.id,
+      username: newUser.username,
+      email: newUser.email,
+      display_name: newUser.display_name, // 使用snake_case字段名
+      role: newUser.role,
+      package_type: newUser.package_type, // 使用snake_case字段名
+      package_expires_at: newUser.package_expires_at, // 使用snake_case字段名
     })
 
     return NextResponse.json({
