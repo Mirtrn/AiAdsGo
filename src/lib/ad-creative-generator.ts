@@ -2464,20 +2464,21 @@ export async function generateAdCreative(
       const { getDatabase } = await import('@/lib/db')
       const db = await getDatabase()
 
-      // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-      const isActiveValue = db.type === 'postgres' ? true : 1
+      // 🔧 PostgreSQL兼容性修复: is_active/is_manager_account在PostgreSQL中是BOOLEAN类型
+      const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+      const isManagerCondition = db.type === 'postgres' ? 'is_manager_account = false' : 'is_manager_account = 0'
 
       // 查询用户的Google Ads账号
       // 🔧 修复(2025-12-12): Keyword Planner API 必须使用客户账号，不能使用 MCC 账号
       const adsAccount = await db.queryOne(`
         SELECT id, customer_id FROM google_ads_accounts
         WHERE user_id = ?
-          AND is_active = ?
+          AND ${isActiveCondition}
           AND status = 'ENABLED'
-          AND is_manager_account = 0
+          AND ${isManagerCondition}
         ORDER BY created_at DESC
         LIMIT 1
-      `, [userId, isActiveValue]) as { id: number; customer_id: string } | undefined
+      `, [userId]) as { id: number; customer_id: string } | undefined
 
       if (adsAccount) {
         // 获取OAuth凭证

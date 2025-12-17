@@ -233,16 +233,16 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
 
     const db = await getDatabase()
 
-    // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-    const isActiveValue = db.type === 'postgres' ? true : 1
+    // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
+    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
 
     // Get user's Google Ads account
     const account = await db.queryOne<any>(`
       SELECT customer_id
       FROM google_ads_accounts
-      WHERE user_id = ? AND is_active = ?
+      WHERE user_id = ? AND ${isActiveCondition}
       LIMIT 1
-    `, [userId, isActiveValue])
+    `, [userId])
 
     if (!account) {
       throw new Error('No active Google Ads account found')

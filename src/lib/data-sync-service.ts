@@ -138,17 +138,17 @@ export class DataSyncService {
         login_customer_id: credentials.login_customer_id || undefined
       }
 
-      // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-      const isActiveValue = db.type === 'postgres' ? true : 1
+      // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
+      const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
 
       // 1. 获取用户的所有Google Ads账户
       const accounts = await db.query(
         `
         SELECT id, customer_id, refresh_token, user_id
         FROM google_ads_accounts
-        WHERE user_id = ? AND is_active = ?
+        WHERE user_id = ? AND ${isActiveCondition}
       `,
-        [userId, isActiveValue]
+        [userId]
       ) as Array<{
         id: number
         customer_id: string

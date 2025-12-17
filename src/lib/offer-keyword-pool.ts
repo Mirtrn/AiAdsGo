@@ -813,13 +813,16 @@ export async function generateOfferKeywordPool(
     const { getGoogleAdsCredentials } = await import('./google-ads-oauth')
     const { getDatabase } = await import('./db')
     const db = await getDatabase()
-    const isActiveValue = db.type === 'postgres' ? true : 1
+
+    // 🔧 PostgreSQL兼容性修复: is_active/is_manager_account在PostgreSQL中是BOOLEAN类型
+    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+    const isManagerCondition = db.type === 'postgres' ? 'is_manager_account = false' : 'is_manager_account = 0'
 
     const adsAccount = await db.queryOne(`
       SELECT id, customer_id FROM google_ads_accounts
-      WHERE user_id = ? AND is_active = ? AND status = 'ENABLED' AND is_manager_account = 0
+      WHERE user_id = ? AND ${isActiveCondition} AND status = 'ENABLED' AND ${isManagerCondition}
       ORDER BY created_at DESC LIMIT 1
-    `, [userId, isActiveValue]) as { id: number; customer_id: string } | undefined
+    `, [userId]) as { id: number; customer_id: string } | undefined
 
     if (adsAccount) {
       const credentials = await getGoogleAdsCredentials(userId)
