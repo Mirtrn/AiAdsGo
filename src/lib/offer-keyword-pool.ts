@@ -294,13 +294,14 @@ export async function clusterKeywordsByIntent(
     }
 
     // 4. 调用 AI
-    // 🔥 2025-12-17优化：通过提高搜索量阈值(500)减少关键词数量，控制输出在16K以内
-    // 预期：100-200个高价值关键词聚类，JSON输出约10-15K tokens
+    // 🔥 2025-12-17优化：调整maxOutputTokens到32768
+    // 预期：100-200个高价值关键词（搜索量>=500）聚类，JSON输出约10-20K tokens
+    // 32K上限提供充足余量，避免输出被截断
     const aiResponse = await generateContent({
       operationType: 'keyword_clustering',
       prompt,
       temperature: 0.3,  // 低温度，保持一致性
-      maxOutputTokens: 16384,
+      maxOutputTokens: 32768,
       responseSchema,
       responseMimeType: 'application/json'
     }, userId)
