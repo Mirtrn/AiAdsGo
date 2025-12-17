@@ -172,12 +172,33 @@ class PostgresAdapter implements DatabaseAdapter {
   }
 
   // 转换参数中的布尔值：SQLite 使用 0/1，PostgreSQL 使用 true/false
-  private convertParams(params: any[]): any[] {
-    return params.map(p => {
+  private convertParams(params: any[], sql: string): any[] {
+    // 已知的布尔字段列表（需要从 0/1 转换为 true/false）
+    const booleanFields = [
+      'is_active', 'is_selected', 'is_success', 'must_change_password',
+      'is_default', 'is_manager', 'is_manager_account', 'is_idle',
+      'enabled', 'is_deleted', 'is_sensitive', 'is_required'
+    ]
+
+    // 检测SQL中是否包含布尔字段的SET或WHERE语句
+    const hasBooleanField = booleanFields.some(field =>
+      new RegExp(`\\b${field}\\s*=\\s*\\?`, 'i').test(sql)
+    )
+
+    // 如果没有布尔字段，直接返回原参数
+    if (!hasBooleanField) {
+      return params.map(p => p === undefined ? null : p)
+    }
+
+    // 转换参数：将布尔字段的 0/1 转换为 true/false
+    return params.map((p, index) => {
       if (p === undefined) return null
-      // 布尔值在 PostgreSQL 中直接使用 true/false，不需要转换
-      // 但如果代码传入的是 0/1 想表示布尔值，我们需要根据上下文判断
-      // 这里暂时不做自动转换，因为可能导致整数字段被错误转换
+
+      // 如果参数是 0 或 1，且SQL中包含布尔字段，转换为布尔值
+      if ((p === 0 || p === 1) && hasBooleanField) {
+        return p === 1 ? true : false
+      }
+
       return p
     })
   }
@@ -186,7 +207,7 @@ class PostgresAdapter implements DatabaseAdapter {
     // 先转换 SQLite 特有语法，再转换占位符
     const convertedSql = this.convertSqliteSyntax(sql)
     const pgSql = this.convertPlaceholders(convertedSql)
-    const cleanParams = this.convertParams(params)
+    const cleanParams = this.convertParams(params, sql)
 
     // 🔥 调试日志：记录SQL转换（仅在开发环境或首次转换时）
     if (process.env.NODE_ENV === 'development' && sql !== convertedSql) {
@@ -204,7 +225,7 @@ class PostgresAdapter implements DatabaseAdapter {
     // 先转换 SQLite 特有语法，再转换占位符
     const convertedSql = this.convertSqliteSyntax(sql)
     const pgSql = this.convertPlaceholders(convertedSql)
-    const cleanParams = this.convertParams(params)
+    const cleanParams = this.convertParams(params, sql)
     const result = await this.sql.unsafe(pgSql, cleanParams)
     return result[0] as T | undefined
   }
@@ -213,7 +234,7 @@ class PostgresAdapter implements DatabaseAdapter {
     // 先转换 SQLite 特有语法，再转换占位符
     const convertedSql = this.convertSqliteSyntax(sql)
     let pgSql = this.convertPlaceholders(convertedSql)
-    const cleanParams = this.convertParams(params)
+    const cleanParams = this.convertParams(params, sql)
 
     // 🔥 PostgreSQL INSERT 语句需要 RETURNING id 才能获取插入的ID
     // 检测是否是 INSERT 语句，如果是且没有 RETURNING，自动添加
