@@ -54,6 +54,13 @@ export default function Step4PublishSummary({
   const [pauseOldCampaigns, setPauseOldCampaigns] = useState(false)
   const [enableCampaignImmediately, setEnableCampaignImmediately] = useState(false)  // 默认不启用
   const [publishing, setPublishing] = useState(false)
+
+  // 🔥 新增：调试日志 - 追踪selectedCreative中的否定关键词
+  console.log(`[Step4] selectedCreative ID: ${selectedCreative.id}`)
+  console.log(`[Step4] selectedCreative.negativeKeywords存在: ${!!selectedCreative.negativeKeywords}`)
+  console.log(`[Step4] selectedCreative.negativeKeywords长度: ${selectedCreative.negativeKeywords?.length || 0}`)
+  console.log(`[Step4] selectedCreative.negativeKeywords示例: ${selectedCreative.negativeKeywords?.slice(0, 5).join(', ') || 'NONE'}`)
+
   const [publishStatus, setPublishStatus] = useState<{
     step: string
     message: string
@@ -178,9 +185,9 @@ export default function Step4PublishSummary({
       const response = await fetch('/api/campaigns/publish', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json credentials: 'include'
         },
-        credentials: 'include',
+       ',
         body: JSON.stringify({
           offerId: offer.id,
           adCreativeId: selectedCreative.id,

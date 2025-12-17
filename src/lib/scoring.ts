@@ -50,6 +50,13 @@ export async function calculateLaunchScore(
     const negativeKeywords = (creative as any).negativeKeywords || []
     const keywordsWithVolume = (creative as any).keywordsWithVolume || []
 
+    // 🔥 新增：调试日志 - 追踪否定关键词
+    console.log(`[LaunchScore] 创意ID: ${(creative as any).id || 'N/A'}`)
+    console.log(`[LaunchScore] 否定关键词数量: ${negativeKeywords.length}`)
+    console.log(`[LaunchScore] 否定关键词示例: ${negativeKeywords.slice(0, 5).join(', ')}`)
+    console.log(`[LaunchScore] creative.negativeKeywords存在: ${!!(creative as any).negativeKeywords}`)
+    console.log(`[LaunchScore] creative完整字段: ${Object.keys(creative).join(', ')}`)
+
     // 📦 加载新版prompt模板 (v4.0)
     const promptTemplate = await loadPrompt('launch_score')
 
@@ -104,6 +111,10 @@ export async function calculateLaunchScore(
     const matchTypeDistribution = Object.entries(matchTypes)
       .map(([type, count]) => `${type}: ${count}`)
       .join(', ') || 'Not specified'
+
+    // 🔥 新增：调试日志 - 追踪prompt中的否定关键词
+    console.log(`[LaunchScore] 准备替换到prompt中的否定关键词数量: ${negativeKeywords.length}`)
+    console.log(`[LaunchScore] 否定关键词内容: ${negativeKeywords.length > 0 ? negativeKeywords.join(', ') : 'NONE'}`)
 
     // 🎨 插值替换模板变量
     const prompt = promptTemplate

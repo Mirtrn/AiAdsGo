@@ -347,6 +347,11 @@ export async function POST(request: NextRequest) {
       sitelinks: JSON.parse(primaryCreative.sitelinks || '[]')
     }
 
+    // 🔥 新增：调试日志 - 追踪creativeData中的否定关键词
+    console.log(`[Publish] 创意ID: ${primaryCreative.id}`)
+    console.log(`[Publish] creativeData.negativeKeywords长度: ${creativeData.negativeKeywords.length}`)
+    console.log(`[Publish] creativeData.negativeKeywords示例: ${creativeData.negativeKeywords.slice(0, 5).join(', ')}`)
+
     // 🔥 新增(2025-12-17): 计算缓存哈希
     const contentHashData: CreativeContentData = {
       headlines: creativeData.headlines,
@@ -391,18 +396,47 @@ export async function POST(request: NextRequest) {
         scoreAnalysis = parseLaunchScoreAnalysis(cachedLaunchScore)
         console.log(`📦 使用缓存的Launch Score: ${launchScore}分`)
       } else {
+        // 🔥 修复：明确构建创意对象，避免字段冲突
+        const creativeForLaunchScore = {
+          id: primaryCreative.id,
+          offer_id: primaryCreative.offer_id,
+          user_id: primaryCreative.user_id,
+          headlines: creativeData.headlines,
+          descriptions: creativeData.descriptions,
+          keywords: creativeData.keywords,
+          negativeKeywords: creativeData.negativeKeywords,  // 使用解析后的数组
+          keywordsWithVolume: creativeData.keywords,  // 保持向后兼容
+          callouts: creativeData.callouts,
+          sitelinks: creativeData.sitelinks,
+          final_url: primaryCreative.final_url,
+          final_url_suffix: primaryCreative.final_url_suffix,
+          path_1: primaryCreative.path_1,
+          path_2: primaryCreative.path_2,
+          score: primaryCreative.score || 0,
+          score_breakdown: primaryCreative.score_breakdown || {
+            relevance: 0,
+            quality: 0,
+            engagement: 0,
+            diversity: 0,
+            clarity: 0
+          },
+          ad_strength: primaryCreative.ad_strength || 'AVERAGE',
+          theme: primaryCreative.theme || '',
+          is_selected: primaryCreative.is_selected || 0,
+          created_at: primaryCreative.created_at,
+          updated_at: primaryCreative.updated_at
+        } as AdCreative
+
+        // 🔥 新增：调试日志 - 追踪构建的创意对象
+        console.log(`[Publish] 构建的创意对象ID: ${creativeForLaunchScore.id}`)
+        console.log(`[Publish] negativeKeywords字段存在: ${!!creativeForLaunchScore.negativeKeywords}`)
+        console.log(`[Publish] negativeKeywords长度: ${creativeForLaunchScore.negativeKeywords?.length || 0}`)
+        console.log(`[Publish] negativeKeywords示例: ${creativeForLaunchScore.negativeKeywords?.slice(0, 5).join(', ') || 'NONE'}`)
+
         // 重新计算Launch Score
         const launchScoreResult = await calculateLaunchScore(
           offer,
-          {
-            ...primaryCreative,
-            headlines: creativeData.headlines,
-            descriptions: creativeData.descriptions,
-            keywords: creativeData.keywords,
-            negativeKeywords: creativeData.negativeKeywords,  // 🔥 修复：传递否定关键词给Launch Score评估
-            callouts: creativeData.callouts,
-            sitelinks: creativeData.sitelinks
-          } as AdCreative,
+          creativeForLaunchScore,
           userId,
           {
             budgetAmount: _campaignConfig.budgetAmount,
@@ -410,6 +444,10 @@ export async function POST(request: NextRequest) {
             budgetType: _campaignConfig.budgetType
           }
         )
+
+        // 🔥 新增：调试日志 - 追踪传递给Launch Score的参数
+        console.log(`[Publish] 传递给Launch Score的negativeKeywords长度: ${creativeData.negativeKeywords.length}`)
+        console.log(`[Publish] 传递给Launch Score的negativeKeywords示例: ${creativeData.negativeKeywords.slice(0, 5).join(', ')}`)
 
         launchScore = launchScoreResult.totalScore
         scoreAnalysis = launchScoreResult.scoreAnalysis
