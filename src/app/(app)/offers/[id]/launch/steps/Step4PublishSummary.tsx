@@ -185,9 +185,9 @@ export default function Step4PublishSummary({
       const response = await fetch('/api/campaigns/publish', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json credentials: 'include'
+          'Content-Type': 'application/json',
+          'credentials': 'include'
         },
-       ',
         body: JSON.stringify({
           offerId: offer.id,
           adCreativeId: selectedCreative.id,

@@ -418,10 +418,21 @@ export async function POST(request: NextRequest) {
             quality: 0,
             engagement: 0,
             diversity: 0,
-            clarity: 0
+            clarity: 0,
+            brandSearchVolume: 0,
+            competitivePositioning: 0
           },
-          ad_strength: primaryCreative.ad_strength || 'AVERAGE',
+          score_explanation: primaryCreative.score_explanation || '',
+          version: primaryCreative.version || 1,
+          generation_round: primaryCreative.generation_round || 1,
+          generation_prompt: primaryCreative.generation_prompt,
           theme: primaryCreative.theme || '',
+          ai_model: primaryCreative.ai_model || 'gemini-pro',
+          ad_group_id: primaryCreative.ad_group_id,
+          ad_id: primaryCreative.ad_id,
+          creation_status: primaryCreative.creation_status || 'draft',
+          creation_error: primaryCreative.creation_error,
+          last_sync_at: primaryCreative.last_sync_at,
           is_selected: primaryCreative.is_selected || 0,
           created_at: primaryCreative.created_at,
           updated_at: primaryCreative.updated_at
