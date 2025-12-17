@@ -28,7 +28,7 @@ export const GET = withAuth(
         return NextResponse.json({ error: '用户不存在' }, { status: 404 })
       }
 
-      // 查询登录尝试记录（使用username或email匹配）
+      // 查询登录尝试记录（使用username或email匹配，包含设备信息）
       const loginAttempts = await db.query(`
         SELECT
           id,
@@ -37,7 +37,11 @@ export const GET = withAuth(
           user_agent,
           success,
           failure_reason,
-          attempted_at
+          attempted_at,
+          device_type,
+          os,
+          browser,
+          browser_version
         FROM login_attempts
         WHERE username_or_email IN (?, ?)
         ORDER BY attempted_at DESC
@@ -72,11 +76,15 @@ export const GET = withAuth(
         ...loginAttempts.map(record => ({
           type: 'login_attempt',
           id: record.id,
-          success: record.success === 1,
+          success: record.success === 1 || record.success === true,
           ipAddress: record.ip_address,
           userAgent: record.user_agent,
           failureReason: record.failure_reason,
           timestamp: record.attempted_at,
+          deviceType: record.device_type,
+          os: record.os,
+          browser: record.browser,
+          browserVersion: record.browser_version,
         })),
         ...auditLogs.map(log => ({
           type: 'audit_log',
