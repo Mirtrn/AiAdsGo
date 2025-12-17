@@ -233,6 +233,11 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     throw new Error('Offer创建失败')
   }
 
+  // 🔥 2025-12-17修复：新创建的Offer需要清理API缓存，确保前端轮询立即获取到最新数据
+  // 这样当批量上传中的单个offer创建完成时，GET /api/offers 能返回最新的offer列表
+  const { invalidateOfferCache } = await import('./api-cache')
+  invalidateOfferCache(userId)
+
   return offer
 }
 
