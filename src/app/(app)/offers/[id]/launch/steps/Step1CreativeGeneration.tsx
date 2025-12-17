@@ -772,20 +772,6 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
                           return '综合推广'
                         })()}</span>
-                        {/* 🆕 v4.10 意图分类标签 - 仅对非综合创意显示桶意图 */}
-                        {creative.bucketIntent && !creative.isSynthetic && creative.keywordBucket !== 'S' && (
-                          <Badge
-                            variant="outline"
-                            className={`
-                              text-[10px] px-1.5 py-0 h-4 font-medium border
-                              ${creative.keywordBucket === 'A' ? 'bg-blue-50 text-blue-600 border-blue-200' : ''}
-                              ${creative.keywordBucket === 'B' ? 'bg-green-50 text-green-600 border-green-200' : ''}
-                              ${creative.keywordBucket === 'C' ? 'bg-orange-50 text-orange-600 border-orange-200' : ''}
-                            `}
-                          >
-                            {creative.bucketIntent}
-                          </Badge>
-                        )}
                       </div>
                     </div>
 
