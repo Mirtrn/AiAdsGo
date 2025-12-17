@@ -1078,8 +1078,13 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
   allKeywords = whitelistResult.filtered as UnifiedKeywordData[]
   whitelistResult.competitorBrands.forEach(b => competitorBrandsSet.add(b))
 
-  // 7. 获取精确搜索量
-  console.log('\n📍 Step 7: 获取精确搜索量')
+  // 7. 按搜索量降序排序（关键修复：先排序再截取）
+  console.log('\n📍 Step 7: 按搜索量降序排序')
+  allKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
+  console.log(`   📊 排序后搜索量范围: ${allKeywords[allKeywords.length - 1]?.searchVolume || 0} - ${allKeywords[0]?.searchVolume || 0}`)
+
+  // 8. 获取精确搜索量（对搜索量最高的前1000个关键词）
+  console.log('\n📍 Step 8: 获取精确搜索量（前1000个）')
   try {
     const volumes = await getKeywordSearchVolumes(
       allKeywords.slice(0, 1000).map(kw => kw.keyword),
@@ -1109,15 +1114,15 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
     console.error('   ❌ 获取搜索量失败:', error.message)
   }
 
-  // 8. 智能过滤 + 匹配类型分配
-  console.log('\n📍 Step 8: 智能过滤')
+  // 9. 智能过滤 + 匹配类型分配
+  console.log('\n📍 Step 9: 智能过滤')
   allKeywords = applySmartFilters(allKeywords, minSearchVolume, 30)
   allKeywords = assignMatchTypes(allKeywords, offer.brand)
 
-  // 9. 按搜索量排序
+  // 10. 再次按搜索量排序（确保最终排序正确）
   allKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
 
-  // 10. 限制数量
+  // 11. 限制数量
   allKeywords = allKeywords.slice(0, maxKeywords)
 
   // 11. 按意图重新分类（基于关键词内容）
@@ -1282,23 +1287,34 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
   }
 
   // ==========================================
-  // Step 2.5: 获取精确搜索量（Historical Metrics）
+  // Step 2.5: 按搜索量降序排序（关键修复：先排序再截取）
   // ==========================================
-  console.log('\n📍 Step 2.5: 获取精确搜索量')
+  console.log('\n📍 Step 2.5: 按搜索量降序排序')
 
-  const allKeywordTexts = Array.from(keywordMap.keys()).map(k =>
-    keywordMap.get(k)!.keyword
-  )
+  let allKeywords = Array.from(keywordMap.values())
+  allKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
+
+  console.log(`   📊 Keyword Planner返回 ${allKeywords.length} 个关键词`)
+  if (allKeywords.length > 0) {
+    console.log(`   📊 排序后搜索量范围: ${allKeywords[allKeywords.length - 1]?.searchVolume || 0} - ${allKeywords[0]?.searchVolume || 0}`)
+  }
+
+  // ==========================================
+  // Step 2.6: 获取精确搜索量（只对搜索量最高的前1000个）
+  // ==========================================
+  console.log('\n📍 Step 2.6: 获取精确搜索量（前1000个）')
+
+  const topKeywordsForVolume = allKeywords.slice(0, 1000).map(kw => kw.keyword)
 
   try {
     const volumes = await getKeywordSearchVolumes(
-      allKeywordTexts.slice(0, 1000), // API 限制
+      topKeywordsForVolume,
       country,
       language,
       userId
     )
 
-    // 更新搜索量
+    // 更新搜索量（只更新前1000个）
     volumes.forEach(vol => {
       const canonical = vol.keyword.toLowerCase().trim()
       const existing = keywordMap.get(canonical)
@@ -1315,8 +1331,12 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
     })
 
     console.log(`   ✅ 更新 ${volumes.length} 个关键词的精确搜索量`)
+
+    // 🔥 关键：重新从Map生成数组，确保更新后的搜索量生效
+    allKeywords = Array.from(keywordMap.values())
   } catch (error: any) {
     console.error(`   ❌ 获取精确搜索量失败:`, error.message)
+    // allKeywords已在Step 2.5生成，使用Keyword Planner的初始搜索量
   }
 
   // ==========================================
@@ -1324,7 +1344,6 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
   // ==========================================
   console.log('\n📍 Step 3: 品牌词优先排序')
 
-  let allKeywords = Array.from(keywordMap.values())
   const brandLower = offer.brand.toLowerCase()
 
   // 🆕 优化2: 品牌词优先排序
@@ -1640,14 +1659,21 @@ export async function expandKeywordsWithSeeds(params: {
       })
     }
 
-    // 2. 获取精确搜索量
-    const allKeywordTexts = Array.from(keywordMap.keys()).map(k =>
-      keywordMap.get(k)!.keyword
-    )
+    // 2. 按搜索量降序排序（关键修复：先排序再截取）
+    let results = Array.from(keywordMap.values())
+    results.sort((a, b) => b.searchVolume - a.searchVolume)
 
-    if (allKeywordTexts.length > 0) {
+    console.log(`   📊 扩展关键词排序: ${results.length} 个`)
+    if (results.length > 0) {
+      console.log(`   📊 搜索量范围: ${results[results.length - 1]?.searchVolume || 0} - ${results[0]?.searchVolume || 0}`)
+    }
+
+    // 3. 获取精确搜索量（只对搜索量最高的前1000个）
+    const topKeywordsForVolume = results.slice(0, 1000).map(kw => kw.keyword)
+
+    if (topKeywordsForVolume.length > 0) {
       const volumes = await getKeywordSearchVolumes(
-        allKeywordTexts.slice(0, 1000),
+        topKeywordsForVolume,
         country,
         language,
         userId
@@ -1667,12 +1693,12 @@ export async function expandKeywordsWithSeeds(params: {
           })
         }
       })
+
+      // 重新生成数组，确保更新后的搜索量生效
+      results = Array.from(keywordMap.values())
     }
 
-    // 3. 排序和过滤
-    let results = Array.from(keywordMap.values())
-
-    // 按搜索量降序排序
+    // 4. 再次按搜索量降序排序
     results.sort((a, b) => b.searchVolume - a.searchVolume)
 
     // 白名单过滤（如果有品牌名）
