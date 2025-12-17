@@ -948,13 +948,14 @@ async function executeMigration(name: string, sql: string): Promise<void> {
           try {
             await tx.unsafe(stmt)
           } catch (error) {
-            // 忽略 "column already exists" 等幂等性错误
+            // 忽略 "column already exists" 和 "duplicate key" 等幂等性错误
             const errorMsg = error instanceof Error ? error.message : String(error)
             if (
               errorMsg.includes('already exists') ||
-              errorMsg.includes('duplicate')
+              errorMsg.includes('duplicate key value violates unique constraint')
             ) {
               console.log(`   ⏭️  Skipped (already exists): ${stmt.substring(0, 60)}...`)
+              // 不抛出异常，继续执行下一条语句
             } else {
               throw error
             }
