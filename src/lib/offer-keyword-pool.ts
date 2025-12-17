@@ -831,11 +831,12 @@ export async function generateOfferKeywordPool(
     developerToken
   )
 
-  // 4. 🆕 智能过滤（竞品+品类+搜索量）
+  // 4. 🆕 智能过滤（竞品+品类+搜索量+地理位置）
   const filteredKeywords = filterKeywords(
     expandedKeywords,
     offer.brand,
-    offer.category || ''
+    offer.category || '',
+    offer.target_country  // 🔧 修复(2025-12-17): 传递目标国家进行地理过滤
   )
 
   console.log(`📝 过滤后关键词数: ${filteredKeywords.length}`)

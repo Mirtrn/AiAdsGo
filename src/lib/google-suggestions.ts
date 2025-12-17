@@ -101,7 +101,10 @@ const LOW_INTENT_PATTERNS = [
   /\b(driver|drivers|firmware|software update|update|upgrade)\b/i,
 
   // 14. 视频内容类
-  /\b(video|youtube|vlog)\b/i,
+  // 🔧 修复(2025-12-17): 排除 "video doorbell" 等合法产品类别
+  // 使用负向前瞻排除 video + 产品词 的组合
+  /\b(youtube|vlog|video\s+review|review\s+video)\b/i,
+  /\bvideo\b(?!\s+(doorbell|camera|monitor|recorder|intercom|surveillance))/i,
 ]
 
 /**

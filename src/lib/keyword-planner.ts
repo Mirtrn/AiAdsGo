@@ -272,17 +272,37 @@ export async function getKeywordSearchVolumes(
               const results = (response as any).results || response || []
               console.log(`[KeywordPlanner] 解析结果数量: ${Array.isArray(results) ? results.length : 'N/A'}`)
 
+              // 🔧 修复(2025-12-17): generateKeywordHistoricalMetrics 返回字段可能是
+              // snake_case (keyword_metrics) 或 camelCase (keywordMetrics)
+              // 同时处理两种情况
+              if (results.length > 0) {
+                console.log(`[KeywordPlanner] 首个结果结构: ${Object.keys(results[0] || {}).join(', ')}`)
+              }
+
               for (const result of results) {
-                if (result.text && result.keyword_metrics) {
-                  const metrics = result.keyword_metrics
-                  apiVolumes.set(result.text.toLowerCase(), {
-                    keyword: result.text,
-                    avgMonthlySearches: Number(metrics.avg_monthly_searches) || 0,
-                    competition: metrics.competition?.toString() || 'UNKNOWN',
-                    competitionIndex: Number(metrics.competition_index) || 0,
-                    lowTopPageBid: Number(metrics.low_top_of_page_bid_micros) / 1_000_000 || 0,
-                    highTopPageBid: Number(metrics.high_top_of_page_bid_micros) / 1_000_000 || 0,
+                // 兼容 snake_case 和 camelCase 两种字段命名
+                const text = result.text
+                const metrics = result.keyword_metrics || result.keywordMetrics
+
+                if (text && metrics) {
+                  // 同样兼容两种命名风格
+                  const avgSearches = metrics.avg_monthly_searches ?? metrics.avgMonthlySearches ?? 0
+                  const comp = metrics.competition?.toString() || 'UNKNOWN'
+                  const compIndex = metrics.competition_index ?? metrics.competitionIndex ?? 0
+                  const lowBid = metrics.low_top_of_page_bid_micros ?? metrics.lowTopOfPageBidMicros ?? 0
+                  const highBid = metrics.high_top_of_page_bid_micros ?? metrics.highTopOfPageBidMicros ?? 0
+
+                  apiVolumes.set(text.toLowerCase(), {
+                    keyword: text,
+                    avgMonthlySearches: Number(avgSearches) || 0,
+                    competition: comp,
+                    competitionIndex: Number(compIndex) || 0,
+                    lowTopPageBid: Number(lowBid) / 1_000_000 || 0,
+                    highTopPageBid: Number(highBid) / 1_000_000 || 0,
                   })
+                } else if (text) {
+                  // 有关键词但没有指标数据，记录日志以便调试
+                  console.log(`[KeywordPlanner] 关键词"${text}"缺少metrics数据，结构: ${Object.keys(result).join(', ')}`)
                 }
               }
 

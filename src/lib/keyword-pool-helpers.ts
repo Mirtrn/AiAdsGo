@@ -6,6 +6,7 @@
 import type { PoolKeywordData } from './offer-keyword-pool'
 import { expandKeywordsWithSeeds } from './unified-keyword-service'
 import { DEFAULTS } from './keyword-constants'
+import { detectCountryInKeyword } from './google-suggestions'
 
 // ============================================
 // 动态过滤逻辑（无硬编码配置）
@@ -105,21 +106,25 @@ export async function expandAllKeywords(
 // ============================================
 
 /**
- * 智能过滤（2层过滤：品牌词 + 搜索量）
+ * 智能过滤（3层过滤：品牌词 + 地理位置 + 搜索量）
  *
  * 🔥 2025-12-17优化：
  * 1. 移除竞品词穷举过滤（无法穷举所有竞品）
  * 2. 只保留核心品牌词过滤（如"eufy security" → "eufy"）
  * 3. 提高搜索量阈值到500（保留高价值关键词）
+ * 4. 🆕 新增地理位置过滤（过滤非目标国家的关键词）
  */
 export function filterKeywords(
   keywords: PoolKeywordData[],
   brandName: string,
-  category: string
+  category: string,
+  targetCountry?: string
 ): PoolKeywordData[] {
   // 提取核心品牌词（取第一个单词）
   // 示例："eufy security" → "eufy", "Reolink" → "reolink"
   const coreBrandLower = brandName.split(' ')[0].toLowerCase()
+
+  let geoFilteredCount = 0
 
   const filtered = keywords.filter(kw => {
     const kwLower = kw.keyword.toLowerCase()
@@ -129,7 +134,19 @@ export function filterKeywords(
     const hasBrand = kwLower.includes(coreBrandLower)
     if (!hasBrand) return false
 
-    // ✅ 第2层：搜索量过滤（阈值500）
+    // ✅ 第2层：地理位置过滤（过滤非目标国家的关键词）
+    // 🔧 修复(2025-12-17): 扩展阶段也需要地理过滤
+    if (targetCountry) {
+      const detectedCountries = detectCountryInKeyword(kw.keyword)
+      // 如果检测到国家，且不包含目标国家，则过滤
+      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
+        geoFilteredCount++
+        console.log(`   ⊗ 地理过滤: "${kw.keyword}" (检测到: ${detectedCountries.join(',')}, 目标: ${targetCountry})`)
+        return false
+      }
+    }
+
+    // ✅ 第3层：搜索量过滤（阈值500）
     // 🔧 容错处理：当searchVolume未知时（undefined/null/0），保留关键词
     // 这样当Google Ads API不可用时，初始关键词不会被全部过滤掉
     const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
@@ -138,7 +155,7 @@ export function filterKeywords(
     return true
   })
 
-  console.log(`   过滤: ${keywords.length} → ${filtered.length}`)
+  console.log(`   过滤: ${keywords.length} → ${filtered.length} (地理过滤: ${geoFilteredCount})`)
 
   return filtered
 }
