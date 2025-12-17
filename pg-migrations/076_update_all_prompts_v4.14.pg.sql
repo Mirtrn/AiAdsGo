@@ -204,8 +204,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -391,8 +390,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -541,8 +539,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -692,8 +689,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -783,8 +779,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -896,8 +891,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -1014,8 +1008,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -1173,8 +1166,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -1409,8 +1401,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -1561,8 +1552,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -1750,8 +1740,7 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
 
@@ -1824,7 +1813,6 @@ ON CONFLICT (prompt_id, version) DO UPDATE SET
     prompt_content = EXCLUDED.prompt_content,
     language = EXCLUDED.language,
     is_active = EXCLUDED.is_active,
-    change_notes = EXCLUDED.change_notes,
-    updated_at = CURRENT_TIMESTAMP
+    change_notes = EXCLUDED.change_notes
 );
 
