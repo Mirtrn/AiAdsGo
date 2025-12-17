@@ -215,6 +215,11 @@ export function separateBrandKeywords(
  * 桶B：场景导向（知道要解决什么问题）
  * 桶C：功能导向（关注技术规格/功能特性）
  *
+ * 🔧 2025-12-17 优化：
+ * - 使用 flash 模型以获得更快速度（pro 超时概率 50%）
+ * - 添加指数退避重试机制
+ * - 增加超时至 180s
+ *
  * @param keywords - 非品牌关键词列表
  * @param brandName - 品牌名称
  * @param category - 产品类别
@@ -234,120 +239,146 @@ export async function clusterKeywordsByIntent(
 
   console.log(`\n🎯 开始 AI 语义聚类: ${keywords.length} 个关键词`)
 
-  try {
-    // 1. 加载聚类 prompt
-    const promptTemplate = await loadPrompt('keyword_intent_clustering')
+  // 🔧 重试配置
+  const maxRetries = 2
+  const baseDelay = 5000  // 5秒初始延迟
+  let lastError: any
 
-    // 2. 构建 prompt
-    const prompt = promptTemplate
-      .replace('{{brandName}}', brandName)
-      .replace('{{productCategory}}', category || '未分类')
-      .replace('{{keywords}}', keywords.join('\n'))
+  for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
+    try {
+      // 1. 加载聚类 prompt
+      const promptTemplate = await loadPrompt('keyword_intent_clustering')
 
-    // 3. 定义结构化输出 schema
-    const responseSchema = {
-      type: 'OBJECT' as const,
-      properties: {
-        bucketA: {
-          type: 'OBJECT' as const,
-          properties: {
-            intent: { type: 'STRING' as const },
-            intentEn: { type: 'STRING' as const },
-            description: { type: 'STRING' as const },
-            keywords: { type: 'ARRAY' as const, items: { type: 'STRING' as const } }
+      // 2. 构建 prompt
+      const prompt = promptTemplate
+        .replace('{{brandName}}', brandName)
+        .replace('{{productCategory}}', category || '未分类')
+        .replace('{{keywords}}', keywords.join('\n'))
+
+      // 3. 定义结构化输出 schema
+      const responseSchema = {
+        type: 'OBJECT' as const,
+        properties: {
+          bucketA: {
+            type: 'OBJECT' as const,
+            properties: {
+              intent: { type: 'STRING' as const },
+              intentEn: { type: 'STRING' as const },
+              description: { type: 'STRING' as const },
+              keywords: { type: 'ARRAY' as const, items: { type: 'STRING' as const } }
+            },
+            required: ['intent', 'intentEn', 'description', 'keywords']
           },
-          required: ['intent', 'intentEn', 'description', 'keywords']
+          bucketB: {
+            type: 'OBJECT' as const,
+            properties: {
+              intent: { type: 'STRING' as const },
+              intentEn: { type: 'STRING' as const },
+              description: { type: 'STRING' as const },
+              keywords: { type: 'ARRAY' as const, items: { type: 'STRING' as const } }
+            },
+            required: ['intent', 'intentEn', 'description', 'keywords']
+          },
+          bucketC: {
+            type: 'OBJECT' as const,
+            properties: {
+              intent: { type: 'STRING' as const },
+              intentEn: { type: 'STRING' as const },
+              description: { type: 'STRING' as const },
+              keywords: { type: 'ARRAY' as const, items: { type: 'STRING' as const } }
+            },
+            required: ['intent', 'intentEn', 'description', 'keywords']
+          },
+          statistics: {
+            type: 'OBJECT' as const,
+            properties: {
+              totalKeywords: { type: 'INTEGER' as const },
+              bucketACount: { type: 'INTEGER' as const },
+              bucketBCount: { type: 'INTEGER' as const },
+              bucketCCount: { type: 'INTEGER' as const },
+              balanceScore: { type: 'NUMBER' as const }
+            },
+            required: ['totalKeywords', 'bucketACount', 'bucketBCount', 'bucketCCount', 'balanceScore']
+          }
         },
-        bucketB: {
-          type: 'OBJECT' as const,
-          properties: {
-            intent: { type: 'STRING' as const },
-            intentEn: { type: 'STRING' as const },
-            description: { type: 'STRING' as const },
-            keywords: { type: 'ARRAY' as const, items: { type: 'STRING' as const } }
-          },
-          required: ['intent', 'intentEn', 'description', 'keywords']
-        },
-        bucketC: {
-          type: 'OBJECT' as const,
-          properties: {
-            intent: { type: 'STRING' as const },
-            intentEn: { type: 'STRING' as const },
-            description: { type: 'STRING' as const },
-            keywords: { type: 'ARRAY' as const, items: { type: 'STRING' as const } }
-          },
-          required: ['intent', 'intentEn', 'description', 'keywords']
-        },
-        statistics: {
-          type: 'OBJECT' as const,
-          properties: {
-            totalKeywords: { type: 'INTEGER' as const },
-            bucketACount: { type: 'INTEGER' as const },
-            bucketBCount: { type: 'INTEGER' as const },
-            bucketCCount: { type: 'INTEGER' as const },
-            balanceScore: { type: 'NUMBER' as const }
-          },
-          required: ['totalKeywords', 'bucketACount', 'bucketBCount', 'bucketCCount', 'balanceScore']
-        }
-      },
-      required: ['bucketA', 'bucketB', 'bucketC', 'statistics']
+        required: ['bucketA', 'bucketB', 'bucketC', 'statistics']
+      }
+
+      // 4. 调用 AI
+      // 🔥 2025-12-17优化：使用 gemini-2.5-flash 而非 pro
+      // 原因：
+      // 1. flash 模型足以处理结构化 JSON 输出
+      // 2. flash 速度是 pro 的 3-5 倍
+      // 3. 减少超时风险，节约成本
+      // 预期：100-200个高价值关键词（搜索量>=500）聚类，JSON输出约10-20K tokens
+      // flash 模型通常在 60-90s 完成，pro 模型可能需要 150s+
+      const aiResponse = await generateContent({
+        model: 'gemini-2.5-flash',  // 🔧 改为 flash 模型
+        prompt,
+        temperature: 0.3,  // 低温度，保持一致性
+        maxOutputTokens: 32768,
+        responseSchema,
+        responseMimeType: 'application/json'
+      }, userId)
+
+      // 5. 记录 token 使用
+      if (aiResponse.usage) {
+        const cost = estimateTokenCost(
+          aiResponse.model,
+          aiResponse.usage.inputTokens,
+          aiResponse.usage.outputTokens
+        )
+        await recordTokenUsage({
+          userId,
+          model: aiResponse.model,
+          operationType: 'keyword_clustering',
+          inputTokens: aiResponse.usage.inputTokens,
+          outputTokens: aiResponse.usage.outputTokens,
+          totalTokens: aiResponse.usage.totalTokens,
+          cost,
+          apiType: aiResponse.apiType
+        })
+      }
+
+      // 6. 解析响应
+      const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) {
+        throw new Error('AI 返回的数据格式无效')
+      }
+
+      const buckets = JSON.parse(jsonMatch[0]) as KeywordBuckets
+
+      // 7. 验证结果
+      validateBuckets(buckets, keywords)
+
+      console.log(`✅ AI 聚类完成:`)
+      console.log(`   桶A [品牌导向]: ${buckets.bucketA.keywords.length} 个`)
+      console.log(`   桶B [场景导向]: ${buckets.bucketB.keywords.length} 个`)
+      console.log(`   桶C [功能导向]: ${buckets.bucketC.keywords.length} 个`)
+      console.log(`   均衡度得分: ${buckets.statistics.balanceScore.toFixed(2)}`)
+
+      return buckets
+    } catch (error: any) {
+      lastError = error
+      const isTimeout = error.message?.includes('timeout') || error.code === 'ECONNABORTED'
+      const isRateLimited = error.response?.status === 429
+
+      if (retryCount < maxRetries && (isTimeout || isRateLimited)) {
+        const delay = baseDelay * Math.pow(2, retryCount)  // 指数退避
+        console.warn(`⚠️ AI 聚类第 ${retryCount + 1} 次失败，${delay / 1000}s 后重试...`)
+        console.warn(`   错误: ${error.message}`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        continue
+      }
+
+      // 🔥 统一架构(2025-12-16): 不再降级，直接抛错让上层处理
+      console.error('❌ AI 语义聚类失败:', error.message)
+      throw new Error(`关键词AI语义分类失败: ${error.message}`)
     }
-
-    // 4. 调用 AI
-    // 🔥 2025-12-17优化：调整maxOutputTokens到32768
-    // 预期：100-200个高价值关键词（搜索量>=500）聚类，JSON输出约10-20K tokens
-    // 32K上限提供充足余量，避免输出被截断
-    const aiResponse = await generateContent({
-      operationType: 'keyword_clustering',
-      prompt,
-      temperature: 0.3,  // 低温度，保持一致性
-      maxOutputTokens: 32768,
-      responseSchema,
-      responseMimeType: 'application/json'
-    }, userId)
-
-    // 5. 记录 token 使用
-    if (aiResponse.usage) {
-      const cost = estimateTokenCost(
-        aiResponse.model,
-        aiResponse.usage.inputTokens,
-        aiResponse.usage.outputTokens
-      )
-      await recordTokenUsage({
-        userId,
-        model: aiResponse.model,
-        operationType: 'keyword_clustering',
-        inputTokens: aiResponse.usage.inputTokens,
-        outputTokens: aiResponse.usage.outputTokens,
-        totalTokens: aiResponse.usage.totalTokens,
-        cost,
-        apiType: aiResponse.apiType
-      })
-    }
-
-    // 6. 解析响应
-    const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      throw new Error('AI 返回的数据格式无效')
-    }
-
-    const buckets = JSON.parse(jsonMatch[0]) as KeywordBuckets
-
-    // 7. 验证结果
-    validateBuckets(buckets, keywords)
-
-    console.log(`✅ AI 聚类完成:`)
-    console.log(`   桶A [品牌导向]: ${buckets.bucketA.keywords.length} 个`)
-    console.log(`   桶B [场景导向]: ${buckets.bucketB.keywords.length} 个`)
-    console.log(`   桶C [功能导向]: ${buckets.bucketC.keywords.length} 个`)
-    console.log(`   均衡度得分: ${buckets.statistics.balanceScore.toFixed(2)}`)
-
-    return buckets
-  } catch (error: any) {
-    // 🔥 统一架构(2025-12-16): 不再降级，直接抛错让上层处理
-    console.error('❌ AI 语义聚类失败:', error.message)
-    throw new Error(`关键词AI语义分类失败: ${error.message}`)
   }
+
+  // 所有重试都失败
+  throw new Error(`关键词AI语义分类失败（重试${maxRetries}次均失败）: ${lastError?.message || '未知错误'}`)
 }
 
 /**

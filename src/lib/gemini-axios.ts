@@ -64,11 +64,16 @@ export interface GeminiAxiosGenerateResult {
 
 /**
  * 创建 axios 实例用于 Gemini API（直连，不使用代理）
+ *
+ * 🔧 2025-12-17 超时优化：
+ * - 将超时从 120s 增加到 180s（3分钟）
+ * - 原因：关键词聚类任务（100+ 关键词）需要更多时间
+ * - flash 模型可在 90-120s 完成，pro 模型可能需要 150s+
  */
 export function createGeminiAxiosClient(): AxiosInstance {
   return axios.create({
     baseURL: 'https://generativelanguage.googleapis.com',
-    timeout: 120000, // 120秒超时（增加到2分钟，处理大数据量的评论分析）
+    timeout: 180000, // 增加到 180 秒（3分钟），适应大规模聚类任务
     headers: {
       'Content-Type': 'application/json',
     },
