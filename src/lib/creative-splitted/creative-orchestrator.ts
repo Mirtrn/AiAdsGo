@@ -201,7 +201,7 @@ export async function generateAdCreative(
 
   // 6. 调用 AI
   const aiConfig = await getAIConfig(userId)
-  const aiResponse = await callAI(prompt, aiConfig)
+  const aiResponse = await callAI(prompt, aiConfig, userId)
 
   if (!aiResponse.success) {
     throw new Error(`AI调用失败: ${aiResponse.error}`)
@@ -248,7 +248,13 @@ export async function generateAdCreativesBatch(
 
       // 累积排除的关键词以避免重复
       if (creative.headlines) {
-        excludeKeywords.push(...creative.headlines.map(h => h.text))
+        const headlineTexts = creative.headlines.map((h: any) => {
+          // 支持字符串或对象格式
+          if (typeof h === 'string') return h
+          if (h && typeof h === 'object' && 'text' in h) return h.text
+          return ''
+        }).filter(text => text)
+        excludeKeywords.push(...headlineTexts)
       }
 
       console.log(`[generateAdCreativesBatch] 完成第 ${i + 1}/${count} 个创意`)

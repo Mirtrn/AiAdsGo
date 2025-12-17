@@ -30,13 +30,18 @@ export async function getAIConfig(userId?: number): Promise<AIConfig> {
  * 调用 AI 模型
  * 统一的 AI 调用接口
  */
-export async function callAI(prompt: string, config: AIConfig): Promise<AIResponse> {
+export async function callAI(prompt: string, config: AIConfig, userId?: number): Promise<AIResponse> {
   try {
     console.log('[callAI] 开始调用 AI 模型')
 
-    // 使用 Gemini API
+    // 使用 Gemini API - 正确的参数格式
     const model = config.geminiAPI?.model || 'gemini-pro'
-    const response = await generateContent(prompt, model)
+    const response = await generateContent({
+      operationType: 'ad_creative_generation_main',
+      prompt,
+      temperature: 0.9,
+      maxOutputTokens: 16384
+    }, userId || 0) // 提供默认值
 
     // TODO: 追踪 token 使用（需要根据实际 API 调整）
     // if (response.usageMetadata) {
