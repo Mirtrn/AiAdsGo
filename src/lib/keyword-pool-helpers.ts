@@ -69,7 +69,9 @@ export async function expandAllKeywords(
       accountId,
       clientId,
       clientSecret,
-      developerToken
+      developerToken,
+      maxKeywords: 5000,  // 🔥 修复(2025-12-17): 大幅增加关键词上限，避免过早截断
+      minSearchVolume: 100  // 🔥 降低搜索量门槛，保留更多有价值关键词
     })
 
     // 合并结果（去重）
