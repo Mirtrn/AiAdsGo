@@ -1,22 +1,26 @@
 -- Migration: 077_enhance_audit_system.sql
 -- Purpose: 完善审计系统 - 增强login_attempts表和audit_logs表
 -- Date: 2025-12-17
+-- 注意：本迁移文件需要兼容SQLite和PostgreSQL
 
 -- ============================================================================
 -- 1. 完善 login_attempts 表 - 添加设备和浏览器信息
 -- ============================================================================
 
+-- SQLite不支持ALTER TABLE ADD COLUMN IF NOT EXISTS
+-- 策略：直接执行ALTER TABLE，如果列已存在会被忽略（通过迁移系统的错误处理）
+
 -- 添加设备类型字段（Desktop, Mobile, Tablet, Bot）
-ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS device_type TEXT DEFAULT 'Unknown';
+ALTER TABLE login_attempts ADD COLUMN device_type TEXT DEFAULT 'Unknown';
 
 -- 添加操作系统字段
-ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS os TEXT DEFAULT 'Unknown';
+ALTER TABLE login_attempts ADD COLUMN os TEXT DEFAULT 'Unknown';
 
 -- 添加浏览器字段
-ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS browser TEXT DEFAULT 'Unknown';
+ALTER TABLE login_attempts ADD COLUMN browser TEXT DEFAULT 'Unknown';
 
 -- 添加浏览器版本字段
-ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS browser_version TEXT;
+ALTER TABLE login_attempts ADD COLUMN browser_version TEXT;
 
 -- 添加完整的User-Agent字段索引（用于快速查询特定设备）
 CREATE INDEX IF NOT EXISTS idx_login_attempts_device_type ON login_attempts(device_type);
@@ -31,18 +35,18 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_browser ON login_attempts(browser)
 -- 已有字段：id, user_id, event_type, ip_address, user_agent, details, created_at
 
 -- 添加操作人字段（记录是谁执行的操作，用于管理员操作审计）
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS operator_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS operator_username TEXT;
+ALTER TABLE audit_logs ADD COLUMN operator_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE audit_logs ADD COLUMN operator_username TEXT;
 
 -- 添加target_user_id字段（记录被操作的用户ID，用于用户管理审计）
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS target_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS target_username TEXT;
+ALTER TABLE audit_logs ADD COLUMN target_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE audit_logs ADD COLUMN target_username TEXT;
 
 -- 添加操作结果字段
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'success' CHECK (status IN ('success', 'failure'));
+ALTER TABLE audit_logs ADD COLUMN status TEXT DEFAULT 'success' CHECK (status IN ('success', 'failure'));
 
 -- 添加错误信息字段
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE audit_logs ADD COLUMN error_message TEXT;
 
 -- 创建索引加速查询
 CREATE INDEX IF NOT EXISTS idx_audit_logs_operator_id ON audit_logs(operator_id);
