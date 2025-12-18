@@ -213,6 +213,9 @@ export async function calculateLaunchScore(
       throw new Error(`AI返回的JSON缺少必需的分析字段。已有字段: ${Object.keys(rawAnalysis).join(', ')}`)
     }
 
+    // 🔥 新增：调试日志 - 追踪overallRecommendations
+    console.log(`[LaunchScore] AI返回的overallRecommendations:`, rawAnalysis.overallRecommendations)
+
     // 验证评分范围
     validateScoresV4(rawAnalysis)
 

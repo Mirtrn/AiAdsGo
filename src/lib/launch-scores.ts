@@ -295,34 +295,30 @@ export async function createLaunchScore(
 
   const info = await db.exec(`
     INSERT INTO launch_scores (
-      user_id, offer_id,
-      total_score,
-      -- v3.0旧字段（NOT NULL，需要提供默认值）
+      user_id, offer_id, total_score,
       keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
       keyword_analysis_data, market_analysis_data, landing_page_analysis_data, budget_analysis_data, content_analysis_data,
-      -- v4.0新字段
+      recommendations, calculated_at,
       launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
       launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
-      recommendations,
       ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     userId,
     offerId,
     totalScore,
-    // v3.0旧字段（兼容）
     legacyKeywordScore,
     legacyMarketFitScore,
     legacyLandingPageScore,
     legacyBudgetScore,
     legacyContentScore,
-    // v3.0数据字段（JSON格式）
     JSON.stringify(analysis.keywordStrategy),
     JSON.stringify(analysis.launchViability),
-    JSON.stringify(analysis.basicConfig),  // v4.0: 使用basicConfig作为着陆页数据
-    JSON.stringify(analysis.basicConfig),  // v4.0: 使用basicConfig作为预算数据
+    JSON.stringify(analysis.basicConfig),
+    JSON.stringify(analysis.basicConfig),
     JSON.stringify(analysis.adQuality),
-    // v4.0新字段
+    JSON.stringify(analysis.overallRecommendations),
+    new Date().toISOString(),
     analysis.launchViability.score,
     analysis.adQuality.score,
     analysis.keywordStrategy.score,
@@ -331,7 +327,6 @@ export async function createLaunchScore(
     JSON.stringify(analysis.adQuality),
     JSON.stringify(analysis.keywordStrategy),
     JSON.stringify(analysis.basicConfig),
-    JSON.stringify(analysis.overallRecommendations),
     options?.adCreativeId || null,
     JSON.stringify(allIssues),
     JSON.stringify(allSuggestions),
