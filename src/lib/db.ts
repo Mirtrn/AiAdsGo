@@ -181,18 +181,27 @@ class PostgresAdapter implements DatabaseAdapter {
     ]
 
     // 提取SQL中所有 field = ? 的字段名和位置
-    // 这样可以精确匹配参数到对应的字段
     const fieldPositions: { field: string; paramIndex: number }[] = []
     let paramIndex = 0
 
-    // 查找 SET field = ? 语句（UPDATE）
-    const setMatches = sql.matchAll(/SET\s+(\w+)\s*=\s*\?/gi)
-    for (const match of setMatches) {
-      const field = match[1]
-      fieldPositions.push({ field, paramIndex: paramIndex++ })
+    // 查找SET子句中的所有 field = ? （UPDATE语句）
+    // 使用case-insensitive查找，提取SET和WHERE/;之间的内容
+    const sqlUpper = sql.toUpperCase()
+    const setIndex = sqlUpper.indexOf('SET')
+    if (setIndex !== -1) {
+      const whereIndex = sqlUpper.indexOf('WHERE', setIndex)
+      const endIndex = whereIndex !== -1 ? whereIndex : sql.length
+      const setClause = sql.substring(setIndex + 3, endIndex)
+
+      // 提取所有 field = ? 模式
+      const fieldMatches = setClause.matchAll(/(\w+)\s*=\s*\?/g)
+      for (const match of fieldMatches) {
+        const field = match[1]
+        fieldPositions.push({ field, paramIndex: paramIndex++ })
+      }
     }
 
-    // 查找 WHERE field = ? 语句
+    // 查找WHERE子句中的所有 field = ?
     const whereMatches = sql.matchAll(/WHERE[^;]*/gi)
     for (const whereMatch of whereMatches) {
       const whereClause = whereMatch[0]
