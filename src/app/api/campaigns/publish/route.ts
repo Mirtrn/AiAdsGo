@@ -460,7 +460,13 @@ export async function POST(request: NextRequest) {
           }
         )
 
-        // 🔥 新增：调试日志 - 追踪传递给Launch Score的参数
+        // 🔥 新增：调试日志 - 追踪传递给Launch Score的campaignConfig参数
+        console.log(`[Publish] 传递给Launch Score的campaignConfig:`)
+        console.log(`   - budgetAmount: $${_campaignConfig.budgetAmount}/day`)
+        console.log(`   - maxCpcBid: $${_campaignConfig.maxCpcBid}`)
+        console.log(`   - finalUrl: ${creativeForLaunchScore.final_url}`)
+        console.log(`   - targetCountry: ${_campaignConfig.targetCountry}`)
+        console.log(`   - targetLanguage: ${_campaignConfig.targetLanguage}`)
         console.log(`[Publish] 传递给Launch Score的negativeKeywords长度: ${creativeData.negativeKeywords.length}`)
         console.log(`[Publish] 传递给Launch Score的negativeKeywords示例: ${creativeData.negativeKeywords.slice(0, 5).join(', ')}`)
 
@@ -498,9 +504,21 @@ export async function POST(request: NextRequest) {
 
       console.log(`📊 Launch Score评估结果 (v4.0): ${launchScore}分`)
       console.log(`   - 投放可行性: ${analysis.launchViability.score}/35`)
+      console.log(`      • 品牌搜索量得分: ${analysis.launchViability.brandSearchScore}/15 (搜索量: ${analysis.launchViability.brandSearchVolume})`)
+      console.log(`      • 利润空间得分: ${analysis.launchViability.profitScore}/10`)
+      console.log(`      • 竞争度得分: ${analysis.launchViability.competitionScore}/10 (${analysis.launchViability.competitionLevel})`)
       console.log(`   - 广告质量: ${analysis.adQuality.score}/30`)
+      console.log(`      • 广告强度: ${analysis.adQuality.adStrengthScore}/15 (${analysis.adQuality.adStrength})`)
+      console.log(`      • 标题多样性得分: ${analysis.adQuality.headlineDiversityScore}/8 (${analysis.adQuality.headlineDiversity}%)`)
+      console.log(`      • 描述质量得分: ${analysis.adQuality.descriptionQualityScore}/7`)
       console.log(`   - 关键词策略: ${analysis.keywordStrategy.score}/20`)
+      console.log(`      • 相关性得分: ${analysis.keywordStrategy.relevanceScore}/8`)
+      console.log(`      • 匹配类型得分: ${analysis.keywordStrategy.matchTypeScore}/6`)
+      console.log(`      • 否定关键词得分: ${analysis.keywordStrategy.negativeKeywordsScore}/6`)
       console.log(`   - 基础配置: ${analysis.basicConfig.score}/15`)
+      console.log(`      • 国家/语言得分: ${analysis.basicConfig.countryLanguageScore}/5`)
+      console.log(`      • Final URL得分: ${analysis.basicConfig.finalUrlScore}/5`)
+      console.log(`      • 预算合理性得分: ${analysis.basicConfig.budgetScore}/5`)
 
       // 阻断规则
       const CRITICAL_THRESHOLD = 60  // 严重问题阈值
