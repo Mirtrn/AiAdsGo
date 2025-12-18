@@ -229,7 +229,7 @@ export async function POST(request: NextRequest) {
     // 🔧 确保参数类型正确：googleAdsAccountId和userId应该是数字
     // 📝 注意：db.ts的convertParams会自动处理SQLite(1/0) ↔ PostgreSQL(true/false)转换
     const adsAccount = await db.queryOne(`
-      SELECT id, customer_id, is_active
+      SELECT id, customer_id, parent_mcc_id, is_active
       FROM google_ads_accounts
       WHERE id = ? AND user_id = ? AND is_active = ?
     `, [Number(_googleAdsAccountId), Number(userId), 1]) as any
@@ -752,7 +752,8 @@ export async function POST(request: NextRequest) {
             finalUrlSuffix: creative.final_url_suffix || undefined,  // Final URL suffix从推广链接中提取（如果为空则不设置）
             status: 'ENABLED',
             accountId: adsAccount.id,
-            userId
+            userId,
+            loginCustomerId: adsAccount.parent_mcc_id || undefined  // 🔥 修复：传入经理账号ID
           })
 
           // 创建Ad Group到Google Ads
@@ -765,7 +766,8 @@ export async function POST(request: NextRequest) {
             cpcBidMicros: _campaignConfig.maxCpcBid * 1000000,
             status: 'ENABLED',
             accountId: adsAccount.id,
-            userId
+            userId,
+            loginCustomerId: adsAccount.parent_mcc_id || undefined  // 🔥 修复：传入经理账号ID
           })
 
           // 添加关键词
@@ -896,7 +898,8 @@ export async function POST(request: NextRequest) {
             path1: creative.path1 || undefined,  // RSA Display URL路径1
             path2: creative.path2 || undefined,  // RSA Display URL路径2
             accountId: adsAccount.id,
-            userId
+            userId,
+            loginCustomerId: adsAccount.parent_mcc_id || undefined  // 🔥 修复：传入经理账号ID
           })
 
           // 🎯 添加广告扩展（Callout和Sitelink）

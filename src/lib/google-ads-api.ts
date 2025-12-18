@@ -312,12 +312,14 @@ export async function createGoogleAdsCampaign(params: {
   endDate?: string
   accountId?: number
   userId?: number
+  loginCustomerId?: string  // 🔥 经理账号ID（用于访问客户账号）
 }): Promise<{ campaignId: string; resourceName: string }> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId  // 🔥 传入经理账号ID
   )
 
   // 1. 创建预算（添加时间戳避免重复名称）
@@ -777,12 +779,14 @@ export async function createGoogleAdsAdGroup(params: {
   status: 'ENABLED' | 'PAUSED'
   accountId?: number
   userId?: number
+  loginCustomerId?: string  // 🔥 经理账号ID
 }): Promise<{ adGroupId: string; resourceName: string }> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId  // 🔥 传入经理账号ID
   )
 
   const adGroup = {
@@ -978,12 +982,14 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   path2?: string
   accountId?: number
   userId?: number
+  loginCustomerId?: string  // 🔥 经理账号ID
 }): Promise<{ adId: string; resourceName: string }> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId  // 🔥 传入经理账号ID
   )
 
   // Validate headlines (必须正好15个)
