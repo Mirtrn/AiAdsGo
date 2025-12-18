@@ -45,7 +45,7 @@ INSERT INTO prompt_versions (
 ) VALUES (
   'launch_score',
   'v4.15',
-  'launch_score',
+  '投放评分',
   'Launch Score评估v4.15',
   '修改Launch Score评分系统：1) Final URL仅检查可访问性(满分5分) 2) 取消利润空间得分(profitScore=0) 3) 重新分配4维度(40+30+20+10=100) 4) 竞争度得分从10→15分 5) 新增市场潜力得分(10分)',
   'src/lib/scoring.ts',
