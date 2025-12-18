@@ -20,6 +20,7 @@ export type TaskType =
   | 'offer-extraction'      // Offer信息提取（完整流程：URL解析 + 品牌识别 + AI分析）
   | 'batch-offer-creation'  // 批量Offer创建（父任务：协调多个offer-extraction子任务）
   | 'ad-creative'           // 广告创意生成（多轮优化 + Ad Strength评估）
+  | 'campaign-publish'      // 🆕 广告系列发布到Google Ads（异步处理，避免504超时）
 
 /**
  * 任务优先级

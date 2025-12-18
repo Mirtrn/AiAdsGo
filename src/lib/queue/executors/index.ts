@@ -16,6 +16,7 @@ import { createCleanupExecutor } from './cleanup-executor'
 import { executeOfferExtraction } from './offer-extraction-executor'
 import { executeBatchCreation } from './batch-creation-executor'
 import { executeAdCreativeGeneration } from './ad-creative-executor'
+import { executeCampaignPublish } from './campaign-publish-executor'
 
 /**
  * 注册所有任务执行器
@@ -53,6 +54,9 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
 
   // 注册 ad-creative 执行器
   queue.registerExecutor('ad-creative', executeAdCreativeGeneration)
+
+  // 🆕 注册 campaign-publish 执行器（异步Campaign发布，避免504超时）
+  queue.registerExecutor('campaign-publish', executeCampaignPublish)
 }
 
 export { createScrapeExecutor, convertPriorityToEnum } from './scrape-executor'
@@ -72,3 +76,5 @@ export type { EmailTaskData } from './email-executor'
 export type { LinkCheckTaskData } from './link-check-executor'
 export type { CleanupTaskData } from './cleanup-executor'
 export type { AdCreativeTaskData } from './ad-creative-executor'
+export type { CampaignPublishTaskData } from './campaign-publish-executor'
+

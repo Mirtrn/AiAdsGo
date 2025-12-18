@@ -728,354 +728,86 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 11. 批量发布到Google Ads
+    // 11. 批量发布到Google Ads（改为异步队列处理）
+    // 🚀 优化(2025-12-18)：使用统一队列系统避免504超时
+    //   - 入队Campaign发布任务，立即返回202 Accepted
+    //   - 前端可轮询campaign.creation_status查看进度
     const publishResults: any[] = []
     const failedCampaigns: any[] = []
 
     try {
+      // 获取队列管理器实例
+      const { getOrCreateQueueManager } = await import('@/lib/queue/init-queue')
+      const queue = await getOrCreateQueueManager()
+
       for (const { campaignId, creative, variantName, variantBudget, naming } of createdCampaigns) {
-        // API追踪设置
-        const apiStartTime = Date.now()
-        let apiSuccess = false
-        let apiErrorMessage: string | undefined
-        let totalApiOperations = 0
-
         try {
-          console.log(`🚀 发布Campaign ${campaignId} (Variant ${variantName || 'Single'})...`)
+          console.log(`🚀 队列化Campaign发布任务 ${campaignId} (Variant ${variantName || 'Single'})...`)
 
-          // 创建Campaign到Google Ads
-          totalApiOperations++ // Campaign creation = 1 operation
-          const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
-            customerId: adsAccount.customer_id,
-            refreshToken: credentials.refresh_token,
-            campaignName: naming.campaignName,  // 🔥 使用规范化的Campaign名称
-            budgetAmount: variantBudget,
-            budgetType: _campaignConfig.budgetType,
-            biddingStrategy: _campaignConfig.biddingStrategy,
-            targetCountry: _campaignConfig.targetCountry,
-            targetLanguage: _campaignConfig.targetLanguage,
-            finalUrlSuffix: creative.final_url_suffix || undefined,  // Final URL suffix从推广链接中提取（如果为空则不设置）
-            status: 'ENABLED',
-            accountId: adsAccount.id,
-            userId,
-            loginCustomerId: adsAccount.parent_mcc_id || undefined  // 🔥 修复：传入经理账号ID
+          // 🆕 使用队列系统处理Campaign发布（避免504超时）
+          const taskData: any = {
+            campaignId: campaignId,
+            offerId: _offerId,
+            googleAdsAccountId: _googleAdsAccountId,
+            userId: userId,
+            campaignConfig: {
+              targetCountry: _campaignConfig.targetCountry,
+              targetLanguage: _campaignConfig.targetLanguage,
+              biddingStrategy: _campaignConfig.biddingStrategy,
+              budgetType: _campaignConfig.budgetType,
+              maxCpcBid: _campaignConfig.maxCpcBid,
+              keywords: _campaignConfig.keywords || [],
+              negativeKeywords: _campaignConfig.negativeKeywords || []
+            },
+            creative: {
+              id: creative.id,
+              headlines: JSON.parse(creative.headlines || '[]'),
+              descriptions: JSON.parse(creative.descriptions || '[]'),
+              finalUrl: creative.final_url,
+              finalUrlSuffix: creative.final_url_suffix,
+              path1: creative.path_1,
+              path2: creative.path_2,
+              callouts: JSON.parse(creative.callouts || '[]'),
+              sitelinks: JSON.parse(creative.sitelinks || '[]'),
+              keywordsWithVolume: creative.keywords_with_volume
+                ? JSON.parse(creative.keywords_with_volume)
+                : undefined
+            },
+            brandName: offer.brand,
+            enableCampaignImmediately: _enableCampaignImmediately,
+            pauseOldCampaigns: _pauseOldCampaigns
+          }
+
+          // 入队任务
+          await queue.enqueue({
+            type: 'campaign-publish',
+            data: taskData,
+            priority: 'high',
+            userId: userId
           })
 
-          // 创建Ad Group到Google Ads
-          totalApiOperations++ // Ad group creation = 1 operation
-          const { adGroupId: googleAdGroupId } = await createGoogleAdsAdGroup({
-            customerId: adsAccount.customer_id,
-            refreshToken: credentials.refresh_token,
-            campaignId: googleCampaignId,
-            adGroupName: naming.adGroupName,  // 🔥 使用规范化的Ad Group名称
-            cpcBidMicros: _campaignConfig.maxCpcBid * 1000000,
-            status: 'ENABLED',
-            accountId: adsAccount.id,
-            userId,
-            loginCustomerId: adsAccount.parent_mcc_id || undefined  // 🔥 修复：传入经理账号ID
-          })
+          console.log(`✅ Campaign发布任务已入队 ID: ${campaignId}`)
 
-          // 添加关键词
-          let headlines = JSON.parse(creative.headlines) as string[]
-          const descriptions = JSON.parse(creative.descriptions) as string[]
-
-          // 🎯 验证RSA最小要求（至少10个headlines和4个descriptions）
-          if (headlines.length < 10) {
-            throw new Error(`RSA广告至少需要10个headlines，当前只有${headlines.length}个`)
-          }
-          if (descriptions.length < 4) {
-            throw new Error(`RSA广告至少需要4个descriptions，当前只有${descriptions.length}个`)
-          }
-
-          // 🔥 修复未闭合的DKI标签（防御性处理已存储的数据）
-          headlines = headlines.map((h: string) => {
-            const unclosedPattern = /\{KeyWord:([^}]*?)$/i
-            if (unclosedPattern.test(h)) {
-              const match = h.match(unclosedPattern)
-              if (match) {
-                const defaultText = match[1].trim()
-                // Google Ads headline限制30字符，DKI的defaultText也应支持到30字符
-                if (defaultText.length > 0 && defaultText.length <= 30) {
-                  console.log(`🔧 [Publish] 修复DKI标签: "${h}"`)
-                  return h + '}'
-                } else {
-                  console.log(`🔧 [Publish] 移除无效DKI标签（defaultText长度${defaultText.length}）: "${h}"`)
-                  return h.replace(unclosedPattern, defaultText || '')
-                }
-              }
-            }
-            return h
-          })
-
-          // 🎯 修复：从creative的keywordsWithVolume中读取matchType
-          const keywordsWithVolume = JSON.parse(creative.keywords_with_volume || '[]') as Array<{
-            keyword: string
-            matchType?: 'EXACT' | 'PHRASE' | 'BROAD'
-            searchVolume?: number
-          }>
-
-          // 构建关键词映射表（keyword -> matchType）
-          const keywordMatchTypeMap = new Map<string, 'EXACT' | 'PHRASE' | 'BROAD'>()
-          keywordsWithVolume.forEach(kw => {
-            if (kw && kw.matchType && kw.keyword) {
-              const keywordStr = typeof kw.keyword === 'string' ? kw.keyword : String(kw.keyword)
-              if (keywordStr) {
-                keywordMatchTypeMap.set(keywordStr.toLowerCase(), kw.matchType)
-              }
-            }
-          })
-
-          // 智能分配matchType的辅助函数
-          const getMatchType = (keyword: any): 'EXACT' | 'PHRASE' | 'BROAD' => {
-            // 🔥 防御性编程：确保keyword是字符串
-            const keywordStr = typeof keyword === 'string' ? keyword : String(keyword || '')
-            if (!keywordStr) {
-              return 'PHRASE' // 默认值
-            }
-
-            // 1. 优先使用keywordsWithVolume中的matchType
-            const mappedType = keywordMatchTypeMap.get(keywordStr.toLowerCase())
-            if (mappedType) {
-              return mappedType
-            }
-
-            // 2. 智能分配：品牌词EXACT，长尾词PHRASE，短词BROAD
-            const keywordLower = keywordStr.toLowerCase()
-            const brandLower = offer.brand?.toLowerCase() || ''
-            // 🔥 修复：添加品牌前缀匹配，识别包含品牌缩写的关键词（如"reo link camera"中的"reo"）
-            // 提取品牌名前3个字符作为前缀，使用单词边界确保精确匹配
-            const brandPrefix = brandLower.substring(0, 3)
-            const hasBrandPrefix = brandLower.length >= 3 && new RegExp(`\\b${brandPrefix}\\b`).test(keywordLower)
-
-            const isBrandKeyword = keywordLower === brandLower ||
-                                   keywordLower.startsWith(brandLower + ' ') ||
-                                   hasBrandPrefix
-            const wordCount = keywordStr.split(' ').length
-
-            if (isBrandKeyword) {
-              return 'EXACT'
-            } else if (wordCount >= 3) {
-              return 'PHRASE'
-            } else {
-              return 'BROAD'
-            }
-          }
-
-          const keywordOperations = (_campaignConfig.keywords || []).map((keyword: any) => {
-            // 🔥 防御性编程：确保keyword是字符串
-            const keywordStr = typeof keyword === 'string' ? keyword : (keyword?.text || keyword?.keyword || '')
-            if (!keywordStr) {
-              console.warn('⚠️ 警告：发现空关键词，跳过')
-              return null
-            }
-            return {
-              keywordText: keywordStr,
-              matchType: getMatchType(keywordStr),
-              status: 'ENABLED' as const
-            }
-          }).filter((op: any): op is NonNullable<typeof op> => op !== null)
-
-          if (keywordOperations.length > 0) {
-            totalApiOperations += keywordOperations.length // Each keyword = 1 operation
-            await createGoogleAdsKeywordsBatch({
-              customerId: adsAccount.customer_id,
-              refreshToken: credentials.refresh_token,
-              adGroupId: googleAdGroupId,
-              keywords: keywordOperations,
-              accountId: adsAccount.id,
-              userId
-            })
-          }
-
-          // 添加否定关键词
-          if (_campaignConfig.negativeKeywords && _campaignConfig.negativeKeywords.length > 0) {
-            const negativeKeywordOperations = _campaignConfig.negativeKeywords.map((keyword: string) => ({
-              keywordText: keyword,
-              matchType: 'EXACT' as const,
-              status: 'ENABLED' as const,
-              isNegative: true
-            }))
-
-            totalApiOperations += negativeKeywordOperations.length // Each negative keyword = 1 operation
-            await createGoogleAdsKeywordsBatch({
-              customerId: adsAccount.customer_id,
-              refreshToken: credentials.refresh_token,
-              adGroupId: googleAdGroupId,
-              keywords: negativeKeywordOperations,
-              accountId: adsAccount.id,
-              userId
-            })
-          }
-
-          // 创建Responsive Search Ad
-          totalApiOperations++ // Ad creation = 1 operation
-          console.log(`📝 创建广告: ${naming.adName || 'RSA_Default'}`)  // 🔥 记录Ad命名（仅用于日志追踪）
-          const { adId: googleAdId } = await createGoogleAdsResponsiveSearchAd({
-            customerId: adsAccount.customer_id,
-            refreshToken: credentials.refresh_token,
-            adGroupId: googleAdGroupId,
-            headlines: headlines.slice(0, 15),
-            descriptions: descriptions.slice(0, 4),
-            finalUrls: [creative.final_url],
-            path1: creative.path1 || undefined,  // RSA Display URL路径1
-            path2: creative.path2 || undefined,  // RSA Display URL路径2
-            accountId: adsAccount.id,
-            userId,
-            loginCustomerId: adsAccount.parent_mcc_id || undefined  // 🔥 修复：传入经理账号ID
-          })
-
-          // 🎯 添加广告扩展（Callout和Sitelink）
-          try {
-            // 解析Callout数据
-            const callouts = JSON.parse(creative.callouts || '[]') as string[]
-            if (callouts.length > 0) {
-              totalApiOperations += callouts.length + 1 // Assets creation + campaign link
-              await createGoogleAdsCalloutExtensions({
-                customerId: adsAccount.customer_id,
-                refreshToken: credentials.refresh_token,
-                campaignId: googleCampaignId,
-                callouts: callouts,
-                accountId: adsAccount.id,
-                userId
-              })
-              console.log(`✅ 成功添加${callouts.length}个Callout扩展`)
-            }
-
-            // 解析Sitelink数据
-            const sitelinks = JSON.parse(creative.sitelinks || '[]') as Array<{
-              text: string
-              url: string
-              description?: string
-            }>
-            if (sitelinks.length > 0) {
-              // 处理Sitelink的description字段（可能需要拆分为description1和description2）
-              const formattedSitelinks = sitelinks.map(link => ({
-                text: link.text,
-                url: link.url,
-                description1: link.description || '',
-                description2: ''
-              }))
-
-              totalApiOperations += sitelinks.length + 1 // Assets creation + campaign link
-              await createGoogleAdsSitelinkExtensions({
-                customerId: adsAccount.customer_id,
-                refreshToken: credentials.refresh_token,
-                campaignId: googleCampaignId,
-                sitelinks: formattedSitelinks,
-                accountId: adsAccount.id,
-                userId
-              })
-              console.log(`✅ 成功添加${sitelinks.length}个Sitelink扩展`)
-            }
-          } catch (extensionError: any) {
-            // 扩展创建失败不影响主流程，只记录警告
-            console.warn(`⚠️ 广告扩展创建失败（非致命错误）:`, extensionError.message)
-          }
-
-          // 🎯 启用Campaign（如果用户选择立即启用）
-          // Campaign创建时默认是PAUSED状态，需要在所有组件（Ad Group、Keywords、Ad、Extensions）创建完成后启用
-          let finalCampaignStatus: 'ENABLED' | 'PAUSED' = 'PAUSED'
-          if (_enableCampaignImmediately) {
-            try {
-              totalApiOperations++ // Campaign status update = 1 operation
-              await updateGoogleAdsCampaignStatus({
-                customerId: adsAccount.customer_id,
-                refreshToken: credentials.refresh_token,
-                campaignId: googleCampaignId,
-                status: 'ENABLED',
-                accountId: adsAccount.id,
-                userId,
-                loginCustomerId: adsAccount.parent_mcc_id || undefined
-              })
-              finalCampaignStatus = 'ENABLED'
-              console.log(`✅ Campaign ${googleCampaignId} 已启用`)
-            } catch (enableError: any) {
-              // 启用失败不阻止流程，Campaign会保持PAUSED状态
-              console.warn(`⚠️ Campaign启用失败（非致命错误）:`, enableError.message)
-              console.warn('Campaign将保持PAUSED状态，请在Google Ads后台手动启用')
-            }
-          } else {
-            console.log(`ℹ️ Campaign ${googleCampaignId} 保持PAUSED状态（用户选择不立即启用）`)
-          }
-
-          // 更新数据库记录
-          await db.exec(`
-            UPDATE campaigns
-            SET
-              google_campaign_id = ?,
-              google_ad_group_id = ?,
-              google_ad_id = ?,
-              status = ?,
-              creation_status = 'synced',
-              creation_error = NULL,
-              last_sync_at = CURRENT_TIMESTAMP,
-              updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `, [googleCampaignId, googleAdGroupId, googleAdId, finalCampaignStatus, campaignId])
-
-          // 🔧 修复(2025-12-11): snake_case → camelCase
+          // 立即返回成功状态
           publishResults.push({
             id: campaignId,
-            googleCampaignId: googleCampaignId,
-            googleAdGroupId: googleAdGroupId,
-            googleAdId: googleAdId,
             variantName: variantName,
-            status: finalCampaignStatus,  // 使用实际的Campaign状态
-            creationStatus: 'synced'
+            status: 'queued',
+            creationStatus: 'pending',
+            message: '广告系列发布任务已提交到后台队列处理'
           })
 
-          apiSuccess = true
-          console.log(`✅ Campaign ${campaignId} 发布成功 (${totalApiOperations} API operations)`)
-
         } catch (variantError: any) {
-          apiSuccess = false
-          // 安全获取错误消息
-          let errorMessage = '未知错误'
-          if (variantError?.message) {
-            errorMessage = variantError.message
-          } else if (typeof variantError === 'string') {
-            errorMessage = variantError
-          } else if (variantError) {
-            try {
-              errorMessage = JSON.stringify(variantError, null, 2)
-            } catch {
-              errorMessage = String(variantError)
-            }
-          }
+          // 入队失败处理
+          const errorMessage = variantError?.message || '队列任务创建失败'
+          console.error(`❌ Campaign ${campaignId} 队列化失败:`, errorMessage)
 
-          apiErrorMessage = errorMessage
-          console.error(`❌ Campaign ${campaignId} 发布失败:`, errorMessage)
-          console.error('完整错误对象:', variantError)
-
-          await db.exec(`
-            UPDATE campaigns
-            SET
-              creation_status = 'failed',
-              creation_error = ?,
-              updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `, [errorMessage, campaignId])
-
-          // 🔧 修复(2025-12-11): snake_case → camelCase
+          // 标记为失败
           failedCampaigns.push({
             id: campaignId,
             variantName: variantName,
             error: errorMessage
           })
-        } finally {
-          // 记录API使用（仅在有userId时追踪）
-          if (userId) {
-            trackApiUsage({
-              userId: userId,
-              operationType: ApiOperationType.MUTATE_BATCH,
-              endpoint: 'publishCampaign',
-              customerId: adsAccount.customer_id,
-              requestCount: totalApiOperations,
-              responseTimeMs: Date.now() - apiStartTime,
-              isSuccess: apiSuccess,
-              errorMessage: apiErrorMessage
-            })
-          }
         }
       }
 
@@ -1095,23 +827,8 @@ export async function POST(request: NextRequest) {
       })
 
     } catch (error: any) {
-      // 批量创建过程中的系统级错误
-      console.error('Batch publish error:', error)
-
-      // 标记所有未成功的campaigns为失败
-      for (const { campaignId } of createdCampaigns) {
-        const alreadySucceeded = publishResults.some(r => r.id === campaignId)
-        if (!alreadySucceeded) {
-          await db.exec(`
-            UPDATE campaigns
-            SET
-              creation_status = 'failed',
-              creation_error = ?,
-              updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `, [error.message, campaignId])
-        }
-      }
+      // 批量队列化的系统级错误
+      console.error('Batch publish queue error:', error)
 
       // 如果是AppError，直接返回
       if (error instanceof AppError) {

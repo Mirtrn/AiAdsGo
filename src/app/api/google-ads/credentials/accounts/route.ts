@@ -273,15 +273,21 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
           console.log(`   ⚠️ ${customerId} 无法获取预算信息（可能账户无预算设置）`)
         }
 
+        // 🔧 修复(2025-12-18): 计算parent_mcc字段
+        // 子账户的parent_mcc是登录的MCC账户ID，MCC账户的parent_mcc为null
+        const isManagerAccount = account.customer?.manager || false
+        const parentMcc = isManagerAccount ? null : (credentials.login_customer_id || null)
+
         const accountData = {
           customer_id: customerId,
           descriptive_name: account.customer?.descriptive_name || `客户 ${customerId}`,
           currency_code: account.customer?.currency_code || 'USD',
           time_zone: account.customer?.time_zone || 'UTC',
-          manager: account.customer?.manager || false,
+          manager: isManagerAccount,
           test_account: account.customer?.test_account || false,
           status: parsedStatus,
           account_balance: accountBalance,
+          parent_mcc: parentMcc,  // 🆕 设置parent_mcc：子账户的parent_mcc是MCC账户ID，MCC账户的parent_mcc为null
         }
 
         // 保存到数据库

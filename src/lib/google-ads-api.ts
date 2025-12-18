@@ -6,18 +6,46 @@ import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 /**
  * 抑制 Google Ads API 的 MetadataLookupWarning
  * 这是 google-ads-api 包的已知问题，不影响功能
+ * 🚀 优化(2025-12-18): 更全面的抑制机制
  */
-if (typeof process !== 'undefined' && process.emitWarning) {
-  const originalEmitWarning = process.emitWarning
-  process.emitWarning = (warning: any, ...args: any[]) => {
-    // 过滤掉 MetadataLookupWarning
-    if (typeof warning === 'string' && warning.includes('MetadataLookupWarning')) {
-      return
+if (typeof process !== 'undefined') {
+  // 1. 抑制 process.emitWarning
+  if (process.emitWarning) {
+    const originalEmitWarning = process.emitWarning
+    process.emitWarning = (warning: any, ...args: any[]) => {
+      // 过滤掉 MetadataLookupWarning
+      if (typeof warning === 'string' && warning.includes('MetadataLookupWarning')) {
+        return
+      }
+      if (typeof warning === 'object' && warning?.name === 'MetadataLookupWarning') {
+        return
+      }
+      return originalEmitWarning.call(process, warning, ...args)
     }
-    if (typeof warning === 'object' && warning?.name === 'MetadataLookupWarning') {
-      return
+  }
+
+  // 2. 抑制 console.warn（如果存在）
+  if (typeof console !== 'undefined' && console.warn) {
+    const originalWarn = console.warn
+    console.warn = (...args: any[]) => {
+      const message = args.join(' ')
+      if (message.includes('MetadataLookupWarning') || message.includes('All promises were rejected')) {
+        return
+      }
+      return originalWarn.apply(console, args)
     }
-    return originalEmitWarning.call(process, warning, ...args)
+  }
+
+  // 3. 抑制 stderr 写入（Node.js环境）
+  if (typeof process.stderr?.write === 'function') {
+    const originalWrite = process.stderr.write.bind(process.stderr)
+    process.stderr.write = (chunk: any, ...args: any[]) => {
+      const message = typeof chunk === 'string' ? chunk : chunk?.toString?.() || ''
+      if (message.includes('MetadataLookupWarning') || message.includes('All promises were rejected')) {
+        return true
+      }
+      return originalWrite(chunk, ...args)
+    }
   }
 }
 
@@ -335,8 +363,10 @@ export async function createGoogleAdsCampaign(params: {
     // 官方推荐：创建时使用PAUSED状态，添加完定位和广告后再启用
     status: enums.CampaignStatus.PAUSED,
     advertising_channel_type: enums.AdvertisingChannelType.SEARCH,
-    // 设置营销目标为标准搜索广告系列 (不指定sub_type则默认为标准搜索)
-    // advertising_channel_sub_type: enums.AdvertisingChannelSubType.SEARCH_STANDARD,
+    // 🚀 修复(2025-12-18): 明确设置营销目标为"网站流量"
+    // 对于搜索广告系列，使用SEARCH_STANDARD子类型表示标准搜索广告
+    // 这个子类型隐含了"网站流量"作为营销目标
+    advertising_channel_sub_type: enums.AdvertisingChannelSubType.SEARCH_STANDARD,
     campaign_budget: budgetResourceName,
     network_settings: {
       target_google_search: true,
@@ -403,13 +433,16 @@ export async function createGoogleAdsCampaign(params: {
     ;(campaign as any).end_date = endDateObj.toISOString().split('T')[0].replace(/-/g, '')
   }
 
-  // 🐛 DEBUG: 打印完整的Campaign对象用于调试
-  console.log('📋 创建Campaign的完整配置:', JSON.stringify(campaign, null, 2))
-  console.log('📋 Bidding Strategy Type (直接读取):', campaign.bidding_strategy_type)
-  console.log('📋 Target Spend:', campaign.target_spend)
-  console.log('📋 Customer ID:', params.customerId)
-  console.log('📋 Target Country:', params.targetCountry)
-  console.log('📋 Target Language:', params.targetLanguage)
+  // 🚀 优化(2025-12-18): 简化日志输出，减少噪音
+  // DEBUG: 完整的Campaign对象（仅在开发环境打印）
+  if (process.env.NODE_ENV === 'development') {
+    console.log('📋 Campaign配置:', {
+      name: campaign.name,
+      strategy: campaign.bidding_strategy_type,
+      budget: campaign.target_spend,
+      country: params.targetCountry
+    })
+  }
 
   let response
   try {
@@ -482,7 +515,11 @@ export async function createGoogleAdsCampaign(params: {
         }
       })
       console.log(`🌐 添加语言定位: ${params.targetLanguage} (${languageConstantId})`)
+    } else {
+      console.warn(`⚠️ 警告: 未找到语言 "${params.targetLanguage}" 对应的常量ID，语言定位可能被跳过`)
     }
+  } else {
+    console.warn(`⚠️ 警告: 未提供targetLanguage参数，将使用默认语言设置`)
   }
 
   // 批量创建定位条件
@@ -910,6 +947,7 @@ export async function createGoogleAdsKeywordsBatch(params: {
   keywords: Array<{
     keywordText: string
     matchType: 'BROAD' | 'PHRASE' | 'EXACT'
+    negativeKeywordMatchType?: 'BROAD' | 'PHRASE' | 'EXACT'  // ← 新增：负向词的匹配类型
     status: 'ENABLED' | 'PAUSED'
     finalUrl?: string
     isNegative?: boolean
@@ -932,11 +970,16 @@ export async function createGoogleAdsKeywordsBatch(params: {
     const batch = params.keywords.slice(i, i + batchSize)
 
     const keywordOperations = batch.map(kw => {
+      // ← 关键修改：为负向词选择正确的匹配类型
+      const effectiveMatchType = kw.isNegative
+        ? (kw.negativeKeywordMatchType || 'EXACT')  // 负向词默认用 EXACT 匹配，防止误伤
+        : kw.matchType  // 正向词用提供的 matchType
+
       const operation = {
         ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
         keyword: {
           text: kw.keywordText,
-          match_type: enums.KeywordMatchType[kw.matchType],
+          match_type: enums.KeywordMatchType[effectiveMatchType],
         },
       }
 
