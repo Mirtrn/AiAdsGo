@@ -1773,3 +1773,104 @@ export async function expandKeywordsWithSeeds(params: {
     return []
   }
 }
+
+// ============================================
+// 🆕 通用词提取（从已生成的关键词中提取）
+// ============================================
+
+/**
+ * 从已生成的关键词中提取高价值通用词
+ *
+ * 用途：从Keyword Planner API返回的混合关键词中提取纯通用词（不含品牌名）
+ * 策略：
+ * 1. 过滤掉所有含品牌名的词（包括自身品牌和竞品）
+ * 2. 只保留搜索量 > 10000 的高价值词
+ * 3. 过滤掉信息查询词（review, tutorial等）
+ * 4. 按搜索量排序
+ *
+ * 优势：
+ * - 无需额外API调用，直接复用现有数据
+ * - 通用方案，对所有品牌都适用
+ * - 自动化提取，无需维护词库
+ *
+ * @param allKeywords Keyword Planner返回的所有关键词
+ * @param brandName 自身品牌名
+ * @param competitorBrands 已识别的竞品品牌
+ * @returns 高价值通用词列表（搜索量>10000）
+ */
+export function extractGenericHighValueKeywords(
+  allKeywords: any[], // Accept any keyword data with keyword and searchVolume properties
+  brandName: string,
+  competitorBrands: string[] = []
+): any[] {
+  console.log(`\n🆕 通用词提取 - 从已生成关键词中提取高价值通用词`)
+  console.log(`================================`)
+
+  const brandLower = brandName.toLowerCase()
+
+  // 步骤1：过滤掉所有含品牌名的词
+  console.log(`📌 步骤1: 排除含品牌名的词`)
+
+  const allBrands = [brandName, ...competitorBrands]
+  const beforeBrandFilter = allKeywords.length
+
+  let genericKeywords = allKeywords.filter(kw => {
+    const kwLower = kw.keyword.toLowerCase()
+    // 检查是否含有任何品牌名（使用单词边界匹配）
+    return !allBrands.some(brand => {
+      const brandPattern = new RegExp(`\\b${escapeRegex(brand.toLowerCase())}\\b`, 'i')
+      return brandPattern.test(kwLower)
+    })
+  })
+
+  const brandFiltered = beforeBrandFilter - genericKeywords.length
+  console.log(`   排除的品牌词: ${brandFiltered}`)
+  console.log(`   保留的非品牌词: ${genericKeywords.length}`)
+
+  // 步骤2：只保留搜索量 > 10000 的高价值词
+  console.log(`\n📌 步骤2: 高价值词过滤 (搜索量 > 10,000)`)
+
+  const beforeVolumeFilter = genericKeywords.length
+  genericKeywords = genericKeywords.filter(kw => kw.searchVolume > 10000)
+
+  const volumeFiltered = beforeVolumeFilter - genericKeywords.length
+  console.log(`   搜索量<10000的词: ${volumeFiltered}`)
+  console.log(`   保留的高价值词: ${genericKeywords.length}`)
+
+  if (genericKeywords.length === 0) {
+    console.warn(`   ⚠️ 没有搜索量>10000的通用词`)
+    return []
+  }
+
+  // 步骤3：过滤掉信息查询词
+  console.log(`\n📌 步骤3: 排除低购买意图词`)
+
+  const RESEARCH_INTENT_PATTERNS = [
+    'review', 'reviews', 'rating', 'vs', 'versus', 'comparison', 'compare',
+    'alternative', 'alternatives', 'how to', 'what is', 'guide', 'tutorial',
+    'reddit', 'forum', 'blog', 'article', 'repair', 'troubleshoot'
+  ]
+
+  const beforeIntentFilter = genericKeywords.length
+  genericKeywords = genericKeywords.filter(kw => {
+    const kwLower = kw.keyword.toLowerCase()
+    return !RESEARCH_INTENT_PATTERNS.some(pattern => kwLower.includes(pattern))
+  })
+
+  const intentFiltered = beforeIntentFilter - genericKeywords.length
+  console.log(`   排除的低意图词: ${intentFiltered}`)
+  console.log(`   保留的高意图词: ${genericKeywords.length}`)
+
+  // 步骤4：按搜索量排序
+  genericKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
+
+  console.log(`\n✅ 通用词提取完成: ${genericKeywords.length} 个高价值词`)
+  if (genericKeywords.length > 0) {
+    console.log(`   Top 5:`)
+    genericKeywords.slice(0, 5).forEach((kw, i) => {
+      console.log(`   ${i + 1}. "${kw.keyword}" (${kw.searchVolume.toLocaleString()}/月)`)
+    })
+  }
+
+  return genericKeywords
+}

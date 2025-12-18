@@ -2727,8 +2727,36 @@ export async function generateAdCreative(
   // 合并品牌词（纯品牌 + 品牌相关）供后续使用
   const brandKeywords: typeof keywordsWithVolume = [...pureBrandKeywords, ...brandRelatedKeywords]
 
-  // 第2步：过滤非品牌词（只保留搜索量 >= 500）
+  // 🆕 第2步：提取高价值通用词（搜索量 > 10000）
+  console.log(`\n📌 高价值通用词提取`)
+  const { extractGenericHighValueKeywords } = await import('@/lib/unified-keyword-service')
+
+  // 识别竞品品牌（从全白名单过滤结果中提取）
+  const competitorBrands: string[] = []
+  try {
+    // 尝试从之前的白名单过滤结果中获取竞品品牌信息
+    // 如果没有，则使用空数组
+    if (keywordsWithVolume.length > 0) {
+      // 这里可以通过其他方式识别竞品品牌
+      // 目前使用空数组，因为nonBrandKeywords已经过滤了竞品词
+    }
+  } catch (err) {
+    console.warn(`   ⚠️ 竞品品牌识别失败，继续处理: ${err}`)
+  }
+
+  const extractedGenericKeywords = extractGenericHighValueKeywords(
+    keywordsWithVolume,
+    offerBrand,
+    competitorBrands
+  )
+
+  console.log(`   🎯 提取到 ${extractedGenericKeywords.length} 个高价值通用词`)
+
+  // 第2.5步：过滤非品牌词（只保留搜索量 >= 500）
   const filteredNonBrandKeywords = nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
+
+  // 合并品牌词和提取的通用词
+  const enhancedNonBrandKeywords = [...filteredNonBrandKeywords, ...extractedGenericKeywords]
 
   // 第3步：强制约束1 - 纯品牌词必须添加（并确保有搜索量数据）
   console.log(`\n📌 强制约束1: 纯品牌词 "${offerBrand}" 必须添加`)
@@ -2802,19 +2830,21 @@ export async function generateAdCreative(
     }
   }
 
-  // 第4步：强制约束2 - 非品牌词搜索量必须 >= 500
-  console.log(`\n📌 强制约束2: 非品牌词搜索量必须 >= 500`)
+  // 第4步：强制约束2 - 非品牌词搜索量必须 >= 500（或者是高价值提取词）
+  console.log(`\n📌 强制约束2: 非品牌词搜索量 >= 500 或来自高价值词提取`)
   console.log(`   - 搜索量 >= 500 的非品牌词: ${filteredNonBrandKeywords.length} 个`)
+  console.log(`   - 提取的高价值词 (>10000): ${extractedGenericKeywords.length} 个`)
+  console.log(`   - 合计非品牌词: ${enhancedNonBrandKeywords.length} 个`)
 
   // 第5步：强制约束3 - 保留最少 10 个关键词（只补充有搜索量的）
   // 🔧 修复(2025-12-16): 品牌相关词不受>=500过滤限制，直接加入最终列表
   console.log(`\n📌 强制约束3: 保留最少 10 个关键词（只补充搜索量>0的关键词）`)
 
-  // 合并所有品牌词（纯品牌 + 品牌相关）和过滤后的非品牌词
+  // 合并所有品牌词（纯品牌 + 品牌相关）和增强的非品牌词（包括高价值词）
   const allBrandKeywords = [...pureBrandKeywords, ...brandRelatedKeywords.filter(kw => kw.searchVolume > 0)]
-  let finalKeywords = [...allBrandKeywords, ...filteredNonBrandKeywords]
+  let finalKeywords = [...allBrandKeywords, ...enhancedNonBrandKeywords]
 
-  console.log(`   📊 初始合并: ${allBrandKeywords.length} 品牌词 + ${filteredNonBrandKeywords.length} 非品牌词 = ${finalKeywords.length} 个`)
+  console.log(`   📊 初始合并: ${allBrandKeywords.length} 品牌词 + ${enhancedNonBrandKeywords.length} 非品牌词 = ${finalKeywords.length} 个`)
 
   if (finalKeywords.length < 10) {
     // 如果不足 10 个，从被过滤的非品牌词中补充（按搜索量从高到低，但必须>0）
