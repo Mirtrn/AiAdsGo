@@ -2355,21 +2355,16 @@ export async function generateAdCreative(
     })
 
     // 🎯 修复：添加matchType字段（智能分配）+ lowTopPageBid/highTopPageBid竞价数据
+    // 注意：这里仅做初始化，会在v4.16优化逻辑（行~2730）中根据品牌/非品牌/品牌相关分类重新分配
     const brandNameLower = brandName?.toLowerCase() || ''
     keywordsWithVolume = unifiedData.map(v => {
       const keywordLower = v.keyword.toLowerCase()
-      const isBrandKeyword = keywordLower === brandNameLower || keywordLower.startsWith(brandNameLower + ' ')
-      const wordCount = v.keyword.split(' ').length
-
-      // 智能分配匹配类型
-      let matchType: 'BROAD' | 'PHRASE' | 'EXACT'
-      if (isBrandKeyword) {
-        matchType = 'EXACT' // 品牌词用精准匹配
-      } else if (wordCount >= 3) {
-        matchType = 'PHRASE' // 长尾词用词组匹配
-      } else {
-        matchType = 'BROAD' // 短词用广泛匹配
-      }
+      // 🔥 修复(2025-12-18): 不在初始阶段做复杂的品牌分类，改为统一使用PHRASE
+      // 这样可以在v4.16优化阶段（行2708-2758）准确地重新分配matchType
+      // 纯品牌词 → EXACT
+      // 品牌相关词 → PHRASE
+      // 非品牌词 → PHRASE
+      let matchType: 'BROAD' | 'PHRASE' | 'EXACT' = 'PHRASE' // 默认PHRASE，后续会根据品牌分类重新分配
 
       return {
         keyword: v.keyword,
@@ -2388,17 +2383,8 @@ export async function generateAdCreative(
     const brandNameLower = brandName?.toLowerCase() || ''
     keywordsWithVolume = result.keywords.map(kw => {
       const keywordLower = kw.toLowerCase()
-      const isBrandKeyword = keywordLower === brandNameLower || keywordLower.startsWith(brandNameLower + ' ')
-      const wordCount = kw.split(' ').length
-
-      let matchType: 'BROAD' | 'PHRASE' | 'EXACT'
-      if (isBrandKeyword) {
-        matchType = 'EXACT'
-      } else if (wordCount >= 3) {
-        matchType = 'PHRASE'
-      } else {
-        matchType = 'BROAD'
-      }
+      // 🔥 修复(2025-12-18): 同上，初始化时统一使用PHRASE，让v4.16优化逻辑处理分类
+      let matchType: 'BROAD' | 'PHRASE' | 'EXACT' = 'PHRASE'
 
       return {
         keyword: kw,
