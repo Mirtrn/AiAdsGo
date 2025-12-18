@@ -540,29 +540,28 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 🎯 从scoreAnalysis中提取各维度分数（v4.0 - 4维度）
+      // 🎯 从scoreAnalysis中提取各维度分数（v4.16 - 4维度智能matchType评分）
       const analysis = scoreAnalysis
 
       // 🔧 修复：确保overallRecommendations在所有路径中可用
       const overallRecommendations = scoreAnalysis?.overallRecommendations || extractAllSuggestions(scoreAnalysis)
 
-      console.log(`📊 Launch Score评估结果 (v4.0): ${launchScore}分`)
-      console.log(`   - 投放可行性: ${analysis.launchViability.score}/35`)
+      console.log(`📊 Launch Score评估结果 (v4.16): ${launchScore}分`)
+      console.log(`   - 投放可行性: ${analysis.launchViability.score}/40`)
       console.log(`      • 品牌搜索量得分: ${analysis.launchViability.brandSearchScore}/15 (搜索量: ${analysis.launchViability.brandSearchVolume})`)
-      console.log(`      • 利润空间得分: ${analysis.launchViability.profitScore}/10`)
-      console.log(`      • 竞争度得分: ${analysis.launchViability.competitionScore}/10 (${analysis.launchViability.competitionLevel})`)
+      console.log(`      • 竞争度得分: ${analysis.launchViability.competitionScore}/15 (${analysis.launchViability.competitionLevel})`)
+      console.log(`      • 市场潜力得分: ${analysis.launchViability.marketPotentialScore || 0}/10`)
       console.log(`   - 广告质量: ${analysis.adQuality.score}/30`)
       console.log(`      • 广告强度: ${analysis.adQuality.adStrengthScore}/15 (${analysis.adQuality.adStrength})`)
       console.log(`      • 标题多样性得分: ${analysis.adQuality.headlineDiversityScore}/8 (${analysis.adQuality.headlineDiversity}%)`)
       console.log(`      • 描述质量得分: ${analysis.adQuality.descriptionQualityScore}/7`)
       console.log(`   - 关键词策略: ${analysis.keywordStrategy.score}/20`)
       console.log(`      • 相关性得分: ${analysis.keywordStrategy.relevanceScore}/8`)
-      console.log(`      • 匹配类型得分: ${analysis.keywordStrategy.matchTypeScore}/6`)
+      console.log(`      • 匹配类型策略: ${analysis.keywordStrategy.matchTypeScore}/6`)
       console.log(`      • 否定关键词得分: ${analysis.keywordStrategy.negativeKeywordsScore}/6`)
-      console.log(`   - 基础配置: ${analysis.basicConfig.score}/15`)
+      console.log(`   - 基础配置: ${analysis.basicConfig.score}/10`)
       console.log(`      • 国家/语言得分: ${analysis.basicConfig.countryLanguageScore}/5`)
       console.log(`      • Final URL得分: ${analysis.basicConfig.finalUrlScore}/5`)
-      console.log(`      • 预算合理性得分: ${analysis.basicConfig.budgetScore}/5`)
 
       // 阻断规则
       const CRITICAL_THRESHOLD = 60  // 严重问题阈值

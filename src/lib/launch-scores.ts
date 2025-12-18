@@ -292,14 +292,12 @@ export async function createLaunchScore(
 
   // 🔧 修复(2025-12-17): 为兼容旧版本字段提供默认值（v3.0字段为NOT NULL）
   // v3.0字段：keyword_score, market_fit_score, landing_page_score, budget_score, content_score
-  // v4.0字段：launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score
+  // v4.16字段：launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score
   const legacyKeywordScore = analysis.keywordStrategy.score || 0
   const legacyMarketFitScore = analysis.launchViability.score || 0
   const legacyLandingPageScore = analysis.basicConfig.finalUrl ? 5 : 0  // 基于Final URL存在性评估
   const legacyBudgetScore = analysis.basicConfig.budgetScore || 0
   const legacyContentScore = analysis.adQuality.score || 0
-
-  console.log(`[LaunchScore] v4.0总分: ${totalScore}, v3.0兼容字段: 关键词${legacyKeywordScore}/市场${legacyMarketFitScore}/着陆页${legacyLandingPageScore}/预算${legacyBudgetScore}/内容${legacyContentScore}`)
 
   const info = await db.exec(`
     INSERT INTO launch_scores (
