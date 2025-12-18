@@ -2727,6 +2727,36 @@ export async function generateAdCreative(
   // 合并品牌词（纯品牌 + 品牌相关）供后续使用
   const brandKeywords: typeof keywordsWithVolume = [...pureBrandKeywords, ...brandRelatedKeywords]
 
+  // 🔥 新增(2025-12-18): 自动分配matchType（品牌词策略）
+  console.log(`\n📌 自动分配matchType（品牌词策略）`)
+
+  // Step 1: 纯品牌词 → EXACT
+  pureBrandKeywords.forEach(kw => {
+    kw.matchType = 'EXACT'
+  })
+  console.log(`   ✅ 纯品牌词(${pureBrandKeywords.length}个) → EXACT 精准匹配`)
+
+  // Step 2: 品牌相关词 → PHRASE
+  brandRelatedKeywords.forEach(kw => {
+    kw.matchType = 'PHRASE'
+  })
+  console.log(`   ✅ 品牌相关词(${brandRelatedKeywords.length}个) → PHRASE 词组匹配`)
+
+  // Step 3: 非品牌词 → 根据搜索量和竞争度动态决定
+  // 当前阶段：统一使用PHRASE（后续Phase 2可基于数据优化为BROAD）
+  nonBrandKeywords.forEach(kw => {
+    // 暂时统一使用PHRASE，不使用BROAD（需要账户成熟后再考虑）
+    kw.matchType = 'PHRASE'
+
+    // 未来优化：可以根据搜索量和竞争度动态决定
+    // if (kw.searchVolume < 1000 && (kw.competitionIndex || 0) < 0.5) {
+    //   kw.matchType = 'BROAD'  // 低量低竞争 → 探索型广泛匹配
+    // } else {
+    //   kw.matchType = 'PHRASE'  // 默认词组匹配
+    // }
+  })
+  console.log(`   ✅ 非品牌词(${nonBrandKeywords.length}个) → PHRASE 词组匹配（暂不使用BROAD）`)
+
   // 🆕 第2步：提取高价值通用词（搜索量 > 10000）
   console.log(`\n📌 高价值通用词提取`)
   const { extractGenericHighValueKeywords } = await import('@/lib/unified-keyword-service')
@@ -2750,7 +2780,14 @@ export async function generateAdCreative(
     competitorBrands
   )
 
-  console.log(`   🎯 提取到 ${extractedGenericKeywords.length} 个高价值通用词`)
+  // 🔥 新增(2025-12-18): 为提取的高价值通用词设置matchType
+  extractedGenericKeywords.forEach(kw => {
+    if (!kw.matchType) {
+      kw.matchType = 'PHRASE'  // 高价值通用词使用PHRASE匹配
+    }
+  })
+
+  console.log(`   🎯 提取到 ${extractedGenericKeywords.length} 个高价值通用词 (matchType=PHRASE)`)
 
   // 第2.5步：过滤非品牌词（只保留搜索量 >= 500）
   const filteredNonBrandKeywords = nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
@@ -2809,7 +2846,8 @@ export async function generateAdCreative(
     // 添加纯品牌词到列表（无论搜索量）
     pureBrandKeywords.push({
       keyword: offerBrand,
-      searchVolume: brandSearchVolume
+      searchVolume: brandSearchVolume,
+      matchType: 'EXACT'  // 🔥 新增(2025-12-18): 纯品牌词强制使用EXACT匹配
     })
 
     if (brandSearchVolume > 0) {
@@ -2858,6 +2896,10 @@ export async function generateAdCreative(
     if (supplementaryKeywords.length > 0) {
       console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个低搜索量关键词 (搜索量>0):`)
       supplementaryKeywords.forEach(kw => {
+        // 🔥 新增(2025-12-18): 为补充关键词设置matchType（保持与原非品牌词一致）
+        if (!kw.matchType) {
+          kw.matchType = 'PHRASE'
+        }
         console.log(`   - "${kw.keyword}" (搜索量: ${kw.searchVolume}/月) [补充]`)
       })
       finalKeywords = [...finalKeywords, ...supplementaryKeywords]
