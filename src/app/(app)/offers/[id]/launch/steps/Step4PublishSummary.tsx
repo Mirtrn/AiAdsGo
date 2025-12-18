@@ -922,18 +922,6 @@ export default function Step4PublishSummary({
                     </div>
                   </div>
                 )}
-
-                {/* 返回按钮（失败时显示） */}
-                {publishStatus?.step === 'failed' && !publishing && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={resetPublishState}
-                    className="w-full mt-2"
-                  >
-                    返回修改
-                  </Button>
-                )}
                 </>
               )}
             </div>
