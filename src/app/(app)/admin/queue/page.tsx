@@ -50,6 +50,7 @@ interface PerTypeConcurrency {
   'offer-extraction': number
   'batch-offer-creation': number
   'ad-creative': number
+  'campaign-publish': number  // 🆕 广告系列发布
   [key: string]: number  // 允许其他自定义类型
 }
 
@@ -66,6 +67,7 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   'offer-extraction': 'Offer提取',
   'batch-offer-creation': '批量创建',
   'ad-creative': '广告创意生成',
+  'campaign-publish': '广告系列发布',  // 🆕 Campaign发布
 }
 
 interface QueueConfig {
@@ -109,7 +111,8 @@ export default function QueueManagementPage() {
         cleanup: 1,
         'offer-extraction': 2,
         'batch-offer-creation': 1,
-        'ad-creative': 3
+        'ad-creative': 3,
+        'campaign-publish': 2  // 🆕 广告系列发布（Google Ads API限制）
       },
       maxQueueSize: 1000,
       taskTimeout: 300000,
@@ -170,7 +173,8 @@ export default function QueueManagementPage() {
               cleanup: 1,
               'offer-extraction': 2,
               'batch-offer-creation': 1,
-              'ad-creative': 3
+              'ad-creative': 3,
+              'campaign-publish': 2  // 🆕 广告系列发布
             },
             maxQueueSize: 1000,
             taskTimeout: 60000,
@@ -209,7 +213,8 @@ export default function QueueManagementPage() {
                 cleanup: 1,
                 'offer-extraction': 2,
                 'batch-offer-creation': 1,
-                'ad-creative': 3
+                'ad-creative': 3,
+                'campaign-publish': 2  // 🆕 广告系列发布
               },
               maxQueueSize: dbConfig.maxQueueSize || 1000,
               taskTimeout: dbConfig.taskTimeout || 60000,
