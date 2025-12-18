@@ -32,7 +32,7 @@ SET is_active = 0
 WHERE prompt_id = 'launch_score' AND version = 'v4.15';
 
 -- 2. Create v4.16 version
-INSERT INTO prompt_versions (
+INSERT OR REPLACE INTO prompt_versions (
   prompt_id,
   version,
   category,

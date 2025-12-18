@@ -28,7 +28,7 @@ UPDATE prompt_versions
 SET is_active = false
 WHERE prompt_id = 'launch_score' AND version = 'v4.14';
 
--- 2. Create v4.15 version
+-- 2. Create or update v4.15 version (use ON CONFLICT to handle existing versions)
 INSERT INTO prompt_versions (
   prompt_id,
   version,
@@ -244,7 +244,16 @@ INSERT INTO prompt_versions (
   true,
   'v4.14 → v4.15: 修改评分维度权重(40+30+20+10=100)、取消利润评分、新增市场潜力评分、Final URL仅检查可访问性',
   NOW()
-);
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  category = EXCLUDED.category,
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  file_path = EXCLUDED.file_path,
+  function_name = EXCLUDED.function_name,
+  prompt_content = EXCLUDED.prompt_content,
+  language = EXCLUDED.language,
+  is_active = EXCLUDED.is_active,
+  change_notes = EXCLUDED.change_notes;
 
 COMMIT;
 

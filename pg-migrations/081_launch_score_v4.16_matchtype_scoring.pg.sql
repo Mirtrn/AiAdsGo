@@ -32,7 +32,7 @@ UPDATE prompt_versions
 SET is_active = false
 WHERE prompt_id = 'launch_score' AND version = 'v4.15';
 
--- 2. Create v4.16 version
+-- 2. Create or update v4.16 version (use ON CONFLICT to handle existing versions)
 INSERT INTO prompt_versions (
   prompt_id,
   version,
@@ -272,7 +272,16 @@ INSERT INTO prompt_versions (
   true,
   'v4.15 → v4.16: 更新matchType评分逻辑，奖励品牌词EXACT精准匹配和非品牌词PHRASE控制性扩展策略。新策略：纯品牌词→EXACT，品牌相关词→PHRASE，非品牌通用词→PHRASE，BROAD占比≤10%为最优。',
   NOW()
-);
+) ON CONFLICT (prompt_id, version) DO UPDATE SET
+  category = EXCLUDED.category,
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  file_path = EXCLUDED.file_path,
+  function_name = EXCLUDED.function_name,
+  prompt_content = EXCLUDED.prompt_content,
+  language = EXCLUDED.language,
+  is_active = EXCLUDED.is_active,
+  change_notes = EXCLUDED.change_notes;
 
 COMMIT;
 
