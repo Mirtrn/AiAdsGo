@@ -227,14 +227,12 @@ export async function POST(request: NextRequest) {
 
     // 6. 获取Google Ads账号信息（customer_id）
     // 🔧 确保参数类型正确：googleAdsAccountId和userId应该是数字
-    // ⚠️ 注意：SQLite使用INTEGER 1/0，PostgreSQL使用BOOLEAN true/false
-    // 采用数据库特定的真值表示来避免类型不匹配
-    const isActiveValue = db.type === 'postgres' ? true : 1
+    // 📝 注意：db.ts的convertParams会自动处理SQLite(1/0) ↔ PostgreSQL(true/false)转换
     const adsAccount = await db.queryOne(`
       SELECT id, customer_id, is_active
       FROM google_ads_accounts
       WHERE id = ? AND user_id = ? AND is_active = ?
-    `, [Number(_googleAdsAccountId), Number(userId), isActiveValue]) as any
+    `, [Number(_googleAdsAccountId), Number(userId), 1]) as any
 
     if (!adsAccount) {
       const error = createError.gadsAccountNotActive({
