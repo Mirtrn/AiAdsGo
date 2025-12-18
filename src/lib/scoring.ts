@@ -235,10 +235,10 @@ export async function calculateLaunchScore(
     console.log(`   - Final URL: ${rawAnalysis.basicConfig.finalUrl}`)
     console.log(`   - 日预算: $${rawAnalysis.basicConfig.dailyBudget}/day`)
     console.log(`   - 最高CPC: $${rawAnalysis.basicConfig.maxCpc}`)
-    if (rawAnalysis.basicConfig.issues?.length > 0) {
+    if (rawAnalysis.basicConfig.issues && rawAnalysis.basicConfig.issues.length > 0) {
       console.log(`   - Issues: ${rawAnalysis.basicConfig.issues.join('; ')}`)
     }
-    if (rawAnalysis.basicConfig.suggestions?.length > 0) {
+    if (rawAnalysis.basicConfig.suggestions && rawAnalysis.basicConfig.suggestions.length > 0) {
       console.log(`   - Suggestions: ${rawAnalysis.basicConfig.suggestions.join('; ')}`)
     }
 
