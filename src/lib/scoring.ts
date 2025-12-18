@@ -282,11 +282,12 @@ export async function calculateLaunchScore(
 }
 
 /**
- * 验证评分是否在合理范围内（v4.0 - 4维度）
+ * 验证评分是否在合理范围内（v4.15 - 4维度）
+ * 总分必须 = 100分
  */
 function validateScoresV4(analysis: ScoreAnalysis): void {
-  if (analysis.launchViability.score < 0 || analysis.launchViability.score > 35) {
-    throw new Error('投放可行性评分超出范围(0-35)')
+  if (analysis.launchViability.score < 0 || analysis.launchViability.score > 40) {
+    throw new Error('投放可行性评分超出范围(0-40)')
   }
   if (analysis.adQuality.score < 0 || analysis.adQuality.score > 30) {
     throw new Error('广告质量评分超出范围(0-30)')
@@ -294,8 +295,19 @@ function validateScoresV4(analysis: ScoreAnalysis): void {
   if (analysis.keywordStrategy.score < 0 || analysis.keywordStrategy.score > 20) {
     throw new Error('关键词策略评分超出范围(0-20)')
   }
-  if (analysis.basicConfig.score < 0 || analysis.basicConfig.score > 15) {
-    throw new Error('基础配置评分超出范围(0-15)')
+  if (analysis.basicConfig.score < 0 || analysis.basicConfig.score > 10) {
+    throw new Error('基础配置评分超出范围(0-10)')
+  }
+
+  // v4.15: 验证总分必须等于100
+  const totalScore =
+    analysis.launchViability.score +
+    analysis.adQuality.score +
+    analysis.keywordStrategy.score +
+    analysis.basicConfig.score
+
+  if (Math.abs(totalScore - 100) > 0.01) {
+    throw new Error(`评分总和必须等于100分，当前值: ${totalScore}`)
   }
 }
 

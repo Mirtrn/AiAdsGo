@@ -453,8 +453,32 @@ export async function POST(request: NextRequest) {
           updated_at: primaryCreative.updated_at
         } as AdCreative
 
+        // 🔥 新增(2025-12-18)：调试日志 - 追踪关键词matchType一致性
+        console.log(`[Publish] 关键词matchType一致性检查:`)
+        console.log(`   - 用户配置关键词数量: ${_campaignConfig.keywords?.length || 0}`)
+        if (keywordsWithVolumeFromConfig.length > 0) {
+          const matchTypeDist = keywordsWithVolumeFromConfig.reduce((acc: any, kw: any) => {
+            const type = kw.matchType || 'UNKNOWN'
+            acc[type] = (acc[type] || 0) + 1
+            return acc
+          }, {})
+          console.log(`   - 用户配置的matchType分布:`, Object.entries(matchTypeDist).map(([type, count]) => `${type}: ${count}`).join(', '))
+          if (keywordsWithVolumeFromConfig.length > 0) {
+            console.log(`   - 示例关键词 #1: ${keywordsWithVolumeFromConfig[0].keyword} (${keywordsWithVolumeFromConfig[0].matchType})`)
+          }
+        }
+
         // 🔥 新增：调试日志 - 追踪构建的创意对象
         console.log(`[Publish] 构建的创意对象ID: ${creativeForLaunchScore.id}`)
+        console.log(`[Publish] keywordsWithVolume长度: ${creativeForLaunchScore.keywordsWithVolume?.length || 0}`)
+        if (creativeForLaunchScore.keywordsWithVolume && creativeForLaunchScore.keywordsWithVolume.length > 0) {
+          const kwMatchTypeDist = creativeForLaunchScore.keywordsWithVolume.reduce((acc: any, kw: any) => {
+            const type = kw.matchType || 'UNKNOWN'
+            acc[type] = (acc[type] || 0) + 1
+            return acc
+          }, {})
+          console.log(`   - keywordsWithVolume的matchType分布:`, Object.entries(kwMatchTypeDist).map(([type, count]) => `${type}: ${count}`).join(', '))
+        }
         console.log(`[Publish] negativeKeywords字段存在: ${!!creativeForLaunchScore.negativeKeywords}`)
         console.log(`[Publish] negativeKeywords长度: ${creativeForLaunchScore.negativeKeywords?.length || 0}`)
         console.log(`[Publish] negativeKeywords示例: ${creativeForLaunchScore.negativeKeywords?.slice(0, 5).join(', ') || 'NONE'}`)

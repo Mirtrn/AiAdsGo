@@ -30,24 +30,32 @@ export interface LaunchScore {
 }
 
 /**
- * Launch Score 评分体系 v4.0
+ * Launch Score 评分体系 v4.15
  *
  * 4维度评分系统（总分100）：
- * 1. 投放可行性 (35分) - 品牌词搜索量15 + 利润空间10 + 竞争度10
+ * 1. 投放可行性 (40分) - 品牌词搜索量15 + 竞争度15 + 市场潜力10
  * 2. 广告质量 (30分) - Ad Strength 15 + 标题多样性8 + 描述质量7
  * 3. 关键词策略 (20分) - 关键词相关性8 + 匹配类型6 + 否定关键词6
- * 4. 基础配置 (15分) - 国家/语言5 + Final URL 5 + 预算合理性5
+ * 4. 基础配置 (10分) - 国家/语言5 + Final URL 5
+ *
+ * 变更说明 (v4.14 → v4.15)：
+ * - 移除profitScore (10分) → 改为profitScore = 0 (已废弃)
+ * - 增加竞争度评分: 10分 → 15分
+ * - 新增市场潜力评分 (0-10分) = 品牌搜索量与竞争度的综合评估
+ * - 移除预算合理性评分 (基础配置: 15分 → 10分)
+ * - Final URL: 仅检查可访问性，满分5分
  */
 export interface ScoreAnalysis {
-  // 维度1：投放可行性 (35分)
+  // 维度1：投放可行性 (40分)
   launchViability: {
-    score: number // 0-35
+    score: number // 0-40
     brandSearchVolume: number // 品牌词月搜索量
     brandSearchScore: number // 0-15
-    profitMargin: number // 利润空间 (price * commission / 50 vs CPC)
-    profitScore: number // 0-10
+    profitMargin: number // 保留但不再评估，始终为0
+    profitScore: number // 已废弃，始终为0
     competitionLevel: 'LOW' | 'MEDIUM' | 'HIGH' // 竞争度
-    competitionScore: number // 0-10
+    competitionScore: number // 0-15 (v4.15: 从0-10改为0-15)
+    marketPotentialScore: number // 0-10 (v4.15新增: 基于品牌搜索量+竞争度的综合评估)
     issues?: string[]
     suggestions?: string[]
   }
@@ -78,12 +86,12 @@ export interface ScoreAnalysis {
     suggestions?: string[]
   }
 
-  // 维度4：基础配置 (15分)
+  // 维度4：基础配置 (10分)
   basicConfig: {
-    score: number // 0-15
+    score: number // 0-10 (v4.15: 从0-15改为0-10)
     countryLanguageScore: number // 国家/语言匹配 0-5
-    finalUrlScore: number // Final URL有效性 0-5
-    budgetScore: number // 预算合理性 0-5
+    finalUrlScore: number // Final URL可访问性 0-5 (v4.15: 仅检查可访问性)
+    budgetScore: number // 已废弃，始终为0
     targetCountry: string
     targetLanguage: string
     finalUrl: string
@@ -456,6 +464,7 @@ function getDefaultLaunchViability(): ScoreAnalysis['launchViability'] {
     profitScore: 0,
     competitionLevel: 'MEDIUM',
     competitionScore: 0,
+    marketPotentialScore: 0, // v4.15新增
   }
 }
 
