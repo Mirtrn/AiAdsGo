@@ -301,7 +301,7 @@ export async function calculateLaunchScore(
 
 /**
  * 验证评分是否在合理范围内（v4.15 - 4维度）
- * 总分必须 = 100分
+ * 各维度独立评分，总分为各维度之和（范围0-100）
  */
 function validateScoresV4(analysis: ScoreAnalysis): void {
   if (analysis.launchViability.score < 0 || analysis.launchViability.score > 40) {
@@ -317,15 +317,16 @@ function validateScoresV4(analysis: ScoreAnalysis): void {
     throw new Error('基础配置评分超出范围(0-10)')
   }
 
-  // v4.15: 验证总分必须等于100
+  // v4.15: 验证总分在合理范围内（0-100）
+  // 🔧 修复(2025-12-18): 总分是各维度独立评分之和，不强制等于100
   const totalScore =
     analysis.launchViability.score +
     analysis.adQuality.score +
     analysis.keywordStrategy.score +
     analysis.basicConfig.score
 
-  if (Math.abs(totalScore - 100) > 0.01) {
-    throw new Error(`评分总和必须等于100分，当前值: ${totalScore}`)
+  if (totalScore < 0 || totalScore > 100) {
+    throw new Error(`总分超出范围(0-100): ${totalScore}`)
   }
 }
 

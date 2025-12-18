@@ -255,7 +255,7 @@ INSERT INTO prompt_versions (
 **输出规则（严格遵守）：**
 1. 使用上述精确的字段名称
 2. 所有评分必须在各维度限制范围内
-3. 总分 = launchViability.score + adQuality.score + keywordStrategy.score + basicConfig.score (必须 = 100)
+3. 总分 = launchViability.score + adQuality.score + keywordStrategy.score + basicConfig.score (范围0-100，各维度独立评分)
 4. 仅返回JSON对象，不要添加其他文本、markdown标记或代码块
 5. **所有issues、suggestions和overallRecommendations必须使用简体中文**
 6. profitMargin字段保留但设置为0（不再评估盈亏平衡CPC）
