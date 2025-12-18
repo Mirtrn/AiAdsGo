@@ -172,22 +172,22 @@ INSERT INTO prompt_versions (
 
 {
   "launchViability": {
-    "score": 32,
+    "score": 38,
     "brandSearchVolume": 1500,
-    "brandSearchScore": 10,
+    "brandSearchScore": 14,
     "profitMargin": 0,
     "profitScore": 0,
     "competitionLevel": "MEDIUM",
-    "competitionScore": 10,
-    "marketPotentialScore": 6,
+    "competitionScore": 14,
+    "marketPotentialScore": 10,
     "issues": ["品牌搜索量处于中等水平，市场认知度需提升"],
     "suggestions": ["建议先通过其他渠道提升品牌知名度"]
   },
   "adQuality": {
-    "score": 24,
+    "score": 28,
     "adStrength": "GOOD",
     "adStrengthScore": 12,
-    "headlineDiversity": 75,
+    "headlineDiversity": 85,
     "headlineDiversityScore": 6,
     "descriptionQuality": 80,
     "descriptionQualityScore": 6,
@@ -195,7 +195,7 @@ INSERT INTO prompt_versions (
     "suggestions": ["增加更多独特的标题变体"]
   },
   "keywordStrategy": {
-    "score": 16,
+    "score": 18,
     "relevanceScore": 7,
     "matchTypeScore": 5,
     "negativeKeywordsScore": 4,
