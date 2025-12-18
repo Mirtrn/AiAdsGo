@@ -312,11 +312,13 @@ export async function clusterKeywordsByIntent(
       // 3. 减少超时风险，节约成本
       // 预期：100-200个高价值关键词（搜索量>=500）聚类，JSON输出约10-20K tokens
       // flash 模型通常在 60-90s 完成，pro 模型可能需要 150s+
+      // 🔧 2025-12-18修复：增加maxOutputTokens到64k（从32k）以防止大规模聚类任务被截断
+      // 原因：104个关键词的JSON输出可能超过32K限制，需要更多空间
       const aiResponse = await generateContent({
         model: 'gemini-2.5-flash',  // 🔧 改为 flash 模型
         prompt,
         temperature: 0.3,  // 低温度，保持一致性
-        maxOutputTokens: 32768,
+        maxOutputTokens: 65000,  // 🔧 增加到64K以处理大规模聚类（从32K）
         responseSchema,
         responseMimeType: 'application/json'
       }, userId)

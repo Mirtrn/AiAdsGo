@@ -69,13 +69,18 @@ export async function POST(
     }
     const userIdNum = parseInt(userId, 10)
 
-    // 🔧 PostgreSQL兼容性：布尔字段兼容性处理
-    const isDeletedFalse = db.type === 'postgres' ? false : 0
+    // 🔧 PostgreSQL兼容性：使用COALESCE避免类型转换问题
+    // 问题根因：production数据库的is_deleted可能是INTEGER而非BOOLEAN
+    // 解决方案：使用COALESCE(is_deleted, 0)::int = 0 模式，两种类型都兼容
+    // 长期方案：运行迁移 077_fix_boolean_columns.pg.sql 将列转为BOOLEAN
+    const notDeletedCondition = db.type === 'postgres'
+      ? "(is_deleted IS NULL OR is_deleted::text IN ('0', 'f', 'false'))"
+      : 'is_deleted = 0'
 
     // 2. 查询Offer并验证所有权
     const offers = await db.query<Offer>(
-      'SELECT id, user_id, affiliate_link, target_country, product_price, commission_payout FROM offers WHERE id = ? AND user_id = ? AND is_deleted = ?',
-      [offerId, userIdNum, isDeletedFalse]
+      `SELECT id, user_id, affiliate_link, target_country, product_price, commission_payout FROM offers WHERE id = ? AND user_id = ? AND ${notDeletedCondition}`,
+      [offerId, userIdNum]
     )
 
     if (!offers || offers.length === 0) {
