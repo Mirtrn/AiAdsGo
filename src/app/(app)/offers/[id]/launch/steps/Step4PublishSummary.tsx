@@ -207,10 +207,9 @@ export default function Step4PublishSummary({
         success: true
       })
 
-      setTimeout(() => {
-        onPublishComplete()
-      }, 3000)
-
+      // 🔧 修复(2025-12-18): 发布成功后不再跳转，用户留在发布页面
+      // onPublishComplete() 已改为空操作，不需要延迟调用
+      onPublishComplete()
     } catch (error: any) {
       addPublishStep('error', error.message || '发布失败', 'failed')
       setPublishStatus({
@@ -431,10 +430,9 @@ export default function Step4PublishSummary({
         success: true
       })
 
-      // Redirect after 3 seconds (给用户更多时间查看结果)
-      setTimeout(() => {
-        onPublishComplete()
-      }, 3000)
+      // 🔧 修复(2025-12-18): 发布成功后不再跳转，用户留在发布页面
+      // onPublishComplete() 已改为空操作，不需要延迟调用
+      onPublishComplete()
     } catch (error: any) {
       // 发布失败 - 在卡片中显示而不是toast
       addPublishStep('error', error.message || '发布失败', 'failed')
@@ -564,10 +562,9 @@ export default function Step4PublishSummary({
         success: true
       })
 
-      setTimeout(() => {
-        onPublishComplete()
-      }, 3000)
-
+      // 🔧 修复(2025-12-18): 发布成功后不再跳转，用户留在发布页面
+      // onPublishComplete() 已改为空操作，不需要延迟调用
+      onPublishComplete()
     } catch (error: any) {
       // 发布失败 - 在卡片中显示而不是toast
       addPublishStep('error', error.message || '发布失败', 'failed')
@@ -693,10 +690,9 @@ export default function Step4PublishSummary({
         success: true
       })
 
-      setTimeout(() => {
-        onPublishComplete()
-      }, 3000)
-
+      // 🔧 修复(2025-12-18): 发布成功后不再跳转，用户留在发布页面
+      // onPublishComplete() 已改为空操作，不需要延迟调用
+      onPublishComplete()
     } catch (error: any) {
       // 发布失败 - 在卡片中显示而不是toast
       addPublishStep('error', error.message || '发布失败', 'failed')
@@ -1045,7 +1041,7 @@ export default function Step4PublishSummary({
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-green-600" />
                       <span className="text-sm text-green-800">
-                        广告系列已成功发布，即将跳转...
+                        广告系列已成功发布
                       </span>
                     </div>
                   </div>
