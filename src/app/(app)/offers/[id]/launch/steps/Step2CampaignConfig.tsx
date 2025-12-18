@@ -219,13 +219,14 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
 
       // Keywords Level - 优先使用keywordsWithVolume（包含搜索量）
       // 🆕 P0-1优化：同时提取lowTopPageBid和highTopPageBid用于动态CPC计算
+      // 🔥 修复(2025-12-18)：保留创意中的matchType，不强制覆盖为PHRASE
       keywords: (selectedCreative?.keywordsWithVolume || selectedCreative?.keywords || []).map((k: any) => {
         if (typeof k === 'string') {
           return { text: k, matchType: 'PHRASE' as const }
         }
         return {
           text: k.keyword || k.text,
-          matchType: 'PHRASE' as const,
+          matchType: k.matchType || 'PHRASE' as const,  // 🔥 使用原创意的matchType，只在缺少时默认为PHRASE
           searchVolume: k.searchVolume || 0,
           lowTopPageBid: k.lowTopPageBid || 0,
           highTopPageBid: k.highTopPageBid || 0
