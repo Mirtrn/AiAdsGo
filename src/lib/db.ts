@@ -180,22 +180,40 @@ class PostgresAdapter implements DatabaseAdapter {
       'enabled', 'is_deleted', 'is_sensitive', 'is_required'
     ]
 
-    // 检测SQL中是否包含布尔字段的SET或WHERE语句
-    const hasBooleanField = booleanFields.some(field =>
-      new RegExp(`\\b${field}\\s*=\\s*\\?`, 'i').test(sql)
-    )
+    // 提取SQL中所有 field = ? 的字段名和位置
+    // 这样可以精确匹配参数到对应的字段
+    const fieldPositions: { field: string; paramIndex: number }[] = []
+    let paramIndex = 0
 
-    // 如果没有布尔字段，直接返回原参数
-    if (!hasBooleanField) {
-      return params.map(p => p === undefined ? null : p)
+    // 查找 SET field = ? 语句（UPDATE）
+    const setMatches = sql.matchAll(/SET\s+(\w+)\s*=\s*\?/gi)
+    for (const match of setMatches) {
+      const field = match[1]
+      fieldPositions.push({ field, paramIndex: paramIndex++ })
     }
 
-    // 转换参数：将布尔字段的 0/1 转换为 true/false
+    // 查找 WHERE field = ? 语句
+    const whereMatches = sql.matchAll(/WHERE[^;]*/gi)
+    for (const whereMatch of whereMatches) {
+      const whereClause = whereMatch[0]
+      // 提取WHERE子句中的所有 field = ? 模式
+      const fieldMatches = whereClause.matchAll(/(\w+)\s*=\s*\?/g)
+      for (const match of fieldMatches) {
+        const field = match[1]
+        fieldPositions.push({ field, paramIndex: paramIndex++ })
+      }
+    }
+
+    // 转换参数：根据字段名判断是否需要转换
     return params.map((p, index) => {
       if (p === undefined) return null
 
-      // 如果参数是 0 或 1，且SQL中包含布尔字段，转换为布尔值
-      if ((p === 0 || p === 1) && hasBooleanField) {
+      // 查找这个参数位置对应的字段
+      const fieldPosition = fieldPositions.find(fp => fp.paramIndex === index)
+      const field = fieldPosition?.field
+
+      // 如果是布尔字段且参数是 0 或 1，转换为布尔值
+      if (field && booleanFields.some(f => f.toLowerCase() === field.toLowerCase()) && (p === 0 || p === 1)) {
         return p === 1 ? true : false
       }
 
