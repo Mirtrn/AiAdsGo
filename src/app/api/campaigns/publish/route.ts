@@ -466,7 +466,6 @@ export async function POST(request: NextRequest) {
 
         launchScore = launchScoreResult.totalScore
         scoreAnalysis = launchScoreResult.scoreAnalysis
-        const overallRecommendations = launchScoreResult.recommendations || []  // 🔧 修复：从launchScoreResult获取recommendations
 
         // 🔥 修复(2025-12-17): 保存Launch Score到数据库（带缓存信息）
         try {
@@ -493,6 +492,9 @@ export async function POST(request: NextRequest) {
 
       // 🎯 从scoreAnalysis中提取各维度分数（v4.0 - 4维度）
       const analysis = scoreAnalysis
+
+      // 🔧 修复：确保overallRecommendations在所有路径中可用
+      const overallRecommendations = scoreAnalysis?.overallRecommendations || extractAllSuggestions(scoreAnalysis)
 
       console.log(`📊 Launch Score评估结果 (v4.0): ${launchScore}分`)
       console.log(`   - 投放可行性: ${analysis.launchViability.score}/35`)
