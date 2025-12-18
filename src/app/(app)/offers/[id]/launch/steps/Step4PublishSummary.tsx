@@ -226,6 +226,31 @@ export default function Step4PublishSummary({
         return
       }
 
+      // 🔥 处理Launch Score警告的情况（422状态码）- 显示建议但不阻止发布
+      if (response.status === 422 && data.action === 'LAUNCH_SCORE_WARNING') {
+        console.warn('⚠️ Launch Score偏低:', data)
+        const details = data.details || {}
+
+        // 存储Launch Score警告详情，在卡片中显示
+        setLaunchScoreBlockDetails({
+          launchScore: details.launchScore || 0,
+          threshold: details.threshold || 80,
+          breakdown: details.breakdown || {},
+          issues: details.issues || [],
+          suggestions: details.suggestions || [],
+          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
+        })
+
+        addPublishStep('creating', `投放评分偏低 (${details.launchScore || 0}分)，建议优化`, 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: `投放评分偏低，建议≥${details.threshold || 80}分`,
+          success: false
+        })
+        setPublishing(false)
+        return
+      }
+
       // 🔥 处理需要确认暂停的情况（422状态码）
       if (response.status === 422 && data.action === 'CONFIRM_PAUSE_OLD_CAMPAIGNS') {
         console.log('⚠️ 需要用户确认是否暂停旧Campaign:', data)
@@ -355,6 +380,32 @@ export default function Step4PublishSummary({
         return
       }
 
+      // 🔥 处理Launch Score警告的情况 - 显示建议但不阻止发布 (handleConfirmPauseAndPublish)
+      if (response.status === 422 && data.action === 'LAUNCH_SCORE_WARNING') {
+        console.warn('⚠️ Launch Score偏低:', data)
+        const details = data.details || {}
+
+        // 存储Launch Score警告详情，在卡片中显示
+        setLaunchScoreBlockDetails({
+          launchScore: details.launchScore || 0,
+          threshold: details.threshold || 80,
+          breakdown: details.breakdown || {},
+          issues: details.issues || [],
+          suggestions: details.suggestions || [],
+          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
+        })
+
+        addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
+        addPublishStep('creating', `投放评分偏低 (${details.launchScore || 0}分)，建议优化`, 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: `投放评分偏低，建议≥${details.threshold || 80}分`,
+          success: false
+        })
+        setPublishing(false)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(data.error || data.message || '发布失败')
       }
@@ -440,6 +491,31 @@ export default function Step4PublishSummary({
         setPublishStatus({
           step: 'failed',
           message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          success: false
+        })
+        setPublishing(false)
+        return
+      }
+
+      // 🔥 处理Launch Score警告的情况 - 显示建议但不阻止发布 (handlePublishTogether)
+      if (response.status === 422 && data.action === 'LAUNCH_SCORE_WARNING') {
+        console.warn('⚠️ Launch Score偏低:', data)
+        const details = data.details || {}
+
+        // 存储Launch Score警告详情，在卡片中显示
+        setLaunchScoreBlockDetails({
+          launchScore: details.launchScore || 0,
+          threshold: details.threshold || 80,
+          breakdown: details.breakdown || {},
+          issues: details.issues || [],
+          suggestions: details.suggestions || [],
+          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
+        })
+
+        addPublishStep('creating', `投放评分偏低 (${details.launchScore || 0}分)，建议优化`, 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: `投放评分偏低，建议≥${details.threshold || 80}分`,
           success: false
         })
         setPublishing(false)
