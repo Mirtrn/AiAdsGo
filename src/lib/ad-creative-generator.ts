@@ -2651,8 +2651,9 @@ export async function generateAdCreative(
         keywordsWithVolume.push({
           keyword: kw.keyword,
           searchVolume: kw.searchVolume,
-          competition: undefined,
-          competitionIndex: undefined,
+          // 🔥 修复(2025-12-18): 为合并的关键词提供默认竞争度，避免competitionLevel = UNKNOWN
+          competition: kw.competition || 'MEDIUM', // 使用原始数据中的competition，或默认为MEDIUM
+          competitionIndex: kw.competitionIndex || 0.5,  // 默认竞争度指数为0.5（中等）
           lowTopPageBid: 0,
           highTopPageBid: 0,
           matchType,
