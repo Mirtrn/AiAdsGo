@@ -395,6 +395,18 @@ export async function POST(request: NextRequest) {
         scoreAnalysis = parseLaunchScoreAnalysis(cachedLaunchScore)
         console.log(`📦 使用缓存的Launch Score: ${launchScore}分`)
       } else {
+        // 🔥 修复(2025-12-18)：使用用户在第2步配置的关键词，而非创意原始数据
+        // 关键词及其matchType应该来自campaignConfig（用户配置），而不是创意数据库记录
+        const keywordsWithVolumeFromConfig = (_campaignConfig.keywords || []).map((kw: any) => ({
+          keyword: typeof kw === 'string' ? kw : kw.text,
+          text: typeof kw === 'string' ? kw : kw.text,
+          matchType: typeof kw === 'string' ? 'PHRASE' : (kw.matchType || 'PHRASE'),
+          searchVolume: typeof kw === 'object' ? kw.searchVolume : undefined,
+          competition: typeof kw === 'object' ? kw.competition : undefined,
+          lowTopPageBid: typeof kw === 'object' ? kw.lowTopPageBid : undefined,
+          highTopPageBid: typeof kw === 'object' ? kw.highTopPageBid : undefined
+        }))
+
         // 🔥 修复：明确构建创意对象，避免字段冲突
         const creativeForLaunchScore = {
           id: primaryCreative.id,
@@ -404,9 +416,11 @@ export async function POST(request: NextRequest) {
           descriptions: creativeData.descriptions,
           keywords: creativeData.keywords,
           negativeKeywords: creativeData.negativeKeywords,  // 使用解析后的数组
-          keywordsWithVolume: primaryCreative.keywords_with_volume ?
-            JSON.parse(primaryCreative.keywords_with_volume) :
-            creativeData.keywords,  // 优先使用数据库中的keywords_with_volume
+          keywordsWithVolume: keywordsWithVolumeFromConfig.length > 0 ?
+            keywordsWithVolumeFromConfig :  // 🔥 修复：使用用户配置的关键词
+            (primaryCreative.keywords_with_volume ?
+              JSON.parse(primaryCreative.keywords_with_volume) :
+              creativeData.keywords),
           callouts: creativeData.callouts,
           sitelinks: creativeData.sitelinks,
           final_url: primaryCreative.final_url,
