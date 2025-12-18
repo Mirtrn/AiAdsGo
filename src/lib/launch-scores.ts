@@ -299,12 +299,13 @@ export async function createLaunchScore(
       total_score,
       -- v3.0旧字段（NOT NULL，需要提供默认值）
       keyword_score, market_fit_score, landing_page_score, budget_score, content_score,
+      keyword_analysis_data, market_analysis_data, landing_page_analysis_data, budget_analysis_data, content_analysis_data,
       -- v4.0新字段
       launch_viability_score, ad_quality_score, keyword_strategy_score, basic_config_score,
       launch_viability_data, ad_quality_data, keyword_strategy_data, basic_config_data,
       recommendations,
       ad_creative_id, issues, suggestions, content_hash, campaign_config_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     userId,
     offerId,
@@ -315,6 +316,12 @@ export async function createLaunchScore(
     legacyLandingPageScore,
     legacyBudgetScore,
     legacyContentScore,
+    // v3.0数据字段（JSON格式）
+    JSON.stringify(analysis.keywordStrategy),
+    JSON.stringify(analysis.launchViability),
+    JSON.stringify(analysis.basicConfig),
+    JSON.stringify(analysis.basicConfig),
+    JSON.stringify(analysis.adQuality),
     // v4.0新字段
     analysis.launchViability.score,
     analysis.adQuality.score,
