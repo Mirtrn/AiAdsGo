@@ -118,6 +118,16 @@ export async function calculateLaunchScore(
         ).join('\n')
       : '暂无关键词搜索量数据'
 
+    // 🔥 新增(2025-12-18)：检查keywordsWithVolume中是否有competition数据
+    const keywordsWithCompetition = keywordsWithVolume.filter((kw: any) => kw.competition)
+    console.log(`[LaunchScore] 关键词competition数据检查:`)
+    console.log(`   - 总关键词数: ${keywordsWithVolume.length}`)
+    console.log(`   - 有competition数据的关键词: ${keywordsWithCompetition.length}`)
+    if (keywordsWithVolume.length > 0) {
+      console.log(`   - 第一个关键词的competition: ${keywordsWithVolume[0].competition || '(缺失)'}`)
+      console.log(`   - 第一个关键词的完整字段: ${JSON.stringify(keywordsWithVolume[0])}`)
+    }
+
     // 🎯 计算匹配类型分布
     const matchTypes: Record<string, number> = {}
     keywordsWithVolume.forEach((kw: any) => {
@@ -223,8 +233,9 @@ export async function calculateLaunchScore(
       throw new Error(`AI返回的JSON缺少必需的分析字段。已有字段: ${Object.keys(rawAnalysis).join(', ')}`)
     }
 
-    // 🔥 调试日志 - v4.15: 显示所有4个维度的评分
-    console.log(`[LaunchScore] ===== v4.15 四维度评分详情 =====`)
+    // 🔥 调试日志 - v4.16: 显示所有4个维度的评分（版本由prompt_loader自动确定）
+    const promptVersion = promptTemplate.includes('marketPotentialScore') ? 'v4.15+' : 'v4.0'
+    console.log(`[LaunchScore] ===== ${promptVersion} 四维度评分详情 =====`)
     console.log(`[LaunchScore] 1️⃣ 投放可行性: ${rawAnalysis.launchViability.score}/40`)
     console.log(`   - 品牌搜索量得分: ${rawAnalysis.launchViability.brandSearchScore}/15`)
     console.log(`   - 竞争度得分: ${rawAnalysis.launchViability.competitionScore}/15`)
