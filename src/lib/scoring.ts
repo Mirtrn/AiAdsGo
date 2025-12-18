@@ -32,6 +32,9 @@ export async function calculateLaunchScore(
     budgetAmount?: number
     maxCpcBid?: number
     budgetType?: string
+    finalUrl?: string  // 🔧 新增：用户配置的Final URL
+    targetCountry?: string  // 🔧 新增：目标国家
+    targetLanguage?: string  // 🔧 新增：目标语言
   }
 ): Promise<{
   totalScore: number
@@ -71,11 +74,19 @@ export async function calculateLaunchScore(
       ? brandKeywords[0]?.competition || 'MEDIUM'
       : 'MEDIUM'
 
-    // 🎯 计算利润空间
-    const productPrice = Number(offer.product_price) || 0
-    const commissionRate = Number(offer.commission_payout) || 0
-    const profitPerSale = productPrice * (commissionRate / 100)
-    const breakEvenCpc = profitPerSale / 50 // 假设50个点击出一单
+    // 🎯 计算投放可行性评估（基于用户配置，不依赖Offer可选字段）
+    // 评估预算是否合理（CPC vs 预算比例）
+    const budgetAmount = campaignConfig?.budgetAmount || 10
+    const maxCpcBid = campaignConfig?.maxCpcBid || 0.17
+    const dailyBudget = budgetAmount
+
+    // 预算合理性评估：日预算应该支持足够的点击数
+    const estimatedClicksPerDay = dailyBudget / maxCpcBid
+    const isBudgetReasonable = estimatedClicksPerDay >= 10 // 每天至少10个点击
+
+    // CPC合理性评估：CPC不应该超过日预算的10%
+    const cpcToBudgetRatio = maxCpcBid / dailyBudget
+    const isCpcReasonable = cpcToBudgetRatio <= 0.1 // CPC不超过日预算的10%
 
     // 🎯 计算标题多样性
     const headlines = creative.headlines || []
@@ -123,18 +134,17 @@ export async function calculateLaunchScore(
 
     // 🎨 插值替换模板变量
     const prompt = promptTemplate
-      // Campaign Overview
+      // Campaign Overview - 🔧 使用用户配置数据
       .replace('{{brand}}', offer.brand || 'Unknown')
       .replace('{{productName}}', offer.brand_description || offer.brand || 'Unknown')
-      .replace('{{targetCountry}}', offer.target_country || 'US')
-      .replace('{{targetLanguage}}', offer.target_language || 'English')
+      .replace('{{targetCountry}}', campaignConfig?.targetCountry || offer.target_country || 'US')
+      .replace('{{targetLanguage}}', campaignConfig?.targetLanguage || offer.target_language || 'English')
       .replace('{{budget}}', campaignConfig?.budgetAmount ? `$${campaignConfig.budgetAmount}/day` : '$10/day')
       .replace('{{maxCpc}}', campaignConfig?.maxCpcBid ? `$${campaignConfig.maxCpcBid}` : '$0.17')
-      // Product Economics
-      .replace('{{productPrice}}', productPrice > 0 ? `$${productPrice}` : 'Not specified')
-      .replace('{{commissionRate}}', commissionRate > 0 ? `${commissionRate}%` : 'Not specified')
-      .replace('{{profitPerSale}}', profitPerSale > 0 ? `$${profitPerSale.toFixed(2)}` : 'Not calculated')
-      .replace('{{breakEvenCpc}}', breakEvenCpc > 0 ? `$${breakEvenCpc.toFixed(2)}` : 'Not calculated')
+      // Budget Analysis - 🔧 基于用户配置评估，不依赖产品定价
+      .replace('{{budgetAnalysis}}', `Daily Budget: $${dailyBudget}, Max CPC: $${maxCpcBid}, Est. Clicks/Day: ${estimatedClicksPerDay.toFixed(1)}`)
+      .replace('{{budget合理性}}', isBudgetReasonable ? 'Reasonable' : 'Low')
+      .replace('{{cpc合理性}}', isCpcReasonable ? 'Reasonable' : 'High')
       // Brand Search Data
       .replace('{{brandSearchVolume}}', brandSearchVolume.toString())
       .replace('{{brandCompetition}}', brandCompetition)

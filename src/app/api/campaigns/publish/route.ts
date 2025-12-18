@@ -453,7 +453,10 @@ export async function POST(request: NextRequest) {
           {
             budgetAmount: _campaignConfig.budgetAmount,
             maxCpcBid: _campaignConfig.maxCpcBid,
-            budgetType: _campaignConfig.budgetType
+            budgetType: _campaignConfig.budgetType,
+            finalUrl: creativeForLaunchScore.final_url,  // 🔧 使用创意中的Final URL
+            targetCountry: _campaignConfig.targetCountry,
+            targetLanguage: _campaignConfig.targetLanguage
           }
         )
 
