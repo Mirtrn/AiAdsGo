@@ -89,7 +89,7 @@ export async function loadPrompt(promptId: string): Promise<string> {
     version: prompt.version
   })
 
-  console.log(`📦 Loaded prompt from database: ${prompt.name} (${promptId} v${prompt.version})`)
+  console.log(`📦 Loaded prompt from database: ${prompt.name} (${promptId} ${prompt.version})`)
 
   return content
 }

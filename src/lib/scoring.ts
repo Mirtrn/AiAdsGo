@@ -223,30 +223,48 @@ export async function calculateLaunchScore(
       throw new Error(`AI返回的JSON缺少必需的分析字段。已有字段: ${Object.keys(rawAnalysis).join(', ')}`)
     }
 
-    // 🔥 新增：调试日志 - 追踪overallRecommendations和basicConfig详情
-    console.log(`[LaunchScore] AI返回的overallRecommendations:`, rawAnalysis.overallRecommendations)
-    console.log(`[LaunchScore] 基础配置详情:`)
-    console.log(`   - 总分: ${rawAnalysis.basicConfig.score}/15`)
+    // 🔥 调试日志 - v4.15: 显示所有4个维度的评分
+    console.log(`[LaunchScore] ===== v4.15 四维度评分详情 =====`)
+    console.log(`[LaunchScore] 1️⃣ 投放可行性: ${rawAnalysis.launchViability.score}/40`)
+    console.log(`   - 品牌搜索量得分: ${rawAnalysis.launchViability.brandSearchScore}/15`)
+    console.log(`   - 竞争度得分: ${rawAnalysis.launchViability.competitionScore}/15`)
+    console.log(`   - 市场潜力得分: ${rawAnalysis.launchViability.marketPotentialScore}/10`)
+    console.log(`   - 竞争度级别: ${rawAnalysis.launchViability.competitionLevel}`)
+
+    console.log(`[LaunchScore] 2️⃣ 广告质量: ${rawAnalysis.adQuality.score}/30`)
+    console.log(`   - Ad Strength得分: ${rawAnalysis.adQuality.adStrengthScore}/15 (${rawAnalysis.adQuality.adStrength})`)
+    console.log(`   - 标题多样性得分: ${rawAnalysis.adQuality.headlineDiversityScore}/8`)
+    console.log(`   - 描述质量得分: ${rawAnalysis.adQuality.descriptionQualityScore}/7`)
+
+    console.log(`[LaunchScore] 3️⃣ 关键词策略: ${rawAnalysis.keywordStrategy.score}/20`)
+    console.log(`   - 关键词相关性: ${rawAnalysis.keywordStrategy.relevanceScore}/8`)
+    console.log(`   - 匹配类型策略: ${rawAnalysis.keywordStrategy.matchTypeScore}/6`)
+    console.log(`   - 否定关键词: ${rawAnalysis.keywordStrategy.negativeKeywordsScore}/6`)
+
+    console.log(`[LaunchScore] 4️⃣ 基础配置: ${rawAnalysis.basicConfig.score}/10`)
     console.log(`   - 国家/语言得分: ${rawAnalysis.basicConfig.countryLanguageScore}/5`)
     console.log(`   - Final URL得分: ${rawAnalysis.basicConfig.finalUrlScore}/5`)
-    console.log(`   - 预算合理性得分: ${rawAnalysis.basicConfig.budgetScore}/5`)
     console.log(`   - 目标国家: ${rawAnalysis.basicConfig.targetCountry}`)
     console.log(`   - 目标语言: ${rawAnalysis.basicConfig.targetLanguage}`)
     console.log(`   - Final URL: ${rawAnalysis.basicConfig.finalUrl}`)
-    console.log(`   - 日预算: $${rawAnalysis.basicConfig.dailyBudget}/day`)
-    console.log(`   - 最高CPC: $${rawAnalysis.basicConfig.maxCpc}`)
-    if (rawAnalysis.basicConfig.issues && rawAnalysis.basicConfig.issues.length > 0) {
-      console.log(`   - Issues: ${rawAnalysis.basicConfig.issues.join('; ')}`)
-    }
-    if (rawAnalysis.basicConfig.suggestions && rawAnalysis.basicConfig.suggestions.length > 0) {
-      console.log(`   - Suggestions: ${rawAnalysis.basicConfig.suggestions.join('; ')}`)
-    }
+
+    const calculatedTotal =
+      rawAnalysis.launchViability.score +
+      rawAnalysis.adQuality.score +
+      rawAnalysis.keywordStrategy.score +
+      rawAnalysis.basicConfig.score
+
+    console.log(`[LaunchScore] 🎯 总分: ${calculatedTotal}/100`)
+    console.log(`[LaunchScore] AI返回的overallRecommendations:`, rawAnalysis.overallRecommendations)
+    console.log(`[LaunchScore] =====================================`)
 
     // 验证评分范围
     validateScoresV4(rawAnalysis)
 
     // 🎯 补充缺失数据
     rawAnalysis.launchViability.brandSearchVolume = rawAnalysis.launchViability.brandSearchVolume || brandSearchVolume
+    // v4.15: 确保新增字段有默认值
+    rawAnalysis.launchViability.marketPotentialScore = rawAnalysis.launchViability.marketPotentialScore ?? 0
     rawAnalysis.adQuality.adStrength = rawAnalysis.adQuality.adStrength || adStrength
     rawAnalysis.adQuality.headlineDiversity = rawAnalysis.adQuality.headlineDiversity || headlineDiversity
     rawAnalysis.keywordStrategy.totalKeywords = rawAnalysis.keywordStrategy.totalKeywords || creativeKeywords.length
