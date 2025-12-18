@@ -420,7 +420,12 @@ export async function POST(request: NextRequest) {
             keywordsWithVolumeFromConfig :  // 🔥 修复：使用用户配置的关键词
             (primaryCreative.keywords_with_volume ?
               JSON.parse(primaryCreative.keywords_with_volume) :
-              creativeData.keywords),
+              (Array.isArray(creativeData.keywords) ?
+                creativeData.keywords.map((kw: any) => ({
+                  keyword: typeof kw === 'string' ? kw : kw.keyword || kw.text || '',
+                  matchType: 'PHRASE'
+                })) :
+                [])),
           callouts: creativeData.callouts,
           sitelinks: creativeData.sitelinks,
           final_url: primaryCreative.final_url,
@@ -812,21 +817,30 @@ export async function POST(request: NextRequest) {
           // 构建关键词映射表（keyword -> matchType）
           const keywordMatchTypeMap = new Map<string, 'EXACT' | 'PHRASE' | 'BROAD'>()
           keywordsWithVolume.forEach(kw => {
-            if (kw.matchType) {
-              keywordMatchTypeMap.set(kw.keyword.toLowerCase(), kw.matchType)
+            if (kw && kw.matchType && kw.keyword) {
+              const keywordStr = typeof kw.keyword === 'string' ? kw.keyword : String(kw.keyword)
+              if (keywordStr) {
+                keywordMatchTypeMap.set(keywordStr.toLowerCase(), kw.matchType)
+              }
             }
           })
 
           // 智能分配matchType的辅助函数
-          const getMatchType = (keyword: string): 'EXACT' | 'PHRASE' | 'BROAD' => {
+          const getMatchType = (keyword: any): 'EXACT' | 'PHRASE' | 'BROAD' => {
+            // 🔥 防御性编程：确保keyword是字符串
+            const keywordStr = typeof keyword === 'string' ? keyword : String(keyword || '')
+            if (!keywordStr) {
+              return 'PHRASE' // 默认值
+            }
+
             // 1. 优先使用keywordsWithVolume中的matchType
-            const mappedType = keywordMatchTypeMap.get(keyword.toLowerCase())
+            const mappedType = keywordMatchTypeMap.get(keywordStr.toLowerCase())
             if (mappedType) {
               return mappedType
             }
 
             // 2. 智能分配：品牌词EXACT，长尾词PHRASE，短词BROAD
-            const keywordLower = keyword.toLowerCase()
+            const keywordLower = keywordStr.toLowerCase()
             const brandLower = offer.brand?.toLowerCase() || ''
             // 🔥 修复：添加品牌前缀匹配，识别包含品牌缩写的关键词（如"reo link camera"中的"reo"）
             // 提取品牌名前3个字符作为前缀，使用单词边界确保精确匹配
@@ -836,7 +850,7 @@ export async function POST(request: NextRequest) {
             const isBrandKeyword = keywordLower === brandLower ||
                                    keywordLower.startsWith(brandLower + ' ') ||
                                    hasBrandPrefix
-            const wordCount = keyword.split(' ').length
+            const wordCount = keywordStr.split(' ').length
 
             if (isBrandKeyword) {
               return 'EXACT'
@@ -847,11 +861,19 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          const keywordOperations = _campaignConfig.keywords.map((keyword: string) => ({
-            keywordText: keyword,
-            matchType: getMatchType(keyword),
-            status: 'ENABLED' as const
-          }))
+          const keywordOperations = (_campaignConfig.keywords || []).map((keyword: any) => {
+            // 🔥 防御性编程：确保keyword是字符串
+            const keywordStr = typeof keyword === 'string' ? keyword : (keyword?.text || keyword?.keyword || '')
+            if (!keywordStr) {
+              console.warn('⚠️ 警告：发现空关键词，跳过')
+              return null
+            }
+            return {
+              keywordText: keywordStr,
+              matchType: getMatchType(keywordStr),
+              status: 'ENABLED' as const
+            }
+          }).filter((op: any): op is NonNullable<typeof op> => op !== null)
 
           if (keywordOperations.length > 0) {
             totalApiOperations += keywordOperations.length // Each keyword = 1 operation
