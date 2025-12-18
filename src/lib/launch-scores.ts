@@ -319,8 +319,8 @@ export async function createLaunchScore(
     // v3.0数据字段（JSON格式）
     JSON.stringify(analysis.keywordStrategy),
     JSON.stringify(analysis.launchViability),
-    JSON.stringify(analysis.basicConfig),
-    JSON.stringify(analysis.basicConfig),
+    JSON.stringify(analysis.landingPageData || analysis.basicConfig),  // 🔧 修复: 使用正确的着陆页数据
+    JSON.stringify(analysis.budgetData || analysis.basicConfig),      // 🔧 修复: 使用正确的预算数据
     JSON.stringify(analysis.adQuality),
     // v4.0新字段
     analysis.launchViability.score,

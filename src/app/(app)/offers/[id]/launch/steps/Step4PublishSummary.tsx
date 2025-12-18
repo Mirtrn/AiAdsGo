@@ -84,6 +84,7 @@ export default function Step4PublishSummary({
     breakdown: any
     issues: string[]
     suggestions: string[]
+    overallRecommendations: string[]  // 🔧 新增：整体建议字段
   } | null>(null)
 
   // 🔥 新增：确认暂停对话框相关state
@@ -211,7 +212,8 @@ export default function Step4PublishSummary({
           threshold: details.threshold || 60,
           breakdown: details.breakdown || {},
           issues: details.issues || [],
-          suggestions: details.suggestions || []
+          suggestions: details.suggestions || [],
+          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
         })
 
         addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，发布被阻止`, 'failed')
@@ -338,7 +340,8 @@ export default function Step4PublishSummary({
           threshold: details.threshold || 60,
           breakdown: details.breakdown || {},
           issues: details.issues || [],
-          suggestions: details.suggestions || []
+          suggestions: details.suggestions || [],
+          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
         })
 
         addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
@@ -429,7 +432,8 @@ export default function Step4PublishSummary({
           threshold: details.threshold || 60,
           breakdown: details.breakdown || {},
           issues: details.issues || [],
-          suggestions: details.suggestions || []
+          suggestions: details.suggestions || [],
+          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
         })
 
         addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，发布被阻止`, 'failed')
@@ -742,7 +746,7 @@ export default function Step4PublishSummary({
 
                     {/* 改进建议 */}
                     {launchScoreBlockDetails.suggestions && launchScoreBlockDetails.suggestions.length > 0 && (
-                      <div>
+                      <div className="mb-3">
                         <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-green-500" />
                           改进建议
@@ -757,6 +761,36 @@ export default function Step4PublishSummary({
                         </ul>
                       </div>
                     )}
+
+                    {/* 🔧 新增：整体建议 */}
+                    {launchScoreBlockDetails.overallRecommendations && launchScoreBlockDetails.overallRecommendations.length > 0 && (
+                      <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-blue-600" />
+                          整体优化建议
+                        </div>
+                        <ul className="space-y-1">
+                          {launchScoreBlockDetails.overallRecommendations.slice(0, 3).map((rec, idx) => (
+                            <li key={idx} className="text-xs text-blue-700 flex items-start gap-2">
+                              <span className="text-blue-500 mt-0.5">•</span>
+                              <span>{rec}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* 返回修改按钮 */}
+                    <div className="mt-4 pt-3 border-t border-red-200">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={resetPublishState}
+                        className="w-full"
+                      >
+                        返回修改配置
+                      </Button>
+                    </div>
                   </div>
                 )}
 

@@ -463,6 +463,7 @@ export async function POST(request: NextRequest) {
 
         launchScore = launchScoreResult.totalScore
         scoreAnalysis = launchScoreResult.scoreAnalysis
+        const overallRecommendations = launchScoreResult.recommendations || []  // 🔧 修复：从launchScoreResult获取recommendations
 
         // 🔥 修复(2025-12-17): 保存Launch Score到数据库（带缓存信息）
         try {
@@ -522,7 +523,7 @@ export async function POST(request: NextRequest) {
               },
               issues: allIssues,
               suggestions: allSuggestions,
-              overallRecommendations: scoreAnalysis.overallRecommendations || []
+              overallRecommendations: overallRecommendations  // 🔧 修复：使用正确的变量
             },
             action: 'LAUNCH_SCORE_BLOCKED'
           },
@@ -550,7 +551,7 @@ export async function POST(request: NextRequest) {
               },
               issues: allIssues,
               suggestions: allSuggestions,
-              overallRecommendations: scoreAnalysis.overallRecommendations || [],
+              overallRecommendations: overallRecommendations,  // 🔧 修复：使用正确的变量
               canForcePublish: true // 允许强制发布
             },
             action: 'LAUNCH_SCORE_WARNING'
