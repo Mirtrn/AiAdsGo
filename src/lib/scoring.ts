@@ -121,12 +121,22 @@ export async function calculateLaunchScore(
     // 🎯 计算匹配类型分布
     const matchTypes: Record<string, number> = {}
     keywordsWithVolume.forEach((kw: any) => {
-      const type = kw.matchType || 'BROAD'
+      const type = kw.matchType || 'BROAD'  // ❌ 问题：如果matchType为空，默认设为'BROAD'
       matchTypes[type] = (matchTypes[type] || 0) + 1
     })
     const matchTypeDistribution = Object.entries(matchTypes)
       .map(([type, count]) => `${type}: ${count}`)
       .join(', ') || 'Not specified'
+
+    // 🔥 新增(2025-12-18)：调试日志 - 追踪匹配类型分布
+    console.log(`[LaunchScore] 关键词匹配类型分布:`)
+    console.log(`   - 总关键词数: ${keywordsWithVolume.length}`)
+    console.log(`   - 分布详情: ${matchTypeDistribution}`)
+    if (keywordsWithVolume.length > 0) {
+      const firstKw = keywordsWithVolume[0]
+      console.log(`   - 第一个关键词: ${firstKw.keyword}`)
+      console.log(`   - 第一个matchType: ${firstKw.matchType || '(未设置)'}`)
+    }
 
     // 🔥 新增：调试日志 - 追踪prompt中的否定关键词
     console.log(`[LaunchScore] 准备替换到prompt中的否定关键词数量: ${negativeKeywords.length}`)

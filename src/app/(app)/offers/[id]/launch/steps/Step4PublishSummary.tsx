@@ -85,12 +85,16 @@ export default function Step4PublishSummary({
     issues: string[]
     suggestions: string[]
     overallRecommendations: string[]  // 🔧 新增：整体建议字段
+    canForcePublish?: boolean  // 🔥 新增：是否可以强制发布（60-80分时为true）
   } | null>(null)
 
   // 🔥 新增：确认暂停对话框相关state
   const [showPauseConfirm, setShowPauseConfirm] = useState(false)
   const [existingCampaigns, setExistingCampaigns] = useState<any[]>([])
   const [pauseConfirmMessage, setPauseConfirmMessage] = useState('')
+
+  // 🔥 新增：强制发布确认对话框
+  const [showForcePublishConfirm, setShowForcePublishConfirm] = useState(false)
 
   // 🔥 辅助函数：添加/更新发布步骤
   const addPublishStep = (step: string, message: string, status: 'pending' | 'running' | 'success' | 'failed') => {
@@ -107,6 +111,116 @@ export default function Step4PublishSummary({
   const resetPublishState = () => {
     // 直接跳转到第3步，让用户修改广告配置
     onGoBackToStep3()
+  }
+
+  // 🔥 新增：强制发布处理函数（用于60-80分警告时）
+  const handleForcePublish = async () => {
+    try {
+      setShowForcePublishConfirm(false)
+      setPublishing(true)
+      setShowPublishResult(true)
+      setPublishSteps([])
+      setLaunchScoreBlockDetails(null)
+
+      addPublishStep('creating', '创建广告系列结构...', 'running')
+      setPublishStatus({
+        step: 'creating',
+        message: '创建广告系列结构...',
+        success: false
+      })
+
+      const response = await fetch('/api/campaigns/publish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'credentials': 'include'
+        },
+        body: JSON.stringify({
+          offerId: offer.id,
+          adCreativeId: selectedCreative.id,
+          googleAdsAccountId: selectedAccount.id,
+          campaignConfig: campaignConfig,
+          pauseOldCampaigns: pauseOldCampaigns,
+          enableCampaignImmediately: enableCampaignImmediately,
+          forcePublish: true  // 🔥 关键：强制发布标志
+        })
+      })
+
+      const data = await response.json()
+
+      // 处理可能的错误
+      if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
+        console.error('❌ Launch Score过低（无法强制发布）:', data)
+        const details = data.details || {}
+
+        setLaunchScoreBlockDetails({
+          launchScore: details.launchScore || 0,
+          threshold: details.threshold || 60,
+          breakdown: details.breakdown || {},
+          issues: details.issues || [],
+          suggestions: details.suggestions || [],
+          overallRecommendations: details.overallRecommendations || []
+        })
+
+        addPublishStep('creating', `投放评分过低 (${details.launchScore || 0}分)，无法强制发布`, 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: `投放评分过低，需要≥${details.threshold || 60}分`,
+          success: false
+        })
+        setPublishing(false)
+        return
+      }
+
+      if (response.status === 422) {
+        console.error('❌ 422错误:', data)
+        setPublishing(false)
+        addPublishStep('creating', data.message || '发布失败', 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: data.error || data.message || '发布失败',
+          success: false
+        })
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || '发布失败')
+      }
+
+      // 发布成功
+      addPublishStep('creating', '创建广告系列结构', 'success')
+      addPublishStep('syncing', '同步到Google Ads...', 'running')
+      setPublishStatus({
+        step: 'syncing',
+        message: '同步到Google Ads...',
+        success: false
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      addPublishStep('syncing', '同步完成', 'success')
+      addPublishStep('completed', '广告系列已成功发布到Google Ads', 'success')
+      setPublishStatus({
+        step: 'completed',
+        message: '发布成功！广告系列已上线',
+        success: true
+      })
+
+      setTimeout(() => {
+        onPublishComplete()
+      }, 3000)
+
+    } catch (error: any) {
+      addPublishStep('error', error.message || '发布失败', 'failed')
+      setPublishStatus({
+        step: 'failed',
+        message: error.message || '发布失败',
+        success: false
+      })
+    } finally {
+      setPublishing(false)
+    }
   }
 
   const handlePublish = async () => {
@@ -238,7 +352,8 @@ export default function Step4PublishSummary({
           breakdown: details.breakdown || {},
           issues: details.issues || [],
           suggestions: details.suggestions || [],
-          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
+          overallRecommendations: details.overallRecommendations || [],  // 🔧 新增：整体建议
+          canForcePublish: details.canForcePublish === true  // 🔥 新增：标记可以强制发布
         })
 
         addPublishStep('creating', `投放评分偏低 (${details.launchScore || 0}分)，建议优化`, 'failed')
@@ -406,7 +521,8 @@ export default function Step4PublishSummary({
           breakdown: details.breakdown || {},
           issues: details.issues || [],
           suggestions: details.suggestions || [],
-          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
+          overallRecommendations: details.overallRecommendations || [],  // 🔧 新增：整体建议
+          canForcePublish: details.canForcePublish === true  // 🔥 新增：标记可以强制发布
         })
 
         addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
@@ -537,7 +653,8 @@ export default function Step4PublishSummary({
           breakdown: details.breakdown || {},
           issues: details.issues || [],
           suggestions: details.suggestions || [],
-          overallRecommendations: details.overallRecommendations || []  // 🔧 新增：整体建议
+          overallRecommendations: details.overallRecommendations || [],  // 🔧 新增：整体建议
+          canForcePublish: details.canForcePublish === true  // 🔥 新增：标记可以强制发布
         })
 
         addPublishStep('creating', `投放评分偏低 (${details.launchScore || 0}分)，建议优化`, 'failed')
@@ -897,8 +1014,8 @@ export default function Step4PublishSummary({
                       </div>
                     )}
 
-                    {/* 返回修改按钮 */}
-                    <div className="mt-4 pt-3 border-t border-red-200">
+                    {/* 返回修改按钮和强制发布按钮 */}
+                    <div className="mt-4 pt-3 border-t border-red-200 space-y-2">
                       <Button
                         variant="outline"
                         size="sm"
@@ -907,6 +1024,17 @@ export default function Step4PublishSummary({
                       >
                         返回修改配置
                       </Button>
+                      {/* 🔥 新增：强制发布按钮（仅在60-80分警告时显示） */}
+                      {launchScoreBlockDetails.canForcePublish && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setShowForcePublishConfirm(true)}
+                          className="w-full"
+                        >
+                          强制发布（已确认风险）
+                        </Button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1258,6 +1386,58 @@ export default function Step4PublishSummary({
               disabled={publishing}
             >
               {publishing ? '暂停并发布中...' : '暂停旧系列并发布'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 🔥 新增：强制发布确认对话框（60-80分警告时）*/}
+      <Dialog open={showForcePublishConfirm} onOpenChange={setShowForcePublishConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-amber-600" />
+              确认强制发布
+            </DialogTitle>
+            <DialogDescription>
+              该Offer的投放评分为 {launchScoreBlockDetails?.launchScore}分，低于建议值{launchScoreBlockDetails?.threshold}分
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <h4 className="text-sm font-semibold text-amber-900 mb-2">⚠️ 风险提示：</h4>
+              <ul className="text-xs text-amber-800 space-y-1">
+                <li>• 投放评分较低可能导致广告表现不佳</li>
+                <li>• 建议先优化创意或配置后再发布</li>
+                <li>• 强制发布需要自行承担风险</li>
+              </ul>
+            </div>
+
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <h4 className="text-sm font-semibold text-blue-900 mb-2">💡 建议：</h4>
+              <ul className="text-xs text-blue-800 space-y-1">
+                {launchScoreBlockDetails?.suggestions?.slice(0, 3).map((suggestion: string, idx: number) => (
+                  <li key={idx}>• {suggestion}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowForcePublishConfirm(false)}
+              disabled={publishing}
+            >
+              返回修改
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleForcePublish}
+              disabled={publishing}
+            >
+              {publishing ? '发布中...' : '确认强制发布'}
             </Button>
           </DialogFooter>
         </DialogContent>
