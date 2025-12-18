@@ -89,10 +89,15 @@ export async function calculateLaunchScore(
     if ((creative as any).ad_strength) {
       adStrength = (creative as any).ad_strength as AdStrengthRating
     } else if (headlines.length >= 3 && creative.descriptions.length >= 2) {
-      // 快速评估Ad Strength
+      // 快速评估Ad Strength（传递品牌信息）
       const headlineAssets: HeadlineAsset[] = headlines.map((h: string) => ({ text: h, length: h.length }))
       const descAssets: DescriptionAsset[] = creative.descriptions.map((d: string) => ({ text: d, length: d.length }))
-      adStrength = await getQuickAdStrength(headlineAssets, descAssets, creativeKeywords)
+      adStrength = await getQuickAdStrength(headlineAssets, descAssets, creativeKeywords, {
+        brandName: offer.brand || undefined,
+        targetCountry: offer.target_country || undefined,
+        targetLanguage: offer.target_language || undefined,
+        userId
+      })
     }
 
     // 🎯 准备关键词搜索量文本
