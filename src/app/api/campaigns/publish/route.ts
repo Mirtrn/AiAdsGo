@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
     if (_enableSmartOptimization) {
       // 智能优化模式：选择多个最优创意
       creatives = await db.query(`
-        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score, keywordsWithVolume
+        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score, keywords_with_volume
         FROM ad_creatives
         WHERE offer_id = ? AND user_id = ?
         ORDER BY launch_score DESC, created_at DESC
@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
     } else {
       // 单创意模式：验证指定的创意
       const creative = await db.queryOne(`
-        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected, keywordsWithVolume
+        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected, keywords_with_volume
         FROM ad_creatives
         WHERE id = ? AND offer_id = ? AND user_id = ?
       `, [_adCreativeId, _offerId, userId]) as any
@@ -404,9 +404,9 @@ export async function POST(request: NextRequest) {
           descriptions: creativeData.descriptions,
           keywords: creativeData.keywords,
           negativeKeywords: creativeData.negativeKeywords,  // 使用解析后的数组
-          keywordsWithVolume: primaryCreative.keywordsWithVolume ?
-            JSON.parse(primaryCreative.keywordsWithVolume) :
-            creativeData.keywords,  // 优先使用数据库中的keywordsWithVolume
+          keywordsWithVolume: primaryCreative.keywords_with_volume ?
+            JSON.parse(primaryCreative.keywords_with_volume) :
+            creativeData.keywords,  // 优先使用数据库中的keywords_with_volume
           callouts: creativeData.callouts,
           sitelinks: creativeData.sitelinks,
           final_url: primaryCreative.final_url,
@@ -764,7 +764,14 @@ export async function POST(request: NextRequest) {
             // 2. 智能分配：品牌词EXACT，长尾词PHRASE，短词BROAD
             const keywordLower = keyword.toLowerCase()
             const brandLower = offer.brand?.toLowerCase() || ''
-            const isBrandKeyword = keywordLower === brandLower || keywordLower.startsWith(brandLower + ' ')
+            // 🔥 修复：添加品牌前缀匹配，识别包含品牌缩写的关键词（如"reo link camera"中的"reo"）
+            // 提取品牌名前3个字符作为前缀，使用单词边界确保精确匹配
+            const brandPrefix = brandLower.substring(0, 3)
+            const hasBrandPrefix = brandLower.length >= 3 && new RegExp(`\\b${brandPrefix}\\b`).test(keywordLower)
+
+            const isBrandKeyword = keywordLower === brandLower ||
+                                   keywordLower.startsWith(brandLower + ' ') ||
+                                   hasBrandPrefix
             const wordCount = keyword.split(' ').length
 
             if (isBrandKeyword) {
