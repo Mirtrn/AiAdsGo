@@ -569,12 +569,14 @@ export async function updateGoogleAdsCampaignStatus(params: {
   status: 'ENABLED' | 'PAUSED' | 'REMOVED'
   accountId?: number
   userId?: number
+  loginCustomerId?: string
 }): Promise<void> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId
   )
 
   const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`

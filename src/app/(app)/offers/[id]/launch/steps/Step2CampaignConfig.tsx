@@ -238,7 +238,7 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
 
         return {
           text: k.keyword || k.text,
-          matchType: matchType as const,  // ✅ 保留或转换为有效的matchType
+          matchType: matchType as ('EXACT' | 'PHRASE' | 'BROAD' | 'BROAD_MATCH_MODIFIER'),
           searchVolume: k.searchVolume || 0,
           lowTopPageBid: k.lowTopPageBid || 0,
           highTopPageBid: k.highTopPageBid || 0

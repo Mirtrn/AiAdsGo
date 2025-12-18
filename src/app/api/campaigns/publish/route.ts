@@ -316,7 +316,8 @@ export async function POST(request: NextRequest) {
             campaignId: oldCampaign.google_campaign_id,
             status: 'PAUSED',
             accountId: adsAccount.id,
-            userId
+            userId,
+            loginCustomerId: adsAccount.parent_mcc_id || undefined
           })
 
           // 更新数据库状态
@@ -984,7 +985,8 @@ export async function POST(request: NextRequest) {
                 campaignId: googleCampaignId,
                 status: 'ENABLED',
                 accountId: adsAccount.id,
-                userId
+                userId,
+                loginCustomerId: adsAccount.parent_mcc_id || undefined
               })
               finalCampaignStatus = 'ENABLED'
               console.log(`✅ Campaign ${googleCampaignId} 已启用`)
