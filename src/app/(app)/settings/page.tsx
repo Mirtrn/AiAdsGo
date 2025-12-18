@@ -988,7 +988,7 @@ export default function SettingsPage() {
                               使用 Google Ads API 需要完成以下步骤：
                             </p>
                             <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
-                              <li>在 Google Cloud Console 创建 OAuth 2.0 客户端</li>
+                              <li>在 <a href="https://console.cloud.google.com/auth/clients/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">Google Cloud Console</a> 创建 OAuth 2.0 客户端</li>
                               <li>
                                 <span className="font-medium">重要：</span>在 OAuth 客户端中配置以下URI：
                                 <ul className="mt-1 ml-4 list-disc text-blue-600">
