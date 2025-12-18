@@ -160,7 +160,7 @@ export async function PUT(
     }
     if (data.keywords_with_volume !== undefined) {
       updates.push('keywords_with_volume = ?')
-      sqlParams.push(data.keywords_with_volume)
+      sqlParams.push(data.keywords_with_volume ? JSON.stringify(data.keywords_with_volume) : null)  // 🔥 修复(2025-12-18)：JSON stringify保留matchType字段
     }
     if (data.negative_keywords !== undefined) {
       updates.push('negative_keywords = ?')

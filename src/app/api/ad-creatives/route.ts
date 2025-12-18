@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
         JSON.stringify(data.headlines),
         JSON.stringify(data.descriptions),
         JSON.stringify(data.keywords || []),
-        data.keywords_with_volume || null,
+        data.keywords_with_volume ? JSON.stringify(data.keywords_with_volume) : null,  // 🔥 修复(2025-12-18)：JSON stringifying keywords_with_volume以保留matchType字段
         JSON.stringify(data.negative_keywords || []),
         JSON.stringify(data.callouts || []),
         JSON.stringify(data.sitelinks || []),
