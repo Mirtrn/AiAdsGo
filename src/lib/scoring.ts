@@ -223,8 +223,24 @@ export async function calculateLaunchScore(
       throw new Error(`AI返回的JSON缺少必需的分析字段。已有字段: ${Object.keys(rawAnalysis).join(', ')}`)
     }
 
-    // 🔥 新增：调试日志 - 追踪overallRecommendations
+    // 🔥 新增：调试日志 - 追踪overallRecommendations和basicConfig详情
     console.log(`[LaunchScore] AI返回的overallRecommendations:`, rawAnalysis.overallRecommendations)
+    console.log(`[LaunchScore] 基础配置详情:`)
+    console.log(`   - 总分: ${rawAnalysis.basicConfig.score}/15`)
+    console.log(`   - 国家/语言得分: ${rawAnalysis.basicConfig.countryLanguageScore}/5`)
+    console.log(`   - Final URL得分: ${rawAnalysis.basicConfig.finalUrlScore}/5`)
+    console.log(`   - 预算合理性得分: ${rawAnalysis.basicConfig.budgetScore}/5`)
+    console.log(`   - 目标国家: ${rawAnalysis.basicConfig.targetCountry}`)
+    console.log(`   - 目标语言: ${rawAnalysis.basicConfig.targetLanguage}`)
+    console.log(`   - Final URL: ${rawAnalysis.basicConfig.finalUrl}`)
+    console.log(`   - 日预算: $${rawAnalysis.basicConfig.dailyBudget}/day`)
+    console.log(`   - 最高CPC: $${rawAnalysis.basicConfig.maxCpc}`)
+    if (rawAnalysis.basicConfig.issues?.length > 0) {
+      console.log(`   - Issues: ${rawAnalysis.basicConfig.issues.join('; ')}`)
+    }
+    if (rawAnalysis.basicConfig.suggestions?.length > 0) {
+      console.log(`   - Suggestions: ${rawAnalysis.basicConfig.suggestions.join('; ')}`)
+    }
 
     // 验证评分范围
     validateScoresV4(rawAnalysis)
