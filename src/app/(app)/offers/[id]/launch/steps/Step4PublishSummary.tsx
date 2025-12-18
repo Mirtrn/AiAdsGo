@@ -277,6 +277,20 @@ export default function Step4PublishSummary({
         return
       }
 
+      // 🔥 新增(2025-12-18)：422通用处理（兜底） - 处理任何422错误，即使action不匹配
+      // 这确保即使后端返回意外的422状态和action值，前端也能正确处理而不会卡在加载中
+      if (response.status === 422) {
+        console.error('❌ 422错误（未识别的action或其他422错误）:', data)
+        setPublishing(false)  // 🔥 关键：停止加载动画
+        addPublishStep('creating', data.message || '发布失败', 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: data.error || data.message || '发布失败',
+          success: false
+        })
+        return
+      }
+
       if (!response.ok) {
         throw new Error(data.error || data.message || '发布失败')
       }
@@ -406,6 +420,20 @@ export default function Step4PublishSummary({
         return
       }
 
+      // 🔥 新增(2025-12-18)：422通用处理（兜底）- 在handleConfirmPauseAndPublish中也需要
+      if (response.status === 422) {
+        console.error('❌ 422错误（未识别的action或其他422错误）:', data)
+        setPublishing(false)  // 🔥 关键：停止加载动画
+        addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
+        addPublishStep('creating', data.message || '发布失败', 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: data.error || data.message || '发布失败',
+          success: false
+        })
+        return
+      }
+
       if (!response.ok) {
         throw new Error(data.error || data.message || '发布失败')
       }
@@ -519,6 +547,19 @@ export default function Step4PublishSummary({
           success: false
         })
         setPublishing(false)
+        return
+      }
+
+      // 🔥 新增(2025-12-18)：422通用处理（兜底）- 在handlePublishTogether中也需要
+      if (response.status === 422) {
+        console.error('❌ 422错误（未识别的action或其他422错误）:', data)
+        setPublishing(false)  // 🔥 关键：停止加载动画
+        addPublishStep('creating', data.message || '发布失败', 'failed')
+        setPublishStatus({
+          step: 'failed',
+          message: data.error || data.message || '发布失败',
+          success: false
+        })
         return
       }
 
