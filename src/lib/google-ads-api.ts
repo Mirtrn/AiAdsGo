@@ -188,7 +188,21 @@ export async function getCustomer(
     developer_token: string
   }
 ): Promise<Customer> {
-  const client = credentials ? getGoogleAdsClient(credentials) : getGoogleAdsClient()
+  // 🔥 修复(2025-12-18): 如果没有传入凭证但有userId，从数据库获取
+  let finalCredentials = credentials
+  if (!finalCredentials && userId) {
+    const { getGoogleAdsCredentials } = await import('./google-ads-oauth')
+    const dbCredentials = await getGoogleAdsCredentials(userId)
+    if (dbCredentials) {
+      finalCredentials = {
+        client_id: dbCredentials.client_id,
+        client_secret: dbCredentials.client_secret,
+        developer_token: dbCredentials.developer_token,
+      }
+    }
+  }
+
+  const client = finalCredentials ? getGoogleAdsClient(finalCredentials) : getGoogleAdsClient()
 
   try {
     // 尝试使用refresh token获取新的access token（带重试）
