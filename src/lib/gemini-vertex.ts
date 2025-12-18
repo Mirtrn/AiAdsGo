@@ -40,21 +40,13 @@ export function resetVertexAIClient(): void {
 }
 
 /**
- * 获取 VertexAI 客户端（带配置变更检测和模型区域路由）
+ * 获取 VertexAI 客户端（带配置变更检测）
  * 每次调用都检查当前环境变量，如果配置变了就重新初始化
- * @param modelName - 可选的模型名称，用于确定正确的区域
  */
-function getVertexAI(modelName?: string): VertexAI {
+function getVertexAI(): VertexAI {
   // 获取当前环境变量配置（每次都读取最新值）
   const projectId = process.env.GCP_PROJECT_ID
-
-  // 🆕 根据模型名称动态选择区域
-  // Gemini 3 Pro Preview 只在 global 区域可用
-  let location = process.env.GCP_LOCATION || 'us-central1'
-  if (modelName === 'gemini-3-pro-preview') {
-    location = 'global'
-    console.log(`🌐 Gemini 3 Pro Preview 需要使用 global 区域`)
-  }
+  const location = process.env.GCP_LOCATION || 'us-central1'
 
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS ||
     path.join(process.cwd(), 'docs/secrets/gcp_autoads_dev.json')
@@ -111,8 +103,7 @@ function getVertexAI(modelName?: string): VertexAI {
  * 获取生成模型
  */
 function getGenerativeModel(modelName: string): GenerativeModel {
-  // 🆕 传递模型名称，让getVertexAI根据模型选择正确的区域
-  const client = getVertexAI(modelName)
+  const client = getVertexAI()
 
   return client.getGenerativeModel({
     model: modelName,
@@ -153,7 +144,7 @@ async function delay(ms: number): Promise<void> {
  *   - gemini-2.5-pro (稳定版，推荐，区域：us-central1)
  *   - gemini-2.5-flash (快速版，区域：us-central1)
  *   - gemini-2.5-flash-lite (轻量版，区域：us-central1)
- *   - gemini-3-pro-preview (预览版，最新，区域：global)
+ *   - gemini-3-flash (最新版，高效，区域：us-central1)
  * @param params.prompt - 提示词
  * @param params.temperature - 温度参数，默认 0.7
  * @param params.maxOutputTokens - 最大输出tokens，默认 8192

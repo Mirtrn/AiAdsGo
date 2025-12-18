@@ -184,16 +184,13 @@ export async function generateNegativeKeywords(offer: Offer, userId: number): Pr
   }
 
   try {
-    // 🔧 修复(2025-12-11): operationType应为negative_keyword_generation（使用Flash模型）
-    // 原来错误使用keyword_expansion（Pro模型），导致使用gemini-3-pro-preview
-    // gemini-3-pro-preview是思考型模型，不完全支持responseSchema，返回空content
     const aiResponse = await generateContent({
-      operationType: 'negative_keyword_generation',  // ← 修复：使用正确的operationType
+      operationType: 'negative_keyword_generation',
       prompt,
       temperature: 0.7,
       maxOutputTokens: 8192,
-      responseSchema,  // 🆕 传递JSON schema约束
-      responseMimeType: 'application/json'  // 🆕 强制JSON输出
+      responseSchema,
+      responseMimeType: 'application/json'
     }, userId)
 
     // 记录token使用

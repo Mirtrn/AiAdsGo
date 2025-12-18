@@ -1,18 +1,15 @@
 /**
- * 智能模型选择器（V2：支持用户Pro模型选择）
+ * 智能模型选择器（V2：支持用户模型选择）
  *
  * 核心原则：
- * 1. 用户在/settings选择的"Gemini模型"决定Pro任务使用哪个高质量模型
- * 2. Flash任务始终使用gemini-2.5-flash（不受用户选择影响）
- * 3. 根据operationType智能路由到Pro或Flash
+ * 1. 用户在/settings选择的"Gemini模型"决定Pro和Flash任务使用的模型
+ * 2. 根据operationType智能路由到Pro或Flash操作分类
  *
- * 用户选择逻辑（仅影响Pro任务）：
- * - 用户选"Gemini 2.5 Pro"        → Pro任务用2.5-pro, Flash任务用2.5-flash
- * - 用户选"Gemini 3 Pro Preview"  → Pro任务用3-pro-preview, Flash任务用2.5-flash
+ * 用户选择逻辑：
+ * - 用户选"Gemini 2.5 Pro"       → Pro任务用2.5-pro, Flash任务用2.5-flash
+ * - 用户选"Gemini 3 Flash"       → Pro任务用3-flash, Flash任务也用3-flash
  *
- * 注意：移除了"Gemini 2.5 Flash"选项（全Flash模式会降低广告创意质量）
- *
- * 必须通过A/B测试验证Flash质量 ≥ 85%相似度
+ * 注意：用户选择的模型影响整个任务链的模型选择策略
  */
 
 import { getUserOnlySetting } from './settings'
@@ -21,7 +18,7 @@ import { getUserOnlySetting } from './settings'
 export type ModelType =
   | 'gemini-2.5-pro'
   | 'gemini-2.5-flash'
-  | 'gemini-3-pro-preview'
+  | 'gemini-3-flash'
 
 export interface ModelSelection {
   model: ModelType
@@ -93,10 +90,13 @@ const PRO_OPERATIONS = new Set<string>([
 ])
 
 /**
- * 获取用户选择的Pro模型（仅影响Pro任务）
+ * 获取用户选择的Pro模型
+ *
+ * - 用户选"Gemini 2.5 Pro" → 返回'gemini-2.5-pro'
+ * - 用户选"Gemini 3 Flash" → 返回'gemini-3-flash'
  *
  * @param userId - 用户ID
- * @returns 用户选择的Pro级别模型
+ * @returns 用户选择的模型
  */
 export async function getUserProModel(userId?: number): Promise<ModelType> {
   if (!userId) {
@@ -108,8 +108,8 @@ export async function getUserProModel(userId?: number): Promise<ModelType> {
     const selectedModel = modelSetting?.value
 
     // 用户选择的模型决定Pro任务使用哪个模型
-    if (selectedModel === 'gemini-3-pro-preview') {
-      return 'gemini-3-pro-preview' // 使用最新预览版
+    if (selectedModel === 'gemini-3-flash') {
+      return 'gemini-3-flash' // 用户选择了Gemini 3 Flash
     } else {
       return 'gemini-2.5-pro' // 默认Pro模型
     }
@@ -120,13 +120,12 @@ export async function getUserProModel(userId?: number): Promise<ModelType> {
 }
 
 /**
- * 选择最优模型（V3：支持responseSchema兼容性检查）
+ * 选择最优模型（V3：根据用户选择和操作类型路由）
  *
  * @param operationType - 操作类型（来自recordTokenUsage）
  * @param userId - 用户ID（用于获取用户模型偏好）
  * @param options - 可选配置
  * @param options.forceProForTesting - 强制使用Pro（用于A/B测试）
- * @param options.hasResponseSchema - 是否使用了responseSchema（思考型模型不完全支持）
  * @returns 模型选择结果
  */
 export async function selectOptimalModel(
@@ -137,53 +136,44 @@ export async function selectOptimalModel(
     hasResponseSchema?: boolean
   } = {}
 ): Promise<ModelSelection> {
-  const { forceProForTesting = false, hasResponseSchema = false } = options
+  const { forceProForTesting = false } = options
   const userProModel = await getUserProModel(userId)
-
-  // 🔧 修复(2025-12-11): gemini-3-pro-preview是思考型模型，不完全支持responseSchema
-  // 当使用responseSchema时，强制降级到gemini-2.5-pro以确保正常输出
-  const effectiveProModel = (hasResponseSchema && userProModel === 'gemini-3-pro-preview')
-    ? 'gemini-2.5-pro'
-    : userProModel
-
-  if (hasResponseSchema && userProModel === 'gemini-3-pro-preview') {
-    console.log(`⚠️ 检测到responseSchema + gemini-3-pro-preview组合，自动降级到gemini-2.5-pro`)
-  }
 
   // A/B测试期间：强制使用用户的Pro模型作为对照组
   if (forceProForTesting) {
     return {
-      model: effectiveProModel,
+      model: userProModel,
       reason: 'A/B测试对照组',
       testingRequired: true,
     }
   }
 
-  // Flash适用场景：简单任务固定使用Flash（不受用户选择影响）
+  // Flash适用场景：简单任务使用Flash版本
   if (FLASH_OPERATIONS.has(operationType)) {
+    // 用户选了Gemini 3 Flash时，Flash任务也用3-flash
+    // 用户选了Gemini 2.5 Pro时，Flash任务用2.5-flash
+    const flashModel = userProModel === 'gemini-3-flash' ? 'gemini-3-flash' : 'gemini-2.5-flash'
     return {
-      model: 'gemini-2.5-flash',
-      reason: '结构化输出任务，使用Flash节省成本',
+      model: flashModel,
+      reason: `结构化输出任务，使用Flash版本: ${flashModel}`,
       testingRequired: false,
     }
   }
 
-  // Pro保留场景：复杂任务使用用户选择的Pro模型（或降级后的模型）
+  // Pro保留场景：复杂任务使用用户选择的Pro模型
   if (PRO_OPERATIONS.has(operationType)) {
     return {
-      model: effectiveProModel,
-      reason: effectiveProModel !== userProModel
-        ? `复杂分析任务，因responseSchema兼容性降级到: ${effectiveProModel}`
-        : `复杂分析任务，使用用户选择的Pro模型: ${effectiveProModel}`,
+      model: userProModel,
+      reason: `复杂分析任务，使用用户选择的模型: ${userProModel}`,
       testingRequired: false,
     }
   }
 
   // 未知operationType：默认使用用户的Pro模型（安全第一）
-  console.warn(`⚠️ Unknown operationType: ${operationType}, defaulting to user's Pro model: ${effectiveProModel}`)
+  console.warn(`⚠️ Unknown operationType: ${operationType}, defaulting to user's model: ${userProModel}`)
   return {
-    model: effectiveProModel,
-    reason: '未知操作类型，使用用户Pro模型确保质量',
+    model: userProModel,
+    reason: '未知操作类型，使用用户选择的模型确保质量',
     testingRequired: false,
   }
 }

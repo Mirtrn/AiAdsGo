@@ -224,7 +224,6 @@ export async function generateContent(
   // 智能模型选择（默认启用，可通过enableAutoModelSelection=false禁用）
   let finalModel = requestedModel || 'gemini-2.5-pro'
   if (enableAutoModelSelection && operationType) {
-    // 🔧 修复(2025-12-11): 传递hasResponseSchema，防止思考型模型(gemini-3-pro-preview)与responseSchema不兼容
     const selection = await selectOptimalModel(operationType, userId, {
       hasResponseSchema: !!responseSchema
     })

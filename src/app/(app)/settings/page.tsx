@@ -115,7 +115,7 @@ const SETTING_METADATA: Record<string, {
     description: '用于复杂任务的Pro模型。简单任务将自动使用Flash模型以节省成本',
     options: [
       { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（默认，稳定版）' },
-      { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview（实验性，最新功能）' }
+      { value: 'gemini-3-flash', label: 'Gemini 3 Flash（最新，高效版）' }
     ],
     defaultValue: 'gemini-2.5-pro'
   },
