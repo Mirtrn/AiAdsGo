@@ -206,8 +206,9 @@ export async function getCustomer(
 
   try {
     // 尝试使用refresh token获取新的access token（带重试）
+    // 🔧 修复(2025-12-18): 使用finalCredentials而非credentials
     const tokens = await withRetry(
-      () => refreshAccessToken(refreshToken, credentials ? { client_id: credentials.client_id, client_secret: credentials.client_secret } : undefined),
+      () => refreshAccessToken(refreshToken, finalCredentials ? { client_id: finalCredentials.client_id, client_secret: finalCredentials.client_secret } : undefined),
       {
         maxRetries: 2,
         initialDelay: 500,
