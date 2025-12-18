@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
     if (_enableSmartOptimization) {
       // 智能优化模式：选择多个最优创意
       creatives = await db.query(`
-        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score
+        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, launch_score, keywordsWithVolume
         FROM ad_creatives
         WHERE offer_id = ? AND user_id = ?
         ORDER BY launch_score DESC, created_at DESC
@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
     } else {
       // 单创意模式：验证指定的创意
       const creative = await db.queryOne(`
-        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected
+        SELECT id, headlines, descriptions, keywords, negative_keywords, callouts, sitelinks, final_url, final_url_suffix, is_selected, keywordsWithVolume
         FROM ad_creatives
         WHERE id = ? AND offer_id = ? AND user_id = ?
       `, [_adCreativeId, _offerId, userId]) as any
@@ -404,7 +404,9 @@ export async function POST(request: NextRequest) {
           descriptions: creativeData.descriptions,
           keywords: creativeData.keywords,
           negativeKeywords: creativeData.negativeKeywords,  // 使用解析后的数组
-          keywordsWithVolume: creativeData.keywords,  // 保持向后兼容
+          keywordsWithVolume: primaryCreative.keywordsWithVolume ?
+            JSON.parse(primaryCreative.keywordsWithVolume) :
+            creativeData.keywords,  // 优先使用数据库中的keywordsWithVolume
           callouts: creativeData.callouts,
           sitelinks: creativeData.sitelinks,
           final_url: primaryCreative.final_url,
