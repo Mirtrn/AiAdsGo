@@ -30,6 +30,12 @@ interface KeywordWithVolume {
   searchVolume: number
   competition?: string
   competitionIndex?: number
+  // 🔥 修复(2025-12-18): 添加matchType字段确保前后端类型定义一致
+  matchType?: 'EXACT' | 'PHRASE' | 'BROAD' | 'BROAD_MATCH_MODIFIER'
+  lowTopPageBid?: number
+  highTopPageBid?: number
+  source?: 'AI_GENERATED' | 'KEYWORD_EXPANSION' | 'MERGED'
+  intentCategory?: string
 }
 
 interface HeadlineAsset {

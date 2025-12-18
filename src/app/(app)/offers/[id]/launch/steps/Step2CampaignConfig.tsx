@@ -220,13 +220,25 @@ export default function Step2CampaignConfig({ offer, selectedCreative, selectedA
       // Keywords Level - 优先使用keywordsWithVolume（包含搜索量）
       // 🆕 P0-1优化：同时提取lowTopPageBid和highTopPageBid用于动态CPC计算
       // 🔥 修复(2025-12-18)：保留创意中的matchType，不强制覆盖为PHRASE
-      keywords: (selectedCreative?.keywordsWithVolume || selectedCreative?.keywords || []).map((k: any) => {
+      keywords: (selectedCreative?.keywordsWithVolume || selectedCreative?.keywords || []).map((k: any, idx: number) => {
         if (typeof k === 'string') {
-          return { text: k, matchType: 'PHRASE' as const }
+          // 🔥 修复(2025-12-18): 字符串格式的关键词处理
+          // 第一个词（品牌词）用EXACT，其他用PHRASE
+          return {
+            text: k,
+            matchType: idx === 0 ? 'EXACT' : 'PHRASE' as const
+          }
         }
+
+        // 🔥 修复(2025-12-18): 强化验证，确保matchType有效
+        const validMatchTypes = ['BROAD', 'EXACT', 'PHRASE', 'BROAD_MATCH_MODIFIER']
+        const matchType = k.matchType && validMatchTypes.includes(k.matchType)
+          ? k.matchType
+          : (idx === 0 ? 'EXACT' : 'PHRASE')  // 缺失或无效时的默认值
+
         return {
           text: k.keyword || k.text,
-          matchType: k.matchType || 'PHRASE' as const,  // 🔥 使用原创意的matchType，只在缺少时默认为PHRASE
+          matchType: matchType as const,  // ✅ 保留或转换为有效的matchType
           searchVolume: k.searchVolume || 0,
           lowTopPageBid: k.lowTopPageBid || 0,
           highTopPageBid: k.highTopPageBid || 0
