@@ -179,7 +179,10 @@ export default function LaunchAdPage() {
   }
 
   const handlePublishComplete = () => {
-    router.push(`/offers/${offerId}`)
+    // 🔥 修复(2025-12-18): 发布成功后不跳转，就留在发布页面
+    // 而不是跳转到 /offers/${offerId}
+    // 用户可以通过顶部的"返回Offers"按钮或其他方式离开此页面
+    console.log('[LaunchAdPage] 发布成功！用户留在发布页面')
   }
 
   if (loading || !offer) {
