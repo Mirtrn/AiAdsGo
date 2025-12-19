@@ -276,7 +276,9 @@ export async function calculateLaunchScore(
     rawAnalysis.launchViability.brandSearchVolume = rawAnalysis.launchViability.brandSearchVolume || brandSearchVolume
     // v4.15: 确保新增字段有默认值
     rawAnalysis.launchViability.marketPotentialScore = rawAnalysis.launchViability.marketPotentialScore ?? 0
-    rawAnalysis.adQuality.adStrength = rawAnalysis.adQuality.adStrength || adStrength
+    // 修复(2025-12-19): 如果AI返回无效值或为空，用本地计算的值覆盖
+    rawAnalysis.adQuality.adStrength = (!rawAnalysis.adQuality.adStrength || !['POOR', 'AVERAGE', 'GOOD', 'EXCELLENT', 'PENDING'].includes(rawAnalysis.adQuality.adStrength)) ? adStrength as 'POOR' | 'AVERAGE' | 'GOOD' | 'EXCELLENT' : rawAnalysis.adQuality.adStrength
+    rawAnalysis.launchViability.competitionLevel = (!rawAnalysis.launchViability.competitionLevel || !['LOW', 'MEDIUM', 'HIGH'].includes(rawAnalysis.launchViability.competitionLevel)) ? brandCompetition : rawAnalysis.launchViability.competitionLevel
     rawAnalysis.adQuality.headlineDiversity = rawAnalysis.adQuality.headlineDiversity || headlineDiversity
     rawAnalysis.keywordStrategy.totalKeywords = rawAnalysis.keywordStrategy.totalKeywords || creativeKeywords.length
     rawAnalysis.keywordStrategy.negativeKeywordsCount = rawAnalysis.keywordStrategy.negativeKeywordsCount || negativeKeywords.length
