@@ -13,11 +13,14 @@ import { getDatabase } from '../db'
 // 临时实现：批量获取代理IP
 async function fetchHealthyProxyIPs(country: string, count: number): Promise<ProxyIP[]> {
   try {
-    // 从数据库中读取代理配置
+    // 从数据库中读取代理配置（获取最新的非空配置）
     const db = await getDatabase()
     const setting = await db.queryOne(`
       SELECT value FROM system_settings
       WHERE category = 'proxy' AND key = 'urls'
+        AND value IS NOT NULL AND value != ''
+      ORDER BY updated_at DESC
+      LIMIT 1
     `) as { value: string } | undefined
 
     if (!setting) {
