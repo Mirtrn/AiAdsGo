@@ -134,13 +134,17 @@ export async function executeCampaignPublish(
     // 🔧 修复(2025-12-19): 如果parent_mcc_id为NULL，从用户设置中获取login_customer_id
     // 这确保MCC账户ID正确传递给Google Ads API
     let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+    console.log(`🔍 [Debug] 账号 ${adsAccount.customer_id} 的 parent_mcc_id: ${adsAccount.parent_mcc_id} (类型: ${typeof adsAccount.parent_mcc_id})`)
+
     if (!effectiveLoginCustomerId) {
       try {
         const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
         const userCredentials = await getGoogleAdsCredentials(userId)
+        console.log(`🔍 [Debug] 用户设置的 login_customer_id: ${userCredentials?.login_customer_id} (类型: ${typeof userCredentials?.login_customer_id})`)
+
         if (userCredentials?.login_customer_id) {
           effectiveLoginCustomerId = userCredentials.login_customer_id
-          console.log(`⚠️ 使用来自用户设置的login_customer_id: ${effectiveLoginCustomerId}`)
+          console.log(`⚠️ 使用来自用户设置的login_customer_id: ${effectiveLoginCustomerId} (类型: ${typeof effectiveLoginCustomerId})`)
 
           // 同时更新数据库，避免后续调用继续走这条路径
           await db.exec(
@@ -153,6 +157,12 @@ export async function executeCampaignPublish(
         console.warn(`⚠️ 无法从用户设置获取login_customer_id: ${settingsError.message}`)
       }
     }
+
+    console.log(`🔍 [Debug] 最终使用的 effectiveLoginCustomerId: ${effectiveLoginCustomerId} (类型: ${typeof effectiveLoginCustomerId})`)
+
+    // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
+    const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
+    console.log(`🔍 [Debug] 转换后的 finalLoginCustomerId: ${finalLoginCustomerId} (类型: ${typeof finalLoginCustomerId})`)
 
     // 2. 获取OAuth凭证
     const credentials = await getGoogleAdsCredentials(userId)
@@ -218,7 +228,7 @@ export async function executeCampaignPublish(
       status: 'ENABLED',
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
+      loginCustomerId: finalLoginCustomerId  // 🔧 使用effective值（从DB或用户设置）
     })
 
     console.log(`✅ Campaign创建成功 (Google ID: ${googleCampaignId})`)
@@ -235,7 +245,7 @@ export async function executeCampaignPublish(
       status: 'ENABLED',
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
+      loginCustomerId: finalLoginCustomerId  // 🔧 使用effective值（从DB或用户设置）
     })
 
     console.log(`✅ Ad Group创建成功 (Google ID: ${googleAdGroupId})`)
@@ -436,7 +446,7 @@ export async function executeCampaignPublish(
             keywords: keywordOperations,
             accountId: adsAccount.id,
             userId,
-            loginCustomerId: effectiveLoginCustomerId || undefined
+            loginCustomerId: finalLoginCustomerId
           }).then(() => {
             console.log(`  ✅ [并行1/3] 成功添加${keywordOperations.length}个关键词`)
             return { success: true, count: keywordOperations.length }
@@ -452,7 +462,7 @@ export async function executeCampaignPublish(
             keywords: negativeKeywordOperations,
             accountId: adsAccount.id,
             userId,
-            loginCustomerId: effectiveLoginCustomerId || undefined
+            loginCustomerId: finalLoginCustomerId
           }).then(() => {
             console.log(`  ✅ [并行2/3] 成功添加${negativeKeywordOperations.length}个否定关键词`)
             return { success: true, count: negativeKeywordOperations.length }
@@ -471,7 +481,7 @@ export async function executeCampaignPublish(
         path2: creative.path2 || undefined,
         accountId: adsAccount.id,
         userId,
-        loginCustomerId: effectiveLoginCustomerId || undefined
+        loginCustomerId: finalLoginCustomerId
       }).then((result) => {
         console.log(`  ✅ [并行3/3] 广告创建成功 (Google ID: ${result.adId})`)
         return result
@@ -499,7 +509,7 @@ export async function executeCampaignPublish(
       callouts: finalCallouts,
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: effectiveLoginCustomerId || undefined
+      loginCustomerId: finalLoginCustomerId
     })
     console.log(`  ✅ [串行1/2] 成功添加${finalCallouts.length}个Callout扩展`)
 
@@ -512,7 +522,7 @@ export async function executeCampaignPublish(
       sitelinks: formattedSitelinks,
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: effectiveLoginCustomerId || undefined
+      loginCustomerId: finalLoginCustomerId
     })
     console.log(`  ✅ [串行2/2] 成功添加${formattedSitelinks.length}个Sitelink扩展`)
 
@@ -531,7 +541,7 @@ export async function executeCampaignPublish(
           status: 'ENABLED',
           accountId: adsAccount.id,
           userId,
-          loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
+          loginCustomerId: finalLoginCustomerId  // 🔧 使用effective值（从DB或用户设置）
         })
         finalCampaignStatus = 'ENABLED'
         console.log(`✅ Campaign已启用`)
