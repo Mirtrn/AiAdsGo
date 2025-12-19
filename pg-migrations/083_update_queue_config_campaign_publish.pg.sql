@@ -7,16 +7,16 @@
 UPDATE system_settings
 SET
   value = jsonb_set(
-    value,
+    value::jsonb,
     '{perTypeConcurrency,campaign-publish}',
     '2'::jsonb
-  ),
+  )::text,
   updated_at = NOW()
 WHERE
   category = 'queue'
   AND key = 'config'
   AND user_id IS NULL
-  AND (value->'perTypeConcurrency'->>'campaign-publish') IS NULL;
+  AND (value::jsonb->'perTypeConcurrency'->>'campaign-publish') IS NULL;
 
 -- Verification query
 -- This should return the updated config with campaign-publish
