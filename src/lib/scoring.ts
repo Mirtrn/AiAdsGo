@@ -111,11 +111,12 @@ export async function calculateLaunchScore(
       })
     }
 
-    // 🎯 准备关键词搜索量文本
+    // 🎯 准备关键词搜索量文本（包含matchType信息）
     const keywordsWithVolumeText = keywordsWithVolume.length > 0
-      ? keywordsWithVolume.slice(0, 15).map((kw: any) =>
-          `- ${kw.keyword}: ${kw.searchVolume || 0}/月, 竞争度:${kw.competition || '未知'}`
-        ).join('\n')
+      ? keywordsWithVolume.slice(0, 15).map((kw: any) => {
+          const matchType = kw.matchType || 'BROAD'
+          return `- ${kw.keyword} (${matchType}): ${kw.searchVolume || 0}/月, 竞争度:${kw.competition || '未知'}`
+        }).join('\n')
       : '暂无关键词搜索量数据'
 
     // 🔥 新增(2025-12-18)：检查keywordsWithVolume中是否有competition数据
