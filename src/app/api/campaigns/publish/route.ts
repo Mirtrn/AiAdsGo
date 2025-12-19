@@ -754,6 +754,7 @@ export async function POST(request: NextRequest) {
               targetCountry: _campaignConfig.targetCountry,
               targetLanguage: _campaignConfig.targetLanguage,
               biddingStrategy: _campaignConfig.biddingStrategy,
+              budgetAmount: _campaignConfig.budgetAmount,
               budgetType: _campaignConfig.budgetType,
               maxCpcBid: _campaignConfig.maxCpcBid,
               keywords: _campaignConfig.keywords || [],

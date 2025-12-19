@@ -44,6 +44,7 @@ export interface CampaignPublishTaskData {
     targetCountry: string
     targetLanguage: string
     biddingStrategy: string
+    budgetAmount: number
     budgetType: 'DAILY' | 'TOTAL'
     maxCpcBid: number
     keywords: string[]
@@ -137,7 +138,7 @@ export async function executeCampaignPublish(
       customerId: adsAccount.customer_id,
       refreshToken: credentials.refresh_token,
       campaignName: creative.id.toString(), // 占位符，实际名称由naming scheme提供
-      budgetAmount: 0, // 预算信息来自数据库
+      budgetAmount: campaignConfig.budgetAmount,
       budgetType: campaignConfig.budgetType,
       biddingStrategy: campaignConfig.biddingStrategy,
       targetCountry: campaignConfig.targetCountry,
