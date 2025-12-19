@@ -828,6 +828,17 @@ export async function POST(request: NextRequest) {
           successful: publishResults.length,
           failed: failedCampaigns.length
         },
+        // 🔥 新增(2025-12-19): Launch Score评分结果
+        launchScore: launchScore > 0 ? {
+          totalScore: launchScore,
+          breakdown: {
+            launchViability: { score: analysis.launchViability.score, max: 40 },
+            adQuality: { score: analysis.adQuality.score, max: 30 },
+            keywordStrategy: { score: analysis.keywordStrategy.score, max: 20 },
+            basicConfig: { score: analysis.basicConfig.score, max: 10 }
+          },
+          overallRecommendations: overallRecommendations || []
+        } : undefined,
         // 🔧 修复(2025-12-19): 强调这是异步队列状态，不是最终结果
         // 前端应该轮询campaign.creation_status而不仅仅依赖HTTP响应码
         message: publishResults.length > 0

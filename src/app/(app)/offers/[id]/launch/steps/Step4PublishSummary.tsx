@@ -77,6 +77,13 @@ export default function Step4PublishSummary({
   // 🔥 新增：发布结果模式（点击发布后切换）
   const [showPublishResult, setShowPublishResult] = useState(false)
 
+  // 🔥 新增(2025-12-19)：Launch Score评分结果（成功时显示）
+  const [launchScoreSuccess, setLaunchScoreSuccess] = useState<{
+    totalScore: number
+    breakdown: any
+    overallRecommendations: string[]
+  } | null>(null)
+
   // 🔥 新增：Launch Score 阻止详情
   const [launchScoreBlockDetails, setLaunchScoreBlockDetails] = useState<{
     launchScore: number
@@ -413,6 +420,17 @@ export default function Step4PublishSummary({
       // 不能立即认为成功，必须轮询campaign.creation_status直到synced或failed
       if (response.status === 202) {
         console.log('📦 任务已提交到后台队列，开始轮询状态...')
+
+        // 🔥 新增(2025-12-19)：保存Launch Score评分结果
+        if (data.launchScore) {
+          setLaunchScoreSuccess({
+            totalScore: data.launchScore.totalScore,
+            breakdown: data.launchScore.breakdown,
+            overallRecommendations: data.launchScore.overallRecommendations || []
+          })
+          console.log(`📊 Launch Score评分: ${data.launchScore.totalScore}分`)
+        }
+
         addPublishStep('creating', '创建广告系列结构', 'success')
         addPublishStep('syncing', '同步到Google Ads...(轮询中)', 'running')
         setPublishStatus({
@@ -1119,6 +1137,89 @@ export default function Step4PublishSummary({
                         </Button>
                       )}
                     </div>
+                  </div>
+                )}
+
+                {/* 🔥 新增(2025-12-19)：Launch Score评分结果（成功时显示） */}
+                {launchScoreSuccess && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    {/* 标题和总分 */}
+                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-blue-200">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-5 h-5 text-blue-600" />
+                        <span className="text-sm font-semibold text-blue-800">
+                          投放评分
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-2xl font-bold ${getScoreColor(launchScoreSuccess.totalScore)}`}>
+                          {launchScoreSuccess.totalScore}
+                          <span className="text-sm font-normal text-gray-500">分</span>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {launchScoreSuccess.totalScore >= 80 ? '优秀' : '良好'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 各维度得分 */}
+                    {launchScoreSuccess.breakdown && Object.keys(launchScoreSuccess.breakdown).length > 0 && (
+                      <div className="mb-3">
+                        <div className="text-xs font-semibold text-gray-700 mb-2">各维度得分</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {launchScoreSuccess.breakdown.launchViability && (
+                            <div className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-xs text-gray-600">投放可行性</span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {launchScoreSuccess.breakdown.launchViability.score}/{launchScoreSuccess.breakdown.launchViability.max}
+                              </span>
+                            </div>
+                          )}
+                          {launchScoreSuccess.breakdown.adQuality && (
+                            <div className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-xs text-gray-600">广告质量</span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {launchScoreSuccess.breakdown.adQuality.score}/{launchScoreSuccess.breakdown.adQuality.max}
+                              </span>
+                            </div>
+                          )}
+                          {launchScoreSuccess.breakdown.keywordStrategy && (
+                            <div className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-xs text-gray-600">关键词策略</span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {launchScoreSuccess.breakdown.keywordStrategy.score}/{launchScoreSuccess.breakdown.keywordStrategy.max}
+                              </span>
+                            </div>
+                          )}
+                          {launchScoreSuccess.breakdown.basicConfig && (
+                            <div className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-xs text-gray-600">基础配置</span>
+                              <span className="text-xs font-semibold text-gray-800">
+                                {launchScoreSuccess.breakdown.basicConfig.score}/{launchScoreSuccess.breakdown.basicConfig.max}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 优化建议（如果有） */}
+                    {launchScoreSuccess.overallRecommendations && launchScoreSuccess.overallRecommendations.length > 0 && (
+                      <div className="mt-3 p-3 bg-white rounded-lg border">
+                        <div className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-blue-600" />
+                          优化建议
+                        </div>
+                        <ul className="space-y-1">
+                          {launchScoreSuccess.overallRecommendations.slice(0, 3).map((rec, idx) => (
+                            <li key={idx} className="text-xs text-blue-700 flex items-start gap-2">
+                              <span className="text-blue-500 mt-0.5">•</span>
+                              <span>{rec}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
 
