@@ -953,12 +953,14 @@ export async function createGoogleAdsKeywordsBatch(params: {
   }>
   accountId?: number
   userId?: number
+  loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<Array<{ keywordId: string; resourceName: string; keywordText: string }>> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId  // 🔧 传递loginCustomerId给getCustomer
   )
 
   const results: Array<{ keywordId: string; resourceName: string; keywordText: string }> = []

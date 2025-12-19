@@ -304,7 +304,8 @@ export async function executeCampaignPublish(
         adGroupId: googleAdGroupId,
         keywords: keywordOperations,
         accountId: adsAccount.id,
-        userId
+        userId,
+        loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 添加MCC权限
       })
       console.log(`✅ 成功添加${keywordOperations.length}个关键词`)
     }
@@ -325,7 +326,8 @@ export async function executeCampaignPublish(
         adGroupId: googleAdGroupId,
         keywords: negativeKeywordOperations,
         accountId: adsAccount.id,
-        userId
+        userId,
+        loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 添加MCC权限
       })
       console.log(`✅ 成功添加${negativeKeywordOperations.length}个否定关键词`)
     }
