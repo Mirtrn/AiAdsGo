@@ -341,26 +341,22 @@ export async function executeCampaignPublish(
       description2: ''
     }))
 
-    // 12. 并行执行：Keywords + Ad + Extensions (⚡ KISS优化：5个独立操作并行)
-    console.log(`\n⚡ 开始并行执行5个独立API操作...`)
+    // 12. 并行执行：Keywords + Ad (⚡ KISS优化：3个独立操作并行，避免并发冲突)
+    console.log(`\n⚡ 开始并行执行3个独立API操作（Keywords + Ad）...`)
     const parallelStartTime = Date.now()
 
-    // 计算API操作数（用于统计）
+    // 计算并行API操作数（用于统计）
     const parallelApiCount = (
       (keywordOperations.length > 0 ? keywordOperations.length : 0) +
       (negativeKeywordOperations.length > 0 ? negativeKeywordOperations.length : 0) +
-      1 + // Ad creation
-      finalCallouts.length + 1 + // Callouts
-      formattedSitelinks.length + 1 // Sitelinks
+      1 // Ad creation
     )
     totalApiOperations += parallelApiCount
 
     const [
       keywordsResult,
       negativeKeywordsResult,
-      adResult,
-      calloutsResult,
-      sitelinksResult
+      adResult
     ] = await Promise.all([
       // 1. 正向关键词
       keywordOperations.length > 0
@@ -373,7 +369,7 @@ export async function executeCampaignPublish(
             userId,
             loginCustomerId: effectiveLoginCustomerId || undefined
           }).then(() => {
-            console.log(`  ✅ [并行1/5] 成功添加${keywordOperations.length}个关键词`)
+            console.log(`  ✅ [并行1/3] 成功添加${keywordOperations.length}个关键词`)
             return { success: true, count: keywordOperations.length }
           })
         : Promise.resolve({ success: true, count: 0 }),
@@ -389,7 +385,7 @@ export async function executeCampaignPublish(
             userId,
             loginCustomerId: effectiveLoginCustomerId || undefined
           }).then(() => {
-            console.log(`  ✅ [并行2/5] 成功添加${negativeKeywordOperations.length}个否定关键词`)
+            console.log(`  ✅ [并行2/3] 成功添加${negativeKeywordOperations.length}个否定关键词`)
             return { success: true, count: negativeKeywordOperations.length }
           })
         : Promise.resolve({ success: true, count: 0 }),
@@ -408,36 +404,8 @@ export async function executeCampaignPublish(
         userId,
         loginCustomerId: effectiveLoginCustomerId || undefined
       }).then((result) => {
-        console.log(`  ✅ [并行3/5] 广告创建成功 (Google ID: ${result.adId})`)
+        console.log(`  ✅ [并行3/3] 广告创建成功 (Google ID: ${result.adId})`)
         return result
-      }),
-
-      // 4. Callout Extensions
-      createGoogleAdsCalloutExtensions({
-        customerId: adsAccount.customer_id,
-        refreshToken: credentials.refresh_token,
-        campaignId: googleCampaignId,
-        callouts: finalCallouts,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: effectiveLoginCustomerId || undefined
-      }).then(() => {
-        console.log(`  ✅ [并行4/5] 成功添加${finalCallouts.length}个Callout扩展`)
-        return { success: true, count: finalCallouts.length }
-      }),
-
-      // 5. Sitelink Extensions
-      createGoogleAdsSitelinkExtensions({
-        customerId: adsAccount.customer_id,
-        refreshToken: credentials.refresh_token,
-        campaignId: googleCampaignId,
-        sitelinks: formattedSitelinks,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: effectiveLoginCustomerId || undefined
-      }).then(() => {
-        console.log(`  ✅ [并行5/5] 成功添加${formattedSitelinks.length}个Sitelink扩展`)
-        return { success: true, count: formattedSitelinks.length }
       })
     ])
 
@@ -446,10 +414,41 @@ export async function executeCampaignPublish(
     console.log(`   - 正向关键词: ${keywordsResult.count}个`)
     console.log(`   - 否定关键词: ${negativeKeywordsResult.count}个`)
     console.log(`   - 广告ID: ${adResult.adId}`)
-    console.log(`   - Callouts: ${calloutsResult.count}个`)
-    console.log(`   - Sitelinks: ${sitelinksResult.count}个`)
 
     const googleAdId = adResult.adId
+
+    // 13. 串行执行：Extensions（避免并发修改Campaign资源冲突）
+    console.log(`\n🔄 开始串行执行Extensions（避免并发冲突）...`)
+    const extensionsStartTime = Date.now()
+
+    // 13.1 添加Callout Extensions
+    totalApiOperations += finalCallouts.length + 1
+    await createGoogleAdsCalloutExtensions({
+      customerId: adsAccount.customer_id,
+      refreshToken: credentials.refresh_token,
+      campaignId: googleCampaignId,
+      callouts: finalCallouts,
+      accountId: adsAccount.id,
+      userId,
+      loginCustomerId: effectiveLoginCustomerId || undefined
+    })
+    console.log(`  ✅ [串行1/2] 成功添加${finalCallouts.length}个Callout扩展`)
+
+    // 13.2 添加Sitelink Extensions
+    totalApiOperations += formattedSitelinks.length + 1
+    await createGoogleAdsSitelinkExtensions({
+      customerId: adsAccount.customer_id,
+      refreshToken: credentials.refresh_token,
+      campaignId: googleCampaignId,
+      sitelinks: formattedSitelinks,
+      accountId: adsAccount.id,
+      userId,
+      loginCustomerId: effectiveLoginCustomerId || undefined
+    })
+    console.log(`  ✅ [串行2/2] 成功添加${formattedSitelinks.length}个Sitelink扩展`)
+
+    const extensionsDuration = Date.now() - extensionsStartTime
+    console.log(`🔄 Extensions串行执行完成，耗时: ${extensionsDuration}ms`)
 
     // 13. 启用Campaign（如果需要）
     let finalCampaignStatus: 'ENABLED' | 'PAUSED' = 'PAUSED'
