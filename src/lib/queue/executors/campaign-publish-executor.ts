@@ -141,6 +141,7 @@ export async function executeCampaignPublish(
       budgetAmount: campaignConfig.budgetAmount,
       budgetType: campaignConfig.budgetType,
       biddingStrategy: campaignConfig.biddingStrategy,
+      cpcBidCeilingMicros: campaignConfig.maxCpcBid * 1000000, // 🔥 新增：传递CPC天花板价
       targetCountry: campaignConfig.targetCountry,
       targetLanguage: campaignConfig.targetLanguage,
       finalUrlSuffix: creative.finalUrlSuffix || undefined,
