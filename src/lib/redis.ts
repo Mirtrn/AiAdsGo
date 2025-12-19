@@ -217,12 +217,20 @@ export async function cacheKeywordVolume(
   country: string,
   language: string,
   volume: number,
+  competition?: string,
+  competitionIndex?: number,
   ttlSeconds: number = CACHE_TTL
 ): Promise<void> {
   try {
     const client = getRedisClient()
     const key = getKeywordCacheKey(keyword, country, language)
-    await client.setex(key, ttlSeconds, JSON.stringify({ volume, cachedAt: Date.now() }))
+    // 修复(2025-12-19): 保存competition_level数据
+    await client.setex(key, ttlSeconds, JSON.stringify({
+      volume,
+      competition: competition || 'UNKNOWN',
+      competitionIndex: competitionIndex || 0,
+      cachedAt: Date.now()
+    }))
   } catch (error: any) {
     console.error('[Redis] Cache keyword volume error:', error.message)
   }
@@ -233,7 +241,7 @@ export async function getCachedKeywordVolume(
   keyword: string,
   country: string,
   language: string
-): Promise<{ volume: number; cachedAt: number } | null> {
+): Promise<{ volume: number; competition?: string; competitionIndex?: number; cachedAt: number } | null> {
   try {
     const client = getRedisClient()
     const key = getKeywordCacheKey(keyword, country, language)
@@ -252,8 +260,8 @@ export async function getBatchCachedVolumes(
   keywords: string[],
   country: string,
   language: string
-): Promise<Map<string, number>> {
-  const result = new Map<string, number>()
+): Promise<Map<string, { volume: number; competition?: string; competitionIndex?: number }>> {
+  const result = new Map<string, { volume: number; competition?: string; competitionIndex?: number }>()
   try {
     const client = getRedisClient()
     const keys = keywords.map(kw => getKeywordCacheKey(kw, country, language))
@@ -264,7 +272,11 @@ export async function getBatchCachedVolumes(
     keywords.forEach((kw, idx) => {
       if (values[idx]) {
         const data = JSON.parse(values[idx] as string)
-        result.set(kw.toLowerCase(), data.volume)
+        result.set(kw.toLowerCase(), {
+          volume: data.volume,
+          competition: data.competition || 'UNKNOWN',
+          competitionIndex: data.competitionIndex || 0,
+        })
       }
     })
   } catch (error: any) {
@@ -275,7 +287,7 @@ export async function getBatchCachedVolumes(
 
 // Batch cache volumes
 export async function batchCacheVolumes(
-  data: Array<{ keyword: string; volume: number }>,
+  data: Array<{ keyword: string; volume: number; competition?: string; competitionIndex?: number }>,
   country: string,
   language: string,
   ttlSeconds: number = CACHE_TTL
@@ -286,7 +298,13 @@ export async function batchCacheVolumes(
 
     for (const item of data) {
       const key = getKeywordCacheKey(item.keyword, country, language)
-      pipeline.setex(key, ttlSeconds, JSON.stringify({ volume: item.volume, cachedAt: Date.now() }))
+      // 修复(2025-12-19): 保存competition_level数据
+      pipeline.setex(key, ttlSeconds, JSON.stringify({
+        volume: item.volume,
+        competition: item.competition || 'UNKNOWN',
+        competitionIndex: item.competitionIndex || 0,
+        cachedAt: Date.now()
+      }))
     }
 
     await pipeline.exec()

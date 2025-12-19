@@ -170,30 +170,44 @@ export async function getKeywordSearchVolumes(
   // If all cached, return from cache
   if (uncachedKeywords.length === 0) {
     console.log(`[KeywordPlanner] 全部命中Redis缓存，无需API调用`)
-    return keywords.map(kw => ({
-      keyword: kw,
-      avgMonthlySearches: cachedVolumes.get(kw.toLowerCase()) || 0,
-      competition: 'UNKNOWN',
-      competitionIndex: 0,
-      lowTopPageBid: 0,
-      highTopPageBid: 0,
-    }))
+    return keywords.map(kw => {
+      const cached = cachedVolumes.get(kw.toLowerCase())
+      return {
+        keyword: kw,
+        avgMonthlySearches: cached?.volume || 0,
+        competition: cached?.competition || 'UNKNOWN',
+        competitionIndex: cached?.competitionIndex || 0,
+        lowTopPageBid: 0,
+        highTopPageBid: 0,
+      }
+    })
   }
 
   // 2. Check global_keywords table
   const db = await getDatabase()
-  const dbVolumes = new Map<string, number>()
+  const dbVolumes = new Map<string, KeywordVolume>()
 
   try {
     const placeholders = uncachedKeywords.map(() => '?').join(',')
     const rows = await db.query(`
-      SELECT keyword, search_volume
+      SELECT keyword, search_volume, competition_level, avg_cpc_micros
       FROM global_keywords
       WHERE keyword IN (${placeholders})
         AND country = ? AND language = ?
         AND created_at > datetime('now', '-7 days')
-    `, [...uncachedKeywords.map(k => k.toLowerCase()), country, language]) as Array<{ keyword: string; search_volume: number }>
-    rows.forEach(row => dbVolumes.set(row.keyword, row.search_volume))
+    `, [...uncachedKeywords.map(k => k.toLowerCase()), country, language]) as Array<{ keyword: string; search_volume: number; competition_level?: string; avg_cpc_micros?: number }>
+    rows.forEach(row => {
+      // 修复(2025-12-19): 从数据库读取competition_level和avg_cpc_micros
+      const avgCpc = (row.avg_cpc_micros || 0) / 1_000_000
+      dbVolumes.set(row.keyword, {
+        keyword: row.keyword,
+        avgMonthlySearches: row.search_volume,
+        competition: row.competition_level || 'UNKNOWN',
+        competitionIndex: 0,
+        lowTopPageBid: avgCpc,
+        highTopPageBid: avgCpc,
+      })
+    })
     console.log(`[KeywordPlanner] 数据库缓存命中: ${dbVolumes.size}/${uncachedKeywords.length} 个关键词`)
   } catch {
     // Table might not exist yet
@@ -354,10 +368,23 @@ export async function getKeywordSearchVolumes(
         console.log(`[KeywordPlanner] Completed ${totalApiCalls} API calls, retrieved ${apiVolumes.size} keyword volumes`)
 
         // Save to database and cache
-        const toCache: Array<{ keyword: string; volume: number }> = []
+        const toCache: Array<{ keyword: string; volume: number; competition?: string; competitionIndex?: number }> = []
         for (const [kw, vol] of apiVolumes) {
-          toCache.push({ keyword: kw, volume: vol.avgMonthlySearches })
-          await saveToGlobalKeywords(kw, country, language, vol.avgMonthlySearches)
+          toCache.push({
+            keyword: kw,
+            volume: vol.avgMonthlySearches,
+            competition: vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
+            competitionIndex: vol.competitionIndex
+          })
+          // 修复(2025-12-19): 同时保存competition_level和avg_cpc_micros
+          await saveToGlobalKeywords(
+            kw,
+            country,
+            language,
+            vol.avgMonthlySearches,
+            vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
+            Math.round((vol.lowTopPageBid + vol.highTopPageBid) / 2 * 1_000_000) || undefined
+          )
         }
 
         if (toCache.length) {
@@ -400,25 +427,19 @@ export async function getKeywordSearchVolumes(
       return apiVolumes.get(kwLower)!
     }
 
-    // Then DB
+    // Then DB (now with competition data)
     if (dbVolumes.has(kwLower)) {
-      return {
-        keyword: kw,
-        avgMonthlySearches: dbVolumes.get(kwLower) || 0,
-        competition: 'UNKNOWN',
-        competitionIndex: 0,
-        lowTopPageBid: 0,
-        highTopPageBid: 0,
-      }
+      return dbVolumes.get(kwLower)!
     }
 
     // Then cache
     if (cachedVolumes.has(kwLower)) {
+      const cached = cachedVolumes.get(kwLower)
       return {
         keyword: kw,
-        avgMonthlySearches: cachedVolumes.get(kwLower) || 0,
-        competition: 'UNKNOWN',
-        competitionIndex: 0,
+        avgMonthlySearches: cached?.volume || 0,
+        competition: cached?.competition || 'UNKNOWN',
+        competitionIndex: cached?.competitionIndex || 0,
         lowTopPageBid: 0,
         highTopPageBid: 0,
       }
@@ -444,28 +465,34 @@ export async function getKeywordSearchVolumes(
  * - cached_at: 最后一次API调用时间，用于记录
  * - 如果搜索量变化，重置created_at开始新的7天计时
  * - 如果搜索量未变化，保持created_at不变，确保7天后会重新从API刷新
+ *
+ * 修复(2025-12-19): 保存competition_level和avg_cpc_micros数据
  */
 async function saveToGlobalKeywords(
   keyword: string,
   country: string,
   language: string,
-  volume: number
+  volume: number,
+  competitionLevel?: string,
+  avgCpcMicros?: number
 ): Promise<void> {
   try {
     const db = await getDatabase()
     await db.exec(`
-      INSERT INTO global_keywords (keyword, country, language, search_volume, cached_at, created_at)
-      VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+      INSERT INTO global_keywords (keyword, country, language, search_volume, competition_level, avg_cpc_micros, cached_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
       ON CONFLICT(keyword, country, language)
       DO UPDATE SET
         search_volume = excluded.search_volume,
+        competition_level = excluded.competition_level,
+        avg_cpc_micros = excluded.avg_cpc_micros,
         cached_at = datetime('now'),
         created_at = CASE
           WHEN global_keywords.search_volume != excluded.search_volume
           THEN datetime('now')
           ELSE global_keywords.created_at
         END
-    `, [keyword.toLowerCase(), country, language, volume])
+    `, [keyword.toLowerCase(), country, language, volume, competitionLevel || null, avgCpcMicros || null])
   } catch {
     // Table might not exist yet
   }

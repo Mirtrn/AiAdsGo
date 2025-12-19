@@ -180,8 +180,8 @@ export async function executeCampaignPublish(
     const effectiveMaxCpcBid = campaignConfig.maxCpcBid || getDefaultCPC(adsAccount.currency)
 
     // 使用规范化的命名或回退到占位符
-    const campaignName = task.naming?.campaignName || `Campaign_${creative.id}`
-    const adGroupName = task.naming?.adGroupName || `AdGroup_${creative.id}`
+    const campaignName = task.data.naming?.campaignName || `Campaign_${creative.id}`
+    const adGroupName = task.data.naming?.adGroupName || `AdGroup_${creative.id}`
 
     const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
       customerId: adsAccount.customer_id,
