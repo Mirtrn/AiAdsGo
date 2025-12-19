@@ -420,78 +420,65 @@ export async function executeCampaignPublish(
       }
     })
 
-    // 12. 并行执行：Keywords + Ad (⚡ KISS优化：3个独立操作并行，避免并发冲突)
-    console.log(`\n⚡ 开始并行执行3个独立API操作（Keywords + Ad）...`)
-    const parallelStartTime = Date.now()
+    // 12. 串行执行：Keywords + Ad (🔧 修复并发冲突：改为串行避免资源竞争)
+    console.log(`\n🔄 开始串行执行Keywords + Ad（避免并发冲突）...`)
+    const serialStartTime = Date.now()
 
-    // 计算并行API操作数（用于统计）
-    const parallelApiCount = (
-      (keywordOperations.length > 0 ? keywordOperations.length : 0) +
-      (negativeKeywordOperations.length > 0 ? negativeKeywordOperations.length : 0) +
-      1 // Ad creation
-    )
-    totalApiOperations += parallelApiCount
-
-    const [
-      keywordsResult,
-      negativeKeywordsResult,
-      adResult
-    ] = await Promise.all([
-      // 1. 正向关键词
-      keywordOperations.length > 0
-        ? createGoogleAdsKeywordsBatch({
-            customerId: adsAccount.customer_id,
-            refreshToken: credentials.refresh_token,
-            adGroupId: googleAdGroupId,
-            keywords: keywordOperations,
-            accountId: adsAccount.id,
-            userId,
-            loginCustomerId: finalLoginCustomerId
-          }).then(() => {
-            console.log(`  ✅ [并行1/3] 成功添加${keywordOperations.length}个关键词`)
-            return { success: true, count: keywordOperations.length }
-          })
-        : Promise.resolve({ success: true, count: 0 }),
-
-      // 2. 否定关键词
-      negativeKeywordOperations.length > 0
-        ? createGoogleAdsKeywordsBatch({
-            customerId: adsAccount.customer_id,
-            refreshToken: credentials.refresh_token,
-            adGroupId: googleAdGroupId,
-            keywords: negativeKeywordOperations,
-            accountId: adsAccount.id,
-            userId,
-            loginCustomerId: finalLoginCustomerId
-          }).then(() => {
-            console.log(`  ✅ [并行2/3] 成功添加${negativeKeywordOperations.length}个否定关键词`)
-            return { success: true, count: negativeKeywordOperations.length }
-          })
-        : Promise.resolve({ success: true, count: 0 }),
-
-      // 3. 创建Responsive Search Ad
-      createGoogleAdsResponsiveSearchAd({
+    // 12.1 添加正向关键词
+    let keywordsCount = 0
+    if (keywordOperations.length > 0) {
+      totalApiOperations += keywordOperations.length
+      await createGoogleAdsKeywordsBatch({
         customerId: adsAccount.customer_id,
         refreshToken: credentials.refresh_token,
         adGroupId: googleAdGroupId,
-        headlines: creative.headlines.slice(0, 15),
-        descriptions: creative.descriptions.slice(0, 4),
-        finalUrls: [creative.finalUrl],
-        path1: creative.path1 || undefined,
-        path2: creative.path2 || undefined,
+        keywords: keywordOperations,
         accountId: adsAccount.id,
         userId,
         loginCustomerId: finalLoginCustomerId
-      }).then((result) => {
-        console.log(`  ✅ [并行3/3] 广告创建成功 (Google ID: ${result.adId})`)
-        return result
       })
-    ])
+      keywordsCount = keywordOperations.length
+      console.log(`  ✅ [串行1/3] 成功添加${keywordsCount}个关键词`)
+    }
 
-    const parallelDuration = Date.now() - parallelStartTime
-    console.log(`⚡ 并行执行完成，耗时: ${parallelDuration}ms`)
-    console.log(`   - 正向关键词: ${keywordsResult.count}个`)
-    console.log(`   - 否定关键词: ${negativeKeywordsResult.count}个`)
+    // 12.2 添加否定关键词
+    let negativeKeywordsCount = 0
+    if (negativeKeywordOperations.length > 0) {
+      totalApiOperations += negativeKeywordOperations.length
+      await createGoogleAdsKeywordsBatch({
+        customerId: adsAccount.customer_id,
+        refreshToken: credentials.refresh_token,
+        adGroupId: googleAdGroupId,
+        keywords: negativeKeywordOperations,
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId: finalLoginCustomerId
+      })
+      negativeKeywordsCount = negativeKeywordOperations.length
+      console.log(`  ✅ [串行2/3] 成功添加${negativeKeywordsCount}个否定关键词`)
+    }
+
+    // 12.3 创建Responsive Search Ad
+    totalApiOperations++
+    const adResult = await createGoogleAdsResponsiveSearchAd({
+      customerId: adsAccount.customer_id,
+      refreshToken: credentials.refresh_token,
+      adGroupId: googleAdGroupId,
+      headlines: creative.headlines.slice(0, 15),
+      descriptions: creative.descriptions.slice(0, 4),
+      finalUrls: [creative.finalUrl],
+      path1: creative.path1 || undefined,
+      path2: creative.path2 || undefined,
+      accountId: adsAccount.id,
+      userId,
+      loginCustomerId: finalLoginCustomerId
+    })
+    console.log(`  ✅ [串行3/3] 广告创建成功 (Google ID: ${adResult.adId})`)
+
+    const serialDuration = Date.now() - serialStartTime
+    console.log(`🔄 串行执行完成，耗时: ${serialDuration}ms`)
+    console.log(`   - 正向关键词: ${keywordsCount}个`)
+    console.log(`   - 否定关键词: ${negativeKeywordsCount}个`)
     console.log(`   - 广告ID: ${adResult.adId}`)
 
     const googleAdId = adResult.adId
@@ -576,10 +563,20 @@ export async function executeCampaignPublish(
 
   } catch (error: any) {
     apiSuccess = false
-    apiErrorMessage = error.message || String(error)
 
-    console.error(`❌ Campaign发布失败: ${apiErrorMessage}`)
-    console.error('完整错误对象:', error)
+    // 🔧 改善错误信息提取（处理Google Ads API错误格式）
+    if (error.errors && Array.isArray(error.errors) && error.errors.length > 0) {
+      // Google Ads API错误格式
+      const firstError = error.errors[0]
+      apiErrorMessage = firstError.message || error.message || String(error)
+      console.error(`❌ Campaign发布失败: ${apiErrorMessage}`)
+      console.error(`   错误代码:`, firstError.error_code)
+      console.error(`   请求ID: ${error.request_id || 'N/A'}`)
+    } else {
+      apiErrorMessage = error.message || String(error)
+      console.error(`❌ Campaign发布失败: ${apiErrorMessage}`)
+    }
+    console.error('完整错误对象:', JSON.stringify(error, null, 2))
 
     // 更新数据库记录为失败状态
     try {
