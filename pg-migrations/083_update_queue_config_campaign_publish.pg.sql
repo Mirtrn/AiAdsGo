@@ -8,7 +8,7 @@ UPDATE system_settings
 SET
   value = jsonb_set(
     value,
-    '{perTypeConcurrency,"campaign-publish"}',
+    '{perTypeConcurrency,campaign-publish}',
     '2'::jsonb
   ),
   updated_at = NOW()
