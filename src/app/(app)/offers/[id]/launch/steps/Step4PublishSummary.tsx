@@ -372,11 +372,29 @@ export default function Step4PublishSummary({
         return
       }
 
-      // 🔥 处理需要确认暂停的情况（422状态码）
+      // 🔥 处理需要确认暂停的情况（422状态码）- 使用新的数据结构
       if (response.status === 422 && data.action === 'CONFIRM_PAUSE_OLD_CAMPAIGNS') {
         console.log('⚠️ 需要用户确认是否暂停旧Campaign:', data)
-        setExistingCampaigns(data.existingCampaigns || [])
-        setPauseConfirmMessage(data.message || '')
+
+        // 🔥 新数据结构：区分系统创建和用户手动创建的广告系列
+        const ownCampaigns = data.existingCampaigns?.own || []
+        const manualCampaigns = data.existingCampaigns?.manual || []
+
+        // 合并所有需要暂停的广告系列
+        const allCampaignsToPause = [...ownCampaigns, ...manualCampaigns]
+        setExistingCampaigns(allCampaignsToPause)
+
+        // 构建详细消息
+        const totalCount = data.total?.all || allCampaignsToPause.length
+        const ownCount = data.total?.own || ownCampaigns.length
+        const manualCount = data.total?.manual || manualCampaigns.length
+
+        const details = data.details || {}
+        const detailText = details.own || details.manual
+          ? `\n${details.own || ''}${details.own && details.manual ? '\n' : ''}${details.manual || ''}`
+          : ''
+
+        setPauseConfirmMessage(`${data.message || ''}${detailText}`)
         setShowPauseConfirm(true)
         setShowPublishResult(false)  // 退出发布结果模式
         setPublishing(false)

@@ -202,8 +202,10 @@ export async function executeCampaignPublish(
     totalApiOperations++ // Campaign creation = 1 operation
     const effectiveMaxCpcBid = campaignConfig.maxCpcBid || getDefaultCPC(adsAccount.currency)
 
-    // 使用规范化的命名或回退到占位符
-    const campaignName = task.data.naming?.campaignName || `Campaign_${creative.id}`
+    // 使用关联命名规范（优先）或规范化命名或回退到占位符
+    const campaignName = task.data.naming?.associativeCampaignName
+      || task.data.naming?.campaignName
+      || `Campaign_${creative.id}`
     const adGroupName = task.data.naming?.adGroupName || `AdGroup_${creative.id}`
 
     const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({

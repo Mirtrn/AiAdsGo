@@ -378,9 +378,88 @@ export function generateNamingScheme(params: {
     variantIndex: smartOptimization?.variantIndex
   }) : undefined
 
+  // 🔥 新增：生成符合关联规范的Campaign名称
+  const associativeCampaignName = creative ? generateAssociativeCampaignName({
+    offerId: offer.id,
+    creativeId: creative.id,
+    brand: offer.brand,
+    campaignType: 'Search'
+  }) : undefined
+
   return {
     campaignName,
     adGroupName,
-    adName
+    adName,
+    associativeCampaignName  // 🔥 新增：用于关联的Campaign名称
   }
+}
+
+/**
+ * ========================================
+ * 广告系列关联管理（新增）
+ * 用于建立广告创意与Google Ads账号中真实广告系列的关联关系
+ * ========================================
+ */
+
+/**
+ * 生成符合关联规范的Campaign名称
+ *
+ * 格式: [Offer ID]-[Creative ID]-[品牌]-[类型]
+ * 例如: 173-456-reolink-Search
+ *
+ * 这个命名规范用于建立广告创意与Google Ads账号中真实广告系列的关联关系
+ */
+export function generateAssociativeCampaignName(params: {
+  offerId: number
+  creativeId: number
+  brand: string
+  campaignType?: string
+}): string {
+  const { offerId, creativeId, brand, campaignType = 'Search' } = params
+
+  // 清理品牌名称中的特殊字符，只保留字母和数字
+  const cleanBrand = sanitize(brand.toLowerCase())
+
+  // 构建名称：[Offer ID]-[Creative ID]-[品牌]-[类型]
+  const name = `${offerId}-${creativeId}-${cleanBrand}-${campaignType}`
+
+  // 确保不超过最大长度
+  return truncate(name, NAMING_CONFIG.MAX_LENGTH.CAMPAIGN)
+}
+
+/**
+ * 解析关联Campaign名称
+ *
+ * @param name 广告系列名称
+ * @returns 解析结果，如果格式不匹配返回null
+ */
+export function parseAssociativeCampaignName(name: string): {
+  offerId: number
+  creativeId: number
+  brand: string
+  campaignType: string
+} | null {
+  // 匹配格式：[数字]-[数字]-[文本]-[文本]
+  const pattern = /^(\d+)-(\d+)-([^-]+)-([^-]+)$/
+  const match = name.match(pattern)
+
+  if (!match) {
+    return null
+  }
+
+  const [, offerIdStr, creativeIdStr, brand, campaignType] = match
+
+  return {
+    offerId: parseInt(offerIdStr, 10),
+    creativeId: parseInt(creativeIdStr, 10),
+    brand,
+    campaignType
+  }
+}
+
+/**
+ * 检查Campaign名称是否符合关联规范
+ */
+export function validateAssociativeCampaignName(name: string): boolean {
+  return parseAssociativeCampaignName(name) !== null
 }

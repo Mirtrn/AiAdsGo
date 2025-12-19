@@ -247,41 +247,59 @@ export async function POST(request: NextRequest) {
     // 新逻辑：多个Offer可以共享同一Ads账号，通过前端优先级排序引导用户选择
     console.log(`✅ Ads账号 ${_googleAdsAccountId} 可供Offer #${_offerId} 使用（已移除独占约束）`)
 
-    // 🔍 验证2：查询当前Offer在该账号下的已激活Campaign
-    const existingActiveCampaigns = await db.query(`
-      SELECT
-        c.id,
-        c.campaign_name,
-        c.budget_amount,
-        c.status,
-        c.created_at,
-        ac.theme as creative_theme
-      FROM campaigns c
-      LEFT JOIN ad_creatives ac ON c.ad_creative_id = ac.id
-      WHERE c.offer_id = ?
-        AND c.google_ads_account_id = ?
-        AND c.status = 'ENABLED'
-        AND c.is_deleted = 0
-      ORDER BY c.created_at DESC
-    `, [_offerId, _googleAdsAccountId]) as any[]
+    // 🔍 验证2：查询Google Ads账号中真实激活的广告系列（使用命名规范关联）
+    const { queryActiveCampaigns } = await import('@/lib/active-campaigns-query')
+    const activeCampaignsResult = await queryActiveCampaigns(
+      _offerId,
+      _googleAdsAccountId,
+      userId
+    )
 
-    console.log(`📊 当前Offer在该Ads账号下有${existingActiveCampaigns.length}个激活的Campaign`)
+    console.log(`📊 Google Ads账号中广告系列统计:`)
+    console.log(`   - 属于当前Offer: ${activeCampaignsResult.ownCampaigns.length}`)
+    console.log(`   - 用户手动创建: ${activeCampaignsResult.manualCampaigns.length}`)
+    console.log(`   - 属于其他Offer: ${activeCampaignsResult.otherCampaigns.length}`)
 
-    // ⚠️ 验证3：如果有激活Campaign且用户未确认，返回确认提示
-    if (existingActiveCampaigns.length > 0 && !_pauseOldCampaigns && !_forcePublish) {
-      console.log(`⚠️ 需要用户确认: 是否暂停${existingActiveCampaigns.length}个已激活的Campaign`)
+    // 计算需要暂停的广告系列总数（属于当前Offer + 用户手动创建）
+    const campaignsToPause = [
+      ...activeCampaignsResult.ownCampaigns,
+      ...activeCampaignsResult.manualCampaigns
+    ]
+
+    // ⚠️ 验证3：如果有需要暂停的广告系列且用户未确认，返回确认提示
+    if (campaignsToPause.length > 0 && !_pauseOldCampaigns && !_forcePublish) {
+      console.log(`⚠️ 需要用户确认: 是否暂停${campaignsToPause.length}个已激活的Campaign`)
+
+      // 构建确认信息
+      const ownCampaignsInfo = activeCampaignsResult.ownCampaigns.map(c => ({
+        id: c.id,
+        name: c.name,
+        type: '系统创建（属于当前Offer）'
+      }))
+
+      const manualCampaignsInfo = activeCampaignsResult.manualCampaigns.map(c => ({
+        id: c.id,
+        name: c.name,
+        type: '用户手动创建'
+      }))
+
       return NextResponse.json({
         action: 'CONFIRM_PAUSE_OLD_CAMPAIGNS',
-        existingCampaigns: existingActiveCampaigns.map((c: any) => ({
-          id: c.id,
-          campaignName: c.campaign_name,
-          budgetAmount: c.budget_amount,
-          creativeTheme: c.creative_theme,
-          createdAt: c.created_at
-        })),
-        total: existingActiveCampaigns.length,
-        message: `该Offer在此Ads账号下已有${existingActiveCampaigns.length}个激活的广告系列`,
-        question: '是否暂停旧广告后再发布新创意？',
+        existingCampaigns: {
+          own: ownCampaignsInfo,
+          manual: manualCampaignsInfo
+        },
+        total: {
+          own: ownCampaignsInfo.length,
+          manual: manualCampaignsInfo.length,
+          all: campaignsToPause.length
+        },
+        message: `在Google Ads账号中检测到${campaignsToPause.length}个已激活的广告系列需要处理`,
+        details: {
+          own: `属于当前Offer（通过命名规范匹配）: ${ownCampaignsInfo.length}个`,
+          manual: `用户手动创建（无命名规范）: ${manualCampaignsInfo.length}个`
+        },
+        question: '是否暂停这些广告系列后再发布新创意？',
         options: [
           { label: '暂停并发布', value: 'pause_and_publish', description: '推荐：先暂停所有旧广告，再发布新广告' },
           { label: '直接发布（A/B测试）', value: 'publish_together', description: '旧广告继续运行，新广告同时激活' },
@@ -300,37 +318,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
 
-    // 7. 暂停旧广告系列（如果请求）
+    // 7. 暂停旧广告系列（如果请求）- 使用真实的Google Ads查询结果
     if (_pauseOldCampaigns) {
-      const oldCampaigns = await db.query(`
-        SELECT id, google_campaign_id
-        FROM campaigns
-        WHERE offer_id = ? AND user_id = ? AND status = 'ENABLED' AND google_campaign_id IS NOT NULL
-      `, [_offerId, userId]) as any[]
+      console.log(`⏸️ 开始暂停旧广告系列...`)
 
-      for (const oldCampaign of oldCampaigns) {
+      // 使用之前查询的真实广告系列数据
+      const campaignsToPause = [
+        ...activeCampaignsResult.ownCampaigns,
+        ...activeCampaignsResult.manualCampaigns
+      ]
+
+      console.log(`   - 需要暂停的广告系列数量: ${campaignsToPause.length}`)
+      console.log(`   - 属于当前Offer: ${activeCampaignsResult.ownCampaigns.length}`)
+      console.log(`   - 用户手动创建: ${activeCampaignsResult.manualCampaigns.length}`)
+
+      // 批量暂停（串行执行，避免并发冲突）
+      const { pauseCampaigns } = await import('@/lib/active-campaigns-query')
+      await pauseCampaigns(campaignsToPause, _googleAdsAccountId, userId)
+
+      // 更新数据库中对应的campaign记录状态
+      for (const campaign of campaignsToPause) {
         try {
-          await updateGoogleAdsCampaignStatus({
-            customerId: adsAccount.customer_id,
-            refreshToken: credentials.refresh_token,
-            campaignId: oldCampaign.google_campaign_id,
-            status: 'PAUSED',
-            accountId: adsAccount.id,
-            userId,
-            loginCustomerId: adsAccount.parent_mcc_id || undefined
-          })
-
-          // 更新数据库状态
           await db.exec(`
             UPDATE campaigns
             SET status = 'PAUSED', updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `, [oldCampaign.id])
+            WHERE google_campaign_id = ?
+          `, [campaign.id])
         } catch (error: any) {
-          console.error(`Failed to pause campaign ${oldCampaign.id}:`, error.message)
-          // 继续处理，不中断流程
+          console.warn(`更新数据库状态失败: ${campaign.name}`, error.message)
+          // 不阻断流程，继续处理
         }
       }
+
+      console.log(`✅ 旧广告系列暂停完成`)
     }
 
     // 7.5 Launch Score评估（投放风险评估）
