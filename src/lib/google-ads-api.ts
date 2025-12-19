@@ -297,15 +297,20 @@ function getGeoTargetConstantId(countryCode: string): number | null {
 }
 
 /**
- * 语言代码到Language Constant ID的映射
+ * 语言代码/名称到Language Constant ID的映射
  * 参考: https://developers.google.com/google-ads/api/reference/data/codes-formats
+ *
+ * 支持两种输入格式：
+ * 1. 语言代码：'en', 'zh', 'es' 等
+ * 2. 语言名称：'English', 'Chinese', 'Spanish' 等
  */
-function getLanguageConstantId(languageCode: string): number | null {
-  const languageMap: Record<string, number> = {
+function getLanguageConstantId(input: string): number | null {
+  // 语言代码到Constant ID的映射
+  const languageCodeMap: Record<string, number> = {
     'en': 1000,      // English
     'zh': 1017,      // Chinese (Simplified)
-    'zh-CN': 1017,   // Chinese (Simplified)
-    'zh-TW': 1018,   // Chinese (Traditional)
+    'zh-cn': 1017,   // Chinese (Simplified)
+    'zh-tw': 1018,   // Chinese (Traditional)
     'ja': 1005,      // Japanese
     'de': 1001,      // German
     'fr': 1002,      // French
@@ -318,7 +323,38 @@ function getLanguageConstantId(languageCode: string): number | null {
     'hi': 1023,      // Hindi
   }
 
-  return languageMap[languageCode.toLowerCase()] || null
+  // 语言名称到语言代码的映射
+  const languageNameMap: Record<string, string> = {
+    'english': 'en',
+    'chinese (simplified)': 'zh-cn',
+    'chinese (traditional)': 'zh-tw',
+    'chinese': 'zh',
+    'spanish': 'es',
+    'french': 'fr',
+    'german': 'de',
+    'japanese': 'ja',
+    'korean': 'ko',
+    'portuguese': 'pt',
+    'italian': 'it',
+    'russian': 'ru',
+    'arabic': 'ar',
+    'hindi': 'hi',
+  }
+
+  const normalized = input.toLowerCase().trim()
+
+  // 先尝试直接匹配语言代码
+  if (languageCodeMap[normalized]) {
+    return languageCodeMap[normalized]
+  }
+
+  // 再尝试匹配语言名称
+  const code = languageNameMap[normalized]
+  if (code && languageCodeMap[code]) {
+    return languageCodeMap[code]
+  }
+
+  return null
 }
 
 /**
