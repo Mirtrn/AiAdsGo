@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Step 3: Google Ads Account Linking
+ * Step 2: Google Ads Account Linking
  * 关联Google Ads账号、OAuth授权
  *
  * 账号筛选规则：
@@ -82,7 +82,7 @@ const formatBalance = (balance: number | null | undefined, currency: string): st
   }).format(amount)
 }
 
-export default function Step3AccountLinking({ offer, onAccountLinked, selectedAccount }: Props) {
+export default function Step2AccountLinking({ offer, onAccountLinked, selectedAccount }: Props) {
   const [accounts, setAccounts] = useState<GoogleAdsAccount[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(selectedAccount?.customerId || null)
   const [loading, setLoading] = useState(true)

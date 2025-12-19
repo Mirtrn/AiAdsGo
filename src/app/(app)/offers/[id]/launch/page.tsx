@@ -19,8 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react'
 import { showError } from '@/lib/toast-utils'
 import Step1CreativeGeneration from './steps/Step1CreativeGeneration'
-import Step2CampaignConfig from './steps/Step2CampaignConfig'
-import Step3AccountLinking from './steps/Step3AccountLinking'
+import Step3CampaignConfig from './steps/Step3CampaignConfig'
+import Step2AccountLinking from './steps/Step2AccountLinking'
 import Step4PublishSummary from './steps/Step4PublishSummary'
 
 // 定义步骤 - 🔧 修复(2025-12-13): 调整顺序，先绑定账号再配置预算
@@ -245,7 +245,7 @@ export default function LaunchAdPage() {
           )}
 
           {currentStep === 2 && (
-            <Step3AccountLinking
+            <Step2AccountLinking
               offer={offer}
               onAccountLinked={handleAccountLinked}
               selectedAccount={selectedAccount}
@@ -253,7 +253,7 @@ export default function LaunchAdPage() {
           )}
 
           {currentStep === 3 && (
-            <Step2CampaignConfig
+            <Step3CampaignConfig
               offer={offer}
               selectedCreative={selectedCreative!}
               selectedAccount={selectedAccount!}

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Step 2: Campaign Configuration (完整版)
+ * Step 3: Campaign Configuration (完整版)
  * 根据业务规范：显示所有广告配置参数，用户可修改，2列布局
  *
  * 优化：
@@ -129,7 +129,7 @@ interface CampaignConfig {
   sitelinks: Array<{ text: string; description: string; url: string }>
 }
 
-export default function Step2CampaignConfig({ offer, selectedCreative, selectedAccount, onConfigured, initialConfig }: Props) {
+export default function Step3CampaignConfig({ offer, selectedCreative, selectedAccount, onConfigured, initialConfig }: Props) {
   // 🔧 修复(2025-12-13): 从selectedAccount获取货币信息
   const accountCurrency = selectedAccount?.currencyCode || 'USD'
   const currencySymbol = CURRENCY_SYMBOLS[accountCurrency] || '$'
