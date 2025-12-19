@@ -827,8 +827,14 @@ export async function POST(request: NextRequest) {
           total: createdCampaigns.length,
           successful: publishResults.length,
           failed: failedCampaigns.length
-        }
-      })
+        },
+        // 🔧 修复(2025-12-19): 强调这是异步队列状态，不是最终结果
+        // 前端应该轮询campaign.creation_status而不仅仅依赖HTTP响应码
+        message: publishResults.length > 0
+          ? `${publishResults.length}个广告系列已提交到后台处理，请稍候...'`
+          : '所有广告系列队列化失败',
+        note: '请通过轮询 campaign.creation_status 监听实际发布结果。可能值: pending(处理中) | synced(成功) | failed(失败)'
+      }, { status: 202 })
 
     } catch (error: any) {
       // 批量队列化的系统级错误

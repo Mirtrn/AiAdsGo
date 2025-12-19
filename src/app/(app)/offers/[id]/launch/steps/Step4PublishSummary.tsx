@@ -409,30 +409,117 @@ export default function Step4PublishSummary({
         throw new Error(data.error || data.message || '发布失败')
       }
 
-      // Step 3: Sync to Google Ads
-      addPublishStep('creating', '创建广告系列结构', 'success')
-      addPublishStep('syncing', '同步到Google Ads...', 'running')
-      setPublishStatus({
-        step: 'syncing',
-        message: '同步到Google Ads...',
-        success: false
-      })
+      // 🔥 修复(2025-12-19): 202 Accepted表示任务已提交到后台队列
+      // 不能立即认为成功，必须轮询campaign.creation_status直到synced或failed
+      if (response.status === 202) {
+        console.log('📦 任务已提交到后台队列，开始轮询状态...')
+        addPublishStep('creating', '创建广告系列结构', 'success')
+        addPublishStep('syncing', '同步到Google Ads...(轮询中)', 'running')
+        setPublishStatus({
+          step: 'syncing',
+          message: '正在后台处理，请稍候...',
+          success: false
+        })
 
-      // TODO: Implement actual Google Ads API sync
-      await new Promise(resolve => setTimeout(resolve, 2000))
+        // 获取所有已创建的campaign ID
+        const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
+        console.log(`📊 需要轮询的Campaign数量: ${campaignIds.length}`)
 
-      // Success - 在卡片中显示而不是toast
-      addPublishStep('syncing', '同步完成', 'success')
-      addPublishStep('completed', '广告系列已成功发布到Google Ads', 'success')
-      setPublishStatus({
-        step: 'completed',
-        message: '发布成功！广告系列已上线',
-        success: true
-      })
+        // 轮询直到所有campaign完成或失败（最多30次轮询，每次1秒）
+        let allCompleted = false
+        let pollCount = 0
+        const maxPolls = 30
+        const campaignStatuses: Record<number, { status: string; error?: string }> = {}
 
-      // 🔧 修复(2025-12-18): 发布成功后不再跳转，用户留在发布页面
-      // onPublishComplete() 已改为空操作，不需要延迟调用
-      onPublishComplete()
+        while (!allCompleted && pollCount < maxPolls) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          pollCount++
+
+          // 检查每个campaign的状态
+          let hasRunning = false
+          for (const campaignId of campaignIds) {
+            if (campaignStatuses[campaignId]) continue // 已完成，无需再查
+
+            try {
+              const statusRes = await fetch(`/api/offers/${offer.id}/campaigns?id=${campaignId}`, {
+                credentials: 'include'
+              })
+
+              if (statusRes.ok) {
+                const statusData = await statusRes.json()
+                const campaign = statusData.campaigns?.[0]
+
+                if (campaign) {
+                  console.log(`   Campaign ${campaignId}: ${campaign.creation_status}`)
+
+                  if (campaign.creation_status === 'synced') {
+                    campaignStatuses[campaignId] = { status: 'success' }
+                  } else if (campaign.creation_status === 'failed') {
+                    campaignStatuses[campaignId] = { status: 'failed', error: campaign.creation_error }
+                  } else {
+                    hasRunning = true
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn(`   查询Campaign ${campaignId}失败:`, e)
+            }
+          }
+
+          allCompleted = !hasRunning
+
+          if (!allCompleted) {
+            const completed = Object.values(campaignStatuses).length
+            console.log(`⏳ 轮询 #${pollCount}/${maxPolls}: 已完成 ${completed}/${campaignIds.length} 个campaign`)
+          }
+        }
+
+        // 判断最终结果
+        const failedCampaigns = Object.entries(campaignStatuses)
+          .filter(([_, s]) => s.status === 'failed')
+          .map(([id, _]) => id)
+
+        const successCount = Object.values(campaignStatuses).filter(s => s.status === 'success').length
+
+        if (failedCampaigns.length > 0) {
+          // 部分或全部失败
+          const errorMsg = `${failedCampaigns.length}个广告系列发布失败`
+          console.error(`❌ ${errorMsg}`)
+          addPublishStep('syncing', errorMsg, 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: errorMsg,
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+
+        if (pollCount >= maxPolls && successCount === 0) {
+          // 超时未完成
+          console.error('❌ 广告系列处理超时')
+          addPublishStep('syncing', '处理超时，请稍后检查发布结果', 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: '处理超时，请稍后检查发布结果',
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+
+        // 全部成功
+        console.log(`✅ 所有${successCount}个广告系列发布成功`)
+        addPublishStep('syncing', '同步完成', 'success')
+        addPublishStep('completed', `${successCount}个广告系列已成功发布到Google Ads`, 'success')
+        setPublishStatus({
+          step: 'completed',
+          message: '发布成功！广告系列已上线',
+          success: true
+        })
+        onPublishComplete()
+        return
+      }
     } catch (error: any) {
       // 发布失败 - 在卡片中显示而不是toast
       addPublishStep('error', error.message || '发布失败', 'failed')

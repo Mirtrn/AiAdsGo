@@ -135,6 +135,29 @@ export async function executeCampaignPublish(
 
     console.log(`💰 使用账号货币: ${adsAccount.currency}`)
 
+    // 🔧 修复(2025-12-19): 如果parent_mcc_id为NULL，从用户设置中获取login_customer_id
+    // 这确保MCC账户ID正确传递给Google Ads API
+    let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+    if (!effectiveLoginCustomerId) {
+      try {
+        const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
+        const userCredentials = await getGoogleAdsCredentials(userId)
+        if (userCredentials?.login_customer_id) {
+          effectiveLoginCustomerId = userCredentials.login_customer_id
+          console.log(`⚠️ 使用来自用户设置的login_customer_id: ${effectiveLoginCustomerId}`)
+
+          // 同时更新数据库，避免后续调用继续走这条路径
+          await db.exec(
+            `UPDATE google_ads_accounts SET parent_mcc_id = ? WHERE id = ?`,
+            [effectiveLoginCustomerId, adsAccount.id]
+          )
+          console.log(`✅ 已更新parent_mcc_id到数据库`)
+        }
+      } catch (settingsError: any) {
+        console.warn(`⚠️ 无法从用户设置获取login_customer_id: ${settingsError.message}`)
+      }
+    }
+
     // 2. 获取OAuth凭证
     const credentials = await getGoogleAdsCredentials(userId)
     if (!credentials || !credentials.refresh_token) {
@@ -197,7 +220,7 @@ export async function executeCampaignPublish(
       status: 'ENABLED',
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: adsAccount.parent_mcc_id || undefined
+      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
     })
 
     console.log(`✅ Campaign创建成功 (Google ID: ${googleCampaignId})`)
@@ -214,7 +237,7 @@ export async function executeCampaignPublish(
       status: 'ENABLED',
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: adsAccount.parent_mcc_id || undefined
+      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
     })
 
     console.log(`✅ Ad Group创建成功 (Google ID: ${googleAdGroupId})`)
@@ -320,7 +343,7 @@ export async function executeCampaignPublish(
       path2: creative.path2 || undefined,
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: adsAccount.parent_mcc_id || undefined
+      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
     })
 
     console.log(`✅ 广告创建成功 (Google ID: ${googleAdId})`)
@@ -395,7 +418,7 @@ export async function executeCampaignPublish(
           status: 'ENABLED',
           accountId: adsAccount.id,
           userId,
-          loginCustomerId: adsAccount.parent_mcc_id || undefined
+          loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
         })
         finalCampaignStatus = 'ENABLED'
         console.log(`✅ Campaign已启用`)
