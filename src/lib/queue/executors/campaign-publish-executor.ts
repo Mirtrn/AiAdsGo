@@ -274,45 +274,65 @@ export async function executeCampaignPublish(
 
     console.log(`✅ 广告创建成功 (Google ID: ${googleAdId})`)
 
-    // 10. 添加广告扩展（非致命错误）
-    try {
-      if (creative.callouts && creative.callouts.length > 0) {
-        totalApiOperations += creative.callouts.length + 1
-        await createGoogleAdsCalloutExtensions({
-          customerId: adsAccount.customer_id,
-          refreshToken: credentials.refresh_token,
-          campaignId: googleCampaignId,
-          callouts: creative.callouts,
-          accountId: adsAccount.id,
-          userId
-        })
-        console.log(`✅ 成功添加${creative.callouts.length}个Callout扩展`)
-      }
-
-      if (creative.sitelinks && creative.sitelinks.length > 0) {
-        const formattedSitelinks = creative.sitelinks.map(link => ({
-          text: link.text,
-          url: link.url,
-          description1: link.description || '',
-          description2: ''
-        }))
-
-        totalApiOperations += creative.sitelinks.length + 1
-        await createGoogleAdsSitelinkExtensions({
-          customerId: adsAccount.customer_id,
-          refreshToken: credentials.refresh_token,
-          campaignId: googleCampaignId,
-          sitelinks: formattedSitelinks,
-          accountId: adsAccount.id,
-          userId
-        })
-        console.log(`✅ 成功添加${creative.sitelinks.length}个Sitelink扩展`)
-      }
-    } catch (extensionError: any) {
-      console.warn(`⚠️ 广告扩展创建失败（非致命错误）: ${extensionError.message}`)
+    // 10. 添加Callout Extensions（必须配置）
+    let finalCallouts = creative.callouts || []
+    if (finalCallouts.length === 0) {
+      // 生成默认Callouts
+      finalCallouts = [
+        'Free Shipping',
+        '24/7 Support',
+        'Quality Guaranteed'
+      ]
+      console.log(`📝 生成默认Callouts: ${finalCallouts.length}个`)
     }
+    totalApiOperations += finalCallouts.length + 1
+    await createGoogleAdsCalloutExtensions({
+      customerId: adsAccount.customer_id,
+      refreshToken: credentials.refresh_token,
+      campaignId: googleCampaignId,
+      callouts: finalCallouts,
+      accountId: adsAccount.id,
+      userId
+    })
+    console.log(`✅ 成功添加${finalCallouts.length}个Callout扩展`)
 
-    // 11. 启用Campaign（如果需要）
+    // 11. 添加Sitelink Extensions（必须配置）
+    let finalSitelinks = creative.sitelinks || []
+    if (finalSitelinks.length === 0) {
+      // 生成默认Sitelinks
+      finalSitelinks = [
+        {
+          text: 'Products',
+          url: creative.finalUrl,
+          description: 'Browse all products'
+        },
+        {
+          text: 'Support',
+          url: creative.finalUrl,
+          description: 'Get help'
+        }
+      ]
+      console.log(`📝 生成默认Sitelinks: ${finalSitelinks.length}个`)
+    }
+    const formattedSitelinks = finalSitelinks.map(link => ({
+      text: link.text,
+      url: link.url,
+      description1: link.description || '',
+      description2: ''
+    }))
+
+    totalApiOperations += formattedSitelinks.length + 1
+    await createGoogleAdsSitelinkExtensions({
+      customerId: adsAccount.customer_id,
+      refreshToken: credentials.refresh_token,
+      campaignId: googleCampaignId,
+      sitelinks: formattedSitelinks,
+      accountId: adsAccount.id,
+      userId
+    })
+    console.log(`✅ 成功添加${formattedSitelinks.length}个Sitelink扩展`)
+
+    // 12. 启用Campaign（如果需要）
     let finalCampaignStatus: 'ENABLED' | 'PAUSED' = 'PAUSED'
     if (enableCampaignImmediately) {
       try {
@@ -333,7 +353,7 @@ export async function executeCampaignPublish(
       }
     }
 
-    // 12. 更新数据库记录
+    // 13. 更新数据库记录
     await db.exec(
       `UPDATE campaigns
        SET google_campaign_id = ?, google_ad_group_id = ?, google_ad_id = ?,
