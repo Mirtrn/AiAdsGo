@@ -384,7 +384,7 @@ export async function executeCampaignPublish(
           userId: userId,
           operationType: ApiOperationType.MUTATE_BATCH,
           endpoint: 'publishCampaign',
-          customerId: task.data.googleAdsAccountId,
+          customerId: task.data.googleAdsAccountId.toString(),
           requestCount: totalApiOperations,
           responseTimeMs: Date.now() - apiStartTime,
           isSuccess: apiSuccess,
@@ -396,5 +396,3 @@ export async function executeCampaignPublish(
     }
   }
 }
-
-export type { CampaignPublishTaskData }

@@ -18,6 +18,8 @@
 import { getQueueManager } from './index'
 import { registerAllExecutors } from './executors'
 import { NODE_ENV, REDIS_PREFIX_CONFIG } from '../config'
+import type { UnifiedQueueManager } from './unified-queue-manager'
+import type { QueueConfig } from './types'
 
 /**
  * 初始化统一队列系统
@@ -94,4 +96,14 @@ if (typeof process !== 'undefined') {
     await shutdownQueue()
     process.exit(0)
   })
+}
+
+/**
+ * 获取队列管理器并确保已初始化和启动
+ * 用于API路由中快速获取可用的队列实例
+ */
+export async function getOrCreateQueueManager(config?: Partial<QueueConfig>): Promise<UnifiedQueueManager> {
+  const queue = getQueueManager(config)
+  await queue.ensureStarted()
+  return queue
 }

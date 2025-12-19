@@ -363,10 +363,9 @@ export async function createGoogleAdsCampaign(params: {
     // 官方推荐：创建时使用PAUSED状态，添加完定位和广告后再启用
     status: enums.CampaignStatus.PAUSED,
     advertising_channel_type: enums.AdvertisingChannelType.SEARCH,
-    // 🚀 修复(2025-12-18): 明确设置营销目标为"网站流量"
-    // 对于搜索广告系列，使用SEARCH_STANDARD子类型表示标准搜索广告
-    // 这个子类型隐含了"网站流量"作为营销目标
-    advertising_channel_sub_type: enums.AdvertisingChannelSubType.SEARCH_STANDARD,
+    // 🚀 修复(2025-12-18): 移除SEARCH_STANDARD子类型
+    // SEARCH_STANDARD不是有效的枚举值，标准搜索广告不需要设置子类型
+    // advertising_channel_sub_type会默认为标准搜索广告
     campaign_budget: budgetResourceName,
     network_settings: {
       target_google_search: true,

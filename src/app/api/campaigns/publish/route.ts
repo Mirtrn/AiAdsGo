@@ -779,12 +779,14 @@ export async function POST(request: NextRequest) {
           }
 
           // 入队任务
-          await queue.enqueue({
-            type: 'campaign-publish',
-            data: taskData,
-            priority: 'high',
-            userId: userId
-          })
+          await queue.enqueue(
+            'campaign-publish',
+            taskData,
+            userId,
+            {
+              priority: 'high'
+            }
+          )
 
           console.log(`✅ Campaign发布任务已入队 ID: ${campaignId}`)
 

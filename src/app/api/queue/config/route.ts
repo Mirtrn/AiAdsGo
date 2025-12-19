@@ -27,7 +27,8 @@ const DEFAULT_QUEUE_CONFIG = {
     cleanup: 1,
     'offer-extraction': 2,
     'batch-offer-creation': 1,
-    'ad-creative': 3  // 创意生成任务（允许多用户同时生成）
+    'ad-creative': 3,  // 创意生成任务（允许多用户同时生成）
+    'campaign-publish': 2  // 🆕 广告系列发布任务（Google Ads API限制）
   },
   maxQueueSize: 1000,
   taskTimeout: 600000,
