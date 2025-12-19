@@ -1977,3 +1977,106 @@ export async function setCampaignMarketingObjective(params: {
     throw new Error(`设置营销目标失败: ${error.message}`)
   }
 }
+
+// ==================== Headline Optimization ====================
+
+/**
+ * 确保标题中包含热门关键词
+ *
+ * 🔧 新增(2025-12-20): 解决Google Ads广告效力"未在标题中包含热门关键词"问题
+ *
+ * Google Ads 会检测广告标题是否包含投放的关键词，如果标题中没有关键词，
+ * 广告效力评分会降低。此函数确保 Top N 热门关键词至少出现在标题中。
+ *
+ * @param headlines - 原始标题数组（15个）
+ * @param keywords - 关键词数组（按优先级排序）
+ * @param brandName - 品牌名称
+ * @param maxKeywordsToEnsure - 需要确保覆盖的关键词数量（默认3个）
+ * @returns 优化后的标题数组
+ */
+export function ensureKeywordsInHeadlines(
+  headlines: string[],
+  keywords: string[],
+  brandName: string,
+  maxKeywordsToEnsure: number = 3
+): string[] {
+  if (!headlines || headlines.length === 0) {
+    console.log(`[HeadlineOptimizer] ⚠️ 没有标题可优化`)
+    return headlines
+  }
+
+  if (!keywords || keywords.length === 0) {
+    console.log(`[HeadlineOptimizer] ⚠️ 没有关键词可用于优化`)
+    return headlines
+  }
+
+  const result = [...headlines]
+  const headlinesLower = result.map(h => h.toLowerCase())
+
+  // 获取需要确保覆盖的 Top N 关键词
+  const topKeywords = keywords
+    .slice(0, maxKeywordsToEnsure)
+    .map(k => typeof k === 'string' ? k : (k as any).text || (k as any).keyword || '')
+    .filter(k => k.length > 0)
+
+  console.log(`[HeadlineOptimizer] 🔍 检查 Top ${topKeywords.length} 关键词覆盖情况`)
+  console.log(`[HeadlineOptimizer]    关键词: ${topKeywords.join(', ')}`)
+
+  // 找出未被标题覆盖的关键词
+  const uncoveredKeywords: string[] = []
+  topKeywords.forEach(kw => {
+    const kwLower = kw.toLowerCase()
+    const isCovered = headlinesLower.some(h => h.includes(kwLower))
+    if (!isCovered) {
+      uncoveredKeywords.push(kw)
+      console.log(`[HeadlineOptimizer]    ❌ 未覆盖: "${kw}"`)
+    } else {
+      console.log(`[HeadlineOptimizer]    ✅ 已覆盖: "${kw}"`)
+    }
+  })
+
+  if (uncoveredKeywords.length === 0) {
+    console.log(`[HeadlineOptimizer] ✅ 所有热门关键词已被标题覆盖，无需优化`)
+    return result
+  }
+
+  console.log(`[HeadlineOptimizer] 🔧 需要为 ${uncoveredKeywords.length} 个关键词生成新标题`)
+
+  // 生成包含关键词的新标题模板
+  const generateKeywordHeadline = (keyword: string, brand: string): string => {
+    // 多种模板，确保多样性
+    const templates = [
+      `${keyword} - ${brand}`,           // "smart ring - Ringconn"
+      `Shop ${keyword} Now`,             // "Shop smart ring Now"
+      `${keyword} | Official Store`,     // "smart ring | Official Store"
+      `Best ${keyword} Deals`,           // "Best smart ring Deals"
+      `${brand} ${keyword}`,             // "Ringconn smart ring"
+    ]
+
+    // 选择一个不超过30字符的模板
+    for (const template of templates) {
+      if (template.length <= 30) {
+        return template
+      }
+    }
+
+    // 如果所有模板都太长，直接使用关键词
+    return keyword.length <= 30 ? keyword : keyword.substring(0, 30)
+  }
+
+  // 替换最后几个标题为包含未覆盖关键词的版本
+  uncoveredKeywords.forEach((kw, i) => {
+    // 从倒数第二个开始替换（保留最后一个作为CTA）
+    const replaceIndex = result.length - 2 - i
+    if (replaceIndex >= 0 && replaceIndex < result.length) {
+      const oldHeadline = result[replaceIndex]
+      const newHeadline = generateKeywordHeadline(kw, brandName)
+      result[replaceIndex] = newHeadline
+      console.log(`[HeadlineOptimizer]    替换标题[${replaceIndex}]: "${oldHeadline}" → "${newHeadline}"`)
+    }
+  })
+
+  console.log(`[HeadlineOptimizer] ✅ 标题优化完成，替换了 ${uncoveredKeywords.length} 个标题`)
+
+  return result
+}

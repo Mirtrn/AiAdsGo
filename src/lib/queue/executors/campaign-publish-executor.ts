@@ -26,6 +26,7 @@ import {
   createGoogleAdsCalloutExtensions,
   createGoogleAdsSitelinkExtensions,
   setCampaignMarketingObjective,
+  ensureKeywordsInHeadlines,
   type MarketingObjective
 } from '@/lib/google-ads-api'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
@@ -490,12 +491,23 @@ export async function executeCampaignPublish(
     }
 
     // 12.3 创建Responsive Search Ad
+    // 🔧 新增(2025-12-20): 优化标题，确保包含热门关键词
+    console.log(`\n📝 优化广告标题，确保包含热门关键词...`)
+    const originalHeadlines = creative.headlines.slice(0, 15)
+    const keywordsForOptimization = campaignConfig.keywords || []
+    const optimizedHeadlines = ensureKeywordsInHeadlines(
+      originalHeadlines,
+      keywordsForOptimization,
+      brandName,
+      3  // 确保 Top 3 关键词被覆盖
+    )
+
     totalApiOperations++
     const adResult = await createGoogleAdsResponsiveSearchAd({
       customerId: adsAccount.customer_id,
       refreshToken: credentials.refresh_token,
       adGroupId: googleAdGroupId,
-      headlines: creative.headlines.slice(0, 15),
+      headlines: optimizedHeadlines,
       descriptions: creative.descriptions.slice(0, 4),
       finalUrls: [creative.finalUrl],
       path1: creative.path1 || undefined,
