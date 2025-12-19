@@ -386,10 +386,13 @@ export async function POST(request: NextRequest) {
       console.warn(`⚠️ 缓存查询失败: ${cacheError.message}，将重新计算`)
     }
 
-    try {
-      let launchScore: number
-      let scoreAnalysis: ScoreAnalysis
+    // 🔥 修复(2025-12-19): 在try块外声明变量，以便在返回响应时使用
+    let launchScore: number = 0
+    let scoreAnalysis: ScoreAnalysis | undefined
+    let analysis: any
+    let overallRecommendations: string[] = []
 
+    try {
       if (cachedLaunchScore) {
         // 使用缓存的数据
         launchScore = cachedLaunchScore.totalScore
@@ -541,10 +544,10 @@ export async function POST(request: NextRequest) {
       }
 
       // 🎯 从scoreAnalysis中提取各维度分数（v4.16 - 4维度智能matchType评分）
-      const analysis = scoreAnalysis
+      analysis = scoreAnalysis
 
       // 🔧 修复：确保overallRecommendations在所有路径中可用
-      const overallRecommendations = scoreAnalysis?.overallRecommendations || extractAllSuggestions(scoreAnalysis)
+      overallRecommendations = scoreAnalysis?.overallRecommendations || extractAllSuggestions(scoreAnalysis)
 
       console.log(`📊 Launch Score评估结果 (v4.16): ${launchScore}分`)
       console.log(`   - 投放可行性: ${analysis.launchViability.score}/40`)
@@ -829,7 +832,7 @@ export async function POST(request: NextRequest) {
           failed: failedCampaigns.length
         },
         // 🔥 新增(2025-12-19): Launch Score评分结果
-        launchScore: launchScore > 0 ? {
+        launchScore: (launchScore > 0 && analysis) ? {
           totalScore: launchScore,
           breakdown: {
             launchViability: { score: analysis.launchViability.score, max: 40 },
