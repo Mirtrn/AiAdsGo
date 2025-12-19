@@ -46,9 +46,9 @@ export async function queryActiveCampaigns(
 ): Promise<ActiveCampaignsQueryResult> {
   const db = await getDatabase()
 
-  // 1. 获取Google Ads账号信息
+  // 1. 获取Google Ads账号信息（包含parent_mcc_id用于MCC子账号权限）
   const adsAccount = await db.queryOne(
-    `SELECT id, customer_id FROM google_ads_accounts
+    `SELECT id, customer_id, parent_mcc_id FROM google_ads_accounts
      WHERE id = ? AND user_id = ? AND is_active = 1`,
     [Number(googleAdsAccountId), Number(userId)]
   ) as any
@@ -56,6 +56,15 @@ export async function queryActiveCampaigns(
   if (!adsAccount) {
     throw new Error(`Google Ads账号不存在或未激活: ${googleAdsAccountId}`)
   }
+
+  // 🔧 处理MCC子账号的login-customer-id参数
+  // 如果有parent_mcc_id，说明是子账号，需要传递loginCustomerId
+  let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+  console.log(`🔍 [Debug] 账号 ${adsAccount.customer_id} 的 parent_mcc_id: ${adsAccount.parent_mcc_id} (类型: ${typeof adsAccount.parent_mcc_id})`)
+
+  // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
+  const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
+  console.log(`🔍 [Debug] 转换后的 finalLoginCustomerId: ${finalLoginCustomerId} (类型: ${typeof finalLoginCustomerId})`)
 
   // 2. 获取OAuth凭证
   const credentials = await getGoogleAdsCredentials(userId)
@@ -69,7 +78,8 @@ export async function queryActiveCampaigns(
     customerId: adsAccount.customer_id,
     refreshToken: credentials.refresh_token,
     accountId: googleAdsAccountId,
-    userId
+    userId,
+    loginCustomerId: finalLoginCustomerId
   })
 
   // 4. 转换为简化格式
@@ -119,15 +129,19 @@ export async function pauseCampaigns(
 ): Promise<void> {
   const db = await getDatabase()
 
-  // 获取账号信息
+  // 获取账号信息（包含parent_mcc_id用于MCC子账号权限）
   const adsAccount = await db.queryOne(
-    `SELECT customer_id FROM google_ads_accounts WHERE id = ?`,
+    `SELECT customer_id, parent_mcc_id FROM google_ads_accounts WHERE id = ?`,
     [Number(googleAdsAccountId)]
   ) as any
 
   if (!adsAccount) {
     throw new Error(`Google Ads账号不存在: ${googleAdsAccountId}`)
   }
+
+  // 🔧 处理MCC子账号的login-customer-id参数
+  let effectiveLoginCustomerId = adsAccount.parent_mcc_id
+  const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
 
   // 获取OAuth凭证
   const credentials = await getGoogleAdsCredentials(userId)
@@ -148,7 +162,8 @@ export async function pauseCampaigns(
         campaignId: campaign.id,
         status: 'PAUSED',
         accountId: googleAdsAccountId,
-        userId
+        userId,
+        loginCustomerId: finalLoginCustomerId
       })
       console.log(`✅ 成功暂停: ${campaign.name}`)
     } catch (error) {

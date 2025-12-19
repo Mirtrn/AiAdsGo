@@ -798,6 +798,7 @@ export async function listGoogleAdsCampaigns(params: {
   accountId?: number
   userId?: number
   skipCache?: boolean
+  loginCustomerId?: string
 }): Promise<any[]> {
   // 生成缓存键
   const cacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
@@ -815,7 +816,8 @@ export async function listGoogleAdsCampaigns(params: {
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId
   )
 
   const query = `
