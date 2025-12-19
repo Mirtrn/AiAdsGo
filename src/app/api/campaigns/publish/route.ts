@@ -774,6 +774,7 @@ export async function POST(request: NextRequest) {
             googleAdsAccountId: _googleAdsAccountId,
             userId: userId,
             naming: naming, // 🔥 新增：传递规范化命名
+            marketingObjective: _campaignConfig.marketingObjective || 'WEB_TRAFFIC', // 🔧 新增(2025-12-19): 营销目标
             campaignConfig: {
               targetCountry: _campaignConfig.targetCountry,
               targetLanguage: _campaignConfig.targetLanguage,

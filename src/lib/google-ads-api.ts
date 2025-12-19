@@ -1605,3 +1605,175 @@ export async function createGoogleAdsSitelinkExtensions(params: {
     throw new Error(`创建Sitelink扩展失败: ${error.message}`)
   }
 }
+
+/**
+ * 营销目标类型枚举
+ * 对应 Google Ads UI 中的"营销目标"选项
+ */
+export type MarketingObjective =
+  | 'WEB_TRAFFIC'      // 网站流量 - PAGE_VIEW + WEBSITE
+  | 'SALES'            // 销售 - PURCHASE + WEBSITE
+  | 'LEADS'            // 潜在客户 - SUBMIT_LEAD_FORM + WEBSITE
+  | 'STORE_VISITS'     // 实体店访问 - STORE_VISIT + STORE
+
+/**
+ * 营销目标到转化目标的映射
+ */
+const MARKETING_OBJECTIVE_MAPPING: Record<MarketingObjective, { category: number; origin: number }> = {
+  'WEB_TRAFFIC': {
+    category: enums.ConversionActionCategory.PAGE_VIEW,  // 3
+    origin: enums.ConversionOrigin.WEBSITE               // 2
+  },
+  'SALES': {
+    category: enums.ConversionActionCategory.PURCHASE,   // 2
+    origin: enums.ConversionOrigin.WEBSITE               // 2
+  },
+  'LEADS': {
+    category: enums.ConversionActionCategory.SUBMIT_LEAD_FORM, // 8
+    origin: enums.ConversionOrigin.WEBSITE               // 2
+  },
+  'STORE_VISITS': {
+    category: enums.ConversionActionCategory.STORE_VISIT, // 9
+    origin: enums.ConversionOrigin.STORE                 // 6
+  }
+}
+
+/**
+ * 设置Campaign的营销目标（转化目标）
+ *
+ * 🔧 新增(2025-12-19): 解决Google Ads UI中"营销目标"显示为空的问题
+ *
+ * Google Ads API没有直接的"营销目标"字段，需要通过设置CampaignConversionGoal来实现。
+ * 这个函数会查询Campaign现有的转化目标，然后更新指定类型的目标为biddable=true。
+ *
+ * @param params.customerId - Google Ads客户ID
+ * @param params.refreshToken - OAuth刷新令牌
+ * @param params.campaignId - Campaign ID
+ * @param params.marketingObjective - 营销目标类型
+ * @param params.loginCustomerId - MCC经理账号ID（可选）
+ */
+export async function setCampaignMarketingObjective(params: {
+  customerId: string
+  refreshToken: string
+  campaignId: string
+  marketingObjective: MarketingObjective
+  accountId?: number
+  userId?: number
+  loginCustomerId?: string
+}): Promise<{ success: boolean; message: string }> {
+  const { customerId, refreshToken, campaignId, marketingObjective, accountId, userId, loginCustomerId } = params
+
+  console.log(`\n🎯 设置Campaign营销目标: ${marketingObjective}`)
+  console.log(`   Campaign ID: ${campaignId}`)
+  console.log(`   Customer ID: ${customerId}`)
+
+  try {
+    const customer = await getCustomer(customerId, refreshToken, accountId, userId, loginCustomerId)
+
+    // 获取营销目标对应的转化类别和来源
+    const mapping = MARKETING_OBJECTIVE_MAPPING[marketingObjective]
+    if (!mapping) {
+      throw new Error(`不支持的营销目标类型: ${marketingObjective}`)
+    }
+
+    console.log(`   转化类别: ${mapping.category} (${marketingObjective})`)
+    console.log(`   转化来源: ${mapping.origin}`)
+
+    // 1. 首先查询Campaign现有的转化目标
+    const query = `
+      SELECT
+        campaign_conversion_goal.resource_name,
+        campaign_conversion_goal.campaign,
+        campaign_conversion_goal.category,
+        campaign_conversion_goal.origin,
+        campaign_conversion_goal.biddable
+      FROM campaign_conversion_goal
+      WHERE campaign.id = ${campaignId}
+    `
+
+    console.log(`   查询现有转化目标...`)
+    const existingGoals = await customer.query(query)
+    console.log(`   找到 ${existingGoals.length} 个现有转化目标`)
+
+    // 2. 查找匹配的转化目标
+    let targetGoal = existingGoals.find((goal: any) =>
+      goal.campaign_conversion_goal?.category === mapping.category &&
+      goal.campaign_conversion_goal?.origin === mapping.origin
+    )
+
+    if (targetGoal && targetGoal.campaign_conversion_goal) {
+      // 3a. 如果找到匹配的目标，更新其biddable状态
+      console.log(`   找到匹配的转化目标，更新biddable=true`)
+
+      const resourceName = targetGoal.campaign_conversion_goal.resource_name
+
+      await customer.campaignConversionGoals.update([{
+        resource_name: resourceName,
+        biddable: true
+      }])
+
+      console.log(`   ✅ 营销目标设置成功: ${marketingObjective}`)
+      return {
+        success: true,
+        message: `营销目标 ${marketingObjective} 设置成功`
+      }
+    } else {
+      // 3b. 如果没有找到匹配的目标，说明账户可能没有配置对应的转化操作
+      // 这种情况下，我们尝试将所有现有目标设置为biddable=false，
+      // 然后创建一个新的转化目标（如果API支持）
+
+      console.log(`   ⚠️ 未找到匹配的转化目标 (category=${mapping.category}, origin=${mapping.origin})`)
+      console.log(`   现有目标:`, existingGoals.map((g: any) => ({
+        category: g.campaign_conversion_goal?.category,
+        origin: g.campaign_conversion_goal?.origin,
+        biddable: g.campaign_conversion_goal?.biddable
+      })))
+
+      // 如果有任何现有目标，尝试将第一个设置为biddable
+      // 这至少可以让Campaign有一个活跃的转化目标
+      if (existingGoals.length > 0) {
+        const firstGoal = existingGoals[0]
+        if (!firstGoal.campaign_conversion_goal) {
+          console.log(`   ⚠️ 第一个目标数据格式异常`)
+          return {
+            success: false,
+            message: `Campaign转化目标数据格式异常`
+          }
+        }
+        const resourceName = firstGoal.campaign_conversion_goal.resource_name
+
+        console.log(`   尝试启用第一个可用的转化目标...`)
+        await customer.campaignConversionGoals.update([{
+          resource_name: resourceName,
+          biddable: true
+        }])
+
+        console.log(`   ✅ 已启用默认转化目标`)
+        return {
+          success: true,
+          message: `未找到 ${marketingObjective} 对应的转化目标，已启用默认转化目标`
+        }
+      }
+
+      // 如果完全没有转化目标，返回警告
+      console.log(`   ⚠️ Campaign没有任何转化目标，请在Google Ads账户中配置转化操作`)
+      return {
+        success: false,
+        message: `Campaign没有可用的转化目标，请先在Google Ads账户中配置转化操作`
+      }
+    }
+  } catch (error: any) {
+    console.error(`❌ 设置营销目标失败:`, error.message)
+
+    // 如果是因为没有转化目标导致的错误，返回友好提示
+    if (error.message?.includes('RESOURCE_NOT_FOUND') ||
+        error.message?.includes('no rows')) {
+      return {
+        success: false,
+        message: `Campaign没有可用的转化目标，请先在Google Ads账户中配置转化操作`
+      }
+    }
+
+    throw new Error(`设置营销目标失败: ${error.message}`)
+  }
+}
