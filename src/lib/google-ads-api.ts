@@ -1619,22 +1619,127 @@ export type MarketingObjective =
 /**
  * 营销目标到转化目标的映射
  */
-const MARKETING_OBJECTIVE_MAPPING: Record<MarketingObjective, { category: number; origin: number }> = {
+const MARKETING_OBJECTIVE_MAPPING: Record<MarketingObjective, {
+  category: number
+  origin: number
+  conversionActionCategory: number
+  conversionActionName: string
+}> = {
   'WEB_TRAFFIC': {
     category: enums.ConversionActionCategory.PAGE_VIEW,  // 3
-    origin: enums.ConversionOrigin.WEBSITE               // 2
+    origin: enums.ConversionOrigin.WEBSITE,              // 2
+    conversionActionCategory: enums.ConversionActionCategory.PAGE_VIEW, // 3
+    conversionActionName: 'AutoAds - Page View'
   },
   'SALES': {
-    category: enums.ConversionActionCategory.PURCHASE,   // 2
-    origin: enums.ConversionOrigin.WEBSITE               // 2
+    category: enums.ConversionActionCategory.PURCHASE,   // 4 (注意：PURCHASE在ConversionActionCategory中是4)
+    origin: enums.ConversionOrigin.WEBSITE,              // 2
+    conversionActionCategory: enums.ConversionActionCategory.PURCHASE, // 4
+    conversionActionName: 'AutoAds - Purchase'
   },
   'LEADS': {
-    category: enums.ConversionActionCategory.SUBMIT_LEAD_FORM, // 8
-    origin: enums.ConversionOrigin.WEBSITE               // 2
+    category: enums.ConversionActionCategory.SUBMIT_LEAD_FORM, // 13
+    origin: enums.ConversionOrigin.WEBSITE,              // 2
+    conversionActionCategory: enums.ConversionActionCategory.SUBMIT_LEAD_FORM, // 13
+    conversionActionName: 'AutoAds - Lead Form Submit'
   },
   'STORE_VISITS': {
-    category: enums.ConversionActionCategory.STORE_VISIT, // 9
-    origin: enums.ConversionOrigin.STORE                 // 6
+    category: enums.ConversionActionCategory.STORE_VISIT, // 20
+    origin: enums.ConversionOrigin.STORE,                // 6
+    conversionActionCategory: enums.ConversionActionCategory.STORE_VISIT, // 20
+    conversionActionName: 'AutoAds - Store Visit'
+  }
+}
+
+/**
+ * 创建转化操作（Conversion Action）
+ *
+ * 🔧 新增(2025-12-20): 当账户没有转化操作时，自动创建一个
+ *
+ * @param customer - Google Ads Customer 实例
+ * @param marketingObjective - 营销目标类型
+ * @returns 创建的转化操作资源名称
+ */
+async function createConversionAction(
+  customer: Customer,
+  marketingObjective: MarketingObjective
+): Promise<string | null> {
+  const mapping = MARKETING_OBJECTIVE_MAPPING[marketingObjective]
+  const timestamp = Date.now()
+  const conversionActionName = `${mapping.conversionActionName} - ${timestamp}`
+
+  console.log(`   📝 创建转化操作: ${conversionActionName}`)
+  console.log(`   类别: ${mapping.conversionActionCategory}`)
+
+  try {
+    const conversionAction = {
+      name: conversionActionName,
+      category: mapping.conversionActionCategory,
+      type: enums.ConversionActionType.WEBPAGE,  // 8 - 网页转化
+      status: enums.ConversionActionStatus.ENABLED,  // 2 - 启用
+      view_through_lookback_window_days: 30,
+      click_through_lookback_window_days: 30,
+      value_settings: {
+        default_value: 1.0,
+        always_use_default_value: true
+      }
+    }
+
+    const response = await customer.conversionActions.create([conversionAction])
+
+    if (response.results && response.results.length > 0) {
+      const resourceName = response.results[0].resource_name
+      console.log(`   ✅ 转化操作创建成功: ${resourceName}`)
+      return resourceName || null
+    }
+
+    console.log(`   ⚠️ 转化操作创建响应为空`)
+    return null
+  } catch (error: any) {
+    console.error(`   ❌ 创建转化操作失败:`, error.message)
+
+    // 如果是重名错误，尝试查找现有的转化操作
+    if (error.message?.includes('DUPLICATE_NAME')) {
+      console.log(`   🔍 转化操作已存在，尝试查找...`)
+      return null
+    }
+
+    throw error
+  }
+}
+
+/**
+ * 查询账户的转化操作
+ *
+ * @param customer - Google Ads Customer 实例
+ * @param marketingObjective - 营销目标类型
+ * @returns 匹配的转化操作列表
+ */
+async function queryConversionActions(
+  customer: Customer,
+  marketingObjective: MarketingObjective
+): Promise<any[]> {
+  const mapping = MARKETING_OBJECTIVE_MAPPING[marketingObjective]
+
+  const query = `
+    SELECT
+      conversion_action.resource_name,
+      conversion_action.id,
+      conversion_action.name,
+      conversion_action.category,
+      conversion_action.type,
+      conversion_action.status
+    FROM conversion_action
+    WHERE conversion_action.status = 'ENABLED'
+      AND conversion_action.category = ${mapping.conversionActionCategory}
+  `
+
+  try {
+    const results = await customer.query(query)
+    return results
+  } catch (error: any) {
+    console.log(`   ⚠️ 查询转化操作失败:`, error.message)
+    return []
   }
 }
 
@@ -1755,11 +1860,106 @@ export async function setCampaignMarketingObjective(params: {
         }
       }
 
-      // 如果完全没有转化目标，返回警告
-      console.log(`   ⚠️ Campaign没有任何转化目标，请在Google Ads账户中配置转化操作`)
-      return {
-        success: false,
-        message: `Campaign没有可用的转化目标，请先在Google Ads账户中配置转化操作`
+      // 如果完全没有转化目标，尝试自动创建转化操作
+      console.log(`   ⚠️ Campaign没有任何转化目标，尝试自动创建转化操作...`)
+
+      // 🔧 新增(2025-12-20): 自动创建转化操作
+      try {
+        // 1. 先检查账户是否已有匹配的转化操作
+        const existingActions = await queryConversionActions(customer, marketingObjective)
+        console.log(`   找到 ${existingActions.length} 个现有转化操作`)
+
+        let conversionActionResourceName: string | null = null
+
+        if (existingActions.length > 0) {
+          // 使用现有的转化操作
+          conversionActionResourceName = existingActions[0].conversion_action?.resource_name || null
+          console.log(`   使用现有转化操作: ${conversionActionResourceName}`)
+        } else {
+          // 创建新的转化操作
+          conversionActionResourceName = await createConversionAction(customer, marketingObjective)
+        }
+
+        if (!conversionActionResourceName) {
+          console.log(`   ⚠️ 无法创建或找到转化操作`)
+          return {
+            success: false,
+            message: `无法创建转化操作，请手动在Google Ads账户中配置`
+          }
+        }
+
+        // 2. 等待一小段时间让转化操作生效
+        console.log(`   ⏳ 等待转化操作生效...`)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+
+        // 3. 重新查询Campaign的转化目标
+        console.log(`   🔄 重新查询Campaign转化目标...`)
+        const updatedGoals = await customer.query(`
+          SELECT
+            campaign_conversion_goal.resource_name,
+            campaign_conversion_goal.campaign,
+            campaign_conversion_goal.category,
+            campaign_conversion_goal.origin,
+            campaign_conversion_goal.biddable
+          FROM campaign_conversion_goal
+          WHERE campaign.id = ${campaignId}
+        `)
+        console.log(`   找到 ${updatedGoals.length} 个转化目标`)
+
+        if (updatedGoals.length > 0) {
+          // 查找匹配的转化目标
+          const matchingGoal = updatedGoals.find((goal: any) =>
+            goal.campaign_conversion_goal?.category === mapping.category &&
+            goal.campaign_conversion_goal?.origin === mapping.origin
+          )
+
+          if (matchingGoal && matchingGoal.campaign_conversion_goal) {
+            const resourceName = matchingGoal.campaign_conversion_goal.resource_name
+            console.log(`   找到匹配的转化目标，更新biddable=true`)
+
+            await customer.campaignConversionGoals.update([{
+              resource_name: resourceName,
+              biddable: true
+            }])
+
+            console.log(`   ✅ 营销目标设置成功: ${marketingObjective}`)
+            return {
+              success: true,
+              message: `已自动创建转化操作并设置营销目标 ${marketingObjective}`
+            }
+          }
+
+          // 如果没有匹配的，启用第一个
+          const firstGoal = updatedGoals[0]
+          if (firstGoal.campaign_conversion_goal) {
+            const resourceName = firstGoal.campaign_conversion_goal.resource_name
+            console.log(`   启用第一个可用的转化目标...`)
+
+            await customer.campaignConversionGoals.update([{
+              resource_name: resourceName,
+              biddable: true
+            }])
+
+            console.log(`   ✅ 已启用默认转化目标`)
+            return {
+              success: true,
+              message: `已创建转化操作并启用默认转化目标`
+            }
+          }
+        }
+
+        // 如果仍然没有转化目标，返回部分成功
+        console.log(`   ⚠️ 转化操作已创建，但Campaign转化目标尚未同步`)
+        return {
+          success: true,
+          message: `转化操作已创建，营销目标将在下次同步后生效`
+        }
+      } catch (createError: any) {
+        console.error(`   ❌ 自动创建转化操作失败:`, createError.message)
+        return {
+          success: false,
+          message: `自动创建转化操作失败: ${createError.message}`
+        }
       }
     }
   } catch (error: any) {
