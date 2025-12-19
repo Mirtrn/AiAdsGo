@@ -114,9 +114,9 @@ export async function executeCampaignPublish(
   try {
     console.log(`🚀 开始执行Campaign发布任务: ${task.id}`)
 
-    // 1. 获取Google Ads账号
+    // 1. 获取Google Ads账号（包含currency信息）
     const adsAccount = await db.queryOne(
-      `SELECT id, customer_id, parent_mcc_id, is_active
+      `SELECT id, customer_id, currency, parent_mcc_id, is_active
        FROM google_ads_accounts
        WHERE id = ? AND user_id = ? AND is_active = ?`,
       [Number(googleAdsAccountId), Number(userId), 1]
@@ -126,14 +126,51 @@ export async function executeCampaignPublish(
       throw new Error(`Google Ads账号不存在或未激活: ${googleAdsAccountId}`)
     }
 
+    console.log(`💰 使用账号货币: ${adsAccount.currency}`)
+
     // 2. 获取OAuth凭证
     const credentials = await getGoogleAdsCredentials(userId)
     if (!credentials || !credentials.refresh_token) {
       throw new Error('OAuth refresh token缺失，请重新授权')
     }
 
-    // 3. 创建Campaign到Google Ads
+    // 3. 根据货币获取CPC默认值
+    const getDefaultCPC = (currency: string): number => {
+      const defaults: Record<string, number> = {
+        USD: 0.17,
+        CNY: 1.2,
+        EUR: 0.16,
+        GBP: 0.13,
+        JPY: 25,
+        KRW: 220,
+        AUD: 0.26,
+        CAD: 0.23,
+        CHF: 0.15,
+        SEK: 1.8,
+        NOK: 1.7,
+        DKK: 1.2,
+        NZD: 0.29,
+        MXN: 3.4,
+        BRL: 0.85,
+        INR: 14,
+        KWD: 0.05,
+        BHD: 0.06,
+        OMR: 0.06,
+        JOD: 0.11,
+        TND: 0.5,
+        AED: 0.61,
+        SAR: 0.62,
+        QAR: 0.61,
+        HKD: 1.3,
+        TWD: 5.4,
+        SGD: 0.23,
+      }
+      return defaults[currency] || 0.17
+    }
+
+    // 4. 创建Campaign到Google Ads
     totalApiOperations++ // Campaign creation = 1 operation
+    const effectiveMaxCpcBid = campaignConfig.maxCpcBid || getDefaultCPC(adsAccount.currency)
     const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
       customerId: adsAccount.customer_id,
       refreshToken: credentials.refresh_token,
@@ -141,7 +178,7 @@ export async function executeCampaignPublish(
       budgetAmount: campaignConfig.budgetAmount,
       budgetType: campaignConfig.budgetType,
       biddingStrategy: campaignConfig.biddingStrategy,
-      cpcBidCeilingMicros: campaignConfig.maxCpcBid * 1000000, // 🔥 新增：传递CPC天花板价
+      cpcBidCeilingMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用用户配置或货币默认值
       targetCountry: campaignConfig.targetCountry,
       targetLanguage: campaignConfig.targetLanguage,
       finalUrlSuffix: creative.finalUrlSuffix || undefined,
@@ -153,14 +190,14 @@ export async function executeCampaignPublish(
 
     console.log(`✅ Campaign创建成功 (Google ID: ${googleCampaignId})`)
 
-    // 4. 创建Ad Group
+    // 5. 创建Ad Group（使用相同的货币适配CPC）
     totalApiOperations++ // Ad group creation = 1 operation
     const { adGroupId: googleAdGroupId } = await createGoogleAdsAdGroup({
       customerId: adsAccount.customer_id,
       refreshToken: credentials.refresh_token,
       campaignId: googleCampaignId,
       adGroupName: `AdGroup_${creative.id}`, // 占位符
-      cpcBidMicros: campaignConfig.maxCpcBid * 1000000,
+      cpcBidMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用相同的货币适配CPC
       status: 'ENABLED',
       accountId: adsAccount.id,
       userId,
@@ -169,7 +206,7 @@ export async function executeCampaignPublish(
 
     console.log(`✅ Ad Group创建成功 (Google ID: ${googleAdGroupId})`)
 
-    // 5. 构建关键词映射表
+    // 6. 构建关键词映射表
     const keywordMatchTypeMap = new Map<string, 'EXACT' | 'PHRASE' | 'BROAD'>()
     if (creative.keywordsWithVolume) {
       creative.keywordsWithVolume.forEach(kw => {
@@ -179,7 +216,7 @@ export async function executeCampaignPublish(
       })
     }
 
-    // 6. 智能分配matchType的辅助函数
+    // 7. 智能分配matchType的辅助函数
     const getMatchType = (keyword: string): 'EXACT' | 'PHRASE' | 'BROAD' => {
       if (!keyword) return 'PHRASE'
 
@@ -210,7 +247,7 @@ export async function executeCampaignPublish(
       }
     }
 
-    // 7. 添加关键词
+    // 8. 添加关键词
     const keywordOperations = (campaignConfig.keywords || [])
       .map((keyword: any) => {
         const keywordStr = typeof keyword === 'string' ? keyword : (keyword?.text || '')
@@ -236,7 +273,7 @@ export async function executeCampaignPublish(
       console.log(`✅ 成功添加${keywordOperations.length}个关键词`)
     }
 
-    // 8. 添加否定关键词
+    // 9. 添加否定关键词
     if (campaignConfig.negativeKeywords && campaignConfig.negativeKeywords.length > 0) {
       const negativeKeywordOperations = campaignConfig.negativeKeywords.map((keyword: string) => ({
         keywordText: keyword,
@@ -257,7 +294,7 @@ export async function executeCampaignPublish(
       console.log(`✅ 成功添加${negativeKeywordOperations.length}个否定关键词`)
     }
 
-    // 9. 创建Responsive Search Ad
+    // 10. 创建Responsive Search Ad
     totalApiOperations++ // Ad creation = 1 operation
     const { adId: googleAdId } = await createGoogleAdsResponsiveSearchAd({
       customerId: adsAccount.customer_id,
@@ -275,7 +312,7 @@ export async function executeCampaignPublish(
 
     console.log(`✅ 广告创建成功 (Google ID: ${googleAdId})`)
 
-    // 10. 添加Callout Extensions（必须配置）
+    // 11. 添加Callout Extensions（必须配置）
     let finalCallouts = creative.callouts || []
     if (finalCallouts.length === 0) {
       // 生成默认Callouts
@@ -297,7 +334,7 @@ export async function executeCampaignPublish(
     })
     console.log(`✅ 成功添加${finalCallouts.length}个Callout扩展`)
 
-    // 11. 添加Sitelink Extensions（必须配置）
+    // 12. 添加Sitelink Extensions（必须配置）
     let finalSitelinks = creative.sitelinks || []
     if (finalSitelinks.length === 0) {
       // 生成默认Sitelinks
@@ -333,7 +370,7 @@ export async function executeCampaignPublish(
     })
     console.log(`✅ 成功添加${formattedSitelinks.length}个Sitelink扩展`)
 
-    // 12. 启用Campaign（如果需要）
+    // 13. 启用Campaign（如果需要）
     let finalCampaignStatus: 'ENABLED' | 'PAUSED' = 'PAUSED'
     if (enableCampaignImmediately) {
       try {
@@ -354,7 +391,7 @@ export async function executeCampaignPublish(
       }
     }
 
-    // 13. 更新数据库记录
+    // 14. 更新数据库记录
     await db.exec(
       `UPDATE campaigns
        SET google_campaign_id = ?, google_ad_group_id = ?, google_ad_id = ?,
