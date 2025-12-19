@@ -687,12 +687,14 @@ export async function updateGoogleAdsCampaignBudget(params: {
   budgetType: 'DAILY' | 'TOTAL'
   accountId?: number
   userId?: number
+  loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<void> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId  // 🔧 传递loginCustomerId给getCustomer
   )
 
   // 1. 创建新的预算
@@ -738,6 +740,7 @@ export async function getGoogleAdsCampaign(params: {
   accountId?: number
   userId?: number
   skipCache?: boolean
+  loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<any> {
   // 生成缓存键
   const cacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
@@ -757,7 +760,8 @@ export async function getGoogleAdsCampaign(params: {
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId  // 🔧 传递loginCustomerId给getCustomer
   )
 
   const query = `
@@ -906,12 +910,14 @@ export async function createGoogleAdsKeyword(params: {
   isNegative?: boolean
   accountId?: number
   userId?: number
+  loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<{ keywordId: string; resourceName: string }> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId  // 🔧 传递loginCustomerId给getCustomer
   )
 
   if (params.isNegative) {
@@ -1165,6 +1171,7 @@ export async function getCampaignPerformance(params: {
   endDate: string
   accountId: number
   userId: number
+  loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<Array<{
   date: string
   impressions: number
@@ -1175,7 +1182,7 @@ export async function getCampaignPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId)
+  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId, params.loginCustomerId)  // 🔧 传递loginCustomerId
 
   // Google Ads Query Language (GAQL) query
   const query = `
@@ -1235,6 +1242,7 @@ export async function getAdGroupPerformance(params: {
   endDate: string
   accountId: number
   userId: number
+  loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<Array<{
   date: string
   impressions: number
@@ -1245,7 +1253,7 @@ export async function getAdGroupPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId)
+  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId, params.loginCustomerId)  // 🔧 传递loginCustomerId
 
   const query = `
     SELECT
@@ -1304,6 +1312,7 @@ export async function getAdPerformance(params: {
   endDate: string
   accountId: number
   userId: number
+  loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<Array<{
   date: string
   impressions: number
@@ -1314,7 +1323,7 @@ export async function getAdPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId)
+  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId, params.loginCustomerId)  // 🔧 传递loginCustomerId
 
   const query = `
     SELECT
@@ -1373,6 +1382,7 @@ export async function getBatchCampaignPerformance(params: {
   endDate: string
   accountId: number
   userId: number
+  loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<Record<string, Array<{
   date: string
   impressions: number
@@ -1383,7 +1393,7 @@ export async function getBatchCampaignPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>>> {
-  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId)
+  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId, params.loginCustomerId)  // 🔧 传递loginCustomerId
 
   // Construct IN clause for multiple campaign IDs
   const campaignIdList = params.campaignIds.join(',')
