@@ -283,7 +283,7 @@ export async function executeCampaignPublish(
       }
     }
 
-    // 8. 添加关键词
+    // 8. 准备关键词数据
     const keywordOperations = (campaignConfig.keywords || [])
       .map((keyword: any) => {
         const keywordStr = typeof keyword === 'string' ? keyword : (keyword?.text || '')
@@ -296,64 +296,19 @@ export async function executeCampaignPublish(
       })
       .filter((op): op is NonNullable<typeof op> => op !== null)
 
-    if (keywordOperations.length > 0) {
-      totalApiOperations += keywordOperations.length
-      await createGoogleAdsKeywordsBatch({
-        customerId: adsAccount.customer_id,
-        refreshToken: credentials.refresh_token,
-        adGroupId: googleAdGroupId,
-        keywords: keywordOperations,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 添加MCC权限
-      })
-      console.log(`✅ 成功添加${keywordOperations.length}个关键词`)
-    }
+    // 9. 准备否定关键词数据
+    const negativeKeywordOperations = (campaignConfig.negativeKeywords && campaignConfig.negativeKeywords.length > 0)
+      ? campaignConfig.negativeKeywords.map((keyword: string) => ({
+          keywordText: keyword,
+          matchType: 'EXACT' as const,
+          status: 'ENABLED' as const,
+          isNegative: true
+        }))
+      : []
 
-    // 9. 添加否定关键词
-    if (campaignConfig.negativeKeywords && campaignConfig.negativeKeywords.length > 0) {
-      const negativeKeywordOperations = campaignConfig.negativeKeywords.map((keyword: string) => ({
-        keywordText: keyword,
-        matchType: 'EXACT' as const,
-        status: 'ENABLED' as const,
-        isNegative: true
-      }))
-
-      totalApiOperations += negativeKeywordOperations.length
-      await createGoogleAdsKeywordsBatch({
-        customerId: adsAccount.customer_id,
-        refreshToken: credentials.refresh_token,
-        adGroupId: googleAdGroupId,
-        keywords: negativeKeywordOperations,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 添加MCC权限
-      })
-      console.log(`✅ 成功添加${negativeKeywordOperations.length}个否定关键词`)
-    }
-
-    // 10. 创建Responsive Search Ad
-    totalApiOperations++ // Ad creation = 1 operation
-    const { adId: googleAdId } = await createGoogleAdsResponsiveSearchAd({
-      customerId: adsAccount.customer_id,
-      refreshToken: credentials.refresh_token,
-      adGroupId: googleAdGroupId,
-      headlines: creative.headlines.slice(0, 15),
-      descriptions: creative.descriptions.slice(0, 4),
-      finalUrls: [creative.finalUrl],
-      path1: creative.path1 || undefined,
-      path2: creative.path2 || undefined,
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
-    })
-
-    console.log(`✅ 广告创建成功 (Google ID: ${googleAdId})`)
-
-    // 11. 添加Callout Extensions（必须配置）
+    // 10. 准备Callout Extensions数据
     let finalCallouts = creative.callouts || []
     if (finalCallouts.length === 0) {
-      // 生成默认Callouts
       finalCallouts = [
         'Free Shipping',
         '24/7 Support',
@@ -361,22 +316,10 @@ export async function executeCampaignPublish(
       ]
       console.log(`📝 生成默认Callouts: ${finalCallouts.length}个`)
     }
-    totalApiOperations += finalCallouts.length + 1
-    await createGoogleAdsCalloutExtensions({
-      customerId: adsAccount.customer_id,
-      refreshToken: credentials.refresh_token,
-      campaignId: googleCampaignId,
-      callouts: finalCallouts,
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
-    })
-    console.log(`✅ 成功添加${finalCallouts.length}个Callout扩展`)
 
-    // 12. 添加Sitelink Extensions（必须配置）
+    // 11. 准备Sitelink Extensions数据
     let finalSitelinks = creative.sitelinks || []
     if (finalSitelinks.length === 0) {
-      // 生成默认Sitelinks
       finalSitelinks = [
         {
           text: 'Products',
@@ -398,17 +341,115 @@ export async function executeCampaignPublish(
       description2: ''
     }))
 
-    totalApiOperations += formattedSitelinks.length + 1
-    await createGoogleAdsSitelinkExtensions({
-      customerId: adsAccount.customer_id,
-      refreshToken: credentials.refresh_token,
-      campaignId: googleCampaignId,
-      sitelinks: formattedSitelinks,
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
-    })
-    console.log(`✅ 成功添加${formattedSitelinks.length}个Sitelink扩展`)
+    // 12. 并行执行：Keywords + Ad + Extensions (⚡ KISS优化：5个独立操作并行)
+    console.log(`\n⚡ 开始并行执行5个独立API操作...`)
+    const parallelStartTime = Date.now()
+
+    // 计算API操作数（用于统计）
+    const parallelApiCount = (
+      (keywordOperations.length > 0 ? keywordOperations.length : 0) +
+      (negativeKeywordOperations.length > 0 ? negativeKeywordOperations.length : 0) +
+      1 + // Ad creation
+      finalCallouts.length + 1 + // Callouts
+      formattedSitelinks.length + 1 // Sitelinks
+    )
+    totalApiOperations += parallelApiCount
+
+    const [
+      keywordsResult,
+      negativeKeywordsResult,
+      adResult,
+      calloutsResult,
+      sitelinksResult
+    ] = await Promise.all([
+      // 1. 正向关键词
+      keywordOperations.length > 0
+        ? createGoogleAdsKeywordsBatch({
+            customerId: adsAccount.customer_id,
+            refreshToken: credentials.refresh_token,
+            adGroupId: googleAdGroupId,
+            keywords: keywordOperations,
+            accountId: adsAccount.id,
+            userId,
+            loginCustomerId: effectiveLoginCustomerId || undefined
+          }).then(() => {
+            console.log(`  ✅ [并行1/5] 成功添加${keywordOperations.length}个关键词`)
+            return { success: true, count: keywordOperations.length }
+          })
+        : Promise.resolve({ success: true, count: 0 }),
+
+      // 2. 否定关键词
+      negativeKeywordOperations.length > 0
+        ? createGoogleAdsKeywordsBatch({
+            customerId: adsAccount.customer_id,
+            refreshToken: credentials.refresh_token,
+            adGroupId: googleAdGroupId,
+            keywords: negativeKeywordOperations,
+            accountId: adsAccount.id,
+            userId,
+            loginCustomerId: effectiveLoginCustomerId || undefined
+          }).then(() => {
+            console.log(`  ✅ [并行2/5] 成功添加${negativeKeywordOperations.length}个否定关键词`)
+            return { success: true, count: negativeKeywordOperations.length }
+          })
+        : Promise.resolve({ success: true, count: 0 }),
+
+      // 3. 创建Responsive Search Ad
+      createGoogleAdsResponsiveSearchAd({
+        customerId: adsAccount.customer_id,
+        refreshToken: credentials.refresh_token,
+        adGroupId: googleAdGroupId,
+        headlines: creative.headlines.slice(0, 15),
+        descriptions: creative.descriptions.slice(0, 4),
+        finalUrls: [creative.finalUrl],
+        path1: creative.path1 || undefined,
+        path2: creative.path2 || undefined,
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId: effectiveLoginCustomerId || undefined
+      }).then((result) => {
+        console.log(`  ✅ [并行3/5] 广告创建成功 (Google ID: ${result.adId})`)
+        return result
+      }),
+
+      // 4. Callout Extensions
+      createGoogleAdsCalloutExtensions({
+        customerId: adsAccount.customer_id,
+        refreshToken: credentials.refresh_token,
+        campaignId: googleCampaignId,
+        callouts: finalCallouts,
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId: effectiveLoginCustomerId || undefined
+      }).then(() => {
+        console.log(`  ✅ [并行4/5] 成功添加${finalCallouts.length}个Callout扩展`)
+        return { success: true, count: finalCallouts.length }
+      }),
+
+      // 5. Sitelink Extensions
+      createGoogleAdsSitelinkExtensions({
+        customerId: adsAccount.customer_id,
+        refreshToken: credentials.refresh_token,
+        campaignId: googleCampaignId,
+        sitelinks: formattedSitelinks,
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId: effectiveLoginCustomerId || undefined
+      }).then(() => {
+        console.log(`  ✅ [并行5/5] 成功添加${formattedSitelinks.length}个Sitelink扩展`)
+        return { success: true, count: formattedSitelinks.length }
+      })
+    ])
+
+    const parallelDuration = Date.now() - parallelStartTime
+    console.log(`⚡ 并行执行完成，耗时: ${parallelDuration}ms`)
+    console.log(`   - 正向关键词: ${keywordsResult.count}个`)
+    console.log(`   - 否定关键词: ${negativeKeywordsResult.count}个`)
+    console.log(`   - 广告ID: ${adResult.adId}`)
+    console.log(`   - Callouts: ${calloutsResult.count}个`)
+    console.log(`   - Sitelinks: ${sitelinksResult.count}个`)
+
+    const googleAdId = adResult.adId
 
     // 13. 启用Campaign（如果需要）
     let finalCampaignStatus: 'ENABLED' | 'PAUSED' = 'PAUSED'
