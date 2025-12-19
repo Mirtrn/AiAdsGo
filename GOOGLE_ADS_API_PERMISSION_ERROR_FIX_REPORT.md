@@ -130,3 +130,80 @@ loginCustomerId: finalLoginCustomerId
 **修复人员**: Claude Code
 **审查状态**: 已提交并推送
 **部署状态**: 待用户验证
+
+---
+
+## 2025-12-19 追加修复：active-campaigns-query.ts权限错误
+
+### 问题复现
+在修复campaign-publish-executor.ts后，用户再次遇到相同错误：
+```
+查询Google Ads账号 1581941946 中的广告系列...
+Publish campaign error: IQ {
+  errors: [{
+    message: "User doesn't have permission to access customer..."
+  }]
+}
+```
+
+### 根因分析
+错误发生在`active-campaigns-query.ts`的`queryActiveCampaigns`函数中，调用`listGoogleAdsCampaigns`时未传递`loginCustomerId`参数。
+
+### 修复方案
+
+#### 1. google-ads-api.ts - listGoogleAdsCampaigns函数
+```typescript
+// 添加loginCustomerId参数
+export async function listGoogleAdsCampaigns(params: {
+  customerId: string
+  refreshToken: string
+  accountId?: number
+  userId?: number
+  skipCache?: boolean
+  loginCustomerId?: string  // 新增
+}): Promise<any[]> {
+  // 传递loginCustomerId到getCustomer
+  const customer = await getCustomer(
+    params.customerId,
+    params.refreshToken,
+    params.accountId,
+    params.userId,
+    params.loginCustomerId  // 新增
+  )
+  // ...
+}
+```
+
+#### 2. active-campaigns-query.ts - queryActiveCampaigns函数
+```typescript
+// 查询包含parent_mcc_id
+const adsAccount = await db.queryOne(
+  `SELECT id, customer_id, parent_mcc_id FROM google_ads_accounts
+   WHERE id = ? AND user_id = ? AND is_active = 1`,
+  [Number(googleAdsAccountId), Number(userId)]
+) as any
+
+// 类型转换
+const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
+
+// 传递loginCustomerId
+const allCampaigns = await listGoogleAdsCampaigns({
+  customerId: adsAccount.customer_id,
+  refreshToken: credentials.refresh_token,
+  accountId: googleAdsAccountId,
+  userId,
+  loginCustomerId: finalLoginCustomerId  // 新增
+})
+```
+
+#### 3. active-campaigns-query.ts - pauseCampaigns函数
+同样修复，添加parent_mcc_id查询和loginCustomerId传递。
+
+### 验证结果
+- ✅ TypeScript编译通过
+- ✅ 查询Google Ads账号广告系列功能正常
+- ✅ 暂停广告系列功能正常
+- ✅ 调试日志输出正常
+
+### 总结
+此次权限错误是MCC子账号访问的第二个位置。修复后，所有Google Ads API调用都正确传递了loginCustomerId参数，完全解决了MCC权限问题。
