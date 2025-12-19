@@ -724,6 +724,10 @@ export async function unlinkOfferFromAccount(
       AND status != 'REMOVED'
   `, [offerId, accountId, userId])
 
+  // 🔥 2025-12-19修复：清理API缓存，确保前端立即看到解绑效果
+  const { invalidateOfferCache } = await import('./api-cache')
+  invalidateOfferCache(userId, offerId)
+
   // TODO: 实现闲置账号标记功能（需要先添加 is_idle 列到 google_ads_accounts 表）
   // 检查该账号是否还有其他活跃关联
   // const activeCount = await db.queryOne(`
