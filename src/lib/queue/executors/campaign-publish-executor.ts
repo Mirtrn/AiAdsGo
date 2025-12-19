@@ -27,7 +27,7 @@ import {
   createGoogleAdsSitelinkExtensions
 } from '@/lib/google-ads-api'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
-import { generateNamingScheme } from '@/lib/naming-convention'
+import { generateNamingScheme, type NamingScheme } from '@/lib/naming-convention'
 
 /**
  * 广告系列发布任务数据接口
@@ -40,11 +40,7 @@ export interface CampaignPublishTaskData {
   userId: number
 
   // 命名规范
-  naming?: {
-    campaignName: string
-    adGroupName: string
-    adName: string
-  }
+  naming?: NamingScheme  // 🔥 使用NamingScheme类型，包含associativeCampaignName
 
   // 配置信息
   campaignConfig: {

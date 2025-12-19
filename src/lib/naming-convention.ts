@@ -341,7 +341,7 @@ export function generateNamingScheme(params: {
     variantIndex?: number
     totalVariants?: number
   }
-}) {
+}): NamingScheme {
   const { offer, config, creative, smartOptimization } = params
 
   // 生成Campaign名称
@@ -400,6 +400,16 @@ export function generateNamingScheme(params: {
  * 用于建立广告创意与Google Ads账号中真实广告系列的关联关系
  * ========================================
  */
+
+/**
+ * 命名方案返回类型
+ */
+export interface NamingScheme {
+  campaignName: string
+  adGroupName: string
+  adName?: string
+  associativeCampaignName?: string  // 🔥 新增：用于关联的Campaign名称
+}
 
 /**
  * 生成符合关联规范的Campaign名称
