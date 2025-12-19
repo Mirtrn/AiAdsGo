@@ -1415,12 +1415,14 @@ export async function createGoogleAdsCalloutExtensions(params: {
   callouts: string[]
   accountId?: number
   userId?: number
+  loginCustomerId?: string
 }): Promise<{ assetIds: string[] }> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId
   )
 
   const assetIds: string[] = []
@@ -1485,12 +1487,14 @@ export async function createGoogleAdsSitelinkExtensions(params: {
   }>
   accountId?: number
   userId?: number
+  loginCustomerId?: string
 }): Promise<{ assetIds: string[] }> {
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
     params.accountId,
-    params.userId
+    params.userId,
+    params.loginCustomerId
   )
 
   const assetIds: string[] = []

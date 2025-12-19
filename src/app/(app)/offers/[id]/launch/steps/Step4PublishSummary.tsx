@@ -441,13 +441,13 @@ export default function Step4PublishSummary({
             if (campaignStatuses[campaignId]) continue // 已完成，无需再查
 
             try {
-              const statusRes = await fetch(`/api/offers/${offer.id}/campaigns?id=${campaignId}`, {
+              const statusRes = await fetch(`/api/offers/${offer.id}/campaigns/status?campaignId=${campaignId}`, {
                 credentials: 'include'
               })
 
               if (statusRes.ok) {
                 const statusData = await statusRes.json()
-                const campaign = statusData.campaigns?.[0]
+                const campaign = statusData.campaign
 
                 if (campaign) {
                   console.log(`   Campaign ${campaignId}: ${campaign.creation_status}`)

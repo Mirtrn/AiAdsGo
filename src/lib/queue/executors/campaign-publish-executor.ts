@@ -366,7 +366,8 @@ export async function executeCampaignPublish(
       campaignId: googleCampaignId,
       callouts: finalCallouts,
       accountId: adsAccount.id,
-      userId
+      userId,
+      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
     })
     console.log(`✅ 成功添加${finalCallouts.length}个Callout扩展`)
 
@@ -402,7 +403,8 @@ export async function executeCampaignPublish(
       campaignId: googleCampaignId,
       sitelinks: formattedSitelinks,
       accountId: adsAccount.id,
-      userId
+      userId,
+      loginCustomerId: effectiveLoginCustomerId || undefined  // 🔧 使用effective值（从DB或用户设置）
     })
     console.log(`✅ 成功添加${formattedSitelinks.length}个Sitelink扩展`)
 
