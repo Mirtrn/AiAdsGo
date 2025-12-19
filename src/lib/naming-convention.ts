@@ -414,8 +414,11 @@ export interface NamingScheme {
 /**
  * 生成符合关联规范的Campaign名称
  *
- * 格式: [Offer ID]-[Creative ID]-[品牌]-[类型]
- * 例如: 173-456-reolink-Search
+ * 格式: [Offer ID]-[Creative ID]-[品牌]-[类型]-[时间戳]
+ * 例如: 173-456-reolink-Search-20251219211500
+ *
+ * 🔧 修复(2025-12-19): 添加时间戳确保唯一性，避免DUPLICATE_CAMPAIGN_NAME错误
+ * 当同一个Offer+Creative组合重复发布时，时间戳确保每次生成不同的名称
  *
  * 这个命名规范用于建立广告创意与Google Ads账号中真实广告系列的关联关系
  */
@@ -424,14 +427,18 @@ export function generateAssociativeCampaignName(params: {
   creativeId: number
   brand: string
   campaignType?: string
+  date?: Date  // 🔧 新增：可选的日期参数，用于测试或指定特定时间
 }): string {
-  const { offerId, creativeId, brand, campaignType = 'Search' } = params
+  const { offerId, creativeId, brand, campaignType = 'Search', date = new Date() } = params
 
   // 清理品牌名称中的特殊字符，只保留字母和数字
   const cleanBrand = sanitize(brand.toLowerCase())
 
-  // 构建名称：[Offer ID]-[Creative ID]-[品牌]-[类型]
-  const name = `${offerId}-${creativeId}-${cleanBrand}-${campaignType}`
+  // 🔧 添加时间戳确保唯一性（格式：YYYYMMDDHHmmss）
+  const timestamp = formatDateTime(date)
+
+  // 构建名称：[Offer ID]-[Creative ID]-[品牌]-[类型]-[时间戳]
+  const name = `${offerId}-${creativeId}-${cleanBrand}-${campaignType}-${timestamp}`
 
   // 确保不超过最大长度
   return truncate(name, NAMING_CONFIG.MAX_LENGTH.CAMPAIGN)
@@ -439,6 +446,10 @@ export function generateAssociativeCampaignName(params: {
 
 /**
  * 解析关联Campaign名称
+ *
+ * 🔧 修复(2025-12-19): 支持新格式（包含时间戳）和旧格式（不含时间戳）
+ * 新格式: [Offer ID]-[Creative ID]-[品牌]-[类型]-[时间戳]
+ * 旧格式: [Offer ID]-[Creative ID]-[品牌]-[类型]
  *
  * @param name 广告系列名称
  * @returns 解析结果，如果格式不匹配返回null
@@ -448,23 +459,38 @@ export function parseAssociativeCampaignName(name: string): {
   creativeId: number
   brand: string
   campaignType: string
+  timestamp?: string  // 🔧 新增：可选的时间戳字段
 } | null {
-  // 匹配格式：[数字]-[数字]-[文本]-[文本]
-  const pattern = /^(\d+)-(\d+)-([^-]+)-([^-]+)$/
-  const match = name.match(pattern)
+  // 🔧 新格式：[数字]-[数字]-[文本]-[文本]-[14位数字时间戳]
+  const newPattern = /^(\d+)-(\d+)-([^-]+)-([^-]+)-(\d{14})$/
+  const newMatch = name.match(newPattern)
 
-  if (!match) {
-    return null
+  if (newMatch) {
+    const [, offerIdStr, creativeIdStr, brand, campaignType, timestamp] = newMatch
+    return {
+      offerId: parseInt(offerIdStr, 10),
+      creativeId: parseInt(creativeIdStr, 10),
+      brand,
+      campaignType,
+      timestamp
+    }
   }
 
-  const [, offerIdStr, creativeIdStr, brand, campaignType] = match
+  // 🔧 兼容旧格式：[数字]-[数字]-[文本]-[文本]（无时间戳）
+  const oldPattern = /^(\d+)-(\d+)-([^-]+)-([^-]+)$/
+  const oldMatch = name.match(oldPattern)
 
-  return {
-    offerId: parseInt(offerIdStr, 10),
-    creativeId: parseInt(creativeIdStr, 10),
-    brand,
-    campaignType
+  if (oldMatch) {
+    const [, offerIdStr, creativeIdStr, brand, campaignType] = oldMatch
+    return {
+      offerId: parseInt(offerIdStr, 10),
+      creativeId: parseInt(creativeIdStr, 10),
+      brand,
+      campaignType
+    }
   }
+
+  return null
 }
 
 /**
