@@ -39,6 +39,13 @@ export interface CampaignPublishTaskData {
   googleAdsAccountId: number
   userId: number
 
+  // 命名规范
+  naming?: {
+    campaignName: string
+    adGroupName: string
+    adName: string
+  }
+
   // 配置信息
   campaignConfig: {
     targetCountry: string
@@ -171,10 +178,15 @@ export async function executeCampaignPublish(
     // 4. 创建Campaign到Google Ads
     totalApiOperations++ // Campaign creation = 1 operation
     const effectiveMaxCpcBid = campaignConfig.maxCpcBid || getDefaultCPC(adsAccount.currency)
+
+    // 使用规范化的命名或回退到占位符
+    const campaignName = task.naming?.campaignName || `Campaign_${creative.id}`
+    const adGroupName = task.naming?.adGroupName || `AdGroup_${creative.id}`
+
     const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
       customerId: adsAccount.customer_id,
       refreshToken: credentials.refresh_token,
-      campaignName: creative.id.toString(), // 占位符，实际名称由naming scheme提供
+      campaignName: campaignName, // 🔥 使用规范化命名
       budgetAmount: campaignConfig.budgetAmount,
       budgetType: campaignConfig.budgetType,
       biddingStrategy: campaignConfig.biddingStrategy,
@@ -189,6 +201,7 @@ export async function executeCampaignPublish(
     })
 
     console.log(`✅ Campaign创建成功 (Google ID: ${googleCampaignId})`)
+    console.log(`📝 使用命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
 
     // 5. 创建Ad Group（使用相同的货币适配CPC）
     totalApiOperations++ // Ad group creation = 1 operation
@@ -196,7 +209,7 @@ export async function executeCampaignPublish(
       customerId: adsAccount.customer_id,
       refreshToken: credentials.refresh_token,
       campaignId: googleCampaignId,
-      adGroupName: `AdGroup_${creative.id}`, // 占位符
+      adGroupName: adGroupName, // 🔥 使用规范化命名
       cpcBidMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用相同的货币适配CPC
       status: 'ENABLED',
       accountId: adsAccount.id,
@@ -402,7 +415,11 @@ export async function executeCampaignPublish(
     )
 
     apiSuccess = true
-    console.log(`✅ Campaign发布成功 (${totalApiOperations} API operations)`)
+    console.log(`\n🎉 Campaign发布成功完成！`)
+    console.log(`   📋 命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
+    console.log(`   💰 货币: ${adsAccount.currency}, CPC: ${effectiveMaxCpcBid}`)
+    console.log(`   🔗 Google IDs: Campaign=${googleCampaignId}, AdGroup=${googleAdGroupId}, Ad=${googleAdId}`)
+    console.log(`   📊 总计 ${totalApiOperations} 个API操作`)
 
     return {
       success: true,

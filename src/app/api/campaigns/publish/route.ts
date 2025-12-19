@@ -750,6 +750,7 @@ export async function POST(request: NextRequest) {
             offerId: _offerId,
             googleAdsAccountId: _googleAdsAccountId,
             userId: userId,
+            naming: naming, // 🔥 新增：传递规范化命名
             campaignConfig: {
               targetCountry: _campaignConfig.targetCountry,
               targetLanguage: _campaignConfig.targetLanguage,
