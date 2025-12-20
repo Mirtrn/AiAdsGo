@@ -1709,6 +1709,64 @@ async function createConversionAction(
 }
 
 /**
+ * 设置CustomerConversionGoal（Google Ads API v21新要求）
+ *
+ * 🔧 关键修复(2025-12-20): 根据Google Ads API v21的新逻辑（2025年11月17日起生效），
+ * 通过API创建的转化目标不会自动设置为account-default。
+ * 需要手动设置CustomerConversionGoal.biddable = true，才能让营销目标在UI中正确显示。
+ *
+ * @param customer - Google Ads Customer 实例
+ * @param mapping - 营销目标映射
+ * @param conversionActionResourceName - 转化操作的资源名称
+ */
+async function setCustomerConversionGoal(
+  customer: Customer,
+  mapping: any,
+  conversionActionResourceName: string
+): Promise<void> {
+  console.log(`   📋 查询CustomerConversionGoal...`)
+
+  try {
+    // 1. 查询现有的CustomerConversionGoal
+    const query = `
+      SELECT
+        customer_conversion_goal.resource_name,
+        customer_conversion_goal.conversion_action,
+        customer_conversion_goal.category,
+        customer_conversion_goal.origin,
+        customer_conversion_goal.biddable
+      FROM customer_conversion_goal
+      WHERE customer_conversion_goal.conversion_action = '${conversionActionResourceName}'
+    `
+
+    const existingGoals = await customer.query(query)
+    console.log(`   找到 ${existingGoals.length} 个CustomerConversionGoal`)
+
+    if (existingGoals.length > 0) {
+      const goal = existingGoals[0].customer_conversion_goal
+      console.log(`   找到现有目标: ${goal?.resource_name}, biddable=${goal?.biddable}`)
+
+      // 2. 如果biddable不是true，则更新它
+      if (!goal?.biddable) {
+        console.log(`   🔄 更新CustomerConversionGoal为biddable=true...`)
+        await customer.customerConversionGoals.update([{
+          resource_name: goal.resource_name,
+          biddable: true
+        }])
+        console.log(`   ✅ CustomerConversionGoal设置成功`)
+      } else {
+        console.log(`   ✅ CustomerConversionGoal已经是biddable=true`)
+      }
+    } else {
+      console.log(`   ⚠️ 未找到CustomerConversionGoal，可能需要等待转化操作同步`)
+    }
+  } catch (error: any) {
+    console.error(`   ⚠️ 设置CustomerConversionGoal失败:`, error.message)
+    // 不抛出错误，继续执行后续逻辑
+  }
+}
+
+/**
  * 查询账户的转化操作
  *
  * @param customer - Google Ads Customer 实例
@@ -1887,6 +1945,11 @@ export async function setCampaignMarketingObjective(params: {
             message: `无法创建转化操作，请手动在Google Ads账户中配置`
           }
         }
+
+        // 🔧 关键修复(2025-12-20): 根据Google Ads API v21新逻辑，
+        // 需要设置CustomerConversionGoal才能让营销目标在UI中正确显示
+        console.log(`   🔄 设置CustomerConversionGoal (API v21新要求)...`)
+        await setCustomerConversionGoal(customer, mapping, conversionActionResourceName)
 
         // 2. 等待一小段时间让转化操作生效
         console.log(`   ⏳ 等待转化操作生效...`)
