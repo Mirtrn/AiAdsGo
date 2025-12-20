@@ -1,32 +1,49 @@
--- Migration: Add unique constraint to system_settings
+-- Migration: Add unique constraint to system_settings (FIXED VERSION)
 -- Purpose: Prevent duplicate (category, key) entries with non-empty values
--- Date: 2025-12-20
+-- IMPORTANT: This version preserves global templates (user_id IS NULL, value = NULL)
+-- Date: 2025-12-20 (Fixed)
 
--- Step 1: Clean up duplicate records
--- Remove records with NULL or empty values first
+-- Step 1: Clean up duplicate user configuration records only
+-- Remove duplicate user configurations, but preserve global templates
 DELETE FROM system_settings
-WHERE value IS NULL OR value = '';
-
--- Remove duplicate records, keeping only the latest one per (category, key)
--- Simple approach: delete records where a newer version exists
-DELETE FROM system_settings
-WHERE EXISTS (
-  SELECT 1 FROM system_settings s2
-  WHERE s2.category = system_settings.category
-    AND s2.key = system_settings.key
+WHERE id IN (
+  SELECT s1.id
+  FROM system_settings s1
+  JOIN system_settings s2
+    ON s1.category = s2.category
+    AND s1.key = s2.key
+    AND s1.user_id IS NOT NULL  -- Only delete user configurations
+    AND s2.user_id IS NOT NULL  -- Only delete user configurations
+    AND s1.value IS NOT NULL
+    AND s1.value <> ''
     AND s2.value IS NOT NULL
     AND s2.value <> ''
-    AND s2.updated_at > system_settings.updated_at
+    AND s1.updated_at < s2.updated_at  -- Keep the latest record
 );
 
--- Step 2: Create unique index to prevent future duplicates
+-- Step 2: Remove empty/null user configurations (but NOT global templates)
+DELETE FROM system_settings
+WHERE user_id IS NOT NULL  -- Only delete user configurations
+  AND (value IS NULL OR value = '');
+
+-- Step 3: Create unique partial index to prevent future duplicates
+-- This index only applies to records with non-empty values
+-- Global templates (value = NULL) and user configurations (value = JSON) can coexist
 CREATE UNIQUE INDEX IF NOT EXISTS idx_system_settings_category_key_unique
   ON system_settings(category, key)
   WHERE value IS NOT NULL AND value <> '';
 
 -- Verification queries (commented out for production)
+-- Check for duplicates in non-null values
 -- SELECT category, key, COUNT(*) as count
 -- FROM system_settings
--- WHERE value IS NOT NULL AND value != ''
+-- WHERE value IS NOT NULL AND value <> ''
 -- GROUP BY category, key
 -- HAVING COUNT(*) > 1;
+
+-- Check global templates exist
+-- SELECT category, key, 'Global Template' as type
+-- FROM system_settings
+-- WHERE user_id IS NULL
+-- GROUP BY category, key
+-- ORDER BY category, key;
