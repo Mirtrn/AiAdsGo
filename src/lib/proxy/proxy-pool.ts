@@ -18,7 +18,7 @@ async function fetchHealthyProxyIPs(country: string, count: number): Promise<Pro
     const setting = await db.queryOne(`
       SELECT value FROM system_settings
       WHERE category = 'proxy' AND key = 'urls'
-        AND value IS NOT NULL AND value != ''
+        AND value IS NOT NULL AND value <> ''
       ORDER BY updated_at DESC
       LIMIT 1
     `) as { value: string } | undefined
