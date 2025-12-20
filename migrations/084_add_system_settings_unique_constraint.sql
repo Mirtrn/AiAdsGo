@@ -3,15 +3,16 @@
 -- Date: 2025-12-20
 
 -- Step 1: Clean up duplicate records, keep only the latest one per (category, key)
-DELETE FROM system_settings
-WHERE rowid NOT IN (
-  SELECT MIN(rowid)
-  FROM system_settings
-  WHERE value IS NOT NULL AND value <> ''
-  GROUP BY category, key
-  HAVING COUNT(*) > 0
-)
-AND value IS NOT NULL AND value <> '';
+-- Delete older duplicates, keeping only the most recent record for each (category, key) pair
+DELETE FROM system_settings s1
+WHERE EXISTS (
+  SELECT 1 FROM system_settings s2
+  WHERE s2.category = s1.category
+    AND s2.key = s1.key
+    AND s2.value IS NOT NULL
+    AND s2.value <> ''
+    AND s2.updated_at > s1.updated_at
+);
 
 -- Step 2: Create unique index to prevent future duplicates
 CREATE UNIQUE INDEX IF NOT EXISTS idx_system_settings_category_key_unique
