@@ -4,31 +4,43 @@
  */
 
 /**
- * 销售平台白名单（不应被当作竞品过滤）
- * 这些词表示销售渠道，包含这些词的关键词通常是高意图购买词
- * 例如："argus 3 pro amazon" 中的 amazon 是购买渠道，不是竞品
+ * 销售平台和智能家居生态系统白名单（不应被当作竞品过滤）
+ *
+ * 包含两类：
+ * 1. 销售平台：表示销售渠道的购买词（如 "argus 3 pro amazon"）
+ * 2. 智能家居平台：表示兼容性/集成特性的功能词（如 "eufycam homekit"）
+ * 3. 大型科技公司平台：表示兼容性或集成特性（如 "works with google", "apple certified"）
+ *
+ * 这些词不是竞品，而是产品特性或销售渠道，应该保留
  */
 export const PLATFORMS = [
+  // 销售平台
   'amazon', 'ebay', 'walmart', 'target', 'bestbuy', 'homedepot', 'lowes',
-  'aliexpress', 'alibaba', 'etsy', 'newegg', 'costco', 'samsclub'
+  'aliexpress', 'alibaba', 'etsy', 'newegg', 'costco', 'samsclub',
+  // 智能家居生态系统平台（功能特性，非竞品）
+  'alexa', 'google home', 'google assistant', 'homekit', 'apple homekit',
+  'smartthings', 'ifttt', 'home assistant',
+  // 大型科技公司（通常表示兼容性/集成）
+  'google', 'apple', 'microsoft', 'amazon'
 ] as const
 
 /**
  * 已知竞品品牌列表（用于竞品词过滤）
- * 注意：销售平台（如amazon）已从此列表移除
+ *
+ * 注意事项：
+ * - 销售平台（如amazon）已从此列表移除 → 移至PLATFORMS白名单
+ * - 智能家居平台（如homekit、alexa）已从此列表移除 → 移至PLATFORMS白名单
+ * - 只保留真正的竞品品牌（提供类似产品的其他厂商）
  */
 export const BRAND_PATTERNS = [
-  // 安防/摄像头
+  // 安防/摄像头竞品品牌
   'ring', 'arlo', 'nest', 'wyze', 'blink', 'eufy', 'lorex', 'swann', 'hikvision', 'dahua',
   'adt', 'simplisafe', 'vivint', 'frontpoint', 'abode', 'cove', 'scout',
-  // 智能家居
-  'alexa', 'google assistant', 'homekit', 'ifttt', 'smartthings',
-  // 电商/品牌相关
+  // 电商平台相关
   'shopify', 'woocommerce', 'bigcommerce', 'magento',
-  // 通用科技品牌
-  'microsoft', 'amazon', 'google', 'apple', 'samsung', 'philips', 'hue',
-  'lutron', 'ecobee', 'tplink', 'kasa', 'nanoleaf', 'meross',
-  // 其他相关
+  // 通用科技品牌（可能有竞品）
+  'samsung', 'philips', 'hue', 'lutron', 'ecobee', 'tplink', 'kasa', 'nanoleaf', 'meross',
+  // 其他智能家居品牌
   'xiaomi', 'mijia', 'tuya', 'smart life'
 ] as const
 
