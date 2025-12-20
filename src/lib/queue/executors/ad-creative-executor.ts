@@ -11,8 +11,7 @@ import type { Task } from '../types'
 import { generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative } from '@/lib/ad-creative'
 import {
-  evaluateCreativeAdStrength,
-  calculateLaunchScore
+  evaluateCreativeAdStrength
 } from '@/lib/scoring'
 import { findOfferById } from '@/lib/offers'
 import { getDatabase } from '@/lib/db'
@@ -284,13 +283,6 @@ export async function executeAdCreativeGeneration(
       bucket_intent: bucketInfo?.intent || undefined
     })
 
-    // 计算Launch Score
-    const launchScore = await calculateLaunchScore(
-      offer,
-      savedCreative,
-      task.userId
-    )
-
     // 构建完整结果
     const finalResult = {
       success: true,
@@ -327,11 +319,6 @@ export async function executeAdCreativeGeneration(
         brand: offer.brand,
         url: offer.url,
         affiliateLink: offer.affiliate_link
-      },
-      launchScore: {
-        score: launchScore.totalScore,
-        analysis: launchScore.analysis,
-        recommendations: launchScore.recommendations
       }
     }
 

@@ -4,8 +4,7 @@ import { generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
 import {
   evaluateCreativeAdStrength,
-  type ComprehensiveAdStrengthResult,
-  calculateLaunchScore
+  type ComprehensiveAdStrengthResult
 } from '@/lib/scoring'
 
 /**
@@ -242,43 +241,6 @@ export async function POST(
 
     console.log(`✅ 广告创意已保存到数据库 (ID: ${savedCreative.id})`)
 
-    // 🎯 计算Launch Score（投放评分，独立于Ad Strength）
-    console.log('\n🚀 计算Launch Score（投放准备度评分）...')
-    console.time('⏱️ Launch Score计算')
-
-    const launchScore = await calculateLaunchScore(
-      offer,
-      savedCreative,  // 使用已保存的完整AdCreative对象
-      parseInt(userId, 10)
-    )
-
-    console.timeEnd('⏱️ Launch Score计算')
-    console.log(`📊 Launch Score: ${launchScore.totalScore}分`)
-    console.log(`   - 投放可行性: ${launchScore.analysis.launchViability.score}/35`)
-    console.log(`   - 广告质量: ${launchScore.analysis.adQuality.score}/30`)
-    console.log(`   - 关键词策略: ${launchScore.analysis.keywordStrategy.score}/20`)
-    console.log(`   - 基础配置: ${launchScore.analysis.basicConfig.score}/15`)
-
-    // Launch Score警告（不阻断，仅提示）
-    const LAUNCH_SCORE_WARNING_THRESHOLD = 60
-    const LAUNCH_SCORE_EXCELLENT_THRESHOLD = 80
-    let launchScoreStatus: 'excellent' | 'good' | 'warning' = 'excellent'
-    let launchScoreMessage = ''
-
-    if (launchScore.totalScore < LAUNCH_SCORE_WARNING_THRESHOLD) {
-      launchScoreStatus = 'warning'
-      launchScoreMessage = `⚠️ Launch Score偏低（${launchScore.totalScore}分），建议优化后再发布广告`
-      console.warn(launchScoreMessage)
-    } else if (launchScore.totalScore < LAUNCH_SCORE_EXCELLENT_THRESHOLD) {
-      launchScoreStatus = 'good'
-      launchScoreMessage = `✅ Launch Score合格（${launchScore.totalScore}分），可以发布广告`
-      console.log(launchScoreMessage)
-    } else {
-      launchScoreStatus = 'excellent'
-      launchScoreMessage = `🎉 Launch Score优秀（${launchScore.totalScore}分），建议立即发布`
-      console.log(launchScoreMessage)
-    }
-
     return NextResponse.json({
       success: true,
       creative: {
@@ -315,13 +277,6 @@ export async function POST(
         brand: offer.brand,
         url: offer.url,
         affiliateLink: offer.affiliate_link
-      },
-      launchScore: {
-        score: launchScore.totalScore,
-        status: launchScoreStatus,
-        message: launchScoreMessage,
-        analysis: launchScore.analysis,
-        recommendations: launchScore.recommendations
       }
     })
   } catch (error: any) {

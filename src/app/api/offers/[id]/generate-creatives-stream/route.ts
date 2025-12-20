@@ -4,8 +4,7 @@ import { generateAdCreative } from '@/lib/ad-creative-gen'
 import { createAdCreative, type GeneratedAdCreativeData } from '@/lib/ad-creative'
 import {
   evaluateCreativeAdStrength,
-  type ComprehensiveAdStrengthResult,
-  calculateLaunchScore
+  type ComprehensiveAdStrengthResult
 } from '@/lib/scoring'
 import { isControllerOpen } from '@/lib/sse-helper'
 
@@ -282,16 +281,7 @@ export async function POST(
         })
         const saveTime = endTimer('save')
 
-        sendProgress('launch_score', 92, `正在计算投放评分... (保存耗时 ${(saveTime / 1000).toFixed(1)}s)`)
-
-        // 计算Launch Score
-        startTimer('launch_score')
-        const launchScore = await calculateLaunchScore(
-          offer,
-          savedCreative,
-          parseInt(userId, 10)
-        )
-        const launchScoreTime = endTimer('launch_score')
+        const launchScoreTime = 0  // 不再计算Launch Score
         const totalTime = Date.now() - totalStartTime
 
         sendProgress('complete', 100, `生成完成！总耗时 ${(totalTime / 1000).toFixed(1)}s`)
@@ -332,11 +322,6 @@ export async function POST(
             brand: offer.brand,
             url: offer.url,
             affiliateLink: offer.affiliate_link
-          },
-          launchScore: {
-            score: launchScore.totalScore,
-            analysis: launchScore.analysis,
-            recommendations: launchScore.recommendations
           }
         })
 
