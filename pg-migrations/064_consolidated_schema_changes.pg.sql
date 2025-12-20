@@ -117,7 +117,7 @@ CREATE OR REPLACE FUNCTION update_upload_records_success_rate()
 RETURNS TRIGGER AS $$
 BEGIN
   IF NEW.valid_count > 0 THEN
-    NEW.success_rate = ROUND((CAST(NEW.processed_count AS REAL) / NEW.valid_count) * 100, 2);
+    NEW.success_rate = ROUND((NEW.processed_count::numeric / NEW.valid_count) * 100, 2);
   END IF;
   RETURN NEW;
 END;
