@@ -2042,6 +2042,10 @@ export function ensureKeywordsInHeadlines(
 
   console.log(`[HeadlineOptimizer] 🔧 需要为 ${uncoveredKeywords.length} 个关键词生成新标题`)
 
+  // 去重未覆盖的关键词，避免生成重复标题
+  const uniqueUncoveredKeywords = Array.from(new Set(uncoveredKeywords))
+  console.log(`[HeadlineOptimizer] 去重后需要为 ${uniqueUncoveredKeywords.length} 个唯一关键词生成新标题`)
+
   // 生成包含关键词的新标题模板
   const generateKeywordHeadline = (keyword: string, brand: string): string => {
     // 多种模板，确保多样性
@@ -2065,18 +2069,28 @@ export function ensureKeywordsInHeadlines(
   }
 
   // 替换最后几个标题为包含未覆盖关键词的版本
-  uncoveredKeywords.forEach((kw, i) => {
+  uniqueUncoveredKeywords.forEach((kw, i) => {
     // 从倒数第二个开始替换（保留最后一个作为CTA）
     const replaceIndex = result.length - 2 - i
     if (replaceIndex >= 0 && replaceIndex < result.length) {
       const oldHeadline = result[replaceIndex]
       const newHeadline = generateKeywordHeadline(kw, brandName)
-      result[replaceIndex] = newHeadline
-      console.log(`[HeadlineOptimizer]    替换标题[${replaceIndex}]: "${oldHeadline}" → "${newHeadline}"`)
+
+      // 检查生成的标题是否与已有标题重复
+      const isDuplicate = result.some((h, idx) =>
+        idx !== replaceIndex && h.toLowerCase() === newHeadline.toLowerCase()
+      )
+
+      if (!isDuplicate) {
+        result[replaceIndex] = newHeadline
+        console.log(`[HeadlineOptimizer]    替换标题[${replaceIndex}]: "${oldHeadline}" → "${newHeadline}"`)
+      } else {
+        console.log(`[HeadlineOptimizer]    跳过标题[${replaceIndex}]：新标题"${newHeadline}"与已有标题重复`)
+      }
     }
   })
 
-  console.log(`[HeadlineOptimizer] ✅ 标题优化完成，替换了 ${uncoveredKeywords.length} 个标题`)
+  console.log(`[HeadlineOptimizer] ✅ 标题优化完成，替换了 ${uniqueUncoveredKeywords.length} 个标题`)
 
   return result
 }
