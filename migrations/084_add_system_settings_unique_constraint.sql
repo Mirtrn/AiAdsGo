@@ -2,16 +2,21 @@
 -- Purpose: Prevent duplicate (category, key) entries with non-empty values
 -- Date: 2025-12-20
 
--- Step 1: Clean up duplicate records, keep only the latest one per (category, key)
--- Delete older duplicates, keeping only the most recent record for each (category, key) pair
-DELETE FROM system_settings s1
+-- Step 1: Clean up duplicate records
+-- Remove records with NULL or empty values first
+DELETE FROM system_settings
+WHERE value IS NULL OR value = '';
+
+-- Remove duplicate records, keeping only the latest one per (category, key)
+-- Simple approach: delete records where a newer version exists
+DELETE FROM system_settings
 WHERE EXISTS (
   SELECT 1 FROM system_settings s2
-  WHERE s2.category = s1.category
-    AND s2.key = s1.key
+  WHERE s2.category = system_settings.category
+    AND s2.key = system_settings.key
     AND s2.value IS NOT NULL
     AND s2.value <> ''
-    AND s2.updated_at > s1.updated_at
+    AND s2.updated_at > system_settings.updated_at
 );
 
 -- Step 2: Create unique index to prevent future duplicates
