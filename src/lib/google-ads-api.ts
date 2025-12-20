@@ -1747,7 +1747,7 @@ async function setCustomerConversionGoal(
       console.log(`   找到现有目标: ${goal?.resource_name}, biddable=${goal?.biddable}`)
 
       // 2. 如果biddable不是true，则更新它
-      if (!goal?.biddable) {
+      if (!goal?.biddable && goal) {
         console.log(`   🔄 更新CustomerConversionGoal为biddable=true...`)
         await customer.customerConversionGoals.update([{
           resource_name: goal.resource_name,
