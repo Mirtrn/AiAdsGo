@@ -223,14 +223,39 @@ export async function scrapeUrlWithBrowser(
           }
         }
 
-        // 🔥 P0增强: 如果页面语言与目标国家不匹配，记录警告
-        if (options.targetCountry && pageStatus.htmlLang) {
-          const { getLanguageCodeForCountry } = await import('../language-country-codes')
-          const expectedLangCode = getLanguageCodeForCountry(options.targetCountry)
-          const actualLang = pageStatus.htmlLang.toLowerCase().split('-')[0]  // 'en-gb' -> 'en'
+        // 🔥 P0增强: JavaScript执行后，检查页面语言是否与目标国家匹配
+        // ✅ 修复: 只在JavaScript成功执行后（a-js存在）才检测语言，避免误报
+        if (options.targetCountry) {
+          try {
+            // 重新获取JavaScript执行后的页面状态
+            const finalPageStatus = await page.evaluate(() => {
+              const html = document.documentElement
+              return {
+                htmlLang: html.getAttribute('lang') || '(未设置)',
+                hasJsClass: html.classList.contains('a-js'),
+                hasNoJsClass: html.classList.contains('a-no-js'),
+              }
+            })
 
-          if (expectedLangCode !== actualLang) {
-            console.warn(`⚠️ 语言不匹配: 目标国家${options.targetCountry}期望语言${expectedLangCode}，但页面lang=${pageStatus.htmlLang}，可能代理IP不在目标国家`)
+            console.log(`🌍 最终页面状态: lang=${finalPageStatus.htmlLang}, a-js=${finalPageStatus.hasJsClass}, a-no-js=${finalPageStatus.hasNoJsClass}`)
+
+            // 只有当JavaScript成功执行后（a-js=true 或 a-no-js=false）才检测语言
+            if (finalPageStatus.hasJsClass || !finalPageStatus.hasNoJsClass) {
+              const { getLanguageCodeForCountry } = await import('../language-country-codes')
+              const expectedLangCode = getLanguageCodeForCountry(options.targetCountry)
+              const actualLang = finalPageStatus.htmlLang.toLowerCase().split('-')[0]  // 'en-gb' -> 'en'
+
+              if (expectedLangCode !== actualLang) {
+                console.warn(`⚠️ 语言不匹配: 目标国家${options.targetCountry}期望语言${expectedLangCode}，但页面lang=${finalPageStatus.htmlLang}`)
+                console.warn(`   可能原因: 1) 代理IP不在目标国家 2) Amazon根据浏览器指纹判断用户偏好其他语言`)
+              } else {
+                console.log(`✅ 语言匹配成功: 期望${expectedLangCode}，实际${actualLang}`)
+              }
+            } else {
+              console.warn(`⚠️ JavaScript未正常执行 (a-no-js存在)，跳过语言检测以避免误报`)
+            }
+          } catch (langCheckError) {
+            console.warn(`⚠️ 语言检测失败: ${(langCheckError as Error).message}`)
           }
         }
       } catch (evalError) {

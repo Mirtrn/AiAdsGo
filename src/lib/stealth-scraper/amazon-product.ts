@@ -83,6 +83,11 @@ export async function scrapeAmazonProduct(
         console.warn(`⚠️ 检测到<html>标签中有a-no-js类，页面JavaScript未正常执行`)
         console.warn(`🔍 <html>标签classes: ${htmlClasses.substring(0, 100)}...`)
 
+        // 🔥 P1增强: 记录页面语言状态，帮助诊断语言不匹配问题
+        const langMatch = result.html.match(/<html[^>]*lang="([^"]*)"/)
+        const pageLang = langMatch ? langMatch[1] : '(未设置)'
+        console.warn(`🌍 页面语言: ${pageLang} (目标国家: ${targetCountry})`)
+
         // 🔥 2025-12-11优化: 增加重试次数，a-no-js失败最多重试2次（使用不同代理IP）
         const maxNoJsRetries = 2
         for (let noJsRetry = 1; noJsRetry <= maxNoJsRetries; noJsRetry++) {
@@ -117,16 +122,23 @@ export async function scrapeAmazonProduct(
           const retryHtmlClasses = retryHtmlTagMatch ? retryHtmlTagMatch[1] : ''
           const retryHasNoJs = retryHtmlClasses.includes('a-no-js') && !retryHtmlClasses.includes('a-js')
 
+          // 🔥 P1增强: 记录重试后的页面语言状态
+          const retryLangMatch = result.html?.match(/<html[^>]*lang="([^"]*)"/)
+          const retryPageLang = retryLangMatch ? retryLangMatch[1] : '(未设置)'
+
           if (!retryHasNoJs) {
             console.log(`✅ a-no-js重试${noJsRetry}成功，<html>标签已正确包含a-js类`)
+            console.log(`🌍 重试后页面语言: ${retryPageLang} (目标国家: ${targetCountry})`)
             break  // 成功，退出重试循环
           } else if (noJsRetry < maxNoJsRetries) {
             console.warn(`⚠️ a-no-js重试${noJsRetry}失败，继续重试...`)
             console.warn(`🔍 重试${noJsRetry}后classes: ${retryHtmlClasses.substring(0, 100)}...`)
+            console.warn(`🌍 重试${noJsRetry}后语言: ${retryPageLang}`)
           } else {
             // 最后一次重试也失败
             console.error(`🚨 a-no-js重试${maxNoJsRetries}次后仍失败，Amazon反爬虫可能升级`)
             console.error(`🔍 最终classes: ${retryHtmlClasses.substring(0, 100)}...`)
+            console.error(`🌍 最终语言: ${retryPageLang} (目标: ${targetCountry})`)
             console.error(`💡 建议: 检查代理IP质量，或稍后重试`)
           }
         }
