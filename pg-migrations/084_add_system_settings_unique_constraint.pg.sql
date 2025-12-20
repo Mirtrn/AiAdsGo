@@ -2,8 +2,13 @@
 -- Purpose: Prevent duplicate (category, key) entries with non-empty values
 -- Date: 2025-12-20
 
--- Step 1: Clean up duplicate records, keep only the latest one per (category, key)
--- Delete older duplicates, keeping only the most recent record for each (category, key) pair
+-- Step 1: Clean up duplicate records
+-- Remove records with NULL or empty values first
+DELETE FROM system_settings
+WHERE value IS NULL OR value = '';
+
+-- Remove duplicate records, keeping only the latest one per (category, key)
+-- PostgreSQL supports table aliases in DELETE statements
 DELETE FROM system_settings s1
 WHERE EXISTS (
   SELECT 1 FROM system_settings s2
