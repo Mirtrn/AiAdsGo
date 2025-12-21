@@ -178,15 +178,15 @@ export class DataSyncService {
         // 查询该账户下的所有Campaigns
         const campaigns = await db.query(
           `
-          SELECT c.id, c.campaign_id, c.campaign_name
+          SELECT c.id, c.google_campaign_id, c.campaign_name
           FROM campaigns c
           WHERE c.user_id = ? AND c.google_ads_account_id = ?
-            AND c.campaign_id IS NOT NULL
+            AND c.google_campaign_id IS NOT NULL
         `,
           [userId, account.id]
         ) as Array<{
           id: number
-          campaign_id: string
+          google_campaign_id: string
           campaign_name: string
         }>
 
@@ -214,7 +214,7 @@ export class DataSyncService {
           for (const record of performanceData) {
             // 查找本地campaign_id
             const campaign = campaigns.find(
-              (c) => c.campaign_id === record.campaign_id
+              (c) => c.google_campaign_id === record.campaign_id
             )
             if (!campaign) {
               console.warn(`未找到Campaign: ${record.campaign_id}，跳过`)
