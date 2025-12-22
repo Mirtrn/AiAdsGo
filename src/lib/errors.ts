@@ -264,8 +264,8 @@ export const ErrorMessages: Record<ErrorCode, { zh: string; en: string; httpStat
     httpStatus: 400
   },
   [ErrorCode.CREA_MAX_ATTEMPTS_REACHED]: {
-    zh: '已达到最大生成次数（3次）',
-    en: 'Maximum generation attempts reached (3)',
+    zh: '已达到最大生成次数（5次）',
+    en: 'Maximum generation attempts reached (5)',
     httpStatus: 400
   },
 

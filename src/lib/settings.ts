@@ -545,7 +545,7 @@ export async function validateGeminiConfig(
   }
 
   // Step 2: 验证模型名称（仅支持Pro模型，Flash任务由系统自动选择）
-  const validModels = ['gemini-2.5-pro', 'gemini-3-flash']
+  const validModels = ['gemini-2.5-pro', 'gemini-3-flash-preview']
   if (!validModels.includes(model)) {
     return {
       valid: false,

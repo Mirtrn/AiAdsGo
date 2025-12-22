@@ -80,14 +80,39 @@ export async function POST(request: NextRequest) {
         break
 
       case 'ai':
-        // 检查是否验证Vertex AI配置
-        if (config.gcp_project_id && config.gcp_service_account_json) {
+        // 🔧 修复(2025-12-22): 从数据库读取实际配置值进行验证
+        // 而不是依赖前端传递的值(前端敏感字段可能是占位符)
+        if (!userIdNum) {
+          return NextResponse.json(
+            { error: '验证AI配置需要登录' },
+            { status: 401 }
+          )
+        }
+
+        const { getUserOnlySetting } = await import('@/lib/settings')
+
+        // 读取用户的AI配置
+        const useVertexAISetting = await getUserOnlySetting('ai', 'use_vertex_ai', userIdNum)
+        const useVertexAI = useVertexAISetting?.value === 'true'
+
+        if (useVertexAI) {
           // 验证Vertex AI配置
-          const gcpLocation = config.gcp_location || 'us-central1'
+          const gcpProjectIdSetting = await getUserOnlySetting('ai', 'gcp_project_id', userIdNum)
+          const gcpLocationSetting = await getUserOnlySetting('ai', 'gcp_location', userIdNum)
+          const gcpServiceAccountJsonSetting = await getUserOnlySetting('ai', 'gcp_service_account_json', userIdNum)
+
+          if (!gcpProjectIdSetting?.value || !gcpServiceAccountJsonSetting?.value) {
+            return NextResponse.json(
+              { error: '请先保存 Vertex AI 配置（GCP项目ID、Service Account JSON）' },
+              { status: 400 }
+            )
+          }
+
+          const gcpLocation = gcpLocationSetting?.value || 'us-central1'
           result = await validateVertexAIConfig(
-            config.gcp_project_id,
+            gcpProjectIdSetting.value,
             gcpLocation,
-            config.gcp_service_account_json
+            gcpServiceAccountJsonSetting.value
           )
 
           // 更新Vertex AI验证状态
@@ -107,25 +132,30 @@ export async function POST(request: NextRequest) {
             userIdNum
           )
 
-          if (config.gcp_location) {
-            updateValidationStatus(
-              'ai',
-              'gcp_location',
-              result.valid ? 'valid' : 'invalid',
-              result.valid ? `区域 ${gcpLocation} 可用` : result.message,
-              userIdNum
-            )
-          }
-        } else if (config.gemini_api_key) {
+          updateValidationStatus(
+            'ai',
+            'gcp_location',
+            result.valid ? 'valid' : 'invalid',
+            result.valid ? `区域 ${gcpLocation} 可用` : result.message,
+            userIdNum
+          )
+        } else {
           // 验证Gemini直接API配置（使用用户级AI配置）
-          if (!userIdNum) {
+          const geminiApiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
+          const geminiModelSetting = await getUserOnlySetting('ai', 'gemini_model', userIdNum)
+
+          if (!geminiApiKeySetting?.value) {
             return NextResponse.json(
-              { error: '验证AI配置需要登录' },
-              { status: 401 }
+              { error: '请先保存 Gemini API 密钥配置' },
+              { status: 400 }
             )
           }
-          const selectedModel = config.gemini_model || 'gemini-2.5-pro'
-          result = await validateGeminiConfig(config.gemini_api_key, selectedModel, userIdNum)
+
+          // 🔧 关键修复: 使用数据库中实际保存的模型配置
+          const selectedModel = geminiModelSetting?.value || 'gemini-2.5-pro'
+          console.log(`🔍 验证AI配置: 使用数据库中的模型配置 ${selectedModel}`)
+
+          result = await validateGeminiConfig(geminiApiKeySetting.value, selectedModel, userIdNum)
 
           // 更新API密钥验证状态
           updateValidationStatus(
@@ -137,21 +167,12 @@ export async function POST(request: NextRequest) {
           )
 
           // 更新模型验证状态
-          if (config.gemini_model) {
-            updateValidationStatus(
-              'ai',
-              'gemini_model',
-              result.valid ? 'valid' : 'invalid',
-              result.valid ? `模型 ${selectedModel} 可用` : result.message,
-              userIdNum
-            )
-          }
-        } else {
-          return NextResponse.json(
-            {
-              error: '请提供 Gemini API密钥 或 Vertex AI配置',
-            },
-            { status: 400 }
+          updateValidationStatus(
+            'ai',
+            'gemini_model',
+            result.valid ? 'valid' : 'invalid',
+            result.valid ? `模型 ${selectedModel} 可用` : result.message,
+            userIdNum
           )
         }
         break

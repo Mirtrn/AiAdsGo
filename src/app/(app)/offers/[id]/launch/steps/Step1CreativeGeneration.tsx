@@ -491,8 +491,8 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   }
 
   const handleGenerate = async () => {
-    // 🆕 第4次生成时，调用综合创意API
-    const isSyntheticGeneration = generationCount >= 3
+    // 🆕 第5次生成时，调用综合创意API
+    const isSyntheticGeneration = generationCount >= 4
 
     try {
       setGenerating(true)
@@ -742,28 +742,43 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
           <Button
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={generating || generationCount >= 5}
             className={`shadow-md border-0 ${
               generationCount >= 3
                 ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-amber-500/20'
                 : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-purple-500/20'
             } text-white`}
-            title={generating ? 'AI正在生成创意，最多可能需要2分钟，请耐心等待...' : (generationCount >= 3 ? '生成包含所有品牌关键词和高搜索量关键词的综合创意' : '')}
+            title={generating ? 'AI正在生成创意，最多可能需要2分钟，请耐心等待...' : (generationCount >= 4 ? '生成包含所有品牌关键词和高搜索量关键词的综合创意' : (generationCount === 3 ? '生成强购买意图的高转化广告创意' : ''))}
           >
             {generating ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                {generationCount >= 3 ? '生成综合创意中...' : 'AI生成中...'}
+                {generationCount >= 4 ? '生成综合创意中...' : (generationCount === 3 ? '生成强购买意图创意中...' : 'AI生成中...')}
               </>
             ) : (
               <>
                 <RefreshCw className="w-4 h-4 mr-2" />
-                {generationCount === 0 ? '开始生成创意' : generationCount >= 3 ? '生成综合创意' : '再次生成'}
+                {generationCount === 0 ? '开始生成创意' :
+                 generationCount === 3 ? '生成强购买意图' :
+                 generationCount === 4 ? '生成综合创意' :
+                 generationCount >= 5 ? '已达生成上限' :
+                 '再次生成'}
               </>
             )}
           </Button>
         </div>
       </div>
+
+      {/* 🆕 生成次数上限提示 */}
+      {generationCount >= 5 && (
+        <Alert className="border-amber-200 bg-amber-50">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-700">
+            <span className="font-medium">已达到生成上限：</span>
+            已生成5个创意（品牌导向、场景导向、功能导向、强购买意图、综合推广）。如需重新生成，请删除现有创意或创建新的Offer。
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* 🆕 错误提示（当已有创意但生成新创意失败时显示） */}
       {generationError && creatives.length > 0 && (
@@ -929,7 +944,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 </p>
                 <Button
                   onClick={handleGenerate}
-                  disabled={generating}
+                  disabled={generating || generationCount >= 5}
                   className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 border-0"
                 >
                   <Wand2 className="w-4 h-4 mr-2" />

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { exchangeCodeForTokens } from '@/lib/google-ads-api'
+import { exchangeCodeForTokens, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { createGoogleAdsAccount, findGoogleAdsAccountByCustomerId } from '@/lib/google-ads-accounts'
 
 // 强制动态渲染（OAuth回调必须动态处理）
@@ -38,8 +38,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // 获取用户的 Google Ads 凭证
+    const credentials = await getGoogleAdsCredentialsFromDB(parseInt(userId, 10))
+
     // 交换authorization code获取tokens
-    const tokens = await exchangeCodeForTokens(code)
+    const tokens = await exchangeCodeForTokens(code, {
+      client_id: credentials.client_id,
+      client_secret: credentials.client_secret
+    })
 
     if (!tokens.refresh_token) {
       return NextResponse.redirect(

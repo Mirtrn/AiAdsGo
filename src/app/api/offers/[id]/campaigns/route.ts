@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomer } from '@/lib/google-ads-api'
+import { getCustomer, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { findGoogleAdsAccountById, findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
 import { getDatabase } from '@/lib/db'
 
@@ -40,10 +40,22 @@ export async function GET(
       }, { status: 400 })
     }
 
+    // 获取用户的 Google Ads 凭证
+    const credentials = await getGoogleAdsCredentialsFromDB(parseInt(userId, 10))
+    const loginCustomerId = googleAdsAccount.parentMccId || credentials.login_customer_id
+
     // 获取Google Ads客户端
     const customer = await getCustomer(
       googleAdsAccount.customerId,
-      googleAdsAccount.refreshToken
+      googleAdsAccount.refreshToken,
+      loginCustomerId,
+      {
+        client_id: credentials.client_id,
+        client_secret: credentials.client_secret,
+        developer_token: credentials.developer_token
+      },
+      googleAdsAccount.id,
+      googleAdsAccount.userId
     )
 
     // 查询该账号下所有广告系列

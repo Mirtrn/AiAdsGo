@@ -7,7 +7,7 @@
  *
  * 用户选择逻辑：
  * - 用户选"Gemini 2.5 Pro"       → Pro任务用2.5-pro, Flash任务用2.5-flash
- * - 用户选"Gemini 3 Flash"       → Pro任务用3-flash, Flash任务也用3-flash
+ * - 用户选"Gemini 3 Flash Preview" → Pro任务用3-flash-preview, Flash任务也用3-flash-preview
  *
  * 注意：用户选择的模型影响整个任务链的模型选择策略
  */
@@ -18,7 +18,7 @@ import { getUserOnlySetting } from './settings'
 export type ModelType =
   | 'gemini-2.5-pro'
   | 'gemini-2.5-flash'
-  | 'gemini-3-flash'
+  | 'gemini-3-flash-preview'
 
 export interface ModelSelection {
   model: ModelType
@@ -65,6 +65,18 @@ const FLASH_OPERATIONS = new Set<string>([
   // 🟢 连接测试 - Flash
   // 简单的ping测试
   'connection_test',
+
+  // 🟢 关键词聚类 - Flash
+  // 结构化JSON输出，固定格式的Bucket分类
+  'keyword_clustering',
+
+  // 🟢 竞争定位分析 - Flash
+  // 使用responseSchema，固定JSON格式，4个评分字段 + 置信度
+  'competitive_positioning_analysis',
+
+  // 🟢 竞品关键词推断 - Flash
+  // 温度0.3，简单关键词列表，模式识别任务
+  'competitor_keyword_inference',
 ])
 
 const PRO_OPERATIONS = new Set<string>([
@@ -79,6 +91,7 @@ const PRO_OPERATIONS = new Set<string>([
   'launch_score_calculation',     // 多维度综合评估
   'ad_creative_generation_main',  // 核心创意生成
   'product_page_analysis',        // 产品页面深度分析
+  'store_highlights_synthesis',   // 🔴 店铺产品亮点整合 - 需要创造性语义理解
 
   // 🔴 创意生成任务 - Pro
   'headline_generation',          // 标题创意生成（需要准确性和创造力）
@@ -93,7 +106,7 @@ const PRO_OPERATIONS = new Set<string>([
  * 获取用户选择的Pro模型
  *
  * - 用户选"Gemini 2.5 Pro" → 返回'gemini-2.5-pro'
- * - 用户选"Gemini 3 Flash" → 返回'gemini-3-flash'
+ * - 用户选"Gemini 3 Flash Preview" → 返回'gemini-3-flash-preview'
  *
  * @param userId - 用户ID
  * @returns 用户选择的模型
@@ -107,9 +120,9 @@ export async function getUserProModel(userId?: number): Promise<ModelType> {
     const modelSetting = await getUserOnlySetting('ai', 'gemini_model', userId)
     const selectedModel = modelSetting?.value
 
-    // 用户选择的模型决定Pro任务使用哪个模型
-    if (selectedModel === 'gemini-3-flash') {
-      return 'gemini-3-flash' // 用户选择了Gemini 3 Flash
+    // 🔧 修复(2025-12-22): 用户选择的模型决定Pro任务使用哪个模型
+    if (selectedModel === 'gemini-3-flash-preview') {
+      return 'gemini-3-flash-preview' // 用户选择了Gemini 3 Flash Preview
     } else {
       return 'gemini-2.5-pro' // 默认Pro模型
     }
@@ -150,9 +163,9 @@ export async function selectOptimalModel(
 
   // Flash适用场景：简单任务使用Flash版本
   if (FLASH_OPERATIONS.has(operationType)) {
-    // 用户选了Gemini 3 Flash时，Flash任务也用3-flash
+    // 🔧 修复(2025-12-22): 用户选了Gemini 3 Flash Preview时，Flash任务也用3-flash-preview
     // 用户选了Gemini 2.5 Pro时，Flash任务用2.5-flash
-    const flashModel = userProModel === 'gemini-3-flash' ? 'gemini-3-flash' : 'gemini-2.5-flash'
+    const flashModel = userProModel === 'gemini-3-flash-preview' ? 'gemini-3-flash-preview' : 'gemini-2.5-flash'
     return {
       model: flashModel,
       reason: `结构化输出任务，使用Flash版本: ${flashModel}`,

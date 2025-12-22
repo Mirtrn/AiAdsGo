@@ -41,6 +41,8 @@ export interface GAQLQueryParams {
   refreshToken: string
   startDate: string // YYYY-MM-DD
   endDate: string // YYYY-MM-DD
+  accountId: number
+  userId: number
   credentials?: {
     client_id: string
     client_secret: string
@@ -205,6 +207,8 @@ export class DataSyncService {
           refreshToken: account.refresh_token,
           startDate: this.formatDate(startDate),
           endDate: this.formatDate(endDate),
+          accountId: account.id,
+          userId: userId,
           credentials: userCredentials,
         })
 
@@ -340,17 +344,17 @@ export class DataSyncService {
   private async queryPerformanceData(
     params: GAQLQueryParams
   ): Promise<CampaignPerformanceData[]> {
-    const { customerId, refreshToken, startDate, endDate, credentials } = params
+    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials } = params
 
     try {
       // 🔧 修复: 传递用户凭证给 getCustomer
       const customer = await getCustomer(
         customerId,
         refreshToken,
-        undefined,
-        undefined,
-        credentials?.login_customer_id,
-        credentials
+        credentials?.login_customer_id || '',
+        credentials || { client_id: '', client_secret: '', developer_token: '' },
+        accountId,
+        userId
       )
 
       // GAQL查询语句

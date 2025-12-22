@@ -9,6 +9,7 @@ import { NextRequest } from 'next/server'
 import { findOfferById } from '@/lib/offers'
 import { getQueueManager } from '@/lib/queue'
 import { getDatabase } from '@/lib/db'
+import { createError } from '@/lib/errors'
 import type { AdCreativeTaskData } from '@/lib/queue/executors/ad-creative-executor'
 
 export async function POST(
@@ -51,6 +52,27 @@ export async function POST(
 
   try {
     const db = getDatabase()
+
+    // 🆕 检查是否已达到5次生成上限
+    const existingCreatives = await db.query<{ count: number }>(
+      `SELECT COUNT(*) as count FROM ad_creatives
+       WHERE offer_id = ? AND user_id = ?`,
+      [parseInt(id, 10), parseInt(userId, 10)]
+    )
+
+    const currentCount = existingCreatives[0]?.count || 0
+    if (currentCount >= 5) {
+      const error = createError.creativeQuotaExceeded({
+        round: 1,
+        current: currentCount,
+        limit: 5
+      })
+      return new Response(JSON.stringify(error.toJSON()), {
+        status: error.httpStatus,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
     const queue = getQueueManager()
 
     // 创建creative_tasks记录

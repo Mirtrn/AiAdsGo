@@ -2,6 +2,41 @@ import { GoogleAdsApi, Customer, enums } from 'google-ads-api'
 import { updateGoogleAdsAccount } from './google-ads-accounts'
 import { withRetry } from './retry'
 import { gadsApiCache, generateGadsApiCacheKey } from './cache'
+import { getUserOnlySetting } from './settings'
+
+/**
+ * 从数据库获取用户的Google Ads凭证
+ *
+ * 🆕 新增(2025-12-22): 统一的凭证获取函数,确保所有API调用都从数据库读取
+ *
+ * @param userId - 用户ID
+ * @returns Google Ads凭证对象
+ * @throws Error 如果配置缺失
+ */
+export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
+  client_id: string
+  client_secret: string
+  developer_token: string
+  login_customer_id: string
+}> {
+  const [clientIdSetting, clientSecretSetting, developerTokenSetting, loginCustomerIdSetting] = await Promise.all([
+    getUserOnlySetting('google_ads', 'client_id', userId),
+    getUserOnlySetting('google_ads', 'client_secret', userId),
+    getUserOnlySetting('google_ads', 'developer_token', userId),
+    getUserOnlySetting('google_ads', 'login_customer_id', userId),
+  ])
+
+  if (!clientIdSetting?.value || !clientSecretSetting?.value || !developerTokenSetting?.value || !loginCustomerIdSetting?.value) {
+    throw new Error(`用户(ID=${userId})未配置完整的 Google Ads 凭证。请在设置页面配置所有必需参数。`)
+  }
+
+  return {
+    client_id: clientIdSetting.value,
+    client_secret: clientSecretSetting.value,
+    developer_token: developerTokenSetting.value,
+    login_customer_id: loginCustomerIdSetting.value,
+  }
+}
 
 /**
  * 抑制 Google Ads API 的 MetadataLookupWarning
@@ -50,58 +85,46 @@ if (typeof process !== 'undefined') {
 }
 
 /**
- * Google Ads API客户端单例（仅用于环境变量配置）
- */
-let client: GoogleAdsApi | null = null
-
-/**
  * 获取Google Ads API客户端实例
- * @param credentials - 可选的用户凭证，如果不提供则使用环境变量
+ *
+ * 🔧 修复(2025-12-22): 移除环境变量依赖,强制要求传入credentials
+ * 所有配置必须从数据库读取,支持用户级隔离
+ *
+ * @param credentials - 必需的用户凭证(从数据库读取)
+ * @throws Error 如果未提供凭证
  */
-export function getGoogleAdsClient(credentials?: {
+export function getGoogleAdsClient(credentials: {
   client_id: string
   client_secret: string
   developer_token: string
 }): GoogleAdsApi {
-  // 如果提供了凭证，创建新的客户端实例
-  if (credentials) {
-    return new GoogleAdsApi({
-      client_id: credentials.client_id,
-      client_secret: credentials.client_secret,
-      developer_token: credentials.developer_token,
-    })
+  if (!credentials) {
+    throw new Error('Google Ads API 配置缺失：必须从数据库提供 credentials 参数,不再支持环境变量')
   }
 
-  // 否则使用单例模式的环境变量配置
-  if (!client) {
-    const clientId = process.env.GOOGLE_ADS_CLIENT_ID
-    const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET
-    const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN
-
-    if (!clientId || !clientSecret || !developerToken) {
-      throw new Error('缺少Google Ads API配置：CLIENT_ID, CLIENT_SECRET, DEVELOPER_TOKEN')
-    }
-
-    client = new GoogleAdsApi({
-      client_id: clientId,
-      client_secret: clientSecret,
-      developer_token: developerToken,
-    })
-  }
-
-  return client
+  // 每次都创建新的客户端实例,支持多用户隔离
+  return new GoogleAdsApi({
+    client_id: credentials.client_id,
+    client_secret: credentials.client_secret,
+    developer_token: credentials.developer_token,
+  })
 }
 
 /**
  * 生成OAuth授权URL
+ *
+ * 🔧 修复(2025-12-22): 移除环境变量依赖,从参数获取clientId
+ *
+ * @param clientId - 用户的Google Ads Client ID(从数据库读取)
+ * @param state - OAuth state参数
+ * @throws Error 如果未提供clientId
  */
-export function getOAuthUrl(state?: string): string {
-  const clientId = process.env.GOOGLE_ADS_CLIENT_ID
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/google-ads/callback`
-
+export function getOAuthUrl(clientId: string, state?: string): string {
   if (!clientId) {
-    throw new Error('缺少GOOGLE_ADS_CLIENT_ID配置')
+    throw new Error('缺少 Client ID 配置,必须从数据库提供')
   }
+
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/google-ads/callback`
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -121,19 +144,29 @@ export function getOAuthUrl(state?: string): string {
 
 /**
  * 交换authorization code获取tokens
+ *
+ * 🔧 修复(2025-12-22): 移除环境变量依赖,从参数获取credentials
+ *
+ * @param code - OAuth authorization code
+ * @param credentials - 用户的Google Ads凭证(从数据库读取)
+ * @throws Error 如果未提供凭证
  */
-export async function exchangeCodeForTokens(code: string): Promise<{
+export async function exchangeCodeForTokens(
+  code: string,
+  credentials: {
+    client_id: string
+    client_secret: string
+  }
+): Promise<{
   access_token: string
   refresh_token: string
   expires_in: number
 }> {
-  const clientId = process.env.GOOGLE_ADS_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/google-ads/callback`
-
-  if (!clientId || !clientSecret) {
-    throw new Error('缺少OAuth配置')
+  if (!credentials?.client_id || !credentials?.client_secret) {
+    throw new Error('缺少OAuth配置,必须从数据库提供 client_id 和 client_secret')
   }
+
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/google-ads/callback`
 
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -142,8 +175,8 @@ export async function exchangeCodeForTokens(code: string): Promise<{
     },
     body: new URLSearchParams({
       code,
-      client_id: clientId,
-      client_secret: clientSecret,
+      client_id: credentials.client_id,
+      client_secret: credentials.client_secret,
       redirect_uri: redirectUri,
       grant_type: 'authorization_code',
     }),
@@ -160,10 +193,16 @@ export async function exchangeCodeForTokens(code: string): Promise<{
 
 /**
  * 刷新access token
+ *
+ * 🔧 修复(2025-12-22): 移除环境变量依赖,credentials参数改为必需
+ *
+ * @param refreshToken - Refresh token
+ * @param credentials - 必需的用户凭证(从数据库读取)
+ * @throws Error 如果未提供凭证
  */
 export async function refreshAccessToken(
   refreshToken: string,
-  credentials?: {
+  credentials: {
     client_id: string
     client_secret: string
   }
@@ -171,11 +210,8 @@ export async function refreshAccessToken(
   access_token: string
   expires_in: number
 }> {
-  const clientId = credentials?.client_id || process.env.GOOGLE_ADS_CLIENT_ID
-  const clientSecret = credentials?.client_secret || process.env.GOOGLE_ADS_CLIENT_SECRET
-
-  if (!clientId || !clientSecret) {
-    throw new Error('缺少OAuth配置')
+  if (!credentials?.client_id || !credentials?.client_secret) {
+    throw new Error('缺少OAuth配置,必须从数据库提供 client_id 和 client_secret')
   }
 
   const response = await fetch('https://oauth2.googleapis.com/token', {
@@ -185,8 +221,8 @@ export async function refreshAccessToken(
     },
     body: new URLSearchParams({
       refresh_token: refreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
+      client_id: credentials.client_id,
+      client_secret: credentials.client_secret,
       grant_type: 'refresh_token',
     }),
   })
@@ -203,40 +239,46 @@ export async function refreshAccessToken(
 /**
  * 获取Google Ads Customer实例
  * 自动处理token刷新
+ *
+ * 🔧 修复(2025-12-22): 移除环境变量依赖,强制要求传入credentials和loginCustomerId
+ *
+ * @param customerId - Customer ID
+ * @param refreshToken - Refresh token
+ * @param loginCustomerId - 必需的MCC账户ID(从数据库读取)
+ * @param credentials - 必需的用户凭证(从数据库读取)
+ * @param accountId - 可选的账户ID用于更新token
+ * @param userId - 可选的用户ID用于更新token
+ * @throws Error 如果未提供必需参数
  */
 export async function getCustomer(
   customerId: string,
   refreshToken: string,
-  accountId?: number,
-  userId?: number,
-  loginCustomerId?: string,
-  credentials?: {
+  loginCustomerId: string,
+  credentials: {
     client_id: string
     client_secret: string
     developer_token: string
-  }
+  },
+  accountId?: number,
+  userId?: number
 ): Promise<Customer> {
-  // 🔥 修复(2025-12-18): 如果没有传入凭证但有userId，从数据库获取
-  let finalCredentials = credentials
-  if (!finalCredentials && userId) {
-    const { getGoogleAdsCredentials } = await import('./google-ads-oauth')
-    const dbCredentials = await getGoogleAdsCredentials(userId)
-    if (dbCredentials) {
-      finalCredentials = {
-        client_id: dbCredentials.client_id,
-        client_secret: dbCredentials.client_secret,
-        developer_token: dbCredentials.developer_token,
-      }
-    }
+  if (!credentials) {
+    throw new Error('缺少Google Ads凭证,必须从数据库提供 credentials 参数')
   }
 
-  const client = finalCredentials ? getGoogleAdsClient(finalCredentials) : getGoogleAdsClient()
+  if (!loginCustomerId) {
+    throw new Error('缺少 Login Customer ID(MCC账户ID),必须从数据库提供')
+  }
+
+  const client = getGoogleAdsClient(credentials)
 
   try {
     // 尝试使用refresh token获取新的access token（带重试）
-    // 🔧 修复(2025-12-18): 使用finalCredentials而非credentials
     const tokens = await withRetry(
-      () => refreshAccessToken(refreshToken, finalCredentials ? { client_id: finalCredentials.client_id, client_secret: finalCredentials.client_secret } : undefined),
+      () => refreshAccessToken(refreshToken, {
+        client_id: credentials.client_id,
+        client_secret: credentials.client_secret
+      }),
       {
         maxRetries: 2,
         initialDelay: 500,
@@ -254,17 +296,51 @@ export async function getCustomer(
     }
 
     // 创建customer实例
-    // 优先使用传入的loginCustomerId，其次使用环境变量
     const customer = client.Customer({
       customer_id: customerId,
       refresh_token: refreshToken,
-      login_customer_id: loginCustomerId || process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+      login_customer_id: loginCustomerId,
     })
 
     return customer
   } catch (error: any) {
     throw new Error(`获取Google Ads Customer失败: ${error.message}`)
   }
+}
+
+/**
+ * 辅助函数：从数据库获取凭证并创建Customer实例
+ * 简化调用者代码，避免每次都手动获取credentials
+ */
+async function getCustomerWithCredentials(params: {
+  customerId: string
+  refreshToken: string
+  accountId?: number
+  userId?: number
+  loginCustomerId?: string
+}): Promise<Customer> {
+  if (!params.userId) {
+    throw new Error('userId is required to fetch Google Ads credentials')
+  }
+
+  // 从数据库获取凭证
+  const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+
+  // 使用loginCustomerId参数，或从数据库获取
+  const loginCustomerId = params.loginCustomerId || creds.login_customer_id
+
+  return getCustomer(
+    params.customerId,
+    params.refreshToken,
+    loginCustomerId,
+    {
+      client_id: creds.client_id,
+      client_secret: creds.client_secret,
+      developer_token: creds.developer_token,
+    },
+    params.accountId,
+    params.userId
+  )
 }
 
 /**
@@ -378,13 +454,7 @@ export async function createGoogleAdsCampaign(params: {
   userId?: number
   loginCustomerId?: string  // 🔥 经理账号ID（用于访问客户账号）
 }): Promise<{ campaignId: string; resourceName: string }> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId  // 🔥 传入经理账号ID
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   // 1. 创建预算（添加时间戳避免重复名称）
   const budgetResourceName = await createCampaignBudget(customer, {
@@ -643,13 +713,7 @@ export async function updateGoogleAdsCampaignStatus(params: {
   userId?: number
   loginCustomerId?: string
 }): Promise<void> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
@@ -689,13 +753,7 @@ export async function updateGoogleAdsCampaignBudget(params: {
   userId?: number
   loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<void> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId  // 🔧 传递loginCustomerId给getCustomer
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   // 1. 创建新的预算
   const budgetResourceName = await createCampaignBudget(customer, {
@@ -756,13 +814,7 @@ export async function getGoogleAdsCampaign(params: {
     }
   }
 
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId  // 🔧 传递loginCustomerId给getCustomer
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   const query = `
     SELECT
@@ -816,13 +868,7 @@ export async function listGoogleAdsCampaigns(params: {
     }
   }
 
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   const query = `
     SELECT
@@ -861,13 +907,7 @@ export async function createGoogleAdsAdGroup(params: {
   userId?: number
   loginCustomerId?: string  // 🔥 经理账号ID
 }): Promise<{ adGroupId: string; resourceName: string }> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId  // 🔥 传入经理账号ID
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   const adGroup = {
     name: params.adGroupName,
@@ -912,13 +952,7 @@ export async function createGoogleAdsKeyword(params: {
   userId?: number
   loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<{ keywordId: string; resourceName: string }> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId  // 🔧 传递loginCustomerId给getCustomer
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   if (params.isNegative) {
     // 创建否定关键词
@@ -999,13 +1033,7 @@ export async function createGoogleAdsKeywordsBatch(params: {
   userId?: number
   loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<Array<{ keywordId: string; resourceName: string; keywordText: string }>> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId  // 🔧 传递loginCustomerId给getCustomer
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   const results: Array<{ keywordId: string; resourceName: string; keywordText: string }> = []
 
@@ -1074,13 +1102,7 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   userId?: number
   loginCustomerId?: string  // 🔥 经理账号ID
 }): Promise<{ adId: string; resourceName: string }> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId  // 🔥 传入经理账号ID
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   // Validate headlines (必须正好15个)
   // 根据业务规范：Headlines必须配置15个，如果从广告创意中获得的标题数量不足，则报错
@@ -1182,7 +1204,7 @@ export async function getCampaignPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId, params.loginCustomerId)  // 🔧 传递loginCustomerId
+  const customer = await getCustomerWithCredentials(params)
 
   // Google Ads Query Language (GAQL) query
   const query = `
@@ -1253,7 +1275,7 @@ export async function getAdGroupPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId, params.loginCustomerId)  // 🔧 传递loginCustomerId
+  const customer = await getCustomerWithCredentials(params)
 
   const query = `
     SELECT
@@ -1323,7 +1345,7 @@ export async function getAdPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId, params.loginCustomerId)  // 🔧 传递loginCustomerId
+  const customer = await getCustomerWithCredentials(params)
 
   const query = `
     SELECT
@@ -1393,7 +1415,7 @@ export async function getBatchCampaignPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>>> {
-  const customer = await getCustomer(params.customerId, params.refreshToken, params.accountId, params.userId, params.loginCustomerId)  // 🔧 传递loginCustomerId
+  const customer = await getCustomerWithCredentials(params)
 
   // Construct IN clause for multiple campaign IDs
   const campaignIdList = params.campaignIds.join(',')
@@ -1467,13 +1489,7 @@ export async function createGoogleAdsCalloutExtensions(params: {
   userId?: number
   loginCustomerId?: string
 }): Promise<{ assetIds: string[] }> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   const assetIds: string[] = []
 
@@ -1539,13 +1555,7 @@ export async function createGoogleAdsSitelinkExtensions(params: {
   userId?: number
   loginCustomerId?: string
 }): Promise<{ assetIds: string[] }> {
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    params.accountId,
-    params.userId,
-    params.loginCustomerId
-  )
+  const customer = await getCustomerWithCredentials(params)
 
   const assetIds: string[] = []
 
@@ -1831,7 +1841,13 @@ export async function setCampaignMarketingObjective(params: {
   console.log(`   Customer ID: ${customerId}`)
 
   try {
-    const customer = await getCustomer(customerId, refreshToken, accountId, userId, loginCustomerId)
+    const customer = await getCustomerWithCredentials({
+      customerId,
+      refreshToken,
+      accountId,
+      userId,
+      loginCustomerId
+    })
 
     // 获取营销目标对应的转化类别和来源
     const mapping = MARKETING_OBJECTIVE_MAPPING[marketingObjective]

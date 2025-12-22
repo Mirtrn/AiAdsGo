@@ -78,7 +78,7 @@ export async function getAdStrength(
     // 从数据库获取refresh_token和parent_mcc_id
     const db = await getDatabase()
     const account = await db.queryOne(
-      `SELECT refresh_token, parent_mcc_id FROM google_ads_accounts
+      `SELECT id, refresh_token, parent_mcc_id FROM google_ads_accounts
        WHERE user_id = ? AND customer_id = ?`,
       [userId, customerId]
     ) as any
@@ -86,6 +86,8 @@ export async function getAdStrength(
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')
     }
+
+    const accountId = account.id
 
     // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
     const credentials = await db.queryOne(
@@ -102,14 +104,14 @@ export async function getAdStrength(
     const customer = await getCustomer(
       customerId,
       account.refresh_token,
-      undefined,
-      userId,
-      account.parent_mcc_id || undefined,
+      account.parent_mcc_id || '',
       {
         client_id: credentials.client_id,
         client_secret: credentials.client_secret,
         developer_token: credentials.developer_token
-      }
+      },
+      accountId,
+      userId
     )
 
     // GAQL查询：获取Ad Strength
@@ -171,7 +173,7 @@ export async function getAdStrengthRecommendations(
   try {
     const db = await getDatabase()
     const account = await db.queryOne(
-      `SELECT refresh_token, parent_mcc_id FROM google_ads_accounts
+      `SELECT id, refresh_token, parent_mcc_id FROM google_ads_accounts
        WHERE user_id = ? AND customer_id = ?`,
       [userId, customerId]
     ) as any
@@ -179,6 +181,8 @@ export async function getAdStrengthRecommendations(
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')
     }
+
+    const accountId = account.id
 
     // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
     const credentials = await db.queryOne(
@@ -194,14 +198,14 @@ export async function getAdStrengthRecommendations(
     const customer = await getCustomer(
       customerId,
       account.refresh_token,
-      undefined,
-      userId,
-      account.parent_mcc_id || undefined,
+      account.parent_mcc_id || '',
       {
         client_id: credentials.client_id,
         client_secret: credentials.client_secret,
         developer_token: credentials.developer_token
-      }
+      },
+      accountId,
+      userId
     )
 
     // GAQL查询：获取Ad Strength改进建议
@@ -261,7 +265,7 @@ export async function getAssetPerformance(
   try {
     const db = await getDatabase()
     const account = await db.queryOne(
-      `SELECT refresh_token, parent_mcc_id FROM google_ads_accounts
+      `SELECT id, refresh_token, parent_mcc_id FROM google_ads_accounts
        WHERE user_id = ? AND customer_id = ?`,
       [userId, customerId]
     ) as any
@@ -269,6 +273,8 @@ export async function getAssetPerformance(
     if (!account || !account.refresh_token) {
       throw new Error('未找到Google Ads账号授权信息')
     }
+
+    const accountId = account.id
 
     // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
     const credentials = await db.queryOne(
@@ -284,14 +290,14 @@ export async function getAssetPerformance(
     const customer = await getCustomer(
       customerId,
       account.refresh_token,
-      undefined,
-      userId,
-      account.parent_mcc_id || undefined,
+      account.parent_mcc_id || '',
       {
         client_id: credentials.client_id,
         client_secret: credentials.client_secret,
         developer_token: credentials.developer_token
-      }
+      },
+      accountId,
+      userId
     )
 
     // GAQL查询：获取资产性能（Headline和Description）

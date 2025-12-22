@@ -382,9 +382,9 @@ async function clusterBatchKeywords(
     required: ['bucketA', 'bucketB', 'bucketC', 'bucketD', 'statistics']
   }
 
-  // 4. 调用 AI（使用flash模型，60-90s）
+  // 4. 调用 AI（使用智能模型选择，60-90s）
   const aiResponse = await generateContent({
-    model: 'gemini-2.5-flash',
+    operationType: 'keyword_clustering',
     prompt,
     temperature: 0.3,
     maxOutputTokens: 65000,
@@ -715,9 +715,9 @@ async function clusterKeywordsDirectly(
         required: ['bucketA', 'bucketB', 'bucketC', 'bucketD', 'statistics']
       }
 
-      // 4. 调用 AI
+      // 4. 调用 AI（使用智能模型选择）
       const aiResponse = await generateContent({
-        model: 'gemini-2.5-flash',
+        operationType: 'keyword_clustering',
         prompt,
         temperature: 0.3,
         maxOutputTokens: 65000,

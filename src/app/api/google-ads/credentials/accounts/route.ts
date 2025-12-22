@@ -215,14 +215,14 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
       const customer = await getCustomer(
         customerId,
         credentials.refresh_token,
-        undefined,
-        undefined,
         loginCustomerId,
         {
           client_id: clientId,
           client_secret: clientSecret,
           developer_token: developerToken,
-        }
+        },
+        undefined, // accountId not available yet during sync
+        userId
       )
       const accountInfoQuery = `
         SELECT
@@ -339,14 +339,14 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
                     const childCustomer = await getCustomer(
                       childId,
                       credentials.refresh_token,
-                      undefined,
-                      undefined,
                       credentials.login_customer_id,
                       {
                         client_id: clientId,
                         client_secret: clientSecret,
                         developer_token: developerToken,
-                      }
+                      },
+                      undefined, // accountId not available yet during sync
+                      userId
                     )
                     const childBudgetQuery = `
                       SELECT

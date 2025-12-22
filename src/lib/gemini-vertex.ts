@@ -144,7 +144,7 @@ async function delay(ms: number): Promise<void> {
  *   - gemini-2.5-pro (稳定版，推荐，区域：us-central1)
  *   - gemini-2.5-flash (快速版，区域：us-central1)
  *   - gemini-2.5-flash-lite (轻量版，区域：us-central1)
- *   - gemini-3-flash (最新版，高效，区域：us-central1)
+ *   - gemini-3-flash-preview (最新版，高效，区域：us-central1)
  * @param params.prompt - 提示词
  * @param params.temperature - 温度参数，默认 0.7
  * @param params.maxOutputTokens - 最大输出tokens，默认 8192
@@ -388,7 +388,7 @@ export async function checkVertexAIConnection(): Promise<boolean> {
         },
       ],
       generationConfig: {
-        maxOutputTokens: 10,
+        maxOutputTokens: 1000, // 🔧 修复(2025-12-22): 增加到1000以容纳Gemini 2.5+的思考过程，避免MAX_TOKENS错误
       },
     })
 

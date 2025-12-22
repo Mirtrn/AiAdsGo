@@ -49,33 +49,36 @@ export async function getKeywordIdeas(params: {
   clientSecret?: string
   developerToken?: string
 }): Promise<KeywordIdea[]> {
-  const credentials = params.clientId && params.clientSecret && params.developerToken
+  // 从数据库获取凭证和MCC ID
+  if (!params.userId) {
+    throw new Error('userId is required to fetch Google Ads credentials')
+  }
+
+  const { getGoogleAdsCredentialsFromDB } = await import('./google-ads-api')
+  const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+
+  const finalCredentials = params.clientId && params.clientSecret && params.developerToken
     ? {
         client_id: params.clientId,
         client_secret: params.clientSecret,
         developer_token: params.developerToken
       }
-    : undefined
+    : {
+        client_id: creds.client_id,
+        client_secret: creds.client_secret,
+        developer_token: creds.developer_token
+      }
 
-  // Fetch parent_mcc_id from database for login-customer-id header
-  let loginCustomerId: string | undefined = undefined
-  if (params.accountId && params.userId) {
-    const { getDatabase } = await import('./db')
-    const db = await getDatabase()
-    const account = await db.queryOne<{parent_mcc_id: string | null}>(
-      'SELECT parent_mcc_id FROM google_ads_accounts WHERE id = ? AND user_id = ?',
-      [params.accountId, params.userId]
-    )
-    loginCustomerId = account?.parent_mcc_id || undefined
-  }
+  // 使用数据库中的login_customer_id
+  const loginCustomerId = creds.login_customer_id
 
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
+    loginCustomerId,
+    finalCredentials,
     params.accountId,
-    params.userId,
-    loginCustomerId, // Now properly set from database
-    credentials
+    params.userId
   )
 
   // API追踪
@@ -197,33 +200,36 @@ export async function getKeywordMetrics(params: {
   clientSecret?: string
   developerToken?: string
 }): Promise<KeywordMetrics[]> {
-  const credentials = params.clientId && params.clientSecret && params.developerToken
+  // 从数据库获取凭证和MCC ID
+  if (!params.userId) {
+    throw new Error('userId is required to fetch Google Ads credentials')
+  }
+
+  const { getGoogleAdsCredentialsFromDB } = await import('./google-ads-api')
+  const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+
+  const finalCredentials = params.clientId && params.clientSecret && params.developerToken
     ? {
         client_id: params.clientId,
         client_secret: params.clientSecret,
         developer_token: params.developerToken
       }
-    : undefined
+    : {
+        client_id: creds.client_id,
+        client_secret: creds.client_secret,
+        developer_token: creds.developer_token
+      }
 
-  // Fetch parent_mcc_id from database for login-customer-id header
-  let loginCustomerId: string | undefined = undefined
-  if (params.accountId && params.userId) {
-    const { getDatabase } = await import('./db')
-    const db = await getDatabase()
-    const account = await db.queryOne<{parent_mcc_id: string | null}>(
-      'SELECT parent_mcc_id FROM google_ads_accounts WHERE id = ? AND user_id = ?',
-      [params.accountId, params.userId]
-    )
-    loginCustomerId = account?.parent_mcc_id || undefined
-  }
+  // 使用数据库中的login_customer_id
+  const loginCustomerId = creds.login_customer_id
 
   const customer = await getCustomer(
     params.customerId,
     params.refreshToken,
+    loginCustomerId,
+    finalCredentials,
     params.accountId,
-    params.userId,
-    loginCustomerId, // Now properly set from database
-    credentials
+    params.userId
   )
 
   // API追踪
