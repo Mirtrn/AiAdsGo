@@ -1731,22 +1731,20 @@ async function createConversionAction(
  */
 async function setCustomerConversionGoal(
   customer: Customer,
-  mapping: any,
-  conversionActionResourceName: string
+  mapping: any
 ): Promise<void> {
-  console.log(`   📋 查询CustomerConversionGoal...`)
+  console.log(`   📋 查询CustomerConversionGoal (category=${mapping.category})...`)
 
   try {
     // 1. 查询现有的CustomerConversionGoal
+    // CustomerConversionGoal的主键是category，不是conversion_action
     const query = `
       SELECT
         customer_conversion_goal.resource_name,
-        customer_conversion_goal.conversion_action,
         customer_conversion_goal.category,
-        customer_conversion_goal.origin,
         customer_conversion_goal.biddable
       FROM customer_conversion_goal
-      WHERE customer_conversion_goal.conversion_action = '${conversionActionResourceName}'
+      WHERE customer_conversion_goal.category = ${mapping.category}
     `
 
     const existingGoals = await customer.query(query)
@@ -1768,7 +1766,7 @@ async function setCustomerConversionGoal(
         console.log(`   ✅ CustomerConversionGoal已经是biddable=true`)
       }
     } else {
-      console.log(`   ⚠️ 未找到CustomerConversionGoal，可能需要等待转化操作同步`)
+      console.log(`   ⚠️ 未找到CustomerConversionGoal (category=${mapping.category})，可能需要等待转化操作同步`)
     }
   } catch (error: any) {
     console.error(`   ⚠️ 设置CustomerConversionGoal失败:`, error.message)
@@ -1965,7 +1963,7 @@ export async function setCampaignMarketingObjective(params: {
         // 🔧 关键修复(2025-12-20): 根据Google Ads API v21新逻辑，
         // 需要设置CustomerConversionGoal才能让营销目标在UI中正确显示
         console.log(`   🔄 设置CustomerConversionGoal (API v21新要求)...`)
-        await setCustomerConversionGoal(customer, mapping, conversionActionResourceName)
+        await setCustomerConversionGoal(customer, mapping)
 
         // 2. 等待一小段时间让转化操作生效
         console.log(`   ⏳ 等待转化操作生效...`)
