@@ -40,6 +40,22 @@ export function assessPageComplexity(url: string): PageComplexity {
     }
   }
 
+  // 🔥 P0修复：短链接服务需要更长超时（反爬虫验证 + 多次重定向）
+  // 常见短链接服务：bit.ly, tinyurl, ow.ly, rebrand.ly, pboost.me, etc.
+  const shortLinkDomains = [
+    'bit.ly', 'tinyurl.com', 'ow.ly', 'rebrand.ly', 'pboost.me',
+    'short.link', 'is.gd', 'buff.ly', 't.co', 'goo.gl', 'clk.',
+    'fbuy.me', 'amzn.to', 'flip.it', 'linktr.ee', 'soo.gd'
+  ]
+  if (shortLinkDomains.some(domain => urlLower.includes(domain))) {
+    return {
+      complexity: 'complex',
+      estimatedLoadTime: 15000,
+      recommendedWaitTime: 10000,
+      recommendedTimeout: 180000,  // 🔥 3分钟超时，应对短链接服务的反爬虫验证
+    }
+  }
+
   // 复杂页面：电商、社交媒体、SPA应用
   if (
     urlLower.includes('amazon.') ||  // 🔥 修复：支持所有Amazon域名（.com/.it/.de/.fr等）

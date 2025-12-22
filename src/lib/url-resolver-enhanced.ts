@@ -18,6 +18,10 @@ export interface ProxyConfig {
   country: string
   failureCount: number
   lastFailureTime: number | null
+  lastTemporaryFailureTime: number | null // 🔥 临时失败时间戳（timeout等）
+  lastPermanentFailureTime: number | null // 🔥 永久失败时间戳（connection refused等）
+  temporaryFailureCount: number // 🔥 临时失败计数
+  permanentFailureCount: number // 🔥 永久失败计数
   successCount: number
   avgResponseTime: number
   isHealthy: boolean
@@ -48,9 +52,11 @@ interface RetryConfig {
 export class ProxyPoolManager {
   private proxies: Map<string, ProxyConfig> = new Map()
   private readonly HEALTH_CHECK_INTERVAL = 3600000 // 1小时
-  private readonly MAX_FAILURES_THRESHOLD = 3
-  private readonly FAILURE_RESET_TIME = 3600000 // 1小时后重置失败计数
-  private readonly AUTO_HEAL_THRESHOLD = 5 // 🔥 失败5次后，1小时自动恢复
+  private readonly MAX_FAILURES_THRESHOLD = 3 // 永久失败阈值
+  private readonly TEMPORARY_FAILURE_THRESHOLD = 5 // 🔥 临时失败阈值（更宽容）
+  private readonly FAILURE_RESET_TIME = 3600000 // 1小时后重置失败计数（永久失败）
+  private readonly TEMPORARY_FAILURE_RESET_TIME = 300000 // 🔥 5分钟后重置临时失败
+  private readonly AUTO_HEAL_THRESHOLD = 5 // 失败5次后，1小时自动恢复
   private lastHealthCheckTime: number = 0
   private isHealthCheckRunning: boolean = false
 
@@ -69,6 +75,10 @@ export class ProxyPoolManager {
         country: proxy.country,
         failureCount: 0,
         lastFailureTime: null,
+        lastTemporaryFailureTime: null, // 🔥 初始化临时失败时间
+        lastPermanentFailureTime: null, // 🔥 初始化永久失败时间
+        temporaryFailureCount: 0, // 🔥 初始化临时失败计数
+        permanentFailureCount: 0, // 🔥 初始化永久失败计数
         successCount: 0,
         avgResponseTime: 0,
         isHealthy: true,
@@ -164,6 +174,8 @@ export class ProxyPoolManager {
 
     proxy.successCount++
     proxy.failureCount = Math.max(0, proxy.failureCount - 1) // 成功后减少失败计数
+    proxy.temporaryFailureCount = Math.max(0, proxy.temporaryFailureCount - 1) // 🔥 减少临时失败计数
+    proxy.permanentFailureCount = Math.max(0, proxy.permanentFailureCount - 1) // 🔥 减少永久失败计数
     proxy.avgResponseTime = (proxy.avgResponseTime + responseTime) / 2
     proxy.isHealthy = true
 
@@ -171,19 +183,63 @@ export class ProxyPoolManager {
   }
 
   /**
+   * 判断错误是否为临时失败（网络超时等）
+   */
+  private isTemporaryFailure(error: string): boolean {
+    const temporaryErrorPatterns = [
+      'timeout',
+      'Timeout',
+      'TimeoutError',
+      'ETIMEDOUT',
+      'ECONNRESET',
+      'ENETUNREACH',
+      'ERR_EMPTY_RESPONSE',
+      'ERR_CONNECTION_CLOSED',
+      'net::ERR_EMPTY_RESPONSE',
+      'waiting until',
+    ]
+    return temporaryErrorPatterns.some(pattern => error.includes(pattern))
+  }
+
+  /**
    * 记录代理失败
+   * 区分临时失败（timeout）和永久失败（connection refused）
    */
   recordFailure(proxyUrl: string, error: string): void {
     const proxy = this.proxies.get(proxyUrl)
     if (!proxy) return
 
-    proxy.failureCount++
-    proxy.lastFailureTime = Date.now()
+    const now = Date.now()
+    const isTemporary = this.isTemporaryFailure(error)
 
-    // 超过阈值则标记为不健康
-    if (proxy.failureCount >= this.MAX_FAILURES_THRESHOLD) {
-      proxy.isHealthy = false
-      console.warn(`⚠️ 代理标记为不健康: ${proxyUrl} (${proxy.failureCount}次失败)`)
+    // 更新总失败计数和时间
+    proxy.failureCount++
+    proxy.lastFailureTime = now
+
+    if (isTemporary) {
+      // 🔥 临时失败：更宽容的处理
+      proxy.temporaryFailureCount++
+      proxy.lastTemporaryFailureTime = now
+
+      // 仅在临时失败次数过多时才标记为不健康
+      if (proxy.temporaryFailureCount >= this.TEMPORARY_FAILURE_THRESHOLD) {
+        proxy.isHealthy = false
+        console.warn(`⚠️ 代理标记为不健康（临时失败过多）: ${proxyUrl} (${proxy.temporaryFailureCount}次临时失败)`)
+      } else {
+        console.warn(`⚠️ 代理临时失败: ${proxyUrl} (${proxy.temporaryFailureCount}/${this.TEMPORARY_FAILURE_THRESHOLD})`)
+      }
+    } else {
+      // 🔥 永久失败：严格处理
+      proxy.permanentFailureCount++
+      proxy.lastPermanentFailureTime = now
+
+      // 永久失败次数达到阈值立即标记为不健康
+      if (proxy.permanentFailureCount >= this.MAX_FAILURES_THRESHOLD) {
+        proxy.isHealthy = false
+        console.warn(`⚠️ 代理标记为不健康（永久失败）: ${proxyUrl} (${proxy.permanentFailureCount}次永久失败)`)
+      } else {
+        console.warn(`⚠️ 代理永久失败: ${proxyUrl} (${proxy.permanentFailureCount}/${this.MAX_FAILURES_THRESHOLD})`)
+      }
     }
 
     console.error(`❌ 代理失败: ${proxyUrl}, 错误: ${error}`)
@@ -191,32 +247,58 @@ export class ProxyPoolManager {
 
   /**
    * 重置长时间未失败的代理健康状态
+   * 区分临时失败和永久失败的恢复时间
    */
   resetOldFailures(): void {
     const now = Date.now()
     for (const proxy of this.proxies.values()) {
-      // 🔥 修改：如果代理失败次数在阈值内，且超过1小时，恢复健康状态
+      let shouldRecover = false
+      let recoveryReason = ''
+
+      // 🔥 策略1: 临时失败5分钟后自动恢复
       if (
         !proxy.isHealthy &&
-        proxy.lastFailureTime &&
-        proxy.failureCount < this.AUTO_HEAL_THRESHOLD &&
-        now - proxy.lastFailureTime > this.FAILURE_RESET_TIME
+        proxy.lastTemporaryFailureTime &&
+        proxy.temporaryFailureCount > 0 &&
+        now - proxy.lastTemporaryFailureTime > this.TEMPORARY_FAILURE_RESET_TIME
       ) {
+        shouldRecover = true
+        recoveryReason = `临时失败${proxy.temporaryFailureCount}次，5分钟后自动恢复`
+        proxy.temporaryFailureCount = 0
+        proxy.lastTemporaryFailureTime = null
+      }
+
+      // 🔥 策略2: 永久失败1小时后自动恢复（仅当失败次数<阈值）
+      if (
+        !proxy.isHealthy &&
+        proxy.lastPermanentFailureTime &&
+        proxy.permanentFailureCount < this.AUTO_HEAL_THRESHOLD &&
+        now - proxy.lastPermanentFailureTime > this.FAILURE_RESET_TIME
+      ) {
+        shouldRecover = true
+        recoveryReason = `永久失败${proxy.permanentFailureCount}次，1小时后自动恢复`
+        proxy.permanentFailureCount = 0
+        proxy.lastPermanentFailureTime = null
+      }
+
+      // 执行恢复
+      if (shouldRecover) {
         proxy.isHealthy = true
         proxy.failureCount = 0
         proxy.lastFailureTime = null
-        console.log(`♻️ 代理已自动恢复: ${proxy.country} (失败次数: ${proxy.failureCount}, URL: ${proxy.url.substring(0, 50)}...)`)
+        console.log(`♻️ 代理已自动恢复: ${proxy.country} (${recoveryReason})`)
       }
-      // 原有逻辑：重置失败计数（但不恢复健康状态）
-      else if (
-        proxy.lastFailureTime &&
-        now - proxy.lastFailureTime > this.FAILURE_RESET_TIME
-      ) {
-        const oldCount = proxy.failureCount
-        proxy.failureCount = Math.max(0, proxy.failureCount - 1)
-        if (proxy.failureCount === 0 && !proxy.isHealthy) {
-          proxy.isHealthy = true
-          console.log(`🔄 代理健康状态已重置: ${proxy.country} (从${oldCount}次失败恢复)`)
+
+      // 🔥 策略3: 逐步衰减失败计数（即使代理仍不健康）
+      if (proxy.lastTemporaryFailureTime && now - proxy.lastTemporaryFailureTime > this.TEMPORARY_FAILURE_RESET_TIME) {
+        if (proxy.temporaryFailureCount > 0) {
+          proxy.temporaryFailureCount = Math.max(0, proxy.temporaryFailureCount - 1)
+        }
+      }
+
+      if (proxy.lastPermanentFailureTime && now - proxy.lastPermanentFailureTime > this.FAILURE_RESET_TIME) {
+        if (proxy.permanentFailureCount > 0) {
+          proxy.permanentFailureCount = Math.max(0, proxy.permanentFailureCount - 1)
         }
       }
     }
@@ -428,6 +510,7 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxDelay: 16000, // 16秒
   retryableErrors: [
     'timeout',
+    'Timeout',  // 🔥 P0修复：Playwright超时错误应该可以重试
     'ETIMEDOUT',
     'ECONNRESET',
     'ECONNREFUSED',
@@ -437,6 +520,8 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
     'ERR_CONNECTION_CLOSED',  // 连接被关闭
     'ERR_PROXY_CONNECTION_FAILED', // 代理连接失败
     'net::ERR_EMPTY_RESPONSE', // Playwright格式的空响应错误
+    'TimeoutError',  // 🔥 P0修复：Playwright TimeoutError应该可以重试
+    'waiting until',  // 🔥 P0修复：Playwright waiting until错误应该可以重试
   ],
 }
 
@@ -534,7 +619,19 @@ export async function resolveAffiliateLink(
   options: ResolveOptions
 ): Promise<ResolvedUrlData> {
   const { targetCountry, skipCache = true, retryConfig: customRetryConfig } = options // 默认禁用缓存
-  const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...customRetryConfig }
+
+  // 🔥 P0优化：检测短链接服务，使用更激进的重试策略
+  const isShortLink = /bit\.ly|tinyurl|ow\.ly|rebrand\.ly|pboost\.me|short\.link|is\.gd|buff\.ly|t\.co|goo\.gl|clk\.|fbuy\.me|amzn\.to|flip\.it|linktr\.ee|soo\.gd/i.test(affiliateLink)
+
+  const retryConfig = {
+    ...DEFAULT_RETRY_CONFIG,
+    ...(isShortLink ? { maxRetries: 5 } : {}),  // 🔥 短链接服务增加重试次数到5次
+    ...customRetryConfig
+  }
+
+  if (isShortLink) {
+    console.log(`🔗 检测到短链接服务，增加重试次数到${retryConfig.maxRetries}次`)
+  }
 
   // ========== 步骤1: 检查Redis缓存（默认禁用，确保获取最新追踪参数） ==========
   if (!skipCache) {
