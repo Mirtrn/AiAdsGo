@@ -2012,7 +2012,7 @@ export async function generateAdCreative(
     excludeKeywords?: string[] // 需要排除的关键词（用于多次生成时避免重复）
     // 🆕 v4.10: 关键词池参数
     keywordPool?: any  // OfferKeywordPool
-    bucket?: 'A' | 'B' | 'C' | 'S'  // 🆕 2025-12-16: 添加S（综合）桶支持
+    bucket?: 'A' | 'B' | 'C' | 'S' | 'D'  // 🔥 2025-12-22: 添加D（高购买意图）桶支持
     bucketKeywords?: string[]
     bucketIntent?: string
     bucketIntentEn?: string

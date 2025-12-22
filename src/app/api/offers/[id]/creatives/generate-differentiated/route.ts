@@ -96,10 +96,10 @@ export async function POST(
     if (availableBuckets.length === 0) {
       return NextResponse.json({
         success: false,
-        error: '所有关键词桶已被占用，每个 Offer 最多支持 3 个差异化创意',
+        error: '所有关键词桶已被占用，每个 Offer 最多支持 5 个差异化创意（A/B/C/D/S）',
         data: {
           usedBuckets: await getUsedBuckets(offerId),
-          maxCreatives: 3,
+          maxCreatives: 5,
           suggestion: '请删除现有创意后再生成新的'
         }
       }, { status: 400 })

@@ -93,6 +93,25 @@ export async function expandAllKeywords(
     })
 
     console.log(`   扩展后关键词数量: ${allKeywords.length}`)
+
+    // 🔥 2025-12-22新增：应用增强去重算法
+    // 从关键词列表中提取纯文本进行去重
+    const keywordTexts = allKeywords.map(k => k.keyword)
+    const deduplicatedTexts = deduplicateKeywords(keywordTexts, {
+      // 示例品牌变体映射（实际使用时从配置获取）
+      // 'brandinc': 'brand',
+      // 'brandy': 'brand'
+    })
+
+    // 根据去重后的文本列表过滤PoolKeywordData
+    const deduplicatedKeywords = allKeywords.filter(kw =>
+      deduplicatedTexts.includes(kw.keyword.toLowerCase().trim())
+    )
+
+    console.log(`   去重后关键词数量: ${deduplicatedKeywords.length}`)
+    console.log(`   去重率: ${((allKeywords.length - deduplicatedKeywords.length) / allKeywords.length * 100).toFixed(1)}%`)
+
+    return deduplicatedKeywords
   } catch (error: any) {
     console.error(`   ⚠️ 关键词扩展失败: ${error.message}`)
     console.log(`   使用初始关键词继续`)
@@ -213,4 +232,125 @@ export function selectKeywordsForCreative(
   }
 
   return [...topBrand, ...highVolume]
+}
+
+// ============================================
+// 🔥 2025-12-22新增：增强去重算法
+// ============================================
+
+/**
+ * 增强版关键词去重函数
+ *
+ * 功能：
+ * 1. 基础字符串去重（保留现有逻辑）
+ * 2. 品牌变体归一化（解决品牌名变体重复问题）
+ * 3. 语义去重（解决语义相似关键词问题）
+ *
+ * @param keywords - 待去重的关键词数组
+ * @param brandVariants - 品牌变体映射表（可选）
+ * @returns 去重后的关键词数组
+ */
+export function deduplicateKeywords(
+  keywords: string[],
+  brandVariants?: Record<string, string>
+): string[] {
+  // Step 1: 基础去重逻辑（保留现有逻辑）
+  const basicDedup = Array.from(new Set(keywords.map(k => k.toLowerCase().trim())))
+
+  // Step 2: 品牌变体归一化（解决品牌变体重复问题）
+  const normalized = basicDedup.map(k => normalizeBrandVariants(k, brandVariants || {}))
+
+  // Step 3: 语义去重（解决语义相似问题）
+  const semanticDedup = performSemanticDeduplication(normalized)
+
+  return semanticDedup
+}
+
+/**
+ * 品牌变体归一化
+ * 将常见品牌变体归一化到标准形式
+ *
+ * @param keyword - 待处理的关键词
+ * @param brandVariants - 品牌变体映射表（从配置获取）
+ *                        示例：{ 'brandinc': 'brand', 'brandy': 'brand' }
+ */
+function normalizeBrandVariants(keyword: string, brandVariants: Record<string, string>): string {
+  let normalized = keyword.toLowerCase()
+  for (const [variant, standard] of Object.entries(brandVariants)) {
+    normalized = normalized.replace(variant, standard)
+  }
+  return normalized
+}
+
+/**
+ * 语义去重
+ * 识别并合并语义相似的关键词组
+ *
+ * 策略：
+ * 1. 移除修饰词（购买意图词、数字、单位等）
+ * 2. 生成语义键
+ * 3. 按语义键分组
+ * 4. 每组选择最优关键词
+ */
+function performSemanticDeduplication(keywords: string[]): string[] {
+  const groups = new Map<string, string[]>()
+
+  // 按语义键分组
+  for (const keyword of keywords) {
+    const semanticKey = generateSemanticKey(keyword)
+    if (!groups.has(semanticKey)) {
+      groups.set(semanticKey, [])
+    }
+    groups.get(semanticKey)!.push(keyword)
+  }
+
+  // 每组选择最优关键词
+  return Array.from(groups.values()).map(selectBestKeyword)
+}
+
+/**
+ * 生成语义键
+ * 移除修饰词，保留核心概念
+ */
+function generateSemanticKey(keyword: string): string {
+  return keyword
+    .toLowerCase()
+    .replace(/\b(buy|purchase|order|shop|price|cost|deal|discount)\b/g, '') // 移除购买意图词
+    .replace(/\d+w?/g, '') // 移除数字和单位
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * 选择最优关键词
+ * 优先级：包含完整品牌+规格 > 包含品牌名 > 其他
+ *
+ * @param keywords - 候选关键词数组
+ * @param knownBrands - 已知品牌名列表（从配置获取，可选）
+ */
+function selectBestKeyword(keywords: string[], knownBrands?: string[]): string {
+  // 如果没有提供品牌列表，使用启发式规则
+  if (!knownBrands || knownBrands.length === 0) {
+    // 优先级1：包含数字规格（可能是完整产品名）
+    const hasNumber = keywords.find(k => /\d+w?/.test(k))
+    if (hasNumber) return hasNumber
+
+    // 优先级2：最短的关键词（通常更精确）
+    return keywords.sort((a, b) => a.length - b.length)[0]
+  }
+
+  // 优先级1：包含品牌名+数字规格
+  const complete = keywords.find(k =>
+    knownBrands.some(brand => k.includes(brand)) && /\d+w?/.test(k)
+  )
+  if (complete) return complete
+
+  // 优先级2：包含品牌名
+  const hasBrand = keywords.find(k =>
+    knownBrands.some(brand => k.includes(brand))
+  )
+  if (hasBrand) return hasBrand
+
+  // 默认返回第一个
+  return keywords[0]
 }

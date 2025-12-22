@@ -55,11 +55,13 @@ export interface OfferKeywordPool {
   bucketAKeywords: PoolKeywordData[]  // 品牌导向
   bucketBKeywords: PoolKeywordData[]  // 场景导向
   bucketCKeywords: PoolKeywordData[]  // 功能导向
+  bucketDKeywords: PoolKeywordData[]  // 🔥 2025-12-22: 高购买意图
 
   // 桶意图描述
   bucketAIntent: string
   bucketBIntent: string
   bucketCIntent: string
+  bucketDIntent: string  // 🔥 2025-12-22: 高购买意图描述
 
   // 元数据
   totalKeywords: number
@@ -104,12 +106,13 @@ export interface KeywordBuckets {
 
 /**
  * 桶类型
- * A = 品牌导向 (Brand-Oriented)
- * B = 场景导向 (Scenario-Oriented)
- * C = 功能导向 (Feature-Oriented)
- * S = 综合 (Synthetic) - 第4个创意，包含所有品牌词+高搜索量非品牌词
+ * A = 品牌导向 (Brand-Oriented) - 第1个创意
+ * B = 场景导向 (Scenario-Oriented) - 第2个创意
+ * C = 功能导向 (Feature-Oriented) - 第3个创意
+ * D = 高购买意图 (High Purchase Intent) - 第4个创意
+ * S = 综合推广 (Synthetic) - 第5个创意，整合A+B+C+D所有桶的关键词
  */
-export type BucketType = 'A' | 'B' | 'C' | 'S'
+export type BucketType = 'A' | 'B' | 'C' | 'D' | 'S'
 
 /**
  * 综合创意关键词配置
@@ -207,6 +210,64 @@ export function separateBrandKeywords(
 // ============================================
 // AI 语义聚类
 // ============================================
+
+/**
+ * 🔥 2025-12-22: 生成高购买意图关键词（桶D专用）
+ *
+ * 策略：基于品牌名和产品类别生成高购买意图关键词
+ * 关键词特征：包含购买意图词（buy/price/deal/discount等）
+ *
+ * @param brandName - 品牌名称
+ * @param category - 产品类别
+ * @param baseKeywords - 基础关键词列表（可选，用于组合）
+ * @returns 高购买意图关键词列表
+ */
+export function generateHighIntentKeywords(
+  brandName: string,
+  category: string | null,
+  baseKeywords?: string[]
+): string[] {
+  const highIntentKeywords: string[] = []
+
+  // 高购买意图修饰词
+  const intentModifiers = [
+    'buy', 'purchase', 'order', 'shop',
+    'price', 'cost', 'deal', 'discount',
+    'best', 'top', 'review', 'compare',
+    'cheap', 'affordable', 'sale', 'offer',
+    'where to buy', 'buy online'
+  ]
+
+  // 1. 品牌名 + 高意图词
+  intentModifiers.forEach(modifier => {
+    highIntentKeywords.push(`${brandName.toLowerCase()} ${modifier}`)
+    highIntentKeywords.push(`${modifier} ${brandName.toLowerCase()}`)
+  })
+
+  // 2. 品牌名 + 类别 + 高意图词
+  if (category) {
+    intentModifiers.slice(0, 8).forEach(modifier => {
+      highIntentKeywords.push(`${brandName.toLowerCase()} ${category.toLowerCase()} ${modifier}`)
+      highIntentKeywords.push(`${modifier} ${brandName.toLowerCase()} ${category.toLowerCase()}`)
+    })
+  }
+
+  // 3. 如果提供了基础关键词，组合生成
+  if (baseKeywords && baseKeywords.length > 0) {
+    const topBaseKeywords = baseKeywords.slice(0, 5) // 只取前5个
+    const topIntentModifiers = intentModifiers.slice(0, 5) // 只取前5个意图词
+
+    topBaseKeywords.forEach(keyword => {
+      topIntentModifiers.forEach(modifier => {
+        highIntentKeywords.push(`${keyword} ${modifier}`)
+        highIntentKeywords.push(`${modifier} ${keyword}`)
+      })
+    })
+  }
+
+  // 去重
+  return Array.from(new Set(highIntentKeywords))
+}
 
 /**
  * AI 语义聚类：将非品牌关键词分成 3 个语义桶
@@ -577,10 +638,10 @@ export async function saveKeywordPool(
     `INSERT INTO offer_keyword_pools (
       offer_id, user_id,
       brand_keywords,
-      bucket_a_keywords, bucket_b_keywords, bucket_c_keywords,
-      bucket_a_intent, bucket_b_intent, bucket_c_intent,
+      bucket_a_keywords, bucket_b_keywords, bucket_c_keywords, bucket_d_keywords,
+      bucket_a_intent, bucket_b_intent, bucket_c_intent, bucket_d_intent,
       total_keywords, clustering_model, clustering_prompt_version, balance_score
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       offerId,
       userId,
@@ -588,9 +649,11 @@ export async function saveKeywordPool(
       bucketAJson,
       bucketBJson,
       bucketCJson,
+      bucketDJson,
       buckets.bucketA.intent,
       buckets.bucketB.intent,
       buckets.bucketC.intent,
+      buckets.bucketD.intent,
       totalKeywords,
       model || null,
       promptVersion || null,
@@ -604,6 +667,7 @@ export async function saveKeywordPool(
 
 /**
  * 🆕 保存关键词池（PoolKeywordData[] 版本）
+ * 🔥 2025-12-22: 添加bucketD支持
  */
 async function saveKeywordPoolWithData(
   offerId: number,
@@ -613,6 +677,7 @@ async function saveKeywordPoolWithData(
     bucketA: { intent: string; keywords: PoolKeywordData[] }
     bucketB: { intent: string; keywords: PoolKeywordData[] }
     bucketC: { intent: string; keywords: PoolKeywordData[] }
+    bucketD: { intent: string; keywords: PoolKeywordData[] }
     statistics: { totalKeywords: number; balanceScore: number }
   },
   model?: string,
@@ -624,7 +689,8 @@ async function saveKeywordPoolWithData(
   const bucketAJson = JSON.stringify(buckets.bucketA.keywords)
   const bucketBJson = JSON.stringify(buckets.bucketB.keywords)
   const bucketCJson = JSON.stringify(buckets.bucketC.keywords)
-  const totalKeywords = brandKeywords.length + buckets.bucketA.keywords.length + buckets.bucketB.keywords.length + buckets.bucketC.keywords.length
+  const bucketDJson = JSON.stringify(buckets.bucketD.keywords)
+  const totalKeywords = brandKeywords.length + buckets.bucketA.keywords.length + buckets.bucketB.keywords.length + buckets.bucketC.keywords.length + buckets.bucketD.keywords.length
 
   // 检查是否已存在
   const existing = await db.queryOne<{ id: number }>(
@@ -640,9 +706,11 @@ async function saveKeywordPoolWithData(
         bucket_a_keywords = ?,
         bucket_b_keywords = ?,
         bucket_c_keywords = ?,
+        bucket_d_keywords = ?,
         bucket_a_intent = ?,
         bucket_b_intent = ?,
         bucket_c_intent = ?,
+        bucket_d_intent = ?,
         total_keywords = ?,
         clustering_model = ?,
         clustering_prompt_version = ?,
@@ -654,9 +722,11 @@ async function saveKeywordPoolWithData(
         bucketAJson,
         bucketBJson,
         bucketCJson,
+        bucketDJson,
         buckets.bucketA.intent,
         buckets.bucketB.intent,
         buckets.bucketC.intent,
+        buckets.bucketD.intent,
         totalKeywords,
         model || null,
         promptVersion || null,
@@ -674,10 +744,10 @@ async function saveKeywordPoolWithData(
     `INSERT INTO offer_keyword_pools (
       offer_id, user_id,
       brand_keywords,
-      bucket_a_keywords, bucket_b_keywords, bucket_c_keywords,
-      bucket_a_intent, bucket_b_intent, bucket_c_intent,
+      bucket_a_keywords, bucket_b_keywords, bucket_c_keywords, bucket_d_keywords,
+      bucket_a_intent, bucket_b_intent, bucket_c_intent, bucket_d_intent,
       total_keywords, clustering_model, clustering_prompt_version, balance_score
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       offerId,
       userId,
@@ -685,9 +755,11 @@ async function saveKeywordPoolWithData(
       bucketAJson,
       bucketBJson,
       bucketCJson,
+      bucketDJson,
       buckets.bucketA.intent,
       buckets.bucketB.intent,
       buckets.bucketC.intent,
+      buckets.bucketD.intent,
       totalKeywords,
       model || null,
       promptVersion || null,
@@ -736,6 +808,7 @@ export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKey
   if (!row) return null
 
   // 🔥 2025-12-16升级：使用parseKeywordArray处理新旧格式
+  // 🔥 2025-12-22：添加bucketDKeywords和bucketDIntent
   return {
     id: row.id,
     offerId: row.offer_id,
@@ -744,9 +817,11 @@ export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKey
     bucketAKeywords: parseKeywordArray(row.bucket_a_keywords),
     bucketBKeywords: parseKeywordArray(row.bucket_b_keywords),
     bucketCKeywords: parseKeywordArray(row.bucket_c_keywords),
+    bucketDKeywords: parseKeywordArray(row.bucket_d_keywords || '[]'),
     bucketAIntent: row.bucket_a_intent,
     bucketBIntent: row.bucket_b_intent,
     bucketCIntent: row.bucket_c_intent,
+    bucketDIntent: row.bucket_d_intent || '高购买意图',
     totalKeywords: row.total_keywords,
     clusteringModel: row.clustering_model,
     clusteringPromptVersion: row.clustering_prompt_version,
@@ -925,6 +1000,23 @@ export async function generateOfferKeywordPool(
     nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
   )
 
+  // 7.5 🔥 2025-12-22: 生成桶D（高购买意图）关键词
+  console.log(`\n🎯 生成桶D（高购买意图）关键词...`)
+  const highIntentKeywordStrings = generateHighIntentKeywords(
+    offer.brand,
+    offer.category,
+    nonBrandKwStrings.slice(0, 10) // 使用前10个非品牌关键词组合
+  )
+  console.log(`   生成了 ${highIntentKeywordStrings.length} 个高购买意图关键词`)
+
+  // 转换为 PoolKeywordData[]
+  const bucketDData: PoolKeywordData[] = highIntentKeywordStrings.map(kw => ({
+    keyword: kw,
+    searchVolume: 0, // 初始搜索量为0，后续可通过API获取
+    source: 'HIGH_INTENT_GENERATED' as const,
+    matchType: 'PHRASE' as const // 高意图关键词使用PHRASE匹配
+  }))
+
   // 8. 保存到数据库
   const pool = await saveKeywordPoolWithData(
     offerId,
@@ -934,6 +1026,7 @@ export async function generateOfferKeywordPool(
       bucketA: { intent: buckets.bucketA.intent, keywords: bucketAData },
       bucketB: { intent: buckets.bucketB.intent, keywords: bucketBData },
       bucketC: { intent: buckets.bucketC.intent, keywords: bucketCData },
+      bucketD: { intent: '高购买意图', keywords: bucketDData },
       statistics: buckets.statistics
     },
     'gemini',
@@ -1082,16 +1175,26 @@ export function getBucketInfo(
         intentEn: 'Feature-Oriented'
       }
     case 'S':
-      // 综合桶：所有品牌词 + 所有桶的关键词（不排序，排序在getSyntheticBucketKeywords中处理）
+      // 🔥 2025-12-22: 综合桶（第5个创意）
+      // 整合A+B+C+D所有桶的关键词，覆盖最广泛的用户群
       return {
         keywords: [
           ...pool.brandKeywords,
           ...pool.bucketAKeywords,
           ...pool.bucketBKeywords,
-          ...pool.bucketCKeywords
+          ...pool.bucketCKeywords,
+          ...pool.bucketDKeywords
         ],
         intent: '综合推广',
         intentEn: 'Synthetic'
+      }
+    case 'D':
+      // 🔥 2025-12-22: 高购买意图桶（第4个创意）
+      // 使用专门生成的高购买意图关键词
+      return {
+        keywords: [...pool.brandKeywords, ...pool.bucketDKeywords],
+        intent: pool.bucketDIntent,
+        intentEn: 'High Purchase Intent'
       }
     default:
       throw new Error(`Invalid bucket type: ${bucket}`)
@@ -1099,11 +1202,11 @@ export function getBucketInfo(
 }
 
 /**
- * 🆕 2025-12-16: 获取综合桶关键词（第4个创意专用）
+ * 🆕 2025-12-22: 获取综合桶关键词（第5个创意专用）
  *
  * 策略：
  * 1. 包含所有品牌关键词（100%）
- * 2. 从各桶中选择搜索量最高的非品牌关键词
+ * 2. 从A+B+C+D各桶中选择搜索量最高的非品牌关键词
  * 3. 按搜索量降序排序
  *
  * @param pool - 关键词池
@@ -1250,7 +1353,8 @@ export async function getAvailableBuckets(offerId: number): Promise<BucketType[]
   )
 
   const used = new Set(usedBuckets.map(b => b.keyword_bucket))
-  const all: BucketType[] = ['A', 'B', 'C']
+  // 🔥 2025-12-22: 添加桶D和桶S支持
+  const all: BucketType[] = ['A', 'B', 'C', 'D', 'S']
 
   return all.filter(b => !used.has(b))
 }
@@ -1288,8 +1392,8 @@ export async function isCreativeLimitReached(offerId: number): Promise<boolean> 
     [offerId]
   )
 
-  // 🆕 2025-12-16: 支持4个创意（A/B/C + 综合S）
-  return (result?.count || 0) >= 4
+  // 🆕 2025-12-22: 支持5个创意（A/B/C/D + 综合S）
+  return (result?.count || 0) >= 5
 }
 
 /**

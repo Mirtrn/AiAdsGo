@@ -91,8 +91,9 @@ interface Creative {
   aiModel: string
 
   // 🆕 关键词分桶字段 (v4.10)
-  keywordBucket?: 'A' | 'B' | 'C' | 'S'  // 关键词桶标识: A=品牌, B=场景, C=功能, S=综合
-  bucketIntent?: string            // 桶意图描述（品牌导向/场景导向/功能导向/综合推广）
+  // 🔥 2025-12-22: 添加桶D(高购买意图)支持
+  keywordBucket?: 'A' | 'B' | 'C' | 'D' | 'S'  // 关键词桶标识: A=品牌, B=场景, C=功能, D=高购买意图, S=综合
+  bucketIntent?: string            // 桶意图描述（品牌导向/场景导向/功能导向/高购买意图/综合推广）
   isSynthetic?: boolean            // 是否为综合创意
 
   // AD_STRENGTH新增字段
