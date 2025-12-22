@@ -423,7 +423,8 @@ async function clusterBatchKeywords(
   } catch (parseError) {
     console.error('❌ JSON解析失败:', parseError)
     console.error('   原始响应:', aiResponse.text.slice(0, 500))
-    throw new Error(`JSON解析失败: ${parseError.message}`)
+    const errorMessage = parseError instanceof Error ? parseError.message : '未知错误'
+    throw new Error(`JSON解析失败: ${errorMessage}`)
   }
 
   // 🔥 2025-12-22 添加数据结构验证（支持4个桶）
@@ -755,7 +756,8 @@ async function clusterKeywordsDirectly(
       } catch (parseError) {
         console.error('❌ JSON解析失败:', parseError)
         console.error('   原始响应:', aiResponse.text.slice(0, 500))
-        throw new Error(`JSON解析失败: ${parseError.message}`)
+        const errorMessage = parseError instanceof Error ? parseError.message : '未知错误'
+        throw new Error(`JSON解析失败: ${errorMessage}`)
       }
 
       // 🔥 2025-12-22 添加数据结构验证（支持4个桶）
