@@ -47,6 +47,11 @@ export default function BatchOfferPage() {
   const [isLoadingRecords, setIsLoadingRecords] = useState(true)
   const [recordsError, setRecordsError] = useState<string | null>(null)
 
+  // 取消任务状态
+  const [cancellingBatchId, setCancellingBatchId] = useState<string | null>(null)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [batchToCancel, setBatchToCancel] = useState<{ id: string; fileName: string } | null>(null)
+
   // 下载CSV模板
   const handleDownloadTemplate = async () => {
     try {
@@ -142,6 +147,53 @@ export default function BatchOfferPage() {
     loadUploadRecords()
   }, [])
 
+  // 打开取消确认对话框
+  const handleCancelClick = (batch: { id: string; fileName: string }) => {
+    setBatchToCancel(batch)
+    setShowCancelConfirm(true)
+  }
+
+  // 确认取消批量任务
+  const confirmCancel = async () => {
+    if (!batchToCancel) return
+
+    setCancellingBatchId(batchToCancel.id)
+    setShowCancelConfirm(false)
+
+    try {
+      const response = await fetch(`/api/offers/batch/${batchToCancel.id}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reason: '用户主动取消'
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `HTTP ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log('✅ 批量任务已取消:', result)
+
+      // 刷新记录列表
+      await loadUploadRecords()
+
+      // 显示成功提示
+      alert(`已成功取消批量任务\n已取消: ${result.stats.cancelled} 个任务`)
+
+    } catch (error: any) {
+      console.error('取消批量任务失败:', error)
+      alert(`取消失败: ${error.message}`)
+    } finally {
+      setCancellingBatchId(null)
+      setBatchToCancel(null)
+    }
+  }
+
   // 状态标签样式
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -169,6 +221,11 @@ export default function BatchOfferPage() {
         return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
           <ExclamationCircleIcon className="w-4 h-4 mr-1" />
           部分成功
+        </span>
+      case 'cancelled':
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+          <XCircleIcon className="w-4 h-4 mr-1" />
+          已取消
         </span>
       default:
         return null
@@ -306,6 +363,9 @@ export default function BatchOfferPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     状态
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    操作
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -345,6 +405,17 @@ export default function BatchOfferPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {getStatusBadge(record.status)}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {(record.status === 'pending' || record.status === 'processing') && (
+                        <button
+                          onClick={() => handleCancelClick({ id: record.batchId, fileName: record.fileName })}
+                          disabled={cancellingBatchId === record.batchId}
+                          className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {cancellingBatchId === record.batchId ? '取消中...' : '取消'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -352,6 +423,39 @@ export default function BatchOfferPage() {
           </div>
         )}
       </div>
+
+      {/* 取消确认对话框 */}
+      {showCancelConfirm && batchToCancel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              确认取消批量任务
+            </h3>
+            <p className="text-sm text-gray-600 mb-6">
+              确定要取消 <span className="font-semibold">{batchToCancel.fileName}</span> 的批量创建任务吗？
+              <br />
+              <span className="text-red-600">未处理的Offer将被移除，正在处理的任务将继续完成。</span>
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowCancelConfirm(false)
+                  setBatchToCancel(null)
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
+              >
+                取消操作
+              </button>
+              <button
+                onClick={confirmCancel}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md"
+              >
+                确认取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 上传成功弹窗 */}
       {uploadResult && (

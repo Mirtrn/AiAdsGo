@@ -748,6 +748,41 @@ export class UnifiedQueueManager {
   }
 
   /**
+   * 🔥 取消批量任务的所有子任务
+   *
+   * @param batchId 批量任务ID
+   * @returns 取消的任务数量
+   */
+  async cancelBatchTasks(batchId: string): Promise<number> {
+    try {
+      await this.ensureInitialized()
+
+      // 1. 获取所有与该batch相关的pending任务
+      const stats = await this.adapter.getStats()
+      const allTasks = await this.adapter.getAllPendingTasks?.() || []
+
+      let cancelledCount = 0
+
+      // 2. 遍历所有pending任务，找出属于该batch的任务
+      for (const task of allTasks) {
+        // 检查任务数据中是否包含batchId
+        const taskData = task.data as any
+        if (taskData && taskData.batchId === batchId) {
+          // 从队列中移除该任务
+          await this.adapter.removeTask?.(task.id)
+          cancelledCount++
+          console.log(`🚫 已取消子任务: ${task.id} (type: ${task.type})`)
+        }
+      }
+
+      return cancelledCount
+    } catch (error: any) {
+      console.error('❌ 取消批量任务失败:', error)
+      throw error
+    }
+  }
+
+  /**
    * 获取任务详情
    */
   async getTask(taskId: string): Promise<Task | null> {

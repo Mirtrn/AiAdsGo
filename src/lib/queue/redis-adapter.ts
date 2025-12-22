@@ -596,6 +596,68 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
   }
 
   /**
+   * 🔥 获取所有pending任务（用于批量任务取消）
+   */
+  async getAllPendingTasks(): Promise<Task[]> {
+    if (!this.client) throw new Error('Redis not connected')
+
+    const taskIds = await this.client.zrange(this.getKey('pending:all'), 0, -1)
+    const tasks: Task[] = []
+
+    for (const taskId of taskIds) {
+      const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
+      if (taskJson) {
+        try {
+          tasks.push(JSON.parse(taskJson))
+        } catch (e) {
+          console.error(`无法解析任务: ${taskId}`)
+        }
+      }
+    }
+
+    return tasks
+  }
+
+  /**
+   * 🔥 从队列中移除指定任务（用于批量任务取消）
+   */
+  async removeTask(taskId: string): Promise<void> {
+    if (!this.client) throw new Error('Redis not connected')
+
+    // 获取任务信息（用于确定类型）
+    const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
+    if (!taskJson) {
+      console.warn(`任务不存在: ${taskId}`)
+      return
+    }
+
+    try {
+      const task: Task = JSON.parse(taskJson)
+
+      // 从所有相关集合中删除
+      const pipeline = this.client.pipeline()
+      pipeline.hdel(this.getKey('tasks'), taskId)
+      pipeline.zrem(this.getKey('pending:all'), taskId)
+
+      // 删除类型特定队列
+      if (task.type) {
+        pipeline.zrem(this.getKey(`pending:${task.type}`), taskId)
+      }
+
+      // 删除用户队列
+      if (task.userId) {
+        pipeline.zrem(this.getKey(`user:${task.userId}:pending`), taskId)
+      }
+
+      await pipeline.exec()
+      console.log(`🗑️ 已移除任务: ${taskId}`)
+    } catch (e) {
+      console.error(`移除任务失败: ${taskId}`, e)
+      throw e
+    }
+  }
+
+  /**
    * 计算优先级分数
    * high: 0-999, normal: 1000-1999, low: 2000-2999
    * 同优先级按时间戳排序（越早越小）

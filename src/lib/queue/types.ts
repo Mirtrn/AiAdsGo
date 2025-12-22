@@ -160,6 +160,10 @@ export interface QueueStorageAdapter {
     cleanedTaskIds: string[]
   }>
 
+  // 🔥 批量任务取消支持（可选）
+  getAllPendingTasks?(): Promise<Task[]>
+  removeTask?(taskId: string): Promise<void>
+
   // 连接管理
   connect(): Promise<void>
   disconnect(): Promise<void>

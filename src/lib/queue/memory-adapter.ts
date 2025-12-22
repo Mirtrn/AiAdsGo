@@ -197,4 +197,44 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     }
     return count
   }
+
+  /**
+   * 🔥 获取所有pending任务（用于批量任务取消）
+   */
+  async getAllPendingTasks(): Promise<Task[]> {
+    if (!this.connected) return []
+    return [...this.pendingQueue]
+  }
+
+  /**
+   * 🔥 从队列中移除指定任务（用于批量任务取消）
+   */
+  async removeTask(taskId: string): Promise<void> {
+    if (!this.connected) return
+
+    // 从pending队列中移除
+    const index = this.pendingQueue.findIndex((t) => t.id === taskId)
+    if (index !== -1) {
+      this.pendingQueue.splice(index, 1)
+      console.log(`🗑️ 已从内存队列移除任务: ${taskId}`)
+    }
+
+    // 从tasks map中删除
+    this.tasks.delete(taskId)
+
+    // 从running set中删除（如果存在）
+    this.runningTasks.delete(taskId)
+  }
+
+  async connect(): Promise<void> {
+    this.connected = true
+  }
+
+  async disconnect(): Promise<void> {
+    this.connected = false
+  }
+
+  isConnected(): boolean {
+    return this.connected
+  }
 }
