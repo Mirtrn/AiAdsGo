@@ -84,7 +84,7 @@ async function getUserCustomerId(db: any, userId: number): Promise<string> {
 
 // 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须配置自己的完整 OAuth 凭证
 // Get Google Ads API config - requires user's own complete OAuth config
-async function getGoogleAdsConfig(userId?: number): Promise<KeywordPlannerConfig | null> {
+export async function getGoogleAdsConfig(userId?: number): Promise<KeywordPlannerConfig | null> {
   try {
     if (!userId) {
       console.error('[KeywordPlanner] userId is required for independent account mode')

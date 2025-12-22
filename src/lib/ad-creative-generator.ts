@@ -2824,12 +2824,12 @@ export async function generateAdCreative(
       // 步骤1: 尝试从全局缓存查询（不区分大小写）
       console.log(`   📦 步骤1: 查询全局缓存...`)
       const row = await db.queryOne(`
-        SELECT keyword_text, search_volume
+        SELECT keyword, search_volume
         FROM global_keywords
-        WHERE LOWER(keyword_text) = LOWER(?) AND country = ?
+        WHERE LOWER(keyword) = LOWER(?) AND country = ?
         ORDER BY search_volume DESC
         LIMIT 1
-      `, [offerBrand, targetCountry]) as { keyword_text: string; search_volume: number } | undefined
+      `, [offerBrand, targetCountry]) as { keyword: string; search_volume: number } | undefined
 
       if (row && row.search_volume > 0) {
         brandSearchVolume = row.search_volume
@@ -2914,15 +2914,33 @@ export async function generateAdCreative(
     }
   }
 
-  // 🎯 第6步：最终过滤 - 移除所有搜索量为0或null的关键词
-  console.log(`\n📌 强制约束4: 移除所有搜索量为0或null的关键词`)
+  // 🎯 第6步：最终过滤 - 移除所有搜索量为0或null的关键词（品牌词除外）
+  console.log(`\n📌 强制约束4: 移除所有搜索量为0或null的关键词（品牌词除外）`)
   const beforeFinalFilter = finalKeywords.length
-  finalKeywords = finalKeywords.filter(kw => kw.searchVolume > 0)
+
+  // 🔥 修复(2025-12-22): 品牌词即使搜索量为0也要保留（API可能未配置导致查询失败）
+  const pureBrandKeywordTexts = pureBrandKeywords.map(kw => kw.keyword.toLowerCase())
+  finalKeywords = finalKeywords.filter(kw => {
+    // 保留条件：有搜索量 OR 是纯品牌词
+    return kw.searchVolume > 0 || pureBrandKeywordTexts.includes(kw.keyword.toLowerCase())
+  })
+
   const removedZeroVolume = beforeFinalFilter - finalKeywords.length
   if (removedZeroVolume > 0) {
-    console.log(`   ⚠️ 已移除 ${removedZeroVolume} 个搜索量为0的关键词`)
+    console.log(`   ⚠️ 已移除 ${removedZeroVolume} 个搜索量为0的关键词（保留品牌词）`)
   }
-  console.log(`   ✅ 最终保留 ${finalKeywords.length} 个有搜索量的关键词`)
+  console.log(`   ✅ 最终保留 ${finalKeywords.length} 个关键词（含搜索量数据或品牌词）`)
+
+  // 打印保留的品牌词（即使搜索量为0）
+  const retainedBrandWithZeroVolume = finalKeywords.filter(kw =>
+    kw.searchVolume === 0 && pureBrandKeywordTexts.includes(kw.keyword.toLowerCase())
+  )
+  if (retainedBrandWithZeroVolume.length > 0) {
+    console.log(`   ℹ️ 保留 ${retainedBrandWithZeroVolume.length} 个搜索量为0的品牌词:`)
+    retainedBrandWithZeroVolume.forEach(kw => {
+      console.log(`      - "${kw.keyword}" (品牌词，搜索量未知)`)
+    })
+  }
 
   // 🎯 第6.5步：购买意图评分过滤
   // 优化(2025-12-15): 过滤掉低购买意图关键词（信息查询类），避免浪费广告预算

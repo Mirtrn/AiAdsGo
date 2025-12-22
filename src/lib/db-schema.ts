@@ -320,15 +320,18 @@ export const TABLES: TableDef[] = [
     name: 'global_keywords',
     columns: [
       { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
-      { name: 'keyword_text', type: 'TEXT', notNull: true, unique: true },
-      { name: 'category', type: 'TEXT' },
-      { name: 'search_volume', type: 'BIGINT' },
+      { name: 'keyword', type: 'TEXT', notNull: true },  // 🔧 修复(2025-12-22): 从 keyword_text 改为 keyword (migration 075)
+      { name: 'country', type: 'TEXT', notNull: true, default: 'US' },
+      { name: 'language', type: 'TEXT', notNull: true, default: 'en' },
+      { name: 'search_volume', type: 'INTEGER', default: 0 },
       { name: 'competition_level', type: 'TEXT' },
-      { name: 'avg_cpc_micros', type: 'BIGINT' },
-      { name: 'language', type: 'TEXT', default: 'en' },
-      { name: 'country', type: 'TEXT', default: 'US' },
-      { name: 'last_updated', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
-      { name: 'created_at', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
+      { name: 'avg_cpc_micros', type: 'INTEGER' },
+      { name: 'cached_at', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
+      { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+    ],
+    indexes: [
+      { name: 'idx_global_keywords_lookup', columns: ['keyword', 'country', 'language'], unique: true },
+      { name: 'idx_global_keywords_cached_at', columns: ['cached_at'] },
     ],
   },
 

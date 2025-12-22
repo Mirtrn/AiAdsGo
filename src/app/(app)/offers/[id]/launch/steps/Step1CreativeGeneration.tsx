@@ -518,6 +518,22 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
       if (!enqueueResponse.ok) {
         const errorData = await enqueueResponse.json()
+
+        // 🔧 修复(2025-12-22): 检查是否是API配置缺失错误
+        const isApiConfigError = errorData.error?.includes('Google Ads API 配置')
+          || errorData.details?.includes('Google Ads API')
+          || errorData.missingFields?.length > 0
+
+        if (isApiConfigError) {
+          // 友好提示：API配置缺失
+          throw new Error(
+            `⚠️ 缺少 Google Ads API 配置\n\n` +
+            `为了获取关键词真实搜索量，需要配置 Google Ads API 凭证：\n` +
+            `${errorData.missingFields?.map((field: string) => `• ${field}`).join('\n') || '• Developer Token\n• Refresh Token\n• Customer ID'}\n\n` +
+            `请前往【设置】→【Google Ads API】进行配置后重试。`
+          )
+        }
+
         throw new Error(errorData.error || '任务入队失败')
       }
 
@@ -586,10 +602,22 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
                 const rating = data.adStrength.rating
                 const score = data.adStrength.score
-                showSuccess(
-                  '生成成功',
-                  `Ad Strength: ${rating === 'EXCELLENT' ? '优秀' : rating === 'GOOD' ? '良好' : rating === 'AVERAGE' ? '一般' : '待优化'} (${score}分)`
-                )
+
+                // 🔧 修复(2025-12-22): 质量低于70分时显示警告提示
+                const MINIMUM_SCORE = 70
+                const hasQualityWarning = score < MINIMUM_SCORE
+
+                if (hasQualityWarning) {
+                  showSuccess(
+                    '⚠️ 生成完成（质量待优化）',
+                    `Ad Strength: ${rating === 'EXCELLENT' ? '优秀' : rating === 'GOOD' ? '良好' : rating === 'AVERAGE' ? '一般' : '待优化'} (${score}分)\n建议：配置 Google Ads API 以获取真实搜索量数据，提升质量评分`
+                  )
+                } else {
+                  showSuccess(
+                    '✅ 生成成功',
+                    `Ad Strength: ${rating === 'EXCELLENT' ? '优秀' : rating === 'GOOD' ? '良好' : rating === 'AVERAGE' ? '一般' : '待优化'} (${score}分)`
+                  )
+                }
 
                 const allCreatives = [...creatives, newCreative]
                 const topCreatives = allCreatives

@@ -230,10 +230,12 @@ export async function executeAdCreativeGeneration(
       throw new Error('生成创意失败')
     }
 
-    // 质量门检查
+    // 🔧 修复(2025-12-22): 质量门检查改为警告而非失败
+    // 即使质量未达标也允许保存，但标记为警告状态
     const MINIMUM_SCORE = 70
-    if (bestEvaluation.finalScore < MINIMUM_SCORE) {
-      throw new Error(`创意质量未达标（${bestEvaluation.finalScore}分）`)
+    const qualityWarning = bestEvaluation.finalScore < MINIMUM_SCORE
+    if (qualityWarning) {
+      console.warn(`⚠️ 创意质量未达标（${bestEvaluation.finalScore}分 < ${MINIMUM_SCORE}分），但仍保存创意`)
     }
 
     // 更新进度：保存中
@@ -322,23 +324,35 @@ export async function executeAdCreativeGeneration(
       }
     }
 
-    // 更新任务为完成状态
+    // 更新任务为完成状态（带质量警告标记）
     await db.exec(`
       UPDATE creative_tasks
       SET
         status = 'completed',
         stage = 'complete',
         progress = 100,
-        message = '生成完成',
+        message = ?,
         creative_id = ?,
         result = ?,
         optimization_history = ?,
         completed_at = ${nowFunc},
         updated_at = ${nowFunc}
       WHERE id = ?
-    `, [savedCreative.id, JSON.stringify(finalResult), JSON.stringify(retryHistory), task.id])
+    `, [
+      qualityWarning
+        ? `⚠️ 生成完成（质量${bestEvaluation.finalScore}分，建议优化）`
+        : '✅ 生成完成',
+      savedCreative.id,
+      JSON.stringify(finalResult),
+      JSON.stringify(retryHistory),
+      task.id
+    ])
 
-    console.log(`✅ 创意生成任务完成: ${task.id}`)
+    if (qualityWarning) {
+      console.log(`⚠️ 创意生成任务完成（质量警告）: ${task.id} - ${bestEvaluation.finalScore}分`)
+    } else {
+      console.log(`✅ 创意生成任务完成: ${task.id}`)
+    }
 
     return finalResult
   } catch (error: any) {

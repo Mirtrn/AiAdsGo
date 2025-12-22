@@ -10,6 +10,7 @@ import { findOfferById } from '@/lib/offers'
 import { getQueueManager } from '@/lib/queue'
 import { getDatabase } from '@/lib/db'
 import { createError } from '@/lib/errors'
+import { getGoogleAdsConfig } from '@/lib/keyword-planner'
 import type { AdCreativeTaskData } from '@/lib/queue/executors/ad-creative-executor'
 
 export async function POST(
@@ -48,6 +49,39 @@ export async function POST(
       status: 400,
       headers: { 'Content-Type': 'application/json' }
     })
+  }
+
+  // 🔧 修复(2025-12-22): 提前验证Google Ads API配置
+  // 如果API未配置，创意生成会因搜索量查询失败导致0个关键词，提前拦截
+  try {
+    const googleAdsConfig = await getGoogleAdsConfig(parseInt(userId, 10))
+    const isConfigComplete = !!(
+      googleAdsConfig?.developerToken &&
+      googleAdsConfig?.refreshToken &&
+      googleAdsConfig?.customerId
+    )
+
+    if (!isConfigComplete) {
+      console.warn(`[CreativeGeneration] User ${userId} has incomplete Google Ads API config`)
+      return new Response(
+        JSON.stringify({
+          error: '广告创意生成需要完整的 Google Ads API 配置',
+          details: '请前往【设置】页面配置 Google Ads API 凭证（Developer Token、Refresh Token、Customer ID）以启用关键词搜索量查询功能。',
+          missingFields: [
+            !googleAdsConfig?.developerToken && 'Developer Token',
+            !googleAdsConfig?.refreshToken && 'Refresh Token / OAuth',
+            !googleAdsConfig?.customerId && 'Customer ID'
+          ].filter(Boolean)
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )
+    }
+  } catch (error: any) {
+    console.error('[CreativeGeneration] Failed to check Google Ads config:', error)
+    // 不阻止任务继续（允许降级运行，但会记录警告）
   }
 
   try {

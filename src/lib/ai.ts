@@ -195,27 +195,6 @@ export async function analyzeProductPage(
         .replace('{{reviewHighlights}}', reviewHighlightsText)
         .replace(/\{\{langName\}\}/g, langName)
         .replace('{{categoryExamples}}', categoryExamples)
-
-      // 🔥 2025-12-22: 添加种子词质量要求
-      const keywordRequirements = `
-
-关键词提取要求（严格执行）：
-1. 输出格式：JSON数组 ["关键词1", "关键词2", ...]
-2. 长度限制：每个关键词≤5个单词
-3. 允许的关键词类型：
-   ✅ 产品类别词：smart ring, fitness tracker, health monitor
-   ✅ 功能词：sleep tracking, heart rate monitoring, stress tracking
-   ✅ 场景词：workout tracking, health monitoring, wellness tracking
-4. 严格禁止的关键词：
-   ❌ 购买渠道：store, shop, amazon, ebay, near me, official
-   ❌ 价格词：price, cost, cheap, discount, sale, deal, coupon, code
-   ❌ 时间词：2025, 2024, black friday, prime day
-   ❌ 查询词：history, tracker, locator, review, compare
-5. 数量要求：生成15-25个关键词
-
-请确保输出的关键词符合以上所有要求！`
-
-      prompt = prompt + keywordRequirements
     }
 
     // 需求12：使用Gemini 2.5 Pro稳定版模型（优先Vertex AI，带代理支持 + 自动降级）
