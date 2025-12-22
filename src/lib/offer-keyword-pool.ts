@@ -459,7 +459,8 @@ function createEmptyBuckets(): KeywordBuckets {
     bucketA: { intent: '品牌导向', intentEn: 'Brand-Oriented', description: '用户知道要买什么品牌', keywords: [] },
     bucketB: { intent: '场景导向', intentEn: 'Scenario-Oriented', description: '用户知道要解决什么问题', keywords: [] },
     bucketC: { intent: '功能导向', intentEn: 'Feature-Oriented', description: '用户关注技术规格/功能特性', keywords: [] },
-    statistics: { totalKeywords: 0, bucketACount: 0, bucketBCount: 0, bucketCCount: 0, balanceScore: 1.0 }
+    bucketD: { intent: '通用词汇', intentEn: 'Generic-Terms', description: '竞争度中等、搜索量高、CPC低的通用词', keywords: [] },
+    statistics: { totalKeywords: 0, bucketACount: 0, bucketBCount: 0, bucketCCount: 0, bucketDCount: 0, balanceScore: 1.0 }
   }
 }
 
@@ -470,7 +471,8 @@ function validateBuckets(buckets: KeywordBuckets, originalKeywords: string[]): v
   const allBucketKeywords = [
     ...buckets.bucketA.keywords,
     ...buckets.bucketB.keywords,
-    ...buckets.bucketC.keywords
+    ...buckets.bucketC.keywords,
+    ...buckets.bucketD.keywords
   ]
 
   // 检查是否有遗漏
