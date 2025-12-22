@@ -556,8 +556,8 @@ export async function clusterKeywordsByIntent(
   if (targetCountry && targetLanguage) {
     try {
       console.log(`📊 查询高购买意图词搜索量: ${highIntentKeywords.length} 个关键词`)
-      const { getKeywordMetrics } = await import('./keyword-planner')
-      const metricsResults = await getKeywordMetrics(
+      const { getKeywordSearchVolumes } = await import('./keyword-planner')
+      const metricsResults = await getKeywordSearchVolumes(
         highIntentKeywords,
         targetCountry,
         targetLanguage,
@@ -566,8 +566,8 @@ export async function clusterKeywordsByIntent(
 
       // 过滤掉搜索量为0的关键词（API未返回数据）
       const validKeywords = metricsResults
-        .filter(kw => kw.searchVolume > 0)
-        .map(kw => kw.keyword)
+        .filter((kw: any) => kw.avgMonthlySearches > 0)
+        .map((kw: any) => kw.keyword)
 
       console.log(`✅ 高购买意图词搜索量查询完成: ${validKeywords.length}/${highIntentKeywords.length} 个有搜索量`)
 

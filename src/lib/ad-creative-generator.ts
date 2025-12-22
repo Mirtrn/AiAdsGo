@@ -1624,6 +1624,18 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
   jsonText = jsonText.replace(/([a-zA-Z,.])\s*\n\s*([a-zA-Z])/g, '$1 $2')
   // 5. 规范化非ASCII数字为ASCII数字（修复Bengali等其他语言的数字）
   jsonText = normalizeDigits(jsonText)
+  // 6. 移除_comment字段（AI可能添加注释但不是有效JSON）
+  // Strategy: Replace _comment lines but preserve surrounding commas correctly
+  // Case 1: , _comment: "...", → ,
+  jsonText = jsonText.replace(/,\s*_comment\s*:\s*["'][^"']*["']\s*,/g, ',')
+  // Case 2: , _comment: "..." → (remove entirely)
+  jsonText = jsonText.replace(/,\s*_comment\s*:\s*["'][^"']*["']/g, '')
+  // Case 3: _comment: "...", → (remove entirely - handles first property case)
+  jsonText = jsonText.replace(/_comment\s*:\s*["'][^"']*["']\s*,/g, '')
+  // 7. 清理可能产生的重复逗号或空对象/数组中的逗号
+  jsonText = jsonText.replace(/,\s*,/g, ',')  // Double commas
+  jsonText = jsonText.replace(/([{\[]),/g, '$1')  // Comma after { or [
+  jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1')  // Comma before } or ]
 
   console.log('🔍 修复后JSON前200字符:', jsonText.substring(0, 200))
 
