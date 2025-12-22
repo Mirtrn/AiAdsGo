@@ -1261,25 +1261,51 @@ export async function generateOfferKeywordPool(
 
   console.log(`📝 初始关键词数: ${initialKeywords.length}`)
 
-  // 2.5 🔧 修复(2025-12-17): 在扩展前过滤初始种子词中的地理关键词
-  // 避免 "reolink store sg" 等非目标国家的种子词扩展出更多无关关键词
-  const { detectCountryInKeyword } = await import('./google-suggestions')
-  const targetCountry = offer.target_country
+  // 2.5 🔧 修复(2025-12-22): 过滤种子词质量问题
+  // 避免超长描述和无效组合词作为种子词
+  const beforeFilterCount = initialKeywords.length
+  initialKeywords = initialKeywords.filter(kw => {
+    const keyword = kw.keyword.trim()
 
-  if (targetCountry) {
-    const beforeCount = initialKeywords.length
-    initialKeywords = initialKeywords.filter(kw => {
-      const detectedCountries = detectCountryInKeyword(kw.keyword)
-      // 如果检测到国家，且不包含目标国家，则过滤
-      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
-        console.log(`   ⊗ 种子词地理过滤: "${kw.keyword}" (检测到: ${detectedCountries.join(',')}, 目标: ${targetCountry})`)
-        return false
-      }
-      return true
-    })
-    if (beforeCount !== initialKeywords.length) {
-      console.log(`📍 种子词地理过滤: ${beforeCount} → ${initialKeywords.length}`)
+    // 过滤条件1：长度限制（≤5个单词）
+    const wordCount = keyword.split(/\s+/).length
+    if (wordCount > 5) {
+      console.log(`   ⊗ 种子词长度过滤: "${keyword}" (${wordCount}个单词, 限制≤5)`)
+      return false
     }
+
+    // 过滤条件2：排除购买渠道词和过度组合
+    const invalidPatterns = [
+      // 购买渠道
+      'store', 'shop', 'near me', 'official',
+      // 电商平台
+      'amazon', 'ebay', 'aliexpress', 'shopee', 'etsy',
+      // 购买行为
+      'buy', 'purchase', 'order',
+      // 优惠相关
+      'discount', 'sale', 'deal', 'code', 'coupon', 'voucher',
+      // 价格相关
+      'price', 'cost', 'cheap', 'affordable', 'budget',
+      // 查询类
+      'history', 'tracker', 'locator', 'review', 'compare',
+      // 特殊年份/时间
+      '2025', '2024', '2023', 'black friday', 'prime day'
+    ]
+    const keywordLower = keyword.toLowerCase()
+    const hasInvalidPattern = invalidPatterns.some(pattern =>
+      keywordLower.includes(pattern)
+    )
+    if (hasInvalidPattern) {
+      const matchedPattern = invalidPatterns.find(p => keywordLower.includes(p))
+      console.log(`   ⊗ 种子词无效模式过滤: "${keyword}" (包含: ${matchedPattern})`)
+      return false
+    }
+
+    return true
+  })
+
+  if (beforeFilterCount !== initialKeywords.length) {
+    console.log(`📊 种子词质量过滤: ${beforeFilterCount} → ${initialKeywords.length}`)
   }
 
   // 3. 🆕 全量扩展（替换3轮品牌种子词策略）
