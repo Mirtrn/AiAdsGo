@@ -536,7 +536,9 @@ export async function clusterKeywordsByIntent(
   keywords: string[],
   brandName: string,
   category: string | null,
-  userId: number
+  userId: number,
+  targetCountry?: string,
+  targetLanguage?: string
 ): Promise<KeywordBuckets> {
   if (keywords.length === 0) {
     console.log('⚠️ 无关键词需要聚类，返回空桶')
@@ -549,9 +551,42 @@ export async function clusterKeywordsByIntent(
   const highIntentKeywords = generateHighIntentKeywords(brandName, category, keywords.slice(0, 10))
   console.log(`🎯 生成高购买意图关键词: ${highIntentKeywords.length} 个`)
 
+  // 🔥 2025-12-23 修复：查询高购买意图词的真实搜索量
+  let highIntentKeywordsWithVolume: string[] = highIntentKeywords
+  if (targetCountry && targetLanguage) {
+    try {
+      console.log(`📊 查询高购买意图词搜索量: ${highIntentKeywords.length} 个关键词`)
+      const { getKeywordMetrics } = await import('./keyword-planner')
+      const metricsResults = await getKeywordMetrics(
+        highIntentKeywords,
+        targetCountry,
+        targetLanguage,
+        userId
+      )
+
+      // 过滤掉搜索量为0的关键词（API未返回数据）
+      const validKeywords = metricsResults
+        .filter(kw => kw.searchVolume > 0)
+        .map(kw => kw.keyword)
+
+      console.log(`✅ 高购买意图词搜索量查询完成: ${validKeywords.length}/${highIntentKeywords.length} 个有搜索量`)
+
+      // 只保留有搜索量的关键词
+      if (validKeywords.length > 0) {
+        highIntentKeywordsWithVolume = validKeywords
+      } else {
+        console.warn(`⚠️ 所有高购买意图词搜索量为0，保留原始关键词`)
+      }
+    } catch (error: any) {
+      console.warn(`⚠️ 高购买意图词搜索量查询失败: ${error.message}，使用原始关键词`)
+    }
+  } else {
+    console.log(`ℹ️ 未提供目标国家/语言，跳过高购买意图词搜索量查询`)
+  }
+
   // 将高购买意图关键词也加入聚类输入
-  const allKeywordsForClustering = [...keywords, ...highIntentKeywords]
-  console.log(`📊 总计聚类关键词: ${allKeywordsForClustering.length} 个 (原始:${keywords.length} + 高意图:${highIntentKeywords.length})`)
+  const allKeywordsForClustering = [...keywords, ...highIntentKeywordsWithVolume]
+  console.log(`📊 总计聚类关键词: ${allKeywordsForClustering.length} 个 (原始:${keywords.length} + 高意图:${highIntentKeywordsWithVolume.length})`)
 
   // 🔥 2025-12-22 优化：判断是否需要分批处理
   const BATCH_SIZE = 80  // 每批80个关键词（留20个缓冲）
@@ -1383,12 +1418,14 @@ export async function generateOfferKeywordPool(
   const brandKeywordsData = filteredKeywords.filter(kw => brandKwStrings.includes(kw.keyword))
   const nonBrandKeywordsData = filteredKeywords.filter(kw => nonBrandKwStrings.includes(kw.keyword))
 
-  // 6. AI 语义聚类（保持不变）
+  // 6. AI 语义聚类（传递国家和语言参数用于查询高购买意图词搜索量）
   const buckets = await clusterKeywordsByIntent(
     nonBrandKwStrings,
     offer.brand,
     offer.category,
-    userId
+    userId,
+    offer.target_country,  // 🔥 2025-12-23 新增：传递目标国家
+    offer.target_language || 'en'  // 🔥 2025-12-23 新增：传递目标语言
   )
 
   // 7. 将 PoolKeywordData 映射到桶中
