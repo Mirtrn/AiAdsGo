@@ -95,11 +95,18 @@ export interface KeywordBuckets {
     description: string
     keywords: string[]
   }
+  bucketD: {
+    intent: string
+    intentEn: string
+    description: string
+    keywords: string[]
+  }
   statistics: {
     totalKeywords: number
     bucketACount: number
     bucketBCount: number
     bucketCCount: number
+    bucketDCount: number
     balanceScore: number
   }
 }
@@ -576,7 +583,8 @@ export async function saveKeywordPool(
   const totalKeywords = brandKeywords.length +
     buckets.bucketA.keywords.length +
     buckets.bucketB.keywords.length +
-    buckets.bucketC.keywords.length
+    buckets.bucketC.keywords.length +
+    buckets.bucketD.keywords.length
 
   // 检查是否已存在
   const existing = await db.queryOne<{ id: number }>(
@@ -589,12 +597,14 @@ export async function saveKeywordPool(
   const bucketAJson = serializeJsonForDb(buckets.bucketA.keywords, db.type)
   const bucketBJson = serializeJsonForDb(buckets.bucketB.keywords, db.type)
   const bucketCJson = serializeJsonForDb(buckets.bucketC.keywords, db.type)
+  const bucketDJson = serializeJsonForDb(buckets.bucketD.keywords, db.type)
 
   console.log(`📊 保存关键词池 (dbType=${db.type}):`)
   console.log(`   brand_keywords: ${brandKeywords.length}个 → ${typeof brandKwJson}`)
   console.log(`   bucket_a: ${buckets.bucketA.keywords.length}个`)
   console.log(`   bucket_b: ${buckets.bucketB.keywords.length}个`)
   console.log(`   bucket_c: ${buckets.bucketC.keywords.length}个`)
+  console.log(`   bucket_d: ${buckets.bucketD.keywords.length}个`)
 
   if (existing) {
     // 更新现有记录
@@ -604,9 +614,11 @@ export async function saveKeywordPool(
         bucket_a_keywords = ?,
         bucket_b_keywords = ?,
         bucket_c_keywords = ?,
+        bucket_d_keywords = ?,
         bucket_a_intent = ?,
         bucket_b_intent = ?,
         bucket_c_intent = ?,
+        bucket_d_intent = ?,
         total_keywords = ?,
         clustering_model = ?,
         clustering_prompt_version = ?,
@@ -618,9 +630,11 @@ export async function saveKeywordPool(
         bucketAJson,
         bucketBJson,
         bucketCJson,
+        bucketDJson,
         buckets.bucketA.intent,
         buckets.bucketB.intent,
         buckets.bucketC.intent,
+        buckets.bucketD.intent,
         totalKeywords,
         model || null,
         promptVersion || null,

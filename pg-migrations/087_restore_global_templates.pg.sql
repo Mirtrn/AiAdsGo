@@ -36,9 +36,9 @@ SELECT NULL, 'ai', 'use_vertex_ai', NULL, 'boolean', false, false, 'false', 'AI�
 WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE category = 'ai' AND key = 'use_vertex_ai' AND user_id IS NULL);
 
 INSERT INTO system_settings (
-  user_id, category, key, value, data_type, is_sensitive, is_required, description
+  user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description
 )
-SELECT NULL, 'ai', 'gemini_api_key', NULL, 'string', true, false, 'Gemini API密钥'
+SELECT NULL, 'ai', 'gemini_api_key', NULL, 'string', true, false, NULL, 'Gemini API密钥'
 WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE category = 'ai' AND key = 'gemini_api_key' AND user_id IS NULL);
 
 INSERT INTO system_settings (
@@ -48,7 +48,7 @@ SELECT NULL, 'ai', 'gemini_model', NULL, 'string', false, false, 'gemini-2.5-pro
 WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE category = 'ai' AND key = 'gemini_model' AND user_id IS NULL);
 
 INSERT INTO system_settings (
-  user_id, category, key, value, data_type, is_sensitive, is_required, description
+  user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description
 )
 SELECT NULL, 'ai', 'gcp_project_id', NULL, 'string', false, false, NULL, 'GCP项目ID'
 WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE category = 'ai' AND key = 'gcp_project_id' AND user_id IS NULL);
@@ -60,7 +60,7 @@ SELECT NULL, 'ai', 'gcp_location', NULL, 'string', false, false, 'us-central1', 
 WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE category = 'ai' AND key = 'gcp_location' AND user_id IS NULL);
 
 INSERT INTO system_settings (
-  user_id, category, key, value, data_type, is_sensitive, is_required, description
+  user_id, category, key, value, data_type, is_sensitive, is_required, default_value, description
 )
 SELECT NULL, 'ai', 'gcp_service_account_json', NULL, 'text', true, false, NULL, 'GCP Service Account JSON凭证'
 WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE category = 'ai' AND key = 'gcp_service_account_json' AND user_id IS NULL);

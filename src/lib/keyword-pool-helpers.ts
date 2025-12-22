@@ -305,7 +305,7 @@ function performSemanticDeduplication(keywords: string[]): string[] {
   }
 
   // 每组选择最优关键词
-  return Array.from(groups.values()).map(selectBestKeyword)
+  return Array.from(groups.values()).map((keywords) => selectBestKeyword(keywords))
 }
 
 /**
