@@ -1716,31 +1716,47 @@ export async function expandKeywordsWithSeeds(params: {
       console.log(`   📊 搜索量范围: ${results[results.length - 1]?.searchVolume || 0} - ${results[0]?.searchVolume || 0}`)
     }
 
-    // 3. 获取精确搜索量（只对搜索量最高的前1000个）
-    const topKeywordsForVolume = results.slice(0, 1000).map(kw => kw.keyword)
+    // 3. 获取精确搜索量（分批查询所有关键词）
+    const BATCH_SIZE = 1000
+    const totalKeywords = results.length
+    console.log(`   📊 准备查询 ${totalKeywords} 个关键词的精确搜索量`)
 
-    if (topKeywordsForVolume.length > 0) {
-      const volumes = await getKeywordSearchVolumes(
-        topKeywordsForVolume,
-        country,
-        language,
-        userId
-      )
+    if (totalKeywords > 0) {
+      // 分批处理，每批最多1000个关键词
+      for (let i = 0; i < results.length; i += BATCH_SIZE) {
+        const batch = results.slice(i, i + BATCH_SIZE)
+        const batchKeywords = batch.map(kw => kw.keyword)
 
-      volumes.forEach(vol => {
-        const canonical = vol.keyword.toLowerCase().trim()
-        const existing = keywordMap.get(canonical)
-        if (existing) {
-          keywordMap.set(canonical, {
-            ...existing,
-            searchVolume: vol.avgMonthlySearches,
-            competition: vol.competition,
-            competitionIndex: vol.competitionIndex,
-            lowTopPageBid: vol.lowTopPageBid,
-            highTopPageBid: vol.highTopPageBid,
+        console.log(`   📊 查询批次 ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(totalKeywords / BATCH_SIZE)}: ${batchKeywords.length} 个关键词`)
+
+        try {
+          const volumes = await getKeywordSearchVolumes(
+            batchKeywords,
+            country,
+            language,
+            userId
+          )
+
+          volumes.forEach(vol => {
+            const canonical = vol.keyword.toLowerCase().trim()
+            const existing = keywordMap.get(canonical)
+            if (existing) {
+              keywordMap.set(canonical, {
+                ...existing,
+                searchVolume: vol.avgMonthlySearches,
+                competition: vol.competition,
+                competitionIndex: vol.competitionIndex,
+                lowTopPageBid: vol.lowTopPageBid,
+                highTopPageBid: vol.highTopPageBid,
+              })
+            }
           })
+        } catch (batchError: any) {
+          console.warn(`   ⚠️ 批次 ${Math.floor(i / BATCH_SIZE) + 1} 查询失败，继续处理下一批:`, batchError.message)
         }
-      })
+      }
+
+      console.log(`   ✅ 所有关键词搜索量查询完成`)
 
       // 重新生成数组，确保更新后的搜索量生效
       results = Array.from(keywordMap.values())
