@@ -1180,7 +1180,7 @@ export default function SettingsPage() {
                       </p>
                       <p className="text-xs text-blue-600 flex items-center gap-1">
                         <Info className="w-3 h-3 flex-shrink-0" />
-                        当前已支持IPRocket和Oxylabs代理，更多代理支持开发中
+                        当前已支持IPRocket、Oxylabs和Abcproxy代理，更多代理支持开发中
                       </p>
 
                       {/* 代理URL格式说明 */}
@@ -1211,13 +1211,29 @@ export default function SettingsPage() {
                               https://用户名:密码@pr.oxylabs.io:端口
                             </div>
                           </div>
+
+                          {/* Abcproxy格式 */}
+                          <div className="bg-white p-3 rounded border border-orange-200">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">Abcproxy</span>
+                              <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
+                            </div>
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                              host:port:username:password
+                            </div>
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                              示例：na.02b22e116103ae77.abcproxy.vip:4950:用户名:密码
+                            </div>
+                          </div>
                         </div>
 
                         <div className="mt-3 pt-3 border-t border-slate-200">
                           <p className="text-xs text-amber-700 flex items-start gap-1">
                             <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             <span>
-                              <strong>注意：</strong>系统会自动识别代理URL格式并采取相应的处理策略。IPRocket会先获取代理IP再使用，Oxylabs会直接使用提供的代理进行访问。
+                              <strong>处理策略：</strong>
+                              <br />• IPRocket：先调用API获取代理IP，再使用代理IP访问
+                              <br />• Oxylabs/Abcproxy：直接从URL提取参数，使用代理发起12次访问进行预热
                             </span>
                           </p>
                         </div>
