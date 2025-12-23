@@ -1189,14 +1189,14 @@ export default function SettingsPage() {
                           <Info className="w-4 h-4" />
                           代理URL格式说明
                         </p>
-                        <div className="space-y-3 text-xs">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                           {/* IPRocket格式 */}
                           <div className="bg-white p-3 rounded border border-blue-200">
                             <div className="flex items-center gap-2 mb-2">
                               <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">IPRocket</span>
                               <span className="text-slate-600">API格式 - 需调用API获取代理IP</span>
                             </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
                               https://api.iprocket.io/api?username=...&password=...&cc=...&ips=1&proxyType=...
                             </div>
                           </div>
@@ -1207,7 +1207,7 @@ export default function SettingsPage() {
                               <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">Oxylabs</span>
                               <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
                             </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
                               https://用户名:密码@pr.oxylabs.io:端口
                             </div>
                           </div>
@@ -1218,11 +1218,8 @@ export default function SettingsPage() {
                               <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">Abcproxy</span>
                               <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
                             </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
                               host:port:username:password
-                            </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
-                              示例：na.02b22e116103ae77.abcproxy.vip:4950:用户名:密码
                             </div>
                           </div>
 
@@ -1232,11 +1229,8 @@ export default function SettingsPage() {
                               <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">其他通用代理</span>
                               <span className="text-slate-600">直接格式 - 通用代理服务器地址</span>
                             </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
                               host:port:username:password
-                            </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
-                              示例：proxy.example.com:8080:username:password
                             </div>
                           </div>
                         </div>
