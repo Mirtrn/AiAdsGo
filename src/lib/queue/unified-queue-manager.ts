@@ -757,22 +757,35 @@ export class UnifiedQueueManager {
     try {
       await this.ensureInitialized()
 
-      // 1. 获取所有与该batch相关的pending任务
-      const stats = await this.adapter.getStats()
-      const allTasks = await this.adapter.getAllPendingTasks?.() || []
+      // 1. 从offer_tasks表获取所有子任务ID
+      const { getDatabase } = await import('@/lib/db')
+      const db = getDatabase()
+
+      const childTasks = await db.query<{ id: string }>(`
+        SELECT id FROM offer_tasks WHERE batch_id = ? AND status IN ('pending', 'running')
+      `, [batchId])
 
       let cancelledCount = 0
 
-      // 2. 遍历所有pending任务，找出属于该batch的任务
-      for (const task of allTasks) {
-        // 检查任务数据中是否包含batchId
-        const taskData = task.data as any
-        if (taskData && taskData.batchId === batchId) {
-          // 从队列中移除该任务
-          await this.adapter.removeTask?.(task.id)
+      // 2. 从队列中移除这些任务
+      for (const childTask of childTasks) {
+        try {
+          await this.adapter.removeTask?.(childTask.id)
           cancelledCount++
-          console.log(`🚫 已取消子任务: ${task.id} (type: ${task.type})`)
+          console.log(`🚫 已取消子任务: ${childTask.id}`)
+        } catch (err) {
+          console.warn(`⚠️ 移除任务失败: ${childTask.id}`)
         }
+      }
+
+      // 3. 更新offer_tasks状态为cancelled
+      if (childTasks.length > 0) {
+        const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+        await db.exec(`
+          UPDATE offer_tasks
+          SET status = 'cancelled', updated_at = ${nowFunc}
+          WHERE batch_id = ? AND status IN ('pending', 'running')
+        `, [batchId])
       }
 
       return cancelledCount
