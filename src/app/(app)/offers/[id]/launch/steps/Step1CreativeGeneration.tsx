@@ -1035,6 +1035,14 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                           if (themeValue.includes('feature') || themeValue.includes('benefit') || themeValue.includes('demand') || themeValue.includes('function')) {
                             return '功能导向'
                           }
+                          // 🔧 修复：添加"高购买意图"映射
+                          if (themeValue.includes('intent') || themeValue.includes('purchase') || themeValue.includes('高购买')) {
+                            return '强购买意图'
+                          }
+                          // 综合推广映射
+                          if (themeValue.includes('synthetic') || themeValue.includes('综合')) {
+                            return '综合推广'
+                          }
 
                           // 如果theme是长文本（超过30字符），说明存储的不是标准主题，返回默认值
                           if (themeValue.length > 30) {
@@ -1042,7 +1050,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                           }
 
                           // 已经是中文的情况
-                          if (themeValue.includes('品牌') || themeValue.includes('场景') || themeValue.includes('功能') || themeValue.includes('综合')) {
+                          if (themeValue.includes('品牌') || themeValue.includes('场景') || themeValue.includes('功能')) {
                             return creative.theme
                           }
 
