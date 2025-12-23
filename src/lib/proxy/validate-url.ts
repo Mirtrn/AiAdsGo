@@ -138,13 +138,23 @@ export function getCountryName(countryCode: string): string {
  * @example
  * maskProxyUrl('https://api.iprocket.io/api?username=user&password=pass&cc=ROW&ips=1&proxyType=http&responseType=txt')
  * // 'https://api.iprocket.io/api?cc=ROW&...'
+ * maskProxyUrl('https://customer-xxrenzhe_pQhay-cc-fr:password@pr.oxylabs.io:7777')
+ * // 'https://pr.oxylabs.io:7777 (cc-fr)'
  */
 export function maskProxyUrl(proxyUrl: string): string {
   try {
     const url = new URL(proxyUrl)
+
+    // Oxylabs格式：从username中提取cc代码
+    if (url.hostname.includes('oxylabs.io')) {
+      const ccMatch = url.username.match(/cc-([a-z]{2})/i)
+      const cc = ccMatch ? ccMatch[1].toUpperCase() : null
+      return cc ? `${url.protocol}//${url.hostname}:${url.port} (cc-${cc})` : `${url.protocol}//${url.hostname}:${url.port}`
+    }
+
+    // IPRocket格式：从查询参数提取cc
     const params = new URLSearchParams(url.search)
     const cc = params.get('cc')
-
     return `${url.origin}${url.pathname}?cc=${cc || 'UNKNOWN'}&...`
   } catch (error) {
     return '[INVALID_URL]'
