@@ -1180,8 +1180,64 @@ export default function SettingsPage() {
                       </p>
                       <p className="text-xs text-blue-600 flex items-center gap-1">
                         <Info className="w-3 h-3 flex-shrink-0" />
-                        当前已支持IPRocket代理，更多代理支持开发中
+                        当前已支持IPRocket和Oxylabs代理，更多代理支持开发中
                       </p>
+
+                      {/* 代理URL格式说明 */}
+                      <div className="mt-3 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                        <p className="text-caption font-semibold text-slate-700 mb-3 flex items-center gap-1">
+                          <Info className="w-4 h-4" />
+                          不同代理Provider的URL格式说明
+                        </p>
+                        <div className="space-y-3 text-xs">
+                          {/* IPRocket格式 */}
+                          <div className="bg-white p-3 rounded border border-blue-200">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">IPRocket</span>
+                              <span className="text-slate-600">API格式 - 需要调用API获取代理IP</span>
+                            </div>
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                              https://api.iprocket.io/api?username=您的用户名&password=您的密码&cc=国家代码&ips=1&proxyType=http&responseType=txt
+                            </div>
+                            <ul className="text-xs text-slate-600 space-y-0.5">
+                              <li>• <strong>username/password</strong>：您的IPRocket账号凭证</li>
+                              <li>• <strong>cc</strong>：国家代码（如 US、UK、CA、FR、ROW等）</li>
+                              <li>• <strong>ips</strong>：获取的代理IP数量（建议设为1）</li>
+                              <li>• <strong>proxyType</strong>：代理类型（http/https/socks5）</li>
+                              <li>• <strong>responseType</strong>：响应格式（txt/json）</li>
+                            </ul>
+                          </div>
+
+                          {/* Oxylabs格式 */}
+                          <div className="bg-white p-3 rounded border border-green-200">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">Oxylabs</span>
+                              <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
+                            </div>
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                              https://用户名:密码@pr.oxylabs.io:端口
+                            </div>
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded mb-2 break-all">
+                              示例：https://customer-xxrenzhe_pQhay-cc-fr:CV6~qENiY5l2i@pr.oxylabs.io:7777
+                            </div>
+                            <ul className="text-xs text-slate-600 space-y-0.5">
+                              <li>• <strong>用户名格式</strong>：customer-账号ID_cc-国家代码（如 cc-fr 表示法国）</li>
+                              <li>• <strong>密码</strong>：您的Oxylabs账号密码</li>
+                              <li>• <strong>主机</strong>：通常为 pr.oxylabs.io</li>
+                              <li>• <strong>端口</strong>：通常为 7777</li>
+                            </ul>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 pt-3 border-t border-slate-200">
+                          <p className="text-xs text-amber-700 flex items-start gap-1">
+                            <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            <span>
+                              <strong>注意：</strong>系统会自动识别代理URL格式并采取相应的处理策略。IPRocket会先获取代理IP再使用，Oxylabs会直接使用提供的代理进行访问。
+                            </span>
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     {proxyUrls.length === 0 ? (
