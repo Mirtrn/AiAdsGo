@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
+import { getServiceAccountAccessToken } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
+import { decrypt } from '@/lib/crypto'
 
 // Google Ads CustomerStatus 枚举值映射
 // 参考: https://developers.google.com/google-ads/api/reference/rpc/latest/CustomerStatusEnum.CustomerStatus
@@ -160,10 +162,45 @@ async function upsertAccount(userId: number, account: {
 }
 
 /**
+ * 获取服务账号配置
+ */
+async function getServiceAccountConfig(userId: number, serviceAccountId: string) {
+  const db = await getDatabase()
+  const account = await db.queryOne(`
+    SELECT id, name, mcc_customer_id, developer_token, service_account_email, private_key, project_id
+    FROM google_ads_service_accounts
+    WHERE user_id = ? AND id = ? AND is_active = 1
+  `, [userId, serviceAccountId]) as any
+
+  if (!account) return null
+
+  // 解密私钥
+  const decryptedPrivateKey = decrypt(account.private_key)
+
+  return {
+    id: account.id,
+    name: account.name,
+    mccCustomerId: account.mcc_customer_id,
+    developerToken: account.developer_token,
+    serviceAccountEmail: account.service_account_email,
+    privateKey: decryptedPrivateKey,
+    projectId: account.project_id,
+  }
+}
+
+/**
  * 从 Google Ads API 获取账号并同步到数据库
  */
-async function syncAccountsFromAPI(userId: number, credentials: any): Promise<any[]> {
+async function syncAccountsFromAPI(
+  userId: number,
+  credentials: any,
+  authType: 'oauth' | 'service_account' = 'oauth',
+  serviceAccountConfig: any = null
+): Promise<any[]> {
   console.log(`🔄 从 Google Ads API 同步账号...`)
+  console.log(`   认证方式: ${authType}`)
+
+  const isServiceAccount = authType === 'service_account' && serviceAccountConfig
 
   // 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须有自己的完整凭证
   // 不再回退到管理员配置，确保用户数据完全隔离
@@ -175,8 +212,6 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
     throw new Error('缺少 Google Ads API 凭证配置，请在设置中完成配置')
   }
 
-  console.log(`   使用用户自己的配置`)
-
   // 创建客户端
   const client = getGoogleAdsClient({
     client_id: clientId,
@@ -184,17 +219,39 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
     developer_token: developerToken,
   })
 
-  const response = await client.listAccessibleCustomers(credentials.refresh_token)
-  const resourceNames = response.resource_names || []
+  // 获取 access token（仅服务账号模式需要）
+  let accessToken: string = ''
+  if (isServiceAccount) {
+    accessToken = await getServiceAccountAccessToken({
+      clientEmail: serviceAccountConfig.serviceAccountEmail,
+      privateKey: serviceAccountConfig.privateKey,
+      mccCustomerId: serviceAccountConfig.mccCustomerId,
+      developerToken: serviceAccountConfig.developerToken
+    })
+    console.log(`   已获取服务账号 Access Token`)
+  }
+
+  // 获取可访问的账户列表
+  let resourceNames: string[]
+  if (isServiceAccount) {
+    const response = await client.listAccessibleCustomers(accessToken)
+    resourceNames = response.resource_names || []
+  } else {
+    const response = await client.listAccessibleCustomers(credentials.refresh_token)
+    resourceNames = response.resource_names || []
+  }
+
   const customerIds = resourceNames.map((resourceName: string) => {
     const parts = resourceName.split('/')
     return parts[parts.length - 1]
   })
 
-  console.log(`   🔍 API响应: ${JSON.stringify(response, null, 2)}`)
+  console.log(`   🔍 API响应: ${resourceNames.length} 个账户`)
   console.log(`   🔍 Resource Names: ${resourceNames.join(', ')}`)
   console.log(`   ✅ 直接可访问账户 (${customerIds.length}个): ${customerIds.join(', ')}`)
-  console.log(`   🔑 Login Customer ID: ${credentials.login_customer_id || '未设置'}`)
+
+  const mccCustomerId = isServiceAccount ? serviceAccountConfig.mccCustomerId : credentials.login_customer_id
+  console.log(`   🔑 Login Customer ID (MCC): ${mccCustomerId || '未设置'}`)
 
   const allAccounts: any[] = []
   const processedIds = new Set<string>()
@@ -209,20 +266,26 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
 
     try {
       // 🔧 修复：确保login_customer_id正确传递（MCC账户必需）
-      const loginCustomerId = credentials.login_customer_id || customerId
+      const loginCustomerId = isServiceAccount ? serviceAccountConfig.mccCustomerId : (credentials.login_customer_id || customerId)
       console.log(`   🔍 请求账户 ${customerId} 信息，使用 login_customer_id: ${loginCustomerId}`)
 
       const customer = await getCustomer(
         customerId,
-        credentials.refresh_token,
+        isServiceAccount ? accessToken : credentials.refresh_token,
         loginCustomerId,
         {
           client_id: clientId,
           client_secret: clientSecret,
           developer_token: developerToken,
         },
+        userId,
         undefined, // accountId not available yet during sync
-        userId
+        isServiceAccount ? 'service_account' : 'oauth',
+        isServiceAccount ? {
+          clientEmail: serviceAccountConfig.serviceAccountEmail,
+          privateKey: serviceAccountConfig.privateKey,
+          mccCustomerId: serviceAccountConfig.mccCustomerId,
+        } : undefined
       )
       const accountInfoQuery = `
         SELECT
@@ -276,7 +339,7 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
         // 🔧 修复(2025-12-18): 计算parent_mcc字段
         // 子账户的parent_mcc是登录的MCC账户ID，MCC账户的parent_mcc为null
         const isManagerAccount = account.customer?.manager || false
-        const parentMcc = isManagerAccount ? null : (credentials.login_customer_id || null)
+        const parentMcc = isManagerAccount ? null : (isServiceAccount ? serviceAccountConfig.mccCustomerId : credentials.login_customer_id)
 
         const accountData = {
           customer_id: customerId,
@@ -338,15 +401,21 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
                   try {
                     const childCustomer = await getCustomer(
                       childId,
-                      credentials.refresh_token,
-                      credentials.login_customer_id,
+                      isServiceAccount ? accessToken : credentials.refresh_token,
+                      isServiceAccount ? serviceAccountConfig.mccCustomerId : credentials.login_customer_id,
                       {
                         client_id: clientId,
                         client_secret: clientSecret,
                         developer_token: developerToken,
                       },
+                      userId,
                       undefined, // accountId not available yet during sync
-                      userId
+                      isServiceAccount ? 'service_account' : 'oauth',
+                      isServiceAccount ? {
+                        clientEmail: serviceAccountConfig.serviceAccountEmail,
+                        privateKey: serviceAccountConfig.privateKey,
+                        mccCustomerId: serviceAccountConfig.mccCustomerId,
+                      } : undefined
                     )
                     const childBudgetQuery = `
                       SELECT
@@ -466,6 +535,8 @@ async function syncAccountsFromAPI(userId: number, credentials: any): Promise<an
  * Query params:
  * - refresh=true: 强制从 API 刷新
  * - offerId=number: 当前Offer ID（用于计算账号优先级）
+ * - auth_type=oauth|service_account: 认证方式（默认oauth）
+ * - service_account_id=string: 服务账号ID（当auth_type=service_account时必需）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -476,34 +547,73 @@ export async function GET(request: NextRequest) {
 
     const userId = authResult.user.userId
 
-    // 🔧 修复(2025-12-12): 只支持独立账号模式，移除共享配置
-    // 每个用户必须配置自己的 Google Ads API 凭证并完成 OAuth 授权
-    const credentials = await getGoogleAdsCredentials(userId)
+    const { searchParams } = new URL(request.url)
+    const forceRefresh = searchParams.get('refresh') === 'true'
+    const offerId = searchParams.get('offerId') ? parseInt(searchParams.get('offerId')!, 10) : null
+    const authType = (searchParams.get('auth_type') as 'oauth' | 'service_account') || 'oauth'
+    const serviceAccountId = searchParams.get('service_account_id')
 
-    if (!credentials) {
-      return NextResponse.json({
-        error: '未配置 Google Ads 凭证',
-        message: '请在设置页面完成 Google Ads API 配置并完成 OAuth 授权',
-        code: 'CREDENTIALS_NOT_CONFIGURED'
-      }, { status: 404 })
-    }
+    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}, offerId=${offerId}, authType=${authType}`)
 
-    if (!credentials.refresh_token) {
-      return NextResponse.json({ error: '未找到Refresh Token，请先完成OAuth授权' }, { status: 401 })
+    let credentials: any = null
+    let serviceAccountConfig: any = null
+    let loginCustomerId: string | null = null
+
+    if (authType === 'service_account') {
+      // 服务账号认证模式
+      if (!serviceAccountId) {
+        return NextResponse.json({
+          error: '缺少服务账号ID',
+          message: '使用服务账号认证时必须指定 service_account_id 参数'
+        }, { status: 400 })
+      }
+
+      serviceAccountConfig = await getServiceAccountConfig(userId, serviceAccountId)
+      if (!serviceAccountConfig) {
+        return NextResponse.json({
+          error: '服务账号配置不存在或已禁用',
+          message: '请先在设置页面配置服务账号'
+        }, { status: 404 })
+      }
+
+      loginCustomerId = serviceAccountConfig.mccCustomerId
+
+      // 服务账号模式也需要基本的client_id/client_secret（用于创建API客户端）
+      // 但实际认证使用JWT
+      const oauthCredentials = await getGoogleAdsCredentials(userId)
+      if (oauthCredentials) {
+        credentials = {
+          client_id: oauthCredentials.client_id,
+          client_secret: oauthCredentials.client_secret,
+          developer_token: serviceAccountConfig.developerToken,
+        }
+      }
+    } else {
+      // OAuth 认证模式
+      credentials = await getGoogleAdsCredentials(userId)
+
+      if (!credentials) {
+        return NextResponse.json({
+          error: '未配置 Google Ads 凭证',
+          message: '请在设置页面完成 Google Ads API 配置并完成 OAuth 授权',
+          code: 'CREDENTIALS_NOT_CONFIGURED'
+        }, { status: 404 })
+      }
+
+      if (!credentials.refresh_token) {
+        return NextResponse.json({ error: '未找到Refresh Token，请先完成OAuth授权' }, { status: 401 })
+      }
+
+      loginCustomerId = credentials.login_customer_id
     }
 
     // 校验: login_customer_id 必须存在（MCC账户ID是调用Google Ads API的必填项）
-    if (!credentials.login_customer_id) {
+    if (!loginCustomerId) {
       return NextResponse.json({
         error: '缺少 Login Customer ID (MCC账户ID)',
         message: '请先在设置页面配置 Login Customer ID，这是使用 Google Ads API 的必填项'
       }, { status: 400 })
     }
-
-    const { searchParams } = new URL(request.url)
-    const forceRefresh = searchParams.get('refresh') === 'true'
-    const offerId = searchParams.get('offerId') ? parseInt(searchParams.get('offerId')!, 10) : null
-    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}, offerId=${offerId}`)
 
     let allAccounts: any[]
 
@@ -530,7 +640,7 @@ export async function GET(request: NextRequest) {
     } else {
       // 从 API 获取并同步
       console.log(`🔄 强制刷新: 从 Google Ads API 同步账号...`)
-      allAccounts = await syncAccountsFromAPI(userId, credentials)
+      allAccounts = await syncAccountsFromAPI(userId, credentials, authType, serviceAccountConfig)
       console.log(`✅ 同步完成，获取到 ${allAccounts.length} 个账号`)
     }
 
@@ -660,7 +770,8 @@ export async function GET(request: NextRequest) {
         total: accountsWithOffers.length,
         accounts: accountsWithOffers,
         cached: !forceRefresh && cachedAccounts.length > 0,
-        loginCustomerId: credentials.login_customer_id,
+        loginCustomerId: loginCustomerId,
+        authType: authType,
       },
     })
 

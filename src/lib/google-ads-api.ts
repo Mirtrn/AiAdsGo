@@ -3,6 +3,7 @@ import { updateGoogleAdsAccount } from './google-ads-accounts'
 import { withRetry } from './retry'
 import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 import { getUserOnlySetting } from './settings'
+import { getServiceAccountAccessToken } from './google-ads-service-account'
 
 /**
  * 从数据库获取用户的Google Ads凭证
@@ -238,16 +239,19 @@ export async function refreshAccessToken(
 
 /**
  * 获取Google Ads Customer实例
- * 自动处理token刷新
+ * 自动处理token刷新，支持OAuth和服务账号两种认证方式
  *
  * 🔧 修复(2025-12-22): 移除环境变量依赖,强制要求传入credentials和loginCustomerId
+ * 🆕 新增(2025-12-23): 支持服务账号认证
  *
  * @param customerId - Customer ID
- * @param refreshToken - Refresh token
+ * @param refreshToken - Refresh token (OAuth模式)
  * @param loginCustomerId - 必需的MCC账户ID(从数据库读取)
  * @param credentials - 必需的用户凭证(从数据库读取)
  * @param accountId - 可选的账户ID用于更新token
  * @param userId - 可选的用户ID用于更新token
+ * @param authType - 认证类型: 'oauth' | 'service_account'
+ * @param serviceAccountConfig - 服务账号配置(服务账号模式必需)
  * @throws Error 如果未提供必需参数
  */
 export async function getCustomer(
@@ -259,8 +263,14 @@ export async function getCustomer(
     client_secret: string
     developer_token: string
   },
+  userId: number,
   accountId?: number,
-  userId?: number
+  authType?: 'oauth' | 'service_account',
+  serviceAccountConfig?: {
+    clientEmail: string
+    privateKey: string
+    mccCustomerId: string
+  }
 ): Promise<Customer> {
   if (!credentials) {
     throw new Error('缺少Google Ads凭证,必须从数据库提供 credentials 参数')
@@ -272,6 +282,29 @@ export async function getCustomer(
 
   const client = getGoogleAdsClient(credentials)
 
+  // 服务账号认证模式
+  if (authType === 'service_account' && serviceAccountConfig) {
+    try {
+      const accessToken = await getServiceAccountAccessToken({
+        clientEmail: serviceAccountConfig.clientEmail,
+        privateKey: serviceAccountConfig.privateKey,
+        mccCustomerId: serviceAccountConfig.mccCustomerId,
+        developerToken: credentials.developer_token
+      })
+
+      const customer = client.Customer({
+        customer_id: customerId,
+        refresh_token: accessToken,
+        login_customer_id: loginCustomerId,
+      })
+
+      return customer
+    } catch (error: any) {
+      throw new Error(`服务账号认证失败: ${error.message}`)
+    }
+  }
+
+  // OAuth认证模式（原有逻辑）
   try {
     // 尝试使用refresh token获取新的access token（带重试）
     const tokens = await withRetry(
@@ -311,36 +344,74 @@ export async function getCustomer(
 /**
  * 辅助函数：从数据库获取凭证并创建Customer实例
  * 简化调用者代码，避免每次都手动获取credentials
+ * 支持OAuth和服务账号两种认证方式
  */
 async function getCustomerWithCredentials(params: {
   customerId: string
-  refreshToken: string
+  refreshToken?: string  // OAuth模式需要
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string
+  // 服务账号认证参数
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<Customer> {
   if (!params.userId) {
     throw new Error('userId is required to fetch Google Ads credentials')
   }
 
-  // 从数据库获取凭证
-  const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+  const authType = params.authType || 'oauth'
 
-  // 使用loginCustomerId参数，或从数据库获取
-  const loginCustomerId = params.loginCustomerId || creds.login_customer_id
+  if (authType === 'service_account') {
+    // 服务账号认证模式
+    const { getServiceAccountConfig, getUnifiedGoogleAdsClient } = await import('./google-ads-service-account')
+    const serviceAccount = await getServiceAccountConfig(params.userId, params.serviceAccountId)
 
-  return getCustomer(
-    params.customerId,
-    params.refreshToken,
-    loginCustomerId,
-    {
-      client_id: creds.client_id,
-      client_secret: creds.client_secret,
-      developer_token: creds.developer_token,
-    },
-    params.accountId,
-    params.userId
-  )
+    if (!serviceAccount) {
+      throw new Error('Service account configuration not found')
+    }
+
+    // 从数据库获取基本的client_id/client_secret
+    const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+
+    return getUnifiedGoogleAdsClient({
+      customerId: params.customerId,
+      credentials: {
+        client_id: creds.client_id,
+        client_secret: creds.client_secret,
+        developer_token: serviceAccount.developerToken
+      },
+      authConfig: {
+        authType: 'service_account',
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountId
+      }
+    })
+  } else {
+    // OAuth认证模式
+    if (!params.refreshToken) {
+      throw new Error('refreshToken is required for OAuth authentication')
+    }
+
+    // 从数据库获取凭证
+    const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+
+    // 使用loginCustomerId参数，或从数据库获取
+    const loginCustomerId = params.loginCustomerId || creds.login_customer_id
+
+    return getCustomer(
+      params.customerId,
+      params.refreshToken,
+      loginCustomerId,
+      {
+        client_id: creds.client_id,
+        client_secret: creds.client_secret,
+        developer_token: creds.developer_token,
+      },
+      params.userId,
+      params.accountId
+    )
+  }
 }
 
 /**
@@ -451,7 +522,7 @@ export async function createGoogleAdsCampaign(params: {
   startDate?: string
   endDate?: string
   accountId?: number
-  userId?: number
+  userId: number  // 改为必填
   loginCustomerId?: string  // 🔥 经理账号ID（用于访问客户账号）
 }): Promise<{ campaignId: string; resourceName: string }> {
   const customer = await getCustomerWithCredentials(params)
@@ -710,7 +781,7 @@ export async function updateGoogleAdsCampaignStatus(params: {
   campaignId: string
   status: 'ENABLED' | 'PAUSED' | 'REMOVED'
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string
 }): Promise<void> {
   const customer = await getCustomerWithCredentials(params)
@@ -750,7 +821,7 @@ export async function updateGoogleAdsCampaignBudget(params: {
   budgetAmount: number
   budgetType: 'DAILY' | 'TOTAL'
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<void> {
   const customer = await getCustomerWithCredentials(params)
@@ -796,7 +867,7 @@ export async function getGoogleAdsCampaign(params: {
   refreshToken: string
   campaignId: string
   accountId?: number
-  userId?: number
+  userId: number
   skipCache?: boolean
   loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<any> {
@@ -852,7 +923,7 @@ export async function listGoogleAdsCampaigns(params: {
   customerId: string
   refreshToken: string
   accountId?: number
-  userId?: number
+  userId: number
   skipCache?: boolean
   loginCustomerId?: string
 }): Promise<any[]> {
@@ -904,7 +975,7 @@ export async function createGoogleAdsAdGroup(params: {
   cpcBidMicros?: number
   status: 'ENABLED' | 'PAUSED'
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string  // 🔥 经理账号ID
 }): Promise<{ adGroupId: string; resourceName: string }> {
   const customer = await getCustomerWithCredentials(params)
@@ -949,7 +1020,7 @@ export async function createGoogleAdsKeyword(params: {
   finalUrl?: string
   isNegative?: boolean
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<{ keywordId: string; resourceName: string }> {
   const customer = await getCustomerWithCredentials(params)
@@ -1030,7 +1101,7 @@ export async function createGoogleAdsKeywordsBatch(params: {
     isNegative?: boolean
   }>
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string  // 🔧 添加MCC权限参数
 }): Promise<Array<{ keywordId: string; resourceName: string; keywordText: string }>> {
   const customer = await getCustomerWithCredentials(params)
@@ -1099,7 +1170,7 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   path1?: string
   path2?: string
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string  // 🔥 经理账号ID
 }): Promise<{ adId: string; resourceName: string }> {
   const customer = await getCustomerWithCredentials(params)
@@ -1486,7 +1557,7 @@ export async function createGoogleAdsCalloutExtensions(params: {
   campaignId: string
   callouts: string[]
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string
 }): Promise<{ assetIds: string[] }> {
   const customer = await getCustomerWithCredentials(params)
@@ -1552,7 +1623,7 @@ export async function createGoogleAdsSitelinkExtensions(params: {
     description2?: string
   }>
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string
 }): Promise<{ assetIds: string[] }> {
   const customer = await getCustomerWithCredentials(params)
@@ -1829,7 +1900,7 @@ export async function setCampaignMarketingObjective(params: {
   campaignId: string
   marketingObjective: MarketingObjective
   accountId?: number
-  userId?: number
+  userId: number
   loginCustomerId?: string
 }): Promise<{ success: boolean; message: string }> {
   const { customerId, refreshToken, campaignId, marketingObjective, accountId, userId, loginCustomerId } = params

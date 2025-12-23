@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card } from '@/components/ui/card'
 import { toast } from 'sonner'
-import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 
 // 代理URL配置项接口
@@ -309,6 +309,17 @@ export default function SettingsPage() {
   const [showGoogleAdsAccounts, setShowGoogleAdsAccounts] = useState(false)
   const [verifyingGoogleAds, setVerifyingGoogleAds] = useState(false)
   const [startingOAuth, setStartingOAuth] = useState(false)
+  const [googleAdsAuthMethod, setGoogleAdsAuthMethod] = useState<'oauth' | 'service_account'>('oauth')
+  const [serviceAccountForm, setServiceAccountForm] = useState({
+    name: '',
+    mccCustomerId: '',
+    developerToken: '',
+    serviceAccountJson: ''
+  })
+  const [savingServiceAccount, setSavingServiceAccount] = useState(false)
+  const [serviceAccounts, setServiceAccounts] = useState<any[]>([])
+  const [loadingServiceAccounts, setLoadingServiceAccounts] = useState(false)
+  const [deletingServiceAccountId, setDeletingServiceAccountId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchSettings()
@@ -510,7 +521,14 @@ export default function SettingsPage() {
       setLoadingGoogleAdsAccounts(true)
       setShowGoogleAdsAccounts(true)
 
-      const response = await fetch('/api/google-ads/credentials/accounts', {
+      // 构建URL参数
+      let url = '/api/google-ads/credentials/accounts?refresh=true'
+      if (googleAdsAuthMethod === 'service_account' && serviceAccounts.length > 0) {
+        // 如果有已配置的服务账号，使用第一个服务账号
+        url += `&auth_type=service_account&service_account_id=${serviceAccounts[0].id}`
+      }
+
+      const response = await fetch(url, {
         credentials: 'include',
       })
 
@@ -762,6 +780,73 @@ export default function SettingsPage() {
     }
   }
 
+  const handleSaveServiceAccount = async () => {
+    if (!serviceAccountForm.name || !serviceAccountForm.mccCustomerId || !serviceAccountForm.developerToken || !serviceAccountForm.serviceAccountJson) {
+      toast.error('请填写所有必填字段')
+      return
+    }
+
+    setSavingServiceAccount(true)
+    try {
+      const response = await fetch('/api/google-ads/service-account', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serviceAccountForm)
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || '保存失败')
+
+      toast.success('服务账号配置已保存')
+      setServiceAccountForm({ name: '', mccCustomerId: '', developerToken: '', serviceAccountJson: '' })
+      fetchServiceAccounts()
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setSavingServiceAccount(false)
+    }
+  }
+
+  const fetchServiceAccounts = async () => {
+    setLoadingServiceAccounts(true)
+    try {
+      const response = await fetch('/api/google-ads/service-account', {
+        credentials: 'include'
+      })
+      const data = await response.json()
+      if (response.ok) {
+        setServiceAccounts(data.accounts || [])
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch service accounts:', err)
+    } finally {
+      setLoadingServiceAccounts(false)
+    }
+  }
+
+  const handleDeleteServiceAccount = async (id: string) => {
+    if (!confirm('确定要删除此服务账号配置吗？')) return
+
+    setDeletingServiceAccountId(id)
+    try {
+      const response = await fetch(`/api/google-ads/service-account?id=${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || '删除失败')
+
+      toast.success('服务账号配置已删除')
+      fetchServiceAccounts()
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeletingServiceAccountId(null)
+    }
+  }
+
   const getValidationIcon = (status?: string | null): string => {
     switch (status) {
       case 'valid':
@@ -959,18 +1044,30 @@ export default function SettingsPage() {
 
             return (
               <Card key={category} className="p-6">
-                <div className="flex items-start gap-3 mb-6">
-                  <div className={`p-2 rounded-lg bg-slate-100 ${config.color}`}>
-                    <IconComponent className="w-5 h-5" />
+                <div className="flex items-start justify-between gap-3 mb-6">
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded-lg bg-slate-100 ${config.color}`}>
+                      <IconComponent className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="card-title">
+                        {config.label}
+                      </h2>
+                      <p className="text-body-sm text-muted-foreground mt-1">
+                        {config.description}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="card-title">
-                      {config.label}
-                    </h2>
-                    <p className="text-body-sm text-muted-foreground mt-1">
-                      {config.description}
-                    </p>
-                  </div>
+                  {category === 'google_ads' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push('/help/google-ads-setup')}
+                    >
+                      <BookOpen className="w-4 h-4 mr-2" />
+                      配置指南
+                    </Button>
+                  )}
                 </div>
 
                 {/* 特殊处理 Google Ads 配置分类 */}
@@ -1034,45 +1131,186 @@ export default function SettingsPage() {
                       )}
                     </div>
 
-                    {/* 基础配置字段 - 2列布局 */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
-                      {categorySettings.map((setting: Setting) => {
-                        const metaKey = `${category}.${setting.key}`
-                        const metadata = SETTING_METADATA[metaKey]
-
-                        return (
-                          <div key={setting.key}>
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <Label className="label-text flex items-center gap-2">
-                                  {metadata?.label || setting.key}
-                                  {setting.isRequired && (
-                                    <span className="text-caption text-red-500">*必填</span>
-                                  )}
-                                </Label>
-                                {metadata?.helpLink && (
-                                  <a
-                                    href={metadata.helpLink}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
-                                  >
-                                    获取密钥
-                                    <ExternalLink className="w-3 h-3" />
-                                  </a>
-                                )}
-                              </div>
-                              <p className="helper-text flex items-start gap-1">
-                                <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                {metadata?.description || setting.description || '无描述'}
-                              </p>
-                              {renderInput(category, setting)}
-                            </div>
-
-                          </div>
-                        )
-                      })}
+                    {/* 认证方式选择 */}
+                    <div className="border-t pt-6">
+                      <Label className="label-text mb-3 block">认证方式</Label>
+                      <div className="grid grid-cols-2 gap-4">
+                        <button
+                          type="button"
+                          onClick={() => setGoogleAdsAuthMethod('oauth')}
+                          className={`p-4 border-2 rounded-lg text-left transition-all ${
+                            googleAdsAuthMethod === 'oauth'
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <div className="font-semibold mb-1">OAuth 用户授权</div>
+                          <div className="text-sm text-gray-600">适合管理自己的 Google Ads 账号</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGoogleAdsAuthMethod('service_account')
+                            fetchServiceAccounts()
+                          }}
+                          className={`p-4 border-2 rounded-lg text-left transition-all ${
+                            googleAdsAuthMethod === 'service_account'
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <div className="font-semibold mb-1">服务账号认证</div>
+                          <div className="text-sm text-gray-600">适合 MCC 账号管理多个子账号</div>
+                        </button>
+                      </div>
                     </div>
+
+                    {/* 基础配置字段 - 2列布局 */}
+                    {googleAdsAuthMethod === 'oauth' && (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
+                        {categorySettings.map((setting: Setting) => {
+                          const metaKey = `${category}.${setting.key}`
+                          const metadata = SETTING_METADATA[metaKey]
+
+                          return (
+                            <div key={setting.key}>
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <Label className="label-text flex items-center gap-2">
+                                    {metadata?.label || setting.key}
+                                    {setting.isRequired && (
+                                      <span className="text-caption text-red-500">*必填</span>
+                                    )}
+                                  </Label>
+                                  {metadata?.helpLink && (
+                                    <a
+                                      href={metadata.helpLink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                                    >
+                                      获取密钥
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  )}
+                                </div>
+                                <p className="helper-text flex items-start gap-1">
+                                  <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  {metadata?.description || setting.description || '无描述'}
+                                </p>
+                                {renderInput(category, setting)}
+                              </div>
+
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* 服务账号配置表单 */}
+                    {googleAdsAuthMethod === 'service_account' && (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5">
+                        <div>
+                          <Label className="label-text flex items-center gap-2">
+                            配置名称
+                            <span className="text-caption text-red-500">*必填</span>
+                          </Label>
+                          <Input
+                            value={serviceAccountForm.name}
+                            onChange={(e) => setServiceAccountForm(prev => ({ ...prev, name: e.target.value }))}
+                            placeholder="例如: 生产环境MCC"
+                            className="mt-2"
+                          />
+                        </div>
+
+                        <div>
+                          <Label className="label-text flex items-center gap-2">
+                            MCC Customer ID
+                            <span className="text-caption text-red-500">*必填</span>
+                          </Label>
+                          <p className="helper-text flex items-start gap-1 mt-1">
+                            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            MCC管理账户ID，格式：10位数字（不含连字符）
+                          </p>
+                          <Input
+                            value={serviceAccountForm.mccCustomerId}
+                            onChange={(e) => setServiceAccountForm(prev => ({ ...prev, mccCustomerId: e.target.value }))}
+                            placeholder="例如: 1234567890"
+                            className="mt-2"
+                          />
+                        </div>
+
+                        <div>
+                          <Label className="label-text flex items-center gap-2">
+                            Developer Token
+                            <span className="text-caption text-red-500">*必填</span>
+                          </Label>
+                          <p className="helper-text flex items-start gap-1 mt-1">
+                            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            需要Explorer级别或更高，在MCC账户的API中心获取
+                          </p>
+                          <Input
+                            value={serviceAccountForm.developerToken}
+                            onChange={(e) => setServiceAccountForm(prev => ({ ...prev, developerToken: e.target.value }))}
+                            placeholder="输入 Developer Token"
+                            type="password"
+                            className="mt-2"
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <Label className="label-text flex items-center gap-2">
+                            服务账号 JSON
+                            <span className="text-caption text-red-500">*必填</span>
+                          </Label>
+                          <p className="helper-text flex items-start gap-1 mt-1">
+                            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            从Google Cloud Console下载的服务账号密钥文件内容
+                          </p>
+                          <Textarea
+                            value={serviceAccountForm.serviceAccountJson}
+                            onChange={(e) => setServiceAccountForm(prev => ({ ...prev, serviceAccountJson: e.target.value }))}
+                            placeholder='粘贴JSON内容，例如: {"type":"service_account","project_id":"...","private_key":"..."}'
+                            rows={6}
+                            className="mt-2 font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 已配置的服务账号列表 */}
+                    {googleAdsAuthMethod === 'service_account' && serviceAccounts.length > 0 && (
+                      <div className="border-t pt-6">
+                        <h3 className="font-semibold mb-4">已配置的服务账号</h3>
+                        <div className="space-y-3">
+                          {serviceAccounts.map((account) => (
+                            <div key={account.id} className="p-4 border rounded-lg hover:bg-gray-50">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="font-semibold text-gray-900">{account.name}</div>
+                                  <div className="text-sm text-gray-600 mt-1 space-y-1">
+                                    <div>MCC ID: <span className="font-mono">{account.mcc_customer_id}</span></div>
+                                    <div>服务账号: <span className="font-mono text-xs">{account.service_account_email}</span></div>
+                                    <div className="text-xs text-gray-500">
+                                      创建时间: {new Date(account.created_at).toLocaleString('zh-CN')}
+                                    </div>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleDeleteServiceAccount(account.id)}
+                                  disabled={deletingServiceAccountId === account.id}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* 可访问的账户列表 */}
                     {googleAdsCredentialStatus?.hasCredentials && (
@@ -1440,13 +1678,19 @@ export default function SettingsPage() {
 
                 <div className="mt-6 pt-4 border-t border-slate-200 flex gap-3 flex-wrap">
                   <Button
-                    onClick={() => handleSave(category)}
-                    disabled={saving}
+                    onClick={() => {
+                      if (category === 'google_ads' && googleAdsAuthMethod === 'service_account') {
+                        handleSaveServiceAccount()
+                      } else {
+                        handleSave(category)
+                      }
+                    }}
+                    disabled={saving || savingServiceAccount}
                   >
-                    {saving ? '保存中...' : '保存配置'}
+                    {(saving || savingServiceAccount) ? '保存中...' : '保存配置'}
                   </Button>
 
-                  {category === 'google_ads' && (
+                  {category === 'google_ads' && googleAdsAuthMethod === 'oauth' && (
                     <Button
                       onClick={handleStartGoogleAdsOAuth}
                       disabled={startingOAuth}

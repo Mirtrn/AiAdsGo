@@ -9,6 +9,7 @@ import { decrypt } from './crypto'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { refreshAccessToken } from './google-ads-oauth'
 import { getGoogleAdsLanguageIdString, getGoogleAdsGeoTargetId } from './language-country-codes'
+import { getUnifiedGoogleAdsClient, getServiceAccountConfig, AuthType } from './google-ads-service-account'
 
 interface KeywordVolume {
   keyword: string
@@ -23,9 +24,12 @@ interface KeywordPlannerConfig {
   clientId: string
   clientSecret: string
   developerToken: string
-  refreshToken: string
-  loginCustomerId: string
+  refreshToken?: string  // OAuth模式需要
+  loginCustomerId?: string  // OAuth模式需要
   customerId: string
+  // 服务账号认证
+  authType?: AuthType
+  serviceAccountId?: string
 }
 
 // Helper: Read user configs from system_settings
@@ -83,8 +87,12 @@ async function getUserCustomerId(db: any, userId: number): Promise<string> {
 }
 
 // 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须配置自己的完整 OAuth 凭证
-// Get Google Ads API config - requires user's own complete OAuth config
-export async function getGoogleAdsConfig(userId?: number): Promise<KeywordPlannerConfig | null> {
+// Get Google Ads API config - supports both OAuth and Service Account authentication
+export async function getGoogleAdsConfig(
+  userId?: number,
+  authType?: AuthType,
+  serviceAccountId?: string
+): Promise<KeywordPlannerConfig | null> {
   try {
     if (!userId) {
       console.error('[KeywordPlanner] userId is required for independent account mode')
@@ -93,10 +101,32 @@ export async function getGoogleAdsConfig(userId?: number): Promise<KeywordPlanne
 
     const db = await getDatabase()
 
-    // 1. Read user's config
+    // 1. 优先检查服务账号配置（如果指定了服务账号认证）
+    if (authType === 'service_account') {
+      const serviceAccount = await getServiceAccountConfig(userId, serviceAccountId)
+      if (serviceAccount) {
+        // 获取OAuth配置中的client_id和client_secret
+        const userConfigs = await readUserConfigs(db, userId)
+        console.log(`[KeywordPlanner] Using service account authentication for user ${userId}`)
+
+        return {
+          clientId: userConfigs.client_id,
+          clientSecret: userConfigs.client_secret,
+          developerToken: serviceAccount.developerToken,
+          customerId: serviceAccount.mccCustomerId,
+          authType: 'service_account',
+          serviceAccountId: serviceAccount.id,
+        }
+      } else {
+        console.warn(`[KeywordPlanner] Service account not found, falling back to OAuth`)
+      }
+    }
+
+    // 2. OAuth认证模式
+    // Read user's config
     const userConfigs = await readUserConfigs(db, userId)
 
-    // 2. 独立账号模式 - 必须有完整的 OAuth 配置
+    // 独立账号模式 - 必须有完整的 OAuth 配置
     const clientId = userConfigs.client_id
     const clientSecret = userConfigs.client_secret
     const developerToken = userConfigs.developer_token
@@ -108,21 +138,21 @@ export async function getGoogleAdsConfig(userId?: number): Promise<KeywordPlanne
 
     console.log(`[KeywordPlanner] Using user ${userId}'s own OAuth config`)
 
-    // 3. Get refresh token
+    // Get refresh token
     const refreshToken = await getUserRefreshToken(db, userId)
     if (!refreshToken) {
       console.error(`[KeywordPlanner] User ${userId} has no refresh_token. Please complete OAuth authorization.`)
       return null
     }
 
-    // 4. login_customer_id: 必填项
+    // login_customer_id: 必填项
     const loginCustomerId = userConfigs.login_customer_id || ''
     if (!loginCustomerId) {
       console.error(`[KeywordPlanner] User ${userId} has not configured login_customer_id (MCC ID). Please configure it in Settings page.`)
       return null
     }
 
-    // 5. customer_id: 使用用户自己的账号
+    // customer_id: 使用用户自己的账号
     let customerId = await getUserCustomerId(db, userId)
     if (!customerId) {
       console.warn(`[KeywordPlanner] User ${userId} has no Google Ads accounts. Using login_customer_id as fallback.`)
@@ -136,6 +166,7 @@ export async function getGoogleAdsConfig(userId?: number): Promise<KeywordPlanne
       refreshToken,
       loginCustomerId,
       customerId,
+      authType: 'oauth',
     }
   } catch (error) {
     console.error('[KeywordPlanner] Config error:', error)
@@ -154,7 +185,9 @@ export async function getKeywordSearchVolumes(
   keywords: string[],
   country: string,
   language: string,
-  userId?: number
+  userId?: number,
+  authType?: AuthType,
+  serviceAccountId?: string
 ): Promise<KeywordVolume[]> {
   if (!keywords.length) return []
 
@@ -223,9 +256,15 @@ export async function getKeywordSearchVolumes(
 
   if (needApiKeywords.length > 0) {
     // 🔧 修复(2025-12-12): 独立账号模式 - 必须传递 userId
-    const config = await getGoogleAdsConfig(userId)
+    // 支持 OAuth 和服务账号两种认证方式
+    const config = await getGoogleAdsConfig(userId, authType, serviceAccountId)
 
-    if (config?.developerToken && config?.refreshToken && config?.customerId) {
+    // 验证配置（根据认证类型验证不同字段）
+    const isConfigValid = config?.developerToken && config?.customerId &&
+      ((config.authType === 'service_account') ||
+       (config.authType === 'oauth' && config?.refreshToken && config?.loginCustomerId))
+
+    if (isConfigValid) {
       // Split keywords into batches of 20 (Google Ads API limit)
       const BATCH_SIZE = 20
       const keywordBatches: string[][] = []
@@ -233,7 +272,7 @@ export async function getKeywordSearchVolumes(
         keywordBatches.push(needApiKeywords.slice(i, i + BATCH_SIZE))
       }
 
-      console.log(`[KeywordPlanner] Processing ${needApiKeywords.length} keywords in ${keywordBatches.length} batches`)
+      console.log(`[KeywordPlanner] Processing ${needApiKeywords.length} keywords in ${keywordBatches.length} batches (auth: ${config.authType || 'oauth'})`)
 
       // API追踪设置
       const apiStartTime = Date.now()
@@ -242,27 +281,48 @@ export async function getKeywordSearchVolumes(
       let totalApiCalls = 0
 
       try {
-        // 刷新 access token 以确保有效
-        console.log('[KeywordPlanner] Refreshing access token...')
-        try {
-          await refreshAccessToken(userId || 1)
-          console.log('[KeywordPlanner] Access token refreshed successfully')
-        } catch (refreshError: any) {
-          console.warn('[KeywordPlanner] Token refresh warning:', refreshError.message)
-          // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
+        let customer: any
+
+        if (config.authType === 'service_account') {
+          // 服务账号认证模式
+          console.log('[KeywordPlanner] Using service account authentication...')
+          customer = await getUnifiedGoogleAdsClient({
+            customerId: config.customerId,
+            credentials: {
+              client_id: config.clientId,
+              client_secret: config.clientSecret,
+              developer_token: config.developerToken,
+            },
+            authConfig: {
+              authType: 'service_account',
+              userId: userId || 1,
+              serviceAccountId: config.serviceAccountId,
+            },
+          })
+        } else {
+          // OAuth认证模式
+          // 刷新 access token 以确保有效
+          console.log('[KeywordPlanner] Refreshing access token...')
+          try {
+            await refreshAccessToken(userId || 1)
+            console.log('[KeywordPlanner] Access token refreshed successfully')
+          } catch (refreshError: any) {
+            console.warn('[KeywordPlanner] Token refresh warning:', refreshError.message)
+            // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
+          }
+
+          const client = new GoogleAdsApi({
+            client_id: config.clientId,
+            client_secret: config.clientSecret,
+            developer_token: config.developerToken,
+          })
+
+          customer = client.Customer({
+            customer_id: config.customerId,
+            login_customer_id: config.loginCustomerId!,
+            refresh_token: config.refreshToken!,
+          })
         }
-
-        const client = new GoogleAdsApi({
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
-          developer_token: config.developerToken,
-        })
-
-        const customer = client.Customer({
-          customer_id: config.customerId,
-          login_customer_id: config.loginCustomerId,
-          refresh_token: config.refreshToken,
-        })
 
         const geoTargetId = getGoogleAdsGeoTargetId(country)
         const languageId = getGoogleAdsLanguageIdString(language)
@@ -524,26 +584,54 @@ export async function getKeywordSuggestions(
   country: string,
   language: string,
   maxResults: number = 50,
-  userId?: number
+  userId?: number,
+  authType?: AuthType,
+  serviceAccountId?: string
 ): Promise<KeywordVolume[]> {
-  const config = await getGoogleAdsConfig(userId)
-  if (!config?.developerToken || !config?.refreshToken || !config?.customerId) {
+  const config = await getGoogleAdsConfig(userId, authType, serviceAccountId)
+
+  // 验证配置（根据认证类型验证不同字段）
+  const isConfigValid = config?.developerToken && config?.customerId &&
+    ((config.authType === 'service_account') ||
+     (config.authType === 'oauth' && config?.refreshToken && config?.loginCustomerId))
+
+  if (!isConfigValid) {
     console.warn('[KeywordPlanner] No valid config for suggestions')
     return []
   }
 
   try {
-    const client = new GoogleAdsApi({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      developer_token: config.developerToken,
-    })
+    let customer: any
 
-    const customer = client.Customer({
-      customer_id: config.customerId,
-      login_customer_id: config.loginCustomerId,
-      refresh_token: config.refreshToken,
-    })
+    if (config.authType === 'service_account') {
+      // 服务账号认证模式
+      customer = await getUnifiedGoogleAdsClient({
+        customerId: config.customerId,
+        credentials: {
+          client_id: config.clientId,
+          client_secret: config.clientSecret,
+          developer_token: config.developerToken,
+        },
+        authConfig: {
+          authType: 'service_account',
+          userId: userId || 1,
+          serviceAccountId: config.serviceAccountId,
+        },
+      })
+    } else {
+      // OAuth认证模式
+      const client = new GoogleAdsApi({
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        developer_token: config.developerToken,
+      })
+
+      customer = client.Customer({
+        customer_id: config.customerId,
+        login_customer_id: config.loginCustomerId!,
+        refresh_token: config.refreshToken!,
+      })
+    }
 
     const geoTargetId = getGoogleAdsGeoTargetId(country)
     const languageId = getGoogleAdsLanguageIdString(language)

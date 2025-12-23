@@ -1037,16 +1037,16 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
 
     const roundKeywords: UnifiedKeywordData[] = []
 
-    if (customerId && refreshToken) {
+    if (customerId && userId) {
       try {
         const keywordIdeas = await getKeywordIdeas({
           customerId,
-          refreshToken,
           seedKeywords: roundSeeds,
           targetCountry: country,
           targetLanguage: language,
           accountId,
           userId,
+          authType: 'oauth',
         })
 
         console.log(`   📋 Keyword Planner 返回 ${keywordIdeas.length} 个建议`)
@@ -1280,16 +1280,16 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
   // ==========================================
   console.log('\n📍 Step 2: Keyword Planner 查询')
 
-  if (customerId && refreshToken) {
+  if (customerId && userId) {
     try {
       const keywordIdeas = await getKeywordIdeas({
         customerId,
-        refreshToken,
         seedKeywords: smartSeeds,
         targetCountry: country,
         targetLanguage: language,
         accountId,
         userId,
+        authType: 'oauth',
       })
 
       console.log(`   📋 Keyword Planner 返回 ${keywordIdeas.length} 个关键词建议`)
@@ -1674,18 +1674,15 @@ export async function expandKeywordsWithSeeds(params: {
 
   try {
     // 1. 使用 Keyword Planner 获取扩展关键词
-    if (customerId && refreshToken) {
+    if (customerId && userId) {
       const keywordIdeas = await getKeywordIdeas({
         customerId,
-        refreshToken,
         seedKeywords: expansionSeeds,
         targetCountry: country,
         targetLanguage: language,
         userId,
         accountId,
-        clientId,
-        clientSecret,
-        developerToken,
+        authType: 'oauth',
       })
 
       console.log(`   📋 Keyword Planner 返回 ${keywordIdeas.length} 个关键词建议`)

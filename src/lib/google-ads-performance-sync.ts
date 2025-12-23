@@ -1,12 +1,17 @@
 /**
  * Google Ads Performance Sync Service
  * 自动同步广告创意效果数据用于加分计算
+ *
+ * 支持两种认证方式：
+ * 1. OAuth 2.0 (传统方式)
+ * 2. 服务账号认证 (Service Account)
  */
 
 import { getDatabase } from './db'
 import { saveCreativePerformance, PerformanceData } from './bonus-score-calculator'
 import { GoogleAdsApi } from 'google-ads-api'
 import { refreshAccessToken, getGoogleAdsCredentials } from './google-ads-oauth'
+import { getServiceAccountConfig, getUnifiedGoogleAdsClient } from './google-ads-service-account'
 
 interface SyncResult {
   success: boolean
@@ -18,13 +23,14 @@ interface SyncResult {
 /**
  * 同步单个广告创意的效果数据
  * 🔧 修复(2025-12-12): 独立账号模式 - 添加 refreshToken 参数
+ * 🔧 修复(2025-12-23): 支持服务账号认证，refreshToken 变为可选参数
  */
 export async function syncCreativePerformance(
   adCreativeId: number,
   userId: string,
   googleAdsClient: GoogleAdsApi,
   customerID: string,
-  refreshToken: string
+  refreshToken?: string
 ): Promise<boolean> {
   try {
     const db = await getDatabase()
@@ -49,10 +55,14 @@ export async function syncCreativePerformance(
     }
 
     // 🔧 修复: 使用传入的 refreshToken 而不是环境变量
-    const customer = googleAdsClient.Customer({
+    // 服务账号模式下，googleAdsClient 已经处理了认证，无需 refresh_token
+    const customerConfig: any = {
       customer_id: customerID,
-      refresh_token: refreshToken
-    })
+    }
+    if (refreshToken) {
+      customerConfig.refresh_token = refreshToken
+    }
+    const customer = googleAdsClient.Customer(customerConfig)
 
     // 查询最近30天的效果数据
     const query = `
@@ -129,12 +139,13 @@ export async function syncCreativePerformance(
 /**
  * 同步用户所有广告创意的效果数据
  * 🔧 修复(2025-12-12): 独立账号模式 - 添加 refreshToken 参数
+ * 🔧 修复(2025-12-23): 支持服务账号认证，refreshToken 变为可选参数
  */
 export async function syncAllCreativesPerformance(
   userId: string,
   googleAdsClient: GoogleAdsApi,
   customerID: string,
-  refreshToken: string
+  refreshToken?: string
 ): Promise<SyncResult> {
   const db = await getDatabase()
   const syncDate = new Date().toISOString().split('T')[0]
@@ -191,7 +202,7 @@ export async function syncAllCreativesPerformance(
 
 /**
  * API endpoint helper - Sync performance for a specific user
- * 🔧 修复(2025-12-12): 独立账号模式 - 使用用户自己的凭证
+ * 支持 OAuth 和服务账号两种认证方式
  */
 export async function syncUserPerformanceData(userId: string): Promise<SyncResult> {
   try {
@@ -200,38 +211,82 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       throw new Error('Invalid userId')
     }
 
-    // 🔧 修复: 获取用户自己的 Google Ads 凭证
-    const credentials = await getGoogleAdsCredentials(userIdNum)
-    if (!credentials) {
-      throw new Error('Google Ads credentials not configured. Please complete API configuration in Settings.')
-    }
-
-    if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
-      throw new Error('Incomplete Google Ads credentials. Please complete API configuration in Settings.')
-    }
-
-    if (!credentials.refresh_token) {
-      throw new Error('OAuth not completed. Please complete OAuth authorization in Settings.')
-    }
-
-    // 刷新 access token 以确保有效
-    console.log('[PerformanceSync] Refreshing access token...')
-    try {
-      await refreshAccessToken(userIdNum)
-      console.log('[PerformanceSync] Access token refreshed successfully')
-    } catch (refreshError: any) {
-      console.warn('[PerformanceSync] Token refresh warning:', refreshError.message)
-      // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
-    }
-
-    // 🔧 修复: 使用用户自己的凭证创建 Google Ads client
-    const googleAdsClient = new GoogleAdsApi({
-      client_id: credentials.client_id,
-      client_secret: credentials.client_secret,
-      developer_token: credentials.developer_token
-    })
-
     const db = await getDatabase()
+
+    // 检查是否配置了服务账号
+    const serviceAccount = await getServiceAccountConfig(userIdNum)
+    const isServiceAccount = !!serviceAccount
+
+    let googleAdsClient: GoogleAdsApi
+    let refreshToken: string | undefined
+
+    if (isServiceAccount) {
+      // 服务账号认证模式
+      console.log('[PerformanceSync] Using service account authentication')
+
+      // 获取用户基础凭证
+      const credentials = await getGoogleAdsCredentials(userIdNum)
+      if (!credentials) {
+        throw new Error('Google Ads credentials not configured. Please complete API configuration in Settings.')
+      }
+
+      if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
+        throw new Error('Incomplete Google Ads credentials. Please complete API configuration in Settings.')
+      }
+
+      // 创建统一认证的 Google Ads client
+      googleAdsClient = await getUnifiedGoogleAdsClient({
+        customerId: serviceAccount.mccCustomerId, // 使用MCC ID作为默认客户ID
+        credentials: {
+          client_id: credentials.client_id,
+          client_secret: credentials.client_secret,
+          developer_token: credentials.developer_token,
+        },
+        authConfig: {
+          authType: 'service_account',
+          userId: userIdNum,
+          serviceAccountId: serviceAccount.id.toString(),
+        },
+      })
+
+      // 服务账号模式不需要 refresh_token
+      refreshToken = undefined
+    } else {
+      // OAuth 认证模式
+      console.log('[PerformanceSync] Using OAuth authentication')
+
+      const credentials = await getGoogleAdsCredentials(userIdNum)
+      if (!credentials) {
+        throw new Error('Google Ads credentials not configured. Please complete API configuration in Settings.')
+      }
+
+      if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
+        throw new Error('Incomplete Google Ads credentials. Please complete API configuration in Settings.')
+      }
+
+      if (!credentials.refresh_token) {
+        throw new Error('OAuth not completed. Please complete OAuth authorization in Settings.')
+      }
+
+      // 刷新 access token 以确保有效
+      console.log('[PerformanceSync] Refreshing access token...')
+      try {
+        await refreshAccessToken(userIdNum)
+        console.log('[PerformanceSync] Access token refreshed successfully')
+      } catch (refreshError: any) {
+        console.warn('[PerformanceSync] Token refresh warning:', refreshError.message)
+        // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
+      }
+
+      // 使用用户自己的凭证创建 Google Ads client
+      googleAdsClient = new GoogleAdsApi({
+        client_id: credentials.client_id,
+        client_secret: credentials.client_secret,
+        developer_token: credentials.developer_token
+      })
+
+      refreshToken = credentials.refresh_token
+    }
 
     // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
     const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
@@ -248,7 +303,7 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       throw new Error('No active Google Ads account found')
     }
 
-    return await syncAllCreativesPerformance(userId, googleAdsClient, account.customer_id, credentials.refresh_token)
+    return await syncAllCreativesPerformance(userId, googleAdsClient, account.customer_id, refreshToken)
   } catch (error) {
     return {
       success: false,

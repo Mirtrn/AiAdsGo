@@ -1,6 +1,7 @@
-import { getCustomer } from './google-ads-api'
+import { getUnifiedGoogleAdsClient, AuthType, getLoginCustomerId } from './google-ads-service-account'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { getGoogleAdsLanguageCode, getGoogleAdsGeoTargetId } from './language-country-codes'
+import { getGoogleAdsCredentialsFromDB } from './google-ads-api'
 
 /**
  * 关键词建议结果
@@ -37,49 +38,52 @@ export interface KeywordMetrics {
  */
 export async function getKeywordIdeas(params: {
   customerId: string
-  refreshToken: string
+  refreshToken?: string  // OAuth模式需要，服务账号模式不需要
   seedKeywords?: string[]
   pageUrl?: string
   targetCountry: string
   targetLanguage: string
   accountId?: number
-  userId?: number
-  // Google Ads API凭证（可选，不提供则使用环境变量）
-  clientId?: string
-  clientSecret?: string
-  developerToken?: string
+  userId: number
+  // 认证类型（默认oauth）
+  authType?: AuthType
+  // 服务账号ID（当authType='service_account'时需要）
+  serviceAccountId?: string
 }): Promise<KeywordIdea[]> {
-  // 从数据库获取凭证和MCC ID
   if (!params.userId) {
-    throw new Error('userId is required to fetch Google Ads credentials')
+    throw new Error('userId is required')
   }
 
-  const { getGoogleAdsCredentialsFromDB } = await import('./google-ads-api')
+  const authType = params.authType || 'oauth'
+
+  // 获取凭证
   const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+  const credentials = {
+    client_id: creds.client_id,
+    client_secret: creds.client_secret,
+    developer_token: creds.developer_token
+  }
 
-  const finalCredentials = params.clientId && params.clientSecret && params.developerToken
-    ? {
-        client_id: params.clientId,
-        client_secret: params.clientSecret,
-        developer_token: params.developerToken
-      }
-    : {
-        client_id: creds.client_id,
-        client_secret: creds.client_secret,
-        developer_token: creds.developer_token
-      }
+  // 获取登录客户ID
+  const loginCustomerId = await getLoginCustomerId({
+    authConfig: {
+      authType,
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId
+    },
+    oauthCredentials: { login_customer_id: creds.login_customer_id }
+  })
 
-  // 使用数据库中的login_customer_id
-  const loginCustomerId = creds.login_customer_id
-
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    loginCustomerId,
-    finalCredentials,
-    params.accountId,
-    params.userId
-  )
+  // 获取统一的Google Ads客户端
+  const customer = await getUnifiedGoogleAdsClient({
+    customerId: params.customerId,
+    credentials,
+    authConfig: {
+      authType,
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId
+    }
+  })
 
   // API追踪
   const startTime = Date.now()
@@ -189,48 +193,41 @@ export async function getKeywordIdeas(params: {
  */
 export async function getKeywordMetrics(params: {
   customerId: string
-  refreshToken: string
+  refreshToken?: string  // OAuth模式需要，服务账号模式不需要
   keywords: string[]
   targetCountry: string
   targetLanguage: string
   accountId?: number
-  userId?: number
-  // Google Ads API凭证（可选，不提供则使用环境变量）
-  clientId?: string
-  clientSecret?: string
-  developerToken?: string
+  userId: number
+  // 认证类型（默认oauth）
+  authType?: AuthType
+  // 服务账号ID（当authType='service_account'时需要）
+  serviceAccountId?: string
 }): Promise<KeywordMetrics[]> {
-  // 从数据库获取凭证和MCC ID
   if (!params.userId) {
-    throw new Error('userId is required to fetch Google Ads credentials')
+    throw new Error('userId is required')
   }
 
-  const { getGoogleAdsCredentialsFromDB } = await import('./google-ads-api')
+  const authType = params.authType || 'oauth'
+
+  // 获取凭证
   const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+  const credentials = {
+    client_id: creds.client_id,
+    client_secret: creds.client_secret,
+    developer_token: creds.developer_token
+  }
 
-  const finalCredentials = params.clientId && params.clientSecret && params.developerToken
-    ? {
-        client_id: params.clientId,
-        client_secret: params.clientSecret,
-        developer_token: params.developerToken
-      }
-    : {
-        client_id: creds.client_id,
-        client_secret: creds.client_secret,
-        developer_token: creds.developer_token
-      }
-
-  // 使用数据库中的login_customer_id
-  const loginCustomerId = creds.login_customer_id
-
-  const customer = await getCustomer(
-    params.customerId,
-    params.refreshToken,
-    loginCustomerId,
-    finalCredentials,
-    params.accountId,
-    params.userId
-  )
+  // 获取统一的Google Ads客户端
+  const customer = await getUnifiedGoogleAdsClient({
+    customerId: params.customerId,
+    credentials,
+    authConfig: {
+      authType,
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId
+    }
+  })
 
   // API追踪
   const startTime = Date.now()

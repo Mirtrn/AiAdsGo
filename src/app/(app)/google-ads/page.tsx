@@ -51,6 +51,8 @@ export default function GoogleAdsPage() {
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [currentServiceAccountId, setCurrentServiceAccountId] = useState<string | null>(null)
+  const [currentAuthType, setCurrentAuthType] = useState<'oauth' | 'service_account'>('oauth')
 
   useEffect(() => {
     if (!searchParams) return
@@ -88,6 +90,9 @@ export default function GoogleAdsPage() {
 
         if (data.data.hasRefreshToken) {
           fetchAccounts()
+        } else {
+          // 检查是否有服务账号配置
+          fetchServiceAccounts()
         }
       }
     } catch (err: any) {
@@ -95,6 +100,81 @@ export default function GoogleAdsPage() {
       setError(err.message || '获取凭证状态失败')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 获取服务账号配置
+  const fetchServiceAccounts = async () => {
+    try {
+      const response = await fetch('/api/google-ads/service-account', {
+        credentials: 'include',
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const accounts = data.accounts || []
+        if (accounts.length > 0) {
+          // 有服务账号配置，使用服务账号获取账户
+          setCurrentAuthType('service_account')
+          setCurrentServiceAccountId(accounts[0].id)
+          fetchAccountsWithServiceAccount(accounts[0].id)
+        }
+      }
+    } catch (err: any) {
+      console.error('获取服务账号配置失败:', err)
+    }
+  }
+
+  // 使用服务账号获取账户
+  const fetchAccountsWithServiceAccount = async (serviceAccountId: string, forceRefresh = false) => {
+    try {
+      setAccountsLoading(true)
+      const url = forceRefresh
+        ? `/api/google-ads/credentials/accounts?refresh=true&auth_type=service_account&service_account_id=${serviceAccountId}`
+        : `/api/google-ads/credentials/accounts?auth_type=service_account&service_account_id=${serviceAccountId}`
+      const response = await fetch(url, {
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '获取账户列表失败')
+      }
+
+      const data = await response.json()
+
+      if (data.success && data.data) {
+        // 处理账号数据，添加 parentMccName
+        const allAccounts = data.data.accounts || []
+        const mccMap = new Map<string, string>()
+
+        // 先建立 MCC ID -> 名称的映射
+        allAccounts.forEach((acc: GoogleAdsAccount) => {
+          if (acc.manager) {
+            mccMap.set(acc.customerId, acc.descriptiveName)
+          }
+        })
+
+        // 为每个账号添加 parentMccName
+        const enrichedAccounts = allAccounts.map((acc: GoogleAdsAccount) => ({
+          ...acc,
+          parentMccName: acc.parentMcc ? mccMap.get(acc.parentMcc) : undefined
+        }))
+
+        setAccounts(enrichedAccounts)
+        setCurrentPage(1) // 重置分页
+        setIsCached(data.data.cached || false)
+
+        // 获取最新同步时间
+        if (allAccounts.length > 0 && allAccounts[0].lastSyncAt) {
+          setLastSyncAt(allAccounts[0].lastSyncAt)
+        }
+      }
+    } catch (err: any) {
+      console.error('获取账户列表失败:', err)
+      setError(err.message || '获取账户列表失败')
+    } finally {
+      setAccountsLoading(false)
     }
   }
 
@@ -152,7 +232,11 @@ export default function GoogleAdsPage() {
 
   const handleRefreshAccounts = () => {
     setError('')
-    fetchAccounts(true) // 强制刷新
+    if (currentAuthType === 'service_account' && currentServiceAccountId) {
+      fetchAccountsWithServiceAccount(currentServiceAccountId, true) // 强制刷新
+    } else {
+      fetchAccounts(true) // 强制刷新
+    }
   }
 
   const toggleOffers = (customerId: string) => {
@@ -271,7 +355,7 @@ export default function GoogleAdsPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleRefreshAccounts}
-                disabled={accountsLoading || !hasRefreshToken}
+                disabled={accountsLoading || (!hasRefreshToken && !currentServiceAccountId)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {accountsLoading ? '刷新中...' : '刷新账户列表'}

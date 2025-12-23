@@ -110,8 +110,8 @@ export async function getAdStrength(
         client_secret: credentials.client_secret,
         developer_token: credentials.developer_token
       },
-      accountId,
-      userId
+      userId,
+      accountId
     )
 
     // GAQL查询：获取Ad Strength

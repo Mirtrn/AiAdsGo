@@ -109,17 +109,14 @@ export async function POST(
       // 2. 调用Keyword Planner API
       getKeywordIdeas({
         customerId: googleAdsAccount.customerId,
-        refreshToken: googleAdsAccount.refreshToken,
         seedKeywords: finalSeedKeywords,
         pageUrl: useUrl ? offer.url : undefined,
         targetCountry: offer.target_country,
         targetLanguage: offer.target_language || 'English',
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
-        // 传递Google Ads API凭证
-        clientId: credentials?.client_id || undefined,
-        clientSecret: credentials?.client_secret || undefined,
-        developerToken: credentials?.developer_token || undefined,
+        // 认证类型（默认oauth）
+        authType: 'oauth',
       }),
     ])
 
@@ -135,16 +132,13 @@ export async function POST(
       try {
         const suggestMetrics = await getKeywordMetrics({
           customerId: googleAdsAccount.customerId,
-          refreshToken: googleAdsAccount.refreshToken,
           keywords: googleSuggestKeywords,
           targetCountry: offer.target_country,
           targetLanguage: offer.target_language || 'English',
           accountId: googleAdsAccount.id,
           userId: parseInt(userId, 10),
-          // 传递Google Ads API凭证
-          clientId: credentials?.client_id || undefined,
-          clientSecret: credentials?.client_secret || undefined,
-          developerToken: credentials?.developer_token || undefined,
+          // 认证类型（默认oauth）
+          authType: 'oauth',
         })
 
         // 转换为KeywordIdea格式
