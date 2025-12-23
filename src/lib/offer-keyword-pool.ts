@@ -1315,8 +1315,6 @@ export async function generateOfferKeywordPool(
       'store', 'shop', 'near me', 'official',
       // 电商平台
       'amazon', 'ebay', 'aliexpress', 'shopee', 'etsy',
-      // 购买行为
-      'buy', 'purchase', 'order',
       // 优惠相关
       'discount', 'sale', 'deal', 'code', 'coupon', 'voucher',
       // 价格相关
