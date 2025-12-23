@@ -38,20 +38,21 @@ export async function recoverBatchTaskStatus(): Promise<void> {
     let pendingRecords: any[] = []
     try {
       // 检查upload_records表是否存在（支持SQLite和PostgreSQL）
-      let tableCheck: any
+      let tableExists = false
       if (db.type === 'sqlite') {
-        tableCheck = await db.query<{ count: number }>(
+        const result = await db.query<{ count: number }>(
           "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='upload_records'"
         )
+        tableExists = result[0].count > 0
       } else {
-        tableCheck = await db.query<{ exists: boolean }>(
+        const result = await db.query<{ exists: boolean }>(
           "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)",
           ['upload_records']
         )
-        tableCheck = { count: tableCheck[0].exists ? 1 : 0 }
+        tableExists = result[0].exists
       }
 
-      if (tableCheck[0].count > 0) {
+      if (tableExists) {
         // 表存在，查询数据
         pendingRecords = await db.query<{
           id: string
