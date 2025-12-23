@@ -20,4 +20,5 @@ export interface ProxyCredentials {
   port: number
   username: string
   password: string
+  fullAddress: string
 }

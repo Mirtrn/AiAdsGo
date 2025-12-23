@@ -5,7 +5,8 @@
  * 减少请求时的等待时间
  */
 
-import { fetchProxyIp, type ProxyCredentials } from './fetch-proxy-ip'
+import { fetchProxyIp } from './fetch-proxy-ip'
+import type { ProxyCredentials } from './types'
 
 interface WarmProxy {
   credentials: ProxyCredentials

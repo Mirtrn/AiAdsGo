@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { load } from 'cheerio'
 import { HttpsProxyAgent } from 'https-proxy-agent'
-import { getProxyIp, ProxyCredentials } from './proxy/fetch-proxy-ip'
+import { getProxyIp } from './proxy/fetch-proxy-ip'
+import type { ProxyCredentials } from './proxy/types'
 import { normalizeBrandName } from './offer-utils'
 import { getAcceptLanguageHeader, getLanguageCodeForCountry } from './language-country-codes'
 

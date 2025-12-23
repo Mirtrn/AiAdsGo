@@ -5,10 +5,10 @@
  */
 
 import type { Browser, BrowserContext } from 'playwright'
-import type { ProxyCredentials } from '../proxy/fetch-proxy-ip'
+import type { ProxyCredentials } from '../proxy/types'
 
 // Re-export ProxyCredentials for external use
-export type { ProxyCredentials } from '../proxy/fetch-proxy-ip'
+export type { ProxyCredentials } from '../proxy/types'
 
 /**
  * 浏览器实例结果（支持连接池和独立创建两种模式）
