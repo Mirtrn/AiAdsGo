@@ -153,11 +153,11 @@ export default function GoogleAdsSetupGuidePage() {
                   <li>确保您的账号是 MCC（管理账号）</li>
                   <li>进入"Tools &amp; Settings" → "API Center"</li>
                   <li>在"Developer Token"部分申请或查看 Token</li>
-                  <li>服务账号方式需要 <strong>Explorer级别</strong>或更高的访问级别</li>
+                  <li>服务账号方式只需要<strong>测试权限</strong>即可</li>
                 </ol>
-                <Alert className="mt-3 bg-amber-50 border-amber-200">
+                <Alert className="mt-3 bg-blue-50 border-blue-200">
                   <AlertDescription>
-                    <strong>注意：</strong>基本访问权限的 Token 无法用于服务账号认证，必须申请 Explorer 级别或更高
+                    <strong>提示：</strong>服务账号方式对 Developer Token 的权限级别没有特殊要求，测试权限即可使用
                   </AlertDescription>
                 </Alert>
               </CardContent>
