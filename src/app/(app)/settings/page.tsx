@@ -1073,34 +1073,8 @@ export default function SettingsPage() {
                 {/* 特殊处理 Google Ads 配置分类 */}
                 {category === 'google_ads' ? (
                   <div className="space-y-6">
-                    {/* 配置说明和凭证状态 - 2列布局 */}
+                    {/* Google Ads 凭证状态 */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {/* 🔧 修复(2025-12-12): 独立账号模式说明 */}
-                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div className="flex items-start gap-3">
-                          <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="font-semibold text-blue-800 mb-2">配置说明</p>
-                            <p className="text-sm text-blue-700 mb-2">
-                              使用 Google Ads API 需要完成以下步骤：
-                            </p>
-                            <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
-                              <li>在 <a href="https://console.cloud.google.com/auth/clients/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">Google Cloud Console</a> 创建 OAuth 2.0 客户端</li>
-                              <li>
-                                <span className="font-medium">重要：</span>在 OAuth 客户端中配置以下URI：
-                                <ul className="mt-1 ml-4 list-disc text-blue-600">
-                                  <li>已获授权的 JavaScript 来源：<code className="bg-blue-100 px-1 rounded text-xs">https://www.autoads.dev</code></li>
-                                  <li>已获授权的重定向 URI：<code className="bg-blue-100 px-1 rounded text-xs">https://www.autoads.dev/api/google-ads/oauth/callback</code></li>
-                                </ul>
-                              </li>
-                              <li>填写所有必填参数并保存配置</li>
-                              <li>点击"启动 OAuth 授权"完成账号绑定</li>
-                            </ol>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Google Ads 凭证状态 */}
                       {googleAdsCredentialStatus?.hasCredentials ? (
                         <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                           <div className="flex items-center gap-2 mb-2">
