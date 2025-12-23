@@ -1189,6 +1189,10 @@ export default function SettingsPage() {
                             配置名称
                             <span className="text-caption text-red-500">*必填</span>
                           </Label>
+                          <p className="helper-text flex items-start gap-1 mt-1">
+                            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            用于标识此服务账号配置，方便管理多个配置
+                          </p>
                           <Input
                             value={serviceAccountForm.name}
                             onChange={(e) => setServiceAccountForm(prev => ({ ...prev, name: e.target.value }))}
