@@ -30,6 +30,8 @@ function transformCreativeToApiResponse(creative: any) {
     theme: creative.theme,
     creationStatus: creative.creation_status,
     creationError: creative.creation_error,
+    // 兼容前端使用的 adId 字段名
+    adId: creative.google_ad_id,
     googleAdId: creative.google_ad_id,
     googleAdGroupId: creative.google_ad_group_id,
     lastSyncAt: creative.last_sync_at,
