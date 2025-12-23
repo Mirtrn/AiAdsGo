@@ -6,6 +6,8 @@ import {
   updateValidationStatus,
 } from '@/lib/settings'
 import { z } from 'zod'
+import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
+import { getCountryName } from '@/lib/proxy/validate-url'
 
 const validateSchema = z.object({
   category: z.string(),
@@ -200,7 +202,6 @@ export async function POST(request: NextRequest) {
             }
 
             const errors: string[] = []
-            const requiredParams = ['cc', 'ips', 'proxyType=http', 'responseType=txt']
 
             for (let i = 0; i < proxyUrls.length; i++) {
               const item = proxyUrls[i]
@@ -209,15 +210,25 @@ export async function POST(request: NextRequest) {
                 continue
               }
 
-              const missingParams = requiredParams.filter(param => !item.url.includes(param))
-              if (missingParams.length > 0) {
-                errors.push(`第${i + 1}个URL (${item.country}) 缺少参数: ${missingParams.join(', ')}`)
+              // 🔥 使用新的Provider系统验证URL
+              try {
+                const provider = ProxyProviderRegistry.getProvider(item.url)
+                const validation = provider.validate(item.url)
+
+                if (!validation.isValid) {
+                  errors.push(`第${i + 1}个URL (${item.country}) 格式错误: ${validation.errors.join(', ')}`)
+                } else {
+                  console.log(`✅ 第${i + 1}个URL验证通过: ${provider.name} Provider`)
+                }
+              } catch (error) {
+                errors.push(`第${i + 1}个URL (${item.country}) 验证失败: ${error instanceof Error ? error.message : String(error)}`)
               }
 
+              // 基本URL格式验证
               try {
                 new URL(item.url)
               } catch {
-                errors.push(`第${i + 1}个URL (${item.country}) 格式无效`)
+                errors.push(`第${i + 1}个URL (${item.country}) URL格式无效`)
               }
             }
 
