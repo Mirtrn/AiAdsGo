@@ -70,9 +70,9 @@ export default function DashboardPage() {
 
     try {
       const [kpiRes, riskRes, offerRes] = await Promise.all([
-        fetch(`/api/dashboard/kpis?days=${days}`, { credentials: 'include' }),
-        fetch('/api/risk-alerts?limit=3', { credentials: 'include' }),
-        fetch('/api/offers?summary=true', { credentials: 'include' })
+        fetch(`/api/dashboard/kpis?days=${days}`, { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/risk-alerts?limit=3', { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/offers?summary=true', { credentials: 'include', cache: 'no-store' })
       ])
 
       if (kpiRes.ok) {
