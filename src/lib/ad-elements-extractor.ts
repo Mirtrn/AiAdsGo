@@ -953,6 +953,7 @@ async function generateHeadlines(
     const response = await generateContent({
       operationType: 'ad_headline_extraction_single',
       prompt,
+      maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5+思考过程消耗~6K tokens，需要16384确保输出完整
       responseSchema,  // 🆕 传递JSON schema约束
       responseMimeType: 'application/json'  // 🆕 强制JSON输出
     }, userId)
@@ -1291,6 +1292,7 @@ async function generateHeadlinesFromMultipleProducts(
     const response = await generateContent({
       operationType: 'ad_headline_extraction_store',
       prompt,
+      maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5+思考过程消耗~6K tokens，需要16384确保输出完整
       responseSchema,  // 🆕 传递JSON schema约束
       responseMimeType: 'application/json'  // 🆕 强制JSON输出
     }, userId)
@@ -1428,6 +1430,7 @@ async function generateDescriptions(
     const response = await generateContent({
       operationType: 'ad_description_extraction_single',
       prompt,
+      maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5+思考过程消耗~6K tokens，需要16384确保输出完整
       responseSchema,  // 🆕 传递JSON schema约束
       responseMimeType: 'application/json'  // 🆕 强制JSON输出
     }, userId)
@@ -1686,6 +1689,7 @@ async function generateDescriptionsFromMultipleProducts(
     const response = await generateContent({
       operationType: 'ad_description_extraction_store',
       prompt,
+      maxOutputTokens: 16384,  // 🔧 修复：Gemini 2.5+思考过程消耗~6K tokens，需要16384确保输出完整
       responseSchema,  // 🆕 传递JSON schema约束
       responseMimeType: 'application/json'  // 🆕 强制JSON输出
     }, userId)
