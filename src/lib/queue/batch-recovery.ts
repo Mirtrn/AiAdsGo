@@ -34,19 +34,37 @@ export async function recoverBatchTaskStatus(): Promise<void> {
     console.log('🔍 开始同步批量任务数据库状态...')
 
     // 1. 查询所有未完成的upload_records（status为pending或processing）
-    // 注意：队列已被清理，这些记录需要基于子任务的实际状态来判断最终状态
-    const pendingRecords = await db.query<{
-      id: string
-      batch_id: string
-      file_name: string
-      valid_count: number
-      status: string
-    }>(`
-      SELECT id, batch_id, file_name, valid_count, status
-      FROM upload_records
-      WHERE status IN ('pending', 'processing')
-      ORDER BY uploaded_at ASC
-    `)
+    // 🔧 2025-12-23: 先检查表是否存在，避免SQLite未初始化错误
+    let pendingRecords: any[] = []
+    try {
+      // 检查upload_records表是否存在
+      const tableCheck = await db.query<{ count: number }>(
+        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='upload_records'"
+      )
+
+      if (tableCheck[0].count > 0) {
+        // 表存在，查询数据
+        pendingRecords = await db.query<{
+          id: string
+          batch_id: string
+          file_name: string
+          valid_count: number
+          status: string
+        }>(`
+          SELECT id, batch_id, file_name, valid_count, status
+          FROM upload_records
+          WHERE status IN ('pending', 'processing')
+          ORDER BY uploaded_at ASC
+        `)
+      } else {
+        console.log('⚠️ upload_records表不存在，跳过批量任务状态恢复')
+        return
+      }
+    } catch (uploadError) {
+      console.warn('⚠️ 检查upload_records表失败:', uploadError)
+      console.log('⚠️ 批量任务状态同步跳过（非关键错误）')
+      return
+    }
 
     if (!pendingRecords || pendingRecords.length === 0) {
       console.log('✅ 没有需要同步的批量任务')

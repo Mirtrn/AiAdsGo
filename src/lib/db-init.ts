@@ -1313,30 +1313,47 @@ async function checkUnfinishedQueueTasks_deprecated(): Promise<void> {
     `)
 
     // 查询未完成的batch_tasks（批量任务）
-    const unfinishedBatchTasks = await db.query<{
-      id: string
-      user_id: number
-      task_type: string
-      status: string
-      total_count: number
-      completed_count: number
-      failed_count: number
-      source_file: string | null
-      metadata: string | null
-      created_at: string
-    }>(`
-      SELECT id, user_id, task_type, status, total_count, completed_count, failed_count, source_file, metadata, created_at
-      FROM batch_tasks
-      WHERE status IN ('pending', 'running', 'partial')
-        AND created_at > datetime('now', '-7 days')
-      ORDER BY
-        CASE status
-          WHEN 'running' THEN 1
-          WHEN 'partial' THEN 2
-          WHEN 'pending' THEN 3
-        END,
-        created_at ASC
-    `)
+    // 🔧 2025-12-23: 先检查表是否存在，避免SQLite未初始化错误
+    let unfinishedBatchTasks: any[] = []
+    try {
+      // 检查batch_tasks表是否存在
+      const tableCheck = await db.query<{ count: number }>(
+        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='batch_tasks'"
+      )
+
+      if (tableCheck[0].count > 0) {
+        // 表存在，查询数据
+        unfinishedBatchTasks = await db.query<{
+          id: string
+          user_id: number
+          task_type: string
+          status: string
+          total_count: number
+          completed_count: number
+          failed_count: number
+          source_file: string | null
+          metadata: string | null
+          created_at: string
+        }>(`
+          SELECT id, user_id, task_type, status, total_count, completed_count, failed_count, source_file, metadata, created_at
+          FROM batch_tasks
+          WHERE status IN ('pending', 'running', 'partial')
+            AND created_at > datetime('now', '-7 days')
+          ORDER BY
+            CASE status
+              WHEN 'running' THEN 1
+              WHEN 'partial' THEN 2
+              WHEN 'pending' THEN 3
+            END,
+            created_at ASC
+        `)
+      } else {
+        console.log('⚠️ batch_tasks表不存在，跳过批量任务恢复检查')
+      }
+    } catch (batchError) {
+      console.warn('⚠️ 检查batch_tasks表失败（非关键错误）:', batchError)
+      // 继续执行，不中断初始化
+    }
 
     const totalUnfinished = unfinishedOffers.length + unfinishedOfferTasks.length + unfinishedBatchTasks.length
 
