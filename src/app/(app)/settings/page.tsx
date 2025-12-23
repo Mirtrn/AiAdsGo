@@ -72,13 +72,13 @@ const SETTING_METADATA: Record<string, {
     label: 'Login Customer ID (MCC账户ID)',
     description: '您的MCC管理账户ID，用于访问您管理的广告账户。格式：10位数字（不含连字符）',
     placeholder: '例如: 1234567890',
-    helpLink: 'https://support.google.com/google-ads/answer/6139186'
+    helpLink: '/help/google-ads-setup?tab=oauth'
   },
   'google_ads.client_id': {
     label: 'OAuth Client ID',
     description: 'Google Cloud Console 中创建的 OAuth 2.0 客户端 ID',
     placeholder: '例如: 123456789-xxx.apps.googleusercontent.com',
-    helpLink: 'https://console.cloud.google.com/apis/credentials'
+    helpLink: '/help/google-ads-setup?tab=oauth#oauth-client-id'
   },
   'google_ads.client_secret': {
     label: 'OAuth Client Secret',
@@ -89,7 +89,7 @@ const SETTING_METADATA: Record<string, {
     label: 'Developer Token',
     description: 'Google Ads API 开发者令牌，在 Google Ads 账户的 API 中心获取',
     placeholder: '输入 Developer Token',
-    helpLink: 'https://ads.google.com/aw/apicenter'
+    helpLink: '/help/google-ads-setup?tab=oauth#oauth-developer-token'
   },
 
   // AI - 模式选择
@@ -1189,7 +1189,7 @@ export default function SettingsPage() {
                                       rel="noopener noreferrer"
                                       className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
                                     >
-                                      获取密钥
+                                      获取方式
                                       <ExternalLink className="w-3 h-3" />
                                     </a>
                                   )}
@@ -1684,7 +1684,7 @@ export default function SettingsPage() {
                                 rel="noopener noreferrer"
                                 className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
                               >
-                                获取密钥
+                                获取方式
                                 <ExternalLink className="w-3 h-3" />
                               </a>
                             )}
