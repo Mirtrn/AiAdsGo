@@ -1180,7 +1180,7 @@ export default function SettingsPage() {
                       </p>
                       <p className="text-xs text-blue-600 flex items-center gap-1">
                         <Info className="w-3 h-3 flex-shrink-0" />
-                        当前已支持IPRocket、Oxylabs、Abcproxy和其他通用代理，更多代理支持开发中
+                        当前已支持IPRocket、Oxylabs、Abcproxy和通用代理
                       </p>
 
                       {/* 代理URL格式说明 */}
