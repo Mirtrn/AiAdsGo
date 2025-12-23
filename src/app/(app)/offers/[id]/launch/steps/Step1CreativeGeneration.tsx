@@ -1017,42 +1017,31 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                       </CardTitle>
                       <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
                         <span>{(() => {
-                          // 🔧 修复(2025-12-16): 综合创意优先显示"综合创意"，不走主题映射逻辑
+                          // 🔧 修复(2025-12-23): 优先使用bucket_intent字段（更准确）
+                          if (creative.bucketIntent) {
+                            const intent = creative.bucketIntent.trim()
+                            // 直接返回中文意图（品牌导向/场景导向/功能导向/高购买意图导向/综合推广）
+                            if (intent.includes('品牌')) return '品牌导向'
+                            if (intent.includes('场景')) return '场景导向'
+                            if (intent.includes('功能')) return '功能导向'
+                            if (intent.includes('高购买') || intent.includes('购买意图')) return '强购买意图'
+                            if (intent.includes('综合')) return '综合推广'
+                            return intent // 返回原始值
+                          }
+
+                          // Fallback: 综合创意标记
                           if (creative.isSynthetic || creative.keywordBucket === 'S') {
-                            return '综合创意'
+                            return '综合推广'
                           }
 
-                          // 🔥 2025-12-16: 将英文主题映射为中文显示（支持大小写不敏感匹配）
+                          // Fallback: 从theme映射（兼容旧数据）
                           const themeValue = (creative.theme || '').toLowerCase().trim()
-
-                          // 标准主题映射（大小写不敏感）
-                          if (themeValue.includes('brand') || themeValue.includes('product')) {
-                            return '品牌导向'
-                          }
-                          if (themeValue.includes('scene') || themeValue.includes('scenario') || themeValue.includes('lifestyle') || themeValue.includes('environment')) {
-                            return '场景导向'
-                          }
-                          if (themeValue.includes('feature') || themeValue.includes('benefit') || themeValue.includes('demand') || themeValue.includes('function')) {
-                            return '功能导向'
-                          }
-                          // 🔧 修复：添加"高购买意图"映射
-                          if (themeValue.includes('intent') || themeValue.includes('purchase') || themeValue.includes('高购买')) {
-                            return '强购买意图'
-                          }
-                          // 综合推广映射
-                          if (themeValue.includes('synthetic') || themeValue.includes('综合')) {
-                            return '综合推广'
-                          }
-
-                          // 如果theme是长文本（超过30字符），说明存储的不是标准主题，返回默认值
-                          if (themeValue.length > 30) {
-                            return '综合推广'
-                          }
-
-                          // 已经是中文的情况
-                          if (themeValue.includes('品牌') || themeValue.includes('场景') || themeValue.includes('功能')) {
-                            return creative.theme
-                          }
+                          if (themeValue.includes('brand') || themeValue.includes('product')) return '品牌导向'
+                          if (themeValue.includes('scene') || themeValue.includes('scenario') || themeValue.includes('lifestyle')) return '场景导向'
+                          if (themeValue.includes('feature') || themeValue.includes('benefit') || themeValue.includes('function')) return '功能导向'
+                          if (themeValue.includes('intent') || themeValue.includes('purchase') || themeValue.includes('高购买')) return '强购买意图'
+                          if (themeValue.includes('synthetic') || themeValue.includes('综合')) return '综合推广'
+                          if (themeValue.includes('品牌') || themeValue.includes('场景') || themeValue.includes('功能')) return creative.theme
 
                           return '综合推广'
                         })()}</span>
