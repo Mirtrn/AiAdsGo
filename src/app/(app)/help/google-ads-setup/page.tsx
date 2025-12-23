@@ -148,27 +148,6 @@ export default function GoogleAdsSetupGuidePage() {
                 </Alert>
               </CardContent>
             </Card>
-
-            {/* OAuth 重定向 URI */}
-            <Card id="oauth-redirect-uri">
-              <CardHeader>
-                <CardTitle className="text-base">如何配置 OAuth 重定向 URI</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm space-y-3">
-                <ol className="list-decimal list-inside space-y-2">
-                  <li>在 Google Cloud Console 的"凭据"页面</li>
-                  <li>点击您的 OAuth 2.0 客户端名称</li>
-                  <li>在"已授权的重定向 URI"部分，点击"添加URI"</li>
-                  <li>输入：<code className="bg-gray-100 px-1 rounded">{typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/callback</code></li>
-                  <li>点击"保存"按钮</li>
-                </ol>
-                <Alert className="mt-3 bg-blue-50 border-blue-200">
-                  <AlertDescription>
-                    <strong>提示：</strong>重定向 URI 必须与系统设置中配置的一致，否则 OAuth 授权会失败
-                  </AlertDescription>
-                </Alert>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="service-account" className="space-y-4">
