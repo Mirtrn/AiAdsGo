@@ -83,11 +83,15 @@ export default function GoogleAdsSetupGuidePage() {
               </CardHeader>
               <CardContent>
                 <ol className="list-decimal list-inside space-y-3 text-sm">
-                  <li>在 Google Cloud Console 创建项目并启用 Google Ads API</li>
-                  <li>创建 OAuth 2.0 凭据（Web 应用类型），配置回调地址</li>
-                  <li>复制 Client ID 和 Client Secret</li>
-                  <li>在 Google Ads 申请 Developer Token（需要基本访问权限）</li>
-                  <li>在系统设置页面配置凭证并完成 OAuth 授权</li>
+                  <li>访问 <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-600 hover:underline">Google Cloud Console</a> 创建项目</li>
+                  <li>启用 <strong>Google Ads API</strong>（在"API和服务"→"库"中搜索启用）</li>
+                  <li>进入"API和服务"→"<a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-blue-600 hover:underline">凭据</a>"页面</li>
+                  <li>点击"创建凭据"→"OAuth 2.0 客户端 ID"</li>
+                  <li>选择"Web 应用"类型，设置名称</li>
+                  <li>在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-1 rounded">{typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/callback</code></li>
+                  <li>创建完成后，点击客户端名称查看 <strong>客户端 ID</strong>和<strong>客户端密钥</strong></li>
+                  <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a> 申请 Developer Token（需要基本访问权限）</li>
+                  <li>在系统设置页面配置 Client ID、Client Secret、Developer Token，然后点击"启动OAuth授权"</li>
                 </ol>
                 <Alert className="mt-4">
                   <AlertCircle className="h-4 w-4" />
