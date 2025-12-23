@@ -61,7 +61,7 @@ export default function GoogleAdsSetupGuidePage() {
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5" />
-                    <span>需要Explorer级别或更高的Developer Token</span>
+                    <span>只需要测试权限的Developer Token即可</span>
                   </li>
                 </ul>
               </div>
@@ -109,13 +109,13 @@ export default function GoogleAdsSetupGuidePage() {
                 <ol className="list-decimal list-inside space-y-3 text-sm">
                   <li>访问 <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-600 hover:underline">Google Cloud Console</a> 创建服务账号</li>
                   <li>下载服务账号 JSON 密钥文件</li>
-                  <li>在 MCC 账号中申请 Developer Token（需要Explorer级别或更高）</li>
+                  <li>在 MCC 账号中申请 Developer Token（只需要测试权限即可）</li>
                   <li>在 MCC 账号的"访问权限和安全"中添加服务账号邮箱</li>
                   <li>在系统设置页面上传 JSON 文件并配置</li>
                 </ol>
                 <Alert className="mt-4">
                   <AlertDescription>
-                    <strong>注意：</strong>服务账号方式需要Explorer级别或更高的Developer Token
+                    <strong>提示：</strong>服务账号方式只需要测试权限的Developer Token即可
                   </AlertDescription>
                 </Alert>
               </CardContent>
