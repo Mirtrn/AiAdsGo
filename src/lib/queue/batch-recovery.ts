@@ -34,13 +34,22 @@ export async function recoverBatchTaskStatus(): Promise<void> {
     console.log('🔍 开始同步批量任务数据库状态...')
 
     // 1. 查询所有未完成的upload_records（status为pending或processing）
-    // 🔧 2025-12-23: 先检查表是否存在，避免SQLite未初始化错误
+    // 🔧 2025-12-23: 先检查表是否存在，避免SQLite/PostgreSQL未初始化错误
     let pendingRecords: any[] = []
     try {
-      // 检查upload_records表是否存在
-      const tableCheck = await db.query<{ count: number }>(
-        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='upload_records'"
-      )
+      // 检查upload_records表是否存在（支持SQLite和PostgreSQL）
+      let tableCheck: any
+      if (db.type === 'sqlite') {
+        tableCheck = await db.query<{ count: number }>(
+          "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='upload_records'"
+        )
+      } else {
+        tableCheck = await db.query<{ exists: boolean }>(
+          "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)",
+          ['upload_records']
+        )
+        tableCheck = { count: tableCheck[0].exists ? 1 : 0 }
+      }
 
       if (tableCheck[0].count > 0) {
         // 表存在，查询数据

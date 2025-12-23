@@ -46,7 +46,10 @@ async function isDatabaseInitialized(): Promise<boolean> {
     'offers',             // Offer 表
     'campaigns',          // Campaign 表
     'system_settings',    // 系统设置表
-    'industry_benchmarks' // 行业基准表
+    'industry_benchmarks', // 行业基准表
+    'batch_tasks',        // 批量任务表
+    'upload_records',     // 上传记录表
+    'offer_tasks',        // Offer提取任务表
   ]
 
   if (db.type === 'sqlite') {
@@ -1313,13 +1316,22 @@ async function checkUnfinishedQueueTasks_deprecated(): Promise<void> {
     `)
 
     // 查询未完成的batch_tasks（批量任务）
-    // 🔧 2025-12-23: 先检查表是否存在，避免SQLite未初始化错误
+    // 🔧 2025-12-23: 先检查表是否存在，避免SQLite/PostgreSQL未初始化错误
     let unfinishedBatchTasks: any[] = []
     try {
-      // 检查batch_tasks表是否存在
-      const tableCheck = await db.query<{ count: number }>(
-        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='batch_tasks'"
-      )
+      // 检查batch_tasks表是否存在（支持SQLite和PostgreSQL）
+      let tableCheck: any
+      if (db.type === 'sqlite') {
+        tableCheck = await db.query<{ count: number }>(
+          "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='batch_tasks'"
+        )
+      } else {
+        tableCheck = await db.query<{ exists: boolean }>(
+          "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)",
+          ['batch_tasks']
+        )
+        tableCheck = { count: tableCheck[0].exists ? 1 : 0 }
+      }
 
       if (tableCheck[0].count > 0) {
         // 表存在，查询数据
