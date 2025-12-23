@@ -120,6 +120,74 @@ export default function GoogleAdsSetupGuidePage() {
                 </Alert>
               </CardContent>
             </Card>
+
+            {/* MCC Customer ID 获取方式 */}
+            <Card id="mcc-customer-id">
+              <CardHeader>
+                <CardTitle className="text-base">如何获取 MCC Customer ID</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm space-y-3">
+                <ol className="list-decimal list-inside space-y-2">
+                  <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a></li>
+                  <li>登录您的 MCC（管理账号）</li>
+                  <li>点击顶部导航栏的"设置"图标</li>
+                  <li>在"账号信息"部分找到"MCC 账号 ID"</li>
+                  <li>ID 格式为10位数字（如 1234567890），请去掉连字符</li>
+                </ol>
+                <Alert className="mt-3 bg-blue-50 border-blue-200">
+                  <AlertDescription>
+                    MCC Customer ID 是您的管理账号的唯一标识，用于访问所有子账号
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+
+            {/* Developer Token 获取方式 */}
+            <Card id="developer-token">
+              <CardHeader>
+                <CardTitle className="text-base">如何获取 Developer Token</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm space-y-3">
+                <ol className="list-decimal list-inside space-y-2">
+                  <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a></li>
+                  <li>确保您的账号是 MCC（管理账号）</li>
+                  <li>进入"Tools &amp; Settings" → "API Center"</li>
+                  <li>在"Developer Token"部分申请或查看 Token</li>
+                  <li>服务账号方式需要 <strong>Explorer级别</strong>或更高的访问级别</li>
+                </ol>
+                <Alert className="mt-3 bg-amber-50 border-amber-200">
+                  <AlertDescription>
+                    <strong>注意：</strong>基本访问权限的 Token 无法用于服务账号认证，必须申请 Explorer 级别或更高
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+
+            {/* 服务账号 JSON 获取方式 */}
+            <Card id="service-account-json">
+              <CardHeader>
+                <CardTitle className="text-base">如何获取服务账号 JSON</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm space-y-3">
+                <ol className="list-decimal list-inside space-y-2">
+                  <li>访问 <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-600 hover:underline">Google Cloud Console</a></li>
+                  <li>选择或创建您的项目</li>
+                  <li>启用 <strong>Google Ads API</strong>（在"API和服务"→"库"中搜索启用）</li>
+                  <li>进入" IAM 和管理"→"<a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" className="text-blue-600 hover:underline">服务账号</a>"</li>
+                  <li>点击"创建服务账号"，填写名称和描述</li>
+                  <li>在"授予此服务账号的权限"中，选择角色"基本"→"所有者"或自定义权限</li>
+                  <li>创建完成后，在服务账号列表中点击该账号</li>
+                  <li>进入"密钥"标签页，点击"添加密钥"→"创建新密钥"</li>
+                  <li>选择"JSON"类型，点击"创建"下载密钥文件</li>
+                  <li>用文本编辑器打开下载的文件，复制完整内容</li>
+                </ol>
+                <Alert className="mt-3 bg-blue-50 border-blue-200">
+                  <AlertDescription>
+                    <strong>提示：</strong>确保服务账号邮箱已被添加到 Google Ads MCC 的"访问权限和安全"中，否则无法访问 API
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
 

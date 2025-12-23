@@ -1224,10 +1224,21 @@ export default function SettingsPage() {
                         </div>
 
                         <div>
-                          <Label className="label-text flex items-center gap-2">
-                            MCC Customer ID
-                            <span className="text-caption text-red-500">*必填</span>
-                          </Label>
+                          <div className="flex items-center justify-between">
+                            <Label className="label-text flex items-center gap-2">
+                              MCC Customer ID
+                              <span className="text-caption text-red-500">*必填</span>
+                            </Label>
+                            <a
+                              href="/help/google-ads-setup?tab=service-account#mcc-customer-id"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                            >
+                              获取方式
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
                           <p className="helper-text flex items-start gap-1 mt-1">
                             <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             MCC管理账户ID，格式：10位数字（不含连字符）
@@ -1241,10 +1252,21 @@ export default function SettingsPage() {
                         </div>
 
                         <div>
-                          <Label className="label-text flex items-center gap-2">
-                            Developer Token
-                            <span className="text-caption text-red-500">*必填</span>
-                          </Label>
+                          <div className="flex items-center justify-between">
+                            <Label className="label-text flex items-center gap-2">
+                              Developer Token
+                              <span className="text-caption text-red-500">*必填</span>
+                            </Label>
+                            <a
+                              href="/help/google-ads-setup?tab=service-account#developer-token"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                            >
+                              获取方式
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
                           <p className="helper-text flex items-start gap-1 mt-1">
                             <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             需要Explorer级别或更高，在MCC账户的API中心获取
@@ -1259,10 +1281,21 @@ export default function SettingsPage() {
                         </div>
 
                         <div className="lg:col-span-2">
-                          <Label className="label-text flex items-center gap-2">
-                            服务账号 JSON
-                            <span className="text-caption text-red-500">*必填</span>
-                          </Label>
+                          <div className="flex items-center justify-between">
+                            <Label className="label-text flex items-center gap-2">
+                              服务账号 JSON
+                              <span className="text-caption text-red-500">*必填</span>
+                            </Label>
+                            <a
+                              href="/help/google-ads-setup?tab=service-account#service-account-json"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                            >
+                              获取方式
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
                           <p className="helper-text flex items-start gap-1 mt-1">
                             <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             从Google Cloud Console下载的服务账号密钥文件内容
