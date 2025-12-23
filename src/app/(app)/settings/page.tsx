@@ -1015,11 +1015,11 @@ export default function SettingsPage() {
             <div className="text-body-sm text-blue-800">
               <p className="text-body-sm font-semibold mb-2">配置说明</p>
               <ul className="space-y-1 text-body-sm text-blue-700">
-                <li>• 敏感数据（如API密钥、Service Account JSON）将使用AES-256-GCM加密存储</li>
-                <li>• 标记为"必填"的配置项需要填写才能使用对应功能</li>
-                <li>• <strong>Google Ads</strong>：需要配置所有参数并完成 OAuth 授权后才能使用广告管理功能</li>
-                <li>• <strong>AI引擎</strong>：支持 Vertex AI（推荐）和 Gemini API 两种模式</li>
-                <li>• 如遇API访问问题，可尝试启用代理设置</li>
+                <li>• 敏感数据（如 API 密钥、服务账号 JSON）使用 AES-256-GCM 加密存储</li>
+                <li>• 标记为"必填"的配置项需要填写完整才能使用对应功能</li>
+                <li>• <strong>Google Ads</strong>：支持 OAuth 用户授权和服务账号认证两种方式，配置完成后可使用广告管理功能</li>
+                <li>• <strong>AI 引擎</strong>：支持 Vertex AI（企业级）和 Gemini API（快速上手）两种模式</li>
+                <li>• 如遇 API 访问问题，可尝试启用代理设置或检查配置是否正确</li>
               </ul>
             </div>
           </div>
