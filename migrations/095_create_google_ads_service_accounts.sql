@@ -1,7 +1,7 @@
 -- 创建 Google Ads 服务账号表
 CREATE TABLE IF NOT EXISTS google_ads_service_accounts (
   id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
   name TEXT NOT NULL,
   mcc_customer_id TEXT NOT NULL,
   developer_token TEXT NOT NULL,
