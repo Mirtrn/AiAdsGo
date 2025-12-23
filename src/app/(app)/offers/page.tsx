@@ -193,6 +193,13 @@ export default function OffersPage() {
     // P2-5: 排序
     if (sortBy) {
       filtered = [...filtered].sort((a, b) => {
+        // 特殊处理：关联账号数量排序
+        if (sortBy === 'linkedAccounts') {
+          const aCount = a.linkedAccounts?.length || 0
+          const bCount = b.linkedAccounts?.length || 0
+          return sortOrder === 'asc' ? aCount - bCount : bCount - aCount
+        }
+
         const aVal = a[sortBy as keyof Offer]
         const bVal = b[sortBy as keyof Offer]
 
@@ -735,7 +742,15 @@ export default function OffersPage() {
                       >
                         状态
                       </SortableTableHead>
-                      <TableHead className="whitespace-nowrap">关联Ads账号</TableHead>
+                      <SortableTableHead
+                        field="linkedAccounts"
+                        currentSortBy={sortBy}
+                        sortOrder={sortOrder}
+                        onSort={handleSort}
+                        className="whitespace-nowrap"
+                      >
+                        关联Ads账号
+                      </SortableTableHead>
                       <TableHead className="whitespace-nowrap">操作</TableHead>
                     </TableRow>
                   </TableHeader>
