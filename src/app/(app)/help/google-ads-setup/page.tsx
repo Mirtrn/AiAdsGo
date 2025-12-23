@@ -88,7 +88,8 @@ export default function GoogleAdsSetupGuidePage() {
                   <li>进入"API和服务"→"<a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-blue-600 hover:underline">凭据</a>"页面</li>
                   <li>点击"创建凭据"→"OAuth 2.0 客户端 ID"</li>
                   <li>选择"Web 应用"类型，设置名称</li>
-                  <li>在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-1 rounded">{typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/callback</code></li>
+                  <li>在"已授权的 JavaScript 来源"中添加您的生产环境域名（如：<code className="bg-gray-100 px-1 rounded">https://www.autoads.dev</code>）</li>
+                  <li>在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-1 rounded">https://www.autoads.dev/api/google-ads/oauth/callback</code></li>
                   <li>创建完成后，点击客户端名称查看 <strong>客户端 ID</strong>和<strong>客户端密钥</strong></li>
                   <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a> 申请 Developer Token（需要基本访问权限）</li>
                   <li>在系统设置页面配置 Client ID、Client Secret、Developer Token，然后点击"启动OAuth授权"</li>
@@ -115,7 +116,8 @@ export default function GoogleAdsSetupGuidePage() {
                   <li>进入"<a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-blue-600 hover:underline">凭据</a>"页面</li>
                   <li>点击"创建凭据"→"OAuth 2.0 客户端 ID"</li>
                   <li>选择"Web 应用"类型，填写名称</li>
-                  <li>在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-1 rounded">{typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/callback</code></li>
+                  <li>在"已授权的 JavaScript 来源"中添加您的生产环境域名（如：<code className="bg-gray-100 px-1 rounded">https://www.autoads.dev</code>）</li>
+                  <li>在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-1 rounded">https://www.autoads.dev/api/google-ads/oauth/callback</code></li>
                   <li>点击"创建"按钮</li>
                   <li>在弹出的页面中，复制 <strong>客户端 ID</strong>和<strong>客户端密钥</strong></li>
                 </ol>
