@@ -37,14 +37,29 @@ export function isProxyConnectionError(error: Error): boolean {
     return true  // 服务器拒绝 = 代理被封或被标记
   }
 
-  // 🔥 新增：page.goto超时很可能是代理IP被Amazon封禁
-  // Amazon会立即封禁代理IP，导致page.goto永远无法完成（不是网络慢，而是被墙）
-  // 这种情况下应该立即换代理，而不是用同一代理重试3次
+  // 🔥 新增：page.goto超时很可能是代理IP被封禁
+  // Amazon和短链接服务会立即封禁代理IP，导致page.goto永远无法完成
+  // 这种情况下应该立即换代理，而不是用同一代理重试
   if (msg.includes('page.goto: Timeout') && msg.includes('exceeded')) {
-    // 检查URL是否为Amazon（避免误判其他站点的正常慢速加载）
+    // Amazon站点
     if (msg.includes('amazon.')) {
       return true  // Amazon超时 = 代理被封
     }
+    // 🔥 新增：短链接服务（pboost.me, bit.ly, tinyurl等）也需要快速换代理
+    // 短链接服务通常有严格的反爬虫机制，代理被封后会超时
+    const shortLinkPatterns = ['pboost.me', 'bit.ly', 'tinyurl', 'ow.ly', 'rebrand.ly',
+                                'short.link', 'is.gd', 'buff.ly', 't.co', 'goo.gl', 'clk.']
+    if (shortLinkPatterns.some(pattern => msg.includes(pattern))) {
+      return true  // 短链接超时 = 代理被封
+    }
+  }
+
+  // 🔥 新增：net::ERR_TIMED_OUT 格式的超时错误
+  // Playwright错误格式: "page.goto: net::ERR_TIMED_OUT at https://pboost.me/aOqlvu0"
+  if (msg.includes('net::ERR_TIMED_OUT') && msg.includes('page.goto:')) {
+    // 对于所有page.goto的ERR_TIMED_OUT错误，都应该认为是代理被封
+    // 因为正常网络超时不会以这种格式出现
+    return true
   }
 
   // 超时错误需要更明确的代理关键词

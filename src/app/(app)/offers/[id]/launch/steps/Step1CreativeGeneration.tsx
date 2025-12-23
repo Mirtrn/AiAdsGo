@@ -477,13 +477,23 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
           .slice(0, 3)
 
         setCreatives(sortedCreatives)
-        setGenerationCount(formattedCreatives.length)
+
+        // 🔧 修复: generationCount 应该是生成次数（generation_round 的最大值），而不是现有创意数量
+        const maxGenerationRound = formattedCreatives.reduce((max: number, c: any) => {
+          return Math.max(max, c.generationRound || 0)
+        }, 0)
+        setGenerationCount(maxGenerationRound)
 
         // Auto-select if already selected
         const selected = sortedCreatives.find((c: Creative) => c.id === selectedCreative?.id)
         if (selected) {
           setSelectedId(selected.id)
         }
+      } else {
+        // 没有现有创意时，重置生成次数状态，允许重新生成
+        setCreatives([])
+        setGenerationCount(0)
+        setSelectedId(null)
       }
     } catch (error) {
       console.error('Failed to fetch creatives:', error)
