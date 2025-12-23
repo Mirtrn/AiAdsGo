@@ -1374,6 +1374,36 @@ function extractBrandName(
     candidates.push({ value: metaBrand, source: 'meta-tag', confidence: 4 })
   }
 
+  // ========== 渠道8: A+ Brand模块 (置信度: 5) ==========
+  const aPlusBrand = $('#aplusBrandAplusModule .a-expander-content, [data-feature-name="aplusBrand"]').text().trim()
+  if (aPlusBrand && aPlusBrand.length > 1 && aPlusBrand.length < 50) {
+    candidates.push({ value: aPlusBrand, source: 'aplus-brand', confidence: 5 })
+  }
+
+  // ========== 渠道9: 产品描述中的品牌提及 (置信度: 3) ==========
+  const productDescription = $('#productDescription, #aplus, [data-feature-name="productDescription"]').text()
+  if (productDescription) {
+    const brandMatch = productDescription.match(/\b(Brand|Marke|Marque|Marca|Merk)\s*[:：]\s*([A-Z][A-Za-z0-9&\-\s]+)/i)
+    if (brandMatch && brandMatch[2]) {
+      const descBrand = brandMatch[2].trim()
+      if (descBrand.length > 1 && descBrand.length < 30) {
+        candidates.push({ value: descBrand, source: 'description', confidence: 3 })
+      }
+    }
+  }
+
+  // ========== 渠道10: 品牌链接文本 (置信度: 4) ==========
+  $('a[href*="/stores/"], a[href*="/brand/"]').each((i: number, el: any) => {
+    const $el = $(el)
+    const text = $el.text().trim()
+    if (text && text.length > 1 && text.length < 50 && !isInRecommendationArea(el)) {
+      const cleanText = cleanBrandText(text)
+      if (cleanText && cleanText !== text) {
+        candidates.push({ value: cleanText, source: 'brand-link', confidence: 4 })
+      }
+    }
+  })
+
   // ========== 交叉验证逻辑 ==========
   if (candidates.length === 0) {
     console.warn('⚠️ 所有品牌提取渠道均无结果')
@@ -1429,11 +1459,36 @@ function extractBrandName(
   const verificationStatus = bestBrand.data.sources.length >= 2 ? '✅ 多渠道验证' : '⚠️ 单渠道'
   console.log(`${verificationStatus} 品牌名: "${bestBrand.data.originalValue}" (得分: ${bestBrand.data.totalScore}, 来源: ${bestBrand.data.sources.join(', ')})`)
 
-  // 最终清洗
+  // 最终清洗 - 增强多语言清洗规则
   let finalBrand = bestBrand.data.originalValue
-    .replace(/\s+(Official|Store|Shop|Brand)$/i, '')
+
+  // 再次应用cleanBrandText进行深度清洗
+  finalBrand = cleanBrandText(finalBrand)
+
+  // 额外的通用清洗规则
+  finalBrand = finalBrand
+    // 去除各种"商店"后缀（多语言）
+    .replace(/\s+(Store|Shop|Boutique|Tienda|Negozio|Loja|Winkel|Sklep|Shoppen|Mağaza)$/i, '')
+    // 去除"de"、"di"、"of"、"du"等介词开头的品牌名
+    .replace(/^(de|di|of|du|da|von|van|of)\s+/i, '')
+    // 去除"Visit"、"Visita"、"Visiter"等动词开头的残留
+    .replace(/^(Visit|Visita|Visiter|Besuchen|Besuche|Odwiedź|Bezoek|Visite)\s+/i, '')
+    // 去除"Brand"、"Official"等后缀
+    .replace(/\s+(Brand|Official|Store|Shop)$/i, '')
     .trim()
 
+  // 如果清洗后为空或太短，回退到产品标题首词
+  if (!finalBrand || finalBrand.length < 2) {
+    console.warn('⚠️ 品牌清洗后结果无效，回退到产品标题首词')
+    if (productName) {
+      const titleParts = productName.split(/[\s-,|]+/)
+      if (titleParts.length > 0) {
+        finalBrand = titleParts[0].trim()
+      }
+    }
+  }
+
+  console.log(`🔍 最终品牌提取结果: "${finalBrand}"`)
   return finalBrand
 }
 
@@ -1455,8 +1510,9 @@ function cleanBrandText(brand: string): string {
   brand = brand.replace(/\s+(Store|Negozio)$/i, '')  // 🔥 新增：末尾的Store/Negozio
   brand = brand.replace(/\s+di\s+$/i, '')  // 🔥 新增：末尾的"di"
 
-  // French (FR, BE, CA-FR): "Visitez la boutique de Brand"
+  // French (FR, BE, CA-FR): "Visitez la boutique de Brand" 或 "Visiter la boutique Brand"
   brand = brand.replace(/^Visitez\s+(la|le|les)\s+/i, '')
+  brand = brand.replace(/^Visiter\s+(la|le|les)\s+/i, '')  // 🔥 新增：不定式形式
   brand = brand.replace(/^Boutique\s+(de\s+)?/i, '')
   brand = brand.replace(/\s+Boutique$/i, '')  // 🔥 新增
 
