@@ -137,7 +137,7 @@ export default function GoogleAdsSetupGuidePage() {
               <CardContent className="text-sm space-y-3">
                 <ol className="list-decimal list-inside space-y-2">
                   <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a></li>
-                  <li>登录您的 Google Ads 账号（非 MCC 账号）</li>
+                  <li>登录您的 Google Ads 账号</li>
                   <li>进入"Tools &amp; Settings" → "API Center"</li>
                   <li>在"Developer Token"部分申请 Token</li>
                   <li>OAuth 方式需要 <strong>基本访问权限</strong>或更高级别</li>
