@@ -277,7 +277,7 @@ export default function GoogleAdsSetupGuidePage() {
             <div>
               <h4 className="font-semibold mb-2">Q: Developer Token 审核需要多久？</h4>
               <p className="text-sm text-gray-600">
-                测试权限通常立即可用；基本访问权限和Explorer级别通常需要1-3个工作日审核。
+                测试权限通常立即可用；基本访问权限通常需要1-3个工作日审核。
               </p>
             </div>
             <div>
