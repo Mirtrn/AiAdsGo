@@ -49,7 +49,7 @@ export async function POST(
 
     // 2. 获取批量任务信息
     const { batchId } = params
-    const task = db.get<{
+    const task = await db.queryOne<{
       id: string
       user_id: number
       status: string

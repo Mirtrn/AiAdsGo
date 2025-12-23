@@ -225,16 +225,4 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     // 从running set中删除（如果存在）
     this.runningTasks.delete(taskId)
   }
-
-  async connect(): Promise<void> {
-    this.connected = true
-  }
-
-  async disconnect(): Promise<void> {
-    this.connected = false
-  }
-
-  isConnected(): boolean {
-    return this.connected
-  }
 }
