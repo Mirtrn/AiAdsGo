@@ -93,6 +93,7 @@ export interface OfferKeywordPool {
 
 /**
  * 关键词桶（AI 聚类结果）
+ * 🔧 2025-12-24: 添加可选的 bucketS 支持店铺链接
  */
 export interface KeywordBuckets {
   bucketA: {
@@ -119,12 +120,19 @@ export interface KeywordBuckets {
     description: string
     keywords: string[]
   }
+  bucketS?: {  // 🔧 可选：店铺链接专用
+    intent: string
+    intentEn: string
+    description: string
+    keywords: string[]
+  }
   statistics: {
     totalKeywords: number
     bucketACount: number
     bucketBCount: number
     bucketCCount: number
     bucketDCount: number
+    bucketSCount?: number  // 🔧 可选：店铺链接专用
     balanceScore: number
   }
 }
@@ -556,7 +564,8 @@ async function clusterBatchKeywords(
 }
 
 /**
- * 合并多个批次的聚类结果
+ * 合并多个批次的聚类结果（支持4桶和5桶模式）
+ * 🔧 修复(2025-12-24): 支持店铺链接的bucketS
  */
 function mergeBatchResults(
   batchResults: Array<{
@@ -564,7 +573,8 @@ function mergeBatchResults(
     bucketB: { intent: string; intentEn: string; description: string; keywords: string[] }
     bucketC: { intent: string; intentEn: string; description: string; keywords: string[] }
     bucketD: { intent: string; intentEn: string; description: string; keywords: string[] }
-    statistics: { totalKeywords: number; bucketACount: number; bucketBCount: number; bucketCCount: number; bucketDCount: number; balanceScore: number }
+    bucketS?: { intent: string; intentEn: string; description: string; keywords: string[] }  // 🔧 可选：店铺链接专用
+    statistics: { totalKeywords: number; bucketACount: number; bucketBCount: number; bucketCCount: number; bucketDCount: number; bucketSCount?: number; balanceScore: number }
   }>
 ): KeywordBuckets {
   // 合并所有关键词（去重）
@@ -572,6 +582,7 @@ function mergeBatchResults(
   const allBucketBKeywords = Array.from(new Set(batchResults.flatMap(r => r.bucketB.keywords)))
   const allBucketCKeywords = Array.from(new Set(batchResults.flatMap(r => r.bucketC.keywords)))
   const allBucketDKeywords = Array.from(new Set(batchResults.flatMap(r => r.bucketD.keywords)))
+  const allBucketSKeywords = Array.from(new Set(batchResults.flatMap(r => r.bucketS?.keywords || [])))  // 🔧 处理可选的bucketS
 
   // 选择最详细的意图描述（选择最长的描述）
   const bucketAIntent = batchResults.reduce((best, current) =>
@@ -590,8 +601,11 @@ function mergeBatchResults(
     current.bucketD.description.length > best.bucketD.description.length ? current : best
   ).bucketD
 
+  // 🔧 处理bucketS（店铺链接专用）
+  const bucketSIntent = batchResults.find(r => r.bucketS)?.bucketS
+
   // 计算统计数据
-  const totalKeywords = allBucketAKeywords.length + allBucketBKeywords.length + allBucketCKeywords.length + allBucketDKeywords.length
+  const totalKeywords = allBucketAKeywords.length + allBucketBKeywords.length + allBucketCKeywords.length + allBucketDKeywords.length + allBucketSKeywords.length
   const averageBalanceScore = batchResults.reduce((sum, r) => sum + r.statistics.balanceScore, 0) / batchResults.length
 
   console.log(`🔄 合并 ${batchResults.length} 个批次结果:`)
@@ -599,9 +613,12 @@ function mergeBatchResults(
   console.log(`   桶B: ${allBucketBKeywords.length} 个关键词`)
   console.log(`   桶C: ${allBucketCKeywords.length} 个关键词`)
   console.log(`   桶D: ${allBucketDKeywords.length} 个关键词`)
+  if (allBucketSKeywords.length > 0) {
+    console.log(`   桶S: ${allBucketSKeywords.length} 个关键词`)  // 🔧 店铺链接显示bucketS
+  }
   console.log(`   平均均衡度: ${averageBalanceScore.toFixed(2)}`)
 
-  return {
+  const result: KeywordBuckets = {
     bucketA: { ...bucketAIntent, keywords: allBucketAKeywords },
     bucketB: { ...bucketBIntent, keywords: allBucketBKeywords },
     bucketC: { ...bucketCIntent, keywords: allBucketCKeywords },
@@ -615,6 +632,14 @@ function mergeBatchResults(
       balanceScore: averageBalanceScore
     }
   }
+
+  // 🔧 添加bucketS（如果存在）
+  if (bucketSIntent && allBucketSKeywords.length > 0) {
+    result.bucketS = { ...bucketSIntent, keywords: allBucketSKeywords }
+    result.statistics.bucketSCount = allBucketSKeywords.length
+  }
+
+  return result
 }
 
 /**
