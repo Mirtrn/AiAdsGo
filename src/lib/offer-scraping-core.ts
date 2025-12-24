@@ -16,6 +16,38 @@ import { getDatabase } from './db'
 import { getLanguageCodeForCountry } from './language-country-codes'
 import { isCompetitorCompressionEnabled, isCompetitorCacheEnabled, FEATURE_FLAGS, logFeatureFlag } from './feature-flags'
 
+/**
+ * 🔥 根据目标国家获取对应的Amazon域名
+ * @param targetCountry - 国家代码（如 'US', 'DE', 'UK'）
+ * @returns Amazon域名（如 'www.amazon.com', 'www.amazon.de'）
+ */
+function getAmazonDomain(targetCountry?: string): string {
+  if (!targetCountry) return 'www.amazon.com'
+
+  const domainMap: Record<string, string> = {
+    'US': 'www.amazon.com',
+    'DE': 'www.amazon.de',
+    'UK': 'www.amazon.co.uk',
+    'GB': 'www.amazon.co.uk',
+    'FR': 'www.amazon.fr',
+    'IT': 'www.amazon.it',
+    'ES': 'www.amazon.es',
+    'JP': 'www.amazon.co.jp',
+    'CA': 'www.amazon.ca',
+    'AU': 'www.amazon.com.au',
+    'NL': 'www.amazon.nl',
+    'SE': 'www.amazon.se',
+    'PL': 'www.amazon.pl',
+    'BE': 'www.amazon.com.be',
+    'MX': 'www.amazon.com.mx',
+    'BR': 'www.amazon.com.br',
+    'IN': 'www.amazon.in',
+    'SG': 'www.amazon.sg',
+  }
+
+  return domainMap[targetCountry.toUpperCase()] || 'www.amazon.com'
+}
+
 async function saveScrapedProducts(
   offerId: number,
   userId: number,
@@ -130,8 +162,10 @@ async function saveDeepScrapeResults(
         `.trim()
       }
 
+      // 🔧 修复(2025-12-24): 使用正确的Amazon域名，避免404错误
+      const amazonDomain = getAmazonDomain(targetCountry)
       productInfo = await analyzeProductPage({
-        url: `https://amazon.com/dp/${product.asin}`,
+        url: `https://${amazonDomain}/dp/${product.asin}`,
         brand: product.productData.brandName || 'Unknown',
         title: pageData.title,
         description: pageData.description,
@@ -190,7 +224,9 @@ async function saveDeepScrapeResults(
       const page = await context.newPage()
 
       try {
-        const productUrl = `https://www.amazon.com/dp/${product.asin}`
+        // 🔧 修复(2025-12-24): 使用正确的Amazon域名，避免404错误
+        const amazonDomain = getAmazonDomain(targetCountry)
+        const productUrl = `https://${amazonDomain}/dp/${product.asin}`
         await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
 
         // 抓取竞品（5个，与单品一致）
