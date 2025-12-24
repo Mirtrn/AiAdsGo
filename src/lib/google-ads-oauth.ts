@@ -264,7 +264,7 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
     if (serviceAccount) {
       console.log(`[Verify] 发现服务账号配置: ${serviceAccount.name}，使用服务账号验证`)
 
-      const { createServiceAccountCustomer } = await import('./google-ads-service-account')
+      const { createServiceAccountCustomerClient } = await import('./google-ads-service-account')
       const { decrypt } = await import('./crypto')
 
       // 获取加密的私钥
@@ -276,7 +276,8 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
         return { valid: false, error: '服务账号私钥不存在', authType: 'service_account' }
       }
 
-      const customer = createServiceAccountCustomer({
+      // 使用 Customer 类调用 listAccessibleCustomers（GoogleAds 类没有此方法）
+      const customer = createServiceAccountCustomerClient({
         clientEmail: serviceAccount.service_account_email,
         privateKey: decrypt(privateKeyRow.private_key) || '',
         developerToken: serviceAccount.developer_token,

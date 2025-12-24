@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
-import { getServiceAccountAccessToken, createServiceAccountCustomer } from '@/lib/google-ads-service-account'
+import { createServiceAccountCustomer, createServiceAccountCustomerClient } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
@@ -227,7 +227,8 @@ async function syncAccountsFromAPI(
     console.log(`   🔑 服务账号模式：使用 @htdangkhoa/google-ads 库进行认证`)
 
     try {
-      const serviceAccountCustomer = createServiceAccountCustomer({
+      // 使用 Customer 类调用 listAccessibleCustomers（GoogleAds 类没有此方法）
+      const serviceAccountCustomer = createServiceAccountCustomerClient({
         clientEmail: serviceAccountConfig.serviceAccountEmail,
         privateKey: serviceAccountConfig.privateKey,
         developerToken: serviceAccountConfig.developerToken,

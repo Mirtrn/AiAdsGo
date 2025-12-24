@@ -2,7 +2,7 @@ import { JWT } from 'google-auth-library'
 import { getDatabase } from './db'
 import { decrypt } from './crypto'
 import { getGoogleAdsClient } from './google-ads-api'
-import { Customer as ServiceAccountCustomer } from '@htdangkhoa/google-ads'
+import { GoogleAds, Customer } from '@htdangkhoa/google-ads'
 
 interface ServiceAccountConfig {
   clientEmail: string
@@ -120,8 +120,9 @@ export function parseServiceAccountJson(jsonContent: string) {
  * 🆕 创建服务账号客户端（使用 @htdangkhoa/google-ads）
  *
  * @description 用于服务账号认证模式，支持 JWT 认证
+ *              注意：使用 GoogleAds 类而非 Customer 类，因为 Customer 没有 search 方法
  * @param config - 服务账号配置
- * @returns ServiceAccountCustomer 实例
+ * @returns GoogleAds 实例（支持 search, mutate 等方法）
  */
 export function createServiceAccountCustomer(config: {
   clientEmail: string
@@ -129,7 +130,7 @@ export function createServiceAccountCustomer(config: {
   developerToken: string
   customerId: string
   loginCustomerId?: string
-}): ServiceAccountCustomer {
+}): GoogleAds {
   // 创建 JWT 客户端
   // 注意：不能使用 keyFile，因为我们的密钥来自数据库
   // 必须使用 email + key 的方式
@@ -140,8 +141,44 @@ export function createServiceAccountCustomer(config: {
   })
 
   // 使用 @htdangkhoa/google-ads 创建客户端
-  const customer = new ServiceAccountCustomer({
+  // 使用 GoogleAds 类而非 Customer 类，因为 Customer 只有 listAccessibleCustomers 方法
+  // 而 GoogleAds 有 search, mutate 等完整方法
+  const customer = new GoogleAds({
     auth: authClient as any,  // 类型兼容性问题，运行时正常
+    developer_token: config.developerToken,
+  }, {
+    customer_id: config.customerId,
+    login_customer_id: config.loginCustomerId,
+  })
+
+  return customer
+}
+
+/**
+ * 🆕 创建服务账号客户端用于获取可访问账户列表
+ *
+ * @description 用于调用 listAccessibleCustomers API
+ *              注意：Customer 类只有 listAccessibleCustomers 方法，没有 search/mutate
+ * @param config - 服务账号配置
+ * @returns Customer 实例（仅用于 listAccessibleCustomers）
+ */
+export function createServiceAccountCustomerClient(config: {
+  clientEmail: string
+  privateKey: string
+  developerToken: string
+  customerId: string
+  loginCustomerId?: string
+}) {
+  // 创建 JWT 客户端
+  const authClient = new JWT({
+    email: config.clientEmail,
+    key: config.privateKey,
+    scopes: ['https://www.googleapis.com/auth/adwords'],
+  })
+
+  // Customer 类用于 listAccessibleCustomers（获取账户列表）
+  const customer = new Customer({
+    auth: authClient as any,
     developer_token: config.developerToken,
     customer_id: config.customerId,
     login_customer_id: config.loginCustomerId,

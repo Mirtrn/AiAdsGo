@@ -173,21 +173,44 @@ export interface IndependentStoreData {
 
 /**
  * Independent site product data structure (for deep scraping)
+ * 🔥 2025-12-24增强：与AmazonProductData保持一致的数据结构
+ * 包含详细的产品、评价、技术信息和竞品数据
  */
 export interface IndependentProductData {
+  // 基础产品信息
   productName: string | null
   productDescription: string | null
   productPrice: string | null
   originalPrice: string | null
   discount: string | null
   brandName: string | null
+
+  // 详细特性和信息（Amazon-style）
   features: string[]
   imageUrls: string[]
+  technicalDetails?: Record<string, string>  // 🔥 新增：技术规格表
+  category: string | null
+
+  // 评价和社交证明
   rating: string | null
   reviewCount: string | null
   availability: string | null
   reviews: string[]
-  category: string | null
+  reviewHighlights?: string[]  // 🔥 新增：评价亮点总结
+  topReviews?: string[]  // 🔥 新增：TOP评价（最有帮助的评价）
+  reviewKeywords?: string[]  // 🔥 新增：评价关键词主题
+
+  // 信任徽章和促销
+  badge?: string | null  // 🔥 新增："Best Seller", "Featured", "Limited Edition"等
+  promotion?: string | null  // 🔥 新增：促销信息
+
+  // 竞品和相关产品
+  relatedProductUrls?: string[]  // 🔥 新增：相关产品URL（类似Amazon竞品）
+  competitorUrls?: string[]  // 🔥 新增：竞品URL列表
+
+  // 库存和配送信息
+  stockStatus?: string | null  // 🔥 新增：库存状态
+  shippingInfo?: string | null  // 🔥 新增：配送信息
 }
 
 /**

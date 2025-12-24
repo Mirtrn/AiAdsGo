@@ -494,6 +494,16 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
                    $('meta[property="product:category"]').attr('content') ||
                    null
 
+  // 🔥 2025-12-24增强：提取实用的独立站特定数据（非Amazon风格，而是真实可用的）
+  // 1. 库存状态（不同平台有不同表示）
+  const stockStatus = extractStockStatus($)
+
+  // 2. 配送信息（免邮、运费、预计送达等）
+  const shippingInfo = extractShippingInfo($)
+
+  // 3. 促销标签（Limited Offer, Flash Sale, Best Seller等）
+  const badge = extractProductBadge($, platform)
+
   return {
     productName,
     productDescription,
@@ -508,6 +518,10 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
     availability,
     reviews,
     category,
+    // 🔥 增强的可选字段（有的话提取，没有也不强求）
+    ...(stockStatus && { stockStatus }),
+    ...(shippingInfo && { shippingInfo }),
+    ...(badge && { badge }),
   }
 }
 
@@ -1119,4 +1133,133 @@ function extractProductsFromImages(
       })
     }
   })
+}
+
+/**
+ * 🔥 2025-12-24新增：提取库存状态
+ * 支持多个平台的库存表示方式（Out of Stock, Sold Out, Limited Stock等）
+ */
+function extractStockStatus($: ReturnType<typeof import('cheerio').load>): string | null {
+  const stockSelectors = [
+    // Shopify
+    '[class*="stock"] [class*="status"]',
+    '[class*="availability"]',
+    // WooCommerce
+    '.stock.in-stock',
+    '.stock.out-of-stock',
+    '[class*="stock-status"]',
+    // Generic
+    '[class*="in-stock"]',
+    '[class*="out-of-stock"]',
+    '[class*="limited-stock"]',
+    '[data-stock-status]',
+  ]
+
+  for (const selector of stockSelectors) {
+    const text = $(selector).first().text().trim()
+    if (text && text.length > 0 && text.length < 100) {
+      // 过滤掉明显不是库存信息的内容
+      if (!/^(select|choose|pick|click)$/i.test(text)) {
+        return text
+      }
+    }
+  }
+
+  // 从data属性提取
+  const dataStock = $('[data-stock-status]').attr('data-stock-status')
+  if (dataStock) return dataStock
+
+  return null
+}
+
+/**
+ * 🔥 2025-12-24新增：提取配送信息
+ * 包括：免邮、运费、预计送达时间、配送限制等
+ */
+function extractShippingInfo($: ReturnType<typeof import('cheerio').load>): string | null {
+  const shippingSelectors = [
+    // 配送信息容器
+    '[class*="shipping"]',
+    '[class*="delivery"]',
+    '[class*="fulfillment"]',
+    // 特定平台
+    '[class*="ShippingOptions"]',
+    '[class*="DeliveryInfo"]',
+    // 通用标签
+    '[data-shipping]',
+    '[data-delivery]',
+  ]
+
+  for (const selector of shippingSelectors) {
+    const text = $(selector).first().text().trim()
+    if (text && text.length > 0 && text.length < 300) {
+      // 过滤掉不是配送信息的内容
+      if (!/^(choose|select|click|loading)$/i.test(text)) {
+        // 清理多余空白
+        return text.replace(/\s+/g, ' ').substring(0, 200)
+      }
+    }
+  }
+
+  // 尝试从图标或标签提取信息
+  const freeShipping = $('[class*="free"], [class*="shipping"]').filter((i, el) => {
+    const text = $(el).text().toLowerCase()
+    return text.includes('free') && text.includes('ship')
+  }).first().text().trim()
+
+  if (freeShipping && freeShipping.length < 100) {
+    return freeShipping
+  }
+
+  return null
+}
+
+/**
+ * 🔥 2025-12-24新增：提取产品徽章/标签
+ * 如：Best Seller, Limited Offer, Flash Sale, Featured等
+ */
+function extractProductBadge($: ReturnType<typeof import('cheerio').load>, platform: string | null): string | null {
+  const badgeSelectors = [
+    // Badge/Label容器
+    '[class*="badge"]',
+    '[class*="label"]',
+    '[class*="tag"]',
+    '[class*="ribbon"]',
+    '[class*="promotion"]',
+    '[class*="offer"]',
+    // Shopify特定
+    '[class*="product-badge"]',
+    '[class*="BestSeller"]',
+    '[data-badge]',
+    // WooCommerce
+    '.product-label',
+    '[class*="hot-label"]',
+  ]
+
+  // 按优先级检查
+  const priorityBadges = ['best', 'hot', 'limited', 'flash', 'new', 'sale', 'exclusive', 'featured']
+
+  for (const selector of badgeSelectors) {
+    const elements = $(selector)
+
+    // 首先尝试找高优先级的徽章
+    for (const badge of priorityBadges) {
+      const found = elements.filter((i, el) => {
+        const text = $(el).text().toLowerCase()
+        return text.includes(badge) && text.length < 50
+      }).first().text().trim()
+
+      if (found && found.length > 0 && found.length < 50) {
+        return found
+      }
+    }
+
+    // 如果没找到高优先级徽章，返回找到的第一个
+    const badge = elements.first().text().trim()
+    if (badge && badge.length > 0 && badge.length < 50 && !/^(select|choose|click|loading)$/i.test(badge)) {
+      return badge
+    }
+  }
+
+  return null
 }
