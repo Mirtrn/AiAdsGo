@@ -160,15 +160,17 @@ export default function GoogleAdsSetupGuidePage() {
               </CardHeader>
               <CardContent>
                 <ol className="list-decimal list-inside space-y-3 text-sm">
-                  <li>访问 <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-600 hover:underline">Google Cloud Console</a> 创建服务账号</li>
-                  <li>下载服务账号 JSON 密钥文件</li>
+                  <li>访问 <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-600 hover:underline">Google Cloud Console</a> 创建项目</li>
+                  <li>确保 GCP 项目<strong>启用了 Google Ads API</strong>（在"API和服务"→"库"中搜索并启用）</li>
+                  <li>在 GCP 项目中创建服务账号并下载 JSON 密钥文件</li>
                   <li>在 MCC 账号中申请 Developer Token（只需要测试权限即可）</li>
                   <li>在 MCC 账号的"访问权限和安全"中添加服务账号邮箱</li>
                   <li>在系统设置页面上传 JSON 文件并配置</li>
                 </ol>
                 <Alert className="mt-4">
+                  <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    <strong>提示：</strong>服务账号方式只需要测试权限的Developer Token即可
+                    <strong>提示：</strong>服务账号方式只需要测试权限的Developer Token即可，但必须先启用 Google Ads API
                   </AlertDescription>
                 </Alert>
               </CardContent>
@@ -266,6 +268,95 @@ export default function GoogleAdsSetupGuidePage() {
               <p className="text-sm text-gray-600">
                 在 Google Cloud Console 中删除旧密钥，重新创建新密钥并更新系统配置即可。
               </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6 border-orange-200 bg-orange-50">
+          <CardHeader>
+            <CardTitle className="text-orange-800">故障排除：invalid_client 错误</CardTitle>
+            <CardDescription className="text-orange-700">
+              如果您在配置过程中遇到 <code className="bg-orange-100 px-1 rounded">invalid_client</code> 错误，请按以下步骤排查
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="border-l-4 border-orange-400 pl-4">
+              <h4 className="font-semibold text-orange-800 mb-2">1. 检查 GCP 项目中的 Google Ads API 是否已启用</h4>
+              <p className="text-sm text-gray-600 mb-2">请访问以下链接确认 API 状态：</p>
+              <a
+                href="https://console.cloud.google.com/apis/library/googleads.googleapis.com"
+                target="_blank"
+                className="text-blue-600 hover:underline text-sm inline-flex items-center gap-1"
+              >
+                Google Cloud Console - Google Ads API 库 <ExternalLink className="w-3 h-3" />
+              </a>
+              <p className="text-sm text-gray-600 mt-2">
+                确认状态显示为 <strong>"Enabled"</strong>（已启用）。如果未启用，请点击"启用"按钮。
+              </p>
+            </div>
+
+            <div className="border-l-4 border-orange-400 pl-4">
+              <h4 className="font-semibold text-orange-800 mb-2">2. 验证 Developer Token 是否有效</h4>
+              <p className="text-sm text-gray-600 mb-2">请在 Google Ads API Center 中检查：</p>
+              <a
+                href="https://ads.google.com/aw/apicenter"
+                target="_blank"
+                className="text-blue-600 hover:underline text-sm inline-flex items-center gap-1"
+              >
+                Google Ads API Center <ExternalLink className="w-3 h-3" />
+              </a>
+              <ul className="text-sm text-gray-600 mt-2 list-disc list-inside space-y-1">
+                <li>Developer Token 状态必须是 <strong>"Enabled"</strong> 或 <strong>"Test - Ready to use"</strong></li>
+                <li>Token 格式是 22 位字符</li>
+                <li>如果 Token 状态为 "Pending" 或 "Review"，请等待 Google 审核</li>
+              </ul>
+            </div>
+
+            <div className="border-l-4 border-orange-400 pl-4">
+              <h4 className="font-semibold text-orange-800 mb-2">3. 确认服务账号邮箱已添加到 Google Ads MCC</h4>
+              <p className="text-sm text-gray-600 mb-2">请执行以下操作：</p>
+              <ol className="text-sm text-gray-600 list-decimal list-inside space-y-1">
+                <li>在 GCP 控制台获取完整的服务账号邮箱地址：
+                  <a
+                    href="https://console.cloud.google.com/iam-admin/serviceaccounts"
+                    target="_blank"
+                    className="text-blue-600 hover:underline ml-1 inline-flex items-center gap-1"
+                  >
+                    服务账号列表 <ExternalLink className="w-3 h-3" />
+                  </a>
+                </li>
+                <li>访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a></li>
+                <li>进入 <strong>"Tools & Settings" → "Access and security"</strong></li>
+                <li>添加服务账号邮箱，并分配适当的角色（如 "Standard access" 或 "Admin access"）</li>
+              </ol>
+              <Alert className="mt-3 bg-white border-orange-300">
+                <AlertCircle className="h-4 w-4 text-orange-500" />
+                <AlertDescription className="text-sm text-gray-600">
+                  <strong>重要：</strong>添加服务账号后，可能需要等待几分钟才能生效
+                </AlertDescription>
+              </Alert>
+            </div>
+
+            <div className="border-l-4 border-blue-400 pl-4 bg-blue-50 rounded-r">
+              <h4 className="font-semibold text-blue-800 mb-2">快速检查清单</h4>
+              <ul className="text-sm text-gray-600 space-y-1">
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                  <span>GCP 项目中 <strong>Google Ads API</strong> 已启用</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                  <span>Developer Token 状态为 <strong>Enabled</strong> 或 <strong>Test - Ready to use</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                  <span>服务账号邮箱已添加到 MCC 的 <strong>Access and security</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                  <span>MCC Customer ID 格式正确（10位数字，不带连字符）</span>
+                </li>
+              </ul>
             </div>
           </CardContent>
         </Card>

@@ -234,8 +234,26 @@ async function syncAccountsFromAPI(
   // 获取可访问的账户列表
   let resourceNames: string[]
   if (isServiceAccount) {
-    const response = await client.listAccessibleCustomers(accessToken)
-    resourceNames = response.resource_names || []
+    try {
+      const response = await client.listAccessibleCustomers(accessToken)
+      resourceNames = response.resource_names || []
+    } catch (listError: any) {
+      // 🔧 修复(2025-12-24): 改进 invalid_client 错误处理
+      if (listError.message?.includes('invalid_client')) {
+        console.error(`   ❌ 服务账号认证失败: invalid_client`)
+        console.error(`   可能的原因:`)
+        console.error(`   1. 服务账号没有被添加到 Google Ads MCC 的"访问权限和安全"中`)
+        console.error(`   2. Google Ads API 没有在 GCP 项目中启用`)
+        console.error(`   3. 服务账号邮箱没有访问 MCC 账号的权限`)
+        throw new Error(
+          `服务账号认证失败 (invalid_client)。` +
+          `请确保：1) 服务账号邮箱已被添加到 Google Ads MCC 的"访问权限和安全"中；` +
+          `2) GCP 项目中已启用 Google Ads API。` +
+          `服务账号邮箱: ${serviceAccountConfig.serviceAccountEmail}`
+        )
+      }
+      throw listError
+    }
   } else {
     const response = await client.listAccessibleCustomers(credentials.refresh_token)
     resourceNames = response.resource_names || []
@@ -786,9 +804,32 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('获取Google Ads账户失败:', error)
+
+    // 🔧 修复(2025-12-24): 根据错误类型返回合适的 HTTP 状态码
+    let statusCode = 500
+    let errorCode = 'UNKNOWN_ERROR'
+
+    if (error.message?.includes('invalid_client')) {
+      statusCode = 401  // 未授权
+      errorCode = 'INVALID_CLIENT'
+    } else if (error.message?.includes('没有访问权限') || error.message?.includes('permission')) {
+      statusCode = 403  // 禁止访问
+      errorCode = 'PERMISSION_DENIED'
+    } else if (error.message?.includes('找不到') || error.message?.includes('not found')) {
+      statusCode = 404
+      errorCode = 'NOT_FOUND'
+    } else if (error.message?.includes('凭证') || error.message?.includes('credentials')) {
+      statusCode = 400
+      errorCode = 'CREDENTIALS_ERROR'
+    }
+
     return NextResponse.json(
-      { error: '获取Google Ads账户失败', message: error.message || '未知错误' },
-      { status: 500 }
+      {
+        error: '获取Google Ads账户失败',
+        message: error.message || '未知错误',
+        code: errorCode
+      },
+      { status: statusCode }
     )
   }
 }
