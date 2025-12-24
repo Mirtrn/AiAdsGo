@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
-import { getServiceAccountConfig, createServiceAccountCustomer } from '@/lib/google-ads-service-account'
+import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 
 /**
  * 统一的 Mutate 操作（支持 OAuth 和服务账号两种认证模式）

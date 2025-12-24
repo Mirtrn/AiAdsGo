@@ -11,6 +11,21 @@ import { refreshAccessToken } from './google-ads-oauth'
 import { getGoogleAdsLanguageIdString, getGoogleAdsGeoTargetId } from './language-country-codes'
 import { getUnifiedGoogleAdsClient, getServiceAccountConfig, AuthType } from './google-ads-service-account'
 
+/**
+ * 🔧 修复(2025-12-24): 获取 KeywordPlanIdeaService
+ * OAuth 模式使用 customer.keywordPlanIdeas
+ * 服务账号模式使用 customer.loadService('KeywordPlanIdeaService')
+ */
+function getKeywordPlanIdeaService(customer: any, authType: AuthType | undefined) {
+  if (authType === 'service_account') {
+    // 服务账号模式：使用 loadService 动态加载服务
+    return customer.loadService('KeywordPlanIdeaService')
+  } else {
+    // OAuth 模式：直接访问 keywordPlanIdeas 属性
+    return customer.keywordPlanIdeas
+  }
+}
+
 interface KeywordVolume {
   keyword: string
   avgMonthlySearches: number
@@ -339,7 +354,9 @@ export async function getKeywordSearchVolumes(
 
           while (!success && retries <= maxRetries) {
             try {
-              const response = await customer.keywordPlanIdeas.generateKeywordHistoricalMetrics({
+              // 🔧 修复(2025-12-24): 使用统一的服务访问方式
+              const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
+              const response = await keywordPlanIdeas.generateKeywordHistoricalMetrics({
                 customer_id: config.customerId,
                 keywords: batch,
                 language: `languageConstants/${languageId}`,
@@ -637,7 +654,9 @@ export async function getKeywordSuggestions(
     const geoTargetId = getGoogleAdsGeoTargetId(country)
     const languageId = getGoogleAdsLanguageIdString(language)
 
-    const response = await customer.keywordPlanIdeas.generateKeywordIdeas({
+    // 🔧 修复(2025-12-24): 使用统一的服务访问方式
+    const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
+    const response = await keywordPlanIdeas.generateKeywordIdeas({
       customer_id: config.customerId,
       language: `languageConstants/${languageId}`,
       geo_target_constants: [`geoTargetConstants/${geoTargetId}`],

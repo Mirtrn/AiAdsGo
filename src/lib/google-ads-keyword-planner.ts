@@ -4,6 +4,21 @@ import { getGoogleAdsLanguageCode, getGoogleAdsGeoTargetId } from './language-co
 import { getGoogleAdsCredentialsFromDB } from './google-ads-api'
 
 /**
+ * 🔧 修复(2025-12-24): 获取 KeywordPlanIdeaService
+ * OAuth 模式使用 customer.keywordPlanIdeas
+ * 服务账号模式使用 customer.loadService('KeywordPlanIdeaService')
+ */
+function getKeywordPlanIdeaService(customer: any, authType: AuthType | undefined) {
+  if (authType === 'service_account') {
+    // 服务账号模式：使用 loadService 动态加载服务
+    return customer.loadService('KeywordPlanIdeaService')
+  } else {
+    // OAuth 模式：直接访问 keywordPlanIdeas 属性
+    return customer.keywordPlanIdeas
+  }
+}
+
+/**
  * 关键词建议结果
  */
 export interface KeywordIdea {
@@ -140,7 +155,9 @@ export async function getKeywordIdeas(params: {
       }
 
       // 调用Keyword Planner API
-      const ideas = await customer.keywordPlanIdeas.generateKeywordIdeas(request)
+      // 🔧 修复(2025-12-24): 使用统一的服务访问方式
+      const keywordPlanIdeas = getKeywordPlanIdeaService(customer, authType)
+      const ideas = await keywordPlanIdeas.generateKeywordIdeas(request)
 
       // 转换结果格式
       const batchIdeas: KeywordIdea[] = (ideas as any).map((idea: any) => ({
@@ -245,7 +262,9 @@ export async function getKeywordMetrics(params: {
     }
 
     // 调用Historical Metrics API
-    const metrics = await customer.keywordPlanIdeas.generateKeywordHistoricalMetrics(request as any)
+    // 🔧 修复(2025-12-24): 使用统一的服务访问方式
+    const keywordPlanIdeas = getKeywordPlanIdeaService(customer, authType)
+    const metrics = await keywordPlanIdeas.generateKeywordHistoricalMetrics(request as any)
 
     // 转换结果格式
     const keywordMetrics: KeywordMetrics[] = (metrics as any).map((metric: any) => ({

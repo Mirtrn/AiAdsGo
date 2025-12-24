@@ -482,11 +482,13 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
         setCreatives(sortedCreatives)
 
-        // 🔧 修复: generationCount 应该是生成次数（generation_round 的最大值），而不是现有创意数量
-        const maxGenerationRound = formattedCreatives.reduce((max: number, c: any) => {
-          return Math.max(max, c.generationRound || 0)
-        }, 0)
-        setGenerationCount(maxGenerationRound)
+        // 🔧 修复(2025-12-24): generationCount 应该是不同 generation_round 的个数
+        // 而不是 generation_round 的最大值（因为多轮生成可能产生多个创意）
+        // 例如：3次生成可能产生 5-6 个创意，但我们只显示最佳的 3 个
+        const uniqueGenerationRounds = new Set(
+          formattedCreatives.map((c: any) => c.generationRound || 0)
+        ).size
+        setGenerationCount(uniqueGenerationRounds)
 
         // 🆕 v4.16: 从API响应获取已生成的bucket列表
         if (data.generatedBuckets && Array.isArray(data.generatedBuckets)) {
