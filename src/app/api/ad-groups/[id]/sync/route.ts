@@ -96,7 +96,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       // 创建Google Ads Ad Group
       const adGroupResult = await createGoogleAdsAdGroup({
         customerId: googleAdsAccount.customerId,
-        refreshToken: googleAdsAccount.refreshToken,
+        refreshToken: googleAdsAccount.refreshToken || '',
         campaignId: campaign.campaignId,
         adGroupName: adGroup.adGroupName,
         cpcBidMicros: adGroup.cpcBidMicros || undefined,
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
         const keywordResults = await createGoogleAdsKeywordsBatch({
           customerId: googleAdsAccount.customerId,
-          refreshToken: googleAdsAccount.refreshToken,
+          refreshToken: googleAdsAccount.refreshToken || '',
           adGroupId: adGroupResult.adGroupId,
           keywords: keywordsBatch,
           accountId: googleAdsAccount.id,

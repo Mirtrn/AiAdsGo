@@ -175,14 +175,13 @@ export async function executeCampaignPublish(
     const credentials = await getGoogleAdsCredentials(userId)
 
     // 检查是否有服务账号配置
-    const db = await getDatabase()
     const serviceAccount = await db.queryOne(`
       SELECT id FROM google_ads_service_accounts
       WHERE user_id = ? AND is_active = 1
       ORDER BY created_at DESC LIMIT 1
     `, [userId]) as { id: string } | undefined
 
-    if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
+    if ((!credentials || !credentials!.refresh_token) && !serviceAccount) {
       throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
     }
 
@@ -232,7 +231,7 @@ export async function executeCampaignPublish(
 
     const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials.refresh_token,
+      refreshToken: credentials!.refresh_token,
       campaignName: campaignName, // 🔥 使用规范化命名
       budgetAmount: campaignConfig.budgetAmount,
       budgetType: campaignConfig.budgetType,
@@ -256,7 +255,7 @@ export async function executeCampaignPublish(
       console.log(`\n🎯 设置营销目标: ${marketingObjective}`)
       const marketingObjectiveResult = await setCampaignMarketingObjective({
         customerId: adsAccount.customer_id,
-        refreshToken: credentials.refresh_token,
+        refreshToken: credentials!.refresh_token,
         campaignId: googleCampaignId,
         marketingObjective: marketingObjective,
         accountId: adsAccount.id,
@@ -279,7 +278,7 @@ export async function executeCampaignPublish(
     totalApiOperations++ // Ad group creation = 1 operation
     const { adGroupId: googleAdGroupId } = await createGoogleAdsAdGroup({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials.refresh_token,
+      refreshToken: credentials!.refresh_token,
       campaignId: googleCampaignId,
       adGroupName: adGroupName, // 🔥 使用规范化命名
       cpcBidMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用相同的货币适配CPC
@@ -471,7 +470,7 @@ export async function executeCampaignPublish(
       totalApiOperations += keywordOperations.length
       await createGoogleAdsKeywordsBatch({
         customerId: adsAccount.customer_id,
-        refreshToken: credentials.refresh_token,
+        refreshToken: credentials!.refresh_token,
         adGroupId: googleAdGroupId,
         keywords: keywordOperations,
         accountId: adsAccount.id,
@@ -488,7 +487,7 @@ export async function executeCampaignPublish(
       totalApiOperations += negativeKeywordOperations.length
       await createGoogleAdsKeywordsBatch({
         customerId: adsAccount.customer_id,
-        refreshToken: credentials.refresh_token,
+        refreshToken: credentials!.refresh_token,
         adGroupId: googleAdGroupId,
         keywords: negativeKeywordOperations,
         accountId: adsAccount.id,
@@ -514,7 +513,7 @@ export async function executeCampaignPublish(
     totalApiOperations++
     const adResult = await createGoogleAdsResponsiveSearchAd({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials.refresh_token,
+      refreshToken: credentials!.refresh_token,
       adGroupId: googleAdGroupId,
       headlines: optimizedHeadlines,
       descriptions: creative.descriptions.slice(0, 4),
@@ -543,7 +542,7 @@ export async function executeCampaignPublish(
     totalApiOperations += finalCallouts.length + 1
     await createGoogleAdsCalloutExtensions({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials.refresh_token,
+      refreshToken: credentials!.refresh_token,
       campaignId: googleCampaignId,
       callouts: finalCallouts,
       accountId: adsAccount.id,
@@ -556,7 +555,7 @@ export async function executeCampaignPublish(
     totalApiOperations += formattedSitelinks.length + 1
     await createGoogleAdsSitelinkExtensions({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials.refresh_token,
+      refreshToken: credentials!.refresh_token,
       campaignId: googleCampaignId,
       sitelinks: formattedSitelinks,
       accountId: adsAccount.id,
@@ -575,7 +574,7 @@ export async function executeCampaignPublish(
         totalApiOperations++
         await updateGoogleAdsCampaignStatus({
           customerId: adsAccount.customer_id,
-          refreshToken: credentials.refresh_token,
+          refreshToken: credentials!.refresh_token,
           campaignId: googleCampaignId,
           status: 'ENABLED',
           accountId: adsAccount.id,

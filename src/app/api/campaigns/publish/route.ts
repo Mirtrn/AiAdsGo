@@ -312,8 +312,8 @@ export async function POST(request: NextRequest) {
     const credentials = await getGoogleAdsCredentials(userId)
 
     // 检查是否有服务账号配置
-    const db = await getDatabase()
-    const serviceAccount = await db.queryOne(`
+    const db2 = await getDatabase()
+    const serviceAccount = await db2.queryOne(`
       SELECT id FROM google_ads_service_accounts
       WHERE user_id = ? AND is_active = 1
       ORDER BY created_at DESC LIMIT 1

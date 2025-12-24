@@ -267,9 +267,6 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
       const { createServiceAccountCustomer } = await import('./google-ads-service-account')
       const { decrypt } = await import('./crypto')
 
-      // 获取 OAuth 配置中的 client_id 和 client_secret
-      const userConfigs = await readUserConfigs(db, userId)
-
       // 获取加密的私钥
       const privateKeyRow = await db.queryOne(`
         SELECT private_key FROM google_ads_service_accounts WHERE id = ?
@@ -281,7 +278,7 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
 
       const customer = createServiceAccountCustomer({
         clientEmail: serviceAccount.service_account_email,
-        privateKey: decrypt(privateKeyRow.private_key),
+        privateKey: decrypt(privateKeyRow.private_key) || '',
         developerToken: serviceAccount.developer_token,
         customerId: serviceAccount.mcc_customer_id,
         loginCustomerId: serviceAccount.mcc_customer_id,

@@ -138,7 +138,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       // 创建Google Ads Responsive Search Ad
       const adResult = await createGoogleAdsResponsiveSearchAd({
         customerId: googleAdsAccount.customerId,
-        refreshToken: googleAdsAccount.refreshToken,
+        refreshToken: googleAdsAccount.refreshToken || '',
         adGroupId: adGroup.adGroupId,
         headlines,
         descriptions,

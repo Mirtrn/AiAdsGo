@@ -73,7 +73,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       // 创建Google Ads广告系列
       const result = await createGoogleAdsCampaign({
         customerId: googleAdsAccount.customerId,
-        refreshToken: googleAdsAccount.refreshToken,
+        refreshToken: googleAdsAccount.refreshToken || '',
         campaignName: campaign.campaignName,
         budgetAmount: campaign.budgetAmount,
         budgetType: campaign.budgetType as 'DAILY' | 'TOTAL',

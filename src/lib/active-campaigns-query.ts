@@ -70,7 +70,6 @@ export async function queryActiveCampaigns(
   const credentials = await getGoogleAdsCredentials(userId)
 
   // 检查是否有服务账号配置
-  const db = await getDatabase()
   const serviceAccount = await db.queryOne(`
     SELECT id FROM google_ads_service_accounts
     WHERE user_id = ? AND is_active = 1
@@ -85,7 +84,7 @@ export async function queryActiveCampaigns(
   console.log(`🔍 查询Google Ads账号 ${adsAccount.customer_id} 中的广告系列...`)
   const allCampaigns = await listGoogleAdsCampaigns({
     customerId: adsAccount.customer_id,
-    refreshToken: credentials.refresh_token,
+    refreshToken: credentials?.refresh_token || '',
     accountId: googleAdsAccountId,
     userId,
     loginCustomerId: finalLoginCustomerId
@@ -175,7 +174,7 @@ export async function pauseCampaigns(
       console.log(`⏸️ 暂停广告系列: ${campaign.name} (${campaign.id})`)
       await updateGoogleAdsCampaignStatus({
         customerId: adsAccount.customer_id,
-        refreshToken: credentials.refresh_token,
+        refreshToken: credentials?.refresh_token || '',
         campaignId: campaign.id,
         status: 'PAUSED',
         accountId: googleAdsAccountId,

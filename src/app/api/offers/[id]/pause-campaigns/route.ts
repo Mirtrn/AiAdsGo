@@ -111,11 +111,11 @@ export async function POST(
         // 获取Google Ads账号凭证
         const accountCredentials = await getDecryptedCredentials(accountId, offer.user_id)
 
-        if (!accountCredentials || (!accountCredentials.refreshToken && !accountCredentials.serviceAccountId)) {
+        if (!accountCredentials || !accountCredentials.refreshToken) {
           // 账号凭证不存在或认证信息缺失，标记失败
           const errorMsg = !accountCredentials
             ? 'Google Ads账号凭证不存在'
-            : 'Google Ads账号认证信息缺失（需要OAuth或服务账号）'
+            : 'Google Ads账号认证信息缺失（需要OAuth）'
           accountCampaigns.forEach(campaign => {
             results.push({
               campaignId: campaign.id,
@@ -134,7 +134,7 @@ export async function POST(
             // 调用Google Ads API暂停广告系列
             await updateGoogleAdsCampaignStatus({
               customerId: accountCredentials.customerId,
-              refreshToken: accountCredentials.refreshToken,
+              refreshToken: accountCredentials.refreshToken || '',
               campaignId: campaign.google_campaign_id,
               status: 'PAUSED',
               accountId: accountId,
