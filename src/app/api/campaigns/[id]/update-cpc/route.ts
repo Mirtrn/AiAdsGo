@@ -1,7 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
-import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
+import { getServiceAccountConfig, createServiceAccountCustomer } from '@/lib/google-ads-service-account'
+
+/**
+ * 统一的 Mutate 操作（支持 OAuth 和服务账号两种认证模式）
+ *
+ * @param customer - Google Ads 客户端
+ * @param isServiceAccount - 是否为服务账号模式
+ * @param mutateType - mutate 类型 (ad_group, campaign 等)
+ * @param operations - 操作数组
+ */
+async function mutateResources(
+  customer: any,
+  isServiceAccount: boolean,
+  mutateType: string,
+  operations: any[]
+): Promise<void> {
+  if (isServiceAccount) {
+    // 服务账号模式：使用 @htdangkhoa/google-ads 的 mutate 方法
+    const mutateOperations: Record<string, any> = {}
+    mutateOperations[`${mutateType}_operation`] = operations.length === 1 ? operations[0] : { update: operations.map(op => op.update) }
+
+    await customer.mutate({
+      mutate_operations: [mutateOperations],
+      partial_failure: true,
+    })
+  } else {
+    // OAuth 模式：使用 google-ads-api 的 update 方法
+    switch (mutateType) {
+      case 'ad_group':
+        await customer.adGroups.update(operations)
+        break
+      case 'campaign':
+        await customer.campaigns.update(operations)
+        break
+      default:
+        throw new Error(`不支持的 mutate 类型: ${mutateType}`)
+    }
+  }
+}
 
 /**
  * PUT /api/campaigns/:id/update-cpc
@@ -60,7 +98,10 @@ export async function PUT(
     const credentials = await getGoogleAdsCredentialsFromDB(parseInt(userId, 10))
 
     // 判断使用服务账号还是 OAuth 认证
-    const useServiceAccount = googleAdsAccount.serviceAccountId && credentials.useServiceAccount
+    const useServiceAccount = !!(
+      googleAdsAccount.serviceAccountId &&
+      credentials.useServiceAccount
+    )
 
     let customer: any
 
@@ -177,13 +218,16 @@ export async function PUT(
       // 更新每个Ad Group的CPC
       const cpcMicros = Math.round(newCpc * 1000000) // 转换为微单位
 
-      const operations = adGroups.map((adGroup: any) => ({
-        resource_name: `customers/${googleAdsAccount.customerId}/adGroups/${adGroup.ad_group.id}`,
-        cpc_bid_micros: cpcMicros,
+      const adGroupOperations = adGroups.map((adGroup: any) => ({
+        update: {
+          resource_name: `customers/${googleAdsAccount.customerId}/adGroups/${adGroup.ad_group.id}`,
+          cpc_bid_micros: cpcMicros,
+        },
+        update_mask: 'cpc_bid_micros',
       }))
 
       // 批量更新Ad Groups
-      await customer.adGroups.update(operations as any)
+      await mutateResources(customer, useServiceAccount, 'ad_group', adGroupOperations)
 
       return NextResponse.json({
         success: true,
@@ -195,7 +239,7 @@ export async function PUT(
       // Maximize Clicks: 更新最大CPC限制
       const cpcMicros = Math.round(newCpc * 1000000)
 
-      const operation = {
+      const campaignOperation = {
         update: {
           resource_name: `customers/${googleAdsAccount.customerId}/campaigns/${campaignId}`,
           maximize_clicks: {
@@ -205,7 +249,8 @@ export async function PUT(
         update_mask: 'maximize_clicks.max_cpc_bid_micros',
       }
 
-      await customer.campaigns.update([operation] as any)
+      // 更新广告系列
+      await mutateResources(customer, useServiceAccount, 'campaign', [campaignOperation])
 
       return NextResponse.json({
         success: true,
@@ -216,7 +261,7 @@ export async function PUT(
       // Target CPA: 更新目标CPA
       const cpaMicros = Math.round(newCpc * 1000000)
 
-      const operation = {
+      const campaignOperation = {
         update: {
           resource_name: `customers/${googleAdsAccount.customerId}/campaigns/${campaignId}`,
           target_cpa: {
@@ -226,7 +271,8 @@ export async function PUT(
         update_mask: 'target_cpa.target_cpa_micros',
       }
 
-      await customer.campaigns.update([operation] as any)
+      // 更新广告系列
+      await mutateResources(customer, useServiceAccount, 'campaign', [campaignOperation])
 
       return NextResponse.json({
         success: true,
