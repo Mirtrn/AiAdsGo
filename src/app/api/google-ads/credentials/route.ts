@@ -6,6 +6,8 @@ import {
   deleteGoogleAdsCredentials,
   verifyGoogleAdsCredentials
 } from '@/lib/google-ads-oauth'
+import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
+import { getDatabase } from '@/lib/db'
 
 /**
  * POST /api/google-ads/credentials
@@ -83,7 +85,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/google-ads/credentials
- * 获取Google Ads凭证状态
+ * 获取Google Ads凭证状态（包括OAuth和服务账号）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -96,15 +98,41 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const credentials = await getGoogleAdsCredentials(authResult.user.userId)
+    const userId = authResult.user.userId
 
-    // 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须有自己的完整凭证
-    // 移除共享配置回退逻辑，确保用户数据完全隔离
-    if (!credentials) {
+    // 1. 检查 OAuth 凭证
+    const credentials = await getGoogleAdsCredentials(userId)
+
+    // 2. 检查是否有已激活的服务账号配置
+    let hasServiceAccount = false
+    let serviceAccountId: string | null = null
+    let serviceAccountName: string | null = null
+    try {
+      const db = await getDatabase()
+      const serviceAccount = await db.queryOne(`
+        SELECT id, name FROM google_ads_service_accounts
+        WHERE user_id = ? AND is_active = 1
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [userId]) as { id: string; name: string } | undefined
+
+      if (serviceAccount) {
+        hasServiceAccount = true
+        serviceAccountId = serviceAccount.id
+        serviceAccountName = serviceAccount.name
+      }
+    } catch (err) {
+      console.error('检查服务账号配置失败:', err)
+    }
+
+    // 如果没有 OAuth 凭证且没有服务账号，返回未配置状态
+    if (!credentials && !hasServiceAccount) {
       return NextResponse.json({
         success: true,
         data: {
-          hasCredentials: false
+          hasCredentials: false,
+          hasRefreshToken: false,
+          hasServiceAccount: false,
         }
       })
     }
@@ -114,14 +142,17 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         hasCredentials: true,
-        clientId: credentials.client_id,
-        developerToken: credentials.developer_token,
-        loginCustomerId: credentials.login_customer_id,
-        hasRefreshToken: !!credentials.refresh_token,
-        lastVerifiedAt: credentials.last_verified_at,
-        isActive: credentials.is_active === 1,
-        createdAt: credentials.created_at,
-        updatedAt: credentials.updated_at
+        clientId: credentials?.client_id,
+        developerToken: credentials?.developer_token,
+        loginCustomerId: credentials?.login_customer_id,
+        hasRefreshToken: !!credentials?.refresh_token,
+        hasServiceAccount,
+        serviceAccountId,
+        serviceAccountName,
+        lastVerifiedAt: credentials?.last_verified_at,
+        isActive: credentials?.is_active === 1,
+        createdAt: credentials?.created_at,
+        updatedAt: credentials?.updated_at
       }
     })
 

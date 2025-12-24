@@ -32,6 +32,9 @@ interface Credentials {
   loginCustomerId?: string
   refreshToken?: string
   hasRefreshToken: boolean
+  hasServiceAccount: boolean
+  serviceAccountId?: string
+  serviceAccountName?: string
 }
 
 export default function GoogleAdsPage() {
@@ -342,7 +345,10 @@ export default function GoogleAdsPage() {
   }
 
   // 🔧 修复(2025-12-12): 独立账号模式 - 用户必须配置完整的 Google Ads API 凭证并完成 OAuth 授权
+  // 🔧 修复(2025-12-24): 服务账号模式也支持
   const hasRefreshToken = credentials?.hasRefreshToken || false
+  const hasServiceAccount = credentials?.hasServiceAccount || false
+  const isConfigured = hasRefreshToken || hasServiceAccount
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -355,7 +361,7 @@ export default function GoogleAdsPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleRefreshAccounts}
-                disabled={accountsLoading || (!hasRefreshToken && !currentServiceAccountId)}
+                disabled={accountsLoading || !isConfigured}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {accountsLoading ? '刷新中...' : '刷新账户列表'}
@@ -379,26 +385,34 @@ export default function GoogleAdsPage() {
             </div>
           )}
 
-          {!hasRefreshToken && (
+          {!isConfigured && (
             <div className="mb-6 bg-amber-50 border border-amber-200 rounded-md p-4">
               <p className="text-sm text-amber-800 font-semibold mb-2">⚠️ 未完成 Google Ads API 配置</p>
               <p className="text-sm text-amber-700 mb-3">
-                使用 Google Ads 功能前，需要完成以下配置：
+                使用 Google Ads 功能前，需要完成以下配置之一：
               </p>
               <ol className="text-sm text-amber-700 list-decimal list-inside space-y-1 mb-3">
-                <li>在系统设置中填写所有 Google Ads API 必填参数</li>
-                <li>保存配置后，点击"启动 OAuth 授权"完成账号绑定</li>
+                <li><strong>OAuth 模式</strong>: 在系统设置中填写所有 Google Ads API 必填参数，并完成 OAuth 授权</li>
+                <li><strong>服务账号模式</strong>: 在服务账号配置中添加有效的服务账号凭证</li>
               </ol>
-              <a
-                href="/settings"
-                className="inline-block px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded hover:bg-amber-700"
-              >
-                前往配置 →
-              </a>
+              <div className="flex gap-3">
+                <a
+                  href="/settings"
+                  className="inline-block px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded hover:bg-amber-700"
+                >
+                  前往 OAuth 配置 →
+                </a>
+                <a
+                  href="/settings?tab=service-account"
+                  className="inline-block px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
+                >
+                  前往服务账号配置 →
+                </a>
+              </div>
             </div>
           )}
 
-          {hasRefreshToken && (
+          {(hasRefreshToken || hasServiceAccount) && (
             <>
               <div className="mb-4 flex items-center justify-between">
                 <div>
