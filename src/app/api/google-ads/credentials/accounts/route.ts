@@ -285,7 +285,7 @@ async function syncAccountsFromAPI(
       let customer: any
 
       if (isServiceAccount) {
-        // 服务账号模式：使用 @htdangkhoa/google-ads
+        // 服务账号模式：使用 @htdangkhoa/google-ads（使用 search 方法）
         customer = createServiceAccountCustomer({
           clientEmail: serviceAccountConfig.serviceAccountEmail,
           privateKey: serviceAccountConfig.privateKey,
@@ -323,7 +323,9 @@ async function syncAccountsFromAPI(
         WHERE customer.id = ${customerId}
       `
 
-      const accountInfo = await customer.query(accountInfoQuery)
+      const accountInfo = await customer.search({
+        query: accountInfoQuery,
+      })
       apiSuccess = true // Account query succeeded
 
       if (accountInfo && accountInfo.length > 0) {
@@ -346,7 +348,9 @@ async function syncAccountsFromAPI(
             ORDER BY account_budget.id DESC
             LIMIT 1
           `
-          const budgetInfo = await customer.query(budgetQuery)
+          const budgetInfo = await customer.search({
+            query: budgetQuery,
+          })
           if (budgetInfo && budgetInfo.length > 0) {
             const budget = budgetInfo[0].account_budget
             const amountServed = Number(budget?.amount_served_micros || 0)
@@ -405,7 +409,9 @@ async function syncAccountsFromAPI(
           let mccApiErrorMessage: string | undefined
 
           try {
-            const childAccounts = await customer.query(childAccountsQuery)
+            const childAccounts = await customer.search({
+              query: childAccountsQuery,
+            })
             mccApiSuccess = true
 
             for (const child of childAccounts) {
@@ -460,7 +466,9 @@ async function syncAccountsFromAPI(
                       ORDER BY account_budget.id DESC
                       LIMIT 1
                     `
-                    const childBudgetInfo = await childCustomer.query(childBudgetQuery)
+                    const childBudgetInfo = await childCustomer.search({
+                      query: childBudgetQuery,
+                    })
                     if (childBudgetInfo && childBudgetInfo.length > 0) {
                       const budget = childBudgetInfo[0].account_budget
                       const amountServed = Number(budget?.amount_served_micros || 0)
