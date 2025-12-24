@@ -1965,14 +1965,28 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
   console.log('🔍 清理markdown后长度:', jsonText.length)
   console.log('🔍 清理markdown后前200字符:', jsonText.substring(0, 200))
 
-  // 尝试提取JSON对象（如果AI在JSON前后加了其他文本）
-  const jsonMatch = jsonText.match(/\{[\s\S]*\}/)
-  if (jsonMatch) {
-    jsonText = jsonMatch[0]
-    console.log('✅ 成功提取JSON对象，长度:', jsonText.length)
+  // 尝试提取JSON对象或数组（如果AI在JSON前后加了其他文本）
+  // 支持 { ... } 和 [ ... ] 两种格式
+  const jsonObjectMatch = jsonText.match(/\{[\s\S]*\}/)
+  const jsonArrayMatch = jsonText.match(/\[[\s\S]*\]/)
+
+  if (jsonObjectMatch && jsonArrayMatch) {
+    // 两者都存在时，选择更长的那个
+    jsonText = jsonObjectMatch[0].length > jsonArrayMatch[0].length ? jsonObjectMatch[0] : jsonArrayMatch[0]
+  } else if (jsonObjectMatch) {
+    jsonText = jsonObjectMatch[0]
+  } else if (jsonArrayMatch) {
+    jsonText = jsonArrayMatch[0]
   } else {
-    console.warn('⚠️ 未能通过正则提取JSON对象')
+    console.warn('⚠️ 未能通过正则提取JSON对象或数组')
   }
+
+  if (jsonObjectMatch || jsonArrayMatch) {
+    console.log('✅ 成功提取JSON，长度:', jsonText.length)
+  }
+
+  // 清理提取后可能残留的markdown标记
+  jsonText = jsonText.replace(/\n?```$/, '').trim()
 
   // 修复常见的JSON格式错误
   // 1. 移除尾部逗号（数组和对象中）
