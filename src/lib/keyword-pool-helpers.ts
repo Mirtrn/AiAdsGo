@@ -5,6 +5,7 @@
 
 import type { PoolKeywordData } from './offer-keyword-pool'
 import { expandKeywordsWithSeeds } from './unified-keyword-service'
+import { getTrendsKeywords, getPopularSearchTerms } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
 import { detectCountryInKeyword } from './google-suggestions'
 
@@ -34,7 +35,12 @@ function isCompetitorKeyword(keyword: string, brandName: string): boolean {
 // ============================================
 
 /**
- * 全量关键词扩展（替换3轮品牌种子词策略）
+ * 全量关键词扩展（🔥 2025-12-24 新增：集成 Google Trends 数据源）
+ *
+ * 策略：
+ * 1. Keyword Planner 扩展（主数据源）
+ * 2. Google Trends 变体扩展（补充长尾词）
+ * 3. 热门品类词补充
  */
 export async function expandAllKeywords(
   initialKeywords: PoolKeywordData[],
@@ -50,7 +56,7 @@ export async function expandAllKeywords(
   clientSecret?: string,
   developerToken?: string
 ): Promise<PoolKeywordData[]> {
-  console.log(`\n📋 全量关键词扩展策略:`)
+  console.log(`\n📋 全量关键词扩展策略 (🔥 v4.17 增强版):`)
   console.log(`   初始关键词数量: ${initialKeywords.length}`)
 
   const allKeywords = [...initialKeywords]
@@ -59,7 +65,8 @@ export async function expandAllKeywords(
   console.log(`   扩展种子词: ${seedKeywords.length}个`)
 
   try {
-    // 批量调用 Keyword Planner（利用Redis缓存）
+    // ========== 阶段1: Keyword Planner 扩展 ==========
+    console.log(`\n   📊 阶段1: Keyword Planner 扩展`)
     const expandedResults = await expandKeywordsWithSeeds({
       expansionSeeds: seedKeywords,
       country: targetCountry,
@@ -72,8 +79,8 @@ export async function expandAllKeywords(
       clientId,
       clientSecret,
       developerToken,
-      maxKeywords: DEFAULTS.maxKeywords,  // 🔥 修复(2025-12-17): 使用常量避免硬编码
-      minSearchVolume: DEFAULTS.minSearchVolume  // 🔥 降低搜索量门槛，保留更多有价值关键词
+      maxKeywords: DEFAULTS.maxKeywords,
+      minSearchVolume: DEFAULTS.minSearchVolume
     })
 
     // 合并结果（去重）
@@ -92,7 +99,62 @@ export async function expandAllKeywords(
       }
     })
 
-    console.log(`   扩展后关键词数量: ${allKeywords.length}`)
+    console.log(`   Keyword Planner 扩展后: ${allKeywords.length} 个`)
+
+    // ========== 阶段2: Google Trends 扩展（🔥 2025-12-24 新增） ==========
+    console.log(`\n   📊 阶段2: Google Trends 变体扩展`)
+
+    try {
+      const trendsKeywords = await getTrendsKeywords(
+        seedKeywords.slice(0, 10), // 限制种子词数量，避免过多变体
+        brandName,
+        category
+      )
+
+      // 合并 Trends 关键词
+      let trendsAdded = 0
+      trendsKeywords.forEach(kw => {
+        if (!allKeywords.find(k => k.keyword.toLowerCase() === kw.keyword.toLowerCase())) {
+          allKeywords.push(kw)
+          trendsAdded++
+        }
+      })
+      console.log(`   Google Trends 新增: ${trendsAdded} 个`)
+    } catch (error: any) {
+      console.warn(`   ⚠️ Google Trends 扩展失败: ${error.message}`)
+    }
+
+    // ========== 阶段3: 热门品类词补充（🔥 2025-12-24 新增） ==========
+    console.log(`\n   📊 阶段3: 热门品类词补充`)
+
+    const popularTerms = getPopularSearchTerms(category)
+    let popularAdded = 0
+
+    for (const term of popularTerms) {
+      // 检查是否已存在
+      const exists = allKeywords.some(k =>
+        k.keyword.toLowerCase().includes(term.toLowerCase()) ||
+        term.toLowerCase().includes(k.keyword.toLowerCase())
+      )
+
+      if (!exists) {
+        allKeywords.push({
+          keyword: `${brandName} ${term}`,
+          searchVolume: 0,
+          competition: 'MEDIUM',
+          competitionIndex: 50,
+          lowTopPageBid: 0,
+          highTopPageBid: 0,
+          source: 'POPULAR',
+          matchType: 'BROAD'
+        })
+        popularAdded++
+      }
+    }
+
+    console.log(`   热门品类词新增: ${popularAdded} 个`)
+
+    console.log(`\n   📊 扩展后关键词数量: ${allKeywords.length}`)
 
     // 🔥 2025-12-22新增：应用增强去重算法
     // 从关键词列表中提取纯文本进行去重

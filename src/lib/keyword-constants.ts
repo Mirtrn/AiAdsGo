@@ -95,7 +95,163 @@ export const SOURCES = {
   SCRAPED: 'SCRAPED',
   EXPANDED: 'EXPANDED',
   AI_GENERATED: 'AI_GENERATED',
-  SEED: 'SEED'
+  SEED: 'SEED',
+  TRENDS: 'TRENDS',      // 🔥 2025-12-24: Google Trends 来源
+  POPULAR: 'POPULAR'     // 🔥 2025-12-24: 热门品类词来源
+} as const
+
+// ============================================
+// 🔥 2025-12-24: Google Trends 相关常量（避免硬编码）
+// ============================================
+
+/**
+ * Google Trends 品类关键词映射
+ * 用于从种子词生成相关查询变体
+ */
+export const TRENDS_CATEGORY_KEYWORDS: Record<string, string[]> = {
+  'robot vacuum': [
+    'robot vacuum', 'robot vacuum cleaner', 'robo vacuum',
+    'vacuum robot', 'automatic vacuum', 'smart vacuum',
+    'floor cleaning robot', 'home cleaning robot', 'pet hair vacuum'
+  ],
+  'doorbell': [
+    'video doorbell', 'smart doorbell', 'doorbell camera',
+    'wireless doorbell', 'front door camera', 'entry camera'
+  ],
+  'security camera': [
+    'security camera', 'outdoor camera', 'indoor camera',
+    'wireless camera', 'ip camera', 'cctv camera', 'home security'
+  ],
+  'speaker': [
+    'smart speaker', 'voice assistant', 'bluetooth speaker',
+    'wireless speaker', 'portable speaker', 'home audio'
+  ],
+  'smart home': [
+    'smart home', 'home automation', 'iot device', 'smart device'
+  ]
+}
+
+/**
+ * 关键词修饰词列表（用于生成变体）
+ */
+export const KEYWORD_MODIFIERS = {
+  /** 购买意图修饰词 */
+  buy: ['buy', 'purchase', 'shop', 'get', 'order'],
+  /** 评价修饰词 */
+  review: ['review', 'reviews', 'rating', 'testimonial'],
+  /** 型号修饰词 */
+  model: ['pro', 'plus', 'max', 'ultra', 'lite', 'air', 's'],
+  /** 时间修饰词 */
+  time: ['2024', '2025', 'new', 'latest', 'best'],
+  /** 特性修饰词 */
+  feature: ['wireless', 'smart', 'automatic', 'intelligent']
+}
+
+/**
+ * 已知的扫地机器人竞品列表（用于生成比较词）
+ */
+export const VACUUM_COMPETITORS = ['roomba', 'neato', 'iRobot', 'dyson', 'shark'] as const
+
+/**
+ * 品类通配词映射
+ * 用于补充热门品类词
+ */
+export const CATEGORY_WILDCARDS: Record<string, string[]> = {
+  'vacuum': [
+    `${'{brand}'} vacuum`,
+    `${'{brand}'} robot vacuum`,
+    `${'{brand}'} floor cleaner`,
+    'robot vacuum cleaner',
+    'automatic vacuum',
+    'smart vacuum',
+    'cordless vacuum',
+    'pet hair vacuum'
+  ],
+  'cleaner': [
+    `${'{brand}'} floor cleaner`,
+    `${'{brand}'} mop`,
+    'hard floor cleaner',
+    'tile floor cleaner',
+    'wood floor cleaner'
+  ],
+  'robot': [
+    `${'{brand}'} robot`,
+    'home robot',
+    'cleaning robot',
+    'autonomous robot'
+  ],
+  'security': [
+    `${'{brand}'} security`,
+    'home security camera',
+    'outdoor security camera',
+    'wireless security camera'
+  ],
+  'camera': [
+    `${'{brand}'} camera`,
+    `${'{brand}'} outdoor camera`,
+    'security camera',
+    'indoor camera'
+  ],
+  'doorbell': [
+    `${'{brand}'} doorbell`,
+    'video doorbell',
+    'smart doorbell',
+    'wireless doorbell'
+  ]
+}
+
+/**
+ * 热门搜索词映射
+ * 按品类提供热门搜索建议
+ */
+export const POPULAR_SEARCH_TERMS: Record<string, string[]> = {
+  'vacuum': [
+    'robot vacuum',
+    'cordless vacuum',
+    'stick vacuum',
+    'upright vacuum',
+    'canister vacuum',
+    'handheld vacuum',
+    'pet hair vacuum',
+    'robot mop',
+    'vacuum and mop combo'
+  ],
+  'cleaner': [
+    'floor cleaner',
+    'steam mop',
+    'cordless mop',
+    'robot mop',
+    'hard floor cleaner'
+  ],
+  'security': [
+    'home security',
+    'security camera',
+    'doorbell camera',
+    'outdoor camera',
+    'wireless camera',
+    'cctv system'
+  ],
+  'camera': [
+    'security camera',
+    'outdoor camera',
+    'indoor camera',
+    'wireless camera',
+    '4k camera'
+  ]
+}
+
+/**
+ * Google Trends 配置
+ */
+export const TRENDS_CONFIG = {
+  /** 种子词数量限制（避免过多变体） */
+  maxSeedKeywords: 10,
+  /** 每个种子词生成的最大变体数 */
+  maxVariationsPerSeed: 15,
+  /** 最大热门品类词数量 */
+  maxPopularTerms: 10,
+  /** 后备查询最大数量 */
+  maxFallbackQueries: 20
 } as const
 
 /**
