@@ -214,7 +214,7 @@ export default function GoogleAdsSetupGuidePage() {
                     <div>
                       <h4 className="font-medium">添加服务账号到 MCC</h4>
                       <p className="text-sm text-gray-600 mt-1">
-                        在 Google Ads MCC 的"访问权限和安全"中添加服务账号邮箱，分配适当角色
+                        在 Google Ads MCC 的"访问权限和安全"中添加服务账号邮箱，分配<strong>标准角色</strong>
                       </p>
                     </div>
                   </div>
