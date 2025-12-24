@@ -32,6 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Rocket, CheckCircle2, AlertCircle, Loader2, TrendingUp, Settings, Link2 } from 'lucide-react'
+import { CURRENCY_SYMBOLS } from '@/lib/currency'
 
 interface Props {
   offer: any
@@ -53,6 +54,10 @@ export default function Step4PublishSummary({
   const [pauseOldCampaigns, setPauseOldCampaigns] = useState(false)
   const [enableCampaignImmediately, setEnableCampaignImmediately] = useState(false)  // 默认不启用
   const [publishing, setPublishing] = useState(false)
+
+  // 🔧 修复(2025-12-24): 获取正确的货币符号
+  const accountCurrency = selectedAccount?.currencyCode || 'USD'
+  const currencySymbol = CURRENCY_SYMBOLS[accountCurrency] || '$'
 
   // 🔥 新增：调试日志 - 追踪selectedCreative中的否定关键词
   console.log(`[Step4] selectedCreative ID: ${selectedCreative.id}`)
@@ -1443,7 +1448,7 @@ export default function Step4PublishSummary({
               <div>
                 <span className="text-gray-600">预算:</span>
                 <div className="font-semibold mt-1">
-                  ${campaignConfig.budgetAmount.toFixed(2)} /{' '}
+                  {currencySymbol}{campaignConfig.budgetAmount.toFixed(2)} /{' '}
                   {campaignConfig.budgetType === 'DAILY' ? '每日' : '总计'}
                 </div>
               </div>
@@ -1466,7 +1471,7 @@ export default function Step4PublishSummary({
               </div>
               <div>
                 <span className="text-gray-600">最大CPC出价:</span>
-                <div className="font-semibold mt-1">${campaignConfig.maxCpcBid.toFixed(2)}</div>
+                <div className="font-semibold mt-1">{currencySymbol}{campaignConfig.maxCpcBid.toFixed(2)}</div>
               </div>
               <div>
                 <span className="text-gray-600">关键词数量:</span>
@@ -1558,7 +1563,7 @@ export default function Step4PublishSummary({
                     <TableRow key={camp.id}>
                       <TableCell className="font-medium">{camp.campaignName}</TableCell>
                       <TableCell>{camp.creativeTheme || '-'}</TableCell>
-                      <TableCell>${camp.budgetAmount}</TableCell>
+                      <TableCell>{currencySymbol}{camp.budgetAmount}</TableCell>
                       <TableCell>{new Date(camp.createdAt).toLocaleDateString()}</TableCell>
                     </TableRow>
                   ))}
