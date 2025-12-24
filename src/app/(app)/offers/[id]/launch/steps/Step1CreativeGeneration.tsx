@@ -742,13 +742,20 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const renderExpandableList = (
     creativeId: number,
     sectionKey: string,
-    items: string[],
+    items: string[] | any[],
     title: string,
     defaultShow = 3
   ) => {
     const isExpanded = isSectionExpanded(creativeId, sectionKey)
     const displayItems = isExpanded ? items : items.slice(0, defaultShow)
     const hasMore = items.length > defaultShow
+
+    // 🔧 修复(2025-12-24): 处理对象数组（如{text: '...'}）和字符串数组
+    const getItemText = (item: any): string => {
+      if (typeof item === 'string') return item
+      if (typeof item === 'object' && item !== null && 'text' in item) return item.text
+      return String(item)
+    }
 
     return (
       <div>
@@ -770,7 +777,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         <div className="space-y-1.5">
           {displayItems.map((item, i) => (
             <div key={i} className="text-sm text-gray-600 p-2 bg-gray-50 rounded">
-              {item}
+              {getItemText(item)}
             </div>
           ))}
         </div>
