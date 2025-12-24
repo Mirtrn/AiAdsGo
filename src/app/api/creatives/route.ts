@@ -28,6 +28,8 @@ function transformCreativeToApiResponse(creative: any) {
     generationRound: creative.generation_round,
     generationPrompt: creative.generation_prompt,
     theme: creative.theme,
+    // 🔧 2025-12-24: 添加 keywordBucket 字段支持创意类型进度
+    keywordBucket: creative.keyword_bucket,
     creationStatus: creative.creation_status,
     creationError: creative.creation_error,
     // 兼容前端使用的 adId 字段名
@@ -79,10 +81,20 @@ export async function GET(request: NextRequest) {
     // 🔧 修复(2025-12-11): 转换为 camelCase 响应
     const transformedCreatives = creatives.map(transformCreativeToApiResponse)
 
+    // 🔧 2025-12-24: 添加 generatedBuckets 聚合逻辑，支持创意类型进度
+    const generatedBuckets = Array.from(
+      new Set(
+        transformedCreatives
+          .map(c => c.keywordBucket)
+          .filter((b): b is string => !!b)
+      )
+    )
+
     return NextResponse.json({
       success: true,
       creatives: transformedCreatives,
       count: transformedCreatives.length,
+      generatedBuckets,  // 🔧 2025-12-24: 新增字段
     })
   } catch (error: any) {
     console.error('获取创意列表失败:', error)
