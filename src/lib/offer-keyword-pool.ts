@@ -1093,6 +1093,7 @@ function validateBuckets(buckets: KeywordBuckets, originalKeywords: string[]): v
 
 /**
  * 🆕 v4.16: 验证店铺桶结果（5个桶）
+ * 🔥 2025-12-24: 添加均衡性检查，不均衡时抛出错误让上层重试
  */
 function validateStoreBuckets(buckets: StoreKeywordBuckets, originalKeywords: string[]): void {
   if (!buckets) {
@@ -1130,6 +1131,52 @@ function validateStoreBuckets(buckets: StoreKeywordBuckets, originalKeywords: st
   if (duplicates.length > 0) {
     console.warn(`⚠️ 有 ${duplicates.length} 个店铺关键词重复分配:`, duplicates.slice(0, 5))
   }
+
+  // 🔥 2025-12-24 新增：均衡性检查
+  const counts = [
+    buckets.bucketA?.keywords?.length || 0,
+    buckets.bucketB?.keywords?.length || 0,
+    buckets.bucketC?.keywords?.length || 0,
+    buckets.bucketD?.keywords?.length || 0,
+    buckets.bucketS?.keywords?.length || 0
+  ]
+  const nonZeroCounts = counts.filter(c => c > 0).length
+  const maxCount = Math.max(...counts)
+  const minCount = Math.min(...counts.filter(c => c > 0))
+
+  // 计算均衡度：使用 AI 报告的 balanceScore 或手动计算
+  const reportedBalanceScore = buckets.statistics?.balanceScore ?? calculateBalanceScore(counts)
+
+  // 打印各桶分布情况，便于调试
+  console.log(`   📊 店铺桶分布: A=${counts[0]}, B=${counts[1]}, C=${counts[2]}, D=${counts[3]}, S=${counts[4]}`)
+  console.log(`   📊 有效桶数: ${nonZeroCounts}/5, 最大桶=${maxCount}, 最小非空桶=${minCount}`)
+  console.log(`   📊 均衡度: ${reportedBalanceScore.toFixed(2)}`)
+
+  // 如果只有1个桶有词，说明聚类失败（除非总数<5）
+  if (originalKeywords.length >= 5 && nonZeroCounts <= 2) {
+    const errorMsg = `聚类结果严重不均衡: 只有 ${nonZeroCounts}/5 个桶有数据 (A=${counts[0]}, B=${counts[1]}, C=${counts[2]}, D=${counts[3]}, S=${counts[4]})，AI可能误解了分桶策略`
+    console.error(`❌ ${errorMsg}`)
+    throw new Error(errorMsg)
+  }
+
+  // 如果均衡度过低，也报错
+  if (reportedBalanceScore < 0.3 && originalKeywords.length >= 10) {
+    const errorMsg = `聚类均衡度过低: ${reportedBalanceScore.toFixed(2)} < 0.3 (A=${counts[0]}, B=${counts[1]}, C=${counts[2]}, D=${counts[3]}, S=${counts[4]})`
+    console.error(`❌ ${errorMsg}`)
+    throw new Error(errorMsg)
+  }
+}
+
+/**
+ * 🔥 2025-12-24: 计算均衡度
+ */
+function calculateBalanceScore(counts: number[]): number {
+  if (counts.length === 0) return 1.0
+  const total = counts.reduce((a, b) => a + b, 0)
+  if (total === 0) return 1.0
+  const avg = total / counts.length
+  const maxDiff = Math.max(...counts.map(c => Math.abs(c - avg)))
+  return Math.max(0, 1 - (maxDiff / total))
 }
 
 // 🔥 统一架构(2025-12-16): 已移除 fallbackClustering 降级函数

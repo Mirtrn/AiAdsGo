@@ -1489,6 +1489,29 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   variables.link_type_instructions = link_type_instructions
   variables.store_creative_instructions = store_creative_instructions
 
+  // 🆕 v4.17: 添加输出格式要求（解决AI返回非JSON格式问题）
+  variables.output_format_section = `
+## 📋 OUTPUT (JSON only, no markdown):
+
+\`\`\`json
+{
+  "headlines": [
+    {"text": "...", "type": "brand|feature|promo|cta|urgency|social_proof|question|emotional", "length": N}
+  ],
+  "descriptions": [
+    {"text": "...", "type": "feature-benefit-cta|problem-solution-proof|offer-urgency-trust|usp-differentiation", "length": N}
+  ],
+  "keywords": ["..."],
+  "callouts": ["..."],
+  "sitelinks": [{"text": "...", "url": "/", "description": "..."}],
+  "path1": "...",
+  "path2": "...",
+  "theme": "..."
+}
+\`\`\`
+
+**IMPORTANT**: You MUST return ONLY valid JSON. Do not add any explanations, German text, or markdown formatting outside the JSON code block. All headlines must be in the target language ({{target_language}}) and the JSON must be parseable.`
+
   // Substitute all placeholders and return
   return substitutePlaceholders(promptTemplate, variables)
 }
@@ -2282,7 +2305,7 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
     }
   } catch (error) {
     console.error('解析AI响应失败:', error)
-    console.error('原始响应:', jsonText)
+    console.error('原始响应前500字符:', text.substring(0, 500))
     throw new Error(`AI响应解析失败: ${error instanceof Error ? error.message : '未知错误'}`)
   }
 }
