@@ -14,12 +14,13 @@ import { getUnifiedGoogleAdsClient, getServiceAccountConfig, AuthType } from './
 /**
  * 🔧 修复(2025-12-24): 获取 KeywordPlanIdeaService
  * OAuth 模式使用 customer.keywordPlanIdeas
- * 服务账号模式使用 customer.loadService('KeywordPlanIdeaService')
+ * 服务账号模式使用 customer.loadService('KeywordPlanIdeaServiceClient')
  */
 function getKeywordPlanIdeaService(customer: any, authType: AuthType | undefined) {
   if (authType === 'service_account') {
     // 服务账号模式：使用 loadService 动态加载服务
-    return customer.loadService('KeywordPlanIdeaService')
+    // 注意：@htdangkhoa/google-ads 库的服务名需要加上 Client 后缀
+    return customer.loadService('KeywordPlanIdeaServiceClient')
   } else {
     // OAuth 模式：直接访问 keywordPlanIdeas 属性
     return customer.keywordPlanIdeas
