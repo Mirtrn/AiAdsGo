@@ -3037,7 +3037,10 @@ export async function generateAdCreative(
           keywordsToMerge.map(k => k.keyword).filter(Boolean),  // 🔧 过滤undefined
           brandName || '',
           productCategory,
-          userId!
+          userId!,
+          targetCountry,  // 🔧 修复(2025-12-24): 传递目标国家
+          language,  // 🔧 修复(2025-12-24): 传递目标语言
+          'product'  // 🔧 修复(2025-12-24): 传递页面类型
         )
 
         // 3. 构建反向映射: keyword → intentCategory
