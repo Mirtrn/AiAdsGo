@@ -91,7 +91,7 @@ export default function GoogleAdsSetupGuidePage() {
                   <li>在"已授权的 JavaScript 来源"中添加您的生产环境域名（如：<code className="bg-gray-100 px-1 rounded">https://www.autoads.dev</code>）</li>
                   <li>在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-1 rounded">https://www.autoads.dev/api/google-ads/oauth/callback</code></li>
                   <li>创建完成后，点击客户端名称查看 <strong>客户端 ID</strong>和<strong>客户端密钥</strong></li>
-                  <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a> 申请 Developer Token（需要基本访问权限）</li>
+                  <li>访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Developer Token（需要基本访问权限）</li>
                   <li>在系统设置页面配置 Client ID、Client Secret、Developer Token，然后点击"启动OAuth授权"</li>
                 </ol>
                 <Alert className="mt-4">
@@ -136,7 +136,7 @@ export default function GoogleAdsSetupGuidePage() {
               </CardHeader>
               <CardContent className="text-sm space-y-3">
                 <ol className="list-decimal list-inside space-y-2">
-                  <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a></li>
+                  <li>访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a></li>
                   <li>登录您的 Google Ads MCC 账号</li>
                   <li>进入"Tools &amp; Settings" → "API Center"</li>
                   <li>在"Developer Token"部分申请 Token</li>
@@ -181,7 +181,7 @@ export default function GoogleAdsSetupGuidePage() {
               </CardHeader>
               <CardContent className="text-sm space-y-3">
                 <ol className="list-decimal list-inside space-y-2">
-                  <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a></li>
+                  <li>访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a></li>
                   <li>登录您的 MCC（管理账号）</li>
                   <li>点击顶部导航栏的"设置"图标</li>
                   <li>在"账号信息"部分找到"MCC 账号 ID"</li>
@@ -202,7 +202,7 @@ export default function GoogleAdsSetupGuidePage() {
               </CardHeader>
               <CardContent className="text-sm space-y-3">
                 <ol className="list-decimal list-inside space-y-2">
-                  <li>访问 <a href="https://ads.google.com/awaccounts/" target="_blank" className="text-blue-600 hover:underline">Google Ads 账号管理中心</a></li>
+                  <li>访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a></li>
                   <li>确保您的账号是 MCC（管理账号）</li>
                   <li>进入"Tools &amp; Settings" → "API Center"</li>
                   <li>在"Developer Token"部分申请或查看 Token</li>

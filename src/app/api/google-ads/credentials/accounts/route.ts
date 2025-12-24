@@ -578,8 +578,8 @@ export async function GET(request: NextRequest) {
 
       loginCustomerId = serviceAccountConfig.mccCustomerId
 
-      // 服务账号模式也需要基本的client_id/client_secret（用于创建API客户端）
-      // 但实际认证使用JWT
+      // 🔧 修复(2025-12-24): 服务账号模式也需要基本的client_id/client_secret用于创建API客户端
+      // 但实际认证使用JWT，如果用户没有OAuth凭证，使用占位值（服务账号认证不需要这些）
       const oauthCredentials = await getGoogleAdsCredentials(userId)
       if (oauthCredentials) {
         credentials = {
@@ -587,6 +587,15 @@ export async function GET(request: NextRequest) {
           client_secret: oauthCredentials.client_secret,
           developer_token: serviceAccountConfig.developerToken,
         }
+      } else {
+        // 服务账号认证模式下，如果没有OAuth凭证，使用占位值
+        // client_id和client_secret仅用于创建API客户端，实际认证使用JWT
+        credentials = {
+          client_id: 'placeholder-client-id',
+          client_secret: 'placeholder-client-secret',
+          developer_token: serviceAccountConfig.developerToken,
+        }
+        console.log(`⚠️ 未配置OAuth凭证，使用占位值创建API客户端（服务账号认证不需要OAuth）`)
       }
     } else {
       // OAuth 认证模式
