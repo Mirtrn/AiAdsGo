@@ -992,6 +992,9 @@ async function clusterKeywordsDirectly(
         // 验证店铺结果
         validateStoreBuckets(storeBuckets, keywords)
 
+        // 🔥 v4.18 新增：后处理规则修正错误分配
+        applyStoreBucketPostProcessing(storeBuckets)
+
         console.log(`✅ AI 聚类完成 (店铺 5桶):`)
         console.log(`   桶A [品牌信任]: ${storeBuckets.bucketA.keywords.length} 个`)
         console.log(`   桶B [场景解决]: ${storeBuckets.bucketB.keywords.length} 个`)
@@ -1202,6 +1205,155 @@ function calculateBalanceScore(counts: number[]): number {
   const avg = total / counts.length
   const maxDiff = Math.max(...counts.map(c => Math.abs(c - avg)))
   return Math.max(0, 1 - (maxDiff / total))
+}
+
+/**
+ * 🔥 v4.18 新增：店铺桶后处理规则
+ *
+ * 目的：修正 AI 聚类可能的错误分配，作为双重保障
+ *
+ * 规则：
+ * 1. 促销/价格词 → 从其他桶移到桶S
+ * 2. 具体型号词 → 从桶A/B/D移到桶C
+ * 3. 评价词 → 从桶A/B/C移到桶D
+ * 4. 地理位置词 → 从桶A/B移到桶S
+ */
+function applyStoreBucketPostProcessing(buckets: StoreKeywordBuckets): void {
+  console.log(`\n🔧 应用后处理规则修正关键词分配...`)
+
+  let totalMoved = 0
+  const moves: Array<{keyword: string; from: string; to: string; reason: string}> = []
+
+  // 定义匹配规则
+  const PROMO_PRICE_PATTERNS = /\b(discount|sale|deal|coupon|promo|code|offer|clearance|price|cost|cheap|affordable|budget)\b/i
+  const MODEL_PATTERNS = /\b(s\d+|q\d+|s7|s8|q5|q7|max|ultra|pro(?!\s*store))\b/i  // 排除 "pro store"
+  const REVIEW_PATTERNS = /\b(review|rating|testimonial|feedback|comment|opinion)\b/i
+  const GEO_PATTERNS = /\b(locations?|near\s+me|delivery|shipping|local|store\s+finder)\b/i
+
+  // 辅助函数：移动关键词
+  const moveKeyword = (
+    keyword: string,
+    fromBucket: { intent: string; keywords: string[] },
+    toBucket: { intent: string; keywords: string[] },
+    fromName: string,
+    toName: string,
+    reason: string
+  ) => {
+    const index = fromBucket.keywords.indexOf(keyword)
+    if (index > -1) {
+      fromBucket.keywords.splice(index, 1)
+      toBucket.keywords.push(keyword)
+      totalMoved++
+      moves.push({ keyword, from: fromName, to: toName, reason })
+    }
+  }
+
+  // 规则1：促销/价格词 → 桶S
+  for (const keyword of [...buckets.bucketA.keywords]) {
+    if (PROMO_PRICE_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketA, buckets.bucketS, '桶A', '桶S', '含促销/价格词')
+    }
+  }
+  for (const keyword of [...buckets.bucketB.keywords]) {
+    if (PROMO_PRICE_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketB, buckets.bucketS, '桶B', '桶S', '含促销/价格词')
+    }
+  }
+  for (const keyword of [...buckets.bucketC.keywords]) {
+    if (PROMO_PRICE_PATTERNS.test(keyword) && !MODEL_PATTERNS.test(keyword)) {
+      // 如果同时包含型号词，优先保留在桶C（如 "s8 price" 可以在桶C）
+      moveKeyword(keyword, buckets.bucketC, buckets.bucketS, '桶C', '桶S', '含促销/价格词')
+    }
+  }
+  for (const keyword of [...buckets.bucketD.keywords]) {
+    if (PROMO_PRICE_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketD, buckets.bucketS, '桶D', '桶S', '含促销/价格词')
+    }
+  }
+
+  // 规则2：具体型号词 → 桶C
+  for (const keyword of [...buckets.bucketA.keywords]) {
+    if (MODEL_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketA, buckets.bucketC, '桶A', '桶C', '含具体型号')
+    }
+  }
+  for (const keyword of [...buckets.bucketB.keywords]) {
+    if (MODEL_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketB, buckets.bucketC, '桶B', '桶C', '含具体型号')
+    }
+  }
+  for (const keyword of [...buckets.bucketD.keywords]) {
+    if (MODEL_PATTERNS.test(keyword) && !REVIEW_PATTERNS.test(keyword)) {
+      // 如果同时包含评价词，优先保留在桶D（如 "s8 review" 可以在桶D）
+      moveKeyword(keyword, buckets.bucketD, buckets.bucketC, '桶D', '桶C', '含具体型号')
+    }
+  }
+  for (const keyword of [...buckets.bucketS.keywords]) {
+    if (MODEL_PATTERNS.test(keyword) && !PROMO_PRICE_PATTERNS.test(keyword)) {
+      // 如果同时包含促销词，保留在桶S（如 "s8 discount" 保留在桶S）
+      moveKeyword(keyword, buckets.bucketS, buckets.bucketC, '桶S', '桶C', '含具体型号')
+    }
+  }
+
+  // 规则3：评价词 → 桶D
+  for (const keyword of [...buckets.bucketA.keywords]) {
+    if (REVIEW_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketA, buckets.bucketD, '桶A', '桶D', '含评价词')
+    }
+  }
+  for (const keyword of [...buckets.bucketB.keywords]) {
+    if (REVIEW_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketB, buckets.bucketD, '桶B', '桶D', '含评价词')
+    }
+  }
+  for (const keyword of [...buckets.bucketC.keywords]) {
+    if (REVIEW_PATTERNS.test(keyword) && !MODEL_PATTERNS.test(keyword)) {
+      // 如果同时包含型号词，保留在桶C（如 "s8 review" 可能在桶C，让它保留）
+      moveKeyword(keyword, buckets.bucketC, buckets.bucketD, '桶C', '桶D', '含评价词')
+    }
+  }
+
+  // 规则4：地理位置词 → 桶S
+  for (const keyword of [...buckets.bucketA.keywords]) {
+    if (GEO_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketA, buckets.bucketS, '桶A', '桶S', '含地理位置')
+    }
+  }
+  for (const keyword of [...buckets.bucketB.keywords]) {
+    if (GEO_PATTERNS.test(keyword)) {
+      moveKeyword(keyword, buckets.bucketB, buckets.bucketS, '桶B', '桶S', '含地理位置')
+    }
+  }
+
+  // 更新统计数据
+  buckets.statistics.bucketACount = buckets.bucketA.keywords.length
+  buckets.statistics.bucketBCount = buckets.bucketB.keywords.length
+  buckets.statistics.bucketCCount = buckets.bucketC.keywords.length
+  buckets.statistics.bucketDCount = buckets.bucketD.keywords.length
+  buckets.statistics.bucketSCount = buckets.bucketS.keywords.length
+
+  // 重新计算均衡度
+  const counts = [
+    buckets.statistics.bucketACount,
+    buckets.statistics.bucketBCount,
+    buckets.statistics.bucketCCount,
+    buckets.statistics.bucketDCount,
+    buckets.statistics.bucketSCount
+  ]
+  buckets.statistics.balanceScore = calculateBalanceScore(counts)
+
+  // 输出日志
+  if (totalMoved > 0) {
+    console.log(`   ✅ 后处理完成：移动 ${totalMoved} 个关键词`)
+    moves.slice(0, 10).forEach(m => {
+      console.log(`      "${m.keyword}" (${m.from} → ${m.to}: ${m.reason})`)
+    })
+    if (moves.length > 10) {
+      console.log(`      ... 共 ${moves.length} 个移动`)
+    }
+  } else {
+    console.log(`   ✅ 后处理完成：无需调整（AI聚类已正确）`)
+  }
 }
 
 // 🔥 统一架构(2025-12-16): 已移除 fallbackClustering 降级函数
