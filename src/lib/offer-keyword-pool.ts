@@ -1656,35 +1656,60 @@ export async function generateOfferKeywordPool(
 
   console.log(`📝 初始关键词数: ${initialKeywords.length}`)
 
-  // 2.5 🔧 修复(2025-12-24): 放宽种子词长度限制以获取更多关键词
-  // 🔥 2025-12-24: 从≤10放宽到≤15，因为长尾种子词能产生更多扩展变体
-  // 📊 数据证据: roborock案例中23个单词的长尾种子词被过滤，导致关键词不足
+  // 2.5 🔧 修复(2025-12-24): 优化种子词过滤策略
+  // 核心问题: 52→12个种子词过滤率太高，导致关键词扩展不足
   const beforeFilterCount = initialKeywords.length
+
+  // 🆕 先提取长尾种子词中的有价值短语
+  const extractedSeeds: PoolKeywordData[] = []
+  for (const kw of initialKeywords) {
+    const wordCount = kw.keyword.trim().split(/\s+/).length
+    if (wordCount > 10) {
+      // 从长尾词中提取2-4个单词的短语
+      const words = kw.keyword.trim().split(/\s+/)
+      const brand = offer.brand.toLowerCase()
+
+      for (let i = 0; i < words.length - 1; i++) {
+        for (let len = 2; len <= Math.min(4, words.length - i); len++) {
+          const phrase = words.slice(i, i + len).join(' ')
+          const phraseLower = phrase.toLowerCase()
+
+          // 只提取包含品牌名的短语
+          if (phraseLower.includes(brand)) {
+            extractedSeeds.push({
+              ...kw,
+              keyword: phrase
+            })
+          }
+        }
+      }
+    }
+  }
+
+  // 应用过滤条件
   initialKeywords = initialKeywords.filter(kw => {
     const keyword = kw.keyword.trim()
-
-    // 过滤条件1：长度限制（≤15个单词）
     const wordCount = keyword.split(/\s+/).length
-    if (wordCount > 15) {
-      console.log(`   ⊗ 种子词长度过滤: "${keyword}" (${wordCount}个单词, 限制≤15)`)
+
+    // 过滤条件1：长度限制（≤10个单词）
+    if (wordCount > 10) {
+      console.log(`   ⊗ 种子词长度过滤: "${keyword}" (${wordCount}个单词, 限制≤10)`)
       return false
     }
 
-    // 过滤条件2：排除购买渠道词和过度组合
-    // 🔥 2025-12-24优化: 移除高转化词（price/discount/sale等），只过滤低质量词
+    // 过滤条件2：排除低质量词
+    // 🔥 2025-12-24优化: 只过滤明确的低质量词，保留高转化词
     const invalidPatterns = [
-      // 购买渠道（但保留store/shop，因为店铺链接需要）
+      // 购买渠道（保留store/shop/amazon/ebay，因为这些是正常购买渠道）
       'near me', 'official',
-      // 特定电商平台（仅过滤明显导向竞争对手的）
-      'aliexpress', 'shopee', 'etsy',
-      // 查询类（低购买意图）
+      // 低转化查询类
       'history', 'tracker', 'locator', 'review', 'compare',
-      // 特殊年份/时间（过时信息）
+      // 过时年份
       '2023', '2022', '2021', 'black friday', 'prime day'
-      // ✅ 移除: 'store', 'shop', 'amazon', 'ebay' - 店铺/销售渠道词应保留
-      // ✅ 移除: 'discount', 'sale', 'deal', 'code', 'coupon' - 高购买意图词应保留
-      // ✅ 移除: 'price', 'cost', 'cheap', 'affordable', 'budget' - 高转化词应保留
-      // ✅ 移除: '2025', '2024' - 当前年份应保留
+      // ✅ 保留: 'store', 'shop', 'amazon', 'ebay' - 店铺/销售渠道词
+      // ✅ 保留: 'discount', 'sale', 'deal', 'code', 'coupon' - 高购买意图词
+      // ✅ 保留: 'price', 'cost', 'cheap', 'affordable', 'budget' - 高转化词
+      // ✅ 保留: '2024', '2025' - 当前年份
     ]
     const keywordLower = keyword.toLowerCase()
     const hasInvalidPattern = invalidPatterns.some(pattern =>
@@ -1698,6 +1723,21 @@ export async function generateOfferKeywordPool(
 
     return true
   })
+
+  // 合并提取的短语种子词（去重）
+  const seenPhrases = new Set(initialKeywords.map(k => k.keyword.toLowerCase()))
+  let addedCount = 0
+  extractedSeeds.forEach(seed => {
+    if (!seenPhrases.has(seed.keyword.toLowerCase())) {
+      initialKeywords.push(seed)
+      seenPhrases.add(seed.keyword.toLowerCase())
+      addedCount++
+    }
+  })
+
+  if (addedCount > 0) {
+    console.log(`   ✅ 从长尾种子词中提取: ${addedCount} 个短语种子词`)
+  }
 
   if (beforeFilterCount !== initialKeywords.length) {
     console.log(`📊 种子词质量过滤: ${beforeFilterCount} → ${initialKeywords.length}`)
