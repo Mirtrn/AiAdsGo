@@ -1354,7 +1354,30 @@ function extractBrandName(
     }
   }
 
-  // ========== 渠道6: URL中的品牌 (置信度: 3) ==========
+  // ========== 渠道6: 推广链接域名中的品牌 (置信度: 3) ==========
+  // 从affiliate链接域名提取品牌，如: jackeryamazonseller.pxf.io → Jackery
+  const affiliateDomainMatch = url.match(/https?:\/\/([a-z0-9]+)(?:seller|shop|store)?(?:\.amazon)?\.(?:pxf\.io|dpbolvw|linksynergy|amazon)/i)
+  if (affiliateDomainMatch && affiliateDomainMatch[1]) {
+    const domainBrand = affiliateDomainMatch[1]
+      .replace(/seller|shop|store|amazon/i, '')
+      .trim()
+    if (domainBrand.length >= 2 && domainBrand.length <= 30 && domainBrand !== 'www') {
+      // 将驼峰或下划线分割的单词大小写规范化
+      const normalizedBrand = domainBrand
+        .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase分割
+        .replace(/_/g, ' ')
+        .replace(/([a-z])-([a-z])/g, '$1 $2') // hyphen to space
+        .split(/\s+/)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
+        .trim()
+      if (normalizedBrand.length >= 2) {
+        candidates.push({ value: normalizedBrand, source: 'affiliate-domain', confidence: 3 })
+      }
+    }
+  }
+
+  // ========== 渠道7: URL中的Amazon品牌 (置信度: 3) ==========
   const urlBrandMatch = url.match(/amazon\.[a-z.]+\/stores\/([^\/]+)/) ||
                         url.match(/amazon\.[a-z.]+\/([A-Z][A-Za-z0-9-]+)\/s\?/)
   if (urlBrandMatch && urlBrandMatch[1]) {
@@ -1392,7 +1415,7 @@ function extractBrandName(
     }
   }
 
-  // ========== 渠道10: 品牌链接文本 (置信度: 4) ==========
+  // ========== 渠道11: 品牌链接文本 (置信度: 4) ==========
   $('a[href*="/stores/"], a[href*="/brand/"]').each((i: number, el: any) => {
     const $el = $(el)
     const text = $el.text().trim()
