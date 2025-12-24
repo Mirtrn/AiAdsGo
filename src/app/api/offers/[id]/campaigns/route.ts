@@ -118,7 +118,10 @@ export async function GET(
       ORDER BY campaign.name
     `
 
-    const campaigns = await customer.query(query)
+    // 根据认证模式选择正确的查询方法
+    const campaigns = useServiceAccount
+      ? await customer.search({ query })
+      : await customer.query(query)
 
     // 提取CPC信息
     const formattedCampaigns = campaigns.map((campaign: any) => {

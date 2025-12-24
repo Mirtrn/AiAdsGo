@@ -127,7 +127,10 @@ export async function PUT(
       WHERE campaign.id = ${campaignId}
     `
 
-    const campaignResults = await customer.query(campaignQuery)
+    // 根据认证模式选择正确的查询方法
+    const campaignResults = useServiceAccount
+      ? await customer.search({ query: campaignQuery })
+      : await customer.query(campaignQuery)
 
     if (campaignResults.length === 0) {
       return NextResponse.json(
@@ -159,7 +162,10 @@ export async function PUT(
           AND ad_group.status != 'REMOVED'
       `
 
-      const adGroups = await customer.query(adGroupQuery)
+      // 根据认证模式选择正确的查询方法
+      const adGroups = useServiceAccount
+        ? await customer.search({ query: adGroupQuery })
+        : await customer.query(adGroupQuery)
 
       if (adGroups.length === 0) {
         return NextResponse.json(

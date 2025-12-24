@@ -410,8 +410,13 @@ export class DataSyncService {
         ORDER BY segments.date DESC
       `
 
-      // 执行查询
-      const results = await customer.query(query)
+      // 执行查询（根据认证模式选择正确的查询方法）
+      // OAuth: google-ads-api 使用 query()
+      // 服务账号: @htdangkhoa/google-ads 使用 search()
+      const isServiceAccountMode = authType === 'service_account' && serviceAccountId
+      const results = isServiceAccountMode
+        ? await (customer as any).search({ query })
+        : await (customer as any).query(query)
 
       // 转换为标准格式
       const performanceData: CampaignPerformanceData[] = results.map(
