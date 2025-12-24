@@ -477,7 +477,7 @@ function generateExplanation(breakdown: ScoreBreakdown, totalScore: number): str
  * v3.3 CTR优化：Sitelink多样性评估
  *
  * Google Ads最佳实践：
- * - 4-6个Sitelinks覆盖不同用户意图
+ * - 6个Sitelinks覆盖不同用户意图 (🔧 2025-12-24: 从4-6个改为6个)
  * - 类型多样：产品页、分类页、促销页、关于我们、联系方式等
  * - 避免重复或相似的链接文本
  *
@@ -518,7 +518,7 @@ export function evaluateSitelinkDiversity(
     return {
       diversityScore: 0,
       typesCovered: [],
-      suggestions: ['添加至少4个Sitelinks以提高广告效果'],
+      suggestions: ['添加6个Sitelinks以提高广告效果'],  // 🔧 修复(2025-12-24): 从4个改为6个
       details: { textUniqueness: 0, typeCoverage: 0, lengthVariation: 0 }
     }
   }
@@ -574,9 +574,9 @@ export function evaluateSitelinkDiversity(
   // 标准差在3-8之间表示良好的变化
   const lengthVariation = Math.min(1, lengthStdDev / 5)
 
-  // 4. 数量检查
-  if (sitelinks.length < 4) {
-    suggestions.push(`当前${sitelinks.length}个Sitelinks，建议增加到4-6个`)
+  // 4. 数量检查 - 🔧 修复(2025-12-24): 改为要求6个
+  if (sitelinks.length < 6) {
+    suggestions.push(`当前${sitelinks.length}个Sitelinks，建议增加到6个`)
   }
 
   // 综合多样性得分

@@ -288,5 +288,5 @@ export function generateSitelinkSuggestions(
     })
   }
 
-  return sitelinks.slice(0, 4)
+  return sitelinks.slice(0, 6)  // 🔧 修复(2025-12-24): 从4个改为6个
 }
