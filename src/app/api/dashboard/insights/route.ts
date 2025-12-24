@@ -336,7 +336,7 @@ export async function GET(request: NextRequest) {
         SELECT
           lch.id,
           lch.offer_id,
-          o.name as offer_name,
+          o.offer_name,
           o.product_url,
           lch.is_accessible,
           lch.http_status_code,
@@ -361,7 +361,7 @@ export async function GET(request: NextRequest) {
         SELECT
           lch.id,
           lch.offer_id,
-          o.name as offer_name,
+          o.offer_name,
           o.product_url,
           lch.is_accessible,
           lch.http_status_code,
