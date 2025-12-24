@@ -1397,8 +1397,13 @@ function extractBrandName(
     const $el = $(el)
     const text = $el.text().trim()
     if (text && text.length > 1 && text.length < 50 && !isInRecommendationArea(el)) {
+      // 排除纯"Store"、"Shop"等店铺关键词
+      if (/^(Store|Shop|Boutique|Tienda|Negozio|Loja|Winkel|Sklep|Shoppen|Mağaza|店铺|Läden)$/i.test(text)) {
+        return // 跳过纯店铺关键词
+      }
       const cleanText = cleanBrandText(text)
-      if (cleanText && cleanText !== text) {
+      // 只有清洗后的文本有意义且与原文本不同时才添加
+      if (cleanText && cleanText.length > 2 && cleanText !== text) {
         candidates.push({ value: cleanText, source: 'brand-link', confidence: 4 })
       }
     }
@@ -1477,6 +1482,11 @@ function extractBrandName(
     .replace(/\s+(Brand|Official|Store|Shop)$/i, '')
     .trim()
 
+  // 🔥 最终检查：排除纯"Store"等店铺关键词
+  if (/^(Store|Shop|Boutique|Tienda|Negozio|Loja|Winkel|Sklep|Shoppen|Mağaza|店铺|Läden)$/i.test(finalBrand)) {
+    finalBrand = ''
+  }
+
   // 如果清洗后为空或太短，回退到产品标题首词
   if (!finalBrand || finalBrand.length < 2) {
     console.warn('⚠️ 品牌清洗后结果无效，回退到产品标题首词')
@@ -1499,6 +1509,11 @@ function extractBrandName(
 function cleanBrandText(brand: string): string {
   // English (US, CA, AU, GB, IN, SG): "Visit the Brand Store"
   brand = brand.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
+
+  // 🔥 增强：处理纯"Store"或仅有前缀的情况
+  if (/^(Store|Shop|Boutique)$/i.test(brand)) {
+    return ''
+  }
 
   // Italian (IT): 多种格式
   // - "Visita lo Store di Brand"
