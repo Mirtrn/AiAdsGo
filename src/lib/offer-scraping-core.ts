@@ -1509,6 +1509,31 @@ export async function performScrapeAndAnalysis(
       product_categories: (rawScrapedData && rawScrapedData.productCategories)
         ? formatFieldForDB(rawScrapedData.productCategories)
         : undefined,
+      // 🔥 2025-12-24: v3.2 AI分析结果（包含pageType、关键词策略等）
+      page_type: pageType,
+      ai_analysis_v32: formatFieldForDB({
+        pageType: pageType,
+        brandName: extractedBrand,
+        brandDescription: productInfo.brandDescription,
+        uniqueSellingPoints: Array.isArray(productInfo.uniqueSellingPoints)
+          ? productInfo.uniqueSellingPoints
+          : (productInfo.uniqueSellingPoints || '').split('\n').filter((s: string) => s.trim()),
+        productCategories: rawScrapedData?.productCategories?.primaryCategories?.map((c: any) => c.name) || [],
+        productHighlights: Array.isArray(productInfo.productHighlights)
+          ? productInfo.productHighlights
+          : (productInfo.productHighlights || '').split('\n').filter((s: string) => s.trim()),
+        targetAudience: productInfo.targetAudience,
+        marketFit: productInfo.marketFit || { score: 50, factors: ['AI分析待优化'] },
+        storeQualityLevel: pageType === 'store' ? (rawScrapedData?.hotInsights?.avgRating >= 4.5 ? 'high' : 'medium') : undefined,
+        keywordStrategy: pageType === 'store' ? 'brand-focused' : 'product-focused',
+        aiKeywords: productInfo.keywords || extractedKeywords.map((k: any) => k.keyword || k.text || k),
+        aiReviews: productInfo.reviews?.rating?.toString() || rawScrapedData?.hotInsights?.avgRating?.toString(),
+        aiCompetitiveEdges: competitorAnalysis?.competitorAdvantages || [],
+        version: 'v3.2',
+        generatedAt: new Date().toISOString()
+      }),
+      ai_keywords: formatFieldForDB(productInfo.keywords || extractedKeywords.map((k: any) => k.keyword || k.text || k)),
+      ai_competitive_edges: formatFieldForDB(competitorAnalysis?.competitorAdvantages || []),
     })
 
     // 🔍 诊断日志：验证scraped_data存储

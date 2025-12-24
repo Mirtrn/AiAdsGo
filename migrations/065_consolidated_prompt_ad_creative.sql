@@ -33,7 +33,7 @@ UPDATE prompt_versions SET is_active = 0 WHERE prompt_id = 'ad_elements_descript
 -- 关键词嵌入率强化：从27%提升到53%+
 -- 保留v4.7 Display Path、v4.6 CTR优化、v4.5店铺数据增强等所有功能
 
-INSERT INTO prompt_versions (
+INSERT OR IGNORE INTO prompt_versions (
   prompt_id,
   name,
   version,
@@ -303,7 +303,7 @@ Before generating output, verify:
 -- ============================================================
 -- CTR优化增强：DKI模板、数字具体化、情感触发、问句式标题、关键词嵌入率
 
-INSERT INTO prompt_versions (prompt_id, version, category, name, description, file_path, function_name, prompt_content, is_active, change_notes, created_at)
+INSERT OR IGNORE INTO prompt_versions (prompt_id, version, category, name, description, file_path, function_name, prompt_content, is_active, change_notes, created_at)
 VALUES (
   'ad_elements_headlines',
   'v3.3',
@@ -457,7 +457,7 @@ Return JSON:
 -- ============================================================
 -- CTR优化增强：结构化模板、USP前置、社会证明、竞品差异化
 
-INSERT INTO prompt_versions (prompt_id, version, category, name, description, file_path, function_name, prompt_content, is_active, change_notes, created_at)
+INSERT OR IGNORE INTO prompt_versions (prompt_id, version, category, name, description, file_path, function_name, prompt_content, is_active, change_notes, created_at)
 VALUES (
   'ad_elements_descriptions',
   'v3.3',

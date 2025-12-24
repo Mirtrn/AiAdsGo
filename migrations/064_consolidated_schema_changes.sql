@@ -141,7 +141,11 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_ip_address ON audit_logs(ip_address);
 -- ============================================================
 -- PART 4: ALTER google_ads_accounts (原067)
 -- ============================================================
--- 添加账户状态字段
+-- 添加账户状态字段（带幂等性检查）
+
+CREATE TABLE IF NOT EXISTS _temp_cols AS SELECT name FROM pragma_table_info('google_ads_accounts') WHERE name = 'status';
+INSERT INTO _temp_cols VALUES ('status') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols;
 
 ALTER TABLE google_ads_accounts ADD COLUMN status TEXT DEFAULT 'ENABLED';
 UPDATE google_ads_accounts SET status = 'ENABLED' WHERE status IS NULL;
@@ -150,19 +154,41 @@ UPDATE google_ads_accounts SET status = 'ENABLED' WHERE status IS NULL;
 -- PART 5: ALTER ad_creatives (原068, 077)
 -- ============================================================
 -- 添加Ad Strength完整数据字段
+
+CREATE TABLE IF NOT EXISTS _temp_cols5 AS SELECT name FROM pragma_table_info('ad_creatives') WHERE name = 'ad_strength_data';
+INSERT INTO _temp_cols5 VALUES ('ad_strength_data') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols5;
 ALTER TABLE ad_creatives ADD COLUMN ad_strength_data TEXT DEFAULT NULL;
 
 -- 添加RSA Display Path字段
+CREATE TABLE IF NOT EXISTS _temp_cols5b AS SELECT name FROM pragma_table_info('ad_creatives') WHERE name = 'path1';
+INSERT INTO _temp_cols5b VALUES ('path1') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols5b;
 ALTER TABLE ad_creatives ADD COLUMN path1 TEXT DEFAULT NULL;
+
+CREATE TABLE IF NOT EXISTS _temp_cols5c AS SELECT name FROM pragma_table_info('ad_creatives') WHERE name = 'path2';
+INSERT INTO _temp_cols5c VALUES ('path2') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols5c;
 ALTER TABLE ad_creatives ADD COLUMN path2 TEXT DEFAULT NULL;
 
 -- ============================================================
 -- PART 6: ALTER scraped_products (原069)
 -- ============================================================
--- 添加销售热度、折扣、配送信息字段
+-- 添加销售热度、折扣、配送信息字段（带幂等性检查）
 
+CREATE TABLE IF NOT EXISTS _temp_cols6a AS SELECT name FROM pragma_table_info('scraped_products') WHERE name = 'sales_volume';
+INSERT INTO _temp_cols6a VALUES ('sales_volume') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols6a;
 ALTER TABLE scraped_products ADD COLUMN sales_volume TEXT;
+
+CREATE TABLE IF NOT EXISTS _temp_cols6b AS SELECT name FROM pragma_table_info('scraped_products') WHERE name = 'discount';
+INSERT INTO _temp_cols6b VALUES ('discount') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols6b;
 ALTER TABLE scraped_products ADD COLUMN discount TEXT;
+
+CREATE TABLE IF NOT EXISTS _temp_cols6c AS SELECT name FROM pragma_table_info('scraped_products') WHERE name = 'delivery_info';
+INSERT INTO _temp_cols6c VALUES ('delivery_info') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols6c;
 ALTER TABLE scraped_products ADD COLUMN delivery_info TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_scraped_products_sales_volume
@@ -171,24 +197,57 @@ CREATE INDEX IF NOT EXISTS idx_scraped_products_sales_volume
 -- ============================================================
 -- PART 7: ALTER offers (原072)
 -- ============================================================
--- 添加产品名称字段
+-- 添加产品名称字段（带幂等性检查）
 
+CREATE TABLE IF NOT EXISTS _temp_cols7 AS SELECT name FROM pragma_table_info('offers') WHERE name = 'product_name';
+INSERT INTO _temp_cols7 VALUES ('product_name') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols7;
 ALTER TABLE offers ADD COLUMN product_name TEXT;
 
 -- ============================================================
 -- PART 8: ALTER launch_scores (原077)
 -- ============================================================
--- 添加Launch Score v4.0的4维度评分字段
+-- 添加Launch Score v4.0的4维度评分字段（带幂等性检查）
 
+CREATE TABLE IF NOT EXISTS _temp_cols8a AS SELECT name FROM pragma_table_info('launch_scores') WHERE name = 'launch_viability_score';
+INSERT INTO _temp_cols8a VALUES ('launch_viability_score') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols8a;
 ALTER TABLE launch_scores ADD COLUMN launch_viability_score INTEGER DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS _temp_cols8b AS SELECT name FROM pragma_table_info('launch_scores') WHERE name = 'ad_quality_score';
+INSERT INTO _temp_cols8b VALUES ('ad_quality_score') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols8b;
 ALTER TABLE launch_scores ADD COLUMN ad_quality_score INTEGER DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS _temp_cols8c AS SELECT name FROM pragma_table_info('launch_scores') WHERE name = 'keyword_strategy_score';
+INSERT INTO _temp_cols8c VALUES ('keyword_strategy_score') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols8c;
 ALTER TABLE launch_scores ADD COLUMN keyword_strategy_score INTEGER DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS _temp_cols8d AS SELECT name FROM pragma_table_info('launch_scores') WHERE name = 'basic_config_score';
+INSERT INTO _temp_cols8d VALUES ('basic_config_score') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols8d;
 ALTER TABLE launch_scores ADD COLUMN basic_config_score INTEGER DEFAULT 0;
 
 -- 添加维度数据字段 (JSON)
+CREATE TABLE IF NOT EXISTS _temp_cols8e AS SELECT name FROM pragma_table_info('launch_scores') WHERE name = 'launch_viability_data';
+INSERT INTO _temp_cols8e VALUES ('launch_viability_data') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols8e;
 ALTER TABLE launch_scores ADD COLUMN launch_viability_data TEXT;
+
+CREATE TABLE IF NOT EXISTS _temp_cols8f AS SELECT name FROM pragma_table_info('launch_scores') WHERE name = 'ad_quality_data';
+INSERT INTO _temp_cols8f VALUES ('ad_quality_data') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols8f;
 ALTER TABLE launch_scores ADD COLUMN ad_quality_data TEXT;
+
+CREATE TABLE IF NOT EXISTS _temp_cols8g AS SELECT name FROM pragma_table_info('launch_scores') WHERE name = 'keyword_strategy_data';
+INSERT INTO _temp_cols8g VALUES ('keyword_strategy_data') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols8g;
 ALTER TABLE launch_scores ADD COLUMN keyword_strategy_data TEXT;
+
+CREATE TABLE IF NOT EXISTS _temp_cols8h AS SELECT name FROM pragma_table_info('launch_scores') WHERE name = 'basic_config_data';
+INSERT INTO _temp_cols8h VALUES ('basic_config_data') ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS _temp_cols8h;
 ALTER TABLE launch_scores ADD COLUMN basic_config_data TEXT;
 
 -- ============================================================

@@ -303,6 +303,9 @@ async function buildAdCreativePrompt(
   const targetLanguage = offer.target_language || 'English'
   const languageInstruction = getLanguageInstruction(targetLanguage)
 
+  // 🆕 v4.16: 确定链接类型
+  const linkType = (offer.page_type as 'product' | 'store') || 'product'
+
   const variables: Record<string, string> = {
     language_instruction: languageInstruction,
     brand: offer.brand,
@@ -320,13 +323,124 @@ async function buildAdCreativePrompt(
   let brand_analysis_section = ''
   // 🆕 v4.10: 关键词池桶section
   let keyword_bucket_section = ''
+  // 🆕 v4.16: 链接类型section
+  let link_type_section = ''
+  let link_type_instructions = ''
+  let store_creative_instructions = ''
+
+  // 🆕 v4.16: 添加链接类型信息
+  if (linkType === 'store') {
+    link_type_section = `
+## 🏪 STORE LINK MODE
+This is a STORE link - the creative should drive users to explore the entire store rather than purchase a specific product.
+
+**Store Context:**
+- Target: {{brand}} official store
+- Goal: Drive store visits and exploration
+- Audience: Users looking for brand assurance and variety
+`
+    link_type_instructions = `
+**⚠️ 店铺链接关键词使用规则：**
+- 品牌词使用比例可适当提高（80%+品牌词）
+- 场景词和品类词用于描述使用场景
+- 强调店铺信誉、官方授权、售后保障
+- 避免过于具体的购买意图词汇`
+    // 🆕 v4.16: 店铺创意特殊指令
+    store_creative_instructions = `
+## 🏪 店铺链接创意特殊规则
+
+### 创意类型A（品牌信任导向）- 桶A
+**目标**: 建立品牌权威和官方形象
+- 强调官方授权、正品保障
+- 使用品牌词比例: 80%
+- 关键CTA: "Visit Official Store", "Shop Brand Direct"
+- 信任信号: "Authorized Dealer", "Official Warranty"
+
+### 创意类型B（场景解决导向）- 桶B
+**目标**: 展示产品如何解决用户问题
+- 突出使用场景和解决方案
+- 使用场景词比例: 60%
+- 关键CTA: "Find Your Solution", "Explore Options"
+- 场景示例: "Home Security", "Baby Monitor", "Pet Watching"
+
+### 创意类型C（精选推荐导向）- 桶C
+**目标**: 展示店铺热销和推荐产品
+- 强调热门、评分、推荐
+- 使用热销词比例: 40%
+- 关键CTA: "See Best Sellers", "Discover Top Rated"
+- 信号词: "Best Seller", "Top Rated", "Customer Favorite"
+
+### 创意类型D（信任信号导向）- 桶D
+**目标**: 建立用户信任和购买信心
+- 突出评价、售后、保障
+- 使用信任词比例: 40%
+- 关键CTA: "Read Reviews", "Learn More"
+- 信号词: "Warranty", "Guarantee", "Support"
+
+### 创意类型S（店铺全景导向）- 桶S
+**目标**: 全面展示店铺，吸引探索
+- 整合所有店铺亮点
+- 品牌词: 50%, 场景词: 30%, 品类词: 20%
+- 关键CTA: "Explore Store", "View All Products"
+- 覆盖各种用户搜索意图`
+  } else {
+    link_type_section = `
+## 🏷️ PRODUCT LINK MODE
+This is a PRODUCT link - the creative should drive users to purchase a specific product.
+
+**Product Context:**
+- Target: {{product_name || brand + '' product}}
+- Goal: Drive immediate purchase
+- Audience: Users with purchase intent`
+    link_type_instructions = `
+**⚠️ 单品链接关键词使用规则：**
+- 品牌词和非品牌词均衡使用（约50%/50%）
+- 根据创意类型选择对应桶的关键词
+- 强调产品特性和购买优势
+- 明确CTA引导购买行为`
+  }
 
   // 🆕 v4.10: 添加关键词池桶指令
   if (extractedElements?.bucketInfo) {
     const { bucket, intent, intentEn, keywordCount } = extractedElements.bucketInfo
 
-    // 🆕 2025-12-16: 综合创意（S桶）的特殊指令
-    if (bucket === 'S') {
+    // 🆕 v4.16: 店铺链接特殊桶处理
+    if (linkType === 'store') {
+      const storeBucketInstructions: Record<string, string> = {
+        'A': `
+**🏪 店铺桶A - 品牌信任导向**
+- 核心主题: 官方授权、品牌保障
+- 关键词策略: 80%品牌词 + 10%场景词 + 10%品类词
+- 创意重点: 强调品牌权威和正品保证`,
+        'B': `
+**🏪 店铺桶B - 场景解决导向**
+- 核心主题: 解决用户问题
+- 关键词策略: 20%品牌词 + 60%场景词 + 20%品类词
+- 创意重点: 展示产品如何解决用户需求`,
+        'C': `
+**🏪 店铺桶C - 精选推荐导向**
+- 核心主题: 店铺热销推荐
+- 关键词策略: 40%品牌词 + 20%场景词 + 30%品类词 + 10%信任词
+- 创意重点: 强调热门产品和用户好评`,
+        'D': `
+**🏪 店铺桶D - 信任信号导向**
+- 核心主题: 建立购买信心
+- 关键词策略: 30%品牌词 + 10%场景词 + 20%品类词 + 40%信任词
+- 创意重点: 突出评价、售后和保障`,
+        'S': `
+**🏪 店铺桶S - 店铺全景导向**
+- 核心主题: 全面展示店铺
+- 关键词策略: 50%品牌词 + 30%场景词 + 20%品类词
+- 创意重点: 整合所有店铺亮点，覆盖广泛用户群`
+      }
+      keyword_bucket_section = storeBucketInstructions[bucket] || `
+**📦 STORE KEYWORD POOL BUCKET ${bucket} - ${intent || intentEn}**
+This store creative focuses on "${intent || intentEn}" user intent.
+- ${keywordCount} pre-selected keywords for this intent
+- Keywords optimized for store-level marketing`
+    }
+    // 🆕 2025-12-16: 综合创意（S桶）的特殊指令（产品链接）
+    else if (bucket === 'S') {
       keyword_bucket_section = `
 **🔮 SYNTHETIC CREATIVE - MAXIMUM AD STRENGTH OPTIMIZATION**
 This is a SYNTHETIC creative that must achieve the HIGHEST possible Ad Strength rating ("Excellent").
@@ -386,7 +500,21 @@ This creative MUST focus on the "${intent || intentEn}" user intent.
   if (extractedElements?.localization) {
     const { currency, culturalNotes, localKeywords } = extractedElements.localization
     if (currency) {
-      localization_section += `\n**🌍 LOCAL CURRENCY**: ${currency}`
+      // 🔥 修复（2025-12-23）：明确指定货币符号，确保AI生成正确格式
+      const currencySymbolMap: Record<string, string> = {
+        'GBP': '£ (British Pound Sterling - UK market)',
+        'USD': '$ (US Dollar)',
+        'EUR': '€ (Euro)',
+        'JPY': '¥ (Japanese Yen)',
+        'AUD': 'A$ (Australian Dollar)',
+        'CAD': 'C$ (Canadian Dollar)',
+        'CHF': 'CHF (Swiss Franc)',
+      }
+      const currencySymbol = currencySymbolMap[currency] || currency
+      localization_section += `\n**🌍 LOCAL CURRENCY**: ${currencySymbol}`
+      // 🔥 重要：添加明确指令，要求所有价格使用正确符号
+      localization_section += `\n**🔴 CRITICAL**: ALL prices in headlines and descriptions MUST use the correct currency symbol (${currencySymbol}).`
+      localization_section += `\nExamples for ${currency}: "Save £170", "Only £499", "£XXX off" - NEVER use "$" or "€" for UK market.`
     }
     if (culturalNotes && culturalNotes.length > 0) {
       localization_section += `\n**🌍 CULTURAL NOTES**: ${culturalNotes.join('; ')}`
@@ -1312,8 +1440,156 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   // 兼容性：保留旧的占位符名称
   variables.keyword_bucket_section = keyword_bucket_section
 
+  // 🆕 v4.16: 添加链接类型策略 section
+  // 根据 offer.page_type 区分单品链接和店铺链接，使用不同的创意策略
+  // 注意：linkType 已在第307行声明
+  if (linkType === 'store') {
+    variables.link_type_section = `
+## 📍 当前链接类型：店铺页面 (Store Page)
+**目标**：最大化进店，扩大品牌认知
+
+**桶类型与关键词分布**:
+| 桶 | 类型 | 品牌词 | 场景词 | 品类词 | 信任词 |
+|----|------|:-----:|:-----:|:-----:|:-----:|
+| A | Brand-Trust | **80%** | 10% | 10% | 0% |
+| B | Scene-Solution | 20% | **60%** | 20% | 0% |
+| C | Collection-Highlight | 40% | 20% | **30%** | 10% |
+| D | Trust-Signals | 30% | 10% | 20% | **40%** |
+| S | Store-Overview | **50%** | 30% | 20% | 0% |
+
+**核心要求**:
+- 强调品牌官方地位和可信度
+- 突出店铺热销产品和高评价
+- 展示店铺的独特卖点和售后保障
+- 使用店铺层面的社会证明（评分、评价数、销量）
+`
+  } else {
+    // 默认：单品链接策略
+    variables.link_type_section = `
+## 📍 当前链接类型：产品页面 (Product Page)
+**目标**：最大化转化，让用户购买这个具体产品
+
+**桶类型与关键词分布**:
+| 桶 | 类型 | 品牌词 | 产品型号词 | 功能词 | 价格词 |
+|----|------|:-----:|:---------:|:-----:|:-----:|
+| A | Product-Specific | 30% | **50%** | 20% | 0% |
+| B | Purchase-Intent | 20% | 30% | 10% | **40%** |
+| C | Feature-Focused | 20% | 20% | **60%** | 0% |
+| D | Urgency-Promo | 20% | 20% | 20% | 20% |
+| S | Comprehensive | 40% | 30% | 30% | 0% |
+
+**核心要求**:
+- 标题必须与具体产品相关联
+- 至少 2 个标题包含具体产品型号或参数
+- 至少 2 个描述包含具体价格或折扣信息
+`
+  }
+
+  // 🆕 v4.17: 添加链接类型相关变量到模板
+  variables.link_type_instructions = link_type_instructions
+  variables.store_creative_instructions = store_creative_instructions
+
   // Substitute all placeholders and return
   return substitutePlaceholders(promptTemplate, variables)
+}
+
+/**
+ * 🆕 v4.16: 获取下一个需要生成的创意类型
+ * 根据已生成的创意类型，自动选择下一个未生成的类型
+ * 顺序：A → B → C → D → S
+ *
+ * @param offer - Offer 对象，必须包含 page_type 和 generated_buckets 字段
+ * @returns 下一个创意类型（BucketType）
+ */
+export type BucketType = 'A' | 'B' | 'C' | 'D' | 'S'
+
+export function getNextCreativeType(offer: {
+  page_type: 'product' | 'store'
+  generated_buckets?: string | null
+}): BucketType {
+  const typeOrder: BucketType[] = ['A', 'B', 'C', 'D', 'S']
+
+  // 解析已生成的 bucket 列表
+  let generatedBuckets: BucketType[] = []
+  if (offer.generated_buckets) {
+    try {
+      generatedBuckets = JSON.parse(offer.generated_buckets) as BucketType[]
+    } catch {
+      console.warn('[getNextCreativeType] 解析 generated_buckets 失败:', offer.generated_buckets)
+      generatedBuckets = []
+    }
+  }
+
+  // 找到第一个未生成的类型
+  const nextType = typeOrder.find(type => !generatedBuckets.includes(type))
+
+  // 如果所有类型都已生成，返回 S（综合创意）
+  return nextType || 'S'
+}
+
+/**
+ * 🆕 v4.16: 根据 bucket 和链接类型获取对应的 theme 描述
+ *
+ * @param bucket - 创意类型（A/B/C/D/S）
+ * @param linkType - 链接类型（'product' | 'store'）
+ * @returns theme 描述字符串
+ */
+export function getThemeByBucket(bucket: BucketType, linkType: 'product' | 'store'): string {
+  if (linkType === 'store') {
+    const themes: Record<BucketType, string> = {
+      'A': '品牌信任导向 - 强调官方正品和品牌权威',
+      'B': '场景解决方案 - 突出使用场景和痛点解决',
+      'C': '精选推荐导向 - 展示热销产品和店铺特色',
+      'D': '信任信号导向 - 突出评价、退换货、售后',
+      'S': '店铺全景 - 全面展示店铺产品线'
+    }
+    return themes[bucket]
+  } else {
+    const themes: Record<BucketType, string> = {
+      'A': '产品型号导向 - 标题必须包含具体产品型号参数',
+      'B': '购买意图导向 - 描述必须包含价格和折扣信息',
+      'C': '功能特性导向 - 突出核心功能和技术参数',
+      'D': '紧迫促销导向 - 包含限时/限量/立即行动元素',
+      'S': '综合推广 - 平衡所有意图，Ad Strength 最大化'
+    }
+    return themes[bucket]
+  }
+}
+
+/**
+ * 🆕 v4.16: 更新 offer 的 generated_buckets 字段
+ * 在成功生成创意后调用，记录已生成的类型
+ *
+ * @param db - 数据库连接
+ * @param offerId - Offer ID
+ * @param bucket - 新生成的创意类型
+ */
+export async function markBucketGenerated(
+  db: any,
+  offerId: number,
+  bucket: BucketType
+): Promise<void> {
+  // 获取当前已生成的 bucket 列表
+  const [offer] = await db.query('SELECT generated_buckets FROM offers WHERE id = ?', [offerId]) as Array<{ generated_buckets: string | null }>
+
+  let generatedBuckets: BucketType[] = []
+  if (offer?.generated_buckets) {
+    try {
+      generatedBuckets = JSON.parse(offer.generated_buckets) as BucketType[]
+    } catch {
+      generatedBuckets = []
+    }
+  }
+
+  // 如果还没有这个 bucket，添加它
+  if (!generatedBuckets.includes(bucket)) {
+    generatedBuckets.push(bucket)
+    await db.query(
+      'UPDATE offers SET generated_buckets = ? WHERE id = ?',
+      [JSON.stringify(generatedBuckets), offerId]
+    )
+    console.log(`[markBucketGenerated] Offer ${offerId}: 已记录 bucket ${bucket}, 总计: ${generatedBuckets.length}/5`)
+  }
 }
 
 /**
@@ -1344,14 +1620,62 @@ function buildHeadlineFeatureGuidance(technicalDetails: Record<string, string>, 
 }
 
 function buildHeadlinePromoGuidance(discount: string | null, activePromotions: any[]): string {
-  return `- Promo (3): ${discount ? `🎯 **P0 OPTIMIZATION**: MUST use real DISCOUNT in headline: "${discount}" ${(() => { const match = discount.match(/(\d+)%/); return match && parseInt(match[1]) > 15 ? '(>15% discount - MUST highlight in headline!)' : ''; })()}` : ''}${activePromotions.length > 0 ? ` MUST use PROMO: "${activePromotions[0].description}"` : discount ? '' : 'Numbers/% required - "Save 40%", "$50 Off"'}
-  * 🎯 **P0 CRITICAL**: If discount >15%, at least ONE headline MUST explicitly mention the discount percentage
+  // 🔥 修复（2025-12-23）：强化价格优势量化，必须使用具体金额
+  let promoGuidance = ''
+
+  if (discount) {
+    // 解析折扣信息
+    const percentMatch = discount.match(/(\d+)%/)
+    const amountMatch = discount.match(/[£$€]?\s*(\d+\.?\d*)/)
+
+    promoGuidance = `- Promo (3): 🎯 **P0 CRITICAL**: MUST use QUANTIFIED savings in headlines
+
+  * 🎯 **PRIMARY REQUIREMENT**: At least 2 headlines MUST use SPECIFIC savings amounts, NOT just percentages
+  * ✅ GOOD examples:
+  *   - "Save £170 Today" (specific amount)
+  *   - "Only £499 - Save £170" (current price + savings)
+  *   - "£170 Off This Week" (discount amount)
+  *   - "Was £669, Now £499" (original + current price)
+  * ❌ BAD examples:
+  *   - "20% Off" (no specific amount)
+  *   - "Save 20%" (no specific amount)
+  *   - "Discount Applied" (vague)
+
+  * 🎯 If discount >15% OR has specific savings amount:
+  *   - "Save £170 Today" (savings amount focus)
+  *   - "Reolink NVR Kit: Save £170" (brand + savings)
+  *   - "8 Camera 4K System - Only £499" (product + price)
+
+  * 🎯 If only percentage discount:
+  *   - MUST calculate or estimate a specific savings amount based on typical product price range
+  *   - Example: "Save 20% - £170 Off" (percentage + amount)
+
+  * 🎯 **PRICE COMPARISON**: Use price anchoring when possible:
+  *   - "Was £669, Now £499"
+  *   - "Save £170 (25% Off) - Only £499"
+  *   - "Best Value: £499 vs £669 elsewhere"`
+  } else if (activePromotions.length > 0) {
+    promoGuidance = `- Promo (3): 🎯 **P0 CRITICAL**: MUST quantify savings for promotion "${activePromotions[0].description}"
+  * Example: "Save £170 with ${activePromotions[0].description || 'this offer'}" or "${activePromotions[0].description} - Save £170"
+  * Must include specific savings amount when possible`
+  } else {
+    promoGuidance = `- Promo (3): **P1 REQUIRED**: ALL promo headlines MUST include QUANTIFIED savings
+  * Use specific amounts: "Save £170", "£100 Off", "Only £499"
+  * Avoid vague terms: "Discount", "Sale", "Off" alone`
+  }
+
+  promoGuidance += `
   * IMPORTANT: Each promo headline must use a DIFFERENT promotional angle
-  * Example 1: "Save 40% Today" (discount focus)
-  * Example 2: "$100 Off This Week" (amount focus)
-  * Example 3: "Limited Time Offer" (urgency focus)
-  * ❌ AVOID: "Save 40%", "40% Off", "40% Discount" (too similar)
+  * ✅ Different angles:
+  *   - "Save £170 Today" (savings amount)
+  *   - "Was £669, Now £499" (price anchoring)
+  *   - "Best Price: £499 - Save £170" (value focus)
+  * ❌ Too similar (avoid):
+  *   - "Save £170", "Save 20%", "£170 Off" (mix percentage vs amount)
+  *   - "Save £170", "Save £170 Today", "Save £170 Now" (too similar)
 `
+
+  return promoGuidance
 }
 
 function buildHeadlineCTAGuidance(primeEligible: boolean, purchaseReasons: string[]): string {
@@ -1365,28 +1689,44 @@ function buildHeadlineCTAGuidance(primeEligible: boolean, purchaseReasons: strin
 }
 
 function buildHeadlineUrgencyGuidance(availability: string | null): string {
-  let urgencyText = '"Limited Time", "Ends Soon"'
+  let urgencyText = ''
+  let isCritical = false
+
   if (availability) {
     const stockMatch = availability.match(/(\d+)\s*left/i)
     if (stockMatch) {
       const stockLevel = parseInt(stockMatch[1])
       if (stockLevel < 10) {
         urgencyText = `🎯 **P1 CRITICAL - MUST use real STOCK data**: "${availability}" (Low stock detected: ${stockLevel} units)`
+        isCritical = true
       }
     }
-    const lowStockKeywords = ['low stock', 'limited quantity', 'almost gone', 'running low', 'few left']
-    const hasLowStockKeyword = lowStockKeywords.some(kw => availability.toLowerCase().includes(kw))
-    if (hasLowStockKeyword) {
-      urgencyText = `🎯 **P1 CRITICAL - MUST use URGENCY**: "${availability}" or "Limited Stock - Act Fast"`
+    if (!isCritical) {
+      const lowStockKeywords = ['low stock', 'limited quantity', 'almost gone', 'running low', 'few left']
+      const hasLowStockKeyword = lowStockKeywords.some(kw => availability.toLowerCase().includes(kw))
+      if (hasLowStockKeyword) {
+        urgencyText = `🎯 **P1 CRITICAL - MUST use URGENCY**: "${availability}" or "Limited Stock - Act Fast"`
+        isCritical = true
+      }
     }
   }
 
-  return `- Urgency (2): ${urgencyText}
-  * 🎯 **P1 CRITICAL**: If stock < 10 units OR low stock keywords detected, at least ONE headline MUST create urgency
+  // 🔥 修复（2025-12-23）：紧迫感是所有广告的必要元素，必须始终包含
+  if (!urgencyText) {
+    urgencyText = `**P1 CRITICAL FOR ALL ADS**: "Order Now", "Limited Time Offer", "Ends Soon", "Today's Deal", "Don't Miss Out"`
+  }
+
+  return `- Urgency (2-3): ${urgencyText}
+  * 🎯 **P1 CRITICAL**: ALL ads MUST include urgency elements. At least 2-3 headlines MUST create urgency.
+  * Examples of strong urgency signals:
+  * - "Order Now" (immediate action)
+  * - "Limited Time Offer" (time scarcity)
+  * - "Only 5 Left in Stock" (scarcity - if stock data available)
+  * - "Today's Deal" (daily focus)
+  * - "Don't Miss Out" (FOMO)
+  * - "Ends Soon" (deadline)
+  * - "Act Fast" (prompt action)
   * IMPORTANT: Each urgency headline must use a DIFFERENT urgency signal
-  * Example 1: "Only 5 Left in Stock" (scarcity focus - numeric stock)
-  * Example 2: "Limited Stock - Act Fast" (urgency focus - low stock keyword)
-  * Example 3: "Ends Tomorrow" (time limit focus - fallback)
   * ❌ AVOID: "Limited Stock", "Limited Time", "Limited Offer" (too similar)
 `
 }
@@ -2184,6 +2524,8 @@ export async function generateAdCreative(
 
   // 🆕 v4.10: 如果传入了桶关键词，将其作为最高优先级关键词
   let bucketKeywordsNormalized: Array<{ keyword: string; searchVolume: number; source: string; priority: string }> = []
+
+  // 🆕 v4.16: 如果没有传入桶关键词，根据链接类型和bucket自动获取
   if (options?.bucketKeywords && options.bucketKeywords.length > 0) {
     bucketKeywordsNormalized = options.bucketKeywords.map(kw => ({
       keyword: kw,
@@ -2192,6 +2534,26 @@ export async function generateAdCreative(
       priority: 'HIGH' // 桶关键词优先级最高
     }))
     console.log(`📦 v4.10 关键词池: 使用桶 ${options.bucket} (${options.bucketIntent}) 的 ${bucketKeywordsNormalized.length} 个关键词`)
+  } else if (options?.bucket && offer.page_type) {
+    // 🆕 v4.16: 自动根据链接类型和bucket获取关键词
+    const { getKeywordsByLinkTypeAndBucket } = await import('./offer-keyword-pool')
+
+    const linkType = offer.page_type as 'product' | 'store'
+    const bucketType = options.bucket as 'A' | 'B' | 'C' | 'D' | 'S'
+
+    const keywordResult = await getKeywordsByLinkTypeAndBucket(offerId, linkType, bucketType)
+
+    if (keywordResult.keywords.length > 0) {
+      bucketKeywordsNormalized = keywordResult.keywords.map(kw => ({
+        keyword: kw.keyword,
+        searchVolume: kw.searchVolume || 0,
+        source: 'KEYWORD_POOL',
+        priority: 'HIGH'
+      }))
+      console.log(`📦 v4.16 关键词池: ${linkType}链接 - 桶 ${bucketType} (${keywordResult.intent}) 的 ${bucketKeywordsNormalized.length} 个关键词`)
+    } else {
+      console.log(`📦 v4.16 关键词池: ${linkType}链接 - 桶 ${bucketType} 暂无关键词，将使用默认关键词`)
+    }
   }
 
   // 🔥 2025-12-16修复：统一extracted关键词格式（可能是字符串数组或对象数组）

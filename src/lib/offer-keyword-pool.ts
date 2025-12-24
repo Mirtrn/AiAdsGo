@@ -42,6 +42,7 @@ export interface PoolKeywordData {
 
 /**
  * Offer 级关键词池
+ * 🆕 v4.16: 支持单品链接和店铺链接的不同分桶策略
  */
 export interface OfferKeywordPool {
   id: number
@@ -51,17 +52,34 @@ export interface OfferKeywordPool {
   // 共享层：纯品牌词（🔥 升级为 PoolKeywordData[]）
   brandKeywords: PoolKeywordData[]
 
-  // 独占层：语义分桶（🔥 升级为 PoolKeywordData[]）
-  bucketAKeywords: PoolKeywordData[]  // 品牌导向
-  bucketBKeywords: PoolKeywordData[]  // 场景导向
-  bucketCKeywords: PoolKeywordData[]  // 功能导向
-  bucketDKeywords: PoolKeywordData[]  // 🔥 2025-12-22: 高购买意图
+  // 独占层：语义分桶（单品链接）- 4个桶
+  bucketAKeywords: PoolKeywordData[]  // 产品型号导向 (Product-Specific)
+  bucketBKeywords: PoolKeywordData[]  // 购买意图导向 (Purchase-Intent)
+  bucketCKeywords: PoolKeywordData[]  // 功能特性导向 (Feature-Focused)
+  bucketDKeywords: PoolKeywordData[]  // 紧迫促销导向 (Urgency-Promo)
 
-  // 桶意图描述
+  // 桶意图描述（单品链接）
   bucketAIntent: string
   bucketBIntent: string
   bucketCIntent: string
-  bucketDIntent: string  // 🔥 2025-12-22: 高购买意图描述
+  bucketDIntent: string
+
+  // 🆕 v4.16: 店铺链接分桶 - 5个桶
+  storeBucketAKeywords: PoolKeywordData[]  // 品牌信任导向 (Brand-Trust)
+  storeBucketBKeywords: PoolKeywordData[]  // 场景解决方案 (Scene-Solution)
+  storeBucketCKeywords: PoolKeywordData[]  // 精选推荐导向 (Collection-Highlight)
+  storeBucketDKeywords: PoolKeywordData[]  // 信任信号导向 (Trust-Signals)
+  storeBucketSKeywords: PoolKeywordData[]  // 店铺全景 (Store-Overview)
+
+  // 店铺分桶意图描述
+  storeBucketAIntent: string
+  storeBucketBIntent: string
+  storeBucketCIntent: string
+  storeBucketDIntent: string
+  storeBucketSIntent: string
+
+  // 🆕 v4.16: 链接类型标识
+  linkType: 'product' | 'store' | 'both'
 
   // 元数据
   totalKeywords: number
@@ -107,6 +125,52 @@ export interface KeywordBuckets {
     bucketBCount: number
     bucketCCount: number
     bucketDCount: number
+    balanceScore: number
+  }
+}
+
+/**
+ * 🆕 v4.16: 店铺链接关键词桶（5个桶）
+ * 用于店铺链接的5种不同创意类型
+ */
+export interface StoreKeywordBuckets {
+  bucketA: {
+    intent: string  // 品牌信任导向 (Brand-Trust)
+    intentEn: string
+    description: string
+    keywords: string[]
+  }
+  bucketB: {
+    intent: string  // 场景解决方案 (Scene-Solution)
+    intentEn: string
+    description: string
+    keywords: string[]
+  }
+  bucketC: {
+    intent: string  // 精选推荐导向 (Collection-Highlight)
+    intentEn: string
+    description: string
+    keywords: string[]
+  }
+  bucketD: {
+    intent: string  // 信任信号导向 (Trust-Signals)
+    intentEn: string
+    description: string
+    keywords: string[]
+  }
+  bucketS: {
+    intent: string  // 店铺全景 (Store-Overview)
+    intentEn: string
+    description: string
+    keywords: string[]
+  }
+  statistics: {
+    totalKeywords: number
+    bucketACount: number
+    bucketBCount: number
+    bucketCCount: number
+    bucketDCount: number
+    bucketSCount: number
     balanceScore: number
   }
 }
@@ -296,6 +360,7 @@ export function generateHighIntentKeywords(
 
 /**
  * 批量聚类单个批次
+ * 🆕 v4.16: 支持店铺链接的5桶模式
  */
 async function clusterBatchKeywords(
   batchKeywords: string[],
@@ -303,7 +368,8 @@ async function clusterBatchKeywords(
   category: string | null,
   userId: number,
   batchIndex: number,
-  totalBatches: number
+  totalBatches: number,
+  pageType: 'product' | 'store' = 'product'
 ): Promise<{
   bucketA: { intent: string; intentEn: string; description: string; keywords: string[] }
   bucketB: { intent: string; intentEn: string; description: string; keywords: string[] }
@@ -311,18 +377,21 @@ async function clusterBatchKeywords(
   bucketD: { intent: string; intentEn: string; description: string; keywords: string[] }
   statistics: { totalKeywords: number; bucketACount: number; bucketBCount: number; bucketCCount: number; bucketDCount: number; balanceScore: number }
 }> {
-  console.log(`📦 处理批次 ${batchIndex}/${totalBatches}: ${batchKeywords.length} 个关键词`)
+  console.log(`📦 处理批次 ${batchIndex}/${totalBatches}: ${batchKeywords.length} 个关键词 (${pageType}链接)`)
 
   // 1. 加载聚类 prompt
   const promptTemplate = await loadPrompt('keyword_intent_clustering')
 
-  // 2. 构建 prompt
-  const prompt = promptTemplate
+  // 2. 构建 prompt（v4.16 支持 store 链接）
+  let prompt = promptTemplate
     .replace('{{brandName}}', brandName)
     .replace('{{productCategory}}', category || '未分类')
     .replace('{{keywords}}', batchKeywords.join('\n'))
+    // 🆕 v4.16: 添加链接类型参数到 prompt
+    .replace(/\{\{linkType\}\}/g, pageType)
 
-  // 3. 定义结构化输出 schema（支持4个桶）
+  // 3. 定义结构化输出 schema（支持4桶产品 或 5桶店铺）
+  const isStore = pageType === 'store'
   const responseSchema = {
     type: 'OBJECT' as const,
     properties: {
@@ -366,6 +435,19 @@ async function clusterBatchKeywords(
         },
         required: ['intent', 'intentEn', 'description', 'keywords']
       },
+      // 🆕 v4.16: 店铺链接添加 bucketS
+      ...(isStore ? {
+        bucketS: {
+          type: 'OBJECT' as const,
+          properties: {
+            intent: { type: 'STRING' as const },
+            intentEn: { type: 'STRING' as const },
+            description: { type: 'STRING' as const },
+            keywords: { type: 'ARRAY' as const, items: { type: 'STRING' as const } }
+          },
+          required: ['intent', 'intentEn', 'description', 'keywords']
+        }
+      } : {}),
       statistics: {
         type: 'OBJECT' as const,
         properties: {
@@ -374,12 +456,18 @@ async function clusterBatchKeywords(
           bucketBCount: { type: 'INTEGER' as const },
           bucketCCount: { type: 'INTEGER' as const },
           bucketDCount: { type: 'INTEGER' as const },
+          // 🆕 v4.16: 店铺链接添加 bucketSCount
+          ...(isStore ? { bucketSCount: { type: 'INTEGER' as const } } : {}),
           balanceScore: { type: 'NUMBER' as const }
         },
-        required: ['totalKeywords', 'bucketACount', 'bucketBCount', 'bucketCCount', 'bucketDCount', 'balanceScore']
+        required: isStore
+          ? ['totalKeywords', 'bucketACount', 'bucketBCount', 'bucketCCount', 'bucketDCount', 'bucketSCount', 'balanceScore']
+          : ['totalKeywords', 'bucketACount', 'bucketBCount', 'bucketCCount', 'bucketDCount', 'balanceScore']
       }
     },
-    required: ['bucketA', 'bucketB', 'bucketC', 'bucketD', 'statistics']
+    required: isStore
+      ? ['bucketA', 'bucketB', 'bucketC', 'bucketD', 'bucketS', 'statistics']
+      : ['bucketA', 'bucketB', 'bucketC', 'bucketD', 'statistics']
   }
 
   // 4. 调用 AI（使用智能模型选择，60-90s）
@@ -428,20 +516,41 @@ async function clusterBatchKeywords(
   }
 
   // 🔥 2025-12-22 添加数据结构验证（支持4个桶）
-  if (!batchResult.bucketA || !batchResult.bucketB || !batchResult.bucketC || !batchResult.bucketD) {
-    console.error('❌ AI返回数据结构不完整:', batchResult)
-    throw new Error('AI返回的数据结构不完整：缺少bucketA/B/C/D')
-  }
+  // 🆕 v4.16: 店铺链接支持5个桶
+  if (isStore) {
+    // 店铺链接：验证5个桶
+    if (!batchResult.bucketA || !batchResult.bucketB || !batchResult.bucketC || !batchResult.bucketD || !batchResult.bucketS) {
+      console.error('❌ AI返回数据结构不完整(店铺):', batchResult)
+      throw new Error('AI返回的数据结构不完整：缺少bucketA/B/C/D/S')
+    }
 
-  if (!Array.isArray(batchResult.bucketA.keywords) ||
-      !Array.isArray(batchResult.bucketB.keywords) ||
-      !Array.isArray(batchResult.bucketC.keywords) ||
-      !Array.isArray(batchResult.bucketD.keywords)) {
-    console.error('❌ AI返回的keywords不是数组:', batchResult)
-    throw new Error('AI返回的keywords不是数组')
-  }
+    if (!Array.isArray(batchResult.bucketA.keywords) ||
+        !Array.isArray(batchResult.bucketB.keywords) ||
+        !Array.isArray(batchResult.bucketC.keywords) ||
+        !Array.isArray(batchResult.bucketD.keywords) ||
+        !Array.isArray(batchResult.bucketS.keywords)) {
+      console.error('❌ AI返回的keywords不是数组(店铺):', batchResult)
+      throw new Error('AI返回的keywords不是数组')
+    }
 
-  console.log(`✅ 批次 ${batchIndex} 完成: A=${batchResult.bucketA.keywords.length}, B=${batchResult.bucketB.keywords.length}, C=${batchResult.bucketC.keywords.length}, D=${batchResult.bucketD.keywords.length}`)
+    console.log(`✅ 批次 ${batchIndex} 完成 (店铺5桶): A=${batchResult.bucketA.keywords.length}, B=${batchResult.bucketB.keywords.length}, C=${batchResult.bucketC.keywords.length}, D=${batchResult.bucketD.keywords.length}, S=${batchResult.bucketS.keywords.length}`)
+  } else {
+    // 产品链接：验证4个桶
+    if (!batchResult.bucketA || !batchResult.bucketB || !batchResult.bucketC || !batchResult.bucketD) {
+      console.error('❌ AI返回数据结构不完整(产品):', batchResult)
+      throw new Error('AI返回的数据结构不完整：缺少bucketA/B/C/D')
+    }
+
+    if (!Array.isArray(batchResult.bucketA.keywords) ||
+        !Array.isArray(batchResult.bucketB.keywords) ||
+        !Array.isArray(batchResult.bucketC.keywords) ||
+        !Array.isArray(batchResult.bucketD.keywords)) {
+      console.error('❌ AI返回的keywords不是数组(产品):', batchResult)
+      throw new Error('AI返回的keywords不是数组')
+    }
+
+    console.log(`✅ 批次 ${batchIndex} 完成 (产品4桶): A=${batchResult.bucketA.keywords.length}, B=${batchResult.bucketB.keywords.length}, C=${batchResult.bucketC.keywords.length}, D=${batchResult.bucketD.keywords.length}`)
+  }
 
   return batchResult
 }
@@ -521,15 +630,25 @@ function mergeBatchResults(
  * - 高购买意图词也参与AI语义聚类
  * - 保持语义聚类的一致性
  *
- * 桶A：品牌导向（知道要买什么品牌）
- * 桶B：场景导向（知道要解决什么问题）
- * 桶C：功能导向（关注技术规格/功能特性）
- * 桶D：高购买意图（包含购买行为词的关键词）
+ * 桶A：产品型号导向（知道要买什么产品）
+ * 桶B：购买意图导向（搜索价格/优惠）
+ * 桶C：功能特性导向（关注技术规格/功能特性）
+ * 桶D：紧迫促销导向（追求即时购买）
+ *
+ * 🆕 v4.16: 店铺链接支持5个桶
+ * 桶A：品牌信任导向
+ * 桶B：场景解决方案导向
+ * 桶C：精选推荐导向
+ * 桶D：信任信号导向
+ * 桶S：店铺全景导向
  *
  * @param keywords - 非品牌关键词列表
  * @param brandName - 品牌名称
  * @param category - 产品类别
  * @param userId - 用户 ID（用于 AI 调用）
+ * @param targetCountry - 目标国家
+ * @param targetLanguage - 目标语言
+ * @param pageType - 链接类型 ('product' | 'store')
  * @returns 关键词桶
  */
 export async function clusterKeywordsByIntent(
@@ -538,18 +657,25 @@ export async function clusterKeywordsByIntent(
   category: string | null,
   userId: number,
   targetCountry?: string,
-  targetLanguage?: string
+  targetLanguage?: string,
+  pageType: 'product' | 'store' = 'product'
 ): Promise<KeywordBuckets> {
   if (keywords.length === 0) {
     console.log('⚠️ 无关键词需要聚类，返回空桶')
-    return createEmptyBuckets()
+    return pageType === 'store' ? createEmptyStoreBuckets() : createEmptyBuckets()
   }
 
-  console.log(`\n🎯 开始 AI 语义聚类: ${keywords.length} 个关键词`)
+  console.log(`\n🎯 开始 AI 语义聚类: ${keywords.length} 个关键词 (${pageType}链接)`)
 
   // 🔥 2025-12-22 整合优化：先生成高购买意图关键词
-  const highIntentKeywords = generateHighIntentKeywords(brandName, category, keywords.slice(0, 10))
-  console.log(`🎯 生成高购买意图关键词: ${highIntentKeywords.length} 个`)
+  // 🆕 v4.16: 店铺链接不生成高购买意图关键词
+  const highIntentKeywords = pageType === 'product'
+    ? generateHighIntentKeywords(brandName, category, keywords.slice(0, 10))
+    : []
+
+  if (pageType === 'product') {
+    console.log(`🎯 生成高购买意图关键词: ${highIntentKeywords.length} 个`)
+  }
 
   // 🔥 2025-12-23 修复：查询高购买意图词的真实搜索量
   let highIntentKeywordsWithVolume: string[] = highIntentKeywords
@@ -596,7 +722,7 @@ export async function clusterKeywordsByIntent(
   if (!needsBatching) {
     // 小批量：直接处理（原逻辑）
     console.log(`📝 小批量模式：直接处理 ${allKeywordsForClustering.length} 个关键词`)
-    return await clusterKeywordsDirectly(allKeywordsForClustering, brandName, category, userId)
+    return await clusterKeywordsDirectly(allKeywordsForClustering, brandName, category, userId, pageType)
   }
 
   // 大批量：分批处理
@@ -620,7 +746,7 @@ export async function clusterKeywordsByIntent(
   for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
     try {
       const batchPromises = batches.map((batch, index) =>
-        clusterBatchKeywords(batch, brandName, category, userId, index + 1, batchCount)
+        clusterBatchKeywords(batch, brandName, category, userId, index + 1, batchCount, pageType)
           .catch(error => {
             console.error(`❌ 批次 ${index + 1} 失败:`, error.message)
             throw error
@@ -667,13 +793,15 @@ export async function clusterKeywordsByIntent(
 
 /**
  * 直接处理小批量关键词聚类（原逻辑）
+ * 🆕 v4.16: 支持店铺链接的5桶模式
  */
 async function clusterKeywordsDirectly(
   keywords: string[],
   brandName: string,
   category: string | null,
-  userId: number
-): Promise<KeywordBuckets> {
+  userId: number,
+  pageType: 'product' | 'store' = 'product'
+): Promise<KeywordBuckets | StoreKeywordBuckets> {
   // 重试配置
   const maxRetries = 2
   const baseDelay = 5000
@@ -681,16 +809,19 @@ async function clusterKeywordsDirectly(
 
   for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
     try {
-      // 1. 加载聚类 prompt
+      // 1. 加载聚类 prompt（v4.16 支持 pageType 参数）
       const promptTemplate = await loadPrompt('keyword_intent_clustering')
 
-      // 2. 构建 prompt
-      const prompt = promptTemplate
+      // 2. 构建 prompt（v4.16 支持 store 链接）
+      let prompt = promptTemplate
         .replace('{{brandName}}', brandName)
         .replace('{{productCategory}}', category || '未分类')
         .replace('{{keywords}}', keywords.join('\n'))
+        // 🆕 v4.16: 添加链接类型参数到 prompt
+        .replace(/\{\{linkType\}\}/g, pageType)
 
-      // 3. 定义结构化输出 schema（支持4个桶）
+      // 3. 定义结构化输出 schema（支持4桶产品 或 5桶店铺）
+      const isStore = pageType === 'store'
       const responseSchema = {
         type: 'OBJECT' as const,
         properties: {
@@ -734,6 +865,19 @@ async function clusterKeywordsDirectly(
             },
             required: ['intent', 'intentEn', 'description', 'keywords']
           },
+          // 🆕 v4.16: 店铺链接添加 bucketS
+          ...(isStore ? {
+            bucketS: {
+              type: 'OBJECT' as const,
+              properties: {
+                intent: { type: 'STRING' as const },
+                intentEn: { type: 'STRING' as const },
+                description: { type: 'STRING' as const },
+                keywords: { type: 'ARRAY' as const, items: { type: 'STRING' as const } }
+              },
+              required: ['intent', 'intentEn', 'description', 'keywords']
+            }
+          } : {}),
           statistics: {
             type: 'OBJECT' as const,
             properties: {
@@ -742,12 +886,18 @@ async function clusterKeywordsDirectly(
               bucketBCount: { type: 'INTEGER' as const },
               bucketCCount: { type: 'INTEGER' as const },
               bucketDCount: { type: 'INTEGER' as const },
+              // 🆕 v4.16: 店铺链接添加 bucketSCount
+              ...(isStore ? { bucketSCount: { type: 'INTEGER' as const } } : {}),
               balanceScore: { type: 'NUMBER' as const }
             },
-            required: ['totalKeywords', 'bucketACount', 'bucketBCount', 'bucketCCount', 'bucketDCount', 'balanceScore']
+            required: isStore
+              ? ['totalKeywords', 'bucketACount', 'bucketBCount', 'bucketCCount', 'bucketDCount', 'bucketSCount', 'balanceScore']
+              : ['totalKeywords', 'bucketACount', 'bucketBCount', 'bucketCCount', 'bucketDCount', 'balanceScore']
           }
         },
-        required: ['bucketA', 'bucketB', 'bucketC', 'bucketD', 'statistics']
+        required: isStore
+          ? ['bucketA', 'bucketB', 'bucketC', 'bucketD', 'bucketS', 'statistics']
+          : ['bucketA', 'bucketB', 'bucketC', 'bucketD', 'statistics']
       }
 
       // 4. 调用 AI（使用智能模型选择）
@@ -785,9 +935,9 @@ async function clusterKeywordsDirectly(
         throw new Error('AI 返回的数据格式无效：未找到JSON')
       }
 
-      let buckets
+      let buckets: KeywordBuckets | StoreKeywordBuckets
       try {
-        buckets = JSON.parse(jsonMatch[0]) as KeywordBuckets
+        buckets = JSON.parse(jsonMatch[0])
       } catch (parseError) {
         console.error('❌ JSON解析失败:', parseError)
         console.error('   原始响应:', aiResponse.text.slice(0, 500))
@@ -796,28 +946,60 @@ async function clusterKeywordsDirectly(
       }
 
       // 🔥 2025-12-22 添加数据结构验证（支持4个桶）
-      if (!buckets.bucketA || !buckets.bucketB || !buckets.bucketC || !buckets.bucketD) {
-        console.error('❌ AI返回数据结构不完整:', buckets)
-        throw new Error('AI返回的数据结构不完整：缺少bucketA/B/C/D')
+      // 🆕 v4.16: 店铺链接支持5个桶
+      if (isStore) {
+        // 店铺链接：验证5个桶
+        const storeBuckets = buckets as StoreKeywordBuckets
+        if (!storeBuckets.bucketA || !storeBuckets.bucketB || !storeBuckets.bucketC || !storeBuckets.bucketD || !storeBuckets.bucketS) {
+          console.error('❌ AI返回数据结构不完整(店铺):', buckets)
+          throw new Error('AI返回的数据结构不完整：缺少bucketA/B/C/D/S')
+        }
+
+        if (!Array.isArray(storeBuckets.bucketA.keywords) ||
+            !Array.isArray(storeBuckets.bucketB.keywords) ||
+            !Array.isArray(storeBuckets.bucketC.keywords) ||
+            !Array.isArray(storeBuckets.bucketD.keywords) ||
+            !Array.isArray(storeBuckets.bucketS.keywords)) {
+          console.error('❌ AI返回的keywords不是数组(店铺):', buckets)
+          throw new Error('AI返回的keywords不是数组')
+        }
+
+        // 验证店铺结果
+        validateStoreBuckets(storeBuckets, keywords)
+
+        console.log(`✅ AI 聚类完成 (店铺 5桶):`)
+        console.log(`   桶A [品牌信任]: ${storeBuckets.bucketA.keywords.length} 个`)
+        console.log(`   桶B [场景解决]: ${storeBuckets.bucketB.keywords.length} 个`)
+        console.log(`   桶C [精选推荐]: ${storeBuckets.bucketC.keywords.length} 个`)
+        console.log(`   桶D [信任信号]: ${storeBuckets.bucketD.keywords.length} 个`)
+        console.log(`   桶S [店铺全景]: ${storeBuckets.bucketS.keywords.length} 个`)
+        console.log(`   均衡度得分: ${storeBuckets.statistics.balanceScore.toFixed(2)}`)
+      } else {
+        // 产品链接：验证4个桶
+        const productBuckets = buckets as KeywordBuckets
+        if (!productBuckets.bucketA || !productBuckets.bucketB || !productBuckets.bucketC || !productBuckets.bucketD) {
+          console.error('❌ AI返回数据结构不完整(产品):', buckets)
+          throw new Error('AI返回的数据结构不完整：缺少bucketA/B/C/D')
+        }
+
+        if (!Array.isArray(productBuckets.bucketA.keywords) ||
+            !Array.isArray(productBuckets.bucketB.keywords) ||
+            !Array.isArray(productBuckets.bucketC.keywords) ||
+            !Array.isArray(productBuckets.bucketD.keywords)) {
+          console.error('❌ AI返回的keywords不是数组(产品):', buckets)
+          throw new Error('AI返回的keywords不是数组')
+        }
+
+        // 验证产品结果
+        validateBuckets(productBuckets, keywords)
+
+        console.log(`✅ AI 聚类完成 (产品 4桶):`)
+        console.log(`   桶A [产品型号]: ${productBuckets.bucketA.keywords.length} 个`)
+        console.log(`   桶B [购买意图]: ${productBuckets.bucketB.keywords.length} 个`)
+        console.log(`   桶C [功能特性]: ${productBuckets.bucketC.keywords.length} 个`)
+        console.log(`   桶D [紧迫促销]: ${productBuckets.bucketD.keywords.length} 个`)
+        console.log(`   均衡度得分: ${productBuckets.statistics.balanceScore.toFixed(2)}`)
       }
-
-      if (!Array.isArray(buckets.bucketA.keywords) ||
-          !Array.isArray(buckets.bucketB.keywords) ||
-          !Array.isArray(buckets.bucketC.keywords) ||
-          !Array.isArray(buckets.bucketD.keywords)) {
-        console.error('❌ AI返回的keywords不是数组:', buckets)
-        throw new Error('AI返回的keywords不是数组')
-      }
-
-      // 7. 验证结果
-      validateBuckets(buckets, keywords)
-
-      console.log(`✅ AI 聚类完成:`)
-      console.log(`   桶A [品牌导向]: ${buckets.bucketA.keywords.length} 个`)
-      console.log(`   桶B [场景导向]: ${buckets.bucketB.keywords.length} 个`)
-      console.log(`   桶C [功能导向]: ${buckets.bucketC.keywords.length} 个`)
-      console.log(`   桶D [高购买意图]: ${buckets.bucketD.keywords.length} 个`)
-      console.log(`   均衡度得分: ${buckets.statistics.balanceScore.toFixed(2)}`)
 
       return buckets
     } catch (error: any) {
@@ -851,6 +1033,20 @@ function createEmptyBuckets(): KeywordBuckets {
     bucketC: { intent: '功能导向', intentEn: 'Feature-Oriented', description: '用户关注技术规格/功能特性', keywords: [] },
     bucketD: { intent: '通用词汇', intentEn: 'Generic-Terms', description: '竞争度中等、搜索量高、CPC低的通用词', keywords: [] },
     statistics: { totalKeywords: 0, bucketACount: 0, bucketBCount: 0, bucketCCount: 0, bucketDCount: 0, balanceScore: 1.0 }
+  }
+}
+
+/**
+ * 🆕 v4.16: 创建店铺链接空桶（5个桶）
+ */
+function createEmptyStoreBuckets(): StoreKeywordBuckets {
+  return {
+    bucketA: { intent: '品牌信任导向', intentEn: 'Brand-Trust', description: '用户认可品牌，寻求官方购买渠道', keywords: [] },
+    bucketB: { intent: '场景解决导向', intentEn: 'Scene-Solution', description: '用户有具体使用场景需求', keywords: [] },
+    bucketC: { intent: '精选推荐导向', intentEn: 'Collection-Highlight', description: '用户想了解店铺热销/推荐产品', keywords: [] },
+    bucketD: { intent: '信任信号导向', intentEn: 'Trust-Signals', description: '用户关注店铺信誉、售后保障', keywords: [] },
+    bucketS: { intent: '店铺全景导向', intentEn: 'Store-Overview', description: '用户想全面了解店铺', keywords: [] },
+    statistics: { totalKeywords: 0, bucketACount: 0, bucketBCount: 0, bucketCCount: 0, bucketDCount: 0, bucketSCount: 0, balanceScore: 1.0 }
   }
 }
 
@@ -892,6 +1088,47 @@ function validateBuckets(buckets: KeywordBuckets, originalKeywords: string[]): v
 
   if (duplicates.length > 0) {
     console.warn(`⚠️ 有 ${duplicates.length} 个关键词重复分配:`, duplicates.slice(0, 5))
+  }
+}
+
+/**
+ * 🆕 v4.16: 验证店铺桶结果（5个桶）
+ */
+function validateStoreBuckets(buckets: StoreKeywordBuckets, originalKeywords: string[]): void {
+  if (!buckets) {
+    throw new Error('店铺聚类结果为空')
+  }
+
+  const allBucketKeywords = [
+    ...(buckets.bucketA?.keywords || []),
+    ...(buckets.bucketB?.keywords || []),
+    ...(buckets.bucketC?.keywords || []),
+    ...(buckets.bucketD?.keywords || []),
+    ...(buckets.bucketS?.keywords || [])
+  ]
+
+  // 检查是否有遗漏
+  const missing = originalKeywords.filter(kw =>
+    !allBucketKeywords.some(bkw => bkw.toLowerCase() === kw.toLowerCase())
+  )
+
+  if (missing.length > 0) {
+    console.warn(`⚠️ 有 ${missing.length} 个店铺关键词未分配到桶中:`, missing.slice(0, 5))
+  }
+
+  // 检查是否有重复
+  const seen = new Set<string>()
+  const duplicates: string[] = []
+  for (const kw of allBucketKeywords) {
+    const lower = kw.toLowerCase()
+    if (seen.has(lower)) {
+      duplicates.push(kw)
+    }
+    seen.add(lower)
+  }
+
+  if (duplicates.length > 0) {
+    console.warn(`⚠️ 有 ${duplicates.length} 个店铺关键词重复分配:`, duplicates.slice(0, 5))
   }
 }
 
@@ -1079,6 +1316,7 @@ export async function saveKeywordPool(
 /**
  * 🆕 保存关键词池（PoolKeywordData[] 版本）
  * 🔥 2025-12-22: 添加bucketD支持
+ * 🆕 v4.16: 支持店铺链接的5桶存储
  */
 async function saveKeywordPoolWithData(
   offerId: number,
@@ -1091,16 +1329,24 @@ async function saveKeywordPoolWithData(
     bucketD: { intent: string; keywords: PoolKeywordData[] }
     statistics: { totalKeywords: number; balanceScore: number }
   },
-  model?: string,
-  promptVersion?: string
+  pageType: 'product' | 'store' = 'product',
+  storeBuckets?: StoreKeywordBuckets  // 🆕 v4.16: 店铺桶数据（可选）
 ): Promise<OfferKeywordPool> {
   const db = await getDatabase()
 
-  const brandKwJson = JSON.stringify(brandKeywords)
-  const bucketAJson = JSON.stringify(buckets.bucketA.keywords)
-  const bucketBJson = JSON.stringify(buckets.bucketB.keywords)
-  const bucketCJson = JSON.stringify(buckets.bucketC.keywords)
-  const bucketDJson = JSON.stringify(buckets.bucketD.keywords)
+  const brandKwJson = serializeJsonForDb(brandKeywords, db.type)
+  const bucketAJson = serializeJsonForDb(buckets.bucketA.keywords, db.type)
+  const bucketBJson = serializeJsonForDb(buckets.bucketB.keywords, db.type)
+  const bucketCJson = serializeJsonForDb(buckets.bucketC.keywords, db.type)
+  const bucketDJson = serializeJsonForDb(buckets.bucketD.keywords, db.type)
+
+  // 🆕 v4.16: 店铺分桶JSON
+  const storeBucketAJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketA.keywords, db.type) : '[]'
+  const storeBucketBJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketB.keywords, db.type) : '[]'
+  const storeBucketCJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketC.keywords, db.type) : '[]'
+  const storeBucketDJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketD.keywords, db.type) : '[]'
+  const storeBucketSJson = storeBuckets ? serializeJsonForDb(storeBuckets.bucketS.keywords, db.type) : '[]'
+
   const totalKeywords = brandKeywords.length + buckets.bucketA.keywords.length + buckets.bucketB.keywords.length + buckets.bucketC.keywords.length + buckets.bucketD.keywords.length
 
   // 检查是否已存在
@@ -1109,59 +1355,44 @@ async function saveKeywordPoolWithData(
     [offerId]
   )
 
+  // 🆕 v4.16: 店铺分桶意图
+  const storeBucketAIntent = storeBuckets?.bucketA.intent || '品牌信任导向'
+  const storeBucketBIntent = storeBuckets?.bucketB.intent || '场景解决导向'
+  const storeBucketCIntent = storeBuckets?.bucketC.intent || '精选推荐导向'
+  const storeBucketDIntent = storeBuckets?.bucketD.intent || '信任信号导向'
+  const storeBucketSIntent = storeBuckets?.bucketS.intent || '店铺全景导向'
+
   if (existing) {
-    // 更新现有记录
-    await db.exec(
-      `UPDATE offer_keyword_pools SET
-        brand_keywords = ?,
-        bucket_a_keywords = ?,
-        bucket_b_keywords = ?,
-        bucket_c_keywords = ?,
-        bucket_d_keywords = ?,
-        bucket_a_intent = ?,
-        bucket_b_intent = ?,
-        bucket_c_intent = ?,
-        bucket_d_intent = ?,
-        total_keywords = ?,
-        clustering_model = ?,
-        clustering_prompt_version = ?,
-        balance_score = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE offer_id = ?`,
-      [
-        brandKwJson,
-        bucketAJson,
-        bucketBJson,
-        bucketCJson,
-        bucketDJson,
-        buckets.bucketA.intent,
-        buckets.bucketB.intent,
-        buckets.bucketC.intent,
-        buckets.bucketD.intent,
-        totalKeywords,
-        model || null,
-        promptVersion || null,
-        buckets.statistics.balanceScore,
-        offerId
-      ]
-    )
+    // 🆕 v4.16: 更新现有记录（包含店铺分桶）
+    const updateFields = [
+      'brand_keywords = ?',
+      'bucket_a_keywords = ?',
+      'bucket_b_keywords = ?',
+      'bucket_c_keywords = ?',
+      'bucket_d_keywords = ?',
+      'bucket_a_intent = ?',
+      'bucket_b_intent = ?',
+      'bucket_c_intent = ?',
+      'bucket_d_intent = ?',
+      'total_keywords = ?',
+      'clustering_model = ?',
+      'clustering_prompt_version = ?',
+      'balance_score = ?',
+      'link_type = ?',
+      'store_bucket_a_keywords = ?',
+      'store_bucket_b_keywords = ?',
+      'store_bucket_c_keywords = ?',
+      'store_bucket_d_keywords = ?',
+      'store_bucket_s_keywords = ?',
+      'store_bucket_a_intent = ?',
+      'store_bucket_b_intent = ?',
+      'store_bucket_c_intent = ?',
+      'store_bucket_d_intent = ?',
+      'store_bucket_s_intent = ?',
+      `updated_at = ${db.type === 'postgres' ? 'NOW()' : "datetime('now')"}`
+    ]
 
-    console.log(`✅ 关键词池已更新: Offer #${offerId}`)
-    return getKeywordPoolByOfferId(offerId) as Promise<OfferKeywordPool>
-  }
-
-  // 创建新记录
-  const result = await db.exec(
-    `INSERT INTO offer_keyword_pools (
-      offer_id, user_id,
-      brand_keywords,
-      bucket_a_keywords, bucket_b_keywords, bucket_c_keywords, bucket_d_keywords,
-      bucket_a_intent, bucket_b_intent, bucket_c_intent, bucket_d_intent,
-      total_keywords, clustering_model, clustering_prompt_version, balance_score
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      offerId,
-      userId,
+    const updateValues = [
       brandKwJson,
       bucketAJson,
       bucketBJson,
@@ -1172,13 +1403,81 @@ async function saveKeywordPoolWithData(
       buckets.bucketC.intent,
       buckets.bucketD.intent,
       totalKeywords,
-      model || null,
-      promptVersion || null,
-      buckets.statistics.balanceScore
+      'gemini',  // model
+      'v4.16',   // prompt version
+      buckets.statistics.balanceScore,
+      pageType,
+      storeBucketAJson,
+      storeBucketBJson,
+      storeBucketCJson,
+      storeBucketDJson,
+      storeBucketSJson,
+      storeBucketAIntent,
+      storeBucketBIntent,
+      storeBucketCIntent,
+      storeBucketDIntent,
+      storeBucketSIntent,
+      offerId
     ]
+
+    await db.exec(
+      `UPDATE offer_keyword_pools SET ${updateFields.join(', ')} WHERE offer_id = ?`,
+      updateValues
+    )
+
+    console.log(`✅ 关键词池已更新: Offer #${offerId} (${pageType}链接)`)
+    return getKeywordPoolByOfferId(offerId) as Promise<OfferKeywordPool>
+  }
+
+  // 🆕 v4.16: 创建新记录（包含店铺分桶）
+  const insertFields = [
+    'offer_id', 'user_id',
+    'brand_keywords',
+    'bucket_a_keywords', 'bucket_b_keywords', 'bucket_c_keywords', 'bucket_d_keywords',
+    'bucket_a_intent', 'bucket_b_intent', 'bucket_c_intent', 'bucket_d_intent',
+    'total_keywords', 'clustering_model', 'clustering_prompt_version', 'balance_score',
+    'link_type',
+    'store_bucket_a_keywords', 'store_bucket_b_keywords', 'store_bucket_c_keywords', 'store_bucket_d_keywords', 'store_bucket_s_keywords',
+    'store_bucket_a_intent', 'store_bucket_b_intent', 'store_bucket_c_intent', 'store_bucket_d_intent', 'store_bucket_s_intent'
+  ]
+
+  const insertValues = [
+    offerId,
+    userId,
+    brandKwJson,
+    bucketAJson,
+    bucketBJson,
+    bucketCJson,
+    bucketDJson,
+    buckets.bucketA.intent,
+    buckets.bucketB.intent,
+    buckets.bucketC.intent,
+    buckets.bucketD.intent,
+    totalKeywords,
+    'gemini',
+    'v4.16',
+    buckets.statistics.balanceScore,
+    pageType,
+    storeBucketAJson,
+    storeBucketBJson,
+    storeBucketCJson,
+    storeBucketDJson,
+    storeBucketSJson,
+    storeBucketAIntent,
+    storeBucketBIntent,
+    storeBucketCIntent,
+    storeBucketDIntent,
+    storeBucketSIntent
+  ]
+
+  const placeholders = insertFields.map(() => '?').join(', ')
+
+  const result = await db.exec(
+    `INSERT INTO offer_keyword_pools (${insertFields.join(', ')}) VALUES (${placeholders})`,
+    insertValues
   )
 
-  console.log(`✅ 关键词池已创建: Offer #${offerId}, ID #${result.lastInsertRowid}`)
+  console.log(`✅ 关键词池已创建: Offer #${offerId}, ID #${result.lastInsertRowid} (${pageType}链接, 店铺5桶: ${storeBuckets ? '是' : '否'})`)
   return getKeywordPoolByOfferId(offerId) as Promise<OfferKeywordPool>
 }
 
@@ -1207,6 +1506,7 @@ function parseKeywordArray(data: string): PoolKeywordData[] {
 
 /**
  * 根据 Offer ID 获取关键词池
+ * 🆕 v4.16: 添加店铺分桶字段解析
  */
 export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKeywordPool | null> {
   const db = await getDatabase()
@@ -1220,6 +1520,7 @@ export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKey
 
   // 🔥 2025-12-16升级：使用parseKeywordArray处理新旧格式
   // 🔥 2025-12-22：添加bucketDKeywords和bucketDIntent
+  // 🔥 2025-12-24：添加店铺分桶字段
   return {
     id: row.id,
     offerId: row.offer_id,
@@ -1233,6 +1534,18 @@ export async function getKeywordPoolByOfferId(offerId: number): Promise<OfferKey
     bucketBIntent: row.bucket_b_intent,
     bucketCIntent: row.bucket_c_intent,
     bucketDIntent: row.bucket_d_intent || '高购买意图',
+    // 🆕 v4.16: 店铺分桶字段
+    storeBucketAKeywords: parseKeywordArray(row.store_bucket_a_keywords || '[]'),
+    storeBucketBKeywords: parseKeywordArray(row.store_bucket_b_keywords || '[]'),
+    storeBucketCKeywords: parseKeywordArray(row.store_bucket_c_keywords || '[]'),
+    storeBucketDKeywords: parseKeywordArray(row.store_bucket_d_keywords || '[]'),
+    storeBucketSKeywords: parseKeywordArray(row.store_bucket_s_keywords || '[]'),
+    storeBucketAIntent: row.store_bucket_a_intent || '品牌信任导向',
+    storeBucketBIntent: row.store_bucket_b_intent || '场景解决导向',
+    storeBucketCIntent: row.store_bucket_c_intent || '精选推荐导向',
+    storeBucketDIntent: row.store_bucket_d_intent || '信任信号导向',
+    storeBucketSIntent: row.store_bucket_s_intent || '店铺全景导向',
+    linkType: row.link_type || 'product',
     totalKeywords: row.total_keywords,
     clusteringModel: row.clustering_model,
     clusteringPromptVersion: row.clustering_prompt_version,
@@ -1416,47 +1729,96 @@ export async function generateOfferKeywordPool(
   const brandKeywordsData = filteredKeywords.filter(kw => brandKwStrings.includes(kw.keyword))
   const nonBrandKeywordsData = filteredKeywords.filter(kw => nonBrandKwStrings.includes(kw.keyword))
 
+  // 🆕 v4.16: 确定页面类型
+  const pageType = (offer.page_type as 'product' | 'store') || 'product'
+  console.log(`📊 页面类型: ${pageType}`)
+
   // 6. AI 语义聚类（传递国家和语言参数用于查询高购买意图词搜索量）
+  // 🆕 v4.16: 传递 pageType 参数
   const buckets = await clusterKeywordsByIntent(
     nonBrandKwStrings,
     offer.brand,
     offer.category,
     userId,
     offer.target_country,  // 🔥 2025-12-23 新增：传递目标国家
-    offer.target_language || 'en'  // 🔥 2025-12-23 新增：传递目标语言
+    offer.target_language || 'en',  // 🔥 2025-12-23 新增：传递目标语言
+    pageType  // 🆕 v4.16: 传递页面类型
   )
 
-  // 7. 将 PoolKeywordData 映射到桶中
-  const bucketAData = buckets.bucketA.keywords.map(kw =>
-    nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-  )
-  const bucketBData = buckets.bucketB.keywords.map(kw =>
-    nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-  )
-  const bucketCData = buckets.bucketC.keywords.map(kw =>
-    nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-  )
-  const bucketDData = buckets.bucketD.keywords.map(kw =>
-    nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
-  )
+  // 🆕 v4.16: 根据页面类型处理不同的桶结构
+  if (pageType === 'store') {
+    // 店铺链接：处理5个桶
+    const storeBuckets = buckets as StoreKeywordBuckets
 
-  // 8. 保存到数据库
-  const pool = await saveKeywordPoolWithData(
-    offerId,
-    userId,
-    brandKeywordsData,
-    {
-      bucketA: { intent: buckets.bucketA.intent, keywords: bucketAData },
-      bucketB: { intent: buckets.bucketB.intent, keywords: bucketBData },
-      bucketC: { intent: buckets.bucketC.intent, keywords: bucketCData },
-      bucketD: { intent: buckets.bucketD.intent, keywords: bucketDData },
-      statistics: buckets.statistics
-    },
-    'gemini',
-    'v1.1'
-  )
+    // 7. 将 PoolKeywordData 映射到桶中
+    const storeBucketAData = storeBuckets.bucketA.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
+    const storeBucketBData = storeBuckets.bucketB.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
+    const storeBucketCData = storeBuckets.bucketC.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
+    const storeBucketDData = storeBuckets.bucketD.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
+    const storeBucketSData = storeBuckets.bucketS.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
 
-  return pool
+    // 8. 保存到数据库（包含店铺分桶）
+    const pool = await saveKeywordPoolWithData(
+      offerId,
+      userId,
+      brandKeywordsData,
+      {
+        bucketA: { intent: storeBuckets.bucketA.intent, keywords: storeBucketAData },
+        bucketB: { intent: storeBuckets.bucketB.intent, keywords: storeBucketBData },
+        bucketC: { intent: storeBuckets.bucketC.intent, keywords: storeBucketCData },
+        bucketD: { intent: storeBuckets.bucketD.intent, keywords: storeBucketDData },
+        statistics: storeBuckets.statistics
+      },
+      pageType,  // 🆕 v4.16: 传递页面类型
+      storeBuckets  // 🆕 v4.16: 传递店铺桶数据
+    )
+
+    return pool
+  } else {
+    // 产品链接：处理4个桶（原逻辑）
+    const productBuckets = buckets as KeywordBuckets
+
+    // 7. 将 PoolKeywordData 映射到桶中
+    const bucketAData = productBuckets.bucketA.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
+    const bucketBData = productBuckets.bucketB.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
+    const bucketCData = productBuckets.bucketC.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
+    const bucketDData = productBuckets.bucketD.keywords.map(kw =>
+      nonBrandKeywordsData.find(k => k.keyword === kw) || { keyword: kw, searchVolume: 0, source: 'CLUSTERED', matchType: 'BROAD' as const }
+    )
+
+    // 8. 保存到数据库
+    const pool = await saveKeywordPoolWithData(
+      offerId,
+      userId,
+      brandKeywordsData,
+      {
+        bucketA: { intent: productBuckets.bucketA.intent, keywords: bucketAData },
+        bucketB: { intent: productBuckets.bucketB.intent, keywords: bucketBData },
+        bucketC: { intent: productBuckets.bucketC.intent, keywords: bucketCData },
+        bucketD: { intent: productBuckets.bucketD.intent, keywords: bucketDData },
+        statistics: productBuckets.statistics
+      },
+      pageType  // 🆕 v4.16: 传递页面类型
+    )
+
+    return pool
+  }
 }
 
 /**
@@ -2060,4 +2422,110 @@ export async function getKeywords(
 
   console.log(`[getKeywords] 完成: offerId=${offerId}, bucket=${bucket}, 返回${keywords.length}个关键词`)
   return result
+}
+
+/**
+ * 🆕 v4.16: 根据链接类型和创意桶获取关键词
+ *
+ * @param offerId - Offer ID
+ * @param linkType - 链接类型 ('product' | 'store')
+ * @param bucket - 创意桶类型 ('A' | 'B' | 'C' | 'D' | 'S')
+ * @returns 关键词数组和意图描述
+ */
+export async function getKeywordsByLinkTypeAndBucket(
+  offerId: number,
+  linkType: 'product' | 'store',
+  bucket: BucketType
+): Promise<{ keywords: PoolKeywordData[]; intent: string; intentEn: string }> {
+  const keywordPool = await getKeywordPoolByOfferId(offerId)
+
+  if (!keywordPool) {
+    console.warn(`[getKeywordsByLinkTypeAndBucket] 关键词池不存在: offerId=${offerId}`)
+    return { keywords: [], intent: '', intentEn: '' }
+  }
+
+  // 根据链接类型选择对应的桶
+  if (linkType === 'store') {
+    // 店铺链接使用店铺分桶
+    switch (bucket) {
+      case 'A':
+        return {
+          keywords: keywordPool.storeBucketAKeywords,
+          intent: keywordPool.storeBucketAIntent,
+          intentEn: 'Brand-Trust'
+        }
+      case 'B':
+        return {
+          keywords: keywordPool.storeBucketBKeywords,
+          intent: keywordPool.storeBucketBIntent,
+          intentEn: 'Scene-Solution'
+        }
+      case 'C':
+        return {
+          keywords: keywordPool.storeBucketCKeywords,
+          intent: keywordPool.storeBucketCIntent,
+          intentEn: 'Collection-Highlight'
+        }
+      case 'D':
+        return {
+          keywords: keywordPool.storeBucketDKeywords,
+          intent: keywordPool.storeBucketDIntent,
+          intentEn: 'Trust-Signals'
+        }
+      case 'S':
+        // S桶使用所有店铺桶的关键词组合
+        return {
+          keywords: [
+            ...keywordPool.storeBucketAKeywords,
+            ...keywordPool.storeBucketBKeywords,
+            ...keywordPool.storeBucketCKeywords,
+            ...keywordPool.storeBucketDKeywords
+          ],
+          intent: keywordPool.storeBucketSIntent,
+          intentEn: 'Store-Overview'
+        }
+    }
+  } else {
+    // 单品链接使用产品分桶
+    switch (bucket) {
+      case 'A':
+        return {
+          keywords: keywordPool.bucketAKeywords,
+          intent: keywordPool.bucketAIntent,
+          intentEn: 'Product-Specific'
+        }
+      case 'B':
+        return {
+          keywords: keywordPool.bucketBKeywords,
+          intent: keywordPool.bucketBIntent,
+          intentEn: 'Purchase-Intent'
+        }
+      case 'C':
+        return {
+          keywords: keywordPool.bucketCKeywords,
+          intent: keywordPool.bucketCIntent,
+          intentEn: 'Feature-Focused'
+        }
+      case 'D':
+        return {
+          keywords: keywordPool.bucketDKeywords,
+          intent: keywordPool.bucketDIntent,
+          intentEn: 'Urgency-Promo'
+        }
+      case 'S':
+        // S桶使用所有产品桶的关键词组合
+        return {
+          keywords: [
+            ...keywordPool.bucketAKeywords,
+            ...keywordPool.bucketBKeywords,
+            ...keywordPool.bucketCKeywords,
+            ...keywordPool.bucketDKeywords
+          ],
+          intent: '综合推广',
+          intentEn: 'Comprehensive'
+        }
+    }
+  }
+
+  return { keywords: [], intent: '', intentEn: '' }
 }

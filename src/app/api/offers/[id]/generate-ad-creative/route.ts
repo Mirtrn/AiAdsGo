@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { findOfferById } from '@/lib/offers'
+import { findOfferById, markBucketGenerated } from '@/lib/offers'
 import { generateAdCreative, generateAdCreativesBatch } from '@/lib/ad-creative-gen'
 import { createAdCreative, listAdCreativesByOffer } from '@/lib/ad-creative'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
@@ -8,6 +8,8 @@ import {
   evaluateCreativeAdStrength,
   type ComprehensiveAdStrengthResult
 } from '@/lib/scoring'
+// 🆕 v4.16: 导入智能创意选择函数
+import { getNextCreativeType, getThemeByBucket, BucketType } from '@/lib/ad-creative-generator'
 
 /**
  * 🔧 转换 AdCreative 为 API 响应格式 (camelCase)
@@ -96,8 +98,31 @@ export async function POST(
       generation_round = 1,
       reference_performance,
       count = 1,  // 新增：批量生成数量，默认1个
-      batch = false  // 新增：是否批量生成模式
+      batch = false,  // 新增：是否批量生成模式
+      // 🆕 v4.16: 支持手动指定bucket（用于补生成或重生成）
+      bucket: explicitBucket
     } = body
+
+    // 🆕 v4.16: 使用智能选择机制确定bucket
+    // 如果用户指定了bucket，则使用指定的bucket；否则自动选择
+    const linkType = offer.page_type || 'product'
+    let bucket: BucketType
+    let bucketIntent: string
+
+    if (explicitBucket && ['A', 'B', 'C', 'D', 'S'].includes(explicitBucket)) {
+      // 用户指定了bucket，用于补生成或重生成
+      bucket = explicitBucket as BucketType
+      bucketIntent = getThemeByBucket(bucket, linkType as 'product' | 'store')
+      console.log(`   🆕 Bucket: ${bucket} (用户指定)`)
+    } else {
+      // 自动选择下一个需要生成的bucket
+      bucket = getNextCreativeType({
+        page_type: linkType as 'product' | 'store',
+        generated_buckets: offer.generated_buckets
+      })
+      bucketIntent = getThemeByBucket(bucket, linkType as 'product' | 'store')
+      console.log(`   🆕 Bucket: ${bucket} (智能选择)`)
+    }
 
     // 检查是否已达到生成次数上限（最多3次）
     const existingCreatives = await listAdCreativesByOffer(offerId, authResult.user.userId, {
@@ -120,10 +145,12 @@ export async function POST(
     console.log(`🎨 开始为Offer #${offerId} 生成广告创意...`)
     console.log(`   品牌: ${offer.brand}`)
     console.log(`   国家: ${offer.target_country}`)
+    console.log(`   链接类型: ${linkType}`)
     console.log(`   轮次: ${generation_round}`)
     console.log(`   生成数量: ${actualCount}`)
+    console.log(`   主题: ${bucketIntent}`)
     if (theme) {
-      console.log(`   主题: ${theme}`)
+      console.log(`   自定义主题: ${theme}`)
     }
 
     // 批量生成或单个生成
@@ -195,9 +222,13 @@ export async function POST(
     } else {
       // 单个生成（传入userId以获取用户特定配置）
       const generatedData = await generateAdCreative(offerId, userId, {
-        theme,
+        theme: bucketIntent,  // 🆕 v4.16: 使用bucket主题
         referencePerformance: reference_performance,
-        skipCache: true  // 🔧 修复：每次生成都跳过缓存，避免重复创意
+        skipCache: true,  // 🔧 修复：每次生成都跳过缓存，避免重复创意
+        // 🆕 v4.16: 传递bucket信息
+        bucket: bucket,
+        bucketIntent: bucketIntent,
+        bucketIntentEn: getThemeByBucket(bucket, linkType as 'product' | 'store').split(' - ')[1] || bucketIntent
       })
 
       // 确保有metadata，否则构造基础格式
@@ -231,6 +262,9 @@ export async function POST(
         final_url: offer.final_url || offer.url,
         final_url_suffix: offer.final_url_suffix || undefined,
         generation_round,
+        // 🆕 v4.16: 保存bucket信息
+        keyword_bucket: bucket,
+        bucket_intent: bucketIntent,
         // 传入Ad Strength评估结果
         score: evaluation.finalScore,
         score_breakdown: {
@@ -244,12 +278,22 @@ export async function POST(
         }
       })
 
-      console.log(`✅ 广告创意已保存 (ID: ${adCreative.id}, 评分: ${adCreative.score}, 评级: ${evaluation.finalRating})`)
+      console.log(`✅ 广告创意已保存 (ID: ${adCreative.id}, Bucket: ${bucket}, 评分: ${adCreative.score}, 评级: ${evaluation.finalRating})`)
 
+      // 🆕 v4.16: 持久化保存 bucket 到数据库
+      await markBucketGenerated(offerId, bucket)
+
+      // 🆕 v4.16: 获取更新后的 generated_buckets 列表
+      const updatedGeneratedBuckets = updateGeneratedBuckets(offer.generated_buckets, bucket)
+
+      // 🆕 v4.16: 返回bucket信息给前端
       return NextResponse.json({
         success: true,
         creative: adCreative,  // 前端期望 creative 字段（单数）
-        message: '广告创意生成成功'
+        bucket: bucket,  // 🆕 当前生成的bucket类型
+        bucketIntent: bucketIntent,  // 🆕 bucket主题描述
+        generatedBuckets: updatedGeneratedBuckets,  // 🆕 更新后的已生成列表
+        message: `广告创意生成成功 (${bucket} - ${bucketIntent})`
       })
     }
 
@@ -322,6 +366,8 @@ export async function GET(
       success: true,
       // 🔧 修复(2025-12-11): 完整转换为 camelCase
       creatives: creatives.map(transformCreativeToApiResponse),
+      // 🆕 v4.16: 返回已生成的bucket列表
+      generatedBuckets: offer.generated_buckets ? JSON.parse(offer.generated_buckets) : [],
       total: creatives.length
     })
 
@@ -340,4 +386,23 @@ export async function GET(
     })
     return NextResponse.json(appError.toJSON(), { status: appError.httpStatus })
   }
+}
+
+/**
+ * 🆕 v4.16: 更新generated_buckets列表
+ * 将新生成的bucket添加到列表中
+ */
+function updateGeneratedBuckets(currentBuckets: string | null | undefined, newBucket: string): string[] {
+  let buckets: string[] = []
+  if (currentBuckets) {
+    try {
+      buckets = JSON.parse(currentBuckets) as string[]
+    } catch {
+      buckets = []
+    }
+  }
+  if (!buckets.includes(newBucket)) {
+    buckets.push(newBucket)
+  }
+  return buckets
 }

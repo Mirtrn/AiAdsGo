@@ -53,6 +53,7 @@ export interface Offer {
   ai_competitive_edges: string | null  // AI分析的竞争优势
   ai_analysis_v32: string | null  // 新版AI分析结果JSON（v3.2架构）
   page_type: string | null  // 页面类型：'product' | 'store'
+  generated_buckets: string | null  // 🆕 v4.16: 已生成的创意类型列表（JSON数组）
   // P1-11: 关联的Google Ads账号信息（运行时计算字段，非数据库字段）
   // 🔧 修复(2025-12-11): snake_case → camelCase
   linked_accounts?: Array<{
@@ -827,6 +828,12 @@ export async function updateOfferScrapeStatus(
     product_categories?: string
     // 🔥 页面类型标识（店铺/单品）
     page_type?: 'store' | 'product'
+    // 🔥 v3.2 AI分析结果（包含pageType、关键词策略等）
+    ai_analysis_v32?: string
+    // 🔥 v3.2 AI提取的关键词
+    ai_keywords?: string
+    // 🔥 v3.2 AI分析的竞品优势
+    ai_competitive_edges?: string
   }
 ): Promise<void> {
   const db = await getDatabase()
@@ -904,6 +911,9 @@ export async function updateOfferScrapeStatus(
           scraped_data = COALESCE(?, scraped_data),
           product_categories = COALESCE(?, product_categories),
           page_type = COALESCE(?, page_type),
+          ai_analysis_v32 = COALESCE(?, ai_analysis_v32),
+          ai_keywords = COALESCE(?, ai_keywords),
+          ai_competitive_edges = COALESCE(?, ai_competitive_edges),
           updated_at = ${nowFunc}
       WHERE id = ? AND user_id = ?
     `, [
@@ -931,6 +941,9 @@ export async function updateOfferScrapeStatus(
       scrapedData.scraped_data || null,
       scrapedData.product_categories || null,
       scrapedData.page_type || null,
+      scrapedData.ai_analysis_v32 || null,
+      scrapedData.ai_keywords || null,
+      scrapedData.ai_competitive_edges || null,
       id,
       userId
     ])
@@ -958,5 +971,41 @@ export async function updateOfferScrapeStatus(
         WHERE id = ? AND user_id = ?
       `, [status, error || null, id, userId])
     }
+  }
+}
+
+/**
+ * 🆕 v4.16: 标记创意类型已生成
+ * 将新生成的 bucket 添加到 generated_buckets 列表
+ */
+export async function markBucketGenerated(
+  offerId: number,
+  bucket: string
+): Promise<void> {
+  const db = await getDatabase()
+
+  // 获取当前已生成的 bucket 列表
+  const offer = await db.queryOne(
+    'SELECT generated_buckets FROM offers WHERE id = ?',
+    [offerId]
+  ) as { generated_buckets: string | null } | undefined
+
+  let generatedBuckets: string[] = []
+  if (offer?.generated_buckets) {
+    try {
+      generatedBuckets = JSON.parse(offer.generated_buckets) as string[]
+    } catch {
+      generatedBuckets = []
+    }
+  }
+
+  // 如果还没有这个 bucket，添加它
+  if (!generatedBuckets.includes(bucket)) {
+    generatedBuckets.push(bucket)
+    await db.exec(
+      'UPDATE offers SET generated_buckets = ? WHERE id = ?',
+      [JSON.stringify(generatedBuckets), offerId]
+    )
+    console.log(`[markBucketGenerated] Offer ${offerId}: 已记录 bucket ${bucket}, 总计: ${generatedBuckets.length}/5`)
   }
 }
