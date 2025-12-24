@@ -416,10 +416,21 @@ export async function getKeywordSearchVolumes(
                     highTopPageBid: Number(highBid) / 1_000_000 || 0,
                   })
                 } else if (text) {
-                  // 有关键词但没有指标数据，记录日志以便调试
-                  console.log(`[KeywordPlanner] 关键词"${text}"缺少metrics数据:`)
+                  // 🔧 修复(2025-12-24): 有关键词但metrics为null时,返回0搜索量而不是丢弃关键词
+                  // 原因: 长尾词或不常见关键词可能没有metrics数据,但仍需要返回给调用方
+                  console.log(`[KeywordPlanner] 关键词"${text}"缺少metrics数据，返回默认值(搜索量=0)`)
                   console.log(`  - keyword_metrics: ${typeof result.keyword_metrics} = ${JSON.stringify(result.keyword_metrics)}`)
                   console.log(`  - _keyword_metrics: ${typeof result._keyword_metrics} = ${JSON.stringify(result._keyword_metrics)}`)
+
+                  // ✅ 仍然添加到结果中,避免关键词丢失
+                  apiVolumes.set(text.toLowerCase(), {
+                    keyword: text,
+                    avgMonthlySearches: 0,
+                    competition: 'UNKNOWN',
+                    competitionIndex: 0,
+                    lowTopPageBid: 0,
+                    highTopPageBid: 0,
+                  })
                 }
               }
 
