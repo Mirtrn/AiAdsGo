@@ -19,12 +19,14 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
   client_secret: string
   developer_token: string
   login_customer_id: string
+  useServiceAccount: boolean
 }> {
-  const [clientIdSetting, clientSecretSetting, developerTokenSetting, loginCustomerIdSetting] = await Promise.all([
+  const [clientIdSetting, clientSecretSetting, developerTokenSetting, loginCustomerIdSetting, useServiceAccountSetting] = await Promise.all([
     getUserOnlySetting('google_ads', 'client_id', userId),
     getUserOnlySetting('google_ads', 'client_secret', userId),
     getUserOnlySetting('google_ads', 'developer_token', userId),
     getUserOnlySetting('google_ads', 'login_customer_id', userId),
+    getUserOnlySetting('google_ads', 'use_service_account', userId),
   ])
 
   if (!clientIdSetting?.value || !clientSecretSetting?.value || !developerTokenSetting?.value || !loginCustomerIdSetting?.value) {
@@ -36,6 +38,7 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
     client_secret: clientSecretSetting.value,
     developer_token: developerTokenSetting.value,
     login_customer_id: loginCustomerIdSetting.value,
+    useServiceAccount: String(useServiceAccountSetting?.value ?? '').toLowerCase() === 'true',
   }
 }
 
@@ -345,13 +348,20 @@ export async function getCustomer(
  * 辅助函数：从数据库获取凭证并创建Customer实例
  * 简化调用者代码，避免每次都手动获取credentials
  * 支持OAuth和服务账号两种认证方式
+ *
+ * 🔧 修复(2025-12-24): 服务账号模式下不需要 client_id/client_secret
  */
-async function getCustomerWithCredentials(params: {
+export async function getCustomerWithCredentials(params: {
   customerId: string
   refreshToken?: string  // OAuth模式需要
   accountId?: number
   userId: number
   loginCustomerId?: string
+  credentials?: {
+    client_id: string
+    client_secret: string
+    developer_token: string
+  }
   // 服务账号认证参数
   authType?: 'oauth' | 'service_account'
   serviceAccountId?: string
@@ -363,24 +373,12 @@ async function getCustomerWithCredentials(params: {
   const authType = params.authType || 'oauth'
 
   if (authType === 'service_account') {
-    // 服务账号认证模式
-    const { getServiceAccountConfig, getUnifiedGoogleAdsClient } = await import('./google-ads-service-account')
-    const serviceAccount = await getServiceAccountConfig(params.userId, params.serviceAccountId)
-
-    if (!serviceAccount) {
-      throw new Error('Service account configuration not found')
-    }
-
-    // 从数据库获取基本的client_id/client_secret
-    const creds = await getGoogleAdsCredentialsFromDB(params.userId)
+    // 服务账号认证模式：使用 @htdangkhoa/google-ads，不需要 client_id/client_secret
+    const { getUnifiedGoogleAdsClient } = await import('./google-ads-service-account')
 
     return getUnifiedGoogleAdsClient({
       customerId: params.customerId,
-      credentials: {
-        client_id: creds.client_id,
-        client_secret: creds.client_secret,
-        developer_token: serviceAccount.developerToken
-      },
+      // 服务账号模式下不需要 credentials（使用 JWT 认证）
       authConfig: {
         authType: 'service_account',
         userId: params.userId,

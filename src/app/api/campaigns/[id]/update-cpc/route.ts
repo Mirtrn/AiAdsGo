@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCustomer, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
+import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
+import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 
 /**
  * PUT /api/campaigns/:id/update-cpc
@@ -45,10 +46,10 @@ export async function PUT(
     // 使用第一个激活账号
     const googleAdsAccount = googleAdsAccounts[0]
 
-    if (!googleAdsAccount.refreshToken) {
+    if (!googleAdsAccount.refreshToken && !googleAdsAccount.serviceAccountId) {
       return NextResponse.json(
         {
-          error: 'Google Ads账号缺少refresh token',
+          error: 'Google Ads账号缺少认证信息',
           needsReauth: true,
         },
         { status: 400 }
@@ -57,21 +58,63 @@ export async function PUT(
 
     // 获取用户的 Google Ads 凭证
     const credentials = await getGoogleAdsCredentialsFromDB(parseInt(userId, 10))
-    const loginCustomerId = googleAdsAccount.parentMccId || credentials.login_customer_id
 
-    // 获取Google Ads客户端
-    const customer = await getCustomer(
-      googleAdsAccount.customerId,
-      googleAdsAccount.refreshToken,
-      loginCustomerId,
-      {
-        client_id: credentials.client_id,
-        client_secret: credentials.client_secret,
-        developer_token: credentials.developer_token
-      },
-      googleAdsAccount.id,
-      googleAdsAccount.userId
-    )
+    // 判断使用服务账号还是 OAuth 认证
+    const useServiceAccount = googleAdsAccount.serviceAccountId && credentials.useServiceAccount
+
+    let customer: any
+
+    if (useServiceAccount) {
+      // 服务账号模式 - 检查配置是否存在
+      const config = await getServiceAccountConfig(
+        parseInt(userId, 10),
+        googleAdsAccount.serviceAccountId as string
+      )
+
+      if (!config) {
+        return NextResponse.json(
+          { error: '未找到服务账号配置' },
+          { status: 400 }
+        )
+      }
+
+      // 使用统一客户端（服务账号模式）
+      customer = await getCustomerWithCredentials({
+        customerId: googleAdsAccount.customerId,
+        accountId: googleAdsAccount.id,
+        userId: parseInt(userId, 10),
+        loginCustomerId: googleAdsAccount.parentMccId || credentials.login_customer_id,
+        authType: 'service_account',
+        serviceAccountId: googleAdsAccount.serviceAccountId as string,
+      })
+    } else {
+      // OAuth 模式
+      if (!googleAdsAccount.refreshToken) {
+        return NextResponse.json(
+          {
+            error: 'Google Ads账号缺少refresh token',
+            needsReauth: true,
+          },
+          { status: 400 }
+        )
+      }
+
+      const loginCustomerId = googleAdsAccount.parentMccId || credentials.login_customer_id
+
+      // 使用统一客户端（OAuth模式）
+      customer = await getCustomerWithCredentials({
+        customerId: googleAdsAccount.customerId,
+        refreshToken: googleAdsAccount.refreshToken,
+        loginCustomerId,
+        credentials: {
+          client_id: credentials.client_id,
+          client_secret: credentials.client_secret,
+          developer_token: credentials.developer_token,
+        },
+        accountId: googleAdsAccount.id,
+        userId: parseInt(userId, 10),
+      })
+    }
 
     // 查询广告系列信息，获取竞价策略类型
     const campaignQuery = `

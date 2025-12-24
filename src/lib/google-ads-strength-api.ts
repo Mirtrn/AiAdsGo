@@ -10,9 +10,73 @@
  * 依赖：使用现有的google-ads-api.ts OAuth基础设施
  */
 
-import { getCustomer } from './google-ads-api'
+import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from './google-ads-api'
+import { getServiceAccountConfig } from './google-ads-service-account'
 import { getDatabase } from './db'
 import type { AdStrengthRating } from './ad-strength-evaluator'
+
+/**
+ * 获取Google Ads客户端（支持服务账号和OAuth两种模式）
+ */
+async function getGoogleAdsClient(
+  customerId: string,
+  userId: number
+): Promise<any> {
+  const db = await getDatabase()
+
+  // 获取账号信息（包含refresh_token和serviceAccountId）
+  const account = await db.queryOne(
+    `SELECT id, refresh_token, parent_mcc_id, service_account_id FROM google_ads_accounts
+     WHERE user_id = ? AND customer_id = ?`,
+    [userId, customerId]
+  ) as any
+
+  if (!account) {
+    throw new Error('未找到Google Ads账号')
+  }
+
+  // 获取用户凭证（包含useServiceAccount标志）
+  const credentials = await getGoogleAdsCredentialsFromDB(userId)
+
+  // 判断使用服务账号还是OAuth认证
+  const useServiceAccount = account.service_account_id && credentials.useServiceAccount
+
+  if (useServiceAccount) {
+    // 服务账号模式
+    const config = await getServiceAccountConfig(userId, account.service_account_id)
+
+    if (!config) {
+      throw new Error('未找到服务账号配置')
+    }
+
+    return getCustomerWithCredentials({
+      customerId,
+      accountId: account.id,
+      userId,
+      loginCustomerId: account.parent_mcc_id || credentials.login_customer_id,
+      authType: 'service_account',
+      serviceAccountId: account.service_account_id,
+    })
+  } else {
+    // OAuth模式
+    if (!account.refresh_token) {
+      throw new Error('Google Ads账号缺少refresh token')
+    }
+
+    return getCustomerWithCredentials({
+      customerId,
+      refreshToken: account.refresh_token,
+      loginCustomerId: account.parent_mcc_id || credentials.login_customer_id,
+      credentials: {
+        client_id: credentials.client_id,
+        client_secret: credentials.client_secret,
+        developer_token: credentials.developer_token,
+      },
+      accountId: account.id,
+      userId,
+    })
+  }
+}
 
 /**
  * Google Ads API Ad Strength响应
@@ -75,44 +139,8 @@ export async function getAdStrength(
   userId: number
 ): Promise<GoogleAdStrengthResponse | null> {
   try {
-    // 从数据库获取refresh_token和parent_mcc_id
-    const db = await getDatabase()
-    const account = await db.queryOne(
-      `SELECT id, refresh_token, parent_mcc_id FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`,
-      [userId, customerId]
-    ) as any
-
-    if (!account || !account.refresh_token) {
-      throw new Error('未找到Google Ads账号授权信息')
-    }
-
-    const accountId = account.id
-
-    // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
-    const credentials = await db.queryOne(
-      `SELECT client_id, client_secret, developer_token FROM google_ads_credentials
-       WHERE user_id = ? AND is_active = 1`,
-      [userId]
-    ) as any
-
-    if (!credentials?.client_id || !credentials?.client_secret || !credentials?.developer_token) {
-      throw new Error('Google Ads 凭证配置不完整，请在设置页面完成配置')
-    }
-
-    // 获取Customer实例
-    const customer = await getCustomer(
-      customerId,
-      account.refresh_token,
-      account.parent_mcc_id || '',
-      {
-        client_id: credentials.client_id,
-        client_secret: credentials.client_secret,
-        developer_token: credentials.developer_token
-      },
-      userId,
-      accountId
-    )
+    // 使用统一的客户端获取方法（支持服务账号和OAuth）
+    const customer = await getGoogleAdsClient(customerId, userId)
 
     // GAQL查询：获取Ad Strength
     const query = `
@@ -171,42 +199,8 @@ export async function getAdStrengthRecommendations(
   userId: number
 ): Promise<AdStrengthRecommendation[]> {
   try {
-    const db = await getDatabase()
-    const account = await db.queryOne(
-      `SELECT id, refresh_token, parent_mcc_id FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`,
-      [userId, customerId]
-    ) as any
-
-    if (!account || !account.refresh_token) {
-      throw new Error('未找到Google Ads账号授权信息')
-    }
-
-    const accountId = account.id
-
-    // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
-    const credentials = await db.queryOne(
-      `SELECT client_id, client_secret, developer_token FROM google_ads_credentials
-       WHERE user_id = ? AND is_active = 1`,
-      [userId]
-    ) as any
-
-    if (!credentials?.client_id || !credentials?.client_secret || !credentials?.developer_token) {
-      throw new Error('Google Ads 凭证配置不完整，请在设置页面完成配置')
-    }
-
-    const customer = await getCustomer(
-      customerId,
-      account.refresh_token,
-      account.parent_mcc_id || '',
-      {
-        client_id: credentials.client_id,
-        client_secret: credentials.client_secret,
-        developer_token: credentials.developer_token
-      },
-      accountId,
-      userId
-    )
+    // 使用统一的客户端获取方法（支持服务账号和OAuth）
+    const customer = await getGoogleAdsClient(customerId, userId)
 
     // GAQL查询：获取Ad Strength改进建议
     const query = `
@@ -263,42 +257,8 @@ export async function getAssetPerformance(
   userId: number
 ): Promise<AssetPerformanceData[]> {
   try {
-    const db = await getDatabase()
-    const account = await db.queryOne(
-      `SELECT id, refresh_token, parent_mcc_id FROM google_ads_accounts
-       WHERE user_id = ? AND customer_id = ?`,
-      [userId, customerId]
-    ) as any
-
-    if (!account || !account.refresh_token) {
-      throw new Error('未找到Google Ads账号授权信息')
-    }
-
-    const accountId = account.id
-
-    // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
-    const credentials = await db.queryOne(
-      `SELECT client_id, client_secret, developer_token FROM google_ads_credentials
-       WHERE user_id = ? AND is_active = 1`,
-      [userId]
-    ) as any
-
-    if (!credentials?.client_id || !credentials?.client_secret || !credentials?.developer_token) {
-      throw new Error('Google Ads 凭证配置不完整，请在设置页面完成配置')
-    }
-
-    const customer = await getCustomer(
-      customerId,
-      account.refresh_token,
-      account.parent_mcc_id || '',
-      {
-        client_id: credentials.client_id,
-        client_secret: credentials.client_secret,
-        developer_token: credentials.developer_token
-      },
-      accountId,
-      userId
-    )
+    // 使用统一的客户端获取方法（支持服务账号和OAuth）
+    const customer = await getGoogleAdsClient(customerId, userId)
 
     // GAQL查询：获取资产性能（Headline和Description）
     const query = `

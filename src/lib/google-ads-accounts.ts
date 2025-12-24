@@ -18,6 +18,8 @@ export interface GoogleAdsAccount {
   lastSyncAt: string | null
   createdAt: string
   updatedAt: string
+  // 服务账号配置
+  serviceAccountId: string | null
 }
 
 export interface CreateGoogleAdsAccountInput {
@@ -328,5 +330,6 @@ function mapRowToGoogleAdsAccount(row: any): GoogleAdsAccount {
     lastSyncAt: row.last_sync_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    serviceAccountId: row.service_account_id || null,
   }
 }

@@ -1,7 +1,7 @@
-import { getCustomer } from './google-ads-api'
+import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from './google-ads-api'
+import { getServiceAccountConfig } from './google-ads-service-account'
 import { getDatabase } from './db'
 import { enums } from 'google-ads-api'
-import { getGoogleAdsCredentials } from './google-ads-oauth'
 
 /**
  * 同步状态
@@ -35,10 +35,11 @@ export interface SyncLog {
 /**
  * GAQL查询参数
  * 🔧 修复(2025-12-12): 独立账号模式 - 添加凭证参数
+ * 🔧 修复(2025-12-24): 服务账号模式支持
  */
 export interface GAQLQueryParams {
   customerId: string
-  refreshToken: string
+  refreshToken?: string
   startDate: string // YYYY-MM-DD
   endDate: string // YYYY-MM-DD
   accountId: number
@@ -49,6 +50,8 @@ export interface GAQLQueryParams {
     developer_token: string
     login_customer_id?: string
   }
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }
 
 /**
@@ -125,7 +128,7 @@ export class DataSyncService {
 
     try {
       // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
-      const credentials = await getGoogleAdsCredentials(userId)
+      const credentials = await getGoogleAdsCredentialsFromDB(userId)
       if (!credentials) {
         throw new Error('Google Ads 凭证未配置，请在设置页面完成配置')
       }
@@ -146,7 +149,7 @@ export class DataSyncService {
       // 1. 获取用户的所有Google Ads账户
       const accounts = await db.query(
         `
-        SELECT id, customer_id, refresh_token, user_id
+        SELECT id, customer_id, refresh_token, user_id, service_account_id
         FROM google_ads_accounts
         WHERE user_id = ? AND ${isActiveCondition}
       `,
@@ -156,6 +159,7 @@ export class DataSyncService {
         customer_id: string
         refresh_token: string
         user_id: number
+        service_account_id: string | null
       }>
 
       if (accounts.length === 0) {
@@ -202,14 +206,19 @@ export class DataSyncService {
         const startDate = new Date()
         startDate.setDate(startDate.getDate() - 7)
 
+        // 判断使用服务账号还是OAuth
+        const useServiceAccount = account.service_account_id && credentials.useServiceAccount
+
         const performanceData = await this.queryPerformanceData({
           customerId: account.customer_id,
-          refreshToken: account.refresh_token,
+          refreshToken: account.refresh_token || undefined,
           startDate: this.formatDate(startDate),
           endDate: this.formatDate(endDate),
           accountId: account.id,
           userId: userId,
           credentials: userCredentials,
+          authType: useServiceAccount ? 'service_account' : 'oauth',
+          serviceAccountId: useServiceAccount ? (account.service_account_id as string) : undefined,
         })
 
         // 4. 批量写入数据库（使用upsert处理重复）
@@ -340,22 +349,50 @@ export class DataSyncService {
   /**
    * 使用GAQL查询性能数据
    * 🔧 修复(2025-12-12): 独立账号模式 - 传递用户凭证
+   * 🔧 修复(2025-12-24): 服务账号模式支持
    */
   private async queryPerformanceData(
     params: GAQLQueryParams
   ): Promise<CampaignPerformanceData[]> {
-    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials } = params
+    const { customerId, refreshToken, startDate, endDate, accountId, userId, credentials, authType, serviceAccountId } = params
 
     try {
-      // 🔧 修复: 传递用户凭证给 getCustomer
-      const customer = await getCustomer(
-        customerId,
-        refreshToken,
-        credentials?.login_customer_id || '',
-        credentials || { client_id: '', client_secret: '', developer_token: '' },
-        accountId,
-        userId
-      )
+      let customer: any
+
+      if (authType === 'service_account' && serviceAccountId) {
+        // 服务账号模式
+        const config = await getServiceAccountConfig(userId, serviceAccountId)
+        if (!config) {
+          throw new Error('未找到服务账号配置')
+        }
+
+        customer = await getCustomerWithCredentials({
+          customerId,
+          accountId,
+          userId,
+          loginCustomerId: credentials?.login_customer_id || '',
+          authType: 'service_account',
+          serviceAccountId,
+        })
+      } else {
+        // OAuth模式
+        if (!refreshToken) {
+          throw new Error('Google Ads账号缺少refresh token')
+        }
+
+        customer = await getCustomerWithCredentials({
+          customerId,
+          refreshToken,
+          loginCustomerId: credentials?.login_customer_id || '',
+          credentials: credentials ? {
+            client_id: credentials.client_id,
+            client_secret: credentials.client_secret,
+            developer_token: credentials.developer_token,
+          } : undefined,
+          accountId,
+          userId,
+        })
+      }
 
       // GAQL查询语句
       const query = `

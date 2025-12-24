@@ -2,6 +2,7 @@ import { JWT } from 'google-auth-library'
 import { getDatabase } from './db'
 import { decrypt } from './crypto'
 import { getGoogleAdsClient } from './google-ads-api'
+import { Customer as ServiceAccountCustomer } from '@htdangkhoa/google-ads'
 
 interface ServiceAccountConfig {
   clientEmail: string
@@ -116,6 +117,40 @@ export function parseServiceAccountJson(jsonContent: string) {
 }
 
 /**
+ * 🆕 创建服务账号客户端（使用 @htdangkhoa/google-ads）
+ *
+ * @description 用于服务账号认证模式，支持 JWT 认证
+ * @param config - 服务账号配置
+ * @returns ServiceAccountCustomer 实例
+ */
+export function createServiceAccountCustomer(config: {
+  clientEmail: string
+  privateKey: string
+  developerToken: string
+  customerId: string
+  loginCustomerId?: string
+}): ServiceAccountCustomer {
+  // 创建 JWT 客户端
+  // 注意：不能使用 keyFile，因为我们的密钥来自数据库
+  // 必须使用 email + key 的方式
+  const authClient = new JWT({
+    email: config.clientEmail,
+    key: config.privateKey,
+    scopes: ['https://www.googleapis.com/auth/adwords'],
+  })
+
+  // 使用 @htdangkhoa/google-ads 创建客户端
+  const customer = new ServiceAccountCustomer({
+    auth: authClient as any,  // 类型兼容性问题，运行时正常
+    developer_token: config.developerToken,
+    customer_id: config.customerId,
+    login_customer_id: config.loginCustomerId,
+  })
+
+  return customer
+}
+
+/**
  * 认证类型
  */
 export type AuthType = 'oauth' | 'service_account'
@@ -132,10 +167,17 @@ export interface UnifiedAuthConfig {
 /**
  * 获取统一的 Google Ads 客户端
  * 根据认证类型自动选择 OAuth 或服务账号认证
+ *
+ * 🔧 修复(2025-12-24): 服务账号模式使用 @htdangkhoa/google-ads 库
+ * 原因: google-ads-api 库不支持服务账号（只支持 OAuth refresh_token）
+ *
+ * @returns 兼容两种认证模式的 Google Ads 客户端
+ *   - OAuth 模式: 返回 google-ads-api 的 Customer 实例
+ *   - 服务账号模式: 返回 @htdangkhoa/google-ads 的 GoogleAds 实例
  */
 export async function getUnifiedGoogleAdsClient(config: {
   customerId: string
-  credentials: {
+  credentials?: {
     client_id: string
     client_secret: string
     developer_token: string
@@ -145,27 +187,41 @@ export async function getUnifiedGoogleAdsClient(config: {
   const { authConfig, credentials } = config
 
   if (authConfig.authType === 'service_account') {
-    // 服务账号认证
+    // 🆕 服务账号认证：使用 @htdangkhoa/google-ads（支持 JWT）
     const serviceAccount = await getServiceAccountConfig(authConfig.userId, authConfig.serviceAccountId)
     if (!serviceAccount) {
       throw new Error('Service account configuration not found')
     }
 
-    const accessToken = await getServiceAccountAccessToken({
-      clientEmail: serviceAccount.serviceAccountEmail,
-      privateKey: serviceAccount.privateKey || '',
-      mccCustomerId: serviceAccount.mccCustomerId,
-      developerToken: serviceAccount.developerToken
-    })
+    // 使用 @htdangkhoa/google-ads 的 GoogleAds 类（支持 JWT 认证）
+    const { GoogleAds } = await import('@htdangkhoa/google-ads')
 
-    const client = getGoogleAdsClient(credentials)
-    return client.Customer({
+    const googleAds = new GoogleAds({
+      auth: undefined as any,  // 稍后通过 hack 方式设置
+      developer_token: serviceAccount.developerToken,
+    }, {
       customer_id: config.customerId,
-      refresh_token: accessToken,
       login_customer_id: serviceAccount.mccCustomerId,
     })
+
+    // 设置 JWT 认证
+    const jwtClient = new JWT({
+      email: serviceAccount.serviceAccountEmail,
+      key: serviceAccount.privateKey || '',
+      scopes: ['https://www.googleapis.com/auth/adwords'],
+    })
+
+    // 通过 hack 方式设置 auth 客户端
+    // @htdangkhoa/google-ads 使用 auth.getRequestHeaders() 获取认证头
+    ;(googleAds as any).options.auth = jwtClient as any
+
+    return googleAds
   } else {
-    // OAuth 认证 - 从数据库获取完整的OAuth凭证
+    // OAuth 认证 - 需要 credentials 和 refresh_token
+    if (!credentials) {
+      throw new Error('OAuth 认证需要提供 credentials 参数')
+    }
+
     const { getGoogleAdsCredentials } = await import('./google-ads-oauth')
     const oauthCredentials = await getGoogleAdsCredentials(authConfig.userId)
 

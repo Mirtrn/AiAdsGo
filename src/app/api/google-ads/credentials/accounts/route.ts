@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
-import { getServiceAccountAccessToken } from '@/lib/google-ads-service-account'
+import { getServiceAccountAccessToken, createServiceAccountCustomer } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
@@ -219,42 +219,37 @@ async function syncAccountsFromAPI(
     developer_token: developerToken,
   })
 
-  // 获取 access token（仅服务账号模式需要）
-  let accessToken: string = ''
-  if (isServiceAccount) {
-    accessToken = await getServiceAccountAccessToken({
-      clientEmail: serviceAccountConfig.serviceAccountEmail,
-      privateKey: serviceAccountConfig.privateKey,
-      mccCustomerId: serviceAccountConfig.mccCustomerId,
-      developerToken: serviceAccountConfig.developerToken
-    })
-    console.log(`   已获取服务账号 Access Token`)
-  }
-
-  // 获取可访问的账户列表
+  // 🔧 修复(2025-12-24): 服务账号模式使用 @htdangkhoa/google-ads 库
+  // google-ads-api 库不支持服务账号，只支持 OAuth refresh_token
   let resourceNames: string[]
   if (isServiceAccount) {
+    // 服务账号模式：使用 @htdangkhoa/google-ads（支持 JWT 认证）
+    console.log(`   🔑 服务账号模式：使用 @htdangkhoa/google-ads 库进行认证`)
+
     try {
-      const response = await client.listAccessibleCustomers(accessToken)
+      const serviceAccountCustomer = createServiceAccountCustomer({
+        clientEmail: serviceAccountConfig.serviceAccountEmail,
+        privateKey: serviceAccountConfig.privateKey,
+        developerToken: serviceAccountConfig.developerToken,
+        customerId: serviceAccountConfig.mccCustomerId,  // 临时使用 MCC ID 创建客户端
+        loginCustomerId: serviceAccountConfig.mccCustomerId,
+      })
+
+      // 调用 listAccessibleCustomers
+      const response = await serviceAccountCustomer.listAccessibleCustomers()
       resourceNames = response.resource_names || []
-    } catch (listError: any) {
-      // 🔧 修复(2025-12-24): 改进 invalid_client 错误处理
-      if (listError.message?.includes('invalid_client')) {
-        console.error(`   ❌ 服务账号认证失败: invalid_client`)
-        console.error(`   可能的原因:`)
-        console.error(`   1. 服务账号没有被添加到 Google Ads MCC 的"访问权限和安全"中`)
-        console.error(`   2. Google Ads API 没有在 GCP 项目中启用`)
-        console.error(`   3. 服务账号邮箱没有访问 MCC 账号的权限`)
-        throw new Error(
-          `服务账号认证失败 (invalid_client)。` +
-          `请确保：1) 服务账号邮箱已被添加到 Google Ads MCC 的"访问权限和安全"中；` +
-          `2) GCP 项目中已启用 Google Ads API。` +
-          `服务账号邮箱: ${serviceAccountConfig.serviceAccountEmail}`
-        )
-      }
-      throw listError
+      console.log(`   ✅ 服务账号认证成功，获取到 ${resourceNames.length} 个账户`)
+    } catch (error: any) {
+      console.error(`   ❌ 服务账号认证失败:`, error.message)
+      throw new Error(
+        `服务账号认证失败: ${error.message}。` +
+        `请确保：1) 服务账号邮箱已被添加到 Google Ads MCC 的"访问权限和安全"中；` +
+        `2) GCP 项目中已启用 Google Ads API。` +
+        `服务账号邮箱: ${serviceAccountConfig.serviceAccountEmail}`
+      )
     }
   } else {
+    // OAuth 认证模式：使用 google-ads-api
     const response = await client.listAccessibleCustomers(credentials.refresh_token)
     resourceNames = response.resource_names || []
   }
@@ -283,28 +278,38 @@ async function syncAccountsFromAPI(
     let apiErrorMessage: string | undefined
 
     try {
-      // 🔧 修复：确保login_customer_id正确传递（MCC账户必需）
+      // 🔧 修复(2025-12-24): 服务账号模式使用 @htdangkhoa/google-ads
       const loginCustomerId = isServiceAccount ? serviceAccountConfig.mccCustomerId : (credentials.login_customer_id || customerId)
       console.log(`   🔍 请求账户 ${customerId} 信息，使用 login_customer_id: ${loginCustomerId}`)
 
-      const customer = await getCustomer(
-        customerId,
-        isServiceAccount ? accessToken : credentials.refresh_token,
-        loginCustomerId,
-        {
-          client_id: clientId,
-          client_secret: clientSecret,
-          developer_token: developerToken,
-        },
-        userId,
-        undefined, // accountId not available yet during sync
-        isServiceAccount ? 'service_account' : 'oauth',
-        isServiceAccount ? {
+      let customer: any
+
+      if (isServiceAccount) {
+        // 服务账号模式：使用 @htdangkhoa/google-ads
+        customer = createServiceAccountCustomer({
           clientEmail: serviceAccountConfig.serviceAccountEmail,
           privateKey: serviceAccountConfig.privateKey,
-          mccCustomerId: serviceAccountConfig.mccCustomerId,
-        } : undefined
-      )
+          developerToken: serviceAccountConfig.developerToken,
+          customerId: customerId,
+          loginCustomerId: loginCustomerId,
+        })
+      } else {
+        // OAuth 模式：使用 google-ads-api
+        customer = await getCustomer(
+          customerId,
+          credentials.refresh_token,
+          loginCustomerId,
+          {
+            client_id: clientId,
+            client_secret: clientSecret,
+            developer_token: developerToken,
+          },
+          userId,
+          undefined, // accountId not available yet during sync
+          'oauth'
+        )
+      }
+
       const accountInfoQuery = `
         SELECT
           customer.id,
@@ -417,24 +422,34 @@ async function syncAccountsFromAPI(
                 const isChildManager = child.customer_client?.manager || false
                 if (!isChildManager) {
                   try {
-                    const childCustomer = await getCustomer(
-                      childId,
-                      isServiceAccount ? accessToken : credentials.refresh_token,
-                      isServiceAccount ? serviceAccountConfig.mccCustomerId : credentials.login_customer_id,
-                      {
-                        client_id: clientId,
-                        client_secret: clientSecret,
-                        developer_token: developerToken,
-                      },
-                      userId,
-                      undefined, // accountId not available yet during sync
-                      isServiceAccount ? 'service_account' : 'oauth',
-                      isServiceAccount ? {
+                    let childCustomer: any
+
+                    if (isServiceAccount) {
+                      // 服务账号模式：使用 @htdangkhoa/google-ads
+                      childCustomer = createServiceAccountCustomer({
                         clientEmail: serviceAccountConfig.serviceAccountEmail,
                         privateKey: serviceAccountConfig.privateKey,
-                        mccCustomerId: serviceAccountConfig.mccCustomerId,
-                      } : undefined
-                    )
+                        developerToken: serviceAccountConfig.developerToken,
+                        customerId: childId,
+                        loginCustomerId: serviceAccountConfig.mccCustomerId,
+                      })
+                    } else {
+                      // OAuth 模式：使用 google-ads-api
+                      childCustomer = await getCustomer(
+                        childId,
+                        credentials.refresh_token,
+                        credentials.login_customer_id,
+                        {
+                          client_id: clientId,
+                          client_secret: clientSecret,
+                          developer_token: developerToken,
+                        },
+                        userId,
+                        undefined,
+                        'oauth'
+                      )
+                    }
+
                     const childBudgetQuery = `
                       SELECT
                         account_budget.amount_served_micros,
