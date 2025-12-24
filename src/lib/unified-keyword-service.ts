@@ -696,14 +696,16 @@ function escapeRegex(str: string): string {
 /**
  * 白名单过滤（P0-2优化：提取竞品品牌用作否定关键词）
  *
- * 规则：
+ * 🔥 2025-12-24 优化规则：
  * 1. ✅ 保留: 包含自身品牌名的关键词（精确单词匹配）
  * 2. ❌ 排除: 包含品牌拼写错误的关键词（如 dreamers, dreamer）
  * 3. ✅ 保留: 不含任何品牌名的通用品类词
  * 4. ❌ 排除: 包含其他品牌名的关键词（竞品）
+ * 5. ✅ 优化: 同时包含自身品牌+竞品的关键词保留（跨品牌比较搜索有价值）
  *
  * 🔥 修复(2025-12-16): 使用单词边界匹配 + 拼写变体过滤
  * 🆕 优化(2025-12): 返回识别到的竞品品牌列表，可用于创建否定关键词
+ * 🆕 2025-12-24: 跨品牌比较搜索保留（如 "roborock xiaomi" 应该保留）
  */
 export function filterByWhitelist<T extends { keyword: string }>(
   keywords: T[],
@@ -711,16 +713,20 @@ export function filterByWhitelist<T extends { keyword: string }>(
 ): WhitelistFilterResult<T> {
   // 🆕 提取品牌核心词（如 "Eufy Security" → "eufy"）
   const coreBrand = brandName.split(' ')[0]
+  const coreBrandLower = coreBrand.toLowerCase()
 
   let brandKept = 0
   let genericKept = 0
   let competitorFiltered = 0
+  let crossBrandKept = 0  // 🔥 2025-12-24: 跨品牌比较搜索保留计数
   let misspellingFiltered = 0  // 🔥 新增：拼写错误过滤计数
 
   // 🆕 收集识别到的竞品品牌
   const competitorBrandsSet = new Set<string>()
 
   const filtered = keywords.filter(kw => {
+    const keywordLower = kw.keyword.toLowerCase()
+
     // 🔥 修复(2025-12-16): 先检查是否包含品牌拼写错误
     // 例如: "dreamers", "dreamer shop" 应该被过滤
     if (containsBrandMisspelling(kw.keyword, brandName) || containsBrandMisspelling(kw.keyword, coreBrand)) {
@@ -736,18 +742,28 @@ export function filterByWhitelist<T extends { keyword: string }>(
       return true
     }
 
-    // 2. 检测是否包含其他品牌名
+    // 🔥 2025-12-24 优化：检查是否同时包含自身品牌和竞品
+    // 如果同时包含自身品牌和竞品（如 "roborock xiaomi"），这是跨品牌比较搜索，应该保留
     const detectedBrand = detectBrandInKeyword(kw.keyword)
-
     if (detectedBrand) {
-      // 🆕 检查检测到的品牌是否是自身品牌核心词
-      if (detectedBrand.toLowerCase() === coreBrand.toLowerCase()) {
-        // 检测到的是自身品牌核心词，保留（不应被过滤）
-        brandKept++
+      // 🔧 2025-12-24 修复：先检查是否包含自身品牌（使用单词边界匹配）
+      const hasSelfBrandWord = containsBrandAsWord(kw.keyword, brandName) ||
+                               containsBrandAsWord(kw.keyword, coreBrand)
+
+      // 辅助检查：部分匹配（处理品牌变体）
+      const hasSelfBrandPartial = keywordLower.includes(coreBrandLower) ||
+                                  brandName.toLowerCase().split(' ').some(part =>
+                                    part.length >= 3 && keywordLower.includes(part.toLowerCase())
+                                  )
+
+      if (hasSelfBrandWord || hasSelfBrandPartial) {
+        // 🔥 同时包含自身品牌和竞品，保留（跨品牌比较搜索有价值）
+        crossBrandKept++
+        console.log(`   ✅ 保留跨品牌比较词: "${kw.keyword}" (自身: ${brandName} + 竞品: ${detectedBrand})`)
         return true
       }
 
-      // 包含其他品牌名 → 排除（竞品）
+      // 纯竞品词（不含自身品牌） → 排除
       competitorFiltered++
       competitorBrandsSet.add(detectedBrand)  // 🆕 收集竞品品牌
       console.log(`   ❌ 过滤竞品词: "${kw.keyword}" (检测到竞品: ${detectedBrand})`)
@@ -764,6 +780,7 @@ export function filterByWhitelist<T extends { keyword: string }>(
   console.log(`\n📋 白名单过滤结果:`)
   console.log(`   ✅ 品牌词保留: ${brandKept}`)
   console.log(`   ✅ 通用词保留: ${genericKept}`)
+  console.log(`   ✅ 跨品牌比较词保留: ${crossBrandKept}`)  // 🔥 2025-12-24 新增
   console.log(`   ❌ 竞品词过滤: ${competitorFiltered}`)
   console.log(`   ❌ 拼写错误过滤: ${misspellingFiltered}`)  // 🔥 新增
   if (competitorBrands.length > 0) {

@@ -1656,33 +1656,35 @@ export async function generateOfferKeywordPool(
 
   console.log(`📝 初始关键词数: ${initialKeywords.length}`)
 
-  // 2.5 🔧 修复(2025-12-22): 过滤种子词质量问题
-  // 避免超长描述和无效组合词作为种子词
+  // 2.5 🔧 修复(2025-12-24): 放宽种子词长度限制以获取更多关键词
+  // 🔥 2025-12-24: 从≤10放宽到≤15，因为长尾种子词能产生更多扩展变体
+  // 📊 数据证据: roborock案例中23个单词的长尾种子词被过滤，导致关键词不足
   const beforeFilterCount = initialKeywords.length
   initialKeywords = initialKeywords.filter(kw => {
     const keyword = kw.keyword.trim()
 
-    // 过滤条件1：长度限制（≤5个单词）
+    // 过滤条件1：长度限制（≤15个单词）
     const wordCount = keyword.split(/\s+/).length
-    if (wordCount > 5) {
-      console.log(`   ⊗ 种子词长度过滤: "${keyword}" (${wordCount}个单词, 限制≤5)`)
+    if (wordCount > 15) {
+      console.log(`   ⊗ 种子词长度过滤: "${keyword}" (${wordCount}个单词, 限制≤15)`)
       return false
     }
 
     // 过滤条件2：排除购买渠道词和过度组合
+    // 🔥 2025-12-24优化: 移除高转化词（price/discount/sale等），只过滤低质量词
     const invalidPatterns = [
-      // 购买渠道
-      'store', 'shop', 'near me', 'official',
-      // 电商平台
-      'amazon', 'ebay', 'aliexpress', 'shopee', 'etsy',
-      // 优惠相关
-      'discount', 'sale', 'deal', 'code', 'coupon', 'voucher',
-      // 价格相关
-      'price', 'cost', 'cheap', 'affordable', 'budget',
-      // 查询类
+      // 购买渠道（但保留store/shop，因为店铺链接需要）
+      'near me', 'official',
+      // 特定电商平台（仅过滤明显导向竞争对手的）
+      'aliexpress', 'shopee', 'etsy',
+      // 查询类（低购买意图）
       'history', 'tracker', 'locator', 'review', 'compare',
-      // 特殊年份/时间
-      '2025', '2024', '2023', 'black friday', 'prime day'
+      // 特殊年份/时间（过时信息）
+      '2023', '2022', '2021', 'black friday', 'prime day'
+      // ✅ 移除: 'store', 'shop', 'amazon', 'ebay' - 店铺/销售渠道词应保留
+      // ✅ 移除: 'discount', 'sale', 'deal', 'code', 'coupon' - 高购买意图词应保留
+      // ✅ 移除: 'price', 'cost', 'cheap', 'affordable', 'budget' - 高转化词应保留
+      // ✅ 移除: '2025', '2024' - 当前年份应保留
     ]
     const keywordLower = keyword.toLowerCase()
     const hasInvalidPattern = invalidPatterns.some(pattern =>
