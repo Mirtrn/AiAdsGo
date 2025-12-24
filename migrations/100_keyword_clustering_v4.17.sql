@@ -11,7 +11,6 @@
 
 -- Step 1: 检查是否已是 v4.17 活跃版本（防重复执行）
 INSERT OR IGNORE INTO prompt_versions (
-  id,
   prompt_id,
   version,
   category,
@@ -23,12 +22,8 @@ INSERT OR IGNORE INTO prompt_versions (
   language,
   created_by,
   is_active,
-  change_notes,
-  created_at,
-  updated_at
-)
-SELECT
-  (SELECT COALESCE(MAX(id), 0) + 1 FROM prompt_versions),
+  change_notes
+) VALUES (
   'keyword_intent_clustering',
   'v4.17',
   '关键词聚类',
@@ -221,9 +216,7 @@ SELECT
 2. 明确各桶的关键词特征，避免模糊边界
 3. 添加"强制均衡分配"规则
 4. 扩展产品型号词的匹配规则（如 ultra→C桶精选推荐）
-5. 确保即使关键词不完美匹配，每个桶也要有数据',
-  datetime('now'),
-  datetime('now')
+5. 确保即使关键词不完美匹配，每个桶也要有数据'
 );
 
 -- 更新旧版本为非活跃
