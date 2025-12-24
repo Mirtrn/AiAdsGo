@@ -362,12 +362,22 @@ export async function GET(
       is_selected: isSelected === 'true' ? true : isSelected === 'false' ? false : undefined
     })
 
+    // 🔧 修复(2025-12-24): 从创意列表实时聚合generatedBuckets，避免依赖可能过时的数据库字段
+    const transformedCreatives = creatives.map(transformCreativeToApiResponse)
+    const generatedBuckets = Array.from(
+      new Set(
+        transformedCreatives
+          .map(c => c.keywordBucket)
+          .filter((b): b is string => !!b)
+      )
+    )
+
     return NextResponse.json({
       success: true,
       // 🔧 修复(2025-12-11): 完整转换为 camelCase
-      creatives: creatives.map(transformCreativeToApiResponse),
-      // 🆕 v4.16: 返回已生成的bucket列表
-      generatedBuckets: offer.generated_buckets ? JSON.parse(offer.generated_buckets) : [],
+      creatives: transformedCreatives,
+      // 🔧 修复(2025-12-24): 从创意列表实时聚合，而不是读取数据库字段
+      generatedBuckets: generatedBuckets,
       total: creatives.length
     })
 
