@@ -111,11 +111,11 @@ export async function POST(
         // 获取Google Ads账号凭证
         const accountCredentials = await getDecryptedCredentials(accountId, offer.user_id)
 
-        if (!accountCredentials || !accountCredentials.refreshToken) {
-          // 账号凭证不存在或refresh token缺失，标记失败
+        if (!accountCredentials || (!accountCredentials.refreshToken && !accountCredentials.serviceAccountId)) {
+          // 账号凭证不存在或认证信息缺失，标记失败
           const errorMsg = !accountCredentials
             ? 'Google Ads账号凭证不存在'
-            : 'Google Ads账号refresh token缺失'
+            : 'Google Ads账号认证信息缺失（需要OAuth或服务账号）'
           accountCampaigns.forEach(campaign => {
             results.push({
               campaignId: campaign.id,

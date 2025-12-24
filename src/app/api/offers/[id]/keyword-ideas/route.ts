@@ -66,10 +66,10 @@ export async function POST(
 
     const googleAdsAccount = googleAdsAccounts[0]
 
-    if (!googleAdsAccount.refreshToken) {
+    if (!googleAdsAccount.refreshToken && !googleAdsAccount.serviceAccountId) {
       return NextResponse.json(
         {
-          error: 'Google Ads账号授权已过期，请重新连接',
+          error: 'Google Ads账号授权已过期，请重新连接或配置服务账号',
           needsReauth: true,
         },
         { status: 400 }

@@ -308,12 +308,21 @@ export async function POST(request: NextRequest) {
       }, { status: 422 })
     }
 
-    // 6.1 获取全局OAuth凭证（refresh_token存储在google_ads_credentials表）
+    // 6.1 检查OAuth凭证或服务账号配置
     const credentials = await getGoogleAdsCredentials(userId)
-    if (!credentials || !credentials.refresh_token) {
+
+    // 检查是否有服务账号配置
+    const db = await getDatabase()
+    const serviceAccount = await db.queryOne(`
+      SELECT id FROM google_ads_service_accounts
+      WHERE user_id = ? AND is_active = 1
+      ORDER BY created_at DESC LIMIT 1
+    `, [userId]) as { id: string } | undefined
+
+    if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
       const error = new AppError(ErrorCode.GADS_CREDENTIALS_INVALID, {
         userId,
-        reason: 'OAuth refresh token missing in google_ads_credentials table'
+        reason: 'OAuth refresh token or service account configuration missing'
       })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }

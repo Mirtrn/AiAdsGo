@@ -76,11 +76,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       )
     }
 
-    // 验证账号是否已授权
-    if (!googleAdsAccount.refreshToken) {
+    // 验证账号是否已授权（OAuth或服务账号）
+    if (!googleAdsAccount.refreshToken && !googleAdsAccount.serviceAccountId) {
       return NextResponse.json(
         {
-          error: 'Google Ads账号未授权，请先完成OAuth授权',
+          error: 'Google Ads账号未授权，请先完成OAuth授权或配置服务账号',
         },
         { status: 400 }
       )

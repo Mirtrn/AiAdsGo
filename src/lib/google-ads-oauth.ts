@@ -235,25 +235,97 @@ export async function getValidAccessToken(userId: number): Promise<string> {
 
 /**
  * 验证Google Ads凭证是否有效
+ * 支持 OAuth 和服务账号两种认证模式
  */
 export async function verifyGoogleAdsCredentials(userId: number): Promise<{
   valid: boolean
   customer_id?: string
   error?: string
+  authType?: 'oauth' | 'service_account'
 }> {
   try {
+    const db = await getDatabase()
+
+    // 1. 检查是否有已激活的服务账号配置
+    const serviceAccount = await db.queryOne(`
+      SELECT id, name, mcc_customer_id, developer_token, service_account_email
+      FROM google_ads_service_accounts
+      WHERE user_id = ? AND is_active = 1
+      ORDER BY created_at DESC LIMIT 1
+    `, [userId]) as {
+      id: string
+      name: string
+      mcc_customer_id: string
+      developer_token: string
+      service_account_email: string
+    } | undefined
+
+    // 2. 如果有服务账号配置，优先使用服务账号验证
+    if (serviceAccount) {
+      console.log(`[Verify] 发现服务账号配置: ${serviceAccount.name}，使用服务账号验证`)
+
+      const { createServiceAccountCustomer } = await import('./google-ads-service-account')
+      const { decrypt } = await import('./crypto')
+
+      // 获取 OAuth 配置中的 client_id 和 client_secret
+      const userConfigs = await readUserConfigs(db, userId)
+
+      // 获取加密的私钥
+      const privateKeyRow = await db.queryOne(`
+        SELECT private_key FROM google_ads_service_accounts WHERE id = ?
+      `, [serviceAccount.id]) as { private_key: string } | undefined
+
+      if (!privateKeyRow?.private_key) {
+        return { valid: false, error: '服务账号私钥不存在', authType: 'service_account' }
+      }
+
+      const customer = createServiceAccountCustomer({
+        clientEmail: serviceAccount.service_account_email,
+        privateKey: decrypt(privateKeyRow.private_key),
+        developerToken: serviceAccount.developer_token,
+        customerId: serviceAccount.mcc_customer_id,
+        loginCustomerId: serviceAccount.mcc_customer_id,
+      })
+
+      // 调用 listAccessibleCustomers 测试凭证
+      const response = await customer.listAccessibleCustomers()
+      const resourceNames = response.resource_names || []
+
+      if (!resourceNames || resourceNames.length === 0) {
+        return { valid: false, error: '无可访问的账户', authType: 'service_account' }
+      }
+
+      const firstCustomerId = resourceNames[0].split('/').pop() || ''
+
+      // 更新验证时间
+      const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+      await db.exec(`
+        UPDATE google_ads_credentials
+        SET last_verified_at = ${nowFunc},
+            updated_at = ${nowFunc}
+        WHERE user_id = ?
+      `, [userId]).catch(() => {}) // 忽略更新失败
+
+      return {
+        valid: true,
+        customer_id: firstCustomerId,
+        authType: 'service_account'
+      }
+    }
+
+    // 3. OAuth 模式验证
     const credentials = await getGoogleAdsCredentials(userId)
     if (!credentials) {
-      return { valid: false, error: '凭证不存在' }
+      return { valid: false, error: '凭证不存在，请完成 OAuth 授权或配置服务账号' }
     }
 
     if (!credentials.refresh_token) {
-      return { valid: false, error: '缺少Refresh Token' }
+      return { valid: false, error: '缺少Refresh Token，请完成 OAuth 授权', authType: 'oauth' }
     }
 
     // 🔧 修复(2025-12-12): 独立账号模式 - 必须使用用户自己的凭证
     if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
-      return { valid: false, error: '凭证配置不完整，请在设置中完成 Google Ads API 配置' }
+      return { valid: false, error: '凭证配置不完整，请在设置中完成 Google Ads API 配置', authType: 'oauth' }
     }
 
     // 使用 google-ads-api 库验证凭证 - 传入用户自己的凭证
@@ -271,16 +343,13 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
     const resourceNames = response.resource_names || []
 
     if (!resourceNames || resourceNames.length === 0) {
-      return { valid: false, error: '无可访问的账户' }
+      return { valid: false, error: '无可访问的账户', authType: 'oauth' }
     }
 
     // 从第一个 resource_name 中提取 customer ID (格式: "customers/1234567890")
     const firstCustomerId = resourceNames[0].split('/').pop() || ''
 
     // 更新验证时间
-    const db = await getDatabase()
-
-    // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
     await db.exec(`
@@ -292,7 +361,8 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
 
     return {
       valid: true,
-      customer_id: firstCustomerId // 返回第一个customer ID
+      customer_id: firstCustomerId,
+      authType: 'oauth'
     }
 
   } catch (error: any) {

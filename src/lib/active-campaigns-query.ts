@@ -66,10 +66,19 @@ export async function queryActiveCampaigns(
   const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
   console.log(`🔍 [Debug] 转换后的 finalLoginCustomerId: ${finalLoginCustomerId} (类型: ${typeof finalLoginCustomerId})`)
 
-  // 2. 获取OAuth凭证
+  // 2. 检查OAuth凭证或服务账号配置
   const credentials = await getGoogleAdsCredentials(userId)
-  if (!credentials?.refresh_token) {
-    throw new Error('Google Ads OAuth凭证无效')
+
+  // 检查是否有服务账号配置
+  const db = await getDatabase()
+  const serviceAccount = await db.queryOne(`
+    SELECT id FROM google_ads_service_accounts
+    WHERE user_id = ? AND is_active = 1
+    ORDER BY created_at DESC LIMIT 1
+  `, [userId]) as { id: string } | undefined
+
+  if (!credentials?.refresh_token && !serviceAccount) {
+    throw new Error('Google Ads OAuth凭证或服务账号配置无效')
   }
 
   // 3. 查询Google Ads账号中的所有广告系列
@@ -143,10 +152,18 @@ export async function pauseCampaigns(
   let effectiveLoginCustomerId = adsAccount.parent_mcc_id
   const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
 
-  // 获取OAuth凭证
+  // 检查OAuth凭证或服务账号配置
   const credentials = await getGoogleAdsCredentials(userId)
-  if (!credentials?.refresh_token) {
-    throw new Error('Google Ads OAuth凭证无效')
+
+  // 检查是否有服务账号配置
+  const serviceAccount = await db.queryOne(`
+    SELECT id FROM google_ads_service_accounts
+    WHERE user_id = ? AND is_active = 1
+    ORDER BY created_at DESC LIMIT 1
+  `, [userId]) as { id: string } | undefined
+
+  if (!credentials?.refresh_token && !serviceAccount) {
+    throw new Error('Google Ads OAuth凭证或服务账号配置无效')
   }
 
   // 动态导入updateGoogleAdsCampaignStatus

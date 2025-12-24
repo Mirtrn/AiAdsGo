@@ -101,8 +101,8 @@ export async function getGoogleAdsConfig(
 
     const db = await getDatabase()
 
-    // 1. 优先检查服务账号配置（如果指定了服务账号认证）
-    if (authType === 'service_account') {
+    // 1. 优先检查服务账号配置（如果指定了服务账号认证或有可用的服务账号）
+    if (authType === 'service_account' || !authType) {
       const serviceAccount = await getServiceAccountConfig(userId, serviceAccountId)
       if (serviceAccount) {
         // 获取OAuth配置中的client_id和client_secret
@@ -117,8 +117,9 @@ export async function getGoogleAdsConfig(
           authType: 'service_account',
           serviceAccountId: serviceAccount.id,
         }
-      } else {
-        console.warn(`[KeywordPlanner] Service account not found, falling back to OAuth`)
+      } else if (authType === 'service_account') {
+        console.error(`[KeywordPlanner] Service account not found for user ${userId}`)
+        return null
       }
     }
 

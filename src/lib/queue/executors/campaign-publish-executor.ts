@@ -171,10 +171,19 @@ export async function executeCampaignPublish(
     const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
     console.log(`🔍 [Debug] 转换后的 finalLoginCustomerId: ${finalLoginCustomerId} (类型: ${typeof finalLoginCustomerId})`)
 
-    // 2. 获取OAuth凭证
+    // 2. 检查OAuth凭证或服务账号配置
     const credentials = await getGoogleAdsCredentials(userId)
-    if (!credentials || !credentials.refresh_token) {
-      throw new Error('OAuth refresh token缺失，请重新授权')
+
+    // 检查是否有服务账号配置
+    const db = await getDatabase()
+    const serviceAccount = await db.queryOne(`
+      SELECT id FROM google_ads_service_accounts
+      WHERE user_id = ? AND is_active = 1
+      ORDER BY created_at DESC LIMIT 1
+    `, [userId]) as { id: string } | undefined
+
+    if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
+      throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
     }
 
     // 3. 根据货币获取CPC默认值
