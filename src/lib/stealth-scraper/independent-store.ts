@@ -469,10 +469,9 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
   // Calculate discount
   const discount = calculateDiscount(productPrice, originalPrice)
 
-  // Extract brand name
-  const brandName = $('meta[property="og:site_name"]').attr('content') ||
-                    $('[class*="brand"], [class*="vendor"]').first().text().trim() ||
-                    null
+  // Extract brand name - 🔥 2025-12-24优化：增强品牌提取，防止捕获导航菜单
+  // 优先级：结构化数据 > 页面meta标签 > 专用品牌字段（限定选择器） > 产品名第一词
+  const brandName = extractBrandFromIndependentProduct($, url, productName)
 
   // Extract features
   const features = extractFeatures($)
@@ -819,6 +818,129 @@ async function parseIndependentStoreHtml(html: string, finalUrl: string): Promis
     storeUrl: finalUrl,
     platform,
   }
+}
+
+/**
+ * 🔥 2025-12-24新增：从独立站产品页提取品牌名
+ *
+ * 多渠道提取策略，防止捕获导航菜单和页脚内容：
+ * 1. JSON-LD结构化数据（最可靠）
+ * 2. 页面meta标签（og:brand, twitter:brand）
+ * 3. 产品详情meta标签（og:site_name, application-name）
+ * 4. 限定范围的品牌字段选择器（仅主要内容区域）
+ * 5. 从产品名第一词提取（备选方案）
+ */
+function extractBrandFromIndependentProduct(
+  $: ReturnType<typeof import('cheerio').load>,
+  url: string,
+  productName: string | null
+): string | null {
+  // 渠道1: JSON-LD结构化数据（最可靠）
+  try {
+    const jsonLdScripts = $('script[type="application/ld+json"]')
+    for (let i = 0; i < jsonLdScripts.length; i++) {
+      const text = jsonLdScripts.eq(i).html()
+      if (!text) continue
+
+      try {
+        const data = JSON.parse(text)
+        // 检查是否包含brand字段
+        if (data.brand?.name) {
+          return data.brand.name
+        } else if (data.brand && typeof data.brand === 'string') {
+          return data.brand
+        }
+
+        // 检查@graph格式
+        if (data['@graph']) {
+          for (const item of data['@graph']) {
+            if (item.brand?.name) return item.brand.name
+            if (item.brand && typeof item.brand === 'string') return item.brand
+          }
+        }
+      } catch {
+        // JSON解析失败，继续下一个
+      }
+    }
+  } catch {
+    // 忽略JSON-LD提取错误
+  }
+
+  // 渠道2: Meta标签（og:brand, twitter:brand）
+  const metaBrand = $('meta[property="og:brand"]').attr('content') ||
+                   $('meta[name="brand"]').attr('content')
+  if (metaBrand && metaBrand.length > 1 && metaBrand.length < 50) {
+    return metaBrand
+  }
+
+  // 渠道3: og:site_name（网站名称，但品牌不同）
+  const siteName = $('meta[property="og:site_name"]').attr('content')
+  if (siteName && siteName.length > 1 && siteName.length < 50) {
+    // 确保不是通用网站名称
+    if (!/^(shop|store|website|site)$/i.test(siteName)) {
+      return siteName
+    }
+  }
+
+  // 渠道4: 限定范围的品牌字段提取（仅主要内容区域，不从导航/页脚）
+  // 🔥 关键优化：只在主要内容区域搜索，排除header/footer/nav
+  const mainContent = $('main, [class*="content"], [class*="product-details"], [class*="product-main"]').first()
+  const searchInMain = mainContent.length > 0 ? mainContent : $('body')
+
+  // 精确选择器：匹配 brand: 或 vendor: 标签
+  const brandLabel = searchInMain.find('[class*="brand"], [class*="vendor"]').filter((i, el) => {
+    const text = $(el).text().trim().toLowerCase()
+    const isLabel = /^(brand|vendor|maker|manufacturer)/.test(text)
+    const length = text.length
+    // 过滤：排除导航菜单、footer、长文本
+    return isLabel && length > 2 && length < 50 && !text.includes('select') && !text.includes('menu')
+  }).first().text().trim()
+
+  if (brandLabel && brandLabel.length > 1 && brandLabel.length < 50) {
+    // 清理"Brand: " 或 "Vendor: "前缀
+    const cleaned = brandLabel
+      .replace(/^(Brand|Vendor|Maker|Manufacturer):\s*/i, '')
+      .trim()
+    if (cleaned.length > 1 && cleaned.length < 50) {
+      return cleaned
+    }
+  }
+
+  // 渠道5: 从产品名提取（备选）
+  if (productName) {
+    const parts = productName.split(/[\s\-–—|,]+/)
+    if (parts.length > 0) {
+      const potentialBrand = parts[0].trim()
+      // 验证是否看起来像品牌名（2-25字符，不是纯数字/特殊符号）
+      if (potentialBrand.length >= 2 && potentialBrand.length <= 25 &&
+          /^[A-Za-z0-9&\-\.'\s]+$/.test(potentialBrand) &&
+          !/^\d+/.test(potentialBrand)) {
+        return potentialBrand
+      }
+    }
+  }
+
+  // 渠道6: 从URL域名提取
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname.toLowerCase()
+    // 提取顶级域名前的部分作为潜在品牌名
+    const parts = hostname.split('.')
+    if (parts.length > 1) {
+      const domainBrand = parts[0]
+        .replace(/^www$/, '')
+        .replace(/[^a-z0-9]/g, '')
+      // 验证长度和格式
+      if (domainBrand.length >= 2 && domainBrand.length <= 25) {
+        const normalized = domainBrand.charAt(0).toUpperCase() + domainBrand.slice(1).toLowerCase()
+        return normalized
+      }
+    }
+  } catch {
+    // URL解析失败，继续
+  }
+
+  return null
 }
 
 /**

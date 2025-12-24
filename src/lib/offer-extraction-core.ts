@@ -464,15 +464,51 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         productCount = independentStoreData.totalProducts
         console.log(`✅ 独立站深度识别成功: ${brandName}, 产品数: ${productCount}, 深度抓取: ${independentStoreData.deepScrapeResults?.successCount || 0}/${independentStoreData.deepScrapeResults?.totalScraped || 0}`)
       } else {
-        // 使用普通scraper抓取单个产品页面（非Amazon站点）
+        // 🔥 2025-12-24优化：独立站单品页面抓取
+        // 尝试轻量级axios-cheerio抓取，如果失败则回退到Playwright渲染
+        console.log('📦 检测到独立站单品页面，尝试使用轻量级scraper...')
+
         scrapedData = await extractProductInfo(resolvedData.finalUrl, targetCountry)
-        if (scrapedData.brand) {
+
+        // 🔥 检测是否需要JavaScript渲染：如果静态scraper返回的内容为空，则使用Playwright
+        if (!scrapedData || !scrapedData.brand) {
+          console.warn('⚠️ 轻量级scraper返回数据不完整，尝试使用Playwright进行JavaScript渲染...')
+
+          try {
+            // 导入独立站产品scraper（Playwright版本）
+            const { scrapeIndependentProduct } = await import('@/lib/stealth-scraper')
+
+            const independentProductData = await scrapeIndependentProduct(
+              fullTargetUrl,
+              proxyApiUrl,
+              targetCountry,
+              2  // 代理重试次数
+            )
+
+            // 使用Playwright获取的数据更新
+            scrapedData = {
+              productName: independentProductData.productName,
+              brand: independentProductData.brandName,
+              description: independentProductData.productDescription,
+              price: independentProductData.productPrice,
+            }
+
+            console.log(`✅ Playwright渲染成功: ${independentProductData.brandName || 'Unknown'}`)
+          } catch (playwrightError: any) {
+            console.warn(`⚠️ Playwright回退失败: ${playwrightError.message}, 继续使用轻量级scraper结果`)
+            // 继续使用之前的scrapedData，即使数据不完整
+          }
+        }
+
+        if (scrapedData?.brand) {
           brandName = scrapedData.brand
         }
-        if (scrapedData.description) {
+        if (scrapedData?.description) {
           productDescription = scrapedData.description
         }
-        console.log(`✅ 品牌识别成功: ${brandName}`)
+        // 🔥 单品页面：productCount应为1
+        productCount = scrapedData ? 1 : 0
+        console.log(`✅ 独立站单品识别成功: ${brandName || '未知品牌'}, 产品数: ${productCount}`)
       }
 
       // 抓取产品数据完成
