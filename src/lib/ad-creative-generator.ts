@@ -2762,20 +2762,21 @@ export async function generateAdCreative(
   // 🔄 使用统一关键词服务获取精确搜索量
   console.time('⏱️ 获取关键词搜索量')
   let keywordsWithVolume: KeywordWithVolume[] = []
-  try {
-    const country = (offer as { target_country?: string }).target_country || 'US'
-    // Extract language from target_language or default to 'en'
-    const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
-    const lang = targetLanguage.toLowerCase().substring(0, 2)
-    const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
 
-    console.log(`🔍 获取关键词精确搜索量: ${result.keywords.length}个关键词, 国家=${country}, 语言=${language} (${targetLanguage})`)
+  // 🔧 修复(2025-12-24): 提取到外层作用域，供后续clusterKeywordsByIntent使用
+  const targetCountry = (offer as { target_country?: string }).target_country || 'US'
+  const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
+  const lang = targetLanguage.toLowerCase().substring(0, 2)
+  const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
+
+  try {
+    console.log(`🔍 获取关键词精确搜索量: ${result.keywords.length}个关键词, 国家=${targetCountry}, 语言=${language} (${targetLanguage})`)
 
     // 🎯 使用统一服务：确保所有搜索量来自Historical Metrics API（精确匹配）
     const { getKeywordVolumesForExisting } = await import('@/lib/unified-keyword-service')
     const unifiedData = await getKeywordVolumesForExisting({
       baseKeywords: result.keywords,
-      country,
+      country: targetCountry,
       language,
       userId,
       brandName
@@ -2991,11 +2992,6 @@ export async function generateAdCreative(
     if (keywordsNeedVolume.length > 0) {
       console.log(`   📊 查询 ${keywordsNeedVolume.length} 个关键词的搜索量...`)
       try {
-        const targetCountry = (offer as { target_country?: string }).target_country || 'US'
-        const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
-        const lang = targetLanguage.toLowerCase().substring(0, 2)
-        const language = lang === 'en' ? 'en' : lang === 'zh' ? 'zh' : lang === 'es' ? 'es' : lang === 'it' ? 'it' : lang === 'fr' ? 'fr' : lang === 'de' ? 'de' : lang === 'pt' ? 'pt' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : lang === 'ru' ? 'ru' : lang === 'ar' ? 'ar' : 'en'
-
         const volumes = await getKeywordSearchVolumes(
           keywordsNeedVolume.map(k => k.keyword),
           targetCountry,
@@ -3113,7 +3109,7 @@ export async function generateAdCreative(
   console.log('\n🔍 执行最终关键词过滤 (强制约束)...')
   const beforeFilterCount = keywordsWithVolume.length
   const offerBrand = (offer as { brand?: string }).brand || 'Unknown'
-  const targetCountry = (offer as { target_country?: string }).target_country || 'US'
+  // targetCountry 已在外层作用域定义 (line 2767)
   const brandKeywordLower = offerBrand.toLowerCase()
 
   // 第1步：分离品牌词、品牌相关词和非品牌词
