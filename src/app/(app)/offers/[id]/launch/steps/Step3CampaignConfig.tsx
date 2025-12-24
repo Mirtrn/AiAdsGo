@@ -103,6 +103,7 @@ interface CampaignConfig {
   targetLanguage: string
   biddingStrategy: string
   finalUrlSuffix: string
+  marketingObjective: 'WEB_TRAFFIC' | 'SALES' | 'LEADS' | 'STORE_VISITS'  // 🔧 新增(2025-12-24): 营销目标
 
   // Ad Group Level
   adGroupName: string
@@ -210,6 +211,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       targetCountry: offer.targetCountry || 'US',
       targetLanguage: offer.targetLanguage || 'en',
       biddingStrategy: 'MAXIMIZE_CLICKS',  // 业务规范：网站流量营销目标
+      marketingObjective: 'WEB_TRAFFIC' as const,  // 🔧 新增(2025-12-24): 营销目标默认为网站流量
       // 🔧 修复(2025-12-11): API已统一返回camelCase，移除snake_case fallback
       finalUrlSuffix: selectedCreative?.finalUrlSuffix || offer.finalUrlSuffix || '',
 
