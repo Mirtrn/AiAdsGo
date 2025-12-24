@@ -311,27 +311,62 @@ async function syncAccountsFromAPI(
         )
       }
 
-      const accountInfoQuery = `
+      // 🔧 修复(2025-12-25): 分步查询，先查基本信息，再查 status
+      // 有些账户的 status 字段可能有权限问题导致 field_violations 错误
+      const basicAccountInfoQuery = `
         SELECT
           customer.id,
           customer.descriptive_name,
           customer.currency_code,
           customer.time_zone,
           customer.manager,
-          customer.test_account,
-          customer.status
+          customer.test_account
         FROM customer
         WHERE customer.id = ${customerId}
       `
 
-      const accountInfo = await customer.search({
-        query: accountInfoQuery,
-      })
-      apiSuccess = true // Account query succeeded
+      // 🔧 修复(2025-12-25): 增加详细的错误捕获，处理 field_violations 等解析错误
+      let accountInfo: any[]
+      let rawStatus: any = 'UNKNOWN'
+
+      try {
+        // 先查询基本信息（不包含 status，避免权限问题）
+        accountInfo = await customer.search({
+          query: basicAccountInfoQuery,
+        })
+
+        if (accountInfo && accountInfo.length > 0) {
+          // 尝试单独查询 status（如果失败也不影响基本信息）
+          try {
+            const statusQuery = `
+              SELECT customer.status
+              FROM customer
+              WHERE customer.id = ${customerId}
+            `
+            const statusInfo = await customer.search({
+              query: statusQuery,
+            })
+            if (statusInfo && statusInfo.length > 0) {
+              rawStatus = statusInfo[0].customer?.status
+            }
+          } catch (statusError: any) {
+            console.warn(`   ⚠️ 账户 ${customerId} status 字段查询失败（权限不足或账户状态异常），使用默认值 UNKNOWN`)
+          }
+        }
+
+        apiSuccess = true // Account query succeeded
+      } catch (searchError: any) {
+        // 捕获 "No data type found for field_violations.description" 等库解析错误
+        console.warn(`   ⚠️ 账户 ${customerId} 基本信息查询失败（可能是账户状态异常或API版本问题）`)
+        console.warn(`      原始错误: ${searchError.message}`)
+
+        // 抛出错误让外层 catch 处理，保存为UNKNOWN状态
+        throw new Error(`账户查询失败: ${searchError.message || '未知错误'}`)
+      }
 
       if (accountInfo && accountInfo.length > 0) {
         const account = accountInfo[0]
-        const rawStatus = account.customer?.status
+        // rawStatus 已经在上面的 try-catch 中查询并赋值了
         console.log(`[DEBUG] Account ${customerId} raw status:`, rawStatus, 'type:', typeof rawStatus)
         const parsedStatus = parseStatus(rawStatus)
         console.log(`[DEBUG] Account ${customerId} parsed status:`, parsedStatus)

@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
         break
 
       case 'ai':
-        // 🔧 修复(2025-12-22): 从数据库读取实际配置值进行验证
-        // 而不是依赖前端传递的值(前端敏感字段可能是占位符)
+        // 🔧 修复(2025-12-24): 优先使用前端传来的AI模式配置
+        // 如果前端没有传，才从数据库读取
         if (!userIdNum) {
           return NextResponse.json(
             { error: '验证AI配置需要登录' },
@@ -93,28 +93,60 @@ export async function POST(request: NextRequest) {
 
         const { getUserOnlySetting } = await import('@/lib/settings')
 
-        // 读取用户的AI配置
-        const useVertexAISetting = await getUserOnlySetting('ai', 'use_vertex_ai', userIdNum)
-        const useVertexAI = useVertexAISetting?.value === 'true'
+        // 🔧 关键修复: 优先使用前端传来的use_vertex_ai值（用户当前选择）
+        // 而不是总是从数据库读取（可能是旧值）
+        let useVertexAI: boolean
+        if (config.use_vertex_ai !== undefined) {
+          useVertexAI = config.use_vertex_ai === 'true'
+        } else {
+          const useVertexAISetting = await getUserOnlySetting('ai', 'use_vertex_ai', userIdNum)
+          useVertexAI = useVertexAISetting?.value === 'true'
+        }
 
         if (useVertexAI) {
           // 验证Vertex AI配置
-          const gcpProjectIdSetting = await getUserOnlySetting('ai', 'gcp_project_id', userIdNum)
-          const gcpLocationSetting = await getUserOnlySetting('ai', 'gcp_location', userIdNum)
-          const gcpServiceAccountJsonSetting = await getUserOnlySetting('ai', 'gcp_service_account_json', userIdNum)
+          // 🔧 修复(2025-12-24): 优先使用前端传来的配置，如果前端没传则从数据库读取
+          let gcpProjectId: string
+          let gcpLocation: string
+          let gcpServiceAccountJson: string
 
-          if (!gcpProjectIdSetting?.value || !gcpServiceAccountJsonSetting?.value) {
-            return NextResponse.json(
-              { error: '请先保存 Vertex AI 配置（GCP项目ID、Service Account JSON）' },
-              { status: 400 }
-            )
+          if (config.gcp_project_id && config.gcp_project_id !== '············') {
+            gcpProjectId = config.gcp_project_id
+          } else {
+            const gcpProjectIdSetting = await getUserOnlySetting('ai', 'gcp_project_id', userIdNum)
+            if (!gcpProjectIdSetting?.value) {
+              return NextResponse.json(
+                { error: '请先保存 Vertex AI 配置（GCP项目ID）' },
+                { status: 400 }
+              )
+            }
+            gcpProjectId = gcpProjectIdSetting.value
           }
 
-          const gcpLocation = gcpLocationSetting?.value || 'us-central1'
+          if (config.gcp_location) {
+            gcpLocation = config.gcp_location
+          } else {
+            const gcpLocationSetting = await getUserOnlySetting('ai', 'gcp_location', userIdNum)
+            gcpLocation = gcpLocationSetting?.value || 'us-central1'
+          }
+
+          if (config.gcp_service_account_json && config.gcp_service_account_json !== '***已配置***') {
+            gcpServiceAccountJson = config.gcp_service_account_json
+          } else {
+            const gcpServiceAccountJsonSetting = await getUserOnlySetting('ai', 'gcp_service_account_json', userIdNum)
+            if (!gcpServiceAccountJsonSetting?.value) {
+              return NextResponse.json(
+                { error: '请先保存 Vertex AI 配置（Service Account JSON）' },
+                { status: 400 }
+              )
+            }
+            gcpServiceAccountJson = gcpServiceAccountJsonSetting.value
+          }
+
           result = await validateVertexAIConfig(
-            gcpProjectIdSetting.value,
+            gcpProjectId,
             gcpLocation,
-            gcpServiceAccountJsonSetting.value
+            gcpServiceAccountJson
           )
 
           // 更新Vertex AI验证状态
@@ -142,22 +174,37 @@ export async function POST(request: NextRequest) {
             userIdNum
           )
         } else {
-          // 验证Gemini直接API配置（使用用户级AI配置）
-          const geminiApiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
-          const geminiModelSetting = await getUserOnlySetting('ai', 'gemini_model', userIdNum)
+          // 验证Gemini直接API配置
+          // 🔧 修复(2025-12-24): 优先使用前端传来的配置，如果前端没传则从数据库读取
+          let geminiApiKey: string
+          let selectedModel: string
 
-          if (!geminiApiKeySetting?.value) {
-            return NextResponse.json(
-              { error: '请先保存 Gemini API 密钥配置' },
-              { status: 400 }
-            )
+          if (config.gemini_api_key && config.gemini_api_key !== '············') {
+            // 前端传来了新的API密钥（不是占位符）
+            geminiApiKey = config.gemini_api_key
+          } else {
+            // 从数据库读取已保存的API密钥
+            const geminiApiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
+            if (!geminiApiKeySetting?.value) {
+              return NextResponse.json(
+                { error: '请先保存 Gemini API 密钥配置' },
+                { status: 400 }
+              )
+            }
+            geminiApiKey = geminiApiKeySetting.value
           }
 
-          // 🔧 关键修复: 使用数据库中实际保存的模型配置
-          const selectedModel = geminiModelSetting?.value || 'gemini-2.5-pro'
-          console.log(`🔍 验证AI配置: 使用数据库中的模型配置 ${selectedModel}`)
+          // 优先使用前端传来的模型配置
+          if (config.gemini_model) {
+            selectedModel = config.gemini_model
+          } else {
+            const geminiModelSetting = await getUserOnlySetting('ai', 'gemini_model', userIdNum)
+            selectedModel = geminiModelSetting?.value || 'gemini-2.5-pro'
+          }
 
-          result = await validateGeminiConfig(geminiApiKeySetting.value, selectedModel, userIdNum)
+          console.log(`🔍 验证AI配置: 使用模型配置 ${selectedModel}`)
+
+          result = await validateGeminiConfig(geminiApiKey, selectedModel, userIdNum)
 
           // 更新API密钥验证状态
           updateValidationStatus(
