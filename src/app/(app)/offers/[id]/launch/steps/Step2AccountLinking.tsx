@@ -165,11 +165,13 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
     setSelectedId(account.customerId)
 
     // 🔧 修复(2025-12-11): 输出 camelCase 字段名
+    // 🔧 修复(2025-12-24): 添加 currencyCode 字段，用于第三步显示正确的货币符号
     const transformedAccount = {
       id: account.dbAccountId!,  // Database ID used in Step4
       customerId: account.customerId,
       accountName: account.descriptiveName,
-      isActive: account.status === 'ENABLED'
+      isActive: account.status === 'ENABLED',
+      currencyCode: account.currencyCode  // 🔧 修复(2025-12-24): 传递货币代码
     }
 
     onAccountLinked(transformedAccount)
