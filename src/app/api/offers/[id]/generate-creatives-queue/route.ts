@@ -51,27 +51,59 @@ export async function POST(
     })
   }
 
-  // 🔧 修复(2025-12-22): 提前验证Google Ads API配置
-  // 如果API未配置，创意生成会因搜索量查询失败导致0个关键词，提前拦截
+  // 🔧 修复(2025-12-24): 支持服务账号模式
+  // 1. 先检查用户是否有已激活的服务账号配置
+  let useServiceAccount = false
+  let serviceAccountId: string | null = null
   try {
-    const googleAdsConfig = await getGoogleAdsConfig(parseInt(userId, 10))
-    const isConfigComplete = !!(
-      googleAdsConfig?.developerToken &&
-      googleAdsConfig?.refreshToken &&
-      googleAdsConfig?.customerId
+    const db = await getDatabase()
+    const serviceAccount = await db.queryOne(
+      `SELECT id, mcc_customer_id FROM google_ads_service_accounts
+       WHERE user_id = ? AND is_active = 1
+       ORDER BY created_at DESC LIMIT 1`,
+      [parseInt(userId, 10)]
+    ) as { id: string; mcc_customer_id: string } | undefined
+
+    if (serviceAccount) {
+      useServiceAccount = true
+      serviceAccountId = serviceAccount.id
+    }
+  } catch (err) {
+    console.error('检查服务账号配置失败:', err)
+  }
+
+  // 2. 验证 Google Ads API 配置（支持 OAuth 和服务账号两种模式）
+  try {
+    const googleAdsConfig = await getGoogleAdsConfig(
+      parseInt(userId, 10),
+      useServiceAccount ? 'service_account' : 'oauth',
+      serviceAccountId || undefined
     )
 
+    // OAuth 模式需要检查 refreshToken，服务账号模式需要检查 serviceAccountId
+    const isConfigComplete = useServiceAccount
+      ? !!(googleAdsConfig?.developerToken && googleAdsConfig?.customerId)
+      : !!(googleAdsConfig?.developerToken && googleAdsConfig?.refreshToken && googleAdsConfig?.customerId)
+
     if (!isConfigComplete) {
-      console.warn(`[CreativeGeneration] User ${userId} has incomplete Google Ads API config`)
+      console.warn(`[CreativeGeneration] User ${userId} has incomplete Google Ads config (serviceAccount: ${useServiceAccount})`)
       return new Response(
         JSON.stringify({
           error: '广告创意生成需要完整的 Google Ads API 配置',
-          details: '请前往【设置】页面配置 Google Ads API 凭证（Developer Token、Refresh Token、Customer ID）以启用关键词搜索量查询功能。',
-          missingFields: [
-            !googleAdsConfig?.developerToken && 'Developer Token',
-            !googleAdsConfig?.refreshToken && 'Refresh Token / OAuth',
-            !googleAdsConfig?.customerId && 'Customer ID'
-          ].filter(Boolean)
+          details: useServiceAccount
+            ? '请前往【设置】→【服务账号配置】页面检查服务账号配置，确保 Developer Token 和 MCC Customer ID 已正确配置。'
+            : '请前往【设置】页面配置 Google Ads API 凭证（Developer Token、Refresh Token、Customer ID）以启用关键词搜索量查询功能。',
+          missingFields: useServiceAccount
+            ? [
+                !googleAdsConfig?.developerToken && 'Developer Token',
+                !googleAdsConfig?.customerId && 'MCC Customer ID'
+              ].filter(Boolean)
+            : [
+                !googleAdsConfig?.developerToken && 'Developer Token',
+                !googleAdsConfig?.refreshToken && 'Refresh Token / OAuth',
+                !googleAdsConfig?.customerId && 'Customer ID'
+              ].filter(Boolean),
+          authType: useServiceAccount ? 'service_account' : 'oauth'
         }),
         {
           status: 400,
