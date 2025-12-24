@@ -1,5 +1,5 @@
 -- =====================================================
--- Migration: 104_strict_json_format_constraint
+-- Migration: 105_strict_json_format_constraint
 -- Description: 修复JSON解析问题 - 强制AI返回对象格式而非数组
 -- Date: 2025-12-24
 -- Database: SQLite
