@@ -22,6 +22,11 @@ interface Insight {
     id: number
     name: string
   }
+  relatedOffer?: {
+    id: number
+    name: string
+    url: string
+  }
   metrics?: {
     current: number
     benchmark: number
@@ -266,6 +271,37 @@ export function InsightsCard({ days }: InsightsCardProps) {
                       </div>
                     </div>
                   </div>
+
+                  {/* Related Campaign or Offer */}
+                  {insight.relatedOffer && (
+                    <div className="mb-3 pl-10">
+                      <div className="flex items-center gap-2 text-sm">
+                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">相关链接:</span>
+                        <a
+                          href={`/offers/${insight.relatedOffer.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline font-medium truncate max-w-[300px]"
+                          title={insight.relatedOffer.url}
+                        >
+                          {insight.relatedOffer.name}
+                        </a>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm mt-1 pl-6">
+                        <span className="text-muted-foreground text-xs">链接:</span>
+                        <a
+                          href={insight.relatedOffer.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-500 hover:underline text-xs truncate max-w-[280px]"
+                          title={insight.relatedOffer.url}
+                        >
+                          {insight.relatedOffer.url}
+                        </a>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Related Campaign */}
                   {insight.relatedCampaign && (

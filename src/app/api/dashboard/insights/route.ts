@@ -16,6 +16,11 @@ interface Insight {
     id: number
     name: string
   }
+  relatedOffer?: {
+    id: number
+    name: string
+    url: string
+  }
   metrics?: {
     current: number
     benchmark: number
@@ -321,6 +326,119 @@ export async function GET(request: NextRequest) {
           name: campaign.campaign_name,
         },
         createdAt: new Date().toISOString(),
+      })
+    })
+
+    // 规则6: 检查每日链接检查结果
+    // 获取最近24小时内的链接检查结果，只显示有问题的链接
+    const linkCheckQuery = db.type === 'postgres'
+      ? `
+        SELECT
+          lch.id,
+          lch.offer_id,
+          o.name as offer_name,
+          o.product_url,
+          lch.is_accessible,
+          lch.http_status_code,
+          lch.brand_found,
+          lch.content_valid,
+          lch.validation_message,
+          lch.error_message,
+          lch.checked_at
+        FROM link_check_history lch
+        INNER JOIN offers o ON lch.offer_id = o.id
+        WHERE o.user_id = ?
+          AND lch.checked_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+          AND (
+            lch.is_accessible = 0
+            OR lch.brand_found = 0
+            OR lch.content_valid = 0
+          )
+        ORDER BY lch.checked_at DESC
+        LIMIT 5
+      `
+      : `
+        SELECT
+          lch.id,
+          lch.offer_id,
+          o.name as offer_name,
+          o.product_url,
+          lch.is_accessible,
+          lch.http_status_code,
+          lch.brand_found,
+          lch.content_valid,
+          lch.validation_message,
+          lch.error_message,
+          lch.checked_at
+        FROM link_check_history lch
+        INNER JOIN offers o ON lch.offer_id = o.id
+        WHERE o.user_id = ?
+          AND lch.checked_at >= datetime('now', '-24 hours')
+          AND (
+            lch.is_accessible = 0
+            OR lch.brand_found = 0
+            OR lch.content_valid = 0
+          )
+        ORDER BY lch.checked_at DESC
+        LIMIT 5
+      `
+
+    const linkCheckResults = await db.query(linkCheckQuery, [userId]) as Array<{
+      id: number
+      offer_id: number
+      offer_name: string
+      product_url: string
+      is_accessible: number
+      http_status_code: number | null
+      brand_found: number | null
+      content_valid: number | null
+      validation_message: string | null
+      error_message: string | null
+      checked_at: string
+    }>
+
+    linkCheckResults.forEach((result) => {
+      // 确定问题类型和优先级
+      let type: 'error' | 'warning' = 'warning'
+      let priority: 'high' | 'medium' | 'low' = 'medium'
+      let title = ''
+      let message = ''
+      let recommendation = ''
+
+      if (result.is_accessible === 0) {
+        type = 'error'
+        priority = 'high'
+        title = '链接无法访问'
+        message = `链接 "${result.offer_name}" 无法访问（HTTP ${result.http_status_code || 'N/A'}）`
+        recommendation = '建议：1) 检查链接是否有效，2) 确认产品页面可访问，3) 检查是否有地区限制'
+      } else if (result.brand_found === 0) {
+        title = '品牌信息未找到'
+        message = `链接 "${result.offer_name}" 中未检测到品牌信息`
+        recommendation = '建议：1) 确认产品页面包含品牌名称，2) 检查页面是否正确加载'
+      } else if (result.content_valid === 0) {
+        title = '页面内容无效'
+        message = `链接 "${result.offer_name}" 页面内容校验失败`
+        recommendation = '建议：1) 检查页面是否被重定向，2) 确认页面内容完整，3) 查看具体错误信息'
+
+        // 如果有具体的错误消息，添加到message中
+        if (result.validation_message) {
+          message += `：${result.validation_message}`
+        }
+      }
+
+      insights.push({
+        id: `link-check-${result.id}`,
+        type,
+        priority,
+        title,
+        message,
+        recommendation,
+        relatedOffer: {
+          id: result.offer_id,
+          name: result.offer_name,
+          url: result.product_url,
+        },
+        createdAt: result.checked_at,
       })
     })
 
