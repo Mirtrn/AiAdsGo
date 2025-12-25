@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { BatchCreationTaskData } from '@/lib/queue/executors/batch-creation-executor'
+import Papa from 'papaparse'
 
 export const maxDuration = 60
 
@@ -57,7 +58,19 @@ export async function POST(req: NextRequest) {
 
     // 3. 读取并解析CSV
     const text = await file.text()
-    const lines = text.split('\n').filter(line => line.trim())
+
+    // 使用papaparse解析CSV，正确处理带逗号的值
+    const parseResult = Papa.parse(text, {
+      header: false,
+      skipEmptyLines: true,
+      transformHeader: (header: string) => header.trim(),
+    })
+
+    if (parseResult.errors.length > 0) {
+      console.error('CSV解析错误:', parseResult.errors)
+    }
+
+    const lines = parseResult.data as string[][]
 
     if (lines.length < 2) {
       return NextResponse.json(
@@ -67,7 +80,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 解析标题行（支持中英文表头）
-    const rawHeaders = lines[0].split(',').map(h => h.trim())
+    const rawHeaders = lines[0].map(h => h.trim())
 
     // 字段映射：中文 → 英文
     const fieldMapping: Record<string, string> = {
@@ -119,7 +132,7 @@ export async function POST(req: NextRequest) {
     let skippedCount = 0
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim())
+      const values = lines[i].map(v => v.trim())
       const affiliateLink = values[affiliateLinkIdx]
       const targetCountry = values[targetCountryIdx]
 
