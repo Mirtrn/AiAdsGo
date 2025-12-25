@@ -10,7 +10,7 @@ import { verifyAuth } from '@/lib/auth'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await verifyAuth(request)
@@ -19,7 +19,8 @@ export async function POST(
     }
 
     const userId = authResult.user.userId
-    const offerId = parseInt(params.id)
+    const { id } = await params
+    const offerId = parseInt(id)
     if (isNaN(offerId)) {
       return NextResponse.json({ error: '无效的Offer ID' }, { status: 400 })
     }
@@ -71,7 +72,7 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authResult = await verifyAuth(request)
@@ -80,7 +81,8 @@ export async function DELETE(
     }
 
     const userId = authResult.user.userId
-    const offerId = parseInt(params.id)
+    const { id } = await params
+    const offerId = parseInt(id)
     if (isNaN(offerId)) {
       return NextResponse.json({ error: '无效的Offer ID' }, { status: 400 })
     }
