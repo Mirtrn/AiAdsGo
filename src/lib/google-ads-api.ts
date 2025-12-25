@@ -2472,7 +2472,11 @@ export async function ensureAccountConversionGoal(params: {
     } else {
       // 2. 创建新的转化操作
       console.log(`   📝 创建新的转化操作...`)
-      conversionActionResourceName = await createConversionAction(customer, marketingObjective)
+      const createdResourceName = await createConversionAction(customer, marketingObjective)
+      if (!createdResourceName) {
+        throw new Error('转化操作创建失败')
+      }
+      conversionActionResourceName = createdResourceName
       console.log(`   ✅ 转化操作创建成功: ${conversionActionResourceName}`)
     }
 
