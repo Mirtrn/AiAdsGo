@@ -1472,6 +1472,7 @@ export default function SettingsPage() {
                           <div className="bg-white p-3 rounded border border-blue-200">
                             <div className="flex items-center gap-2 mb-2">
                               <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">IPRocket</span>
+                              <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">推荐</span>
                               <span className="text-slate-600">API格式 - 需调用API获取代理IP</span>
                             </div>
                             <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
@@ -1494,7 +1495,7 @@ export default function SettingsPage() {
                           <div className="bg-white p-3 rounded border border-orange-200">
                             <div className="flex items-center gap-2 mb-2">
                               <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">Abcproxy</span>
-                              <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
+                              <span className="text-slate-600">直接格式 - 仅支持HTTP/HTTPS</span>
                             </div>
                             <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
                               host:port:username:password
@@ -1505,7 +1506,7 @@ export default function SettingsPage() {
                           <div className="bg-white p-3 rounded border border-purple-200">
                             <div className="flex items-center gap-2 mb-2">
                               <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">其他通用代理</span>
-                              <span className="text-slate-600">直接格式 - 通用代理服务器地址</span>
+                              <span className="text-slate-600">直接格式 - 仅支持HTTP/HTTPS</span>
                             </div>
                             <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
                               host:port:username:password
