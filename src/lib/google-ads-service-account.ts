@@ -250,9 +250,11 @@ export async function getUnifiedGoogleAdsClient(config: {
 
     console.log(`[ServiceAccount] JWT配置: email=${serviceAccount.serviceAccountEmail}, scopes=adwords`)
 
-    // 通过 hack 方式设置 auth 客户端
+    // 通过 hack 方式设置 auth 客户端和 developer_token
     // @htdangkhoa/google-ads 使用 auth.getRequestHeaders() 获取认证头
     ;(googleAds as any).options.auth = jwtClient as any
+    // 🔧 修复(2025-12-25): 确保 developer_token 在 options 中
+    ;(googleAds as any).options.developer_token = serviceAccount.developerToken
 
     // 🔍 验证JWT是否能获取token
     try {
