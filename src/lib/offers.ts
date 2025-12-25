@@ -106,6 +106,8 @@ export interface UpdateOfferInput {
   unique_selling_points?: string
   product_highlights?: string
   target_audience?: string
+  product_price?: string
+  commission_payout?: string
   // Final URL字段：存储解析后的最终落地页URL
   final_url?: string
   final_url_suffix?: string
