@@ -174,7 +174,7 @@ ${i + 1}. ${ad.headline1}
         model: 'gemini-2.5-flash',
         prompt: optimizationPrompt,
         temperature: 0.5,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 4096,
       }, parseInt(userId, 10))
 
       // 记录token使用

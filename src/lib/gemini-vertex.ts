@@ -388,7 +388,7 @@ export async function checkVertexAIConnection(): Promise<boolean> {
         },
       ],
       generationConfig: {
-        maxOutputTokens: 1000, // 🔧 修复(2025-12-22): 增加到1000以容纳Gemini 2.5+的思考过程，避免MAX_TOKENS错误
+        maxOutputTokens: 4096, // 🔧 修复(2025-12-22): 增加到4096以容纳Gemini 2.5+的思考过程，避免MAX_TOKENS错误
       },
     })
 

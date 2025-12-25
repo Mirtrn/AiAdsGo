@@ -1084,7 +1084,7 @@ Rules:
         operationType: 'ad_strength_evaluation',
         prompt,
         temperature: 0.3, // 低温度确保一致性
-        maxOutputTokens: 2048, // 🔧 增加token限制，避免Gemini 2.5 Pro thinking模式导致MAX_TOKENS错误
+        maxOutputTokens: 4096, // 🔧 增加token限制，避免Gemini 2.5 Pro thinking模式导致MAX_TOKENS错误（thinking tokens ~2000 + response ~500）
         responseSchema: {
           type: 'OBJECT',
           properties: {
@@ -1111,7 +1111,7 @@ Rules:
         operationType: 'ad_strength_evaluation',
         prompt: fallbackPrompt,
         temperature: 0.3,
-        maxOutputTokens: 2048, // 🔧 增加token限制，避免Gemini 2.5 Pro thinking模式导致MAX_TOKENS错误
+        maxOutputTokens: 4096, // 🔧 增加token限制，避免Gemini 2.5 Pro thinking模式导致MAX_TOKENS错误（thinking tokens ~2000 + response ~500）
         enableAutoModelSelection: false
       }, userId)
 

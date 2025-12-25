@@ -149,7 +149,7 @@ export async function validateFlashQuality(
             model: 'gemini-2.5-pro',
             prompt: testCase.prompt,
             temperature: 0.5,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 4096,
           },
           userId
         ),
@@ -158,7 +158,7 @@ export async function validateFlashQuality(
             model: 'gemini-2.5-flash',
             prompt: testCase.prompt,
             temperature: 0.5,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 4096,
           },
           userId
         ),

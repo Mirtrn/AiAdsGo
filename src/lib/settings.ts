@@ -564,7 +564,7 @@ export async function validateGeminiConfig(
       model: model,
       prompt: 'Say "OK" if you can hear me.',
       temperature: 0.1,
-      maxOutputTokens: 1000, // 🔧 修复(2025-12-11): 增加token限制以容纳思考过程和实际输出
+      maxOutputTokens: 4096, // 🔧 修复(2025-12-11): 增加token限制以容纳思考过程和实际输出
     }, userId)
 
     return {
