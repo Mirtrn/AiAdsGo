@@ -279,37 +279,64 @@ async function syncAccountsFromAPI(
     let apiErrorMessage: string | undefined
 
     try {
-      // 🔧 修复(2025-12-24): 服务账号模式使用 @htdangkhoa/google-ads
-      const loginCustomerId = isServiceAccount ? serviceAccountConfig.mccCustomerId : (credentials.login_customer_id || customerId)
-      console.log(`   🔍 请求账户 ${customerId} 信息，使用 login_customer_id: ${loginCustomerId}`)
+      // 🔧 修复(2025-12-25): 服务账号模式需要处理权限问题
+      // 如果直接使用MCC ID访问子账户失败，尝试使用子账户ID作为login_customer_id
+      const loginCustomerIds = isServiceAccount
+        ? [serviceAccountConfig.mccCustomerId, customerId]  // 优先MCC，其次子账户
+        : [credentials.login_customer_id, customerId]
 
       let customer: any
+      let lastError: Error | null = null
+      let successLoginCustomerId: string | null = null
 
-      if (isServiceAccount) {
-        // 服务账号模式：使用 @htdangkhoa/google-ads（使用 search 方法）
-        customer = createServiceAccountCustomer({
-          clientEmail: serviceAccountConfig.serviceAccountEmail,
-          privateKey: serviceAccountConfig.privateKey,
-          developerToken: serviceAccountConfig.developerToken,
-          customerId: customerId,
-          loginCustomerId: loginCustomerId,
-        })
-      } else {
-        // OAuth 模式：使用 google-ads-api
-        customer = await getCustomer(
-          customerId,
-          credentials.refresh_token,
-          loginCustomerId,
-          {
-            client_id: clientId,
-            client_secret: clientSecret,
-            developer_token: developerToken,
-          },
-          userId,
-          undefined, // accountId not available yet during sync
-          'oauth'
-        )
+      // 🔧 修复(2025-12-25): 尝试多个login_customer_id直到成功
+      for (const lcId of loginCustomerIds) {
+        if (!lcId) continue
+        console.log(`   🔍 尝试使用 login_customer_id: ${lcId} 访问账户 ${customerId}`)
+
+        try {
+          if (isServiceAccount) {
+            customer = createServiceAccountCustomer({
+              clientEmail: serviceAccountConfig.serviceAccountEmail,
+              privateKey: serviceAccountConfig.privateKey,
+              developerToken: serviceAccountConfig.developerToken,
+              customerId: customerId,
+              loginCustomerId: lcId,
+            })
+          } else {
+            customer = await getCustomer(
+              customerId,
+              credentials.refresh_token,
+              lcId,
+              {
+                client_id: clientId,
+                client_secret: clientSecret,
+                developer_token: developerToken,
+              },
+              userId,
+              undefined,
+              'oauth'
+            )
+          }
+
+          // 如果执行到这行代码没有抛出异常，说明成功
+          successLoginCustomerId = lcId
+          console.log(`   ✅ 使用 login_customer_id: ${lcId} 成功访问账户 ${customerId}`)
+          break
+        } catch (error: any) {
+          lastError = error
+          console.warn(`   ⚠️ 使用 login_customer_id: ${lcId} 失败: ${error.message}`)
+          continue  // 尝试下一个login_customer_id
+        }
       }
+
+      // 如果所有login_customer_id都失败，抛出最后一个错误
+      if (!customer) {
+        throw lastError || new Error('无法使用任何login_customer_id访问账户')
+      }
+
+      // 将成功的login_customer_id传下去（用于后续子账户查询）
+      const effectiveLoginCustomerId = successLoginCustomerId || loginCustomerIds[0]
 
       // 🔧 修复(2025-12-25): 分步查询，先查基本信息，再查 status
       // 有些账户的 status 字段可能有权限问题导致 field_violations 错误
@@ -468,12 +495,13 @@ async function syncAccountsFromAPI(
 
                     if (isServiceAccount) {
                       // 服务账号模式：使用 @htdangkhoa/google-ads
+                      // 使用成功访问过账户的 login_customer_id
                       childCustomer = createServiceAccountCustomer({
                         clientEmail: serviceAccountConfig.serviceAccountEmail,
                         privateKey: serviceAccountConfig.privateKey,
                         developerToken: serviceAccountConfig.developerToken,
                         customerId: childId,
-                        loginCustomerId: serviceAccountConfig.mccCustomerId,
+                        loginCustomerId: effectiveLoginCustomerId,
                       })
                     } else {
                       // OAuth 模式：使用 google-ads-api
