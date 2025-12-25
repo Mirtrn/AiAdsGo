@@ -311,6 +311,7 @@ async function buildAdCreativePrompt(
     brand: offer.brand,
     category: offer.category || 'product',
     product_title: offer.product_title || offer.name || offer.title || 'Product',
+    product_name: offer.product_name || offer.product_title || offer.name || offer.brand,
     product_description: offer.brand_description || offer.unique_selling_points || 'Quality product',
     unique_selling_points: offer.unique_selling_points || offer.product_highlights || 'Premium quality',
     target_audience: offer.target_audience || 'General',
