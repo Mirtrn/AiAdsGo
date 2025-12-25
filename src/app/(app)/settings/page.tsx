@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card'
 import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
+import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
 
 // 代理URL配置项接口
 interface ProxyUrlConfig {
@@ -320,6 +321,7 @@ export default function SettingsPage() {
   const [serviceAccounts, setServiceAccounts] = useState<any[]>([])
   const [loadingServiceAccounts, setLoadingServiceAccounts] = useState(false)
   const [deletingServiceAccountId, setDeletingServiceAccountId] = useState<string | null>(null)
+  const [permissionError, setPermissionError] = useState<any | null>(null)
 
   useEffect(() => {
     fetchSettings()
@@ -534,10 +536,19 @@ export default function SettingsPage() {
 
       if (!response.ok) {
         const data = await response.json()
+
+        // 🆕 检测服务账号权限错误
+        if (data.code === 'SERVICE_ACCOUNT_PERMISSION_DENIED' && data.details) {
+          setPermissionError(data.details)
+          setShowGoogleAdsAccounts(true)  // 显示区域以展示错误信息
+          return
+        }
+
         throw new Error(data.error || '获取账户列表失败')
       }
 
       const data = await response.json()
+      setPermissionError(null)  // 清除之前的权限错误
       setGoogleAdsAccounts(data.data.accounts || [])
       toast.success(`找到${data.data.total}个可访问的 Google Ads 账户`)
     } catch (err: any) {
@@ -1359,11 +1370,28 @@ export default function SettingsPage() {
 
                         {showGoogleAdsAccounts && (
                           <div className="space-y-3">
+                            {/* 🆕 显示权限错误信息 */}
+                            {permissionError && permissionError.solution && (
+                              <ServiceAccountPermissionError
+                                serviceAccountEmail={permissionError.serviceAccountEmail}
+                                mccCustomerId={permissionError.mccCustomerId}
+                                steps={permissionError.solution.steps}
+                                docsUrl={permissionError.solution.docsUrl}
+                                onDismiss={() => {
+                                  setPermissionError(null)
+                                  setShowGoogleAdsAccounts(false)
+                                }}
+                              />
+                            )}
+
                             {loadingGoogleAdsAccounts ? (
                               <div className="text-center py-8">
                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
                                 <p className="mt-2 text-sm text-gray-600">加载账户列表...</p>
                               </div>
+                            ) : permissionError ? (
+                              // 有权限错误时不显示"未找到账户"提示
+                              null
                             ) : googleAdsAccounts.length === 0 ? (
                               <div className="text-center py-8 bg-gray-50 rounded-lg">
                                 <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-2" />

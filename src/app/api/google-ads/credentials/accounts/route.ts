@@ -293,6 +293,8 @@ async function syncAccountsFromAPI(
 
       // 🔧 修复(2025-12-25): 尝试多个login_customer_id直到成功
       // 重点：每次尝试都需要重新创建客户端，因为@htdangkhoa/google-ads在实例化时固化了login_customer_id
+      const loginAttempts: Array<{ loginCustomerId: string | null, error: string | null, success: boolean }> = []
+
       for (const lcId of loginCustomerIds) {
         const lcIdDisplay = lcId || 'null(省略)'
         console.log(`   🔍 尝试使用 login_customer_id: ${lcIdDisplay} 访问账户 ${customerId}`)
@@ -331,18 +333,61 @@ async function syncAccountsFromAPI(
 
           // 如果执行到这行代码没有抛出异常，说明成功
           successLoginCustomerId = lcId
+          loginAttempts.push({ loginCustomerId: lcId, error: null, success: true })
           console.log(`   ✅ 使用 login_customer_id: ${lcIdDisplay} 成功访问账户 ${customerId}`)
           break
         } catch (error: any) {
           lastError = error
+          loginAttempts.push({
+            loginCustomerId: lcId,
+            error: error.message || '未知错误',
+            success: false
+          })
           console.warn(`   ⚠️ 使用 login_customer_id: ${lcIdDisplay} 失败: ${error.message}`)
+
+          // 🆕 检测是否为PERMISSION_DENIED错误
+          if (error.message && error.message.includes('PERMISSION_DENIED')) {
+            console.warn(`   🔍 检测到权限错误，记录详细信息用于前端提示`)
+          }
+
           continue  // 尝试下一个login_customer_id
         }
       }
 
-      // 如果所有login_customer_id都失败，抛出最后一个错误
+      // 如果所有login_customer_id都失败，构建详细的错误信息
       if (!customer) {
-        throw lastError || new Error('无法使用任何login_customer_id访问账户')
+        const hasPermissionDenied = loginAttempts.some(attempt =>
+          attempt.error && attempt.error.includes('PERMISSION_DENIED')
+        )
+
+        // 🆕 构建用户友好的错误信息
+        let friendlyErrorMessage = '无法访问该账户。'
+
+        if (hasPermissionDenied && isServiceAccount) {
+          const mccId = isServiceAccount ? serviceAccountConfig.mccCustomerId : credentials.login_customer_id
+          friendlyErrorMessage = `服务账号权限不足。\n\n` +
+            `问题诊断：\n` +
+            `1. 尝试使用MCC账户(${mccId})访问失败 - PERMISSION_DENIED\n` +
+            `2. 尝试直接访问子账户(${customerId})也失败\n\n` +
+            `可能的原因：\n` +
+            `• 服务账号只被添加到子账户，但未添加到MCC账户\n` +
+            `• 服务账号在MCC账户中权限不足（需要"标准访问"或"管理员"）\n\n` +
+            `解决方案：\n` +
+            `1. 登录 Google Ads UI (https://ads.google.com)\n` +
+            `2. 切换到MCC账户 ${mccId}\n` +
+            `3. 进入"管理" → "访问权限和安全"\n` +
+            `4. 添加服务账号邮箱: ${serviceAccountConfig.serviceAccountEmail}\n` +
+            `5. 选择权限级别："标准访问"或"管理员"\n` +
+            `6. 保存后等待几分钟，然后刷新此页面`
+        }
+
+        const enhancedError = new Error(friendlyErrorMessage)
+        ;(enhancedError as any).loginAttempts = loginAttempts
+        ;(enhancedError as any).isPermissionError = hasPermissionDenied
+        ;(enhancedError as any).serviceAccountEmail = isServiceAccount ? serviceAccountConfig.serviceAccountEmail : null
+        ;(enhancedError as any).mccCustomerId = isServiceAccount ? serviceAccountConfig.mccCustomerId : credentials.login_customer_id
+
+        throw enhancedError
       }
 
       // 将成功的login_customer_id传下去（用于后续子账户查询）
@@ -905,6 +950,35 @@ export async function GET(request: NextRequest) {
     // 🔧 修复(2025-12-24): 根据错误类型返回合适的 HTTP 状态码
     let statusCode = 500
     let errorCode = 'UNKNOWN_ERROR'
+
+    // 🆕 检测权限错误并构建详细响应
+    if (error.isPermissionError && error.serviceAccountEmail && error.mccCustomerId) {
+      statusCode = 403
+      errorCode = 'SERVICE_ACCOUNT_PERMISSION_DENIED'
+
+      return NextResponse.json({
+        error: '服务账号权限不足',
+        code: errorCode,
+        message: error.message,
+        details: {
+          serviceAccountEmail: error.serviceAccountEmail,
+          mccCustomerId: error.mccCustomerId,
+          loginAttempts: error.loginAttempts,
+          solution: {
+            title: '如何修复权限问题',
+            steps: [
+              '登录 Google Ads UI: https://ads.google.com',
+              `切换到MCC账户: ${error.mccCustomerId}`,
+              '进入"管理" → "访问权限和安全"',
+              `添加服务账号: ${error.serviceAccountEmail}`,
+              '选择权限级别: "标准访问"或"管理员"',
+              '保存后等待几分钟，然后刷新此页面'
+            ],
+            docsUrl: '/docs/service-account-setup'
+          }
+        }
+      }, { status: statusCode })
+    }
 
     if (error.message?.includes('invalid_client')) {
       statusCode = 401  // 未授权
