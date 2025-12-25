@@ -327,9 +327,9 @@ async function syncAccountsFromAPI(
 
             // 🔧 关键修复：立即尝试一个简单的查询来验证权限
             // 如果权限不足，此处会抛出异常，从而触发下一轮尝试
-            await customer.search({
-              query: `SELECT customer.id FROM customer WHERE customer.id = ${customerId} LIMIT 1`
-            })
+            // 🔧 修复(2025-12-25): 服务账号用search()，OAuth用query()
+            const testQuery = `SELECT customer.id FROM customer WHERE customer.id = ${customerId} LIMIT 1`
+            await customer.search({ query: testQuery })
           } else {
             customer = await getCustomer(
               customerId,
@@ -429,9 +429,10 @@ async function syncAccountsFromAPI(
 
       try {
         // 先查询基本信息（不包含 status，避免权限问题）
-        const searchResult = await customer.search({
-          query: basicAccountInfoQuery,
-        })
+        // 🔧 修复(2025-12-25): OAuth模式使用query()，服务账号模式使用search()
+        const searchResult = isServiceAccount
+          ? await customer.search({ query: basicAccountInfoQuery })
+          : await customer.query(basicAccountInfoQuery)
 
         accountInfo = extractSearchResults(searchResult)
 
@@ -443,9 +444,9 @@ async function syncAccountsFromAPI(
               FROM customer
               WHERE customer.id = ${customerId}
             `
-            const statusResult = await customer.search({
-              query: statusQuery,
-            })
+            const statusResult = isServiceAccount
+              ? await customer.search({ query: statusQuery })
+              : await customer.query(statusQuery)
             const statusInfo = extractSearchResults(statusResult)
             if (statusInfo && statusInfo.length > 0) {
               rawStatus = statusInfo[0].customer?.status
@@ -485,9 +486,9 @@ async function syncAccountsFromAPI(
             ORDER BY account_budget.id DESC
             LIMIT 1
           `
-          const budgetInfo = extractSearchResults(await customer.search({
-            query: budgetQuery,
-          }))
+          const budgetInfo = extractSearchResults(isServiceAccount
+            ? await customer.search({ query: budgetQuery })
+            : await customer.query(budgetQuery))
           if (budgetInfo && budgetInfo.length > 0) {
             const budget = budgetInfo[0].account_budget
             const amountServed = Number(budget?.amount_served_micros || 0)
@@ -546,9 +547,9 @@ async function syncAccountsFromAPI(
           let mccApiErrorMessage: string | undefined
 
           try {
-            const childAccounts = extractSearchResults(await customer.search({
-              query: childAccountsQuery,
-            }))
+            const childAccounts = extractSearchResults(isServiceAccount
+              ? await customer.search({ query: childAccountsQuery })
+              : await customer.query(childAccountsQuery))
             mccApiSuccess = true
 
             for (const child of childAccounts) {
@@ -604,9 +605,9 @@ async function syncAccountsFromAPI(
                       ORDER BY account_budget.id DESC
                       LIMIT 1
                     `
-                    const childBudgetInfo = extractSearchResults(await childCustomer.search({
-                      query: childBudgetQuery,
-                    }))
+                    const childBudgetInfo = extractSearchResults(isServiceAccount
+                      ? await childCustomer.search({ query: childBudgetQuery })
+                      : await childCustomer.query(childBudgetQuery))
                     if (childBudgetInfo && childBudgetInfo.length > 0) {
                       const budget = childBudgetInfo[0].account_budget
                       const amountServed = Number(budget?.amount_served_micros || 0)
