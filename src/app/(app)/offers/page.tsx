@@ -694,9 +694,9 @@ export default function OffersPage() {
                           aria-label="全选"
                         />
                       </TableHead>
-                      {/* P2-5: 可排序列头 */}
-                      <TableHead className="w-[60px] whitespace-nowrap">
-                        序号
+                      {/* Offer ID */}
+                      <TableHead className="w-[80px] whitespace-nowrap">
+                        Offer ID
                       </TableHead>
                       <SortableTableHead
                         field="offerName"
@@ -765,9 +765,9 @@ export default function OffersPage() {
                             aria-label={`选择 ${offer.brand}`}
                           />
                         </TableCell>
-                        {/* 用户级别序号（基于分页计算，非全局ID） */}
+                        {/* Offer ID */}
                         <TableCell className="font-mono text-body-sm text-gray-600">
-                          {(currentPage - 1) * pageSize + index + 1}
+                          {offer.id}
                         </TableCell>
                         <TableCell className="font-mono">
                           <a

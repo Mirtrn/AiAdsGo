@@ -310,6 +310,7 @@ async function buildAdCreativePrompt(
     language_instruction: languageInstruction,
     brand: offer.brand,
     category: offer.category || 'product',
+    product_title: offer.product_title || offer.name || offer.title || 'Product',
     product_description: offer.brand_description || offer.unique_selling_points || 'Quality product',
     unique_selling_points: offer.unique_selling_points || offer.product_highlights || 'Premium quality',
     target_audience: offer.target_audience || 'General',
@@ -446,11 +447,16 @@ This store creative focuses on "${intent || intentEn}" user intent.
 This is a SYNTHETIC creative that must achieve the HIGHEST possible Ad Strength rating ("Excellent").
 
 **CRITICAL REQUIREMENTS:**
-1. **Brand Coverage**: Include ALL brand-related keywords naturally in headlines and descriptions
-2. **High-Volume Keywords**: Prioritize the top-performing non-brand keywords by search volume
-3. **Keyword-Copy Alignment**: Every headline and description MUST contain at least one keyword
-4. **Diversity**: Use ALL 15 headlines and ALL 4 descriptions - no shortcuts
-5. **Ad Strength Optimization**:
+1. **Single Product Focus (MOST IMPORTANT)**: ALL creative elements MUST focus on ONE specific product
+   - Product Name: {{product_name}}
+   - Mention the specific product model/name in ALL headlines
+   - Describe THIS product's features, NOT generic product categories
+   - ❌ FORBIDDEN: "Shop All", "Browse Collection", "Full Lineup", "Cameras & Doorbells"
+2. **Brand Coverage**: Include ALL brand-related keywords naturally in headlines and descriptions
+3. **High-Volume Keywords**: Prioritize the top-performing non-brand keywords by search volume
+4. **Keyword-Copy Alignment**: Every headline and description MUST contain at least one keyword
+5. **Diversity**: Use ALL 15 headlines and ALL 4 descriptions - no shortcuts
+6. **Ad Strength Optimization**:
    - Include brand name in at least 3 headlines
    - Use power words (Buy, Shop, Save, Free, Official, etc.)
    - Include numbers and statistics when possible
@@ -472,13 +478,67 @@ This is a SYNTHETIC creative that must achieve the HIGHEST possible Ad Strength 
 ☑️ Urgency elements (limited time, exclusive, etc.)
 ☑️ Trust signals (official, authorized, warranty, etc.)`
     } else {
-      keyword_bucket_section = `
+      // 🆕 v4.18: 为每个产品链接桶添加单品聚焦约束
+      const productBucketInstructions: Record<string, string> = {
+        'A': `
+**📦 产品桶A - 具体产品导向 (Product-Specific)**
+**🎯 核心主题**: 突出具体产品的型号和参数
+**⚠️ 单品聚焦规则 (CRITICAL)**:
+- ✅ 必须提到具体产品名称/型号: {{product_name}}
+- ✅ 必须突出产品的具体规格/功能 (如 "1500W", "1070Wh", "2K resolution")
+- ✅ 所有创意元素必须聚焦于这一个产品
+- ❌ 禁止: "Shop All Products", "Browse Collection", "Cameras & Doorbells"
+- ❌ 禁止: 提及同品牌其他品类产品
+- 关键词策略: 30%品牌词 + 50%产品型号词 + 20%功能词
+- 创意重点: 让用户一眼识别这就是TA要找的产品`,
+        'B': `
+**📦 产品桶B - 购买意向导向 (Purchase-Intent)**
+**🎯 核心主题**: 促使用户立即购买
+**⚠️ 单品聚焦规则 (CRITICAL)**:
+- ✅ 围绕这一个产品描述购买优势和CTA
+- ✅ 强调具体价格/折扣 (如 "41% Off", "$839")
+- ✅ 使用明确的购买CTA: "Shop Now", "Buy Today", "Order Now"
+- ❌ 禁止: "Explore Store", "View All Products" (这是店铺级文案)
+- ❌ 禁止: 暗示多产品选择
+- 关键词策略: 20%品牌词 + 30%产品型号词 + 10%功能词 + 40%价格词
+- 创意重点: 消除购买犹豫，推动立即行动`,
+        'C': `
+**📦 产品桶C - 功能特性导向 (Feature-Focused)**
+**🎯 核心主题**: 展示产品的独特功能和优势
+**⚠️ 单品聚焦规则 (CRITICAL)**:
+- ✅ 详细描述这一个产品的具体功能 (如 "AI Detection", "Solar Powered")
+- ✅ 使用产品的高价值特性作为卖点
+- ✅ 避免泛化的品类描述，聚焦单品细节
+- ❌ 禁止: "Smart Home Solutions" (太通用)
+- ❌ 禁止: 提及"完整产品线"或"多种选择"
+- 关键词策略: 20%品牌词 + 20%产品型号词 + 60%功能词
+- 创意重点: 用产品独特功能说服用户`,
+        'D': `
+**📦 产品桶D - 紧迫促销导向 (Urgency-Promo)**
+**🎯 核心主题**: 利用紧迫感和促销推动转化
+**⚠️ 单品聚焦规则 (CRITICAL)**:
+- ✅ 为这一个产品创造紧迫感 (如 "Limited Time", "Today Only")
+- ✅ 强调该产品的专属优惠
+- ✅ 使用倒计时/限时语言
+- ❌ 禁止: "Shop the Full Collection" (店铺级文案)
+- ❌ 禁止: 暗示"多款促销"
+- 关键词策略: 20%品牌词 + 20%产品型号词 + 20%功能词 + 40%促销词
+- 创意重点: 让用户感觉"现在不买就错过这个产品"`
+      }
+      keyword_bucket_section = productBucketInstructions[bucket] || `
 **📦 KEYWORD POOL BUCKET ${bucket} - ${intent || intentEn}**
-This creative MUST focus on the "${intent || intentEn}" user intent.
+**⚠️ 单品聚焦规则 (CRITICAL)**:
+- This creative MUST focus on ONE specific product: {{product_name}}
+- ALL headlines and descriptions must reference this specific product
+- Do NOT use generic brand/store descriptions
+- Do NOT mention other products or product categories
+
+This creative focuses on "${intent || intentEn}" user intent.
 - You have ${keywordCount} pre-selected keywords optimized for this intent
 - Prioritize these KEYWORD_POOL keywords over others (they appear first in the keyword list)
 - Ensure headlines and descriptions align with the "${intent || intentEn}" messaging strategy
-- Do NOT mix intents - stay focused on this single theme`
+- Do NOT mix intents - stay focused on this single theme
+- Stay focused on ONE product - do not generalize to product categories`
     }
   }
 

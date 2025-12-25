@@ -254,6 +254,75 @@ export const TRENDS_CONFIG = {
   maxFallbackQueries: 20
 } as const
 
+// ============================================
+// 🔥 2025-12-25: 品类同义词词库（用于品类白名单过滤）
+// ============================================
+
+/**
+ * 品类同义词词库
+ * 用于品类白名单过滤，支持单品关键词聚焦
+ *
+ * 优化目标：对于单品链接Offer，只保留包含该产品品类词的关键词
+ * 例如：Eufy Argus 3 Pro（安防摄像头）只保留包含 camera/security/outdoor 等品类词的关键词
+ *       排除同品牌其他品类词（如 doorbell、vacuum、breast pump）
+ */
+export const CATEGORY_SYNONYMS: Record<string, string[]> = {
+  // ==================== 摄像头类 ====================
+  'camera': ['cam', 'video', 'surveillance', 'monitoring', 'vision', 'webcam', 'recorder', 'cctv'],
+  'security': ['safety', 'protection', 'guard', 'alarm', 'secure', 'watch'],
+  'outdoor': ['weather', 'waterproof', 'exterior', 'outside', 'resistant'],
+  'indoor': ['interior', 'inside', 'room', 'home'],
+  'doorbell': ['door', 'bell', 'chime', 'ring', 'entry', 'entrance'],
+
+  // ==================== 吸尘器类 ====================
+  'vacuum': ['cleaner', 'cleaning', 'sweeper', 'mop', 'robot', 'hoover'],
+  'robot': ['robotic', 'automatic', 'auto', 'smart'],
+  'floor': ['ground', 'carpet', 'hardwood', 'tile'],
+
+  // ==================== 智能家居类 ====================
+  'smart home': ['iot', 'smart', 'connected', 'automation', 'intelligent'],
+  'lock': ['keyless', 'deadbolt', 'entry', 'door lock', 'secure'],
+  'light': ['lighting', 'lamp', 'bulb', 'led', 'brightness'],
+  'switch': ['dimmer', 'control', 'button', 'toggle'],
+  'sensor': ['detector', 'detection', 'monitor', 'sense'],
+
+  // ==================== 音频设备类 ====================
+  'speaker': ['audio', 'sound', 'music', 'bluetooth', 'wireless'],
+  'headphones': ['earphones', 'earbuds', 'headset', 'ear', 'buds'],
+  'microphone': ['mic', 'recording', 'voice', 'audio input'],
+
+  // ==================== 智能可穿戴类 ====================
+  'watch': ['smartwatch', 'wearable', 'fitness', 'tracker'],
+  'band': ['bracelet', 'wristband', 'strap', 'fitness band'],
+  'ring': ['smart ring', 'wearable ring', 'finger'],
+
+  // ==================== 母婴类 ====================
+  'breast pump': ['pump', 'breastfeeding', 'nursing', 'lactation', 'expressing'],
+  'baby monitor': ['baby cam', 'nursery', 'infant', 'child'],
+  'thermometer': ['temperature', 'fever', 'digital'],
+
+  // ==================== 厨房电器类 ====================
+  'coffee': ['espresso', 'brew', 'maker', 'grinder', 'café'],
+  'kettle': ['boiler', 'water heater', 'pot'],
+  'blender': ['mixer', 'juicer', 'smoothie', 'processor'],
+
+  // ==================== 个人护理类 ====================
+  'toothbrush': ['dental', 'oral', 'teeth', 'brush'],
+  'shaver': ['razor', 'trimmer', 'grooming', 'beard'],
+  'hair dryer': ['blow dryer', 'styling', 'hair'],
+
+  // ==================== 健康设备类 ====================
+  'scale': ['weighing', 'weight', 'body', 'fat', 'bmi'],
+  'blood pressure': ['bp', 'monitor', 'sphygmomanometer', 'heart'],
+  'oximeter': ['oxygen', 'pulse', 'spo2', 'saturation'],
+
+  // ==================== 通用修饰词 ====================
+  'wireless': ['wifi', 'bluetooth', 'cordless', 'cable-free'],
+  'portable': ['handheld', 'mobile', 'travel', 'compact'],
+  'rechargeable': ['battery', 'charging', 'powered', 'cordless'],
+  'waterproof': ['water resistant', 'splash proof', 'ip67', 'ip68'],
+} as const
+
 /**
  * 类型导出（用于TypeScript）
  */
@@ -263,3 +332,4 @@ export type ThresholdLevel = typeof THRESHOLD_LEVELS[number]
 export type IntentBucket = typeof INTENT_BUCKETS[keyof typeof INTENT_BUCKETS]
 export type MatchType = typeof MATCH_TYPES[keyof typeof MATCH_TYPES]
 export type Source = typeof SOURCES[keyof typeof SOURCES]
+export type CategorySynonym = keyof typeof CATEGORY_SYNONYMS

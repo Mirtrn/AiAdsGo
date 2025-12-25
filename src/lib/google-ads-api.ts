@@ -1800,7 +1800,10 @@ async function createConversionAction(
  */
 async function setCustomerConversionGoal(
   customer: Customer,
-  mapping: any
+  mapping: any,
+  options?: {
+    campaignId?: string  // 可选：用于备用方案查询
+  }
 ): Promise<void> {
   console.log(`   📋 查询CustomerConversionGoal (category=${mapping.category})...`)
 
@@ -1811,6 +1814,7 @@ async function setCustomerConversionGoal(
       SELECT
         customer_conversion_goal.resource_name,
         customer_conversion_goal.category,
+        customer_conversion_goal.origin,
         customer_conversion_goal.biddable
       FROM customer_conversion_goal
       WHERE customer_conversion_goal.category = ${mapping.category}
@@ -1835,7 +1839,62 @@ async function setCustomerConversionGoal(
         console.log(`   ✅ CustomerConversionGoal已经是biddable=true`)
       }
     } else {
-      console.log(`   ⚠️ 未找到CustomerConversionGoal (category=${mapping.category})，可能需要等待转化操作同步`)
+      // 3. 🔧 关键修复(2025-12-25): 当CustomerConversionGoal不存在时
+      // 根据Google Ads API v21的新规则（2025年11月17日起生效），
+      // 通过API创建的转化操作不会自动变成账户的转化目标，
+      // 需要设置CustomerConversionGoal才能让营销目标在UI中正确显示
+      console.log(`   ⚠️ 未找到CustomerConversionGoal (category=${mapping.category})`)
+      console.log(`   这可能是因为:`)
+      console.log(`   1. Google Ads API限制：CustomerConversionGoal可能需要通过UI创建`)
+      console.log(`   2. 账户可能没有现有的转化操作`)
+      console.log(`   3. API版本可能不支持直接创建CustomerConversionGoal`)
+
+      // 尝试备用方案: 直接更新campaignConversionGoal
+      console.log(`   🔄 尝试备用方案: 直接设置CampaignConversionGoal...`)
+      try {
+        if (!options?.campaignId) {
+          console.log(`   ⚠️ 未提供campaignId，无法查询CampaignConversionGoal`)
+          return
+        }
+
+        // 查询所有可用的campaignConversionGoal
+        const allGoalsQuery = `
+          SELECT
+            campaign_conversion_goal.resource_name,
+            campaign_conversion_goal.category,
+            campaign_conversion_goal.origin,
+            campaign_conversion_goal.biddable
+          FROM campaign_conversion_goal
+          WHERE campaign.id = ${options.campaignId}
+        `
+        const allGoals = await customer.query(allGoalsQuery)
+        console.log(`   找到 ${allGoals.length} 个CampaignConversionGoal`)
+
+        if (allGoals.length > 0) {
+          // 找到任意一个未启用的目标并更新biddable
+          const disabledGoal = allGoals.find((g: any) => !g.campaign_conversion_goal?.biddable)
+          const targetGoal = disabledGoal || allGoals[0]
+
+          if (targetGoal && targetGoal.campaign_conversion_goal) {
+            const resourceName = targetGoal.campaign_conversion_goal.resource_name
+            const category = targetGoal.campaign_conversion_goal.category
+            const origin = targetGoal.campaign_conversion_goal.origin
+
+            console.log(`   目标: resourceName=${resourceName}, category=${category}, origin=${origin}`)
+
+            await customer.campaignConversionGoals.update([{
+              resource_name: resourceName,
+              biddable: true
+            }])
+            console.log(`   ✅ 已启用CampaignConversionGoal`)
+          }
+        } else {
+          console.log(`   ⚠️ Campaign也没有可用的转化目标`)
+          console.log(`   建议: 请在Google Ads账户中手动配置转化操作`)
+        }
+      } catch (fallbackError: any) {
+        console.log(`   ⚠️ 备用方案失败: ${fallbackError.message}`)
+      }
     }
   } catch (error: any) {
     console.error(`   ⚠️ 设置CustomerConversionGoal失败:`, error.message)
@@ -1907,6 +1966,10 @@ export async function setCampaignMarketingObjective(params: {
   console.log(`   Campaign ID: ${campaignId}`)
   console.log(`   Customer ID: ${customerId}`)
 
+  // 🔧 新增(2025-12-25): 记录详细的诊断信息
+  console.log(`   📋 诊断信息:`)
+  console.log(`      - 期望营销目标: ${marketingObjective}`)
+
   try {
     const customer = await getCustomerWithCredentials({
       customerId,
@@ -1922,8 +1985,12 @@ export async function setCampaignMarketingObjective(params: {
       throw new Error(`不支持的营销目标类型: ${marketingObjective}`)
     }
 
-    console.log(`   转化类别: ${mapping.category} (${marketingObjective})`)
-    console.log(`   转化来源: ${mapping.origin}`)
+    // 🔧 新增(2025-12-25): 记录映射详情
+    console.log(`   📊 映射详情:`)
+    console.log(`      - 期望category: ${mapping.category} (${marketingObjectiveToString(mapping.category)})`)
+    console.log(`      - 期望origin: ${mapping.origin} (${originToString(mapping.origin)})`)
+    console.log(`      - 转化操作类别: ${mapping.conversionActionCategory} (${marketingObjectiveToString(mapping.conversionActionCategory)})`)
+    console.log(`      - 转化操作名称: ${mapping.conversionActionName}`)
 
     // 1. 首先查询Campaign现有的转化目标
     const query = `
@@ -1958,6 +2025,10 @@ export async function setCampaignMarketingObjective(params: {
         biddable: true
       }])
 
+      // 🔧 关键修复(2025-12-25): 同时确保CustomerConversionGoal也正确设置
+      console.log(`   🔄 同时设置CustomerConversionGoal...`)
+      await setCustomerConversionGoal(customer, mapping, { campaignId })
+
       console.log(`   ✅ 营销目标设置成功: ${marketingObjective}`)
       return {
         success: true,
@@ -1965,8 +2036,7 @@ export async function setCampaignMarketingObjective(params: {
       }
     } else {
       // 3b. 如果没有找到匹配的目标，说明账户可能没有配置对应的转化操作
-      // 这种情况下，我们尝试将所有现有目标设置为biddable=false，
-      // 然后创建一个新的转化目标（如果API支持）
+      // 这种情况下，尝试找到最接近的目标并更新，同时设置CustomerConversionGoal
 
       console.log(`   ⚠️ 未找到匹配的转化目标 (category=${mapping.category}, origin=${mapping.origin})`)
       console.log(`   现有目标:`, existingGoals.map((g: any) => ({
@@ -1975,33 +2045,44 @@ export async function setCampaignMarketingObjective(params: {
         biddable: g.campaign_conversion_goal?.biddable
       })))
 
-      // 如果有任何现有目标，尝试将第一个设置为biddable
-      // 这至少可以让Campaign有一个活跃的转化目标
-      if (existingGoals.length > 0) {
-        const firstGoal = existingGoals[0]
-        if (!firstGoal.campaign_conversion_goal) {
-          console.log(`   ⚠️ 第一个目标数据格式异常`)
-          return {
-            success: false,
-            message: `Campaign转化目标数据格式异常`
-          }
-        }
-        const resourceName = firstGoal.campaign_conversion_goal.resource_name
+      // 查找category匹配但origin可能不同的目标（更宽松的匹配）
+      const categoryMatchGoal = existingGoals.find((goal: any) =>
+        goal.campaign_conversion_goal?.category === mapping.category
+      )
 
-        console.log(`   尝试启用第一个可用的转化目标...`)
+      // 查找任意未启用的目标
+      const disabledGoal = existingGoals.find((goal: any) =>
+        !goal.campaign_conversion_goal?.biddable
+      )
+
+      // 选择优先级：1) category匹配 2) 未启用 3) 第一个
+      const fallbackGoal = categoryMatchGoal || disabledGoal || (existingGoals.length > 0 ? existingGoals[0] : null)
+
+      if (fallbackGoal && fallbackGoal.campaign_conversion_goal) {
+        const resourceName = fallbackGoal.campaign_conversion_goal.resource_name
+        const currentCategory = fallbackGoal.campaign_conversion_goal.category
+        const currentOrigin = fallbackGoal.campaign_conversion_goal.origin
+
+        console.log(`   🔄 启用备用目标: category=${currentCategory}, origin=${currentOrigin}`)
+        console.log(`   (原目标类型: ${marketingObjective}, category=${mapping.category}, origin=${mapping.origin})`)
+
         await customer.campaignConversionGoals.update([{
           resource_name: resourceName,
           biddable: true
         }])
 
-        console.log(`   ✅ 已启用默认转化目标`)
+        // 🔧 关键修复(2025-12-25): 设置CustomerConversionGoal
+        console.log(`   🔄 设置CustomerConversionGoal...`)
+        await setCustomerConversionGoal(customer, mapping, { campaignId })
+
+        console.log(`   ✅ 已启用备用转化目标`)
         return {
           success: true,
-          message: `未找到 ${marketingObjective} 对应的转化目标，已启用默认转化目标`
+          message: `已启用匹配的转化目标（类型: ${currentCategory}/${currentOrigin}）`
         }
       }
 
-      // 如果完全没有转化目标，尝试自动创建转化操作
+      // 3c. 如果完全没有转化目标，尝试自动创建转化操作
       console.log(`   ⚠️ Campaign没有任何转化目标，尝试自动创建转化操作...`)
 
       // 🔧 新增(2025-12-20): 自动创建转化操作
@@ -2032,7 +2113,7 @@ export async function setCampaignMarketingObjective(params: {
         // 🔧 关键修复(2025-12-20): 根据Google Ads API v21新逻辑，
         // 需要设置CustomerConversionGoal才能让营销目标在UI中正确显示
         console.log(`   🔄 设置CustomerConversionGoal (API v21新要求)...`)
-        await setCustomerConversionGoal(customer, mapping)
+        await setCustomerConversionGoal(customer, mapping, { campaignId })
 
         // 2. 等待一小段时间让转化操作生效
         console.log(`   ⏳ 等待转化操作生效...`)
@@ -2061,14 +2142,28 @@ export async function setCampaignMarketingObjective(params: {
 
           if (matchingGoal && matchingGoal.campaign_conversion_goal) {
             const resourceName = matchingGoal.campaign_conversion_goal.resource_name
-            console.log(`   找到匹配的转化目标，更新biddable=true`)
+            const currentBiddable = matchingGoal.campaign_conversion_goal.biddable
+            console.log(`   找到匹配的转化目标: biddable=${currentBiddable}`)
 
-            await customer.campaignConversionGoals.update([{
-              resource_name: resourceName,
-              biddable: true
-            }])
+            // 只有当biddable不是true时才更新
+            if (currentBiddable !== true) {
+              console.log(`   🔄 更新biddable=true`)
+              await customer.campaignConversionGoals.update([{
+                resource_name: resourceName,
+                biddable: true
+              }])
+              console.log(`   ✅ 营销目标设置成功: ${marketingObjective}`)
+            } else {
+              console.log(`   ✅ 营销目标已正确设置 (biddable=true)`)
+            }
 
-            console.log(`   ✅ 营销目标设置成功: ${marketingObjective}`)
+            // 🔧 关键验证(2025-12-25): 再次验证并打印所有目标状态
+            console.log(`   📋 所有CampaignConversionGoal状态:`)
+            updatedGoals.forEach((g: any, i: number) => {
+              const cg = g.campaign_conversion_goal
+              const isMatch = cg?.category === mapping.category && cg?.origin === mapping.origin
+              console.log(`      目标${i+1}: category=${cg?.category} (${marketingObjectiveToString(cg?.category)}), origin=${cg?.origin} (${originToString(cg?.origin)}), biddable=${cg?.biddable}${isMatch ? ' ⬅️ 匹配目标' : ''}`)
+            })
             return {
               success: true,
               message: `已自动创建转化操作并设置营销目标 ${marketingObjective}`
@@ -2239,4 +2334,72 @@ export function ensureKeywordsInHeadlines(
   console.log(`[HeadlineOptimizer] ✅ 标题优化完成，替换了 ${uniqueUncoveredKeywords.length} 个标题`)
 
   return result
+}
+
+// ==================== 辅助函数 ====================
+
+/**
+ * 营销目标类别枚举值转字符串
+ *
+ * @param category - ConversionActionCategory枚举值
+ * @returns 可读的目标名称
+ */
+function marketingObjectiveToString(category: number): string {
+  const categoryNames: Record<number, string> = {
+    0: 'AD_CALL',
+    1: 'BUY',
+    2: 'GET_DIRECTIONS',
+    3: 'PAGE_VIEW',
+    4: 'PURCHASE',
+    5: 'SIGNUP',
+    6: 'CALL',
+    7: 'EMAIL',
+    8: 'LOCAL_ACTION',
+    9: 'BEACON',
+    10: 'APP_OPEN',
+    11: 'APP_FIRST_OPEN',
+    12: 'APP_INSTALL',
+    13: 'SUBMIT_LEAD_FORM',
+    14: 'START_CHECKOUT',
+    15: 'ADD_TO_CART',
+    16: 'CHECKOUT_START',
+    17: 'RESERVE',
+    18: 'OUTBOUND_CLICK',
+    19: 'CONTACT',
+    20: 'STORE_VISIT',
+    21: 'PAGE_VISIT',
+    22: 'LEVEL_COMPLETE',
+    23: 'START_TRIAL',
+    25: 'SEARCH',
+    26: 'VIEW_ITEM',
+    27: 'ADD_PAYMENT_INFO',
+    28: 'ADD_TO_WISHLIST',
+    29: 'INITIATE_CHECKOUT',
+    30: 'COMPLETE_CHECKOUT',
+    31: 'UPDATE',
+  }
+  return categoryNames[category] || `UNKNOWN(${category})`
+}
+
+/**
+ * 转化来源枚举值转字符串
+ *
+ * @param origin - ConversionOrigin枚举值
+ * @returns 可读的来源名称
+ */
+function originToString(origin: number): string {
+  const originNames: Record<number, string> = {
+    0: 'UNSPECIFIED',
+    1: 'ANALYTICS',
+    2: 'WEBSITE',
+    3: 'CALL',
+    4: 'STORE',
+    5: 'ANDROID_APP',
+    6: 'IOS_APP',
+    7: 'OFFLINE_CONVERSION',
+    8: 'CALL_METRICS',
+    9: 'STORE_SALES',
+    10: 'DISPLAY',
+  }
+  return originNames[origin] || `UNKNOWN(${origin})`
 }

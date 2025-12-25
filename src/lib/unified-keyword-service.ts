@@ -15,7 +15,7 @@
 
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { getKeywordIdeas } from './google-ads-keyword-planner'
-import { PLATFORMS, BRAND_PATTERNS, DEFAULTS, THRESHOLD_LEVELS } from './keyword-constants'
+import { PLATFORMS, BRAND_PATTERNS, DEFAULTS, THRESHOLD_LEVELS, CATEGORY_SYNONYMS } from './keyword-constants'
 
 // ============================================
 // 类型定义
@@ -583,6 +583,188 @@ function extractFeatureSeeds(features: string, brandName: string): string[] {
 }
 
 // ============================================
+// 🆕 品类白名单过滤（2025-12-25）
+// ============================================
+
+/**
+ * 从Offer提取主品类词（包含同义词）
+ *
+ * 用途：为单品链接Offer生成品类白名单，用于过滤同品牌其他品类关键词
+ *
+ * 提取策略：
+ * 1. 从 category 字段提取核心品类词
+ * 2. 从 productTitle 提取品类相关词（移除品牌名和规格）
+ * 3. 扩展同义词（基于 CATEGORY_SYNONYMS 词库）
+ *
+ * @param offer - Offer数据
+ * @returns 主品类词数组（包含同义词）
+ *
+ * @example
+ * // Eufy Argus 3 Pro Outdoor Security Camera
+ * extractMainCategoryWords(offer)
+ * // => ['camera', 'cam', 'video', 'surveillance', 'security', 'safety', 'outdoor', 'weather', ...]
+ */
+/**
+ * 提取核心品类词（用于白名单过滤）
+ *
+ * 只从 category 和 productTitle 提取核心品类词
+ * 不包含同义词（防止 "video" 匹配到 "doorbell"）
+ *
+ * 核心品类词示例：
+ * - "Security Camera" → [security, camera]
+ * - "Smart Ring" → [ring] （"smart" 太通用，不作为品类词）
+ * - "Robot Vacuum" → [vacuum, robot]
+ *
+ * 通用词黑名单（不作为品类词）：
+ * - smart, iot, connected, intelligent, wireless, wearable 等
+ */
+export function extractMainCategoryWords(offer: OfferData): string[] {
+  const categoryWords = new Set<string>()
+
+  // 通用词黑名单（不作为品类词）
+  const genericWords = new Set([
+    'smart', 'iot', 'connected', 'automation', 'intelligent',
+    'wireless', 'wearable', 'electronic', 'digital', 'automatic',
+    'auto', 'new', 'best', 'top', 'premium', 'pro', 'plus',
+    'mini', 'lite', 'air', 'gen', 'v2', 'v3', 'v4'
+  ])
+
+  // 1. 从 category 字段提取
+  if (offer.category) {
+    const words = offer.category
+      .toLowerCase()
+      .split(/[\s&,\-]+/)
+      .filter(w => w.length > 2 && !genericWords.has(w))
+
+    words.forEach(w => categoryWords.add(w))
+  }
+
+  // 2. 从 productTitle 提取（移除品牌名和规格）
+  if (offer.productTitle) {
+    const brandName = offer.brand?.toLowerCase() || ''
+    const titleWithoutBrand = offer.productTitle
+      .toLowerCase()
+      .replace(new RegExp(escapeRegex(brandName), 'gi'), '')
+      .trim()
+
+    const words = titleWithoutBrand
+      .split(/[\s\-–—,]+/)
+      .filter(w => {
+        // 过滤规格词（如2K, 1080p, Pro, Max）
+        const isSpec = /^[\d.]+[pPkKgGmMtT"']*$/.test(w) ||
+                       /^(pro|max|plus|ultra|mini|lite|air|s|gen|v\d+)$/i.test(w)
+        // 过滤通用词
+        const isGeneric = genericWords.has(w)
+        return w.length > 2 && !isSpec && !isGeneric
+      })
+
+    words.forEach(w => categoryWords.add(w))
+  }
+
+  return Array.from(categoryWords)
+}
+
+/**
+ * 品类白名单过滤：移除同品牌其他品类的关键词
+ *
+ * 问题场景：
+ * - 用户创建Eufy Argus 3 Pro（摄像头）的单品Offer
+ * - Google Keyword Planner返回所有包含"eufy"的关键词
+ * - 包括其他品类：eufy doorbell, eufy vacuum, eufy breast pump
+ *
+ * 过滤逻辑：
+ * - 关键词必须包含至少一个品类词（或其同义词）才保留
+ * - 不包含品类词的关键词被过滤（判定为其他品类）
+ *
+ * @param keywords - 关键词列表
+ * @param offer - Offer数据
+ * @returns 过滤后的关键词 + 统计信息
+ *
+ * @example
+ * // 品类白名单: [camera, security, outdoor, ...]
+ * filterByCategoryWhitelist(keywords, offer)
+ * // ✅ 保留: "eufy camera", "security camera", "wireless camera"
+ * // ❌ 过滤: "eufy doorbell", "eufy vacuum", "eufy breast pump"
+ */
+export function filterByCategoryWhitelist<T extends { keyword: string }>(
+  keywords: T[],
+  offer: OfferData
+): {
+  filtered: T[]
+  stats: {
+    total: number
+    kept: number
+    filtered: number
+    filteredKeywords: Array<{ keyword: string; reason: string }>
+  }
+} {
+  // 提取主品类词（含同义词）
+  const categoryWhitelist = extractMainCategoryWords(offer)
+
+  if (categoryWhitelist.length === 0) {
+    console.warn('⚠️ 无法提取主品类词，跳过品类过滤')
+    return {
+      filtered: keywords,
+      stats: {
+        total: keywords.length,
+        kept: keywords.length,
+        filtered: 0,
+        filteredKeywords: []
+      }
+    }
+  }
+
+  console.log(`\n📋 品类白名单过滤:`)
+  console.log(`   主品类词: ${categoryWhitelist.slice(0, 10).join(', ')}${categoryWhitelist.length > 10 ? '...' : ''}`)
+
+  const filteredKeywords: Array<{ keyword: string; reason: string }> = []
+
+  const brandName = offer.brand?.toLowerCase() || ''
+
+  const filtered = keywords.filter(kw => {
+    const kwLower = kw.keyword.toLowerCase()
+
+    // 移除品牌名前缀后检查是否包含品类词
+    // 避免 "ringconn smart watch" 因包含品牌名 "ring" 而被误保留
+    const kwWithoutBrand = kwLower.replace(new RegExp(`^${escapeRegex(brandName)}[\\s-]*`), '').trim()
+
+    // 检查是否包含至少一个核心品类词
+    const hasCategory = categoryWhitelist.some(catWord =>
+      kwWithoutBrand.includes(catWord)
+    )
+
+    if (!hasCategory) {
+      filteredKeywords.push({
+        keyword: kw.keyword,
+        reason: `不包含主品类词（${categoryWhitelist.slice(0, 3).join(', ')}等）`
+      })
+    }
+
+    return hasCategory
+  })
+
+  console.log(`   ✅ 保留关键词: ${filtered.length}`)
+  console.log(`   ❌ 其他品类过滤: ${filteredKeywords.length}`)
+
+  if (filteredKeywords.length > 0 && filteredKeywords.length <= 10) {
+    console.log(`   被过滤的关键词示例:`)
+    filteredKeywords.forEach(({ keyword, reason }) => {
+      console.log(`      - "${keyword}" (${reason})`)
+    })
+  }
+
+  return {
+    filtered,
+    stats: {
+      total: keywords.length,
+      kept: filtered.length,
+      filtered: filteredKeywords.length,
+      filteredKeywords
+    }
+  }
+}
+
+// ============================================
 // 白名单过滤
 // ============================================
 
@@ -1143,6 +1325,12 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
   allKeywords = whitelistResult.filtered as UnifiedKeywordData[]
   whitelistResult.competitorBrands.forEach(b => competitorBrandsSet.add(b))
 
+  // 🆕 Step 6.5: 品类聚焦过滤（2025-12-25）
+  console.log('\n📍 Step 6.5: 品类聚焦过滤')
+  const categoryFilterResult = filterByCategoryWhitelist(allKeywords, offer)
+  allKeywords = categoryFilterResult.filtered as UnifiedKeywordData[]
+  console.log(`   📊 过滤统计: 保留${categoryFilterResult.stats.kept}/${categoryFilterResult.stats.total}个关键词`)
+
   // 7. 按搜索量降序排序（关键修复：先排序再截取）
   console.log('\n📍 Step 7: 按搜索量降序排序')
   allKeywords.sort((a, b) => b.searchVolume - a.searchVolume)
@@ -1446,6 +1634,15 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
   const whitelistResult = filterByWhitelist(allKeywords, offer.brand)
   allKeywords = whitelistResult.filtered as UnifiedKeywordData[]
   const competitorBrands = whitelistResult.competitorBrands
+
+  // ==========================================
+  // 🆕 Step 4.5: 品类聚焦过滤（2025-12-25）
+  // ==========================================
+  console.log('\n📍 Step 4.5: 品类聚焦过滤')
+
+  const categoryFilterResult = filterByCategoryWhitelist(allKeywords, offer)
+  allKeywords = categoryFilterResult.filtered as UnifiedKeywordData[]
+  console.log(`   📊 过滤统计: 保留${categoryFilterResult.stats.kept}/${categoryFilterResult.stats.total}个关键词`)
 
   // ==========================================
   // Step 5: 智能过滤
