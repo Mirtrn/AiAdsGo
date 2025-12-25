@@ -29,16 +29,23 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
     getUserOnlySetting('google_ads', 'use_service_account', userId),
   ])
 
-  if (!clientIdSetting?.value || !clientSecretSetting?.value || !developerTokenSetting?.value || !loginCustomerIdSetting?.value) {
+  const useServiceAccount = String(useServiceAccountSetting?.value ?? '').toLowerCase() === 'true'
+
+  // 🔧 修复(2025-12-25): 服务账号模式不需要login_customer_id
+  if (!clientIdSetting?.value || !clientSecretSetting?.value || !developerTokenSetting?.value) {
     throw new Error(`用户(ID=${userId})未配置完整的 Google Ads 凭证。请在设置页面配置所有必需参数。`)
+  }
+
+  if (!useServiceAccount && !loginCustomerIdSetting?.value) {
+    throw new Error(`用户(ID=${userId})未配置 login_customer_id。OAuth模式需要此参数。`)
   }
 
   return {
     client_id: clientIdSetting.value,
     client_secret: clientSecretSetting.value,
     developer_token: developerTokenSetting.value,
-    login_customer_id: loginCustomerIdSetting.value,
-    useServiceAccount: String(useServiceAccountSetting?.value ?? '').toLowerCase() === 'true',
+    login_customer_id: loginCustomerIdSetting?.value || '',
+    useServiceAccount,
   }
 }
 

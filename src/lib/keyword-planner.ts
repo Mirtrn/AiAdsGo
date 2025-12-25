@@ -357,13 +357,27 @@ export async function getKeywordSearchVolumes(
             try {
               // 🔧 修复(2025-12-24): 使用统一的服务访问方式
               const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
-              const response = await keywordPlanIdeas.generateKeywordHistoricalMetrics({
+
+              const requestParams = {
                 customer_id: config.customerId,
                 keywords: batch,
                 language: `languageConstants/${languageId}`,
                 geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
                 keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
-              } as any)
+              }
+
+              // 🔧 修复(2025-12-25): 服务账号模式使用callback-style API，需要promisify
+              let response
+              if (config.authType === 'service_account') {
+                response = await new Promise((resolve, reject) => {
+                  keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams, (error: any, response: any) => {
+                    if (error) reject(error)
+                    else resolve(response)
+                  })
+                })
+              } else {
+                response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any)
+              }
 
               totalApiCalls++
 
@@ -668,7 +682,8 @@ export async function getKeywordSuggestions(
 
     // 🔧 修复(2025-12-24): 使用统一的服务访问方式
     const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
-    const response = await keywordPlanIdeas.generateKeywordIdeas({
+
+    const requestParams = {
       customer_id: config.customerId,
       language: `languageConstants/${languageId}`,
       geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
@@ -678,7 +693,20 @@ export async function getKeywordSuggestions(
       page_token: '',
       page_size: maxResults,
       keyword_annotation: [],
-    } as any)
+    }
+
+    // 🔧 修复(2025-12-25): 服务账号模式使用callback-style API，需要promisify
+    let response
+    if (config.authType === 'service_account') {
+      response = await new Promise((resolve, reject) => {
+        keywordPlanIdeas.generateKeywordIdeas(requestParams, (error: any, response: any) => {
+          if (error) reject(error)
+          else resolve(response)
+        })
+      })
+    } else {
+      response = await keywordPlanIdeas.generateKeywordIdeas(requestParams as any)
+    }
 
     const results: KeywordVolume[] = []
     const ideas = (response as any).results || response || []
