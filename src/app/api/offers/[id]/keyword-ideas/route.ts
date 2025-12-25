@@ -90,8 +90,13 @@ export async function POST(
 
     console.log(`获取关键词建议: seeds=${finalSeedKeywords.join(', ')}, url=${useUrl ? offer.url : 'none'}`)
 
-    // 获取用户的Google Ads API凭证
-    const credentials = await getGoogleAdsCredentials(parseInt(userId, 10))
+    // 🔧 修复(2025-12-25): 支持OAuth和服务账号两种认证方式
+    const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
+    const config = await getGoogleAdsConfig(parseInt(userId, 10))
+
+    if (!config) {
+      return NextResponse.json({ error: 'Google Ads凭证未配置' }, { status: 400 })
+    }
 
     // 需求11：并行获取Google搜索下拉词和Keyword Planner建议
     const [googleSuggestKeywords, keywordPlannerIdeas] = await Promise.all([
@@ -115,8 +120,7 @@ export async function POST(
         targetLanguage: offer.target_language || 'English',
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
-        // 认证类型（默认oauth）
-        authType: 'oauth',
+        authType: config.authType,
       }),
     ])
 

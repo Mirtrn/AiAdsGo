@@ -87,7 +87,10 @@ export async function queryActiveCampaigns(
     refreshToken: credentials?.refresh_token || '',
     accountId: googleAdsAccountId,
     userId,
-    loginCustomerId: finalLoginCustomerId
+    loginCustomerId: finalLoginCustomerId,
+    // 🔧 修复(2025-12-25): 传递authType支持服务账号
+    authType: serviceAccount ? 'service_account' : 'oauth',
+    serviceAccountId: serviceAccount?.id,
   })
 
   // 4. 转换为简化格式

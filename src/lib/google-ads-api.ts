@@ -931,6 +931,9 @@ export async function listGoogleAdsCampaigns(params: {
   userId: number
   skipCache?: boolean
   loginCustomerId?: string
+  // 🔧 修复(2025-12-25): 支持服务账号认证
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<any[]> {
   // 生成缓存键
   const cacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
@@ -944,7 +947,11 @@ export async function listGoogleAdsCampaigns(params: {
     }
   }
 
-  const customer = await getCustomerWithCredentials(params)
+  const customer = await getCustomerWithCredentials({
+    ...params,
+    authType: params.authType,
+    serviceAccountId: params.serviceAccountId,
+  })
 
   const query = `
     SELECT
