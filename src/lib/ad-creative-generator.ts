@@ -2073,6 +2073,9 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
   jsonText = jsonText.replace(/,\s*,/g, ',')  // Double commas
   jsonText = jsonText.replace(/([{\[]),/g, '$1')  // Comma after { or [
   jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1')  // Comma before } or ]
+  // 8. 修复错误的赋值运算符（:= 或 == 改为 :）
+  jsonText = jsonText.replace(/:\s*=/g, ':')  // Fix := to :
+  jsonText = jsonText.replace(/=\s*:/g, ':')  // Fix =: to :
 
   console.log('🔍 修复后JSON前200字符:', jsonText.substring(0, 200))
 
