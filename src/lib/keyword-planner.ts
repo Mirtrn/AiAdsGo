@@ -7,7 +7,7 @@ import { getDatabase } from './db'
 import { getCachedKeywordVolume, cacheKeywordVolume, getBatchCachedVolumes, batchCacheVolumes } from './redis'
 import { decrypt } from './crypto'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
-import { refreshAccessToken } from './google-ads-oauth'
+import { refreshAccessToken, getGoogleAdsCredentials } from './google-ads-oauth'
 import { getGoogleAdsLanguageIdString, getGoogleAdsGeoTargetId } from './language-country-codes'
 import { getUnifiedGoogleAdsClient, getServiceAccountConfig, AuthType } from './google-ads-service-account'
 
@@ -136,10 +136,10 @@ export async function getGoogleAdsConfig(
         clientId: userConfigs.client_id,
         clientSecret: userConfigs.client_secret,
         developerToken: userConfigs.developer_token,
-        customerId: credentials.customer_id,
+        customerId: credentials.login_customer_id,
         loginCustomerId: credentials.login_customer_id,
         refreshToken: credentials.refresh_token,
-        authType: 'oauth',
+        authType: 'oauth' as const,
       }
     }
 
@@ -154,7 +154,7 @@ export async function getGoogleAdsConfig(
         clientSecret: userConfigs.client_secret,
         developerToken: serviceAccount.developerToken,
         customerId: serviceAccount.mccCustomerId,
-        authType: 'service_account',
+        authType: 'service_account' as const,
         serviceAccountId: serviceAccount.id,
       }
     }
@@ -380,19 +380,6 @@ export async function getKeywordSearchVolumes(
               // 🔧 修复(2025-12-24): 使用统一的服务访问方式
               const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
 
-              // 🔧 修复(2025-12-25): 服务账号模式需要确保 developer_token 在服务实例中
-              if (config.authType === 'service_account') {
-                console.log(`[KeywordPlanner] 🔍 检查服务实例配置:`)
-                console.log(`   - customer.options.developer_token: ${(customer as any).options?.developer_token ? '已设置' : '未设置'}`)
-                console.log(`   - keywordPlanIdeas.options: ${keywordPlanIdeas.options ? '存在' : '不存在'}`)
-
-                // 🔧 确保服务实例继承 developer_token
-                if (keywordPlanIdeas.options && !(keywordPlanIdeas.options as any).developer_token) {
-                  console.log(`[KeywordPlanner] ⚠️ 服务实例缺少 developer_token，从 customer 复制`)
-                  ;(keywordPlanIdeas.options as any).developer_token = (customer as any).options.developer_token
-                }
-              }
-
               // 🔧 修复(2025-12-25): 确保customer_id格式正确（去掉横杠）
               const cleanCustomerId = config.customerId.replace(/-/g, '')
 
@@ -406,42 +393,8 @@ export async function getKeywordSearchVolumes(
 
               console.log(`[KeywordPlanner] 🔍 请求参数: customer_id=${cleanCustomerId}, keywords=${batch.length}, authType=${config.authType}`)
 
-              // 🔧 修复(2025-12-26): 服务账号模式使用callback-style API，需要promisify
-              // 🔧 修复(2025-12-26): gRPC调用需要手动传递metadata（含developer-token）
-              let response
-              if (config.authType === 'service_account') {
-                // 从customer获取包含developer-token的metadata
-                const metadata = (customer as any).callMetadata
-                console.log(`[KeywordPlanner] 🔍 使用customer.callMetadata: ${metadata ? '成功' : '失败'}`)
-                console.log(`[KeywordPlanner] 🔍 metadata中的developer-token: ${metadata?.get?.('developer-token') ? '已设置' : '未设置'}`)
-
-                response = await new Promise((resolve, reject) => {
-                  // gRPC unary方法签名: method(request, metadata, callback)
-                  keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams, metadata, (error: any, response: any) => {
-                    if (error) {
-                      // 🔍 详细错误日志
-                      console.error(`[KeywordPlanner] gRPC错误详情:`, {
-                        code: error.code,
-                        message: error.message,
-                        details: error.details,
-                        metadata: error.metadata?.internalRepr ? Object.fromEntries(error.metadata.internalRepr) : null
-                      })
-                      reject(error)
-                    } else {
-                      resolve(response)
-                    }
-                  })
-                })
-              } else {
-                // OAuth 模式：google-ads-api 库自动处理 developer_token
-                // 但如果 customer 有 callMetadata，也一并传递以保持一致性
-                const oauthMetadata = (customer as any).callMetadata
-                if (oauthMetadata) {
-                  response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any, oauthMetadata)
-                } else {
-                  response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any)
-                }
-              }
+              // OAuth 模式：使用 promise-based API
+              const response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any)
 
               totalApiCalls++
 
