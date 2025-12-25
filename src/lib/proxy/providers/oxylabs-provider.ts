@@ -84,8 +84,8 @@ export class OxylabsProvider implements ProxyProvider {
       const credentials: ProxyCredentials = {
         host: parsed.hostname,
         port: parseInt(parsed.port),
-        username: parsed.username,
-        password: parsed.password,
+        username: decodeURIComponent(parsed.username),
+        password: decodeURIComponent(parsed.password),
         fullAddress: `${parsed.hostname}:${parsed.port}`,
       }
 
