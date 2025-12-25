@@ -234,6 +234,18 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     action: 'settings',
     actionLabel: '检查AI配置'
   },
+  'quota': {
+    title: 'API配额已用完',
+    description: 'Gemini API 每日免费配额已用完。请等待配额重置（通常在第二天），或前往设置页面升级到付费计划。',
+    action: 'settings',
+    actionLabel: '查看配置'
+  },
+  'RESOURCE_EXHAUSTED': {
+    title: 'API配额已用完',
+    description: 'Gemini API 配额已耗尽。请等待配额重置或升级到付费计划。',
+    action: 'settings',
+    actionLabel: '查看配置'
+  },
   'Gemini': {
     title: 'AI服务配置问题',
     description: 'Gemini API 配置异常或配额不足。请检查 API Key 是否有效。',
