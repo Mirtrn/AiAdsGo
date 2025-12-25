@@ -558,17 +558,15 @@ export async function createGoogleAdsCampaign(params: {
     },
   }
 
-  // 🎯 设置营销目标（Goal）为"网站流量"
-  // 对应Google Ads UI中的"营销目标"选项
-  // 参考：https://developers.google.com/google-ads-api/fields/v18/campaign#campaign_goal
-  // ❌ DISABLED: CampaignGoalCategory enum不存在于google-ads-api v21
-  // 营销目标不是必填字段，可以在Google Ads UI中手动设置
-  // campaign.campaign_goal = {
-  //   // WEBSITE_TRAFFIC: 增加网站流量（适合电商和内容网站）
-  //   goal_category: enums.CampaignGoalCategory.WEBSITE_TRAFFIC,
-  //   // 优化转化：最大化转化价值
-  //   optimization_goal_type: enums.OptimizationGoalType.MAXIMIZE_CONVERSION_VALUE
-  // }
+  // 🎯 设置营销目标为"网站流量"
+  // Google Ads API v21中，搜索广告系列的营销目标通过以下配置实现：
+  // 1. advertising_channel_type = SEARCH (已设置)
+  // 2. 启用URL扩展 (url_expansion_opt_out = false)
+  // 3. 设置goal_config_settings指定目标级别
+  campaign.url_expansion_opt_out = false  // 允许URL扩展，优化网站流量
+  campaign.goal_config_settings = {
+    goal_config_level: enums.GoalConfigLevel.CAMPAIGN
+  }
 
   // 设置出价策略 - Maximize Clicks (TARGET_SPEND)
   // 根据业务规范：Bidding Strategy = Maximize Clicks，CPC Bid = 0.17 USD
