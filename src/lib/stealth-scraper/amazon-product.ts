@@ -1553,8 +1553,8 @@ function cleanBrandText(brand: string): string {
   // - "Brand Store" (简化版)
   // 🔥 修复：先移除完整的"Visita lo Store di"模式
   brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+(Store|Negozio)\s+di\s+/i, '')
-  // 然后处理其他变体
-  brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+/i, '')
+  // 然后处理其他变体（包括单独的"Visita lo"）
+  brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)(\s+|$)/i, '')
   brand = brand.replace(/^(Store|Negozio)\s+(di\s+)?/i, '')
   brand = brand.replace(/\s+(Store|Negozio)$/i, '')  // 🔥 新增：末尾的Store/Negozio
   brand = brand.replace(/\s+di\s+$/i, '')  // 🔥 新增：末尾的"di"
