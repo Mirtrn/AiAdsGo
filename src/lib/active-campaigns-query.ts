@@ -182,7 +182,10 @@ export async function pauseCampaigns(
         status: 'PAUSED',
         accountId: googleAdsAccountId,
         userId,
-        loginCustomerId: finalLoginCustomerId
+        loginCustomerId: finalLoginCustomerId,
+        // 🔧 修复(2025-12-25): 传递authType支持服务账号
+        authType: serviceAccount ? 'service_account' : 'oauth',
+        serviceAccountId: serviceAccount?.id,
       })
       console.log(`✅ 成功暂停: ${campaign.name}`)
     } catch (error) {

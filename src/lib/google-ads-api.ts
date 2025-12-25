@@ -788,8 +788,15 @@ export async function updateGoogleAdsCampaignStatus(params: {
   accountId?: number
   userId: number
   loginCustomerId?: string
+  // 🔧 修复(2025-12-25): 支持服务账号认证
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<void> {
-  const customer = await getCustomerWithCredentials(params)
+  const customer = await getCustomerWithCredentials({
+    ...params,
+    authType: params.authType,
+    serviceAccountId: params.serviceAccountId,
+  })
 
   const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
