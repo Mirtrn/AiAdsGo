@@ -278,8 +278,8 @@ export async function resolveAffiliateLinkWithPlaywright(
       // 这样下次重试时会创建新实例，获取新的代理IP
       if (fromPool && instanceId) {
         console.log(`🗑️ 销毁失败的Playwright实例: ${instanceId}`)
-        const { removeBrowserFromPool } = await import('./playwright-pool')
-        await removeBrowserFromPool(instanceId)
+        const pool = getPlaywrightPool()
+        await pool.invalidate(instanceId)
         fromPool = false  // 标记为已销毁，避免finally块再次处理
       }
 
