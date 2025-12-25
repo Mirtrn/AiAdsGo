@@ -1430,8 +1430,14 @@ function extractBrandName(
       const cleanText = cleanBrandText(text)
       console.log(`🔍 [品牌链接 #${i}] 清洗后: "${cleanText}"`)
 
-      // 只有清洗后的文本有意义且与原文本不同时才添加
-      if (cleanText && cleanText.length > 2 && cleanText !== text) {
+      // 验证清洗后的文本是否有效
+      const isValid = cleanText &&
+                     cleanText.length > 2 &&
+                     cleanText !== text &&
+                     // 排除纯定冠词、介词等无意义词
+                     !/^(lo|il|la|le|i|gli|di|de|of|du|da|von|van)$/i.test(cleanText)
+
+      if (isValid) {
         candidates.push({ value: cleanText, source: 'brand-link', confidence: 4 })
         console.log(`✅ [品牌链接 #${i}] 已添加到候选: "${cleanText}"`)
       } else {
