@@ -175,7 +175,7 @@ export default function CreateOfferModalV2({
     setCurrentStep('extracting')
 
     // 🔥 启动SSE流式提取
-    startExtraction(affiliateLink, targetCountry)
+    startExtraction(affiliateLink, targetCountry, productPrice, commissionPayout)
   }
 
   // ========== 步骤3: 用户确认后跳转到Offer详情页 ==========

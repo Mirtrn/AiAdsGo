@@ -60,7 +60,12 @@ interface UseOfferExtractionV2Return {
   connectionType: 'sse' | 'polling' | null
 
   // Actions
-  startExtraction: (affiliateLink: string, targetCountry: string) => Promise<void>
+  startExtraction: (
+    affiliateLink: string,
+    targetCountry: string,
+    productPrice?: string,
+    commissionPayout?: string
+  ) => Promise<void>
   reconnect: (taskId: string) => Promise<void>
   reset: () => void
 }
@@ -120,7 +125,12 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
   }, [cleanup])
 
   // 开始提取 - 使用统一的POST /api/offers/extract/stream端点
-  const startExtraction = useCallback(async (affiliateLink: string, targetCountry: string) => {
+  const startExtraction = useCallback(async (
+    affiliateLink: string,
+    targetCountry: string,
+    productPrice?: string,
+    commissionPayout?: string
+  ) => {
     reset()
     setIsExtracting(true)
     setCurrentMessage('创建任务中...')
@@ -141,6 +151,8 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
         body: JSON.stringify({
           affiliate_link: affiliateLink,
           target_country: targetCountry,
+          product_price: productPrice,
+          commission_payout: commissionPayout,
         }),
         signal: abortControllerRef.current.signal
       })
