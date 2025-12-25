@@ -57,6 +57,9 @@ interface Offer {
   competitorAnalysis: string | null
   // 链接类型
   pageType: 'store' | 'product' | null
+  // 可选的产品价格和佣金比例
+  productPrice: string | null
+  commissionPayout: string | null
 }
 
 interface PerformanceSummary {
@@ -747,6 +750,18 @@ export default function OfferDetailPage() {
                 <dt className="text-sm font-medium text-gray-500">目标国家</dt>
                 <dd className="mt-1 text-sm text-gray-900">{offer.targetCountry}</dd>
               </div>
+              {offer.productPrice && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">产品价格</dt>
+                  <dd className="mt-1 text-sm text-gray-900">{offer.productPrice}</dd>
+                </div>
+              )}
+              {offer.commissionPayout && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">佣金比例</dt>
+                  <dd className="mt-1 text-sm text-gray-900">{offer.commissionPayout}</dd>
+                </div>
+              )}
               <div>
                 <dt className="text-sm font-medium text-gray-500">状态</dt>
                 <dd className="mt-1">
