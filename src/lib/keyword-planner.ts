@@ -124,6 +124,7 @@ export async function getGoogleAdsConfig(
         // 获取OAuth配置中的client_id和client_secret
         const userConfigs = await readUserConfigs(db, userId)
         console.log(`[KeywordPlanner] Using service account authentication for user ${userId}`)
+        console.log(`[KeywordPlanner] MCC Customer ID: ${serviceAccount.mccCustomerId}`)
 
         return {
           clientId: userConfigs.client_id,
@@ -366,13 +367,25 @@ export async function getKeywordSearchVolumes(
                 keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
               }
 
+              console.log(`[KeywordPlanner] 🔍 请求参数: customer_id=${config.customerId}, keywords=${batch.length}, authType=${config.authType}`)
+
               // 🔧 修复(2025-12-25): 服务账号模式使用callback-style API，需要promisify
               let response
               if (config.authType === 'service_account') {
                 response = await new Promise((resolve, reject) => {
                   keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams, (error: any, response: any) => {
-                    if (error) reject(error)
-                    else resolve(response)
+                    if (error) {
+                      // 🔍 详细错误日志
+                      console.error(`[KeywordPlanner] gRPC错误详情:`, {
+                        code: error.code,
+                        message: error.message,
+                        details: error.details,
+                        metadata: error.metadata?.internalRepr ? Object.fromEntries(error.metadata.internalRepr) : null
+                      })
+                      reject(error)
+                    } else {
+                      resolve(response)
+                    }
                   })
                 })
               } else {
