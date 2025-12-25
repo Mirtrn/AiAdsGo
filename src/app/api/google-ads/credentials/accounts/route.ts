@@ -279,29 +279,39 @@ async function syncAccountsFromAPI(
     let apiErrorMessage: string | undefined
 
     try {
-      // 🔧 修复(2025-12-25): 服务账号模式需要处理权限问题
-      // 如果直接使用MCC ID访问子账户失败，尝试使用子账户ID作为login_customer_id
+      // 🔧 修复(2025-12-25): 服务账号模式自动降级login_customer_id
+      // 策略：MCC ID → 子账户ID → null(省略login_customer_id)
+      // 原因：根据Google Ads API文档，当直接访问账户(非通过管理账户)时，
+      //       login_customer_id应该省略或设置为账户自己的ID
       const loginCustomerIds = isServiceAccount
-        ? [serviceAccountConfig.mccCustomerId, customerId]  // 优先MCC，其次子账户
-        : [credentials.login_customer_id, customerId]
+        ? [serviceAccountConfig.mccCustomerId, customerId, null]  // MCC → 子账户 → null
+        : [credentials.login_customer_id, customerId, null]
 
       let customer: any
       let lastError: Error | null = null
       let successLoginCustomerId: string | null = null
 
       // 🔧 修复(2025-12-25): 尝试多个login_customer_id直到成功
+      // 重点：每次尝试都需要重新创建客户端，因为@htdangkhoa/google-ads在实例化时固化了login_customer_id
       for (const lcId of loginCustomerIds) {
-        if (!lcId) continue
-        console.log(`   🔍 尝试使用 login_customer_id: ${lcId} 访问账户 ${customerId}`)
+        const lcIdDisplay = lcId || 'null(省略)'
+        console.log(`   🔍 尝试使用 login_customer_id: ${lcIdDisplay} 访问账户 ${customerId}`)
 
         try {
           if (isServiceAccount) {
+            // 重新创建客户端，使用不同的login_customer_id
             customer = createServiceAccountCustomer({
               clientEmail: serviceAccountConfig.serviceAccountEmail,
               privateKey: serviceAccountConfig.privateKey,
               developerToken: serviceAccountConfig.developerToken,
               customerId: customerId,
-              loginCustomerId: lcId,
+              loginCustomerId: lcId || undefined,  // null转为undefined，让库省略此header
+            })
+
+            // 🔧 关键修复：立即尝试一个简单的查询来验证权限
+            // 如果权限不足，此处会抛出异常，从而触发下一轮尝试
+            await customer.search({
+              query: `SELECT customer.id FROM customer WHERE customer.id = ${customerId} LIMIT 1`
             })
           } else {
             customer = await getCustomer(
@@ -321,11 +331,11 @@ async function syncAccountsFromAPI(
 
           // 如果执行到这行代码没有抛出异常，说明成功
           successLoginCustomerId = lcId
-          console.log(`   ✅ 使用 login_customer_id: ${lcId} 成功访问账户 ${customerId}`)
+          console.log(`   ✅ 使用 login_customer_id: ${lcIdDisplay} 成功访问账户 ${customerId}`)
           break
         } catch (error: any) {
           lastError = error
-          console.warn(`   ⚠️ 使用 login_customer_id: ${lcId} 失败: ${error.message}`)
+          console.warn(`   ⚠️ 使用 login_customer_id: ${lcIdDisplay} 失败: ${error.message}`)
           continue  // 尝试下一个login_customer_id
         }
       }
@@ -336,7 +346,7 @@ async function syncAccountsFromAPI(
       }
 
       // 将成功的login_customer_id传下去（用于后续子账户查询）
-      const effectiveLoginCustomerId = successLoginCustomerId || loginCustomerIds[0]
+      const effectiveLoginCustomerId = successLoginCustomerId
 
       // 🔧 修复(2025-12-25): 分步查询，先查基本信息，再查 status
       // 有些账户的 status 字段可能有权限问题导致 field_violations 错误
