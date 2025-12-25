@@ -23,6 +23,8 @@ export interface OfferListItem {
     accountId: number
     customerId: string
   }>
+  // 🔥 黑名单标记
+  isBlacklisted?: boolean
 }
 
 export type SortField = 'brand' | 'targetCountry' | 'scrapeStatus' | 'createdAt' | ''  // 🔧 修复

@@ -244,8 +244,10 @@ export async function GET(request: NextRequest) {
         // 需求28：产品价格和佣金比例
         productPrice: offer.product_price,
         commissionPayout: offer.commission_payout,
-        // P1-11: 关联的Google Ads账号信息
-        linkedAccounts: offer.linked_accounts,
+        // P1-11: 关联的Google Ads账号
+        linkedAccounts: offer.linked_accounts || [],
+        // 🔥 黑名单标记
+        isBlacklisted: offer.is_blacklisted || false,
       })),
       total,
       limit,

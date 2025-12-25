@@ -53,7 +53,7 @@ import DeleteOfferConfirmDialog from '@/components/DeleteOfferConfirmDialog'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
 import { usePagination } from '@/hooks'
-import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, CheckSquare, Square } from 'lucide-react'
+import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, CheckSquare, Square, XCircle, AlertTriangle } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -132,6 +132,9 @@ export default function OffersPage() {
   const [isUnlinkDialogOpen, setIsUnlinkDialogOpen] = useState(false)
   const [offerToUnlink, setOfferToUnlink] = useState<UnlinkTarget | null>(null)
   const [unlinking, setUnlinking] = useState(false)
+
+  // 拉黑投放状态
+  const [blacklisting, setBlacklisting] = useState(false)
 
   useEffect(() => {
     fetchOffers()
@@ -436,6 +439,30 @@ export default function OffersPage() {
       setError(err.message || '解除关联失败')
     } finally {
       setUnlinking(false)
+    }
+  }
+
+  // 拉黑/取消拉黑处理函数
+  const handleToggleBlacklist = async (offer: Offer) => {
+    try {
+      setBlacklisting(true)
+      const method = offer.isBlacklisted ? 'DELETE' : 'POST'
+      const response = await fetch(`/api/offers/${offer.id}/blacklist`, {
+        method,
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || `${offer.isBlacklisted ? '取消拉黑' : '拉黑投放'}失败`)
+      }
+
+      // 刷新列表
+      await fetchOffers()
+    } catch (err: any) {
+      setError(err.message || `${offer.isBlacklisted ? '取消拉黑' : '拉黑投放'}失败`)
+    } finally {
+      setBlacklisting(false)
     }
   }
 
@@ -756,7 +783,10 @@ export default function OffersPage() {
                   </TableHeader>
                   <TableBody>
                     {paginatedOffers.map((offer, index) => (
-                      <TableRow key={offer.id} className="hover:bg-gray-50/50">
+                      <TableRow
+                        key={offer.id}
+                        className={`hover:bg-gray-50/50 ${offer.isBlacklisted ? 'opacity-50 bg-gray-100' : ''}`}
+                      >
                         {/* 选择checkbox */}
                         <TableCell>
                           <Checkbox
@@ -770,13 +800,20 @@ export default function OffersPage() {
                           {offer.id}
                         </TableCell>
                         <TableCell className="font-mono">
-                          <a
-                            href={`/offers/${offer.id}`}
-                            className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-2"
-                          >
-                            {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={`/offers/${offer.id}`}
+                              className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-2"
+                            >
+                              {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                            {offer.isBlacklisted && (
+                              <span title="该品牌+国家组合已拉黑投放">
+                                <AlertTriangle className="w-4 h-4 text-orange-500" />
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="py-4">
                           <div>
@@ -862,6 +899,14 @@ export default function OffersPage() {
                                 >
                                   <BarChart3 className="w-4 h-4 mr-2 text-gray-500" />
                                   投放分析
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleToggleBlacklist(offer)}
+                                  disabled={blacklisting}
+                                  className={offer.isBlacklisted ? 'text-green-600 focus:text-green-600 focus:bg-green-50' : 'text-orange-600 focus:text-orange-600 focus:bg-orange-50'}
+                                >
+                                  <XCircle className="w-4 h-4 mr-2" />
+                                  {offer.isBlacklisted ? '取消拉黑' : '拉黑投放'}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => {

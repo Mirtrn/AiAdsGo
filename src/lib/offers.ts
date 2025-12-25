@@ -62,6 +62,8 @@ export interface Offer {
     customerId: string
     campaignCount: number
   }>
+  // 🔥 黑名单标记（运行时计算字段）
+  is_blacklisted?: boolean
 }
 
 export interface CreateOfferInput {
@@ -408,8 +410,30 @@ export async function listOffers(
     linked_accounts: accountsByOfferId.get(offer.id)
   }))
 
+  // 🔥 检查黑名单并标记风险
+  const blacklistQuery = `
+    SELECT brand, target_country
+    FROM offer_blacklist
+    WHERE user_id = ?
+  `
+  const blacklistRecords = await db.query(blacklistQuery, [userId]) as Array<{
+    brand: string
+    target_country: string
+  }>
+
+  // 构建黑名单Map（品牌+国家）
+  const blacklistSet = new Set(
+    blacklistRecords.map(r => `${r.brand.toLowerCase()}_${r.target_country.toUpperCase()}`)
+  )
+
+  // 标记每个offer是否在黑名单中
+  const offersWithBlacklist = offersWithAccounts.map(offer => ({
+    ...offer,
+    is_blacklisted: blacklistSet.has(`${offer.brand.toLowerCase()}_${offer.target_country.toUpperCase()}`)
+  }))
+
   return {
-    offers: offersWithAccounts,
+    offers: offersWithBlacklist,
     total: count,
   }
 }

@@ -1159,6 +1159,26 @@ export const TABLES: TableDef[] = [
       { name: 'idx_offer_keyword_pools_user', columns: ['user_id'] },
     ],
   },
+
+  // -------------------------------------------------------------------------
+  // 41. offer_blacklist - Offer拉黑投放黑名单库（品牌+国家）
+  // -------------------------------------------------------------------------
+  {
+    name: 'offer_blacklist',
+    columns: [
+      { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
+      { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
+      { name: 'brand', type: 'TEXT', notNull: true },
+      { name: 'target_country', type: 'TEXT', notNull: true },
+      { name: 'offer_id', type: 'INTEGER', notNull: true, references: { table: 'offers', column: 'id', onDelete: 'CASCADE' } },
+      { name: 'created_at', type: 'TIMESTAMP', notNull: true, default: 'CURRENT_TIMESTAMP' },
+    ],
+    uniqueConstraints: [['user_id', 'brand', 'target_country']],
+    indexes: [
+      { name: 'idx_offer_blacklist_user', columns: ['user_id'] },
+      { name: 'idx_offer_blacklist_brand_country', columns: ['brand', 'target_country'] },
+    ],
+  },
 ]
 
 // ============================================================================
