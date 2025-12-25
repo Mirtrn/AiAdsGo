@@ -1420,14 +1420,22 @@ function extractBrandName(
     const $el = $(el)
     const text = $el.text().trim()
     if (text && text.length > 1 && text.length < 50 && !isInRecommendationArea(el)) {
+      // 🔍 调试：输出原始品牌链接文本
+      console.log(`🔍 [品牌链接 #${i}] 原始文本: "${text}"`)
+
       // 排除纯"Store"、"Shop"等店铺关键词
       if (/^(Store|Shop|Boutique|Tienda|Negozio|Loja|Winkel|Sklep|Shoppen|Mağaza|店铺|Läden)$/i.test(text)) {
         return // 跳过纯店铺关键词
       }
       const cleanText = cleanBrandText(text)
+      console.log(`🔍 [品牌链接 #${i}] 清洗后: "${cleanText}"`)
+
       // 只有清洗后的文本有意义且与原文本不同时才添加
       if (cleanText && cleanText.length > 2 && cleanText !== text) {
         candidates.push({ value: cleanText, source: 'brand-link', confidence: 4 })
+        console.log(`✅ [品牌链接 #${i}] 已添加到候选: "${cleanText}"`)
+      } else {
+        console.log(`⚠️ [品牌链接 #${i}] 跳过: cleanText="${cleanText}", length=${cleanText?.length}, same=${cleanText === text}`)
       }
     }
   })
