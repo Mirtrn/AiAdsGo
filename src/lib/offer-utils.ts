@@ -145,20 +145,10 @@ let proxyPoolInitializedForUser: number | null = null
 export function invalidateProxyPoolCache(userId?: number): void {
   console.log(`🗑️ [invalidateProxyPoolCache] 清除代理池缓存 (userId: ${userId || 'all'})`)
 
-  // 只清除模块级缓存标记
-  // 这是用户隔离的：下次 initializeProxyPool 会根据 userId 判断是否需要重新加载
-  if (!userId || proxyPoolInitializedForUser === userId) {
-    proxyPoolInitialized = false
-    proxyPoolInitializedForUser = null
-    console.log(`   - 模块级缓存已清除 (用户: ${userId || 'all'})`)
-  } else {
-    console.log(`   - 跳过清除：当前缓存属于用户 ${proxyPoolInitializedForUser}，请求清除用户 ${userId}`)
-  }
-
-  // 🔥 不再调用 clearProxyPool()
-  // 原因：clearProxyPool() 会清除整个全局代理池，影响所有用户
-  // 正确做法：让 initializeProxyPool 在下次调用时重新加载当前用户的配置
-  // initializeProxyPool 会调用 proxyPool.loadProxies() 覆盖旧配置
+  // 强制清除缓存标记，无论当前状态
+  proxyPoolInitialized = false
+  proxyPoolInitializedForUser = null
+  console.log(`   - 模块级缓存已清除 (用户: ${userId || 'all'})`)
 }
 
 /**
