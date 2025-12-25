@@ -117,77 +117,52 @@ export async function getGoogleAdsConfig(
 
     const db = await getDatabase()
 
-    // 1. 优先检查服务账号配置（如果指定了服务账号认证或有可用的服务账号）
-    if (authType === 'service_account' || !authType) {
-      const serviceAccount = await getServiceAccountConfig(userId, serviceAccountId)
-      if (serviceAccount) {
-        // 获取OAuth配置中的client_id和client_secret
-        const userConfigs = await readUserConfigs(db, userId)
-        console.log(`[KeywordPlanner] Using service account authentication for user ${userId}`)
-        console.log(`[KeywordPlanner] MCC Customer ID: ${serviceAccount.mccCustomerId}`)
+    // 1. 优先检查 OAuth 配置
+    const userConfigs = await readUserConfigs(db, userId)
+    const hasOAuth = userConfigs.client_id && userConfigs.client_secret && userConfigs.developer_token
 
-        return {
-          clientId: userConfigs.client_id,
-          clientSecret: userConfigs.client_secret,
-          developerToken: serviceAccount.developerToken,
-          customerId: serviceAccount.mccCustomerId,
-          authType: 'service_account',
-          serviceAccountId: serviceAccount.id,
-        }
-      } else if (authType === 'service_account') {
-        console.error(`[KeywordPlanner] Service account not found for user ${userId}`)
+    // 2. 如果有 OAuth 配置，优先使用 OAuth
+    if (hasOAuth && authType !== 'service_account') {
+      console.log(`[KeywordPlanner] Using OAuth authentication for user ${userId}`)
+
+      // Get refresh token
+      const credentials = await getGoogleAdsCredentials(userId)
+      if (!credentials?.refresh_token) {
+        console.error(`[KeywordPlanner] User ${userId} has no refresh token. Please authorize Google Ads API in Settings.`)
         return null
+      }
+
+      return {
+        clientId: userConfigs.client_id,
+        clientSecret: userConfigs.client_secret,
+        developerToken: userConfigs.developer_token,
+        customerId: credentials.customer_id,
+        loginCustomerId: credentials.login_customer_id,
+        refreshToken: credentials.refresh_token,
+        authType: 'oauth',
       }
     }
 
-    // 2. OAuth认证模式
-    // Read user's config
-    const userConfigs = await readUserConfigs(db, userId)
+    // 3. 否则使用服务账号配置
+    const serviceAccount = await getServiceAccountConfig(userId, serviceAccountId)
+    if (serviceAccount) {
+      console.log(`[KeywordPlanner] Using service account authentication for user ${userId}`)
+      console.log(`[KeywordPlanner] MCC Customer ID: ${serviceAccount.mccCustomerId}`)
 
-    // 独立账号模式 - 必须有完整的 OAuth 配置
-    const clientId = userConfigs.client_id
-    const clientSecret = userConfigs.client_secret
-    const developerToken = userConfigs.developer_token
-
-    if (!clientId || !clientSecret || !developerToken) {
-      console.error(`[KeywordPlanner] User ${userId} has incomplete OAuth config. Please complete Google Ads API configuration in Settings.`)
-      return null
+      return {
+        clientId: userConfigs.client_id,
+        clientSecret: userConfigs.client_secret,
+        developerToken: serviceAccount.developerToken,
+        customerId: serviceAccount.mccCustomerId,
+        authType: 'service_account',
+        serviceAccountId: serviceAccount.id,
+      }
     }
 
-    console.log(`[KeywordPlanner] Using user ${userId}'s own OAuth config`)
-
-    // Get refresh token
-    const refreshToken = await getUserRefreshToken(db, userId)
-    if (!refreshToken) {
-      console.error(`[KeywordPlanner] User ${userId} has no refresh_token. Please complete OAuth authorization.`)
-      return null
-    }
-
-    // login_customer_id: 必填项
-    const loginCustomerId = userConfigs.login_customer_id || ''
-    if (!loginCustomerId) {
-      console.error(`[KeywordPlanner] User ${userId} has not configured login_customer_id (MCC ID). Please configure it in Settings page.`)
-      return null
-    }
-
-    // customer_id: 使用用户自己的账号
-    let customerId = await getUserCustomerId(db, userId)
-    if (!customerId) {
-      console.warn(`[KeywordPlanner] User ${userId} has no Google Ads accounts. Using login_customer_id as fallback.`)
-      customerId = loginCustomerId
-    }
-
-    return {
-      clientId,
-      clientSecret,
-      developerToken,
-      refreshToken,
-      loginCustomerId,
-      customerId,
-      authType: 'oauth',
-    }
+    console.error(`[KeywordPlanner] User ${userId} has no valid authentication method`)
+    return null
   } catch (error) {
-    console.error('[KeywordPlanner] Config error:', error)
+    console.error('[KeywordPlanner] Error getting config:', error)
     return null
   }
 }
