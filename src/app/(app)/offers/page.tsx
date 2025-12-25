@@ -793,81 +793,99 @@ export default function OffersPage() {
                     {paginatedOffers.map((offer, index) => (
                       <TableRow
                         key={offer.id}
-                        className={`hover:bg-gray-50/50 ${offer.isBlacklisted ? 'opacity-50 bg-gray-100' : ''}`}
+                        className={`hover:bg-gray-50/50 ${offer.isBlacklisted ? 'bg-gray-100' : ''}`}
                       >
                         {/* 选择checkbox */}
                         <TableCell>
-                          <Checkbox
-                            checked={selectedOfferIds.has(offer.id)}
-                            onCheckedChange={(checked) => handleSelectOffer(offer.id, checked as boolean)}
-                            aria-label={`选择 ${offer.brand}`}
-                          />
+                          <div className={offer.isBlacklisted ? 'opacity-50' : ''}>
+                            <Checkbox
+                              checked={selectedOfferIds.has(offer.id)}
+                              onCheckedChange={(checked) => handleSelectOffer(offer.id, checked as boolean)}
+                              aria-label={`选择 ${offer.brand}`}
+                            />
+                          </div>
                         </TableCell>
                         {/* Offer ID */}
                         <TableCell className="font-mono text-body-sm text-gray-600">
-                          {offer.id}
+                          <div className={offer.isBlacklisted ? 'opacity-50' : ''}>
+                            {offer.id}
+                          </div>
                         </TableCell>
                         <TableCell className="font-mono">
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={`/offers/${offer.id}`}
-                              className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-2"
-                            >
-                              {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                            {offer.isBlacklisted && (
-                              <span title="该品牌+国家组合已拉黑投放">
-                                <AlertTriangle className="w-4 h-4 text-orange-500" />
-                              </span>
-                            )}
+                          <div className={offer.isBlacklisted ? 'opacity-50' : ''}>
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={`/offers/${offer.id}`}
+                                className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-2"
+                              >
+                                {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                              {offer.isBlacklisted && (
+                                <span title="该品牌+国家组合已拉黑投放">
+                                  <AlertTriangle className="w-4 h-4 text-orange-500" />
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell className="py-4">
-                          <div>
-                            <div className="font-medium text-gray-900">{offer.brand}</div>
-                            <div className="text-body-sm text-muted-foreground truncate max-w-[200px]" title={offer.url}>
-                              {offer.url}
+                          <div className={offer.isBlacklisted ? 'opacity-50' : ''}>
+                            <div>
+                              <div className="font-medium text-gray-900">{offer.brand}</div>
+                              <div className="text-body-sm text-muted-foreground truncate max-w-[200px]" title={offer.url}>
+                                {offer.url}
+                              </div>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{offer.targetCountry}</Badge>
+                          <div className={offer.isBlacklisted ? 'opacity-50' : ''}>
+                            <Badge variant="outline">{offer.targetCountry}</Badge>
+                          </div>
                         </TableCell>
                         <TableCell className="text-body-sm text-muted-foreground">
-                          {offer.targetLanguage || 'English'}
+                          <div className={offer.isBlacklisted ? 'opacity-50' : ''}>
+                            {offer.targetLanguage || 'English'}
+                          </div>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{getScrapeStatusBadge(offer.scrapeStatus)}</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <div className={offer.isBlacklisted ? 'opacity-50' : ''}>
+                            {getScrapeStatusBadge(offer.scrapeStatus)}
+                          </div>
+                        </TableCell>
                         <TableCell>
-                          {/* P1-11: 显示关联的Google Ads账号（只显示非MCC账号） */}
-                          {offer.linkedAccounts && offer.linkedAccounts.length > 0 ? (
-                            <div className="space-y-1">
-                              {/* 🔧 修复(2025-12-11): snake_case → camelCase */}
-                              {offer.linkedAccounts.map((account, idx) => (
-                                <div key={idx} className="flex items-center gap-1.5 text-xs">
-                                  <span className="text-gray-700 font-mono">
-                                    {account.customerId}
-                                  </span>
-                                  <button
-                                    onClick={() => {
-                                      setOfferToUnlink({
-                                        offer,
-                                        accountId: account.accountId,
-                                        accountName: account.customerId
-                                      })
-                                      setIsUnlinkDialogOpen(true)
-                                    }}
-                                    className="text-gray-400 hover:text-red-600 transition-colors"
-                                    title="解除关联"
-                                  >
-                                    <Unlink className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-caption text-gray-300">-</span>
-                          )}
+                          <div className={offer.isBlacklisted ? 'opacity-50' : ''}>
+                            {/* P1-11: 显示关联的Google Ads账号（只显示非MCC账号） */}
+                            {offer.linkedAccounts && offer.linkedAccounts.length > 0 ? (
+                              <div className="space-y-1">
+                                {/* 🔧 修复(2025-12-11): snake_case → camelCase */}
+                                {offer.linkedAccounts.map((account, idx) => (
+                                  <div key={idx} className="flex items-center gap-1.5 text-xs">
+                                    <span className="text-gray-700 font-mono">
+                                      {account.customerId}
+                                    </span>
+                                    <button
+                                      onClick={() => {
+                                        setOfferToUnlink({
+                                          offer,
+                                          accountId: account.accountId,
+                                          accountName: account.customerId
+                                        })
+                                        setIsUnlinkDialogOpen(true)
+                                      }}
+                                      className="text-gray-400 hover:text-red-600 transition-colors"
+                                      title="解除关联"
+                                    >
+                                      <Unlink className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-caption text-gray-300">-</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           <div className="flex items-center gap-2">
