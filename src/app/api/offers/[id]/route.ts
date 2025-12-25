@@ -88,6 +88,8 @@ const updateOfferSchema = z.object({
   unique_selling_points: z.string().optional(),
   product_highlights: z.string().optional(),
   target_audience: z.string().optional(),
+  product_price: z.string().optional(),
+  commission_payout: z.string().optional(),
   is_active: z.boolean().optional(),
 })
 
@@ -132,6 +134,8 @@ export async function PUT(
       unique_selling_points: validationResult.data.unique_selling_points,
       product_highlights: validationResult.data.product_highlights,
       target_audience: validationResult.data.target_audience,
+      product_price: validationResult.data.product_price,
+      commission_payout: validationResult.data.commission_payout,
       is_active: validationResult.data.is_active,
     })
 
