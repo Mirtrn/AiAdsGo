@@ -38,7 +38,7 @@ INSERT INTO prompt_versions (
 ) VALUES (
   'ad_creative_generation',
   'v4.18',
-  'ad_creative',
+  '广告创意生成',
   '广告创意生成v4.18 - 单品聚焦增强版',
   '广告创意生成v4.18 - 单品聚焦增强版',
   'src/lib/ad-creative-generator.ts',
