@@ -189,6 +189,21 @@ async function getServiceAccountConfig(userId: number, serviceAccountId: string)
 }
 
 /**
+ * 提取搜索结果数组（处理不同库的返回结构）
+ */
+function extractSearchResults(searchResult: any): any[] {
+  if (!searchResult) return []
+  if (Array.isArray(searchResult)) return searchResult
+  if (typeof searchResult === 'object') {
+    if (Array.isArray(searchResult.results)) return searchResult.results
+    if (Array.isArray(searchResult.data)) return searchResult.data
+    const firstKey = Object.keys(searchResult)[0]
+    if (firstKey && Array.isArray(searchResult[firstKey])) return searchResult[firstKey]
+  }
+  return []
+}
+
+/**
  * 从 Google Ads API 获取账号并同步到数据库
  */
 async function syncAccountsFromAPI(
@@ -408,22 +423,17 @@ async function syncAccountsFromAPI(
       `
 
       // 🔧 修复(2025-12-25): 增加详细的错误捕获，处理 field_violations 等解析错误
+      // 🔧 修复(2025-12-25): @htdangkhoa/google-ads库的search方法返回结构可能是 { results: [...] }
       let accountInfo: any[]
       let rawStatus: any = 'UNKNOWN'
 
       try {
         // 先查询基本信息（不包含 status，避免权限问题）
-        accountInfo = await customer.search({
+        const searchResult = await customer.search({
           query: basicAccountInfoQuery,
         })
 
-        // 🔧 修复(2025-12-25): 添加调试日志，排查search结果
-        console.log(`[DEBUG] Account ${customerId} search result:`, {
-          hasResult: !!accountInfo,
-          isArray: Array.isArray(accountInfo),
-          length: accountInfo?.length,
-          firstItem: accountInfo?.[0] ? JSON.stringify(accountInfo[0]).substring(0, 200) : 'N/A'
-        })
+        accountInfo = extractSearchResults(searchResult)
 
         if (accountInfo && accountInfo.length > 0) {
           // 尝试单独查询 status（如果失败也不影响基本信息）
@@ -433,9 +443,10 @@ async function syncAccountsFromAPI(
               FROM customer
               WHERE customer.id = ${customerId}
             `
-            const statusInfo = await customer.search({
+            const statusResult = await customer.search({
               query: statusQuery,
             })
+            const statusInfo = extractSearchResults(statusResult)
             if (statusInfo && statusInfo.length > 0) {
               rawStatus = statusInfo[0].customer?.status
             }
@@ -474,9 +485,9 @@ async function syncAccountsFromAPI(
             ORDER BY account_budget.id DESC
             LIMIT 1
           `
-          const budgetInfo = await customer.search({
+          const budgetInfo = extractSearchResults(await customer.search({
             query: budgetQuery,
-          })
+          }))
           if (budgetInfo && budgetInfo.length > 0) {
             const budget = budgetInfo[0].account_budget
             const amountServed = Number(budget?.amount_served_micros || 0)
@@ -535,9 +546,9 @@ async function syncAccountsFromAPI(
           let mccApiErrorMessage: string | undefined
 
           try {
-            const childAccounts = await customer.search({
+            const childAccounts = extractSearchResults(await customer.search({
               query: childAccountsQuery,
-            })
+            }))
             mccApiSuccess = true
 
             for (const child of childAccounts) {
@@ -593,9 +604,9 @@ async function syncAccountsFromAPI(
                       ORDER BY account_budget.id DESC
                       LIMIT 1
                     `
-                    const childBudgetInfo = await childCustomer.search({
+                    const childBudgetInfo = extractSearchResults(await childCustomer.search({
                       query: childBudgetQuery,
-                    })
+                    }))
                     if (childBudgetInfo && childBudgetInfo.length > 0) {
                       const budget = childBudgetInfo[0].account_budget
                       const amountServed = Number(budget?.amount_served_micros || 0)
