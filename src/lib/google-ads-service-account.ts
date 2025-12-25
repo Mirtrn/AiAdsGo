@@ -224,48 +224,33 @@ export async function getUnifiedGoogleAdsClient(config: {
   const { authConfig, credentials } = config
 
   if (authConfig.authType === 'service_account') {
-    // 🆕 服务账号认证：使用 @htdangkhoa/google-ads（支持 JWT）
+    // 🆕 服务账号认证：返回 Python 服务代理对象
+    console.log('[ServiceAccount] Using Python service for service account authentication')
+
     const serviceAccount = await getServiceAccountConfig(authConfig.userId, authConfig.serviceAccountId)
     if (!serviceAccount) {
       throw new Error('Service account configuration not found')
     }
 
-    // 使用 @htdangkhoa/google-ads 的 GoogleAds 类（支持 JWT 认证）
-    const { GoogleAds } = await import('@htdangkhoa/google-ads')
+    // 返回一个代理对象，包含 Python 服务调用方法
+    return {
+      _isPythonProxy: true,
+      _serviceAccount: serviceAccount,
+      _userId: authConfig.userId,
+      _serviceAccountId: authConfig.serviceAccountId,
+      _customerId: config.customerId,
 
-    const googleAds = new GoogleAds({
-      auth: undefined as any,  // 稍后通过 hack 方式设置
-      developer_token: serviceAccount.developerToken,
-    }, {
-      customer_id: config.customerId,
-      login_customer_id: serviceAccount.mccCustomerId,
-    })
-
-    // 设置 JWT 认证
-    const jwtClient = new JWT({
-      email: serviceAccount.serviceAccountEmail,
-      key: serviceAccount.privateKey || '',
-      scopes: ['https://www.googleapis.com/auth/adwords'],
-    })
-
-    console.log(`[ServiceAccount] JWT配置: email=${serviceAccount.serviceAccountEmail}, scopes=adwords`)
-
-    // 通过 hack 方式设置 auth 客户端和 developer_token
-    // @htdangkhoa/google-ads 使用 auth.getRequestHeaders() 获取认证头
-    ;(googleAds as any).options.auth = jwtClient as any
-    // 🔧 修复(2025-12-25): 确保 developer_token 在 options 中
-    ;(googleAds as any).options.developer_token = serviceAccount.developerToken
-
-    // 🔍 验证JWT是否能获取token
-    try {
-      await jwtClient.authorize()
-      console.log(`[ServiceAccount] JWT认证成功`)
-    } catch (error: any) {
-      console.error(`[ServiceAccount] JWT认证失败:`, error.message)
-      throw error
+      // 提供 GAQL 查询方法
+      async query(query: string) {
+        const { executeGAQLQueryPython } = await import('./python-ads-client')
+        return executeGAQLQueryPython({
+          userId: authConfig.userId,
+          serviceAccountId: authConfig.serviceAccountId,
+          customerId: config.customerId,
+          query,
+        })
+      }
     }
-
-    return googleAds
   } else {
     // OAuth 认证 - 需要 credentials 和 refresh_token
     if (!credentials) {
