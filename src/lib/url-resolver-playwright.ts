@@ -203,6 +203,21 @@ export async function resolveAffiliateLinkWithPlaywright(
       timeout: complexity.recommendedTimeout,
     })
 
+    // 🔧 检查导航响应
+    if (!response) {
+      console.error(`❌ Playwright导航失败: 无响应`)
+      throw new Error(`Playwright导航失败: 页面无响应，可能是推广链接失效或被拦截`)
+    }
+
+    const statusCode = response.status()
+    console.log(`   - 响应状态码: ${statusCode}`)
+
+    // 检查是否是错误状态码
+    if (statusCode >= 400) {
+      console.error(`❌ Playwright导航失败: HTTP ${statusCode}`)
+      throw new Error(`Playwright导航失败: HTTP ${statusCode}，推广链接可能失效`)
+    }
+
     // 使用智能等待策略等待页面真正加载完成
     const smartWait = await smartWaitForLoad(page, affiliateLink, {
       maxWaitTime: waitTime > 0 ? waitTime : complexity.recommendedWaitTime,
@@ -226,7 +241,15 @@ export async function resolveAffiliateLinkWithPlaywright(
     // 获取最终URL
     const finalFullUrl = page.url()
     const pageTitle = await page.title()
-    const statusCode = response?.status() || null
+
+    // 🔧 防御性检查：确保finalFullUrl是有效的URL
+    if (!finalFullUrl || finalFullUrl === 'null' || finalFullUrl === 'null/' || finalFullUrl === 'about:blank') {
+      console.error(`❌ Playwright解析失败: 页面URL无效`)
+      console.error(`   - page.url(): ${finalFullUrl}`)
+      console.error(`   - response.status: ${statusCode}`)
+      console.error(`   - redirectChain: ${redirectChain.join(' → ')}`)
+      throw new Error(`Playwright解析失败: 页面导航后URL无效 (${finalFullUrl})，可能是推广链接失效或被拦截`)
+    }
 
     // 分离Final URL和Final URL suffix
     const urlObj = new URL(finalFullUrl)
