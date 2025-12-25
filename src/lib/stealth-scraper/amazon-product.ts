@@ -1434,8 +1434,8 @@ function extractBrandName(
       const isValid = cleanText &&
                      cleanText.length > 2 &&
                      cleanText !== text &&
-                     // 排除纯定冠词、介词等无意义词
-                     !/^(lo|il|la|le|i|gli|di|de|of|du|da|von|van)$/i.test(cleanText)
+                     // 排除纯定冠词、介词等无意义词（多语言）
+                     !/^(lo|il|la|le|i|gli|di|de|of|du|da|von|van|den|die|das|el|a|the)$/i.test(cleanText)
 
       if (isValid) {
         candidates.push({ value: cleanText, source: 'brand-link', confidence: 4 })
@@ -1553,79 +1553,73 @@ function cleanBrandText(brand: string): string {
   }
 
   // Italian (IT): 通用清洗策略 - 分步移除各种组合
-  // 1. 移除"Visita" + 定冠词
   brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s*/i, '')
-  // 2. 移除单独的定冠词（如果"Visita"已被移除或不存在）
   brand = brand.replace(/^(lo|il|la|le|i|gli)\s+/i, '')
-  // 3. 移除"Store/Negozio di"
   brand = brand.replace(/^(Store|Negozio)\s+di\s+/i, '')
-  // 4. 移除单独的"Store/Negozio"
   brand = brand.replace(/^(Store|Negozio)\s*/i, '')
   brand = brand.replace(/\s+(Store|Negozio)$/i, '')
-  // 5. 移除介词"di"
   brand = brand.replace(/^di\s+/i, '')
   brand = brand.replace(/\s+di$/i, '')
-  // 6. 最终检查：如果只剩定冠词，清空
-  if (/^(lo|il|la|le|i|gli)$/i.test(brand.trim())) {
-    brand = ''
-  }
+  if (/^(lo|il|la|le|i|gli)$/i.test(brand.trim())) brand = ''
 
-  // French (FR, BE, CA-FR): "Visitez la boutique de Brand" 或 "Visiter la boutique Brand"
-  brand = brand.replace(/^Visitez\s+(la|le|les)\s+/i, '')
-  brand = brand.replace(/^Visiter\s+(la|le|les)\s+/i, '')  // 🔥 新增：不定式形式
-  brand = brand.replace(/^Boutique\s+(de\s+)?/i, '')
-  brand = brand.replace(/\s+Boutique$/i, '')  // 🔥 新增
+  // French (FR, BE, CA-FR): 通用清洗策略
+  brand = brand.replace(/^Visitez\s+(la|le|les)\s*/i, '')
+  brand = brand.replace(/^Visiter\s+(la|le|les)\s*/i, '')
+  brand = brand.replace(/^(la|le|les)\s+/i, '')
+  brand = brand.replace(/^Boutique\s+de\s+/i, '')
+  brand = brand.replace(/^Boutique\s*/i, '')
+  brand = brand.replace(/\s+Boutique$/i, '')
+  brand = brand.replace(/^de\s+/i, '')
+  brand = brand.replace(/\s+de$/i, '')
+  if (/^(la|le|les|de)$/i.test(brand.trim())) brand = ''
 
-  // German (DE, AT, CH):
-  // - 正式形式: "Besuchen Sie den Brand-Shop"
-  // - 非正式形式: "Besuche den roborock-Store" 🔥 2025-12-12新增
-  brand = brand.replace(/^Besuchen\s+Sie\s+(den|die|das)\s+/i, '')
-  brand = brand.replace(/^Besuche\s+(den|die|das)\s+/i, '')  // 🔥 非正式形式
-  brand = brand.replace(/-(Shop|Store)$/i, '')  // 🔥 合并处理 -Shop 和 -Store
-  brand = brand.replace(/\s+(Shop|Store)$/i, '')  // 末尾的 Shop/Store
+  // German (DE, AT, CH): 通用清洗策略
+  brand = brand.replace(/^Besuchen\s+Sie\s+(den|die|das)\s*/i, '')
+  brand = brand.replace(/^Besuche\s+(den|die|das)\s*/i, '')
+  brand = brand.replace(/^(den|die|das)\s+/i, '')
+  brand = brand.replace(/-(Shop|Store)$/i, '')
+  brand = brand.replace(/\s+(Shop|Store)$/i, '')
+  brand = brand.replace(/^(Shop|Store)\s*/i, '')
+  if (/^(den|die|das)$/i.test(brand.trim())) brand = ''
 
-  // Spanish (ES, MX, AR, CL, CO, PE): "Visita la tienda de Brand"
-  brand = brand.replace(/^Visita\s+(la|el)\s+/i, '')
-  brand = brand.replace(/^Tienda\s+(de\s+)?/i, '')
-  brand = brand.replace(/\s+Tienda$/i, '')  // 🔥 新增
+  // Spanish (ES, MX, AR, CL, CO, PE): 通用清洗策略
+  brand = brand.replace(/^Visita\s+(la|el)\s*/i, '')
+  brand = brand.replace(/^(la|el)\s+/i, '')
+  brand = brand.replace(/^Tienda\s+de\s+/i, '')
+  brand = brand.replace(/^Tienda\s*/i, '')
+  brand = brand.replace(/\s+Tienda$/i, '')
+  brand = brand.replace(/^de\s+/i, '')
+  brand = brand.replace(/\s+de$/i, '')
+  if (/^(la|el|de)$/i.test(brand.trim())) brand = ''
 
-  // Portuguese (BR, PT): "Visite a loja da Brand"
-  brand = brand.replace(/^Visite\s+a\s+/i, '')
-  brand = brand.replace(/^Loja\s+(da\s+)?/i, '')
-  brand = brand.replace(/\s+Loja$/i, '')  // 🔥 新增
+  // Portuguese (BR, PT): 通用清洗策略
+  brand = brand.replace(/^Visite\s+a\s*/i, '')
+  brand = brand.replace(/^a\s+/i, '')
+  brand = brand.replace(/^Loja\s+da\s+/i, '')
+  brand = brand.replace(/^Loja\s*/i, '')
+  brand = brand.replace(/\s+Loja$/i, '')
+  brand = brand.replace(/^da\s+/i, '')
+  brand = brand.replace(/\s+da$/i, '')
+  if (/^(a|da)$/i.test(brand.trim())) brand = ''
 
-  // Japanese (JP): "ブランド 出品者のストアにアクセス"
-  brand = brand.replace(/\s*出品者のストアにアクセス$/i, '')
-  brand = brand.replace(/のストアを表示$/i, '')
+  // Dutch (NL, BE-NL): 通用清洗策略
+  brand = brand.replace(/^Bezoek\s+de\s*/i, '')
+  brand = brand.replace(/^de\s+/i, '')
+  brand = brand.replace(/-winkel$/i, '')
+  brand = brand.replace(/\s+winkel$/i, '')
+  if (/^de$/i.test(brand.trim())) brand = ''
 
-  // Dutch (NL, BE-NL): "Bezoek de Brand-winkel"
-  brand = brand.replace(/^Bezoek\s+de\s+/i, '').replace(/-winkel$/i, '')
-
-  // Polish (PL): "Odwiedź sklep Brand"
-  brand = brand.replace(/^Odwiedź\s+/i, '')
-  brand = brand.replace(/^Sklep\s+/i, '')
-
-  // Turkish (TR): "Brand Mağazasını ziyaret edin"
+  // Other languages (simplified)
+  brand = brand.replace(/^Odwiedź\s+/i, '').replace(/^Sklep\s+/i, '')
   brand = brand.replace(/\s+Mağazasını\s+ziyaret\s+edin$/i, '')
-
-  // Swedish (SE): "Besök Brand-butiken"
   brand = brand.replace(/^Besök\s+/i, '').replace(/-butiken$/i, '')
-
-  // Arabic (AE, SA, EG): RTL text patterns
-  brand = brand.replace(/زيارة\s+متجر\s+/i, '')
-  brand = brand.replace(/\s+متجر$/i, '')
-
-  // Chinese (CN): "访问 Brand 店铺"
-  brand = brand.replace(/^访问\s+/i, '').replace(/\s+店铺$/i, '')
-  brand = brand.replace(/^查看\s+/i, '').replace(/\s+品牌店$/i, '')
-
-  // Korean (KR): "Brand 스토어 방문하기"
+  brand = brand.replace(/زيارة\s+متجر\s+/i, '').replace(/\s+متجر$/i, '')
+  brand = brand.replace(/^访问\s+/i, '').replace(/\s+店铺$/i, '').replace(/^查看\s+/i, '').replace(/\s+品牌店$/i, '')
   brand = brand.replace(/\s+스토어\s+방문하기$/i, '')
-
-  // Hindi (IN): "Brand स्टोर पर जाएं"
   brand = brand.replace(/\s+स्टोर\s+पर\s+जाएं$/i, '')
+  brand = brand.replace(/\s*出品者のストアにアクセス$/i, '').replace(/のストアを表示$/i, '')
 
-  // General cleanup for "Brand:" labels in multiple languages
+  // General cleanup
   brand = brand.replace(/^Brand:\s*/i, '')
     .replace(/^品牌:\s*/i, '')
     .replace(/^Marca:\s*/i, '')
@@ -1638,5 +1632,5 @@ function cleanBrandText(brand: string): string {
     .replace(/^브랜드:\s*/i, '')
     .replace(/^العلامة التجارية:\s*/i, '')
 
-  return brand
+  return brand.trim()
 }
