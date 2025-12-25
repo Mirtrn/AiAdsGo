@@ -2420,3 +2420,76 @@ function originToString(origin: number): string {
   }
   return originNames[origin] || `UNKNOWN(${origin})`
 }
+
+/**
+ * 确保账号有正确的转化目标配置（在创建Campaign之前调用）
+ *
+ * 🎯 功能：
+ * 1. 检查账号是否有"网页浏览"(PAGE_VIEW)转化操作
+ * 2. 如果没有，自动创建
+ * 3. 确保CustomerConversionGoal.biddable = true
+ *
+ * @param params - 账号凭证参数
+ * @returns 转化操作资源名称
+ */
+export async function ensureAccountConversionGoal(params: {
+  customerId: string
+  refreshToken: string
+  marketingObjective?: MarketingObjective
+  accountId?: number
+  userId: number
+  loginCustomerId?: string
+}): Promise<{ success: boolean; conversionActionResourceName?: string; message: string }> {
+  const { customerId, refreshToken, marketingObjective = 'WEB_TRAFFIC', accountId, userId, loginCustomerId } = params
+
+  console.log(`\n🔍 检查账号转化目标配置...`)
+  console.log(`   Customer ID: ${customerId}`)
+  console.log(`   营销目标: ${marketingObjective}`)
+
+  try {
+    const customer = await getCustomerWithCredentials({
+      customerId,
+      refreshToken,
+      accountId,
+      userId,
+      loginCustomerId
+    })
+
+    const mapping = MARKETING_OBJECTIVE_MAPPING[marketingObjective]
+    if (!mapping) {
+      throw new Error(`不支持的营销目标类型: ${marketingObjective}`)
+    }
+
+    // 1. 检查是否已有匹配的转化操作
+    const existingActions = await queryConversionActions(customer, marketingObjective)
+    console.log(`   找到 ${existingActions.length} 个现有转化操作`)
+
+    let conversionActionResourceName: string
+
+    if (existingActions.length > 0) {
+      conversionActionResourceName = existingActions[0].conversion_action?.resource_name || ''
+      console.log(`   ✅ 使用现有转化操作: ${conversionActionResourceName}`)
+    } else {
+      // 2. 创建新的转化操作
+      console.log(`   📝 创建新的转化操作...`)
+      conversionActionResourceName = await createConversionAction(customer, marketingObjective)
+      console.log(`   ✅ 转化操作创建成功: ${conversionActionResourceName}`)
+    }
+
+    // 3. 确保CustomerConversionGoal正确设置
+    console.log(`   🔄 设置CustomerConversionGoal...`)
+    await setCustomerConversionGoal(customer, mapping, {})
+
+    return {
+      success: true,
+      conversionActionResourceName,
+      message: `账号转化目标配置成功 (${marketingObjective})`
+    }
+  } catch (error: any) {
+    console.error(`❌ 账号转化目标配置失败:`, error.message)
+    return {
+      success: false,
+      message: `配置失败: ${error.message}`
+    }
+  }
+}

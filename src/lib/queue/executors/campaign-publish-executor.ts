@@ -27,6 +27,7 @@ import {
   createGoogleAdsSitelinkExtensions,
   setCampaignMarketingObjective,
   ensureKeywordsInHeadlines,
+  ensureAccountConversionGoal,
   type MarketingObjective
 } from '@/lib/google-ads-api'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
@@ -218,6 +219,26 @@ export async function executeCampaignPublish(
         SGD: 0.23,
       }
       return defaults[currency] || 0.17
+    }
+
+    // 4. 创建Campaign到Google Ads
+    // 3.5 确保账号有正确的转化目标配置
+    // 🎯 关键步骤：在创建Campaign之前，确保账号已配置"网页浏览"转化操作
+    console.log(`\n🎯 步骤3.5: 确保账号转化目标配置...`)
+    const conversionGoalResult = await ensureAccountConversionGoal({
+      customerId: adsAccount.customer_id,
+      refreshToken: credentials!.refresh_token,
+      marketingObjective: marketingObjective,
+      accountId: adsAccount.id,
+      userId,
+      loginCustomerId: finalLoginCustomerId
+    })
+
+    if (!conversionGoalResult.success) {
+      console.warn(`⚠️ 转化目标配置失败: ${conversionGoalResult.message}`)
+      console.warn(`   继续创建Campaign，但营销目标可能无法正确显示`)
+    } else {
+      console.log(`✅ 转化目标配置成功: ${conversionGoalResult.message}`)
     }
 
     // 4. 创建Campaign到Google Ads
