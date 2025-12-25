@@ -417,6 +417,14 @@ async function syncAccountsFromAPI(
           query: basicAccountInfoQuery,
         })
 
+        // 🔧 修复(2025-12-25): 添加调试日志，排查search结果
+        console.log(`[DEBUG] Account ${customerId} search result:`, {
+          hasResult: !!accountInfo,
+          isArray: Array.isArray(accountInfo),
+          length: accountInfo?.length,
+          firstItem: accountInfo?.[0] ? JSON.stringify(accountInfo[0]).substring(0, 200) : 'N/A'
+        })
+
         if (accountInfo && accountInfo.length > 0) {
           // 尝试单独查询 status（如果失败也不影响基本信息）
           try {
