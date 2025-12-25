@@ -17,33 +17,56 @@
 -- 在Prompt中添加强制单品聚焦规则，要求AI生成的所有元素（Headlines、Descriptions、Sitelinks、Callouts）
 -- 必须100%聚焦于单品，排除其他品类。
 
--- 步骤1：将当前活跃版本（v4.17_p2）设为非活跃
-UPDATE prompt_versions
-SET is_active = false
-WHERE prompt_id = 'ad_creative_generation' AND is_active = true;
+-- 步骤1：检查v4.18是否已存在
+DO $$
+BEGIN
+  -- 如果v4.18已存在，直接激活并退出
+  IF EXISTS (
+    SELECT 1 FROM prompt_versions
+    WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.18'
+  ) THEN
+    -- 将其他版本设为非活跃
+    UPDATE prompt_versions
+    SET is_active = false
+    WHERE prompt_id = 'ad_creative_generation' AND version != 'v4.18';
 
--- 步骤2：插入新版本 v4.18（包含单品聚焦规则）
-INSERT INTO prompt_versions (
-  prompt_id,
-  version,
-  category,
-  name,
-  description,
-  file_path,
-  function_name,
-  prompt_content,
-  language,
-  created_by,
-  is_active,
-  change_notes
-) VALUES (
-  'ad_creative_generation',
-  'v4.18',
-  '广告创意生成',
-  '广告创意生成v4.18 - 单品聚焦增强版',
-  '广告创意生成v4.18 - 单品聚焦增强版',
-  'src/lib/ad-creative-generator.ts',
-  'buildAdCreativePrompt',
+    -- 激活v4.18
+    UPDATE prompt_versions
+    SET is_active = true
+    WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.18';
+
+    RAISE NOTICE 'ad_creative_generation v4.18 already exists, activated it';
+    RETURN;
+  END IF;
+
+  -- v4.18不存在，执行插入流程
+  -- 将当前活跃版本设为非活跃
+  UPDATE prompt_versions
+  SET is_active = false
+  WHERE prompt_id = 'ad_creative_generation' AND is_active = true;
+
+  -- 插入新版本 v4.18
+  INSERT INTO prompt_versions (
+    prompt_id,
+    version,
+    category,
+    name,
+    description,
+    file_path,
+    function_name,
+    prompt_content,
+    language,
+    created_by,
+    is_active,
+    change_notes
+  ) VALUES (
+    'ad_creative_generation',
+    'v4.18',
+    '广告创意生成',
+    '广告创意生成v4.18 - 单品聚焦增强版',
+    '广告创意生成v4.18 - 单品聚焦增强版',
+    'src/lib/ad-creative-generator.ts',
+    'buildAdCreativePrompt',
   '
 {{language_instruction}}
 
@@ -372,24 +395,38 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
    - 桶C: 聚焦单品功能细节
    - 桶D: 单一产品的专属促销
    - 桶S: 综合创意添加Single Product Focus约束'
-);
+  );
+
+  RAISE NOTICE 'ad_creative_generation v4.18 created and activated';
+END $$;
 
 -- ========================================
 -- keyword_intent_clustering: 激活 v4.18
 -- ========================================
 
--- v4.18 已存在于数据库（ID: 172），只需激活
--- 更新内容：增强店铺链接分桶精准度
+-- 步骤2：激活keyword_intent_clustering v4.18（幂等操作）
+DO $$
+BEGIN
+  -- 检查v4.18是否存在
+  IF EXISTS (
+    SELECT 1 FROM prompt_versions
+    WHERE prompt_id = 'keyword_intent_clustering' AND version = 'v4.18'
+  ) THEN
+    -- 将其他版本设为非活跃
+    UPDATE prompt_versions
+    SET is_active = false
+    WHERE prompt_id = 'keyword_intent_clustering' AND version != 'v4.18';
 
--- 步骤1：将当前活跃版本设为非活跃
-UPDATE prompt_versions
-SET is_active = false
-WHERE prompt_id = 'keyword_intent_clustering' AND is_active = true;
+    -- 激活v4.18
+    UPDATE prompt_versions
+    SET is_active = true
+    WHERE prompt_id = 'keyword_intent_clustering' AND version = 'v4.18';
 
--- 步骤2：激活v4.18
-UPDATE prompt_versions
-SET is_active = true
-WHERE prompt_id = 'keyword_intent_clustering' AND version = 'v4.18';
+    RAISE NOTICE 'keyword_intent_clustering v4.18 activated';
+  ELSE
+    RAISE NOTICE 'keyword_intent_clustering v4.18 does not exist, skipping';
+  END IF;
+END $$;
 
 -- 验证结果
 SELECT id, prompt_id, name, version, is_active
