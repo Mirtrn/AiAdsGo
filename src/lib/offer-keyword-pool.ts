@@ -1939,7 +1939,7 @@ export async function generateOfferKeywordPool(
   let developerToken: string | undefined
 
   try {
-    const { getGoogleAdsCredentials } = await import('./google-ads-oauth')
+    const { getGoogleAdsConfig } = await import('./keyword-planner')
     const { getDatabase } = await import('./db')
     const db = await getDatabase()
 
@@ -1954,15 +1954,15 @@ export async function generateOfferKeywordPool(
     `, [userId]) as { id: number; customer_id: string } | undefined
 
     if (adsAccount) {
-      const credentials = await getGoogleAdsCredentials(userId)
-      if (credentials) {
+      // 🔧 修复(2025-12-25): 支持OAuth和服务账号两种认证方式
+      const config = await getGoogleAdsConfig(userId)
+      if (config) {
         customerId = adsAccount.customer_id
-        refreshToken = credentials.refresh_token
+        refreshToken = config.refreshToken
         accountId = adsAccount.id
-        // 从 credentials 获取 API 配置
-        clientId = credentials.client_id
-        clientSecret = credentials.client_secret
-        developerToken = credentials.developer_token
+        clientId = config.clientId
+        clientSecret = config.clientSecret
+        developerToken = config.developerToken
       }
     }
   } catch (error) {

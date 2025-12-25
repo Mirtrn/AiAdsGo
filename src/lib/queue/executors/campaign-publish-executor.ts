@@ -145,12 +145,13 @@ export async function executeCampaignPublish(
 
     if (!effectiveLoginCustomerId) {
       try {
-        const { getGoogleAdsCredentials } = await import('@/lib/google-ads-oauth')
-        const userCredentials = await getGoogleAdsCredentials(userId)
-        console.log(`🔍 [Debug] 用户设置的 login_customer_id: ${userCredentials?.login_customer_id} (类型: ${typeof userCredentials?.login_customer_id})`)
+        // 🔧 修复(2025-12-25): 支持OAuth和服务账号两种方式获取login_customer_id
+        const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
+        const config = await getGoogleAdsConfig(userId)
+        console.log(`🔍 [Debug] 用户配置的 login_customer_id: ${config?.loginCustomerId} (类型: ${typeof config?.loginCustomerId})`)
 
-        if (userCredentials?.login_customer_id) {
-          effectiveLoginCustomerId = userCredentials.login_customer_id
+        if (config?.loginCustomerId) {
+          effectiveLoginCustomerId = config.loginCustomerId
           console.log(`⚠️ 使用来自用户设置的login_customer_id: ${effectiveLoginCustomerId} (类型: ${typeof effectiveLoginCustomerId})`)
 
           // 同时更新数据库，避免后续调用继续走这条路径
