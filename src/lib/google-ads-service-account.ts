@@ -248,9 +248,20 @@ export async function getUnifiedGoogleAdsClient(config: {
       scopes: ['https://www.googleapis.com/auth/adwords'],
     })
 
+    console.log(`[ServiceAccount] JWT配置: email=${serviceAccount.serviceAccountEmail}, scopes=adwords`)
+
     // 通过 hack 方式设置 auth 客户端
     // @htdangkhoa/google-ads 使用 auth.getRequestHeaders() 获取认证头
     ;(googleAds as any).options.auth = jwtClient as any
+
+    // 🔍 验证JWT是否能获取token
+    try {
+      await jwtClient.authorize()
+      console.log(`[ServiceAccount] JWT认证成功`)
+    } catch (error: any) {
+      console.error(`[ServiceAccount] JWT认证失败:`, error.message)
+      throw error
+    }
 
     return googleAds
   } else {
