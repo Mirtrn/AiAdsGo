@@ -135,6 +135,8 @@ export default function OffersPage() {
 
   // 拉黑投放状态
   const [blacklisting, setBlacklisting] = useState(false)
+  const [isBlacklistDialogOpen, setIsBlacklistDialogOpen] = useState(false)
+  const [offerToBlacklist, setOfferToBlacklist] = useState<Offer | null>(null)
 
   useEffect(() => {
     fetchOffers()
@@ -443,24 +445,30 @@ export default function OffersPage() {
   }
 
   // 拉黑/取消拉黑处理函数
-  const handleToggleBlacklist = async (offer: Offer) => {
+  const handleToggleBlacklist = async () => {
+    if (!offerToBlacklist) return
+
     try {
       setBlacklisting(true)
-      const method = offer.isBlacklisted ? 'DELETE' : 'POST'
-      const response = await fetch(`/api/offers/${offer.id}/blacklist`, {
+      const method = offerToBlacklist.isBlacklisted ? 'DELETE' : 'POST'
+      const response = await fetch(`/api/offers/${offerToBlacklist.id}/blacklist`, {
         method,
         credentials: 'include',
       })
 
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.error || `${offer.isBlacklisted ? '取消拉黑' : '拉黑投放'}失败`)
+        throw new Error(data.error || `${offerToBlacklist.isBlacklisted ? '取消拉黑' : '拉黑投放'}失败`)
       }
 
       // 刷新列表
       await fetchOffers()
+
+      // 关闭对话框
+      setIsBlacklistDialogOpen(false)
+      setOfferToBlacklist(null)
     } catch (err: any) {
-      setError(err.message || `${offer.isBlacklisted ? '取消拉黑' : '拉黑投放'}失败`)
+      setError(err.message || `${offerToBlacklist.isBlacklisted ? '取消拉黑' : '拉黑投放'}失败`)
     } finally {
       setBlacklisting(false)
     }
@@ -901,7 +909,10 @@ export default function OffersPage() {
                                   投放分析
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  onClick={() => handleToggleBlacklist(offer)}
+                                  onClick={() => {
+                                    setOfferToBlacklist(offer)
+                                    setIsBlacklistDialogOpen(true)
+                                  }}
                                   disabled={blacklisting}
                                   className={offer.isBlacklisted ? 'text-green-600 focus:text-green-600 focus:bg-green-50' : 'text-orange-600 focus:text-orange-600 focus:bg-orange-50'}
                                 >
@@ -1174,6 +1185,44 @@ export default function OffersPage() {
             >
               {batchDeleting ? '删除中...' : batchDeleteError ? '重试删除' : '确认删除'}
             </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Blacklist Confirmation Dialog */}
+      <AlertDialog open={isBlacklistDialogOpen} onOpenChange={setIsBlacklistDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {offerToBlacklist?.isBlacklisted ? '确认取消拉黑' : '确认拉黑投放'}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  您确定要{offerToBlacklist?.isBlacklisted ? '取消拉黑' : '拉黑'} <strong className="text-gray-900">{offerToBlacklist?.brand}</strong> ({offerToBlacklist?.targetCountry}) 吗？
+                </p>
+                {!offerToBlacklist?.isBlacklisted && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-body-sm text-orange-800">
+                    <p className="font-medium mb-1">⚠️ 拉黑后：</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>该品牌+国家组合将被标记为拉黑状态</li>
+                      <li>创建相同品牌+国家的新Offer时会显示风险提示</li>
+                      <li>可随时取消拉黑状态</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={blacklisting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleToggleBlacklist}
+              disabled={blacklisting}
+              className={offerToBlacklist?.isBlacklisted ? 'bg-green-600 hover:bg-green-700' : 'bg-orange-600 hover:bg-orange-700'}
+            >
+              {blacklisting ? '处理中...' : offerToBlacklist?.isBlacklisted ? '确认取消拉黑' : '确认拉黑'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
