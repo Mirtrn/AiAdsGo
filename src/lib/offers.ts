@@ -512,6 +512,14 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
       params.push(input.is_active ? 1 : 0) // SQLite uses integer
     }
   }
+  if (input.product_price !== undefined) {
+    updates.push('product_price = ?')
+    params.push(input.product_price)
+  }
+  if (input.commission_payout !== undefined) {
+    updates.push('commission_payout = ?')
+    params.push(input.commission_payout)
+  }
   // AI分析结果字段
   if (input.competitor_analysis !== undefined) {
     updates.push('competitor_analysis = ?')
