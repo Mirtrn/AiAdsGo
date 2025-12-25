@@ -689,8 +689,10 @@ class PlaywrightPool {
     }
 
     if (proxy) {
+      // Oxylabs需要使用https协议
+      const proxyProtocol = proxy.host.includes('oxylabs.io') ? 'https' : 'http'
       launchOptions.proxy = {
-        server: `http://${proxy.host}:${proxy.port}`,
+        server: `${proxyProtocol}://${proxy.host}:${proxy.port}`,
         username: proxy.username,
         password: proxy.password,
       }
