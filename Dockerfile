@@ -128,7 +128,7 @@ RUN node ./node_modules/playwright/cli.js install chromium --with-deps && \
 
 # 安装Python依赖（Google Ads API服务）
 COPY python-service/requirements.txt /app/python-service/
-RUN python3 -m pip install --no-cache-dir -r /app/python-service/requirements.txt
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r /app/python-service/requirements.txt
 
 # 复制Python服务代码
 COPY --chown=nextjs:nodejs python-service /app/python-service
