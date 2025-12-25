@@ -145,10 +145,21 @@ let proxyPoolInitializedForUser: number | null = null
 export function invalidateProxyPoolCache(userId?: number): void {
   console.log(`🗑️ [invalidateProxyPoolCache] 清除代理池缓存 (userId: ${userId || 'all'})`)
 
-  // 强制清除缓存标记，无论当前状态
-  proxyPoolInitialized = false
-  proxyPoolInitializedForUser = null
-  console.log(`   - 模块级缓存已清除 (用户: ${userId || 'all'})`)
+  // 只清除指定用户的缓存
+  if (!userId) {
+    // 清除所有用户缓存
+    proxyPoolInitialized = false
+    proxyPoolInitializedForUser = null
+    console.log(`   - 全局缓存已清除`)
+  } else if (proxyPoolInitializedForUser === userId || proxyPoolInitializedForUser === null) {
+    // 清除当前用户缓存（或缓存未初始化）
+    proxyPoolInitialized = false
+    proxyPoolInitializedForUser = null
+    console.log(`   - 用户 ${userId} 的缓存已清除`)
+  } else {
+    // 缓存属于其他用户，不清除
+    console.log(`   - 跳过清除：当前缓存属于用户 ${proxyPoolInitializedForUser}，请求清除用户 ${userId}`)
+  }
 }
 
 /**
