@@ -329,7 +329,7 @@ export default function GoogleAdsSetupGuidePage() {
                   故障排除
                 </CardTitle>
                 <CardDescription className="text-orange-700">
-                  如果遇到 <code className="bg-orange-100 px-1 rounded">invalid_client</code> 错误，请按以下步骤排查
+                  如果遇到 API 错误，请按以下步骤排查
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -389,6 +389,48 @@ export default function GoogleAdsSetupGuidePage() {
                   <Alert className="mt-3 bg-blue-50 border-blue-200">
                     <AlertDescription className="text-sm">
                       <strong>注意：</strong>添加服务账号后，可能需要等待 5-10 分钟才能生效
+                    </AlertDescription>
+                  </Alert>
+                </div>
+
+                <div className="bg-white rounded-lg p-4 border border-red-200">
+                  <h4 className="font-semibold text-red-800 mb-2 flex items-center gap-2">
+                    <span className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center text-xs">4</span>
+                    错误：PERMISSION_DENIED (The caller does not have permission)
+                  </h4>
+                  <p className="text-sm text-gray-600 mb-3">
+                    如果日志中出现 <code className="bg-red-50 px-1 rounded">PERMISSION_DENIED: The caller does not have permission</code> 错误，说明服务账号没有访问权限。
+                  </p>
+                  <h5 className="font-medium text-sm mb-2">排查步骤：</h5>
+                  <ol className="text-sm text-gray-600 list-decimal list-inside space-y-1">
+                    <li>
+                      <strong>确认服务账号邮箱格式正确</strong>（通常以 <code className="bg-gray-100 px-1 rounded">@project-id.iam.gserviceaccount.com</code> 结尾）
+                    </li>
+                    <li>
+                      <strong>登录 Google Ads 账户</strong>，确保使用的是 MCC（管理中心）账号
+                    </li>
+                    <li>
+                      <strong>添加服务账号到账户</strong>：
+                      <ul className="list-disc list-inside ml-4 mt-1 text-gray-600">
+                        <li>访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a></li>
+                        <li>点击 <strong>"Tools & Settings" → "Access and security"</strong></li>
+                        <li>点击 <strong>"Add Access"</strong> 或 <strong>"Link Account"</strong></li>
+                        <li>输入服务账号邮箱地址</li>
+                        <li>分配角色：<strong>"Admin access"</strong> 或 <strong>"Standard access"</strong></li>
+                      </ul>
+                    </li>
+                    <li>
+                      <strong>等待权限生效</strong>：添加后可能需要 <strong>5-30 分钟</strong>才能生效
+                    </li>
+                    <li>
+                      <strong>验证访问权限</strong>：添加后使用 <code className="bg-gray-100 px-1 rounded">listAccessibleCustomers</code> API 确认服务账号可以访问账户
+                    </li>
+                  </ol>
+                  <Alert className="mt-3 bg-amber-50 border-amber-200">
+                    <AlertCircle className="h-4 w-4 text-amber-500" />
+                    <AlertDescription className="text-sm">
+                      <strong>重要：</strong>服务账号必须被添加到 Google Ads MCC 账户中，即使它在 Google Cloud 有完全权限。
+                      这是 Google Ads API 的独立访问控制机制。
                     </AlertDescription>
                   </Alert>
                 </div>
