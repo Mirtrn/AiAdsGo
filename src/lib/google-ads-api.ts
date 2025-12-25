@@ -564,7 +564,6 @@ export async function createGoogleAdsCampaign(params: {
   // 2. goal_config_settings是只读字段，不能在创建时设置
   // 3. 营销目标会在广告系列创建后由Google Ads自动推断
   // 参考：https://developers.google.com/google-ads/api/reference/rpc/v21/Campaign
-  campaign.url_expansion_opt_out = false  // 允许URL扩展，优化网站流量
 
   // 设置出价策略 - Maximize Clicks (TARGET_SPEND)
   // 根据业务规范：Bidding Strategy = Maximize Clicks，CPC Bid = 0.17 USD
