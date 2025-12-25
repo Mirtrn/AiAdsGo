@@ -223,7 +223,9 @@ export const TABLES: TableDef[] = [
       { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
       { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
       { name: 'offer_id', type: 'INTEGER', notNull: true, references: { table: 'offers', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'google_ads_account_id', type: 'INTEGER', notNull: true, references: { table: 'google_ads_accounts', column: 'id', onDelete: 'CASCADE' } },
+      // 🔧 修复(2025-12-25): google_ads_account_id 改为可空
+      // 删除Ads账号时，Campaign应保留（历史数据），只将account_id设为NULL
+      { name: 'google_ads_account_id', type: 'INTEGER', references: { table: 'google_ads_accounts', column: 'id', onDelete: 'SET NULL' } },
       { name: 'campaign_id', type: 'TEXT', unique: true },
       { name: 'campaign_name', type: 'TEXT', notNull: true },
       { name: 'budget_amount', type: 'REAL', notNull: true },
@@ -368,7 +370,8 @@ export const TABLES: TableDef[] = [
     columns: [
       { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
       { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'google_ads_account_id', type: 'INTEGER', notNull: true, references: { table: 'google_ads_accounts', column: 'id', onDelete: 'CASCADE' } },
+      // 🔧 修复(2025-12-25): 删除Ads账号时保留历史数据，设为NULL
+      { name: 'google_ads_account_id', type: 'INTEGER', references: { table: 'google_ads_accounts', column: 'id', onDelete: 'SET NULL' } },
       { name: 'recommendation_type', type: 'TEXT', notNull: true },
       { name: 'recommendation_data', type: 'TEXT', notNull: true },
       { name: 'priority', type: 'TEXT', notNull: true, default: 'MEDIUM' },
@@ -387,7 +390,8 @@ export const TABLES: TableDef[] = [
     columns: [
       { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
       { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'google_ads_account_id', type: 'INTEGER', notNull: true, references: { table: 'google_ads_accounts', column: 'id', onDelete: 'CASCADE' } },
+      // 🔧 修复(2025-12-25): 删除Ads账号时保留历史数据，设为NULL
+      { name: 'google_ads_account_id', type: 'INTEGER', references: { table: 'google_ads_accounts', column: 'id', onDelete: 'SET NULL' } },
       { name: 'recommendation_id', type: 'TEXT', notNull: true, unique: true },
       { name: 'recommendation_type', type: 'TEXT', notNull: true },
       { name: 'impact', type: 'TEXT' },
@@ -654,7 +658,8 @@ export const TABLES: TableDef[] = [
     columns: [
       { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
       { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'google_ads_account_id', type: 'INTEGER', notNull: true, references: { table: 'google_ads_accounts', column: 'id', onDelete: 'CASCADE' } },
+      // 🔧 修复(2025-12-25): 删除Ads账号时保留历史数据，设为NULL
+      { name: 'google_ads_account_id', type: 'INTEGER', references: { table: 'google_ads_accounts', column: 'id', onDelete: 'SET NULL' } },
       { name: 'sync_type', type: 'TEXT', notNull: true },
       { name: 'status', type: 'TEXT', notNull: true },
       { name: 'record_count', type: 'INTEGER', notNull: true, default: 0 },
