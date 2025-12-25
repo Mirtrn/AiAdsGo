@@ -1546,18 +1546,23 @@ function cleanBrandText(brand: string): string {
     return ''
   }
 
-  // Italian (IT): 多种格式
-  // - "Visita lo Store di Brand"
-  // - "Visita il Brand Store"
-  // - "Visita lo store Brand"
-  // - "Brand Store" (简化版)
-  // 🔥 修复：先移除完整的"Visita lo Store di"模式
-  brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s+(Store|Negozio)\s+di\s+/i, '')
-  // 然后处理其他变体（包括单独的"Visita lo"）
-  brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)(\s+|$)/i, '')
-  brand = brand.replace(/^(Store|Negozio)\s+(di\s+)?/i, '')
-  brand = brand.replace(/\s+(Store|Negozio)$/i, '')  // 🔥 新增：末尾的Store/Negozio
-  brand = brand.replace(/\s+di\s+$/i, '')  // 🔥 新增：末尾的"di"
+  // Italian (IT): 通用清洗策略 - 分步移除各种组合
+  // 1. 移除"Visita" + 定冠词
+  brand = brand.replace(/^Visita\s+(lo|il|la|le|i|gli)\s*/i, '')
+  // 2. 移除单独的定冠词（如果"Visita"已被移除或不存在）
+  brand = brand.replace(/^(lo|il|la|le|i|gli)\s+/i, '')
+  // 3. 移除"Store/Negozio di"
+  brand = brand.replace(/^(Store|Negozio)\s+di\s+/i, '')
+  // 4. 移除单独的"Store/Negozio"
+  brand = brand.replace(/^(Store|Negozio)\s*/i, '')
+  brand = brand.replace(/\s+(Store|Negozio)$/i, '')
+  // 5. 移除介词"di"
+  brand = brand.replace(/^di\s+/i, '')
+  brand = brand.replace(/\s+di$/i, '')
+  // 6. 最终检查：如果只剩定冠词，清空
+  if (/^(lo|il|la|le|i|gli)$/i.test(brand.trim())) {
+    brand = ''
+  }
 
   // French (FR, BE, CA-FR): "Visitez la boutique de Brand" 或 "Visiter la boutique Brand"
   brand = brand.replace(/^Visitez\s+(la|le|les)\s+/i, '')
