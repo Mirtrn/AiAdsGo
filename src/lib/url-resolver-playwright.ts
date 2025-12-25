@@ -273,6 +273,16 @@ export async function resolveAffiliateLinkWithPlaywright(
     // 🔥 P1优化：检测代理连接错误，提供更清晰的错误信息
     if (isProxyConnectionError(error)) {
       console.error('❌ Playwright解析失败 - 代理连接问题:', error.message?.substring(0, 100))
+
+      // 🔧 修复(2025-12-25): 代理连接问题时，销毁实例而不是释放回连接池
+      // 这样下次重试时会创建新实例，获取新的代理IP
+      if (fromPool && instanceId) {
+        console.log(`🗑️ 销毁失败的Playwright实例: ${instanceId}`)
+        const { removeBrowserFromPool } = await import('./playwright-pool')
+        await removeBrowserFromPool(instanceId)
+        fromPool = false  // 标记为已销毁，避免finally块再次处理
+      }
+
       throw new Error(`Playwright解析失败（代理连接问题，建议重试）: ${error.message}`)
     }
     console.error('Playwright解析失败:', error)
