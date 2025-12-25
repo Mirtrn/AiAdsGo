@@ -359,6 +359,19 @@ export async function getKeywordSearchVolumes(
               // 🔧 修复(2025-12-24): 使用统一的服务访问方式
               const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
 
+              // 🔧 修复(2025-12-25): 服务账号模式需要确保 developer_token 在服务实例中
+              if (config.authType === 'service_account') {
+                console.log(`[KeywordPlanner] 🔍 检查服务实例配置:`)
+                console.log(`   - customer.options.developer_token: ${(customer as any).options?.developer_token ? '已设置' : '未设置'}`)
+                console.log(`   - keywordPlanIdeas.options: ${keywordPlanIdeas.options ? '存在' : '不存在'}`)
+
+                // 🔧 确保服务实例继承 developer_token
+                if (keywordPlanIdeas.options && !(keywordPlanIdeas.options as any).developer_token) {
+                  console.log(`[KeywordPlanner] ⚠️ 服务实例缺少 developer_token，从 customer 复制`)
+                  ;(keywordPlanIdeas.options as any).developer_token = (customer as any).options.developer_token
+                }
+              }
+
               // 🔧 修复(2025-12-25): 确保customer_id格式正确（去掉横杠）
               const cleanCustomerId = config.customerId.replace(/-/g, '')
 
