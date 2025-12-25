@@ -199,7 +199,13 @@ export async function POST(request: NextRequest) {
             selectedModel = config.gemini_model
           } else {
             const geminiModelSetting = await getUserOnlySetting('ai', 'gemini_model', userIdNum)
-            selectedModel = geminiModelSetting?.value || 'gemini-2.5-pro'
+            if (!geminiModelSetting?.value) {
+              return NextResponse.json(
+                { error: '请先在AI配置中选择要使用的模型' },
+                { status: 400 }
+              )
+            }
+            selectedModel = geminiModelSetting.value
           }
 
           console.log(`🔍 验证AI配置: 使用模型配置 ${selectedModel}`)
