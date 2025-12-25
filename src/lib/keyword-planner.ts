@@ -359,15 +359,18 @@ export async function getKeywordSearchVolumes(
               // 🔧 修复(2025-12-24): 使用统一的服务访问方式
               const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
 
+              // 🔧 修复(2025-12-25): 确保customer_id格式正确（去掉横杠）
+              const cleanCustomerId = config.customerId.replace(/-/g, '')
+
               const requestParams = {
-                customer_id: config.customerId,
+                customer_id: cleanCustomerId,
                 keywords: batch,
                 language: `languageConstants/${languageId}`,
                 geo_target_constants: [`geoTargetConstants/${geoTargetId}`],
                 keyword_plan_network: enums.KeywordPlanNetwork.GOOGLE_SEARCH,
               }
 
-              console.log(`[KeywordPlanner] 🔍 请求参数: customer_id=${config.customerId}, keywords=${batch.length}, authType=${config.authType}`)
+              console.log(`[KeywordPlanner] 🔍 请求参数: customer_id=${cleanCustomerId}, keywords=${batch.length}, authType=${config.authType}`)
 
               // 🔧 修复(2025-12-25): 服务账号模式使用callback-style API，需要promisify
               let response
