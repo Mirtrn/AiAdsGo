@@ -556,7 +556,7 @@ async function syncAccountsFromAPI(
                         privateKey: serviceAccountConfig.privateKey,
                         developerToken: serviceAccountConfig.developerToken,
                         customerId: childId,
-                        loginCustomerId: effectiveLoginCustomerId,
+                        loginCustomerId: effectiveLoginCustomerId || undefined,
                       })
                     } else {
                       // OAuth 模式：使用 google-ads-api
