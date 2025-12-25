@@ -889,7 +889,7 @@ export default function OffersPage() {
                                   <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
+                              <DropdownMenuContent align="end" className="opacity-100">
                                 <DropdownMenuItem
                                   onClick={() => {
                                     setSelectedOfferForCpc(offer)
