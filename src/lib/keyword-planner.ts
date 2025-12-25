@@ -385,11 +385,18 @@ export async function getKeywordSearchVolumes(
 
               console.log(`[KeywordPlanner] 🔍 请求参数: customer_id=${cleanCustomerId}, keywords=${batch.length}, authType=${config.authType}`)
 
-              // 🔧 修复(2025-12-25): 服务账号模式使用callback-style API，需要promisify
+              // 🔧 修复(2025-12-26): 服务账号模式使用callback-style API，需要promisify
+              // 🔧 修复(2025-12-26): gRPC调用需要手动传递metadata（含developer-token）
               let response
               if (config.authType === 'service_account') {
+                // 从customer获取包含developer-token的metadata
+                const metadata = (customer as any).callMetadata
+                console.log(`[KeywordPlanner] 🔍 使用customer.callMetadata: ${metadata ? '成功' : '失败'}`)
+                console.log(`[KeywordPlanner] 🔍 metadata中的developer-token: ${metadata?.get?.('developer-token') ? '已设置' : '未设置'}`)
+
                 response = await new Promise((resolve, reject) => {
-                  keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams, (error: any, response: any) => {
+                  // gRPC unary方法签名: method(request, metadata, callback)
+                  keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams, metadata, (error: any, response: any) => {
                     if (error) {
                       // 🔍 详细错误日志
                       console.error(`[KeywordPlanner] gRPC错误详情:`, {
@@ -405,7 +412,14 @@ export async function getKeywordSearchVolumes(
                   })
                 })
               } else {
-                response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any)
+                // OAuth 模式：google-ads-api 库自动处理 developer_token
+                // 但如果 customer 有 callMetadata，也一并传递以保持一致性
+                const oauthMetadata = (customer as any).callMetadata
+                if (oauthMetadata) {
+                  response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any, oauthMetadata)
+                } else {
+                  response = await keywordPlanIdeas.generateKeywordHistoricalMetrics(requestParams as any)
+                }
               }
 
               totalApiCalls++
@@ -724,17 +738,26 @@ export async function getKeywordSuggestions(
       keyword_annotation: [],
     }
 
-    // 🔧 修复(2025-12-25): 服务账号模式使用callback-style API，需要promisify
+    // 🔧 修复(2025-12-26): gRPC调用需要手动传递metadata（含developer-token）
     let response
     if (config.authType === 'service_account') {
+      // 从customer获取包含developer-token的metadata
+      const metadata = (customer as any).callMetadata
       response = await new Promise((resolve, reject) => {
-        keywordPlanIdeas.generateKeywordIdeas(requestParams, (error: any, response: any) => {
+        // gRPC unary方法签名: method(request, metadata, callback)
+        keywordPlanIdeas.generateKeywordIdeas(requestParams, metadata, (error: any, response: any) => {
           if (error) reject(error)
           else resolve(response)
         })
       })
     } else {
-      response = await keywordPlanIdeas.generateKeywordIdeas(requestParams as any)
+      // OAuth 模式：google-ads-api 库自动处理 developer_token
+      const oauthMetadata = (customer as any).callMetadata
+      if (oauthMetadata) {
+        response = await keywordPlanIdeas.generateKeywordIdeas(requestParams as any, oauthMetadata)
+      } else {
+        response = await keywordPlanIdeas.generateKeywordIdeas(requestParams as any)
+      }
     }
 
     const results: KeywordVolume[] = []

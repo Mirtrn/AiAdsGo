@@ -157,8 +157,15 @@ export async function getKeywordIdeas(params: {
 
       // 调用Keyword Planner API
       // 🔧 修复(2025-12-24): 使用统一的服务访问方式
+      // 🔧 修复(2025-12-26): gRPC调用需要手动传递metadata（含developer-token）
       const keywordPlanIdeas = getKeywordPlanIdeaService(customer, authType)
-      const ideas = await keywordPlanIdeas.generateKeywordIdeas(request)
+      const metadata = (customer as any).callMetadata
+      let ideas
+      if (metadata) {
+        ideas = await keywordPlanIdeas.generateKeywordIdeas(request, metadata)
+      } else {
+        ideas = await keywordPlanIdeas.generateKeywordIdeas(request)
+      }
 
       // 转换结果格式
       const batchIdeas: KeywordIdea[] = (ideas as any).map((idea: any) => ({
@@ -264,8 +271,15 @@ export async function getKeywordMetrics(params: {
 
     // 调用Historical Metrics API
     // 🔧 修复(2025-12-24): 使用统一的服务访问方式
+    // 🔧 修复(2025-12-26): gRPC调用需要手动传递metadata（含developer-token）
     const keywordPlanIdeas = getKeywordPlanIdeaService(customer, authType)
-    const metrics = await keywordPlanIdeas.generateKeywordHistoricalMetrics(request as any)
+    const metadata = (customer as any).callMetadata
+    let metrics
+    if (metadata) {
+      metrics = await keywordPlanIdeas.generateKeywordHistoricalMetrics(request as any, metadata)
+    } else {
+      metrics = await keywordPlanIdeas.generateKeywordHistoricalMetrics(request as any)
+    }
 
     // 转换结果格式
     const keywordMetrics: KeywordMetrics[] = (metrics as any).map((metric: any) => ({
