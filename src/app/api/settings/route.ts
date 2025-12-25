@@ -112,6 +112,23 @@ export async function PUT(request: NextRequest) {
       invalidateProxyPoolCache(userIdNum)
     }
 
+    // 🔥 新增：如果更新了Google Ads配置，清除相关缓存
+    const hasGoogleAdsUpdate = updates.some(u => u.category === 'google_ads')
+    if (hasGoogleAdsUpdate && userIdNum) {
+      console.log('🔄 检测到Google Ads配置更新，清除API缓存')
+      const { gadsApiCache } = await import('@/lib/cache')
+      // 清除该用户的所有Google Ads API缓存
+      gadsApiCache.clear()
+    }
+
+    // 🔥 新增：如果更新了AI配置，重置Vertex AI客户端
+    const hasAIUpdate = updates.some(u => u.category === 'ai')
+    if (hasAIUpdate) {
+      console.log('🔄 检测到AI配置更新，重置Vertex AI客户端')
+      const { resetVertexAIClient } = await import('@/lib/gemini-vertex')
+      resetVertexAIClient()
+    }
+
     return NextResponse.json({
       success: true,
       message: `成功更新 ${updates.length} 个配置项`,
