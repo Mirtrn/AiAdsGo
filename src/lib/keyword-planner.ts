@@ -299,26 +299,73 @@ export async function getKeywordSearchVolumes(
       let totalApiCalls = 0
 
       try {
-        let customer: any
-
         if (config.authType === 'service_account') {
-          // 服务账号认证模式
-          console.log('[KeywordPlanner] Using service account authentication...')
-          customer = await getUnifiedGoogleAdsClient({
-            customerId: config.customerId,
-            credentials: {
-              client_id: config.clientId,
-              client_secret: config.clientSecret,
-              developer_token: config.developerToken,
-            },
-            authConfig: {
-              authType: 'service_account',
+          // 🆕 服务账号模式：使用 Python 服务
+          console.log('[KeywordPlanner] Using Python service for service account authentication...')
+          const { getKeywordHistoricalMetricsPython } = await import('./python-ads-client')
+
+          for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
+            const batch = keywordBatches[batchIndex]
+            console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
+
+            const geoTargetId = getGoogleAdsGeoTargetId(country)
+            const languageId = getGoogleAdsLanguageIdString(language)
+
+            const response = await getKeywordHistoricalMetricsPython({
               userId: userId || 1,
               serviceAccountId: config.serviceAccountId,
-            },
-          })
+              customerId: config.customerId,
+              keywords: batch,
+              language: `languageConstants/${languageId}`,
+              geoTargetConstants: [`geoTargetConstants/${geoTargetId}`],
+            })
+
+            totalApiCalls++
+
+            for (const result of response.results) {
+              if (result.text && result.keyword_metrics) {
+                const metrics = result.keyword_metrics
+                const volume = {
+                  keyword: result.text,
+                  avgMonthlySearches: metrics.avg_monthly_searches || 0,
+                  competition: metrics.competition || 'UNSPECIFIED',
+                  competitionIndex: metrics.competition_index || 0,
+                  lowTopPageBid: (metrics.low_top_of_page_bid_micros || 0) / 1_000_000,
+                  highTopPageBid: (metrics.high_top_of_page_bid_micros || 0) / 1_000_000,
+                }
+                apiVolumes.set(result.text.toLowerCase(), volume)
+              }
+            }
+          }
+
+          console.log(`[KeywordPlanner] Completed ${totalApiCalls} API calls, retrieved ${apiVolumes.size} keyword volumes`)
+
+          // Save to database and cache
+          const toCache: Array<{ keyword: string; volume: number; competition?: string; competitionIndex?: number }> = []
+          for (const [kw, vol] of apiVolumes) {
+            toCache.push({
+              keyword: kw,
+              volume: vol.avgMonthlySearches,
+              competition: vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
+              competitionIndex: vol.competitionIndex
+            })
+            await saveToGlobalKeywords(
+              kw,
+              country,
+              language,
+              vol.avgMonthlySearches,
+              vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
+              Math.round((vol.lowTopPageBid + vol.highTopPageBid) / 2 * 1_000_000) || undefined
+            )
+          }
+
+          if (toCache.length) {
+            await batchCacheVolumes(toCache, country, language)
+          }
+
+          apiSuccess = true
         } else {
-          // OAuth认证模式
+          // OAuth认证模式 - 保持原有逻辑
           // 刷新 access token 以确保有效
           console.log('[KeywordPlanner] Refreshing access token...')
           try {
@@ -335,18 +382,17 @@ export async function getKeywordSearchVolumes(
             developer_token: config.developerToken,
           })
 
-          customer = client.Customer({
+          const customer = client.Customer({
             customer_id: config.customerId,
             login_customer_id: config.loginCustomerId!,
             refresh_token: config.refreshToken!,
           })
-        }
 
-        const geoTargetId = getGoogleAdsGeoTargetId(country)
-        const languageId = getGoogleAdsLanguageIdString(language)
+          const geoTargetId = getGoogleAdsGeoTargetId(country)
+          const languageId = getGoogleAdsLanguageIdString(language)
 
-        // Process each batch with exponential backoff retry
-        for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
+          // Process each batch with exponential backoff retry
+          for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
           const batch = keywordBatches[batchIndex]
           console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
 
@@ -510,35 +556,36 @@ export async function getKeywordSearchVolumes(
           if (batchIndex < keywordBatches.length - 1) {
             await new Promise(resolve => setTimeout(resolve, 2000))
           }
+          }
+
+          console.log(`[KeywordPlanner] Completed ${totalApiCalls} API calls, retrieved ${apiVolumes.size} keyword volumes`)
+
+          // Save to database and cache
+          const toCache: Array<{ keyword: string; volume: number; competition?: string; competitionIndex?: number }> = []
+          for (const [kw, vol] of apiVolumes) {
+            toCache.push({
+              keyword: kw,
+              volume: vol.avgMonthlySearches,
+              competition: vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
+              competitionIndex: vol.competitionIndex
+            })
+            // 修复(2025-12-19): 同时保存competition_level和avg_cpc_micros
+            await saveToGlobalKeywords(
+              kw,
+              country,
+              language,
+              vol.avgMonthlySearches,
+              vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
+              Math.round((vol.lowTopPageBid + vol.highTopPageBid) / 2 * 1_000_000) || undefined
+            )
+          }
+
+          if (toCache.length) {
+            await batchCacheVolumes(toCache, country, language)
+          }
+
+          apiSuccess = true
         }
-
-        console.log(`[KeywordPlanner] Completed ${totalApiCalls} API calls, retrieved ${apiVolumes.size} keyword volumes`)
-
-        // Save to database and cache
-        const toCache: Array<{ keyword: string; volume: number; competition?: string; competitionIndex?: number }> = []
-        for (const [kw, vol] of apiVolumes) {
-          toCache.push({
-            keyword: kw,
-            volume: vol.avgMonthlySearches,
-            competition: vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
-            competitionIndex: vol.competitionIndex
-          })
-          // 修复(2025-12-19): 同时保存competition_level和avg_cpc_micros
-          await saveToGlobalKeywords(
-            kw,
-            country,
-            language,
-            vol.avgMonthlySearches,
-            vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
-            Math.round((vol.lowTopPageBid + vol.highTopPageBid) / 2 * 1_000_000) || undefined
-          )
-        }
-
-        if (toCache.length) {
-          await batchCacheVolumes(toCache, country, language)
-        }
-
-        apiSuccess = true
       } catch (error: any) {
         apiSuccess = false
         // 改进错误捕获：Google Ads API错误可能包含在不同位置

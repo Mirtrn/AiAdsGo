@@ -51,11 +51,14 @@ FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 
-# 安装Nginx、Supervisor和Playwright依赖
+# 安装Nginx、Supervisor、Python和Playwright依赖
 RUN apt-get update && apt-get install -y \
     nginx \
     supervisor \
     wget \
+    python3 \
+    python3-pip \
+    python3-venv \
     # Playwright浏览器依赖
     libnss3 \
     libnspr4 \
@@ -122,6 +125,13 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
 # 安装Playwright浏览器（使用node_modules中的playwright）
 RUN node ./node_modules/playwright/cli.js install chromium --with-deps && \
     chown -R nextjs:nodejs /app/.playwright
+
+# 安装Python依赖（Google Ads API服务）
+COPY python-service/requirements.txt /app/python-service/
+RUN python3 -m pip install --no-cache-dir -r /app/python-service/requirements.txt
+
+# 复制Python服务代码
+COPY --chown=nextjs:nodejs python-service /app/python-service
 
 # 创建必要的目录
 RUN mkdir -p /var/log/nginx /var/lib/nginx/tmp /var/run && \
