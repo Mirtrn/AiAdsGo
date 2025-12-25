@@ -2955,10 +2955,11 @@ export async function generateAdCreative(
       `, [userId]) as { id: number; customer_id: string } | undefined
 
       if (adsAccount) {
-        // 获取OAuth凭证
-        const credentials = await getGoogleAdsCredentials(userId)
+        // 🔧 修复(2025-12-25): 支持服务账号和OAuth两种认证方式
+        const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
+        const config = await getGoogleAdsConfig(userId)
 
-        if (credentials) {
+        if (config) {
           const country = (offer as { target_country?: string }).target_country || 'US'
           const targetLanguage = (offer as { target_language?: string }).target_language || 'English'
           const lang = targetLanguage.toLowerCase().substring(0, 2)
@@ -3013,7 +3014,7 @@ export async function generateAdCreative(
           }
           } // 闭合 bucketKeywords 条件检查的 else 块
         } else {
-          console.warn('⚠️ 未找到Google Ads OAuth凭证，跳过Keyword Planner扩展')
+          console.warn('⚠️ 未找到Google Ads凭证（OAuth或服务账号），跳过Keyword Planner扩展')
         }
       } else {
         console.warn('⚠️ 未找到激活的Google Ads账号，跳过Keyword Planner扩展')
