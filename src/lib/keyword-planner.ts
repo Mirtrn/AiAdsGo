@@ -275,41 +275,36 @@ export async function getKeywordSearchVolumes(
 
       try {
         if (config.authType === 'service_account') {
-          // 🆕 服务账号模式：使用 Python 服务
-          console.log('[KeywordPlanner] Using Python service for service account authentication...')
-          const { getKeywordHistoricalMetricsPython } = await import('./python-ads-client')
+          // 🆕 服务账号模式：使用统一入口 google-ads-keyword-planner
+          console.log('[KeywordPlanner] Using service account authentication...')
+          const { getKeywordHistoricalMetrics } = await import('./google-ads-keyword-planner')
 
           for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
             const batch = keywordBatches[batchIndex]
             console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
 
-            const geoTargetId = getGoogleAdsGeoTargetId(country)
-            const languageId = getGoogleAdsLanguageIdString(language)
-
-            const response = await getKeywordHistoricalMetricsPython({
+            const response = await getKeywordHistoricalMetrics({
               userId: userId || 1,
-              serviceAccountId: config.serviceAccountId,
               customerId: config.customerId,
               keywords: batch,
-              language: `languageConstants/${languageId}`,
-              geoTargetConstants: [`geoTargetConstants/${geoTargetId}`],
+              targetCountry: country,
+              targetLanguage: language,
+              authType: 'service_account',
+              serviceAccountId: config.serviceAccountId,
             })
 
             totalApiCalls++
 
-            for (const result of response.results) {
-              if (result.text && result.keyword_metrics) {
-                const metrics = result.keyword_metrics
-                const volume = {
-                  keyword: result.text,
-                  avgMonthlySearches: metrics.avg_monthly_searches || 0,
-                  competition: metrics.competition || 'UNSPECIFIED',
-                  competitionIndex: metrics.competition_index || 0,
-                  lowTopPageBid: (metrics.low_top_of_page_bid_micros || 0) / 1_000_000,
-                  highTopPageBid: (metrics.high_top_of_page_bid_micros || 0) / 1_000_000,
-                }
-                apiVolumes.set(result.text.toLowerCase(), volume)
+            for (const result of response) {
+              const volume = {
+                keyword: result.keyword,
+                avgMonthlySearches: result.avgMonthlySearches,
+                competition: result.competition,
+                competitionIndex: result.competitionIndex,
+                lowTopPageBid: result.lowTopOfPageBidMicros / 1_000_000,
+                highTopPageBid: result.highTopOfPageBidMicros / 1_000_000,
               }
+              apiVolumes.set(result.keyword.toLowerCase(), volume)
             }
           }
 
@@ -663,28 +658,27 @@ export async function getKeywordSuggestions(
   }
 
   try {
-    // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+    // 🔧 修复(2025-12-26): 使用统一入口 google-ads-keyword-planner
     if (config.authType === 'service_account') {
-      const { getKeywordIdeasPython } = await import('./python-ads-client')
-      const geoTargetId = getGoogleAdsGeoTargetId(country)
-      const languageId = getGoogleAdsLanguageIdString(language)
+      const { getKeywordIdeas } = await import('./google-ads-keyword-planner')
 
-      const result = await getKeywordIdeasPython({
+      const result = await getKeywordIdeas({
         userId: userId || 1,
-        serviceAccountId: config.serviceAccountId,
         customerId: config.customerId,
-        keywords: seedKeywords,
-        language: languageId,
-        geoTargetConstants: [geoTargetId],
+        seedKeywords,
+        targetCountry: country,
+        targetLanguage: language,
+        authType: 'service_account',
+        serviceAccountId: config.serviceAccountId,
       })
 
-      return result.results.slice(0, maxResults).map((idea: any) => ({
+      return result.slice(0, maxResults).map((idea) => ({
         keyword: idea.text,
-        avgMonthlySearches: idea.keyword_idea_metrics?.avg_monthly_searches || 0,
-        competition: idea.keyword_idea_metrics?.competition || 'UNSPECIFIED',
-        competitionIndex: idea.keyword_idea_metrics?.competition_index || 0,
-        lowTopOfPageBidMicros: idea.keyword_idea_metrics?.low_top_of_page_bid_micros || 0,
-        highTopOfPageBidMicros: idea.keyword_idea_metrics?.high_top_of_page_bid_micros || 0,
+        avgMonthlySearches: idea.avgMonthlySearches,
+        competition: idea.competition,
+        competitionIndex: idea.competitionIndex,
+        lowTopOfPageBidMicros: idea.lowTopOfPageBidMicros,
+        highTopOfPageBidMicros: idea.highTopOfPageBidMicros,
       }))
     }
 
