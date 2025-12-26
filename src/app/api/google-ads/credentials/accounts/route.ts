@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
-import { createServiceAccountCustomer } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
@@ -308,20 +307,19 @@ async function syncAccountsFromAPI(
 
         try {
           if (isServiceAccount) {
-            // 重新创建客户端，使用不同的login_customer_id
-            customer = createServiceAccountCustomer({
-              clientEmail: serviceAccountConfig.serviceAccountEmail,
-              privateKey: serviceAccountConfig.privateKey,
-              developerToken: serviceAccountConfig.developerToken,
+            // 🔧 修复(2025-12-26): 使用 Python 服务执行 GAQL 查询
+            const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
+            const testQuery = `SELECT customer.id FROM customer WHERE customer.id = ${customerId} LIMIT 1`
+
+            await executeGAQLQueryPython({
+              userId,
+              serviceAccountId: serviceAccountConfig.id.toString(),
               customerId: customerId,
-              loginCustomerId: lcId || undefined,  // null转为undefined，让库省略此header
+              query: testQuery,
             })
 
-            // 🔧 关键修复：立即尝试一个简单的查询来验证权限
-            // 如果权限不足，此处会抛出异常，从而触发下一轮尝试
-            // 🔧 修复(2025-12-25): 服务账号用search()，OAuth用query()
-            const testQuery = `SELECT customer.id FROM customer WHERE customer.id = ${customerId} LIMIT 1`
-            await customer.search({ query: testQuery })
+            // 如果执行成功，创建一个占位customer对象（后续查询会继续使用Python服务）
+            customer = { _isPythonProxy: true, _customerId: customerId }
           } else {
             customer = await getCustomer(
               customerId,
@@ -558,21 +556,30 @@ async function syncAccountsFromAPI(
                 const isChildManager = child.customer_client?.manager || false
                 if (!isChildManager) {
                   try {
-                    let childCustomer: any
+                    const childBudgetQuery = `
+                      SELECT
+                        account_budget.amount_served_micros,
+                        account_budget.approved_spending_limit_micros,
+                        account_budget.proposed_spending_limit_micros
+                      FROM account_budget
+                      WHERE account_budget.status = 'APPROVED'
+                      ORDER BY account_budget.id DESC
+                      LIMIT 1
+                    `
 
+                    let childBudgetInfo
                     if (isServiceAccount) {
-                      // 服务账号模式：使用 @htdangkhoa/google-ads
-                      // 使用成功访问过账户的 login_customer_id
-                      childCustomer = createServiceAccountCustomer({
-                        clientEmail: serviceAccountConfig.serviceAccountEmail,
-                        privateKey: serviceAccountConfig.privateKey,
-                        developerToken: serviceAccountConfig.developerToken,
+                      // 🔧 修复(2025-12-26): 使用 Python 服务执行 GAQL 查询
+                      const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
+                      const result = await executeGAQLQueryPython({
+                        userId,
+                        serviceAccountId: serviceAccountConfig.id.toString(),
                         customerId: childId,
-                        loginCustomerId: effectiveLoginCustomerId || undefined,
+                        query: childBudgetQuery,
                       })
+                      childBudgetInfo = result.results || []
                     } else {
-                      // OAuth 模式：使用 google-ads-api
-                      childCustomer = await getCustomer(
+                      const childCustomer = await getCustomer(
                         childId,
                         credentials.refresh_token,
                         credentials.login_customer_id,
@@ -585,21 +592,9 @@ async function syncAccountsFromAPI(
                         undefined,
                         'oauth'
                       )
+                      childBudgetInfo = extractSearchResults(await childCustomer.query(childBudgetQuery))
                     }
 
-                    const childBudgetQuery = `
-                      SELECT
-                        account_budget.amount_served_micros,
-                        account_budget.approved_spending_limit_micros,
-                        account_budget.proposed_spending_limit_micros
-                      FROM account_budget
-                      WHERE account_budget.status = 'APPROVED'
-                      ORDER BY account_budget.id DESC
-                      LIMIT 1
-                    `
-                    const childBudgetInfo = extractSearchResults(isServiceAccount
-                      ? await childCustomer.search({ query: childBudgetQuery })
-                      : await childCustomer.query(childBudgetQuery))
                     if (childBudgetInfo && childBudgetInfo.length > 0) {
                       const budget = childBudgetInfo[0].account_budget
                       const amountServed = Number(budget?.amount_served_micros || 0)
