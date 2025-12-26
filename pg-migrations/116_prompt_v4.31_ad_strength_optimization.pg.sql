@@ -35,7 +35,7 @@ INSERT INTO prompt_versions (
 ) VALUES (
   'ad_creative_generation',
   'v4.31',
-  'ad_creative',
+  '广告创意生成',
   '广告创意生成v4.31 - Ad Strength优化版',
   'Ad Strength优化版：增加类型多样性、紧迫感、CTA要求',
   'prompts/ad_creative_generation_v4.31.txt',
