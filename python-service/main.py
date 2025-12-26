@@ -6,8 +6,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 from google.ads.googleads.client import GoogleAdsClient
-from google.oauth2 import service_account
 import logging
+import json
+import os
+import tempfile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,24 +62,37 @@ class KeywordIdeasRequest(BaseModel):
 
 def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient:
     """创建 Google Ads 客户端（服务账号认证）"""
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "type": "service_account",
-            "client_email": sa_config.email,
-            "private_key": sa_config.private_key,
-            "token_uri": "https://oauth2.googleapis.com/token",
-        },
-        scopes=["https://www.googleapis.com/auth/adwords"],
-    )
+    # 🔧 修复(2025-12-26): Google Ads Python 客户端需要 json_key_file_path 参数
+    # 将私钥信息写入临时 JSON 文件
+    service_account_info = {
+        "type": "service_account",
+        "client_email": sa_config.email,
+        "private_key": sa_config.private_key,
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
 
-    return GoogleAdsClient.load_from_dict(
-        {
-            "developer_token": sa_config.developer_token,
-            "use_proto_plus": True,
-            "login_customer_id": sa_config.login_customer_id,
-        },
-        credentials,
-    )
+    # 创建临时文件存储服务账号 JSON 密钥
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(service_account_info, f)
+        json_key_file_path = f.name
+
+    try:
+        # 使用临时文件路径创建客户端
+        return GoogleAdsClient.load_from_dict(
+            {
+                "developer_token": sa_config.developer_token,
+                "use_proto_plus": True,
+                "login_customer_id": sa_config.login_customer_id,
+                "json_key_file_path": json_key_file_path,
+            },
+        )
+    finally:
+        # 清理临时文件
+        try:
+            os.unlink(json_key_file_path)
+            logger.debug(f"清理临时文件: {json_key_file_path}")
+        except Exception as e:
+            logger.warn(f"清理临时文件失败: {e}")
 
 
 @app.post("/api/keyword-planner/historical-metrics")
