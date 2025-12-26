@@ -62,8 +62,6 @@ class KeywordIdeasRequest(BaseModel):
 
 def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient:
     """创建 Google Ads 客户端（服务账号认证）"""
-    # 🔧 修复(2025-12-26): Google Ads Python 客户端需要 json_key_file_path 参数
-    # 将私钥信息写入临时 JSON 文件
     service_account_info = {
         "type": "service_account",
         "client_email": sa_config.email,
@@ -71,28 +69,25 @@ def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient
         "token_uri": "https://oauth2.googleapis.com/token",
     }
 
-    # 创建临时文件存储服务账号 JSON 密钥
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(service_account_info, f)
         json_key_file_path = f.name
 
+    client = GoogleAdsClient.load_from_dict(
+        {
+            "developer_token": sa_config.developer_token,
+            "use_proto_plus": True,
+            "login_customer_id": sa_config.login_customer_id,
+            "json_key_file_path": json_key_file_path,
+        },
+    )
+
     try:
-        # 使用临时文件路径创建客户端
-        return GoogleAdsClient.load_from_dict(
-            {
-                "developer_token": sa_config.developer_token,
-                "use_proto_plus": True,
-                "login_customer_id": sa_config.login_customer_id,
-                "json_key_file_path": json_key_file_path,
-            },
-        )
-    finally:
-        # 清理临时文件
-        try:
-            os.unlink(json_key_file_path)
-            logger.debug(f"清理临时文件: {json_key_file_path}")
-        except Exception as e:
-            logger.warn(f"清理临时文件失败: {e}")
+        os.unlink(json_key_file_path)
+    except Exception as e:
+        logger.warning(f"清理临时文件失败: {e}")
+
+    return client
 
 
 @app.post("/api/keyword-planner/historical-metrics")
@@ -223,6 +218,8 @@ class GAQLQueryRequest(BaseModel):
 async def execute_gaql_query(request: GAQLQueryRequest):
     """执行 GAQL 查询（用于 Performance Sync、Campaign 查询等）"""
     try:
+        from google.protobuf.json_format import MessageToDict
+
         client = create_google_ads_client(request.service_account)
         ga_service = client.get_service("GoogleAdsService")
 
@@ -232,22 +229,7 @@ async def execute_gaql_query(request: GAQLQueryRequest):
 
         results = []
         for row in response:
-            # 将 protobuf 对象转换为字典
-            row_dict = {}
-            for field in row._pb.DESCRIPTOR.fields:
-                field_name = field.name
-                if hasattr(row, field_name):
-                    value = getattr(row, field_name)
-                    # 处理嵌套对象
-                    if hasattr(value, "_pb"):
-                        nested_dict = {}
-                        for nested_field in value._pb.DESCRIPTOR.fields:
-                            nested_name = nested_field.name
-                            if hasattr(value, nested_name):
-                                nested_dict[nested_name] = getattr(value, nested_name)
-                        row_dict[field_name] = nested_dict
-                    else:
-                        row_dict[field_name] = value
+            row_dict = MessageToDict(row._pb, preserving_proto_field_name=True)
             results.append(row_dict)
 
         return {"results": results}
