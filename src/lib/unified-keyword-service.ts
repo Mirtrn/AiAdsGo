@@ -15,6 +15,7 @@
 
 import { getKeywordSearchVolumes } from './keyword-planner'
 import { getKeywordIdeas } from './google-ads-keyword-planner'
+import { getUserAuthType } from './google-ads-oauth'
 import { PLATFORMS, BRAND_PATTERNS, DEFAULTS, THRESHOLD_LEVELS, CATEGORY_SYNONYMS } from './keyword-constants'
 
 // ============================================
@@ -76,6 +77,9 @@ export interface KeywordServiceParams {
   refreshToken?: string
   accountId?: number
   userId?: number
+  // 认证类型（支持服务账号模式）
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
   // 可选配置
   minSearchVolume?: number
   maxKeywords?: number
@@ -1197,6 +1201,8 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
     refreshToken,
     accountId,
     userId,
+    authType = 'oauth',
+    serviceAccountId,
     minSearchVolume = 100,  // 多轮扩展使用较低阈值
     maxKeywords = 500
   } = params
@@ -1207,6 +1213,7 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
   console.log(`品牌: ${offer.brand}`)
   console.log(`品类: ${offer.category || '未分类'}`)
   console.log(`国家: ${country}, 语言: ${language}`)
+  console.log(`认证方式: ${authType}`)
 
   // 1. 构建意图感知种子词池
   console.log('\n📍 Step 1: 构建意图感知种子词池')
@@ -1245,7 +1252,8 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
           targetLanguage: language,
           accountId,
           userId,
-          authType: 'oauth',
+          authType,
+          serviceAccountId,
         })
 
         console.log(`   📋 Keyword Planner 返回 ${keywordIdeas.length} 个建议`)
@@ -1456,6 +1464,8 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
     refreshToken,
     accountId,
     userId,
+    authType = 'oauth',
+    serviceAccountId,
     minSearchVolume = 500,
     maxKeywords = 500
   } = params
@@ -1465,6 +1475,7 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
   console.log('='.repeat(60))
   console.log(`品牌: ${offer.brand}`)
   console.log(`国家: ${country}, 语言: ${language}`)
+  console.log(`认证方式: ${authType}`)
 
   const results: UnifiedKeywordData[] = []
   const keywordMap = new Map<string, UnifiedKeywordData>()
@@ -1494,7 +1505,8 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
         targetLanguage: language,
         accountId,
         userId,
-        authType: 'oauth',
+        authType,
+        serviceAccountId,
       })
 
       console.log(`   📋 Keyword Planner 返回 ${keywordIdeas.length} 个关键词建议`)
@@ -1858,6 +1870,9 @@ export async function expandKeywordsWithSeeds(params: {
   clientId?: string
   clientSecret?: string
   developerToken?: string
+  // 认证类型（支持服务账号模式）
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
   minSearchVolume?: number
   maxKeywords?: number
 }): Promise<UnifiedKeywordData[]> {
@@ -1873,9 +1888,13 @@ export async function expandKeywordsWithSeeds(params: {
     clientId,
     clientSecret,
     developerToken,
+    authType = 'oauth',
+    serviceAccountId,
     minSearchVolume = 500,
     maxKeywords = 100
   } = params
+
+  console.log(`认证方式: ${authType}`)
 
   if (!expansionSeeds || expansionSeeds.length === 0) {
     return []
@@ -1922,7 +1941,8 @@ export async function expandKeywordsWithSeeds(params: {
         targetLanguage: language,
         userId,
         accountId,
-        authType: 'oauth',
+        authType,
+        serviceAccountId,
       })
 
       console.log(`   📋 Keyword Planner 返回 ${keywordIdeas.length} 个关键词建议`)
