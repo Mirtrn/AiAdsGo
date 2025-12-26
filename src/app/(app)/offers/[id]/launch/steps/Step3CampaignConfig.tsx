@@ -83,7 +83,9 @@ const calculateDynamicCpc = (
     INR: 8.3,
   }
 
-  return Math.max(suggestedCpc, minCpc[currency] || 0.10)
+  // 🔧 修复(2025-12-26): 四舍五入到计费单位（0.01货币单位）
+  const rawCpc = Math.max(suggestedCpc, minCpc[currency] || 0.10)
+  return Math.round(rawCpc * 100) / 100
 }
 
 interface Props {
