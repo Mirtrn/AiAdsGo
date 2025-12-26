@@ -277,13 +277,13 @@ export async function getKeywordSearchVolumes(
         if (config.authType === 'service_account') {
           // 🆕 服务账号模式：使用统一入口 google-ads-keyword-planner
           console.log('[KeywordPlanner] Using service account authentication...')
-          const { getKeywordHistoricalMetrics } = await import('./google-ads-keyword-planner')
+          const { getKeywordMetrics } = await import('./google-ads-keyword-planner')
 
           for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
             const batch = keywordBatches[batchIndex]
             console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
 
-            const response = await getKeywordHistoricalMetrics({
+            const response = await getKeywordMetrics({
               userId: userId || 1,
               customerId: config.customerId,
               keywords: batch,
@@ -677,8 +677,8 @@ export async function getKeywordSuggestions(
         avgMonthlySearches: idea.avgMonthlySearches,
         competition: idea.competition,
         competitionIndex: idea.competitionIndex,
-        lowTopOfPageBidMicros: idea.lowTopOfPageBidMicros,
-        highTopOfPageBidMicros: idea.highTopOfPageBidMicros,
+        lowTopPageBid: idea.lowTopOfPageBidMicros ? idea.lowTopOfPageBidMicros / 1000000 : 0,
+        highTopPageBid: idea.highTopOfPageBidMicros ? idea.highTopOfPageBidMicros / 1000000 : 0,
       }))
     }
 
