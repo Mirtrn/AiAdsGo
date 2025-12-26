@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { verifyAuth } from '@/lib/auth'
+import { invalidateOfferCache } from '@/lib/api-cache'
 
 export async function POST(
   request: NextRequest,
@@ -52,6 +53,9 @@ export async function POST(
       'INSERT INTO offer_blacklist (user_id, brand, target_country, offer_id) VALUES (?, ?, ?, ?)',
       [userId, offer.brand, offer.target_country, offerId]
     )
+
+    // 使缓存失效
+    invalidateOfferCache(userId)
 
     return NextResponse.json({
       success: true,
@@ -110,6 +114,9 @@ export async function DELETE(
     if (deletedCount === 0) {
       return NextResponse.json({ error: '该品牌+国家组合不在黑名单中' }, { status: 404 })
     }
+
+    // 使缓存失效
+    invalidateOfferCache(userId)
 
     return NextResponse.json({
       success: true,
