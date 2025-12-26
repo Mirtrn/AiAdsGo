@@ -12,13 +12,44 @@ import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
-import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
 
 // 代理URL配置项接口
 interface ProxyUrlConfig {
   country: string
   url: string
   error?: string  // 验证错误信息
+}
+
+// 简单的客户端代理URL格式验证
+function validateProxyUrlFormat(url: string): { isValid: boolean; error?: string } {
+  if (!url.trim()) {
+    return { isValid: true } // 空值在保存时处理
+  }
+
+  // IPRocket 格式
+  if (url.includes('api.iprocket.io')) {
+    return { isValid: true }
+  }
+
+  // Oxylabs 格式 (https://username:password@pr.oxylabs.io:port)
+  if (url.includes('oxylabs.io')) {
+    return { isValid: true }
+  }
+
+  // Abcproxy / 通用格式 (host:port:username:password)
+  if (/^[a-zA-Z0-9.-]+:\d+:[^:]+:[^:]+$/.test(url)) {
+    return { isValid: true }
+  }
+
+  // HTTP/HTTPS 代理格式
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return { isValid: true }
+  }
+
+  return {
+    isValid: false,
+    error: '不支持的代理URL格式。当前仅支持：IPRocket、Oxylabs、Abcproxy'
+  }
 }
 
 // Google Ads账户接口
@@ -444,17 +475,12 @@ export default function SettingsPage() {
       }
     }
 
-    // 🔥 验证代理URL格式
+    // 🔥 验证代理URL格式（使用简单客户端验证，避免打包playwright）
     if (field === 'url' && value.trim()) {
-      if (!ProxyProviderRegistry.isSupported(value)) {
-        setProxyUrls(prev => prev.map((item, i) =>
-          i === index ? { ...item, error: '不支持的代理URL格式。当前仅支持：IPRocket、Oxylabs、Abcproxy' } : item
-        ))
-      } else {
-        setProxyUrls(prev => prev.map((item, i) =>
-          i === index ? { ...item, error: undefined } : item
-        ))
-      }
+      const validation = validateProxyUrlFormat(value)
+      setProxyUrls(prev => prev.map((item, i) =>
+        i === index ? { ...item, error: validation.error } : item
+      ))
     }
 
     setProxyUrls(prev => prev.map((item, i) =>
