@@ -720,8 +720,9 @@ export async function getKeywordSuggestions(
     }
 
     // 🔧 修复(2025-12-26): gRPC调用需要手动传递metadata（含developer-token）
+    // 🔧 修复(2025-12-27): 添加类型断言以解决authType类型推断问题
     let response
-    if (config.authType === 'service_account') {
+    if ((config.authType as AuthType) === 'service_account') {
       // 从customer获取包含developer-token的metadata
       const metadata = (customer as any).callMetadata
       response = await new Promise((resolve, reject) => {
