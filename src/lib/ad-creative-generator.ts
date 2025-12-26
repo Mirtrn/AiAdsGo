@@ -8,6 +8,7 @@ import type {
 import type { Offer } from './offers'
 import { creativeCache, generateCreativeCacheKey } from './cache'
 import { getKeywordSearchVolumes } from './keyword-planner'
+import { getUserAuthType } from './google-ads-oauth'
 import { clusterKeywordsByIntent } from './offer-keyword-pool'  // 🔥 AI语义分类
 import { generateContent, getGeminiMode } from './gemini'
 import { generateNegativeKeywords } from './keyword-generator'  // 🎯 新增：导入否定关键词生成函数
@@ -3107,11 +3108,15 @@ export async function generateAdCreative(
     if (keywordsNeedVolume.length > 0) {
       console.log(`   📊 查询 ${keywordsNeedVolume.length} 个关键词的搜索量...`)
       try {
+        // 🔧 修复(2025-12-26): 支持服务账号模式
+        const auth = await getUserAuthType(userId)
         const volumes = await getKeywordSearchVolumes(
           keywordsNeedVolume.map(k => k.keyword),
           targetCountry,
           language,
-          userId
+          userId,
+          auth.authType,
+          auth.serviceAccountId
         )
         // 更新searchVolume
         keywordsNeedVolume.forEach(kw => {
@@ -3368,7 +3373,9 @@ export async function generateAdCreative(
       } else {
         // 步骤2: 缓存中没有，通过Keyword Planner API查询
         console.log(`   📡 步骤2: 全局缓存无数据，调用Keyword Planner API查询...`)
-        const volumes = await getKeywordSearchVolumes([offerBrand], targetCountry, langCode, userId)
+        // 🔧 修复(2025-12-26): 支持服务账号模式
+        const auth = await getUserAuthType(userId)
+        const volumes = await getKeywordSearchVolumes([offerBrand], targetCountry, langCode, userId, auth.authType, auth.serviceAccountId)
         if (volumes.length > 0 && volumes[0].avgMonthlySearches > 0) {
           brandSearchVolume = volumes[0].avgMonthlySearches
           console.log(`   ✅ Keyword Planner API查询到搜索量: ${brandSearchVolume}/月`)
