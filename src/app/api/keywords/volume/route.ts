@@ -48,17 +48,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (error: any) {
     console.error('[KeywordsVolume] Error:', error)
-
-    // 检查是否为 Keyword Planner 权限错误
-    if (error.message?.startsWith('KEYWORD_PLANNER_REQUIRES_OAUTH|')) {
-      const message = error.message.split('|')[1] || 'Keyword Planner API 需要 OAuth 授权模式'
-      return NextResponse.json({
-        error: message,
-        errorCode: 'KEYWORD_PLANNER_REQUIRES_OAUTH',
-        requiresOAuth: true
-      }, { status: 403 })
-    }
-
     return NextResponse.json({ error: 'Failed to fetch keyword volumes' }, { status: 500 })
   }
 }

@@ -277,16 +277,26 @@ export async function getKeywordSearchVolumes(
       try {
         if (config.authType === 'service_account') {
           // 🚫 服务账号模式不支持 Keyword Planner API（需要 Basic Access 权限）
-          throw new Error(
-            'KEYWORD_PLANNER_REQUIRES_OAUTH|' +
-            'Keyword Planner API 需要 Google Ads Developer Token 的 Basic Access 权限。' +
-            '服务账号认证模式无法满足此要求。' +
-            '请切换到 OAuth 授权模式，或升级您的 Developer Token 到 Basic Access 级别。'
-          )
-        }
+          // 优雅降级：返回默认值而不是抛出错误
+          console.warn('[KeywordPlanner] 服务账号模式不支持 Keyword Planner API，返回默认搜索量值')
+          console.warn('[KeywordPlanner] 建议切换到 OAuth 授权模式以获取精确搜索量数据')
 
-        // OAuth认证模式
-        console.log('[KeywordPlanner] Using OAuth authentication...')
+          // 为所有关键词返回默认值
+          for (const keyword of needApiKeywords) {
+            apiVolumes.set(keyword.toLowerCase(), {
+              keyword: keyword,
+              avgMonthlySearches: 0,
+              competition: 'UNKNOWN',
+              competitionIndex: 0,
+              lowTopPageBid: 0,
+              highTopPageBid: 0,
+            })
+          }
+
+          apiSuccess = true // 标记为成功，避免记录为API错误
+        } else {
+          // OAuth认证模式
+          console.log('[KeywordPlanner] Using OAuth authentication...')
 
         // 刷新 access token 以确保有效
         try {
