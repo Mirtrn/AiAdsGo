@@ -319,7 +319,7 @@ export async function POST(request: NextRequest) {
       ORDER BY created_at DESC LIMIT 1
     `, [userId]) as { id: string } | undefined
 
-    if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
+    if (!serviceAccount && (!credentials || !credentials.refresh_token)) {
       const error = new AppError(ErrorCode.GADS_CREDENTIALS_INVALID, {
         userId,
         reason: 'OAuth refresh token or service account configuration missing'
