@@ -16,7 +16,7 @@
 
 import type { Task } from '../types'
 import { getDatabase } from '@/lib/db'
-import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import {
   createGoogleAdsCampaign,
   createGoogleAdsAdGroup,
@@ -176,9 +176,13 @@ export async function executeCampaignPublish(
       ORDER BY created_at DESC LIMIT 1
     `, [userId]) as { id: string } | undefined
 
-    if ((!credentials || !credentials!.refresh_token) && !serviceAccount) {
+    if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
       throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
     }
+
+    // 获取认证类型和服务账号ID
+    const auth = await getUserAuthType(userId)
+    const refreshToken = credentials?.refresh_token || ''
 
     // 3. 根据货币获取CPC默认值
     const getDefaultCPC = (currency: string): number => {
@@ -228,7 +232,7 @@ export async function executeCampaignPublish(
 
     const { campaignId: googleCampaignId } = await createGoogleAdsCampaign({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials!.refresh_token,
+      refreshToken: refreshToken,
       campaignName: campaignName, // 🔥 使用规范化命名
       budgetAmount: campaignConfig.budgetAmount,
       budgetType: campaignConfig.budgetType,
@@ -250,7 +254,7 @@ export async function executeCampaignPublish(
     totalApiOperations++ // Ad group creation = 1 operation
     const { adGroupId: googleAdGroupId } = await createGoogleAdsAdGroup({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials!.refresh_token,
+      refreshToken: refreshToken,
       campaignId: googleCampaignId,
       adGroupName: adGroupName, // 🔥 使用规范化命名
       cpcBidMicros: effectiveMaxCpcBid * 1000000, // 🔥 使用相同的货币适配CPC
@@ -442,12 +446,14 @@ export async function executeCampaignPublish(
       totalApiOperations += keywordOperations.length
       await createGoogleAdsKeywordsBatch({
         customerId: adsAccount.customer_id,
-        refreshToken: credentials!.refresh_token,
+        refreshToken: refreshToken,
         adGroupId: googleAdGroupId,
         keywords: keywordOperations,
         accountId: adsAccount.id,
         userId,
-        loginCustomerId: finalLoginCustomerId
+        loginCustomerId: finalLoginCustomerId,
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId
       })
       keywordsCount = keywordOperations.length
       console.log(`  ✅ [串行1/3] 成功添加${keywordsCount}个关键词`)
@@ -459,12 +465,14 @@ export async function executeCampaignPublish(
       totalApiOperations += negativeKeywordOperations.length
       await createGoogleAdsKeywordsBatch({
         customerId: adsAccount.customer_id,
-        refreshToken: credentials!.refresh_token,
+        refreshToken: refreshToken,
         adGroupId: googleAdGroupId,
         keywords: negativeKeywordOperations,
         accountId: adsAccount.id,
         userId,
-        loginCustomerId: finalLoginCustomerId
+        loginCustomerId: finalLoginCustomerId,
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId
       })
       negativeKeywordsCount = negativeKeywordOperations.length
       console.log(`  ✅ [串行2/3] 成功添加${negativeKeywordsCount}个否定关键词`)
@@ -485,7 +493,7 @@ export async function executeCampaignPublish(
     totalApiOperations++
     const adResult = await createGoogleAdsResponsiveSearchAd({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials!.refresh_token,
+      refreshToken: refreshToken,
       adGroupId: googleAdGroupId,
       headlines: optimizedHeadlines,
       descriptions: creative.descriptions.slice(0, 4),
@@ -494,7 +502,9 @@ export async function executeCampaignPublish(
       path2: creative.path2 || undefined,
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: finalLoginCustomerId
+      loginCustomerId: finalLoginCustomerId,
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId
     })
     console.log(`  ✅ [串行3/3] 广告创建成功 (Google ID: ${adResult.adId})`)
 
@@ -514,12 +524,14 @@ export async function executeCampaignPublish(
     totalApiOperations += finalCallouts.length + 1
     await createGoogleAdsCalloutExtensions({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials!.refresh_token,
+      refreshToken: refreshToken,
       campaignId: googleCampaignId,
       callouts: finalCallouts,
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: finalLoginCustomerId
+      loginCustomerId: finalLoginCustomerId,
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId
     })
     console.log(`  ✅ [串行1/2] 成功添加${finalCallouts.length}个Callout扩展`)
 
@@ -527,12 +539,14 @@ export async function executeCampaignPublish(
     totalApiOperations += formattedSitelinks.length + 1
     await createGoogleAdsSitelinkExtensions({
       customerId: adsAccount.customer_id,
-      refreshToken: credentials!.refresh_token,
+      refreshToken: refreshToken,
       campaignId: googleCampaignId,
       sitelinks: formattedSitelinks,
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: finalLoginCustomerId
+      loginCustomerId: finalLoginCustomerId,
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId
     })
     console.log(`  ✅ [串行2/2] 成功添加${formattedSitelinks.length}个Sitelink扩展`)
 
@@ -546,7 +560,7 @@ export async function executeCampaignPublish(
         totalApiOperations++
         await updateGoogleAdsCampaignStatus({
           customerId: adsAccount.customer_id,
-          refreshToken: credentials!.refresh_token,
+          refreshToken: refreshToken,
           campaignId: googleCampaignId,
           status: 'ENABLED',
           accountId: adsAccount.id,
