@@ -222,7 +222,9 @@ export async function executeCampaignPublish(
     // 注意: 营销目标设置已移除 (2025-12-26)
     // Google Ads会自动推断营销目标，无需手动设置
     totalApiOperations++ // Campaign creation = 1 operation
-    const effectiveMaxCpcBid = campaignConfig.maxCpcBid || getDefaultCPC(adsAccount.currency)
+    // 🔧 修复(2025-12-26): 确保CPC是计费单位的倍数（10000微单位）
+    const rawCpcBid = campaignConfig.maxCpcBid || getDefaultCPC(adsAccount.currency)
+    const effectiveMaxCpcBid = Math.round(rawCpcBid * 100) / 100  // 四舍五入到0.01
 
     // 使用关联命名规范（优先）或规范化命名或回退到占位符
     const campaignName = task.data.naming?.associativeCampaignName

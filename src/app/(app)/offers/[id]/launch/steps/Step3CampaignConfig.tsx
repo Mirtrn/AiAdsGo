@@ -370,6 +370,11 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
     if (config.maxCpcBid <= 0) {
       errors.push('CPC出价必须大于0')
     }
+    // 🔧 修复(2025-12-26): 验证CPC是计费单位的倍数
+    const cpcMicros = Math.round(config.maxCpcBid * 1000000)
+    if (cpcMicros % 10000 !== 0) {
+      errors.push(`CPC出价必须是计费单位的倍数（0.01 ${accountCurrency}）`)
+    }
 
     // Keywords Level
     if (config.keywords.length === 0) {
@@ -717,7 +722,13 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   value={config.maxCpcBid}
                   onChange={(e) => {
                     const value = parseFloat(e.target.value)
-                    handleChange('maxCpcBid', isNaN(value) ? 0 : value)
+                    if (isNaN(value) || value <= 0) {
+                      handleChange('maxCpcBid', 0)
+                    } else {
+                      // 🔧 修复(2025-12-26): 自动四舍五入到计费单位（0.01货币单位）
+                      const roundedValue = Math.round(value * 100) / 100
+                      handleChange('maxCpcBid', roundedValue)
+                    }
                     // 🆕 P0-1优化：手动修改CPC时关闭动态CPC
                     if (enableDynamicCpc) {
                       setEnableDynamicCpc(false)
