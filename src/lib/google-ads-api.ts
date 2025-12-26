@@ -3,7 +3,6 @@ import { updateGoogleAdsAccount } from './google-ads-accounts'
 import { withRetry } from './retry'
 import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 import { getUserOnlySetting } from './settings'
-import { getServiceAccountAccessToken } from './google-ads-service-account'
 
 /**
  * 从数据库获取用户的Google Ads凭证
@@ -291,28 +290,6 @@ export async function getCustomer(
   }
 
   const client = getGoogleAdsClient(credentials)
-
-  // 服务账号认证模式
-  if (authType === 'service_account' && serviceAccountConfig) {
-    try {
-      const accessToken = await getServiceAccountAccessToken({
-        clientEmail: serviceAccountConfig.clientEmail,
-        privateKey: serviceAccountConfig.privateKey,
-        mccCustomerId: serviceAccountConfig.mccCustomerId,
-        developerToken: credentials.developer_token
-      })
-
-      const customer = client.Customer({
-        customer_id: customerId,
-        refresh_token: accessToken,
-        login_customer_id: loginCustomerId,
-      })
-
-      return customer
-    } catch (error: any) {
-      throw new Error(`服务账号认证失败: ${error.message}`)
-    }
-  }
 
   // OAuth认证模式（原有逻辑）
   try {
