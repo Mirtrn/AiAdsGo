@@ -81,11 +81,23 @@ export async function POST(
 
     // 如果没有提供种子关键词，使用品牌名称
     if (finalSeedKeywords.length === 0) {
+      const brandWords = offer.brand.split(/\s+/)
+      const firstWord = brandWords[0]
+
       finalSeedKeywords = [
         offer.brand,
         `${offer.brand} official`,
         `${offer.brand} store`,
       ]
+
+      // 如果品牌名有多个词，添加第一个词的变体
+      if (brandWords.length > 1) {
+        finalSeedKeywords.push(
+          firstWord,
+          `${firstWord} professional`,
+          `${firstWord} products`
+        )
+      }
     }
 
     console.log(`获取关键词建议: seeds=${finalSeedKeywords.join(', ')}, url=${useUrl ? offer.url : 'none'}`)
