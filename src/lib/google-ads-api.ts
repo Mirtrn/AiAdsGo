@@ -1755,8 +1755,15 @@ export async function createGoogleAdsCalloutExtensions(params: {
   const assetIds: string[] = []
 
   try {
+    // 🔧 修复(2025-12-26): 确保所有calloutText都是字符串
+    const validCallouts = params.callouts.filter((text): text is string => typeof text === 'string' && text.trim().length > 0)
+    if (validCallouts.length === 0) {
+      console.warn('⚠️ 没有有效的Callout文本，跳过创建')
+      return { assetIds: [] }
+    }
+
     // Step 1: Create Callout Assets
-    const assetOperations = params.callouts.map(calloutText => ({
+    const assetOperations = validCallouts.map(calloutText => ({
       callout_asset: {
         callout_text: calloutText.substring(0, 25) // Google Ads限制：最多25个字符
       }

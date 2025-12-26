@@ -653,7 +653,8 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
             operations=campaign_asset_operations,
         )
 
-        return {"success": True}
+        # 🔧 修复(2025-12-26): 返回 asset_resource_names 供 Node.js 解析
+        return {"success": True, "asset_resource_names": [r.resource_name for r in asset_response.results]}
 
     except Exception as e:
         logger.error(f"Create callout extensions error: {e}")
@@ -715,7 +716,8 @@ async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
             operations=campaign_asset_operations,
         )
 
-        return {"success": True}
+        # 🔧 修复(2025-12-26): 返回 asset_resource_names 供 Node.js 解析
+        return {"success": True, "asset_resource_names": [r.resource_name for r in asset_response.results]}
 
     except Exception as e:
         logger.error(f"[user_id={user_id}] Create sitelink extensions error: {e}")
