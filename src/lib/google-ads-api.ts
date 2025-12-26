@@ -1009,6 +1009,44 @@ export async function listGoogleAdsCampaigns(params: {
     }
   }
 
+  const authType = params.authType || 'oauth'
+
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (authType === 'service_account') {
+    const { executePythonGAQL } = await import('./python-ads-client')
+    const { getServiceAccountConfig } = await import('./google-ads-service-account')
+    const saConfig = await getServiceAccountConfig(params.userId, params.serviceAccountId)
+
+    const query = `
+      SELECT
+        campaign.id,
+        campaign.name,
+        campaign.status,
+        campaign.advertising_channel_type,
+        campaign.start_date,
+        campaign.end_date,
+        campaign_budget.amount_micros
+      FROM campaign
+      WHERE campaign.status != 'REMOVED'
+      ORDER BY campaign.name
+    `
+
+    const response = await executePythonGAQL({
+      serviceAccount: saConfig,
+      customerId: params.customerId,
+      query
+    })
+
+    const results = response.results || []
+
+    // 缓存结果（30分钟TTL）
+    gadsApiCache.set(cacheKey, results)
+    console.log(`💾 已缓存Campaigns列表: ${params.customerId} (${results.length}个)`)
+
+    return results
+  }
+
+  // OAuth模式
   const customer = await getCustomerWithCredentials({
     ...params,
     authType: params.authType,
