@@ -3,6 +3,7 @@ import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib
 import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
+import { executeGAQLQueryPython } from '@/lib/python-ads-client'
 
 /**
  * 统一的 Mutate 操作（支持 OAuth 和服务账号两种认证模式）
@@ -172,7 +173,7 @@ export async function PUT(
 
     // 根据认证模式选择正确的查询方法
     const campaignResults = useServiceAccount
-      ? await customer.search({ query: campaignQuery })
+      ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query: campaignQuery })
       : await customer.query(campaignQuery)
 
     if (campaignResults.length === 0) {
@@ -207,7 +208,7 @@ export async function PUT(
 
       // 根据认证模式选择正确的查询方法
       const adGroups = useServiceAccount
-        ? await customer.search({ query: adGroupQuery })
+        ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query: adGroupQuery })
         : await customer.query(adGroupQuery)
 
       if (adGroups.length === 0) {

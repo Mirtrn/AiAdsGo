@@ -14,6 +14,7 @@ import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from './goo
 import { getServiceAccountConfig } from './google-ads-service-account'
 import { getDatabase } from './db'
 import type { AdStrengthRating } from './ad-strength-evaluator'
+import { executeGAQLQueryPython } from './python-ads-client'
 
 /**
  * 获取Google Ads客户端（支持服务账号和OAuth两种模式）
@@ -21,7 +22,7 @@ import type { AdStrengthRating } from './ad-strength-evaluator'
 async function getGoogleAdsClient(
   customerId: string,
   userId: number
-): Promise<any> {
+): Promise<{ customer: any; useServiceAccount: boolean; serviceAccountId?: string }> {
   const db = await getDatabase()
 
   // 获取账号信息（包含refresh_token和serviceAccountId）
@@ -49,32 +50,39 @@ async function getGoogleAdsClient(
       throw new Error('未找到服务账号配置')
     }
 
-    return getCustomerWithCredentials({
-      customerId,
-      accountId: account.id,
-      userId,
-      loginCustomerId: account.parent_mcc_id || credentials.login_customer_id,
-      authType: 'service_account',
-      serviceAccountId: account.service_account_id,
-    })
+    return {
+      customer: await getCustomerWithCredentials({
+        customerId,
+        accountId: account.id,
+        userId,
+        loginCustomerId: account.parent_mcc_id || credentials.login_customer_id,
+        authType: 'service_account',
+        serviceAccountId: account.service_account_id,
+      }),
+      useServiceAccount: true,
+      serviceAccountId: account.service_account_id
+    }
   } else {
     // OAuth模式
     if (!account.refresh_token) {
       throw new Error('Google Ads账号缺少refresh token')
     }
 
-    return getCustomerWithCredentials({
-      customerId,
-      refreshToken: account.refresh_token,
-      loginCustomerId: account.parent_mcc_id || credentials.login_customer_id,
-      credentials: {
-        client_id: credentials.client_id,
-        client_secret: credentials.client_secret,
-        developer_token: credentials.developer_token,
-      },
-      accountId: account.id,
-      userId,
-    })
+    return {
+      customer: await getCustomerWithCredentials({
+        customerId,
+        refreshToken: account.refresh_token,
+        loginCustomerId: account.parent_mcc_id || credentials.login_customer_id,
+        credentials: {
+          client_id: credentials.client_id,
+          client_secret: credentials.client_secret,
+          developer_token: credentials.developer_token,
+        },
+        accountId: account.id,
+        userId,
+      }),
+      useServiceAccount: false
+    }
   }
 }
 
@@ -140,7 +148,7 @@ export async function getAdStrength(
 ): Promise<GoogleAdStrengthResponse | null> {
   try {
     // 使用统一的客户端获取方法（支持服务账号和OAuth）
-    const customer = await getGoogleAdsClient(customerId, userId)
+    const { customer, useServiceAccount, serviceAccountId } = await getGoogleAdsClient(customerId, userId)
 
     // GAQL查询：获取Ad Strength
     const query = `
@@ -155,7 +163,9 @@ export async function getAdStrength(
       LIMIT 1
     `
 
-    const results = await customer.query(query)
+    const results = useServiceAccount
+      ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })
+      : await customer.query(query)
 
     if (results.length === 0) {
       console.log('⚠️ 未找到已发布的响应式搜索广告')
@@ -200,7 +210,7 @@ export async function getAdStrengthRecommendations(
 ): Promise<AdStrengthRecommendation[]> {
   try {
     // 使用统一的客户端获取方法（支持服务账号和OAuth）
-    const customer = await getGoogleAdsClient(customerId, userId)
+    const { customer, useServiceAccount, serviceAccountId } = await getGoogleAdsClient(customerId, userId)
 
     // GAQL查询：获取Ad Strength改进建议
     const query = `
@@ -217,7 +227,9 @@ export async function getAdStrengthRecommendations(
       LIMIT 10
     `
 
-    const results = await customer.query(query)
+    const results = useServiceAccount
+      ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })
+      : await customer.query(query)
 
     const recommendations: AdStrengthRecommendation[] = results.map((rec: any) => {
       const recData = rec.recommendation.responsive_search_ad_improve_ad_strength_recommendation
@@ -258,7 +270,7 @@ export async function getAssetPerformance(
 ): Promise<AssetPerformanceData[]> {
   try {
     // 使用统一的客户端获取方法（支持服务账号和OAuth）
-    const customer = await getGoogleAdsClient(customerId, userId)
+    const { customer, useServiceAccount, serviceAccountId } = await getGoogleAdsClient(customerId, userId)
 
     // GAQL查询：获取资产性能（Headline和Description）
     const query = `
@@ -279,7 +291,9 @@ export async function getAssetPerformance(
       LIMIT 50
     `
 
-    const results = await customer.query(query)
+    const results = useServiceAccount
+      ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })
+      : await customer.query(query)
 
     const assetPerformance: AssetPerformanceData[] = results.map((row: any) => ({
       assetId: row.asset.id.toString(),

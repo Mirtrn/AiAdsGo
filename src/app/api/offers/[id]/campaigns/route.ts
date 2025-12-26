@@ -3,6 +3,7 @@ import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib
 import { findGoogleAdsAccountById, findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
+import { executeGAQLQueryPython } from '@/lib/python-ads-client'
 
 /**
  * GET /api/offers/:id/campaigns
@@ -120,7 +121,7 @@ export async function GET(
 
     // 根据认证模式选择正确的查询方法
     const campaigns = useServiceAccount
-      ? await customer.search({ query })
+      ? await executeGAQLQueryPython({ userId: parseInt(userId), serviceAccountId, customerId, query })
       : await customer.query(query)
 
     // 提取CPC信息

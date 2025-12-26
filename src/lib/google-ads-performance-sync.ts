@@ -12,6 +12,7 @@ import { saveCreativePerformance, PerformanceData } from './bonus-score-calculat
 import { getGoogleAdsCredentials, getUserAuthType } from './google-ads-oauth'
 import { getCustomerWithCredentials } from './google-ads-api'
 import { getServiceAccountConfig } from './google-ads-service-account'
+import { executeGAQLQueryPython } from './python-ads-client'
 
 interface SyncResult {
   success: boolean
@@ -28,7 +29,9 @@ export async function syncCreativePerformance(
   adCreativeId: number,
   userId: string,
   customer: any,
-  customerID: string
+  customerID: string,
+  useServiceAccount: boolean = false,
+  serviceAccountId?: string
 ): Promise<boolean> {
   try {
     const db = await getDatabase()
@@ -72,7 +75,9 @@ export async function syncCreativePerformance(
         AND ad_group_ad.status = 'ENABLED'
     `
 
-    const results = await customer.query(query)
+    const results = useServiceAccount
+      ? await executeGAQLQueryPython({ userId: parseInt(userId), serviceAccountId, customerId: customerID, query })
+      : await customer.query(query)
 
     if (results.length === 0) {
       console.warn(`No performance data found for campaign ${creative.google_campaign_id}`)
@@ -131,7 +136,9 @@ export async function syncCreativePerformance(
 export async function syncAllCreativesPerformance(
   userId: string,
   customer: any,
-  customerID: string
+  customerID: string,
+  useServiceAccount: boolean = false,
+  serviceAccountId?: string
 ): Promise<SyncResult> {
   const db = await getDatabase()
   const syncDate = new Date().toISOString().split('T')[0]
@@ -158,7 +165,9 @@ export async function syncAllCreativesPerformance(
         creative.id,
         userId,
         customer,
-        customerID
+        customerID,
+        useServiceAccount,
+        serviceAccountId
       )
 
       if (success) {
@@ -230,7 +239,7 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
     // 使用统一入口获取 Customer 实例（自动选择 OAuth 或服务账号）
     const customer = await getCustomerWithCredentials({
       customerId: account.customer_id,
-      refreshToken: credentials.refresh_token,
+      refreshToken: credentials.refresh_token || '',
       accountId: account.id,
       userId: userIdNum,
       loginCustomerId: account.parent_mcc_id || undefined,
@@ -238,7 +247,13 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       serviceAccountId: auth.serviceAccountId,
     })
 
-    return await syncAllCreativesPerformance(userId, customer, account.customer_id)
+    return await syncAllCreativesPerformance(
+      userId,
+      customer,
+      account.customer_id,
+      auth.authType === 'service_account',
+      auth.serviceAccountId
+    )
   } catch (error) {
     return {
       success: false,

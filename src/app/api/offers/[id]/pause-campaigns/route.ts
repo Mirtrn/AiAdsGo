@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { updateGoogleAdsCampaignStatus } from '@/lib/google-ads-api'
 import { getDecryptedCredentials } from '@/lib/google-ads-accounts'
+import { getUserAuthType } from '@/lib/google-ads-oauth'
 
 interface RouteContext {
   params: {
@@ -103,6 +104,9 @@ export async function POST(
     let pausedCount = 0
     let errorCount = 0
 
+    // 获取用户认证类型
+    const auth = await getUserAuthType(offer.user_id)
+
     // 4. 按账号批量暂停广告系列
     for (const [accountIdStr, accountCampaigns] of Object.entries(campaignsByAccount)) {
       const accountId = parseInt(accountIdStr)
@@ -111,17 +115,28 @@ export async function POST(
         // 获取Google Ads账号凭证
         const accountCredentials = await getDecryptedCredentials(accountId, offer.user_id)
 
-        if (!accountCredentials || !accountCredentials.refreshToken) {
-          // 账号凭证不存在或认证信息缺失，标记失败
-          const errorMsg = !accountCredentials
-            ? 'Google Ads账号凭证不存在'
-            : 'Google Ads账号认证信息缺失（需要OAuth）'
+        if (!accountCredentials) {
+          // 账号凭证不存在，标记失败
           accountCampaigns.forEach(campaign => {
             results.push({
               campaignId: campaign.id,
               campaignName: campaign.campaign_name,
               success: false,
-              error: errorMsg
+              error: 'Google Ads账号凭证不存在'
+            })
+            errorCount++
+          })
+          continue
+        }
+
+        // 服务账号模式不需要 refreshToken
+        if (auth.authType === 'oauth' && !accountCredentials.refreshToken) {
+          accountCampaigns.forEach(campaign => {
+            results.push({
+              campaignId: campaign.id,
+              campaignName: campaign.campaign_name,
+              success: false,
+              error: 'Google Ads账号认证信息缺失（需要OAuth）'
             })
             errorCount++
           })
@@ -138,7 +153,9 @@ export async function POST(
               campaignId: campaign.google_campaign_id,
               status: 'PAUSED',
               accountId: accountId,
-              userId: offer.user_id
+              userId: offer.user_id,
+              authType: auth.authType,
+              serviceAccountId: auth.serviceAccountId
             })
 
             // 更新数据库状态
