@@ -250,6 +250,6 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 - [ ] 至少2个利益导向标题
 
 如果不满足任何关键要求，重新生成。',
-  1,
+  true,
   NOW()
 );
