@@ -1,6 +1,43 @@
 import { getDatabase } from './db'
 
 /**
+ * 获取用户的Google Ads授权方式
+ * 优先使用OAuth，无OAuth时使用服务账号
+ * @returns { authType: 'oauth' | 'service_account', serviceAccountId?: string }
+ */
+export async function getUserAuthType(userId: number): Promise<{
+  authType: 'oauth' | 'service_account'
+  serviceAccountId?: string
+}> {
+  const db = await getDatabase()
+
+  // 检查OAuth配置
+  const credentials = await db.queryOne(
+    `SELECT refresh_token FROM google_ads_credentials WHERE user_id = ?`,
+    [userId]
+  ) as { refresh_token: string | null } | undefined
+
+  if (credentials?.refresh_token) {
+    return { authType: 'oauth' }
+  }
+
+  // 检查服务账号配置
+  const serviceAccount = await db.queryOne(
+    `SELECT id FROM google_ads_service_accounts
+     WHERE user_id = ? AND is_active = 1
+     ORDER BY created_at DESC LIMIT 1`,
+    [userId]
+  ) as { id: string } | undefined
+
+  if (serviceAccount) {
+    return { authType: 'service_account', serviceAccountId: serviceAccount.id }
+  }
+
+  // 默认返回OAuth（即使未配置）
+  return { authType: 'oauth' }
+}
+
+/**
  * 格式化并验证 Google Ads 客户 ID
  * 移除空格和横杠，确保是10位数字字符串
  * @throws Error 如果格式无效

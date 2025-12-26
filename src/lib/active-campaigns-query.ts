@@ -5,7 +5,7 @@
  */
 
 import { getDatabase } from './db'
-import { getGoogleAdsCredentials } from './google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from './google-ads-oauth'
 import { listGoogleAdsCampaigns } from './google-ads-api'
 import {
   categorizeCampaigns,
@@ -82,15 +82,15 @@ export async function queryActiveCampaigns(
 
   // 3. 查询Google Ads账号中的所有广告系列
   console.log(`🔍 查询Google Ads账号 ${adsAccount.customer_id} 中的广告系列...`)
+  const auth = await getUserAuthType(userId)
   const allCampaigns = await listGoogleAdsCampaigns({
     customerId: adsAccount.customer_id,
     refreshToken: credentials?.refresh_token || '',
     accountId: googleAdsAccountId,
     userId,
     loginCustomerId: finalLoginCustomerId,
-    // 🔧 修复(2025-12-26): OAuth优先于服务账号
-    authType: credentials?.refresh_token ? 'oauth' : 'service_account',
-    serviceAccountId: serviceAccount?.id,
+    authType: auth.authType,
+    serviceAccountId: auth.serviceAccountId,
   })
 
   // 4. 转换为简化格式
@@ -172,6 +172,7 @@ export async function pauseCampaigns(
   const { updateGoogleAdsCampaignStatus } = await import('./google-ads-api')
 
   // 逐个暂停（串行执行，避免并发冲突）
+  const auth = await getUserAuthType(userId)
   for (const campaign of campaigns) {
     try {
       console.log(`⏸️ 暂停广告系列: ${campaign.name} (${campaign.id})`)
@@ -183,9 +184,8 @@ export async function pauseCampaigns(
         accountId: googleAdsAccountId,
         userId,
         loginCustomerId: finalLoginCustomerId,
-        // 🔧 修复(2025-12-26): OAuth优先于服务账号
-        authType: credentials?.refresh_token ? 'oauth' : 'service_account',
-        serviceAccountId: serviceAccount?.id,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
       })
       console.log(`✅ 成功暂停: ${campaign.name}`)
     } catch (error) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findCampaignById, updateCampaign } from '@/lib/campaigns'
 import { findGoogleAdsAccountById } from '@/lib/google-ads-accounts'
 import { createGoogleAdsCampaign } from '@/lib/google-ads-api'
+import { getUserAuthType } from '@/lib/google-ads-oauth'
 
 /**
  * POST /api/campaigns/:id/sync
@@ -70,6 +71,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     })
 
     try {
+      // 获取用户授权方式
+      const auth = await getUserAuthType(parseInt(userId, 10))
+
       // 创建Google Ads广告系列
       const result = await createGoogleAdsCampaign({
         customerId: googleAdsAccount.customerId,
@@ -82,8 +86,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         endDate: campaign.endDate || undefined,
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
-        authType: googleAdsAccount.refreshToken ? 'oauth' : 'service_account',
-        serviceAccountId: googleAdsAccount.serviceAccountId || undefined,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
       })
 
       // 更新Campaign，标记为已同步
