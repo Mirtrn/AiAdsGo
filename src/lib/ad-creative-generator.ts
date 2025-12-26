@@ -2544,7 +2544,48 @@ export async function generateAdCreative(
   } = {}
 
   try {
-    if ((offer as any).extracted_keywords) {
+    // 🔥 修复(2025-12-26): 优先从关键词池获取关键词，而非使用旧的extracted_keywords
+    // 关键词池已经过Keyword Planner扩展验证，包含高质量关键词
+    const { getKeywordPoolByOfferId } = await import('./offer-keyword-pool')
+    const keywordPool = await getKeywordPoolByOfferId(offer.id)
+
+    if (keywordPool && keywordPool.totalKeywords > 0) {
+      // 根据bucket类型选择关键词
+      const bucket = options?.bucket || 'A'
+      let poolKeywords: any[] = []
+
+      switch (bucket) {
+        case 'A':
+          poolKeywords = [...keywordPool.brandKeywords, ...keywordPool.bucketAKeywords]
+          break
+        case 'B':
+          poolKeywords = [...keywordPool.brandKeywords, ...keywordPool.bucketBKeywords]
+          break
+        case 'C':
+          poolKeywords = [...keywordPool.brandKeywords, ...keywordPool.bucketCKeywords]
+          break
+        case 'S':
+        default:
+          // 综合桶：包含所有桶的关键词
+          poolKeywords = [
+            ...keywordPool.brandKeywords,
+            ...keywordPool.bucketAKeywords,
+            ...keywordPool.bucketBKeywords,
+            ...keywordPool.bucketCKeywords
+          ]
+      }
+
+      // 转换为extractedElements格式
+      extractedElements.keywords = poolKeywords.map(kw => ({
+        keyword: kw.keyword,
+        searchVolume: kw.searchVolume || 0,
+        source: 'KEYWORD_POOL',
+        priority: kw.priority || 'HIGH'
+      }))
+
+      console.log(`🎯 从关键词池#${keywordPool.id} 获取 ${poolKeywords.length} 个关键词 (bucket ${bucket})`)
+    } else if ((offer as any).extracted_keywords) {
+      // Fallback: 关键词池不存在时，使用旧的extracted_keywords
       const rawKeywords = JSON.parse((offer as any).extracted_keywords)
 
       // 🔧 修复(2025-12-17): 兼容两种数据格式
