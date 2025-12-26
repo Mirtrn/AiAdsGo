@@ -1,7 +1,8 @@
-import { getUnifiedGoogleAdsClient, AuthType, getLoginCustomerId } from './google-ads-service-account'
+import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from './google-ads-api'
+import { getGoogleAdsCredentials } from './google-ads-oauth'
+import { getLoginCustomerId, AuthType } from './google-ads-service-account'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { getGoogleAdsLanguageCode, getGoogleAdsGeoTargetId } from './language-country-codes'
-import { getGoogleAdsCredentialsFromDB } from './google-ads-api'
 
 /**
  * 🔧 修复(2025-12-24): 获取 KeywordPlanIdeaService
@@ -104,6 +105,12 @@ export async function getKeywordIdeas(params: {
     developer_token: creds.developer_token
   }
 
+  // OAuth模式：获取 refresh_token
+  const oauthCredentials = await getGoogleAdsCredentials(params.userId)
+  if (!oauthCredentials?.refresh_token) {
+    throw new Error('OAuth refresh token not found')
+  }
+
   const loginCustomerId = await getLoginCustomerId({
     authConfig: {
       authType,
@@ -113,14 +120,14 @@ export async function getKeywordIdeas(params: {
     oauthCredentials: { login_customer_id: creds.login_customer_id }
   })
 
-  const customer = await getUnifiedGoogleAdsClient({
+  // 使用统一入口获取 Customer 实例
+  const customer = await getCustomerWithCredentials({
     customerId: params.customerId,
-    credentials,
-    authConfig: {
-      authType,
-      userId: params.userId,
-      serviceAccountId: params.serviceAccountId
-    }
+    refreshToken: oauthCredentials.refresh_token,
+    userId: params.userId,
+    loginCustomerId,
+    authType,
+    serviceAccountId: params.serviceAccountId,
   })
 
   // API追踪
@@ -280,22 +287,18 @@ export async function getKeywordMetrics(params: {
     }))
   }
 
-  // OAuth模式：使用原有逻辑
-  const creds = await getGoogleAdsCredentialsFromDB(params.userId)
-  const credentials = {
-    client_id: creds.client_id,
-    client_secret: creds.client_secret,
-    developer_token: creds.developer_token
+  // OAuth模式：使用统一入口
+  const oauthCredentials = await getGoogleAdsCredentials(params.userId)
+  if (!oauthCredentials?.refresh_token) {
+    throw new Error('OAuth refresh token not found')
   }
 
-  const customer = await getUnifiedGoogleAdsClient({
+  const customer = await getCustomerWithCredentials({
     customerId: params.customerId,
-    credentials,
-    authConfig: {
-      authType,
-      userId: params.userId,
-      serviceAccountId: params.serviceAccountId
-    }
+    refreshToken: oauthCredentials.refresh_token,
+    userId: params.userId,
+    authType,
+    serviceAccountId: params.serviceAccountId,
   })
 
   // API追踪

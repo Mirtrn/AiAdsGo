@@ -10,7 +10,8 @@
 import { getDatabase } from './db'
 import { saveCreativePerformance, PerformanceData } from './bonus-score-calculator'
 import { getGoogleAdsCredentials } from './google-ads-oauth'
-import { getServiceAccountConfig, getUnifiedGoogleAdsClient } from './google-ads-service-account'
+import { getCustomerWithCredentials } from './google-ads-api'
+import { getServiceAccountConfig } from './google-ads-service-account'
 
 interface SyncResult {
   success: boolean
@@ -226,19 +227,15 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       throw new Error('No active Google Ads account found')
     }
 
-    // 使用统一客户端（自动选择 OAuth 或服务账号）
-    const customer = await getUnifiedGoogleAdsClient({
+    // 使用统一入口获取 Customer 实例（自动选择 OAuth 或服务账号）
+    const customer = await getCustomerWithCredentials({
       customerId: account.customer_id,
-      credentials: {
-        client_id: credentials.client_id,
-        client_secret: credentials.client_secret,
-        developer_token: credentials.developer_token,
-      },
-      authConfig: {
-        authType,
-        userId: userIdNum,
-        serviceAccountId: serviceAccount?.id.toString(),
-      },
+      refreshToken: credentials.refresh_token,
+      accountId: account.id,
+      userId: userIdNum,
+      loginCustomerId: account.parent_mcc_id || undefined,
+      authType: authType as 'oauth' | 'service_account',
+      serviceAccountId: serviceAccount?.id.toString(),
     })
 
     return await syncAllCreativesPerformance(userId, customer, account.customer_id)
