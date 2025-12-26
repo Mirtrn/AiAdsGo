@@ -923,14 +923,14 @@ export async function getGoogleAdsCampaign(params: {
   accountId?: number
   userId: number
   skipCache?: boolean
-  loginCustomerId?: string  // 🔧 添加MCC权限参数
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<any> {
-  // 生成缓存键
   const cacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
     campaignId: params.campaignId
   })
 
-  // 检查缓存（除非显式跳过）
   if (!params.skipCache) {
     const cached = gadsApiCache.get(cacheKey)
     if (cached) {
@@ -938,8 +938,6 @@ export async function getGoogleAdsCampaign(params: {
       return cached
     }
   }
-
-  const customer = await getCustomerWithCredentials(params)
 
   const query = `
     SELECT
@@ -958,10 +956,25 @@ export async function getGoogleAdsCampaign(params: {
     WHERE campaign.id = ${params.campaignId}
   `
 
-  const results = await customer.query(query)
+  const authType = params.authType || 'oauth'
+  let results: any[]
+
+  if (authType === 'service_account') {
+    const { executeGAQLQueryPython } = await import('./python-ads-client')
+    const result = await executeGAQLQueryPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      query,
+    })
+    results = result.results || []
+  } else {
+    const customer = await getCustomerWithCredentials(params)
+    results = await customer.query(query)
+  }
+
   const result = results[0] || null
 
-  // 缓存结果（30分钟TTL）
   if (result) {
     gadsApiCache.set(cacheKey, result)
     console.log(`💾 已缓存Campaign数据: ${params.campaignId}`)
@@ -1491,7 +1504,9 @@ export async function getAdGroupPerformance(params: {
   endDate: string
   accountId: number
   userId: number
-  loginCustomerId?: string  // 🔧 添加MCC权限参数
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<Array<{
   date: string
   impressions: number
@@ -1502,8 +1517,6 @@ export async function getAdGroupPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomerWithCredentials(params)
-
   const query = `
     SELECT
       segments.date,
@@ -1521,7 +1534,22 @@ export async function getAdGroupPerformance(params: {
   `
 
   try {
-    const response = await customer.query(query)
+    const authType = params.authType || 'oauth'
+    let response: any[]
+
+    if (authType === 'service_account') {
+      const { executeGAQLQueryPython } = await import('./python-ads-client')
+      const result = await executeGAQLQueryPython({
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountId,
+        customerId: params.customerId,
+        query,
+      })
+      response = result.results || []
+    } else {
+      const customer = await getCustomerWithCredentials(params)
+      response = await customer.query(query)
+    }
 
     const performanceData = response.map((row: any) => ({
       date: row.segments?.date || '',
@@ -1561,7 +1589,9 @@ export async function getAdPerformance(params: {
   endDate: string
   accountId: number
   userId: number
-  loginCustomerId?: string  // 🔧 添加MCC权限参数
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<Array<{
   date: string
   impressions: number
@@ -1572,8 +1602,6 @@ export async function getAdPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomerWithCredentials(params)
-
   const query = `
     SELECT
       segments.date,
@@ -1591,7 +1619,22 @@ export async function getAdPerformance(params: {
   `
 
   try {
-    const response = await customer.query(query)
+    const authType = params.authType || 'oauth'
+    let response: any[]
+
+    if (authType === 'service_account') {
+      const { executeGAQLQueryPython } = await import('./python-ads-client')
+      const result = await executeGAQLQueryPython({
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountId,
+        customerId: params.customerId,
+        query,
+      })
+      response = result.results || []
+    } else {
+      const customer = await getCustomerWithCredentials(params)
+      response = await customer.query(query)
+    }
 
     const performanceData = response.map((row: any) => ({
       date: row.segments?.date || '',
@@ -1631,7 +1674,9 @@ export async function getBatchCampaignPerformance(params: {
   endDate: string
   accountId: number
   userId: number
-  loginCustomerId?: string  // 🔧 添加MCC权限参数
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<Record<string, Array<{
   date: string
   impressions: number
@@ -1642,9 +1687,6 @@ export async function getBatchCampaignPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>>> {
-  const customer = await getCustomerWithCredentials(params)
-
-  // Construct IN clause for multiple campaign IDs
   const campaignIdList = params.campaignIds.join(',')
 
   const query = `
@@ -1665,7 +1707,22 @@ export async function getBatchCampaignPerformance(params: {
   `
 
   try {
-    const response = await customer.query(query)
+    const authType = params.authType || 'oauth'
+    let response: any[]
+
+    if (authType === 'service_account') {
+      const { executeGAQLQueryPython } = await import('./python-ads-client')
+      const result = await executeGAQLQueryPython({
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountId,
+        customerId: params.customerId,
+        query,
+      })
+      response = result.results || []
+    } else {
+      const customer = await getCustomerWithCredentials(params)
+      response = await customer.query(query)
+    }
 
     // Group by campaign ID
     const performanceByCampaign: Record<string, any[]> = {}
