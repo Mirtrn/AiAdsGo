@@ -57,7 +57,7 @@ def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient
             "use_proto_plus": True,
             "login_customer_id": sa_config.login_customer_id,
         },
-        credentials=credentials,
+        credentials,
     )
 
 
