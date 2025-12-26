@@ -50,6 +50,8 @@ export interface GenerateAdCreativeOptions {
   referencePerformance?: any
   skipCache?: boolean
   excludeKeywords?: string[] // 需要排除的关键词（用于多次生成时避免重复）
+  excludeHeadlines?: string[] // 🆕 需要避免的已生成headlines（用于批量生成多样性）
+  diversityTheme?: string // 🆕 当前创意的差异化主题（价格/功能/评价/品牌）
   // 🆕 v4.10: 关键词池参数
   keywordPool?: any  // OfferKeywordPool
   bucket?: 'A' | 'B' | 'C' | 'S'  // 🆕 2025-12-16: 添加S（综合）桶支持

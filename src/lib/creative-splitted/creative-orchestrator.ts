@@ -224,7 +224,7 @@ export async function generateAdCreative(
 
 /**
  * ✅ 批量生成创意
- * TODO: 实现批量生成逻辑
+ * 增强多样性机制：主题轮换 + headlines排除
  */
 export async function generateAdCreativesBatch(
   offerId: number,
@@ -236,28 +236,40 @@ export async function generateAdCreativesBatch(
 
   const results: Array<GeneratedAdCreativeData & { ai_model: string }> = []
   const excludeKeywords: string[] = options.excludeKeywords || []
+  const excludeHeadlines: string[] = [] // 累积已生成的headlines
+
+  // 🆕 主题轮换策略（确保多样性）
+  const diversityThemes = [
+    '价格优惠和促销活动（强调折扣、限时优惠、性价比）',
+    '产品功能和技术特性（强调性能参数、创新技术、核心功能）',
+    '用户评价和社会证明（强调好评、销量、用户推荐）',
+    '品牌权威和���任背书（强调官方渠道、品牌历史、质量保证）'
+  ]
 
   for (let i = 0; i < count; i++) {
     try {
       const creative = await generateAdCreative(offerId, userId, {
         ...options,
-        excludeKeywords
+        excludeKeywords,
+        excludeHeadlines: excludeHeadlines.length > 0 ? excludeHeadlines : undefined,
+        diversityTheme: diversityThemes[i % diversityThemes.length] // 轮换主题
       })
 
       results.push(creative)
 
-      // 累积排除的关键词以避免重复
+      // 累积已生成的headlines（用于下一轮避免重复）
       if (creative.headlines) {
         const headlineTexts = creative.headlines.map((h: any) => {
-          // 支持字符串或对象格式
           if (typeof h === 'string') return h
           if (h && typeof h === 'object' && 'text' in h) return h.text
           return ''
         }).filter(text => text)
+
+        excludeHeadlines.push(...headlineTexts)
         excludeKeywords.push(...headlineTexts)
       }
 
-      console.log(`[generateAdCreativesBatch] 完成第 ${i + 1}/${count} 个创意`)
+      console.log(`[generateAdCreativesBatch] 完成第 ${i + 1}/${count} 个创意（主题: ${diversityThemes[i % diversityThemes.length]}）`)
     } catch (error) {
       console.error(`[generateAdCreativesBatch] 第 ${i + 1} 个创意生成失败:`, error)
       // 继续生成下一个

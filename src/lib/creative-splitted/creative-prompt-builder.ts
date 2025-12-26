@@ -92,14 +92,47 @@ export async function buildPrompt(
   console.log('[buildPrompt] 模板加载完成')
 
   // 2. 注入变量
-  const prompt = injectVariables(template, variables)
+  let prompt = injectVariables(template, variables)
   console.log('[buildPrompt] 变量注入完成')
 
-  // 3. 添加主题特定指导（如果有）
+  // 3. 添加多样性约束（批量生成时）
+  if (options.excludeHeadlines && options.excludeHeadlines.length > 0) {
+    const diversitySection = `
+
+## 🔥 多样性约束 (CRITICAL)
+
+**⚠️ 已生成的Headlines（必须避免重复）**:
+${options.excludeHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n')}
+
+**强制要求**:
+1. 新生成的15个headlines必须与上述已有headlines完全不同
+2. 不得使用相同的核心词组或表达方式
+3. 必须从不同角度切入（如：价格优惠 vs 功能特性 vs 用户评价）
+4. 相似度必须<30%（避免仅改动1-2个词）
+`
+    prompt += diversitySection
+    console.log(`[buildPrompt] 添加多样性约束: ${options.excludeHeadlines.length}个已有headlines`)
+  }
+
+  // 4. 添加差异化主题指导
+  if (options.diversityTheme) {
+    const themeSection = `
+
+**🎯 本轮创意主题**: ${options.diversityTheme}
+请确保所有headlines围绕此主题展开，与其他主题的创意形成差异。
+`
+    prompt += themeSection
+    console.log(`[buildPrompt] 添加差异化主题: ${options.diversityTheme}`)
+  }
+
+  // 5. 添加主题特定指导（如果有）
   if (options.theme) {
-    const themeSection = `\n\n**主题指导**: ${options.theme}\n请确保创意符合此主题。`
+    const themeSection = `
+
+**主题指导**: ${options.theme}
+请确保创意符合此主题。`
     console.log(`[buildPrompt] 添加主题指导: ${options.theme}`)
-    return prompt + themeSection
+    prompt += themeSection
   }
 
   console.log('[buildPrompt] 提示构建完成')
