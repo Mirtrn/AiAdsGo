@@ -22,7 +22,7 @@ INSERT INTO prompt_versions (
 ) VALUES (
   'ad_creative_generation',
   'v4.30',
-  'ad_creative',
+  '广告创意生成',
   '广告创意生成v4.30 - 明确Keywords数量+精简标记',
   'Keywords统一为15个，减少CRITICAL标记，优化用词',
   'src/lib/ad-creative-generator.ts',
