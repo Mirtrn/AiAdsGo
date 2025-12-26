@@ -2,6 +2,10 @@
 -- Date: 2025-12-26
 -- Description: Keywords统一为15个，减少CRITICAL标记，优化用词
 
+-- 删除可能存在的 v4.30（幂等性）
+DELETE FROM prompt_versions
+WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.30';
+
 -- 停用旧版本
 UPDATE prompt_versions
 SET is_active = 0
