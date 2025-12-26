@@ -17,11 +17,15 @@ app = FastAPI(title="Google Ads Service Account API")
 
 def validate_login_customer_id(v: str) -> str:
     """验证并格式化 login_customer_id"""
+    # 记录原始值（调试用）
+    logger.info(f"Validating login_customer_id: original='{v}'")
     # 移除空格和横杠
     formatted = v.replace(' ', '').replace('-', '')
     # 验证必须是10位数字
     if not formatted.isdigit() or len(formatted) != 10:
+        logger.error(f"Invalid login_customer_id: original='{v}', formatted='{formatted}'")
         raise ValueError(f"login_customer_id must be a 10-digit number, got: '{v}' (formatted: '{formatted}')")
+    logger.info(f"Validated login_customer_id: formatted='{formatted}'")
     return formatted
 
 
