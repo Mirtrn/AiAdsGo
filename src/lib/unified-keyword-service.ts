@@ -1881,8 +1881,34 @@ export async function expandKeywordsWithSeeds(params: {
     return []
   }
 
-  console.log(`\n🔄 使用 ${expansionSeeds.length} 个种子词扩展关键词`)
-  expansionSeeds.forEach((seed, i) => console.log(`   ${i + 1}. "${seed}"`))
+  // 🔧 优化(2025-12-26): 多词品牌名添加首词种子词变体
+  // 解决：当品牌名为"Wahl Professional"时，Keyword Planner只返回包含完整品牌名的关键词，
+  // 无法获取"wahl detailer"、"wahl peanut"等只包含首词的产品型号关键词
+  let finalSeedKeywords = [...expansionSeeds]
+
+  if (brandName && brandName.includes(' ')) {
+    const brandWords = brandName.split(/\s+/)
+    const firstWord = brandWords[0]
+
+    // 添加首词变体（仅当原始种子词中没有这些变体时）
+    const additionalSeeds = [
+      firstWord,
+      `${firstWord.toLowerCase()} ${brandWords.slice(1).join(' ').toLowerCase()}`,
+      `${firstWord.toLowerCase()} products`
+    ]
+
+    for (const seed of additionalSeeds) {
+      if (!finalSeedKeywords.some(s => s.toLowerCase() === seed.toLowerCase())) {
+        finalSeedKeywords.push(seed)
+        console.log(`   + 首词变体种子词: "${seed}"`)
+      }
+    }
+
+    console.log(`   📊 种子词增强: ${expansionSeeds.length} → ${finalSeedKeywords.length} 个`)
+  }
+
+  console.log(`\n🔄 使用 ${finalSeedKeywords.length} 个种子词扩展关键词`)
+  finalSeedKeywords.forEach((seed, i) => console.log(`   ${i + 1}. "${seed}"`))
 
   const keywordMap = new Map<string, UnifiedKeywordData>()
 
@@ -1891,7 +1917,7 @@ export async function expandKeywordsWithSeeds(params: {
     if (customerId && userId) {
       const keywordIdeas = await getKeywordIdeas({
         customerId,
-        seedKeywords: expansionSeeds,
+        seedKeywords: finalSeedKeywords,  // 使用增强后的种子词
         targetCountry: country,
         targetLanguage: language,
         userId,
