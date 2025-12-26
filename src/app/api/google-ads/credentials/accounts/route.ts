@@ -419,10 +419,20 @@ async function syncAccountsFromAPI(
 
       try {
         // 先查询基本信息（不包含 status，避免权限问题）
-        // 🔧 修复(2025-12-25): OAuth模式使用query()，服务账号模式使用search()
-        const searchResult = isServiceAccount
-          ? await customer.search({ query: basicAccountInfoQuery })
-          : await customer.query(basicAccountInfoQuery)
+        // 🔧 修复(2025-12-26): 服务账号模式调用Python服务，OAuth模式使用query()
+        let searchResult
+        if (isServiceAccount) {
+          const { executePythonGAQL } = await import('@/lib/python-ads-client')
+          const { getServiceAccountConfig } = await import('@/lib/google-ads-service-account')
+          const saConfig = await getServiceAccountConfig(userId)
+          searchResult = await executePythonGAQL({
+            serviceAccount: saConfig,
+            customerId: customerId,
+            query: basicAccountInfoQuery
+          })
+        } else {
+          searchResult = await customer.query(basicAccountInfoQuery)
+        }
 
         accountInfo = extractSearchResults(searchResult)
 
@@ -434,9 +444,19 @@ async function syncAccountsFromAPI(
               FROM customer
               WHERE customer.id = ${customerId}
             `
-            const statusResult = isServiceAccount
-              ? await customer.search({ query: statusQuery })
-              : await customer.query(statusQuery)
+            let statusResult
+            if (isServiceAccount) {
+              const { executePythonGAQL } = await import('@/lib/python-ads-client')
+              const { getServiceAccountConfig } = await import('@/lib/google-ads-service-account')
+              const saConfig = await getServiceAccountConfig(userId)
+              statusResult = await executePythonGAQL({
+                serviceAccount: saConfig,
+                customerId: customerId,
+                query: statusQuery
+              })
+            } else {
+              statusResult = await customer.query(statusQuery)
+            }
             const statusInfo = extractSearchResults(statusResult)
             if (statusInfo && statusInfo.length > 0) {
               rawStatus = statusInfo[0].customer?.status
