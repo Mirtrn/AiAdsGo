@@ -12,11 +12,13 @@ import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
+import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
 
 // 代理URL配置项接口
 interface ProxyUrlConfig {
   country: string
   url: string
+  error?: string  // 验证错误信息
 }
 
 // Google Ads账户接口
@@ -442,6 +444,19 @@ export default function SettingsPage() {
       }
     }
 
+    // 🔥 验证代理URL格式
+    if (field === 'url' && value.trim()) {
+      if (!ProxyProviderRegistry.isSupported(value)) {
+        setProxyUrls(prev => prev.map((item, i) =>
+          i === index ? { ...item, error: '不支持的代理URL格式。当前仅支持：IPRocket、Oxylabs、Abcproxy' } : item
+        ))
+      } else {
+        setProxyUrls(prev => prev.map((item, i) =>
+          i === index ? { ...item, error: undefined } : item
+        ))
+      }
+    }
+
     setProxyUrls(prev => prev.map((item, i) =>
       i === index ? { ...item, [field]: value } : item
     ))
@@ -658,6 +673,14 @@ export default function SettingsPage() {
 
         if (validProxyUrls.length === 0) {
           toast.error('代理设置至少需要配置一个代理URL')
+          setSaving(false)
+          return
+        }
+
+        // 🔥 检查是否有验证错误
+        const proxyWithErrors = proxyUrls.filter(item => item.error)
+        if (proxyWithErrors.length > 0) {
+          toast.error(`存在不支持的代理URL格式，请修改后保存`)
           setSaving(false)
           return
         }
@@ -1458,7 +1481,7 @@ export default function SettingsPage() {
                       </p>
                       <p className="text-xs text-blue-600 flex items-center gap-1">
                         <Info className="w-3 h-3 flex-shrink-0" />
-                        当前已支持IPRocket、Oxylabs、Abcproxy和通用代理
+                        当前已支持IPRocket、Oxylabs、Abcproxy三种代理格式
                       </p>
 
                       {/* 代理URL格式说明 */}
@@ -1501,17 +1524,6 @@ export default function SettingsPage() {
                               host:port:username:password
                             </div>
                           </div>
-
-                          {/* 通用其他格式 */}
-                          <div className="bg-white p-3 rounded border border-purple-200">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">其他通用代理</span>
-                              <span className="text-slate-600">直接格式 - 仅支持HTTP/HTTPS</span>
-                            </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                              host:port:username:password
-                            </div>
-                          </div>
                         </div>
 
                         <div className="mt-3 pt-3 border-t border-slate-200">
@@ -1520,7 +1532,7 @@ export default function SettingsPage() {
                             <span>
                               <strong>处理策略：</strong>
                               <br />• IPRocket：先调用API获取代理IP，再使用代理IP访问
-                              <br />• Oxylabs/Abcproxy/其他通用代理：直接从URL提取参数，使用代理发起12次访问进行预热
+                              <br />• Oxylabs/Abcproxy：直接从URL提取参数，使用代理发起12次访问进行预热
                             </span>
                           </p>
                         </div>
@@ -1566,7 +1578,14 @@ export default function SettingsPage() {
                                 value={item.url}
                                 onChange={(e) => updateProxyUrl(index, 'url', e.target.value)}
                                 placeholder="https://api.iprocket.io/api?username=xxx&password=xxx&cc=ROW&ips=1&proxyType=http&responseType=txt"
+                                className={item.error ? 'border-red-500' : ''}
                               />
+                              {item.error && (
+                                <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3" />
+                                  {item.error}
+                                </p>
+                              )}
                             </div>
                             <div className="flex-shrink-0 pt-6">
                               <Button
