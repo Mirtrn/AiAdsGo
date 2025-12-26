@@ -426,8 +426,15 @@ function filterAndRankKeywords(
 ): EnhancedKeyword[] {
   const { minSearchVolume = 100, maxCPC = 50 } = options
 
+  // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
+  const hasAnyVolume = keywords.some(kw => kw.searchVolume > 0)
+
   return keywords
-    .filter((kw) => kw.searchVolume >= minSearchVolume && kw.cpc <= maxCPC)
+    .filter((kw) => {
+      // 如果没有搜索量数据，跳过搜索量过滤
+      if (!hasAnyVolume) return kw.cpc <= maxCPC
+      return kw.searchVolume >= minSearchVolume && kw.cpc <= maxCPC
+    })
     .sort((a, b) => {
       // 按优先级排序
       const priorityOrder = { HIGH: 0, MEDIUM: 1, LOW: 2 }

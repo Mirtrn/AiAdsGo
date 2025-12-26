@@ -723,11 +723,19 @@ export async function clusterKeywordsByIntent(
       )
 
       // 过滤掉搜索量为0的关键词（API未返回数据）
-      const validKeywords = metricsResults
-        .filter((kw: any) => kw.avgMonthlySearches > 0)
-        .map((kw: any) => kw.keyword)
+      // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留所有关键词
+      const hasAnyVolume = metricsResults.some((kw: any) => kw.avgMonthlySearches > 0)
+      let validKeywords: string[]
 
-      console.log(`✅ 高购买意图词搜索量查询完成: ${validKeywords.length}/${highIntentKeywords.length} 个有搜索量`)
+      if (hasAnyVolume) {
+        validKeywords = metricsResults
+          .filter((kw: any) => kw.avgMonthlySearches > 0)
+          .map((kw: any) => kw.keyword)
+        console.log(`✅ 高购买意图词搜索量查询完成: ${validKeywords.length}/${highIntentKeywords.length} 个有搜索量`)
+      } else {
+        validKeywords = highIntentKeywords
+        console.log(`⚠️ 所有高购买意图词搜索量为0（可能是服务账号模式），保留所有关键词`)
+      }
 
       // 只保留有搜索量的关键词
       if (validKeywords.length > 0) {
@@ -2332,11 +2340,16 @@ export async function getSyntheticBucketKeywords(
       nonBrandWithVolume.sort((a, b) => b.searchVolume - a.searchVolume)
 
       // 过滤低于阈值的关键词
-      nonBrandWithVolume = nonBrandWithVolume.filter(
-        kw => kw.searchVolume >= config.minSearchVolume
-      )
-
-      console.log(`   获取搜索量成功，过滤后剩余: ${nonBrandWithVolume.length}个`)
+      // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
+      const hasAnyVolume = nonBrandWithVolume.some(kw => kw.searchVolume > 0)
+      if (hasAnyVolume) {
+        nonBrandWithVolume = nonBrandWithVolume.filter(
+          kw => kw.searchVolume >= config.minSearchVolume
+        )
+        console.log(`   获取搜索量成功，过滤后剩余: ${nonBrandWithVolume.length}个`)
+      } else {
+        console.log(`   ⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤`)
+      }
     } catch (error: any) {
       console.warn(`   ⚠️ 获取搜索量失败，使用原始顺序:`, error.message)
       nonBrandWithVolume = Array.from(allNonBrandKeywords).map(kw => ({
@@ -2664,7 +2677,13 @@ export async function getKeywords(
   }
 
   // 5. 按搜索量过滤
-  keywords = keywords.filter(kw => kw.searchVolume >= minSearchVolume)
+  // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
+  const hasAnyVolume = keywords.some(kw => kw.searchVolume > 0)
+  if (hasAnyVolume) {
+    keywords = keywords.filter(kw => kw.searchVolume >= minSearchVolume)
+  } else {
+    console.log('⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤')
+  }
 
   // 6. 限制数量
   keywords = keywords.slice(0, maxKeywords)

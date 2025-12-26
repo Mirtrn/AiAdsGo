@@ -1331,8 +1331,10 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
     if (extractedElements.keywords && extractedElements.keywords.length > 0) {
       // 🔥 修复(2025-12-16): 从10个提升到100个，充分利用有真实搜索量的关键词
       // 原问题：高搜索量关键词仅使用10个，大量被浪费
+      // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留searchVolume=0的关键词
+      const hasAnyVolume = extractedElements.keywords.some(k => k.searchVolume > 0)
       const topKeywords = extractedElements.keywords
-        .filter(k => k.searchVolume >= 500)
+        .filter(k => hasAnyVolume ? k.searchVolume >= 500 : true)
         .slice(0, 100)
         .map(k => `"${k.keyword}" (${k.searchVolume}/mo, ${k.source})`)
       if (topKeywords.length > 0) {
@@ -2948,6 +2950,12 @@ export async function generateAdCreative(
     }
 
     // ✅ 规则2: 过滤掉搜索量 < 500 的非品牌词
+    // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留所有关键词
+    if (kw.searchVolume === 0) {
+      // 搜索量为0可能是服务账号模式，暂时保留
+      return true
+    }
+
     if (kw.searchVolume < 500) {
       console.log(`🔧 过滤低搜索量关键词: "${kw.keyword}" (搜索量: ${kw.searchVolume}/月)`)
       return false
@@ -3123,6 +3131,8 @@ export async function generateAdCreative(
       if (!kw.keyword) return false  // 🔧 过滤undefined/null
       const kwLower = kw.keyword.toLowerCase()
       if (existingKeywordsLower.has(kwLower)) return false  // 去重
+      // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留searchVolume=0的关键词
+      if (kw.searchVolume === 0) return true  // 保留搜索量为0的关键词
       if (kw.searchVolume < 500) return false  // 质量过滤
       return true
     })
@@ -3313,7 +3323,11 @@ export async function generateAdCreative(
   console.log(`   🎯 提取到 ${extractedGenericKeywords.length} 个高价值通用词 (matchType=PHRASE)`)
 
   // 第2.5步：过滤非品牌词（只保留搜索量 >= 500）
-  const filteredNonBrandKeywords = nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
+  // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
+  const hasAnyVolume = nonBrandKeywords.some(kw => kw.searchVolume > 0)
+  const filteredNonBrandKeywords = hasAnyVolume
+    ? nonBrandKeywords.filter(kw => kw.searchVolume >= 500)
+    : nonBrandKeywords
 
   // 合并品牌词和提取的通用词
   const enhancedNonBrandKeywords = [...filteredNonBrandKeywords, ...extractedGenericKeywords]
@@ -3402,7 +3416,12 @@ export async function generateAdCreative(
   console.log(`\n📌 强制约束3: 保留最少 10 个关键词（只补充搜索量>0的关键词）`)
 
   // 合并所有品牌词（纯品牌 + 品牌相关）和增强的非品牌词（包括高价值词）
-  const allBrandKeywords = [...pureBrandKeywords, ...brandRelatedKeywords.filter(kw => kw.searchVolume > 0)]
+  // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留searchVolume=0的关键词
+  const hasAnyVolumeBrand = brandRelatedKeywords.some(kw => kw.searchVolume > 0)
+  const allBrandKeywords = [
+    ...pureBrandKeywords,
+    ...brandRelatedKeywords.filter(kw => hasAnyVolumeBrand ? kw.searchVolume > 0 : true)
+  ]
   let finalKeywords = [...allBrandKeywords, ...enhancedNonBrandKeywords]
 
   console.log(`   📊 初始合并: ${allBrandKeywords.length} 品牌词 + ${enhancedNonBrandKeywords.length} 非品牌词 = ${finalKeywords.length} 个`)
@@ -3410,14 +3429,16 @@ export async function generateAdCreative(
   if (finalKeywords.length < 10) {
     // 如果不足 10 个，从被过滤的非品牌词中补充（按搜索量从高到低，但必须>0）
     const needMore = 10 - finalKeywords.length
+    // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，允许searchVolume=0的关键词
+    const hasAnyVolume = nonBrandKeywords.some(kw => kw.searchVolume > 0)
     const supplementaryKeywords = nonBrandKeywords
       .filter(kw => !finalKeywords.some(fk => fk.keyword === kw.keyword))
-      .filter(kw => kw.searchVolume > 0)  // 🎯 只补充有搜索量的关键词
+      .filter(kw => hasAnyVolume ? kw.searchVolume > 0 : true)  // 有搜索量数据时才过滤
       .sort((a, b) => b.searchVolume - a.searchVolume)
       .slice(0, needMore)
 
     if (supplementaryKeywords.length > 0) {
-      console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个低搜索量关键词 (搜索量>0):`)
+      console.log(`   ⚠️ 关键词不足 10 个，补充 ${supplementaryKeywords.length} 个${hasAnyVolume ? '低��索量' : ''}关键词:`)
       supplementaryKeywords.forEach(kw => {
         // 🔥 新增(2025-12-18): 为补充关键词设置matchType（保持与原非品牌词一致）
         if (!kw.matchType) {
@@ -3427,24 +3448,33 @@ export async function generateAdCreative(
       })
       finalKeywords = [...finalKeywords, ...supplementaryKeywords]
     } else {
-      console.log(`   ℹ️ 没有更多有搜索量的关键词可补充，当前关键词数: ${finalKeywords.length}`)
+      console.log(`   ℹ️ 没有更多${hasAnyVolume ? '有搜索量的' : ''}关键词可补充，当前关键词数: ${finalKeywords.length}`)
     }
   }
 
   // 🎯 第6步：最终过滤 - 移除所有搜索量为0或null的关键词（品牌词除外）
+  // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
   console.log(`\n📌 强制约束4: 移除所有搜索量为0或null的关键词（品牌词除外）`)
   const beforeFinalFilter = finalKeywords.length
 
+  // 检查是否有任何关键词有搜索量数据
+  const hasAnyVolumeData = finalKeywords.some(kw => kw.searchVolume > 0)
+
   // 🔥 修复(2025-12-22): 品牌词即使搜索量为0也要保留（API可能未配置导致查询失败）
   const pureBrandKeywordTexts = pureBrandKeywords.map(kw => kw.keyword.toLowerCase())
-  finalKeywords = finalKeywords.filter(kw => {
-    // 保留条件：有搜索量 OR 是纯品牌词
-    return kw.searchVolume > 0 || pureBrandKeywordTexts.includes(kw.keyword.toLowerCase())
-  })
 
-  const removedZeroVolume = beforeFinalFilter - finalKeywords.length
-  if (removedZeroVolume > 0) {
-    console.log(`   ⚠️ 已移除 ${removedZeroVolume} 个搜索量为0的关键词（保留品牌词）`)
+  if (hasAnyVolumeData) {
+    finalKeywords = finalKeywords.filter(kw => {
+      // 保留条件：有搜索量 OR 是纯品牌词
+      return kw.searchVolume > 0 || pureBrandKeywordTexts.includes(kw.keyword.toLowerCase())
+    })
+
+    const removedZeroVolume = beforeFinalFilter - finalKeywords.length
+    if (removedZeroVolume > 0) {
+      console.log(`   ⚠️ 已移除 ${removedZeroVolume} 个搜索量为0的关键词（保留品牌词）`)
+    }
+  } else {
+    console.log(`   ⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤`)
   }
   console.log(`   ✅ 最终保留 ${finalKeywords.length} 个关键词（含搜索量数据或品牌词）`)
 

@@ -238,9 +238,10 @@ export function filterKeywords(
     // 保留2种关键词：
     // 1. 包含核心品牌词的关键词（品牌词）
     // 2. 搜索量>10000的通用品类词（高价值通用词）
+    // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留所有非品牌词
     const isHighVolumeGeneric = !hasBrand && kw.searchVolume >= 10000
 
-    if (!hasBrand && !isHighVolumeGeneric) {
+    if (!hasBrand && !isHighVolumeGeneric && kw.searchVolume > 0) {
       return false
     }
 
@@ -299,10 +300,16 @@ export function selectKeywordsForCreative(
     .slice(0, 3)
 
   // 桶匹配词：优先 searchVolume > 1000，其次 CPC 高
-  const highVolume = bucketKeywords
-    .filter(kw => kw.searchVolume > 1000)
-    .sort((a, b) => b.searchVolume - a.searchVolume)
-    .slice(0, 8)
+  // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，跳过过滤
+  const hasAnyVolume = bucketKeywords.some(kw => kw.searchVolume > 0)
+  const highVolume = hasAnyVolume
+    ? bucketKeywords
+        .filter(kw => kw.searchVolume > 1000)
+        .sort((a, b) => b.searchVolume - a.searchVolume)
+        .slice(0, 8)
+    : bucketKeywords
+        .sort((a, b) => (b.highTopPageBid || 0) - (a.highTopPageBid || 0))
+        .slice(0, 8)
 
   // 如果高搜索量关键词不足，补充 CPC 高的关键词
   if (highVolume.length < 6) {
