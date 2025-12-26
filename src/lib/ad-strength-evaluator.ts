@@ -1310,12 +1310,14 @@ async function calculateBrandSearchVolume(
       volumeLevel = 'micro'
       score = 1
     } else {
-      // zero: 0 → 0分
+      // zero: 0 → 给予默认分数（服务账号模式无法获取搜索量）
       volumeLevel = 'micro'
-      score = 0
+      // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，给予中等默认分数10分
+      // 避免因技术限制导致得分过低
+      score = 10
     }
 
-    console.log(`📊 品牌"${brandName}"搜索量: ${monthlySearchVolume.toLocaleString()}/月 (${volumeLevel}级别, ${score}分)`)
+    console.log(`📊 品牌"${brandName}"搜索量: ${monthlySearchVolume.toLocaleString()}/月 (${volumeLevel}级别, ${score}分)${monthlySearchVolume === 0 ? ' [默认分数-无搜索量数据]' : ''}`)
 
     return {
       score,

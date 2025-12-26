@@ -2008,7 +2008,13 @@ export async function expandKeywordsWithSeeds(params: {
     }
 
     // 搜索量过滤
-    results = results.filter(kw => kw.searchVolume >= minSearchVolume)
+    // 🔧 修复(2025-12-26): 如果所有关键词搜索量都为0（服务账号模式），跳过搜索量过滤
+    const hasAnyVolume = results.some(kw => kw.searchVolume > 0)
+    if (hasAnyVolume) {
+      results = results.filter(kw => kw.searchVolume >= minSearchVolume)
+    } else {
+      console.log('⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤')
+    }
 
     // 智能匹配类型分配
     if (brandName) {
@@ -2084,7 +2090,13 @@ export function extractGenericHighValueKeywords(
   console.log(`\n📌 步骤2: 高价值词过滤 (搜索量 > 10,000)`)
 
   const beforeVolumeFilter = genericKeywords.length
-  genericKeywords = genericKeywords.filter(kw => kw.searchVolume > 10000)
+  // 🔧 修复(2025-12-26): 如果所有关键词搜索量都为0（服务账号模式），跳过搜索量过滤
+  const hasAnyVolume = genericKeywords.some(kw => kw.searchVolume > 0)
+  if (hasAnyVolume) {
+    genericKeywords = genericKeywords.filter(kw => kw.searchVolume > 10000)
+  } else {
+    console.log('   ⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤')
+  }
 
   const volumeFiltered = beforeVolumeFilter - genericKeywords.length
   console.log(`   搜索量<10000的词: ${volumeFiltered}`)
