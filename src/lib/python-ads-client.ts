@@ -100,3 +100,19 @@ export async function executeGAQLQueryPython(params: {
 
   return response.data
 }
+
+/**
+ * 获取可访问的客户账户列表（服务账号模式）
+ */
+export async function listAccessibleCustomersPython(params: {
+  userId: number
+  serviceAccountId?: string
+}): Promise<string[]> {
+  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+
+  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/list-accessible-customers`, {
+    service_account: serviceAccount,
+  })
+
+  return response.data.resource_names
+}

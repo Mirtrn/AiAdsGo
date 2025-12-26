@@ -158,6 +158,27 @@ async def health_check():
     return {"status": "ok"}
 
 
+class ListAccessibleCustomersRequest(BaseModel):
+    service_account: ServiceAccountConfig
+
+
+@app.post("/api/google-ads/list-accessible-customers")
+async def list_accessible_customers(request: ListAccessibleCustomersRequest):
+    """获取可访问的客户账户列表"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        customer_service = client.get_service("CustomerService")
+
+        accessible_customers = customer_service.list_accessible_customers()
+        resource_names = accessible_customers.resource_names
+
+        return {"resource_names": list(resource_names)}
+
+    except Exception as e:
+        logger.error(f"List accessible customers error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class GAQLQueryRequest(BaseModel):
     service_account: ServiceAccountConfig
     customer_id: str

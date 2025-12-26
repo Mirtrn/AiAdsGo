@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
-import { createServiceAccountCustomer, createServiceAccountCustomerClient } from '@/lib/google-ads-service-account'
+import { createServiceAccountCustomer } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
@@ -234,26 +234,18 @@ async function syncAccountsFromAPI(
     developer_token: developerToken,
   })
 
-  // 🔧 修复(2025-12-24): 服务账号模式使用 @htdangkhoa/google-ads 库
-  // google-ads-api 库不支持服务账号，只支持 OAuth refresh_token
+  // 🔧 修复(2025-12-26): 服务账号模式使用 Python 服务
   let resourceNames: string[]
   if (isServiceAccount) {
-    // 服务账号模式：使用 @htdangkhoa/google-ads（支持 JWT 认证）
-    console.log(`   🔑 服务账号模式：使用 @htdangkhoa/google-ads 库进行认证`)
+    // 服务账号模式：使用 Python 服务
+    console.log(`   🔑 服务账号模式：使用 Python 服务进行认证`)
 
     try {
-      // 使用 Customer 类调用 listAccessibleCustomers（GoogleAds 类没有此方法）
-      const serviceAccountCustomer = createServiceAccountCustomerClient({
-        clientEmail: serviceAccountConfig.serviceAccountEmail,
-        privateKey: serviceAccountConfig.privateKey,
-        developerToken: serviceAccountConfig.developerToken,
-        customerId: serviceAccountConfig.mccCustomerId,  // 临时使用 MCC ID 创建客户端
-        loginCustomerId: serviceAccountConfig.mccCustomerId,
+      const { listAccessibleCustomersPython } = await import('@/lib/python-ads-client')
+      resourceNames = await listAccessibleCustomersPython({
+        userId,
+        serviceAccountId: serviceAccountConfig.id.toString(),
       })
-
-      // 调用 listAccessibleCustomers
-      const response = await serviceAccountCustomer.listAccessibleCustomers()
-      resourceNames = response.resource_names || []
       console.log(`   ✅ 服务账号认证成功，获取到 ${resourceNames.length} 个账户`)
     } catch (error: any) {
       console.error(`   ❌ 服务账号认证失败:`, error.message)
