@@ -240,6 +240,13 @@ export default function GoogleAdsSetupGuidePage() {
                     <strong>提示：</strong>服务账号方式只需要测试权限的 Developer Token，无需等待审核
                   </AlertDescription>
                 </Alert>
+
+                <Alert className="mt-4 bg-amber-50 border-amber-200">
+                  <AlertCircle className="h-4 w-4 text-amber-500" />
+                  <AlertDescription>
+                    <strong>功能限制：</strong>服务账号模式无法使用 Keyword Planner API（需要 Basic Access 权限）。关键词搜索量查询将返回默认值，不影响广告创建和投放等核心功能。如需精确搜索量数据，请使用 OAuth 授权模式。
+                  </AlertDescription>
+                </Alert>
               </CardContent>
             </Card>
 
