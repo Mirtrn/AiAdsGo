@@ -3,7 +3,7 @@ Google Ads API Service - 服务账号模式
 处理所有需要服务账号认证的 Google Ads API 调用
 """
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 from google.ads.googleads.client import GoogleAdsClient
 from google.oauth2 import service_account
@@ -15,11 +15,26 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Google Ads Service Account API")
 
 
+def validate_login_customer_id(v: str) -> str:
+    """验证并格式化 login_customer_id"""
+    # 移除空格和横杠
+    formatted = v.replace(' ', '').replace('-', '')
+    # 验证必须是10位数字
+    if not formatted.isdigit() or len(formatted) != 10:
+        raise ValueError(f"login_customer_id must be a 10-digit number, got: '{v}' (formatted: '{formatted}')")
+    return formatted
+
+
 class ServiceAccountConfig(BaseModel):
     email: str
     private_key: str
     developer_token: str
-    login_customer_id: str
+    login_customer_id: str = Field(..., description="Must be a 10-digit number without dashes or spaces")
+
+    @field_validator("login_customer_id", mode="before")
+    @classmethod
+    def validate_login_customer_id(cls, v: str) -> str:
+        return validate_login_customer_id(v)
 
 
 class KeywordHistoricalMetricsRequest(BaseModel):

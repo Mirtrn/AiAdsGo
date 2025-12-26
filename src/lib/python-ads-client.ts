@@ -52,6 +52,15 @@ interface ServiceAccountAuth {
 }
 
 /**
+ * 格式化 Google Ads 客户 ID
+ * 移除空格和横杠，确保是10位数字字符串
+ */
+function formatCustomerId(id: string): string {
+  // 移除空格和横杠，然后取前10位
+  return id.replace(/[\s-]/g, '').slice(0, 10)
+}
+
+/**
  * 获取服务账号认证配置
  */
 async function getServiceAccountAuth(userId: number, serviceAccountId?: string): Promise<ServiceAccountAuth> {
@@ -64,7 +73,8 @@ async function getServiceAccountAuth(userId: number, serviceAccountId?: string):
     email: sa.serviceAccountEmail,
     private_key: sa.privateKey || '',
     developer_token: sa.developerToken,
-    login_customer_id: sa.mccCustomerId,
+    // 🔧 修复(2025-12-26): 格式化 login_customer_id，移除空格和横杠
+    login_customer_id: formatCustomerId(sa.mccCustomerId),
   }
 }
 

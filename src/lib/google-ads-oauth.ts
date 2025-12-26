@@ -1,6 +1,21 @@
 import { getDatabase } from './db'
 
 /**
+ * 格式化并验证 Google Ads 客户 ID
+ * 移除空格和横杠，确保是10位数字字符串
+ * @throws Error 如果格式无效
+ */
+export function formatAndValidateLoginCustomerId(id: string, fieldName: string = 'login_customer_id'): string {
+  // 移除空格和横杠
+  const formatted = id.replace(/[\s-]/g, '')
+  // 验证必须是10位数字
+  if (!formatted || !/^\d{10}$/.test(formatted)) {
+    throw new Error(`${fieldName} 必须是10位数字（格式：1234567890），当前值: '${id}'`)
+  }
+  return formatted
+}
+
+/**
  * Google Ads OAuth凭证接口
  * 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须配置自己的完整凭证
  */
@@ -23,6 +38,7 @@ export interface GoogleAdsCredentials {
 /**
  * 保存或更新Google Ads凭证
  * 🔧 修复(2025-12-12): 独立账号模式 - 所有凭证字段必填
+ * 🔧 修复(2025-12-26): 验证 login_customer_id 格式
  */
 export async function saveGoogleAdsCredentials(
   userId: number,
@@ -37,6 +53,9 @@ export async function saveGoogleAdsCredentials(
   }
 ): Promise<GoogleAdsCredentials> {
   const db = await getDatabase()
+
+  // 🔧 修复(2025-12-26): 验证并格式化 login_customer_id
+  const formattedLoginCustomerId = formatAndValidateLoginCustomerId(credentials.login_customer_id, 'login_customer_id')
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -67,9 +86,10 @@ export async function saveGoogleAdsCredentials(
     `, [
       credentials.client_id,
       credentials.client_secret,
+      formattedLoginCustomerId,  // 使用格式化后的值
       credentials.refresh_token,
       credentials.developer_token,
-      credentials.login_customer_id || null,
+      formattedLoginCustomerId,  // 使用格式化后的值
       credentials.access_token || null,
       credentials.access_token_expires_at || null,
       isActiveValue,
@@ -89,7 +109,7 @@ export async function saveGoogleAdsCredentials(
       credentials.client_secret,
       credentials.refresh_token,
       credentials.developer_token,
-      credentials.login_customer_id || null,
+      formattedLoginCustomerId,  // 使用格式化后的值
       credentials.access_token || null,
       credentials.access_token_expires_at || null
     ])
