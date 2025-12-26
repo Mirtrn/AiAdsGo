@@ -529,7 +529,49 @@ export async function createGoogleAdsCampaign(params: {
   accountId?: number
   userId: number  // 改为必填
   loginCustomerId?: string  // 🔥 经理账号ID（用于访问客户账号）
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<{ campaignId: string; resourceName: string }> {
+  const authType = params.authType || 'oauth'
+
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (authType === 'service_account') {
+    const {
+      createCampaignBudgetPython,
+      createCampaignPython,
+    } = await import('./python-ads-client')
+
+    // 1. 创建预算
+    const budgetResourceName = await createCampaignBudgetPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      name: `${params.campaignName} Budget ${Date.now()}`,
+      amountMicros: params.budgetAmount * 1000000,
+      deliveryMethod: params.budgetType === 'DAILY' ? 'STANDARD' : 'ACCELERATED',
+    })
+
+    // 2. 创建广告系列
+    const campaignResourceName = await createCampaignPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      name: params.campaignName,
+      budgetResourceName,
+      status: 'PAUSED',
+      biddingStrategyType: 'TARGET_SPEND',
+      cpcBidCeilingMicros: params.cpcBidCeilingMicros || 170000,
+      targetCountry: params.targetCountry,
+      targetLanguage: params.targetLanguage,
+      startDate: params.startDate,
+      endDate: params.endDate,
+    })
+
+    const campaignId = campaignResourceName.split('/').pop() || ''
+    return { campaignId, resourceName: campaignResourceName }
+  }
+
+  // OAuth模式：使用原有逻辑
   const customer = await getCustomerWithCredentials(params)
 
   // 1. 创建预算（添加时间戳避免重复名称）
@@ -991,7 +1033,31 @@ export async function createGoogleAdsAdGroup(params: {
   accountId?: number
   userId: number
   loginCustomerId?: string  // 🔥 经理账号ID
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<{ adGroupId: string; resourceName: string }> {
+  const authType = params.authType || 'oauth'
+
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (authType === 'service_account') {
+    const { createAdGroupPython } = await import('./python-ads-client')
+
+    const campaignResourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+    const adGroupResourceName = await createAdGroupPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      campaignResourceName,
+      name: params.adGroupName,
+      status: params.status,
+      cpcBidMicros: params.cpcBidMicros,
+    })
+
+    const adGroupId = adGroupResourceName.split('/').pop() || ''
+    return { adGroupId, resourceName: adGroupResourceName }
+  }
+
+  // OAuth模式：使用原有逻辑
   const customer = await getCustomerWithCredentials(params)
 
   const adGroup = {
@@ -1117,7 +1183,38 @@ export async function createGoogleAdsKeywordsBatch(params: {
   accountId?: number
   userId: number
   loginCustomerId?: string  // 🔧 添加MCC权限参数
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<Array<{ keywordId: string; resourceName: string; keywordText: string }>> {
+  const authType = params.authType || 'oauth'
+
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (authType === 'service_account') {
+    const { createKeywordsPython } = await import('./python-ads-client')
+
+    const adGroupResourceName = `customers/${params.customerId}/adGroups/${params.adGroupId}`
+    const resourceNames = await createKeywordsPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      adGroupResourceName,
+      keywords: params.keywords.map(kw => ({
+        text: kw.keywordText,
+        matchType: kw.matchType,
+        status: kw.status,
+        finalUrl: kw.finalUrl,
+        isNegative: kw.isNegative,
+      })),
+    })
+
+    return resourceNames.map((resourceName, index) => ({
+      keywordId: resourceName.split('/').pop() || '',
+      resourceName,
+      keywordText: params.keywords[index].keywordText,
+    }))
+  }
+
+  // OAuth模式：使用原有逻辑
   const customer = await getCustomerWithCredentials(params)
 
   const results: Array<{ keywordId: string; resourceName: string; keywordText: string }> = []
@@ -1186,7 +1283,33 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   accountId?: number
   userId: number
   loginCustomerId?: string  // 🔥 经理账号ID
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<{ adId: string; resourceName: string }> {
+  const authType = params.authType || 'oauth'
+
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (authType === 'service_account') {
+    const { createResponsiveSearchAdPython } = await import('./python-ads-client')
+
+    const adGroupResourceName = `customers/${params.customerId}/adGroups/${params.adGroupId}`
+    const adResourceName = await createResponsiveSearchAdPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      adGroupResourceName,
+      headlines: params.headlines,
+      descriptions: params.descriptions,
+      finalUrls: params.finalUrls,
+      path1: params.path1,
+      path2: params.path2,
+    })
+
+    const adId = adResourceName.split('/').pop() || ''
+    return { adId, resourceName: adResourceName }
+  }
+
+  // OAuth模式：使用原有逻辑
   const customer = await getCustomerWithCredentials(params)
 
   // Validate headlines (必须正好15个)

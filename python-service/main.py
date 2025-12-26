@@ -223,6 +223,248 @@ async def execute_gaql_query(request: GAQLQueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class CreateCampaignBudgetRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    name: str
+    amount_micros: int
+    delivery_method: str  # "STANDARD" or "ACCELERATED"
+
+
+@app.post("/api/google-ads/campaign-budget/create")
+async def create_campaign_budget(request: CreateCampaignBudgetRequest):
+    """创建广告系列预算"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        campaign_budget_service = client.get_service("CampaignBudgetService")
+
+        operation = client.get_type("CampaignBudgetOperation")
+        budget = operation.create
+        budget.name = request.name
+        budget.amount_micros = request.amount_micros
+        budget.delivery_method = client.enums.BudgetDeliveryMethodEnum[
+            request.delivery_method
+        ]
+
+        response = campaign_budget_service.mutate_campaign_budgets(
+            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+        )
+
+        return {"resource_name": response.results[0].resource_name}
+
+    except Exception as e:
+        logger.error(f"Create campaign budget error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateCampaignRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    name: str
+    budget_resource_name: str
+    status: str
+    bidding_strategy_type: str
+    cpc_bid_ceiling_micros: Optional[int] = None
+    target_country: Optional[str] = None
+    target_language: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+@app.post("/api/google-ads/campaign/create")
+async def create_campaign(request: CreateCampaignRequest):
+    """创建搜索广告系列"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        campaign_service = client.get_service("CampaignService")
+
+        operation = client.get_type("CampaignOperation")
+        campaign = operation.create
+        campaign.name = request.name
+        campaign.status = client.enums.CampaignStatusEnum[request.status]
+        campaign.advertising_channel_type = (
+            client.enums.AdvertisingChannelTypeEnum.SEARCH
+        )
+        campaign.campaign_budget = request.budget_resource_name
+
+        # Network settings
+        campaign.network_settings.target_google_search = True
+        campaign.network_settings.target_search_network = True
+        campaign.network_settings.target_content_network = False
+        campaign.network_settings.target_partner_search_network = False
+
+        # Bidding strategy
+        campaign.bidding_strategy_type = client.enums.BiddingStrategyTypeEnum[
+            request.bidding_strategy_type
+        ]
+        if request.cpc_bid_ceiling_micros:
+            campaign.target_spend.cpc_bid_ceiling_micros = (
+                request.cpc_bid_ceiling_micros
+            )
+
+        # Geo target type
+        campaign.geo_target_type_setting.positive_geo_target_type = (
+            client.enums.PositiveGeoTargetTypeEnum.PRESENCE
+        )
+
+        response = campaign_service.mutate_campaigns(
+            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+        )
+
+        return {"resource_name": response.results[0].resource_name}
+
+    except Exception as e:
+        logger.error(f"Create campaign error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateAdGroupRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    campaign_resource_name: str
+    name: str
+    status: str
+    cpc_bid_micros: Optional[int] = None
+
+
+@app.post("/api/google-ads/ad-group/create")
+async def create_ad_group(request: CreateAdGroupRequest):
+    """创建广告组"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        ad_group_service = client.get_service("AdGroupService")
+
+        operation = client.get_type("AdGroupOperation")
+        ad_group = operation.create
+        ad_group.name = request.name
+        ad_group.campaign = request.campaign_resource_name
+        ad_group.status = client.enums.AdGroupStatusEnum[request.status]
+        ad_group.type_ = client.enums.AdGroupTypeEnum.SEARCH_STANDARD
+
+        if request.cpc_bid_micros:
+            ad_group.cpc_bid_micros = request.cpc_bid_micros
+
+        response = ad_group_service.mutate_ad_groups(
+            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+        )
+
+        return {"resource_name": response.results[0].resource_name}
+
+    except Exception as e:
+        logger.error(f"Create ad group error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class KeywordData(BaseModel):
+    text: str
+    match_type: str
+    status: str
+    final_url: Optional[str] = None
+    is_negative: bool = False
+
+
+class CreateKeywordsRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    ad_group_resource_name: str
+    keywords: List[KeywordData]
+
+
+@app.post("/api/google-ads/keywords/create")
+async def create_keywords(request: CreateKeywordsRequest):
+    """批量创建关键词"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        ad_group_criterion_service = client.get_service("AdGroupCriterionService")
+
+        operations = []
+        for kw in request.keywords:
+            operation = client.get_type("AdGroupCriterionOperation")
+            criterion = operation.create
+            criterion.ad_group = request.ad_group_resource_name
+            criterion.status = client.enums.AdGroupCriterionStatusEnum[kw.status]
+
+            if kw.is_negative:
+                criterion.negative = True
+
+            criterion.keyword.text = kw.text
+            criterion.keyword.match_type = client.enums.KeywordMatchTypeEnum[
+                kw.match_type
+            ]
+
+            if kw.final_url:
+                criterion.final_urls.append(kw.final_url)
+
+            operations.append(operation)
+
+        response = ad_group_criterion_service.mutate_ad_group_criteria(
+            customer_id=request.customer_id.replace("-", ""), operations=operations
+        )
+
+        return {
+            "results": [
+                {"resource_name": result.resource_name} for result in response.results
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Create keywords error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateResponsiveSearchAdRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    ad_group_resource_name: str
+    headlines: List[str]
+    descriptions: List[str]
+    final_urls: List[str]
+    path1: Optional[str] = None
+    path2: Optional[str] = None
+
+
+@app.post("/api/google-ads/responsive-search-ad/create")
+async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
+    """创建响应式搜索广告"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        ad_group_ad_service = client.get_service("AdGroupAdService")
+
+        operation = client.get_type("AdGroupAdOperation")
+        ad_group_ad = operation.create
+        ad_group_ad.ad_group = request.ad_group_resource_name
+        ad_group_ad.status = client.enums.AdGroupAdStatusEnum.ENABLED
+
+        # Responsive search ad
+        rsa = ad_group_ad.ad.responsive_search_ad
+        for headline in request.headlines:
+            headline_asset = client.get_type("AdTextAsset")
+            headline_asset.text = headline
+            rsa.headlines.append(headline_asset)
+
+        for description in request.descriptions:
+            desc_asset = client.get_type("AdTextAsset")
+            desc_asset.text = description
+            rsa.descriptions.append(desc_asset)
+
+        ad_group_ad.ad.final_urls.extend(request.final_urls)
+
+        if request.path1:
+            rsa.path1 = request.path1
+        if request.path2:
+            rsa.path2 = request.path2
+
+        response = ad_group_ad_service.mutate_ad_group_ads(
+            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+        )
+
+        return {"resource_name": response.results[0].resource_name}
+
+    except Exception as e:
+        logger.error(f"Create responsive search ad error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
