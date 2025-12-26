@@ -266,3 +266,117 @@ export async function createResponsiveSearchAdPython(params: {
 
   return response.data.resource_name
 }
+
+/**
+ * 更新广告系列状态（服务账号模式）
+ */
+export async function updateCampaignStatusPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  campaignResourceName: string
+  status: 'ENABLED' | 'PAUSED'
+}): Promise<void> {
+  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+
+  await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update-status`, {
+    service_account: serviceAccount,
+    customer_id: params.customerId,
+    campaign_resource_name: params.campaignResourceName,
+    status: params.status,
+  })
+}
+
+/**
+ * 更新广告系列预算（服务账号模式）
+ */
+export async function updateCampaignBudgetPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  campaignResourceName: string
+  budgetAmountMicros: number
+}): Promise<void> {
+  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+
+  await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update-budget`, {
+    service_account: serviceAccount,
+    customer_id: params.customerId,
+    campaign_resource_name: params.campaignResourceName,
+    budget_amount_micros: params.budgetAmountMicros,
+  })
+}
+
+/**
+ * 创建附加宣传信息（服务账号模式）
+ */
+export async function createCalloutExtensionsPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  campaignResourceName: string
+  calloutTexts: string[]
+}): Promise<string[]> {
+  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+
+  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/callout-extensions/create`, {
+    service_account: serviceAccount,
+    customer_id: params.customerId,
+    campaign_resource_name: params.campaignResourceName,
+    callout_texts: params.calloutTexts,
+  })
+
+  return response.data.asset_resource_names
+}
+
+/**
+ * 创建附加链接（服务账号模式）
+ */
+export async function createSitelinkExtensionsPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  campaignResourceName: string
+  sitelinks: Array<{
+    linkText: string
+    finalUrl: string
+    description1?: string
+    description2?: string
+  }>
+}): Promise<string[]> {
+  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+
+  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/sitelink-extensions/create`, {
+    service_account: serviceAccount,
+    customer_id: params.customerId,
+    campaign_resource_name: params.campaignResourceName,
+    sitelinks: params.sitelinks.map(sl => ({
+      link_text: sl.linkText,
+      final_url: sl.finalUrl,
+      description1: sl.description1,
+      description2: sl.description2,
+    })),
+  })
+
+  return response.data.asset_resource_names
+}
+
+/**
+ * 确保转化目标存在（服务账号模式）
+ */
+export async function ensureConversionGoalPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  conversionActionName: string
+}): Promise<string | null> {
+  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+
+  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/conversion-goal/ensure`, {
+    service_account: serviceAccount,
+    customer_id: params.customerId,
+    conversion_action_name: params.conversionActionName,
+  })
+
+  return response.data.resource_name
+}

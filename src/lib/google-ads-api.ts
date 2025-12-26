@@ -829,25 +829,38 @@ export async function updateGoogleAdsCampaignStatus(params: {
   authType?: 'oauth' | 'service_account'
   serviceAccountId?: string
 }): Promise<void> {
-  const customer = await getCustomerWithCredentials({
-    ...params,
-    authType: params.authType,
-    serviceAccountId: params.serviceAccountId,
-  })
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (params.authType === 'service_account') {
+    const { updateCampaignStatusPython } = await import('./python-ads-client')
+    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+    await updateCampaignStatusPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      campaignResourceName: resourceName,
+      status: params.status as 'ENABLED' | 'PAUSED',
+    })
+  } else {
+    const customer = await getCustomerWithCredentials({
+      ...params,
+      authType: params.authType,
+      serviceAccountId: params.serviceAccountId,
+    })
 
-  const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-  await withRetry(
-    () => customer.campaigns.update([{
-      resource_name: resourceName,
-      status: enums.CampaignStatus[params.status],
-    }]),
-    {
-      maxRetries: 3,
-      initialDelay: 1000,
-      operationName: `Update Campaign Status: ${params.campaignId} -> ${params.status}`
-    }
-  )
+    await withRetry(
+      () => customer.campaigns.update([{
+        resource_name: resourceName,
+        status: enums.CampaignStatus[params.status],
+      }]),
+      {
+        maxRetries: 3,
+        initialDelay: 1000,
+        operationName: `Update Campaign Status: ${params.campaignId} -> ${params.status}`
+      }
+    )
+  }
 
   // 清除相关缓存（更新状态后）
   const getCacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
@@ -871,31 +884,46 @@ export async function updateGoogleAdsCampaignBudget(params: {
   budgetType: 'DAILY' | 'TOTAL'
   accountId?: number
   userId: number
-  loginCustomerId?: string  // 🔧 添加MCC权限参数
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<void> {
-  const customer = await getCustomerWithCredentials(params)
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (params.authType === 'service_account') {
+    const { updateCampaignBudgetPython } = await import('./python-ads-client')
+    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+    await updateCampaignBudgetPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      campaignResourceName: resourceName,
+      budgetAmountMicros: params.budgetAmount * 1000000,
+    })
+  } else {
+    const customer = await getCustomerWithCredentials(params)
 
-  // 1. 创建新的预算
-  const budgetResourceName = await createCampaignBudget(customer, {
-    name: `Budget ${params.campaignId} - ${Date.now()}`,
-    amount: params.budgetAmount,
-    deliveryMethod: params.budgetType === 'DAILY' ? 'STANDARD' : 'ACCELERATED',
-  })
+    // 1. 创建新的预算
+    const budgetResourceName = await createCampaignBudget(customer, {
+      name: `Budget ${params.campaignId} - ${Date.now()}`,
+      amount: params.budgetAmount,
+      deliveryMethod: params.budgetType === 'DAILY' ? 'STANDARD' : 'ACCELERATED',
+    })
 
-  // 2. 更新Campaign指向新预算
-  const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+    // 2. 更新Campaign指向新预算
+    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-  await withRetry(
-    () => customer.campaigns.update([{
-      resource_name: resourceName,
-      campaign_budget: budgetResourceName,
-    }]),
-    {
-      maxRetries: 3,
-      initialDelay: 1000,
-      operationName: `Update Campaign Budget: ${params.campaignId} -> ${params.budgetAmount}`
-    }
-  )
+    await withRetry(
+      () => customer.campaigns.update([{
+        resource_name: resourceName,
+        campaign_budget: budgetResourceName,
+      }]),
+      {
+        maxRetries: 3,
+        initialDelay: 1000,
+        operationName: `Update Campaign Budget: ${params.campaignId} -> ${params.budgetAmount}`
+      }
+    )
+  }
 
   // 清除相关缓存
   const getCacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
@@ -1696,7 +1724,23 @@ export async function createGoogleAdsCalloutExtensions(params: {
   accountId?: number
   userId: number
   loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<{ assetIds: string[] }> {
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (params.authType === 'service_account') {
+    const { createCalloutExtensionsPython } = await import('./python-ads-client')
+    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+    const assetResourceNames = await createCalloutExtensionsPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      campaignResourceName: resourceName,
+      calloutTexts: params.callouts,
+    })
+    return { assetIds: assetResourceNames.map(rn => rn.split('/').pop() || '') }
+  }
+
   const customer = await getCustomerWithCredentials(params)
 
   const assetIds: string[] = []
@@ -1762,7 +1806,28 @@ export async function createGoogleAdsSitelinkExtensions(params: {
   accountId?: number
   userId: number
   loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<{ assetIds: string[] }> {
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (params.authType === 'service_account') {
+    const { createSitelinkExtensionsPython } = await import('./python-ads-client')
+    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+    const assetResourceNames = await createSitelinkExtensionsPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      campaignResourceName: resourceName,
+      sitelinks: params.sitelinks.map(sl => ({
+        linkText: sl.text,
+        finalUrl: sl.url,
+        description1: sl.description1,
+        description2: sl.description2,
+      })),
+    })
+    return { assetIds: assetResourceNames.map(rn => rn.split('/').pop() || '') }
+  }
+
   const customer = await getCustomerWithCredentials(params)
 
   const assetIds: string[] = []
@@ -2561,14 +2626,36 @@ export async function ensureAccountConversionGoal(params: {
   accountId?: number
   userId: number
   loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<{ success: boolean; conversionActionResourceName?: string; message: string }> {
-  const { customerId, refreshToken, marketingObjective = 'WEB_TRAFFIC', accountId, userId, loginCustomerId } = params
+  const { customerId, refreshToken, marketingObjective = 'WEB_TRAFFIC', accountId, userId, loginCustomerId, authType, serviceAccountId } = params
 
   console.log(`\n🔍 检查账号转化目标配置...`)
   console.log(`   Customer ID: ${customerId}`)
   console.log(`   营销目标: ${marketingObjective}`)
 
   try {
+    // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+    if (authType === 'service_account') {
+      const { ensureConversionGoalPython } = await import('./python-ads-client')
+      const mapping = MARKETING_OBJECTIVE_MAPPING[marketingObjective]
+      if (!mapping) {
+        throw new Error(`不支持的营销目标类型: ${marketingObjective}`)
+      }
+      const resourceName = await ensureConversionGoalPython({
+        userId,
+        serviceAccountId,
+        customerId,
+        conversionActionName: mapping.conversionActionName,
+      })
+      return {
+        success: true,
+        conversionActionResourceName: resourceName || undefined,
+        message: `账号转化目标配置成功 (${marketingObjective})`
+      }
+    }
+
     const customer = await getCustomerWithCredentials({
       customerId,
       refreshToken,

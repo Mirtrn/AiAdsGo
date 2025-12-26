@@ -465,6 +465,255 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class UpdateCampaignStatusRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    campaign_resource_name: str
+    status: str
+
+
+@app.post("/api/google-ads/campaign/update-status")
+async def update_campaign_status(request: UpdateCampaignStatusRequest):
+    """更新广告系列状态"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        campaign_service = client.get_service("CampaignService")
+
+        operation = client.get_type("CampaignOperation")
+        campaign = operation.update
+        campaign.resource_name = request.campaign_resource_name
+        campaign.status = client.enums.CampaignStatusEnum[request.status]
+
+        field_mask = client.get_type("FieldMask")
+        field_mask.paths.append("status")
+        operation.update_mask.CopyFrom(field_mask)
+
+        campaign_service.mutate_campaigns(
+            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+        )
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"Update campaign status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateCampaignBudgetRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    campaign_resource_name: str
+    budget_amount_micros: int
+
+
+@app.post("/api/google-ads/campaign/update-budget")
+async def update_campaign_budget(request: UpdateCampaignBudgetRequest):
+    """更新广告系列预算"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        campaign_budget_service = client.get_service("CampaignBudgetService")
+
+        # Get current budget resource name
+        ga_service = client.get_service("GoogleAdsService")
+        query = f"""
+            SELECT campaign.campaign_budget
+            FROM campaign
+            WHERE campaign.resource_name = '{request.campaign_resource_name}'
+        """
+        response = ga_service.search(
+            customer_id=request.customer_id.replace("-", ""), query=query
+        )
+        budget_resource_name = None
+        for row in response:
+            budget_resource_name = row.campaign.campaign_budget
+            break
+
+        if not budget_resource_name:
+            raise Exception("Budget not found")
+
+        # Update budget
+        operation = client.get_type("CampaignBudgetOperation")
+        budget = operation.update
+        budget.resource_name = budget_resource_name
+        budget.amount_micros = request.budget_amount_micros
+
+        field_mask = client.get_type("FieldMask")
+        field_mask.paths.append("amount_micros")
+        operation.update_mask.CopyFrom(field_mask)
+
+        campaign_budget_service.mutate_campaign_budgets(
+            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+        )
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"Update campaign budget error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateCalloutExtensionsRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    campaign_resource_name: str
+    callout_texts: List[str]
+
+
+@app.post("/api/google-ads/callout-extensions/create")
+async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
+    """创建附加宣传信息"""
+    try:
+        client = create_google_ads_client(request.service_account)
+
+        # Create assets
+        asset_service = client.get_service("AssetService")
+        asset_operations = []
+        for text in request.callout_texts:
+            operation = client.get_type("AssetOperation")
+            asset = operation.create
+            asset.callout_asset.callout_text = text
+            asset_operations.append(operation)
+
+        asset_response = asset_service.mutate_assets(
+            customer_id=request.customer_id.replace("-", ""), operations=asset_operations
+        )
+
+        # Link assets to campaign
+        campaign_asset_service = client.get_service("CampaignAssetService")
+        campaign_asset_operations = []
+        for result in asset_response.results:
+            operation = client.get_type("CampaignAssetOperation")
+            campaign_asset = operation.create
+            campaign_asset.campaign = request.campaign_resource_name
+            campaign_asset.asset = result.resource_name
+            campaign_asset.field_type = client.enums.AssetFieldTypeEnum.CALLOUT
+            campaign_asset_operations.append(operation)
+
+        campaign_asset_service.mutate_campaign_assets(
+            customer_id=request.customer_id.replace("-", ""),
+            operations=campaign_asset_operations,
+        )
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"Create callout extensions error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SitelinkData(BaseModel):
+    link_text: str
+    final_url: str
+    description1: Optional[str] = None
+    description2: Optional[str] = None
+
+
+class CreateSitelinkExtensionsRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    campaign_resource_name: str
+    sitelinks: List[SitelinkData]
+
+
+@app.post("/api/google-ads/sitelink-extensions/create")
+async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
+    """创建附加链接"""
+    try:
+        client = create_google_ads_client(request.service_account)
+
+        # Create assets
+        asset_service = client.get_service("AssetService")
+        asset_operations = []
+        for sitelink in request.sitelinks:
+            operation = client.get_type("AssetOperation")
+            asset = operation.create
+            asset.sitelink_asset.link_text = sitelink.link_text
+            asset.final_urls.append(sitelink.final_url)
+            if sitelink.description1:
+                asset.sitelink_asset.description1 = sitelink.description1
+            if sitelink.description2:
+                asset.sitelink_asset.description2 = sitelink.description2
+            asset_operations.append(operation)
+
+        asset_response = asset_service.mutate_assets(
+            customer_id=request.customer_id.replace("-", ""), operations=asset_operations
+        )
+
+        # Link assets to campaign
+        campaign_asset_service = client.get_service("CampaignAssetService")
+        campaign_asset_operations = []
+        for result in asset_response.results:
+            operation = client.get_type("CampaignAssetOperation")
+            campaign_asset = operation.create
+            campaign_asset.campaign = request.campaign_resource_name
+            campaign_asset.asset = result.resource_name
+            campaign_asset.field_type = client.enums.AssetFieldTypeEnum.SITELINK
+            campaign_asset_operations.append(operation)
+
+        campaign_asset_service.mutate_campaign_assets(
+            customer_id=request.customer_id.replace("-", ""),
+            operations=campaign_asset_operations,
+        )
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"Create sitelink extensions error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class EnsureConversionGoalRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    conversion_action_name: str
+
+
+@app.post("/api/google-ads/conversion-goal/ensure")
+async def ensure_conversion_goal(request: EnsureConversionGoalRequest):
+    """确保转化目标存在"""
+    try:
+        client = create_google_ads_client(request.service_account)
+        ga_service = client.get_service("GoogleAdsService")
+
+        # Check if conversion action exists
+        query = f"""
+            SELECT conversion_action.id, conversion_action.name
+            FROM conversion_action
+            WHERE conversion_action.name = '{request.conversion_action_name}'
+        """
+        response = ga_service.search(
+            customer_id=request.customer_id.replace("-", ""), query=query
+        )
+
+        for row in response:
+            return {"resource_name": row.conversion_action.resource_name}
+
+        # Create if not exists
+        conversion_action_service = client.get_service("ConversionActionService")
+        operation = client.get_type("ConversionActionOperation")
+        conversion_action = operation.create
+        conversion_action.name = request.conversion_action_name
+        conversion_action.type_ = (
+            client.enums.ConversionActionTypeEnum.WEBPAGE
+        )
+        conversion_action.category = (
+            client.enums.ConversionActionCategoryEnum.DEFAULT
+        )
+        conversion_action.status = client.enums.ConversionActionStatusEnum.ENABLED
+        conversion_action.value_settings.default_value = 1.0
+        conversion_action.value_settings.always_use_default_value = True
+
+        result = conversion_action_service.mutate_conversion_actions(
+            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+        )
+
+        return {"resource_name": result.results[0].resource_name}
+
+    except Exception as e:
+        logger.error(f"Ensure conversion goal error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
