@@ -243,6 +243,9 @@ async def execute_gaql_query(request: GAQLQueryRequest):
         client = create_google_ads_client(request.service_account)
         ga_service = client.get_service("GoogleAdsService")
 
+        # 🔧 修复(2025-12-26): 添加调试日志
+        logger.info(f"[GAQL Query] login_customer_id={request.service_account.login_customer_id}, target_customer_id={request.customer_id}")
+
         response = ga_service.search(
             customer_id=request.customer_id, query=request.query
         )
