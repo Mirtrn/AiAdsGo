@@ -422,11 +422,10 @@ async function syncAccountsFromAPI(
         // 🔧 修复(2025-12-26): 服务账号模式调用Python服务，OAuth模式使用query()
         let searchResult
         if (isServiceAccount) {
-          const { executePythonGAQL } = await import('@/lib/python-ads-client')
-          const { getServiceAccountConfig } = await import('@/lib/google-ads-service-account')
-          const saConfig = await getServiceAccountConfig(userId)
-          searchResult = await executePythonGAQL({
-            serviceAccount: saConfig,
+          const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
+          searchResult = await executeGAQLQueryPython({
+            userId,
+            serviceAccountId: undefined,
             customerId: customerId,
             query: basicAccountInfoQuery
           })
@@ -446,11 +445,10 @@ async function syncAccountsFromAPI(
             `
             let statusResult
             if (isServiceAccount) {
-              const { executePythonGAQL } = await import('@/lib/python-ads-client')
-              const { getServiceAccountConfig } = await import('@/lib/google-ads-service-account')
-              const saConfig = await getServiceAccountConfig(userId)
-              statusResult = await executePythonGAQL({
-                serviceAccount: saConfig,
+              const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
+              statusResult = await executeGAQLQueryPython({
+                userId,
+                serviceAccountId: undefined,
                 customerId: customerId,
                 query: statusQuery
               })
