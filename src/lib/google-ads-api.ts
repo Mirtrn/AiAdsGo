@@ -2072,3 +2072,8 @@ export function ensureKeywordsInHeadlines(
   return result
 }
 
+// ==================== Re-exports ====================
+
+// 重新导出 enums 和 GoogleAdsApi 供其他模块使用，统一入口
+export { enums, GoogleAdsApi } from 'google-ads-api'
+

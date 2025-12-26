@@ -2,7 +2,7 @@
  * Google Ads Keyword Planner API Service
  * 获取真实的关键词搜索量数据
  */
-import { GoogleAdsApi, enums } from 'google-ads-api'
+import { GoogleAdsApi, enums } from './google-ads-api'
 import { getDatabase } from './db'
 import { getCachedKeywordVolume, cacheKeywordVolume, getBatchCachedVolumes, batchCacheVolumes } from './redis'
 import { decrypt } from './crypto'
