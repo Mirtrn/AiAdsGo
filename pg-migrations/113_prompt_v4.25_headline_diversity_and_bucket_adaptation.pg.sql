@@ -73,5 +73,6 @@ WHERE prompt_id = 'ad_creative_generation' AND is_active = true;
 -- Step 2: 更新所有v4.22版本标记为v4.25
 UPDATE prompt_versions
 SET
-  prompt_content = REPLACE(prompt_content, '🆕 v4.22:', '🆕 v4.25:')
+  prompt_content = REPLACE(prompt_content, '🆕 v4.22:', '🆕 v4.25:'),
+  name = '广告创意生成v4.25 - 5+5+5结构+桶主题适配版'
 WHERE prompt_id = 'ad_creative_generation' AND is_active = true;
