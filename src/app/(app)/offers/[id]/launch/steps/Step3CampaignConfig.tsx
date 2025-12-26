@@ -25,7 +25,7 @@ import { Switch } from '@/components/ui/switch'
 import { Settings, CheckCircle2, AlertCircle, Eye, Plus, X, Info, Lock, Zap } from 'lucide-react'
 import { showError, showSuccess } from '@/lib/toast-utils'
 import { generateNamingScheme } from '@/lib/naming-convention'
-import { CURRENCY_SYMBOLS, formatCurrency, calculateMaxCPC } from '@/lib/currency'  // 🔧 修复(2025-12-13): 导入货币工具
+import { CURRENCY_SYMBOLS, formatCurrency, calculateMaxCPC } from '@/lib/currency'
 
 // 格式化搜索量显示
 const formatSearchVolume = (volume?: number): string => {
