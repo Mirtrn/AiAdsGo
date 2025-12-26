@@ -1406,7 +1406,9 @@ export async function getCampaignPerformance(params: {
   endDate: string
   accountId: number
   userId: number
-  loginCustomerId?: string  // 🔧 添加MCC权限参数
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
 }): Promise<Array<{
   date: string
   impressions: number
@@ -1417,9 +1419,6 @@ export async function getCampaignPerformance(params: {
   cpc_micros: number
   conversion_rate: number
 }>> {
-  const customer = await getCustomerWithCredentials(params)
-
-  // Google Ads Query Language (GAQL) query
   const query = `
     SELECT
       segments.date,
@@ -1437,7 +1436,22 @@ export async function getCampaignPerformance(params: {
   `
 
   try {
-    const response = await customer.query(query)
+    const authType = params.authType || 'oauth'
+    let response: any[]
+
+    if (authType === 'service_account') {
+      const { executeGAQLQueryPython } = await import('./python-ads-client')
+      const result = await executeGAQLQueryPython({
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountId,
+        customerId: params.customerId,
+        query,
+      })
+      response = result.results || []
+    } else {
+      const customer = await getCustomerWithCredentials(params)
+      response = await customer.query(query)
+    }
 
     const performanceData = response.map((row: any) => ({
       date: row.segments?.date || '',
