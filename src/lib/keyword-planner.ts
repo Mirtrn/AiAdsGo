@@ -9,7 +9,8 @@ import { decrypt } from './crypto'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { refreshAccessToken, getGoogleAdsCredentials } from './google-ads-oauth'
 import { getGoogleAdsLanguageIdString, getGoogleAdsGeoTargetId } from './language-country-codes'
-import { getUnifiedGoogleAdsClient, getServiceAccountConfig, AuthType } from './google-ads-service-account'
+import { getGoogleAdsClient, getCustomerWithCredentials } from './google-ads-api'
+import { getServiceAccountConfig, AuthType } from './google-ads-service-account'
 
 /**
  * 🔧 修复(2025-12-24): 获取 KeywordPlanIdeaService
@@ -346,7 +347,8 @@ export async function getKeywordSearchVolumes(
             // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
           }
 
-          const client = new GoogleAdsApi({
+          // 🔧 修复(2025-12-26): 使用统一的 getGoogleAdsClient
+          const client = getGoogleAdsClient({
             client_id: config.clientId,
             client_secret: config.clientSecret,
             developer_token: config.developerToken,
@@ -682,8 +684,8 @@ export async function getKeywordSuggestions(
       }))
     }
 
-    // OAuth认证模式
-    const client = new GoogleAdsApi({
+    // OAuth认证模式 - 使用统一的 getGoogleAdsClient
+    const client = getGoogleAdsClient({
       client_id: config.clientId,
       client_secret: config.clientSecret,
       developer_token: config.developerToken,
