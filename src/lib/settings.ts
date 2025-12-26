@@ -413,9 +413,10 @@ export async function validateGoogleAdsConfig(
 
     // Step 3: 尝试创建GoogleAdsApi实例（验证配置能否被库接受）
     try {
-      const { GoogleAdsApi } = await import('google-ads-api')
+      // 使用统一的 getGoogleAdsClient 验证配置
+      const { getGoogleAdsClient } = await import('./google-ads-api')
 
-      const testClient = new GoogleAdsApi({
+      const testClient = getGoogleAdsClient({
         client_id: clientId,
         client_secret: clientSecret,
         developer_token: developerToken,
