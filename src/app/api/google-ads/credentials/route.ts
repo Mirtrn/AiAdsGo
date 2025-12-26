@@ -4,7 +4,8 @@ import {
   saveGoogleAdsCredentials,
   getGoogleAdsCredentials,
   deleteGoogleAdsCredentials,
-  verifyGoogleAdsCredentials
+  verifyGoogleAdsCredentials,
+  getUserAuthType
 } from '@/lib/google-ads-oauth'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
@@ -137,6 +138,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    const auth = await getUserAuthType(userId)
+
     // 返回凭证状态（不返回完整的敏感信息）
     return NextResponse.json({
       success: true,
@@ -149,8 +152,7 @@ export async function GET(request: NextRequest) {
         hasServiceAccount,
         serviceAccountId,
         serviceAccountName,
-        // 🔧 修复(2025-12-26): 添加认证类型，优先使用服务账号
-        authType: hasServiceAccount ? 'service_account' : 'oauth',
+        authType: auth.authType,
         lastVerifiedAt: credentials?.last_verified_at,
         isActive: credentials?.is_active === 1,
         createdAt: credentials?.created_at,

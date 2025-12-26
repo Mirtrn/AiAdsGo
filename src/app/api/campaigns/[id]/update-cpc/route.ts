@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
+import { getUserAuthType } from '@/lib/google-ads-oauth'
 
 /**
  * 统一的 Mutate 操作（支持 OAuth 和服务账号两种认证模式）
@@ -103,13 +104,14 @@ export async function PUT(
       credentials.useServiceAccount
     )
 
+    const auth = await getUserAuthType(parseInt(userId, 10))
     let customer: any
 
-    if (useServiceAccount) {
+    if (auth.authType === 'service_account') {
       // 服务账号模式 - 检查配置是否存在
       const config = await getServiceAccountConfig(
         parseInt(userId, 10),
-        googleAdsAccount.serviceAccountId as string
+        auth.serviceAccountId
       )
 
       if (!config) {
@@ -125,8 +127,8 @@ export async function PUT(
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
         loginCustomerId: googleAdsAccount.parentMccId || credentials.login_customer_id,
-        authType: 'service_account',
-        serviceAccountId: googleAdsAccount.serviceAccountId as string,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
       })
     } else {
       // OAuth 模式
