@@ -264,50 +264,38 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
     if (serviceAccount) {
       console.log(`[Verify] 发现服务账号配置: ${serviceAccount.name}，使用服务账号验证`)
 
-      const { createServiceAccountCustomerClient } = await import('./google-ads-service-account')
-      const { decrypt } = await import('./crypto')
+      // 🔧 修复(2025-12-26): 使用 Python 服务验证服务账号
+      const { listAccessibleCustomersPython } = await import('./python-ads-client')
 
-      // 获取加密的私钥
-      const privateKeyRow = await db.queryOne(`
-        SELECT private_key FROM google_ads_service_accounts WHERE id = ?
-      `, [serviceAccount.id]) as { private_key: string } | undefined
+      try {
+        const resourceNames = await listAccessibleCustomersPython({
+          userId,
+          serviceAccountId: serviceAccount.id.toString(),
+        })
 
-      if (!privateKeyRow?.private_key) {
-        return { valid: false, error: '服务账号私钥不存在', authType: 'service_account' }
-      }
+        if (!resourceNames || resourceNames.length === 0) {
+          return { valid: false, error: '无可访问的账户', authType: 'service_account' }
+        }
 
-      // 使用 Customer 类调用 listAccessibleCustomers（GoogleAds 类没有此方法）
-      const customer = createServiceAccountCustomerClient({
-        clientEmail: serviceAccount.service_account_email,
-        privateKey: decrypt(privateKeyRow.private_key) || '',
-        developerToken: serviceAccount.developer_token,
-        customerId: serviceAccount.mcc_customer_id,
-        loginCustomerId: serviceAccount.mcc_customer_id,
-      })
+        const firstCustomerId = resourceNames[0].split('/').pop() || ''
 
-      // 调用 listAccessibleCustomers 测试凭证
-      const response = await customer.listAccessibleCustomers()
-      const resourceNames = response.resource_names || []
+        // 更新验证时间
+        const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+        await db.exec(`
+          UPDATE google_ads_credentials
+          SET last_verified_at = ${nowFunc},
+              updated_at = ${nowFunc}
+          WHERE user_id = ?
+        `, [userId]).catch(() => {}) // 忽略更新失败
 
-      if (!resourceNames || resourceNames.length === 0) {
-        return { valid: false, error: '无可访问的账户', authType: 'service_account' }
-      }
-
-      const firstCustomerId = resourceNames[0].split('/').pop() || ''
-
-      // 更新验证时间
-      const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
-      await db.exec(`
-        UPDATE google_ads_credentials
-        SET last_verified_at = ${nowFunc},
-            updated_at = ${nowFunc}
-        WHERE user_id = ?
-      `, [userId]).catch(() => {}) // 忽略更新失败
-
-      return {
-        valid: true,
-        customer_id: firstCustomerId,
-        authType: 'service_account'
+        return {
+          valid: true,
+          customer_id: firstCustomerId,
+          authType: 'service_account'
+        }
+      } catch (error: any) {
+        console.error('[Verify] 服务账号验证失败:', error)
+        return { valid: false, error: error.message || '服务账号验证失败', authType: 'service_account' }
       }
     }
 
