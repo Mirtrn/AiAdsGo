@@ -2101,7 +2101,9 @@ export function extractGenericHighValueKeywords(
   const RESEARCH_INTENT_PATTERNS = [
     'review', 'reviews', 'rating', 'vs', 'versus', 'comparison', 'compare',
     'alternative', 'alternatives', 'how to', 'what is', 'guide', 'tutorial',
-    'reddit', 'forum', 'blog', 'article', 'repair', 'troubleshoot'
+    'reddit', 'forum', 'blog', 'article', 'repair', 'troubleshoot',
+    'corporation', 'company', 'official website', 'headquarters', 'about us',
+    'contact', 'customer service', 'support'
   ]
 
   const beforeIntentFilter = genericKeywords.length
