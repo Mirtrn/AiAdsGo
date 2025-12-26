@@ -624,8 +624,15 @@ async function syncAccountsFromAPI(
                       childBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
                       console.log(`      💰 ${childId} 余额: ${childBalance ? (childBalance / 1000000).toFixed(2) : 'N/A'}`)
                     }
-                  } catch (budgetError) {
-                    console.log(`      ⚠️ ${childId} 无法获取预算信息`)
+                  } catch (budgetError: any) {
+                    // 🔧 修复(2025-12-26): 减少日志噪音，账户状态异常时不需要警告
+                    const errorMsg = budgetError?.message || String(budgetError)
+                    const isExpectedError = errorMsg.includes('CUSTOMER_NOT_ENABLED') ||
+                      errorMsg.includes('PERMISSION_DENIED') ||
+                      errorMsg.includes('not yet enabled')
+                    if (!isExpectedError) {
+                      console.log(`      ⚠️ ${childId} 无法获取预算信息: ${budgetError?.message || budgetError}`)
+                    }
                   }
                 }
 

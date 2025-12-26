@@ -4,6 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getKeywordSearchVolumes } from '@/lib/keyword-planner'
+import { getUserAuthType } from '@/lib/google-ads-oauth'
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,7 +32,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Maximum 100 keywords per request' }, { status: 400 })
     }
 
-    const volumes = await getKeywordSearchVolumes(keywords, country, language, parseInt(userId, 10))
+    // 🔧 修复(2025-12-26): 支持服务账号模式
+    const auth = await getUserAuthType(parseInt(userId, 10))
+    const volumes = await getKeywordSearchVolumes(
+      keywords,
+      country,
+      language,
+      parseInt(userId, 10),
+      auth.authType,
+      auth.serviceAccountId
+    )
 
     return NextResponse.json({
       success: true,

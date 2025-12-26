@@ -255,6 +255,18 @@ async def execute_gaql_query(request: GAQLQueryRequest):
         return {"results": results}
 
     except Exception as e:
+        error_str = str(e)
+        # 🔧 修复(2025-12-26): 对预期内的错误返回空结果，而非500错误
+        # 这些错误表示账户状态异常，查询预算返回空结果是合理的
+        expected_errors = [
+            "CUSTOMER_NOT_ENABLED",
+            "PERMISSION_DENIED",
+            "The customer account can't be accessed because it is not yet enabled or has been deactivated",
+            "caller does not have permission"
+        ]
+        if any(err in error_str for err in expected_errors):
+            logger.warn(f"[user_id={user_id}] GAQL query expected error (returning empty): {e}")
+            return {"results": []}
         logger.error(f"[user_id={user_id}] GAQL query error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
