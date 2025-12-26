@@ -67,4 +67,7 @@
    - 服务账号模式：Node.js → Python FastAPI → google-ads-python → Google Ads API
    - 查询类操作(customer.query)通过Python代理对象自动路由
    - 创建/更新类操作通过authType参数显式路由到Python服务
-   - 所有业务场景已支持双认证模式，@htdangkhoa/google-ads已废弃
+   - 所有核心业务场景已支持双认证模式，@htdangkhoa/google-ads已废弃
+   - 功能对等状态：
+     * ✅ 完全支持双认证：Campaign/AdGroup/Keyword/Ad创建、性能查询、预算管理
+     * ⚠️ 仅OAuth支持：setCampaignMarketingObjective（低频操作，后续版本补充）
