@@ -555,6 +555,7 @@ async function syncAccountsFromAPI(
           let mccApiErrorMessage: string | undefined
 
           try {
+            const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
             const childAccounts = extractSearchResults(isServiceAccount
               ? await executeGAQLQueryPython({ userId, serviceAccountId: undefined, customerId, query: childAccountsQuery })
               : await customer.query(childAccountsQuery))

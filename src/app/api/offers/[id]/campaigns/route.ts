@@ -121,7 +121,7 @@ export async function GET(
 
     // 根据认证模式选择正确的查询方法
     const campaigns = useServiceAccount
-      ? await executeGAQLQueryPython({ userId: parseInt(userId), serviceAccountId, customerId, query })
+      ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: googleAdsAccount.serviceAccountId || undefined, customerId: googleAdsAccount.customerId, query })
       : await customer.query(query)
 
     // 提取CPC信息

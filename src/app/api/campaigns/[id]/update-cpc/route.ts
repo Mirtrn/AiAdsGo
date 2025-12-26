@@ -173,7 +173,7 @@ export async function PUT(
 
     // 根据认证模式选择正确的查询方法
     const campaignResults = useServiceAccount
-      ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query: campaignQuery })
+      ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: auth.serviceAccountId, customerId: googleAdsAccount.customerId, query: campaignQuery })
       : await customer.query(campaignQuery)
 
     if (campaignResults.length === 0) {
@@ -208,7 +208,7 @@ export async function PUT(
 
       // 根据认证模式选择正确的查询方法
       const adGroups = useServiceAccount
-        ? await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query: adGroupQuery })
+        ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: auth.serviceAccountId, customerId: googleAdsAccount.customerId, query: adGroupQuery })
         : await customer.query(adGroupQuery)
 
       if (adGroups.length === 0) {
