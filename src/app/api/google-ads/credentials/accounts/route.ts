@@ -556,7 +556,7 @@ async function syncAccountsFromAPI(
 
           try {
             const childAccounts = extractSearchResults(isServiceAccount
-              ? await customer.search({ query: childAccountsQuery })
+              ? await executeGAQLQueryPython({ userId, serviceAccountId: undefined, customerId, query: childAccountsQuery })
               : await customer.query(childAccountsQuery))
             mccApiSuccess = true
 
