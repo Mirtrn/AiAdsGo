@@ -205,8 +205,8 @@ export class DataSyncService {
         const startDate = new Date()
         startDate.setDate(startDate.getDate() - 7)
 
-        // 判断使用服务账号还是OAuth
-        const useServiceAccount = account.service_account_id && credentials.useServiceAccount
+        // 🔧 修复(2025-12-26): OAuth优先于服务账号
+        const useServiceAccount = !account.refresh_token && account.service_account_id && credentials.useServiceAccount
 
         const performanceData = await this.queryPerformanceData({
           customerId: account.customer_id,

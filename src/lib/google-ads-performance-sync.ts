@@ -210,7 +210,8 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
 
     // 检查是否配置了服务账号
     const serviceAccount = await getServiceAccountConfig(userIdNum)
-    const authType = serviceAccount ? 'service_account' : 'oauth'
+    // 🔧 修复(2025-12-26): OAuth优先于服务账号
+    const authType = credentials.refresh_token ? 'oauth' : 'service_account'
 
     // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
     const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'

@@ -88,8 +88,8 @@ export async function queryActiveCampaigns(
     accountId: googleAdsAccountId,
     userId,
     loginCustomerId: finalLoginCustomerId,
-    // 🔧 修复(2025-12-25): 传递authType支持服务账号
-    authType: serviceAccount ? 'service_account' : 'oauth',
+    // 🔧 修复(2025-12-26): OAuth优先于服务账号
+    authType: credentials?.refresh_token ? 'oauth' : 'service_account',
     serviceAccountId: serviceAccount?.id,
   })
 
@@ -183,8 +183,8 @@ export async function pauseCampaigns(
         accountId: googleAdsAccountId,
         userId,
         loginCustomerId: finalLoginCustomerId,
-        // 🔧 修复(2025-12-25): 传递authType支持服务账号
-        authType: serviceAccount ? 'service_account' : 'oauth',
+        // 🔧 修复(2025-12-26): OAuth优先于服务账号
+        authType: credentials?.refresh_token ? 'oauth' : 'service_account',
         serviceAccountId: serviceAccount?.id,
       })
       console.log(`✅ 成功暂停: ${campaign.name}`)
