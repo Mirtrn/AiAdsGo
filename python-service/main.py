@@ -714,6 +714,14 @@ async def ensure_conversion_goal(request: EnsureConversionGoalRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== Conversion Goal Functions Removed ====================
+#
+# 🔧 移除说明 (2025-12-26):
+# - UpdateCampaignConversionGoalRequest: 请求模型（已移除）
+# - /api/google-ads/campaign-conversion-goal/update: 更新CampaignConversionGoal端点
+#
+# 原因: 对应的Node.js函数已移除，这些端点不再使用
+
 if __name__ == "__main__":
     import uvicorn
 

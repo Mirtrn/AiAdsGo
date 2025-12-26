@@ -400,22 +400,11 @@ export async function createSitelinkExtensionsPython(params: {
   })
 }
 
-/**
- * 确保转化目标存在（服务账号模式）
- */
-export async function ensureConversionGoalPython(params: {
-  userId: number
-  serviceAccountId?: string
-  customerId: string
-  conversionActionName: string
-}): Promise<string | null> {
-  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/conversion-goal/ensure', async () => {
-    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/conversion-goal/ensure`, {
-      service_account: serviceAccount,
-      customer_id: params.customerId,
-      conversion_action_name: params.conversionActionName,
-    })
-    return response.data.resource_name
-  })
-}
+// ==================== Conversion Goal Functions Removed ====================
+//
+// 🔧 移除说明 (2025-12-26):
+// - ensureConversionGoalPython: 确保转化目标存在（服务账号模式）
+// - updateCampaignConversionGoalPython: 更新CampaignConversionGoal的biddable状态
+//
+// 原因: 对应的Node.js函数ensureAccountConversionGoal已移除，这些函数不再使用
+

@@ -25,10 +25,7 @@ import {
   updateGoogleAdsCampaignStatus,
   createGoogleAdsCalloutExtensions,
   createGoogleAdsSitelinkExtensions,
-  setCampaignMarketingObjective,
   ensureKeywordsInHeadlines,
-  ensureAccountConversionGoal,
-  type MarketingObjective
 } from '@/lib/google-ads-api'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { generateNamingScheme, type NamingScheme } from '@/lib/naming-convention'
@@ -86,9 +83,6 @@ export interface CampaignPublishTaskData {
   // 可选标志
   enableCampaignImmediately?: boolean  // 是否立即启用Campaign
   pauseOldCampaigns?: boolean          // 是否暂停旧Campaign
-
-  // 🔧 新增(2025-12-19): 营销目标设置
-  marketingObjective?: MarketingObjective  // 营销目标类型（如 WEB_TRAFFIC, SALES, LEADS）
 }
 
 /**
@@ -113,8 +107,7 @@ export async function executeCampaignPublish(
     creative,
     brandName,
     enableCampaignImmediately = false,
-    pauseOldCampaigns = false,
-    marketingObjective = 'WEB_TRAFFIC'  // 🔧 默认营销目标为网站流量
+    pauseOldCampaigns = false
   } = task.data
 
   const apiStartTime = Date.now()
@@ -222,26 +215,8 @@ export async function executeCampaignPublish(
     }
 
     // 4. 创建Campaign到Google Ads
-    // 3.5 确保账号有正确的转化目标配置
-    // 🎯 关键步骤：在创建Campaign之前，确保账号已配置"网页浏览"转化操作
-    console.log(`\n🎯 步骤3.5: 确保账号转化目标配置...`)
-    const conversionGoalResult = await ensureAccountConversionGoal({
-      customerId: adsAccount.customer_id,
-      refreshToken: credentials!.refresh_token,
-      marketingObjective: marketingObjective,
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: finalLoginCustomerId
-    })
-
-    if (!conversionGoalResult.success) {
-      console.warn(`⚠️ 转化目标配置失败: ${conversionGoalResult.message}`)
-      console.warn(`   继续创建Campaign，但营销目标可能无法正确显示`)
-    } else {
-      console.log(`✅ 转化目标配置成功: ${conversionGoalResult.message}`)
-    }
-
-    // 4. 创建Campaign到Google Ads
+    // 注意: 营销目标设置已移除 (2025-12-26)
+    // Google Ads会自动推断营销目标，无需手动设置
     totalApiOperations++ // Campaign creation = 1 operation
     const effectiveMaxCpcBid = campaignConfig.maxCpcBid || getDefaultCPC(adsAccount.currency)
 
@@ -270,31 +245,6 @@ export async function executeCampaignPublish(
 
     console.log(`✅ Campaign创建成功 (Google ID: ${googleCampaignId})`)
     console.log(`📝 使用命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
-
-    // 4.5 设置营销目标（转化目标）
-    // 🔧 新增(2025-12-19): 解决Google Ads UI中"营销目标"显示为空的问题
-    try {
-      console.log(`\n🎯 设置营销目标: ${marketingObjective}`)
-      const marketingObjectiveResult = await setCampaignMarketingObjective({
-        customerId: adsAccount.customer_id,
-        refreshToken: credentials!.refresh_token,
-        campaignId: googleCampaignId,
-        marketingObjective: marketingObjective,
-        accountId: adsAccount.id,
-        userId,
-        loginCustomerId: finalLoginCustomerId
-      })
-
-      if (marketingObjectiveResult.success) {
-        console.log(`✅ 营销目标设置成功: ${marketingObjectiveResult.message}`)
-      } else {
-        // 营销目标设置失败不阻断发布流程，只记录警告
-        console.log(`⚠️ 营销目标设置未完成: ${marketingObjectiveResult.message}`)
-      }
-    } catch (marketingObjectiveError: any) {
-      // 营销目标设置失败不阻断发布流程，只记录警告
-      console.log(`⚠️ 营销目标设置失败（不影响发布）: ${marketingObjectiveError.message}`)
-    }
 
     // 5. 创建Ad Group（使用相同的货币适配CPC）
     totalApiOperations++ // Ad group creation = 1 operation
