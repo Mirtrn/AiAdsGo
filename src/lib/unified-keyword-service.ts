@@ -360,21 +360,21 @@ export function buildIntentAwareSeedPool(offer: OfferData): IntentAwareSeedPool 
   featureSeeds.forEach(s => allSeedsSet.add(s.toLowerCase().trim()))
 
   const result: IntentAwareSeedPool = {
-    brandOrientedSeeds: Array.from(brandSeeds).slice(0, 10),
-    scenarioOrientedSeeds: Array.from(scenarioSeeds).slice(0, 10),
-    featureOrientedSeeds: Array.from(featureSeeds).slice(0, 10),
-    allSeeds: Array.from(allSeedsSet).slice(0, 25)
+    brandOrientedSeeds: Array.from(brandSeeds).slice(0, 15),
+    scenarioOrientedSeeds: Array.from(scenarioSeeds).slice(0, 15),
+    featureOrientedSeeds: Array.from(featureSeeds).slice(0, 15),
+    allSeeds: Array.from(allSeedsSet).slice(0, 50)
   }
 
   // 输出统计
-  console.log(`\n📊 种子词统计:`)
+  console.log(`\n📊 种子词统计 (🔥 2025-12-26 扩大种子池):`)
   console.log(`   🏷️ 品牌导向 (桶A): ${result.brandOrientedSeeds.length} 个`)
   result.brandOrientedSeeds.slice(0, 5).forEach(s => console.log(`      - "${s}"`))
   console.log(`   🏠 场景导向 (桶B): ${result.scenarioOrientedSeeds.length} 个`)
   result.scenarioOrientedSeeds.slice(0, 5).forEach(s => console.log(`      - "${s}"`))
   console.log(`   ⚙️ 功能导向 (桶C): ${result.featureOrientedSeeds.length} 个`)
   result.featureOrientedSeeds.slice(0, 5).forEach(s => console.log(`      - "${s}"`))
-  console.log(`   📝 总计: ${result.allSeeds.length} 个去重种子词`)
+  console.log(`   📝 总计: ${result.allSeeds.length} 个去重种子词 (之前: 25)`)
 
   return result
 }
