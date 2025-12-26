@@ -160,10 +160,11 @@ export async function calculateLaunchScore(
       .replace('{{productName}}', offer.brand_description || offer.brand || 'Unknown')
       .replace('{{targetCountry}}', campaignConfig?.targetCountry || offer.target_country || 'US')
       .replace('{{targetLanguage}}', campaignConfig?.targetLanguage || offer.target_language || 'English')
-      .replace('{{budget}}', campaignConfig?.budgetAmount ? `$${campaignConfig.budgetAmount}/day` : '$10/day')
-      .replace('{{maxCpc}}', campaignConfig?.maxCpcBid ? `$${campaignConfig.maxCpcBid}` : '$0.17')
+      // 🔧 修复(2025-12-26): 移除硬编码的美元符号，预算和CPC值是用户账号货币
+      .replace('{{budget}}', campaignConfig?.budgetAmount ? `${campaignConfig.budgetAmount}/day` : '10/day')
+      .replace('{{maxCpc}}', campaignConfig?.maxCpcBid ? `${campaignConfig.maxCpcBid}` : '0.17')
       // Budget Analysis - 🔧 基于用户配置评估，不依赖产品定价
-      .replace('{{budgetAnalysis}}', `Daily Budget: $${dailyBudget}, Max CPC: $${maxCpcBid}, Est. Clicks/Day: ${estimatedClicksPerDay.toFixed(1)}`)
+      .replace('{{budgetAnalysis}}', `Daily Budget: ${dailyBudget}, Max CPC: ${maxCpcBid}, Est. Clicks/Day: ${estimatedClicksPerDay.toFixed(1)}`)
       .replace('{{budget合理性}}', isBudgetReasonable ? 'Reasonable' : 'Low')
       .replace('{{cpc合理性}}', isCpcReasonable ? 'Reasonable' : 'High')
       // Brand Search Data

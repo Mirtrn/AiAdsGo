@@ -538,8 +538,8 @@ export async function POST(request: NextRequest) {
 
         // 🔥 新增：调试日志 - 追踪传递给Launch Score的campaignConfig参数
         console.log(`[Publish] 传递给Launch Score的campaignConfig:`)
-        console.log(`   - budgetAmount: $${_campaignConfig.budgetAmount}/day`)
-        console.log(`   - maxCpcBid: $${_campaignConfig.maxCpcBid}`)
+        console.log(`   - budgetAmount: ${_campaignConfig.budgetAmount}/day`)
+        console.log(`   - maxCpcBid: ${_campaignConfig.maxCpcBid}`)
         console.log(`   - finalUrl: ${creativeForLaunchScore.final_url}`)
         console.log(`   - targetCountry: ${_campaignConfig.targetCountry}`)
         console.log(`   - targetLanguage: ${_campaignConfig.targetLanguage}`)
