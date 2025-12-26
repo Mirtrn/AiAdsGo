@@ -494,9 +494,12 @@ async function syncAccountsFromAPI(
             ORDER BY account_budget.id DESC
             LIMIT 1
           `
-          const budgetInfo = extractSearchResults(isServiceAccount
-            ? await customer.search({ query: budgetQuery })
-            : await customer.query(budgetQuery))
+          // 🔧 修复(2025-12-26): 服务账号模式使用 executeGAQLQueryPython，而不是错误的 customer.search()
+          const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
+          const budgetResult = isServiceAccount
+            ? await executeGAQLQueryPython({ userId, serviceAccountId: undefined, customerId, query: budgetQuery })
+            : await customer.query(budgetQuery)
+          const budgetInfo = extractSearchResults(budgetResult)
           if (budgetInfo && budgetInfo.length > 0) {
             const budget = budgetInfo[0].account_budget
             const amountServed = Number(budget?.amount_served_micros || 0)

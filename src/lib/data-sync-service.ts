@@ -2,6 +2,7 @@ import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB, enums } from
 import { getServiceAccountConfig } from './google-ads-service-account'
 import { getDatabase } from './db'
 import { getUserAuthType } from './google-ads-oauth'
+import { executeGAQLQueryPython } from './python-ads-client'
 
 /**
  * 同步状态
@@ -409,12 +410,10 @@ export class DataSyncService {
         ORDER BY segments.date DESC
       `
 
-      // 执行查询（根据认证模式选择正确的查询方法）
-      // OAuth: google-ads-api 使用 query()
-      // 服务账号: @htdangkhoa/google-ads 使用 search()
+      // 🔧 修复(2025-12-26): 服务账号模式使用 Python 服务，而不是错误地使用 customer.search()
       const isServiceAccountMode = authType === 'service_account' && serviceAccountId
       const results = isServiceAccountMode
-        ? await (customer as any).search({ query })
+        ? (await executeGAQLQueryPython({ userId, serviceAccountId, customerId, query })).results || []
         : await (customer as any).query(query)
 
       // 转换为标准格式

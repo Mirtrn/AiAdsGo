@@ -4,6 +4,7 @@ import { findCampaignById } from '@/lib/campaigns'
 import { findGoogleAdsAccountById } from '@/lib/google-ads-accounts'
 import { findKeywordsByAdGroupId, updateKeyword } from '@/lib/keywords'
 import { createGoogleAdsAdGroup, createGoogleAdsKeywordsBatch } from '@/lib/google-ads-api'
+import { getUserAuthType } from '@/lib/google-ads-oauth'
 
 /**
  * POST /api/ad-groups/:id/sync
@@ -93,6 +94,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     })
 
     try {
+      // 获取用户授权方式
+      const auth = await getUserAuthType(parseInt(userId, 10))
+
       // 创建Google Ads Ad Group
       const adGroupResult = await createGoogleAdsAdGroup({
         customerId: googleAdsAccount.customerId,
@@ -103,6 +107,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         status: adGroup.status as 'ENABLED' | 'PAUSED',
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
       })
 
       // 更新Ad Group，标记为已同步
@@ -135,6 +141,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           keywords: keywordsBatch,
           accountId: googleAdsAccount.id,
           userId: parseInt(userId, 10),
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
         })
 
         // 更新每个Keyword的Google Ads ID
