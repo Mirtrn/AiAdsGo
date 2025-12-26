@@ -4,6 +4,7 @@ import { findAdGroupById } from '@/lib/ad-groups'
 import { findCampaignById } from '@/lib/campaigns'
 import { findGoogleAdsAccountById } from '@/lib/google-ads-accounts'
 import { createGoogleAdsResponsiveSearchAd } from '@/lib/google-ads-api'
+import { getUserAuthType } from '@/lib/google-ads-oauth'
 
 /**
  * POST /api/creatives/:id/sync
@@ -135,6 +136,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       // 准备Final URLs
       const finalUrls = [creative.final_url]
 
+      // 获取用户授权方式
+      const auth = await getUserAuthType(parseInt(userId, 10))
+
       // 创建Google Ads Responsive Search Ad
       const adResult = await createGoogleAdsResponsiveSearchAd({
         customerId: googleAdsAccount.customerId,
@@ -147,6 +151,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         path2: creative.path_2 || undefined,
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
       })
 
       // 更新Creative，标记为已同步

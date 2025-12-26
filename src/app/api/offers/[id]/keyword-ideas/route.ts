@@ -106,6 +106,10 @@ export async function POST(
     const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
     const config = await getGoogleAdsConfig(parseInt(userId, 10))
 
+    // 🔧 修复(2025-12-26): 获取完整的认证信息
+    const { getUserAuthType } = await import('@/lib/google-ads-oauth')
+    const auth = await getUserAuthType(parseInt(userId, 10))
+
     if (!config) {
       return NextResponse.json({ error: 'Google Ads凭证未配置' }, { status: 400 })
     }
@@ -132,7 +136,8 @@ export async function POST(
         targetLanguage: offer.target_language || 'English',
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
-        authType: config.authType,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
       }),
     ])
 
@@ -153,8 +158,8 @@ export async function POST(
           targetLanguage: offer.target_language || 'English',
           accountId: googleAdsAccount.id,
           userId: parseInt(userId, 10),
-          // 认证类型（默认oauth）
-          authType: 'oauth',
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
         })
 
         // 转换为KeywordIdea格式
