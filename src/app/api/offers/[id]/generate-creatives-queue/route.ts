@@ -51,12 +51,22 @@ export async function POST(
     })
   }
 
-  // 🔧 修复(2025-12-24): 支持服务账号模式
-  // 1. 先检查用户是否有已激活的服务账号配置
+  // 🔧 修复(2025-12-26): OAuth优先于服务账号
+  // 1. 检查OAuth和服务账号配置
   let useServiceAccount = false
   let serviceAccountId: string | null = null
   try {
     const db = await getDatabase()
+
+    // 检查OAuth配置
+    const credentials = await db.queryOne(
+      `SELECT refresh_token FROM google_ads_credentials WHERE user_id = ?`,
+      [parseInt(userId, 10)]
+    ) as { refresh_token: string | null } | undefined
+
+    const hasOAuth = !!credentials?.refresh_token
+
+    // 检查服务账号配置
     const serviceAccount = await db.queryOne(
       `SELECT id, mcc_customer_id FROM google_ads_service_accounts
        WHERE user_id = ? AND is_active = 1
@@ -64,12 +74,15 @@ export async function POST(
       [parseInt(userId, 10)]
     ) as { id: string; mcc_customer_id: string } | undefined
 
-    if (serviceAccount) {
+    // OAuth优先
+    if (hasOAuth) {
+      useServiceAccount = false
+    } else if (serviceAccount) {
       useServiceAccount = true
       serviceAccountId = serviceAccount.id
     }
   } catch (err) {
-    console.error('检查服务账号配置失败:', err)
+    console.error('检查授权配置失败:', err)
   }
 
   // 2. 验证 Google Ads API 配置（支持 OAuth 和服务账号两种模式）
