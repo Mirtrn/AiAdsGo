@@ -19,6 +19,7 @@ import type {
   QualityMetrics
 } from './ad-creative'
 import { getKeywordSearchVolumes } from './keyword-planner'
+import { getUserAuthType } from './google-ads-oauth'
 import { normalizeLanguageCode } from './language-country-codes'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 
@@ -1236,12 +1237,15 @@ async function calculateBrandSearchVolume(
     // 规范化语言代码（将完整语言名称转换为代码，如 "English" → "en"）
     const normalizedLanguage = normalizeLanguageCode(targetLanguage)
 
-    // 使用现有的关键词搜索量查询机制（Redis → Database → Google Ads API）
+    // 🔧 修复(2025-12-26): 支持服务账号模式
+    const auth = userId ? await getUserAuthType(userId) : { authType: 'oauth' as const, serviceAccountId: undefined }
     const volumeResults = await getKeywordSearchVolumes(
       [brandName],
       targetCountry,
       normalizedLanguage,
-      userId
+      userId,
+      auth.authType,
+      auth.serviceAccountId
     )
 
     const brandVolume = volumeResults[0]

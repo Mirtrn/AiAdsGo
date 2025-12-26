@@ -19,6 +19,7 @@ import { generateContent } from './gemini'
 import { loadPrompt } from './prompt-loader'
 import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
+import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
 
 // ============================================
@@ -715,11 +716,15 @@ export async function clusterKeywordsByIntent(
     try {
       console.log(`📊 查询高购买意图词搜索量: ${highIntentKeywords.length} 个关键词`)
       const { getKeywordSearchVolumes } = await import('./keyword-planner')
+      // 🔧 修复(2025-12-26): 支持服务账号模式
+      const auth = await getUserAuthType(userId)
       const metricsResults = await getKeywordSearchVolumes(
         highIntentKeywords,
         targetCountry,
         targetLanguage,
-        userId
+        userId,
+        auth.authType,
+        auth.serviceAccountId
       )
 
       // 过滤掉搜索量为0的关键词（API未返回数据）

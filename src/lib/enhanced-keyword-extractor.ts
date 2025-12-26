@@ -15,6 +15,7 @@
 
 import { generateContent } from './gemini'
 import { getKeywordSearchVolumes } from './keyword-planner'
+import { getUserAuthType } from './google-ads-oauth'
 import { getHighIntentKeywords } from './google-suggestions'
 
 export interface EnhancedKeyword {
@@ -132,6 +133,7 @@ export async function extractKeywordsEnhanced(
     const withMetrics = await enrichKeywordsWithMetrics(
       allKeywords,
       targetCountry,
+      targetLanguage,
       userId
     )
 
@@ -354,13 +356,22 @@ function deduplicateKeywords(
 async function enrichKeywordsWithMetrics(
   keywords: Partial<EnhancedKeyword>[],
   targetCountry: string,
+  targetLanguage: string,  // 添加语言参数
   userId: number
 ): Promise<EnhancedKeyword[]> {
   const keywordTexts = keywords.map((kw) => kw.keyword || '').filter(Boolean)
 
   try {
-    // 查询搜索量和竞争度（KeywordVolume包含所有需要的数据）
-    const volumes = await getKeywordSearchVolumes(keywordTexts, targetCountry, String(userId))
+    // 🔧 修复(2025-12-26): 支持服务账号模式
+    const auth = await getUserAuthType(userId)
+    const volumes = await getKeywordSearchVolumes(
+      keywordTexts,
+      targetCountry,
+      targetLanguage,
+      userId,
+      auth.authType,
+      auth.serviceAccountId
+    )
 
     // 创建keyword到volume的映射
     const volumeMap = new Map(volumes.map(v => [v.keyword.toLowerCase(), v]))
