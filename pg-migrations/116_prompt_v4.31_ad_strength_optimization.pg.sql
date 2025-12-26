@@ -10,26 +10,36 @@
 --   6. 所有描述必须以英文CTA结尾（Shop Now / Buy Now / Get Yours / Order Now）
 --   7. 预期效果：Quality 7→13, Diversity 11→18, Overall 78-80→91-93
 
--- Step 1: 停用当前active版本
+-- Step 1: 删除可能存在的 v4.31（幂等性）
+DELETE FROM prompt_versions
+WHERE prompt_id = 'ad_creative_generation' AND version = 'v4.31';
+
+-- Step 2: 停用当前active版本
 UPDATE prompt_versions
-SET is_active = false, updated_at = NOW()
+SET is_active = false
 WHERE prompt_id = 'ad_creative_generation' AND is_active = true;
 
--- Step 2: 插入新版本 v4.31
+-- Step 3: 插入新版本 v4.31
 INSERT INTO prompt_versions (
   prompt_id,
   version,
+  category,
   name,
+  description,
+  file_path,
+  function_name,
   prompt_content,
   is_active,
   created_by,
-  change_log,
-  created_at,
-  updated_at
+  change_notes
 ) VALUES (
   'ad_creative_generation',
   'v4.31',
+  'ad_creative',
   '广告创意生成v4.31 - Ad Strength优化版',
+  'Ad Strength优化版：增加类型多样性、紧迫感、CTA要求',
+  'prompts/ad_creative_generation_v4.31.txt',
+  'generateAdCreative',
   '-- ============================================
 ## 任务
 为 Google Ads 生成高质量的广告创意（Responsive Search Ads）。
@@ -278,7 +288,7 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 
 如果不满足任何关键要求，重新生成。',
   true,
-  'system',
+  NULL,
   'Ad Strength优化版：
 1. 标题结构从5+5+5改为2+4+4+2+3（5种类型）
 2. 新增问题型标题（2个）
@@ -286,12 +296,10 @@ COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 4. 品牌名约束：最多3次
 5. 产品全名约束：最多2次
 6. 所有描述必须以英文CTA结尾
-7. 预期效果：Quality 7→13, Diversity 11→18, Overall 78-80→91-93',
-  NOW(),
-  NOW()
+7. 预期效果：Quality 7→13, Diversity 11→18, Overall 78-80→91-93'
 );
 
--- Step 3: 验证插入
+-- Step 4: 验证插入
 SELECT prompt_id, version, name, is_active
 FROM prompt_versions
 WHERE prompt_id = 'ad_creative_generation'
