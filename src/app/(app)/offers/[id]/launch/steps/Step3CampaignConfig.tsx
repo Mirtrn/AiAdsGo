@@ -582,7 +582,13 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                     value={config.budgetAmount}
                     onChange={(e) => {
                       const value = parseFloat(e.target.value)
-                      handleChange('budgetAmount', isNaN(value) ? 0 : value)
+                      if (isNaN(value) || value <= 0) {
+                        handleChange('budgetAmount', 0)
+                      } else {
+                        // 🔧 修复(2025-12-26): 自动四舍五入到整数（预算以货币单位计）
+                        const roundedValue = Math.round(value)
+                        handleChange('budgetAmount', roundedValue)
+                      }
                     }}
                     className="pl-7"
                     min="0"
