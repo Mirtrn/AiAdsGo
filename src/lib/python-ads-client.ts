@@ -165,17 +165,17 @@ export async function createCampaignBudgetPython(params: {
   amountMicros: number
   deliveryMethod: 'STANDARD' | 'ACCELERATED'
 }): Promise<string> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign-budget/create`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    name: params.name,
-    amount_micros: params.amountMicros,
-    delivery_method: params.deliveryMethod,
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign-budget/create', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign-budget/create`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      name: params.name,
+      amount_micros: params.amountMicros,
+      delivery_method: params.deliveryMethod,
+    })
+    return response.data.resource_name
   })
-
-  return response.data.resource_name
 }
 
 /**
@@ -226,18 +226,18 @@ export async function createAdGroupPython(params: {
   status: 'ENABLED' | 'PAUSED'
   cpcBidMicros?: number
 }): Promise<string> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/ad-group/create`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    campaign_resource_name: params.campaignResourceName,
-    name: params.name,
-    status: params.status,
-    cpc_bid_micros: params.cpcBidMicros,
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/ad-group/create', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/ad-group/create`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      campaign_resource_name: params.campaignResourceName,
+      name: params.name,
+      status: params.status,
+      cpc_bid_micros: params.cpcBidMicros,
+    })
+    return response.data.resource_name
   })
-
-  return response.data.resource_name
 }
 
 /**
@@ -288,20 +288,20 @@ export async function createResponsiveSearchAdPython(params: {
   path1?: string
   path2?: string
 }): Promise<string> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/responsive-search-ad/create`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    ad_group_resource_name: params.adGroupResourceName,
-    headlines: params.headlines,
-    descriptions: params.descriptions,
-    final_urls: params.finalUrls,
-    path1: params.path1,
-    path2: params.path2,
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/responsive-search-ad/create', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/responsive-search-ad/create`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      ad_group_resource_name: params.adGroupResourceName,
+      headlines: params.headlines,
+      descriptions: params.descriptions,
+      final_urls: params.finalUrls,
+      path1: params.path1,
+      path2: params.path2,
+    })
+    return response.data.resource_name
   })
-
-  return response.data.resource_name
 }
 
 /**
@@ -314,13 +314,14 @@ export async function updateCampaignStatusPython(params: {
   campaignResourceName: string
   status: 'ENABLED' | 'PAUSED'
 }): Promise<void> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update-status`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    campaign_resource_name: params.campaignResourceName,
-    status: params.status,
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/update-status', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update-status`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      campaign_resource_name: params.campaignResourceName,
+      status: params.status,
+    })
   })
 }
 
@@ -334,13 +335,14 @@ export async function updateCampaignBudgetPython(params: {
   campaignResourceName: string
   budgetAmountMicros: number
 }): Promise<void> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update-budget`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    campaign_resource_name: params.campaignResourceName,
-    budget_amount_micros: params.budgetAmountMicros,
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/update-budget', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update-budget`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      campaign_resource_name: params.campaignResourceName,
+      budget_amount_micros: params.budgetAmountMicros,
+    })
   })
 }
 
@@ -354,16 +356,16 @@ export async function createCalloutExtensionsPython(params: {
   campaignResourceName: string
   calloutTexts: string[]
 }): Promise<string[]> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/callout-extensions/create`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    campaign_resource_name: params.campaignResourceName,
-    callout_texts: params.calloutTexts,
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE_BATCH, '/api/google-ads/callout-extensions/create', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/callout-extensions/create`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      campaign_resource_name: params.campaignResourceName,
+      callout_texts: params.calloutTexts,
+    })
+    return response.data.asset_resource_names
   })
-
-  return response.data.asset_resource_names
 }
 
 /**
@@ -381,21 +383,21 @@ export async function createSitelinkExtensionsPython(params: {
     description2?: string
   }>
 }): Promise<string[]> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/sitelink-extensions/create`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    campaign_resource_name: params.campaignResourceName,
-    sitelinks: params.sitelinks.map(sl => ({
-      link_text: sl.linkText,
-      final_url: sl.finalUrl,
-      description1: sl.description1,
-      description2: sl.description2,
-    })),
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE_BATCH, '/api/google-ads/sitelink-extensions/create', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/sitelink-extensions/create`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      campaign_resource_name: params.campaignResourceName,
+      sitelinks: params.sitelinks.map(sl => ({
+        link_text: sl.linkText,
+        final_url: sl.finalUrl,
+        description1: sl.description1,
+        description2: sl.description2,
+      })),
+    })
+    return response.data.asset_resource_names
   })
-
-  return response.data.asset_resource_names
 }
 
 /**
@@ -407,13 +409,13 @@ export async function ensureConversionGoalPython(params: {
   customerId: string
   conversionActionName: string
 }): Promise<string | null> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/conversion-goal/ensure`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    conversion_action_name: params.conversionActionName,
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/conversion-goal/ensure', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/conversion-goal/ensure`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      conversion_action_name: params.conversionActionName,
+    })
+    return response.data.resource_name
   })
-
-  return response.data.resource_name
 }
