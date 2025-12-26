@@ -246,7 +246,9 @@ export async function executeCampaignPublish(
       status: 'ENABLED',
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: finalLoginCustomerId  // 🔧 使用effective值（从DB或用户设置）
+      loginCustomerId: finalLoginCustomerId,  // 🔧 使用effective值（从DB或用户设置）
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId,
     })
 
     console.log(`✅ Campaign创建成功 (Google ID: ${googleCampaignId})`)
@@ -263,7 +265,9 @@ export async function executeCampaignPublish(
       status: 'ENABLED',
       accountId: adsAccount.id,
       userId,
-      loginCustomerId: finalLoginCustomerId  // 🔧 使用effective值（从DB或用户设置）
+      loginCustomerId: finalLoginCustomerId,  // 🔧 使用effective值（从DB或用户设置）
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId,
     })
 
     console.log(`✅ Ad Group创建成功 (Google ID: ${googleAdGroupId})`)
@@ -454,8 +458,8 @@ export async function executeCampaignPublish(
         accountId: adsAccount.id,
         userId,
         loginCustomerId: finalLoginCustomerId,
-      authType: auth.authType,
-      serviceAccountId: auth.serviceAccountId
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
       })
       keywordsCount = keywordOperations.length
       console.log(`  ✅ [串行1/3] 成功添加${keywordsCount}个关键词`)
@@ -473,8 +477,8 @@ export async function executeCampaignPublish(
         accountId: adsAccount.id,
         userId,
         loginCustomerId: finalLoginCustomerId,
-      authType: auth.authType,
-      serviceAccountId: auth.serviceAccountId
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
       })
       negativeKeywordsCount = negativeKeywordOperations.length
       console.log(`  ✅ [串行2/3] 成功添加${negativeKeywordsCount}个否定关键词`)
@@ -567,7 +571,9 @@ export async function executeCampaignPublish(
           status: 'ENABLED',
           accountId: adsAccount.id,
           userId,
-          loginCustomerId: finalLoginCustomerId  // 🔧 使用effective值（从DB或用户设置）
+          loginCustomerId: finalLoginCustomerId,  // 🔧 使用effective值（从DB或用户设置）
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
         })
         finalCampaignStatus = 'ENABLED'
         console.log(`✅ Campaign已启用`)
