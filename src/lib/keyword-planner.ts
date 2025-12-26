@@ -663,37 +663,43 @@ export async function getKeywordSuggestions(
   }
 
   try {
-    let customer: any
-
+    // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
     if (config.authType === 'service_account') {
-      // 服务账号认证模式
-      customer = await getUnifiedGoogleAdsClient({
+      const { getKeywordIdeasPython } = await import('./python-ads-client')
+      const geoTargetId = getGoogleAdsGeoTargetId(country)
+      const languageId = getGoogleAdsLanguageIdString(language)
+
+      const result = await getKeywordIdeasPython({
+        userId: userId || 1,
+        serviceAccountId: config.serviceAccountId,
         customerId: config.customerId,
-        credentials: {
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
-          developer_token: config.developerToken,
-        },
-        authConfig: {
-          authType: 'service_account',
-          userId: userId || 1,
-          serviceAccountId: config.serviceAccountId,
-        },
-      })
-    } else {
-      // OAuth认证模式
-      const client = new GoogleAdsApi({
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        developer_token: config.developerToken,
+        keywords: seedKeywords,
+        language: languageId,
+        geoTargetConstants: [geoTargetId],
       })
 
-      customer = client.Customer({
-        customer_id: config.customerId,
-        login_customer_id: config.loginCustomerId!,
-        refresh_token: config.refreshToken!,
-      })
+      return result.results.slice(0, maxResults).map((idea: any) => ({
+        keyword: idea.text,
+        avgMonthlySearches: idea.keyword_idea_metrics?.avg_monthly_searches || 0,
+        competition: idea.keyword_idea_metrics?.competition || 'UNSPECIFIED',
+        competitionIndex: idea.keyword_idea_metrics?.competition_index || 0,
+        lowTopOfPageBidMicros: idea.keyword_idea_metrics?.low_top_of_page_bid_micros || 0,
+        highTopOfPageBidMicros: idea.keyword_idea_metrics?.high_top_of_page_bid_micros || 0,
+      }))
     }
+
+    // OAuth认证模式
+    const client = new GoogleAdsApi({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      developer_token: config.developerToken,
+    })
+
+    const customer = client.Customer({
+      customer_id: config.customerId,
+      login_customer_id: config.loginCustomerId!,
+      refresh_token: config.refreshToken!,
+    })
 
     const geoTargetId = getGoogleAdsGeoTargetId(country)
     const languageId = getGoogleAdsLanguageIdString(language)

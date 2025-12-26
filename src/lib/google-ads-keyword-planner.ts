@@ -72,7 +72,31 @@ export async function getKeywordIdeas(params: {
 
   const authType = params.authType || 'oauth'
 
-  // 获取凭证
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (authType === 'service_account') {
+    const { getKeywordIdeasPython } = await import('./python-ads-client')
+
+    const result = await getKeywordIdeasPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      keywords: params.seedKeywords || [],
+      language: getLanguageCode(params.targetLanguage),
+      geoTargetConstants: [getGeoTargetConstant(params.targetCountry)],
+      pageUrl: params.pageUrl,
+    })
+
+    return result.results.map((idea: any) => ({
+      text: idea.text,
+      avgMonthlySearches: idea.keyword_idea_metrics?.avg_monthly_searches || 0,
+      competition: mapCompetition(idea.keyword_idea_metrics?.competition),
+      competitionIndex: idea.keyword_idea_metrics?.competition_index || 0,
+      lowTopOfPageBidMicros: idea.keyword_idea_metrics?.low_top_of_page_bid_micros || 0,
+      highTopOfPageBidMicros: idea.keyword_idea_metrics?.high_top_of_page_bid_micros || 0,
+    }))
+  }
+
+  // OAuth模式：使用原有逻辑
   const creds = await getGoogleAdsCredentialsFromDB(params.userId)
   const credentials = {
     client_id: creds.client_id,
@@ -80,7 +104,6 @@ export async function getKeywordIdeas(params: {
     developer_token: creds.developer_token
   }
 
-  // 获取登录客户ID
   const loginCustomerId = await getLoginCustomerId({
     authConfig: {
       authType,
@@ -90,7 +113,6 @@ export async function getKeywordIdeas(params: {
     oauthCredentials: { login_customer_id: creds.login_customer_id }
   })
 
-  // 获取统一的Google Ads客户端
   const customer = await getUnifiedGoogleAdsClient({
     customerId: params.customerId,
     credentials,
@@ -235,7 +257,30 @@ export async function getKeywordMetrics(params: {
 
   const authType = params.authType || 'oauth'
 
-  // 获取凭证
+  // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
+  if (authType === 'service_account') {
+    const { getKeywordHistoricalMetricsPython } = await import('./python-ads-client')
+
+    const result = await getKeywordHistoricalMetricsPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      keywords: params.keywords,
+      language: getLanguageCode(params.targetLanguage),
+      geoTargetConstants: [getGeoTargetConstant(params.targetCountry)],
+    })
+
+    return result.results.map((metric: any) => ({
+      keyword: metric.text,
+      avgMonthlySearches: metric.keyword_metrics?.avg_monthly_searches || 0,
+      competition: mapCompetition(metric.keyword_metrics?.competition),
+      competitionIndex: metric.keyword_metrics?.competition_index || 0,
+      lowTopOfPageBidMicros: metric.keyword_metrics?.low_top_of_page_bid_micros || 0,
+      highTopOfPageBidMicros: metric.keyword_metrics?.high_top_of_page_bid_micros || 0,
+    }))
+  }
+
+  // OAuth模式：使用原有逻辑
   const creds = await getGoogleAdsCredentialsFromDB(params.userId)
   const credentials = {
     client_id: creds.client_id,
@@ -243,7 +288,6 @@ export async function getKeywordMetrics(params: {
     developer_token: creds.developer_token
   }
 
-  // 获取统一的Google Ads客户端
   const customer = await getUnifiedGoogleAdsClient({
     customerId: params.customerId,
     credentials,
