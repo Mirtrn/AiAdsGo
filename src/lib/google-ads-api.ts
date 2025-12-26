@@ -1013,7 +1013,7 @@ export async function listGoogleAdsCampaigns(params: {
 
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (authType === 'service_account') {
-    const { executePythonGAQL } = await import('./python-ads-client')
+    const { executeGAQLQueryPython } = await import('./python-ads-client')
     const { getServiceAccountConfig } = await import('./google-ads-service-account')
     const saConfig = await getServiceAccountConfig(params.userId, params.serviceAccountId)
 
@@ -1031,8 +1031,9 @@ export async function listGoogleAdsCampaigns(params: {
       ORDER BY campaign.name
     `
 
-    const response = await executePythonGAQL({
-      serviceAccount: saConfig,
+    const response = await executeGAQLQueryPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
       query
     })
@@ -1140,84 +1141,6 @@ export async function createGoogleAdsAdGroup(params: {
   return {
     adGroupId,
     resourceName: result.resource_name || '',
-  }
-}
-
-/**
- * 创建Google Ads Keyword
- */
-export async function createGoogleAdsKeyword(params: {
-  customerId: string
-  refreshToken: string
-  adGroupId: string
-  keywordText: string
-  matchType: 'BROAD' | 'PHRASE' | 'EXACT'
-  status: 'ENABLED' | 'PAUSED'
-  finalUrl?: string
-  isNegative?: boolean
-  accountId?: number
-  userId: number
-  loginCustomerId?: string  // 🔧 添加MCC权限参数
-}): Promise<{ keywordId: string; resourceName: string }> {
-  const customer = await getCustomerWithCredentials(params)
-
-  if (params.isNegative) {
-    // 创建否定关键词
-    const negativeKeyword = {
-      ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
-      keyword: {
-        text: params.keywordText,
-        match_type: enums.KeywordMatchType[params.matchType],
-      },
-    }
-
-    const response = await customer.adGroupCriteria.create([
-      {
-        ...negativeKeyword,
-        negative: true,
-      },
-    ])
-
-    if (!response || !response.results || response.results.length === 0) {
-      throw new Error('创建否定关键词失败')
-    }
-
-    const result = response.results[0]
-    const keywordId = result.resource_name?.split('/').pop() || ''
-
-    return {
-      keywordId,
-      resourceName: result.resource_name || '',
-    }
-  } else {
-    // 创建普通关键词
-    const keyword = {
-      ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
-      status: enums.AdGroupCriterionStatus[params.status],
-      keyword: {
-        text: params.keywordText,
-        match_type: enums.KeywordMatchType[params.matchType],
-      },
-    }
-
-    // 如果提供了final URL，添加到关键词配置
-    if (params.finalUrl) {
-      ;(keyword as any).final_urls = [params.finalUrl]
-    }
-
-    const response = await customer.adGroupCriteria.create([keyword])
-
-    if (!response || !response.results || response.results.length === 0) {
-      throw new Error('创建关键词失败')
-    }
-
-    const result = response.results[0]
-    const keywordId = result.resource_name?.split('/').pop() || ''
-
-    return {
-      keywordId,
-      resourceName: result.resource_name || '',
-    }
   }
 }
 
