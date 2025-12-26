@@ -149,6 +149,8 @@ export async function GET(request: NextRequest) {
         hasServiceAccount,
         serviceAccountId,
         serviceAccountName,
+        // 🔧 修复(2025-12-26): 添加认证类型，优先使用服务账号
+        authType: hasServiceAccount ? 'service_account' : 'oauth',
         lastVerifiedAt: credentials?.last_verified_at,
         isActive: credentials?.is_active === 1,
         createdAt: credentials?.created_at,

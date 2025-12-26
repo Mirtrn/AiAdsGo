@@ -114,8 +114,26 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
     try {
       setLoading(true)
 
+      // 🔧 修复(2025-12-26): 检查认证类型，支持服务账号模式
+      const credResponse = await fetch('/api/google-ads/credentials', {
+        credentials: 'include'
+      })
+      const credData = await credResponse.json()
+      const authType = credData.data?.authType || 'oauth'
+      const serviceAccountId = credData.data?.serviceAccountId
+
+      // 构建查询参数
+      const params = new URLSearchParams({
+        refresh: 'false',
+        offerId: offer.id.toString(),
+        auth_type: authType,
+      })
+      if (serviceAccountId) {
+        params.append('service_account_id', serviceAccountId)
+      }
+
       // 🔓 KISS优化(2025-12-12): 传入offerId用于计算账号优先级
-      const response = await fetch(`/api/google-ads/credentials/accounts?refresh=false&offerId=${offer.id}`, {
+      const response = await fetch(`/api/google-ads/credentials/accounts?${params}`, {
         credentials: 'include'
       })
 
