@@ -82,6 +82,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         endDate: campaign.endDate || undefined,
         accountId: googleAdsAccount.id,
         userId: parseInt(userId, 10),
+        authType: googleAdsAccount.serviceAccountId ? 'service_account' : 'oauth',
+        serviceAccountId: googleAdsAccount.serviceAccountId || undefined,
       })
 
       // 更新Campaign，标记为已同步
