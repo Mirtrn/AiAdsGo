@@ -276,95 +276,45 @@ export async function getKeywordSearchVolumes(
 
       try {
         if (config.authType === 'service_account') {
-          // 🆕 服务账号模式：使用统一入口 google-ads-keyword-planner
-          console.log('[KeywordPlanner] Using service account authentication...')
-          const { getKeywordMetrics } = await import('./google-ads-keyword-planner')
+          // 🚫 服务账号模式不支持 Keyword Planner API（需要 Basic Access 权限）
+          throw new Error(
+            'KEYWORD_PLANNER_REQUIRES_OAUTH|' +
+            'Keyword Planner API 需要 Google Ads Developer Token 的 Basic Access 权限。' +
+            '服务账号认证模式无法满足此要求。' +
+            '请切换到 OAuth 授权模式，或升级您的 Developer Token 到 Basic Access 级别。'
+          )
+        }
 
-          for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
-            const batch = keywordBatches[batchIndex]
-            console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
+        // OAuth认证模式
+        console.log('[KeywordPlanner] Using OAuth authentication...')
 
-            const response = await getKeywordMetrics({
-              userId: userId || 1,
-              customerId: config.customerId,
-              keywords: batch,
-              targetCountry: country,
-              targetLanguage: language,
-              authType: 'service_account',
-              serviceAccountId: config.serviceAccountId,
-            })
+        // 刷新 access token 以确保有效
+        try {
+          await refreshAccessToken(userId || 1)
+          console.log('[KeywordPlanner] Access token refreshed successfully')
+        } catch (refreshError: any) {
+          console.warn('[KeywordPlanner] Token refresh warning:', refreshError.message)
+          // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
+        }
 
-            totalApiCalls++
+        // 🔧 修复(2025-12-26): 使用统一的 getGoogleAdsClient
+        const client = getGoogleAdsClient({
+          client_id: config.clientId,
+          client_secret: config.clientSecret,
+          developer_token: config.developerToken,
+        })
 
-            for (const result of response) {
-              const volume = {
-                keyword: result.keyword,
-                avgMonthlySearches: result.avgMonthlySearches,
-                competition: result.competition,
-                competitionIndex: result.competitionIndex,
-                lowTopPageBid: result.lowTopOfPageBidMicros / 1_000_000,
-                highTopPageBid: result.highTopOfPageBidMicros / 1_000_000,
-              }
-              apiVolumes.set(result.keyword.toLowerCase(), volume)
-            }
-          }
+        const customer = client.Customer({
+          customer_id: config.customerId,
+          login_customer_id: config.loginCustomerId!,
+          refresh_token: config.refreshToken!,
+        })
 
-          console.log(`[KeywordPlanner] Completed ${totalApiCalls} API calls, retrieved ${apiVolumes.size} keyword volumes`)
+        const geoTargetId = getGoogleAdsGeoTargetId(country)
+        const languageId = getGoogleAdsLanguageIdString(language)
 
-          // Save to database and cache
-          const toCache: Array<{ keyword: string; volume: number; competition?: string; competitionIndex?: number }> = []
-          for (const [kw, vol] of apiVolumes) {
-            toCache.push({
-              keyword: kw,
-              volume: vol.avgMonthlySearches,
-              competition: vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
-              competitionIndex: vol.competitionIndex
-            })
-            await saveToGlobalKeywords(
-              kw,
-              country,
-              language,
-              vol.avgMonthlySearches,
-              vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
-              Math.round((vol.lowTopPageBid + vol.highTopPageBid) / 2 * 1_000_000) || undefined
-            )
-          }
-
-          if (toCache.length) {
-            await batchCacheVolumes(toCache, country, language)
-          }
-
-          apiSuccess = true
-        } else {
-          // OAuth认证模式 - 保持原有逻辑
-          // 刷新 access token 以确保有效
-          console.log('[KeywordPlanner] Refreshing access token...')
-          try {
-            await refreshAccessToken(userId || 1)
-            console.log('[KeywordPlanner] Access token refreshed successfully')
-          } catch (refreshError: any) {
-            console.warn('[KeywordPlanner] Token refresh warning:', refreshError.message)
-            // 继续执行，google-ads-api 库会使用 refresh_token 自动刷新
-          }
-
-          // 🔧 修复(2025-12-26): 使用统一的 getGoogleAdsClient
-          const client = getGoogleAdsClient({
-            client_id: config.clientId,
-            client_secret: config.clientSecret,
-            developer_token: config.developerToken,
-          })
-
-          const customer = client.Customer({
-            customer_id: config.customerId,
-            login_customer_id: config.loginCustomerId!,
-            refresh_token: config.refreshToken!,
-          })
-
-          const geoTargetId = getGoogleAdsGeoTargetId(country)
-          const languageId = getGoogleAdsLanguageIdString(language)
-
-          // Process each batch with exponential backoff retry
-          for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
+        // Process each batch with exponential backoff retry
+        for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
           const batch = keywordBatches[batchIndex]
           console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
 
