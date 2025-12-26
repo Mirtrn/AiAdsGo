@@ -1,6 +1,7 @@
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB, enums } from './google-ads-api'
 import { getServiceAccountConfig } from './google-ads-service-account'
 import { getDatabase } from './db'
+import { getUserAuthType } from './google-ads-oauth'
 
 /**
  * 同步状态
@@ -205,8 +206,7 @@ export class DataSyncService {
         const startDate = new Date()
         startDate.setDate(startDate.getDate() - 7)
 
-        // 🔧 修复(2025-12-26): OAuth优先于服务账号
-        const useServiceAccount = !account.refresh_token && account.service_account_id && credentials.useServiceAccount
+        const auth = await getUserAuthType(userId)
 
         const performanceData = await this.queryPerformanceData({
           customerId: account.customer_id,
@@ -216,8 +216,8 @@ export class DataSyncService {
           accountId: account.id,
           userId: userId,
           credentials: userCredentials,
-          authType: useServiceAccount ? 'service_account' : 'oauth',
-          serviceAccountId: useServiceAccount ? (account.service_account_id as string) : undefined,
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
         })
 
         // 4. 批量写入数据库（使用upsert处理重复）

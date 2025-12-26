@@ -11,6 +11,7 @@ import { getQueueManager } from '@/lib/queue'
 import { getDatabase } from '@/lib/db'
 import { createError } from '@/lib/errors'
 import { getGoogleAdsConfig } from '@/lib/keyword-planner'
+import { getUserAuthType } from '@/lib/google-ads-oauth'
 import type { AdCreativeTaskData } from '@/lib/queue/executors/ad-creative-executor'
 
 export async function POST(
@@ -51,62 +52,31 @@ export async function POST(
     })
   }
 
-  // 🔧 修复(2025-12-26): OAuth优先于服务账号
-  // 1. 检查OAuth和服务账号配置
-  let useServiceAccount = false
-  let serviceAccountId: string | null = null
-  try {
-    const db = await getDatabase()
-
-    // 检查OAuth配置
-    const credentials = await db.queryOne(
-      `SELECT refresh_token FROM google_ads_credentials WHERE user_id = ?`,
-      [parseInt(userId, 10)]
-    ) as { refresh_token: string | null } | undefined
-
-    const hasOAuth = !!credentials?.refresh_token
-
-    // 检查服务账号配置
-    const serviceAccount = await db.queryOne(
-      `SELECT id, mcc_customer_id FROM google_ads_service_accounts
-       WHERE user_id = ? AND is_active = 1
-       ORDER BY created_at DESC LIMIT 1`,
-      [parseInt(userId, 10)]
-    ) as { id: string; mcc_customer_id: string } | undefined
-
-    // OAuth优先
-    if (hasOAuth) {
-      useServiceAccount = false
-    } else if (serviceAccount) {
-      useServiceAccount = true
-      serviceAccountId = serviceAccount.id
-    }
-  } catch (err) {
-    console.error('检查授权配置失败:', err)
-  }
+  // 🔧 修复(2025-12-26): 使用中心化授权方式判断
+  const auth = await getUserAuthType(parseInt(userId, 10))
 
   // 2. 验证 Google Ads API 配置（支持 OAuth 和服务账号两种模式）
   try {
     const googleAdsConfig = await getGoogleAdsConfig(
       parseInt(userId, 10),
-      useServiceAccount ? 'service_account' : 'oauth',
-      serviceAccountId || undefined
+      auth.authType,
+      auth.serviceAccountId
     )
 
     // OAuth 模式需要检查 refreshToken，服务账号模式需要检查 serviceAccountId
-    const isConfigComplete = useServiceAccount
+    const isConfigComplete = auth.authType === 'service_account'
       ? !!(googleAdsConfig?.developerToken && googleAdsConfig?.customerId)
       : !!(googleAdsConfig?.developerToken && googleAdsConfig?.refreshToken && googleAdsConfig?.customerId)
 
     if (!isConfigComplete) {
-      console.warn(`[CreativeGeneration] User ${userId} has incomplete Google Ads config (serviceAccount: ${useServiceAccount})`)
+      console.warn(`[CreativeGeneration] User ${userId} has incomplete Google Ads config (authType: ${auth.authType})`)
       return new Response(
         JSON.stringify({
           error: '广告创意生成需要完整的 Google Ads API 配置',
-          details: useServiceAccount
+          details: auth.authType === 'service_account'
             ? '请前往【设置】→【服务账号配置】页面检查服务账号配置，确保 Developer Token 和 MCC Customer ID 已正确配置。'
             : '请前往【设置】页面配置 Google Ads API 凭证（Developer Token、Refresh Token、Customer ID）以启用关键词搜索量查询功能。',
-          missingFields: useServiceAccount
+          missingFields: auth.authType === 'service_account'
             ? [
                 !googleAdsConfig?.developerToken && 'Developer Token',
                 !googleAdsConfig?.customerId && 'MCC Customer ID'
@@ -116,7 +86,7 @@ export async function POST(
                 !googleAdsConfig?.refreshToken && 'Refresh Token / OAuth',
                 !googleAdsConfig?.customerId && 'Customer ID'
               ].filter(Boolean),
-          authType: useServiceAccount ? 'service_account' : 'oauth'
+          authType: auth.authType
         }),
         {
           status: 400,

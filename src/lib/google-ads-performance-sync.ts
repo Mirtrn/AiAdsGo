@@ -9,7 +9,7 @@
 
 import { getDatabase } from './db'
 import { saveCreativePerformance, PerformanceData } from './bonus-score-calculator'
-import { getGoogleAdsCredentials } from './google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from './google-ads-oauth'
 import { getCustomerWithCredentials } from './google-ads-api'
 import { getServiceAccountConfig } from './google-ads-service-account'
 
@@ -210,8 +210,7 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
 
     // 检查是否配置了服务账号
     const serviceAccount = await getServiceAccountConfig(userIdNum)
-    // 🔧 修复(2025-12-26): OAuth优先于服务账号
-    const authType = credentials.refresh_token ? 'oauth' : 'service_account'
+    const auth = await getUserAuthType(userIdNum)
 
     // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
     const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
@@ -235,8 +234,8 @@ export async function syncUserPerformanceData(userId: string): Promise<SyncResul
       accountId: account.id,
       userId: userIdNum,
       loginCustomerId: account.parent_mcc_id || undefined,
-      authType: authType as 'oauth' | 'service_account',
-      serviceAccountId: serviceAccount?.id.toString(),
+      authType: auth.authType,
+      serviceAccountId: auth.serviceAccountId,
     })
 
     return await syncAllCreativesPerformance(userId, customer, account.customer_id)
