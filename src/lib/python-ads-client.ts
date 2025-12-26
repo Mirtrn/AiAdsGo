@@ -4,8 +4,45 @@
  */
 import axios from 'axios'
 import { getServiceAccountConfig } from './google-ads-service-account'
+import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 
 const PYTHON_SERVICE_URL = process.env.PYTHON_ADS_SERVICE_URL || 'http://localhost:8001'
+
+/**
+ * 包装 Python API 调用并自动统计
+ */
+async function withTracking<T>(
+  userId: number,
+  customerId: string,
+  operationType: ApiOperationType,
+  endpoint: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const startTime = Date.now()
+  try {
+    const result = await fn()
+    await trackApiUsage({
+      userId,
+      operationType,
+      endpoint,
+      customerId,
+      responseTimeMs: Date.now() - startTime,
+      isSuccess: true,
+    })
+    return result
+  } catch (error: any) {
+    await trackApiUsage({
+      userId,
+      operationType,
+      endpoint,
+      customerId,
+      responseTimeMs: Date.now() - startTime,
+      isSuccess: false,
+      errorMessage: error.message,
+    })
+    throw error
+  }
+}
 
 interface ServiceAccountAuth {
   email: string
@@ -42,17 +79,17 @@ export async function getKeywordHistoricalMetricsPython(params: {
   language: string
   geoTargetConstants: string[]
 }): Promise<any> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/keyword-planner/historical-metrics`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    keywords: params.keywords,
-    language: params.language,
-    geo_target_constants: params.geoTargetConstants,
+  return withTracking(params.userId, params.customerId, ApiOperationType.GET_KEYWORD_IDEAS, '/api/keyword-planner/historical-metrics', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/keyword-planner/historical-metrics`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      keywords: params.keywords,
+      language: params.language,
+      geo_target_constants: params.geoTargetConstants,
+    })
+    return response.data
   })
-
-  return response.data
 }
 
 /**
@@ -67,18 +104,18 @@ export async function getKeywordIdeasPython(params: {
   geoTargetConstants: string[]
   pageUrl?: string
 }): Promise<any> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/keyword-planner/ideas`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    keywords: params.keywords,
-    language: params.language,
-    geo_target_constants: params.geoTargetConstants,
-    page_url: params.pageUrl,
+  return withTracking(params.userId, params.customerId, ApiOperationType.GET_KEYWORD_IDEAS, '/api/keyword-planner/ideas', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/keyword-planner/ideas`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      keywords: params.keywords,
+      language: params.language,
+      geo_target_constants: params.geoTargetConstants,
+      page_url: params.pageUrl,
+    })
+    return response.data
   })
-
-  return response.data
 }
 
 /**
@@ -90,15 +127,15 @@ export async function executeGAQLQueryPython(params: {
   customerId: string
   query: string
 }): Promise<any> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/query`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    query: params.query,
+  return withTracking(params.userId, params.customerId, ApiOperationType.SEARCH, '/api/google-ads/query', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/query`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      query: params.query,
+    })
+    return response.data
   })
-
-  return response.data
 }
 
 /**
@@ -158,23 +195,23 @@ export async function createCampaignPython(params: {
   startDate?: string
   endDate?: string
 }): Promise<string> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/create`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    name: params.name,
-    budget_resource_name: params.budgetResourceName,
-    status: params.status,
-    bidding_strategy_type: params.biddingStrategyType,
-    cpc_bid_ceiling_micros: params.cpcBidCeilingMicros,
-    target_country: params.targetCountry,
-    target_language: params.targetLanguage,
-    start_date: params.startDate,
-    end_date: params.endDate,
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/create', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/create`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      name: params.name,
+      budget_resource_name: params.budgetResourceName,
+      status: params.status,
+      bidding_strategy_type: params.biddingStrategyType,
+      cpc_bid_ceiling_micros: params.cpcBidCeilingMicros,
+      target_country: params.targetCountry,
+      target_language: params.targetLanguage,
+      start_date: params.startDate,
+      end_date: params.endDate,
+    })
+    return response.data.resource_name
   })
-
-  return response.data.resource_name
 }
 
 /**
@@ -219,22 +256,22 @@ export async function createKeywordsPython(params: {
     isNegative?: boolean
   }>
 }): Promise<string[]> {
-  const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
-
-  const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/keywords/create`, {
-    service_account: serviceAccount,
-    customer_id: params.customerId,
-    ad_group_resource_name: params.adGroupResourceName,
-    keywords: params.keywords.map(kw => ({
-      text: kw.text,
-      match_type: kw.matchType,
-      status: kw.status,
-      final_url: kw.finalUrl,
-      is_negative: kw.isNegative || false,
-    })),
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE_BATCH, '/api/google-ads/keywords/create', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/keywords/create`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      ad_group_resource_name: params.adGroupResourceName,
+      keywords: params.keywords.map(kw => ({
+        text: kw.text,
+        match_type: kw.matchType,
+        status: kw.status,
+        final_url: kw.finalUrl,
+        is_negative: kw.isNegative || false,
+      })),
+    })
+    return response.data.results.map((r: any) => r.resource_name)
   })
-
-  return response.data.results.map((r: any) => r.resource_name)
 }
 
 /**
