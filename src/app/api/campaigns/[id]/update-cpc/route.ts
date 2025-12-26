@@ -3,31 +3,57 @@ import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib
 import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getUserAuthType } from '@/lib/google-ads-oauth'
-import { executeGAQLQueryPython } from '@/lib/python-ads-client'
+import { executeGAQLQueryPython, updateCampaignPython, updateAdGroupPython } from '@/lib/python-ads-client'
 
 /**
  * 统一的 Mutate 操作（支持 OAuth 和服务账号两种认证模式）
+ * 🔧 修复(2025-12-26): 服务账号模式使用 Python 服务更新
  *
  * @param customer - Google Ads 客户端
  * @param isServiceAccount - 是否为服务账号模式
  * @param mutateType - mutate 类型 (ad_group, campaign 等)
  * @param operations - 操作数组
+ * @param userId - 用户ID（服务账号模式需要）
+ * @param serviceAccountId - 服务账号ID（服务账号模式需要）
+ * @param customerId - 客户ID（服务账号模式需要）
  */
 async function mutateResources(
   customer: any,
   isServiceAccount: boolean,
   mutateType: string,
-  operations: any[]
+  operations: any[],
+  userId: number,
+  serviceAccountId: string | undefined,
+  customerId: string
 ): Promise<void> {
   if (isServiceAccount) {
-    // 服务账号模式：使用 @htdangkhoa/google-ads 的 mutate 方法
-    const mutateOperations: Record<string, any> = {}
-    mutateOperations[`${mutateType}_operation`] = operations.length === 1 ? operations[0] : { update: operations.map(op => op.update) }
+    // 服务账号模式：使用 Python 服务更新
+    const { updateCampaignPython, updateAdGroupPython } = await import('@/lib/python-ads-client')
 
-    await customer.mutate({
-      mutate_operations: [mutateOperations],
-      partial_failure: true,
-    })
+    for (const op of operations) {
+      const resourceName = op.update.resource_name
+      const cpcBidMicros = op.update.cpc_bid_micros
+
+      if (mutateType === 'campaign') {
+        await updateCampaignPython({
+          userId,
+          serviceAccountId,
+          customerId,
+          campaignResourceName: resourceName,
+          cpcBidMicros,
+        })
+      } else if (mutateType === 'ad_group') {
+        await updateAdGroupPython({
+          userId,
+          serviceAccountId,
+          customerId,
+          adGroupResourceName: resourceName,
+          cpcBidMicros,
+        })
+      } else {
+        throw new Error(`服务账号模式不支持的 mutate 类型: ${mutateType}`)
+      }
+    }
   } else {
     // OAuth 模式：使用 google-ads-api 的 update 方法
     switch (mutateType) {
@@ -230,7 +256,15 @@ export async function PUT(
       }))
 
       // 批量更新Ad Groups
-      await mutateResources(customer, useServiceAccount, 'ad_group', adGroupOperations)
+      await mutateResources(
+        customer,
+        useServiceAccount,
+        'ad_group',
+        adGroupOperations,
+        parseInt(userId, 10),
+        auth.serviceAccountId,
+        googleAdsAccount.customerId
+      )
 
       return NextResponse.json({
         success: true,
@@ -253,7 +287,15 @@ export async function PUT(
       }
 
       // 更新广告系列
-      await mutateResources(customer, useServiceAccount, 'campaign', [campaignOperation])
+      await mutateResources(
+        customer,
+        useServiceAccount,
+        'campaign',
+        [campaignOperation],
+        parseInt(userId, 10),
+        auth.serviceAccountId,
+        googleAdsAccount.customerId
+      )
 
       return NextResponse.json({
         success: true,
@@ -275,7 +317,15 @@ export async function PUT(
       }
 
       // 更新广告系列
-      await mutateResources(customer, useServiceAccount, 'campaign', [campaignOperation])
+      await mutateResources(
+        customer,
+        useServiceAccount,
+        'campaign',
+        [campaignOperation],
+        parseInt(userId, 10),
+        auth.serviceAccountId,
+        googleAdsAccount.customerId
+      )
 
       return NextResponse.json({
         success: true,

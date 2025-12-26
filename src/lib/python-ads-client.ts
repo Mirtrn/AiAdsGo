@@ -418,3 +418,54 @@ export async function createSitelinkExtensionsPython(params: {
 //
 // 原因: 对应的Node.js函数ensureAccountConversionGoal已移除，这些函数不再使用
 
+// ==================== Campaign Update Functions ====================
+
+/**
+ * 更新广告系列（服务账号模式）
+ * 🔧 新增(2025-12-26): 支持更新任意字段，通过 update_mask 指定
+ */
+export async function updateCampaignPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  campaignResourceName: string
+  // 可选更新字段
+  cpcBidMicros?: number  // 手动CPC出价
+  targetCpaMicros?: number  // 目标CPA
+  status?: 'ENABLED' | 'PAUSED'  // 状态
+}): Promise<void> {
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/update', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      campaign_resource_name: params.campaignResourceName,
+      cpc_bid_micros: params.cpcBidMicros,
+      target_cpa_micros: params.targetCpaMicros,
+      status: params.status,
+    })
+  })
+}
+
+/**
+ * 更新广告组（服务账号模式）
+ * 🔧 新增(2025-12-26): 支持更新 adgroup 的 cpc_bid_micros
+ */
+export async function updateAdGroupPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  adGroupResourceName: string
+  cpcBidMicros?: number  // 手动CPC出价
+}): Promise<void> {
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/adgroup/update', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/adgroup/update`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      ad_group_resource_name: params.adGroupResourceName,
+      cpc_bid_micros: params.cpcBidMicros,
+    })
+  })
+}
+
