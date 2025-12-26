@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Google Ads Service Account API")
 
 
+def format_customer_id(v: str) -> str:
+    """统一格式化customer_id"""
+    return v.replace("-", "").replace(" ", "")
+
+
 def validate_login_customer_id(v: str) -> str:
     """验证并格式化 login_customer_id"""
     # 记录原始值（调试用）
@@ -36,6 +41,7 @@ class ServiceAccountConfig(BaseModel):
     private_key: str
     developer_token: str
     login_customer_id: str = Field(..., description="Must be a 10-digit number without dashes or spaces")
+    user_id: Optional[int] = Field(None, description="User ID for logging and tracking")
 
     @field_validator("login_customer_id", mode="before")
     @classmethod
@@ -50,6 +56,11 @@ class KeywordHistoricalMetricsRequest(BaseModel):
     language: str
     geo_target_constants: List[str]
 
+    @field_validator("customer_id", mode="before")
+    @classmethod
+    def format_customer_id_field(cls, v: str) -> str:
+        return format_customer_id(v)
+
 
 class KeywordIdeasRequest(BaseModel):
     service_account: ServiceAccountConfig
@@ -58,6 +69,11 @@ class KeywordIdeasRequest(BaseModel):
     language: str
     geo_target_constants: List[str]
     page_url: Optional[str] = None
+
+    @field_validator("customer_id", mode="before")
+    @classmethod
+    def format_customer_id_field(cls, v: str) -> str:
+        return format_customer_id(v)
 
 
 def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient:
@@ -93,12 +109,13 @@ def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient
 @app.post("/api/keyword-planner/historical-metrics")
 async def get_keyword_historical_metrics(request: KeywordHistoricalMetricsRequest):
     """查询关键词历史数据"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         keyword_plan_idea_service = client.get_service("KeywordPlanIdeaService")
 
         request_obj = client.get_type("GenerateKeywordHistoricalMetricsRequest")
-        request_obj.customer_id = request.customer_id.replace("-", "")
+        request_obj.customer_id = request.customer_id
         request_obj.keywords.extend(request.keywords)
         request_obj.language = request.language
         request_obj.geo_target_constants.extend(request.geo_target_constants)
@@ -131,19 +148,20 @@ async def get_keyword_historical_metrics(request: KeywordHistoricalMetricsReques
         return {"results": results}
 
     except Exception as e:
-        logger.error(f"Keyword historical metrics error: {e}")
+        logger.error(f"[user_id={user_id}] Keyword historical metrics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/keyword-planner/ideas")
 async def get_keyword_ideas(request: KeywordIdeasRequest):
     """生成关键词建议"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         keyword_plan_idea_service = client.get_service("KeywordPlanIdeaService")
 
         request_obj = client.get_type("GenerateKeywordIdeasRequest")
-        request_obj.customer_id = request.customer_id.replace("-", "")
+        request_obj.customer_id = request.customer_id
         request_obj.language = request.language
         request_obj.geo_target_constants.extend(request.geo_target_constants)
         request_obj.keyword_plan_network = (
@@ -178,7 +196,7 @@ async def get_keyword_ideas(request: KeywordIdeasRequest):
         return {"results": results}
 
     except Exception as e:
-        logger.error(f"Keyword ideas error: {e}")
+        logger.error(f"[user_id={user_id}] Keyword ideas error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -193,6 +211,7 @@ class ListAccessibleCustomersRequest(BaseModel):
 
 @app.post("/api/google-ads/list-accessible-customers")
 async def list_accessible_customers(request: ListAccessibleCustomersRequest):
+    user_id = request.service_account.user_id
     """获取可访问的客户账户列表"""
     try:
         client = create_google_ads_client(request.service_account)
@@ -204,7 +223,7 @@ async def list_accessible_customers(request: ListAccessibleCustomersRequest):
         return {"resource_names": list(resource_names)}
 
     except Exception as e:
-        logger.error(f"List accessible customers error: {e}")
+        logger.error(f"[user_id={user_id}] List accessible customers error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -216,6 +235,7 @@ class GAQLQueryRequest(BaseModel):
 
 @app.post("/api/google-ads/query")
 async def execute_gaql_query(request: GAQLQueryRequest):
+    user_id = request.service_account.user_id
     """执行 GAQL 查询（用于 Performance Sync、Campaign 查询等）"""
     try:
         from google.protobuf.json_format import MessageToDict
@@ -224,7 +244,7 @@ async def execute_gaql_query(request: GAQLQueryRequest):
         ga_service = client.get_service("GoogleAdsService")
 
         response = ga_service.search(
-            customer_id=request.customer_id.replace("-", ""), query=request.query
+            customer_id=request.customer_id, query=request.query
         )
 
         results = []
@@ -235,7 +255,7 @@ async def execute_gaql_query(request: GAQLQueryRequest):
         return {"results": results}
 
     except Exception as e:
-        logger.error(f"GAQL query error: {e}")
+        logger.error(f"[user_id={user_id}] GAQL query error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -250,6 +270,7 @@ class CreateCampaignBudgetRequest(BaseModel):
 @app.post("/api/google-ads/campaign-budget/create")
 async def create_campaign_budget(request: CreateCampaignBudgetRequest):
     """创建广告系列预算"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         campaign_budget_service = client.get_service("CampaignBudgetService")
@@ -263,13 +284,13 @@ async def create_campaign_budget(request: CreateCampaignBudgetRequest):
         ]
 
         response = campaign_budget_service.mutate_campaign_budgets(
-            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+            customer_id=request.customer_id, operations=[operation]
         )
 
         return {"resource_name": response.results[0].resource_name}
 
     except Exception as e:
-        logger.error(f"Create campaign budget error: {e}")
+        logger.error(f"[user_id={user_id}] Create campaign budget error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -290,6 +311,7 @@ class CreateCampaignRequest(BaseModel):
 @app.post("/api/google-ads/campaign/create")
 async def create_campaign(request: CreateCampaignRequest):
     """创建搜索广告系列"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         campaign_service = client.get_service("CampaignService")
@@ -324,13 +346,13 @@ async def create_campaign(request: CreateCampaignRequest):
         )
 
         response = campaign_service.mutate_campaigns(
-            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+            customer_id=request.customer_id, operations=[operation]
         )
 
         return {"resource_name": response.results[0].resource_name}
 
     except Exception as e:
-        logger.error(f"Create campaign error: {e}")
+        logger.error(f"[user_id={user_id}] Create campaign error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -346,6 +368,7 @@ class CreateAdGroupRequest(BaseModel):
 @app.post("/api/google-ads/ad-group/create")
 async def create_ad_group(request: CreateAdGroupRequest):
     """创建广告组"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         ad_group_service = client.get_service("AdGroupService")
@@ -361,7 +384,7 @@ async def create_ad_group(request: CreateAdGroupRequest):
             ad_group.cpc_bid_micros = request.cpc_bid_micros
 
         response = ad_group_service.mutate_ad_groups(
-            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+            customer_id=request.customer_id, operations=[operation]
         )
 
         return {"resource_name": response.results[0].resource_name}
@@ -389,6 +412,7 @@ class CreateKeywordsRequest(BaseModel):
 @app.post("/api/google-ads/keywords/create")
 async def create_keywords(request: CreateKeywordsRequest):
     """批量创建关键词"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         ad_group_criterion_service = client.get_service("AdGroupCriterionService")
@@ -414,7 +438,7 @@ async def create_keywords(request: CreateKeywordsRequest):
             operations.append(operation)
 
         response = ad_group_criterion_service.mutate_ad_group_criteria(
-            customer_id=request.customer_id.replace("-", ""), operations=operations
+            customer_id=request.customer_id, operations=operations
         )
 
         return {
@@ -442,6 +466,7 @@ class CreateResponsiveSearchAdRequest(BaseModel):
 @app.post("/api/google-ads/responsive-search-ad/create")
 async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
     """创建响应式搜索广告"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         ad_group_ad_service = client.get_service("AdGroupAdService")
@@ -471,7 +496,7 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
             rsa.path2 = request.path2
 
         response = ad_group_ad_service.mutate_ad_group_ads(
-            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+            customer_id=request.customer_id, operations=[operation]
         )
 
         return {"resource_name": response.results[0].resource_name}
@@ -491,6 +516,7 @@ class UpdateCampaignStatusRequest(BaseModel):
 @app.post("/api/google-ads/campaign/update-status")
 async def update_campaign_status(request: UpdateCampaignStatusRequest):
     """更新广告系列状态"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         campaign_service = client.get_service("CampaignService")
@@ -505,7 +531,7 @@ async def update_campaign_status(request: UpdateCampaignStatusRequest):
         operation.update_mask.CopyFrom(field_mask)
 
         campaign_service.mutate_campaigns(
-            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+            customer_id=request.customer_id, operations=[operation]
         )
 
         return {"success": True}
@@ -520,32 +546,36 @@ class UpdateCampaignBudgetRequest(BaseModel):
     customer_id: str
     campaign_resource_name: str
     budget_amount_micros: int
+    budget_resource_name: Optional[str] = None
 
 
 @app.post("/api/google-ads/campaign/update-budget")
 async def update_campaign_budget(request: UpdateCampaignBudgetRequest):
     """更新广告系列预算"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         campaign_budget_service = client.get_service("CampaignBudgetService")
 
-        # Get current budget resource name
-        ga_service = client.get_service("GoogleAdsService")
-        query = f"""
-            SELECT campaign.campaign_budget
-            FROM campaign
-            WHERE campaign.resource_name = '{request.campaign_resource_name}'
-        """
-        response = ga_service.search(
-            customer_id=request.customer_id.replace("-", ""), query=query
-        )
-        budget_resource_name = None
-        for row in response:
-            budget_resource_name = row.campaign.campaign_budget
-            break
+        budget_resource_name = request.budget_resource_name
 
+        # 如果未提供budget_resource_name，则查询获取
         if not budget_resource_name:
-            raise Exception("Budget not found")
+            ga_service = client.get_service("GoogleAdsService")
+            query = f"""
+                SELECT campaign.campaign_budget
+                FROM campaign
+                WHERE campaign.resource_name = '{request.campaign_resource_name}'
+            """
+            response = ga_service.search(
+                customer_id=request.customer_id, query=query
+            )
+            for row in response:
+                budget_resource_name = row.campaign.campaign_budget
+                break
+
+            if not budget_resource_name:
+                raise Exception("Budget not found")
 
         # Update budget
         operation = client.get_type("CampaignBudgetOperation")
@@ -558,13 +588,13 @@ async def update_campaign_budget(request: UpdateCampaignBudgetRequest):
         operation.update_mask.CopyFrom(field_mask)
 
         campaign_budget_service.mutate_campaign_budgets(
-            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+            customer_id=request.customer_id, operations=[operation]
         )
 
         return {"success": True}
 
     except Exception as e:
-        logger.error(f"Update campaign budget error: {e}")
+        logger.error(f"[user_id={user_id}] Update campaign budget error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -578,6 +608,7 @@ class CreateCalloutExtensionsRequest(BaseModel):
 @app.post("/api/google-ads/callout-extensions/create")
 async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
     """创建附加宣传信息"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
 
@@ -591,7 +622,7 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
             asset_operations.append(operation)
 
         asset_response = asset_service.mutate_assets(
-            customer_id=request.customer_id.replace("-", ""), operations=asset_operations
+            customer_id=request.customer_id, operations=asset_operations
         )
 
         # Link assets to campaign
@@ -606,7 +637,7 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
             campaign_asset_operations.append(operation)
 
         campaign_asset_service.mutate_campaign_assets(
-            customer_id=request.customer_id.replace("-", ""),
+            customer_id=request.customer_id,
             operations=campaign_asset_operations,
         )
 
@@ -634,6 +665,7 @@ class CreateSitelinkExtensionsRequest(BaseModel):
 @app.post("/api/google-ads/sitelink-extensions/create")
 async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
     """创建附加链接"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
 
@@ -652,7 +684,7 @@ async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
             asset_operations.append(operation)
 
         asset_response = asset_service.mutate_assets(
-            customer_id=request.customer_id.replace("-", ""), operations=asset_operations
+            customer_id=request.customer_id, operations=asset_operations
         )
 
         # Link assets to campaign
@@ -667,14 +699,14 @@ async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
             campaign_asset_operations.append(operation)
 
         campaign_asset_service.mutate_campaign_assets(
-            customer_id=request.customer_id.replace("-", ""),
+            customer_id=request.customer_id,
             operations=campaign_asset_operations,
         )
 
         return {"success": True}
 
     except Exception as e:
-        logger.error(f"Create sitelink extensions error: {e}")
+        logger.error(f"[user_id={user_id}] Create sitelink extensions error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -687,6 +719,7 @@ class EnsureConversionGoalRequest(BaseModel):
 @app.post("/api/google-ads/conversion-goal/ensure")
 async def ensure_conversion_goal(request: EnsureConversionGoalRequest):
     """确保转化目标存在"""
+    user_id = request.service_account.user_id
     try:
         client = create_google_ads_client(request.service_account)
         ga_service = client.get_service("GoogleAdsService")
@@ -698,7 +731,7 @@ async def ensure_conversion_goal(request: EnsureConversionGoalRequest):
             WHERE conversion_action.name = '{request.conversion_action_name}'
         """
         response = ga_service.search(
-            customer_id=request.customer_id.replace("-", ""), query=query
+            customer_id=request.customer_id, query=query
         )
 
         for row in response:
@@ -720,7 +753,7 @@ async def ensure_conversion_goal(request: EnsureConversionGoalRequest):
         conversion_action.value_settings.always_use_default_value = True
 
         result = conversion_action_service.mutate_conversion_actions(
-            customer_id=request.customer_id.replace("-", ""), operations=[operation]
+            customer_id=request.customer_id, operations=[operation]
         )
 
         return {"resource_name": result.results[0].resource_name}
