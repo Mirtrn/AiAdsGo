@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPendingTasks, updateTaskStats, updateTaskStatus, pauseClickFarmTask } from '@/lib/click-farm';
 import { generateSubTasks, getHourInTimezone, shouldCompleteTask, generateNextRunAt } from '@/lib/click-farm/scheduler';
+import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getDatabase } from '@/lib/db';
 import axios from 'axios';
 
@@ -40,6 +41,15 @@ export async function GET(request: NextRequest) {
           await updateTaskStatus(task.id, 'completed');
           results.completed++;
           console.log(`[Cron] 任务 ${task.id} 已完成`);
+
+          // 🔔 发送任务完成通知
+          await notifyTaskCompleted(
+            task.user_id,
+            task.id,
+            task.total_clicks || 0,
+            task.success_clicks || 0
+          );
+
           continue;
         }
 
@@ -70,6 +80,15 @@ export async function GET(request: NextRequest) {
           );
           results.paused++;
           console.log(`[Cron] 任务 ${task.id} 因代理缺失而中止`);
+
+          // 🔔 发送任务中止通知
+          await notifyTaskPaused(
+            task.user_id,
+            task.id,
+            'no_proxy',
+            `缺少${offer.target_country}国家的代理配置，请前往设置页面配置`
+          );
+
           continue;
         }
 

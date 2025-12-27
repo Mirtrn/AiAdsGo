@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getClickFarmTaskById, restartClickFarmTask } from '@/lib/click-farm';
+import { notifyTaskResumed } from '@/lib/click-farm/notifications';
 import { getDatabase } from '@/lib/db';
 
 export async function POST(
@@ -61,6 +62,9 @@ export async function POST(
     }
 
     const updatedTask = await restartClickFarmTask(params.id, parseInt(userId!));
+
+    // 🔔 发送任务恢复通知
+    await notifyTaskResumed(parseInt(userId!), params.id);
 
     return NextResponse.json({
       success: true,

@@ -9,6 +9,7 @@ import { PlusCircle, Play, Square, RefreshCw, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
 import ClickFarmDistributionChart from '@/components/ClickFarmDistributionChart';
+import ClickFarmNotificationBadge from '@/components/ClickFarmNotificationBadge';
 import type { ClickFarmTask, ClickFarmStats } from '@/lib/click-farm-types';
 
 export default function ClickFarmPage() {
@@ -143,10 +144,13 @@ export default function ClickFarmPage() {
       {/* 标题和操作 */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">补点击管理</h1>
-        <Button onClick={() => setModalOpen(true)}>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          创建任务
-        </Button>
+        <div className="flex items-center gap-3">
+          <ClickFarmNotificationBadge />
+          <Button onClick={() => setModalOpen(true)}>
+            <PlusCircle className="mr-2 h-4 w-4" />
+            创建任务
+          </Button>
+        </div>
       </div>
 
       {/* 创建任务弹窗 */}
