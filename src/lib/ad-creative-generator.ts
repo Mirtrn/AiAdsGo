@@ -2846,8 +2846,33 @@ export async function generateAdCreative(
   const aiModel = `${aiMode}:${aiResponse.model}`
   console.timeEnd('⏱️ 解析AI响应')
 
-  // 🔥 强制第一个headline为DKI品牌格式（自动处理30字符限制）
+  // 🔧 修复(2025-12-27): 对AI生成的关键词进行质量过滤（移除品牌变体词和语义查询词）
   const brandName = (offer as { brand?: string }).brand || 'Brand'
+  if (result.keywords && result.keywords.length > 0) {
+    const { filterKeywordQuality } = await import('./keyword-quality-filter')
+    const keywordData = result.keywords.map(kw => ({
+      keyword: kw,
+      searchVolume: 0,
+      source: 'AI_GENERATED' as const
+    }))
+    const filtered = filterKeywordQuality(keywordData, {
+      brandName,
+      minWordCount: 1,
+      maxWordCount: 8
+    })
+
+    if (filtered.removed.length > 0) {
+      console.warn(`⚠️ 关键词质量过滤: 移除 ${filtered.removed.length} 个低质量关键词`)
+      filtered.removed.slice(0, 5).forEach(item => {
+        console.warn(`   - "${item.keyword.keyword}": ${item.reason}`)
+      })
+    }
+
+    result.keywords = filtered.filtered.map(kw => kw.keyword)
+    console.log(`📝 关键词质量过滤后: ${result.keywords.length} 个关键词`)
+  }
+
+  // 🔥 强制第一个headline为DKI品牌格式（自动处理30字符限制）
   const HEADLINE_MAX_LENGTH = 30
 
   // 优先使用完整格式 "{KeyWord:Brand} Official"，超过30字符则去除 "Official"
