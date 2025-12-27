@@ -791,7 +791,17 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
               // 🔧 修复(2025-12-27): SSE超时错误需要重新抛出，让外层catch处理
               if (parseError?.message?.includes?.('SSE timeout')) {
                 console.warn('SSE超时，切换到轮询模式...')
-                throw parseError  // 重新抛出，让外层catch处理
+                throw parseError
+              }
+              // 🔧 修复(2025-12-27): 网络错误也需要重新抛出，让外层catch处理
+              const isNetworkError = !parseError?.message ||
+                parseError.message.includes('network') ||
+                parseError.message.includes('fetch') ||
+                parseError.message.includes('Failed to fetch') ||
+                parseError.message.includes('NetworkError')
+              if (isNetworkError && currentTaskId) {
+                console.warn('网络中断，切换到轮询模式...')
+                throw parseError
               }
               console.warn('解析SSE数据失败:', parseError)
             }
@@ -801,14 +811,20 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
     } catch (error: any) {
       const errorMessage = error.message || '生成失败'
 
-      // 🆕 判断是否为SSE超时
+      // 🔧 修复(2025-12-27): 判断是否为SSE超时
       const isSSETimeout = errorMessage === 'SSE timeout' || errorMessage.includes('SSE timeout')
 
-      if (isSSETimeout && currentTaskId) {
-        // SSE超时，但任务可能在后端继续运行
+      // 🔧 修复(2025-12-27): 判断是否为网络错误
+      const isNetworkError = !errorMessage ||
+        errorMessage.includes('network') ||
+        errorMessage.includes('fetch') ||
+        errorMessage.includes('Failed to fetch') ||
+        errorMessage.includes('NetworkError')
+
+      // SSE超时或网络中断，但任务可能在后端继续运行
+      if ((isSSETimeout || isNetworkError) && currentTaskId) {
         setSseTimeout(true)
-        setGenerating(false)  // 🆕 停止生成状态显示，但仍保持刷新按钮可用
-        // 🆕 启动轮询检查任务状态
+        setGenerating(false)
         startPolling(currentTaskId)
         return
       }
