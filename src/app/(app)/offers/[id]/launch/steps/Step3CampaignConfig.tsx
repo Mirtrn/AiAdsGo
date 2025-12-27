@@ -174,8 +174,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
     return defaults[currency] || 0.17
   }
 
-  // 使用统一命名规范生成初始名称
-  const getInitialNaming = useCallback(() => {
+  // 🔧 修复(2025-12-27): 提取命名生成逻辑为独立函数，避免依赖循环
+  const generateInitialNaming = () => {
     const budgetAmount = initialConfig?.budgetAmount || getDefaultBudget(accountCurrency)
     const maxCpcBid = initialConfig?.maxCpcBid || getDefaultCPC(accountCurrency)
     const biddingStrategy = initialConfig?.biddingStrategy || 'MAXIMIZE_CLICKS'
@@ -198,9 +198,9 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
         theme: selectedCreative.theme || undefined
       } : undefined
     })
-  }, [offer, selectedCreative, initialConfig])
+  }
 
-  const initialNaming = getInitialNaming()
+  const initialNaming = generateInitialNaming()
 
   const [config, setConfig] = useState<CampaignConfig>(
     initialConfig || {
@@ -274,11 +274,11 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   useEffect(() => {
     if (!selectedCreative) return
 
-    const initialNaming = getInitialNaming()
+    const naming = generateInitialNaming()
 
     setConfig({
       // Campaign Level - 使用统一命名规范
-      campaignName: initialNaming.campaignName,
+      campaignName: naming.campaignName,
       budgetAmount: getDefaultBudget(accountCurrency),
       budgetType: 'DAILY' as const,
       targetCountry: offer.targetCountry || 'US',
@@ -288,7 +288,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       finalUrlSuffix: selectedCreative?.finalUrlSuffix || offer.finalUrlSuffix || '',
 
       // Ad Group Level - 使用统一命名规范
-      adGroupName: initialNaming.adGroupName,
+      adGroupName: naming.adGroupName,
       maxCpcBid: getDefaultCPC(accountCurrency),
 
       // Keywords Level
@@ -316,7 +316,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
       negativeKeywords: selectedCreative?.negativeKeywords || [],
 
       // Ad Level - 使用统一命名规范
-      adName: initialNaming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
+      adName: naming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
       headlines: selectedCreative?.headlines || [],
       descriptions: selectedCreative?.descriptions || [],
       finalUrls: [selectedCreative?.finalUrl || offer.finalUrl || offer.url],
@@ -329,7 +329,8 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
     // 重置验证错误和动态CPC开关
     setValidationErrors([])
     setEnableDynamicCpc(false)
-  }, [selectedCreative?.id, accountCurrency, offer, getInitialNaming])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCreative?.id])
 
   // 🆕 P0-1优化：计算动态CPC建议值
   const suggestedCpc = calculateDynamicCpc(config.keywords, accountCurrency)
