@@ -356,6 +356,15 @@ export default function SettingsPage() {
   const [deletingServiceAccountId, setDeletingServiceAccountId] = useState<string | null>(null)
   const [permissionError, setPermissionError] = useState<any | null>(null)
 
+  /**
+   * 处理401未授权错误 - 跳转到登录页
+   */
+  const handleUnauthorized = () => {
+    document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search)
+    router.push(`/login?redirect=${redirectUrl}`)
+  }
+
   useEffect(() => {
     fetchSettings()
   }, [])
@@ -389,6 +398,12 @@ export default function SettingsPage() {
       const response = await fetch('/api/settings', {
         credentials: 'include',
       })
+
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
 
       if (!response.ok) {
         throw new Error('获取配置失败')

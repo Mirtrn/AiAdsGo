@@ -139,6 +139,15 @@ export default function OffersPage() {
   const [isBlacklistDialogOpen, setIsBlacklistDialogOpen] = useState(false)
   const [offerToBlacklist, setOfferToBlacklist] = useState<Offer | null>(null)
 
+  /**
+   * 处理401未授权错误 - 跳转到登录页
+   */
+  const handleUnauthorized = () => {
+    document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search)
+    router.push(`/login?redirect=${redirectUrl}`)
+  }
+
   useEffect(() => {
     fetchOffers()
 
@@ -154,14 +163,21 @@ export default function OffersPage() {
           retryOnErrors: ['SERVICE_UNAVAILABLE', 'HTML_RESPONSE']
         })
 
-        if (result.success) {
-          const data = result.data
-          // 只有存在进行中的任务时才更新状态
-          if (data.offers.some((offer: Offer) => offer.scrapeStatus === 'in_progress')) {
-            console.log('[Polling] Found in-progress tasks, updating offers...')
-            setOffers(data.offers)
-            setFilteredOffers(data.offers)
+        if (!result.success) {
+          // 如果是401错误，停止轮询并跳转登录页
+          if (result.status === 401) {
+            handleUnauthorized()
+            return
           }
+          return
+        }
+
+        const data = result.data
+        // 只有存在进行中的任务时才更新状态
+        if (data.offers.some((offer: Offer) => offer.scrapeStatus === 'in_progress')) {
+          console.log('[Polling] Found in-progress tasks, updating offers...')
+          setOffers(data.offers)
+          setFilteredOffers(data.offers)
         }
       } catch (error) {
         // 轮询错误静默处理，不影响用户体验
@@ -256,6 +272,12 @@ export default function OffersPage() {
         cache: 'no-store', // 禁用 Next.js 自动缓存，确保获取最新数据
       })
 
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
       if (!response.ok) {
         throw new Error('获取Offer列表失败')
       }
@@ -287,6 +309,12 @@ export default function OffersPage() {
         method: 'DELETE',
         credentials: 'include',
       })
+
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
 
       const data = await response.json()
 
@@ -339,17 +367,34 @@ export default function OffersPage() {
           method: 'DELETE',
           credentials: 'include',
         })
+
+        // 处理401未授权 - 跳转到登录页
+        if (response.status === 401) {
+          handleUnauthorized()
+          throw new Error('UNAUTHORIZED')
+        }
+
         const data = await response.json()
         return { id, response, data }
       })
 
       const results = await Promise.allSettled(deletePromises)
 
+      // 检查是否有401错误
+      const hasUnauthorized = results.some(
+        (r) => r.status === 'fulfilled' && r.value.response.status === 401
+      )
+      if (hasUnauthorized) {
+        return // handleUnauthorized 已经在循环中调用
+      }
+
       // 收集所有错误（包括HTTP错误响应和网络错误）
       const errors: string[] = []
 
       results.forEach((result) => {
         if (result.status === 'rejected') {
+          // 跳过401错误（已经在循环中处理）
+          if (result.reason?.message === 'UNAUTHORIZED') return
           // 网络错误等
           errors.push(result.reason?.message || '网络错误')
         } else if (result.status === 'fulfilled') {

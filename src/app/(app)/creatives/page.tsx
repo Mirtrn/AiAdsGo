@@ -177,6 +177,15 @@ export default function CreativesPage() {
   const [assigningCreative, setAssigningCreative] = useState<Creative | null>(null)
   const [selectedAdGroupId, setSelectedAdGroupId] = useState<string>('')
 
+  /**
+   * 处理401未授权错误 - 跳转到登录页
+   */
+  const handleUnauthorized = () => {
+    document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search)
+    router.push(`/login?redirect=${redirectUrl}`)
+  }
+
   // Batch delete states
   const [selectedCreativeIds, setSelectedCreativeIds] = useState<Set<number>>(new Set())
   const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false)
@@ -332,6 +341,12 @@ export default function CreativesPage() {
       const response = await fetch(url, {
         credentials: 'include',
       })
+
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
 
       if (!response.ok) {
         throw new Error('获取趋势数据失败')

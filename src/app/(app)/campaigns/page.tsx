@@ -123,6 +123,17 @@ export default function CampaignsPage() {
   const [batchDeleting, setBatchDeleting] = useState(false)
   const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null)
 
+  /**
+   * 处理401未授权错误 - 跳转到登录页
+   */
+  const handleUnauthorized = () => {
+    // 清除无效的cookie
+    document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    // 跳转到登录页，保留当前路径用于登录后跳转回来
+    const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search)
+    router.push(`/login?redirect=${redirectUrl}`)
+  }
+
   useEffect(() => {
     fetchCampaigns()
     fetchTrends()
@@ -222,6 +233,12 @@ export default function CampaignsPage() {
         credentials: 'include',
       })
 
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
       if (!response.ok) {
         throw new Error('获取广告系列数据失败')
       }
@@ -244,6 +261,12 @@ export default function CampaignsPage() {
         credentials: 'include',
       })
 
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
       if (!response.ok) {
         throw new Error('获取趋势数据失败')
       }
@@ -265,6 +288,12 @@ export default function CampaignsPage() {
         method: 'POST',
         credentials: 'include',
       })
+
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
 
       const data = await response.json()
 
@@ -292,6 +321,12 @@ export default function CampaignsPage() {
         method: 'POST',
         credentials: 'include',
       })
+
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
 
       const data = await response.json()
 
@@ -324,6 +359,12 @@ export default function CampaignsPage() {
         credentials: 'include',
       })
 
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
       if (!response.ok) {
         const data = await response.json()
         throw new Error(data.error || '删除失败')
@@ -349,17 +390,34 @@ export default function CampaignsPage() {
           method: 'DELETE',
           credentials: 'include',
         })
+
+        // 处理401未授权 - 跳转到登录页
+        if (response.status === 401) {
+          handleUnauthorized()
+          throw new Error('UNAUTHORIZED')
+        }
+
         const data = await response.json()
         return { id, response, data }
       })
 
       const results = await Promise.allSettled(deletePromises)
 
+      // 检查是否有401错误
+      const hasUnauthorized = results.some(
+        (r) => r.status === 'fulfilled' && r.value.response.status === 401
+      )
+      if (hasUnauthorized) {
+        return // handleUnauthorized 已经在循环中调用
+      }
+
       // 收集所有错误
       const errors: string[] = []
 
       results.forEach((result) => {
         if (result.status === 'rejected') {
+          // 跳过401错误（已经在循环中处理）
+          if (result.reason?.message === 'UNAUTHORIZED') return
           errors.push(result.reason?.message || '网络错误')
         } else if (result.status === 'fulfilled') {
           const { response, data, id } = result.value

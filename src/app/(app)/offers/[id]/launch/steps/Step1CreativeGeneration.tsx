@@ -332,6 +332,15 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
     details?: any
   } | null>(null)
 
+  /**
+   * 处理401未授权错误 - 跳转到登录页
+   */
+  const handleUnauthorized = () => {
+    document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search)
+    router.push(`/login?redirect=${redirectUrl}`)
+  }
+
   // 🆕 错误状态
   const [generationError, setGenerationError] = useState<{
     message: string
@@ -415,6 +424,12 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       const response = await fetch(`/api/offers/${offer.id}/generate-ad-creative`, {
         credentials: 'include'
       })
+
+      // 处理401未授权 - 跳转到登录页
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
 
       if (!response.ok) return
 

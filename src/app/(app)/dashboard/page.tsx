@@ -64,6 +64,15 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
+  /**
+   * 处理401未授权错误 - 跳转到登录页
+   */
+  const handleUnauthorized = () => {
+    document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search)
+    router.push(`/login?redirect=${redirectUrl}`)
+  }
+
   const fetchData = async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true)
     else setLoading(true)
@@ -74,6 +83,12 @@ export default function DashboardPage() {
         fetch('/api/risk-alerts?limit=3', { credentials: 'include', cache: 'no-store' }),
         fetch('/api/offers?summary=true', { credentials: 'include', cache: 'no-store' })
       ])
+
+      // 处理401未授权
+      if (kpiRes.status === 401 || riskRes.status === 401 || offerRes.status === 401) {
+        handleUnauthorized()
+        return
+      }
 
       if (kpiRes.ok) {
         const kpi = await kpiRes.json()
