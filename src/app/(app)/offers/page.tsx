@@ -54,7 +54,7 @@ import DeleteOfferConfirmDialog from '@/components/DeleteOfferConfirmDialog'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
 import { usePagination } from '@/hooks'
-import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, CheckSquare, Square, XCircle, AlertTriangle } from 'lucide-react'
+import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -66,6 +66,7 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
+import { ResponsiveActionCell } from '@/components/ui/table-action-buttons'
 import { getScrapeStatusLabel, type ScrapeStatus } from '@/lib/i18n-constants'
 import type { OfferListItem, UnlinkTarget } from './types'
 
@@ -943,72 +944,54 @@ export default function OffersPage() {
                           </div>
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="default"
-                              onClick={() => router.push(`/offers/${offer.id}/launch`)}
-                              disabled={offer.scrapeStatus !== 'completed'}
-                              className="h-8 whitespace-nowrap"
-                              title={offer.scrapeStatus !== 'completed' ? '请等待数据抓取完成' : ''}
-                            >
-                              <Rocket className="w-3.5 h-3.5 mr-1.5" />
-                              发布广告
-                            </Button>
-
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent
-                                align="end"
-                                className="bg-white z-50"
-                                style={{ opacity: 1 }}
-                              >
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setSelectedOfferForCpc(offer)
-                                    setIsAdjustCpcModalOpen(true)
-                                  }}
-                                >
-                                  <DollarSign className="w-4 h-4 mr-2 text-gray-500" />
-                                  调整CPC
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setSelectedOfferForScore(offer)
-                                    setIsLaunchScoreModalOpen(true)
-                                  }}
-                                >
-                                  <BarChart3 className="w-4 h-4 mr-2 text-gray-500" />
-                                  投放分析
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setOfferToBlacklist(offer)
-                                    setIsBlacklistDialogOpen(true)
-                                  }}
-                                  disabled={blacklisting}
-                                  className={offer.isBlacklisted ? 'text-green-600 focus:text-green-600 focus:bg-green-50' : 'text-orange-600 focus:text-orange-600 focus:bg-orange-50'}
-                                >
-                                  <XCircle className="w-4 h-4 mr-2" />
-                                  {offer.isBlacklisted ? '取消拉黑' : '拉黑投放'}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setOfferToDelete(offer)
-                                    setIsDeleteDialogOpen(true)
-                                  }}
-                                  className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                                >
-                                  <Trash2 className="w-4 h-4 mr-2" />
-                                  删除Offer
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
+                          <ResponsiveActionCell
+                            primaryAction={{
+                              icon: <Rocket className="w-3.5 h-3.5" />,
+                              label: '发布广告',
+                              onClick: () => router.push(`/offers/${offer.id}/launch`),
+                              disabled: offer.scrapeStatus !== 'completed',
+                              title: offer.scrapeStatus !== 'completed' ? '请等待数据抓取完成' : undefined,
+                            }}
+                            secondaryActions={[
+                              {
+                                icon: <DollarSign className="w-4 h-4 text-gray-500" />,
+                                label: '调整CPC',
+                                onClick: () => {
+                                  setSelectedOfferForCpc(offer)
+                                  setIsAdjustCpcModalOpen(true)
+                                },
+                              },
+                              {
+                                icon: <BarChart3 className="w-4 h-4 text-gray-500" />,
+                                label: '投放分析',
+                                onClick: () => {
+                                  setSelectedOfferForScore(offer)
+                                  setIsLaunchScoreModalOpen(true)
+                                },
+                              },
+                              {
+                                icon: <XCircle className="w-4 h-4" />,
+                                label: offer.isBlacklisted ? '取消拉黑' : '拉黑投放',
+                                onClick: () => {
+                                  setOfferToBlacklist(offer)
+                                  setIsBlacklistDialogOpen(true)
+                                },
+                                disabled: blacklisting,
+                                variant: offer.isBlacklisted ? 'secondary' : 'ghost',
+                                className: offer.isBlacklisted ? 'text-green-600' : 'text-orange-600',
+                              },
+                              {
+                                icon: <Trash2 className="w-4 h-4" />,
+                                label: '删除Offer',
+                                onClick: () => {
+                                  setOfferToDelete(offer)
+                                  setIsDeleteDialogOpen(true)
+                                },
+                                variant: 'ghost',
+                                className: 'text-red-600',
+                              },
+                            ]}
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
