@@ -2321,7 +2321,22 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
         const wordCount = k.trim().split(/\s+/).length
         return wordCount >= 1 && wordCount <= 10
       })
-      console.warn(`  过滤后: ${originalCount} → ${keywordsArray.length}个关键词`)
+      console.warn(`  长度过滤后: ${originalCount} → ${keywordsArray.length}个关键词`)
+    }
+
+    // 🔧 修复(2025-12-27): 关键词去重（AI可能生成重复关键词）
+    const originalKeywordCount = keywordsArray.length
+    const seenKeywords = new Set<string>()
+    keywordsArray = keywordsArray.filter((k: string) => {
+      const normalized = k.toLowerCase().trim()
+      if (seenKeywords.has(normalized)) {
+        return false
+      }
+      seenKeywords.add(normalized)
+      return true
+    })
+    if (keywordsArray.length < originalKeywordCount) {
+      console.warn(`⚠️ 关键词去重: ${originalKeywordCount} → ${keywordsArray.length}个关键词 (移除 ${originalKeywordCount - keywordsArray.length} 个重复)`)
     }
 
     // 解析quality_metrics（如果存在）
