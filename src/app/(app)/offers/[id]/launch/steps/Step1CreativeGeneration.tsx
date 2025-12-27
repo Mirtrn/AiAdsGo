@@ -674,6 +674,9 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       }
 
       const { taskId } = await enqueueResponse.json()
+      setCurrentTaskId(taskId)  // 🆕 保存taskId用于轮询
+      setSseTimeout(false)      // 🆕 重置超时状态
+      setTaskStatus(null)       // 🆕 重置任务状态
 
       // 🔥 Step 2: 订阅SSE流
       const response = await fetch(`/api/creative-tasks/${taskId}/stream`, {
@@ -692,10 +695,14 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
       const decoder = new TextDecoder()
       let buffer = ''
+      let sseClosedNormally = false  // 🆕 标记SSE是否正常关闭
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          sseClosedNormally = true  // 🆕 正常完成
+          break
+        }
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n\n')
@@ -788,13 +795,30 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       }
     } catch (error: any) {
       const errorMessage = error.message || '生成失败'
+
+      // 🆕 判断是否为SSE超时
+      const isSSETimeout = errorMessage === 'SSE timeout' || errorMessage.includes('SSE timeout')
+
+      if (isSSETimeout && currentTaskId) {
+        // SSE超时，但任务可能在后端继续运行
+        setSseTimeout(true)
+        setGenerating(false)  // 🆕 停止生成状态显示，但仍保持刷新按钮可用
+        // 🆕 启动轮询检查任务状态
+        startPolling(currentTaskId)
+        return
+      }
+
       const solution = getErrorSolution(errorMessage)
       setGenerationError({ message: errorMessage, solution })
       showError(solution.title, solution.description)
     } finally {
-      setGenerating(false)
-      setGenerationProgress(null)
-      setGenerationStartTime(null)
+      // 🆕 如果SSE正常完成或任务已完成，才清理状态
+      if (!sseTimeout) {
+        setGenerating(false)
+        setGenerationProgress(null)
+        setGenerationStartTime(null)
+        setCurrentTaskId(null)
+      }
     }
   }
 
@@ -1016,7 +1040,126 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       {creatives.length === 0 ? (
         <Card className="border-dashed border-2 border-gray-200 bg-gray-50/50 py-8">
           <CardContent className="text-center">
-            {generating && generationProgress ? (
+            {/* 🆕 SSE超时但任务仍在运行中 */}
+            {sseTimeout && taskStatus === 'running' && (
+              <div className="space-y-4">
+                <div className="w-16 h-16 bg-gradient-to-br from-amber-100 to-orange-100 rounded-full flex items-center justify-center mx-auto">
+                  <Loader2 className="w-8 h-8 text-amber-600 animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-amber-700 mb-1">
+                    任务正在后台处理中...
+                  </h3>
+                  <p className="text-gray-600 text-sm max-w-md mx-auto">
+                    由于网络连接断开，任务已转入后台继续处理。系统正在自动监控任务状态，请稍后刷新查看结果。
+                  </p>
+                </div>
+                {/* 进度信息 */}
+                {generationProgress && (
+                  <div className="max-w-md mx-auto">
+                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                      <span>进度</span>
+                      <span>{generationProgress.progress}%</span>
+                    </div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${generationProgress.progress}%` }}
+                      />
+                    </div>
+                    <p className="text-amber-600 font-medium text-sm mt-2">
+                      {generationProgress.message}
+                    </p>
+                  </div>
+                )}
+                {/* 刷新按钮 */}
+                <Button
+                  onClick={() => fetchExistingCreatives()}
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 border-0"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  刷新查看结果
+                </Button>
+              </div>
+            )}
+
+            {/* 🆕 SSE超时且任务已完成 */}
+            {sseTimeout && taskStatus === 'completed' && (
+              <div className="space-y-4">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-8 h-8 text-green-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-green-700 mb-1">
+                    生成已完成
+                  </h3>
+                  <p className="text-gray-600 text-sm">
+                    广告创意已生成完成，请点击下方按钮查看结果。
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    setSseTimeout(false)
+                    setTaskStatus(null)
+                    setCurrentTaskId(null)
+                    fetchExistingCreatives()
+                  }}
+                  className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 border-0"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  查看生成结果
+                </Button>
+              </div>
+            )}
+
+            {/* 🆕 SSE超时且任务失败 */}
+            {sseTimeout && taskStatus === 'failed' && (
+              <div className="space-y-4">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+                  <AlertCircle className="w-8 h-8 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-red-700 mb-1">
+                    任务执行失败
+                  </h3>
+                  <p className="text-gray-600 text-sm max-w-md mx-auto">
+                    后台任务执行过程中出现错误，请点击重试按钮重新生成。
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    setSseTimeout(false)
+                    setTaskStatus(null)
+                    setCurrentTaskId(null)
+                    handleGenerate()
+                  }}
+                  className="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 border-0"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  重新生成
+                </Button>
+              </div>
+            )}
+
+            {/* 🆕 SSE超时但轮询中（无明确状态） */}
+            {sseTimeout && !taskStatus && (
+              <div className="space-y-4">
+                <div className="w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto">
+                  <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-purple-700 mb-1">
+                    正在恢复任务状态...
+                  </h3>
+                  <p className="text-gray-600 text-sm max-w-md mx-auto">
+                    正在检查任务执行状态，请稍候...
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* 正常生成中 */}
+            {!sseTimeout && generating && generationProgress ? (
               // 生成中显示进度
               <div className="space-y-4">
                 <div className="w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto">
