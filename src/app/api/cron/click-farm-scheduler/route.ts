@@ -1,12 +1,14 @@
 // Cron调度器 - 每小时执行补点击任务
 // /api/cron/click-farm-scheduler
+// 🔄 重构版本：使用UnifiedQueueManager队列系统
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getPendingTasks, updateTaskStats, updateTaskStatus, pauseClickFarmTask } from '@/lib/click-farm';
-import { generateSubTasks, getHourInTimezone, shouldCompleteTask, generateNextRunAt } from '@/lib/click-farm/scheduler';
+import { getPendingTasks, updateTaskStatus, pauseClickFarmTask } from '@/lib/click-farm';
+import { getHourInTimezone, shouldCompleteTask, generateNextRunAt } from '@/lib/click-farm/scheduler';
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
+import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
 import { getDatabase } from '@/lib/db';
-import axios from 'axios';
+import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,17 +21,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const db = await getDatabase();
+    const db = getDatabase();
     const tasks = await getPendingTasks();
+
+    // 获取队列管理器实例
+    const queueManager = await getOrCreateQueueManager();
 
     console.log(`[Cron] 开始执行补点击任务，找到 ${tasks.length} 个待处理任务`);
 
     const results = {
       processed: 0,
-      success: 0,
-      failed: 0,
+      queued: 0,       // 加入队列的任务数
       paused: 0,
-      completed: 0
+      completed: 0,
+      skipped: 0       // 当前时段无需执行的任务数
     };
 
     for (const task of tasks) {
@@ -101,31 +106,36 @@ export async function GET(request: NextRequest) {
         if (clickCount === 0) {
           // 该小时无需执行
           await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+          results.skipped++;
           continue;
         }
 
-        // 生成子任务
-        const subTasks = generateSubTasks(
-          task,
-          currentHour,
-          clickCount,
-          offer.affiliate_link,
-          offer.target_country
-        );
+        // 🔥 核心改进：将所有点击任务加入队列系统
+        console.log(`[Cron] 任务 ${task.id} 将创建 ${clickCount} 个队列任务`);
 
-        console.log(`[Cron] 任务 ${task.id} 生成 ${subTasks.length} 个子任务`);
+        for (let i = 0; i < clickCount; i++) {
+          // 计算该点击在当前小时内的执行时间（秒级随机分布）
+          const randomSecond = Math.floor(Math.random() * 3600);
 
-        // 执行子任务（简化版：直接执行，实际应放入队列）
-        for (const subTask of subTasks) {
-          try {
-            await executeClickTask(subTask.url, proxyConfig.proxy_url);
-            await updateTaskStats(task.id, true);
-            results.success++;
-          } catch (error) {
-            console.error(`[Cron] 子任务执行失败:`, error);
-            await updateTaskStats(task.id, false);
-            results.failed++;
-          }
+          const taskData: ClickFarmTaskData = {
+            taskId: task.id,
+            url: offer.affiliate_link,
+            proxyUrl: proxyConfig.proxy_url,
+            offerId: task.offer_id
+          };
+
+          // 加入队列（正常优先级）
+          await queueManager.enqueue(
+            'click-farm',
+            taskData,
+            task.user_id,
+            {
+              priority: 'normal',
+              maxRetries: 2  // 点击任务最多重试2次
+            }
+          );
+
+          results.queued++;
         }
 
         // 更新下次执行时间
@@ -140,7 +150,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: results
+      data: results,
+      message: `处理 ${results.processed} 个任务，加入队列 ${results.queued} 个点击任务`
     });
 
   } catch (error) {
@@ -149,37 +160,5 @@ export async function GET(request: NextRequest) {
       { error: 'server_error', message: '调度器执行失败' },
       { status: 500 }
     );
-  }
-}
-
-/**
- * 执行点击任务
- */
-async function executeClickTask(url: string, proxyUrl: string): Promise<void> {
-  try {
-    // 解析代理URL
-    const proxyUrlObj = new URL(proxyUrl);
-    const proxy = {
-      host: proxyUrlObj.hostname,
-      port: parseInt(proxyUrlObj.port),
-      auth: proxyUrlObj.username && proxyUrlObj.password ? {
-        username: proxyUrlObj.username,
-        password: proxyUrlObj.password
-      } : undefined
-    };
-
-    // 发起HTTP请求
-    await axios.get(url, {
-      proxy,
-      timeout: 15000,
-      validateStatus: () => true,
-      maxRedirects: 0
-    });
-
-  } catch (error: any) {
-    if (error.code === 'ECONNABORTED') {
-      throw new Error('请求超时');
-    }
-    throw error;
   }
 }

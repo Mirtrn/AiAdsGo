@@ -21,6 +21,7 @@ export type TaskType =
   | 'batch-offer-creation'  // 批量Offer创建（父任务：协调多个offer-extraction子任务）
   | 'ad-creative'           // 广告创意生成（多轮优化 + Ad Strength评估）
   | 'campaign-publish'      // 🆕 广告系列发布到Google Ads（异步处理，避免504超时）
+  | 'click-farm'            // 🆕 补点击任务（单次点击执行，带代理和超时控制）
 
 /**
  * 任务优先级
