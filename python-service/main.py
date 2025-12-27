@@ -106,6 +106,128 @@ def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient
     return client
 
 
+# 🔧 修复(2025-12-27): 国家代码到 Geo Target Constant ID 的映射
+# 参考: https://developers.google.com/google-ads/api/reference/data/geotargets
+GEO_TARGET_MAP = {
+    'US': 2840,   # United States
+    'GB': 2826,   # United Kingdom
+    'CA': 2124,   # Canada
+    'AU': 2036,   # Australia
+    'DE': 2276,   # Germany
+    'FR': 2250,   # France
+    'JP': 2392,   # Japan
+    'CN': 2156,   # China
+    'IN': 2356,   # India
+    'BR': 2090,   # Brazil
+    'MX': 2184,   # Mexico
+    'ES': 2814,   # Spain
+    'IT': 2297,   # Italy
+    'NL': 2724,   # Netherlands
+    'SE': 2818,   # Sweden
+    'NO': 2754,   # Norway
+    'DK': 2212,   # Denmark
+    'FI': 1022,   # Finland
+    'CH': 2810,   # Switzerland
+    'AT': 2054,   # Austria
+    'BE': 2060,   # Belgium
+    'IE': 2284,   # Ireland
+    'PT': 2794,   # Portugal
+    'PL': 2782,   # Poland
+    'CZ': 2202,   # Czech Republic
+    'RU': 1023,   # Russia
+    'KR': 1032,   # South Korea
+    'SG': 2802,   # Singapore
+    'HK': 2536,   # Hong Kong
+    'TW': 2838,   # Taiwan
+    'NZ': 2716,   # New Zealand
+    'ZA': 2102,   # South Africa
+    'AE': 2018,   # United Arab Emirates
+    'SA': 2800,   # Saudi Arabia
+}
+
+# 语言代码到 Constant ID 的映射
+LANGUAGE_CODE_MAP = {
+    'en': 1000,      # English
+    'zh': 1017,      # Chinese (Simplified)
+    'zh-cn': 1017,   # Chinese (Simplified)
+    'zh-tw': 1018,   # Chinese (Traditional)
+    'ja': 1005,      # Japanese
+    'de': 1001,      # German
+    'fr': 1002,      # French
+    'es': 1003,      # Spanish
+    'it': 1004,      # Italian
+    'ko': 1012,      # Korean
+    'ru': 1031,      # Russian
+    'pt': 1014,      # Portuguese
+    'ar': 1019,      # Arabic
+    'hi': 1023,      # Hindi
+    'nl': 1020,      # Dutch
+    'th': 1033,      # Thai
+    'vi': 1044,      # Vietnamese
+    'tr': 1037,      # Turkish
+    'sv': 1032,      # Swedish
+    'da': 1009,      # Danish
+    'fi': 1011,      # Finnish
+    'no': 1013,      # Norwegian
+    'pl': 1021,      # Polish
+    'cs': 1008,      # Czech
+    'hu': 1024,      # Hungarian
+    'el': 1022,      # Greek
+    'he': 1025,      # Hebrew
+    'id': 1027,      # Indonesian
+    'ms': 1019,      # Malay
+    'tl': 1034,      # Tagalog
+}
+
+# 语言名称到语言代码的映射
+LANGUAGE_NAME_MAP = {
+    'english': 'en',
+    'chinese (simplified)': 'zh-cn',
+    'chinese (traditional)': 'zh-tw',
+    'chinese': 'zh',
+    'spanish': 'es',
+    'french': 'fr',
+    'german': 'de',
+    'japanese': 'ja',
+    'korean': 'ko',
+    'portuguese': 'pt',
+    'italian': 'it',
+    'russian': 'ru',
+    'arabic': 'ar',
+    'hindi': 'hi',
+    'dutch': 'nl',
+    'thai': 'th',
+    'vietnamese': 'vi',
+    'turkish': 'tr',
+    'swedish': 'sv',
+    'danish': 'da',
+    'finnish': 'fi',
+    'norwegian': 'no',
+    'polish': 'pl',
+    'czech': 'cs',
+    'hungarian': 'hu',
+    'greek': 'el',
+    'hebrew': 'he',
+    'indonesian': 'id',
+    'malay': 'ms',
+}
+
+
+def get_geo_target_constant_id(country_code: str) -> Optional[int]:
+    """根据国家代码获取 Geo Target Constant ID"""
+    return GEO_TARGET_MAP.get(country_code.upper())
+
+
+def get_language_constant_id(language_input: str) -> Optional[int]:
+    """根据语言输入获取 Language Constant ID"""
+    lang = language_input.lower().strip()
+    # 先尝试直接匹配代码
+    if lang in LANGUAGE_CODE_MAP:
+        return LANGUAGE_CODE_MAP[lang]
+    # 再尝试匹配名称
+    return LANGUAGE_CODE_MAP.get(LANGUAGE_NAME_MAP.get(lang, ''))
+
+
 @app.post("/api/keyword-planner/historical-metrics")
 async def get_keyword_historical_metrics(request: KeywordHistoricalMetricsRequest):
     """查询关键词历史数据"""
@@ -378,7 +500,45 @@ async def create_campaign(request: CreateCampaignRequest):
             customer_id=request.customer_id, operations=[operation]
         )
 
-        return {"resource_name": response.results[0].resource_name}
+        # 🔧 修复(2025-12-27): 添加地理位置和语言定位（与OAuth模式一致）
+        campaign_resource_name = response.results[0].resource_name
+        logger.info(f"[user_id={user_id}] Campaign创建成功: {campaign_resource_name}")
+
+        # 添加地理位置定位
+        if request.target_country:
+            geo_target_id = get_geo_target_constant_id(request.target_country)
+            if geo_target_id:
+                try:
+                    campaign_criterion_service = client.get_service("CampaignCriterionService")
+                    geo_operation = client.get_type("CampaignCriterionOperation")
+                    geo_criterion = geo_operation.create
+                    geo_criterion.campaign = campaign_resource_name
+                    geo_criterion.location.geo_target_constant = f"geoTargetConstants/{geo_target_id}"
+                    campaign_criterion_service.mutate_campaign_criteria(
+                        customer_id=request.customer_id, operations=[geo_operation]
+                    )
+                    logger.info(f"[user_id={user_id}] 添加地理位置定位: {request.target_country} ({geo_target_id})")
+                except Exception as e:
+                    logger.warning(f"[user_id={user_id}] 添加地理位置定位失败: {e}")
+
+        # 添加语言定位
+        if request.target_language:
+            language_id = get_language_constant_id(request.target_language)
+            if language_id:
+                try:
+                    campaign_criterion_service = client.get_service("CampaignCriterionService")
+                    lang_operation = client.get_type("CampaignCriterionOperation")
+                    lang_criterion = lang_operation.create
+                    lang_criterion.campaign = campaign_resource_name
+                    lang_criterion.language.language_constant = f"languageConstants/{language_id}"
+                    campaign_criterion_service.mutate_campaign_criteria(
+                        customer_id=request.customer_id, operations=[lang_operation]
+                    )
+                    logger.info(f"[user_id={user_id}] 添加语言定位: {request.target_language} ({language_id})")
+                except Exception as e:
+                    logger.warning(f"[user_id={user_id}] 添加语言定位失败: {e}")
+
+        return {"resource_name": campaign_resource_name}
 
     except Exception as e:
         logger.error(f"[user_id={user_id}] Create campaign error: {e}")
