@@ -4,12 +4,19 @@
  * 针对移动端优化的表格操作区域：
  * - 移动端：只显示图标，隐藏文字
  * - 桌面端：显示图标+文字
- * - 使用 CSS media query 或 JavaScript 检测屏幕宽度
+ * - 次要操作统一放入下拉菜单
  */
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { MoreHorizontal } from "lucide-react"
 
 interface TableActionButtonProps {
   icon: React.ReactNode
@@ -100,7 +107,7 @@ interface ResponsiveActionCellProps {
 
 /**
  * 完整的响应式操作单元格
- * 包含一个主要操作按钮（发布广告等）和多个次要操作（下拉菜单）
+ * 包含一个主要操作按钮（发布广告等）和一个下拉菜单（包含多个次要操作）
  */
 export function ResponsiveActionCell({
   primaryAction,
@@ -108,43 +115,47 @@ export function ResponsiveActionCell({
   className,
 }: ResponsiveActionCellProps) {
   return (
-    <div className={cn("flex items-center gap-1 sm:gap-2", className)}>
-      {/* 主要操作按钮 - 移动端可能只显示图标 */}
+    <div className={cn("flex items-center gap-2", className)}>
+      {/* 主要操作按钮 */}
       {primaryAction && (
         <Button
           size="sm"
           variant={primaryAction.variant || "default"}
           onClick={primaryAction.onClick}
           disabled={primaryAction.disabled}
-          className={cn(
-            "h-8 whitespace-nowrap",
-            // 移动端只显示图标
-            "sm:pr-3"
-          )}
+          className="h-8 whitespace-nowrap"
           title={primaryAction.disabled ? '请等待数据抓取完成' : (primaryAction.title || primaryAction.label)}
         >
           {primaryAction.icon}
-          {/* 桌面端显示文字 */}
           <span className="hidden sm:inline ml-1.5">{primaryAction.label}</span>
         </Button>
       )}
 
-      {/* 次要操作按钮组 */}
+      {/* 次要操作 - 下拉菜单 */}
       {secondaryActions && secondaryActions.length > 0 && (
-        <TableActionGroup>
-          {secondaryActions.map((action, idx) => (
-            <TableActionButton
-              key={idx}
-              icon={action.icon}
-              label={action.label}
-              onClick={action.onClick}
-              disabled={action.disabled}
-              variant={action.variant || "ghost"}
-              size="sm"
-              className={cn("h-8 w-8 sm:w-auto sm:px-3", action.className)}
-            />
-          ))}
-        </TableActionGroup>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 px-2">
+              <MoreHorizontal className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {secondaryActions.map((action, idx) => (
+              <DropdownMenuItem
+                key={idx}
+                onClick={action.onClick}
+                disabled={action.disabled}
+                className={cn(
+                  action.variant === 'destructive' && 'text-red-600 focus:text-red-600',
+                  action.className
+                )}
+              >
+                {action.icon}
+                <span className="ml-2">{action.label}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   )
