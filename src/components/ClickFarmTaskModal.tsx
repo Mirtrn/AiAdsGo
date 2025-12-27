@@ -23,6 +23,7 @@ interface ClickFarmTaskModalProps {
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   preSelectedOfferId?: number; // 预选的Offer ID
+  editTaskId?: string | number; // 🆕 编辑模式：传入任务ID
 }
 
 interface Offer {
@@ -50,6 +51,7 @@ export default function ClickFarmTaskModal({
   onOpenChange,
   onSuccess,
   preSelectedOfferId,
+  editTaskId,  // 🆕 编辑模式参数
 }: ClickFarmTaskModalProps) {
   const [loading, setLoading] = useState(false);
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -64,6 +66,37 @@ export default function ClickFarmTaskModal({
   const [distribution, setDistribution] = useState<number[]>([]);
   const [isEditingDistribution, setIsEditingDistribution] = useState(false);
   const [draggedHour, setDraggedHour] = useState<number | null>(null);
+
+  const isEditMode = !!editTaskId;  // 🆕 判断是否为编辑模式
+
+  // 🆕 加载现有任务数据（编辑模式）
+  useEffect(() => {
+    if (open && editTaskId) {
+      loadTaskData();
+    }
+  }, [open, editTaskId]);
+
+  // 🆕 加载任务数据
+  const loadTaskData = async () => {
+    try {
+      const response = await fetch(`/api/click-farm/tasks/${editTaskId}`);
+      if (!response.ok) throw new Error('加载任务失败');
+
+      const { data: task } = await response.json();
+
+      setSelectedOfferId(task.offer_id);
+      setDailyClickCount(task.daily_click_count);
+      setTimePeriod(task.start_time === '00:00' && task.end_time === '24:00'
+        ? '00:00-24:00'
+        : '06:00-24:00');
+      setDurationDays(task.duration_days);
+      setDistribution(task.hourly_distribution);
+    } catch (error) {
+      console.error('加载任务失败:', error);
+      toast.error('加载任务失败');
+      onOpenChange(false);
+    }
+  };
 
   // Load offers on mount
   useEffect(() => {
@@ -277,18 +310,22 @@ export default function ClickFarmTaskModal({
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
 
-      const response = await fetch('/api/click-farm/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData),
-      });
+      // 🆕 编辑模式：使用PUT方法
+      const response = await fetch(
+        isEditMode ? `/api/click-farm/tasks/${editTaskId}` : '/api/click-farm/tasks',
+        {
+          method: isEditMode ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestData),
+        }
+      );
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || '创建任务失败');
+        throw new Error(error.message || `${isEditMode ? '更新' : '创建'}任务失败`);
       }
 
-      toast.success('补点击任务创建成功');
+      toast.success(`补点击任务${isEditMode ? '更新' : '创建'}成功`);
       onOpenChange(false);
       onSuccess?.();
 
@@ -316,7 +353,7 @@ export default function ClickFarmTaskModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>创建补点击任务</DialogTitle>
+          <DialogTitle>{isEditMode ? '编辑补点击任务' : '创建补点击任务'}</DialogTitle>
           <DialogDescription>
             配置自动点击任务，帮助广告冷启动和提升投放表现
           </DialogDescription>
@@ -529,7 +566,7 @@ export default function ClickFarmTaskModal({
             </Button>
             <Button type="submit" disabled={loading || !!proxyWarning}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              创建任务
+              {isEditMode ? '更新任务' : '创建任务'}
             </Button>
           </DialogFooter>
         </form>

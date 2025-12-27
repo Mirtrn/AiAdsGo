@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Play, Square, RefreshCw, Eye } from 'lucide-react';
+import { PlusCircle, Play, Square, RefreshCw, Eye, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
 import ClickFarmDistributionChart from '@/components/ClickFarmDistributionChart';
@@ -19,6 +19,7 @@ export default function ClickFarmPage() {
   const [distribution, setDistribution] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editTaskId, setEditTaskId] = useState<string | null>(null);  // 🆕 编辑任务ID
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
@@ -153,11 +154,15 @@ export default function ClickFarmPage() {
         </div>
       </div>
 
-      {/* 创建任务弹窗 */}
+      {/* 创建/编辑任务弹窗 */}
       <ClickFarmTaskModal
         open={modalOpen}
-        onOpenChange={setModalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) setEditTaskId(null);  // 关闭时清除编辑ID
+        }}
         onSuccess={loadData}
+        editTaskId={editTaskId || undefined}  // 🆕 传入编辑任务ID
       />
 
       {/* 统计卡片 */}
@@ -248,6 +253,20 @@ export default function ClickFarmPage() {
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
+                    {/* 🆕 编辑按钮（仅pending/running状态可编辑） */}
+                    {(task.status === 'pending' || task.status === 'running') && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setEditTaskId(task.id);
+                          setModalOpen(true);
+                        }}
+                        title="编辑任务"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                    )}
                     {task.status === 'running' && (
                       <Button
                         size="sm"
