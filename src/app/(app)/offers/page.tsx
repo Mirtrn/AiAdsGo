@@ -46,8 +46,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import dynamic from 'next/dynamic'
 import AdjustCpcModal from '@/components/AdjustCpcModal'
-import LaunchScoreModal from '@/components/LaunchScoreModal'
+import { LaunchScoreModalDynamic } from '@/components/dynamic'
 import CreateOfferModalV2 from '@/components/CreateOfferModalV2'
 import DeleteOfferConfirmDialog from '@/components/DeleteOfferConfirmDialog'
 import { SortableTableHead } from '@/components/SortableTableHead'
@@ -1053,7 +1054,7 @@ export default function OffersPage() {
       )}
 
       {selectedOfferForScore && (
-        <LaunchScoreModal
+        <LaunchScoreModalDynamic
           isOpen={isLaunchScoreModalOpen}
           onClose={() => {
             setIsLaunchScoreModalOpen(false)

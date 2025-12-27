@@ -19,24 +19,31 @@ import {
   Shield,
   Key,
   Link2,
-  Eye,
-  EyeOff,
   Beaker,
   TrendingUp,
   FileText,
   Clock
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { toast } from 'sonner'
+import dynamic from 'next/dynamic'
+
+// 动态导入模态框组件，实现代码分割
+const UserProfileModal = dynamic(
+  () => import('./AppLayoutModals').then(mod => mod.UserProfileModal),
+  { ssr: false }
+)
+
+const ChangePasswordModal = dynamic(
+  () => import('./AppLayoutModals').then(mod => mod.ChangePasswordModal),
+  { ssr: false }
+)
+
+// 移动端底部导航（动态导入以减小主包体积）
+const MobileBottomNav = dynamic(
+  () => import('./MobileBottomNav').then(mod => mod.MobileBottomNav),
+  { ssr: false }
+)
 
 // 套餐类型中文映射
 const PACKAGE_TYPE_MAP: Record<string, string> = {
@@ -159,19 +166,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [user, setUser] = useState<UserInfo | null>(cachedUser)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [loading, setLoading] = useState(!cachedUser)
-  const [changingPassword, setChangingPassword] = useState(false)
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
-  const [showNewPassword, setShowNewPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  })
   const fetchingRef = useRef(false)
 
   useEffect(() => {
@@ -257,69 +254,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const handleChangePassword = async () => {
-    // 验证表单
-    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
-      toast.error('请填写所有密码字段')
-      return
-    }
-
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      toast.error('新密码和确认密码不匹配')
-      return
-    }
-
-    if (passwordForm.newPassword.length < 8) {
-      toast.error('新密码长度至少8位')
-      return
-    }
-
-    setChangingPassword(true)
-
-    try {
-      const response = await fetch('/api/user/password', {
-        method: 'PUT',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || '修改密码失败')
-      }
-
-      toast.success('密码修改成功，请重新登录')
-
-      // 清除用户缓存
-      clearUserCache()
-
-      // 关闭弹窗
-      setPasswordModalOpen(false)
-      setProfileModalOpen(false)
-
-      // 重置表单
-      setPasswordForm({
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: '',
-      })
-
-      // 强制跳转到登录页面
-      router.push('/login')
-    } catch (err: any) {
-      toast.error(err.message || '修改密码失败')
-    } finally {
-      setChangingPassword(false)
-    }
-  }
-
   const isActive = (href: string) => {
     if (href === '/dashboard') {
       return pathname === '/dashboard'
@@ -343,48 +277,52 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     : navigationItems
 
   return (
-    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900">
-      {/* Mobile Menu Button */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 glass px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-slate-50/50 dark:bg-slate-900 lg:pb-0 pb-16">
+      {/* 桌面端顶部Header - 移动端隐藏 */}
+      <div className="hidden lg:flex h-16 items-center justify-between px-4 border-b border-slate-200 bg-white/80 backdrop-blur-xl sticky top-0 z-50">
+        <div className="flex items-center gap-4">
+          <h1 className="font-bold text-xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            AutoAds
+          </h1>
+        </div>
+        <div className="flex items-center gap-4">
+          {/* 用户信息（侧边栏收起时显示） */}
+          {!sidebarOpen && user && (
+            <button
+              onClick={() => setProfileModalOpen(true)}
+              className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white">
+                <UserIcon className="w-4 h-4" />
+              </div>
+              <span className="text-sm text-slate-700">{user.username || user.email}</span>
+            </button>
+          )}
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="hover:bg-slate-100"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="text-slate-400 hover:text-slate-600"
           >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </Button>
-          <h1 className="font-bold text-lg bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">AutoAds</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-600 font-medium">{user.username || user.email}</span>
         </div>
       </div>
 
-      {/* Sidebar */}
+      {/* 桌面端侧边栏 - 移动端隐藏 */}
       <aside
         className={`
-          fixed top-0 left-0 h-full bg-white/80 backdrop-blur-xl border-r border-slate-200/60 z-40 transition-all duration-300 shadow-sm
+          hidden lg:block fixed top-0 left-0 h-full bg-white/80 backdrop-blur-xl border-r border-slate-200/60 z-40 transition-all duration-300 shadow-sm
           ${sidebarOpen ? 'w-56' : 'w-20'}
-          ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
-        {/* Logo & Toggle */}
+        {/* Logo */}
         <div className="h-16 flex items-center justify-between px-4 mb-2">
           {sidebarOpen && (
             <h1 className="font-bold text-2xl bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
               AutoAds
             </h1>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="hidden lg:flex text-slate-400 hover:text-slate-600 hover:bg-slate-50"
-          >
-            <Menu className="w-5 h-5" />
-          </Button>
         </div>
 
         {/* User Info - Clickable */}
@@ -418,7 +356,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Navigation */}
         <nav className="px-3 space-y-1 flex-1 overflow-y-auto custom-scrollbar" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-          {/* 用户功能区 */}
           {sidebarOpen && (
             <div className="px-3 py-2">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
@@ -513,196 +450,35 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       <main
         className={`
-          transition-all duration-300 pt-16 lg:pt-0 min-h-screen
-          ${sidebarOpen ? 'lg:ml-56' : 'lg:ml-20'}
+          transition-all duration-300 min-h-screen
+          lg:pt-0 pt-16
+          ${sidebarOpen ? 'lg:ml-56 lg:pb-0 pb-16' : 'lg:ml-20 lg:pb-0 pb-16'}
         `}
       >
         {children}
       </main>
 
-      {/* Mobile Overlay */}
-      {mobileMenuOpen && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/50 z-30"
-          onClick={() => setMobileMenuOpen(false)}
+      {/* 移动端底部导航 */}
+      <MobileBottomNav />
+
+      {/* 动态导入的模态框组件 */}
+      {user && (
+        <UserProfileModal
+          open={profileModalOpen}
+          onOpenChange={setProfileModalOpen}
+          user={user}
+          onOpenPasswordModal={() => setPasswordModalOpen(true)}
+          onLogout={() => {
+            setProfileModalOpen(false)
+            handleLogout()
+          }}
         />
       )}
 
-      {/* Personal Center Modal */}
-      <Dialog open={profileModalOpen} onOpenChange={setProfileModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>个人中心</DialogTitle>
-            <DialogDescription>
-              查看和管理您的账号信息
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/* User Avatar */}
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
-                <UserIcon className="w-8 h-8" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-slate-900">
-                  {user.displayName || user.username || user.email}
-                </h3>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-sm text-slate-500">{user.email}</span>
-                  {user.role === 'admin' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
-                      <Shield className="w-3 h-3" />
-                      管理员
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Account Info */}
-            <div className="border-t border-slate-200 pt-4 space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-slate-600">套餐类型</span>
-                <span className="text-sm font-medium text-slate-900">
-                  {PACKAGE_TYPE_MAP[user.packageType] || user.packageType}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-slate-600">用户ID</span>
-                <span className="text-sm font-mono text-slate-900">{user.id}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-slate-600">角色</span>
-                <span className="text-sm font-medium text-slate-900">
-                  {ROLE_MAP[user.role] || user.role}
-                </span>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="border-t border-slate-200 pt-4 space-y-2">
-              <Button
-                variant="outline"
-                className="w-full justify-start gap-2"
-                onClick={() => {
-                  setPasswordModalOpen(true)
-                }}
-              >
-                <Key className="w-4 h-4" />
-                修改密码
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full justify-start gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                onClick={() => {
-                  setProfileModalOpen(false)
-                  handleLogout()
-                }}
-              >
-                <LogOut className="w-4 h-4" />
-                退出登录
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Password Change Modal */}
-      <Dialog open={passwordModalOpen} onOpenChange={setPasswordModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>修改密码</DialogTitle>
-            <DialogDescription>
-              请输入当前密码和新密码
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="currentPassword">当前密码</Label>
-              <div className="relative">
-                <Input
-                  id="currentPassword"
-                  type={showCurrentPassword ? 'text' : 'password'}
-                  value={passwordForm.currentPassword}
-                  onChange={(e) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
-                  placeholder="输入当前密码"
-                />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                >
-                  {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="newPassword">新密码</Label>
-              <div className="relative">
-                <Input
-                  id="newPassword"
-                  type={showNewPassword ? 'text' : 'password'}
-                  value={passwordForm.newPassword}
-                  onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
-                  placeholder="输入新密码（至少8位）"
-                />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                >
-                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">确认新密码</Label>
-              <div className="relative">
-                <Input
-                  id="confirmPassword"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={passwordForm.confirmPassword}
-                  onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                  placeholder="再次输入新密码"
-                />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-4">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  setPasswordModalOpen(false)
-                  setPasswordForm({
-                    currentPassword: '',
-                    newPassword: '',
-                    confirmPassword: '',
-                  })
-                }}
-              >
-                取消
-              </Button>
-              <Button
-                className="flex-1"
-                onClick={handleChangePassword}
-                disabled={changingPassword}
-              >
-                {changingPassword ? '修改中...' : '确认修改'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ChangePasswordModal
+        open={passwordModalOpen}
+        onOpenChange={setPasswordModalOpen}
+      />
     </div>
   )
 }
