@@ -90,6 +90,7 @@ async function getCachedAccounts(userId: number): Promise<CachedAccount[]> {
 
 /**
  * 保存或更新账号到数据库
+ * 返回 { id: number, last_sync_at: string }
  */
 async function upsertAccount(userId: number, account: {
   customer_id: string
@@ -101,14 +102,14 @@ async function upsertAccount(userId: number, account: {
   status: string
   account_balance?: number | null
   parent_mcc?: string
-}): Promise<number> {
+}): Promise<{ id: number; last_sync_at: string }> {
   const db = await getDatabase()
 
   // 检查是否已存在
   const existing = await db.queryOne(`
-    SELECT id FROM google_ads_accounts
+    SELECT id, last_sync_at FROM google_ads_accounts
     WHERE user_id = ? AND customer_id = ?
-  `, [userId, account.customer_id]) as { id: number } | undefined
+  `, [userId, account.customer_id]) as { id: number; last_sync_at: string } | undefined
 
   if (existing) {
     // 更新
@@ -136,7 +137,7 @@ async function upsertAccount(userId: number, account: {
       account.parent_mcc || null,
       existing.id
     ])
-    return existing.id
+    return { id: existing.id, last_sync_at: new Date().toISOString() }
   } else {
     // 插入
     const result = await db.exec(`
@@ -156,7 +157,7 @@ async function upsertAccount(userId: number, account: {
       account.account_balance ?? null,
       account.parent_mcc || null
     ])
-    return result.lastInsertRowid as number
+    return { id: result.lastInsertRowid as number, last_sync_at: new Date().toISOString() }
   }
 }
 
@@ -530,8 +531,8 @@ async function syncAccountsFromAPI(
         }
 
         // 保存到数据库
-        const dbId = await upsertAccount(userId, accountData)
-        allAccounts.push({ ...accountData, db_account_id: dbId })
+        const { id: dbId, last_sync_at } = await upsertAccount(userId, accountData)
+        allAccounts.push({ ...accountData, db_account_id: dbId, last_sync_at })
         processedIds.add(customerId)
 
         console.log(`   ✓ ${customerId}: ${accountData.descriptive_name} (MCC: ${accountData.manager})`)
@@ -648,8 +649,8 @@ async function syncAccountsFromAPI(
                   parent_mcc: customerId,
                 }
 
-                const dbId = await upsertAccount(userId, childData)
-                allAccounts.push({ ...childData, db_account_id: dbId })
+                const { id: dbId, last_sync_at } = await upsertAccount(userId, childData)
+                allAccounts.push({ ...childData, db_account_id: dbId, last_sync_at })
                 processedIds.add(childId)
 
                 console.log(`      ↳ ${childId}: ${childData.descriptive_name}`)
@@ -702,8 +703,8 @@ async function syncAccountsFromAPI(
         test_account: false,
         status: 'UNKNOWN',
       }
-      const dbId = await upsertAccount(userId, fallbackData)
-      allAccounts.push({ ...fallbackData, db_account_id: dbId })
+      const { id: dbId, last_sync_at } = await upsertAccount(userId, fallbackData)
+      allAccounts.push({ ...fallbackData, db_account_id: dbId, last_sync_at })
       processedIds.add(customerId)
     } finally {
       // 记录账户查询API使用
