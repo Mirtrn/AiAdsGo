@@ -579,12 +579,15 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{currencySymbol}</span>
                   <Input
                     type="number"
-                    value={config.budgetAmount}
+                    value={config.budgetAmount || ''}
                     onChange={(e) => {
-                      const value = parseFloat(e.target.value)
-                      if (isNaN(value) || value <= 0) {
-                        handleChange('budgetAmount', 0)
-                      } else {
+                      const inputValue = e.target.value
+                      if (inputValue === '') {
+                        handleChange('budgetAmount', '')
+                        return
+                      }
+                      const value = parseFloat(inputValue)
+                      if (!isNaN(value) && value > 0) {
                         // 🔧 修复(2025-12-26): 自动四舍五入到整数（预算以货币单位计）
                         const roundedValue = Math.round(value)
                         handleChange('budgetAmount', roundedValue)
@@ -727,12 +730,15 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{currencySymbol}</span>
                 <Input
                   type="number"
-                  value={config.maxCpcBid}
+                  value={config.maxCpcBid || ''}
                   onChange={(e) => {
-                    const value = parseFloat(e.target.value)
-                    if (isNaN(value) || value <= 0) {
-                      handleChange('maxCpcBid', 0)
-                    } else {
+                    const inputValue = e.target.value
+                    if (inputValue === '') {
+                      handleChange('maxCpcBid', '')
+                      return
+                    }
+                    const value = parseFloat(inputValue)
+                    if (!isNaN(value) && value > 0) {
                       // 🔧 修复(2025-12-26): 自动四舍五入到计费单位（0.01货币单位）
                       const roundedValue = Math.round(value * 100) / 100
                       handleChange('maxCpcBid', roundedValue)

@@ -858,7 +858,7 @@ export default function Step4PublishSummary({
       {/* 🚀 两列布局：左侧发布选项，右侧发布结果 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 左列：Publish Options & Button */}
-        <Card className="border-2 border-blue-200 bg-blue-50/50 h-[400px] flex flex-col">
+        <Card className="border-2 border-blue-200 bg-blue-50/50 lg:h-[400px] flex flex-col">
           <CardHeader className="pb-3 flex-shrink-0">
             <CardTitle className="text-base flex items-center gap-2">
               <Rocket className="w-4 h-4 text-blue-600" />
@@ -940,7 +940,7 @@ export default function Step4PublishSummary({
         </Card>
 
         {/* 右列：发布结果卡片 - 始终显示 */}
-        <Card className={`border-2 h-[400px] flex flex-col ${
+        <Card className={`border-2 lg:h-[400px] flex flex-col ${
           publishStatus?.success
             ? 'border-green-200 bg-green-50/30'
             : publishStatus?.step === 'failed'

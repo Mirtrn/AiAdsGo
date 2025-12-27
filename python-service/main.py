@@ -882,7 +882,7 @@ class CreateCalloutExtensionsRequest(BaseModel):
     service_account: ServiceAccountConfig
     customer_id: str
     campaign_resource_name: str
-    callout_texts: List[str]
+    callout_texts: List[Any]  # 🔧 修复: 接受字符串或对象
 
 
 @app.post("/api/google-ads/callout-extensions/create")
@@ -892,11 +892,18 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
     try:
         client = create_google_ads_client(request.service_account)
 
-        # 🔧 修复(2025-12-27): 过滤有效的callout文本（与OAuth模式一致）
-        valid_callout_texts = [
-            text for text in request.callout_texts
-            if isinstance(text, str) and text.strip()
-        ]
+        # 🔧 修复(2025-12-27): 兼容字符串数组和对象数组格式
+        valid_callout_texts = []
+        for item in request.callout_texts:
+            if isinstance(item, str):
+                text = item.strip()
+            elif isinstance(item, dict) and 'text' in item:
+                text = str(item['text']).strip()
+            else:
+                continue
+            if text:
+                valid_callout_texts.append(text)
+
         if not valid_callout_texts:
             raise HTTPException(status_code=400, detail="没有有效的Callout文本，无法创建Callout扩展")
 
