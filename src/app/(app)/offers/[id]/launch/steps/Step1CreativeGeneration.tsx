@@ -359,6 +359,12 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   const [selectedCreativeForFeedback, setSelectedCreativeForFeedback] = useState<number | null>(null)
   const [bonusScoreRefreshKey, setBonusScoreRefreshKey] = useState(0)
 
+  // 🆕 SSE超时处理状态
+  const [sseTimeout, setSseTimeout] = useState(false)
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
+  const [pollingTimer, setPollingTimer] = useState<NodeJS.Timeout | null>(null)
+  const [taskStatus, setTaskStatus] = useState<'running' | 'completed' | 'failed' | null>(null)
+
   // 🆕 处理错误解决方案的操作
   const handleErrorAction = (action?: string) => {
     if (!action) return
@@ -379,12 +385,91 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       case 'retry':
         // 重新尝试生成
         setGenerationError(null)
+        setSseTimeout(false)
         handleGenerate()
         break
       default:
         break
     }
   }
+
+  // 🆕 轮询检查任务状态（SSE断开后使用）
+  const pollTaskStatus = async (taskId: string) => {
+    try {
+      const response = await fetch(`/api/creative-tasks/${taskId}`, {
+        credentials: 'include'
+      })
+      if (!response.ok) return null
+
+      const task = await response.json()
+      setTaskStatus(task.status)
+
+      // 任务仍在运行
+      if (task.status === 'running' || task.status === 'pending') {
+        if (task.progress !== undefined) {
+          setGenerationProgress({
+            step: task.stage || 'processing',
+            progress: task.progress,
+            message: task.message || '正在处理...'
+          })
+        }
+        return 'running'
+      }
+
+      // 任务完成
+      if (task.status === 'completed') {
+        // 刷新创意列表
+        await fetchExistingCreatives()
+        showSuccess('✅ 生成完成', '广告创意已生成完成，请查看结果')
+        setGenerating(false)
+        setGenerationProgress(null)
+        setGenerationStartTime(null)
+        return 'completed'
+      }
+
+      // 任务失败
+      if (task.status === 'failed') {
+        const errorMessage = task.error || '任务执行失败'
+        setGenerationError({ message: errorMessage, solution: getErrorSolution(errorMessage) })
+        setGenerating(false)
+        setGenerationProgress(null)
+        setGenerationStartTime(null)
+        return 'failed'
+      }
+
+      return null
+    } catch (error: any) {
+      console.error('Polling task status error:', error)
+      return null
+    }
+  }
+
+  // 🆕 开始轮询任务状态
+  const startPolling = (taskId: string) => {
+    // 立即检查一次
+    pollTaskStatus(taskId).then(status => {
+      if (status === 'running') {
+        // 继续轮询，每3秒检查一次
+        const timer = setInterval(async () => {
+          const currentStatus = await pollTaskStatus(taskId)
+          if (currentStatus !== 'running') {
+            clearInterval(timer)
+            setPollingTimer(null)
+          }
+        }, 3000)
+        setPollingTimer(timer)
+      }
+    })
+  }
+
+  // 🆕 清理轮询定时器
+  useEffect(() => {
+    return () => {
+      if (pollingTimer) {
+        clearInterval(pollingTimer)
+      }
+    }
+  }, [pollingTimer])
 
   const toggleSection = (creativeId: number, section: string) => {
     setExpandedSections(prev => ({

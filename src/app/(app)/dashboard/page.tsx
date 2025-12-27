@@ -131,10 +131,10 @@ export default function DashboardPage() {
   // 加载骨架屏
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 p-6">
+      <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
         <div className="max-w-6xl mx-auto space-y-6">
           <Skeleton className="h-10 w-48" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-32" />)}
           </div>
           <Skeleton className="h-48" />
@@ -185,7 +185,7 @@ export default function DashboardPage() {
 
 
         {/* 核心KPI - 3个最重要的指标 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
           {/* 展示量 */}
           <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-5 pb-4">
