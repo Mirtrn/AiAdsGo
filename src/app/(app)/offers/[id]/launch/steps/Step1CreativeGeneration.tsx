@@ -271,10 +271,10 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     actionLabel: '重新尝试'
   },
   'timeout': {
-    title: '请求超时',
-    description: '服务器响应超时，可能是网络不稳定或服务器负载较高。请稍后重试。',
+    title: '连接超时',
+    description: '广告创意生成需要较长时间，连接已超时。任务仍在后台继续处理，请刷新页面或稍后查看结果。',
     action: 'retry',
-    actionLabel: '重新尝试'
+    actionLabel: '刷新查看结果'
   },
   '网络': {
     title: '网络问题',
@@ -816,10 +816,12 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
       // 🔧 修复(2025-12-27): 判断是否为网络错误
       const isNetworkError = !errorMessage ||
-        errorMessage.includes('network') ||
-        errorMessage.includes('fetch') ||
-        errorMessage.includes('Failed to fetch') ||
-        errorMessage.includes('NetworkError')
+        (errorMessage.toLowerCase().includes('network') ||
+        errorMessage.toLowerCase().includes('fetch') ||
+        errorMessage.toLowerCase().includes('failed to fetch') ||
+        errorMessage.toLowerCase().includes('networkerror') ||
+        errorMessage.includes('断开了') ||
+        errorMessage.includes('网络连接'))
 
       // SSE超时或网络中断，但任务可能在后端继续运行
       if ((isSSETimeout || isNetworkError) && currentTaskId) {
