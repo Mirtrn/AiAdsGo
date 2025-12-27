@@ -545,9 +545,8 @@ async def update_campaign_status(request: UpdateCampaignStatusRequest):
         campaign.resource_name = request.campaign_resource_name
         campaign.status = client.enums.CampaignStatusEnum[request.status]
 
-        field_mask = client.get_type("FieldMask")
-        field_mask.paths.append("status")
-        operation.update_mask.CopyFrom(field_mask)
+        # 🔧 修复(2025-12-27): v22 直接设置 update_mask 路径列表
+        operation.update_mask.paths.append("status")
 
         campaign_service.mutate_campaigns(
             customer_id=request.customer_id, operations=[operation]
@@ -602,9 +601,8 @@ async def update_campaign_budget(request: UpdateCampaignBudgetRequest):
         budget.resource_name = budget_resource_name
         budget.amount_micros = request.budget_amount_micros
 
-        field_mask = client.get_type("FieldMask")
-        field_mask.paths.append("amount_micros")
-        operation.update_mask.CopyFrom(field_mask)
+        # 🔧 修复(2025-12-27): v22 直接设置 update_mask 路径列表
+        operation.update_mask.paths.append("amount_micros")
 
         campaign_budget_service.mutate_campaign_budgets(
             customer_id=request.customer_id, operations=[operation]
