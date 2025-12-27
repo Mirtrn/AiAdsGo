@@ -45,14 +45,13 @@ import {
   Link,
   ArrowLeft,
   Eye,
-  ChevronLeft,
-  ChevronRight,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Package
 } from 'lucide-react'
 import { TrendChart, TrendChartData } from '@/components/charts/TrendChart'
+import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 
 // Helper function to extract text from headline/description objects or strings
 const getTextContent = (item: unknown): string => {
@@ -1075,71 +1074,16 @@ export default function CreativesPage() {
               </div>
               {/* Pagination Controls - Bottom */}
               {filteredCreatives.length > 0 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-                  <div className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
-                    <span>每页</span>
-                    <Select value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
-                      <SelectTrigger className="w-16 h-7 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="10">10</SelectItem>
-                        <SelectItem value="20">20</SelectItem>
-                        <SelectItem value="50">50</SelectItem>
-                        <SelectItem value="100">100</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <span>条，共 {filteredCreatives.length} 条</span>
-                  </div>
-                  {filteredCreatives.length > pageSize && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                        上一页
-                      </Button>
-                      <div className="flex items-center gap-1">
-                        {Array.from({ length: Math.ceil(filteredCreatives.length / pageSize) }, (_, i) => i + 1)
-                          .filter(page => {
-                            const totalPages = Math.ceil(filteredCreatives.length / pageSize)
-                            if (totalPages <= 7) return true
-                            if (page === 1 || page === totalPages) return true
-                            if (Math.abs(page - currentPage) <= 1) return true
-                            if (page === 2 && currentPage <= 3) return true
-                            if (page === totalPages - 1 && currentPage >= totalPages - 2) return true
-                            return false
-                          })
-                          .map((page, index, arr) => (
-                            <span key={page}>
-                              {index > 0 && arr[index - 1] !== page - 1 && (
-                                <span className="px-2 text-gray-400">...</span>
-                              )}
-                              <Button
-                                variant={currentPage === page ? 'default' : 'outline'}
-                                size="sm"
-                                className="w-8 h-8 p-0"
-                                onClick={() => setCurrentPage(page)}
-                              >
-                                {page}
-                              </Button>
-                            </span>
-                          ))}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredCreatives.length / pageSize), p + 1))}
-                        disabled={currentPage >= Math.ceil(filteredCreatives.length / pageSize)}
-                      >
-                        下一页
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  )}
+                <div className="px-4 py-3 border-t border-gray-200">
+                  <ResponsivePagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(filteredCreatives.length / pageSize)}
+                    totalItems={filteredCreatives.length}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+                    pageSizeOptions={[10, 20, 50, 100]}
+                  />
                 </div>
               )}
             </CardContent>

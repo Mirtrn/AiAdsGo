@@ -65,6 +65,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
+import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import { getScrapeStatusLabel, type ScrapeStatus } from '@/lib/i18n-constants'
 import type { OfferListItem, UnlinkTarget } from './types'
 
@@ -1016,77 +1017,17 @@ export default function OffersPage() {
               </div>
 
               {/* 分页组件 */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between px-6 py-4 border-t">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 whitespace-nowrap">
-                      <span className="text-sm text-gray-500">每页</span>
-                      <Select
-                        value={pageSize.toString()}
-                        onValueChange={(value) => {
-                          const newPageSize = parseInt(value)
-                          setPageSize(newPageSize) // usePagination会自动重置到第一页
-                        }}
-                      >
-                        <SelectTrigger className="w-[70px] h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {pageSizeOptions.map(size => (
-                            <SelectItem key={size} value={size.toString()}>{size}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <span className="text-sm text-gray-500">条</span>
-                    </div>
-                    <div className="text-sm text-gray-500 whitespace-nowrap">
-                      显示第 {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredOffers.length)} 条，共 {filteredOffers.length} 条
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious
-                          onClick={() => setPage(Math.max(1, currentPage - 1))}
-                          className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                        />
-                      </PaginationItem>
-
-                      {/* 显示页码 */}
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                        // 只显示当前页附近的页码
-                        if (
-                          page === 1 ||
-                          page === totalPages ||
-                          (page >= currentPage - 1 && page <= currentPage + 1)
-                        ) {
-                          return (
-                            <PaginationItem key={page}>
-                              <PaginationLink
-                                onClick={() => setPage(page)}
-                                isActive={page === currentPage}
-                                className="cursor-pointer"
-                              >
-                                {page}
-                              </PaginationLink>
-                            </PaginationItem>
-                          )
-                        } else if (page === currentPage - 2 || page === currentPage + 2) {
-                          return <span key={page} className="px-2">...</span>
-                        }
-                        return null
-                      })}
-
-                      <PaginationItem>
-                        <PaginationNext
-                          onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
-                          className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                  </div>
+              {totalPages > 0 && (
+                <div className="px-6 py-4 border-t">
+                  <ResponsivePagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    totalItems={filteredOffers.length}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    pageSizeOptions={pageSizeOptions}
+                  />
                 </div>
               )}
             </CardContent>

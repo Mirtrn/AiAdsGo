@@ -32,7 +32,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, Package } from 'lucide-react'
+import { ResponsivePagination } from '@/components/ui/responsive-pagination'
+import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, Package } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import {
   getCampaignStatusLabel,
@@ -1061,71 +1062,16 @@ export default function CampaignsPage() {
               </div>
               {/* Pagination Controls - Bottom */}
               {filteredCampaigns.length > 0 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-                  <div className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
-                    <span>每页</span>
-                    <Select value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
-                      <SelectTrigger className="w-16 h-7 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="10">10</SelectItem>
-                        <SelectItem value="20">20</SelectItem>
-                        <SelectItem value="50">50</SelectItem>
-                        <SelectItem value="100">100</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <span>条，共 {filteredCampaigns.length} 条</span>
-                  </div>
-                  {filteredCampaigns.length > pageSize && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                        上一页
-                      </Button>
-                      <div className="flex items-center gap-1">
-                        {Array.from({ length: Math.ceil(filteredCampaigns.length / pageSize) }, (_, i) => i + 1)
-                          .filter(page => {
-                            const totalPages = Math.ceil(filteredCampaigns.length / pageSize)
-                            if (totalPages <= 7) return true
-                            if (page === 1 || page === totalPages) return true
-                            if (Math.abs(page - currentPage) <= 1) return true
-                            if (page === 2 && currentPage <= 3) return true
-                            if (page === totalPages - 1 && currentPage >= totalPages - 2) return true
-                            return false
-                          })
-                          .map((page, index, arr) => (
-                            <span key={page}>
-                              {index > 0 && arr[index - 1] !== page - 1 && (
-                                <span className="px-2 text-gray-400">...</span>
-                              )}
-                              <Button
-                                variant={currentPage === page ? 'default' : 'outline'}
-                                size="sm"
-                                className="w-8 h-8 p-0"
-                                onClick={() => setCurrentPage(page)}
-                              >
-                                {page}
-                              </Button>
-                            </span>
-                          ))}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredCampaigns.length / pageSize), p + 1))}
-                        disabled={currentPage >= Math.ceil(filteredCampaigns.length / pageSize)}
-                      >
-                        下一页
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  )}
+                <div className="px-4 py-3 border-t border-gray-200">
+                  <ResponsivePagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(filteredCampaigns.length / pageSize)}
+                    totalItems={filteredCampaigns.length}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+                    pageSizeOptions={[10, 20, 50, 100]}
+                  />
                 </div>
               )}
             </CardContent>
