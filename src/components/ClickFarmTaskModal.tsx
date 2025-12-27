@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem } from '@/components/ui/select';
 import { Alert } from '@/components/ui/alert';
-import { Loader2, AlertCircle, TrendingUp } from 'lucide-react';
+import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
 
@@ -62,6 +62,8 @@ export default function ClickFarmTaskModal({
   const [durationDays, setDurationDays] = useState(14);
   const [proxyWarning, setProxyWarning] = useState('');
   const [distribution, setDistribution] = useState<number[]>([]);
+  const [isEditingDistribution, setIsEditingDistribution] = useState(false);
+  const [draggedHour, setDraggedHour] = useState<number | null>(null);
 
   // Load offers on mount
   useEffect(() => {
@@ -167,6 +169,81 @@ export default function ClickFarmTaskModal({
     }
   };
 
+  /**
+   * 拖拽编辑分布曲线
+   */
+  const handleDistributionBarDrag = (hour: number, deltaY: number) => {
+    if (!isEditingDistribution || distribution.length === 0) return;
+
+    // Calculate new value based on drag distance
+    const maxValue = Math.max(...distribution);
+    const pixelsPerClick = 40 / maxValue; // 40px max height
+    const clicksDelta = Math.round(-deltaY / pixelsPerClick); // negative because drag up = increase
+
+    const newDistribution = [...distribution];
+    const oldValue = newDistribution[hour];
+    const newValue = Math.max(0, oldValue + clicksDelta);
+
+    newDistribution[hour] = newValue;
+
+    // Normalize to maintain total daily click count
+    const currentTotal = newDistribution.reduce((sum, n) => sum + n, 0);
+    if (currentTotal !== dailyClickCount && currentTotal > 0) {
+      const ratio = dailyClickCount / currentTotal;
+      for (let i = 0; i < newDistribution.length; i++) {
+        newDistribution[i] = Math.round(newDistribution[i] * ratio);
+      }
+    }
+
+    // Final adjustment to ensure exact total
+    const finalTotal = newDistribution.reduce((sum, n) => sum + n, 0);
+    const diff = dailyClickCount - finalTotal;
+    if (diff !== 0) {
+      // Add/subtract diff to the hour with highest value (excluding current hour if it was just set to 0)
+      const maxIndex = newDistribution.indexOf(Math.max(...newDistribution));
+      newDistribution[maxIndex] = Math.max(0, newDistribution[maxIndex] + diff);
+    }
+
+    setDistribution(newDistribution);
+  };
+
+  const handleBarMouseDown = (hour: number, e: React.MouseEvent) => {
+    if (!isEditingDistribution) return;
+
+    e.preventDefault();
+    setDraggedHour(hour);
+
+    const startY = e.clientY;
+    const startValue = distribution[hour];
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      handleDistributionBarDrag(hour, deltaY);
+    };
+
+    const handleMouseUp = () => {
+      setDraggedHour(null);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const toggleEditMode = () => {
+    if (distribution.length === 0) {
+      toast.error('请先配置Offer和每日点击数以生成分布');
+      return;
+    }
+    setIsEditingDistribution(!isEditingDistribution);
+  };
+
+  const resetDistribution = () => {
+    generateDistribution();
+    toast.success('已重置为默认分布');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -222,6 +299,8 @@ export default function ClickFarmTaskModal({
       setDurationDays(14);
       setDistribution([]);
       setProxyWarning('');
+      setIsEditingDistribution(false);
+      setDraggedHour(null);
 
     } catch (error: any) {
       console.error('创建任务失败:', error);
@@ -357,26 +436,79 @@ export default function ClickFarmTaskModal({
           {/* Distribution Preview */}
           {distribution.length > 0 && (
             <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                时间分布预览
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" />
+                  时间分布{isEditingDistribution && ' - 编辑模式'}
+                </Label>
+                <div className="flex gap-2">
+                  {isEditingDistribution && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={resetDistribution}
+                      title="重置为默认分布"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isEditingDistribution ? 'default' : 'outline'}
+                    onClick={toggleEditMode}
+                  >
+                    <Edit3 className="mr-1 h-3 w-3" />
+                    {isEditingDistribution ? '完成编辑' : '自定义编辑'}
+                  </Button>
+                </div>
+              </div>
+
+              {isEditingDistribution && (
+                <p className="text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 p-2 rounded">
+                  💡 拖拽柱状图调整每小时的点击量，系统会自动归一化以保持总点击数不变
+                </p>
+              )}
+
               <div className="grid grid-cols-12 gap-1 p-3 bg-muted/50 rounded-md">
                 {distribution.map((count, hour) => (
                   <div
                     key={hour}
-                    className="flex flex-col items-center"
+                    className={`flex flex-col items-center ${
+                      isEditingDistribution ? 'cursor-ns-resize' : ''
+                    }`}
                     title={`${hour}:00 - ${count}次`}
+                    onMouseDown={(e) => handleBarMouseDown(hour, e)}
                   >
-                    <div
-                      className="w-full bg-primary rounded-t"
-                      style={{
-                        height: `${Math.max(4, (count / Math.max(...distribution)) * 40)}px`,
-                      }}
-                    />
+                    <div className="relative w-full flex items-end justify-center h-[50px]">
+                      <div
+                        className={`w-full rounded-t transition-colors ${
+                          draggedHour === hour
+                            ? 'bg-blue-600'
+                            : isEditingDistribution
+                            ? 'bg-primary hover:bg-primary/80'
+                            : 'bg-primary'
+                        }`}
+                        style={{
+                          height: `${Math.max(4, (count / Math.max(...distribution)) * 40)}px`,
+                        }}
+                      >
+                        {isEditingDistribution && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <GripVertical className="h-3 w-3 text-white/50" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     <span className="text-[10px] text-muted-foreground mt-1">
                       {hour}
                     </span>
+                    {isEditingDistribution && (
+                      <span className="text-[9px] text-blue-600 font-medium">
+                        {count}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
