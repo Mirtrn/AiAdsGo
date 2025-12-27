@@ -1,16 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Play, Square, RefreshCw } from 'lucide-react';
+import { PlusCircle, Play, Square, RefreshCw, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
 import ClickFarmDistributionChart from '@/components/ClickFarmDistributionChart';
 import type { ClickFarmTask, ClickFarmStats } from '@/lib/click-farm-types';
 
 export default function ClickFarmPage() {
+  const router = useRouter();
   const [tasks, setTasks] = useState<ClickFarmTask[]>([]);
   const [stats, setStats] = useState<ClickFarmStats | null>(null);
   const [distribution, setDistribution] = useState<any>(null);
@@ -221,7 +223,7 @@ export default function ClickFarmPage() {
                   key={task.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent transition-colors"
                 >
-                  <div className="flex-1">
+                  <div className="flex-1 cursor-pointer" onClick={() => router.push(`/click-farm/tasks/${task.id}`)}>
                     <div className="flex items-center gap-3">
                       <h3 className="font-medium">Offer #{task.offer_id}</h3>
                       {getStatusBadge(task.status)}
@@ -234,6 +236,14 @@ export default function ClickFarmPage() {
                   </div>
 
                   <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => router.push(`/click-farm/tasks/${task.id}`)}
+                      title="查看详情"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
                     {task.status === 'running' && (
                       <Button
                         size="sm"
