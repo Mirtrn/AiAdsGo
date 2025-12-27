@@ -154,6 +154,19 @@ export default function OffersPage() {
     // Poll for scraping status updates every 30 seconds (优化：减少轮询频率)
     const pollInterval = setInterval(async () => {
       try {
+        // 先用普通fetch检查401（因为fetchWithRetry会包装错误响应）
+        const checkResponse = await fetch('/api/offers', {
+          credentials: 'include',
+          cache: 'no-store',
+        })
+
+        // 处理401未授权 - 停止轮询并跳转登录页
+        if (checkResponse.status === 401) {
+          handleUnauthorized()
+          return
+        }
+
+        // 如果不是401，使用fetchWithRetry获取数据
         const result = await fetchWithRetry('/api/offers', {
           credentials: 'include',
           cache: 'no-store',
@@ -164,11 +177,6 @@ export default function OffersPage() {
         })
 
         if (!result.success) {
-          // 如果是401错误，停止轮询并跳转登录页
-          if (result.status === 401) {
-            handleUnauthorized()
-            return
-          }
           return
         }
 
