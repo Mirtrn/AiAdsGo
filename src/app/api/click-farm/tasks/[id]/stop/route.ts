@@ -1,7 +1,6 @@
 // POST /api/click-farm/tasks/[id]/stop - 停止任务
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { getClickFarmTaskById, stopClickFarmTask } from '@/lib/click-farm';
 
 export async function POST(
@@ -9,15 +8,15 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '未登录' },
         { status: 401 }
       );
     }
 
-    const task = await getClickFarmTaskById(params.id, session.user.id);
+    const task = await getClickFarmTaskById(params.id, parseInt(userId!));
     if (!task) {
       return NextResponse.json(
         { error: 'not_found', message: '任务不存在' },
@@ -32,7 +31,7 @@ export async function POST(
       );
     }
 
-    const updatedTask = await stopClickFarmTask(params.id, session.user.id);
+    const updatedTask = await stopClickFarmTask(params.id, parseInt(userId!));
 
     return NextResponse.json({
       success: true,

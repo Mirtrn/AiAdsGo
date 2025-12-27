@@ -49,7 +49,7 @@ export async function getClickFarmTaskById(
 ): Promise<ClickFarmTask | null> {
   const db = await getDatabase();
 
-  const task = await db.get<any>(`
+  const task = await db.queryOne<any>(`
     SELECT * FROM click_farm_tasks
     WHERE id = ? AND user_id = ? AND is_deleted = 0
   `, [id, userId]);
@@ -87,7 +87,7 @@ export async function getClickFarmTasks(
   const offset = (page - 1) * limit;
 
   // 获取总数
-  const countResult = await db.get<{ count: number }>(`
+  const countResult = await db.queryOne<{ count: number }>(`
     SELECT COUNT(*) as count FROM click_farm_tasks
     WHERE user_id = ? AND is_deleted = 0
     ${filters.status ? 'AND status = ?' : ''}
@@ -100,7 +100,7 @@ export async function getClickFarmTasks(
   query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
   params.push(limit, offset);
 
-  const tasks = await db.all<any[]>(query, params);
+  const tasks = await db.query<any>(query, params);
 
   return {
     tasks: tasks.map(parseClickFarmTask),
@@ -246,7 +246,7 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
   const db = await getDatabase();
 
   // 今日统计
-  const today = await db.get<any>(`
+  const today = await db.queryOne<any>(`
     SELECT
       COALESCE(SUM(total_clicks), 0) as clicks,
       COALESCE(SUM(success_clicks), 0) as successClicks,
@@ -262,7 +262,7 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
     : 0;
 
   // 累计统计（包含已删除任务的历史数据）
-  const cumulative = await db.get<any>(`
+  const cumulative = await db.queryOne<any>(`
     SELECT
       COALESCE(SUM(total_clicks), 0) as clicks,
       COALESCE(SUM(success_clicks), 0) as successClicks,
@@ -300,14 +300,14 @@ export async function getHourlyDistribution(userId: number): Promise<HourlyDistr
   const db = await getDatabase();
 
   // 获取今日所有任务的配置分布（汇总）
-  const tasks = await db.all<any[]>(`
+  const tasks = await db.query<any>(`
     SELECT hourly_distribution
     FROM click_farm_tasks
     WHERE user_id = ? AND is_deleted = 0 AND status IN ('running', 'completed')
   `, [userId]);
 
   const hourlyConfigured = new Array(24).fill(0);
-  tasks.forEach(task => {
+  tasks.forEach((task: any) => {
     const distribution = JSON.parse(task.hourly_distribution);
     distribution.forEach((count: number, hour: number) => {
       hourlyConfigured[hour] += count;
@@ -432,7 +432,7 @@ export async function updateTaskStatus(
 export async function getPendingTasks(): Promise<ClickFarmTask[]> {
   const db = await getDatabase();
 
-  const tasks = await db.all<any[]>(`
+  const tasks = await db.query<any>(`
     SELECT * FROM click_farm_tasks
     WHERE status = 'running'
       AND is_deleted = 0

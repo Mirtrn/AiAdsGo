@@ -1,13 +1,13 @@
 // GET /api/admin/click-farm/hourly-distribution - 全局时间分布
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { getDatabase } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || session.user.role !== 'admin') {
+    const userId = request.headers.get('x-user-id');
+    const userRole = request.headers.get('x-user-role');
+    if (!userId || userRole !== 'admin') {
       return NextResponse.json(
         { error: 'forbidden', message: '需要管理员权限' },
         { status: 403 }
@@ -17,14 +17,14 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase();
 
     // 获取所有运行中任务的配置分布（汇总）
-    const tasks = await db.all<any[]>(`
+    const tasks = await db.query<any>(`
       SELECT hourly_distribution
       FROM click_farm_tasks
       WHERE is_deleted = 0 AND status IN ('running', 'completed')
     `, []);
 
     const hourlyConfigured = new Array(24).fill(0);
-    tasks.forEach(task => {
+    tasks.forEach((task: any) => {
       const distribution = JSON.parse(task.hourly_distribution);
       distribution.forEach((count: number, hour: number) => {
         hourlyConfigured[hour] += count;

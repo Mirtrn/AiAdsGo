@@ -5,12 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { PlusCircle, Play, Square, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
+import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
 import type { ClickFarmTask, ClickFarmStats } from '@/lib/click-farm-types';
 
 export default function ClickFarmPage() {
   const [tasks, setTasks] = useState<ClickFarmTask[]>([]);
   const [stats, setStats] = useState<ClickFarmStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -44,6 +48,50 @@ export default function ClickFarmPage() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleStopTask = async (taskId: string) => {
+    try {
+      setActionLoading(taskId);
+      const response = await fetch(`/api/click-farm/tasks/${taskId}/stop`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || '停止任务失败');
+      }
+
+      toast.success('任务已停止');
+      await loadData();
+    } catch (error: any) {
+      console.error('停止任务失败:', error);
+      toast.error(error.message || '停止任务失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRestartTask = async (taskId: string) => {
+    try {
+      setActionLoading(taskId);
+      const response = await fetch(`/api/click-farm/tasks/${taskId}/restart`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || '重启任务失败');
+      }
+
+      toast.success('任务已重启');
+      await loadData();
+    } catch (error: any) {
+      console.error('重启任务失败:', error);
+      toast.error(error.message || '重启任务失败');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -83,11 +131,18 @@ export default function ClickFarmPage() {
       {/* 标题和操作 */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">补点击管理</h1>
-        <Button>
+        <Button onClick={() => setModalOpen(true)}>
           <PlusCircle className="mr-2 h-4 w-4" />
           创建任务
         </Button>
       </div>
+
+      {/* 创建任务弹窗 */}
+      <ClickFarmTaskModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onSuccess={loadData}
+      />
 
       {/* 统计卡片 */}
       {stats && (
@@ -167,16 +222,31 @@ export default function ClickFarmPage() {
 
                   <div className="flex gap-2">
                     {task.status === 'running' && (
-                      <Button size="sm" variant="outline">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleStopTask(task.id)}
+                        disabled={actionLoading === task.id}
+                      >
                         <Square className="h-4 w-4" />
                       </Button>
                     )}
                     {(task.status === 'stopped' || task.status === 'paused') && (
-                      <Button size="sm" variant="outline">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRestartTask(task.id)}
+                        disabled={actionLoading === task.id}
+                      >
                         <Play className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={loadData}
+                      disabled={loading}
+                    >
                       <RefreshCw className="h-4 w-4" />
                     </Button>
                   </div>

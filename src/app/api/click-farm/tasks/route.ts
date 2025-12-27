@@ -2,7 +2,6 @@
 // GET /api/click-farm/tasks - 获取任务列表
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { createClickFarmTask, getClickFarmTasks } from '@/lib/click-farm';
 import { generateDefaultDistribution, validateDistribution } from '@/lib/click-farm/distribution';
 import type { CreateClickFarmTaskRequest, TaskFilters } from '@/lib/click-farm-types';
@@ -13,14 +12,15 @@ import { getDatabase } from '@/lib/db';
  */
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '未登录' },
         { status: 401 }
       );
     }
 
+    const userIdNum = parseInt(userId);
     const body = await request.json() as CreateClickFarmTaskRequest;
 
     // 验证必填字段
@@ -41,11 +41,11 @@ export async function POST(request: NextRequest) {
 
     // 检查Offer是否存在且属于当前用户
     const db = await getDatabase();
-    const offer = await db.get<any>(`
+    const offer = await db.queryOne<any>(`
       SELECT id, affiliate_link, target_country
       FROM offers
       WHERE id = ? AND user_id = ?
-    `, [body.offer_id, session.user.id]);
+    `, [body.offer_id, userIdNum]);
 
     if (!offer) {
       return NextResponse.json(
@@ -55,11 +55,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 检查代理配置
-    const proxyConfig = await db.get<any>(`
+    const proxyConfig = await db.queryOne<any>(`
       SELECT proxy_url
       FROM system_settings
       WHERE user_id = ? AND key = ?
-    `, [session.user.id, `proxy_${offer.target_country.toLowerCase()}`]);
+    `, [userIdNum, `proxy_${offer.target_country.toLowerCase()}`]);
 
     if (!proxyConfig || !proxyConfig.proxy_url) {
       return NextResponse.json(
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 创建任务
-    const task = await createClickFarmTask(session.user.id, {
+    const task = await createClickFarmTask(userIdNum, {
       ...body,
       hourly_distribution: hourlyDistribution
     });
@@ -121,13 +121,15 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '未登录' },
         { status: 401 }
       );
     }
+
+    const userIdNum = parseInt(userId);
 
     const { searchParams } = new URL(request.url);
     const filters: TaskFilters = {
@@ -137,7 +139,7 @@ export async function GET(request: NextRequest) {
       limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 20
     };
 
-    const result = await getClickFarmTasks(session.user.id, filters);
+    const result = await getClickFarmTasks(userIdNum, filters);
 
     return NextResponse.json({
       success: true,

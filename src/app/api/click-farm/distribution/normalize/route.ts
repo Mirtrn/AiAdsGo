@@ -1,13 +1,12 @@
 // POST /api/click-farm/distribution/normalize - 归一化分布曲线
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { normalizeDistribution } from '@/lib/click-farm/distribution';
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '未登录' },
         { status: 401 }

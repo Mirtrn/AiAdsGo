@@ -83,7 +83,7 @@ export interface CreateClickFarmTaskRequest {
   daily_click_count: number;  // 1-1000，默认216
   start_time: string;  // "06:00"，格式 HH:mm
   end_time: string;  // "24:00"
-  duration_days: number;  // 7/14/30/-1(无限)
+  duration_days: number | null;  // 7/14/30/null(无限)
   hourly_distribution: number[];  // 24个整数
   timezone?: string;  // 默认 America/New_York
 }

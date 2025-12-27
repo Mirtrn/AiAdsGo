@@ -1,13 +1,13 @@
 // GET /api/admin/click-farm/stats - 管理员全局统计
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { getDatabase } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || session.user.role !== 'admin') {
+    const userId = request.headers.get('x-user-id');
+    const userRole = request.headers.get('x-user-role');
+    if (!userId || userRole !== 'admin') {
       return NextResponse.json(
         { error: 'forbidden', message: '需要管理员权限' },
         { status: 403 }
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase();
 
     // 全局统计
-    const global = await db.get<any>(`
+    const global = await db.queryOne<any>(`
       SELECT
         COUNT(*) as total_tasks,
         SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as active_tasks,
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       : 0;
 
     // 今日流量
-    const today = await db.get<any>(`
+    const today = await db.queryOne<any>(`
       SELECT COALESCE(SUM(total_clicks), 0) as clicks
       FROM click_farm_tasks
       WHERE DATE(started_at) = DATE('now')

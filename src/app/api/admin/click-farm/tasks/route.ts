@@ -1,13 +1,13 @@
 // GET /api/admin/click-farm/tasks - 所有用户任务列表
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { getDatabase } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || session.user.role !== 'admin') {
+    const userId = request.headers.get('x-user-id');
+    const userRole = request.headers.get('x-user-role');
+    if (!userId || userRole !== 'admin') {
       return NextResponse.json(
         { error: 'forbidden', message: '需要管理员权限' },
         { status: 403 }
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase();
 
     // 获取总数
-    const countResult = await db.get<{ count: number }>(`
+    const countResult = await db.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count
       FROM click_farm_tasks
       WHERE is_deleted = 0
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const total = countResult?.count || 0;
 
     // 获取任务列表
-    const tasks = await db.all<any[]>(`
+    const tasks = await db.query<any>(`
       SELECT
         t.*,
         u.username,
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       LIMIT ? OFFSET ?
     `, [limit, offset]);
 
-    const result = tasks.map(task => ({
+    const result = tasks.map((task: any) => ({
       id: task.id,
       userId: task.user_id,
       username: task.username,

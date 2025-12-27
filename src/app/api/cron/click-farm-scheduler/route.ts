@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 获取Offer信息
-        const offer = await db.get<any>(`
+        const offer = await db.queryOne<any>(`
           SELECT affiliate_link, target_country
           FROM offers
           WHERE id = ?
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 检查代理配置
-        const proxyConfig = await db.get<any>(`
+        const proxyConfig = await db.queryOne<any>(`
           SELECT proxy_url FROM system_settings
           WHERE user_id = ? AND key = ?
         `, [task.user_id, `proxy_${offer.target_country.toLowerCase()}`]);

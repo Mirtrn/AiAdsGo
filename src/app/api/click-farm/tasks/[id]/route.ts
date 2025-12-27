@@ -3,7 +3,6 @@
 // DELETE /api/click-farm/tasks/[id] - 删除任务
 
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import {
   getClickFarmTaskById,
   updateClickFarmTask,
@@ -20,15 +19,15 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '未登录' },
         { status: 401 }
       );
     }
 
-    const task = await getClickFarmTaskById(params.id, session.user.id);
+    const task = await getClickFarmTaskById(params.id, parseInt(userId!));
 
     if (!task) {
       return NextResponse.json(
@@ -59,15 +58,15 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '未登录' },
         { status: 401 }
       );
     }
 
-    const task = await getClickFarmTaskById(params.id, session.user.id);
+    const task = await getClickFarmTaskById(params.id, parseInt(userId!));
     if (!task) {
       return NextResponse.json(
         { error: 'not_found', message: '任务不存在' },
@@ -107,7 +106,7 @@ export async function PUT(
       }
     }
 
-    const updatedTask = await updateClickFarmTask(params.id, session.user.id, body);
+    const updatedTask = await updateClickFarmTask(params.id, parseInt(userId!), body);
 
     return NextResponse.json({
       success: true,
@@ -131,15 +130,15 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
       return NextResponse.json(
         { error: 'unauthorized', message: '未登录' },
         { status: 401 }
       );
     }
 
-    const task = await getClickFarmTaskById(params.id, session.user.id);
+    const task = await getClickFarmTaskById(params.id, parseInt(userId!));
     if (!task) {
       return NextResponse.json(
         { error: 'not_found', message: '任务不存在' },
@@ -147,7 +146,7 @@ export async function DELETE(
       );
     }
 
-    await deleteClickFarmTask(params.id, session.user.id);
+    await deleteClickFarmTask(params.id, parseInt(userId!));
 
     return NextResponse.json({
       success: true,
