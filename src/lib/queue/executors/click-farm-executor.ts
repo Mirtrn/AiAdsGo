@@ -16,7 +16,13 @@ export interface ClickFarmTaskData {
 }
 
 /**
- * 执行单次点击任务
+ * 执行单次点击任务（Fire & Forget模式）
+ *
+ * 🔥 需求5：采用Fire & Forget模式（完全不等待）
+ * - 发起HTTP请求后立即返回，不等待响应
+ * - 提升并发效率，减少资源消耗
+ * - 3秒超时（短超时确保快速释放连接）
+ * - 乐观更新统计（默认成功）
  */
 export async function executeClickFarmTask(
   task: Task<ClickFarmTaskData>
@@ -35,49 +41,39 @@ export async function executeClickFarmTask(
       } : undefined
     };
 
-    // 发起HTTP请求
+    // 🔥 Fire & Forget：发起HTTP请求但不等待响应
     const startTime = Date.now();
-    const response = await axios.get(url, {
+    axios.get(url, {
       proxy,
-      timeout: 15000,
-      validateStatus: () => true,  // 接受所有状态码
-      maxRedirects: 0,              // 不跟随重定向
+      timeout: 3000,  // 🔥 短超时（3秒）
+      validateStatus: () => true,
+      maxRedirects: 0,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
       }
+    }).catch(() => {
+      // 忽略错误（Fire & Forget模式不关心响应）
     });
 
-    const duration = Date.now() - startTime;
-
-    // 估算流量（请求头 + 响应体）
-    const requestSize = url.length + 500; // 估算请求头大小
-    const responseSize = response.data ? JSON.stringify(response.data).length : 0;
-    const traffic = requestSize + responseSize;
-
-    // 更新任务统计
+    // 🔥 乐观更新统计（假设成功）
     await updateTaskStats(taskId, true);
 
-    console.log(`[ClickFarm] 成功执行点击: ${url.substring(0, 50)}... (${duration}ms, ${traffic} bytes)`);
+    // 估算流量（仅请求头）
+    const traffic = url.length + 500;
+
+    console.log(`[ClickFarm] 触发点击（Fire & Forget）: ${url.substring(0, 50)}... (${Date.now() - startTime}ms)`);
 
     return { success: true, traffic };
 
   } catch (error: any) {
-    // 更新任务统计（失败）
-    await updateTaskStats(taskId, false);
+    // 即使失败也标记为成功（Fire & Forget模式）
+    await updateTaskStats(taskId, true);
 
-    const errorMsg = error.code === 'ECONNABORTED'
-      ? '请求超时'
-      : error.message || '未知错误';
+    console.log(`[ClickFarm] 触发点击（Fire & Forget）: ${url.substring(0, 50)}...`);
 
-    console.error(`[ClickFarm] 点击失败: ${errorMsg}`, {
-      taskId,
-      url: url.substring(0, 50) + '...',
-      error: error.code
-    });
-
-    throw new Error(`点击失败: ${errorMsg}`);
+    return { success: true, traffic: url.length + 500 };
   }
 }
 
