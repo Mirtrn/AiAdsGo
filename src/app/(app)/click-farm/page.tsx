@@ -7,11 +7,13 @@ import { Badge } from '@/components/ui/badge';
 import { PlusCircle, Play, Square, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
+import ClickFarmDistributionChart from '@/components/ClickFarmDistributionChart';
 import type { ClickFarmTask, ClickFarmStats } from '@/lib/click-farm-types';
 
 export default function ClickFarmPage() {
   const [tasks, setTasks] = useState<ClickFarmTask[]>([]);
   const [stats, setStats] = useState<ClickFarmStats | null>(null);
+  const [distribution, setDistribution] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -23,9 +25,12 @@ export default function ClickFarmPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [tasksRes, statsRes] = await Promise.all([
+
+      // Load tasks, stats, and distribution in parallel
+      const [tasksRes, statsRes, distributionRes] = await Promise.all([
         fetch('/api/click-farm/tasks'),
-        fetch('/api/click-farm/stats')
+        fetch('/api/click-farm/stats'),
+        fetch('/api/click-farm/hourly-distribution'),
       ]);
 
       if (tasksRes.ok) {
@@ -36,6 +41,11 @@ export default function ClickFarmPage() {
       if (statsRes.ok) {
         const data = await statsRes.json();
         setStats(data.data);
+      }
+
+      if (distributionRes.ok) {
+        const data = await distributionRes.json();
+        setDistribution(data.data);
       }
     } catch (error) {
       console.error('加载数据失败:', error);
@@ -190,6 +200,9 @@ export default function ClickFarmPage() {
           </Card>
         </div>
       )}
+
+      {/* 时间分布趋势图 */}
+      <ClickFarmDistributionChart data={distribution} />
 
       {/* 任务列表 */}
       <Card>
