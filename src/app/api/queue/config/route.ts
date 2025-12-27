@@ -14,8 +14,8 @@ import { z } from 'zod'
 
 // 默认队列配置
 const DEFAULT_QUEUE_CONFIG = {
-  globalConcurrency: 5,
-  perUserConcurrency: 2,
+  globalConcurrency: 999,  // 🔥 全局并发提升至999（补点击需求）
+  perUserConcurrency: 999,  // 🔥 单用户并发提升至999（补点击需求）
   perTypeConcurrency: {
     scrape: 3,
     'ai-analysis': 2,
@@ -29,7 +29,7 @@ const DEFAULT_QUEUE_CONFIG = {
     'batch-offer-creation': 1,
     'ad-creative': 3,  // 创意生成任务（允许多用户同时生成）
     'campaign-publish': 2,  // 广告系列发布并发限制
-    'click-farm': 5  // 补点击任务并发限制
+    'click-farm': 999  // 🔥 补点击任务并发限制（设置为999，最大化并发）
   },
   maxQueueSize: 1000,
   taskTimeout: 600000,
@@ -39,9 +39,9 @@ const DEFAULT_QUEUE_CONFIG = {
 
 // 统一队列配置验证Schema
 const queueConfigSchema = z.object({
-  globalConcurrency: z.number().min(1).max(50).optional(),
-  perUserConcurrency: z.number().min(1).max(20).optional(),
-  perTypeConcurrency: z.record(z.number().min(1).max(10)).optional(),
+  globalConcurrency: z.number().min(1).max(1000).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
+  perUserConcurrency: z.number().min(1).max(1000).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
+  perTypeConcurrency: z.record(z.number().min(1).max(1000)).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
   maxQueueSize: z.number().min(10).max(10000).optional(),
   taskTimeout: z.number().min(10000).max(600000).optional(), // 10秒 - 10分钟
   defaultMaxRetries: z.number().min(0).max(5).optional(),

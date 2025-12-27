@@ -38,8 +38,8 @@ export async function initializeQueue() {
     // 注意：不再在初始化时加载代理池，代理在任务执行时按需加载
     const queue = getQueueManager({
       // 从环境变量读取配置
-      globalConcurrency: parseInt(process.env.QUEUE_GLOBAL_CONCURRENCY || '5'),
-      perUserConcurrency: parseInt(process.env.QUEUE_PER_USER_CONCURRENCY || '2'),
+      globalConcurrency: parseInt(process.env.QUEUE_GLOBAL_CONCURRENCY || '999'),  // 🔥 全局并发提升至999（补点击需求）
+      perUserConcurrency: parseInt(process.env.QUEUE_PER_USER_CONCURRENCY || '999'),  // 🔥 单用户并发提升至999（补点击需求）
       maxQueueSize: parseInt(process.env.QUEUE_MAX_SIZE || '1000'),
       taskTimeout: parseInt(process.env.QUEUE_TASK_TIMEOUT || '600000'),  // 🔥 修复（2025-12-10）：默认10分钟（Offer提取约需5分钟）
       defaultMaxRetries: parseInt(process.env.QUEUE_MAX_RETRIES || '3'),

@@ -58,8 +58,8 @@ export class UnifiedQueueManager {
   constructor(config: Partial<QueueConfig> = {}) {
     // 合并默认配置
     this.config = {
-      globalConcurrency: config.globalConcurrency || 5,
-      perUserConcurrency: config.perUserConcurrency || 2,
+      globalConcurrency: config.globalConcurrency || 999,    // 🔥 全局并发提升至999（补点击需求）
+      perUserConcurrency: config.perUserConcurrency || 999,  // 🔥 单用户并发提升至999（补点击需求）
       perTypeConcurrency: config.perTypeConcurrency || {
         scrape: 3,
         'ai-analysis': 2,
@@ -73,7 +73,7 @@ export class UnifiedQueueManager {
         'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
         'ad-creative': 3,           // 创意生成任务并发限制（提高到3，允许多用户同时生成）
         'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
-        'click-farm': 5             // 🆕 补点击任务并发限制（允许多个同时执行，受代理数量限制）
+        'click-farm': 999           // 🆕 补点击任务并发限制（设置为999，最大化并发）
       },
       maxQueueSize: config.maxQueueSize || 1000,
       taskTimeout: config.taskTimeout || 900000,  // 15分钟超时（店铺深度抓取+竞品分析可能需要10-15分钟）
