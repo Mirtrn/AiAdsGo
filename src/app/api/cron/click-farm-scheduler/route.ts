@@ -114,8 +114,13 @@ export async function GET(request: NextRequest) {
         console.log(`[Cron] 任务 ${task.id} 将创建 ${clickCount} 个队列任务`);
 
         for (let i = 0; i < clickCount; i++) {
-          // 计算该点击在当前小时内的执行时间（秒级随机分布）
-          const randomSecond = Math.floor(Math.random() * 3600);
+          // 🔥 计算该点击在当前小时内的执行时间（秒级随机分布，避开整分钟）
+          let randomSecond = Math.floor(Math.random() * 3600);
+
+          // 🔥 需求10：避开整分钟触发（:00秒）
+          if (randomSecond % 60 === 0) {
+            randomSecond = (randomSecond + Math.floor(Math.random() * 30) + 15) % 3600;
+          }
 
           const taskData: ClickFarmTaskData = {
             taskId: task.id,
