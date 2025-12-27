@@ -710,6 +710,37 @@ export async function deleteOffer(
     `, [id, userId])
   }
 
+  // 🔥 需求：终止并软删除关联的补点击任务
+  // 1. 停止所有运行中/待执行的补点击任务
+  // 2. 软删除任务（保留历史统计数据）
+  const clickFarmTasks = await db.query<any>(`
+    SELECT id, status
+    FROM click_farm_tasks
+    WHERE offer_id = ? AND user_id = ? AND is_deleted = 0
+  `, [id, userId])
+
+  if (clickFarmTasks.length > 0) {
+    // 停止运行中/待执行的任务
+    await db.exec(`
+      UPDATE click_farm_tasks
+      SET status = CASE
+        WHEN status IN ('running', 'pending', 'paused') THEN 'stopped'
+        ELSE status
+      END,
+      updated_at = ${nowFunc}
+      WHERE offer_id = ? AND user_id = ? AND is_deleted = 0
+    `, [id, userId])
+
+    // 软删除所有任务（保留历史统计数据）
+    await db.exec(`
+      UPDATE click_farm_tasks
+      SET is_deleted = ?,
+          deleted_at = ${nowFunc},
+          updated_at = ${nowFunc}
+      WHERE offer_id = ? AND user_id = ?
+    `, [isDeletedTrue, id, userId])
+  }
+
   // 软删除Offer（保留历史数据）
   await db.exec(`
     UPDATE offers
@@ -723,8 +754,10 @@ export async function deleteOffer(
   return {
     success: true,
     message: autoUnlink
-      ? `Offer删除成功，已自动解除 ${linkedAccounts.length} 个广告系列的关联`
-      : 'Offer删除成功'
+      ? `Offer删除成功，已自动解除 ${linkedAccounts.length} 个广告系列的关联${clickFarmTasks.length > 0 ? `，已终止并删除 ${clickFarmTasks.length} 个补点击任务` : ''}`
+      : clickFarmTasks.length > 0
+        ? `Offer删除成功，已终止并删除 ${clickFarmTasks.length} 个补点击任务`
+        : 'Offer删除成功'
   }
 }
 
