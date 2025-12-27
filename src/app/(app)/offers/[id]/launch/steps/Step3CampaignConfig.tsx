@@ -269,6 +269,68 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
   // 🆕 P0-1优化：动态CPC出价开关
   const [enableDynamicCpc, setEnableDynamicCpc] = useState(false)
 
+  // 🔧 修复(2025-12-27): 当selectedCreative变化时，重新初始化配置
+  // 解决用户在第1步切换创意后，第3步仍显示旧创意参数的问题
+  useEffect(() => {
+    if (!selectedCreative) return
+
+    const initialNaming = getInitialNaming()
+
+    setConfig({
+      // Campaign Level - 使用统一命名规范
+      campaignName: initialNaming.campaignName,
+      budgetAmount: getDefaultBudget(accountCurrency),
+      budgetType: 'DAILY' as const,
+      targetCountry: offer.targetCountry || 'US',
+      targetLanguage: offer.targetLanguage || 'en',
+      biddingStrategy: 'MAXIMIZE_CLICKS',
+      marketingObjective: 'WEB_TRAFFIC' as const,
+      finalUrlSuffix: selectedCreative?.finalUrlSuffix || offer.finalUrlSuffix || '',
+
+      // Ad Group Level - 使用统一命名规范
+      adGroupName: initialNaming.adGroupName,
+      maxCpcBid: getDefaultCPC(accountCurrency),
+
+      // Keywords Level
+      keywords: (selectedCreative?.keywordsWithVolume || selectedCreative?.keywords || []).map((k: any, idx: number) => {
+        if (typeof k === 'string') {
+          return {
+            text: k,
+            matchType: idx === 0 ? 'EXACT' : 'PHRASE' as const
+          }
+        }
+
+        const validMatchTypes = ['BROAD', 'EXACT', 'PHRASE', 'BROAD_MATCH_MODIFIER']
+        const matchType = k.matchType && validMatchTypes.includes(k.matchType)
+          ? k.matchType
+          : (idx === 0 ? 'EXACT' : 'PHRASE')
+
+        return {
+          text: k.keyword || k.text,
+          matchType: matchType as ('EXACT' | 'PHRASE' | 'BROAD' | 'BROAD_MATCH_MODIFIER'),
+          searchVolume: k.searchVolume || 0,
+          lowTopPageBid: k.lowTopPageBid || 0,
+          highTopPageBid: k.highTopPageBid || 0
+        }
+      }),
+      negativeKeywords: selectedCreative?.negativeKeywords || [],
+
+      // Ad Level - 使用统一命名规范
+      adName: initialNaming.adName || `RSA_${selectedCreative?.theme || 'Default'}_C${selectedCreative?.id || 0}`,
+      headlines: selectedCreative?.headlines || [],
+      descriptions: selectedCreative?.descriptions || [],
+      finalUrls: [selectedCreative?.finalUrl || offer.finalUrl || offer.url],
+
+      // Extensions
+      callouts: selectedCreative?.callouts || [],
+      sitelinks: selectedCreative?.sitelinks || []
+    })
+
+    // 重置验证错误和动态CPC开关
+    setValidationErrors([])
+    setEnableDynamicCpc(false)
+  }, [selectedCreative?.id, accountCurrency, offer, getInitialNaming])
+
   // 🆕 P0-1优化：计算动态CPC建议值
   const suggestedCpc = calculateDynamicCpc(config.keywords, accountCurrency)
 
