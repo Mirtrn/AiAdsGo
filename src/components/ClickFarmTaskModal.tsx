@@ -22,6 +22,7 @@ interface ClickFarmTaskModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  preSelectedOfferId?: number; // 预选的Offer ID
 }
 
 interface Offer {
@@ -48,6 +49,7 @@ export default function ClickFarmTaskModal({
   open,
   onOpenChange,
   onSuccess,
+  preSelectedOfferId,
 }: ClickFarmTaskModalProps) {
   const [loading, setLoading] = useState(false);
   const [offers, setOffers] = useState<Offer[]>([]);
@@ -68,6 +70,16 @@ export default function ClickFarmTaskModal({
     }
   }, [open]);
 
+  // Set preselected offer when offers are loaded
+  useEffect(() => {
+    if (preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
+      const offer = offers.find(o => o.id === preSelectedOfferId);
+      if (offer) {
+        setSelectedOfferId(preSelectedOfferId);
+      }
+    }
+  }, [preSelectedOfferId, offers, selectedOfferId]);
+
   // Update distribution when settings change
   useEffect(() => {
     if (selectedOfferId && dailyClickCount > 0) {
@@ -84,7 +96,10 @@ export default function ClickFarmTaskModal({
       const data = await response.json();
       setOffers(data.data || []);
 
-      if (data.data?.length > 0) {
+      // 如果有预选的offer ID，使用它；否则选择第一个
+      if (preSelectedOfferId && data.data?.some((o: Offer) => o.id === preSelectedOfferId)) {
+        setSelectedOfferId(preSelectedOfferId);
+      } else if (data.data?.length > 0 && !selectedOfferId) {
         setSelectedOfferId(data.data[0].id);
       }
     } catch (error) {

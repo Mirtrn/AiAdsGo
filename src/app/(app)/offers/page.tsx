@@ -51,10 +51,11 @@ import AdjustCpcModal from '@/components/AdjustCpcModal'
 import { LaunchScoreModalDynamic } from '@/components/dynamic'
 import CreateOfferModalV2 from '@/components/CreateOfferModalV2'
 import DeleteOfferConfirmDialog from '@/components/DeleteOfferConfirmDialog'
+import ClickFarmTaskModal from '@/components/ClickFarmTaskModal'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
 import { usePagination } from '@/hooks'
-import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle } from 'lucide-react'
+import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle, MousePointerClick } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -124,6 +125,10 @@ export default function OffersPage() {
   const [offerToDelete, setOfferToDelete] = useState<Offer | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // 补点击任务Modal
+  const [isClickFarmModalOpen, setIsClickFarmModalOpen] = useState(false)
+  const [selectedOfferForClickFarm, setSelectedOfferForClickFarm] = useState<Offer | null>(null)
 
   // 删除确认对话框状态（支持关联账号详情）
   const [isDeleteConfirmDialogOpen, setIsDeleteConfirmDialogOpen] = useState(false)
@@ -970,6 +975,14 @@ export default function OffersPage() {
                                 },
                               },
                               {
+                                icon: <MousePointerClick className="w-4 h-4 text-gray-500" />,
+                                label: '补点击任务',
+                                onClick: () => {
+                                  setSelectedOfferForClickFarm(offer)
+                                  setIsClickFarmModalOpen(true)
+                                },
+                              },
+                              {
                                 icon: <XCircle className="w-4 h-4" />,
                                 label: offer.isBlacklisted ? '取消拉黑' : '拉黑投放',
                                 onClick: () => {
@@ -1040,6 +1053,20 @@ export default function OffersPage() {
           offer={selectedOfferForScore as any}
         />
       )}
+
+      {/* 补点击任务Modal */}
+      <ClickFarmTaskModal
+        open={isClickFarmModalOpen}
+        onOpenChange={(open) => {
+          setIsClickFarmModalOpen(open)
+          if (!open) setSelectedOfferForClickFarm(null)
+        }}
+        onSuccess={() => {
+          // 任务创建成功后可以选择刷新列表或显示提示
+          // fetchOffers() // 如果需要刷新列表
+        }}
+        preSelectedOfferId={selectedOfferForClickFarm?.id}
+      />
 
       <CreateOfferModalV2
         open={isCreateModalOpen}
