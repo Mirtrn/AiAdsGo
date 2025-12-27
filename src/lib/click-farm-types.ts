@@ -32,6 +32,7 @@ export interface ClickFarmTask {
   start_time: string;  // HH:mm格式
   end_time: string;
   duration_days: number;  // -1表示无限期
+  scheduled_start_date: string;  // 🆕 YYYY-MM-DD格式，任务开始日期（默认当天）
   hourly_distribution: number[];  // 24个整数
 
   // 状态管理
@@ -84,6 +85,7 @@ export interface CreateClickFarmTaskRequest {
   start_time: string;  // "06:00"，格式 HH:mm
   end_time: string;  // "24:00"
   duration_days: number | null;  // 7/14/30/null(无限)
+  scheduled_start_date?: string;  // 🆕 YYYY-MM-DD格式，默认当天
   hourly_distribution: number[];  // 24个整数
   timezone?: string;  // 默认 America/New_York
 }
@@ -96,6 +98,7 @@ export interface UpdateClickFarmTaskRequest {
   start_time?: string;
   end_time?: string;
   duration_days?: number;
+  scheduled_start_date?: string;  // 🆕 YYYY-MM-DD格式
   hourly_distribution?: number[];
 }
 

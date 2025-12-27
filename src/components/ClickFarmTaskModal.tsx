@@ -62,6 +62,9 @@ export default function ClickFarmTaskModal({
   const [dailyClickCount, setDailyClickCount] = useState(216);
   const [timePeriod, setTimePeriod] = useState('06:00-24:00');
   const [durationDays, setDurationDays] = useState(14);
+  const [scheduledStartDate, setScheduledStartDate] = useState<string>(  // 🆕 开始日期状态
+    new Date().toISOString().split('T')[0]  // 默认当天
+  );
   const [proxyWarning, setProxyWarning] = useState('');
   const [distribution, setDistribution] = useState<number[]>([]);
   const [isEditingDistribution, setIsEditingDistribution] = useState(false);
@@ -90,6 +93,7 @@ export default function ClickFarmTaskModal({
         ? '00:00-24:00'
         : '06:00-24:00');
       setDurationDays(task.duration_days);
+      setScheduledStartDate(task.scheduled_start_date);  // 🆕 加载scheduled_start_date
       setDistribution(task.hourly_distribution);
     } catch (error) {
       console.error('加载任务失败:', error);
@@ -306,6 +310,7 @@ export default function ClickFarmTaskModal({
         start_time: startTime,
         end_time: endTime,
         duration_days: durationDays === 9999 ? null : durationDays,
+        scheduled_start_date: scheduledStartDate,  // 🆕 包含scheduled_start_date
         hourly_distribution: distribution,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
@@ -334,6 +339,7 @@ export default function ClickFarmTaskModal({
       setDailyClickCount(216);
       setTimePeriod('06:00-24:00');
       setDurationDays(14);
+      setScheduledStartDate(new Date().toISOString().split('T')[0]);  // 🆕 重置为当天
       setDistribution([]);
       setProxyWarning('');
       setIsEditingDistribution(false);
@@ -429,6 +435,22 @@ export default function ClickFarmTaskModal({
             />
             <p className="text-xs text-muted-foreground">
               推荐: 216次/天（模拟自然流量）。范围: 1-1000
+            </p>
+          </div>
+
+          {/* 🆕 Scheduled Start Date */}
+          <div className="space-y-2">
+            <Label htmlFor="scheduledStartDate">开始日期 *</Label>
+            <Input
+              id="scheduledStartDate"
+              type="date"
+              value={scheduledStartDate}
+              min={new Date().toISOString().split('T')[0]}  // 🔥 最早只能选今天
+              onChange={(e) => setScheduledStartDate(e.target.value)}
+              required
+            />
+            <p className="text-xs text-muted-foreground">
+              任务将从该日期开始执行（默认当天，可选择未来日期）
             </p>
           </div>
 

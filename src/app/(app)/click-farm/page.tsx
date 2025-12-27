@@ -238,6 +238,7 @@ export default function ClickFarmPage() {
                       {getStatusBadge(task.status)}
                     </div>
                     <div className="mt-2 text-sm text-muted-foreground space-x-4">
+                      <span>开始: {task.scheduled_start_date}</span>
                       <span>每日: {task.daily_click_count}次</span>
                       <span>进度: {task.progress}%</span>
                       <span>成功率: {task.total_clicks > 0 ? ((task.success_clicks / task.total_clicks) * 100).toFixed(1) : 0}%</span>

@@ -41,6 +41,16 @@ export async function GET(request: NextRequest) {
       try {
         results.processed++;
 
+        // 🆕 检查是否到达scheduled_start_date
+        if (task.scheduled_start_date) {
+          const today = new Date().toISOString().split('T')[0];
+          if (today < task.scheduled_start_date) {
+            console.log(`[Cron] 任务 ${task.id} 尚未到开始日期 ${task.scheduled_start_date}，跳过执行`);
+            results.skipped++;
+            continue;
+          }
+        }
+
         // 检查是否应该完成
         if (shouldCompleteTask(task)) {
           await updateTaskStatus(task.id, 'completed');

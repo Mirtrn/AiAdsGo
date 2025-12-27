@@ -21,11 +21,14 @@ export async function createClickFarmTask(
 ): Promise<ClickFarmTask> {
   const db = await getDatabase();
 
+  // 🆕 scheduled_start_date默认为当天
+  const scheduledStartDate = input.scheduled_start_date || new Date().toISOString().split('T')[0];
+
   const result = await db.exec(`
     INSERT INTO click_farm_tasks (
       user_id, offer_id, daily_click_count, start_time, end_time,
-      duration_days, hourly_distribution, timezone
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      duration_days, scheduled_start_date, hourly_distribution, timezone
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     userId,
     input.offer_id,
@@ -33,6 +36,7 @@ export async function createClickFarmTask(
     input.start_time,
     input.end_time,
     input.duration_days,
+    scheduledStartDate,  // 🆕 添加scheduled_start_date字段
     JSON.stringify(input.hourly_distribution),
     input.timezone || 'America/New_York'
   ]);
@@ -139,6 +143,12 @@ export async function updateClickFarmTask(
   if (updates.duration_days !== undefined) {
     fields.push('duration_days = ?');
     values.push(updates.duration_days);
+  }
+
+  // 🆕 支持更新scheduled_start_date
+  if (updates.scheduled_start_date !== undefined) {
+    fields.push('scheduled_start_date = ?');
+    values.push(updates.scheduled_start_date);
   }
 
   if (updates.hourly_distribution !== undefined) {
@@ -359,6 +369,7 @@ function parseClickFarmTask(row: any): ClickFarmTask {
     start_time: row.start_time,
     end_time: row.end_time,
     duration_days: row.duration_days,
+    scheduled_start_date: row.scheduled_start_date,  // 🆕 添加scheduled_start_date字段
     hourly_distribution: JSON.parse(row.hourly_distribution),
     status: row.status,
     pause_reason: row.pause_reason,
