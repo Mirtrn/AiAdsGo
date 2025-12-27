@@ -589,6 +589,7 @@ class KeywordData(BaseModel):
     status: str
     final_url: Optional[str] = None
     is_negative: bool = False
+    negative_keyword_match_type: str = 'EXACT'
 
 
 class CreateKeywordsRequest(BaseModel):
@@ -615,11 +616,16 @@ async def create_keywords(request: CreateKeywordsRequest):
 
             if kw.is_negative:
                 criterion.negative = True
+                # 负向词使用指定的匹配类型，默认 EXACT
+                criterion.keyword.match_type = client.enums.KeywordMatchTypeEnum[
+                    kw.negative_keyword_match_type or 'EXACT'
+                ]
+            else:
+                criterion.keyword.match_type = client.enums.KeywordMatchTypeEnum[
+                    kw.match_type
+                ]
 
             criterion.keyword.text = kw.text
-            criterion.keyword.match_type = client.enums.KeywordMatchTypeEnum[
-                kw.match_type
-            ]
 
             if kw.final_url:
                 criterion.final_urls.append(kw.final_url)

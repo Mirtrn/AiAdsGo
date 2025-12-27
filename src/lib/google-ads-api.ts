@@ -1184,6 +1184,7 @@ export async function createGoogleAdsKeywordsBatch(params: {
         status: kw.status,
         finalUrl: kw.finalUrl,
         isNegative: kw.isNegative,
+        negativeKeywordMatchType: kw.negativeKeywordMatchType,
       })),
     })
 

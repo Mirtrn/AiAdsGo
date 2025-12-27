@@ -266,6 +266,7 @@ export async function createKeywordsPython(params: {
     status: 'ENABLED' | 'PAUSED'
     finalUrl?: string
     isNegative?: boolean
+    negativeKeywordMatchType?: 'BROAD' | 'PHRASE' | 'EXACT'
   }>
 }): Promise<string[]> {
   return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE_BATCH, '/api/google-ads/keywords/create', async () => {
@@ -280,6 +281,7 @@ export async function createKeywordsPython(params: {
         status: kw.status,
         final_url: kw.finalUrl,
         is_negative: kw.isNegative || false,
+        negative_keyword_match_type: kw.negativeKeywordMatchType || 'EXACT',
       })),
     })
     return response.data.results.map((r: any) => r.resource_name)
