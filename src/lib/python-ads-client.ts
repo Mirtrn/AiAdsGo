@@ -204,6 +204,7 @@ export async function createCampaignPython(params: {
   targetLanguage?: string
   startDate?: string
   endDate?: string
+  finalUrlSuffix?: string
 }): Promise<string> {
   return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/create', async () => {
     const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
@@ -219,6 +220,7 @@ export async function createCampaignPython(params: {
       target_language: params.targetLanguage,
       start_date: params.startDate,
       end_date: params.endDate,
+      final_url_suffix: params.finalUrlSuffix,
     })
     return response.data.resource_name
   })
@@ -295,6 +297,7 @@ export async function createResponsiveSearchAdPython(params: {
   headlines: string[]
   descriptions: string[]
   finalUrls: string[]
+  finalUrlSuffix?: string
   path1?: string
   path2?: string
 }): Promise<string> {
@@ -307,6 +310,7 @@ export async function createResponsiveSearchAdPython(params: {
       headlines: params.headlines,
       descriptions: params.descriptions,
       final_urls: params.finalUrls,
+      final_url_suffix: params.finalUrlSuffix,
       path1: params.path1,
       path2: params.path2,
     })

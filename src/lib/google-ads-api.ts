@@ -542,6 +542,7 @@ export async function createGoogleAdsCampaign(params: {
       targetLanguage: params.targetLanguage,
       startDate: params.startDate,
       endDate: params.endDate,
+      finalUrlSuffix: params.finalUrlSuffix,
     })
 
     const campaignId = campaignResourceName.split('/').pop() || ''
@@ -1280,6 +1281,7 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
       headlines: params.headlines,
       descriptions: params.descriptions,
       finalUrls: params.finalUrls,
+      finalUrlSuffix: params.finalUrlSuffix,
       path1: params.path1,
       path2: params.path2,
     })

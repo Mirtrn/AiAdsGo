@@ -321,6 +321,7 @@ class CreateCampaignRequest(BaseModel):
     target_language: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    final_url_suffix: Optional[str] = None
 
 
 @app.post("/api/google-ads/campaign/create")
@@ -363,6 +364,16 @@ async def create_campaign(request: CreateCampaignRequest):
         campaign.geo_target_type_setting.positive_geo_target_type = (
             client.enums.PositiveGeoTargetTypeEnum.PRESENCE
         )
+
+        # 🔧 修复(2025-12-27): 添加日期设置
+        if request.start_date:
+            campaign.start_date = request.start_date.replace('-', '')
+        if request.end_date:
+            campaign.end_date = request.end_date.replace('-', '')
+
+        # 🔧 修复(2025-12-27): 添加 Final URL Suffix
+        if request.final_url_suffix:
+            campaign.final_url_suffix = request.final_url_suffix
 
         response = campaign_service.mutate_campaigns(
             customer_id=request.customer_id, operations=[operation]
@@ -478,6 +489,7 @@ class CreateResponsiveSearchAdRequest(BaseModel):
     headlines: List[str]
     descriptions: List[str]
     final_urls: List[str]
+    final_url_suffix: Optional[str] = None
     path1: Optional[str] = None
     path2: Optional[str] = None
 
@@ -508,6 +520,10 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
             rsa.descriptions.append(desc_asset)
 
         ad_group_ad.ad.final_urls.extend(request.final_urls)
+
+        # 🔧 修复(2025-12-27): 添加 Final URL Suffix
+        if request.final_url_suffix:
+            ad_group_ad.ad.final_url_suffix = request.final_url_suffix
 
         if request.path1:
             rsa.path1 = request.path1
