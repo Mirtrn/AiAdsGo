@@ -88,7 +88,9 @@ export interface AdStrengthEvaluation {
       score: number // 0-18
       weight: 0.18
       details: {
-        monthlySearchVolume: number // 月均搜索量
+        brandNameSearchVolume: number // 品牌名搜索量（如 "Nike"）
+        brandKeywordSearchVolume: number // 品牌关键词搜索量总和（如 "Nike运动鞋" + "Nike鞋"）
+        totalBrandSearchVolume: number // 两者之和
         volumeLevel: 'micro' | 'small' | 'medium' | 'large' | 'xlarge' // 流量级别
         dataSource: 'keyword_planner' | 'cached' | 'database' | 'unavailable' // 数据来源
       }
@@ -270,6 +272,11 @@ export async function evaluateAdStrength(
     userId?: number
     sitelinks?: Array<{ text: string; url: string; description?: string }>
     callouts?: string[]
+    // [NEW] 关键词搜索量数据（用于品牌关键词搜索量评分）
+    keywordsWithVolume?: Array<{
+      keyword: string
+      searchVolume: number
+    }>
   }
 ): Promise<AdStrengthEvaluation> {
 
@@ -313,12 +320,13 @@ export async function evaluateAdStrength(
     details: complianceRaw.details
   }
 
-  // 6. Brand Search Volume维度 (18%)
+  // 6. Brand Search Volume维度 (18%) - [NEW] 融入品牌关键词搜索量
   const brandSearchVolumeRaw = await calculateBrandSearchVolume(
     options?.brandName,
     options?.targetCountry || 'US',
     options?.targetLanguage || 'en',
-    options?.userId
+    options?.userId,
+    options?.keywordsWithVolume
   )
   const brandSearchVolume = {
     score: Math.round(brandSearchVolumeRaw.score * 0.9), // 20分 * 0.9 = 18分
@@ -1212,12 +1220,14 @@ Rules:
 
 /**
  * 6. 计算Brand Search Volume（品牌搜索量）- 18分
+ * [NEW] 融入品牌关键词搜索量：品牌名搜索量 + 包含品牌名的关键词搜索量总和
  */
 async function calculateBrandSearchVolume(
   brandName: string | undefined,
   targetCountry: string,
   targetLanguage: string,
-  userId?: number
+  userId?: number,
+  keywordsWithVolume?: Array<{ keyword: string; searchVolume: number }>
 ) {
   // 如果没有品牌名称，返回0分
   if (!brandName || brandName.trim() === '') {
@@ -1226,7 +1236,9 @@ async function calculateBrandSearchVolume(
       score: 0,
       weight: 0.20 as const,
       details: {
-        monthlySearchVolume: 0,
+        brandNameSearchVolume: 0,
+        brandKeywordSearchVolume: 0,
+        totalBrandSearchVolume: 0,
         volumeLevel: 'micro' as const,
         dataSource: 'unavailable' as const
       }
@@ -1234,7 +1246,9 @@ async function calculateBrandSearchVolume(
   }
 
   try {
-    // 规范化语言代码（将完整语言名称转换为代码，如 "English" → "en"）
+    // ========================================
+    // 1. 计算品牌名搜索量（brandNameSearchVolume）
+    // ========================================
     const normalizedLanguage = normalizeLanguageCode(targetLanguage)
 
     // 🔧 修复(2025-12-26): 支持服务账号模式
@@ -1249,68 +1263,94 @@ async function calculateBrandSearchVolume(
     )
 
     const brandVolume = volumeResults[0]
-    const monthlySearchVolume = brandVolume?.avgMonthlySearches || 0
+    const brandNameSearchVolume = brandVolume?.avgMonthlySearches || 0
 
     // 确定数据来源
     let dataSource: 'keyword_planner' | 'cached' | 'database' = 'keyword_planner'
     if (brandVolume) {
-      // 根据实际实现，可能需要从volumeResults中获取数据源信息
-      // 这里简化处理，假设成功获取就是从缓存或API
-      dataSource = monthlySearchVolume > 0 ? 'cached' : 'keyword_planner'
+      dataSource = brandNameSearchVolume > 0 ? 'cached' : 'keyword_planner'
     }
 
-    // 根据搜索量确定流量级别和分数（优化版：对数缩放 + 层级内细分）
-    // 设计原则：
-    // 1. 对数缩放：搜索量差异巨大（1 vs 100000），用对数平滑分布
-    // 2. 连续评分：层级内部有梯度，不再是离散跳跃
-    // 3. 保底分数：微型搜索量也给予基础分（1-3分），鼓励新品牌
-    // 4. 有效区分：确保高/中/低搜索量offer有明显分数差异
+    // ========================================
+    // 2. 计算品牌关键词搜索量总和（brandKeywordSearchVolume）
+    // ========================================
+    let brandKeywordSearchVolume = 0
+    let brandKeywordsCount = 0
 
+    if (keywordsWithVolume && keywordsWithVolume.length > 0) {
+      const brandNameLower = brandName.toLowerCase()
+
+      // 过滤出包含品牌名的关键词
+      const brandKeywords = keywordsWithVolume.filter(kw => {
+        const keywordLower = kw.keyword.toLowerCase()
+        // 包含品牌名（不是精确等于品牌名，那是brandNameSearchVolume）
+        return keywordLower.includes(brandNameLower) && keywordLower !== brandNameLower
+      })
+
+      // 计算搜索量总和
+      brandKeywordSearchVolume = brandKeywords.reduce((sum, kw) => sum + (kw.searchVolume || 0), 0)
+      brandKeywordsCount = brandKeywords.length
+
+      console.log(`🏷️ 品牌关键词: 发现${brandKeywordsCount}个包含"${brandName}"的关键词`)
+      console.log(`   品牌关键词搜索量: ${brandKeywordSearchVolume.toLocaleString()}/月`)
+    } else {
+      console.log('⚠️ 未提供keywordsWithVolume，跳过品牌关键词搜索量计算')
+    }
+
+    // ========================================
+    // 3. 计算总分（品牌名搜索量 + 品牌关键词搜索量）
+    // ========================================
+    const totalBrandSearchVolume = brandNameSearchVolume + brandKeywordSearchVolume
+
+    console.log(`📊 品牌"${brandName}"搜索量分析:`)
+    console.log(`   品牌名搜索量: ${brandNameSearchVolume.toLocaleString()}/月`)
+    console.log(`   品牌关键词搜索量: ${brandKeywordSearchVolume.toLocaleString()}/月`)
+    console.log(`   总计: ${totalBrandSearchVolume.toLocaleString()}/月`)
+
+    // 根据总搜索量确定流量级别和分数（对数缩放）
     let volumeLevel: 'micro' | 'small' | 'medium' | 'large' | 'xlarge'
     let score: number
 
-    if (monthlySearchVolume >= 100001) {
-      // xlarge: 100001+ → 18-20分（层级内细分）
+    if (totalBrandSearchVolume >= 100001) {
+      // xlarge: 100001+ → 18-20分
       volumeLevel = 'xlarge'
-      // 100001-500000: 18分, 500001-1000000: 19分, 1000001+: 20分
-      if (monthlySearchVolume >= 1000001) {
+      if (totalBrandSearchVolume >= 1000001) {
         score = 20
-      } else if (monthlySearchVolume >= 500001) {
+      } else if (totalBrandSearchVolume >= 500001) {
         score = 19
       } else {
         score = 18
       }
-    } else if (monthlySearchVolume >= 10001) {
-      // large: 10001-100000 → 13-17分（对数插值）
+    } else if (totalBrandSearchVolume >= 10001) {
+      // large: 10001-100000 → 13-17分
       volumeLevel = 'large'
-      // 使用对数插值：log10(10001)≈4, log10(100000)=5
-      const logMin = Math.log10(10001)  // ≈4.0
-      const logMax = Math.log10(100000) // =5.0
-      const logValue = Math.log10(monthlySearchVolume)
+      const logMin = Math.log10(10001)
+      const logMax = Math.log10(100000)
+      const logValue = Math.log10(totalBrandSearchVolume)
       const ratio = (logValue - logMin) / (logMax - logMin)
-      score = Math.round(13 + ratio * 4) // 13-17分
-    } else if (monthlySearchVolume >= 1001) {
-      // medium: 1001-10000 → 8-12分（对数插值）
+      score = Math.round(13 + ratio * 4)
+    } else if (totalBrandSearchVolume >= 1001) {
+      // medium: 1001-10000 → 8-12分
       volumeLevel = 'medium'
-      const logMin = Math.log10(1001)   // ≈3.0
-      const logMax = Math.log10(10000)  // =4.0
-      const logValue = Math.log10(monthlySearchVolume)
+      const logMin = Math.log10(1001)
+      const logMax = Math.log10(10000)
+      const logValue = Math.log10(totalBrandSearchVolume)
       const ratio = (logValue - logMin) / (logMax - logMin)
-      score = Math.round(8 + ratio * 4) // 8-12分
-    } else if (monthlySearchVolume >= 100) {
-      // small: 100-1000 → 4-7分（对数插值）
+      score = Math.round(8 + ratio * 4)
+    } else if (totalBrandSearchVolume >= 100) {
+      // small: 100-1000 → 4-7分
       volumeLevel = 'small'
-      const logMin = Math.log10(100)    // =2.0
-      const logMax = Math.log10(1000)   // =3.0
-      const logValue = Math.log10(monthlySearchVolume)
+      const logMin = Math.log10(100)
+      const logMax = Math.log10(1000)
+      const logValue = Math.log10(totalBrandSearchVolume)
       const ratio = (logValue - logMin) / (logMax - logMin)
-      score = Math.round(4 + ratio * 3) // 4-7分
-    } else if (monthlySearchVolume >= 10) {
-      // micro-high: 10-99 → 2-3分（给新品牌机会）
+      score = Math.round(4 + ratio * 3)
+    } else if (totalBrandSearchVolume >= 10) {
+      // micro-high: 10-99 → 2-3分
       volumeLevel = 'micro'
-      score = monthlySearchVolume >= 50 ? 3 : 2
-    } else if (monthlySearchVolume >= 1) {
-      // micro-low: 1-9 → 1分（有搜索量就给分）
+      score = totalBrandSearchVolume >= 50 ? 3 : 2
+    } else if (totalBrandSearchVolume >= 1) {
+      // micro-low: 1-9 → 1分
       volumeLevel = 'micro'
       score = 1
     } else {
@@ -1321,25 +1361,28 @@ async function calculateBrandSearchVolume(
       score = 10
     }
 
-    console.log(`📊 品牌"${brandName}"搜索量: ${monthlySearchVolume.toLocaleString()}/月 (${volumeLevel}级别, ${score}分)${monthlySearchVolume === 0 ? ' [默认分数-无搜索量数据]' : ''}`)
+    console.log(`   流量级别: ${volumeLevel}, 评分: ${score}分`)
 
     return {
       score,
       weight: 0.20 as const,
       details: {
-        monthlySearchVolume,
+        brandNameSearchVolume,
+        brandKeywordSearchVolume,
+        totalBrandSearchVolume,
         volumeLevel,
         dataSource
       }
     }
   } catch (error) {
     console.error(`❌ 获取品牌搜索量失败:`, error)
-    // 出错时返回0分，但不影响其他维度评分
     return {
       score: 0,
       weight: 0.20 as const,
       details: {
-        monthlySearchVolume: 0,
+        brandNameSearchVolume: 0,
+        brandKeywordSearchVolume: 0,
+        totalBrandSearchVolume: 0,
         volumeLevel: 'micro' as const,
         dataSource: 'unavailable' as const
       }

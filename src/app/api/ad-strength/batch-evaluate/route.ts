@@ -59,7 +59,17 @@ export async function POST(request: NextRequest) {
           const evaluation = await evaluateAdStrength(
             headlines,
             descriptions,
-            creative.keywords
+            creative.keywords,
+            {
+              brandName: creative.brandName,
+              targetCountry: creative.targetCountry || 'US',
+              targetLanguage: creative.targetLanguage || 'en',
+              userId: userId ? parseInt(userId) : undefined,
+              sitelinks: creative.sitelinks,
+              callouts: creative.callouts,
+              // [NEW] 传递关键词搜索量数据
+              keywordsWithVolume: creative.keywordsWithVolume
+            }
           )
 
           return {
@@ -175,6 +185,13 @@ export async function GET() {
           headlines: ['string[]', '15 headlines'],
           descriptions: ['string[]', '4 descriptions'],
           keywords: ['string[]'],
+          // [NEW] 关键词搜索量数据（用于品牌关键词搜索量评分）
+          keywordsWithVolume: 'optional [{ keyword, searchVolume }]',
+          brandName: 'optional 品牌名称',
+          targetCountry: 'optional 默认 US',
+          targetLanguage: 'optional 默认 en',
+          sitelinks: 'optional Array',
+          callouts: 'optional Array[]',
           headlinesWithMetadata: 'optional HeadlineAsset[]',
           descriptionsWithMetadata: 'optional DescriptionAsset[]'
         }
