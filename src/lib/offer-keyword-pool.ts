@@ -760,9 +760,10 @@ export async function clusterKeywordsByIntent(
   const allKeywordsForClustering = [...keywords, ...highIntentKeywordsWithVolume]
   console.log(`📊 总计聚类关键词: ${allKeywordsForClustering.length} 个 (原始:${keywords.length} + 高意图:${highIntentKeywordsWithVolume.length})`)
 
-  // 🔥 2025-12-22 优化：判断是否需要分批处理
-  const BATCH_SIZE = 80  // 每批80个关键词（留20个缓冲）
-  const needsBatching = allKeywordsForClustering.length > 100
+  // 🔥 2025-12-27 优化：减小批次大小，降低超时风险
+  // 原因：减小单次请求处理量，提高稳定性
+  const BATCH_SIZE = 50  // 每批50个关键词（降低超时风险）
+  const needsBatching = allKeywordsForClustering.length > 60  // 从100改为60
   const batchCount = needsBatching ? Math.ceil(allKeywordsForClustering.length / BATCH_SIZE) : 1
 
   if (!needsBatching) {
@@ -784,13 +785,16 @@ export async function clusterKeywordsByIntent(
 
   console.log(`📦 批次划分: ${batches.map((b, i) => `批次${i + 1}=${b.length}个`).join(', ')}`)
 
-  // 2. 并行处理所有批次（带重试）
-  const maxRetries = 2
+  // 2. 🔥 2025-12-27 优化：保持并行处理以支持多用户并发
+  // 原因：多用户场景下串行处理会严重影响系统吞吐量
+  // 优化措施：增大重试次数 + 随机抖动 + 增加超时时间
+  const maxRetries = 3  // 从2改为3（4次尝试）
   const baseDelay = 5000
   let lastError: any
 
   for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
     try {
+      // 并行处理所有批次
       const batchPromises = batches.map((batch, index) =>
         clusterBatchKeywords(batch, brandName, category, userId, index + 1, batchCount, pageType)
           .catch(error => {
@@ -822,8 +826,11 @@ export async function clusterKeywordsByIntent(
       const isRateLimited = error.response?.status === 429
 
       if (retryCount < maxRetries && (isTimeout || isRateLimited)) {
-        const delay = baseDelay * Math.pow(2, retryCount)
-        console.warn(`⚠️ 分批聚类第 ${retryCount + 1} 次失败，${delay / 1000}s 后重试...`)
+        // 🔥 2025-12-27 优化：添加随机抖动，避免重试风暴
+        const baseDelayMs = baseDelay * Math.pow(2, retryCount)
+        const jitter = Math.random() * 2000  // 0-2秒随机抖动
+        const delay = Math.min(baseDelayMs + jitter, 60000)  // 最多60秒
+        console.warn(`⚠️ 分批聚类第 ${retryCount + 1} 次失败，${(delay / 1000).toFixed(1)}s 后重试...`)
         console.warn(`   错误: ${error.message}`)
         await new Promise(resolve => setTimeout(resolve, delay))
         continue
@@ -840,6 +847,7 @@ export async function clusterKeywordsByIntent(
 /**
  * 直接处理小批量关键词聚类（原逻辑）
  * 🆕 v4.16: 支持店铺链接的5桶模式
+ * 🔥 2025-12-27: 增加重试次数，与分批处理保持一致
  */
 async function clusterKeywordsDirectly(
   keywords: string[],
@@ -848,8 +856,8 @@ async function clusterKeywordsDirectly(
   userId: number,
   pageType: 'product' | 'store' = 'product'
 ): Promise<KeywordBuckets | StoreKeywordBuckets> {
-  // 重试配置
-  const maxRetries = 2
+  // 🔥 2025-12-27: 增加重试次数，与分批处理保持一致
+  const maxRetries = 3  // 🔥 从2改为3（4次尝试）
   const baseDelay = 5000
   let lastError: any
 
@@ -1057,8 +1065,11 @@ async function clusterKeywordsDirectly(
       const isRateLimited = error.response?.status === 429
 
       if (retryCount < maxRetries && (isTimeout || isRateLimited)) {
-        const delay = baseDelay * Math.pow(2, retryCount)
-        console.warn(`⚠️ AI 聚类第 ${retryCount + 1} 次失败，${delay / 1000}s 后重试...`)
+        // 🔥 2025-12-27 优化：添加随机抖动，避免重试风暴
+        const baseDelayMs = baseDelay * Math.pow(2, retryCount)
+        const jitter = Math.random() * 2000  // 0-2秒随机抖动
+        const delay = Math.min(baseDelayMs + jitter, 60000)  // 最多60秒
+        console.warn(`⚠️ AI 聚类第 ${retryCount + 1} 次失败，${(delay / 1000).toFixed(1)}s 后重试...`)
         console.warn(`   错误: ${error.message}`)
         await new Promise(resolve => setTimeout(resolve, delay))
         continue
