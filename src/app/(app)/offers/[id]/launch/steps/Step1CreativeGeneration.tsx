@@ -787,7 +787,12 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
               } else if (data.type === 'error') {
                 throw new Error(data.error)
               }
-            } catch (parseError) {
+            } catch (parseError: any) {
+              // 🔧 修复(2025-12-27): SSE超时错误需要重新抛出，让外层catch处理
+              if (parseError?.message?.includes?.('SSE timeout')) {
+                console.warn('SSE超时，切换到轮询模式...')
+                throw parseError  // 重新抛出，让外层catch处理
+              }
               console.warn('解析SSE数据失败:', parseError)
             }
           }
