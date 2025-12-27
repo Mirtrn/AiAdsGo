@@ -371,9 +371,8 @@ async def create_campaign(request: CreateCampaignRequest):
         if request.end_date:
             campaign.end_date = request.end_date.replace('-', '')
 
-        # 🔧 修复(2025-12-27): 添加 Final URL Suffix
-        if request.final_url_suffix:
-            campaign.final_url_suffix = request.final_url_suffix
+        # 🔧 修复(2025-12-27): 添加 Final URL Suffix（与OAuth模式一致，即使为空也设置）
+        campaign.final_url_suffix = request.final_url_suffix or ''
 
         response = campaign_service.mutate_campaigns(
             customer_id=request.customer_id, operations=[operation]
@@ -645,13 +644,22 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
     try:
         client = create_google_ads_client(request.service_account)
 
+        # 🔧 修复(2025-12-27): 过滤有效的callout文本（与OAuth模式一致）
+        valid_callout_texts = [
+            text for text in request.callout_texts
+            if isinstance(text, str) and text.strip()
+        ]
+        if not valid_callout_texts:
+            raise HTTPException(status_code=400, detail="没有有效的Callout文本，无法创建Callout扩展")
+
         # Create assets
         asset_service = client.get_service("AssetService")
         asset_operations = []
-        for text in request.callout_texts:
+        for text in valid_callout_texts:
             operation = client.get_type("AssetOperation")
             asset = operation.create
-            asset.callout_asset.callout_text = text
+            # Google Ads限制：最多25个字符
+            asset.callout_asset.callout_text = text[:25]
             asset_operations.append(operation)
 
         asset_response = asset_service.mutate_assets(
@@ -709,12 +717,14 @@ async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
         for sitelink in request.sitelinks:
             operation = client.get_type("AssetOperation")
             asset = operation.create
-            asset.sitelink_asset.link_text = sitelink.link_text
+            # Google Ads限制：link_text 最多25个字符
+            asset.sitelink_asset.link_text = sitelink.link_text[:25] if sitelink.link_text else ''
             asset.final_urls.append(sitelink.final_url)
-            if sitelink.description1:
-                asset.sitelink_asset.description1 = sitelink.description1
-            if sitelink.description2:
-                asset.sitelink_asset.description2 = sitelink.description2
+            # description1 和 description2 最多35个字符
+            # 如果 description1 存在但 description2 不存在，用 description1 填充
+            if sitelink.description1 and sitelink.description1.strip():
+                asset.sitelink_asset.description1 = sitelink.description1[:35]
+                asset.sitelink_asset.description2 = (sitelink.description2[:35] if sitelink.description2 else sitelink.description1[:35])
             asset_operations.append(operation)
 
         asset_response = asset_service.mutate_assets(
