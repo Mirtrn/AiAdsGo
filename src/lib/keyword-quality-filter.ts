@@ -41,6 +41,7 @@ const SEMANTIC_QUERY_PATTERNS = [
   // 价格比较类（保留price/cost用于产品搜索，但过滤compare/review）
   'compare', 'comparison', 'versus', 'vs ',
   'review', 'reviews', 'rating', 'ratings',
+  'test', 'testing',  // test/testing=测试/评测，低转化意图
 
   // 低转化意图词
   'free', 'cheap', 'cheapest', 'discount', 'coupon', 'code',
