@@ -2869,7 +2869,21 @@ export async function generateAdCreative(
     }
 
     result.keywords = filtered.filtered.map(kw => kw.keyword)
-    console.log(`📝 关键词质量过滤后: ${result.keywords.length} 个关键词`)
+
+    // 🔧 修复(2025-12-27): 添加Google Ads标准化去重，消除AI生成的重复关键词
+    const { deduplicateKeywordsWithPriority } = await import('./google-ads-keyword-normalizer')
+    const keywordsAfterDedup = deduplicateKeywordsWithPriority(
+      result.keywords,
+      kw => kw,
+      () => 0  // 所有AI生成关键词优先级相同
+    )
+
+    const removedDuplicates = result.keywords.length - keywordsAfterDedup.length
+    if (removedDuplicates > 0) {
+      console.warn(`⚠️ 关键词去重: 移除 ${removedDuplicates} 个重复关键词`)
+    }
+    result.keywords = keywordsAfterDedup
+    console.log(`📝 关键词去重后: ${result.keywords.length} 个唯一关键词`)
   }
 
   // 🔥 强制第一个headline为DKI品牌格式（自动处理30字符限制）
@@ -2991,10 +3005,21 @@ export async function generateAdCreative(
     }
 
     // ✅ 规则2: 过滤掉搜索量 < 500 的非品牌词
-    // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留所有关键词
+    // 🔧 修复(2025-12-27): 服务账号模式下无法获取搜索量，智能筛选核心关键词
     if (kw.searchVolume === 0) {
-      // 搜索量为0可能是服务账号模式，暂时保留
-      return true
+      // 搜索量为0可能是服务账号模式，智能筛选核心关键词
+      const keywordLower = kw.keyword.toLowerCase()
+
+      // 保留核心关键词：品牌词、产品型号词、核心功能词
+      const isCoreKeyword =
+        isBrandKeyword ||  // 包含品牌名
+        /\d{2,}/.test(kw.keyword) ||  // 包含数字（可能是产品型号，如 "S16", "J15"）
+        /(vacuum|robot|clean|mop|suction|brush|filter|station|auto|automatic)/i.test(keywordLower)  // 核心品类/功能词
+
+      if (!isCoreKeyword) {
+        console.log(`🔧 过滤非核心关键词（搜索量0）: "${kw.keyword}"`)
+      }
+      return isCoreKeyword
     }
 
     if (kw.searchVolume < 500) {
