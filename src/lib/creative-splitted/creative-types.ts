@@ -61,6 +61,8 @@ export interface GenerateAdCreativeOptions {
   // 🆕 2025-12-16: 综合创意专用参数
   isSyntheticCreative?: boolean  // 是否为综合创意
   syntheticKeywordsWithVolume?: Array<{ keyword: string; searchVolume: number; isBrand: boolean }>  // 带搜索量的综合关键词
+  // 🔥 2025-12-27: 关键词质量过滤参数
+  brandName?: string  // 用于过滤低质量关键词
 }
 
 /**

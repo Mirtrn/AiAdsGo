@@ -26,10 +26,12 @@ import { creativeCache, generateCreativeCacheKey } from '../cache'
 import { getKeywordSearchVolumes } from '../keyword-planner'
 import { recordTokenUsage, estimateTokenCost } from '../ai-token-tracker'
 import type { GeneratedAdCreativeData, HeadlineAsset, DescriptionAsset, QualityMetrics } from '../ad-creative'
+import { filterKeywordQuality } from '../keyword-quality-filter'
 
 /**
  * 🎯 从关键词池获取并格式化关键词
  * 使用新的统一 getKeywords() API
+ * 🔥 2025-12-27: 添加关键词质量过滤作为安全保护层
  */
 async function getKeywordsForPrompt(offerId: number, options: GenerateAdCreativeOptions): Promise<string[]> {
   try {
@@ -41,7 +43,32 @@ async function getKeywordsForPrompt(offerId: number, options: GenerateAdCreative
     })
 
     // 提取关键词字符串
-    const keywords = result.keywords.map((kw: any) => typeof kw === 'string' ? kw : kw.keyword)
+    let keywords = result.keywords.map((kw: any) => typeof kw === 'string' ? kw : kw.keyword)
+
+    // 🔥 2025-12-27: 额外安全过滤 - 移除品牌变体词和语义查询词
+    // 即使关键词池已过滤，这层保护可以处理旧数据或边界情况
+    const keywordPoolData = keywords.map(kw => ({
+      keyword: kw,
+      searchVolume: 0,
+      source: 'POOL' as const
+    }))
+
+    const brandName = options.brandName || ''
+    const filtered = filterKeywordQuality(keywordPoolData, {
+      brandName,
+      minWordCount: 1,
+      maxWordCount: 8
+    })
+
+    // 如果有过滤掉的关键词，记录日志
+    if (filtered.removed.length > 0) {
+      console.log(`[getKeywordsForPrompt] 🔒 安全过滤移除 ${filtered.removed.length} 个低质量关键词`)
+      filtered.removed.slice(0, 5).forEach(item => {
+        console.log(`   - "${item.keyword.keyword}": ${item.reason}`)
+      })
+    }
+
+    keywords = filtered.filtered.map(kw => kw.keyword)
 
     console.log(`[getKeywordsForPrompt] 获取到 ${keywords.length} 个关键词`)
     return keywords
@@ -194,6 +221,8 @@ export async function generateAdCreative(
   }
 
   // 4. 构建提示变量
+  // 🔥 2025-12-27: 确保 brandName 传递给 getKeywordsForPrompt
+  options.brandName = offer.brand
   const variables = await buildPromptVariables(offer, extractedElements, options.keywordPool, options)
 
   // 5. 构建提示

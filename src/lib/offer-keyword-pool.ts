@@ -21,6 +21,7 @@ import { findOfferById, type Offer } from './offers'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
+import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'
 
 // ============================================
 // 类型定义
@@ -2005,15 +2006,35 @@ export async function generateOfferKeywordPool(
     offer.target_country  // 🔧 修复(2025-12-17): 传递目标国家进行地理过滤
   )
 
-  console.log(`📝 过滤后关键词数: ${filteredKeywords.length}`)
+  console.log(`📝 第一次过滤后关键词数: ${filteredKeywords.length}`)
+
+  // 🆕 2025-12-27: 关键词质量过滤
+  // 过滤品牌变体词（如 eurekaddl）和语义查询词（如 significato）
+  const qualityFiltered = filterKeywordQuality(filteredKeywords, {
+    brandName: offer.brand,
+    category: offer.category || undefined,
+    targetCountry: offer.target_country || undefined,
+    targetLanguage: offer.target_language || undefined,
+    minWordCount: 1,
+    maxWordCount: 8,
+  })
+
+  // 生成过滤报告
+  const filterReport = generateFilterReport(filteredKeywords.length, qualityFiltered.removed)
+  console.log(filterReport)
+
+  // 使用过滤后的关键词
+  const finalFilteredKeywords = qualityFiltered.filtered
+
+  console.log(`📝 最终过滤后关键词数: ${finalFilteredKeywords.length}`)
 
   // 5. 分离纯品牌词和非品牌词
-  const keywordStrings = filteredKeywords.map(kw => kw.keyword)
+  const keywordStrings = finalFilteredKeywords.map(kw => kw.keyword)
   const { brandKeywords: brandKwStrings, nonBrandKeywords: nonBrandKwStrings } = separateBrandKeywords(keywordStrings, offer.brand)
 
   // 转换回 PoolKeywordData[]
-  const brandKeywordsData = filteredKeywords.filter(kw => brandKwStrings.includes(kw.keyword))
-  const nonBrandKeywordsData = filteredKeywords.filter(kw => nonBrandKwStrings.includes(kw.keyword))
+  const brandKeywordsData = finalFilteredKeywords.filter(kw => brandKwStrings.includes(kw.keyword))
+  const nonBrandKeywordsData = finalFilteredKeywords.filter(kw => nonBrandKwStrings.includes(kw.keyword))
 
   // 🆕 v4.16: 确定页面类型
   const pageType = (offer.page_type as 'product' | 'store') || 'product'
