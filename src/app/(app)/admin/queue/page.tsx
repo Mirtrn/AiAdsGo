@@ -146,6 +146,7 @@ export default function QueueManagementPage() {
 
       if (data.success) {
         // 适配新统一队列格式（兼容旧格式）
+        // 注意：stats API可能不返回config，必须从/api/queue/config获取
         const adaptedStats = {
           global: data.data?.global || data.stats?.global || {
             running: 0,
@@ -159,28 +160,16 @@ export default function QueueManagementPage() {
               ...userStats
             })) :
             data.stats?.perUser || [],
+          // config先使用API返回的值，如果没有则等待/config API
           config: {
-            globalConcurrency: 5,
-            perUserConcurrency: 2,
-            perTypeConcurrency: {
-              scrape: 3,
-              'ai-analysis': 2,
-              sync: 1,
-              backup: 1,
-              email: 3,
-              export: 2,
-              'link-check': 2,
-              cleanup: 1,
-              'offer-extraction': 2,
-              'batch-offer-creation': 1,
-              'ad-creative': 3,
-              'campaign-publish': 2  // 🆕 广告系列发布
-            },
-            maxQueueSize: 1000,
-            taskTimeout: 60000,
-            enablePriority: true,
-            storageType: 'redis',
-            ...(data.data?.config || data.stats?.config || {})
+            // 使用API返回的配置，如果没有则使用占位符（后续会被/config API更新）
+            globalConcurrency: data.data?.config?.globalConcurrency || data.stats?.config?.globalConcurrency || config.globalConcurrency,
+            perUserConcurrency: data.data?.config?.perUserConcurrency || data.stats?.config?.perUserConcurrency || config.perUserConcurrency,
+            maxQueueSize: data.data?.config?.maxQueueSize || data.stats?.config?.maxQueueSize || 1000,
+            taskTimeout: data.data?.config?.taskTimeout || data.stats?.config?.taskTimeout || 60000,
+            enablePriority: data.data?.config?.enablePriority ?? data.stats?.config?.enablePriority ?? true,
+            storageType: data.data?.config?.storageType || data.stats?.config?.storageType || 'redis',
+            perTypeConcurrency: data.data?.config?.perTypeConcurrency || data.stats?.config?.perTypeConcurrency
           },
           // 新增字段
           byType: data.data?.byType || {}
