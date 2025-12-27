@@ -3640,6 +3640,34 @@ export async function generateAdCreative(
   // 更新 result.keywords 为过滤后的关键词
   result.keywords = keywordsWithVolume.map(kw => kw.keyword)
 
+  // 🔧 修复(2025-12-27): 最终去重确保没有重复关键词
+  // 使用 Set 保留第一个出现的关键词（保持原始大小写）
+  const beforeFinalDedupe = result.keywords.length
+  const seenForFinal = new Set<string>()
+  const uniqueKeywordsSet = new Set<string>()
+
+  result.keywords = result.keywords.filter(kw => {
+    const normalized = kw.toLowerCase().trim()
+    if (seenForFinal.has(normalized)) {
+      return false
+    }
+    seenForFinal.add(normalized)
+    uniqueKeywordsSet.add(normalized)
+    return true
+  })
+
+  // 🔧 同步更新 keywordsWithVolume，确保与 result.keywords 一致
+  const beforeVolumeDedupe = keywordsWithVolume.length
+  keywordsWithVolume = keywordsWithVolume.filter(kw =>
+    uniqueKeywordsSet.has(kw.keyword.toLowerCase().trim())
+  )
+
+  const afterFinalDedupe = result.keywords.length
+  if (beforeFinalDedupe !== afterFinalDedupe) {
+    console.warn(`⚠️ 最终关键词去重: ${beforeFinalDedupe} → ${afterFinalDedupe} (移除 ${beforeFinalDedupe - afterFinalDedupe} 个重复)`)
+    console.log(`   📊 keywordsWithVolume 同步: ${beforeVolumeDedupe} → ${keywordsWithVolume.length}`)
+  }
+
   // 最终验证 - 确保所有关键词都有搜索量
   const finalKeywordCount = result.keywords.length
   const allHaveVolume = keywordsWithVolume.every(kw => kw.searchVolume > 0)
