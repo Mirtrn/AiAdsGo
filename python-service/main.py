@@ -355,6 +355,10 @@ async def create_campaign(request: CreateCampaignRequest):
                 request.cpc_bid_ceiling_micros
             )
 
+        # 🔧 修复(2025-12-27): 添加必填字段 contains_eu_political_advertising
+        # 大多数Campaign不包含政治广告，设置为DOES_NOT_CONTAIN
+        campaign.contains_eu_political_advertising = client.enums.EuPoliticalAdvertisingStatusEnum.DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
+
         # Geo target type
         campaign.geo_target_type_setting.positive_geo_target_type = (
             client.enums.PositiveGeoTargetTypeEnum.PRESENCE
@@ -656,7 +660,8 @@ async def create_callout_extensions(request: CreateCalloutExtensionsRequest):
             operations=campaign_asset_operations,
         )
 
-        return {"success": True}
+        # 🔧 修复(2025-12-27): 返回 asset_resource_names 供 Node.js 解析
+        return {"success": True, "asset_resource_names": [r.resource_name for r in asset_response.results]}
 
     except Exception as e:
         logger.error(f"Create callout extensions error: {e}")
@@ -718,7 +723,8 @@ async def create_sitelink_extensions(request: CreateSitelinkExtensionsRequest):
             operations=campaign_asset_operations,
         )
 
-        return {"success": True}
+        # 🔧 修复(2025-12-27): 返回 asset_resource_names 供 Node.js 解析
+        return {"success": True, "asset_resource_names": [r.resource_name for r in asset_response.results]}
 
     except Exception as e:
         logger.error(f"[user_id={user_id}] Create sitelink extensions error: {e}")
