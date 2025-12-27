@@ -734,6 +734,88 @@ async def update_campaign_status(request: UpdateCampaignStatusRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class UpdateCampaignRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    campaign_resource_name: str
+    cpc_bid_micros: Optional[int] = None
+    target_cpa_micros: Optional[int] = None
+    status: Optional[str] = None
+
+
+@app.post("/api/google-ads/campaign/update")
+async def update_campaign(request: UpdateCampaignRequest):
+    """更新广告系列（支持 CPC、CPA、状态更新）"""
+    user_id = request.service_account.user_id
+    try:
+        client = create_google_ads_client(request.service_account)
+        campaign_service = client.get_service("CampaignService")
+
+        operation = client.get_type("CampaignOperation")
+        campaign = operation.update
+        campaign.resource_name = request.campaign_resource_name
+
+        # CPC 出价更新
+        if request.cpc_bid_micros:
+            campaign.target_spend.cpc_bid_ceiling_micros = request.cpc_bid_micros
+            operation.update_mask.paths.append("target_spend.cpc_bid_ceiling_micros")
+
+        # CPA 出价更新
+        if request.target_cpa_micros:
+            campaign.target_cpa.target_cpa_micros = request.target_cpa_micros
+            operation.update_mask.paths.append("target_cpa.target_cpa_micros")
+
+        # 状态更新
+        if request.status:
+            campaign.status = client.enums.CampaignStatusEnum[request.status]
+            operation.update_mask.paths.append("status")
+
+        campaign_service.mutate_campaigns(
+            customer_id=request.customer_id, operations=[operation]
+        )
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"[user_id={user_id}] Update campaign error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UpdateAdGroupRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    ad_group_resource_name: str
+    cpc_bid_micros: Optional[int] = None
+
+
+@app.post("/api/google-ads/adgroup/update")
+async def update_ad_group(request: UpdateAdGroupRequest):
+    """更新广告组（支持 CPC 出价更新）"""
+    user_id = request.service_account.user_id
+    try:
+        client = create_google_ads_client(request.service_account)
+        ad_group_service = client.get_service("AdGroupService")
+
+        operation = client.get_type("AdGroupOperation")
+        ad_group = operation.update
+        ad_group.resource_name = request.ad_group_resource_name
+
+        # CPC 出价更新
+        if request.cpc_bid_micros:
+            ad_group.cpc_bid_micros = request.cpc_bid_micros
+            operation.update_mask.paths.append("cpc_bid_micros")
+
+        ad_group_service.mutate_ad_groups(
+            customer_id=request.customer_id, operations=[operation]
+        )
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"[user_id={user_id}] Update ad group error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class UpdateCampaignBudgetRequest(BaseModel):
     service_account: ServiceAccountConfig
     customer_id: str
