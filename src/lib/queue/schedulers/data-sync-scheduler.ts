@@ -13,7 +13,8 @@
 
 import { getDatabase } from '../../db'
 import { triggerDataSync } from '../../queue-triggers'
-import { getGoogleAdsCredentialsFromDB } from '../../google-ads-api'
+import { getUserAuthType, getGoogleAdsCredentials } from '../../google-ads-oauth'
+import { getServiceAccountConfig } from '../../google-ads-service-account'
 
 interface UserSyncConfig {
   user_id: number
@@ -126,17 +127,51 @@ export class DataSyncScheduler {
 
         // 如果从未同步过，或者距离上次同步已超过间隔时间，触发同步
         if (hoursSinceLastSync >= intervalHours) {
-          // 🔧 修复(2025-12-28): 验证用户是否配置了完整的 Google Ads 凭证
+          // 🔧 修复(2025-12-28): 根据用户的认证类型验证相应的凭证
+          let hasValidCredentials = false
+          let skipReason = ''
+
           try {
-            await getGoogleAdsCredentialsFromDB(userId)
-          } catch (credError) {
+            // 1. 判断用户使用哪种认证方式
+            const auth = await getUserAuthType(userId)
+
+            if (auth.authType === 'oauth') {
+              // 2a. OAuth模式：验证 google_ads_credentials 表
+              const credentials = await getGoogleAdsCredentials(userId)
+              if (!credentials) {
+                skipReason = '未配置OAuth凭证（需完成Google Ads OAuth授权）'
+              } else if (!credentials.refresh_token) {
+                skipReason = '缺少refresh_token（需重新完成OAuth授权）'
+              } else if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
+                skipReason = '缺少必需的OAuth配置参数（client_id/client_secret/developer_token）'
+              } else {
+                hasValidCredentials = true
+              }
+            } else {
+              // 2b. 服务账号模式：验证 google_ads_service_accounts 表
+              const serviceAccount = await getServiceAccountConfig(userId, auth.serviceAccountId)
+              if (!serviceAccount) {
+                skipReason = '未配置服务账号（需上传服务账号JSON文件）'
+              } else if (!serviceAccount.mccCustomerId || !serviceAccount.developerToken || !serviceAccount.serviceAccountEmail || !serviceAccount.privateKey) {
+                skipReason = '服务账号配置不完整（缺少必需参数）'
+              } else {
+                hasValidCredentials = true
+              }
+            }
+          } catch (error) {
+            skipReason = `凭证验证失败: ${error instanceof Error ? error.message : String(error)}`
+          }
+
+          // 3. 如果凭证无效，跳过此用户
+          if (!hasValidCredentials) {
             console.log(
-              `  ⚠️  用户 #${userId}: 未配置完整的 Google Ads 凭证，跳过自动同步`
+              `  ⚠️  用户 #${userId}: ${skipReason}，跳过自动同步`
             )
             skippedCount++
             continue
           }
 
+          // 4. 凭证有效，创建同步任务
           console.log(
             `  🔄 用户 #${userId}: 距离上次同步 ${lastSyncAt ? `${hoursSinceLastSync.toFixed(1)}小时` : '从未同步'}, 触发同步 (间隔: ${intervalHours}h)`
           )
