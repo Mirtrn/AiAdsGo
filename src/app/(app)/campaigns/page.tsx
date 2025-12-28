@@ -180,32 +180,39 @@ export default function CampaignsPage() {
             bVal = b.campaignName.toLowerCase()
             break
           case 'budgetAmount':
-            aVal = a.budgetAmount
-            bVal = b.budgetAmount
+            // 🔧 修复(2025-12-29): 确保数值类型比较
+            aVal = Number(a.budgetAmount) || 0
+            bVal = Number(b.budgetAmount) || 0
             break
           case 'impressions':
-            aVal = a.performance?.impressions || 0
-            bVal = b.performance?.impressions || 0
+            // 🔧 修复(2025-12-29): 确保数值类型比较
+            aVal = Number(a.performance?.impressions) || 0
+            bVal = Number(b.performance?.impressions) || 0
             break
           case 'clicks':
-            aVal = a.performance?.clicks || 0
-            bVal = b.performance?.clicks || 0
+            // 🔧 修复(2025-12-29): 确保数值类型比较
+            aVal = Number(a.performance?.clicks) || 0
+            bVal = Number(b.performance?.clicks) || 0
             break
           case 'ctr':
-            aVal = a.performance?.ctr || 0
-            bVal = b.performance?.ctr || 0
+            // 🔧 修复(2025-12-29): 确保数值类型比较
+            aVal = Number(a.performance?.ctr) || 0
+            bVal = Number(b.performance?.ctr) || 0
             break
           case 'cpc':
-            aVal = a.performance?.cpcUsd || 0
-            bVal = b.performance?.cpcUsd || 0
+            // 🔧 修复(2025-12-29): 确保数值类型比较
+            aVal = Number(a.performance?.cpcUsd) || 0
+            bVal = Number(b.performance?.cpcUsd) || 0
             break
           case 'conversions':
-            aVal = a.performance?.conversions || 0
-            bVal = b.performance?.conversions || 0
+            // 🔧 修复(2025-12-29): 确保数值类型比较
+            aVal = Number(a.performance?.conversions) || 0
+            bVal = Number(b.performance?.conversions) || 0
             break
           case 'cost':
-            aVal = a.performance?.costUsd || 0
-            bVal = b.performance?.costUsd || 0
+            // 🔧 修复(2025-12-29): 确保数值类型比较
+            aVal = Number(a.performance?.costUsd) || 0
+            bVal = Number(b.performance?.costUsd) || 0
             break
           case 'status':
             aVal = a.status

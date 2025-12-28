@@ -98,18 +98,21 @@ export async function GET(request: NextRequest) {
       status: c.status,
       googleCampaignId: c.google_campaign_id,
       googleAdsAccountId: c.google_ads_account_id,
-      budgetAmount: c.budget_amount,
+      // 🔧 修复(2025-12-29): 确保预算金额是数字类型
+      budgetAmount: Number(c.budget_amount) || 0,
       budgetType: c.budget_type,
       lastSyncAt: c.last_sync_at,
       createdAt: c.created_at,
       performance: {
-        impressions: c.impressions,
-        clicks: c.clicks,
-        conversions: c.conversions,
-        cost: c.cost,
-        ctr: c.ctr,
-        cpc: c.cpc,
-        conversionRate: c.conversion_rate,
+        // 🔧 修复(2025-12-29): 确保性能指标是数字类型，不是字符串
+        // 这样前端排序时能正确进行数值比较而不是字符串比较
+        impressions: Number(c.impressions) || 0,
+        clicks: Number(c.clicks) || 0,
+        conversions: Number(c.conversions) || 0,
+        cost: Number(c.cost) || 0,
+        ctr: Number(c.ctr) || 0,
+        cpc: Number(c.cpc) || 0,
+        conversionRate: Number(c.conversion_rate) || 0,
         dateRange: {
           start: startDateStr,
           end: endDate,
