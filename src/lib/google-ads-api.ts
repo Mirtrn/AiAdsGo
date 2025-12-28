@@ -578,12 +578,24 @@ export async function createGoogleAdsCampaign(params: {
     },
   }
 
-  // 🎯 营销目标说明
-  // Google Ads UI中的"营销目标"是引导性UI元素，在API层面：
-  // 1. 搜索广告系列通过advertising_channel_type=SEARCH自动关联"网站流量"目标
-  // 2. goal_config_settings是只读字段，不能在创建时设置
-  // 3. 营销目标会在广告系列创建后由Google Ads自动推断
+  // 🎯 恢复转化目标配置 (2025-12-28)
+  // 根据 Google Ads API 官方文档：
+  // 1. goal_config_settings 用于指定营销目标级别和具体目标类型
+  // 2. url_expansion_opt_out = false 启用URL扩展，优化网站流量
+  // 3. goal = 20 (WEBSITE_TRAFFIC) 对应 UI 中的"网站流量"目标
   // 参考：https://developers.google.com/google-ads/api/reference/rpc/v21/Campaign
+  //
+  // 🔧 注意：GoalType 枚举未在 google-ads-api 库中暴露，使用数值 20
+
+  // 启用URL扩展，优化网站流量目标
+  campaign.url_expansion_opt_out = false
+
+  // 设置营销目标为广告系列级别，并指定为网站流量目标
+  // GoalType.WEBSITE_TRAFFIC = 20
+  campaign.goal_config_settings = {
+    goal_config_level: enums.GoalConfigLevel.CAMPAIGN,
+    goal: 20 as any  // WEBSITE_TRAFFIC = 20
+  }
 
   // 设置出价策略 - Maximize Clicks (TARGET_SPEND)
   // 根据业务规范：Bidding Strategy = Maximize Clicks，CPC Bid = 0.17 USD
