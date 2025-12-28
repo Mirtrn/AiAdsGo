@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem } from '@/components/ui/select';
 import { Alert } from '@/components/ui/alert';
-import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock } from 'lucide-react';
+import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock, Globe, Link, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTimezoneByCountry } from '@/lib/timezone-utils';
 import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
@@ -401,14 +401,35 @@ export default function ClickFarmTaskModal({
               </Select>
             )}
 
+            {/* Offer Info - Show full offer details */}
             {selectedOffer && (
-              <p className="text-xs text-muted-foreground">
-                目标国家: {selectedOffer.target_country}
-              </p>
+              <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                <p className="text-sm font-medium text-muted-foreground mb-2">关联 Offer 信息</p>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="truncate">
+                      <span className="text-muted-foreground">名称:</span> {selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span>
+                      <span className="text-muted-foreground">国家:</span> {selectedOffer.target_country}
+                    </span>
+                  </div>
+                  <div className="col-span-2 flex items-start gap-2">
+                    <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <span className="truncate text-xs">
+                      <span className="text-muted-foreground">链接:</span> {selectedOffer.affiliate_link}
+                    </span>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 
-          {/* 🆕 Timezone Display (Read-only) */}
+          {/* Timezone Display (Read-only) */}
           {selectedOffer && (
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
@@ -443,79 +464,82 @@ export default function ClickFarmTaskModal({
             </Alert>
           )}
 
-          {/* Daily Click Count */}
-          <div className="space-y-2">
-            <Label htmlFor="dailyClicks">每日点击数 *</Label>
-            <Input
-              id="dailyClicks"
-              type="number"
-              min={1}
-              max={1000}
-              value={dailyClickCount}
-              onChange={(e) => setDailyClickCount(parseInt(e.target.value) || 0)}
-              placeholder="建议: 216次/天"
-              required
-            />
-            <p className="text-xs text-muted-foreground">
-              推荐: 216次/天（模拟自然流量）。范围: 1-1000
-            </p>
+          {/* Configuration Fields - 2 Column Layout */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Daily Click Count */}
+            <div className="space-y-2">
+              <Label htmlFor="dailyClicks">每日点击数 *</Label>
+              <Input
+                id="dailyClicks"
+                type="number"
+                min={1}
+                max={1000}
+                value={dailyClickCount}
+                onChange={(e) => setDailyClickCount(parseInt(e.target.value) || 0)}
+                placeholder="建议: 216次/天"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                推荐: 216次/天（模拟自然流量）
+              </p>
+            </div>
+
+            {/* Scheduled Start Date */}
+            <div className="space-y-2">
+              <Label htmlFor="scheduledStartDate">开始日期 *</Label>
+              <Input
+                id="scheduledStartDate"
+                type="date"
+                value={scheduledStartDate}
+                min={new Date().toISOString().split('T')[0]}
+                onChange={(e) => setScheduledStartDate(e.target.value)}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                默认当天，可选择未来日期
+              </p>
+            </div>
+
+            {/* Time Period */}
+            <div className="space-y-2">
+              <Label htmlFor="timePeriod">时间段 *</Label>
+              <Select
+                id="timePeriod"
+                value={timePeriod}
+                onValueChange={setTimePeriod}
+                required
+              >
+                <SelectContent>
+                  {TIME_PERIODS.map((period) => (
+                    <SelectItem key={period.value} value={period.value}>
+                      {period.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Duration */}
+            <div className="space-y-2">
+              <Label htmlFor="duration">持续时长 *</Label>
+              <Select
+                id="duration"
+                value={durationDays.toString()}
+                onValueChange={(value) => setDurationDays(parseInt(value))}
+                required
+              >
+                <SelectContent>
+                  {DURATION_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value.toString()}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          {/* 🆕 Scheduled Start Date */}
-          <div className="space-y-2">
-            <Label htmlFor="scheduledStartDate">开始日期 *</Label>
-            <Input
-              id="scheduledStartDate"
-              type="date"
-              value={scheduledStartDate}
-              min={new Date().toISOString().split('T')[0]}  // 🔥 最早只能选今天
-              onChange={(e) => setScheduledStartDate(e.target.value)}
-              required
-            />
-            <p className="text-xs text-muted-foreground">
-              任务将从该日期开始执行（默认当天，可选择未来日期）
-            </p>
-          </div>
-
-          {/* Time Period */}
-          <div className="space-y-2">
-            <Label htmlFor="timePeriod">时间段 *</Label>
-            <Select
-              id="timePeriod"
-              value={timePeriod}
-              onValueChange={setTimePeriod}
-              required
-            >
-              <SelectContent>
-                {TIME_PERIODS.map((period) => (
-                  <SelectItem key={period.value} value={period.value}>
-                    {period.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Duration */}
-          <div className="space-y-2">
-            <Label htmlFor="duration">持续时长 *</Label>
-            <Select
-              id="duration"
-              value={durationDays.toString()}
-              onValueChange={(value) => setDurationDays(parseInt(value))}
-              required
-            >
-              <SelectContent>
-                {DURATION_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value.toString()}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Distribution Preview */}
+          {/* Distribution Preview - Full Width */}
           {distribution.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
