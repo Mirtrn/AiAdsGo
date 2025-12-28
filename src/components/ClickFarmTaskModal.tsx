@@ -169,8 +169,10 @@ export default function ClickFarmTaskModal({
       if (!response.ok) throw new Error('加载Offer失败');
 
       const data = await response.json();
-      console.log('[ClickFarmTaskModal] loadOffers: API返回', data.data?.length, '个offers');
-      const offersData = data.data || [];
+      console.log('[ClickFarmTaskModal] loadOffers: API返回', data);
+      // 🆕 API返回格式是 { success: true, offers: [...] }，不是 { data: [...] }
+      const offersData = data.offers || [];
+      console.log('[ClickFarmTaskModal] loadOffers: API返回', offersData.length, '个offers');
       setOffers(offersData);
       console.log('[ClickFarmTaskModal] loadOffers: setOffers 完成, offers.length =', offersData.length);
 
