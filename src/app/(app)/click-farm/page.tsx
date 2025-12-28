@@ -15,12 +15,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -603,24 +597,15 @@ export default function ClickFarmPage() {
       </main>
 
       {/* Create/Edit Task Modal */}
-      <Dialog open={modalOpen} onOpenChange={(open) => {
-        setModalOpen(open);
-        if (!open) setEditTaskId(null);
-      }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editTaskId ? '编辑补点击任务' : '创建补点击任务'}
-            </DialogTitle>
-          </DialogHeader>
-          <ClickFarmTaskModal
-            open={modalOpen}
-            onOpenChange={setModalOpen}
-            onSuccess={loadData}
-            editTaskId={editTaskId || undefined}
-          />
-        </DialogContent>
-      </Dialog>
+      <ClickFarmTaskModal
+        open={modalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open);
+          if (!open) setEditTaskId(null);
+        }}
+        onSuccess={loadData}
+        editTaskId={editTaskId || undefined}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
