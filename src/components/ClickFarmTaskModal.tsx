@@ -31,10 +31,12 @@ interface ClickFarmTaskModalProps {
 
 interface Offer {
   id: number;
-  name: string;
-  brand_name: string;
+  offerName?: string;
+  name?: string;
+  brand?: string;
+  brand_name?: string;
   target_country: string;
-  affiliate_link: string;
+  affiliate_link?: string;
 }
 
 const TIME_PERIODS = [
@@ -175,25 +177,26 @@ export default function ClickFarmTaskModal({
       const offersData = data.offers || [];
       console.log('[ClickFarmTaskModal] loadOffers: API返回', offersData.length, '个offers');
       setOffers(offersData);
-      console.log('[ClickFarmTaskModal] loadOffers: setOffers 完成, offers.length =', offersData.length);
+
+      // 🆕 查找 offer 的辅助函数
+      const findOffer = (id: number) => offersData.find((o: Offer) => o.id === id);
 
       // 🆕 如果有预选的offer ID，优先使用它；否则选择第一个
       if (preSelectedOfferId) {
         console.log('[ClickFarmTaskModal] loadOffers: 检测到 preSelectedOfferId =', preSelectedOfferId);
-        const offerExists = offersData.some((o: Offer) => o.id === preSelectedOfferId);
-        console.log('[ClickFarmTaskModal] loadOffers: offer存在?', offerExists);
-        if (offerExists) {
-          console.log('[ClickFarmTaskModal] loadOffers: 调用 handleOfferChange');
-          await handleOfferChange(preSelectedOfferId);
+        const offer = findOffer(preSelectedOfferId);
+        if (offer) {
+          console.log('[ClickFarmTaskModal] loadOffers: 调用 handleOfferChange (使用本地 offersData)');
+          await handleOfferChange(preSelectedOfferId, offersData);
         } else {
           console.log('[ClickFarmTaskModal] loadOffers: offer不存在，使用第一个');
           if (offersData.length > 0) {
-            await handleOfferChange(offersData[0].id);
+            await handleOfferChange(offersData[0].id, offersData);
           }
         }
       } else if (offersData.length > 0 && !selectedOfferId) {
         console.log('[ClickFarmTaskModal] loadOffers: 没有preSelectedOfferId，选择第一个');
-        await handleOfferChange(offersData[0].id);
+        await handleOfferChange(offersData[0].id, offersData);
       } else {
         console.log('[ClickFarmTaskModal] loadOffers: 条件不满足 - preSelectedOfferId:', preSelectedOfferId, 'selectedOfferId:', selectedOfferId);
       }
@@ -254,12 +257,14 @@ export default function ClickFarmTaskModal({
     }
   };
 
-  const handleOfferChange = async (offerId: number) => {
+  const handleOfferChange = async (offerId: number, offersDataParam?: Offer[]) => {
     console.log('[ClickFarmTaskModal] handleOfferChange START: offerId =', offerId, 'current offers.length =', offers.length, 'current selectedOfferId =', selectedOfferId);
     setSelectedOfferId(offerId);
 
-    const offer = offers.find(o => o.id === offerId);
-    console.log('[ClickFarmTaskModal] handleOfferChange: 找到offer?', !!offer, 'offer:', offer?.name);
+    // 🆕 使用传入的 offersDataParam，如果没传则使用 state offers
+    const offersList = offersDataParam || offers;
+    const offer = offersList.find(o => o.id === offerId);
+    console.log('[ClickFarmTaskModal] handleOfferChange: 找到offer?', !!offer, 'offerName:', offer?.offerName, 'brand:', offer?.brand);
     if (offer) {
       await checkProxy(offer.target_country);
       const autoTimezone = getTimezoneByCountry(offer.target_country);
@@ -458,7 +463,7 @@ export default function ClickFarmTaskModal({
                     </SelectItem>
                     {offers.map((offer) => (
                       <SelectItem key={offer.id} value={offer.id.toString()}>
-                        #{offer.id} - {offer.brand_name || offer.name} ({offer.target_country})
+                        #{offer.id} - {offer.offerName || offer.brand || offer.name || offer.brand_name} ({offer.target_country})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -483,7 +488,7 @@ export default function ClickFarmTaskModal({
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge className="h-5 text-xs" variant="outline">
-                      {selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
+                      {selectedOffer.offerName || selectedOffer.brand || selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
