@@ -154,15 +154,27 @@ export default function ClickFarmTaskModal({
 
       const data = await response.json();
       console.log('[ClickFarmTaskModal] loadOffers: 加载到', data.data?.length, '个offers');
-      setOffers(data.data || []);
+      const offersData = data.data || [];
+      setOffers(offersData);
 
-      // 如果有预选的offer ID，使用它；否则选择第一个
-      if (preSelectedOfferId && data.data?.some((o: Offer) => o.id === preSelectedOfferId)) {
-        console.log('[ClickFarmTaskModal] loadOffers: 调用 handleOfferChange');
-        await handleOfferChange(preSelectedOfferId);
-      } else if (data.data?.length > 0 && !selectedOfferId) {
+      // 🆕 如果有预选的offer ID，优先使用它；否则选择第一个
+      // 直接使用 preSelectedOfferId，不依赖 useEffect
+      if (preSelectedOfferId) {
+        console.log('[ClickFarmTaskModal] loadOffers: 检测到 preSelectedOfferId =', preSelectedOfferId);
+        const offerExists = offersData.some((o: Offer) => o.id === preSelectedOfferId);
+        console.log('[ClickFarmTaskModal] loadOffers: offer存在?', offerExists);
+        if (offerExists) {
+          console.log('[ClickFarmTaskModal] loadOffers: 调用 handleOfferChange(preSelectedOfferId)');
+          await handleOfferChange(preSelectedOfferId);
+        } else {
+          console.log('[ClickFarmTaskModal] loadOffers: offer不存在，使用第一个');
+          if (offersData.length > 0) {
+            await handleOfferChange(offersData[0].id);
+          }
+        }
+      } else if (offersData.length > 0 && !selectedOfferId) {
         console.log('[ClickFarmTaskModal] loadOffers: 没有preSelectedOfferId，选择第一个');
-        await handleOfferChange(data.data[0].id);
+        await handleOfferChange(offersData[0].id);
       } else {
         console.log('[ClickFarmTaskModal] loadOffers: 条件不满足 - preSelectedOfferId:', preSelectedOfferId, 'selectedOfferId:', selectedOfferId);
       }
