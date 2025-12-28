@@ -8,6 +8,7 @@ import type { CreateClickFarmTaskRequest, TaskFilters } from '@/lib/click-farm-t
 import { getDatabase } from '@/lib/db';
 import { getTimezoneByCountry, getDateInTimezone } from '@/lib/timezone-utils';
 import { triggerTaskScheduling } from '@/lib/click-farm/click-farm-scheduler-trigger';
+import { getAllProxyUrls } from '@/lib/settings';
 
 /**
  * POST - 创建补点击任务
@@ -82,20 +83,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 检查代理配置
-    const proxyConfig = await db.queryOne<any>(`
-      SELECT proxy_url
-      FROM system_settings
-      WHERE user_id = ? AND key = ?
-    `, [userIdNum, `proxy_${offer.target_country.toLowerCase()}`]);
+    // 🔧 修复(2025-12-28): 使用新的代理配置系统（proxy.urls JSON数组）
+    const proxyUrls = await getAllProxyUrls(userIdNum);
 
-    if (!proxyConfig || !proxyConfig.proxy_url) {
+    if (!proxyUrls || proxyUrls.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'proxy_required',
+          message: '未配置任何代理',
+          suggestion: '请先前往设置页面配置代理',
+          redirectTo: '/settings'
+        },
+        { status: 400 }
+      );
+    }
+
+    // 查找目标国家的代理配置
+    const targetCountry = offer.target_country.toUpperCase();
+    const proxyConfig = proxyUrls.find(
+      (p) => p.country.toUpperCase() === targetCountry
+    );
+
+    if (!proxyConfig) {
       return NextResponse.json(
         {
           error: 'proxy_required',
           message: `未找到 ${offer.target_country} 国家的代理配置`,
-          suggestion: '请先配置代理后再创建补点击任务',
-          redirectTo: '/settings/proxy'
+          suggestion: '请先前往设置页面配置对应国家的代理',
+          redirectTo: '/settings'
         },
         { status: 400 }
       );
