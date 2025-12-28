@@ -13,6 +13,7 @@
 
 import { getDatabase } from '../../db'
 import { triggerDataSync } from '../../queue-triggers'
+import { getGoogleAdsCredentialsFromDB } from '../../google-ads-api'
 
 interface UserSyncConfig {
   user_id: number
@@ -112,6 +113,7 @@ export class DataSyncScheduler {
 
       // 遍历用户，检查是否需要触发同步
       let triggeredCount = 0
+      let skippedCount = 0
       for (const config of configs) {
         const userId = config.user_id
         const intervalHours = parseInt(String(config.data_sync_interval_hours)) || 6
@@ -124,6 +126,17 @@ export class DataSyncScheduler {
 
         // 如果从未同步过，或者距离上次同步已超过间隔时间，触发同步
         if (hoursSinceLastSync >= intervalHours) {
+          // 🔧 修复(2025-12-28): 验证用户是否配置了完整的 Google Ads 凭证
+          try {
+            await getGoogleAdsCredentialsFromDB(userId)
+          } catch (credError) {
+            console.log(
+              `  ⚠️  用户 #${userId}: 未配置完整的 Google Ads 凭证，跳过自动同步`
+            )
+            skippedCount++
+            continue
+          }
+
           console.log(
             `  🔄 用户 #${userId}: 距离上次同步 ${lastSyncAt ? `${hoursSinceLastSync.toFixed(1)}小时` : '从未同步'}, 触发同步 (间隔: ${intervalHours}h)`
           )
@@ -146,7 +159,7 @@ export class DataSyncScheduler {
         }
       }
 
-      console.log(`\n✅ 检查完成: 触发了 ${triggeredCount}/${configs.length} 个同步任务`)
+      console.log(`\n✅ 检查完成: 触发了 ${triggeredCount}/${configs.length} 个同步任务${skippedCount > 0 ? `，跳过 ${skippedCount} 个未配置凭证的用户` : ''}`)
     } catch (error) {
       console.error('❌ 检查数据同步任务失败:', error)
     }
