@@ -373,12 +373,43 @@ export default function ClickFarmTaskModal({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Offer Info - Show full offer details (No dropdown needed when preSelectedOfferId is provided) */}
+          {/* Offer Selection - Show dropdown when no preSelectedOfferId */}
+          {!preSelectedOfferId && (
+            <div className="space-y-2">
+              <Label htmlFor="offer">选择Offer *</Label>
+              {loadingOffers ? (
+                <div className="flex items-center justify-center h-10 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  加载中...
+                </div>
+              ) : (
+                <Select
+                  id="offer"
+                  value={selectedOfferId?.toString() || ''}
+                  onValueChange={(value) => handleOfferChange(parseInt(value))}
+                  required
+                >
+                  <SelectContent>
+                    <SelectItem value="" disabled>
+                      请选择Offer
+                    </SelectItem>
+                    {offers.map((offer) => (
+                      <SelectItem key={offer.id} value={offer.id.toString()}>
+                        #{offer.id} - {offer.brand_name || offer.name} ({offer.target_country})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+
+          {/* Offer Info - Show full offer details (displayed after selection or when preSelectedOfferId is provided) */}
           <div className="space-y-2">
             <Label>关联 Offer</Label>
 
             {/* Offer Info Card */}
-            {selectedOffer && (
+            {selectedOffer ? (
               <div className="bg-muted/50 rounded-lg p-4 space-y-2">
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="flex items-center gap-2">
@@ -400,6 +431,10 @@ export default function ClickFarmTaskModal({
                     </span>
                   </div>
                 </div>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground italic">
+                请选择一个 Offer
               </div>
             )}
 
