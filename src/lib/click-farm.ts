@@ -846,16 +846,17 @@ export async function updateTaskStatus(
 
 /**
  * 获取待执行的任务
+ * 包括：pending（等待首次执行）+ running（进行中）
  */
 export async function getPendingTasks(): Promise<ClickFarmTask[]> {
   const db = await getDatabase();
 
   const tasks = await db.query<any>(`
     SELECT * FROM click_farm_tasks
-    WHERE status = 'running'
+    WHERE status IN ('pending', 'running')
       AND is_deleted = 0
       AND (next_run_at IS NULL OR next_run_at <= datetime('now'))
-    ORDER BY next_run_at ASC
+    ORDER BY created_at ASC
     LIMIT 100
   `, []);
 
