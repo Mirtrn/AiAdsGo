@@ -22,7 +22,8 @@ import {
   Beaker,
   TrendingUp,
   FileText,
-  Clock
+  Clock,
+  Zap
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -117,6 +118,11 @@ const navigationItems: NavItem[] = [
     icon: TrendingUp,
   },
   {
+    label: '补点击任务',
+    href: '/click-farm',
+    icon: Zap,
+  },
+  {
     label: '系统设置',
     href: '/settings',
     icon: Settings,
@@ -152,6 +158,12 @@ const adminNavigationItems: NavItem[] = [
     label: 'Prompt管理',
     href: '/admin/prompts',
     icon: FileText,
+    requireAdmin: true,
+  },
+  {
+    label: '补点击管理',
+    href: '/admin/click-farm',
+    icon: Zap,
     requireAdmin: true,
   },
 ]
