@@ -1,0 +1,341 @@
+'use client';
+
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { TrendingUp, GripVertical } from 'lucide-react';
+
+interface HourlyDistributionEditorProps {
+  /** 24小时分布数据 (0-23时的点击数，必须是正整数) */
+  distribution: number[];
+  /** 每日总点击数 */
+  dailyClickCount: number;
+  /** 时间段，格式: "06:00-24:00" */
+  timePeriod?: string;
+  /** 是否处于编辑模式 */
+  isEditing?: boolean;
+  /** 数据点变化回调 */
+  onChange?: (hour: number, newValue: number) => void;
+}
+
+/**
+ * 时间分布编辑器 - 24小时点击分布可视化 + 拖拽编辑
+ *
+ * 特性:
+ * 1. 平滑曲线 + 清晰数据点
+ * 2. 悬停显示数值
+ * 3. 拖拽调整点击数
+ * 4. 活跃/休息时段区分
+ * 5. Y轴刻度显示
+ */
+export default function HourlyDistributionEditor({
+  distribution,
+  dailyClickCount,
+  timePeriod = '00:00-24:00',
+  isEditing = false,
+  onChange,
+}: HourlyDistributionEditorProps) {
+  const [hoveredHour, setHoveredHour] = useState<number | null>(null);
+  const [draggedHour, setDraggedHour] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // 解析时间段
+  const { startHour, endHour } = useMemo(() => {
+    const [start, end] = timePeriod.split('-');
+    return {
+      startHour: parseInt(start.split(':')[0]),
+      endHour: parseInt(end.split(':')[0]),
+    };
+  }, [timePeriod]);
+
+  // 判断小时是否在活跃时段
+  const isActiveHour = useCallback((hour: number) => {
+    if (timePeriod === '00:00-24:00') return true;
+    if (startHour < endHour) {
+      return hour >= startHour && hour < endHour;
+    } else {
+      return hour >= startHour || hour < endHour;
+    }
+  }, [timePeriod, startHour, endHour]);
+
+  // 计算图表参数
+  const { maxValue, yTicks, chartPoints, curvePath, areaPath } = useMemo(() => {
+    const maxValue = Math.max(...distribution, 1);
+
+    // Y轴刻度 (0, 25%, 50%, 75%, 100%)
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(ratio => ({
+      value: Math.round(maxValue * ratio),
+      yPercent: (1 - ratio) * 100,
+    }));
+
+    // 计算24个数据点的坐标 (百分比)
+    const chartPoints = distribution.map((value, hour) => ({
+      hour,
+      value,
+      xPercent: (hour / 23) * 100, // 0h在0%, 23h在100%
+      yPercent: (1 - value / maxValue) * 100, // 值越大，y越小（SVG坐标系）
+      isActive: isActiveHour(hour),
+    }));
+
+    // 生成平滑贝塞尔曲线路径
+    let curvePath = `M ${chartPoints[0].xPercent},${chartPoints[0].yPercent}`;
+    for (let i = 0; i < chartPoints.length - 1; i++) {
+      const curr = chartPoints[i];
+      const next = chartPoints[i + 1];
+      const cpX = (curr.xPercent + next.xPercent) / 2;
+      curvePath += ` Q ${cpX},${curr.yPercent} ${next.xPercent},${next.yPercent}`;
+    }
+
+    // 生成填充区域路径
+    const lastPoint = chartPoints[chartPoints.length - 1];
+    const areaPath = `${curvePath} L ${lastPoint.xPercent},100 L ${chartPoints[0].xPercent},100 Z`;
+
+    return { maxValue, yTicks, chartPoints, curvePath, areaPath };
+  }, [distribution, isActiveHour]);
+
+  // 拖拽处理
+  const handlePointerDown = useCallback((hour: number, e: React.PointerEvent) => {
+    if (!isEditing || !onChange) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDraggedHour(hour);
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }, [isEditing, onChange]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (draggedHour === null || !onChange || !svgRef.current) return;
+
+    const svg = svgRef.current;
+    const rect = svg.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const relativeY = Math.max(0, Math.min(1, y / rect.height));
+
+    // 计算新值 (确保是正整数)
+    const newValue = Math.max(0, Math.round(maxValue * (1 - relativeY)));
+    onChange(draggedHour, newValue);
+  }, [draggedHour, maxValue, onChange]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (draggedHour !== null) {
+      (e.target as Element).releasePointerCapture(e.pointerId);
+      setDraggedHour(null);
+    }
+  }, [draggedHour]);
+
+  // 计算总点击数
+  const totalClicks = useMemo(() =>
+    distribution.reduce((sum, val) => sum + val, 0),
+    [distribution]
+  );
+
+  if (distribution.length !== 24) {
+    return (
+      <div className="h-48 bg-muted/50 rounded-lg flex items-center justify-center text-muted-foreground text-sm">
+        数据格式错误：需要24小时数据
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full space-y-3">
+      {/* 头部：标题 + 统计 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">24小时分布</span>
+        </div>
+        <div className="text-sm text-muted-foreground">
+          总计: <span className="font-semibold text-foreground">{totalClicks}</span> 次/天
+        </div>
+      </div>
+
+      {/* 图表容器 */}
+      <div className="relative bg-gradient-to-b from-muted/30 to-muted/10 rounded-lg p-4 border border-border/50">
+        {/* Y轴刻度 */}
+        <div className="absolute left-0 top-4 bottom-10 w-10 flex flex-col justify-between text-right pr-2">
+          {yTicks.map((tick, i) => (
+            <span key={i} className="text-[10px] text-muted-foreground leading-none">
+              {tick.value}
+            </span>
+          ))}
+        </div>
+
+        {/* SVG 图表 */}
+        <div className="ml-10">
+          <svg
+            ref={svgRef}
+            viewBox="0 0 100 100"
+            className={`w-full h-40 ${isEditing ? 'cursor-crosshair' : ''}`}
+            preserveAspectRatio="none"
+          >
+            {/* 定义渐变 */}
+            <defs>
+              <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="rgb(59, 130, 246)" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="rgb(59, 130, 246)" stopOpacity="0.05" />
+              </linearGradient>
+              <linearGradient id="editGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="rgb(34, 197, 94)" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="rgb(34, 197, 94)" stopOpacity="0.1" />
+              </linearGradient>
+            </defs>
+
+            {/* Y轴网格线 */}
+            {yTicks.map((tick, i) => (
+              <line
+                key={i}
+                x1="0"
+                y1={tick.yPercent}
+                x2="100"
+                y2={tick.yPercent}
+                stroke="currentColor"
+                strokeWidth="0.2"
+                className="text-border"
+                strokeDasharray="2,2"
+              />
+            ))}
+
+            {/* 填充区域 */}
+            <path
+              d={areaPath}
+              fill={isEditing ? 'url(#editGradient)' : 'url(#areaGradient)'}
+            />
+
+            {/* 曲线 */}
+            <path
+              d={curvePath}
+              fill="none"
+              stroke={isEditing ? 'rgb(34, 197, 94)' : 'rgb(59, 130, 246)'}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+
+            {/* 活跃/休息时段背景 */}
+            {chartPoints.map((point, i) => {
+              if (i === 23) return null;
+              const nextPoint = chartPoints[i + 1];
+              return (
+                <rect
+                  key={`bg-${i}`}
+                  x={point.xPercent}
+                  y="0"
+                  width={nextPoint.xPercent - point.xPercent}
+                  height="100"
+                  fill={point.isActive ? 'transparent' : 'rgba(0,0,0,0.05)'}
+                  pointerEvents="none"
+                />
+              );
+            })}
+
+            {/* 数据点 */}
+            {chartPoints.map((point) => {
+              const isHovered = hoveredHour === point.hour;
+              const isDragged = draggedHour === point.hour;
+              const showLabel = isHovered || isDragged;
+
+              return (
+                <g key={point.hour}>
+                  {/* 数值标签 */}
+                  {showLabel && (
+                    <g>
+                      <rect
+                        x={point.xPercent - 8}
+                        y={point.yPercent - 16}
+                        width="16"
+                        height="12"
+                        rx="3"
+                        fill="rgba(0,0,0,0.75)"
+                      />
+                      <text
+                        x={point.xPercent}
+                        y={point.yPercent - 8}
+                        textAnchor="middle"
+                        fill="white"
+                        fontSize="8"
+                        fontWeight="600"
+                      >
+                        {point.value}
+                      </text>
+                    </g>
+                  )}
+
+                  {/* 数据点圆圈 */}
+                  <circle
+                    cx={point.xPercent}
+                    cy={point.yPercent}
+                    r={isDragged ? 5 : isHovered ? 4 : 3}
+                    fill={
+                      isDragged
+                        ? 'rgb(249, 115, 22)'
+                        : isEditing
+                        ? 'rgb(34, 197, 94)'
+                        : 'rgb(59, 130, 246)'
+                    }
+                    stroke="white"
+                    strokeWidth="2"
+                    className={`${isEditing ? 'cursor-grab active:cursor-grabbing' : ''} transition-all duration-150`}
+                    style={{ touchAction: 'none' }}
+                    onPointerDown={(e) => handlePointerDown(point.hour, e)}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerEnter={() => setHoveredHour(point.hour)}
+                    onPointerLeave={() => setHoveredHour(null)}
+                  />
+
+                  {/* 拖拽时的垂直辅助线 */}
+                  {isDragged && (
+                    <line
+                      x1={point.xPercent}
+                      y1="0"
+                      x2={point.xPercent}
+                      y2="100"
+                      stroke="rgba(249, 115, 22, 0.3)"
+                      strokeWidth="1"
+                      strokeDasharray="3,3"
+                      pointerEvents="none"
+                    />
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* X轴：小时标签 */}
+          <div className="flex justify-between mt-2 px-[1%]">
+            {[0, 3, 6, 9, 12, 15, 18, 21].map((hour) => (
+              <div key={hour} className="flex flex-col items-center">
+                <span className="text-[10px] text-muted-foreground">
+                  {hour.toString().padStart(2, '0')}h
+                </span>
+                <div className={`w-px h-2 mt-0.5 ${
+                  isActiveHour(hour) ? 'bg-primary/40' : 'bg-muted'
+                }`} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 底部图例 */}
+      <div className="flex items-center justify-center gap-4 text-xs">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+          <span className="text-muted-foreground">
+            {isEditing ? '可编辑数据点' : '活跃时段'}
+          </span>
+        </div>
+        {timePeriod !== '00:00-24:00' && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-muted" />
+            <span className="text-muted-foreground">休息时段</span>
+          </div>
+        )}
+        {isEditing && (
+          <div className="flex items-center gap-1.5">
+            <GripVertical className="w-3 h-3 text-orange-500" />
+            <span className="text-muted-foreground">拖拽调整数值</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

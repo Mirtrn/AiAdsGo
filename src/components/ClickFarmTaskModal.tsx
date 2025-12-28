@@ -19,7 +19,7 @@ import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock
 import { toast } from 'sonner';
 import { getTimezoneByCountry } from '@/lib/timezone-utils';
 import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
-import SmoothCurveChart from '@/components/ui/SmoothCurveChart';
+import HourlyDistributionEditor from '@/components/ui/HourlyDistributionEditor';
 
 interface ClickFarmTaskModalProps {
   open: boolean;
@@ -606,59 +606,81 @@ export default function ClickFarmTaskModal({
             </div>
           </div>
 
-          {/* Distribution Preview - Smooth Curve */}
+          {/* Distribution Preview - Enhanced Editor */}
           {distribution.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4" />
                   时间分布曲线
-                  {isEditingDistribution && (
-                    <span className="text-xs text-muted-foreground font-normal">
-                      （拖拽调整每小时点击数）
-                    </span>
-                  )}
                 </Label>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={isEditingDistribution ? "default" : "outline"}
-                  onClick={toggleEditMode}
-                >
-                  {isEditingDistribution ? '完成编辑' : '自定义编辑'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {isEditingDistribution && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={resetDistribution}
+                      className="h-8 text-xs"
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" />
+                      重置
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isEditingDistribution ? "default" : "outline"}
+                    onClick={toggleEditMode}
+                    className="h-8"
+                  >
+                    {isEditingDistribution ? '完成编辑' : '自定义编辑'}
+                  </Button>
+                </div>
               </div>
 
-              {/* Smooth Curve Visualization */}
-              <SmoothCurveChart
-                data={distribution}
+              {/* Enhanced Distribution Editor */}
+              <HourlyDistributionEditor
+                distribution={distribution}
+                dailyClickCount={dailyClickCount}
                 timePeriod={timePeriod}
                 isEditing={isEditingDistribution}
-                onHourChange={(hour, value) => {
+                onChange={(hour, value) => {
                   if (!isEditingDistribution) return;
                   const newDistribution = [...distribution];
                   newDistribution[hour] = Math.max(0, value);
-                  // 保持总数不变，重新分配差值
+
+                  // 保持总数不变，智能重新分配差值
                   const currentTotal = newDistribution.reduce((sum, n) => sum + n, 0);
                   const diff = dailyClickCount - currentTotal;
+
                   if (diff !== 0) {
-                    // 将差值分配给其他非拖拽的小时
-                    let remainingDiff = diff;
-                    for (let i = 0; i < newDistribution.length && remainingDiff !== 0; i++) {
-                      if (i !== hour) {
-                        const adjust = Math.sign(remainingDiff);
-                        newDistribution[i] = Math.max(0, newDistribution[i] + adjust);
-                        remainingDiff -= adjust;
+                    // 将差值按比例分配给其他小时
+                    const otherHours = newDistribution
+                      .map((val, idx) => ({ idx, val }))
+                      .filter(({ idx }) => idx !== hour && newDistribution[idx] > 0);
+
+                    if (otherHours.length > 0) {
+                      const totalOthers = otherHours.reduce((sum, { val }) => sum + val, 0);
+
+                      for (const { idx } of otherHours) {
+                        const ratio = totalOthers > 0 ? newDistribution[idx] / totalOthers : 1 / otherHours.length;
+                        newDistribution[idx] = Math.max(0, Math.round(newDistribution[idx] + diff * ratio));
                       }
                     }
+
+                    // 最终微调确保总数精确
+                    const finalTotal = newDistribution.reduce((sum, n) => sum + n, 0);
+                    const finalDiff = dailyClickCount - finalTotal;
+                    if (finalDiff !== 0) {
+                      const maxIdx = newDistribution.indexOf(Math.max(...newDistribution));
+                      newDistribution[maxIdx] = Math.max(0, newDistribution[maxIdx] + finalDiff);
+                    }
                   }
+
                   setDistribution(newDistribution);
                 }}
               />
-
-              <p className="text-xs text-muted-foreground">
-                总计: {distribution.reduce((sum, n) => sum + n, 0)} 次点击/天
-              </p>
             </div>
           )}
 
