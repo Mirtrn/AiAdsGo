@@ -1,7 +1,7 @@
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB, enums } from './google-ads-api'
 import { getServiceAccountConfig } from './google-ads-service-account'
 import { getDatabase } from './db'
-import { getUserAuthType } from './google-ads-oauth'
+import { getUserAuthType, getGoogleAdsCredentials } from './google-ads-oauth'
 import { executeGAQLQueryPython } from './python-ads-client'
 
 /**
@@ -209,9 +209,22 @@ export class DataSyncService {
 
         const auth = await getUserAuthType(userId)
 
+        // 🔧 修复(2025-12-28): OAuth模式下需要从google_ads_credentials获取refresh_token
+        let refreshToken = account.refresh_token || undefined
+        if (auth.authType === 'oauth' && !refreshToken) {
+          // 从google_ads_credentials表获取refresh_token
+          const oauthCredentials = await getGoogleAdsCredentials(userId)
+          refreshToken = oauthCredentials?.refresh_token || undefined
+
+          if (!refreshToken) {
+            console.warn(`⚠️ 用户 ${userId} OAuth模式下缺少refresh_token，跳过账户 ${account.customer_id}`)
+            continue
+          }
+        }
+
         const performanceData = await this.queryPerformanceData({
           customerId: account.customer_id,
-          refreshToken: account.refresh_token || undefined,
+          refreshToken,
           startDate: this.formatDate(startDate),
           endDate: this.formatDate(endDate),
           accountId: account.id,
