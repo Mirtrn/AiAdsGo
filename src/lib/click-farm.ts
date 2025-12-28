@@ -46,7 +46,15 @@ export async function createClickFarmTask(
     input.timezone || 'America/New_York'
   ]);
 
-  const task = (await getClickFarmTaskById(result.lastInsertRowid as number, userId))!;
+  // 🔧 修复(2025-12-29): lastInsertRowid可能是数字(SQLite)或字符串(PostgreSQL)
+  // 需要转换为正确的类型用于查询
+  const insertedId = result.lastInsertRowid ? String(result.lastInsertRowid) : null;
+
+  if (!insertedId) {
+    throw new Error('Failed to insert task: no insert ID returned');
+  }
+
+  const task = (await getClickFarmTaskById(insertedId, userId))!;
 
   // 🆕 计算并设置 next_run_at
   const nextRunAt = generateNextRunAt(task.timezone, task);
@@ -57,7 +65,7 @@ export async function createClickFarmTask(
   `, [nextRunAt.toISOString(), task.id]);
 
   // 重新获取更新后的任务
-  return (await getClickFarmTaskById(result.lastInsertRowid as number, userId))!;
+  return (await getClickFarmTaskById(insertedId, userId))!;
 }
 
 /**

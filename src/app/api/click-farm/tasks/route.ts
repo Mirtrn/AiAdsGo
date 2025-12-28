@@ -179,6 +179,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('创建补点击任务失败:', error);
+    // 🔧 修复(2025-12-29): 添加详细的错误日志以帮助诊断问题
+    if (error instanceof Error) {
+      console.error('错误信息:', error.message);
+      console.error('错误堆栈:', error.stack);
+    }
     return NextResponse.json(
       { error: 'server_error', message: '创建任务失败' },
       { status: 500 }
