@@ -302,7 +302,12 @@ export default function CampaignsPage() {
         throw new Error(data.error || '数据同步失败')
       }
 
-      showSuccess('同步成功', `已同步 ${data.recordCount} 条性能数据`)
+      // 🔧 修复(2025-12-28): API已改为异步队列，无法立即返回recordCount
+      // 改为显示任务已加入队列的提示，并提示用户可在/admin/queue查看进度
+      showSuccess(
+        '数据同步任务已加入队列',
+        `任务ID: ${data.taskId}。可在任务队列页面查看执行状态。`
+      )
       // Wait a moment then refresh campaigns
       setTimeout(() => {
         fetchCampaigns()

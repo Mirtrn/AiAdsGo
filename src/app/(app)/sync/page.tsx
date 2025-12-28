@@ -120,7 +120,12 @@ export default function SyncManagementPage() {
       }
 
       const data = result.data
-      showSuccess('同步成功', `已同步 ${data.recordCount} 条性能数据，耗时 ${(data.duration / 1000).toFixed(2)}秒`)
+      // 🔧 修复(2025-12-28): API已改为异步队列，无法立即返回recordCount和duration
+      // 改为显示任务已加入队列的提示
+      showSuccess(
+        '数据同步任务已加入队列',
+        `任务ID: ${data.taskId}。可在任务队列页面查看执行状态。`
+      )
 
       // 刷新状态和日志
       setTimeout(() => {
