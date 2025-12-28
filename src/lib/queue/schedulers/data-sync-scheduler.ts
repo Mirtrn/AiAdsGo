@@ -85,8 +85,16 @@ export class DataSyncScheduler {
         `
         SELECT
           u.id AS user_id,
-          COALESCE(s_enabled.value, 'true') AS data_sync_enabled,
-          COALESCE(s_interval.value, '6') AS data_sync_interval_hours,
+          COALESCE(
+            (SELECT value FROM system_settings
+             WHERE user_id = u.id AND category = 'system' AND key = 'data_sync_enabled' LIMIT 1),
+            'true'
+          ) AS data_sync_enabled,
+          COALESCE(
+            (SELECT value FROM system_settings
+             WHERE user_id = u.id AND category = 'system' AND key = 'data_sync_interval_hours' LIMIT 1),
+            '6'
+          ) AS data_sync_interval_hours,
           (
             SELECT started_at
             FROM sync_logs
@@ -95,13 +103,11 @@ export class DataSyncScheduler {
             LIMIT 1
           ) AS last_auto_sync_at
         FROM users u
-        LEFT JOIN system_settings s_enabled ON s_enabled.user_id = u.id
-          AND s_enabled.category = 'system'
-          AND s_enabled.key = 'data_sync_enabled'
-        LEFT JOIN system_settings s_interval ON s_interval.user_id = u.id
-          AND s_interval.category = 'system'
-          AND s_interval.key = 'data_sync_interval_hours'
-        WHERE COALESCE(s_enabled.value, 'true') = 'true'
+        WHERE COALESCE(
+          (SELECT value FROM system_settings
+           WHERE user_id = u.id AND category = 'system' AND key = 'data_sync_enabled' LIMIT 1),
+          'true'
+        ) = 'true'
         `
       )
 
@@ -110,7 +116,14 @@ export class DataSyncScheduler {
         return
       }
 
-      console.log(`  📊 找到 ${configs.length} 个启用自动同步的用户`)
+      console.log(`  📊 找到 ${configs.length} 个启用自动同步的用户配置`)
+
+      // 🔧 修复(2025-12-29): 检查是否有重复的user_id（调试信息）
+      const userIds = configs.map(c => c.user_id)
+      const duplicates = userIds.filter((id, idx) => userIds.indexOf(id) !== idx)
+      if (duplicates.length > 0) {
+        console.warn(`  ⚠️  检测到重复用户ID: ${[...new Set(duplicates)].join(', ')}，这可能导致任务重复创建`)
+      }
 
       // 遍历用户，检查是否需要触发同步
       let triggeredCount = 0
