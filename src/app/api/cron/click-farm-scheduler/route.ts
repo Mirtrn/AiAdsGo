@@ -4,11 +4,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPendingTasks, updateTaskStatus, pauseClickFarmTask, initializeDailyHistory } from '@/lib/click-farm';
-import { getHourInTimezone, shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange } from '@/lib/click-farm/scheduler';
+import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange } from '@/lib/click-farm/scheduler';
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
 import { getDatabase } from '@/lib/db';
-import { getDateInTimezone } from '@/lib/timezone-utils';
+import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 
 export async function GET(request: NextRequest) {
@@ -82,7 +82,22 @@ export async function GET(request: NextRequest) {
         `, [task.offer_id]);
 
         if (!offer) {
-          console.error(`[Cron] Offer ${task.offer_id} 不存在`);
+          // 🔧 修复P1-6：Offer已删除，自动停止任务
+          await pauseClickFarmTask(
+            task.id,
+            'offer_deleted',
+            `关联的Offer (ID: ${task.offer_id}) 已被删除，自动停止任务`
+          );
+
+          await notifyTaskPaused(
+            task.user_id,
+            task.id,
+            'offer_deleted',
+            `您关联的Offer已被删除，补点击任务已自动停止`
+          );
+
+          results.paused++;
+          console.log(`[Cron] 任务 ${task.id} 因Offer被删除而中止`);
           continue;
         }
 
@@ -173,6 +188,10 @@ export async function GET(request: NextRequest) {
         // 🔥 核心改进：将所有点击任务加入队列系统
         console.log(`[Cron] 任务 ${task.id} 将创建 ${clickCount} 个队列任务`);
 
+        // 🔧 修复P1-3：添加错误恢复机制
+        let queued = 0;
+        let queueErrors: any[] = [];
+
         for (let i = 0; i < clickCount; i++) {
           // 🔥 计算该点击在当前小时内的执行时间（秒级随机分布，避开整分钟）
           let randomSecond = Math.floor(Math.random() * 3600);
@@ -189,22 +208,45 @@ export async function GET(request: NextRequest) {
             offerId: task.offer_id
           };
 
-          // 加入队列（正常优先级）
-          await queueManager.enqueue(
-            'click-farm',
-            taskData,
-            task.user_id,
-            {
-              priority: 'normal',
-              maxRetries: 2  // 点击任务最多重试2次
-            }
-          );
+          try {
+            // 加入队列（正常优先级）
+            await queueManager.enqueue(
+              'click-farm',
+              taskData,
+              task.user_id,
+              {
+                priority: 'normal',
+                maxRetries: 2  // 点击任务最多重试2次
+              }
+            );
 
-          results.queued++;
+            queued++;
+            results.queued++;
+          } catch (enqueueError) {
+            // 记录单个任务的加入队列失败
+            queueErrors.push(enqueueError);
+            console.warn(`[Cron] 任务 ${task.id} 加入队列失败 [${i}/${clickCount}]:`, enqueueError);
+          }
         }
 
-        // 更新下次执行时间
-        await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+        // 🔧 修复P1-3：基于加入队列的结果决定是否更新状态
+        if (queueErrors.length > 0) {
+          if (queued === 0) {
+            // 全部失败：不更新状态，保持running，下次cron仍会捡起
+            console.error(`[Cron] 任务 ${task.id}: 全部(${clickCount})个点击加入队列失败，保持pending状态重试`);
+            results.queued -= queued; // 回滚计数
+            continue; // 不更新next_run_at，下次cron会重试
+          } else {
+            // 部分失败：记录警告，但继续更新状态
+            console.warn(`[Cron] 任务 ${task.id}: 部分加入队列失败 (成功${queued}/${clickCount}，失败${queueErrors.length})`);
+          }
+        }
+
+        // 只有在至少有部分成功时才更新状态
+        if (queued > 0) {
+          await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+          console.log(`[Cron] 任务 ${task.id} 成功加入 ${queued} 个点击到队列`);
+        }
 
       } catch (error) {
         console.error(`[Cron] 处理任务 ${task.id} 失败:`, error);

@@ -3,14 +3,17 @@
 
 import type { ClickFarmTask, SubTask } from '../click-farm-types';
 import crypto from 'crypto';
-import { createDateInTimezone, getDateInTimezone } from '../timezone-utils';
+import { createDateInTimezone, getDateInTimezone, getHourInTimezone } from '../timezone-utils';
 
 /**
  * 生成子任务
  * 将每小时的点击数分散到随机的秒级时间点
  *
+ * ⚠️ 时区处理：targetHour 相对于 task.timezone（目标时区）的小时
+ * 必须使用 createDateInTimezone 确保时间在正确的时区中构造
+ *
  * @param task - 点击任务
- * @param targetHour - 目标小时（0-23）
+ * @param targetHour - 目标小时（0-23，相对于task.timezone）
  * @param targetCount - 该小时的点击数
  * @returns 子任务数组
  */
@@ -24,6 +27,8 @@ export function generateSubTasks(
   if (targetCount <= 0) return [];
 
   const tasks: SubTask[] = [];
+  // 获取任务时区中的当前日期
+  const todayInTimezone = getDateInTimezone(new Date(), task.timezone);
 
   for (let i = 0; i < targetCount; i++) {
     // 随机分钟（0-59）
@@ -31,9 +36,13 @@ export function generateSubTasks(
     // 随机秒（0-59）
     const second = Math.floor(Math.random() * 60);
 
-    // 构造调度时间（当地时区）
-    const scheduledAt = new Date();
-    scheduledAt.setHours(targetHour, minute, second, 0);
+    // 🔧 修复：使用 createDateInTimezone 在目标时区中构造时间
+    // 这样确保 targetHour 相对于 task.timezone
+    const scheduledAt = createDateInTimezone(
+      todayInTimezone,
+      `${targetHour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
+      task.timezone
+    );
 
     tasks.push({
       id: crypto.randomUUID(),
@@ -47,23 +56,6 @@ export function generateSubTasks(
 
   // 按时间排序
   return tasks.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
-}
-
-/**
- * 获取指定时区的小时数
- *
- * @param date - 日期对象
- * @param timezone - 时区字符串（如 'America/New_York'）
- * @returns 小时数（0-23）
- */
-export function getHourInTimezone(date: Date, timezone: string): number {
-  return parseInt(
-    date.toLocaleString('en-US', {
-      timeZone: timezone,
-      hour: 'numeric',
-      hour12: false
-    })
-  );
 }
 
 /**

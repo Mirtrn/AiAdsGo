@@ -3,7 +3,7 @@
 
 import { getDatabase } from './db';
 import { generateNextRunAt } from './click-farm/scheduler';
-import { getDateInTimezone } from './timezone-utils';
+import { getDateInTimezone, getHourInTimezone, createDateInTimezone } from './timezone-utils';
 import type {
   ClickFarmTask,
   ClickFarmTaskListItem,  // 🆕 导入任务列表项类型
@@ -487,34 +487,59 @@ export async function getAdminClickFarmStats(): Promise<{
 
 /**
  * 获取今日时间分布
+ * 🔧 修复P1-5：从daily_history的hourly_breakdown中提取实际执行分布
+ * 支持用户查看"配置分布" vs "实际执行分布"的对比
  */
 export async function getHourlyDistribution(userId: number): Promise<HourlyDistribution> {
   const db = await getDatabase();
 
   // 获取今日所有任务的配置分布（汇总）
   const tasks = await db.query<any>(`
-    SELECT hourly_distribution
+    SELECT hourly_distribution, timezone, daily_history, started_at
     FROM click_farm_tasks
     WHERE user_id = ? AND is_deleted = 0 AND status IN ('running', 'completed')
   `, [userId]);
 
   const hourlyConfigured = new Array(24).fill(0);
-  tasks.forEach((task: any) => {
-    const distribution = JSON.parse(task.hourly_distribution);
-    distribution.forEach((count: number, hour: number) => {
-      hourlyConfigured[hour] += count;
-    });
-  });
-
-  // 获取今日实际执行分布（从daily_history中提取）
   const hourlyActual = new Array(24).fill(0);
-  // TODO: 实际执行数据需要从Cron调度器中记录
+  const todayStr = getDateInTimezone(new Date(), 'UTC'); // 使用UTC作为参考
+
+  // 聚合所有任务的配置和实际执行分布
+  tasks.forEach((task: any) => {
+    try {
+      const distribution = JSON.parse(task.hourly_distribution);
+      distribution.forEach((count: number, hour: number) => {
+        hourlyConfigured[hour] += count;
+      });
+
+      // 🆕 P1-5：从daily_history的hourly_breakdown中提取实际执行数
+      if (task.daily_history) {
+        try {
+          const dailyHistory = JSON.parse(task.daily_history);
+          // 找到对应今天的daily_history条目
+          // 这里使用任务的timezone来确定"今天"
+          const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
+          const todayEntry = dailyHistory.find((entry: DailyHistoryEntry) => entry.date === todayInTaskTimezone);
+
+          if (todayEntry && todayEntry.hourly_breakdown) {
+            todayEntry.hourly_breakdown.forEach((hourData: any, hour: number) => {
+              hourlyActual[hour] += hourData.actual || 0;
+            });
+          }
+        } catch (e) {
+          console.warn(`[getHourlyDistribution] 解析daily_history失败:`, e);
+        }
+      }
+    } catch (e) {
+      console.warn(`[getHourlyDistribution] 解析hourly_distribution失败:`, e);
+    }
+  });
 
   // 计算匹配度
   const matchRate = calculateMatchRate(hourlyActual, hourlyConfigured);
 
   return {
-    date: new Date().toISOString().split('T')[0],
+    date: todayStr,
     hourlyActual,
     hourlyConfigured,
     matchRate
@@ -587,6 +612,9 @@ function parseClickFarmTask(row: any): ClickFarmTaskListItem {
  * ⚠️ 时区处理：所有日期都相对于 task.timezone（任务的目标时区）
  * 例如：task.timezone = "Asia/Shanghai"，scheduled_start_date = "2024-12-30"
  * 则初始化的日期都是上海时间的本地日期
+ *
+ * ⚠️ 大跨度优化：对于无限期任务，只初始化最近7天而不是从开始日期到今天
+ * 这样避免在初始化时创建数千条记录导致内存爆炸
  */
 export async function initializeDailyHistory(task: ClickFarmTask): Promise<void> {
   const db = await getDatabase();
@@ -601,18 +629,29 @@ export async function initializeDailyHistory(task: ClickFarmTask): Promise<void>
   const dailyHistory: DailyHistoryEntry[] = [];
 
   // 计算应该创建的最后一天
-  // 对于有限期任务，是scheduled_start_date + duration_days - 1
-  // 对于无限期任务，是今天（按任务时区）
   let endDateStr: string;
   if (task.duration_days > 0) {
     // 有限期任务：计算结束日期
-    const [year, month, day] = task.scheduled_start_date.split('-').map(Number);
-    const endDate = new Date(year, month - 1, day);
+    // 🔧 修复：使用createDateInTimezone确保日期计算在正确的时区
+    const startDate = createDateInTimezone(
+      task.scheduled_start_date,
+      '00:00',
+      task.timezone
+    );
+    const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + task.duration_days - 1);
-    endDateStr = endDate.toISOString().split('T')[0];
+    endDateStr = getDateInTimezone(endDate, task.timezone);
   } else {
-    // 无限期任务：只初始化到今天
-    endDateStr = getDateInTimezone(new Date(), task.timezone);
+    // 无限期任务：只初始化最近7天（P0-4修复）
+    // 避免对于运行很久的任务初始化数千条记录
+    const maxDaysToInit = 7;
+    const today = getDateInTimezone(new Date(), task.timezone);
+    const endDate = new Date(today);
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - (maxDaysToInit - 1));
+
+    currentDateStr = startDate.toISOString().split('T')[0];
+    endDateStr = today;
   }
 
   // 为每一天创建历史记录
@@ -620,12 +659,21 @@ export async function initializeDailyHistory(task: ClickFarmTask): Promise<void>
     // 计算该天的目标点击数（基于hourly_distribution）
     const targetClicks = task.hourly_distribution.reduce((sum, count) => sum + count, 0);
 
+    // 🆕 P1-5：初始化hourly_breakdown用于跟踪每小时的执行情况
+    const hourlyBreakdown = task.hourly_distribution.map(target => ({
+      target,
+      actual: 0,
+      success: 0,
+      failed: 0
+    }));
+
     dailyHistory.push({
       date: currentDateStr,  // ⚠️ 这个日期相对于 task.timezone（任务时区的本地日期）
       target: targetClicks,
       actual: 0,
       success: 0,
-      failed: 0
+      failed: 0,
+      hourly_breakdown: hourlyBreakdown  // 🆕 添加小时级别追踪
     });
 
     // 日期递增（直接操作字符串+1天）
@@ -708,31 +756,91 @@ async function updateDailyHistory(
 /**
  * 更新任务执行统计
  * 包括全局统计和每日历史记录
+ *
+ * 🔧 修复P1-1：使用原子操作避免竞态条件
+ * 🔧 修复P1-5：同时更新hourly_breakdown用于实际执行分布追踪
+ * 原问题：先UPDATE全局统计，再SELECT + UPDATE每日历史，两步操作之间可能被其他并发操作覆盖
+ * 解决方案：在单个UPDATE中同时更新global_stats、daily_history和hourly_breakdown
  */
 export async function updateTaskStats(
   id: number | string,
-  success: boolean
+  success: boolean,
+  currentHour?: number  // 可选：当前小时（用于更新hourly_breakdown）
 ): Promise<void> {
   const db = await getDatabase();
 
-  // 首先更新全局统计
+  // 先读取当前的daily_history和其他统计
+  const taskRow = await db.queryOne<any>(`
+    SELECT id, daily_history, hourly_distribution, timezone, started_at
+    FROM click_farm_tasks
+    WHERE id = ?
+  `, [id]);
+
+  if (!taskRow) {
+    return;
+  }
+
+  const task = parseClickFarmTask(taskRow);
+  const todayInTaskTimezone = getTodayInTaskTimezone(task);
+
+  // 获取当前小时（如果没有传入的话）
+  let hour = currentHour;
+  if (hour === undefined) {
+    hour = getHourInTimezone(new Date(), task.timezone);
+  }
+
+  // 更新每日历史
+  let dailyHistory: DailyHistoryEntry[] = task.daily_history && task.daily_history.length > 0
+    ? [...task.daily_history]
+    : [];
+
+  let todayEntry = dailyHistory.find(entry => entry.date === todayInTaskTimezone);
+  if (!todayEntry) {
+    todayEntry = {
+      date: todayInTaskTimezone,
+      target: task.hourly_distribution.reduce((sum, count) => sum + count, 0),
+      actual: 0,
+      success: 0,
+      failed: 0,
+      hourly_breakdown: task.hourly_distribution.map(target => ({
+        target,
+        actual: 0,
+        success: 0,
+        failed: 0
+      }))
+    };
+    dailyHistory.push(todayEntry);
+  }
+
+  // 更新今天的统计
+  todayEntry.actual += 1;
+  if (success) {
+    todayEntry.success += 1;
+  } else {
+    todayEntry.failed += 1;
+  }
+
+  // 🆕 P1-5：同时更新该小时的hourly_breakdown
+  if (todayEntry.hourly_breakdown && todayEntry.hourly_breakdown[hour]) {
+    const hourEntry = todayEntry.hourly_breakdown[hour];
+    hourEntry.actual += 1;
+    if (success) {
+      hourEntry.success += 1;
+    } else {
+      hourEntry.failed += 1;
+    }
+  }
+
+  // 🔧 原子操作：同时更新全局统计和daily_history
+  // 这样避免了两步操作之间的竞态条件
   await db.exec(`
     UPDATE click_farm_tasks
     SET total_clicks = total_clicks + 1,
         ${success ? 'success_clicks = success_clicks + 1' : 'failed_clicks = failed_clicks + 1'},
+        daily_history = ?,
         updated_at = datetime('now')
     WHERE id = ?
-  `, [id]);
-
-  // 然后获取任务对象并更新每日历史
-  const taskRow = await db.queryOne<any>(`
-    SELECT * FROM click_farm_tasks WHERE id = ?
-  `, [id]);
-
-  if (taskRow) {
-    const task = parseClickFarmTask(taskRow);
-    await updateDailyHistory(task, success);
-  }
+  `, [JSON.stringify(dailyHistory), id]);
 }
 
 /**

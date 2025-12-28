@@ -125,6 +125,18 @@ export interface DailyHistoryEntry {
   actual: number;  // 实际执行数
   success: number;  // 成功次数
   failed: number;  // 失败次数
+
+  /**
+   * 🆕 hourly_breakdown：每小时的详细执行数据
+   * 用于支持"实际执行分布"vs"配置分布"的对比功能
+   * 索引0-23对应0点到23点（相对于task.timezone）
+   */
+  hourly_breakdown?: {
+    target: number;    // 该小时目标点击数
+    actual: number;    // 该小时实际执行数
+    success: number;   // 该小时成功数
+    failed: number;    // 该小时失败数
+  }[];
 }
 
 /**
