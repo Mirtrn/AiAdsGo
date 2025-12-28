@@ -111,13 +111,14 @@ export async function getClickFarmTasks(
   const limit = filters.limit || 20;
   const offset = (page - 1) * limit;
 
-  // 获取总数
+  // 获取总数（注意：count查询需要完整的params，包含userId）
+  const countParams = [...params]; // 复制完整的params
   const countResult = await db.queryOne<{ count: number }>(`
     SELECT COUNT(*) as count FROM click_farm_tasks
     WHERE user_id = ? AND is_deleted = 0
     ${filters.status ? 'AND status = ?' : ''}
     ${filters.offer_id ? 'AND offer_id = ?' : ''}
-  `, params.slice(1));
+  `, countParams);
 
   const total = countResult?.count || 0;
 
