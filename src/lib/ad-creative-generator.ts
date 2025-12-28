@@ -20,6 +20,7 @@ import {
   deduplicateKeywordsWithPriority,
   logDuplicateKeywords
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
+import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数
 
 // Keyword with search volume data
 // 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
@@ -2601,7 +2602,29 @@ export async function generateAdCreative(
         priority: kw.priority || 'HIGH'
       }))
 
-      console.log(`🎯 从关键词池#${keywordPool.id} 获取 ${poolKeywords.length} 个关键词 (bucket ${bucket})`)
+      // 🔥 2025-12-28: 关键词质量过滤
+      // 从关键词池获取关键词后再次过滤，确保移除品牌变体词和语义查询词
+      const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
+        brandName: offer.brand,
+        category: offer.category || undefined,
+        targetCountry: offer.target_country || undefined,
+        targetLanguage: offer.target_language || undefined,
+        minWordCount: 1,
+        maxWordCount: 8,
+      })
+
+      // 生成过滤报告
+      const filterReport = generateFilterReport(extractedElements.keywords.length, keywordFilterResult.removed)
+      console.log(filterReport)
+
+      // 将 PoolKeywordData[] 转换为标准关键词格式并赋值
+      extractedElements.keywords = keywordFilterResult.filtered.map(kw => ({
+        keyword: kw.keyword,
+        searchVolume: kw.searchVolume || 0,
+        source: kw.source || 'KEYWORD_POOL',
+        priority: 'HIGH' as const
+      }))
+      console.log(`🎯 从关键词池#${keywordPool.id} 获取 ${poolKeywords.length} 个关键词，过滤后剩余 ${extractedElements.keywords.length} 个 (bucket ${bucket})`)
     } else if ((offer as any).extracted_keywords) {
       // Fallback: 关键词池不存在时，使用旧的extracted_keywords
       const rawKeywords = JSON.parse((offer as any).extracted_keywords)
@@ -2626,6 +2649,25 @@ export async function generateAdCreative(
         } else {
           console.warn(`⚠️ extracted_keywords格式未知，跳过`)
         }
+
+        // 🔥 2025-12-28: 关键词质量过滤（Fallback路径也需要过滤）
+        const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
+          brandName: offer.brand,
+          category: offer.category || undefined,
+          targetCountry: offer.target_country || undefined,
+          targetLanguage: offer.target_language || undefined,
+          minWordCount: 1,
+          maxWordCount: 8,
+        })
+        const filterReport = generateFilterReport(extractedElements.keywords.length, keywordFilterResult.removed)
+        console.log(filterReport)
+        // 将 PoolKeywordData[] 转换为标准关键词格式
+        extractedElements.keywords = keywordFilterResult.filtered.map(kw => ({
+          keyword: kw.keyword,
+          searchVolume: kw.searchVolume || 0,
+          source: kw.source || 'EXTRACTED',
+          priority: 'MEDIUM' as const
+        }))
       }
     }
     if ((offer as any).extracted_headlines) {
@@ -2753,6 +2795,33 @@ export async function generateAdCreative(
     }
   )
 
+  // 🔥 2025-12-28: 最终关键词质量过滤
+  // 确保所有来源的关键词都经过过滤，移除品牌变体词和语义查询词
+  const finalKeywordFilter = filterKeywordQuality(uniqueKeywords, {
+    brandName: offer.brand,
+    category: offer.category || undefined,
+    targetCountry: offer.target_country || undefined,
+    targetLanguage: offer.target_language || undefined,
+    minWordCount: 1,
+    maxWordCount: 8,
+  })
+
+  if (finalKeywordFilter.removed.length > 0) {
+    console.log(`🧹 最终关键词过滤: 移除 ${finalKeywordFilter.removed.length} 个低质量关键词`)
+    finalKeywordFilter.removed.slice(0, 5).forEach(item => {
+      const kw = typeof item.keyword === 'string' ? item.keyword : item.keyword.keyword
+      console.log(`   - "${kw}": ${item.reason}`)
+    })
+  }
+
+  // 将 PoolKeywordData[] 转换为标准关键词格式
+  const filteredKeywords = finalKeywordFilter.filtered.map(kw => ({
+    keyword: kw.keyword,
+    searchVolume: kw.searchVolume || 0,
+    source: kw.source || 'FILTERED',
+    priority: 'MEDIUM' as const
+  }))
+
   // 🔥 调试：打印去重信息
   logDuplicateKeywords(mergedKeywords.map(kw => kw.keyword), '合并前关键词')
 
@@ -2765,7 +2834,7 @@ export async function generateAdCreative(
   const uniqueDescriptions = [...new Set(mergedDescriptions)]
 
   const mergedData = {
-    keywords: uniqueKeywords,
+    keywords: filteredKeywords,
     headlines: uniqueHeadlines,
     descriptions: uniqueDescriptions,
     productInfo: enhancedData.productInfo,
