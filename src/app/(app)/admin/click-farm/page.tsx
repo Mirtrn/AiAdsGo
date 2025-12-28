@@ -1,11 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -15,16 +13,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  Search,
   RefreshCw,
   Zap,
   FileText,
   TrendingUp,
   AlertCircle,
   Users,
-  Eye,
 } from 'lucide-react';
-import { ResponsivePagination } from '@/components/ui/responsive-pagination';
 
 interface GlobalStats {
   total_tasks: number;
@@ -53,54 +48,22 @@ interface TopUser {
   traffic: number;
 }
 
-interface TaskItem {
-  id: string;
-  user_id: number;
-  username: string;
-  offer_id: number;
-  offer_name: string;
-  daily_click_count: number;
-  status: string;
-  progress: number;
-  total_clicks: number;
-  success_rate: number;
-  traffic: number;
-  created_at: string;
-}
-
 export default function AdminClickFarmPage() {
-  const router = useRouter();
-
   // Data states
   const [stats, setStats] = useState<GlobalStats | null>(null);
   const [topUsers, setTopUsers] = useState<TopUser[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [filteredTasks, setFilteredTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Filter states
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-
-  // Pagination states
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     loadData();
-  }, [currentPage]);
-
-  useEffect(() => {
-    filterTasks();
-  }, [tasks, searchQuery, statusFilter]);
+  }, []);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [statsRes, topUsersRes, tasksRes] = await Promise.all([
+      const [statsRes, topUsersRes] = await Promise.all([
         fetch('/api/admin/click-farm/stats'),
         fetch('/api/admin/click-farm/top-users'),
-        fetch(`/api/admin/click-farm/tasks?page=${currentPage}&limit=${pageSize}`),
       ]);
 
       if (statsRes.ok) {
@@ -112,11 +75,6 @@ export default function AdminClickFarmPage() {
         const data = await topUsersRes.json();
         setTopUsers(data.data || []);
       }
-
-      if (tasksRes.ok) {
-        const data = await tasksRes.json();
-        setTasks(data.data.tasks || []);
-      }
     } catch (error) {
       console.error('加载数据失败:', error);
     } finally {
@@ -124,52 +82,11 @@ export default function AdminClickFarmPage() {
     }
   };
 
-  const filterTasks = () => {
-    let result = [...tasks];
-
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(t =>
-        t.id.toLowerCase().includes(query) ||
-        t.username.toLowerCase().includes(query) ||
-        t.offer_id.toString().includes(query)
-      );
-    }
-
-    // Status filter
-    if (statusFilter !== 'all') {
-      result = result.filter(t => t.status === statusFilter);
-    }
-
-    setFilteredTasks(result);
-    setCurrentPage(1);
-  };
-
-  const paginatedTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
   const formatBytes = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  };
-
-  const getStatusBadge = (status: string) => {
-    const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string }> = {
-      running: { label: '运行中', variant: 'default', className: 'bg-green-600' },
-      pending: { label: '等待中', variant: 'secondary', className: 'bg-blue-100 text-blue-700' },
-      paused: { label: '已中止', variant: 'destructive', className: '' },
-      stopped: { label: '已停止', variant: 'outline', className: '' },
-      completed: { label: '已完成', variant: 'default', className: 'bg-purple-600' },
-    };
-    const config = configs[status] || { label: status, variant: 'outline' as const, className: '' };
-
-    return (
-      <Badge variant={config.variant} className={config.className}>
-        {config.label}
-      </Badge>
-    );
   };
 
   if (loading) {
@@ -395,134 +312,6 @@ export default function AdminClickFarmPage() {
                   ))}
                 </TableBody>
               </Table>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Filters */}
-        <Card className="mb-6">
-          <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="relative md:col-span-2">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="搜索任务ID、用户名或Offer ID..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="all">所有状态</option>
-                <option value="running">运行中</option>
-                <option value="pending">等待中</option>
-                <option value="paused">已中止</option>
-                <option value="stopped">已停止</option>
-                <option value="completed">已完成</option>
-              </select>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Task List */}
-        {filteredTasks.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-lg shadow border border-gray-200">
-            <div className="mx-auto h-12 w-12 text-gray-400 mb-4">
-              <Zap className="w-full h-full" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-900">未找到任务</h3>
-            <p className="mt-2 text-sm text-gray-500">
-              没有找到符合筛选条件的任务。
-            </p>
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[60px]">ID</TableHead>
-                    <TableHead className="w-[80px]">用户</TableHead>
-                    <TableHead>Offer</TableHead>
-                    <TableHead className="w-[100px]">每日点击</TableHead>
-                    <TableHead className="w-[100px]">状态</TableHead>
-                    <TableHead className="w-[80px]">进度</TableHead>
-                    <TableHead className="w-[100px]">成功率</TableHead>
-                    <TableHead className="w-[100px]">流量</TableHead>
-                    <TableHead className="w-[120px]">创建时间</TableHead>
-                    <TableHead className="w-[60px]">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedTasks.map((task) => (
-                    <TableRow key={task.id} className="hover:bg-gray-50/50">
-                      <TableCell className="font-mono text-xs">
-                        #{task.id.slice(0, 8)}
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium text-sm">{task.username}</div>
-                          <div className="text-xs text-gray-500">ID: {task.user_id}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="max-w-[150px] truncate" title={task.offer_name}>
-                          {task.offer_name || `Offer #${task.offer_id}`}
-                        </div>
-                      </TableCell>
-                      <TableCell>{task.daily_click_count}</TableCell>
-                      <TableCell>{getStatusBadge(task.status)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <div className="w-12 bg-gray-200 rounded-full h-1.5">
-                            <div
-                              className="bg-blue-600 h-1.5 rounded-full"
-                              style={{ width: `${task.progress}%` }}
-                            />
-                          </div>
-                          <span className="text-xs">{task.progress}%</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {task.success_rate.toFixed(1)}%
-                      </TableCell>
-                      <TableCell>{formatBytes(task.traffic)}</TableCell>
-                      <TableCell className="text-sm text-gray-500">
-                        {task.created_at}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => router.push(`/click-farm/tasks/${task.id}`)}
-                          className="text-blue-600 hover:text-blue-800"
-                          title="查看详情"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              {filteredTasks.length > 0 && (
-                <div className="px-4 py-3 border-t border-gray-200">
-                  <ResponsivePagination
-                    currentPage={currentPage}
-                    totalPages={Math.ceil(filteredTasks.length / pageSize)}
-                    totalItems={filteredTasks.length}
-                    pageSize={pageSize}
-                    onPageChange={setCurrentPage}
-                    onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
-                    pageSizeOptions={[10, 20, 50, 100]}
-                  />
-                </div>
-              )}
             </CardContent>
           </Card>
         )}
