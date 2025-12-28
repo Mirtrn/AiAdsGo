@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -11,8 +14,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Activity, TrendingUp, Users, CheckCircle, Zap } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Search,
+  RefreshCw,
+  Zap,
+  FileText,
+  TrendingUp,
+  AlertCircle,
+  Users,
+  Eye,
+} from 'lucide-react';
+import { ResponsivePagination } from '@/components/ui/responsive-pagination';
 
 interface GlobalStats {
   total_tasks: number;
@@ -23,7 +35,6 @@ interface GlobalStats {
   today_clicks: number;
   today_traffic: number;
   total_traffic: number;
-  // 🆕 任务状态分布
   taskStatusDistribution: {
     pending: number;
     running: number;
@@ -58,23 +69,34 @@ interface TaskItem {
 }
 
 export default function AdminClickFarmPage() {
+  const router = useRouter();
+
+  // Data states
   const [stats, setStats] = useState<GlobalStats | null>(null);
   const [topUsers, setTopUsers] = useState<TopUser[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [filteredTasks, setFilteredTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     loadData();
   }, [currentPage]);
 
+  useEffect(() => {
+    filterTasks();
+  }, [tasks, searchQuery, statusFilter]);
+
   const loadData = async () => {
     try {
       setLoading(true);
-
-      // Load stats, top users, and tasks in parallel
       const [statsRes, topUsersRes, tasksRes] = await Promise.all([
         fetch('/api/admin/click-farm/stats'),
         fetch('/api/admin/click-farm/top-users'),
@@ -94,7 +116,6 @@ export default function AdminClickFarmPage() {
       if (tasksRes.ok) {
         const data = await tasksRes.json();
         setTasks(data.data.tasks || []);
-        setTotalPages(Math.ceil((data.data.total || 0) / pageSize));
       }
     } catch (error) {
       console.error('加载数据失败:', error);
@@ -102,6 +123,30 @@ export default function AdminClickFarmPage() {
       setLoading(false);
     }
   };
+
+  const filterTasks = () => {
+    let result = [...tasks];
+
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(t =>
+        t.id.toLowerCase().includes(query) ||
+        t.username.toLowerCase().includes(query) ||
+        t.offer_id.toString().includes(query)
+      );
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      result = result.filter(t => t.status === statusFilter);
+    }
+
+    setFilteredTasks(result);
+    setCurrentPage(1);
+  };
+
+  const paginatedTasks = filteredTasks.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const formatBytes = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -111,283 +156,377 @@ export default function AdminClickFarmPage() {
   };
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, any> = {
-      running: 'default',
-      pending: 'secondary',
-      paused: 'destructive',
-      stopped: 'outline',
-      completed: 'default',
+    const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string }> = {
+      running: { label: '运行中', variant: 'default', className: 'bg-green-600' },
+      pending: { label: '等待中', variant: 'secondary', className: 'bg-blue-100 text-blue-700' },
+      paused: { label: '已中止', variant: 'destructive', className: '' },
+      stopped: { label: '已停止', variant: 'outline', className: '' },
+      completed: { label: '已完成', variant: 'default', className: 'bg-purple-600' },
     };
-
-    const labels: Record<string, string> = {
-      running: '运行中',
-      pending: '待执行',
-      paused: '已暂停',
-      stopped: '已停止',
-      completed: '已完成',
-    };
+    const config = configs[status] || { label: status, variant: 'outline' as const, className: '' };
 
     return (
-      <Badge variant={variants[status] || 'outline'}>
-        {labels[status] || status}
+      <Badge variant={config.variant} className={config.className}>
+        {config.label}
       </Badge>
     );
   };
 
-  if (loading && !stats) {
+  if (loading) {
     return (
-      <div className="container mx-auto py-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">补点击管理</h1>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map(i => (
-            <Card key={i}>
-              <CardContent className="pt-6">
-                <Skeleton className="h-20 w-full" />
-              </CardContent>
-            </Card>
-          ))}
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">加载中...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      {/* 标题 */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">补点击管理</h1>
-        <Badge variant="outline" className="text-sm">
-          <Activity className="mr-1 h-3 w-3" />
-          管理员视图
-        </Badge>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center gap-4">
+              <h1 className="text-2xl font-bold text-gray-900">补点击管理</h1>
+              <Badge variant="outline" className="text-sm">
+                管理员视图
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={loadData}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                刷新
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* 全局统计卡片 */}
-      {stats && (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">任务总数</CardTitle>
-                <Activity className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.total_tasks.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  活跃: {stats.active_tasks}
-                </p>
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        {/* Summary Statistics - 今日与累计数据 */}
+        {stats && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+            <Card className="py-4">
+              <CardContent className="pt-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-gray-600">今日点击</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">
+                      {stats.today_clicks.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+                    <TrendingUp className="w-4 h-4 text-green-600" />
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">总点击数</CardTitle>
-                <Zap className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.total_clicks.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  今日: {stats.today_clicks.toLocaleString()}
-                </p>
+            <Card className="py-4">
+              <CardContent className="pt-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-gray-600">今日成功率</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">
+                      {stats.today_clicks > 0
+                        ? ((stats.success_clicks / stats.total_clicks) * 100).toFixed(1)
+                        : '0.0'}%
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4 text-green-600" />
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">平均成功率</CardTitle>
-                <CheckCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.success_rate.toFixed(1)}%</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  成功: {stats.success_clicks.toLocaleString()}
-                </p>
+            <Card className="py-4">
+              <CardContent className="pt-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-gray-600">今日流量</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">
+                      {formatBytes(stats.today_traffic)}
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center shrink-0">
+                    <AlertCircle className="w-4 h-4 text-orange-600" />
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">总流量</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatBytes(stats.total_traffic)}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  今日: {formatBytes(stats.today_traffic)}
-                </p>
+            <Card className="py-4">
+              <CardContent className="pt-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-gray-600">累计点击</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">
+                      {stats.total_clicks.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+                    <Zap className="w-4 h-4 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="py-4">
+              <CardContent className="pt-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-gray-600">累计成功率</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">
+                      {stats.success_rate.toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4 text-purple-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="py-4">
+              <CardContent className="pt-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-gray-600">累计流量</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">
+                      {formatBytes(stats.total_traffic)}
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center shrink-0">
+                    <AlertCircle className="w-4 h-4 text-orange-600" />
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
+        )}
 
-          {/* 🆕 任务状态分布卡片 */}
-          <Card>
+        {/* Task Status Distribution */}
+        {stats && (
+          <Card className="mb-6">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                任务状态分布
+              <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                <span>任务状态分布</span>
+                <span className="text-xs font-normal text-gray-500">
+                  总任务: {stats.total_tasks.toLocaleString()} | 活跃: {stats.active_tasks}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-sm">
                 <div className="text-center">
                   <div className="text-lg font-bold text-blue-600">{stats.taskStatusDistribution.pending}</div>
-                  <div className="text-xs text-muted-foreground">等待开始</div>
+                  <div className="text-xs text-gray-500">等待开始</div>
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-bold text-green-600">{stats.taskStatusDistribution.running}</div>
-                  <div className="text-xs text-muted-foreground">运行中</div>
+                  <div className="text-xs text-gray-500">运行中</div>
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-bold text-yellow-600">{stats.taskStatusDistribution.paused}</div>
-                  <div className="text-xs text-muted-foreground">已中止</div>
+                  <div className="text-xs text-gray-500">已中止</div>
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-bold text-gray-600">{stats.taskStatusDistribution.stopped}</div>
-                  <div className="text-xs text-muted-foreground">已停止</div>
+                  <div className="text-xs text-gray-500">已停止</div>
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-bold text-purple-600">{stats.taskStatusDistribution.completed}</div>
-                  <div className="text-xs text-muted-foreground">已完成</div>
+                  <div className="text-xs text-gray-500">已完成</div>
                 </div>
                 <div className="text-center">
                   <div className="text-lg font-bold">{stats.taskStatusDistribution.total}</div>
-                  <div className="text-xs text-muted-foreground">总任务数</div>
+                  <div className="text-xs text-gray-500">总任务数</div>
                 </div>
               </div>
             </CardContent>
           </Card>
-        </>
-      )}
+        )}
 
-      {/* Top 10 用户 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Top 10 用户（按点击量排序）
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {topUsers.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">暂无数据</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">排名</TableHead>
-                  <TableHead>用户ID</TableHead>
-                  <TableHead>用户名</TableHead>
-                  <TableHead className="text-right">总点击数</TableHead>
-                  <TableHead className="text-right">成功率</TableHead>
-                  <TableHead className="text-right">总流量</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {topUsers.map((user, index) => (
-                  <TableRow key={user.user_id}>
-                    <TableCell className="font-medium">#{index + 1}</TableCell>
-                    <TableCell className="font-mono text-sm">{user.user_id}</TableCell>
-                    <TableCell>{user.username}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {user.total_clicks.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className={user.success_rate >= 95 ? 'text-green-600 font-medium' : ''}>
-                        {user.success_rate.toFixed(1)}%
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">{formatBytes(user.traffic)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 所有用户任务列表 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>所有用户任务列表</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {tasks.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">暂无任务</p>
-          ) : (
-            <>
+        {/* Top 10 Users */}
+        {topUsers.length > 0 && (
+          <Card className="mb-6">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Users className="w-4 h-4" />
+                Top 10 用户（按点击量排序）
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>用户</TableHead>
-                    <TableHead>Offer</TableHead>
-                    <TableHead className="text-right">每日点击</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead className="text-right">进度</TableHead>
-                    <TableHead className="text-right">总点击</TableHead>
+                    <TableHead className="w-16">排名</TableHead>
+                    <TableHead>用户ID</TableHead>
+                    <TableHead>用户名</TableHead>
+                    <TableHead className="text-right">总点击数</TableHead>
                     <TableHead className="text-right">成功率</TableHead>
-                    <TableHead className="text-right">流量</TableHead>
-                    <TableHead>创建时间</TableHead>
+                    <TableHead className="text-right">总流量</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {tasks.map(task => (
-                    <TableRow key={task.id}>
+                  {topUsers.map((user, index) => (
+                    <TableRow key={user.user_id}>
+                      <TableCell className="font-medium">#{index + 1}</TableCell>
+                      <TableCell className="font-mono text-sm">{user.user_id}</TableCell>
+                      <TableCell>{user.username}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {user.total_clicks.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className={user.success_rate >= 95 ? 'text-green-600 font-medium' : ''}>
+                          {user.success_rate.toFixed(1)}%
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">{formatBytes(user.traffic)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Filters */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="relative md:col-span-2">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Input
+                  placeholder="搜索任务ID、用户名或Offer ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="all">所有状态</option>
+                <option value="running">运行中</option>
+                <option value="pending">等待中</option>
+                <option value="paused">已中止</option>
+                <option value="stopped">已停止</option>
+                <option value="completed">已完成</option>
+              </select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Task List */}
+        {filteredTasks.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-lg shadow border border-gray-200">
+            <div className="mx-auto h-12 w-12 text-gray-400 mb-4">
+              <Zap className="w-full h-full" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900">未找到任务</h3>
+            <p className="mt-2 text-sm text-gray-500">
+              没有找到符合筛选条件的任务。
+            </p>
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60px]">ID</TableHead>
+                    <TableHead className="w-[80px]">用户</TableHead>
+                    <TableHead>Offer</TableHead>
+                    <TableHead className="w-[100px]">每日点击</TableHead>
+                    <TableHead className="w-[100px]">状态</TableHead>
+                    <TableHead className="w-[80px]">进度</TableHead>
+                    <TableHead className="w-[100px]">成功率</TableHead>
+                    <TableHead className="w-[100px]">流量</TableHead>
+                    <TableHead className="w-[120px]">创建时间</TableHead>
+                    <TableHead className="w-[60px]">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedTasks.map((task) => (
+                    <TableRow key={task.id} className="hover:bg-gray-50/50">
+                      <TableCell className="font-mono text-xs">
+                        #{task.id.slice(0, 8)}
+                      </TableCell>
                       <TableCell>
                         <div>
-                          <div className="font-medium">{task.username}</div>
-                          <div className="text-xs text-muted-foreground">ID: {task.user_id}</div>
+                          <div className="font-medium text-sm">{task.username}</div>
+                          <div className="text-xs text-gray-500">ID: {task.user_id}</div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="max-w-[200px] truncate" title={task.offer_name}>
+                        <div className="max-w-[150px] truncate" title={task.offer_name}>
                           {task.offer_name || `Offer #${task.offer_id}`}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right">{task.daily_click_count}</TableCell>
+                      <TableCell>{task.daily_click_count}</TableCell>
                       <TableCell>{getStatusBadge(task.status)}</TableCell>
-                      <TableCell className="text-right">{task.progress}%</TableCell>
-                      <TableCell className="text-right">{task.total_clicks.toLocaleString()}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <div className="w-12 bg-gray-200 rounded-full h-1.5">
+                            <div
+                              className="bg-blue-600 h-1.5 rounded-full"
+                              style={{ width: `${task.progress}%` }}
+                            />
+                          </div>
+                          <span className="text-xs">{task.progress}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         {task.success_rate.toFixed(1)}%
                       </TableCell>
-                      <TableCell className="text-right">{formatBytes(task.traffic)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(task.created_at).toLocaleDateString()}
+                      <TableCell>{formatBytes(task.traffic)}</TableCell>
+                      <TableCell className="text-sm text-gray-500">
+                        {task.created_at}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => router.push(`/click-farm/tasks/${task.id}`)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="查看详情"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
 
-              {/* 分页 */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-4">
-                  <p className="text-sm text-muted-foreground">
-                    第 {currentPage} / {totalPages} 页
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="px-3 py-1 text-sm border rounded disabled:opacity-50"
-                    >
-                      上一页
-                    </button>
-                    <button
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages}
-                      className="px-3 py-1 text-sm border rounded disabled:opacity-50"
-                    >
-                      下一页
-                    </button>
-                  </div>
+              {filteredTasks.length > 0 && (
+                <div className="px-4 py-3 border-t border-gray-200">
+                  <ResponsivePagination
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(filteredTasks.length / pageSize)}
+                    totalItems={filteredTasks.length}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+                    pageSizeOptions={[10, 20, 50, 100]}
+                  />
                 </div>
               )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        )}
+      </main>
     </div>
   );
 }

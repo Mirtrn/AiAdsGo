@@ -278,9 +278,21 @@ export async function pauseClickFarmTask(
 
 /**
  * 获取用户统计数据
+ *
+ * @param userId - 用户ID
+ * @param daysBack - 时间范围，'all'表示全部历史，数字表示最近N天
  */
-export async function getClickFarmStats(userId: number): Promise<ClickFarmStats> {
+export async function getClickFarmStats(userId: number, daysBack: number | 'all' = 'all'): Promise<ClickFarmStats> {
   const db = await getDatabase();
+
+  // 构建日期过滤条件
+  let dateFilter = '';
+  let dateParams: string[] = [];
+  if (daysBack !== 'all') {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+    dateFilter = ` AND started_at >= datetime('${cutoffDate.toISOString()}')`;
+  }
 
   // 🔧 修复：获取所有任务及其对应的timezone，在应用层按每个任务的timezone过滤今日数据
   // ⚠️ 注意：每个任务可能有不同的timezone（来自offer的target_country）
@@ -294,7 +306,7 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
   }>(`
     SELECT timezone, started_at, total_clicks, success_clicks, failed_clicks
     FROM click_farm_tasks
-    WHERE user_id = ? AND is_deleted = 0 AND started_at IS NOT NULL
+    WHERE user_id = ? AND is_deleted = 0 AND started_at IS NOT NULL ${dateFilter}
   `, [userId]);
 
   // 按每个任务的timezone单独判断是否为今日
@@ -317,6 +329,16 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
     : 0;
 
   // 累计统计（包含已删除任务的历史数据，以便保留历史记录）
+  // 如果指定了daysBack，则只统计指定范围内的数据
+  let cumulativeFilter = '';
+  let cumulativeParams: (string | number)[] = [userId];
+  if (daysBack !== 'all') {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+    cumulativeFilter = ` AND created_at >= datetime('${cutoffDate.toISOString()}')`;
+  }
+
+  // 累计统计（包含已删除任务的历史数据，以便保留历史记录）
   // 注意：如果需要只统计未删除任务，添加 AND is_deleted = 0 条件
   const cumulative = await db.queryOne<any>(`
     SELECT
@@ -324,8 +346,8 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
       COALESCE(SUM(success_clicks), 0) as successClicks,
       COALESCE(SUM(failed_clicks), 0) as failedClicks
     FROM click_farm_tasks
-    WHERE user_id = ?
-  `, [userId]);
+    WHERE user_id = ? ${cumulativeFilter}
+  `, cumulativeParams);
 
   const cumulativeSuccessRate = cumulative.clicks > 0
     ? (cumulative.successClicks / cumulative.clicks) * 100
@@ -335,7 +357,7 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
   const statusDistribution = await db.query<{ status: string; count: number }>(`
     SELECT status, COUNT(*) as count
     FROM click_farm_tasks
-    WHERE user_id = ? AND is_deleted = 0
+    WHERE user_id = ? AND is_deleted = 0 ${dateFilter.replace('started_at', 'created_at')}
     GROUP BY status
   `, [userId]);
 
@@ -402,16 +424,15 @@ export async function getAdminClickFarmStats(): Promise<{
 }> {
   const db = await getDatabase();
 
-  // 1️⃣ 全局统计（所有任务）
+  // 1️⃣ 全局统计（包含已删除任务的历史数据，以便保留历史记录）
   const global = await db.queryOne<any>(`
     SELECT
       COUNT(*) as total_tasks,
-      SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as active_tasks,
+      SUM(CASE WHEN status = 'running' AND is_deleted = 0 THEN 1 ELSE 0 END) as active_tasks,
       COALESCE(SUM(total_clicks), 0) as total_clicks,
       COALESCE(SUM(success_clicks), 0) as success_clicks,
       COALESCE(SUM(failed_clicks), 0) as failed_clicks
     FROM click_farm_tasks
-    WHERE is_deleted = 0
   `, []);
 
   const successRate = global.total_clicks > 0

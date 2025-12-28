@@ -139,26 +139,30 @@ export function getDateInTimezone(date: Date, timezone: string): string {
  * 这个函数使用 formatToParts 来获取指定timezone的本地时间对应的UTC时间
  *
  * @param dateStr - YYYY-MM-DD 格式的日期
- * @param timeStr - HH:mm 格式的时间
+ * @param timeStr - HH:mm 或 HH:mm:ss 格式的时间
  * @param timezone - IANA timezone 标识符
  * @returns UTC Date 对象，表示输入的本地时间对应的UTC时间
  *
  * @example
- * createDateInTimezone('2024-12-30', '06:00', 'America/New_York')
- * // 纽约时间 2024-12-30 06:00 EST (UTC-5) = UTC 2024-12-30 11:00
+ * createDateInTimezone('2024-12-30', '06:00:30', 'America/New_York')
+ * // 纽约时间 2024-12-30 06:00:30 EST (UTC-5) = UTC 2024-12-30 11:00:30
  * // 返回 Date 对象
  */
 export function createDateInTimezone(
   dateStr: string,
   timeStr: string,
-  timezone: string
+  timezone: string,
+  second?: number  // 🆕 可选秒数参数
 ): Date {
   const [year, month, day] = dateStr.split('-').map(Number);
-  const [hour, minute] = timeStr.split(':').map(Number);
+  const timeParts = timeStr.split(':').map(Number);
+  const hour = timeParts[0];
+  const minute = timeParts[1];
+  const sec = second !== undefined ? second : (timeParts[2] || 0);
 
   // 方法：使用 formatToParts 获取本地时间，然后计算对应的UTC时间
   // 1. 构造一个UTC时间作为基准
-  const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, sec));
 
   // 2. 获取这个UTC时间在目标时区的显示时间
   const formatter = new Intl.DateTimeFormat('en-US', {

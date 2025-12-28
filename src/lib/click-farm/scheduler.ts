@@ -33,15 +33,17 @@ export function generateSubTasks(
   for (let i = 0; i < targetCount; i++) {
     // 随机分钟（0-59）
     const minute = Math.floor(Math.random() * 60);
-    // 随机秒（0-59）
+    // 随机秒（0-59），避免整点整分整秒
     const second = Math.floor(Math.random() * 60);
 
     // 🔧 修复：使用 createDateInTimezone 在目标时区中构造时间
     // 这样确保 targetHour 相对于 task.timezone
+    // 🆕 使用随机秒数，避免整点整分整秒的触发时间
     const scheduledAt = createDateInTimezone(
       todayInTimezone,
       `${targetHour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
-      task.timezone
+      task.timezone,
+      second
     );
 
     tasks.push({
