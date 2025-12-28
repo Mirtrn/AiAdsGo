@@ -35,7 +35,7 @@ interface Offer {
   name?: string;
   brand?: string;
   brand_name?: string;
-  target_country: string;
+  targetCountry: string;  // API返回驼峰命名
   affiliate_link?: string;
 }
 
@@ -264,10 +264,10 @@ export default function ClickFarmTaskModal({
     // 🆕 使用传入的 offersDataParam，如果没传则使用 state offers
     const offersList = offersDataParam || offers;
     const offer = offersList.find(o => o.id === offerId);
-    console.log('[ClickFarmTaskModal] handleOfferChange: 找到offer?', !!offer, 'offerName:', offer?.offerName, 'brand:', offer?.brand);
+    console.log('[ClickFarmTaskModal] handleOfferChange: 找到offer?', !!offer, 'offerName:', offer?.offerName, 'brand:', offer?.brand, 'targetCountry:', offer?.targetCountry);
     if (offer) {
-      await checkProxy(offer.target_country);
-      const autoTimezone = getTimezoneByCountry(offer.target_country);
+      await checkProxy(offer.targetCountry);
+      const autoTimezone = getTimezoneByCountry(offer.targetCountry);
       setTimezone(autoTimezone);
       console.log(`[ClickFarmTaskModal] handleOfferChange: timezone = ${autoTimezone}, dailyClickCount = ${dailyClickCount}, distribution.length = ${distribution.length}`);
 
@@ -463,7 +463,7 @@ export default function ClickFarmTaskModal({
                     </SelectItem>
                     {offers.map((offer) => (
                       <SelectItem key={offer.id} value={offer.id.toString()}>
-                        #{offer.id} - {offer.offerName || offer.brand || offer.name || offer.brand_name} ({offer.target_country})
+                        #{offer.id} - {offer.offerName || offer.brand || offer.name || offer.brand_name} ({offer.targetCountry})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -494,7 +494,7 @@ export default function ClickFarmTaskModal({
                   <div className="flex items-center gap-2">
                     <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span>
-                      <span className="text-muted-foreground">投放国家:</span> {selectedOffer.target_country}
+                      <span className="text-muted-foreground">投放国家:</span> {selectedOffer.targetCountry}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -523,7 +523,7 @@ export default function ClickFarmTaskModal({
                   variant="link"
                   size="sm"
                   className="h-auto p-0 text-xs"
-                  onClick={() => window.open('/settings/proxy', '_blank')}
+                  onClick={() => window.open('/settings', '_blank')}
                 >
                   前往配置 →
                 </Button>
