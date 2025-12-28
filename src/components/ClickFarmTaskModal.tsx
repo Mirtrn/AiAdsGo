@@ -115,19 +115,35 @@ export default function ClickFarmTaskModal({
 
   // 🆕 使用 useLayoutEffect 确保在 DOM 更新前处理 preSelectedOfferId
   // 这可以避免父组件状态更新延迟导致的问题
+  // 关键：每次 open 变为 true 时都执行，不依赖 selectedOfferId
   useLayoutEffect(() => {
-    if (open && preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
+    if (!open) return;
+
+    console.log('[ClickFarmTaskModal] useLayoutEffect: open=true, preSelectedOfferId=', preSelectedOfferId, 'offers.length=', offers.length);
+
+    // 如果有 preSelectedOfferId 且 offers 已加载，找到并选中它
+    if (preSelectedOfferId && offers.length > 0) {
       const offer = offers.find(o => o.id === preSelectedOfferId);
       if (offer) {
-        console.log('[ClickFarmTaskModal] useLayoutEffect: 直接设置 selectedOfferId =', preSelectedOfferId);
+        console.log('[ClickFarmTaskModal] useLayoutEffect: 选中 offer id =', offer.id, 'name =', offer.name);
         setSelectedOfferId(preSelectedOfferId);
-        // 🆕 立即生成分布
+
+        // 立即生成分布
         if (dailyClickCount > 0 && distribution.length === 0) {
+          console.log('[ClickFarmTaskModal] useLayoutEffect: 调用 generateDistribution');
           generateDistribution();
         }
+      } else {
+        console.log('[ClickFarmTaskModal] useLayoutEffect: 未找到对应的 offer');
+      }
+    } else if (!preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
+      // 如果没有 preSelectedOfferId，选择第一个 offer
+      console.log('[ClickFarmTaskModal] useLayoutEffect: 无 preSelectedOfferId，选择第一个 offer');
+      if (offers[0]) {
+        handleOfferChange(offers[0].id);
       }
     }
-  }, [open, preSelectedOfferId, offers.length, selectedOfferId]);
+  }, [open, preSelectedOfferId, offers.length]);
 
   // Generate distribution when offer is selected
   useEffect(() => {
