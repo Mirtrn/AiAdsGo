@@ -40,6 +40,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 🆕 NEW-4：验证时间格式（如果提供了的话）
+    const timeFormatRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$|^24:00$/;
+    if (body.start_time && !timeFormatRegex.test(body.start_time)) {
+      return NextResponse.json(
+        { error: 'validation_error', message: '开始时间格式无效，请使用 HH:mm 或 HH:mm:ss 或 24:00' },
+        { status: 400 }
+      );
+    }
+    if (body.end_time && !timeFormatRegex.test(body.end_time)) {
+      return NextResponse.json(
+        { error: 'validation_error', message: '结束时间格式无效，请使用 HH:mm 或 HH:mm:ss 或 24:00' },
+        { status: 400 }
+      );
+    }
+
+    // 🆕 NEW-2：验证duration_days范围
+    const durationDays = body.duration_days;
+    if (durationDays !== undefined && durationDays !== null && durationDays !== -1) {
+      if (durationDays < 1 || durationDays > 365) {
+        return NextResponse.json(
+          { error: 'validation_error', message: '任务天数必须在1-365天之间，或-1表示无限期' },
+          { status: 400 }
+        );
+      }
+    }
+
     // 检查Offer是否存在且属于当前用户
     const db = await getDatabase();
     const offer = await db.queryOne<any>(`

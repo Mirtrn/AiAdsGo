@@ -117,20 +117,20 @@ export function validateDistribution(
 
   const actualTotal = distribution.reduce((sum, n) => sum + n, 0);
 
-  if (actualTotal !== expectedTotal) {
-    return {
-      valid: false,
-      actualTotal,
-      error: `分布总和 (${actualTotal}) 不等于每日点击数 (${expectedTotal})`
-    };
-  }
-
-  // 检查是否有负数
+  // 🔧 修复：先检查负数，再检查总和
   if (distribution.some(n => n < 0)) {
     return {
       valid: false,
       actualTotal,
       error: '分布数组不能包含负数'
+    };
+  }
+
+  if (actualTotal !== expectedTotal) {
+    return {
+      valid: false,
+      actualTotal,
+      error: `分布总和 (${actualTotal}) 不等于每日点击数 (${expectedTotal})`
     };
   }
 
@@ -149,7 +149,8 @@ export function validateDistribution(
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 /**

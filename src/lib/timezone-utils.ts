@@ -136,19 +136,17 @@ export function getDateInTimezone(date: Date, timezone: string): string {
  * 在指定timezone中构造Date对象（返回UTC Date）
  *
  * ⚠️ 重要：JavaScript 没有原生 API 支持"在特定timezone构造Date"
- * 这个函数使用一个巧妙的方法：
- * 1. 获取 timezone 的 UTC 偏移量
- * 2. 构造一个本地Date
- * 3. 调整为正确的UTC时间
+ * 这个函数使用 formatToParts 来获取指定timezone的本地时间对应的UTC时间
  *
  * @param dateStr - YYYY-MM-DD 格式的日期
  * @param timeStr - HH:mm 格式的时间
  * @param timezone - IANA timezone 标识符
- * @returns UTC Date 对象
+ * @returns UTC Date 对象，表示输入的本地时间对应的UTC时间
  *
  * @example
  * createDateInTimezone('2024-12-30', '06:00', 'America/New_York')
- * // 返回 Date 对象，表示纽约时间 2024-12-30 06:00 对应的 UTC 时间
+ * // 纽约时间 2024-12-30 06:00 EST (UTC-5) = UTC 2024-12-30 11:00
+ * // 返回 Date 对象
  */
 export function createDateInTimezone(
   dateStr: string,
@@ -158,13 +156,11 @@ export function createDateInTimezone(
   const [year, month, day] = dateStr.split('-').map(Number);
   const [hour, minute] = timeStr.split(':').map(Number);
 
-  // 方法：使用 Intl.DateTimeFormat 的 formatToParts
-  // 这个方法可以告诉我们在指定timezone下，某个UTC时间对应的本地时间各部分
+  // 方法：使用 formatToParts 获取本地时间，然后计算对应的UTC时间
+  // 1. 构造一个UTC时间作为基准
+  const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
 
-  // 步骤1：创建一个临时的UTC Date（假设输入的就是UTC）
-  const tempDate = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
-
-  // 步骤2：获取这个UTC时间在目标timezone的显示时间
+  // 2. 获取这个UTC时间在目标时区的显示时间
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
     year: 'numeric',
@@ -176,19 +172,22 @@ export function createDateInTimezone(
     hour12: false,
   });
 
-  const parts = formatter.formatToParts(tempDate);
-  const tzYear = parseInt(parts.find(p => p.type === 'year')!.value);
-  const tzMonth = parseInt(parts.find(p => p.type === 'month')!.value);
-  const tzDay = parseInt(parts.find(p => p.type === 'day')!.value);
-  const tzHour = parseInt(parts.find(p => p.type === 'hour')!.value);
-  const tzMinute = parseInt(parts.find(p => p.type === 'minute')!.value);
+  const parts = formatter.formatToParts(utcDate);
+  const localHour = parseInt(parts.find(p => p.type === 'hour')!.value);
+  const localMinute = parseInt(parts.find(p => p.type === 'minute')!.value);
 
-  // 步骤3：计算偏移量
-  const offsetMs = tempDate.getTime() - Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, 0);
+  // 3. 计算本地时间与UTC时间的差值（偏移量）
+  const localMinutes = localHour * 60 + localMinute;
+  const utcMinutes = hour * 60 + minute;
+  let offsetMinutes = localMinutes - utcMinutes;
 
-  // 步骤4：应用偏移量到目标时间
-  const targetUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
-  return new Date(targetUtc - offsetMs);
+  // 处理跨越午夜的情况（如 UTC 02:00 在东京显示为 11:00，offset = -540）
+  while (offsetMinutes > 720) offsetMinutes -= 1440;
+  while (offsetMinutes < -720) offsetMinutes += 1440;
+
+  // 4. 应用偏移量得到正确的UTC时间
+  const targetUtcMs = utcDate.getTime() - offsetMinutes * 60 * 1000;
+  return new Date(targetUtcMs);
 }
 
 /**

@@ -4,6 +4,7 @@
 import { getDatabase } from './db';
 import { generateNextRunAt } from './click-farm/scheduler';
 import { getDateInTimezone, getHourInTimezone, createDateInTimezone } from './timezone-utils';
+import { estimateTraffic } from './click-farm/distribution';
 import type {
   ClickFarmTask,
   ClickFarmTaskListItem,  // 🆕 导入任务列表项类型
@@ -315,7 +316,8 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
     ? (today.successClicks / today.clicks) * 100
     : 0;
 
-  // 累计统计（包含已删除任务的历史数据）
+  // 累计统计（包含已删除任务的历史数据，以便保留历史记录）
+  // 注意：如果需要只统计未删除任务，添加 AND is_deleted = 0 条件
   const cumulative = await db.queryOne<any>(`
     SELECT
       COALESCE(SUM(total_clicks), 0) as clicks,
@@ -359,14 +361,14 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
       successClicks: today.successClicks,
       failedClicks: today.failedClicks,
       successRate: parseFloat(todaySuccessRate.toFixed(1)),
-      traffic: today.clicks * 200  // bytes
+      traffic: estimateTraffic(today.clicks)  // 🔧 统一使用估算函数
     },
     cumulative: {
       clicks: cumulative.clicks,
       successClicks: cumulative.successClicks,
       failedClicks: cumulative.failedClicks,
       successRate: parseFloat(cumulativeSuccessRate.toFixed(1)),
-      traffic: cumulative.clicks * 200  // bytes
+      traffic: estimateTraffic(cumulative.clicks)  // 🔧 统一使用估算函数
     },
     taskStatusDistribution  // 🆕 任务状态分布
   };
@@ -479,8 +481,8 @@ export async function getAdminClickFarmStats(): Promise<{
     success_clicks: global.success_clicks,
     success_rate: parseFloat(successRate.toFixed(1)),
     today_clicks: today.clicks,
-    today_traffic: today.clicks * 200,
-    total_traffic: global.total_clicks * 200,
+    today_traffic: estimateTraffic(today.clicks),  // 🔧 统一使用估算函数
+    total_traffic: estimateTraffic(global.total_clicks),  // 🔧 统一使用估算函数
     taskStatusDistribution
   };
 }
@@ -701,56 +703,6 @@ export async function initializeDailyHistory(task: ClickFarmTask): Promise<void>
  */
 function getTodayInTaskTimezone(task: ClickFarmTask): string {
   return getDateInTimezone(new Date(), task.timezone);
-}
-
-/**
- * 更新任务的每日历史记录
- *
- * ⚠️ 时区处理：
- * - task 对象中的 daily_history 已经是解析后的 DailyHistoryEntry[] 数组
- * - 当前执行时间被转换为任务时区后，与日期对比找到"今天"的记录
- * - 找不到今天的记录时，会自动为今天创建新记录
- */
-async function updateDailyHistory(
-  task: ClickFarmTask,
-  success: boolean
-): Promise<void> {
-  const todayInTaskTimezone = getTodayInTaskTimezone(task);
-  // task.daily_history已经是解析后的数组，不需要再JSON.parse
-  const dailyHistory: DailyHistoryEntry[] = task.daily_history && task.daily_history.length > 0
-    ? [...task.daily_history]  // 创建副本以避免直接修改原对象
-    : [];
-
-  // 查找今天的记录
-  let todayEntry = dailyHistory.find(entry => entry.date === todayInTaskTimezone);
-
-  // 如果没有今天的记录，创建新记录
-  if (!todayEntry) {
-    todayEntry = {
-      date: todayInTaskTimezone,
-      target: task.hourly_distribution.reduce((sum, count) => sum + count, 0),
-      actual: 0,
-      success: 0,
-      failed: 0
-    };
-    dailyHistory.push(todayEntry);
-  }
-
-  // 更新今天的统计
-  todayEntry.actual += 1;
-  if (success) {
-    todayEntry.success += 1;
-  } else {
-    todayEntry.failed += 1;
-  }
-
-  // 保存更新后的daily_history
-  const db = await getDatabase();
-  await db.exec(`
-    UPDATE click_farm_tasks
-    SET daily_history = ?
-    WHERE id = ?
-  `, [JSON.stringify(dailyHistory), task.id]);
 }
 
 /**

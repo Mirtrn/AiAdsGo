@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db';
+import { estimateTraffic } from '@/lib/click-farm/distribution';
 
 export async function GET(request: NextRequest) {
   try {
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
       successRate: task.total_clicks > 0
         ? parseFloat(((task.success_clicks / task.total_clicks) * 100).toFixed(1))
         : 0,
-      traffic: task.total_clicks * 200,
+      traffic: estimateTraffic(task.total_clicks),  // 🔧 统一使用估算函数
       createdAt: task.created_at
     }));
 

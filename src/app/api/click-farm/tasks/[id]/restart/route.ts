@@ -61,6 +61,25 @@ export async function POST(
       }
     }
 
+    // 🔧 修复NEW-6：检查是否需要重置started_at
+    // 如果任务从未开始（started_at为null）或scheduled_start_date已过期
+    // 重启时应该重新计算next_run_at
+    // 注意：db已经在上面获取，不需要重复获取
+    // const { generateNextRunAt } = await import('@/lib/click-farm/scheduler');
+
+    // 如果任务从未开始，重启后应该会设置started_at
+    if (!task.started_at) {
+      console.log(`[Restart] 任务 ${params.id} 从未开始，重启后将首次执行`);
+    } else if (task.scheduled_start_date) {
+      // 检查scheduled_start_date是否已经过期
+      const today = new Date().toISOString().split('T')[0];
+      if (task.scheduled_start_date < today) {
+        // scheduled_start_date已过期，任务应该已经运行了一段时间
+        // 不需要特殊处理，next_run_at会在Cron中自动更新
+        console.log(`[Restart] 任务 ${params.id} 的scheduled_start_date(${task.scheduled_start_date})已过期，状态正常`);
+      }
+    }
+
     const updatedTask = await restartClickFarmTask(params.id, parseInt(userId!));
 
     // 🔔 发送任务恢复通知

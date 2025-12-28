@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db';
+import { estimateTraffic } from '@/lib/click-farm/distribution';
 import type { ClickFarmTask } from '@/lib/click-farm-types';
 
 export async function GET(
@@ -44,8 +45,8 @@ export async function GET(
       ? (task.success_clicks / task.total_clicks) * 100
       : 0;
 
-    const averageTrafficPerClick = 1024 * 100; // 100KB per click estimate
-    const totalTraffic = task.total_clicks * averageTrafficPerClick;
+    // 🔧 修复NEW-5：统一使用与stats API相同的流量估算值（使用estimateTraffic函数）
+    const totalTraffic = estimateTraffic(task.total_clicks);
 
     // 计算任务时长
     const startDate = task.started_at ? new Date(task.started_at) : null;
