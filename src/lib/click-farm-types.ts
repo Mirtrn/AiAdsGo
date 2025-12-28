@@ -29,11 +29,38 @@ export interface ClickFarmTask {
 
   // 任务配置
   daily_click_count: number;
-  start_time: string;  // HH:mm格式
+  /**
+   * start_time: "06:00" 表示该时间点是相对于任务的 timezone（目标国家的本地时间）
+   * 例如：offer.target_country = "US"，timezone = "America/New_York"
+   * 则 start_time: "06:00" 表示 US 东部时间的 06:00，任务不会在这个时间前执行
+   * 格式: "HH:mm"（24小时制）
+   */
+  start_time: string;
+  /**
+   * end_time: "24:00" 表示该时间点是相对于任务的 timezone（目标国家的本地时间）
+   * 任务不会在这个时间后执行
+   * 格式: "HH:mm"（24小时制）
+   */
   end_time: string;
   duration_days: number;  // -1表示无限期
-  scheduled_start_date: string;  // 🆕 YYYY-MM-DD格式，任务开始日期（默认当天）
-  hourly_distribution: number[];  // 24个整数
+  /**
+   * scheduled_start_date: "2024-12-30" 表示任务的计划开始日期
+   * ⚠️ 重要：这是相对于 timezone（目标国家时区）的本地日期，不是 UTC 日期
+   * 例如：timezone = "America/New_York"，scheduled_start_date = "2024-12-30"
+   * 则任务会在纽约时间 2024-12-30 的 start_time 时刻开始执行
+   * 格式: "YYYY-MM-DD"
+   */
+  scheduled_start_date: string;
+  /**
+   * hourly_distribution: [10, 5, 8, ..., 12] 长度为24的数组
+   * ⚠️ 重要：索引 i（0-23）表示任务 timezone（目标国家时区）的第 i 个小时
+   * hourly_distribution[0] = 10 表示该时区的 00:00-01:00 内执行 10 次点击
+   * hourly_distribution[6] = 30 表示该时区的 06:00-07:00 内执行 30 次点击
+   * ❌ 注意：这不是 UTC 小时数，而是目标时区的本地小时数
+   * 例如：timezone = "Asia/Shanghai"，hourly_distribution[6] = 30
+   * 表示上海时间 06:00-07:00，而不是 UTC 06:00-07:00
+   */
+  hourly_distribution: number[];
 
   // 状态管理
   status: ClickFarmTaskStatus;
@@ -50,7 +77,24 @@ export interface ClickFarmTask {
   // 历史数据
   daily_history: DailyHistoryEntry[];
 
-  // 时区配置
+  /**
+   * timezone: "America/New_York" 任务执行的目标时区
+   * 这是一个 IANA 时区标识符，自动从 offer.target_country（目标国家代码）匹配得到
+   * ⚠️ 重要：所有与时间相关的字段都相对于这个 timezone：
+   * - start_time: "06:00" 表示该时区的 06:00
+   * - end_time: "24:00" 表示该时区的 24:00
+   * - scheduled_start_date: "2024-12-30" 表示该时区的 2024-12-30
+   * - hourly_distribution[i] 表示该时区的第 i 个小时（0-23）
+   * - started_at: 当 Cron 首次在该时区达到 scheduled_start_date 时设置
+   * - completed_at: 当任务运行 duration_days 天后自动完成
+   *
+   * 示例：
+   * timezone = "Asia/Shanghai"，scheduled_start_date = "2024-12-30"
+   * 则任务在上海时间 2024-12-30 00:00:00 后的下一个 start_time 时刻开始执行
+   * 而不是 UTC 的 2024-12-30 00:00:00
+   *
+   * 常见值: "America/New_York"（US）, "Europe/London"（UK）, "Asia/Shanghai"（CN）, 等
+   */
   timezone: string;
 
   // 软删除
@@ -69,7 +113,14 @@ export interface ClickFarmTask {
  * 每日历史记录条目
  */
 export interface DailyHistoryEntry {
-  date: string;  // YYYY-MM-DD
+  /**
+   * date: "2024-12-30" 表示任务时区的本地日期
+   * ⚠️ 重要：必须相对于 task.timezone（目标国家时区）的本地日期
+   * 例如：task.timezone = "Asia/Shanghai"
+   * 则 date = "2024-12-30" 表示上海时间的 2024-12-30，而不是 UTC 的 2024-12-30
+   * 格式: "YYYY-MM-DD"
+   */
+  date: string;  // YYYY-MM-DD (相对于task.timezone)
   target: number;  // 目标点击数
   actual: number;  // 实际执行数
   success: number;  // 成功次数
@@ -78,16 +129,42 @@ export interface DailyHistoryEntry {
 
 /**
  * 创建任务请求
+ * ⚠️ 时区说明：所有时间参数都相对于创建时自动匹配的 timezone
+ * 系统会从 offer.target_country 自动推导 timezone，用户无需手动指定
  */
 export interface CreateClickFarmTaskRequest {
   offer_id: number;
   daily_click_count: number;  // 1-1000，默认216
-  start_time: string;  // "06:00"，格式 HH:mm
-  end_time: string;  // "24:00"
-  duration_days: number | null;  // 7/14/30/null(无限)
-  scheduled_start_date?: string;  // 🆕 YYYY-MM-DD格式，默认当天
-  hourly_distribution: number[];  // 24个整数
-  timezone?: string;  // 默认 America/New_York
+  /**
+   * start_time: "06:00" 相对于该任务的 timezone（目标国家的本地时间）
+   * 格式 HH:mm（24小时制），任务不会在这个时间前执行
+   */
+  start_time: string;
+  /**
+   * end_time: "24:00" 相对于该任务的 timezone（目标国家的本地时间）
+   * 格式 HH:mm（24小时制），任务不会在这个时间后执行
+   */
+  end_time: string;
+  duration_days: number | null;  // 7/14/30/null(无限)，null 表示无限期
+  /**
+   * scheduled_start_date: "2024-12-30" 相对于该任务的 timezone（目标国家时区的本地日期）
+   * 格式 YYYY-MM-DD，默认当天。任务会在该日期的 start_time 时刻开始执行
+   * 例如：timezone = "America/New_York"，scheduled_start_date = "2024-12-30"
+   * 则任务在纽约时间 2024-12-30 的 start_time 时刻开始
+   */
+  scheduled_start_date?: string;
+  /**
+   * hourly_distribution: [10, 5, 8, ..., 12] 长度为24的数组
+   * 索引 i（0-23）表示该时区的第 i 个小时的点击数
+   * hourly_distribution[6] = 30 表示该时区的 06:00-07:00 内执行 30 次点击
+   */
+  hourly_distribution: number[];
+  /**
+   * timezone: IANA 时区标识符，默认从 offer.target_country 自动匹配
+   * 可选字段，通常由后端自动设置，无需手动指定
+   * 示例: "America/New_York", "Europe/London", "Asia/Shanghai"
+   */
+  timezone?: string;
 }
 
 /**
@@ -100,6 +177,7 @@ export interface UpdateClickFarmTaskRequest {
   duration_days?: number;
   scheduled_start_date?: string;  // 🆕 YYYY-MM-DD格式
   hourly_distribution?: number[];
+  timezone?: string;  // 🆕 允许更新timezone（用于offer变更场景）
 }
 
 /**
@@ -110,6 +188,13 @@ export interface TaskFilters {
   offer_id?: number;
   page?: number;
   limit?: number;
+}
+
+/**
+ * 任务列表项 - 用于前端显示，包含Offer的国家信息
+ */
+export interface ClickFarmTaskListItem extends ClickFarmTask {
+  target_country?: string;  // 该任务对应的Offer的目标国家代码（如 "US", "UK", "CN"）
 }
 
 /**

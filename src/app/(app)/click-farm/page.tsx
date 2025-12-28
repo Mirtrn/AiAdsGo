@@ -15,16 +15,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { PlusCircle, Play, Square, RefreshCw, Eye, Edit2, Trash2 } from 'lucide-react';
+import { PlusCircle, Play, Square, RefreshCw, Eye, Edit2, Trash2, Globe, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
 import ClickFarmDistributionChart from '@/components/ClickFarmDistributionChart';
 import ClickFarmNotificationBadge from '@/components/ClickFarmNotificationBadge';
-import type { ClickFarmTask, ClickFarmStats } from '@/lib/click-farm-types';
+import type { ClickFarmTaskListItem, ClickFarmStats } from '@/lib/click-farm-types';
 
 export default function ClickFarmPage() {
   const router = useRouter();
-  const [tasks, setTasks] = useState<ClickFarmTask[]>([]);
+  const [tasks, setTasks] = useState<ClickFarmTaskListItem[]>([]);
   const [stats, setStats] = useState<ClickFarmStats | null>(null);
   const [distribution, setDistribution] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -313,6 +313,19 @@ export default function ClickFarmPage() {
                     <div className="flex items-center gap-3">
                       <h3 className="font-medium">Offer #{task.offer_id}</h3>
                       {getStatusBadge(task.status)}
+                      {/* 🆕 国家和时区Badge */}
+                      {task.target_country && (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="flex items-center gap-1">
+                            <Globe className="h-3 w-3" />
+                            {task.target_country}
+                          </Badge>
+                          <Badge variant="outline" className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {task.timezone}
+                          </Badge>
+                        </div>
+                      )}
                     </div>
                     <div className="mt-2 text-sm text-muted-foreground space-x-4">
                       <span>开始: {task.scheduled_start_date}</span>

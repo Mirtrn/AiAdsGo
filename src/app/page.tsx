@@ -8,6 +8,7 @@ import { ValueCards } from "@/components/marketing/ValueCards";
 import { WorkflowTimeline } from "@/components/marketing/WorkflowTimeline";
 import { ComparisonChart } from "@/components/marketing/ComparisonChart";
 import { ScenarioTabs } from "@/components/marketing/ScenarioTabs";
+import { ClickFarmHighlight } from "@/components/marketing/ClickFarmHighlight";
 
 export const metadata = pageMetadata.home;
 
@@ -203,6 +204,9 @@ export default function MarketingHome() {
 
       {/* Scenario Tabs Section */}
       <ScenarioTabs />
+
+      {/* Click Farm Highlight Section */}
+      <ClickFarmHighlight />
 
       {/* Testimonials Section */}
       <section id="testimonials" className="py-24 bg-white relative overflow-hidden">

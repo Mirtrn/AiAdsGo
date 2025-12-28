@@ -6,6 +6,7 @@ import { createClickFarmTask, getClickFarmTasks } from '@/lib/click-farm';
 import { generateDefaultDistribution, validateDistribution } from '@/lib/click-farm/distribution';
 import type { CreateClickFarmTaskRequest, TaskFilters } from '@/lib/click-farm-types';
 import { getDatabase } from '@/lib/db';
+import { getTimezoneByCountry } from '@/lib/timezone-utils';
 
 /**
  * POST - 创建补点击任务
@@ -92,10 +93,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 🆕 如果没有提供timezone，从offer的target_country自动获取
+    let timezone = body.timezone;
+    if (!timezone) {
+      timezone = getTimezoneByCountry(offer.target_country);
+      console.log(`[CreateTask] 自动设置timezone: ${offer.target_country} → ${timezone}`);
+    }
+
     // 创建任务
     const task = await createClickFarmTask(userIdNum, {
       ...body,
-      hourly_distribution: hourlyDistribution
+      hourly_distribution: hourlyDistribution,
+      timezone  // 🆕 使用自动匹配的timezone
     });
 
     return NextResponse.json({

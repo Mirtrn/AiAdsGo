@@ -14,8 +14,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem } from '@/components/ui/select';
 import { Alert } from '@/components/ui/alert';
-import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical } from 'lucide-react';
+import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock } from 'lucide-react';
 import { toast } from 'sonner';
+import { getTimezoneByCountry } from '@/lib/timezone-utils';
 import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
 
 interface ClickFarmTaskModalProps {
@@ -69,6 +70,7 @@ export default function ClickFarmTaskModal({
   const [distribution, setDistribution] = useState<number[]>([]);
   const [isEditingDistribution, setIsEditingDistribution] = useState(false);
   const [draggedHour, setDraggedHour] = useState<number | null>(null);
+  const [timezone, setTimezone] = useState<string>('America/New_York');  // 🆕 timezone状态
 
   const isEditMode = !!editTaskId;  // 🆕 判断是否为编辑模式
 
@@ -95,6 +97,7 @@ export default function ClickFarmTaskModal({
       setDurationDays(task.duration_days);
       setScheduledStartDate(task.scheduled_start_date);  // 🆕 加载scheduled_start_date
       setDistribution(task.hourly_distribution);
+      setTimezone(task.timezone);  // 🆕 加载timezone
     } catch (error) {
       console.error('加载任务失败:', error);
       toast.error('加载任务失败');
@@ -203,6 +206,10 @@ export default function ClickFarmTaskModal({
     const offer = offers.find(o => o.id === offerId);
     if (offer) {
       await checkProxy(offer.target_country);
+      // 🆕 自动匹配timezone
+      const autoTimezone = getTimezoneByCountry(offer.target_country);
+      setTimezone(autoTimezone);
+      console.log(`[ClickFarmTaskModal] 自动匹配timezone: ${offer.target_country} → ${autoTimezone}`);
     }
   };
 
@@ -312,7 +319,7 @@ export default function ClickFarmTaskModal({
         duration_days: durationDays === 9999 ? null : durationDays,
         scheduled_start_date: scheduledStartDate,  // 🆕 包含scheduled_start_date
         hourly_distribution: distribution,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timezone: timezone,  // 🆕 使用自动匹配的timezone state，而不是服务器时区
       };
 
       // 🆕 编辑模式：使用PUT方法
@@ -400,6 +407,22 @@ export default function ClickFarmTaskModal({
               </p>
             )}
           </div>
+
+          {/* 🆕 Timezone Display (Read-only) */}
+          {selectedOffer && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                执行时区
+              </Label>
+              <div className="px-3 py-2 bg-muted rounded text-sm">
+                <div className="font-mono">{timezone}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  自动匹配 {selectedOffer.target_country} 的时区（只读）
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Proxy Warning */}
           {proxyWarning && (
