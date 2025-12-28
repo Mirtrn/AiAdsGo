@@ -76,13 +76,21 @@ export default function HourlyDistributionEditor({
       isActive: isActiveHour(hour),
     }));
 
-    // 生成平滑贝塞尔曲线路径
+    // 生成平滑贝塞尔曲线路径（使用三次贝塞尔曲线获得更平滑的效果）
     let curvePath = `M ${chartPoints[0].xPercent},${chartPoints[0].yPercent}`;
     for (let i = 0; i < chartPoints.length - 1; i++) {
       const curr = chartPoints[i];
       const next = chartPoints[i + 1];
-      const cpX = (curr.xPercent + next.xPercent) / 2;
-      curvePath += ` Q ${cpX},${curr.yPercent} ${next.xPercent},${next.yPercent}`;
+
+      // 计算控制点，使用三次贝塞尔曲线（C命令）获得更平滑的曲线
+      const tension = 0.3; // 张力系数，越小越平滑
+      const deltaX = next.xPercent - curr.xPercent;
+      const cp1x = curr.xPercent + deltaX * tension;
+      const cp1y = curr.yPercent;
+      const cp2x = next.xPercent - deltaX * tension;
+      const cp2y = next.yPercent;
+
+      curvePath += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${next.xPercent},${next.yPercent}`;
     }
 
     // 生成填充区域路径
@@ -213,7 +221,7 @@ export default function HourlyDistributionEditor({
               d={curvePath}
               fill="none"
               stroke={isEditing ? 'rgb(34, 197, 94)' : 'rgb(59, 130, 246)'}
-              strokeWidth="2"
+              strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
@@ -274,7 +282,7 @@ export default function HourlyDistributionEditor({
                   <circle
                     cx={point.xPercent}
                     cy={point.yPercent}
-                    r={isDragged ? 5 : isHovered ? 4 : 3}
+                    r={isDragged ? 3.5 : isHovered ? 2.5 : 2}
                     fill={
                       isDragged
                         ? 'rgb(249, 115, 22)'
@@ -283,7 +291,7 @@ export default function HourlyDistributionEditor({
                         : 'rgb(59, 130, 246)'
                     }
                     stroke="white"
-                    strokeWidth="2"
+                    strokeWidth="1.5"
                     className={`${isEditing ? 'cursor-grab active:cursor-grabbing' : ''} transition-all duration-150`}
                     style={{ touchAction: 'none' }}
                     onPointerDown={(e) => handlePointerDown(point.hour, e)}
@@ -301,8 +309,8 @@ export default function HourlyDistributionEditor({
                       x2={point.xPercent}
                       y2="100"
                       stroke="rgba(249, 115, 22, 0.3)"
-                      strokeWidth="1"
-                      strokeDasharray="3,3"
+                      strokeWidth="0.5"
+                      strokeDasharray="2,2"
                       pointerEvents="none"
                     />
                   )}
