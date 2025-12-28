@@ -23,6 +23,15 @@ interface GlobalStats {
   today_clicks: number;
   today_traffic: number;
   total_traffic: number;
+  // 🆕 任务状态分布
+  taskStatusDistribution: {
+    pending: number;
+    running: number;
+    paused: number;
+    stopped: number;
+    completed: number;
+    total: number;
+  };
 }
 
 interface TopUser {
@@ -157,59 +166,98 @@ export default function AdminClickFarmPage() {
 
       {/* 全局统计卡片 */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">任务总数</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.total_tasks.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                活跃: {stats.active_tasks}
-              </p>
-            </CardContent>
-          </Card>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">任务总数</CardTitle>
+                <Activity className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.total_tasks.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  活跃: {stats.active_tasks}
+                </p>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">总点击数</CardTitle>
-              <Zap className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.total_clicks.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                今日: {stats.today_clicks.toLocaleString()}
-              </p>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">总点击数</CardTitle>
+                <Zap className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.total_clicks.toLocaleString()}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  今日: {stats.today_clicks.toLocaleString()}
+                </p>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">平均成功率</CardTitle>
-              <CheckCircle className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.success_rate.toFixed(1)}%</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                成功: {stats.success_clicks.toLocaleString()}
-              </p>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">平均成功率</CardTitle>
+                <CheckCircle className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.success_rate.toFixed(1)}%</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  成功: {stats.success_clicks.toLocaleString()}
+                </p>
+              </CardContent>
+            </Card>
 
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">总流量</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatBytes(stats.total_traffic)}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  今日: {formatBytes(stats.today_traffic)}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* 🆕 任务状态分布卡片 */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">总流量</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                任务状态分布
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatBytes(stats.total_traffic)}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                今日: {formatBytes(stats.today_traffic)}
-              </p>
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-sm">
+                <div className="text-center">
+                  <div className="text-lg font-bold text-blue-600">{stats.taskStatusDistribution.pending}</div>
+                  <div className="text-xs text-muted-foreground">等待开始</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold text-green-600">{stats.taskStatusDistribution.running}</div>
+                  <div className="text-xs text-muted-foreground">运行中</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold text-yellow-600">{stats.taskStatusDistribution.paused}</div>
+                  <div className="text-xs text-muted-foreground">已中止</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold text-gray-600">{stats.taskStatusDistribution.stopped}</div>
+                  <div className="text-xs text-muted-foreground">已停止</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold text-purple-600">{stats.taskStatusDistribution.completed}</div>
+                  <div className="text-xs text-muted-foreground">已完成</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold">{stats.taskStatusDistribution.total}</div>
+                  <div className="text-xs text-muted-foreground">总任务数</div>
+                </div>
+              </div>
             </CardContent>
           </Card>
-        </div>
+        </>
       )}
 
       {/* Top 10 用户 */}

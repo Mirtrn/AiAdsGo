@@ -38,15 +38,42 @@ export async function GET(request: NextRequest) {
       WHERE DATE(started_at) = DATE('now')
     `, []);
 
+    // 🆕 任务状态分布统计（不含已删除任务）
+    const statusDistribution = await db.query<{ status: string; count: number }>(`
+      SELECT status, COUNT(*) as count
+      FROM click_farm_tasks
+      WHERE is_deleted = 0
+      GROUP BY status
+    `, []);
+
+    // 构建状态分布对象
+    const taskStatusDistribution = {
+      pending: 0,
+      running: 0,
+      paused: 0,
+      stopped: 0,
+      completed: 0,
+      total: 0
+    };
+
+    statusDistribution.forEach(row => {
+      const status = row.status as 'pending' | 'running' | 'paused' | 'stopped' | 'completed';
+      taskStatusDistribution[status] = row.count;
+      taskStatusDistribution.total += row.count;
+    });
+
     return NextResponse.json({
       success: true,
       data: {
-        totalTasks: global.total_tasks,
-        activeTasks: global.active_tasks,
-        totalClicks: global.total_clicks,
-        successRate: parseFloat(successRate.toFixed(1)),
-        todayTraffic: today.clicks * 200,
-        cumulativeTraffic: global.total_clicks * 200
+        total_tasks: global.total_tasks,
+        active_tasks: global.active_tasks,
+        total_clicks: global.total_clicks,
+        success_clicks: global.success_clicks,
+        success_rate: parseFloat(successRate.toFixed(1)),
+        today_clicks: today.clicks,
+        today_traffic: today.clicks * 200,
+        total_traffic: global.total_clicks * 200,
+        taskStatusDistribution  // 🆕 任务状态分布
       }
     });
 

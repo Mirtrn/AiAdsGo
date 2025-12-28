@@ -4,6 +4,7 @@
 import { getDatabase } from './db';
 import type {
   ClickFarmTask,
+  ClickFarmTaskStatus,  // 🆕 导入状态类型
   CreateClickFarmTaskRequest,
   UpdateClickFarmTaskRequest,
   TaskFilters,
@@ -285,6 +286,30 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
     ? (cumulative.successClicks / cumulative.clicks) * 100
     : 0;
 
+  // 🆕 任务状态分布统计（不含已删除任务）
+  const statusDistribution = await db.query<{ status: string; count: number }>(`
+    SELECT status, COUNT(*) as count
+    FROM click_farm_tasks
+    WHERE user_id = ? AND is_deleted = 0
+    GROUP BY status
+  `, [userId]);
+
+  // 构建状态分布对象
+  const taskStatusDistribution = {
+    pending: 0,
+    running: 0,
+    paused: 0,
+    stopped: 0,
+    completed: 0,
+    total: 0
+  };
+
+  statusDistribution.forEach(row => {
+    const status = row.status as ClickFarmTaskStatus;
+    taskStatusDistribution[status] = row.count;
+    taskStatusDistribution.total += row.count;
+  });
+
   return {
     today: {
       clicks: today.clicks,
@@ -299,7 +324,8 @@ export async function getClickFarmStats(userId: number): Promise<ClickFarmStats>
       failedClicks: cumulative.failedClicks,
       successRate: parseFloat(cumulativeSuccessRate.toFixed(1)),
       traffic: cumulative.clicks * 200  // bytes
-    }
+    },
+    taskStatusDistribution  // 🆕 任务状态分布
   };
 }
 

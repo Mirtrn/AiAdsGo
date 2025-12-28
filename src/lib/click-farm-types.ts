@@ -130,6 +130,15 @@ export interface ClickFarmStats {
     successRate: number;  // 百分比
     traffic: number;  // bytes
   };
+  // 🆕 任务状态分布
+  taskStatusDistribution: {
+    pending: number;    // 等待开始
+    running: number;    // 运行中
+    paused: number;     // 已中止
+    stopped: number;    // 已停止
+    completed: number;  // 已完成
+    total: number;      // 总任务数（不含已删除）
+  };
 }
 
 /**
