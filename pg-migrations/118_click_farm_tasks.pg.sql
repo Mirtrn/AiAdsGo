@@ -87,8 +87,8 @@ CREATE TABLE IF NOT EXISTS click_farm_tasks (
 
   -- 外键约束
   CONSTRAINT fk_click_farm_offer
-    FOREIGN KEY (offer_id, user_id)
-    REFERENCES offers(id, user_id)
+    FOREIGN KEY (offer_id)
+    REFERENCES offers(id)
     ON DELETE CASCADE
 );
 

@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS click_farm_tasks (
   updated_at TEXT DEFAULT (datetime('now')),
 
   -- 外键约束
-  FOREIGN KEY (offer_id, user_id) REFERENCES offers(id, user_id) ON DELETE CASCADE
+  FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE CASCADE
 );
 
 -- 索引：用户+状态查询
