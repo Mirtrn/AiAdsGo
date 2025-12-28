@@ -27,7 +27,6 @@ import {
 import {
   Search,
   RefreshCw,
-  PlusCircle,
   Play,
   Square,
   Eye,
@@ -245,13 +244,6 @@ export default function ClickFarmPage() {
                 <RefreshCw className="w-4 h-4" />
                 刷新
               </Button>
-              <Button
-                onClick={() => setModalOpen(true)}
-                className="flex items-center gap-2"
-              >
-                <PlusCircle className="w-4 h-4" />
-                创建任务
-              </Button>
             </div>
           </div>
         </div>
@@ -436,15 +428,12 @@ export default function ClickFarmPage() {
             <h3 className="text-lg font-medium text-gray-900">未找到任务</h3>
             <p className="mt-2 text-sm text-gray-500">
               {tasks.length === 0
-                ? '您还没有创建任何补点击任务，请点击"创建任务"按钮。'
+                ? '您还没有创建任何补点击任务，请前往 /offers 页面为特定 Offer 创建任务。'
                 : '没有找到符合筛选条件的任务。'}
             </p>
             {tasks.length === 0 && (
               <div className="mt-6">
-                <Button onClick={() => setModalOpen(true)}>
-                  <PlusCircle className="w-4 h-4 mr-2" />
-                  创建第一个任务
-                </Button>
+                <p className="text-sm text-muted-foreground">暂无补点击任务</p>
               </div>
             )}
           </div>
@@ -596,7 +585,7 @@ export default function ClickFarmPage() {
         )}
       </main>
 
-      {/* Create/Edit Task Modal */}
+      {/* Edit Task Modal */}
       <ClickFarmTaskModal
         open={modalOpen}
         onOpenChange={(open) => {
