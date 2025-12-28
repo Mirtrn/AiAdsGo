@@ -65,15 +65,15 @@ export interface GeminiAxiosGenerateResult {
 /**
  * 创建 axios 实例用于 Gemini API（直连，不使用代理）
  *
- * 🔧 2025-12-27 超时优化：
- * - 将超时从 180s 增加到 240s（4分钟）
- * - 原因：网络波动可能导致响应变慢，增加超时余量
- * - 批次大小已从80减少到50，但仍需足够时间处理
+ * 🔧 2025-12-28 超时调整：
+ * - 将超时从 240s 减少到 180s（3分钟）
+ * - 原因：平衡可靠性与响应时间
+ * - 批次大小已从80减少到50
  */
 export function createGeminiAxiosClient(): AxiosInstance {
   return axios.create({
     baseURL: 'https://generativelanguage.googleapis.com',
-    timeout: 240000, // 增加到 240 秒（4分钟），适应网络波动
+    timeout: 180000, // 180 秒（3分钟）
     headers: {
       'Content-Type': 'application/json',
     },
