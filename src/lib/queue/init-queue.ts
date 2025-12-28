@@ -20,6 +20,7 @@ import { registerAllExecutors } from './executors'
 import { NODE_ENV, REDIS_PREFIX_CONFIG } from '../config'
 import type { UnifiedQueueManager } from './unified-queue-manager'
 import type { QueueConfig } from './types'
+import { getDataSyncScheduler } from './schedulers/data-sync-scheduler'
 
 /**
  * 初始化统一队列系统
@@ -59,8 +60,13 @@ export async function initializeQueue() {
     // 启动队列处理循环
     await queue.start()
 
+    // 🔄 启动内置的数据同步调度器（替代外部crontab）
+    const syncScheduler = getDataSyncScheduler()
+    syncScheduler.start()
+
     console.log('✅ 统一队列系统已启动')
     console.log('📝 代理配置：任务执行时按需从用户设置加载')
+    console.log('🔄 数据同步调度器已集成启动')
 
     return queue
   } catch (error: any) {
@@ -75,8 +81,15 @@ export async function initializeQueue() {
 export async function shutdownQueue() {
   try {
     console.log('⏹️ 关闭队列系统...')
+
+    // 停止数据同步调度器
+    const syncScheduler = getDataSyncScheduler()
+    syncScheduler.stop()
+
+    // 停止队列处理
     const queue = getQueueManager()
     await queue.stop()
+
     console.log('✅ 队列系统已关闭')
   } catch (error: any) {
     console.error('❌ 队列系统关闭失败:', error.message)

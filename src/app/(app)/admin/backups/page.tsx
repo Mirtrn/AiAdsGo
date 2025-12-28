@@ -592,10 +592,11 @@ export default function AdminScheduledTasksPage() {
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
                   <h3 className="text-sm font-medium text-purple-900 mb-3">数据同步说明</h3>
                   <ul className="text-sm text-purple-700 space-y-2">
-                    <li>• 系统每6小时（0点、6点、12点、18点）自动同步Google Ads数据</li>
-                    <li>• 同步会拉取最近7天的广告性能数据</li>
-                    <li>• 用户也可以在同步页面手动触发同步</li>
+                    <li>• 同步会拉取最近7天的广告性能数据（展示、点击、转化、花费等）</li>
+                    <li>• 在 <a href="/settings" className="underline hover:text-purple-900">系统设置</a> 中可以配置自动同步的间隔时间（建议6-24小时）</li>
+                    <li>• 在 Offer 详情页可以手动触发数据同步</li>
                     <li>• 同步日志保留90天，超过90天的日志会自动清理</li>
+                    <li>• 同步任务通过队列系统执行，可在 <a href="/admin/queue" className="underline hover:text-purple-900">任务队列</a> 中查看执行状态</li>
                   </ul>
                 </div>
               </div>

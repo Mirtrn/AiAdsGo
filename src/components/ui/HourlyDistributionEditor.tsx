@@ -186,10 +186,10 @@ export default function HourlyDistributionEditor({
               </linearGradient>
             </defs>
 
-            {/* Y轴网格线 */}
+            {/* Y轴网格线（水平） */}
             {yTicks.map((tick, i) => (
               <line
-                key={i}
+                key={`y-${i}`}
                 x1="0"
                 y1={tick.yPercent}
                 x2="100"
@@ -200,6 +200,25 @@ export default function HourlyDistributionEditor({
                 strokeDasharray="2,2"
               />
             ))}
+
+            {/* X轴网格线（垂直）- 对齐小时标签 */}
+            {[0, 3, 6, 9, 12, 15, 18, 21].map((hour) => {
+              const xPercent = (hour / 23) * 100;
+              return (
+                <line
+                  key={`x-${hour}`}
+                  x1={xPercent}
+                  y1="0"
+                  x2={xPercent}
+                  y2="100"
+                  stroke="currentColor"
+                  strokeWidth="0.15"
+                  className="text-border"
+                  strokeDasharray="2,3"
+                  opacity="0.5"
+                />
+              );
+            })}
 
             {/* 填充区域 */}
             <path

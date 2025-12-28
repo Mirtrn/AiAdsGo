@@ -230,6 +230,30 @@ const SETTING_METADATA: Record<string, {
     placeholder: '例如: 02:00',
     defaultValue: '02:00'
   },
+  'system.data_sync_enabled': {
+    label: '启用广告数据自动同步',
+    description: '是否自动从Google Ads同步广告投放数据（展示、点击、转化等）',
+    options: [
+      { value: 'true', label: '启用' },
+      { value: 'false', label: '禁用' }
+    ],
+    defaultValue: 'true'
+  },
+  'system.data_sync_interval_hours': {
+    label: '数据同步间隔（小时）',
+    description: '自动同步的时间间隔，建议6-24小时',
+    placeholder: '例如: 6',
+    defaultValue: '6'
+  },
+  'system.data_sync_mode': {
+    label: '默认同步模式',
+    description: '手动触发同步时使用的默认模式',
+    options: [
+      { value: 'incremental', label: '增量同步（仅今天）' },
+      { value: 'full', label: '全量同步（过去7天）' }
+    ],
+    defaultValue: 'incremental'
+  },
 }
 
 // 定义每个分类包含的字段及其属性
@@ -264,6 +288,9 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'sync_interval_hours', dataType: 'number', isSensitive: false, isRequired: false },
     { key: 'link_check_enabled', dataType: 'boolean', isSensitive: false, isRequired: false },
     { key: 'link_check_time', dataType: 'string', isSensitive: false, isRequired: false },
+    { key: 'data_sync_enabled', dataType: 'boolean', isSensitive: false, isRequired: false },
+    { key: 'data_sync_interval_hours', dataType: 'number', isSensitive: false, isRequired: false },
+    { key: 'data_sync_mode', dataType: 'string', isSensitive: false, isRequired: false },
   ],
 }
 

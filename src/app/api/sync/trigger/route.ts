@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
-import { dataSyncService } from '@/lib/data-sync-service'
+import { triggerDataSync } from '@/lib/queue-triggers'
 
 /**
  * POST /api/sync/trigger
- * 手动触发数据同步
+ * 手动触发数据同步（通过统一队列系统）
+ *
+ * 🔄 优化 (2025-12-28): 统一使用队列系统，替代直接调用 dataSyncService
+ *
+ * 优势:
+ * - ✅ 统一在 /admin/queue 监控
+ * - ✅ 自动重试机制
+ * - ✅ 并发控制
+ * - ✅ 任务持久化 (Redis)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -16,24 +24,17 @@ export async function POST(request: NextRequest) {
 
     const userId = authResult.user.userId
 
-    // 检查是否已经有同步任务在运行
-    const currentStatus = dataSyncService.getSyncStatus(userId)
-    if (currentStatus.isRunning) {
-      return NextResponse.json(
-        { error: '数据同步正在进行中，请稍后再试' },
-        { status: 429 }
-      )
-    }
-
-    // 异步执行同步任务（不阻塞请求）
-    dataSyncService.syncPerformanceData(userId, 'manual').catch((error) => {
-      console.error('数据同步失败:', error)
+    // 🔄 通过队列系统触发同步（替代直接调用）
+    const taskId = await triggerDataSync(userId, {
+      syncType: 'manual',
+      priority: 'high',  // 手动触发优先级高
     })
 
     return NextResponse.json({
       success: true,
-      message: '数据同步已启动',
-      status: 'running',
+      message: '数据同步任务已加入队列',
+      taskId,
+      status: 'queued',
     })
   } catch (error) {
     console.error('触发数据同步失败:', error)

@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { TrendingUp, DollarSign, Target, Activity } from 'lucide-react'
+import { TrendingUp, DollarSign, Target, Activity, RefreshCcw } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 
 interface Offer {
@@ -147,6 +147,7 @@ export default function OfferDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [scraping, setScraping] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isRebuildDialogOpen, setIsRebuildDialogOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -363,6 +364,37 @@ export default function OfferDetailPage() {
     }
   }
 
+  const handleSyncData = async () => {
+    setSyncing(true)
+
+    try {
+      const response = await fetch('/api/sync/trigger', {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || '触发数据同步失败')
+      }
+
+      const data = await response.json()
+      showSuccess(
+        '数据同步任务已加入队列',
+        `任务ID: ${data.taskId}。可在任务队列(/admin/queue)中查看执行状态。`
+      )
+
+      // 10秒后自动刷新性能数据（给队列处理时间）
+      setTimeout(() => {
+        fetchPerformance()
+      }, 10000)
+    } catch (err: any) {
+      showError('触发数据同步失败', err.message || '请稍后重试')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -402,6 +434,15 @@ export default function OfferDetailPage() {
               <h1 className="text-xl font-bold text-gray-900">{offer.brand}</h1>
             </div>
             <div className="flex items-center space-x-3">
+              <button
+                onClick={handleSyncData}
+                disabled={syncing}
+                className="px-4 py-2 text-sm text-green-600 hover:text-green-800 disabled:opacity-50 flex items-center gap-1"
+                title="从Google Ads同步最新广告数据"
+              >
+                <RefreshCcw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? '同步中...' : '广告数据同步'}
+              </button>
               <button
                 onClick={() => router.push(`/offers/${offerId}/edit`)}
                 className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
