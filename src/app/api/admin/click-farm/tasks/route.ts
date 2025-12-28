@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       SELECT
         t.*,
         u.username,
-        o.name as offer_name
+        o.offer_name
       FROM click_farm_tasks t
       JOIN users u ON t.user_id = u.id
       LEFT JOIN offers o ON t.offer_id = o.id
