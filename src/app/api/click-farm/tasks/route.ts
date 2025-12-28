@@ -6,7 +6,8 @@ import { createClickFarmTask, getClickFarmTasks } from '@/lib/click-farm';
 import { generateDefaultDistribution, validateDistribution } from '@/lib/click-farm/distribution';
 import type { CreateClickFarmTaskRequest, TaskFilters } from '@/lib/click-farm-types';
 import { getDatabase } from '@/lib/db';
-import { getTimezoneByCountry } from '@/lib/timezone-utils';
+import { getTimezoneByCountry, getDateInTimezone } from '@/lib/timezone-utils';
+import { triggerTaskScheduling } from '@/lib/click-farm/click-farm-scheduler-trigger';
 
 /**
  * POST - 创建补点击任务
@@ -133,12 +134,31 @@ export async function POST(request: NextRequest) {
       timezone  // 🆕 使用自动匹配的timezone
     });
 
+    // 🆕 如果开始日期是今天，立即触发调度
+    let triggerResult = null;
+    const todayInTaskTimezone = getDateInTimezone(new Date(), timezone);
+    const scheduledDate = task.scheduled_start_date || todayInTaskTimezone;
+
+    if (scheduledDate === todayInTaskTimezone) {
+      console.log(`[CreateTask] 任务 ${task.id} 开始日期是今天，触发调度...`);
+      try {
+        triggerResult = await triggerTaskScheduling(task.id);
+        console.log(`[CreateTask] 任务 ${task.id} 调度结果:`, triggerResult);
+      } catch (error) {
+        console.error(`[CreateTask] 任务 ${task.id} 调度失败:`, error);
+        // 调度失败不影响任务创建成功返回
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
         id: task.id,
         status: task.status,
-        message: '补点击任务创建成功'
+        trigger: triggerResult,
+        message: triggerResult?.status === 'queued'
+          ? `补点击任务创建成功，已加入 ${triggerResult.clickCount} 个点击任务`
+          : '补点击任务创建成功'
       }
     });
 
