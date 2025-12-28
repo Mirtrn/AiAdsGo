@@ -2651,23 +2651,26 @@ export async function generateAdCreative(
         }
 
         // 🔥 2025-12-28: 关键词质量过滤（Fallback路径也需要过滤）
-        const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
-          brandName: offer.brand,
-          category: offer.category || undefined,
-          targetCountry: offer.target_country || undefined,
-          targetLanguage: offer.target_language || undefined,
-          minWordCount: 1,
-          maxWordCount: 8,
-        })
-        const filterReport = generateFilterReport(extractedElements.keywords.length, keywordFilterResult.removed)
-        console.log(filterReport)
-        // 将 PoolKeywordData[] 转换为标准关键词格式
-        extractedElements.keywords = keywordFilterResult.filtered.map(kw => ({
-          keyword: kw.keyword,
-          searchVolume: kw.searchVolume || 0,
-          source: kw.source || 'EXTRACTED',
-          priority: 'MEDIUM' as const
-        }))
+        // 只有当 keywords 存在且非空时才进行过滤
+        if (extractedElements.keywords && extractedElements.keywords.length > 0) {
+          const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
+            brandName: offer.brand,
+            category: offer.category || undefined,
+            targetCountry: offer.target_country || undefined,
+            targetLanguage: offer.target_language || undefined,
+            minWordCount: 1,
+            maxWordCount: 8,
+          })
+          const filterReport = generateFilterReport(extractedElements.keywords.length, keywordFilterResult.removed)
+          console.log(filterReport)
+          // 将 PoolKeywordData[] 转换为标准关键词格式
+          extractedElements.keywords = keywordFilterResult.filtered.map(kw => ({
+            keyword: kw.keyword,
+            searchVolume: kw.searchVolume || 0,
+            source: kw.source || 'EXTRACTED',
+            priority: 'MEDIUM' as const
+          }))
+        }
       }
     }
     if ((offer as any).extracted_headlines) {
