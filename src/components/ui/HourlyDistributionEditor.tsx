@@ -148,17 +148,8 @@ export default function HourlyDistributionEditor({
 
   return (
     <div className="w-full space-y-3">
-      {/* 头部：标题 + 统计 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-primary" />
-          <span className="text-sm font-medium">
-            {timePeriod === '00:00-24:00' ? '24小时分布' : `${activeHoursCount}小时分布`}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            ({timePeriod})
-          </span>
-        </div>
+      {/* 头部：统计信息 */}
+      <div className="flex items-center justify-end">
         <div className="text-sm text-muted-foreground">
           总计: <span className="font-semibold text-foreground">{totalClicks}</span> 次/天
         </div>
