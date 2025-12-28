@@ -373,38 +373,13 @@ export default function ClickFarmTaskModal({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Offer Selection */}
+          {/* Offer Info - Show full offer details (No dropdown needed when preSelectedOfferId is provided) */}
           <div className="space-y-2">
-            <Label htmlFor="offer">选择Offer *</Label>
-            {loadingOffers ? (
-              <div className="flex items-center justify-center h-10 text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                加载中...
-              </div>
-            ) : (
-              <Select
-                id="offer"
-                value={selectedOfferId?.toString() || ''}
-                onValueChange={(value) => handleOfferChange(parseInt(value))}
-                required
-              >
-                <SelectContent>
-                  <SelectItem value="" disabled>
-                    请选择Offer
-                  </SelectItem>
-                  {offers.map((offer) => (
-                    <SelectItem key={offer.id} value={offer.id.toString()}>
-                      #{offer.id} - {offer.brand_name || offer.name} ({offer.target_country})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+            <Label>关联 Offer</Label>
 
-            {/* Offer Info - Show full offer details */}
+            {/* Offer Info Card */}
             {selectedOffer && (
               <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                <p className="text-sm font-medium text-muted-foreground mb-2">关联 Offer 信息</p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="flex items-center gap-2">
                     <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -427,23 +402,19 @@ export default function ClickFarmTaskModal({
                 </div>
               </div>
             )}
-          </div>
 
-          {/* Timezone Display (Read-only) */}
-          {selectedOffer && (
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                执行时区
-              </Label>
-              <div className="px-3 py-2 bg-muted rounded text-sm">
-                <div className="font-mono">{timezone}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  自动匹配 {selectedOffer.target_country} 的时区（只读）
-                </p>
+            {/* Timezone Display */}
+            {selectedOffer && (
+              <div className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">执行时区:</span>
+                <span className="font-mono">{timezone}</span>
+                <span className="text-xs text-muted-foreground">
+                  (自动匹配 {selectedOffer.target_country})
+                </span>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Proxy Warning */}
           {proxyWarning && (
