@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -113,23 +113,21 @@ export default function ClickFarmTaskModal({
     }
   }, [open]);
 
-  // Set preselected offer when offers are loaded
-  useEffect(() => {
-    console.log('[ClickFarmTaskModal] useEffect preSelectedOfferId:', preSelectedOfferId, 'offers.length:', offers.length, 'selectedOfferId:', selectedOfferId);
-    if (preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
+  // 🆕 使用 useLayoutEffect 确保在 DOM 更新前处理 preSelectedOfferId
+  // 这可以避免父组件状态更新延迟导致的问题
+  useLayoutEffect(() => {
+    if (open && preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
       const offer = offers.find(o => o.id === preSelectedOfferId);
-      console.log('[ClickFarmTaskModal] useEffect: 找到offer?', !!offer, 'offer:', offer?.name);
       if (offer) {
-        console.log('[ClickFarmTaskModal] useEffect: 调用 setSelectedOfferId');
+        console.log('[ClickFarmTaskModal] useLayoutEffect: 直接设置 selectedOfferId =', preSelectedOfferId);
         setSelectedOfferId(preSelectedOfferId);
-        // 🆕 确保曲线显示
+        // 🆕 立即生成分布
         if (dailyClickCount > 0 && distribution.length === 0) {
-          console.log('[ClickFarmTaskModal] useEffect: 调用 generateDistribution');
           generateDistribution();
         }
       }
     }
-  }, [preSelectedOfferId, offers, selectedOfferId]);
+  }, [open, preSelectedOfferId, offers.length, selectedOfferId]);
 
   // Generate distribution when offer is selected
   useEffect(() => {
