@@ -120,10 +120,47 @@ export function shouldCompleteTask(task: ClickFarmTask): boolean {
  * 生成下次执行时间
  *
  * @param timezone - 时区
- * @returns 下次执行时间（整点）
+ * @param task - 可选，任务对象（用于计算首次执行时间）
+ * @returns 下次执行时间
  */
-export function generateNextRunAt(timezone: string): Date {
+export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date {
   const now = new Date();
+
+  // 如果提供了任务对象且任务未开始，计算首次执行时间
+  if (task && task.scheduled_start_date && !task.started_at) {
+    const scheduledDate = new Date(task.scheduled_start_date + 'T00:00:00');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // 如果scheduled_start_date是今天或未来日期
+    if (scheduledDate >= today) {
+      // 找到第一个有点击数的小时
+      const firstActiveHour = task.hourly_distribution.findIndex(count => count > 0);
+
+      if (firstActiveHour !== -1) {
+        // 解析 start_time (格式: "HH:mm")
+        const [startHourStr] = task.start_time.split(':');
+        const startHour = parseInt(startHourStr);
+
+        // 使用第一个活跃小时和start_time中较大的那个
+        const targetHour = Math.max(firstActiveHour, startHour);
+
+        // 构造首次执行时间：scheduled_start_date + targetHour:00:00
+        const firstRunAt = new Date(task.scheduled_start_date + `T${targetHour.toString().padStart(2, '0')}:00:00`);
+
+        // 如果计算出的时间是过去，返回下一个整点
+        if (firstRunAt <= now) {
+          const nextHour = new Date(now);
+          nextHour.setHours(now.getHours() + 1, 0, 0, 0);
+          return nextHour;
+        }
+
+        return firstRunAt;
+      }
+    }
+  }
+
+  // 默认逻辑：下一个整点
   const nextHour = new Date(now);
   nextHour.setHours(now.getHours() + 1, 0, 0, 0);
   return nextHour;

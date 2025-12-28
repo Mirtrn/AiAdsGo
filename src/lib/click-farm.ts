@@ -2,6 +2,7 @@
 // src/lib/click-farm.ts
 
 import { getDatabase } from './db';
+import { generateNextRunAt } from './click-farm/scheduler';
 import type {
   ClickFarmTask,
   ClickFarmTaskStatus,  // 🆕 导入状态类型
@@ -42,6 +43,17 @@ export async function createClickFarmTask(
     input.timezone || 'America/New_York'
   ]);
 
+  const task = (await getClickFarmTaskById(result.lastInsertRowid as number, userId))!;
+
+  // 🆕 计算并设置 next_run_at
+  const nextRunAt = generateNextRunAt(task.timezone, task);
+  await db.exec(`
+    UPDATE click_farm_tasks
+    SET next_run_at = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `, [nextRunAt.toISOString(), task.id]);
+
+  // 重新获取更新后的任务
   return (await getClickFarmTaskById(result.lastInsertRowid as number, userId))!;
 }
 
