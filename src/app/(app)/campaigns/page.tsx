@@ -246,7 +246,9 @@ export default function CampaignsPage() {
 
       const data = await response.json()
       setCampaigns(data.campaigns)
-      setFilteredCampaigns(data.campaigns)
+      // 🔧 修复(2025-12-29): 不要直接设置 filteredCampaigns
+      // 让 useEffect 自动应用排序、过滤等处理逻辑
+      // setFilteredCampaigns(data.campaigns)
       setSummary(data.summary)
     } catch (err: any) {
       setError(err.message || '加载失败')
