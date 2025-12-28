@@ -105,6 +105,7 @@ export class DataSyncService {
   /**
    * 执行数据同步（手动触发或定时任务）
    * 🔧 修复(2025-12-12): 独立账号模式 - 使用用户凭证
+   * 🔧 修复(2025-12-28): 添加僵尸任务清理机制
    */
   async syncPerformanceData(
     userId: number,
@@ -113,6 +114,19 @@ export class DataSyncService {
     const db = await getDatabase()
     const startTime = Date.now()
     const startedAt = new Date().toISOString()
+
+    // 🔧 修复(2025-12-28): 清理僵尸任务（超过2小时仍为running状态的任务）
+    const zombieThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    await db.exec(`
+      UPDATE sync_logs
+      SET status = 'failed',
+          error_message = '任务超时被系统取消（僵尸任务清理）',
+          completed_at = ?
+      WHERE user_id = ?
+        AND status = 'running'
+        AND started_at < ?
+    `, [startedAt, userId, zombieThreshold])
+    console.log(`🧹 已清理用户 ${userId} 的僵尸同步任务`)
 
     // 更新同步状态为运行中
     this.syncStatus.set(userId, {
