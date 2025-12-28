@@ -20,11 +20,12 @@ interface HourlyDistributionEditorProps {
  * 时间分布编辑器 - 24小时点击分布可视化 + 拖拽编辑
  *
  * 特性:
- * 1. 平滑曲线 + 清晰数据点
+ * 1. 平滑曲线 + 清晰数据点（仅在活跃时段显示）
  * 2. 悬停显示数值
- * 3. 拖拽调整点击数
- * 4. 活跃/休息时段区分
- * 5. Y轴刻度显示
+ * 3. 拖拽调整点击数（活跃时段）
+ * 4. 活跃/休息时段区分（灰色背景标记休息时段）
+ * 5. Y轴刻度显示（实际点击数，非百分比）
+ * 6. 支持两种时间段：全天(00:00-24:00) 或 白天(06:00-24:00)
  */
 export default function HourlyDistributionEditor({
   distribution,
@@ -120,11 +121,14 @@ export default function HourlyDistributionEditor({
     }
   }, [draggedHour]);
 
-  // 计算总点击数
-  const totalClicks = useMemo(() =>
-    distribution.reduce((sum, val) => sum + val, 0),
-    [distribution]
-  );
+  // 计算总点击数和活跃小时数
+  const { totalClicks, activeHoursCount } = useMemo(() => {
+    const activeHoursCount = chartPoints.filter(p => p.isActive).length;
+    return {
+      totalClicks: distribution.reduce((sum, val) => sum + val, 0),
+      activeHoursCount,
+    };
+  }, [distribution, chartPoints]);
 
   if (distribution.length !== 24) {
     return (
@@ -140,7 +144,12 @@ export default function HourlyDistributionEditor({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-primary" />
-          <span className="text-sm font-medium">24小时分布</span>
+          <span className="text-sm font-medium">
+            {timePeriod === '00:00-24:00' ? '24小时分布' : `${activeHoursCount}小时分布`}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({timePeriod})
+          </span>
         </div>
         <div className="text-sm text-muted-foreground">
           总计: <span className="font-semibold text-foreground">{totalClicks}</span> 次/天
@@ -226,11 +235,14 @@ export default function HourlyDistributionEditor({
               );
             })}
 
-            {/* 数据点 */}
+            {/* 数据点 - 只显示活跃时段的点 */}
             {chartPoints.map((point) => {
               const isHovered = hoveredHour === point.hour;
               const isDragged = draggedHour === point.hour;
               const showLabel = isHovered || isDragged;
+
+              // 只在活跃时段显示数据点
+              if (!point.isActive) return null;
 
               return (
                 <g key={point.hour}>
