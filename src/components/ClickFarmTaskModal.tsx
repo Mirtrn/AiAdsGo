@@ -119,6 +119,10 @@ export default function ClickFarmTaskModal({
       const offer = offers.find(o => o.id === preSelectedOfferId);
       if (offer) {
         setSelectedOfferId(preSelectedOfferId);
+        // 🆕 确保曲线显示
+        if (dailyClickCount > 0 && distribution.length === 0) {
+          generateDistribution();
+        }
       }
     }
   }, [preSelectedOfferId, offers, selectedOfferId]);
@@ -218,6 +222,11 @@ export default function ClickFarmTaskModal({
       const autoTimezone = getTimezoneByCountry(offer.target_country);
       setTimezone(autoTimezone);
       console.log(`[ClickFarmTaskModal] 自动匹配timezone: ${offer.target_country} → ${autoTimezone}`);
+
+      // 🆕 立即生成分布（确保曲线显示）
+      if (dailyClickCount > 0 && distribution.length === 0) {
+        await generateDistribution();
+      }
     }
   };
 
