@@ -248,127 +248,181 @@ export class DataSyncService {
 
       // 2. 为每个账户同步数据
       for (const account of accounts) {
-        // 创建同步日志记录
-        const logResult = await db.exec(
-          `
-          INSERT INTO sync_logs (
-            user_id, google_ads_account_id, sync_type, status,
-            record_count, duration_ms, started_at
-          ) VALUES (?, ?, ?, 'running', 0, 0, ?)
-        `,
-          [userId, account.id, syncType, startedAt]
-        )
+        let accountSyncLogId: number | undefined
+        try {
+          // 创建同步日志记录
+          const logResult = await db.exec(
+            `
+            INSERT INTO sync_logs (
+              user_id, google_ads_account_id, sync_type, status,
+              record_count, duration_ms, started_at
+            ) VALUES (?, ?, ?, 'running', 0, 0, ?)
+          `,
+            [userId, account.id, syncType, startedAt]
+          )
 
-        syncLogId = logResult.lastInsertRowid as number
+          accountSyncLogId = logResult.lastInsertRowid as number
+          syncLogId = accountSyncLogId  // 保留最后一个syncLogId用于整体同步日志
 
-        // 查询该账户下的所有Campaigns
-        const campaigns = await db.query(
-          `
-          SELECT c.id, c.google_campaign_id, c.campaign_name
-          FROM campaigns c
-          WHERE c.user_id = ? AND c.google_ads_account_id = ?
-            AND c.google_campaign_id IS NOT NULL
-        `,
-          [userId, account.id]
-        ) as Array<{
-          id: number
-          google_campaign_id: string
-          campaign_name: string
-        }>
+          // 查询该账户下的所有Campaigns
+          const campaigns = await db.query(
+            `
+            SELECT c.id, c.google_campaign_id, c.campaign_name
+            FROM campaigns c
+            WHERE c.user_id = ? AND c.google_ads_account_id = ?
+              AND c.google_campaign_id IS NOT NULL
+          `,
+            [userId, account.id]
+          ) as Array<{
+            id: number
+            google_campaign_id: string
+            campaign_name: string
+          }>
 
-        if (campaigns.length === 0) {
-          console.log(`账户 ${account.customer_id} 没有已同步的Campaigns，跳过`)
-          continue
-        }
-
-        // 3. 使用GAQL查询性能数据（最近7天）
-        const endDate = new Date()
-        const startDate = new Date()
-        startDate.setDate(startDate.getDate() - 7)
-
-        const auth = await getUserAuthType(userId)
-
-        // 🔧 修复(2025-12-28): OAuth模式下需要从google_ads_credentials获取refresh_token
-        let refreshToken = account.refresh_token || undefined
-        if (auth.authType === 'oauth' && !refreshToken) {
-          // 从google_ads_credentials表获取refresh_token
-          const oauthCredentials = await getGoogleAdsCredentials(userId)
-          refreshToken = oauthCredentials?.refresh_token || undefined
-
-          if (!refreshToken) {
-            console.warn(`⚠️ 用户 ${userId} OAuth模式下缺少refresh_token，跳过账户 ${account.customer_id}`)
-            continue
-          }
-        }
-
-        const performanceData = await this.queryPerformanceData({
-          customerId: account.customer_id,
-          refreshToken,
-          startDate: this.formatDate(startDate),
-          endDate: this.formatDate(endDate),
-          accountId: account.id,
-          userId: userId,
-          credentials: userCredentials,
-          authType: auth.authType,
-          serviceAccountId: auth.serviceAccountId,
-        })
-
-        // 4. 批量写入数据库（使用upsert处理重复）
-        // Note: 使用事务确保数据一致性
-        await db.transaction(async () => {
-          for (const record of performanceData) {
-            // 查找本地campaign_id
-            const campaign = campaigns.find(
-              (c) => c.google_campaign_id === record.campaign_id
-            )
-            if (!campaign) {
-              console.warn(`未找到Campaign: ${record.campaign_id}，跳过`)
-              continue
-            }
-
-            const cpa =
-              record.conversions > 0 ? record.cost / record.conversions : 0
-
+          if (campaigns.length === 0) {
+            console.log(`账户 ${account.customer_id} 没有已同步的Campaigns，跳过`)
+            // 🔧 修复(2025-12-28): 清理没有campaigns的账户的sync_log（标记为success，但record_count=0）
             await db.exec(
               `
-              INSERT INTO campaign_performance (
-                user_id, campaign_id, date,
-                impressions, clicks, conversions, cost,
-                ctr, cpc, cpa, conversion_rate
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT(campaign_id, date) DO UPDATE SET
-                impressions = excluded.impressions,
-                clicks = excluded.clicks,
-                conversions = excluded.conversions,
-                cost = excluded.cost,
-                ctr = excluded.ctr,
-                cpc = excluded.cpc,
-                cpa = excluded.cpa,
-                conversion_rate = excluded.conversion_rate
-            `,
-              [
-                userId,
-                campaign.id,
-                record.date,
-                record.impressions,
-                record.clicks,
-                record.conversions,
-                record.cost,
-                record.ctr,
-                record.cpc,
-                cpa,
-                record.conversion_rate,
-              ]
+              UPDATE sync_logs
+              SET status = 'success', record_count = 0, duration_ms = ?, completed_at = ?
+              WHERE id = ?
+              `,
+              [Date.now() - startTime, new Date().toISOString(), accountSyncLogId]
             )
-            recordCount++
+            continue
           }
-        })
 
-        // 更新账户的last_sync_at
-        await db.exec(
-          `UPDATE google_ads_accounts SET last_sync_at = ? WHERE id = ?`,
-          [new Date().toISOString(), account.id]
-        )
+          // 3. 使用GAQL查询性能数据（最近7天）
+          const endDate = new Date()
+          const startDate = new Date()
+          startDate.setDate(startDate.getDate() - 7)
+
+          const auth = await getUserAuthType(userId)
+
+          // 🔧 修复(2025-12-28): OAuth模式下需要从google_ads_credentials获取refresh_token
+          let refreshToken = account.refresh_token || undefined
+          if (auth.authType === 'oauth' && !refreshToken) {
+            // 从google_ads_credentials表获取refresh_token
+            const oauthCredentials = await getGoogleAdsCredentials(userId)
+            refreshToken = oauthCredentials?.refresh_token || undefined
+
+            if (!refreshToken) {
+              console.warn(`⚠️ 用户 ${userId} OAuth模式下缺少refresh_token，跳过账户 ${account.customer_id}`)
+              // 🔧 修复(2025-12-28): 清理因凭证缺失而无法同步的sync_log
+              await db.exec(
+                `
+                UPDATE sync_logs
+                SET status = 'failed', error_message = ?, duration_ms = ?, completed_at = ?
+                WHERE id = ?
+                `,
+                [
+                  `OAuth模式下缺少refresh_token，无法同步`,
+                  Date.now() - startTime,
+                  new Date().toISOString(),
+                  accountSyncLogId
+                ]
+              )
+              continue
+            }
+          }
+
+          const performanceData = await this.queryPerformanceData({
+            customerId: account.customer_id,
+            refreshToken,
+            startDate: this.formatDate(startDate),
+            endDate: this.formatDate(endDate),
+            accountId: account.id,
+            userId: userId,
+            credentials: userCredentials,
+            authType: auth.authType,
+            serviceAccountId: auth.serviceAccountId,
+          })
+
+          // 4. 批量写入数据库（使用upsert处理重复）
+          // Note: 使用事务确保数据一致性
+          let accountRecordCount = 0
+          await db.transaction(async () => {
+            for (const record of performanceData) {
+              // 查找本地campaign_id
+              const campaign = campaigns.find(
+                (c) => c.google_campaign_id === record.campaign_id
+              )
+              if (!campaign) {
+                console.warn(`未找到Campaign: ${record.campaign_id}，跳过`)
+                continue
+              }
+
+              const cpa =
+                record.conversions > 0 ? record.cost / record.conversions : 0
+
+              await db.exec(
+                `
+                INSERT INTO campaign_performance (
+                  user_id, campaign_id, date,
+                  impressions, clicks, conversions, cost,
+                  ctr, cpc, cpa, conversion_rate
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(campaign_id, date) DO UPDATE SET
+                  impressions = excluded.impressions,
+                  clicks = excluded.clicks,
+                  conversions = excluded.conversions,
+                  cost = excluded.cost,
+                  ctr = excluded.ctr,
+                  cpc = excluded.cpc,
+                  cpa = excluded.cpa,
+                  conversion_rate = excluded.conversion_rate
+              `,
+                [
+                  userId,
+                  campaign.id,
+                  record.date,
+                  record.impressions,
+                  record.clicks,
+                  record.conversions,
+                  record.cost,
+                  record.ctr,
+                  record.cpc,
+                  cpa,
+                  record.conversion_rate,
+                ]
+              )
+              accountRecordCount++
+              recordCount++
+            }
+          })
+
+          // 更新账户的last_sync_at
+          await db.exec(
+            `UPDATE google_ads_accounts SET last_sync_at = ? WHERE id = ?`,
+            [new Date().toISOString(), account.id]
+          )
+
+          // 🔧 修复(2025-12-28): 更新该账户的sync_log为success
+          await db.exec(
+            `
+            UPDATE sync_logs
+            SET status = 'success', record_count = ?, duration_ms = ?, completed_at = ?
+            WHERE id = ?
+            `,
+            [accountRecordCount, Date.now() - startTime, new Date().toISOString(), accountSyncLogId]
+          )
+        } catch (accountError) {
+          // 🔧 修复(2025-12-28): 为该账户的sync_log记录错误
+          if (accountSyncLogId) {
+            const errorMessage = accountError instanceof Error ? accountError.message : String(accountError)
+            await db.exec(
+              `
+              UPDATE sync_logs
+              SET status = 'failed', error_message = ?, duration_ms = ?, completed_at = ?
+              WHERE id = ?
+              `,
+              [errorMessage, Date.now() - startTime, new Date().toISOString(), accountSyncLogId]
+            )
+          }
+          console.error(`❌ 账户 ${account.customer_id} 同步失败:`, accountError)
+          // 继续处理下一个账户，不中断整体同步流程
+        }
       }
 
       // 5. 同步成功，更新日志
