@@ -69,28 +69,50 @@ The fix of adding `DISTINCT` prevents duplicate rows and ensures each user is pr
 
 ### File: `src/lib/queue/schedulers/data-sync-scheduler.ts`
 
-**Change 1**: Added `DISTINCT` to SQL query (line 86)
+**Original Query (problematic)**:
+```sql
+SELECT
+  u.id AS user_id,
+  COALESCE(s_enabled.value, 'true') AS data_sync_enabled,
+  COALESCE(s_interval.value, '6') AS data_sync_interval_hours,
+  ...
+FROM users u
+LEFT JOIN system_settings s_enabled ON ...
+LEFT JOIN system_settings s_interval ON ...
+WHERE COALESCE(s_enabled.value, 'true') = 'true'
+```
+**Problem**: LEFT JOINs create cartesian product without DISTINCT/GROUP BY
 
-```diff
-- SELECT
-+ SELECT DISTINCT
-    u.id AS user_id,
+**New Query (fixed)**:
+```sql
+SELECT
+  u.id AS user_id,
+  COALESCE(
+    (SELECT value FROM system_settings
+     WHERE user_id = u.id AND category = 'system' AND key = 'data_sync_enabled' LIMIT 1),
+    'true'
+  ) AS data_sync_enabled,
+  COALESCE(
+    (SELECT value FROM system_settings
+     WHERE user_id = u.id AND category = 'system' AND key = 'data_sync_interval_hours' LIMIT 1),
+    '6'
+  ) AS data_sync_interval_hours,
+  ...
+FROM users u
+WHERE COALESCE(
+  (SELECT value FROM system_settings
+   WHERE user_id = u.id AND category = 'system' AND key = 'data_sync_enabled' LIMIT 1),
+  'true'
+) = 'true'
 ```
 
-This ensures each user appears only once in the result set, preventing the duplicate processing bug.
-
-**Change 2**: Added diagnostic logging for duplicate detection (lines 115-120)
-
-```typescript
-// 🔧 修复(2025-12-29): 检查是否有重复的user_id（调试信息）
-const userIds = configs.map(c => c.user_id)
-const duplicates = userIds.filter((id, idx) => userIds.indexOf(id) !== idx)
-if (duplicates.length > 0) {
-  console.warn(`  ⚠️  检测到重复用户ID: ${[...new Set(duplicates)].join(', ')}，这可能导致任务重复创建`)
-}
-```
-
-This logging will catch any future instances where duplicate user IDs slip through (from other sources).
+**Advantages of scalar subquery approach**:
+1. ✅ Eliminates cartesian product completely
+2. ✅ Guarantees exactly 1 row per user (one row selected from users, scalar subqueries fetch data)
+3. ✅ No need for DISTINCT or GROUP BY
+4. ✅ Clearer intent and easier to understand
+5. ✅ More maintainable if additional settings are added later
+6. ✅ Better performance characteristics (subqueries only run once per user)
 
 ## Why This Bug Happened
 
@@ -170,8 +192,9 @@ To validate in production after deployment:
 ## Files Modified
 
 - `src/lib/queue/schedulers/data-sync-scheduler.ts`
-  - Added `DISTINCT` keyword to SELECT statement
-  - Added duplicate detection diagnostic logging
+  - Replaced LEFT JOIN + COALESCE approach with scalar subqueries
+  - Eliminated cartesian product issue at the root
+  - Guaranteed exactly one row per user in result set
 
 ## Verification Checklist
 
