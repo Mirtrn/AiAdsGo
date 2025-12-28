@@ -10,6 +10,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem } from '@/components/ui/select';
@@ -472,24 +473,29 @@ export default function ClickFarmTaskModal({
 
             {/* Offer Info Card */}
             {selectedOffer ? (
-              <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="bg-muted/50 rounded-lg p-4">
+                <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex items-center gap-2">
                     <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="truncate">
-                      <span className="text-muted-foreground">名称:</span> {selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
+                    <span>
+                      <span className="text-muted-foreground">Offer ID:</span> #{selectedOffer.id}
                     </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge className="h-5 text-xs" variant="outline">
+                      {selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
+                    </Badge>
                   </div>
                   <div className="flex items-center gap-2">
                     <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span>
-                      <span className="text-muted-foreground">国家:</span> {selectedOffer.target_country}
+                      <span className="text-muted-foreground">投放国家:</span> {selectedOffer.target_country}
                     </span>
                   </div>
-                  <div className="col-span-2 flex items-start gap-2">
-                    <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                    <span className="truncate text-xs">
-                      <span className="text-muted-foreground">链接:</span> {selectedOffer.affiliate_link}
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span>
+                      <span className="text-muted-foreground">执行时区:</span> {timezone}
                     </span>
                   </div>
                 </div>
@@ -497,18 +503,6 @@ export default function ClickFarmTaskModal({
             ) : (
               <div className="text-sm text-muted-foreground italic">
                 请选择一个 Offer
-              </div>
-            )}
-
-            {/* Timezone Display */}
-            {selectedOffer && (
-              <div className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">执行时区:</span>
-                <span className="font-mono">{timezone}</span>
-                <span className="text-xs text-muted-foreground">
-                  (自动匹配 {selectedOffer.target_country})
-                </span>
               </div>
             )}
           </div>
@@ -614,11 +608,16 @@ export default function ClickFarmTaskModal({
                 <Label className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4" />
                   时间分布曲线
+                  {isEditingDistribution && (
+                    <span className="text-xs text-muted-foreground font-normal">
+                      （拖拽调整每小时点击数）
+                    </span>
+                  )}
                 </Label>
                 <Button
                   type="button"
                   size="sm"
-                  variant="outline"
+                  variant={isEditingDistribution ? "default" : "outline"}
                   onClick={toggleEditMode}
                 >
                   {isEditingDistribution ? '完成编辑' : '自定义编辑'}
@@ -626,7 +625,31 @@ export default function ClickFarmTaskModal({
               </div>
 
               {/* Smooth Curve Visualization */}
-              <SmoothCurveChart data={distribution} />
+              <SmoothCurveChart
+                data={distribution}
+                timePeriod={timePeriod}
+                isEditing={isEditingDistribution}
+                onHourChange={(hour, value) => {
+                  if (!isEditingDistribution) return;
+                  const newDistribution = [...distribution];
+                  newDistribution[hour] = Math.max(0, value);
+                  // 保持总数不变，重新分配差值
+                  const currentTotal = newDistribution.reduce((sum, n) => sum + n, 0);
+                  const diff = dailyClickCount - currentTotal;
+                  if (diff !== 0) {
+                    // 将差值分配给其他非拖拽的小时
+                    let remainingDiff = diff;
+                    for (let i = 0; i < newDistribution.length && remainingDiff !== 0; i++) {
+                      if (i !== hour) {
+                        const adjust = Math.sign(remainingDiff);
+                        newDistribution[i] = Math.max(0, newDistribution[i] + adjust);
+                        remainingDiff -= adjust;
+                      }
+                    }
+                  }
+                  setDistribution(newDistribution);
+                }}
+              />
 
               <p className="text-xs text-muted-foreground">
                 总计: {distribution.reduce((sum, n) => sum + n, 0)} 次点击/天
