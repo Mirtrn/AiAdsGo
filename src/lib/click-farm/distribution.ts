@@ -172,3 +172,43 @@ export function formatBytes(bytes: number): string {
 export function estimateTraffic(clickCount: number): number {
   return clickCount * 200;
 }
+
+/**
+ * 均衡分布 - 在活跃时段均匀分配点击数
+ * 将每日总点击数均匀分配到所有活跃小时
+ *
+ * @param dailyCount - 每日点击数量
+ * @param startTime - 开始时间 "00:00" or "06:00"
+ * @param endTime - 结束时间 "24:00"
+ * @returns 24小时分布数组（活跃时段均匀分配，其他时段为0）
+ */
+export function balanceDistribution(
+  dailyCount: number,
+  startTime: string,  // "00:00" or "06:00"
+  endTime: string     // "24:00"
+): number[] {
+  const startHour = parseInt(startTime.split(':')[0]);
+  const endHour = parseInt(endTime.split(':')[0]);
+
+  // 计算活跃小时数
+  const activeHours = endHour - startHour;
+
+  if (activeHours <= 0) {
+    return new Array(24).fill(0);
+  }
+
+  // 计算每小时均衡分配的点击数
+  const baseClicksPerHour = Math.floor(dailyCount / activeHours);
+  const remainder = dailyCount % activeHours;
+
+  const distribution = new Array(24).fill(0);
+
+  // 在活跃时段均衡分配
+  // 前面的小时分配baseclicks，后面的小时多分配1以处理余数
+  for (let hour = startHour; hour < endHour; hour++) {
+    const extraClick = hour - startHour < remainder ? 1 : 0;
+    distribution[hour] = baseClicksPerHour + extraClick;
+  }
+
+  return distribution;
+}

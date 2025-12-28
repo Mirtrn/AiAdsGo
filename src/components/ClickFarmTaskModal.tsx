@@ -19,6 +19,7 @@ import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock
 import { toast } from 'sonner';
 import { getTimezoneByCountry } from '@/lib/timezone-utils';
 import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
+import { balanceDistribution } from '@/lib/click-farm/distribution';
 import HourlyDistributionEditor from '@/components/ui/HourlyDistributionEditor';
 
 interface ClickFarmTaskModalProps {
@@ -356,6 +357,13 @@ export default function ClickFarmTaskModal({
     toast.success('已重置为默认分布');
   };
 
+  const handleBalanceDistribution = () => {
+    const [startTime, endTime] = timePeriod.split('-');
+    const balanced = balanceDistribution(dailyClickCount, startTime, endTime);
+    setDistribution(balanced);
+    toast.success('已应用均衡分布');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -616,16 +624,28 @@ export default function ClickFarmTaskModal({
                 </Label>
                 <div className="flex items-center gap-2">
                   {isEditingDistribution && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={resetDistribution}
-                      className="h-8 text-xs"
-                    >
-                      <RotateCcw className="h-3 w-3 mr-1" />
-                      重置
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleBalanceDistribution}
+                        className="h-8 text-xs"
+                      >
+                        <TrendingUp className="h-3 w-3 mr-1" />
+                        均衡分布
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={resetDistribution}
+                        className="h-8 text-xs"
+                      >
+                        <RotateCcw className="h-3 w-3 mr-1" />
+                        重置
+                      </Button>
+                    </>
                   )}
                   <Button
                     type="button"
