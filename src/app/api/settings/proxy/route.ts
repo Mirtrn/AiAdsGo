@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSetting } from '@/lib/settings';
+import { getAllProxyUrls } from '@/lib/settings';
 
 /**
  * GET /api/settings/proxy?country=us
  * 根据国家代码获取代理配置
+ *
+ * 从 proxy.urls（JSON数组）中查找匹配国家的代理
  */
 export async function GET(request: NextRequest) {
   try {
@@ -25,15 +27,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 查询代理配置：proxy.{country}_proxy_url
-    const proxyKey = `${country.toLowerCase()}_proxy_url`;
-    const proxySetting = await getSetting('proxy', proxyKey, userIdNum);
+    // 获取所有代理配置
+    const proxyUrls = await getAllProxyUrls(userIdNum);
 
-    if (!proxySetting || !proxySetting.value) {
+    if (!proxyUrls || proxyUrls.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          error: `未配置 ${country.toUpperCase()} 代理`,
+          error: '未配置任何代理，请先前往设置页面配置',
+        },
+        { status: 404 }
+      );
+    }
+
+    // 查找匹配国家的代理
+    const targetCountry = country.toUpperCase();
+    const proxy = proxyUrls.find(
+      (p) => p.country.toUpperCase() === targetCountry
+    );
+
+    if (!proxy) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `未配置 ${targetCountry} 代理，请先前往设置页面配置`,
         },
         { status: 404 }
       );
@@ -42,10 +59,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        country: country.toUpperCase(),
-        proxy_url: proxySetting.value,
-        validation_status: proxySetting.validationStatus,
-        last_validated_at: proxySetting.lastValidatedAt,
+        country: proxy.country,
+        proxy_url: proxy.url,
       },
     });
   } catch (error: any) {

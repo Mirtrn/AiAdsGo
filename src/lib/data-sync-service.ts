@@ -103,13 +103,78 @@ export class DataSyncService {
   }
 
   /**
+   * 获取指定Campaign在过去N天内已同步的日期列表
+   */
+  async getSyncedDates(
+    userId: number,
+    campaignId: number,
+    days: number = 7
+  ): Promise<string[]> {
+    const db = await getDatabase()
+
+    const cutoffDate = new Date()
+    cutoffDate.setDate(cutoffDate.getDate() - days)
+
+    const rows = await db.query(
+      `
+      SELECT DISTINCT date
+      FROM campaign_performance
+      WHERE user_id = ? AND campaign_id = ? AND date >= ?
+      ORDER BY date
+    `,
+      [userId, campaignId, this.formatDate(cutoffDate)]
+    ) as Array<{ date: string }>
+
+    return rows.map(r => r.date)
+  }
+
+  /**
+   * 获取过去N天所有日期列表
+   */
+  private getDateRange(days: number): string[] {
+    const dates: string[] = []
+    const today = new Date()
+
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date()
+      date.setDate(today.getDate() - i)
+      dates.push(this.formatDate(date))
+    }
+
+    return dates
+  }
+
+  /**
+   * 检测缺失的日期
+   * @returns 缺失的日期列表
+   */
+  async getMissingDates(
+    userId: number,
+    campaignId: number,
+    days: number = 7
+  ): Promise<string[]> {
+    const syncedDates = await this.getSyncedDates(userId, campaignId, days)
+    const syncedSet = new Set(syncedDates)
+    const allDates = this.getDateRange(days)
+
+    return allDates.filter(date => !syncedSet.has(date))
+  }
+
+  /**
    * 执行数据同步（手动触发或定时任务）
    * 🔧 修复(2025-12-12): 独立账号模式 - 使用用户凭证
    * 🔧 修复(2025-12-28): 添加僵尸任务清理机制
+   * 🔧 修复(2025-12-28): 智能补齐过去7天缺失数据
    */
   async syncPerformanceData(
     userId: number,
-    syncType: 'manual' | 'auto' = 'manual'
+    syncType: 'manual' | 'auto' = 'manual',
+    options?: {
+      startDate?: string
+      endDate?: string
+      forceFullSync?: boolean  // 强制全量同步（过去7天）
+      smartFillMissing?: boolean  // 智能补齐缺失数据（默认true）
+    }
   ): Promise<SyncLog> {
     const db = await getDatabase()
     const startTime = Date.now()
