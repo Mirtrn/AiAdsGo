@@ -115,12 +115,16 @@ export default function ClickFarmTaskModal({
 
   // Set preselected offer when offers are loaded
   useEffect(() => {
+    console.log('[ClickFarmTaskModal] useEffect preSelectedOfferId:', preSelectedOfferId, 'offers.length:', offers.length, 'selectedOfferId:', selectedOfferId);
     if (preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
       const offer = offers.find(o => o.id === preSelectedOfferId);
+      console.log('[ClickFarmTaskModal] useEffect: 找到offer?', !!offer, 'offer:', offer?.name);
       if (offer) {
+        console.log('[ClickFarmTaskModal] useEffect: 调用 setSelectedOfferId');
         setSelectedOfferId(preSelectedOfferId);
         // 🆕 确保曲线显示
         if (dailyClickCount > 0 && distribution.length === 0) {
+          console.log('[ClickFarmTaskModal] useEffect: 调用 generateDistribution');
           generateDistribution();
         }
       }
@@ -144,17 +148,23 @@ export default function ClickFarmTaskModal({
   const loadOffers = async () => {
     try {
       setLoadingOffers(true);
+      console.log('[ClickFarmTaskModal] loadOffers: preSelectedOfferId =', preSelectedOfferId);
       const response = await fetch('/api/offers?limit=100&isActive=true');
       if (!response.ok) throw new Error('加载Offer失败');
 
       const data = await response.json();
+      console.log('[ClickFarmTaskModal] loadOffers: 加载到', data.data?.length, '个offers');
       setOffers(data.data || []);
 
       // 如果有预选的offer ID，使用它；否则选择第一个
       if (preSelectedOfferId && data.data?.some((o: Offer) => o.id === preSelectedOfferId)) {
+        console.log('[ClickFarmTaskModal] loadOffers: 调用 handleOfferChange');
         await handleOfferChange(preSelectedOfferId);
       } else if (data.data?.length > 0 && !selectedOfferId) {
+        console.log('[ClickFarmTaskModal] loadOffers: 没有preSelectedOfferId，选择第一个');
         await handleOfferChange(data.data[0].id);
+      } else {
+        console.log('[ClickFarmTaskModal] loadOffers: 条件不满足 - preSelectedOfferId:', preSelectedOfferId, 'selectedOfferId:', selectedOfferId);
       }
     } catch (error) {
       console.error('加载Offer失败:', error);
@@ -213,9 +223,11 @@ export default function ClickFarmTaskModal({
   };
 
   const handleOfferChange = async (offerId: number) => {
+    console.log('[ClickFarmTaskModal] handleOfferChange: offerId =', offerId);
     setSelectedOfferId(offerId);
 
     const offer = offers.find(o => o.id === offerId);
+    console.log('[ClickFarmTaskModal] handleOfferChange: 找到offer?', !!offer, 'offer:', offer?.name);
     if (offer) {
       await checkProxy(offer.target_country);
       // 🆕 自动匹配timezone
@@ -225,6 +237,7 @@ export default function ClickFarmTaskModal({
 
       // 🆕 立即生成分布（确保曲线显示）
       if (dailyClickCount > 0 && distribution.length === 0) {
+        console.log('[ClickFarmTaskModal] handleOfferChange: 调用 generateDistribution');
         await generateDistribution();
       }
     }
