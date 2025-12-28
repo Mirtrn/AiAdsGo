@@ -18,6 +18,7 @@ import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock
 import { toast } from 'sonner';
 import { getTimezoneByCountry } from '@/lib/timezone-utils';
 import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
+import SmoothCurveChart from '@/components/ui/SmoothCurveChart';
 
 interface ClickFarmTaskModalProps {
   open: boolean;
@@ -122,9 +123,16 @@ export default function ClickFarmTaskModal({
     }
   }, [preSelectedOfferId, offers, selectedOfferId]);
 
+  // Generate distribution when offer is selected
+  useEffect(() => {
+    if (selectedOfferId && dailyClickCount > 0 && distribution.length === 0) {
+      generateDistribution();
+    }
+  }, [selectedOfferId, dailyClickCount, distribution.length]);
+
   // Update distribution when settings change
   useEffect(() => {
-    if (selectedOfferId && dailyClickCount > 0) {
+    if (selectedOfferId && dailyClickCount > 0 && distribution.length > 0) {
       generateDistribution();
     }
   }, [selectedOfferId, dailyClickCount, timePeriod]);
@@ -140,9 +148,9 @@ export default function ClickFarmTaskModal({
 
       // 如果有预选的offer ID，使用它；否则选择第一个
       if (preSelectedOfferId && data.data?.some((o: Offer) => o.id === preSelectedOfferId)) {
-        setSelectedOfferId(preSelectedOfferId);
+        await handleOfferChange(preSelectedOfferId);
       } else if (data.data?.length > 0 && !selectedOfferId) {
-        setSelectedOfferId(data.data[0].id);
+        await handleOfferChange(data.data[0].id);
       }
     } catch (error) {
       console.error('加载Offer失败:', error);
@@ -545,87 +553,29 @@ export default function ClickFarmTaskModal({
             </div>
           </div>
 
-          {/* Distribution Preview - Full Width */}
+          {/* Distribution Preview - Smooth Curve */}
           {distribution.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4" />
-                  时间分布{isEditingDistribution && ' - 编辑模式'}
+                  时间分布曲线
                 </Label>
-                <div className="flex gap-2">
-                  {isEditingDistribution && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={resetDistribution}
-                      title="重置为默认分布"
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={isEditingDistribution ? 'default' : 'outline'}
-                    onClick={toggleEditMode}
-                  >
-                    <Edit3 className="mr-1 h-3 w-3" />
-                    {isEditingDistribution ? '完成编辑' : '自定义编辑'}
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={toggleEditMode}
+                >
+                  {isEditingDistribution ? '完成编辑' : '自定义编辑'}
+                </Button>
               </div>
 
-              {isEditingDistribution && (
-                <p className="text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 p-2 rounded">
-                  💡 拖拽柱状图调整每小时的点击量，系统会自动归一化以保持总点击数不变
-                </p>
-              )}
+              {/* Smooth Curve Visualization */}
+              <SmoothCurveChart data={distribution} />
 
-              <div className="grid grid-cols-12 gap-1 p-3 bg-muted/50 rounded-md">
-                {distribution.map((count, hour) => (
-                  <div
-                    key={hour}
-                    className={`flex flex-col items-center ${
-                      isEditingDistribution ? 'cursor-ns-resize' : ''
-                    }`}
-                    title={`${hour}:00 - ${count}次`}
-                    onMouseDown={(e) => handleBarMouseDown(hour, e)}
-                  >
-                    <div className="relative w-full flex items-end justify-center h-[50px]">
-                      <div
-                        className={`w-full rounded-t transition-colors ${
-                          draggedHour === hour
-                            ? 'bg-blue-600'
-                            : isEditingDistribution
-                            ? 'bg-primary hover:bg-primary/80'
-                            : 'bg-primary'
-                        }`}
-                        style={{
-                          height: `${Math.max(4, (count / Math.max(...distribution)) * 40)}px`,
-                        }}
-                      >
-                        {isEditingDistribution && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <GripVertical className="h-3 w-3 text-white/50" />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground mt-1">
-                      {hour}
-                    </span>
-                    {isEditingDistribution && (
-                      <span className="text-[9px] text-blue-600 font-medium">
-                        {count}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
               <p className="text-xs text-muted-foreground">
-                总计: {distribution.reduce((sum, n) => sum + n, 0)} 次点击
+                总计: {distribution.reduce((sum, n) => sum + n, 0)} 次点击/天
               </p>
             </div>
           )}
