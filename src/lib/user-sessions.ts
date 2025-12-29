@@ -109,9 +109,10 @@ export async function createUserSession(
       device_fingerprint, is_suspicious, suspicious_reason,
       created_at, last_activity_at, expires_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
+    RETURNING id
   `
 
-  const result = await db.queryOne<{ lastInsertRowid: number }>(
+  const result = await db.queryOne<{ id: number }>(
     insertSql,
     [
       userId,
@@ -124,6 +125,12 @@ export async function createUserSession(
       expiresAt
     ]
   )
+
+  if (!result) {
+    throw new Error('Failed to create session')
+  }
+
+  const sessionId = result.id
 
   // Invalidate old sessions if exceeding max concurrent
   await enforceMaxConcurrentSessions(userId)
@@ -155,7 +162,7 @@ export async function createUserSession(
   }
 
   const session: SessionInfo = {
-    id: result!.lastInsertRowid,
+    id: sessionId,
     userId,
     sessionToken,
     ipAddress,
@@ -303,11 +310,12 @@ async function createAlert(
   deviceFingerprints: string[]
 ): Promise<number> {
   const db = await getDatabase()
-  const result = await db.queryOne<{ lastInsertRowid: number }>(
+  const result = await db.queryOne<{ id: number }>(
     `INSERT INTO account_sharing_alerts (
       user_id, alert_type, severity, description,
       ip_addresses, device_fingerprints, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+    ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    RETURNING id`,
     [
       userId,
       alertType,
@@ -317,7 +325,7 @@ async function createAlert(
       JSON.stringify(deviceFingerprints)
     ]
   )
-  return result!.lastInsertRowid
+  return result!.id
 }
 
 /**
@@ -428,13 +436,14 @@ export async function trustDevice(
   deviceName?: string
 ): Promise<number> {
   const db = await getDatabase()
-  const result = await db.queryOne<{ lastInsertRowid: number }>(
-    `INSERT OR REPLACE INTO trusted_devices
+  const result = await db.queryOne<{ id: number }>(
+    `INSERT INTO trusted_devices
      (user_id, device_fingerprint, device_name, last_used_at, created_at, is_active)
-     VALUES (?, ?, ?, datetime('now'), datetime('now'), 1)`,
+     VALUES (?, ?, ?, datetime('now'), datetime('now'), 1)
+     RETURNING id`,
     [userId, deviceFingerprint, deviceName || null]
   )
-  return result!.lastInsertRowid
+  return result!.id
 }
 
 /**
