@@ -299,6 +299,7 @@ class PostgresAdapter implements DatabaseAdapter {
     }
 
     const result = await this.sql.unsafe(pgSql, cleanParams)
+    console.log('[PostgresAdapter.exec] result:', JSON.stringify(result), 'sql:', pgSql.substring(0, 100))
     return {
       changes: result.count || 0,
       lastInsertRowid: result[0]?.id
