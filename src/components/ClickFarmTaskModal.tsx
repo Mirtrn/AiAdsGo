@@ -19,7 +19,7 @@ import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock
 import { toast } from 'sonner';
 import { getTimezoneByCountry } from '@/lib/timezone-utils';
 import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
-import { balanceDistribution } from '@/lib/click-farm/distribution';
+import { balanceDistribution, generateDefaultDistribution } from '@/lib/click-farm/distribution';
 import HourlyDistributionEditor from '@/components/ui/HourlyDistributionEditor';
 
 interface ClickFarmTaskModalProps {
@@ -119,9 +119,10 @@ export default function ClickFarmTaskModal({
     }
   }, [open]);
 
-  // 🆕 并行加载辅助数据（代理检查和分布生成同时进行）
+  // 🆕 并行加载辅助数据（代理检查和分布计算同时进行）
   const loadAuxiliaryData = async (offer: Offer, offersList: Offer[]) => {
-    const [proxyResult, distributionResult] = await Promise.all([
+    // 🆕 分布曲线使用前端计算，无需API调用
+    const [proxyResult] = await Promise.all([
       // 并行检查代理
       fetch(`/api/settings/proxy?country=${offer.targetCountry.toLowerCase()}`)
         .then(async (res) => {
@@ -131,20 +132,15 @@ export default function ClickFarmTaskModal({
           return { warning: '' };
         })
         .catch(() => ({ warning: '检查代理配置失败' })),
-      // 并行生成分布
-      dailyClickCount > 0 ? fetch('/api/click-farm/distribution/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          daily_click_count: dailyClickCount,
-          start_time: timePeriod.split('-')[0],
-          end_time: timePeriod.split('-')[1],
-        }),
-      }).then(async (res) => {
-        if (!res.ok) throw new Error('生成分布失败');
-        const data = await res.json();
-        return { distribution: data.data.distribution };
-      }).catch(() => ({ distribution: null })) : Promise.resolve({ distribution: null })
+      // 🆕 前端直接计算分布曲线
+      Promise.resolve().then(() => {
+        if (dailyClickCount > 0) {
+          const [startTime, endTime] = timePeriod.split('-');
+          const dist = generateDefaultDistribution(dailyClickCount, startTime, endTime);
+          return { distribution: dist };
+        }
+        return { distribution: null };
+      })
     ]);
 
     // 更新状态
@@ -156,6 +152,11 @@ export default function ClickFarmTaskModal({
 
     const autoTimezone = getTimezoneByCountry(offer.targetCountry);
     setTimezone(autoTimezone);
+
+    // 🆕 从计算结果中获取分布
+    const distributionResult = dailyClickCount > 0
+      ? { distribution: generateDefaultDistribution(dailyClickCount, timePeriod.split('-')[0], timePeriod.split('-')[1]) }
+      : { distribution: null };
 
     if (distributionResult.distribution) {
       setDistribution(distributionResult.distribution);
@@ -213,48 +214,62 @@ export default function ClickFarmTaskModal({
   const loadOffers = async () => {
     try {
       setLoadingOffers(true);
-      console.log('[ClickFarmTaskModal] loadOffers START: preSelectedOfferId =', preSelectedOfferId, 'current offers.length =', offers.length);
-      const response = await fetch('/api/offers?limit=100&isActive=true');
-      if (!response.ok) throw new Error('加载Offer失败');
+      console.log('[ClickFarmTaskModal] loadOffers START: preSelectedOfferId =', preSelectedOfferId);
 
-      const data = await response.json();
-      console.log('[ClickFarmTaskModal] loadOffers: API返回', data);
-      // 🆕 API返回格式是 { success: true, offers: [...] }，不是 { data: [...] }
-      const offersData = data.offers || [];
-      console.log('[ClickFarmTaskModal] loadOffers: API返回', offersData.length, '个offers');
-      setOffers(offersData);
-
-      // 🆕 查找 offer 的辅助函数
-      const findOffer = (id: number) => offersData.find((o: Offer) => o.id === id);
-
-      // 🆕 如果有预选的offer ID，优先使用它；否则选择第一个
+      // 🆕 如果有 preSelectedOfferId，只获取单个Offer的信息
       if (preSelectedOfferId) {
-        console.log('[ClickFarmTaskModal] loadOffers: 检测到 preSelectedOfferId =', preSelectedOfferId);
-        const offer = findOffer(preSelectedOfferId);
-        if (offer) {
-          console.log('[ClickFarmTaskModal] loadOffers: 调用 loadAuxiliaryData (并行加载)');
-          setSelectedOfferId(preSelectedOfferId);
-          await loadAuxiliaryData(offer, offersData);
-        } else {
-          console.log('[ClickFarmTaskModal] loadOffers: offer不存在，使用第一个');
-          if (offersData.length > 0) {
-            setSelectedOfferId(offersData[0].id);
-            await loadAuxiliaryData(offersData[0], offersData);
-          }
+        const response = await fetch(`/api/offers/${preSelectedOfferId}`, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+
+        if (!response.ok) {
+          // 如果单个offer获取失败，降级获取列表
+          console.log('[ClickFarmTaskModal] loadOffers: 单个offer获取失败，降级获取列表');
+          await loadOffersList();
+          return;
         }
-      } else if (offersData.length > 0 && !selectedOfferId) {
-        console.log('[ClickFarmTaskModal] loadOffers: 没有preSelectedOfferId，选择第一个');
-        setSelectedOfferId(offersData[0].id);
-        await loadAuxiliaryData(offersData[0], offersData);
+
+        const data = await response.json();
+        const offerData = data.offer || data.data;
+        console.log('[ClickFarmTaskModal] loadOffers: 获取单个offer:', offerData);
+
+        if (offerData) {
+          setOffers([offerData]);
+          setSelectedOfferId(preSelectedOfferId);
+          await loadAuxiliaryData(offerData, [offerData]);
+        }
       } else {
-        console.log('[ClickFarmTaskModal] loadOffers: 条件不满足 - preSelectedOfferId:', preSelectedOfferId, 'selectedOfferId:', selectedOfferId);
+        // 没有 preSelectedOfferId 时，获取列表
+        await loadOffersList();
       }
+
       console.log('[ClickFarmTaskModal] loadOffers END');
     } catch (error) {
       console.error('加载Offer失败:', error);
       toast.error('加载Offer列表失败');
     } finally {
       setLoadingOffers(false);
+    }
+  };
+
+  // 🆕 获取Offer列表（用于没有 preSelectedOfferId 的情况）
+  const loadOffersList = async () => {
+    const response = await fetch('/api/offers?limit=100&isActive=true', {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    if (!response.ok) throw new Error('加载Offer失败');
+
+    const data = await response.json();
+    const offersData = data.offers || [];
+    console.log('[ClickFarmTaskModal] loadOffersList: API返回', offersData.length, '个offers');
+    setOffers(offersData);
+
+    if (offersData.length > 0) {
+      setSelectedOfferId(offersData[0].id);
+      await loadAuxiliaryData(offersData[0], offersData);
     }
   };
 
