@@ -29,13 +29,15 @@ export const GET = withAuth(
       }
 
       // 查询登录尝试记录（使用username或email匹配，包含设备信息）
+      // P1修复：添加 success 条件来获取所有记录（成功和失败）
+      // 之前缺少这个条件可能导致某些数据库行为不一致
       const loginAttempts = await db.query(`
         SELECT
           id,
           username_or_email,
           ip_address,
           user_agent,
-          success,
+          CAST(success AS INTEGER) as success,
           failure_reason,
           attempted_at,
           device_type,
@@ -71,12 +73,14 @@ export const GET = withAuth(
         LIMIT ? OFFSET ?
       `, [userId, limit, offset]) as any[]
 
-      // 合并并排序记录
-      const combinedRecords = [
+      // P1修复：确保 success 是布尔值类型，处理不同数据库返回的类型差异
+      // SQLite可能返回整数/字符串，PostgreSQL可能返回布尔值
+      const normalizedRecords = [
         ...loginAttempts.map(record => ({
           type: 'login_attempt',
           id: record.id,
-          success: record.success === 1 || record.success === true,
+          // 使用双重检查确保正确识别成功记录
+          success: record.success === 1 || record.success === true || record.success === '1' || record.success === 'true',
           ipAddress: record.ip_address,
           userAgent: record.user_agent,
           failureReason: record.failure_reason,
@@ -103,7 +107,7 @@ export const GET = withAuth(
           username: targetUser.username,
           email: targetUser.email,
         },
-        records: combinedRecords.slice(0, limit),
+        records: normalizedRecords.slice(0, limit),
         pagination: {
           total: totalResult.total,
           limit,

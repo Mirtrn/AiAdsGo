@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { loginWithPassword, findUserByUsernameOrEmail } from '@/lib/auth'
 import { checkRateLimit } from '@/lib/rate-limiter'
 import { verifyCaptcha, shouldRequireCaptcha } from '@/lib/captcha'
+import { createUserSession, getUserAlerts } from '@/lib/user-sessions'
 import { z } from 'zod'
 
 const loginSchema = z.object({
@@ -76,12 +77,34 @@ export async function POST(request: NextRequest) {
     // 登录 (支持用户名或邮箱，增强安全版本)
     const result = await loginWithPassword(username, password, ipAddress, userAgent)
 
+    // KISS账户共享检测：创建会话并检查可疑活动
+    const { session, alerts } = await createUserSession(
+      result.user.id!,
+      ipAddress,
+      userAgent
+    )
+
+    // 获取用户未解决的安全告警
+    const userAlerts = await getUserAlerts(result.user.id!, false)
+
+    // 检查是否有严重告警需要通知用户
+    const criticalAlerts = userAlerts.filter(a => a.severity === 'critical')
+    const hasSuspiciousActivity = session.isSuspicious || criticalAlerts.length > 0
+
     // 创建响应（需求20：包含must_change_password标识）
     const response = NextResponse.json({
       success: true,
       user: {
         ...result.user,
         mustChangePassword: result.mustChangePassword || false,
+      },
+      // 账户共享检测信息
+      security: {
+        sessionId: session.id,
+        isSuspiciousActivity: hasSuspiciousActivity,
+        suspiciousReason: session.suspiciousReason,
+        alertCount: userAlerts.length,
+        hasCriticalAlerts: criticalAlerts.length > 0,
       },
     })
 
