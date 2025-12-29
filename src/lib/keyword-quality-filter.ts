@@ -246,28 +246,29 @@ export function extractValidBrandTerms(keyword: string, brandName: string): stri
 /**
  * 多语言企业类型后缀模式
  * 用于检测与品牌无关的商业实体关键词
+ * 匹配格式: "品牌 商业后缀" (如 "eureka unito")
  */
 const BRAND_IRRELEVANT_PATTERNS: RegExp[] = [
-  // 意大利语
-  /\b\w+(unito|srl|sa|scarl)\b/i,
+  // 意大利语 - 匹配 "word suffix" 格式
+  /\b\w+\s+(unito|srl|sa|scarl)\b/i,
   // 德语
-  /\b\w+(gmbh|ag|kg|mbh)\b/i,
+  /\b\w+\s+(gmbh|ag|kg|mbh)\b/i,
   // 英语
-  /\b\w+(inc|ltd|llc|corp|corporation|limited)\b/i,
+  /\b\w+\s+(inc|ltd|llc|corp|corporation|limited)\b/i,
   // 法语
-  /\b\w+(sa|sas|eurl|sarl)\b/i,
+  /\b\w+\s+(sa|sas|eurl|sarl)\b/i,
   // 西班牙语
-  /\b\w+(sa|srl|sl)\b/i,
-  // 中文（使用Unicode正则）
-  /\b(有限公司|股份有限公司|有限责任公司)\b/u,
-  // 日语
-  /\b(株式会社|有限会社)\b/,
-  // 韩语
-  /\b(주식회사|유한회사)\b/,
+  /\b\w+\s+(sa|srl|sl)\b/i,
+  // 中文（不使用 \b，改用捕获组）
+  /(有限公司|股份有限公司|有限责任公司)/,
+  // 日语（不使用 \b，改用捕获组）
+  /(株式会社|有限会社)/,
+  // 韩语（不使用 \b，改用捕获组）
+  /(주식회사|유한회사)/,
   // 荷兰语
-  /\b\w+(bv)\b/i,
+  /\b\w+\s+(bv)\b/i,
   // 波兰语
-  /\b\w+(sp|sp\.?o\.?|z\.?o\.?o\.?)\b/i,
+  /\b\w+\s+(sp|sp\.?o\.?|z\.?o\.?o\.?)\b/i,
 ]
 
 /**
@@ -363,6 +364,108 @@ export function getMatchedFilterPattern(keyword: string): string | null {
   }
 
   return null
+}
+
+// ============================================
+// 低意图关键词过滤（🔥 2025-12-29 新增）
+// ============================================
+
+/**
+ * 过滤低购买意图关键词
+ *
+ * 低意图关键词特征：
+ * - 信息查询类（what is, how to, meaning...）
+ * - 评测比较类（review, comparison, versus...）
+ * - 免费/二手类（free, used, repair...）
+ *
+ * @param keywords - 关键词数组
+ * @returns 过滤后的关键词
+ *
+ * @example
+ * filterLowIntentKeywords(['what is eufy', 'eufy camera price']) → ['eufy camera price']
+ */
+export function filterLowIntentKeywords(keywords: string[]): string[] {
+  if (!keywords || keywords.length === 0) return []
+
+  return keywords.filter(kw => {
+    const lowerKw = kw.toLowerCase()
+
+    // 跳过空字符串
+    if (!lowerKw.trim()) return false
+
+    // 检查是否匹配低意图模式
+    for (const pattern of SEMANTIC_QUERY_PATTERNS) {
+      if (lowerKw.includes(pattern.toLowerCase())) {
+        return false
+      }
+    }
+
+    return true
+  })
+}
+
+/**
+ * 过滤地理不匹配关键词（🔥 2025-12-29 新增）
+ *
+ * @param keywords - 关键词数组
+ * @param targetCountry - 目标国家
+ * @returns 过滤后的关键词
+ */
+export function filterMismatchedGeoKeywords(keywords: string[], _targetCountry: string): string[] {
+  // 当前实现返回所有关键词
+  // 未来可以根据目标国家过滤特定地理词
+  if (!keywords || keywords.length === 0) return []
+  return keywords.filter(kw => kw && kw.trim())
+}
+
+// ============================================
+// 搜索量阈值计算（🔥 2025-12-29 新增）
+// ============================================
+
+/**
+ * 计算搜索量阈值
+ *
+ * 阈值计算逻辑：
+ * - 如果有足够数据（>=5个关键词），取中位数的10%作为阈值
+ * - 如果数据不足，返回最小阈值50
+ * - 如果所有搜索量都很低（最大值<500），阈值设为0（不过滤）
+ *
+ * @param searchVolumes - 搜索量数组
+ * @param minThreshold - 最小阈值（默认50）
+ * @returns 计算后的阈值
+ */
+export function calculateSearchVolumeThreshold(
+  searchVolumes: number[],
+  minThreshold: number = 50
+): number {
+  if (!searchVolumes || searchVolumes.length === 0) {
+    return 0
+  }
+
+  // 过滤掉0值
+  const validVolumes = searchVolumes.filter(v => v > 0)
+
+  if (validVolumes.length === 0) {
+    return 0
+  }
+
+  // 如果最大值很小（<500），不设置阈值
+  const maxVolume = Math.max(...validVolumes)
+  if (maxVolume < 500) {
+    return 0
+  }
+
+  // 计算中位数
+  const sorted = [...validVolumes].sort((a, b) => a - b)
+  const median = sorted.length % 2 === 0
+    ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+    : sorted[Math.floor(sorted.length / 2)]
+
+  // 阈值 = 中位数的10%
+  const threshold = Math.floor(median * 0.1)
+
+  // 返回最大值（阈值和最小阈值比较）
+  return Math.max(threshold, minThreshold)
 }
 
 // ============================================

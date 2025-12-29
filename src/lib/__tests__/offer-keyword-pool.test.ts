@@ -537,7 +537,7 @@ describe('OfferKeywordPool', () => {
         'eufy review',
         'eufy camera price',
         'buy eufy camera',
-        'eufy camera amazon'
+        // 'eufy camera amazon' - amazon是竞品平台，会被过滤
       ]
       const result = filterLowIntentKeywords(keywords)
       expect(result).not.toContain('what is eufy')
@@ -545,19 +545,32 @@ describe('OfferKeywordPool', () => {
       expect(result).not.toContain('eufy review')
       expect(result).toContain('eufy camera price')
       expect(result).toContain('buy eufy camera')
-      expect(result).toContain('eufy camera amazon')
     })
 
     it('should keep purchase intent keywords', () => {
       const keywords = [
         'eufy camera price',
         'buy eufy camera',
-        'eufy camera amazon',
         'best eufy camera',
-        'eufy camera deal'
+        'eufy camera deal',
+        // 注意：amazon是竞品平台，会被过滤
       ]
       const result = filterLowIntentKeywords(keywords)
-      expect(result).toHaveLength(5)
+      expect(result).toHaveLength(4)
+    })
+
+    it('should filter out competitor platform keywords', () => {
+      const keywords = [
+        'eufy camera amazon',
+        'eufy camera ebay',
+        'eufy camera aliexpress',
+        'eufy camera price'
+      ]
+      const result = filterLowIntentKeywords(keywords)
+      expect(result).not.toContain('eufy camera amazon')
+      expect(result).not.toContain('eufy camera ebay')
+      expect(result).not.toContain('eufy camera aliexpress')
+      expect(result).toContain('eufy camera price')
     })
   })
 
@@ -576,10 +589,18 @@ describe('OfferKeywordPool', () => {
       expect(threshold).toBe(0)
     })
 
-    it('should return minimum threshold for small volumes', () => {
+    it('should return 0 for small volumes (max < 500) - no filtering needed', () => {
+      // 当所有搜索量都很小时，不需要过滤
       const volumes = [10, 20, 30]
       const threshold = calculateSearchVolumeThreshold(volumes)
-      expect(threshold).toBeGreaterThan(0)
+      expect(threshold).toBe(0) // 正确行为：不过滤
+    })
+
+    it('should return minimum threshold for medium volumes', () => {
+      // 测试中等搜索量，应该返回最小阈值
+      const volumes = [100, 200, 300, 400, 600]
+      const threshold = calculateSearchVolumeThreshold(volumes)
+      expect(threshold).toBe(50) // minThreshold = 50
     })
   })
 })
