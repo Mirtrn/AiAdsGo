@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock } from 'lucide-react'
+import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -176,6 +176,12 @@ export default function UserManagementPage() {
     const [loginHistoryUser, setLoginHistoryUser] = useState<User | null>(null)
     const [loginRecords, setLoginRecords] = useState<LoginRecord[]>([])
     const [loadingHistory, setLoadingHistory] = useState(false)
+
+    // Security alerts dialog
+    const [isAlertsOpen, setIsAlertsOpen] = useState(false)
+    const [alertsUser, setAlertsUser] = useState<User | null>(null)
+    const [alerts, setAlerts] = useState<any[]>([])
+    const [loadingAlerts, setLoadingAlerts] = useState(false)
 
     // Confirmation dialogs
     const [confirmDialog, setConfirmDialog] = useState<{
@@ -467,6 +473,25 @@ export default function UserManagementPage() {
         }
     }
 
+    const handleViewSecurityAlerts = async (user: User) => {
+        setAlertsUser(user)
+        setIsAlertsOpen(true)
+        setLoadingAlerts(true)
+        setAlerts([])
+
+        try {
+            const res = await fetch(`/api/admin/users/${user.id}/alerts`)
+            if (!res.ok) throw new Error('获取安全告警失败')
+
+            const data = await res.json()
+            setAlerts(data.alerts || [])
+        } catch (error: any) {
+            toast.error(error.message || '获取安全告警失败')
+        } finally {
+            setLoadingAlerts(false)
+        }
+    }
+
     const formatTimestamp = (timestamp: string) => {
         const date = new Date(timestamp)
         return date.toLocaleString('zh-CN', {
@@ -668,6 +693,15 @@ export default function UserManagementPage() {
                                                         title="查看登录记录"
                                                     >
                                                         <History className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => handleViewSecurityAlerts(user)}
+                                                        title="安全告警"
+                                                        className="text-amber-600 hover:text-amber-700"
+                                                    >
+                                                        <ShieldAlert className="w-4 h-4" />
                                                     </Button>
                                                     {isUserLocked(user) && (
                                                         <Button
@@ -1080,6 +1114,95 @@ export default function UserManagementPage() {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsLoginHistoryOpen(false)}>
+                            关闭
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Security Alerts Dialog */}
+            <Dialog open={isAlertsOpen} onOpenChange={setIsAlertsOpen}>
+                <DialogContent className="max-w-4xl max-h-[80vh]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <ShieldAlert className="w-5 h-5 text-amber-600" />
+                            安全告警列表
+                        </DialogTitle>
+                        <DialogDescription>
+                            {alertsUser?.username} ({alertsUser?.email || '无邮箱'}) 的账户共享安全告警
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4 overflow-y-auto max-h-[60vh]">
+                        {loadingAlerts ? (
+                            <div className="text-center py-8 text-muted-foreground">
+                                加载中...
+                            </div>
+                        ) : alerts.length === 0 ? (
+                            <div className="text-center py-8 text-muted-foreground">
+                                <ShieldAlert className="w-12 h-12 mx-auto mb-3 text-green-400" />
+                                <div className="text-lg font-medium">暂无安全告警</div>
+                                <div className="text-sm">该用户账户使用正常，未检测到可疑活动</div>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {alerts.map((alert) => (
+                                    <div
+                                        key={alert.id}
+                                        className={`p-4 rounded-lg border ${
+                                            alert.severity === 'critical'
+                                                ? 'bg-red-50 border-red-200'
+                                                : alert.severity === 'warning'
+                                                ? 'bg-amber-50 border-amber-200'
+                                                : 'bg-blue-50 border-blue-200'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <Badge
+                                                        variant={
+                                                            alert.severity === 'critical'
+                                                                ? 'destructive'
+                                                                : alert.severity === 'warning'
+                                                                ? 'outline'
+                                                                : 'secondary'
+                                                        }
+                                                        className={
+                                                            alert.severity === 'warning'
+                                                                ? 'border-amber-500 text-amber-700 bg-amber-100'
+                                                                : ''
+                                                        }
+                                                    >
+                                                        {alert.severity === 'critical' && '🚨 严重'}
+                                                        {alert.severity === 'warning' && '⚠️ 警告'}
+                                                        {alert.severity === 'info' && 'ℹ️ 信息'}
+                                                        {alert.alertType === 'MULTI_IP_LOGIN' && ' 多IP登录'}
+                                                        {alert.alertType === 'NEW_DEVICE' && ' 新设备'}
+                                                    </Badge>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {new Date(alert.createdAt).toLocaleString('zh-CN')}
+                                                    </span>
+                                                </div>
+                                                <div className="text-sm text-foreground mb-3">
+                                                    {alert.description}
+                                                </div>
+                                                {alert.ipAddresses && alert.ipAddresses.length > 0 && (
+                                                    <div className="text-xs text-muted-foreground">
+                                                        <span className="font-medium">涉及IP: </span>
+                                                        {Array.isArray(alert.ipAddresses)
+                                                            ? alert.ipAddresses.join(', ')
+                                                            : alert.ipAddresses}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsAlertsOpen(false)}>
                             关闭
                         </Button>
                     </DialogFooter>

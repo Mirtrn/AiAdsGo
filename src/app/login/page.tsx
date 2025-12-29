@@ -30,6 +30,7 @@ function LoginForm() {
   const [showCaptcha, setShowCaptcha] = useState(false)
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [captchaLoading, setCaptchaLoading] = useState(false)
+  const [securityWarning, setSecurityWarning] = useState<string | null>(null)
   const turnstileWidgetId = useRef<string | null>(null)
   const turnstileLoaded = useRef(false)
 
@@ -40,6 +41,12 @@ function LoginForm() {
     const errorParam = searchParams?.get('error')
     if (errorParam) {
       setError(decodeURIComponent(errorParam))
+    }
+
+    // 检查是否有安全警告
+    const warningParam = searchParams?.get('security_warning')
+    if (warningParam === 'true') {
+      setSecurityWarning('检测到您的账户存在异常登录活动，请确认是否为本人操作。如非本人操作，建议立即修改密码。')
     }
   }, [searchParams])
 
@@ -270,6 +277,19 @@ function LoginForm() {
                 <ShieldCheck className="w-4 h-4" />
               </div>
               {error}
+            </div>
+          )}
+
+          {/* 安全警告 */}
+          {securityWarning && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-xl text-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+              <div className="p-1 bg-amber-100 rounded-full mt-0.5">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-medium mb-1">安全提醒</div>
+                <div className="text-amber-600">{securityWarning}</div>
+              </div>
             </div>
           )}
 
