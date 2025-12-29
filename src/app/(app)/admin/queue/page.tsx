@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle } from 'lucide-react'
+import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -83,10 +83,25 @@ interface QueueConfig {
   storageType?: 'redis' | 'memory'
 }
 
+interface UserQueuePagination {
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
 export default function QueueManagementPage() {
   const [stats, setStats] = useState<QueueStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'monitor' | 'config'>('monitor')
+
+  // 用户队列表格分页状态
+  const [userQueuePagination, setUserQueuePagination] = useState<UserQueuePagination>({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 0
+  })
 
   // 配置表单状态
   const [config, setConfig] = useState<QueueConfig>(() => {
@@ -176,6 +191,16 @@ export default function QueueManagementPage() {
         }
 
         setStats(adaptedStats)
+
+        // 计算用户队列表格分页
+        const totalUsers = adaptedStats.perUser.length
+        const totalPages = Math.ceil(totalUsers / userQueuePagination.limit) || 1
+        setUserQueuePagination(prev => ({
+          ...prev,
+          total: totalUsers,
+          totalPages,
+          page: Math.min(prev.page, totalPages) // 确保当前页不超过总页数
+        }))
 
         // 手动刷新时显示成功提示
         if (showSuccessToast) {
@@ -505,58 +530,123 @@ export default function QueueManagementPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {stats.perUser.map((userStat) => {
-                      const userUtilization = stats.config.perUserConcurrency > 0
-                        ? Math.round((userStat.running / stats.config.perUserConcurrency) * 100)
-                        : 0
+                    {(() => {
+                      const startIndex = (userQueuePagination.page - 1) * userQueuePagination.limit
+                      const endIndex = startIndex + userQueuePagination.limit
+                      const paginatedUsers = stats.perUser.slice(startIndex, endIndex)
 
-                      return (
-                        <tr key={userStat.userId} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="py-3 px-4">
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium text-gray-900">{userStat.username}</span>
-                              {userStat.email && (
-                                <span className="text-xs text-gray-500">{userStat.email}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="text-center py-3 px-4">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              {userStat.running} / {stats.config.perUserConcurrency}
-                            </span>
-                          </td>
-                          <td className="text-center py-3 px-4">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                              {userStat.queued}
-                            </span>
-                          </td>
-                          <td className="text-center py-3 px-4">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              {userStat.completed}
-                            </span>
-                          </td>
-                          <td className="text-center py-3 px-4">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                              {userStat.failed}
-                            </span>
-                          </td>
-                          <td className="text-center py-3 px-4">
-                            <div className="flex flex-col items-center space-y-1">
-                              <div className="w-16 bg-gray-200 rounded-full h-2">
-                                <div
-                                  className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                                  style={{ width: `${Math.min(userUtilization, 100)}%` }}
-                                />
+                      return paginatedUsers.map((userStat) => {
+                        const userUtilization = stats.config.perUserConcurrency > 0
+                          ? Math.round((userStat.running / stats.config.perUserConcurrency) * 100)
+                          : 0
+
+                        return (
+                          <tr key={userStat.userId} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="py-3 px-4">
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium text-gray-900">{userStat.username}</span>
+                                {userStat.email && (
+                                  <span className="text-xs text-gray-500">{userStat.email}</span>
+                                )}
                               </div>
-                              <span className="text-xs text-gray-600 font-medium">{userUtilization}%</span>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
+                            </td>
+                            <td className="text-center py-3 px-4">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {userStat.running} / {stats.config.perUserConcurrency}
+                              </span>
+                            </td>
+                            <td className="text-center py-3 px-4">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                {userStat.queued}
+                              </span>
+                            </td>
+                            <td className="text-center py-3 px-4">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                {userStat.completed}
+                              </span>
+                            </td>
+                            <td className="text-center py-3 px-4">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                {userStat.failed}
+                              </span>
+                            </td>
+                            <td className="text-center py-3 px-4">
+                              <div className="flex flex-col items-center space-y-1">
+                                <div className="w-16 bg-gray-200 rounded-full h-2">
+                                  <div
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                                    style={{ width: `${Math.min(userUtilization, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs text-gray-600 font-medium">{userUtilization}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })
+                    })()}
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination Controls */}
+              {userQueuePagination.total > 0 && (
+                <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium text-gray-600">每页显示：</label>
+                    <Select
+                      value={String(userQueuePagination.limit)}
+                      onValueChange={(newLimit) => {
+                        setUserQueuePagination(prev => ({
+                          ...prev,
+                          limit: parseInt(newLimit),
+                          page: 1
+                        }))
+                      }}
+                    >
+                      <SelectTrigger className="w-20">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5</SelectItem>
+                        <SelectItem value="10">10</SelectItem>
+                        <SelectItem value="20">20</SelectItem>
+                        <SelectItem value="50">50</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <span className="text-sm text-gray-600">
+                    显示 {(userQueuePagination.page - 1) * userQueuePagination.limit + 1} - {Math.min(userQueuePagination.page * userQueuePagination.limit, userQueuePagination.total)} 条，共 {userQueuePagination.total} 条
+                  </span>
+
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setUserQueuePagination(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                      disabled={userQueuePagination.page === 1 || loading}
+                    >
+                      <ChevronLeft className="w-4 h-4 mr-1" />
+                      上一页
+                    </Button>
+
+                    <span className="text-sm font-medium text-gray-700 px-2">
+                      第 {userQueuePagination.page} / {userQueuePagination.totalPages} 页
+                    </span>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setUserQueuePagination(prev => ({ ...prev, page: Math.min(prev.totalPages, prev.page + 1) }))}
+                      disabled={userQueuePagination.page === userQueuePagination.totalPages || loading}
+                    >
+                      下一页
+                      <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
