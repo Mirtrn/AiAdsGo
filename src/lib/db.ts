@@ -143,40 +143,34 @@ class PostgresAdapter implements DatabaseAdapter {
       'google_ads_credentials': ['is_active'],
       'google_ads_service_accounts': ['is_active'],
       'prompt_versions': ['is_active'],
-      // 以下表的 is_active/is_resolved/is_current/is_suspicious 是 INTEGER 类型，无需转换
-      // - trusted_devices.is_active = INTEGER
-      // - account_sharing_alerts.is_resolved = INTEGER
-      // - user_sessions.is_current = INTEGER
-      // - user_sessions.is_suspicious = INTEGER
-      // - login_attempts.success = INTEGER
     }
 
-    // 转换 field = 1 -> field = true
+    // 转换 field = 1 -> field = true（仅对指定表的指定字段）
     for (const [tableName, fields] of Object.entries(booleanFieldsPostgres)) {
       for (const field of fields) {
-        // 匹配 table.field = 1 或单独的 field = 1
-        const pattern1 = new RegExp(`(?:${tableName}\\.)?${field}\\s*=\\s*1\\b`, 'gi')
-        result = result.replace(pattern1, `${field} = true`)
+        // 只转换 table.field = 1 的形式（必须有表名前缀）
+        const pattern1 = new RegExp(`${tableName}\\.${field}\\s*=\\s*1\\b`, 'gi')
+        result = result.replace(pattern1, `${tableName}.${field} = true`)
 
-        // 匹配 field = 0 -> field = false
-        const pattern0 = new RegExp(`(?:${tableName}\\.)?${field}\\s*=\\s*0\\b`, 'gi')
-        result = result.replace(pattern0, `${field} = false`)
+        // 只转换 table.field = 0 的形式（必须有表名前缀）
+        const pattern0 = new RegExp(`${tableName}\\.${field}\\s*=\\s*0\\b`, 'gi')
+        result = result.replace(pattern0, `${tableName}.${field} = false`)
 
-        // 转换 CASE WHEN field = 1
-        const patternWhen1 = new RegExp(`(WHEN\\s+${field}\\s*=\\s*)1\\b`, 'gi')
-        result = result.replace(patternWhen1, '$1true')
+        // 转换 CASE WHEN table.field = 1
+        const patternWhen1 = new RegExp(`(WHEN\\s+${tableName}\\.${field}\\s*=\\s*)1\\b`, 'gi')
+        result = result.replace(patternWhen1, `$1true`)
 
-        // 转换 CASE WHEN field = 0
-        const patternWhen0 = new RegExp(`(WHEN\\s+${field}\\s*=\\s*)0\\b`, 'gi')
-        result = result.replace(patternWhen0, '$1false')
+        // 转换 CASE WHEN table.field = 0
+        const patternWhen0 = new RegExp(`(WHEN\\s+${tableName}\\.${field}\\s*=\\s*)0\\b`, 'gi')
+        result = result.replace(patternWhen0, `$1false`)
 
-        // 转换 SET field = 1
-        const patternSet1 = new RegExp(`(SET\\s+${field}\\s*=\\s*)1\\b`, 'gi')
-        result = result.replace(patternSet1, '$1true')
+        // 转换 SET table.field = 1
+        const patternSet1 = new RegExp(`(SET\\s+${tableName}\\.${field}\\s*=\\s*)1\\b`, 'gi')
+        result = result.replace(patternSet1, `$1true`)
 
-        // 转换 SET field = 0
-        const patternSet0 = new RegExp(`(SET\\s+${field}\\s*=\\s*)0\\b`, 'gi')
-        result = result.replace(patternSet0, '$1false')
+        // 转换 SET table.field = 0
+        const patternSet0 = new RegExp(`(SET\\s+${tableName}\\.${field}\\s*=\\s*)0\\b`, 'gi')
+        result = result.replace(patternSet0, `$1false`)
       }
     }
 
@@ -190,12 +184,12 @@ class PostgresAdapter implements DatabaseAdapter {
     const booleanFields = new Set([
       'is_active', 'is_selected', 'is_success', 'must_change_password',
       'is_default', 'is_manager', 'is_manager_account', 'is_idle',
-      'enabled', 'is_deleted', 'is_sensitive', 'is_required'
+      'enabled', 'is_deleted', 'is_sensitive', 'is_required', 'is_active'
     ])
 
     // INTEGER 类型的布尔字段（不需要转换参数值）
     const integerBooleanFields = new Set([
-      'is_current', 'is_suspicious', 'is_resolved', 'is_active',
+      'is_current', 'is_suspicious', 'is_resolved',
       'success'  // login_attempts.success
     ])
 
