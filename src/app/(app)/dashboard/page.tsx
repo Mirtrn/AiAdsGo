@@ -125,8 +125,23 @@ export default function DashboardPage() {
   }, [days])
 
   const formatNumber = (num: number | null | undefined) => (num ?? 0).toLocaleString()
-  const formatCurrency = (num: number | null | undefined) => `¥${(num ?? 0).toFixed(2)}`
-  const formatPercent = (num: number | null | undefined) => `${(num ?? 0).toFixed(2)}%`
+  const formatCurrency = (num: number | null | undefined) => {
+    const value = Number(num ?? 0)
+    return isNaN(value) ? '¥0.00' : `¥${value.toFixed(2)}`
+  }
+  const formatPercent = (num: number | null | undefined) => {
+    const value = Number(num ?? 0)
+    return isNaN(value) ? '0.00%' : `${value.toFixed(2)}%`
+  }
+
+  /**
+   * 🔧 修复(2025-12-29): 安全地格式化数值，处理可能为字符串或null的情况
+   */
+  const safeToFixed = (num: any, decimals: number = 2): string => {
+    const value = Number(num ?? 0)
+    if (isNaN(value)) return '0'.padEnd(decimals > 0 ? decimals + 2 : 1, '0')
+    return value.toFixed(decimals)
+  }
 
   // 加载骨架屏
   if (loading) {
@@ -208,7 +223,7 @@ export default function DashboardPage() {
                     <TrendingDown className="w-4 h-4 text-red-500" />
                   )}
                   <span className={`text-sm font-medium ${kpiData.changes.impressions >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {kpiData.changes.impressions >= 0 ? '+' : ''}{(kpiData.changes.impressions ?? 0).toFixed(1)}%
+                    {kpiData.changes.impressions >= 0 ? '+' : ''}{safeToFixed(kpiData.changes.impressions, 1)}%
                   </span>
                   <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
                 </div>
@@ -238,7 +253,7 @@ export default function DashboardPage() {
                     <TrendingDown className="w-4 h-4 text-red-500" />
                   )}
                   <span className={`text-sm font-medium ${kpiData.changes.clicks >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {kpiData.changes.clicks >= 0 ? '+' : ''}{(kpiData.changes.clicks ?? 0).toFixed(1)}%
+                    {kpiData.changes.clicks >= 0 ? '+' : ''}{safeToFixed(kpiData.changes.clicks, 1)}%
                   </span>
                   <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
                 </div>

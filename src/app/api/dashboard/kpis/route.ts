@@ -117,20 +117,20 @@ export async function GET(request: NextRequest) {
 
     // 处理数据
     const current = {
-      impressions: currentData?.impressions || 0,
-      clicks: currentData?.clicks || 0,
-      cost: currentData?.cost || 0,
-      conversions: currentData?.conversions || 0,
+      impressions: Number(currentData?.impressions) || 0,
+      clicks: Number(currentData?.clicks) || 0,
+      cost: Number(currentData?.cost) || 0,
+      conversions: Number(currentData?.conversions) || 0,
       ctr: 0,
       cpc: 0,
       conversionRate: 0,
     }
 
     const previous = {
-      impressions: previousData?.impressions || 0,
-      clicks: previousData?.clicks || 0,
-      cost: previousData?.cost || 0,
-      conversions: previousData?.conversions || 0,
+      impressions: Number(previousData?.impressions) || 0,
+      clicks: Number(previousData?.clicks) || 0,
+      cost: Number(previousData?.cost) || 0,
+      conversions: Number(previousData?.conversions) || 0,
     }
 
     // 计算派生指标
@@ -149,10 +149,10 @@ export async function GET(request: NextRequest) {
     }
 
     const changes = {
-      impressions: calculateChange(current.impressions, previous.impressions),
-      clicks: calculateChange(current.clicks, previous.clicks),
-      cost: calculateChange(current.cost, previous.cost),
-      conversions: calculateChange(current.conversions, previous.conversions),
+      impressions: Number(calculateChange(current.impressions, previous.impressions)) || 0,
+      clicks: Number(calculateChange(current.clicks, previous.clicks)) || 0,
+      cost: Number(calculateChange(current.cost, previous.cost)) || 0,
+      conversions: Number(calculateChange(current.conversions, previous.conversions)) || 0,
     }
 
     const response: KPIData = {
