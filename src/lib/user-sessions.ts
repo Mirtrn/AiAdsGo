@@ -509,7 +509,7 @@ export async function getUserAlerts(
     device_fingerprints: string
     is_resolved: number
     created_at: string
-  }>(sql, [userId])
+  }>(sql, params)
 
   return alerts.map(a => ({
     id: a.id,
