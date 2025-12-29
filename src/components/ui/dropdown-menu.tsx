@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import * as ReactDOM from "react-dom"
 import { cn } from "@/lib/utils"
 
 const DropdownMenuContext = React.createContext<{
@@ -63,7 +64,7 @@ DropdownMenuTrigger.displayName = "DropdownMenuTrigger";
 const DropdownMenuContent = React.forwardRef<
     HTMLDivElement,
     React.HTMLAttributes<HTMLDivElement> & { align?: "start" | "end" | "center" }
->(({ className, align = "center", ...props }, ref) => {
+>(({ className, align = "center", children, ...props }, ref) => {
     const { open } = React.useContext(DropdownMenuContext);
 
     if (!open) return null;
@@ -74,17 +75,23 @@ const DropdownMenuContent = React.forwardRef<
         center: "left-1/2 -translate-x-1/2",
     };
 
-    return (
+    // Portal: 将下拉菜单渲染到 body 下，避免被 overflow 容器裁剪
+    const dropdownContent = (
         <div
             ref={ref}
             className={cn(
-                "absolute z-50 mt-2 min-w-[8rem] overflow-hidden rounded-md border bg-white p-1 text-gray-950 shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+                "absolute z-[100] mt-2 min-w-[8rem] overflow-hidden rounded-md border bg-white p-1 text-gray-950 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
                 alignmentClasses[align],
                 className
             )}
             {...props}
-        />
+        >
+            {children}
+        </div>
     );
+
+    // 使用 Portal 渲染到 document.body
+    return ReactDOM.createPortal(dropdownContent, document.body);
 });
 DropdownMenuContent.displayName = "DropdownMenuContent";
 
