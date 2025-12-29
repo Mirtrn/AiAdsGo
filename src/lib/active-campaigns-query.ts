@@ -180,7 +180,7 @@ export async function pauseCampaigns(
       console.log(`⏸️ 暂停广告系列: ${campaign.name} (${campaign.id})`)
       await updateGoogleAdsCampaignStatus({
         customerId: adsAccount.customer_id,
-        refreshToken: credentials?.refresh_token || '',
+        refreshToken: credentials2?.refresh_token || '',
         campaignId: campaign.id,
         status: 'PAUSED',
         accountId: googleAdsAccountId,
