@@ -124,10 +124,9 @@ export async function saveGoogleAdsCredentials(
     `, [
       credentials.client_id,
       credentials.client_secret,
-      formattedLoginCustomerId,  // 使用格式化后的值
-      credentials.refresh_token,
-      credentials.developer_token,
-      formattedLoginCustomerId,  // 使用格式化后的值
+      credentials.refresh_token,         // 🔧 修复：正确的参数顺序
+      credentials.developer_token,       // 🔧 修复：正确的参数顺序
+      formattedLoginCustomerId,          // 🔧 修复：正确的参数顺序
       credentials.access_token || null,
       credentials.access_token_expires_at || null,
       isActiveValue,
