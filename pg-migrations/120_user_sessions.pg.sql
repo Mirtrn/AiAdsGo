@@ -27,13 +27,42 @@ CREATE TABLE user_sessions (
   revoked_at TIMESTAMP WITH TIME ZONE
 );
 
--- Indexes for performance
-CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
-CREATE INDEX idx_user_sessions_token ON user_sessions(session_token);
-CREATE INDEX idx_user_sessions_device_fp ON user_sessions(device_fingerprint);
-CREATE INDEX idx_user_sessions_expires ON user_sessions(expires_at);
-CREATE INDEX idx_user_sessions_is_suspicious ON user_sessions(is_suspicious);
-CREATE INDEX idx_user_sessions_created_at ON user_sessions(created_at);
+-- Indexes for performance (use CREATE INDEX IF NOT EXISTS for idempotency)
+DO $$ BEGIN
+  CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_user_sessions_token ON user_sessions(session_token);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_user_sessions_device_fp ON user_sessions(device_fingerprint);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_user_sessions_expires ON user_sessions(expires_at);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_user_sessions_is_suspicious ON user_sessions(is_suspicious);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_user_sessions_created_at ON user_sessions(created_at);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
 
 -- Foreign key
 ALTER TABLE user_sessions ADD CONSTRAINT fk_user_sessions_user
@@ -58,9 +87,23 @@ CREATE TABLE account_sharing_alerts (
 );
 
 -- Indexes
-CREATE INDEX idx_alerts_user_id ON account_sharing_alerts(user_id);
-CREATE INDEX idx_alerts_created_at ON account_sharing_alerts(created_at);
-CREATE INDEX idx_alerts_is_resolved ON account_sharing_alerts(is_resolved);
+DO $$ BEGIN
+  CREATE INDEX idx_alerts_user_id ON account_sharing_alerts(user_id);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_alerts_created_at ON account_sharing_alerts(created_at);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE INDEX idx_alerts_is_resolved ON account_sharing_alerts(is_resolved);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
 
 -- Foreign keys
 ALTER TABLE account_sharing_alerts ADD CONSTRAINT fk_alerts_user
@@ -81,7 +124,11 @@ CREATE TABLE trusted_devices (
   is_active INTEGER DEFAULT 1
 );
 
-CREATE INDEX idx_trusted_devices_user ON trusted_devices(user_id);
+DO $$ BEGIN
+  CREATE INDEX idx_trusted_devices_user ON trusted_devices(user_id);
+EXCEPTION
+  WHEN duplicate_table THEN null;
+END $$;
 
 -- Unique constraint
 ALTER TABLE trusted_devices ADD CONSTRAINT uk_trusted_device
