@@ -71,3 +71,14 @@
    - 功能对等状态：
      * ✅ 完全支持双认证：Campaign/AdGroup/Keyword/Ad创建、性能查询、预算管理
      * ⚠️ 仅OAuth支持：setCampaignMarketingObjective（低频操作，后续版本补充）
+34.跨数据库兼容性：SQLite和PostgreSQL驱动对相同操作的返回值类型可能不同
+   - **关键问题**：不同数据库驱动的实现细节可能导致隐形类型不匹配
+     例如：`db.exec()`返回的`lastInsertRowid`，SQLite返回number，PostgreSQL返回string
+   - **防御策略**：
+     a)不要假设返回值类型，应显式转换：`String(result.lastInsertRowid)`而非`as number`
+     b)数据库抽象层的类型签名应准确反映可能的返回类型，避免误导开发者
+     c)关键路径上的null/undefined检查：`if (!value) throw new Error('...')`
+   - **真实案例**：click_farm_tasks表用TEXT UUID作主键，创建任务时在PostgreSQL上返回500错误
+     * 原因：代码强制`result.lastInsertRowid as number`导致NaN，后续查询失败
+     * 修复：改为`String(result.lastInsertRowid)`，兼容两种数据库
+   - **根本原则**：在支持多个数据库的项目中，类型安全和防守性编程至关重要
