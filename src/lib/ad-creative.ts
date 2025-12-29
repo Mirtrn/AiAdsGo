@@ -240,9 +240,10 @@ export async function createAdCreative(
  */
 export async function findAdCreativeById(id: number, userId: number): Promise<AdCreative | null> {
   const db = await getDatabase()
+  const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
   const row = await db.queryOne(`
     SELECT * FROM ad_creatives
-    WHERE id = ? AND user_id = ?
+    WHERE id = ? AND user_id = ? AND ${isDeletedCheck}
   `, [id, userId]) as any
 
   if (!row) return null
@@ -263,7 +264,8 @@ export async function listAdCreativesByOffer(
 ): Promise<AdCreative[]> {
   const db = await getDatabase()
 
-  let whereConditions = ['offer_id = ?', 'user_id = ?']
+  const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
+  let whereConditions = ['offer_id = ?', 'user_id = ?', isDeletedCheck]
   const params: any[] = [offerId, userId]
 
   if (options?.generation_round) {
@@ -647,13 +649,18 @@ export async function updateAdCreative(
 }
 
 /**
- * 删除广告创意
+ * 删除广告创意（软删除）
+ *
+ * 🔧 修改历史：
+ * - 2025-12-29: 改为软删除，保留performance数据和创意历史
  */
 export async function deleteAdCreative(id: number, userId: number): Promise<boolean> {
   const db = await getDatabase()
 
   const result = await db.exec(`
-    DELETE FROM ad_creatives
+    UPDATE ad_creatives
+    SET is_deleted = ${db.type === 'sqlite' ? '1' : 'TRUE'},
+        deleted_at = ${db.type === 'sqlite' ? "datetime('now')" : 'NOW()'}
     WHERE id = ? AND user_id = ?
   `, [id, userId])
 
@@ -673,9 +680,10 @@ export async function findAdCreativesByOfferId(offerId: number, userId: number):
 export async function findAdCreativesByUserId(userId: number, limit?: number): Promise<AdCreative[]> {
   const db = await getDatabase()
 
+  const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
   let sql = `
     SELECT * FROM ad_creatives
-    WHERE user_id = ?
+    WHERE user_id = ? AND ${isDeletedCheck}
     ORDER BY created_at DESC
   `
 

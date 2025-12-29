@@ -56,8 +56,15 @@ async function saveScrapedProducts(
 ): Promise<void> {
   const db = await getDatabase()
 
-  // 删除该Offer之前的产品数据（更新场景）- 添加用户隔离
-  await db.exec('DELETE FROM scraped_products WHERE offer_id = ? AND user_id = ?', [offerId, userId])
+  // 软删除该Offer之前的产品数据（更新场景）- 添加用户隔离
+  // 🔧 修改历史：
+  // - 2025-12-29: 改为软删除，保留产品数据变化趋势
+  await db.exec(`
+    UPDATE scraped_products
+    SET is_deleted = ${db.type === 'sqlite' ? '1' : 'TRUE'},
+        deleted_at = ${db.type === 'sqlite' ? "datetime('now')" : 'NOW()'}
+    WHERE offer_id = ? AND user_id = ?
+  `, [offerId, userId])
 
   // 批量插入新的产品数据
   for (const product of products) {
@@ -1430,12 +1437,13 @@ export async function performScrapeAndAnalysis(
       } else if (pageType === 'store') {
         // 🔥 店铺场景：从数据库读取已保存的产品数据（包含深度数据）
         const db = await getDatabase()
+        const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
         const products = await db.query(`
           SELECT
             name, asin, price, rating, review_count, image_url, hot_score,
             deep_scrape_data, review_analysis, competitor_analysis, product_info, has_deep_data
           FROM scraped_products
-          WHERE offer_id = ? AND user_id = ?
+          WHERE offer_id = ? AND user_id = ? AND ${isDeletedCheck}
           ORDER BY hot_score DESC
           LIMIT 5
         `, [offerId, userId]) as Array<{
