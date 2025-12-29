@@ -10,6 +10,7 @@ import {
   analyzeSuccessFeatures,
   type SuccessFeatures
 } from '@/lib/creative-learning'
+import { toNumber } from '@/lib/utils'
 
 export async function GET(request: NextRequest) {
   try {
@@ -93,9 +94,9 @@ function formatFeatures(features: SuccessFeatures) {
       topWords: features.headlinePatterns.commonWords.slice(0, 10),
       topPhrases: features.headlinePatterns.commonPhrases.slice(0, 5),
       characteristics: {
-        usesNumbers: `${(features.headlinePatterns.usesNumbers * 100).toFixed(0)}%的标题使用数字`,
-        usesQuestions: `${(features.headlinePatterns.usesQuestions * 100).toFixed(0)}%的标题使用疑问句`,
-        usesAction: `${(features.headlinePatterns.usesAction * 100).toFixed(0)}%的标题包含行动词汇`
+        usesNumbers: `${parseFloat((toNumber(features.headlinePatterns.usesNumbers) * 100).toFixed(0))}%的标题使用数字`,
+        usesQuestions: `${parseFloat((toNumber(features.headlinePatterns.usesQuestions) * 100).toFixed(0))}%的标题使用疑问句`,
+        usesAction: `${parseFloat((toNumber(features.headlinePatterns.usesAction) * 100).toFixed(0))}%的标题包含行动词汇`
       }
     },
     descriptions: {
@@ -103,8 +104,8 @@ function formatFeatures(features: SuccessFeatures) {
       topWords: features.descriptionPatterns.commonWords.slice(0, 10),
       topPhrases: features.descriptionPatterns.commonPhrases.slice(0, 5),
       characteristics: {
-        mentionsBenefit: `${(features.descriptionPatterns.mentionsBenefit * 100).toFixed(0)}%的描述强调好处`,
-        mentionsUrgency: `${(features.descriptionPatterns.mentionsUrgency * 100).toFixed(0)}%的描述包含紧迫性词汇`
+        mentionsBenefit: `${parseFloat((toNumber(features.descriptionPatterns.mentionsBenefit) * 100).toFixed(0))}%的描述强调好处`,
+        mentionsUrgency: `${parseFloat((toNumber(features.descriptionPatterns.mentionsUrgency) * 100).toFixed(0))}%的描述包含紧迫性词汇`
       }
     },
     callToAction: {
@@ -116,10 +117,10 @@ function formatFeatures(features: SuccessFeatures) {
       emotionalAppeal: features.stylePatterns.emotionalAppeal
     },
     benchmarks: {
-      avgCtr: `${(features.benchmarks.avgCtr * 100).toFixed(2)}%`,
-      avgConversionRate: `${(features.benchmarks.avgConversionRate * 100).toFixed(2)}%`,
-      minCtr: `${(features.benchmarks.minCtr * 100).toFixed(2)}%`,
-      minConversionRate: `${(features.benchmarks.minConversionRate * 100).toFixed(2)}%`
+      avgCtr: `${parseFloat((toNumber(features.benchmarks.avgCtr) * 100).toFixed(2))}%`,
+      avgConversionRate: `${parseFloat((toNumber(features.benchmarks.avgConversionRate) * 100).toFixed(2))}%`,
+      minCtr: `${parseFloat((toNumber(features.benchmarks.minCtr) * 100).toFixed(2))}%`,
+      minConversionRate: `${parseFloat((toNumber(features.benchmarks.minConversionRate) * 100).toFixed(2))}%`
     },
     recommendations: generateRecommendations(features)
   }

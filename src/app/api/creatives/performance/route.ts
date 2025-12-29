@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { toNumber } from '@/lib/utils'
 
 /**
  * GET /api/creatives/performance
@@ -92,10 +93,10 @@ export async function GET(request: NextRequest) {
       `, [creative.offer_id, userId, cutoffDateStr]) as any
 
       // 安全计算指标
-      const impressions = performanceData?.impressions || 0
-      const clicks = performanceData?.clicks || 0
-      const conversions = performanceData?.conversions || 0
-      const cost = performanceData?.cost || 0
+      const impressions = toNumber(performanceData?.impressions)
+      const clicks = toNumber(performanceData?.clicks)
+      const conversions = toNumber(performanceData?.conversions)
+      const cost = toNumber(performanceData?.cost)
 
       const ctr = impressions > 0 ? clicks * 100.0 / impressions : 0
       const avgCpc = clicks > 0 ? cost / clicks : 0
@@ -195,7 +196,7 @@ export async function GET(request: NextRequest) {
       recommendations.push({
         type: 'best_engagement',
         creativeId: bestByCtr.id,
-        reason: `点击率最高（${(bestByCtr.performance.ctr * 100).toFixed(2)}%）`,
+        reason: `点击率最高（${parseFloat((bestByCtr.performance.ctr * 100).toFixed(2))}%）`,
         metric: bestByCtr.performance.ctr
       })
     }
