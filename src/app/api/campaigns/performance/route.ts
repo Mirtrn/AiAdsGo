@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
     const prevEndDateStr = prevEndDate.toISOString().split('T')[0]
 
     // 3. Query campaigns with performance data
+    // 🔧 修复: 不过滤is_deleted，保留历史删除的campaigns的performance数据用于统计
+    // 但在前端显示时可以通过is_deleted字段区分展示
     const campaigns = await db.query(`
       SELECT
         c.id,
@@ -54,8 +56,11 @@ export async function GET(request: NextRequest) {
         c.budget_type,
         c.last_sync_at,
         c.created_at,
+        c.is_deleted,
+        c.deleted_at,
         o.brand as offer_brand,
         o.url as offer_url,
+        o.is_deleted as offer_is_deleted,
         COALESCE(SUM(cp.impressions), 0) as impressions,
         COALESCE(SUM(cp.clicks), 0) as clicks,
         COALESCE(SUM(cp.conversions), 0) as conversions,
@@ -84,7 +89,8 @@ export async function GET(request: NextRequest) {
       GROUP BY
         c.id, c.campaign_name, c.offer_id, c.status,
         c.google_campaign_id, c.google_ads_account_id, c.budget_amount,
-        c.budget_type, c.last_sync_at, c.created_at, o.brand, o.url
+        c.budget_type, c.last_sync_at, c.created_at, c.is_deleted, c.deleted_at,
+        o.brand, o.url, o.is_deleted
       ORDER BY c.created_at DESC
     `, [startDateStr, endDate, userId]) as any[]
 
@@ -103,6 +109,10 @@ export async function GET(request: NextRequest) {
       budgetType: c.budget_type,
       lastSyncAt: c.last_sync_at,
       createdAt: c.created_at,
+      // 🔧 新增: 删除状态字段，前端可据此区分显示
+      isDeleted: c.is_deleted,
+      deletedAt: c.deleted_at,
+      offerIsDeleted: c.offer_is_deleted,
       performance: {
         // 🔧 修复(2025-12-29): 确保性能指标是数字类型，不是字符串
         // 这样前端排序时能正确进行数值比较而不是字符串比较

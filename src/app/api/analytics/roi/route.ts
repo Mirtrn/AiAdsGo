@@ -53,6 +53,8 @@ export async function GET(request: NextRequest) {
     `.trim()
 
     // 1. 整体ROI分析
+    // 🔧 修复(2025-12-29): 不过滤is_deleted，保留历史删除的campaigns的performance数据用于ROI统计
+    // 这样即使campaign被删除，历史收益数据仍会体现在总ROI中
     const overallRoi = await db.queryOne(`
       SELECT
         SUM(cp.cost) as total_cost,

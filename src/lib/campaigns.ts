@@ -102,28 +102,35 @@ export async function findCampaignByGoogleId(campaignId: string, userId: number)
 }
 
 /**
- * 查找Offer的所有广告系列
+ * 查找Offer的所有广告系列（排除已删除）
  */
 export async function findCampaignsByOfferId(offerId: number, userId: number): Promise<Campaign[]> {
   const db = await getDatabase()
 
+  // 🔧 修复: 排除已软删除的campaigns
+  const isDeletedFalse = db.type === 'postgres' ? false : 0
+
   const rows = await db.query(`
     SELECT * FROM campaigns
-    WHERE offer_id = ? AND user_id = ?
+    WHERE offer_id = ? AND user_id = ? AND is_deleted = ?
     ORDER BY created_at DESC
-  `, [offerId, userId]) as any[]
+  `, [offerId, userId, isDeletedFalse]) as any[]
 
   return rows.map(mapRowToCampaign)
 }
 
 /**
- * 查找用户的所有广告系列
+ * 查找用户的所有广告系列（排除已删除）
  */
 export async function findCampaignsByUserId(userId: number, limit?: number): Promise<Campaign[]> {
   const db = await getDatabase()
+
+  // 🔧 修复: 排除已软删除的campaigns
+  const isDeletedFalse = db.type === 'postgres' ? false : 0
+
   let sql = `
     SELECT * FROM campaigns
-    WHERE user_id = ?
+    WHERE user_id = ? AND is_deleted = ?
     ORDER BY created_at DESC
   `
 
@@ -131,12 +138,12 @@ export async function findCampaignsByUserId(userId: number, limit?: number): Pro
     sql += ` LIMIT ${limit}`
   }
 
-  const rows = await db.query(sql, [userId]) as any[]
+  const rows = await db.query(sql, [userId, isDeletedFalse]) as any[]
   return rows.map(mapRowToCampaign)
 }
 
 /**
- * 查找Google Ads账号的所有广告系列
+ * 查找Google Ads账号的所有广告系列（排除已删除）
  */
 export async function findCampaignsByAccountId(
   googleAdsAccountId: number,
@@ -144,11 +151,14 @@ export async function findCampaignsByAccountId(
 ): Promise<Campaign[]> {
   const db = await getDatabase()
 
+  // 🔧 修复: 排除已软删除的campaigns
+  const isDeletedFalse = db.type === 'postgres' ? false : 0
+
   const rows = await db.query(`
     SELECT * FROM campaigns
-    WHERE google_ads_account_id = ? AND user_id = ?
+    WHERE google_ads_account_id = ? AND user_id = ? AND is_deleted = ?
     ORDER BY created_at DESC
-  `, [googleAdsAccountId, userId]) as any[]
+  `, [googleAdsAccountId, userId, isDeletedFalse]) as any[]
 
   return rows.map(mapRowToCampaign)
 }
@@ -257,13 +267,21 @@ export async function updateCampaign(
 }
 
 /**
- * 删除广告系列
+ * 删除广告系列（软删除，保留历史数据）
  */
 export async function deleteCampaign(id: number, userId: number): Promise<boolean> {
   const db = await getDatabase()
 
+  // 🔧 修复: 使用软删除而非物理删除，保留历史performance数据
+  const db_type = db.type
+  const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime("now")'
+  const isDeletedTrue = db_type === 'postgres' ? 'true' : '1'
+
   const result = await db.exec(`
-    DELETE FROM campaigns
+    UPDATE campaigns
+    SET is_deleted = ${isDeletedTrue},
+        deleted_at = ${nowFunc},
+        status = 'REMOVED'
     WHERE id = ? AND user_id = ?
   `, [id, userId])
 
