@@ -4,6 +4,7 @@ import { getDatabase } from './db'
  * Offer Performance Analytics
  *
  * 提供Offer级别的性能数据分析功能
+ * 使用 campaign_performance 表（已同步数据）
  */
 
 export interface OfferPerformanceSummary {
@@ -12,9 +13,9 @@ export interface OfferPerformanceSummary {
   impressions: number
   clicks: number
   conversions: number
-  cost_micros: number
+  cost: number  // USD (not micros)
   ctr: number
-  avg_cpc_micros: number
+  avg_cpc: number  // USD (not micros)
   conversion_rate: number
   date_range: {
     start: string
@@ -27,7 +28,7 @@ export interface OfferPerformanceTrend {
   impressions: number
   clicks: number
   conversions: number
-  cost_micros: number
+  cost: number  // USD
   ctr: number
   conversion_rate: number
 }
@@ -39,9 +40,9 @@ export interface CampaignPerformanceComparison {
   impressions: number
   clicks: number
   conversions: number
-  cost_micros: number
+  cost: number  // USD
   ctr: number
-  cpc_micros: number
+  cpc: number  // USD
   conversion_rate: number
 }
 
@@ -76,22 +77,32 @@ export async function getOfferPerformanceSummary(
   const startDateStr = startDate.toISOString().split('T')[0]
   const endDateStr = endDate.toISOString().split('T')[0]
 
-  // Get aggregated performance data
+  // Get aggregated performance data from campaign_performance (via campaigns)
   const summary = await db.queryOne(`
     SELECT
-      COUNT(DISTINCT campaign_id) as campaign_count,
-      SUM(impressions) as impressions,
-      SUM(clicks) as clicks,
-      SUM(conversions) as conversions,
-      SUM(cost_micros) as cost_micros,
-      AVG(ctr) as ctr,
-      AVG(cpc_micros) as avg_cpc_micros,
-      AVG(conversion_rate) as conversion_rate
-    FROM ad_performance
-    WHERE offer_id = ?
-      AND user_id = ?
-      AND date >= ?
-      AND date <= ?
+      COUNT(DISTINCT cp.campaign_id) as campaign_count,
+      SUM(cp.impressions) as impressions,
+      SUM(cp.clicks) as clicks,
+      SUM(cp.conversions) as conversions,
+      SUM(cp.cost) as cost,
+      CASE
+        WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
+        ELSE 0
+      END as ctr,
+      CASE
+        WHEN SUM(cp.clicks) > 0 THEN SUM(cp.cost) / SUM(cp.clicks)
+        ELSE 0
+      END as avg_cpc,
+      CASE
+        WHEN SUM(cp.clicks) > 0 THEN SUM(cp.conversions) * 100.0 / SUM(cp.clicks)
+        ELSE 0
+      END as conversion_rate
+    FROM campaigns c
+    LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
+    WHERE c.offer_id = ?
+      AND c.user_id = ?
+      AND cp.date >= ?
+      AND cp.date <= ?
   `, [offerId, userId, startDateStr, endDateStr]) as any
 
   return {
@@ -100,9 +111,9 @@ export async function getOfferPerformanceSummary(
     impressions: summary?.impressions || 0,
     clicks: summary?.clicks || 0,
     conversions: summary?.conversions || 0,
-    cost_micros: summary?.cost_micros || 0,
+    cost: summary?.cost || 0,
     ctr: summary?.ctr || 0,
-    avg_cpc_micros: summary?.avg_cpc_micros || 0,
+    avg_cpc: summary?.avg_cpc || 0,
     conversion_rate: summary?.conversion_rate || 0,
     date_range: {
       start: startDateStr,
@@ -134,23 +145,30 @@ export async function getOfferPerformanceTrend(
   const startDateStr = startDate.toISOString().split('T')[0]
   const endDateStr = endDate.toISOString().split('T')[0]
 
-  // Get daily trend data
+  // Get daily trend data from campaign_performance (via campaigns)
   const trends = await db.query(`
     SELECT
-      DATE(date) as date,
-      SUM(impressions) as impressions,
-      SUM(clicks) as clicks,
-      SUM(conversions) as conversions,
-      SUM(cost_micros) as cost_micros,
-      AVG(ctr) as ctr,
-      AVG(conversion_rate) as conversion_rate
-    FROM ad_performance
-    WHERE offer_id = ?
-      AND user_id = ?
-      AND date >= ?
-      AND date <= ?
-    GROUP BY DATE(date)
-    ORDER BY date ASC
+      cp.date as date,
+      SUM(cp.impressions) as impressions,
+      SUM(cp.clicks) as clicks,
+      SUM(cp.conversions) as conversions,
+      SUM(cp.cost) as cost,
+      CASE
+        WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
+        ELSE 0
+      END as ctr,
+      CASE
+        WHEN SUM(cp.clicks) > 0 THEN SUM(cp.conversions) * 100.0 / SUM(cp.clicks)
+        ELSE 0
+      END as conversion_rate
+    FROM campaigns c
+    LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
+    WHERE c.offer_id = ?
+      AND c.user_id = ?
+      AND cp.date >= ?
+      AND cp.date <= ?
+    GROUP BY cp.date
+    ORDER BY cp.date ASC
   `, [offerId, userId, startDateStr, endDateStr]) as any[]
 
   return trends.map((row) => ({
@@ -158,7 +176,7 @@ export async function getOfferPerformanceTrend(
     impressions: row.impressions || 0,
     clicks: row.clicks || 0,
     conversions: row.conversions || 0,
-    cost_micros: row.cost_micros || 0,
+    cost: row.cost || 0,
     ctr: row.ctr || 0,
     conversion_rate: row.conversion_rate || 0,
   }))
@@ -187,27 +205,36 @@ export async function getCampaignPerformanceComparison(
   const startDateStr = startDate.toISOString().split('T')[0]
   const endDateStr = endDate.toISOString().split('T')[0]
 
-  // Get per-campaign aggregated data
+  // Get per-campaign aggregated data from campaign_performance
   const campaigns = await db.query(`
     SELECT
-      ap.campaign_id,
+      cp.campaign_id,
       c.campaign_name,
       c.google_campaign_id,
-      SUM(ap.impressions) as impressions,
-      SUM(ap.clicks) as clicks,
-      SUM(ap.conversions) as conversions,
-      SUM(ap.cost_micros) as cost_micros,
-      AVG(ap.ctr) as ctr,
-      AVG(ap.cpc_micros) as cpc_micros,
-      AVG(ap.conversion_rate) as conversion_rate
-    FROM ad_performance ap
-    JOIN campaigns c ON ap.campaign_id = c.id
-    WHERE ap.offer_id = ?
-      AND ap.user_id = ?
-      AND ap.date >= ?
-      AND ap.date <= ?
-    GROUP BY ap.campaign_id, c.campaign_name, c.google_campaign_id
-    ORDER BY SUM(ap.conversions) DESC, SUM(ap.clicks) DESC
+      SUM(cp.impressions) as impressions,
+      SUM(cp.clicks) as clicks,
+      SUM(cp.conversions) as conversions,
+      SUM(cp.cost) as cost,
+      CASE
+        WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
+        ELSE 0
+      END as ctr,
+      CASE
+        WHEN SUM(cp.clicks) > 0 THEN SUM(cp.cost) / SUM(cp.clicks)
+        ELSE 0
+      END as cpc,
+      CASE
+        WHEN SUM(cp.clicks) > 0 THEN SUM(cp.conversions) * 100.0 / SUM(cp.clicks)
+        ELSE 0
+      END as conversion_rate
+    FROM campaigns c
+    LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
+    WHERE c.offer_id = ?
+      AND c.user_id = ?
+      AND cp.date >= ?
+      AND cp.date <= ?
+    GROUP BY cp.campaign_id, c.campaign_name, c.google_campaign_id
+    ORDER BY SUM(cp.conversions) DESC, SUM(cp.clicks) DESC
   `, [offerId, userId, startDateStr, endDateStr]) as any[]
 
   return campaigns.map((row) => ({
@@ -217,9 +244,9 @@ export async function getCampaignPerformanceComparison(
     impressions: row.impressions || 0,
     clicks: row.clicks || 0,
     conversions: row.conversions || 0,
-    cost_micros: row.cost_micros || 0,
+    cost: row.cost || 0,
     ctr: row.ctr || 0,
-    cpc_micros: row.cpc_micros || 0,
+    cpc: row.cpc || 0,
     conversion_rate: row.conversion_rate || 0,
   }))
 }
@@ -249,19 +276,20 @@ export async function calculateOfferROI(
   const startDateStr = startDate.toISOString().split('T')[0]
   const endDateStr = endDate.toISOString().split('T')[0]
 
-  // Get total cost and conversions
+  // Get total cost and conversions from campaign_performance (via campaigns)
   const data = await db.queryOne(`
     SELECT
-      SUM(cost_micros) as total_cost_micros,
-      SUM(conversions) as total_conversions
-    FROM ad_performance
-    WHERE offer_id = ?
-      AND user_id = ?
-      AND date >= ?
-      AND date <= ?
+      SUM(cp.cost) as total_cost,
+      SUM(cp.conversions) as total_conversions
+    FROM campaigns c
+    LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
+    WHERE c.offer_id = ?
+      AND c.user_id = ?
+      AND cp.date >= ?
+      AND cp.date <= ?
   `, [offerId, userId, startDateStr, endDateStr]) as any
 
-  const totalCostUsd = (data?.total_cost_micros || 0) / 1000000
+  const totalCostUsd = data?.total_cost || 0
   const totalConversions = data?.total_conversions || 0
   const totalRevenueUsd = totalConversions * avgOrderValue
   const profitUsd = totalRevenueUsd - totalCostUsd

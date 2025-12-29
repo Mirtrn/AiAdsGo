@@ -48,41 +48,47 @@ export async function GET(
     const startDateStr = startDate.toISOString().split('T')[0]
     const endDateStr = endDate.toISOString().split('T')[0]
 
-    // 5. 查询每日趋势数据
+    // 5. 查询每日趋势数据（使用 campaign_performance via campaigns）
     const trends = await db.query(
       `
       SELECT
-        DATE(date) as date,
-        SUM(impressions) as impressions,
-        SUM(clicks) as clicks,
-        SUM(conversions) as conversions,
-        SUM(cost_micros) as cost_micros,
-        AVG(ctr) as ctr,
-        AVG(conversion_rate) as conversionRate
-      FROM ad_performance
-      WHERE offer_id = ?
-        AND user_id = ?
-        AND date >= ?
-        AND date <= ?
-      GROUP BY DATE(date)
-      ORDER BY date ASC
+        cp.date as date,
+        SUM(cp.impressions) as impressions,
+        SUM(cp.clicks) as clicks,
+        SUM(cp.conversions) as conversions,
+        SUM(cp.cost) as cost,
+        CASE
+          WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
+          ELSE 0
+        END as ctr,
+        CASE
+          WHEN SUM(cp.clicks) > 0 THEN SUM(cp.conversions) * 100.0 / SUM(cp.clicks)
+          ELSE 0
+        END as conversionRate
+      FROM campaigns c
+      LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
+      WHERE c.offer_id = ?
+        AND c.user_id = ?
+        AND cp.date >= ?
+        AND cp.date <= ?
+      GROUP BY cp.date
+      ORDER BY cp.date ASC
     `,
       [offerId, userId, startDateStr, endDateStr]
     ) as any[]
 
     // 6. 格式化数据
     const formattedTrends = trends.map((row) => {
-      const costUsd = row.cost_micros ? row.cost_micros / 1000000 : 0
-      const avgCpcUsd = row.clicks > 0 ? costUsd / row.clicks : 0
+      const avgCpcUsd = row.clicks > 0 ? row.cost / row.clicks : 0
 
       return {
         date: row.date,
         impressions: row.impressions || 0,
         clicks: row.clicks || 0,
         conversions: row.conversions || 0,
-        costUsd: Math.round(costUsd * 100) / 100,
-        ctr: Math.round((row.ctr || 0) * 10000) / 100, // 转换为百分比
-        conversionRate: Math.round((row.conversionRate || 0) * 10000) / 100, // 转换为百分比
+        costUsd: Math.round((row.cost || 0) * 100) / 100,
+        ctr: Math.round((row.ctr || 0) * 100) / 100,
+        conversionRate: Math.round((row.conversionRate || 0) * 100) / 100,
         avgCpcUsd: Math.round(avgCpcUsd * 100) / 100,
       }
     })

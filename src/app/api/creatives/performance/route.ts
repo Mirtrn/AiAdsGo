@@ -71,30 +71,37 @@ export async function GET(request: NextRequest) {
 
     const creatives = await db.query(creativesQuery, [userId]) as any[]
 
-    // 4. 为每个Creative获取关联Campaign的性能数据
+    // 4. 为每个Creative获取关联Campaign的性能数据（使用 campaign_performance）
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - daysBack)
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0]
 
     const creativesWithPerformance = await Promise.all(creatives.map(async (creative) => {
-      // 获取该Offer下所有Campaign的性能数据
+      // 获取该Offer下所有Campaign的性能数据（从 campaign_performance）
       const performanceData = await db.queryOne(`
         SELECT
-          SUM(impressions) as impressions,
-          SUM(clicks) as clicks,
-          SUM(conversions) as conversions,
-          SUM(cost_micros) as cost_micros,
-          AVG(ctr) as ctr,
-          AVG(conversion_rate) as conversion_rate
-        FROM ad_performance
-        WHERE offer_id = ?
-          AND user_id = ?
-          AND date >= ?
+          SUM(cp.impressions) as impressions,
+          SUM(cp.clicks) as clicks,
+          SUM(cp.conversions) as conversions,
+          SUM(cp.cost) as cost,
+          CASE
+            WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
+            ELSE 0
+          END as ctr,
+          CASE
+            WHEN SUM(cp.clicks) > 0 THEN SUM(cp.conversions) * 100.0 / SUM(cp.clicks)
+            ELSE 0
+          END as conversion_rate
+        FROM campaigns c
+        LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
+        WHERE c.offer_id = ?
+          AND c.user_id = ?
+          AND cp.date >= ?
       `, [creative.offer_id, userId, cutoffDateStr]) as any
 
       // 计算平均CPC
       const avgCpc = performanceData?.clicks > 0
-        ? (performanceData.cost_micros / performanceData.clicks)
+        ? performanceData.cost / performanceData.clicks
         : 0
 
       return {
@@ -117,12 +124,10 @@ export async function GET(request: NextRequest) {
           impressions: performanceData?.impressions || 0,
           clicks: performanceData?.clicks || 0,
           conversions: performanceData?.conversions || 0,
-          costUsd: performanceData?.cost_micros
-            ? Math.round((performanceData.cost_micros / 1000000) * 100) / 100
-            : 0,
-          ctr: performanceData?.ctr || 0,
-          avgCpcUsd: avgCpc ? Math.round((avgCpc / 1000000) * 100) / 100 : 0,
-          conversionRate: performanceData?.conversion_rate || 0,
+          costUsd: Math.round((performanceData?.cost || 0) * 100) / 100,
+          ctr: Math.round((performanceData?.ctr || 0) * 100) / 100,
+          avgCpcUsd: Math.round(avgCpc * 100) / 100,
+          conversionRate: Math.round((performanceData?.conversion_rate || 0) * 100) / 100,
         }
       }
     }))

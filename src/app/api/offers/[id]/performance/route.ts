@@ -69,10 +69,10 @@ export async function GET(
         impressions: summary.impressions,
         clicks: summary.clicks,
         conversions: summary.conversions,
-        costUsd: Math.round((summary.cost_micros / 1000000) * 100) / 100,
-        ctr: summary.ctr,
-        avgCpcUsd: Math.round((summary.avg_cpc_micros / 1000000) * 100) / 100,
-        conversionRate: summary.conversion_rate,
+        costUsd: Math.round(summary.cost * 100) / 100,
+        ctr: Math.round(summary.ctr * 100) / 100,
+        avgCpcUsd: Math.round(summary.avg_cpc * 100) / 100,
+        conversionRate: Math.round(summary.conversion_rate * 100) / 100,
         dateRange: summary.date_range
       },
       trend: trend.map(t => ({
@@ -80,9 +80,9 @@ export async function GET(
         impressions: t.impressions,
         clicks: t.clicks,
         conversions: t.conversions,
-        costUsd: Math.round((t.cost_micros / 1000000) * 100) / 100,
-        ctr: t.ctr,
-        conversionRate: t.conversion_rate
+        costUsd: Math.round(t.cost * 100) / 100,
+        ctr: Math.round(t.ctr * 100) / 100,
+        conversionRate: Math.round(t.conversion_rate * 100) / 100
       })),
       campaigns: campaigns.map(c => ({
         campaignId: c.campaign_id,
@@ -91,10 +91,10 @@ export async function GET(
         impressions: c.impressions,
         clicks: c.clicks,
         conversions: c.conversions,
-        costUsd: Math.round((c.cost_micros / 1000000) * 100) / 100,
-        ctr: c.ctr,
-        cpcUsd: Math.round((c.cpc_micros / 1000000) * 100) / 100,
-        conversionRate: c.conversion_rate
+        costUsd: Math.round(c.cost * 100) / 100,
+        ctr: Math.round(c.ctr * 100) / 100,
+        cpcUsd: Math.round(c.cpc * 100) / 100,
+        conversionRate: Math.round(c.conversion_rate * 100) / 100
       })),
       roi: roi ? {
         totalCostUsd: roi.total_cost_usd,
