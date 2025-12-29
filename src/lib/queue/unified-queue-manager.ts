@@ -443,6 +443,7 @@ export class UnifiedQueueManager {
    * - 临时故障
    *
    * 🔧 修复(2025-12-29): 统一错误分类标准，避免因配置不完整导致无效重试
+   * 🔧 修复(2025-12-29): 支持OAuth和服务账号两种认证方式的错误分类
    */
   private isRecoverableError(error: any): boolean {
     const errorMessage = error?.message || String(error)
@@ -451,16 +452,20 @@ export class UnifiedQueueManager {
     const nonRecoverablePatterns = [
       '未配置',              // 配置缺失
       '未配置完整',          // 配置不完整
+      '配置不完整',          // 配置不完整 (变体)
+      '不完整',              // 配置不完整
       '需要',                // 需要某个参数
       '必需参数',            // 缺少必需参数
       '缺少',                // 缺少某个参数
       '缺失',                // 参数缺失
+      '未找到',              // 未找到资源/配置
       '权限',                // 权限相关
       '认证',                // 认证相关
       '授权',                // 授权相关
       '不存在',              // 资源不存在
       '无效的',              // 无效的参数/资源
       '找不到',              // 找不到资源
+      '上传',                // 需要上传文件
       'unauthorized',        // 未授权
       'forbidden',           // 禁止访问
       'not found',           // 未找到

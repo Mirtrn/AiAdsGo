@@ -207,21 +207,42 @@ export class DataSyncService {
     let syncLogId: number | undefined
 
     try {
-      // 🔧 修复(2025-12-12): 独立账号模式 - 获取用户凭证
-      const credentials = await getGoogleAdsCredentialsFromDB(userId)
-      if (!credentials) {
-        throw new Error('Google Ads 凭证未配置，请在设置页面完成配置')
-      }
-      if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
-        throw new Error('Google Ads 凭证配置不完整，请在设置页面完成配置')
+      // 🔧 修复(2025-12-29): 支持两种认证方式 (OAuth + 服务账号)
+      // 先判断用户使用哪种认证方式
+      const auth = await getUserAuthType(userId)
+
+      // 对于OAuth模式，需要检查system_settings中的凭证
+      // 对于服务账号模式，凭证在google_ads_service_accounts表中，此处无需检查
+      if (auth.authType === 'oauth') {
+        const credentials = await getGoogleAdsCredentialsFromDB(userId)
+        if (!credentials) {
+          throw new Error('Google Ads 凭证未配置，请在设置页面完成配置')
+        }
+        if (!credentials.client_id || !credentials.client_secret || !credentials.developer_token) {
+          throw new Error('Google Ads 凭证配置不完整，请在设置页面完成配置')
+        }
+      } else {
+        // 服务账号模式：验证服务账号配置是否存在
+        const serviceAccount = await getServiceAccountConfig(userId, auth.serviceAccountId)
+        if (!serviceAccount) {
+          throw new Error('未找到服务账号配置，请上传服务账号JSON文件')
+        }
+        if (!serviceAccount.mccCustomerId || !serviceAccount.developerToken || !serviceAccount.serviceAccountEmail || !serviceAccount.privateKey) {
+          throw new Error('服务账号配置不完整，请检查服务账号参数')
+        }
       }
 
-      const userCredentials = {
+      // 获取凭证（仅OAuth模式需要）
+      const credentials = auth.authType === 'oauth'
+        ? await getGoogleAdsCredentialsFromDB(userId)
+        : null
+
+      const userCredentials = credentials ? {
         client_id: credentials.client_id,
         client_secret: credentials.client_secret,
         developer_token: credentials.developer_token,
         login_customer_id: credentials.login_customer_id || undefined
-      }
+      } : undefined
 
       // 🔧 PostgreSQL兼容性修复: is_active在PostgreSQL中是BOOLEAN类型
       const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'

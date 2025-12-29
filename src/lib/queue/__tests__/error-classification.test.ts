@@ -16,16 +16,20 @@ function isRecoverableError(error: any): boolean {
   const nonRecoverablePatterns = [
     '未配置',              // 配置缺失
     '未配置完整',          // 配置不完整
+    '配置不完整',          // 配置不完整 (变体)
+    '不完整',              // 配置不完整
     '需要',                // 需要某个参数
     '必需参数',            // 缺少必需参数
     '缺少',                // 缺少某个参数
     '缺失',                // 参数缺失
+    '未找到',              // 未找到资源/配置
     '权限',                // 权限相关
     '认证',                // 认证相关
     '授权',                // 授权相关
     '不存在',              // 资源不存在
     '无效的',              // 无效的参数/资源
     '找不到',              // 找不到资源
+    '上传',                // 需要上传文件
     'unauthorized',        // 未授权
     'forbidden',           // 禁止访问
     'not found',           // 未找到
@@ -62,6 +66,9 @@ const nonRecoverableErrors = [
   { message: '缺少 refresh_token' },
   { message: '缺失配置: developer_token' },
   { message: '授权失败: Invalid client_id' },
+  { message: '未找到服务账号配置' },
+  { message: '服务账号配置不完整' },
+  { message: '未上传服务账号JSON文件' },
 ]
 
 // 测试可恢复的错误
