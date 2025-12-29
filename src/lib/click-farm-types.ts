@@ -205,7 +205,6 @@ export const REFERER_OPTIONS = [
 ] as const;
 
 export const SOCIAL_MEDIA_REFERRERS = [
-  { value: 'https://www.google.com/search?q=', label: 'Google搜索' },
   { value: 'https://www.facebook.com/', label: 'Facebook' },
   { value: 'https://twitter.com/search?q=', label: 'Twitter/X' },
   { value: 'https://www.instagram.com/', label: 'Instagram' },
@@ -214,9 +213,10 @@ export const SOCIAL_MEDIA_REFERRERS = [
   { value: 'https://www.pinterest.com/search/pins/?q=', label: 'Pinterest' },
   { value: 'https://www.reddit.com/search/?q=', label: 'Reddit' },
   { value: 'https://www.linkedin.com/search/results/all/?keyword=', label: 'LinkedIn' },
-  { value: 'https://www.bing.com/search?q=', label: 'Bing搜索' },
-  { value: 'https://www.amazon.com/s?k=', label: 'Amazon' },
-  { value: 'https://www.ebay.com/sch/i.html?_nkw=', label: 'eBay' },
+  { value: 'https://medium.com/search?q=', label: 'Medium' },
+  { value: 'https://wa.me/', label: 'WhatsApp' },
+  { value: 'https://www.snapchat.com/', label: 'Snapchat' },
+  { value: 'https://www.quora.com/search?q=', label: 'Quora' },
 ] as const;
 
 /**

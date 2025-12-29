@@ -25,7 +25,6 @@ export interface ClickFarmTaskData {
  * 用于防止反爬检测，模拟真实用户来源
  */
 export const SOCIAL_MEDIA_REFERRERS = [
-  { name: 'Google搜索', url: 'https://www.google.com/search?q=', pattern: 'google' },
   { name: 'Facebook', url: 'https://www.facebook.com/', pattern: 'facebook' },
   { name: 'Twitter/X', url: 'https://twitter.com/search?q=', pattern: 'twitter' },
   { name: 'Instagram', url: 'https://www.instagram.com/', pattern: 'instagram' },
@@ -34,9 +33,10 @@ export const SOCIAL_MEDIA_REFERRERS = [
   { name: 'Pinterest', url: 'https://www.pinterest.com/search/pins/?q=', pattern: 'pinterest' },
   { name: 'Reddit', url: 'https://www.reddit.com/search/?q=', pattern: 'reddit' },
   { name: 'LinkedIn', url: 'https://www.linkedin.com/search/results/all/?keyword=', pattern: 'linkedin' },
-  { name: 'Bing搜索', url: 'https://www.bing.com/search?q=', pattern: 'bing' },
-  { name: 'Amazon', url: 'https://www.amazon.com/s?k=', pattern: 'amazon' },
-  { name: 'eBay', url: 'https://www.ebay.com/sch/i.html?_nkw=', pattern: 'ebay' },
+  { name: 'Medium', url: 'https://medium.com/search?q=', pattern: 'medium' },
+  { name: 'WhatsApp', url: 'https://wa.me/', pattern: 'whatsapp' },
+  { name: 'Snapchat', url: 'https://www.snapchat.com/', pattern: 'snapchat' },
+  { name: 'Quora', url: 'https://www.quora.com/search?q=', pattern: 'quora' },
 ];
 
 /**
