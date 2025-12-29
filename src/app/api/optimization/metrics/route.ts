@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { toNumber } from '@/lib/utils'
 
 /**
  * GET /api/optimization/metrics
@@ -75,16 +76,25 @@ export async function GET(request: NextRequest) {
 
     // 计算变化率（确保返回数字，不是null）
     const calcChange = (recent: number | null | undefined, previous: number | null | undefined): number => {
-      const r = recent ?? 0
-      const p = previous ?? 0
+      const r = toNumber(recent, 0)
+      const p = toNumber(previous, 0)
       if (p === 0) return r > 0 ? 100 : 0
       return ((r - p) / p) * 100
     }
 
-    const ctrChange = calcChange(recentStats?.ctr, previousStats?.ctr)
-    const cpcChange = calcChange(recentStats?.cpc, previousStats?.cpc)
-    const impressionsChange = calcChange(recentStats?.impressions, previousStats?.impressions)
-    const clicksChange = calcChange(recentStats?.clicks, previousStats?.clicks)
+    const recentCtr = toNumber(recentStats?.ctr, 0)
+    const previousCtr = toNumber(previousStats?.ctr, 0)
+    const recentCpc = toNumber(recentStats?.cpc, 0)
+    const previousCpc = toNumber(previousStats?.cpc, 0)
+    const recentImpressions = toNumber(recentStats?.impressions, 0)
+    const previousImpressions = toNumber(previousStats?.impressions, 0)
+    const recentClicks = toNumber(recentStats?.clicks, 0)
+    const previousClicks = toNumber(previousStats?.clicks, 0)
+
+    const ctrChange = calcChange(recentCtr, previousCtr)
+    const cpcChange = calcChange(recentCpc, previousCpc)
+    const impressionsChange = calcChange(recentImpressions, previousImpressions)
+    const clicksChange = calcChange(recentClicks, previousClicks)
 
     // 获取优化任务统计（user_id 隔离）
     const taskStats = await db.queryOne(`
@@ -96,8 +106,10 @@ export async function GET(request: NextRequest) {
     `, [parseInt(userId, 10)]) as any
 
     // 计算成本节省（基于CPC下降）
-    const recentCost = recentStats?.cost ?? 0
+    const recentCost = toNumber(recentStats?.cost, 0)
     const costSavings = cpcChange < 0 ? Math.abs(cpcChange) * recentCost / 100 : 0
+    const pendingTasks = toNumber(taskStats?.pending_tasks, 0)
+    const completedTasks = toNumber(taskStats?.completed_tasks, 0)
 
     return NextResponse.json({
       success: true,
@@ -106,8 +118,8 @@ export async function GET(request: NextRequest) {
         cpcChange: parseFloat(cpcChange.toFixed(2)),
         impressionsChange: parseFloat(impressionsChange.toFixed(2)),
         clicksChange: parseFloat(clicksChange.toFixed(2)),
-        pendingTasks: parseInt(taskStats?.pending_tasks ?? 0, 10),
-        completedTasks: parseInt(taskStats?.completed_tasks ?? 0, 10),
+        pendingTasks,
+        completedTasks,
         costSavings: parseFloat(costSavings.toFixed(2)),
         lastUpdated: new Date().toISOString()
       }

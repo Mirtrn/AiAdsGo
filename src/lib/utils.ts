@@ -6,6 +6,33 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Convert any value to a proper number type
+ * Used at API level to ensure all numeric fields are properly typed before sending to frontend
+ * @param value The value to convert (can be number, string, null, undefined, etc.)
+ * @param defaultValue Default value if conversion fails (default: 0)
+ * @returns Proper number type, or defaultValue if conversion fails
+ */
+export function toNumber(
+  value: any,
+  defaultValue: number = 0
+): number {
+  // Handle null and undefined
+  if (value === null || value === undefined) {
+    return defaultValue
+  }
+
+  // Convert to number
+  const numValue = typeof value === 'string' ? parseFloat(value) : Number(value)
+
+  // Check for NaN or infinite values
+  if (!isFinite(numValue)) {
+    return defaultValue
+  }
+
+  return numValue
+}
+
+/**
  * Safe toFixed utility that handles null, undefined, strings, and NaN values
  * @param value The value to format (can be number, string, null, or undefined)
  * @param decimals Number of decimal places (default: 2)
@@ -15,24 +42,6 @@ export function safeToFixed(
   value: string | number | null | undefined,
   decimals: number = 2
 ): string {
-  // Handle null and undefined
-  if (value === null || value === undefined) {
-    return '0'.padEnd(decimals > 0 ? decimals + 2 : 1, '0')
-  }
-
-  // Convert to number
-  const numValue = typeof value === 'string' ? parseFloat(value) : Number(value)
-
-  // Check for NaN
-  if (isNaN(numValue)) {
-    return '0'.padEnd(decimals > 0 ? decimals + 2 : 1, '0')
-  }
-
-  // Check for infinite values
-  if (!isFinite(numValue)) {
-    return '0'.padEnd(decimals > 0 ? decimals + 2 : 1, '0')
-  }
-
-  // Safe toFixed call
+  const numValue = toNumber(value, 0)
   return numValue.toFixed(decimals)
 }

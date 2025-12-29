@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { toNumber } from '@/lib/utils'
 
 /**
  * GET /api/analytics/budget
@@ -56,8 +57,9 @@ export async function GET(request: NextRequest) {
       WHERE c.user_id = ? AND c.status = 'ENABLED'
     `, [authResult.user.userId]) as any
 
-    const totalBudget = overallBudget.total_budget || 0
-    const totalSpent = overallBudget.total_spent || 0
+    const totalBudget = toNumber(overallBudget.total_budget)
+    const totalSpent = toNumber(overallBudget.total_spent)
+    const activeCampaigns = toNumber(overallBudget.active_campaigns)
     const remaining = totalBudget - totalSpent
     const utilizationRate = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0
     const dailyAvgSpend = totalSpent / daysDiff
@@ -84,11 +86,14 @@ export async function GET(request: NextRequest) {
     `, [authResult.user.userId]) as any[]
 
     const campaignBudgetData = campaignBudgets.map((row) => {
-      const budget = row.budget_amount || 0
-      const spent = row.spent || 0
+      const budget = toNumber(row.budget_amount)
+      const spent = toNumber(row.spent)
+      const conversions = toNumber(row.conversions)
+      const activeDays = toNumber(row.active_days)
+
       const remaining = budget - spent
       const utilizationRate = budget > 0 ? (spent / budget) * 100 : 0
-      const dailyAvg = row.active_days > 0 ? spent / row.active_days : 0
+      const dailyAvg = activeDays > 0 ? spent / activeDays : 0
       const daysRemaining = budget > 0 && dailyAvg > 0 ? remaining / dailyAvg : 0
       const isOverBudget = spent > budget
       const isNearBudget = utilizationRate >= 80 && utilizationRate < 100
@@ -104,7 +109,7 @@ export async function GET(request: NextRequest) {
         utilizationRate: parseFloat(utilizationRate.toFixed(2)),
         dailyAvgSpend: parseFloat(dailyAvg.toFixed(2)),
         daysRemaining: parseFloat(daysRemaining.toFixed(1)),
-        conversions: row.conversions || 0,
+        conversions,
         isOverBudget,
         isNearBudget,
         status: isOverBudget ? 'over_budget' : isNearBudget ? 'near_budget' : 'on_track',
@@ -124,10 +129,11 @@ export async function GET(request: NextRequest) {
 
     let cumulativeSpent = 0
     const budgetTrendData = budgetTrend.map((row) => {
-      cumulativeSpent += row.daily_spent || 0
+      const dailySpent = toNumber(row.daily_spent)
+      cumulativeSpent += dailySpent
       return {
         date: row.date,
-        dailySpent: parseFloat((row.daily_spent || 0).toFixed(2)),
+        dailySpent: parseFloat(dailySpent.toFixed(2)),
         cumulativeSpent: parseFloat(cumulativeSpent.toFixed(2)),
       }
     })
@@ -154,8 +160,10 @@ export async function GET(request: NextRequest) {
     `, [authResult.user.userId]) as any[]
 
     const budgetByOfferData = budgetByOffer.map((row) => {
-      const allocatedBudget = row.allocated_budget || 0
-      const spent = row.spent || 0
+      const allocatedBudget = toNumber(row.allocated_budget)
+      const spent = toNumber(row.spent)
+      const conversions = toNumber(row.conversions)
+      const campaignCount = toNumber(row.campaign_count)
       const utilizationRate = allocatedBudget > 0 ? (spent / allocatedBudget) * 100 : 0
 
       return {
@@ -165,8 +173,8 @@ export async function GET(request: NextRequest) {
         allocatedBudget: parseFloat(allocatedBudget.toFixed(2)),
         spent: parseFloat(spent.toFixed(2)),
         utilizationRate: parseFloat(utilizationRate.toFixed(2)),
-        campaignCount: row.campaign_count,
-        conversions: row.conversions || 0,
+        campaignCount,
+        conversions,
       }
     })
 
@@ -258,7 +266,7 @@ export async function GET(request: NextRequest) {
           utilizationRate: parseFloat(utilizationRate.toFixed(2)),
           dailyAvgSpend: parseFloat(dailyAvgSpend.toFixed(2)),
           projectedTotalSpend: parseFloat(projectedTotalSpend.toFixed(2)),
-          activeCampaigns: overallBudget.active_campaigns || 0,
+          activeCampaigns,
         },
         byCampaign: campaignBudgetData,
         trend: budgetTrendData,

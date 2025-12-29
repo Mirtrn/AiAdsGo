@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { toNumber } from '@/lib/utils'
 
 /**
  * GET /api/analytics/roi
@@ -64,8 +65,12 @@ export async function GET(request: NextRequest) {
       WHERE ${whereConditions.join(' AND ')}
     `, params) as any
 
-    const totalCost = overallRoi.total_cost || 0
-    const totalRevenue = overallRoi.total_revenue || 0
+    // Ensure all values are proper numbers before returning
+    const totalCost = toNumber(overallRoi.total_cost)
+    const totalRevenue = toNumber(overallRoi.total_revenue)
+    const totalConversions = toNumber(overallRoi.total_conversions)
+    const avgCommission = toNumber(overallRoi.avg_commission)
+
     const totalProfit = totalRevenue - totalCost
     const overallRoiPercentage = totalCost > 0 ? ((totalRevenue - totalCost) / totalCost) * 100 : 0
 
@@ -85,14 +90,23 @@ export async function GET(request: NextRequest) {
       ORDER BY date ASC
     `, params) as any[]
 
-    const roiTrendData = roiTrend.map((row) => ({
-      date: row.date,
-      cost: parseFloat((row.cost ?? 0).toFixed(2)),
-      revenue: parseFloat((row.revenue ?? 0).toFixed(2)),
-      profit: parseFloat(((row.revenue ?? 0) - (row.cost ?? 0)).toFixed(2)),
-      roi: (row.cost ?? 0) > 0 ? parseFloat((((row.revenue ?? 0) - (row.cost ?? 0)) / (row.cost ?? 0) * 100).toFixed(2)) : 0,
-      conversions: row.conversions || 0,
-    }))
+    const roiTrendData = roiTrend.map((row) => {
+      const cost = toNumber(row.cost)
+      const revenue = toNumber(row.revenue)
+      const conversions = toNumber(row.conversions)
+
+      const profit = revenue - cost
+      const roi = cost > 0 ? ((revenue - cost) / cost) * 100 : 0
+
+      return {
+        date: row.date,
+        cost: parseFloat(cost.toFixed(2)),
+        revenue: parseFloat(revenue.toFixed(2)),
+        profit: parseFloat(profit.toFixed(2)),
+        roi: parseFloat(roi.toFixed(2)),
+        conversions,
+      }
+    })
 
     // 3. 按Campaign的ROI排名
     const campaignRoi = await db.query(`
@@ -117,12 +131,17 @@ export async function GET(request: NextRequest) {
     `, params) as any[]
 
     const campaignRoiData = campaignRoi.map((row) => {
-      const cost = row.cost || 0
-      const revenue = row.revenue || 0
+      const cost = toNumber(row.cost)
+      const revenue = toNumber(row.revenue)
+      const impressions = toNumber(row.impressions)
+      const clicks = toNumber(row.clicks)
+      const conversions = toNumber(row.conversions)
+      const avgCommission = toNumber(row.avg_commission)
+
       const profit = revenue - cost
       const roi = cost > 0 ? ((revenue - cost) / cost) * 100 : 0
-      const ctr = row.impressions > 0 ? (row.clicks / row.impressions) * 100 : 0
-      const conversionRate = row.clicks > 0 ? (row.conversions / row.clicks) * 100 : 0
+      const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0
+      const conversionRate = clicks > 0 ? (conversions / clicks) * 100 : 0
 
       return {
         campaignId: row.id,
@@ -132,11 +151,11 @@ export async function GET(request: NextRequest) {
         revenue: parseFloat(revenue.toFixed(2)),
         profit: parseFloat(profit.toFixed(2)),
         roi: parseFloat(roi.toFixed(2)),
-        conversions: row.conversions,
+        conversions,
         ctr: parseFloat(ctr.toFixed(2)),
         conversionRate: parseFloat(conversionRate.toFixed(2)),
-        impressions: row.impressions,
-        clicks: row.clicks,
+        impressions,
+        clicks,
       }
     })
 
@@ -162,8 +181,12 @@ export async function GET(request: NextRequest) {
     `, params) as any[]
 
     const offerRoiData = offerRoi.map((row) => {
-      const cost = row.cost || 0
-      const revenue = row.revenue || 0
+      const cost = toNumber(row.cost)
+      const revenue = toNumber(row.revenue)
+      const conversions = toNumber(row.conversions)
+      const commissionAmount = toNumber(row.commission_amount)
+      const campaignCount = toNumber(row.campaign_count)
+
       const profit = revenue - cost
       const roi = cost > 0 ? ((revenue - cost) / cost) * 100 : 0
 
@@ -171,29 +194,29 @@ export async function GET(request: NextRequest) {
         offerId: row.id,
         brand: row.brand,
         offerName: row.offer_name,
-        commissionAmount: row.commission_amount,
-        campaignCount: row.campaign_count,
+        commissionAmount: parseFloat(commissionAmount.toFixed(2)),
+        campaignCount,
         cost: parseFloat(cost.toFixed(2)),
         revenue: parseFloat(revenue.toFixed(2)),
         profit: parseFloat(profit.toFixed(2)),
         roi: parseFloat(roi.toFixed(2)),
-        conversions: row.conversions,
+        conversions,
       }
     })
 
     // 5. 投资回报效率指标
     const efficiencyMetrics = {
-      costPerConversion: overallRoi.total_conversions > 0
-        ? parseFloat((totalCost / overallRoi.total_conversions).toFixed(2))
+      costPerConversion: totalConversions > 0
+        ? parseFloat((totalCost / totalConversions).toFixed(2))
         : 0,
-      revenuePerConversion: overallRoi.total_conversions > 0
-        ? parseFloat((totalRevenue / overallRoi.total_conversions).toFixed(2))
+      revenuePerConversion: totalConversions > 0
+        ? parseFloat((totalRevenue / totalConversions).toFixed(2))
         : 0,
       profitMargin: totalRevenue > 0
         ? parseFloat(((totalProfit / totalRevenue) * 100).toFixed(2))
         : 0,
-      breakEvenPoint: overallRoi.avg_commission > 0
-        ? parseFloat((totalCost / overallRoi.avg_commission).toFixed(0))
+      breakEvenPoint: avgCommission > 0
+        ? parseFloat((totalCost / avgCommission).toFixed(0))
         : 0,
     }
 
@@ -201,12 +224,12 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         overall: {
-          totalCost: parseFloat((totalCost ?? 0).toFixed(2)),
-          totalRevenue: parseFloat((totalRevenue ?? 0).toFixed(2)),
-          totalProfit: parseFloat((totalProfit ?? 0).toFixed(2)),
-          roi: parseFloat((overallRoiPercentage ?? 0).toFixed(2)),
-          conversions: overallRoi.total_conversions || 0,
-          avgCommission: parseFloat(((overallRoi.avg_commission) ?? 0).toFixed(2)),
+          totalCost: parseFloat(totalCost.toFixed(2)),
+          totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+          totalProfit: parseFloat(totalProfit.toFixed(2)),
+          roi: parseFloat(overallRoiPercentage.toFixed(2)),
+          conversions: totalConversions,
+          avgCommission: parseFloat(avgCommission.toFixed(2)),
         },
         trend: roiTrendData,
         byCampaign: campaignRoiData,
