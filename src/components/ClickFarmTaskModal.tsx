@@ -165,6 +165,7 @@ export default function ClickFarmTaskModal({
 
   // 🆕 使用 useLayoutEffect 确保在 DOM 更新前处理 preSelectedOfferId
   // 关键：每次 open 变为 true 时都执行
+  // 注意：distribution 由 loadAuxiliaryData 自动生成，无需在此处调用 generateDistribution
   useLayoutEffect(() => {
     console.log('[ClickFarmTaskModal] useLayoutEffect EXECUTE: open=', open, 'preSelectedOfferId=', preSelectedOfferId, 'offers.length=', offers.length, 'selectedOfferId=', selectedOfferId, 'distribution.length=', distribution.length);
     if (!open) return;
@@ -175,14 +176,7 @@ export default function ClickFarmTaskModal({
       if (offer) {
         console.log('[ClickFarmTaskModal] useLayoutEffect: 选中 offer id =', offer.id, 'name =', offer.name);
         setSelectedOfferId(preSelectedOfferId);
-
-        // 立即生成分布
-        if (dailyClickCount > 0 && distribution.length === 0) {
-          console.log('[ClickFarmTaskModal] useLayoutEffect: 调用 generateDistribution');
-          generateDistribution();
-        } else {
-          console.log('[ClickFarmTaskModal] useLayoutEffect: 跳过 generateDistribution, distribution.length =', distribution.length);
-        }
+        // distribution 由 loadAuxiliaryData 自动生成，无需重复调用
       } else {
         console.log('[ClickFarmTaskModal] useLayoutEffect: 未找到对应的 offer');
       }
@@ -197,17 +191,13 @@ export default function ClickFarmTaskModal({
     }
   }, [open, preSelectedOfferId, offers.length]);
 
-  // Generate distribution when offer is selected
-  useEffect(() => {
-    if (selectedOfferId && dailyClickCount > 0 && distribution.length === 0) {
-      generateDistribution();
-    }
-  }, [selectedOfferId, dailyClickCount, distribution.length]);
-
   // Update distribution when settings change (only if not manually modified)
+  // 注意：初始分布由 loadAuxiliaryData 自动生成，无需额外调用
   useEffect(() => {
     if (selectedOfferId && dailyClickCount > 0 && timePeriod && !isDistributionManuallyModified) {
-      generateDistribution();
+      const [startTime, endTime] = timePeriod.split('-');
+      const newDist = generateDefaultDistribution(dailyClickCount, startTime, endTime);
+      setDistribution(newDist);
     }
   }, [selectedOfferId, dailyClickCount, timePeriod, isDistributionManuallyModified]);
 
