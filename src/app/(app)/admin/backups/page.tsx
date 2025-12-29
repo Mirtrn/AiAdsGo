@@ -195,6 +195,7 @@ export default function AdminScheduledTasksPage() {
     { id: 'overview', label: '概览' },
     { id: 'backup', label: '数据库备份' },
     { id: 'sync', label: '数据同步' },
+    { id: 'cleanup', label: '数据清理' },
   ]
 
   return (
@@ -602,6 +603,139 @@ export default function AdminScheduledTasksPage() {
                     <li>• 在 Offer 详情页可以手动触发数据同步</li>
                     <li>• 同步日志保留90天，超过90天的日志会自动清理</li>
                     <li>• 同步任务通过队列系统执行，可在 <a href="/admin/queue" className="underline hover:text-purple-900">任务队列</a> 中查看执行状态</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* 数据清理Tab */}
+            {activeTab === 'cleanup' && (
+              <div className="space-y-6">
+                {/* 说明卡片 */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                  <h3 className="text-lg font-medium text-blue-900 mb-3">数据清理功能</h3>
+                  <p className="text-sm text-blue-700 mb-4">
+                    清理系统中已软删除的记录。软删除的数据会保留90天，超过90天后将被永久删除。
+                  </p>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• <strong>预览模式</strong>：查看可清理的记录数量，不实际删除</li>
+                    <li>• <strong>执行清理</strong>：删除超过90天的软删除记录</li>
+                    <li>• <strong>清理范围</strong>：抓取产品、广告创意、Google Ads账户</li>
+                  </ul>
+                </div>
+
+                {/* 统计卡片 */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="text-sm text-gray-500">抓取产品 (scraped_products)</div>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {cleanupStats?.current?.scraped_products?.toLocaleString() || '-'}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      可清理: {cleanupStats?.cleanable?.scraped_products?.toLocaleString() || 0}
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="text-sm text-gray-500">广告创意 (ad_creatives)</div>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {cleanupStats?.current?.ad_creatives?.toLocaleString() || '-'}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      可清理: {cleanupStats?.cleanable?.ad_creatives?.toLocaleString() || 0}
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <div className="text-sm text-gray-500">Google Ads账户</div>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {cleanupStats?.current?.google_ads_accounts?.toLocaleString() || '-'}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      可清理: {cleanupStats?.cleanable?.google_ads_accounts?.toLocaleString() || 0}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4">清理操作</h4>
+
+                  <div className="flex flex-wrap gap-4">
+                    <button
+                      onClick={loadCleanupStats}
+                      disabled={cleanupLoading}
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                    >
+                      {cleanupLoading ? '加载中...' : '刷新统计'}
+                    </button>
+
+                    <button
+                      onClick={() => handleCleanup('preview')}
+                      disabled={cleanupLoading}
+                      className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50"
+                    >
+                      {cleanupLoading ? '计算中...' : '预览清理'}
+                    </button>
+
+                    <button
+                      onClick={handleCleanup}
+                      disabled={cleanupLoading || !cleanupStats?.cleanable?.total}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:bg-gray-400"
+                    >
+                      {cleanupLoading ? '清理中...' : '执行清理'}
+                    </button>
+                  </div>
+
+                  {/* 清理结果 */}
+                  {cleanupResult && (
+                    <div className={`mt-6 p-4 rounded-lg ${
+                      cleanupResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+                    }`}>
+                      <div className="flex items-center mb-2">
+                        {cleanupResult.success ? (
+                          <span className="text-green-600 text-lg mr-2">✅</span>
+                        ) : (
+                          <span className="text-red-600 text-lg mr-2">❌</span>
+                        )}
+                        <span className={`font-medium ${cleanupResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                          {cleanupResult.message}
+                        </span>
+                      </div>
+
+                      {cleanupResult.details && (
+                        <div className="mt-3 text-sm">
+                          <div className="font-medium text-gray-700 mb-2">清理详情：</div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            <div>
+                              <span className="text-gray-500">抓取产品：</span>
+                              <span className="font-medium">{cleanupResult.details.scraped_products}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">广告创意：</span>
+                              <span className="font-medium">{cleanupResult.details.ad_creatives}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Google账户：</span>
+                              <span className="font-medium">{cleanupResult.details.google_ads_accounts}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">总计：</span>
+                              <span className="font-medium">{cleanupResult.details.total}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 说明信息 */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                  <h4 className="text-sm font-medium text-yellow-900 mb-2">⚠️ 注意事项</h4>
+                  <ul className="text-sm text-yellow-700 space-y-1">
+                    <li>• 清理操作不可逆，请在执行前确认预览结果</li>
+                    <li>• 建议先使用「预览清理」查看可清理的记录数量</li>
+                    <li>• 清理后数据将无法恢复</li>
+                    <li>• 系统会自动保留最近90天的软删除数据</li>
                   </ul>
                 </div>
               </div>

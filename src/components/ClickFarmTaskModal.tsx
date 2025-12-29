@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem } from '@/components/ui/select';
 import { Alert } from '@/components/ui/alert';
-import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock, Globe, Link, Tag } from 'lucide-react';
+import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock, Globe, Link, Tag, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTimezoneByCountry } from '@/lib/timezone-utils';
 import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
@@ -429,6 +429,12 @@ export default function ClickFarmTaskModal({
       return;
     }
 
+    // 🔧 校验联盟推广链接
+    if (!selectedOffer?.affiliate_link) {
+      toast.error('该Offer未配置联盟推广链接，无法创建补点击任务');
+      return;
+    }
+
     if (proxyWarning) {
       toast.error('请先配置代理');
       return;
@@ -568,6 +574,28 @@ export default function ClickFarmTaskModal({
                     <span>
                       <span className="text-muted-foreground">执行时区:</span> {timezone}
                     </span>
+                  </div>
+                  {/* 🔧 新增：联盟推广链接（占据整行） */}
+                  <div className="col-span-2 flex items-start gap-2 pt-2 border-t border-muted-foreground/20">
+                    <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-muted-foreground block mb-1">联盟推广链接:</span>
+                      {selectedOffer.affiliate_link ? (
+                        <a
+                          href={selectedOffer.affiliate_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline text-xs break-all flex items-center gap-1"
+                        >
+                          <span className="truncate max-w-[400px]">{selectedOffer.affiliate_link}</span>
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                        </a>
+                      ) : (
+                        <Badge variant="destructive" className="text-xs">
+                          ⚠️ 未配置联盟链接
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
