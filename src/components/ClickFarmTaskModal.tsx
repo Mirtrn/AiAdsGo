@@ -414,51 +414,213 @@ export default function ClickFarmTaskModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // ==========================================
+    // 第一部分：Offer信息完整性校验
+    // ==========================================
+
+    // 1.1 校验Offer是否已选择
     if (!selectedOfferId) {
       toast.error('请选择一个Offer');
       return;
     }
 
-    if (dailyClickCount < 1 || dailyClickCount > 1000) {
-      toast.error('每日点击数必须在1-1000之间');
+    // 1.2 校验selectedOffer对象存在
+    if (!selectedOffer) {
+      toast.error('无法获取Offer信息，请重新选择');
       return;
     }
 
-    if (!distribution || distribution.length !== 24) {
+    // 1.3 校验Offer基本信息完整性
+    const offerValidationErrors: string[] = [];
+
+    if (!selectedOffer.affiliate_link) {
+      offerValidationErrors.push('联盟推广链接（affiliate_link）未配置');
+    } else {
+      // 1.4 校验联盟链接格式有效性
+      try {
+        const url = new URL(selectedOffer.affiliate_link);
+        if (!url.protocol.startsWith('http')) {
+          offerValidationErrors.push('联盟推广链接协议无效（需http/https）');
+        }
+        if (!url.hostname) {
+          offerValidationErrors.push('联盟推广链接域名无效');
+        }
+      } catch {
+        offerValidationErrors.push('联盟推广链接格式无效（需有效的URL格式）');
+      }
+    }
+
+    if (!selectedOffer.targetCountry) {
+      offerValidationErrors.push('投放国家（targetCountry）未配置');
+    }
+
+    // 1.5 校验Offer名称标识（至少有一个可识别的名称）
+    const offerName = selectedOffer.offerName || selectedOffer.brand || selectedOffer.name || selectedOffer.brand_name;
+    if (!offerName || offerName.trim() === '') {
+      offerValidationErrors.push('Offer名称信息不完整（无品牌、名称或Offer名称）');
+    }
+
+    // 如果有Offer信息校验错误，一次性显示
+    if (offerValidationErrors.length > 0) {
+      toast.error('Offer信息不完整，无法创建补点击任务');
+      offerValidationErrors.forEach(err => {
+        toast.error(err, { description: '请先完善Offer信息后再试' });
+      });
+      return;
+    }
+
+    // ==========================================
+    // 第二部分：任务配置校验
+    // ==========================================
+
+    // 2.1 校验每日点击数
+    if (!dailyClickCount || dailyClickCount < 1) {
+      toast.error('每日点击数必须大于等于1');
+      return;
+    }
+    if (dailyClickCount > 1000) {
+      toast.error('每日点击数不能超过1000');
+      return;
+    }
+    if (!Number.isInteger(dailyClickCount)) {
+      toast.error('每日点击数必须为整数');
+      return;
+    }
+
+    // 2.2 校验时间范围格式
+    if (!timePeriod || !timePeriod.includes('-')) {
+      toast.error('时间范围格式无效，请重新选择');
+      return;
+    }
+
+    const [startTime, endTime] = timePeriod.split('-');
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+
+    if (!timeRegex.test(startTime)) {
+      toast.error(`开始时间"${startTime}"格式无效（需HH:mm格式）`);
+      return;
+    }
+    if (!timeRegex.test(endTime) && endTime !== '24:00') {
+      toast.error(`结束时间"${endTime}"格式无效（需HH:mm格式或24:00）`);
+      return;
+    }
+
+    // 2.3 校验持续天数
+    if (!durationDays) {
+      toast.error('请选择任务持续天数');
+      return;
+    }
+    if (durationDays !== 9999 && (durationDays < 1 || durationDays > 365)) {
+      toast.error('任务持续天数必须在1-365天之间，或选择"不限期"');
+      return;
+    }
+
+    // 2.4 校验开始日期
+    if (!scheduledStartDate) {
+      toast.error('请选择任务开始日期');
+      return;
+    }
+    // 校验日期格式
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(scheduledStartDate)) {
+      toast.error('开始日期格式无效（需YYYY-MM-DD格式）');
+      return;
+    }
+    // 校验开始日期不能是过去（允许今天及以后）
+    const today = new Date().toISOString().split('T')[0];
+    if (scheduledStartDate < today) {
+      toast.error('开始日期不能早于今天');
+      return;
+    }
+
+    // 2.5 校验时区
+    if (!timezone) {
+      toast.error('执行时区未设置，请重新选择Offer');
+      return;
+    }
+    // 简单的IANA时区格式校验
+    const ianaTimezoneRegex = /^[A-Za-z]+\/[A-Za-z_]+$/;
+    if (!ianaTimezoneRegex.test(timezone)) {
+      toast.error('执行时区格式无效');
+      return;
+    }
+
+    // 2.6 校验24小时分布
+    if (!distribution || !Array.isArray(distribution)) {
       toast.error('请先生成时间分布');
       return;
     }
-
-    // 🔧 校验联盟推广链接
-    if (!selectedOffer?.affiliate_link) {
-      toast.error('该Offer未配置联盟推广链接，无法创建补点击任务');
+    if (distribution.length !== 24) {
+      toast.error(`时间分布数据无效（期望24小时，实际${distribution.length}小时）`);
       return;
     }
+
+    // 2.7 校验分布数据有效性
+    const invalidHours = distribution.find((count, hour) => {
+      if (typeof count !== 'number' || count < 0) return true;
+      // 检查时间与分布的对应关系
+      const [startHour] = startTime.split(':').map(Number);
+      const [endHour] = endTime.split(':').map(Number);
+      // 非执行时间内应该有0点击
+      if (endTime === '24:00') {
+        if (hour < startHour) return true;
+      } else if (endHour > startHour) {
+        // 普通时间段，如 06:00-18:00
+        if (hour < startHour || hour >= endHour) return count !== 0;
+      } else {
+        // 跨越午夜，如 22:00-06:00
+        if (hour < startHour && hour >= endHour) return count !== 0;
+      }
+      return false;
+    });
+    if (invalidHours !== undefined) {
+      toast.error('时间分布数据与时间范围不匹配');
+      return;
+    }
+
+    // 2.8 校验分布总和是否等于每日点击数
+    const distributionTotal = distribution.reduce((sum, count) => sum + count, 0);
+    if (distributionTotal !== dailyClickCount) {
+      toast.error(`时间分布总和（${distributionTotal}）不等于每日点击数（${dailyClickCount}），请重新生成分布`);
+      return;
+    }
+
+    // ==========================================
+    // 第三部分：外部依赖校验
+    // ==========================================
 
     if (proxyWarning) {
       toast.error('请先配置代理');
       return;
     }
 
+    // ==========================================
+    // 第四部分：提交数据
+    // ==========================================
+
     try {
       setLoading(true);
-
-      const [startTime, endTime] = timePeriod.split('-');
 
       const requestData: CreateClickFarmTaskRequest = {
         offer_id: selectedOfferId!,
         daily_click_count: dailyClickCount,
         start_time: startTime,
         end_time: endTime,
-        duration_days: durationDays === 9999 ? -1 : durationDays,  // 🔧 使用-1表示无限期，避免null导致的JSON序列化问题
-        scheduled_start_date: scheduledStartDate,  // 🆕 包含scheduled_start_date
+        duration_days: durationDays === 9999 ? -1 : durationDays,
+        scheduled_start_date: scheduledStartDate,
         hourly_distribution: distribution,
-        timezone: timezone,  // 🆕 使用自动匹配的timezone state，而不是服务器时区
+        timezone: timezone,
       };
 
       console.log('[ClickFarmTaskModal] 发送请求数据:', {
         ...requestData,
-        hourly_distribution: `[array of ${requestData.hourly_distribution.length} items]`
+        hourly_distribution: `[array of ${requestData.hourly_distribution.length} items]`,
+        offer_info: {
+          id: selectedOffer.id,
+          name: offerName,
+          country: selectedOffer.targetCountry,
+          affiliate_link: '***hidden***'
+        }
       });
 
       // 🆕 编辑模式：使用PUT方法
