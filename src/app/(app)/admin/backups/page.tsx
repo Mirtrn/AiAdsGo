@@ -62,7 +62,7 @@ interface Stats {
   }
 }
 
-type TabType = 'overview' | 'backup' | 'sync'
+type TabType = 'overview' | 'backup' | 'sync' | 'cleanup'
 
 export default function AdminScheduledTasksPage() {
   const [activeTab, setActiveTab] = useState<TabType>('overview')
@@ -73,6 +73,11 @@ export default function AdminScheduledTasksPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [backupLoading, setBackupLoading] = useState(false)
+
+  // 🔧 数据清理相关state
+  const [cleanupStats, setCleanupStats] = useState<any>(null)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
+  const [cleanupPreview, setCleanupPreview] = useState<any>(null)
 
   // 加载定时任务数据
   const loadData = async () => {

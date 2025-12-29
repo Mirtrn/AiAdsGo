@@ -55,6 +55,10 @@ interface Campaign {
   creationError: string | null
   lastSyncAt: string | null
   createdAt: string
+  // 🔧 新增: 软删除状态字段
+  isDeleted?: boolean | number
+  deletedAt?: string | null
+  offerIsDeleted?: boolean | number
   performance?: {
     impressions: number
     clicks: number
@@ -955,25 +959,49 @@ export default function CampaignsPage() {
                     </TableRow>
                   </TableHeader>
                 <TableBody>
-                  {paginatedCampaigns.map((campaign) => (
-                    <TableRow key={campaign.id} className="hover:bg-gray-50/50">
+                  {paginatedCampaigns.map((campaign) => {
+                    // 🔧 检查是否已删除 (兼容PostgreSQL的boolean和SQLite的number)
+                    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
+                    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
+
+                    return (
+                    <TableRow
+                      key={campaign.id}
+                      className={`hover:bg-gray-50/50 ${isDeleted || offerDeleted ? 'opacity-60 bg-gray-50' : ''}`}
+                    >
                       {/* 选择checkbox */}
                       <TableCell>
                         <Checkbox
                           checked={selectedCampaignIds.has(campaign.id)}
                           onCheckedChange={(checked) => handleSelectCampaign(campaign.id, checked as boolean)}
                           aria-label={`选择 ${campaign.campaignName}`}
+                          disabled={isDeleted || offerDeleted}
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium text-gray-900 truncate max-w-[160px]" title={campaign.campaignName}>
-                          {campaign.campaignName}
-                        </div>
-                        {campaign.campaignId && (
-                          <div className="text-xs text-gray-500 font-mono mt-1 truncate max-w-[160px]" title={campaign.campaignId}>
-                            ID: {campaign.campaignId}
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900 truncate max-w-[160px]" title={campaign.campaignName}>
+                              {campaign.campaignName}
+                            </div>
+                            {campaign.campaignId && (
+                              <div className="text-xs text-gray-500 font-mono mt-1 truncate max-w-[160px]" title={campaign.campaignId}>
+                                ID: {campaign.campaignId}
+                              </div>
+                            )}
                           </div>
-                        )}
+                          {/* 🔧 已删除标签 */}
+                          {isDeleted && (
+                            <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 shrink-0">
+                              已删除
+                            </Badge>
+                          )}
+                          {offerDeleted && !isDeleted && (
+                            <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 shrink-0">
+                              Offer已删除
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">
@@ -1070,7 +1098,8 @@ export default function CampaignsPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  }))}
                 </TableBody>
               </Table>
               </div>
