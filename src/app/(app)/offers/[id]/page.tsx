@@ -816,7 +816,7 @@ export default function OfferDetailPage() {
               <div className="sm:col-span-2">
                 <dt className="text-sm font-medium text-gray-500">商品/店铺URL</dt>
                 <dd className="mt-1 text-sm text-gray-900">
-                  <a href={offer.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">
+                  <a href={offer.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500 break-all">
                     {offer.url}
                   </a>
                 </dd>
@@ -825,7 +825,7 @@ export default function OfferDetailPage() {
                 <div className="sm:col-span-2">
                   <dt className="text-sm font-medium text-gray-500">联盟推广链接</dt>
                   <dd className="mt-1 text-sm text-gray-900">
-                    <a href={offer.affiliateLink} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">
+                    <a href={offer.affiliateLink} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500 break-all">
                       {offer.affiliateLink}
                     </a>
                   </dd>
