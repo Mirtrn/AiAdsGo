@@ -74,6 +74,7 @@ export default function ClickFarmTaskModal({
   const [proxyWarning, setProxyWarning] = useState('');
   const [distribution, setDistribution] = useState<number[]>([]);
   const [isEditingDistribution, setIsEditingDistribution] = useState(false);
+  const [isDistributionManuallyModified, setIsDistributionManuallyModified] = useState(false);
   const [draggedHour, setDraggedHour] = useState<number | null>(null);
   const [timezone, setTimezone] = useState<string>('America/New_York');  // 🆕 timezone状态
 
@@ -103,6 +104,7 @@ export default function ClickFarmTaskModal({
       setScheduledStartDate(task.scheduled_start_date);  // 🆕 加载scheduled_start_date
       setDistribution(task.hourly_distribution);
       setTimezone(task.timezone);  // 🆕 加载timezone
+      setIsDistributionManuallyModified(false); // 重置手动修改标志
     } catch (error) {
       console.error('加载任务失败:', error);
       toast.error('加载任务失败');
@@ -158,12 +160,12 @@ export default function ClickFarmTaskModal({
     }
   }, [selectedOfferId, dailyClickCount, distribution.length]);
 
-  // Update distribution when settings change
+  // Update distribution when settings change (only if not manually modified)
   useEffect(() => {
-    if (selectedOfferId && dailyClickCount > 0 && distribution.length > 0) {
+    if (selectedOfferId && dailyClickCount > 0 && timePeriod && !isDistributionManuallyModified) {
       generateDistribution();
     }
-  }, [selectedOfferId, dailyClickCount, timePeriod]);
+  }, [selectedOfferId, dailyClickCount, timePeriod, isDistributionManuallyModified]);
 
   const loadOffers = async () => {
     try {
@@ -261,6 +263,7 @@ export default function ClickFarmTaskModal({
   const handleOfferChange = async (offerId: number, offersDataParam?: Offer[]) => {
     console.log('[ClickFarmTaskModal] handleOfferChange START: offerId =', offerId, 'current offers.length =', offers.length, 'current selectedOfferId =', selectedOfferId);
     setSelectedOfferId(offerId);
+    setIsDistributionManuallyModified(false); // 重置手动修改标志
 
     // 🆕 使用传入的 offersDataParam，如果没传则使用 state offers
     const offersList = offersDataParam || offers;
@@ -354,6 +357,7 @@ export default function ClickFarmTaskModal({
 
   const resetDistribution = () => {
     generateDistribution();
+    setIsDistributionManuallyModified(false);
     toast.success('已重置为默认分布');
   };
 
@@ -361,6 +365,7 @@ export default function ClickFarmTaskModal({
     const [startTime, endTime] = timePeriod.split('-');
     const balanced = balanceDistribution(dailyClickCount, startTime, endTime);
     setDistribution(balanced);
+    setIsDistributionManuallyModified(true);
     toast.success('已应用均衡分布');
   };
 
@@ -426,6 +431,7 @@ export default function ClickFarmTaskModal({
       setDistribution([]);
       setProxyWarning('');
       setIsEditingDistribution(false);
+      setIsDistributionManuallyModified(false);
       setDraggedHour(null);
 
     } catch (error: any) {
@@ -550,7 +556,10 @@ export default function ClickFarmTaskModal({
                 min={1}
                 max={1000}
                 value={dailyClickCount}
-                onChange={(e) => setDailyClickCount(parseInt(e.target.value) || 0)}
+                onChange={(e) => {
+                  setDailyClickCount(parseInt(e.target.value) || 0);
+                  setIsDistributionManuallyModified(false); // 重置手动修改标志
+                }}
                 placeholder="建议: 216次/天"
                 required
               />

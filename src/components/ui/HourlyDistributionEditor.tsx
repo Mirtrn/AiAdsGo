@@ -59,12 +59,16 @@ export default function HourlyDistributionEditor({
 
   // 计算图表参数
   const { maxValue, yTicks, chartPoints, curvePath, areaPath } = useMemo(() => {
-    const maxValue = Math.max(...distribution, 1);
+    const dataMax = Math.max(...distribution, 1);
+    // Y轴最大值比数据最大值稍大，留出顶部空白使图表更美观
+    // 向上取整到5的倍数（如 12→15, 10→10, 7→10）
+    const maxValue = Math.ceil(dataMax / 5 + 0.5) * 5;
 
     // Y轴刻度 (0, 25%, 50%, 75%, 100%)
+    // 注意：使用 ratio * 100 确保标签位置与图表点一致（0在底部，maxValue在顶部）
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map(ratio => ({
       value: Math.round(maxValue * ratio),
-      yPercent: (1 - ratio) * 100,
+      yPercent: ratio * 100,
     }));
 
     // 计算24个数据点的坐标 (百分比)
@@ -157,9 +161,9 @@ export default function HourlyDistributionEditor({
 
       {/* 图表容器 */}
       <div className="relative bg-gradient-to-b from-muted/30 to-muted/10 rounded-lg p-4 border border-border/50">
-        {/* Y轴刻度 */}
+        {/* Y轴刻度 - 反转渲染顺序，使0在底部，maxValue在顶部 */}
         <div className="absolute left-0 top-4 bottom-10 w-10 flex flex-col justify-between text-right pr-2">
-          {yTicks.map((tick, i) => (
+          {[...yTicks].reverse().map((tick, i) => (
             <span key={i} className="text-[10px] text-muted-foreground leading-none">
               {tick.value}
             </span>
@@ -186,14 +190,14 @@ export default function HourlyDistributionEditor({
               </linearGradient>
             </defs>
 
-            {/* Y轴网格线（水平） */}
+            {/* Y轴网格线（水平）- 需要反转位置，因为SVG y=0在顶部 */}
             {yTicks.map((tick, i) => (
               <line
                 key={`y-${i}`}
                 x1="0"
-                y1={tick.yPercent}
+                y1={100 - tick.yPercent}
                 x2="100"
-                y2={tick.yPercent}
+                y2={100 - tick.yPercent}
                 stroke="currentColor"
                 strokeWidth="0.2"
                 className="text-border"
