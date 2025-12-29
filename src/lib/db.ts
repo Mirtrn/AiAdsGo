@@ -300,9 +300,17 @@ class PostgresAdapter implements DatabaseAdapter {
 
     const result = await this.sql.unsafe(pgSql, cleanParams)
     console.log('[PostgresAdapter.exec] result:', JSON.stringify(result), 'sql:', pgSql.substring(0, 100))
+    // PostgreSQL INSERT ... RETURNING id 返回数组或对象
+    // 尝试多种方式获取 lastInsertRowid
+    let lastInsertRowid: number | undefined
+    if (Array.isArray(result) && result.length > 0) {
+      lastInsertRowid = result[0]?.id
+    } else if (result && typeof result === 'object') {
+      lastInsertRowid = (result as any).id ?? (result as any).lastInsertRowid
+    }
     return {
-      changes: result.count || 0,
-      lastInsertRowid: result[0]?.id
+      changes: result.count || (Array.isArray(result) ? result.length : 1),
+      lastInsertRowid
     }
   }
 
