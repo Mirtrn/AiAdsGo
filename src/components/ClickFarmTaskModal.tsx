@@ -18,7 +18,7 @@ import { Alert } from '@/components/ui/alert';
 import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock, Globe, Link, Tag, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTimezoneByCountry } from '@/lib/timezone-utils';
-import type { CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
+import type { CreateClickFarmTaskRequest, REFERER_OPTIONS, SOCIAL_MEDIA_REFERRERS } from '@/lib/click-farm-types';
 import { balanceDistribution, generateDefaultDistribution } from '@/lib/click-farm/distribution';
 import HourlyDistributionEditor from '@/components/ui/HourlyDistributionEditor';
 
@@ -78,6 +78,12 @@ export default function ClickFarmTaskModal({
   const [draggedHour, setDraggedHour] = useState<number | null>(null);
   const [timezone, setTimezone] = useState<string>('America/New_York');  // 🆕 timezone状态
 
+  // 🆕 Referer配置状态
+  const [refererConfig, setRefererConfig] = useState<{
+    type: 'none' | 'random' | 'specific';
+    referer?: string;
+  }>({ type: 'none' });
+
   const isEditMode = !!editTaskId;  // 🆕 判断是否为编辑模式
 
   // 🆕 加载现有任务数据（编辑模式）
@@ -104,6 +110,18 @@ export default function ClickFarmTaskModal({
       setScheduledStartDate(task.scheduled_start_date);  // 🆕 加载scheduled_start_date
       setDistribution(task.hourly_distribution);
       setTimezone(task.timezone);  // 🆕 加载timezone
+      // 🆕 加载Referer配置
+      if (task.referer_config) {
+        const refererCfg = typeof task.referer_config === 'string'
+          ? JSON.parse(task.referer_config)
+          : task.referer_config;
+        setRefererConfig({
+          type: refererCfg.type || 'none',
+          referer: refererCfg.referer
+        });
+      } else {
+        setRefererConfig({ type: 'none' });
+      }
       setIsDistributionManuallyModified(false); // 重置手动修改标志
     } catch (error) {
       console.error('加载任务失败:', error);
@@ -610,6 +628,7 @@ export default function ClickFarmTaskModal({
         scheduled_start_date: scheduledStartDate,
         hourly_distribution: distribution,
         timezone: timezone,
+        referer_config: refererConfig,  // 🆕 添加Referer配置
       };
 
       console.log('[ClickFarmTaskModal] 发送请求数据:', {
@@ -620,7 +639,8 @@ export default function ClickFarmTaskModal({
           name: offerName,
           country: selectedOffer.targetCountry,
           affiliate_link: '***hidden***'
-        }
+        },
+        referer_config: requestData.referer_config
       });
 
       // 🆕 编辑模式：使用PUT方法
@@ -653,6 +673,7 @@ export default function ClickFarmTaskModal({
       setIsEditingDistribution(false);
       setIsDistributionManuallyModified(false);
       setDraggedHour(null);
+      setRefererConfig({ type: 'none' });  // 🆕 重置Referer配置
 
     } catch (error: any) {
       console.error('创建任务失败:', error);
@@ -862,6 +883,83 @@ export default function ClickFarmTaskModal({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          {/* 🆕 Referer配置 - 防爬优化 */}
+          <div className="space-y-3 pt-2 border-t">
+            <Label className="flex items-center gap-2">
+              <Globe className="h-4 w-4" />
+              Referer来源配置
+              <Badge variant="secondary" className="text-xs">防爬优化</Badge>
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              配置访问时的Referer头，模拟真实用户来源，防止被反爬机制识别
+            </p>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Referer类型选择 */}
+              <div className="space-y-2">
+                <Label htmlFor="refererType">Referer类型 *</Label>
+                <Select
+                  id="refererType"
+                  value={refererConfig.type}
+                  onValueChange={(value: 'none' | 'random' | 'specific') => {
+                    setRefererConfig(prev => ({
+                      ...prev,
+                      type: value,
+                      // 当选择none或random时，清除specific referer
+                      referer: value === 'specific' ? prev.referer : undefined
+                    }));
+                  }}
+                  required
+                >
+                  <SelectContent>
+                    {REFERER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {REFERER_OPTIONS.find(o => o.value === refererConfig.type)?.description}
+                </p>
+              </div>
+
+              {/* 特定Referer选择（仅当类型为specific时显示） */}
+              {refererConfig.type === 'specific' && (
+                <div className="space-y-2">
+                  <Label htmlFor="specificReferer">选择Referer *</Label>
+                  <Select
+                    id="specificReferer"
+                    value={refererConfig.referer || ''}
+                    onValueChange={(value) => {
+                      setRefererConfig(prev => ({ ...prev, referer: value }));
+                    }}
+                    required
+                  >
+                    <SelectContent>
+                      {SOCIAL_MEDIA_REFERRERS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    选择固定的社交媒体来源作为Referer
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* 预览信息 */}
+            <div className="bg-muted/30 rounded p-2 text-xs text-muted-foreground">
+              <span className="font-medium">当前配置: </span>
+              {refererConfig.type === 'none' && '不设置Referer头'}
+              {refererConfig.type === 'random' && `随机从${SOCIAL_MEDIA_REFERRERS.length}个社交媒体中选择`}
+              {refererConfig.type === 'specific' && `固定Referer: ${SOCIAL_MEDIA_REFERRERS.find(r => r.value === refererConfig.referer)?.label || '自定义'}`}
             </div>
           </div>
 

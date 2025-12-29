@@ -118,6 +118,18 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     return { taskId, status: 'skipped', message: '当前小时无需执行点击' };
   }
 
+  // 🆕 获取任务的Referer配置
+  let refererConfig: { type: 'none' | 'random' | 'specific'; referer?: string } | undefined;
+  try {
+    if (task.referer_config) {
+      refererConfig = typeof task.referer_config === 'string'
+        ? JSON.parse(task.referer_config)
+        : task.referer_config;
+    }
+  } catch (error) {
+    console.error(`[Trigger] 解析Referer配置失败:`, error);
+  }
+
   // 获取队列管理器并加入队列
   const queueManager = await getOrCreateQueueManager();
   let queued = 0;
@@ -127,7 +139,8 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
       taskId: task.id,
       url: offer.affiliate_link,
       proxyUrl: proxyConfig.proxy_url,
-      offerId: task.offer_id
+      offerId: task.offer_id,
+      refererConfig  // 🆕 传递Referer配置
     };
 
     try {
@@ -231,6 +244,18 @@ export async function triggerAllPendingTasks(): Promise<{
       continue;
     }
 
+    // 🆕 获取任务的Referer配置
+    let refererConfig: { type: 'none' | 'random' | 'specific'; referer?: string } | undefined;
+    try {
+      if (task.referer_config) {
+        refererConfig = typeof task.referer_config === 'string'
+          ? JSON.parse(task.referer_config)
+          : task.referer_config;
+      }
+    } catch (error) {
+      console.error(`[TriggerAll] 解析Referer配置失败:`, error);
+    }
+
     // 加入队列
     let queued = 0;
     for (let i = 0; i < clickCount; i++) {
@@ -239,7 +264,8 @@ export async function triggerAllPendingTasks(): Promise<{
           taskId: task.id,
           url: offer.affiliate_link,
           proxyUrl: proxyConfig.proxy_url,
-          offerId: task.offer_id
+          offerId: task.offer_id,
+          refererConfig  // 🆕 传递Referer配置
         }, task.user_id, { priority: 'normal', maxRetries: 2 });
         queued++;
       } catch (error) {

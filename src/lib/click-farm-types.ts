@@ -177,7 +177,47 @@ export interface CreateClickFarmTaskRequest {
    * 示例: "America/New_York", "Europe/London", "Asia/Shanghai"
    */
   timezone?: string;
+  /**
+   * 🆕 refererConfig: Referer来源配置
+   * 用于防止反爬检测，模拟真实用户来源
+   * - none: 不设置Referer头
+   * - random: 每次点击随机从社交媒体列表中选择Referer
+   * - specific: 使用指定的固定Referer URL
+   */
+  referer_config?: {
+    type: 'none' | 'random' | 'specific';
+    referer?: string;  // specific类型时的固定Referer URL
+  };
 }
+
+/**
+ * 🆕 Referer配置类型
+ */
+export type RefererConfigType = 'none' | 'random' | 'specific';
+
+/**
+ * 🆕 社交媒体Referer选项（用于UI下拉选择）
+ */
+export const REFERER_OPTIONS = [
+  { value: 'none', label: '留空', description: '不配置Referer，使用默认值' },
+  { value: 'random', label: '随机', description: '每次点击随机从社交媒体列表中选择' },
+  { value: 'specific', label: '固定', description: '使用指定的固定Referer URL' },
+] as const;
+
+export const SOCIAL_MEDIA_REFERRERS = [
+  { value: 'https://www.google.com/search?q=', label: 'Google搜索' },
+  { value: 'https://www.facebook.com/', label: 'Facebook' },
+  { value: 'https://twitter.com/search?q=', label: 'Twitter/X' },
+  { value: 'https://www.instagram.com/', label: 'Instagram' },
+  { value: 'https://www.youtube.com/', label: 'YouTube' },
+  { value: 'https://www.tiktok.com/', label: 'TikTok' },
+  { value: 'https://www.pinterest.com/search/pins/?q=', label: 'Pinterest' },
+  { value: 'https://www.reddit.com/search/?q=', label: 'Reddit' },
+  { value: 'https://www.linkedin.com/search/results/all/?keyword=', label: 'LinkedIn' },
+  { value: 'https://www.bing.com/search?q=', label: 'Bing搜索' },
+  { value: 'https://www.amazon.com/s?k=', label: 'Amazon' },
+  { value: 'https://www.ebay.com/sch/i.html?_nkw=', label: 'eBay' },
+] as const;
 
 /**
  * 更新任务请求
@@ -190,6 +230,10 @@ export interface UpdateClickFarmTaskRequest {
   scheduled_start_date?: string;  // 🆕 YYYY-MM-DD格式
   hourly_distribution?: number[];
   timezone?: string;  // 🆕 允许更新timezone（用于offer变更场景）
+  referer_config?: {  // 🆕 Referer配置
+    type: 'none' | 'random' | 'specific';
+    referer?: string;
+  };
 }
 
 /**
