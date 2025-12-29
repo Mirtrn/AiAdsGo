@@ -29,6 +29,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [showCaptcha, setShowCaptcha] = useState(false)
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaLoading, setCaptchaLoading] = useState(false)
   const turnstileWidgetId = useRef<string | null>(null)
   const turnstileLoaded = useRef(false)
 
@@ -51,7 +52,12 @@ function LoginForm() {
       script.defer = true
       script.onload = () => {
         turnstileLoaded.current = true
-        renderTurnstile()
+        // 确保DOM已更新，使用setTimeout确保renderTurnstile在下一个事件循环执行
+        setTimeout(renderTurnstile, 0)
+      }
+      script.onerror = () => {
+        console.error('Failed to load Turnstile script')
+        setError('验证码脚本加载失败，请刷新页面重试')
       }
       document.body.appendChild(script)
     }
@@ -61,16 +67,25 @@ function LoginForm() {
     if (window.turnstile && !turnstileWidgetId.current) {
       const container = document.getElementById('turnstile-container')
       if (container) {
-        turnstileWidgetId.current = window.turnstile.render(container, {
-          sitekey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
-          callback: (token: string) => {
-            setCaptchaToken(token)
-          },
-          'error-callback': () => {
-            setError('验证码加载失败，请刷新页面重试')
-          },
-          theme: 'light',
-        })
+        try {
+          turnstileWidgetId.current = window.turnstile.render(container, {
+            sitekey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+            callback: (token: string) => {
+              setCaptchaToken(token)
+              setCaptchaLoading(false)
+            },
+            'error-callback': () => {
+              setCaptchaLoading(false)
+              setError('验证码加载失败，请刷新页面重试')
+            },
+            theme: 'light',
+          })
+          setCaptchaLoading(false)
+        } catch (err) {
+          console.error('Failed to render Turnstile:', err)
+          setCaptchaLoading(false)
+          setError('验证码初始化失败，请刷新页面重试')
+        }
       }
     }
   }
@@ -105,13 +120,11 @@ function LoginForm() {
         // 检查是否需要CAPTCHA
         if (data.errorType === 'captcha_required') {
           setShowCaptcha(true)
+          setCaptchaLoading(true)
+          setCaptchaToken(null)
           setError(data.error || '请完成验证码验证')
-          // 给Turnstile一些时间加载和渲染
-          setTimeout(() => {
-            if (turnstileLoaded.current) {
-              renderTurnstile()
-            }
-          }, 100)
+          // 不需要手动调用renderTurnstile，useEffect会自动处理
+          // 当showCaptcha状态更新后，useEffect会检查脚本是否加载
           return
         }
 
@@ -301,19 +314,44 @@ function LoginForm() {
             {showCaptcha && (
               <div className="space-y-2">
                 <Label htmlFor="turnstile-container">安全验证</Label>
-                <div
-                  id="turnstile-container"
-                  className="flex justify-center items-center min-h-[65px] bg-slate-50 rounded-lg border border-slate-200"
-                />
-                <p className="text-xs text-slate-500 text-center">
-                  为了您的账户安全，请完成验证后继续登录
-                </p>
+                <div className="relative">
+                  <div
+                    id="turnstile-container"
+                    className="flex justify-center items-center min-h-[65px] bg-slate-50 rounded-lg border border-slate-200"
+                  />
+                  {captchaLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/50 rounded-lg backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-5 w-5 animate-spin text-slate-600" />
+                        <span className="text-xs text-slate-600">加载验证码...</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-start gap-2">
+                  <p className="text-xs text-slate-500 flex-1">
+                    为了您的账户安全，请完成验证后继续登录
+                  </p>
+                  {!captchaLoading && turnstileLoaded.current && !captchaToken && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (turnstileWidgetId.current && window.turnstile) {
+                          window.turnstile.reset(turnstileWidgetId.current)
+                        }
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-500 whitespace-nowrap flex-shrink-0"
+                    >
+                      重新加载
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
             <Button
               type="submit"
-              disabled={loading || (showCaptcha && !captchaToken)}
+              disabled={loading || captchaLoading || (showCaptcha && !captchaToken)}
               className="w-full h-12 text-base font-medium bg-slate-900 hover:bg-slate-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
