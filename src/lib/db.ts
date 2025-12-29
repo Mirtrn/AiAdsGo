@@ -299,6 +299,7 @@ class PostgresAdapter implements DatabaseAdapter {
     }
 
     const pgResult = await this.sql.unsafe(pgSql, cleanParams) as any
+    console.log('[PostgresAdapter.exec] result type:', typeof pgResult, 'isArray:', Array.isArray(pgResult), 'value:', JSON.stringify(pgResult))
     // PostgreSQL INSERT ... RETURNING id 返回数组或对象
     let lastInsertRowid: number | undefined
     let changes = 0
@@ -313,6 +314,7 @@ class PostgresAdapter implements DatabaseAdapter {
       lastInsertRowid = pgResult.id ?? pgResult.lastInsertRowid
     }
 
+    console.log('[PostgresAdapter.exec] returning:', { changes, lastInsertRowid })
     return { changes, lastInsertRowid }
   }
 
