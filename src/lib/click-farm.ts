@@ -29,43 +29,64 @@ export async function createClickFarmTask(
   // 🆕 scheduled_start_date默认为当天
   const scheduledStartDate = input.scheduled_start_date || new Date().toISOString().split('T')[0];
 
-  const result = await db.exec(`
-    INSERT INTO click_farm_tasks (
-      user_id, offer_id, daily_click_count, start_time, end_time,
-      duration_days, scheduled_start_date, hourly_distribution, timezone
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [
+  console.log('[createClickFarmTask] 开始插入任务:', {
     userId,
-    input.offer_id,
-    input.daily_click_count,
-    input.start_time,
-    input.end_time,
-    input.duration_days,
-    scheduledStartDate,  // 🆕 添加scheduled_start_date字段
-    JSON.stringify(input.hourly_distribution),
-    input.timezone || 'America/New_York'
-  ]);
+    offer_id: input.offer_id,
+    daily_click_count: input.daily_click_count,
+    hourly_distribution_length: input.hourly_distribution?.length,
+    timezone: input.timezone
+  });
 
-  // 🔧 修复(2025-12-29): lastInsertRowid可能是数字(SQLite)或字符串(PostgreSQL)
-  // 需要转换为正确的类型用于查询
-  const insertedId = result.lastInsertRowid ? String(result.lastInsertRowid) : null;
+  try {
+    const result = await db.exec(`
+      INSERT INTO click_farm_tasks (
+        user_id, offer_id, daily_click_count, start_time, end_time,
+        duration_days, scheduled_start_date, hourly_distribution, timezone
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      userId,
+      input.offer_id,
+      input.daily_click_count,
+      input.start_time,
+      input.end_time,
+      input.duration_days,
+      scheduledStartDate,  // 🆕 添加scheduled_start_date字段
+      JSON.stringify(input.hourly_distribution),
+      input.timezone || 'America/New_York'
+    ]);
 
-  if (!insertedId) {
-    throw new Error('Failed to insert task: no insert ID returned');
+    console.log('[createClickFarmTask] INSERT结果:', result);
+
+    // 🔧 修复(2025-12-29): lastInsertRowid可能是数字(SQLite)或字符串(PostgreSQL)
+    // 需要转换为正确的类型用于查询
+    const insertedId = result.lastInsertRowid ? String(result.lastInsertRowid) : null;
+
+    if (!insertedId) {
+      throw new Error('Failed to insert task: no insert ID returned');
+    }
+
+    console.log('[createClickFarmTask] 获取插入的ID:', insertedId);
+
+    const task = (await getClickFarmTaskById(insertedId, userId))!;
+
+    // 🆕 计算并设置 next_run_at
+    const nextRunAt = generateNextRunAt(task.timezone, task);
+    await db.exec(`
+      UPDATE click_farm_tasks
+      SET next_run_at = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `, [nextRunAt.toISOString(), task.id]);
+
+    // 重新获取更新后的任务
+    return (await getClickFarmTaskById(insertedId, userId))!;
+  } catch (error) {
+    console.error('[createClickFarmTask] 错误:', error);
+    if (error instanceof Error) {
+      console.error('[createClickFarmTask] 错误消息:', error.message);
+      console.error('[createClickFarmTask] 错误堆栈:', error.stack);
+    }
+    throw error;
   }
-
-  const task = (await getClickFarmTaskById(insertedId, userId))!;
-
-  // 🆕 计算并设置 next_run_at
-  const nextRunAt = generateNextRunAt(task.timezone, task);
-  await db.exec(`
-    UPDATE click_farm_tasks
-    SET next_run_at = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `, [nextRunAt.toISOString(), task.id]);
-
-  // 重新获取更新后的任务
-  return (await getClickFarmTaskById(insertedId, userId))!;
 }
 
 /**

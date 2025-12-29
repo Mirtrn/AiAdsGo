@@ -10,6 +10,7 @@ import { TrendingUp, TrendingDown, Eye, MousePointerClick, DollarSign, Target } 
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { KPILoadingSkeleton } from '@/components/ui/loading-skeleton' // P2-6: 统一loading
+import { safeToFixed } from '@/lib/utils'
 
 interface KPIData {
   current: {
@@ -41,15 +42,13 @@ function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps
   const isPositive = (change ?? 0) >= 0
 
   const formatValue = (val: string | number | null | undefined): string => {
-    const numVal = typeof val === 'string' ? parseFloat(val) : (val ?? 0)
-    if (isNaN(numVal)) return '0'
-
     if (format === 'currency') {
-      return `¥${numVal.toFixed(2)}`
+      return `¥${safeToFixed(val, 2)}`
     } else if (format === 'percentage') {
-      return `${numVal.toFixed(2)}%`
+      return `${safeToFixed(val, 2)}%`
     } else {
-      return numVal.toLocaleString('en-US')
+      const numVal = typeof val === 'string' ? parseFloat(val) : (val ?? 0)
+      return Number.isNaN(numVal) ? '0' : numVal.toLocaleString('en-US')
     }
   }
 
@@ -93,7 +92,7 @@ function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps
         <div className="flex items-center gap-2">
           <Badge variant={isPositive ? 'default' : 'destructive'} className="gap-1">
             {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {isPositive ? '+' : ''}{(change ?? 0).toFixed(1)}%
+            {isPositive ? '+' : ''}{safeToFixed(change ?? 0, 1)}%
           </Badge>
           <span className="text-xs text-muted-foreground">vs 上周期</span>
         </div>
@@ -229,7 +228,7 @@ export function KPICards({ days }: KPICardsProps) {
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">平均CTR</p>
               <p className="text-2xl font-bold text-primary">
-                {((data.current?.ctr ?? 0) * 100).toFixed(2)}%
+                {safeToFixed((data.current?.ctr ?? 0) * 100, 2)}%
               </p>
             </CardContent>
           </Card>
@@ -237,7 +236,7 @@ export function KPICards({ days }: KPICardsProps) {
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">平均CPC</p>
               <p className="text-2xl font-bold text-primary">
-                ¥{(data.current?.cpc ?? 0).toFixed(2)}
+                ¥{safeToFixed(data.current?.cpc ?? 0, 2)}
               </p>
             </CardContent>
           </Card>
@@ -245,7 +244,7 @@ export function KPICards({ days }: KPICardsProps) {
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">转化率</p>
               <p className="text-2xl font-bold text-primary">
-                {((data.current?.conversionRate ?? 0) * 100).toFixed(2)}%
+                {safeToFixed((data.current?.conversionRate ?? 0) * 100, 2)}%
               </p>
             </CardContent>
           </Card>

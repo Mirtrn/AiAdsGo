@@ -211,12 +211,20 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('创建补点击任务失败:', error);
     // 🔧 修复(2025-12-29): 添加详细的错误日志以帮助诊断问题
+    let errorMessage = '创建任务失败';
+    let errorDetails = '';
     if (error instanceof Error) {
       console.error('错误信息:', error.message);
       console.error('错误堆栈:', error.stack);
+      errorMessage = error.message;
+      errorDetails = error.message;
     }
     return NextResponse.json(
-      { error: 'server_error', message: '创建任务失败' },
+      {
+        error: 'server_error',
+        message: errorMessage,
+        details: errorDetails  // 🔧 添加详细错误信息以便诊断
+      },
       { status: 500 }
     );
   }

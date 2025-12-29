@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS click_farm_tasks (
 
   -- 任务配置
   daily_click_count INTEGER NOT NULL DEFAULT 216,
-  start_time TIME NOT NULL DEFAULT '06:00',
-  end_time TIME NOT NULL DEFAULT '24:00',
+  start_time TEXT NOT NULL DEFAULT '06:00',  -- 存储为TEXT格式 HH:mm，因为支持'24:00'这样的特殊值
+  end_time TEXT NOT NULL DEFAULT '24:00',    -- TEXT格式支持'24:00'特殊值（表示午夜）
   duration_days INTEGER NOT NULL DEFAULT 7,  -- -1表示无限期
   hourly_distribution JSONB NOT NULL,  -- 24个整数的JSON数组
 
