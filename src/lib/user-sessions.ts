@@ -191,6 +191,7 @@ async function checkSharingPatterns(
   }>
 }> {
   const db = await getDatabase()
+  const db_type = db.type
   const alerts: Array<{
     type: string
     severity: 'info' | 'warning' | 'critical'
@@ -206,6 +207,10 @@ async function checkSharingPatterns(
   }
 
   // Get recent sessions (within IP change window)
+  const timeCondition = db_type === 'postgres'
+    ? `created_at > CURRENT_TIMESTAMP - INTERVAL '${IP_CHANGE_WINDOW_HOURS} hours'`
+    : `created_at > datetime('now', '-${IP_CHANGE_WINDOW_HOURS} hours')`
+
   const recentSessions = await db.query<{
     ip_address: string
     device_fingerprint: string
@@ -214,7 +219,7 @@ async function checkSharingPatterns(
     SELECT ip_address, device_fingerprint, created_at
     FROM user_sessions
     WHERE user_id = ?
-      AND created_at > datetime('now', '-${IP_CHANGE_WINDOW_HOURS} hours')
+      AND ${timeCondition}
       AND revoked_at IS NULL
     ORDER BY created_at DESC
   `, [userId])
