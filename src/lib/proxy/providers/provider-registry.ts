@@ -2,6 +2,7 @@ import type { ProxyProvider } from './base-provider'
 import { IPRocketProvider } from './iprocket-provider'
 import { OxylabsProvider } from './oxylabs-provider'
 import { AbcproxyProvider } from './abcproxy-provider'
+import { IpMarsProvider } from './ipmars-provider'
 
 /**
  * 代理提供商注册表
@@ -14,6 +15,7 @@ export class ProxyProviderRegistry {
     new IPRocketProvider(),
     new OxylabsProvider(),
     new AbcproxyProvider(),
+    new IpMarsProvider(),
   ]
 
   /**

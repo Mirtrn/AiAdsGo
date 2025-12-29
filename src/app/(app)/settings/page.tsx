@@ -36,7 +36,7 @@ function validateProxyUrlFormat(url: string): { isValid: boolean; error?: string
     return { isValid: true }
   }
 
-  // Abcproxy / 通用格式 (host:port:username:password)
+  // Abcproxy / IpMars / 通用格式 (host:port:username:password)
   if (/^[a-zA-Z0-9.-]+:\d+:[^:]+:[^:]+$/.test(url)) {
     return { isValid: true }
   }
@@ -48,7 +48,7 @@ function validateProxyUrlFormat(url: string): { isValid: boolean; error?: string
 
   return {
     isValid: false,
-    error: '不支持的代理URL格式。当前仅支持：IPRocket、Oxylabs、Abcproxy'
+    error: '不支持的代理URL格式。当前仅支持：IPRocket、Oxylabs、Abcproxy、IpMars'
   }
 }
 
@@ -1549,7 +1549,7 @@ export default function SettingsPage() {
                       </p>
                       <p className="text-xs text-blue-600 flex items-center gap-1">
                         <Info className="w-3 h-3 flex-shrink-0" />
-                        当前已支持IPRocket、Oxylabs、Abcproxy三种代理格式
+                        当前已支持IPRocket、Oxylabs、Abcproxy、IpMars四种代理格式
                       </p>
 
                       {/* 代理URL格式说明 */}
@@ -1592,6 +1592,17 @@ export default function SettingsPage() {
                               host:port:username:password
                             </div>
                           </div>
+
+                          {/* IpMars格式 */}
+                          <div className="bg-white p-3 rounded border border-purple-200">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">IpMars</span>
+                              <span className="text-slate-600">直接格式 - 仅支持HTTP/HTTPS</span>
+                            </div>
+                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
+                              host:port:username:password
+                            </div>
+                          </div>
                         </div>
 
                         <div className="mt-3 pt-3 border-t border-slate-200">
@@ -1600,7 +1611,7 @@ export default function SettingsPage() {
                             <span>
                               <strong>处理策略：</strong>
                               <br />• IPRocket：先调用API获取代理IP，再使用代理IP访问
-                              <br />• Oxylabs/Abcproxy：直接从URL提取参数，使用代理发起12次访问进行预热
+                              <br />• Oxylabs/Abcproxy/IpMars：直接从URL提取参数，使用代理发起12次访问进行预热
                             </span>
                           </p>
                         </div>
