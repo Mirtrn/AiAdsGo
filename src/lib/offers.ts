@@ -713,10 +713,11 @@ export async function deleteOffer(
   // 🔥 需求：终止并软删除关联的补点击任务
   // 1. 停止所有运行中/待执行的补点击任务
   // 2. 软删除任务（保留历史统计数据）
+  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
   const clickFarmTasks = await db.query<any>(`
     SELECT id, status
     FROM click_farm_tasks
-    WHERE offer_id = ? AND user_id = ? AND is_deleted = 0
+    WHERE offer_id = ? AND user_id = ? AND ${isDeletedCondition}
   `, [id, userId])
 
   if (clickFarmTasks.length > 0) {
@@ -728,7 +729,7 @@ export async function deleteOffer(
         ELSE status
       END,
       updated_at = ${nowFunc}
-      WHERE offer_id = ? AND user_id = ? AND is_deleted = 0
+      WHERE offer_id = ? AND user_id = ? AND ${isDeletedCondition}
     `, [id, userId])
 
     // 软删除所有任务（保留历史统计数据）
