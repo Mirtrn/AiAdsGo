@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { TableLoadingSkeleton } from '@/components/ui/loading-skeleton' // P2-6: 统一loading
 import { NoCampaignsState } from '@/components/ui/empty-state' // P2-7: 统一空状态
+import { safeToFixed } from '@/lib/utils'
 
 interface CampaignPerformance {
   campaignId: number
@@ -213,13 +214,13 @@ export function CampaignList() {
                         {(campaign.clicks ?? 0).toLocaleString('en-US')}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        ¥{(Number(campaign.cost) || 0).toFixed(2)}
+                        ¥{safeToFixed(Number(campaign.cost) || 0, 2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {(Number(campaign.ctr) || 0).toFixed(2)}%
+                        {safeToFixed(Number(campaign.ctr) || 0, 2)}%
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        ¥{(Number(campaign.cpc) || 0).toFixed(2)}
+                        ¥{safeToFixed(Number(campaign.cpc) || 0, 2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {campaign.conversions}

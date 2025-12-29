@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Activity, AlertTriangle, CheckCircle2, TrendingUp } from 'lucide-react'
+import { safeToFixed } from '@/lib/utils'
 
 interface ApiQuotaData {
   today: {
@@ -191,7 +192,7 @@ export function ApiQuotaChart({ days = 7 }: Props) {
               </div>
               <div className="text-xs text-gray-500">/ {(today.quotaLimit ?? 0).toLocaleString('en-US')}</div>
               <div className={`text-xs font-medium mt-0.5 ${getStatusColor()}`}>
-                {((usagePercent ?? 0) * 100).toFixed(1)}%
+                {safeToFixed((usagePercent ?? 0) * 100, 1)}%
               </div>
             </div>
           </div>
@@ -209,7 +210,10 @@ export function ApiQuotaChart({ days = 7 }: Props) {
             <div className="text-xs text-gray-500">成功率</div>
             <div className="text-lg font-semibold text-gray-900">
               {today.totalRequests > 0
-                ? ((today.successfulOperations ?? 0) / ((today.successfulOperations ?? 0) + (today.failedOperations ?? 0)) * 100).toFixed(1)
+                ? safeToFixed(
+                    ((today.successfulOperations ?? 0) / ((today.successfulOperations ?? 0) + (today.failedOperations ?? 0)) * 100),
+                    1
+                  )
                 : '0'}%
             </div>
           </div>

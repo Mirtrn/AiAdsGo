@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/chart'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
 import { useIsMobile } from '@/hooks/useMediaQuery'
+import { safeToFixed } from '@/lib/utils'
 
 interface TrendData {
   date: string
@@ -234,7 +235,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
                   tickMargin={8}
                   tickFormatter={(value) => {
                     if (value >= 1000) {
-                      return `${(value / 1000).toFixed(1)}k`
+                      return `${safeToFixed(value / 1000, 1)}k`
                     }
                     return value.toString()
                   }}
@@ -302,10 +303,16 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
-                  tickFormatter={(value) => `${(Number(value) ?? 0).toFixed(2)}%`}
+                  tickFormatter={(value) => `${safeToFixed(value, 2)}%`}
                 />
                 <ChartTooltip
-                  content={<ChartTooltipContent formatter={(value) => `${Number(value).toFixed(2)}%`} />}
+                  content={<ChartTooltipContent formatter={(value) => {
+                    // Handle array values from chart tooltip
+                    if (Array.isArray(value)) {
+                      return `${safeToFixed(value[0], 2)}%`
+                    }
+                    return `${safeToFixed(value, 2)}%`
+                  }} />}
                 />
                 <Legend />
                 <Line
@@ -336,7 +343,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
               <p className="text-xs text-muted-foreground mb-1">总展示量</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-blue-600`}>
                 {isMobile && (data.summary?.totalImpressions ?? 0) >= 1000
-                  ? `${((data.summary?.totalImpressions ?? 0) / 1000).toFixed(1)}k`
+                  ? `${safeToFixed((data.summary?.totalImpressions ?? 0) / 1000, 1)}k`
                   : (data.summary?.totalImpressions ?? 0).toLocaleString('en-US')}
               </p>
             </div>
@@ -344,14 +351,14 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
               <p className="text-xs text-muted-foreground mb-1">总点击量</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-green-600`}>
                 {isMobile && (data.summary?.totalClicks ?? 0) >= 1000
-                  ? `${((data.summary?.totalClicks ?? 0) / 1000).toFixed(1)}k`
+                  ? `${safeToFixed((data.summary?.totalClicks ?? 0) / 1000, 1)}k`
                   : (data.summary?.totalClicks ?? 0).toLocaleString('en-US')}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-purple-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">总花费</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-purple-600`}>
-                ¥{(Number(data.summary?.totalCost) || 0).toFixed(isMobile ? 0 : 2)}
+                ¥{safeToFixed(Number(data.summary?.totalCost) || 0, isMobile ? 0 : 2)}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-orange-50 rounded-lg`}>
@@ -363,13 +370,13 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-indigo-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">平均CTR</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-indigo-600`}>
-                {((data.summary?.avgCTR ?? 0) * 100).toFixed(isMobile ? 1 : 2)}%
+                {safeToFixed((data.summary?.avgCTR ?? 0) * 100, isMobile ? 1 : 2)}%
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-pink-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">平均CPC</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-pink-600`}>
-                ¥{(data.summary?.avgCPC ?? 0).toFixed(isMobile ? 1 : 2)}
+                ¥{safeToFixed(data.summary?.avgCPC ?? 0, isMobile ? 1 : 2)}
               </p>
             </div>
           </div>

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Zap, DollarSign, TrendingUp, AlertTriangle } from 'lucide-react'
+import { safeToFixed } from '@/lib/utils'
 
 interface TokenUsage {
   model: string
@@ -199,11 +200,11 @@ export function AiTokenCostChart({ days = 7 }: Props) {
             {/* 中心文字 */}
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <div className={`text-2xl font-bold ${getStatusColor()}`}>
-                ¥{(Number(today.totalCost) || 0).toFixed(2)}
+                ¥{safeToFixed(Number(today.totalCost) || 0, 2)}
               </div>
               <div className="text-xs text-gray-500">{today.totalCalls || 0} 次调用</div>
               <div className="text-xs text-gray-500 mt-0.5">
-                {((Number(today.totalTokens) || 0) / 1000).toFixed(1)}K tokens
+                {safeToFixed((Number(today.totalTokens) || 0) / 1000, 1)}K tokens
               </div>
             </div>
           </div>
@@ -256,7 +257,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-gray-400 text-xs">{Number(op.callCount) || 0}次</span>
-                        <span className="font-medium text-gray-900">¥{(Number(op.cost) || 0).toFixed(2)}</span>
+                        <span className="font-medium text-gray-900">¥{safeToFixed(Number(op.cost) || 0, 2)}</span>
                       </div>
                     </div>
                   )
@@ -276,7 +277,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
                 .map((model) => (
                   <div key={model.model} className="flex items-center justify-between text-xs">
                     <span className="text-gray-600 truncate flex-1 mr-2">{model.model}</span>
-                    <span className="font-medium text-gray-900">¥{(Number(model.cost) || 0).toFixed(2)}</span>
+                    <span className="font-medium text-gray-900">¥{safeToFixed(Number(model.cost) || 0, 2)}</span>
                   </div>
                 ))}
             </div>
@@ -294,7 +295,7 @@ export function AiTokenCostChart({ days = 7 }: Props) {
               {trend.slice(0, 3).map((item) => (
                 <div key={item.date} className="flex items-center justify-between text-xs">
                   <span className="text-gray-600">{item.date}</span>
-                  <span className="font-medium text-gray-900">¥{(Number(item.totalCost) || 0).toFixed(2)}</span>
+                  <span className="font-medium text-gray-900">¥{safeToFixed(Number(item.totalCost) || 0, 2)}</span>
                 </div>
               ))}
             </div>
