@@ -363,13 +363,13 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-indigo-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">平均CTR</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-indigo-600`}>
-                {data.summary.avgCTR.toFixed(isMobile ? 1 : 2)}%
+                {((data.summary?.avgCTR ?? 0) * 100).toFixed(isMobile ? 1 : 2)}%
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-pink-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">平均CPC</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-pink-600`}>
-                ¥{data.summary.avgCPC.toFixed(isMobile ? 1 : 2)}
+                ¥{(data.summary?.avgCPC ?? 0).toFixed(isMobile ? 1 : 2)}
               </p>
             </div>
           </div>

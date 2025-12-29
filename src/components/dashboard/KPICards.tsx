@@ -38,10 +38,11 @@ interface KPICardProps {
 }
 
 function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps) {
-  const isPositive = change >= 0
+  const isPositive = (change ?? 0) >= 0
 
-  const formatValue = (val: string | number): string => {
-    const numVal = typeof val === 'string' ? parseFloat(val) : val
+  const formatValue = (val: string | number | null | undefined): string => {
+    const numVal = typeof val === 'string' ? parseFloat(val) : (val ?? 0)
+    if (isNaN(numVal)) return '0'
 
     if (format === 'currency') {
       return `¥${numVal.toFixed(2)}`
@@ -92,7 +93,7 @@ function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps
         <div className="flex items-center gap-2">
           <Badge variant={isPositive ? 'default' : 'destructive'} className="gap-1">
             {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {isPositive ? '+' : ''}{change.toFixed(1)}%
+            {isPositive ? '+' : ''}{(change ?? 0).toFixed(1)}%
           </Badge>
           <span className="text-xs text-muted-foreground">vs 上周期</span>
         </div>
@@ -228,7 +229,7 @@ export function KPICards({ days }: KPICardsProps) {
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">平均CTR</p>
               <p className="text-2xl font-bold text-primary">
-                {data.current.ctr.toFixed(2)}%
+                {((data.current?.ctr ?? 0) * 100).toFixed(2)}%
               </p>
             </CardContent>
           </Card>
@@ -236,7 +237,7 @@ export function KPICards({ days }: KPICardsProps) {
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">平均CPC</p>
               <p className="text-2xl font-bold text-primary">
-                ¥{data.current.cpc.toFixed(2)}
+                ¥{(data.current?.cpc ?? 0).toFixed(2)}
               </p>
             </CardContent>
           </Card>
@@ -244,7 +245,7 @@ export function KPICards({ days }: KPICardsProps) {
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">转化率</p>
               <p className="text-2xl font-bold text-primary">
-                {data.current.conversionRate.toFixed(2)}%
+                {((data.current?.conversionRate ?? 0) * 100).toFixed(2)}%
               </p>
             </CardContent>
           </Card>
