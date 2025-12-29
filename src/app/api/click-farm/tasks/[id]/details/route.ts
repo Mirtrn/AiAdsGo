@@ -29,7 +29,7 @@ export async function GET(
         o.affiliate_link
       FROM click_farm_tasks t
       LEFT JOIN offers o ON t.offer_id = o.id
-      WHERE t.id = ? AND t.user_id = ? AND t.is_deleted = 0
+      WHERE t.id = ? AND t.user_id = ? AND t.is_deleted = FALSE
     `, [id, parseInt(userId)]);
 
     if (!task) {

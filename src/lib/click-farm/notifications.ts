@@ -124,7 +124,7 @@ export async function getUserNotifications(userId: number): Promise<ClickFarmNot
       updated_at
     FROM click_farm_tasks
     WHERE user_id = ?
-      AND is_deleted = 0
+      AND is_deleted = FALSE
       AND (
         (status = 'paused' AND paused_at > datetime('now', '-24 hours'))
         OR (status = 'completed' AND completed_at > datetime('now', '-24 hours'))

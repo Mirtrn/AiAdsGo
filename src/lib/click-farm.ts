@@ -100,7 +100,7 @@ export async function getClickFarmTaskById(
 
   const task = await db.queryOne<any>(`
     SELECT * FROM click_farm_tasks
-    WHERE id = ? AND user_id = ? AND is_deleted = 0
+    WHERE id = ? AND user_id = ? AND is_deleted = FALSE
   `, [id, userId]);
 
   if (!task) return null;
@@ -121,7 +121,7 @@ export async function getClickFarmTasks(
     SELECT cft.*, o.target_country
     FROM click_farm_tasks cft
     LEFT JOIN offers o ON cft.offer_id = o.id
-    WHERE cft.user_id = ? AND cft.is_deleted = 0
+    WHERE cft.user_id = ? AND cft.is_deleted = FALSE
   `;
   const params: any[] = [userId];
 
@@ -144,7 +144,7 @@ export async function getClickFarmTasks(
   const countParams = [...params]; // 复制完整的params
   const countResult = await db.queryOne<{ count: number }>(`
     SELECT COUNT(*) as count FROM click_farm_tasks
-    WHERE user_id = ? AND is_deleted = 0
+    WHERE user_id = ? AND is_deleted = FALSE
     ${filters.status ? 'AND status = ?' : ''}
     ${filters.offer_id ? 'AND offer_id = ?' : ''}
   `, countParams);
@@ -223,7 +223,7 @@ export async function updateClickFarmTask(
   await db.exec(`
     UPDATE click_farm_tasks
     SET ${fields.join(', ')}
-    WHERE id = ? AND user_id = ? AND is_deleted = 0
+    WHERE id = ? AND user_id = ? AND is_deleted = FALSE
   `, values);
 
   return (await getClickFarmTaskById(id, userId))!;
@@ -240,7 +240,7 @@ export async function deleteClickFarmTask(
 
   await db.exec(`
     UPDATE click_farm_tasks
-    SET is_deleted = 1, deleted_at = datetime('now'), updated_at = datetime('now')
+    SET is_deleted = TRUE, deleted_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ? AND user_id = ?
   `, [id, userId]);
 }
@@ -336,7 +336,7 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   }>(`
     SELECT timezone, started_at, total_clicks, success_clicks, failed_clicks
     FROM click_farm_tasks
-    WHERE user_id = ? AND is_deleted = 0 AND started_at IS NOT NULL ${dateFilter}
+    WHERE user_id = ? AND is_deleted = FALSE AND started_at IS NOT NULL ${dateFilter}
   `, [userId]);
 
   // 按每个任务的timezone单独判断是否为今日
@@ -387,7 +387,7 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   const statusDistribution = await db.query<{ status: string; count: number }>(`
     SELECT status, COUNT(*) as count
     FROM click_farm_tasks
-    WHERE user_id = ? AND is_deleted = 0 ${dateFilter.replace('started_at', 'created_at')}
+    WHERE user_id = ? AND is_deleted = FALSE ${dateFilter.replace('started_at', 'created_at')}
     GROUP BY status
   `, [userId]);
 
@@ -458,7 +458,7 @@ export async function getAdminClickFarmStats(): Promise<{
   const global = await db.queryOne<any>(`
     SELECT
       COUNT(*) as total_tasks,
-      SUM(CASE WHEN status = 'running' AND is_deleted = FALSE THEN 1 ELSE 0 END) as active_tasks,
+      SUM(CASE WHEN status = 'running' AND NOT is_deleted THEN 1 ELSE 0 END) as active_tasks,
       COALESCE(SUM(total_clicks), 0) as total_clicks,
       COALESCE(SUM(success_clicks), 0) as success_clicks,
       COALESCE(SUM(failed_clicks), 0) as failed_clicks
@@ -480,7 +480,7 @@ export async function getAdminClickFarmStats(): Promise<{
   }>(`
     SELECT timezone, started_at, total_clicks, success_clicks, failed_clicks
     FROM click_farm_tasks
-    WHERE is_deleted = 0 AND started_at IS NOT NULL
+    WHERE is_deleted = FALSE AND started_at IS NOT NULL
   `, []);
 
   // 🔧 在应用层按每个任务的timezone过滤"今日"数据
@@ -505,7 +505,7 @@ export async function getAdminClickFarmStats(): Promise<{
   const statusDistribution = await db.query<{ status: string; count: number }>(`
     SELECT status, COUNT(*) as count
     FROM click_farm_tasks
-    WHERE is_deleted = 0
+    WHERE is_deleted = FALSE
     GROUP BY status
   `, []);
 
@@ -550,7 +550,7 @@ export async function getHourlyDistribution(userId: number): Promise<HourlyDistr
   const tasks = await db.query<any>(`
     SELECT hourly_distribution, timezone, daily_history, started_at
     FROM click_farm_tasks
-    WHERE user_id = ? AND is_deleted = 0 AND status IN ('running', 'completed')
+    WHERE user_id = ? AND is_deleted = FALSE AND status IN ('running', 'completed')
   `, [userId]);
 
   const hourlyConfigured = new Array(24).fill(0);
@@ -884,7 +884,7 @@ export async function getPendingTasks(): Promise<ClickFarmTask[]> {
   const tasks = await db.query<any>(`
     SELECT * FROM click_farm_tasks
     WHERE status IN ('pending', 'running')
-      AND is_deleted = 0
+      AND is_deleted = FALSE
       AND (next_run_at IS NULL OR next_run_at <= datetime('now'))
     ORDER BY created_at ASC
     LIMIT 100
