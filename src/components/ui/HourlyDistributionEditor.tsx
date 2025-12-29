@@ -205,8 +205,8 @@ export default function HourlyDistributionEditor({
               />
             ))}
 
-            {/* X轴网格线（垂直）- 对齐小时标签 */}
-            {[0, 3, 6, 9, 12, 15, 18, 21].map((hour) => {
+            {/* X轴网格线（垂直虚线）- 对齐每个小时 */}
+            {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
               const xPercent = (hour / 23) * 100;
               return (
                 <line
@@ -219,16 +219,10 @@ export default function HourlyDistributionEditor({
                   strokeWidth="0.15"
                   className="text-border"
                   strokeDasharray="2,3"
-                  opacity="0.5"
+                  opacity="0.4"
                 />
               );
             })}
-
-            {/* 填充区域 */}
-            <path
-              d={areaPath}
-              fill={isEditing ? 'url(#editGradient)' : 'url(#areaGradient)'}
-            />
 
             {/* 曲线 */}
             <path
@@ -257,14 +251,11 @@ export default function HourlyDistributionEditor({
               );
             })}
 
-            {/* 数据点 - 只显示活跃时段的点 */}
+            {/* 数据点 - 显示所有小时的点，但只有活跃时段可拖拽 */}
             {chartPoints.map((point) => {
               const isHovered = hoveredHour === point.hour;
               const isDragged = draggedHour === point.hour;
               const showLabel = isHovered || isDragged;
-
-              // 只在活跃时段显示数据点
-              if (!point.isActive) return null;
 
               return (
                 <g key={point.hour}>
@@ -292,7 +283,7 @@ export default function HourlyDistributionEditor({
                     </g>
                   )}
 
-                  {/* 数据点圆圈 */}
+                  {/* 数据点圆圈 - 所有点都显示，但休息时段不可交互 */}
                   <circle
                     cx={point.xPercent}
                     cy={point.yPercent}
@@ -300,15 +291,15 @@ export default function HourlyDistributionEditor({
                     fill={
                       isDragged
                         ? 'rgb(249, 115, 22)'
-                        : isEditing
-                        ? 'rgb(34, 197, 94)'
-                        : 'rgb(59, 130, 246)'
+                        : point.isActive
+                        ? (isEditing ? 'rgb(34, 197, 94)' : 'rgb(59, 130, 246)')
+                        : 'rgb(156, 163, 175)'
                     }
                     stroke="white"
                     strokeWidth="1.5"
-                    className={`${isEditing ? 'cursor-grab active:cursor-grabbing' : ''} transition-all duration-150`}
+                    className={`${point.isActive && isEditing ? 'cursor-grab active:cursor-grabbing' : ''} transition-all duration-150`}
                     style={{ touchAction: 'none' }}
-                    onPointerDown={(e) => handlePointerDown(point.hour, e)}
+                    onPointerDown={(e) => point.isActive && handlePointerDown(point.hour, e)}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                     onPointerEnter={() => setHoveredHour(point.hour)}
@@ -333,16 +324,13 @@ export default function HourlyDistributionEditor({
             })}
           </svg>
 
-          {/* X轴：小时标签 */}
+          {/* X轴：小时标签（0-23） */}
           <div className="flex justify-between mt-2 px-[1%]">
-            {[0, 3, 6, 9, 12, 15, 18, 21].map((hour) => (
-              <div key={hour} className="flex flex-col items-center">
-                <span className="text-[10px] text-muted-foreground">
-                  {hour.toString().padStart(2, '0')}h
+            {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
+              <div key={hour} className="flex flex-col items-center text-center" style={{ width: `${100/24}%` }}>
+                <span className="text-[10px] text-muted-foreground font-medium">
+                  {hour}
                 </span>
-                <div className={`w-px h-2 mt-0.5 ${
-                  isActiveHour(hour) ? 'bg-primary/40' : 'bg-muted'
-                }`} />
               </div>
             ))}
           </div>
