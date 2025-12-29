@@ -31,6 +31,26 @@ async function withTracking<T>(
     })
     return result
   } catch (error: any) {
+    // 🔧 修复(2025-12-29): 改进 Developer Token 权限错误的诊断信息
+    let enhancedError = error
+    const errorMessage = error?.message || String(error)
+
+    if (errorMessage.includes('only approved for use with test accounts')) {
+      enhancedError = new Error(
+        `❌ Developer Token 权限等级不足 (User #${userId}):\n\n` +
+        `您的 Developer Token 仅限于测试账户，但您在访问生产账户。\n\n` +
+        `⚠️ 问题: 权限等级太低\n` +
+        `✅ 解决方案:\n` +
+        `  1. 访问 https://ads.google.com/aw/apicenter\n` +
+        `  2. 找到您的 Developer Token\n` +
+        `  3. 申请升级到 "Basic" 或 "Standard" 等级\n` +
+        `  4. 等待 Google 批准（通常 1-3 个工作日）\n` +
+        `  5. 升级完成后系统会自动使用新的权限等级\n\n` +
+        `更多信息: 请查看系统诊断文档或联系支持团队。\n\n` +
+        `原始错误: ${error.message}`
+      )
+    }
+
     await trackApiUsage({
       userId,
       operationType,
@@ -38,9 +58,9 @@ async function withTracking<T>(
       customerId,
       responseTimeMs: Date.now() - startTime,
       isSuccess: false,
-      errorMessage: error.message,
+      errorMessage: enhancedError.message,
     })
-    throw error
+    throw enhancedError
   }
 }
 
@@ -61,12 +81,51 @@ function formatCustomerId(id: string): string {
 }
 
 /**
+ * 检查 Developer Token 是否可能是 Test-level
+ *
+ * 注意: 这只是启发式检查，不是确定的判断。实际权限由 Google API 决定。
+ */
+function validateDeveloperToken(token: string): { isValid: boolean; warnings: string[] } {
+  const warnings: string[] = []
+
+  if (!token || typeof token !== 'string') {
+    return { isValid: false, warnings: ['Developer Token 为空或类型不正确'] }
+  }
+
+  if (token.length < 15) {
+    warnings.push(
+      '⚠️ Developer Token 长度较短（< 15 字符），可能是 Test-level token。\n' +
+      '   如果系统报告"权限等级不足"，请升级 Token 的权限等级。'
+    )
+  }
+
+  // 检查是否包含 test、demo、sandbox 等关键词
+  if (/test|demo|sandbox|trial/i.test(token)) {
+    warnings.push(
+      '⚠️ Developer Token 名称中包含测试相关关键词，可能是 Test-level token。\n' +
+      '   如果系统报告"权限等级不足"，请升级 Token 的权限等级。'
+    )
+  }
+
+  return { isValid: warnings.length === 0, warnings }
+}
+
+/**
  * 获取服务账号认证配置
  */
 async function getServiceAccountAuth(userId: number, serviceAccountId?: string): Promise<ServiceAccountAuth> {
   const sa = await getServiceAccountConfig(userId, serviceAccountId)
   if (!sa) {
     throw new Error('Service account not found')
+  }
+
+  // 🔧 修复(2025-12-29): 验证 Developer Token 权限等级
+  const tokenValidation = validateDeveloperToken(sa.developerToken)
+  if (tokenValidation.warnings.length > 0) {
+    console.warn(
+      `[User #${userId}] Developer Token 警告:\n` +
+      tokenValidation.warnings.join('\n')
+    )
   }
 
   return {

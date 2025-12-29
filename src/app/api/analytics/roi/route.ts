@@ -87,10 +87,10 @@ export async function GET(request: NextRequest) {
 
     const roiTrendData = roiTrend.map((row) => ({
       date: row.date,
-      cost: parseFloat(row.cost?.toFixed(2) || '0'),
-      revenue: parseFloat(row.revenue?.toFixed(2) || '0'),
-      profit: parseFloat((row.revenue - row.cost)?.toFixed(2) || '0'),
-      roi: row.cost > 0 ? parseFloat((((row.revenue - row.cost) / row.cost) * 100).toFixed(2)) : 0,
+      cost: parseFloat((row.cost ?? 0).toFixed(2)),
+      revenue: parseFloat((row.revenue ?? 0).toFixed(2)),
+      profit: parseFloat(((row.revenue ?? 0) - (row.cost ?? 0)).toFixed(2)),
+      roi: (row.cost ?? 0) > 0 ? parseFloat((((row.revenue ?? 0) - (row.cost ?? 0)) / (row.cost ?? 0) * 100).toFixed(2)) : 0,
       conversions: row.conversions || 0,
     }))
 
@@ -201,12 +201,12 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         overall: {
-          totalCost: parseFloat(totalCost.toFixed(2)),
-          totalRevenue: parseFloat(totalRevenue.toFixed(2)),
-          totalProfit: parseFloat(totalProfit.toFixed(2)),
-          roi: parseFloat(overallRoiPercentage.toFixed(2)),
+          totalCost: parseFloat((totalCost ?? 0).toFixed(2)),
+          totalRevenue: parseFloat((totalRevenue ?? 0).toFixed(2)),
+          totalProfit: parseFloat((totalProfit ?? 0).toFixed(2)),
+          roi: parseFloat((overallRoiPercentage ?? 0).toFixed(2)),
           conversions: overallRoi.total_conversions || 0,
-          avgCommission: parseFloat((overallRoi.avg_commission || 0).toFixed(2)),
+          avgCommission: parseFloat(((overallRoi.avg_commission) ?? 0).toFixed(2)),
         },
         trend: roiTrendData,
         byCampaign: campaignRoiData,

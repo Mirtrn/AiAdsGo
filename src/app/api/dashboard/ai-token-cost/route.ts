@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
     if (highCostOperations.length > 0) {
       const topCostOp = highCostOperations[0]
       const opName = topCostOp.operationType.replace(/_/g, ' ')
-      recommendations.push(`🔍 高成本操作：${opName}（¥${topCostOp.cost.toFixed(2)}），建议优化`)
+      recommendations.push(`🔍 高成本操作：${opName}（¥${(topCostOp?.cost ?? 0).toFixed(2)}），建议优化`)
     }
 
     // 🆕 Token优化进度提示
@@ -170,30 +170,30 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         today: {
-          totalCost: Number(todayTotals.totalCost.toFixed(2)),
+          totalCost: Number((todayTotals.totalCost ?? 0).toFixed(2)),
           totalTokens: todayTotals.totalTokens,
           totalCalls: todayTotals.totalCalls,
           modelUsage: Array.from(modelUsageMap.values()).map(m => ({
             ...m,
-            cost: Number(m.cost.toFixed(4)), // 保留4位小数用于统计
+            cost: Number((m.cost ?? 0).toFixed(4)), // 保留4位小数用于统计
           })),
           operationUsage: Array.from(operationTypeMap.values())
             .sort((a, b) => b.cost - a.cost)
             .slice(0, 5)
             .map(op => ({
               ...op,
-              cost: Number(op.cost.toFixed(4)), // 保留4位小数用于统计
+              cost: Number((op.cost ?? 0).toFixed(4)), // 保留4位小数用于统计
             })),
         },
         trend: trendData.map(row => ({
           date: row.date,
           totalTokens: Number(row.total_tokens || 0),
-          totalCost: Number((Number(row.total_cost || 0)).toFixed(2)),
+          totalCost: Number(((Number(row.total_cost || 0)) ?? 0).toFixed(2)),
         })),
         recommendations,
         highCostOperations: highCostOperations.map(op => ({
           ...op,
-          cost: Number(op.cost.toFixed(4)),
+          cost: Number((op.cost ?? 0).toFixed(4)),
         })),
       },
     })
