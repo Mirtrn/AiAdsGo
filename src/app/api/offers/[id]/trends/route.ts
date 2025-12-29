@@ -79,14 +79,16 @@ export async function GET(
 
     // 6. 格式化数据
     const formattedTrends = trends.map((row) => {
-      const avgCpcUsd = row.clicks > 0 ? row.cost / row.clicks : 0
+      const cost = row.cost || 0
+      const clicks = row.clicks || 0
+      const avgCpcUsd = clicks > 0 ? cost / clicks : 0
 
       return {
         date: row.date,
         impressions: row.impressions || 0,
-        clicks: row.clicks || 0,
+        clicks: clicks,
         conversions: row.conversions || 0,
-        costUsd: Math.round((row.cost || 0) * 100) / 100,
+        costUsd: Math.round(cost * 100) / 100,
         ctr: Math.round((row.ctr || 0) * 100) / 100,
         conversionRate: Math.round((row.conversionRate || 0) * 100) / 100,
         avgCpcUsd: Math.round(avgCpcUsd * 100) / 100,

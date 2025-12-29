@@ -111,10 +111,40 @@ export async function getPerformanceDataForOffer(
  */
 export function comparePredictionVsActual(
   launchScore: LaunchScore,
-  performanceData: PerformanceData,
+  performanceData: PerformanceData | null,
   avgOrderValue?: number
 ): PredictionComparison[] {
   const comparisons: PredictionComparison[] = []
+
+  // 如果没有性能数据，返回空比较
+  if (!performanceData) {
+    comparisons.push({
+      metric: 'CTR (点击率)',
+      predicted: '未预测',
+      actual: '暂无数据',
+      accuracy: null,
+      variance: '等待数据同步'
+    })
+    comparisons.push({
+      metric: '转化率',
+      predicted: '未预测',
+      actual: '暂无数据',
+      accuracy: null,
+      variance: '等待数据同步'
+    })
+    comparisons.push({
+      metric: 'CPC (每次点击成本)',
+      predicted: '未预测',
+      actual: '暂无数据',
+      accuracy: null,
+      variance: '等待数据同步'
+    })
+    return comparisons
+  }
+
+  const avgCtr = performanceData.avgCtr || 0
+  const conversionRate = performanceData.conversionRate || 0
+  const avgCpcUsd = performanceData.avgCpcUsd || 0
 
   // v4.0 Launch Score不包含详细的CPC/ROI预测
   // 主要展示实际数据
@@ -123,7 +153,7 @@ export function comparePredictionVsActual(
   comparisons.push({
     metric: 'CTR (点击率)',
     predicted: '未预测',
-    actual: `${(performanceData.avgCtr * 100).toFixed(2)}%`,
+    actual: `${(avgCtr * 100).toFixed(2)}%`,
     accuracy: null,
     variance: '实际表现数据'
   })
@@ -132,7 +162,7 @@ export function comparePredictionVsActual(
   comparisons.push({
     metric: '转化率',
     predicted: '未预测',
-    actual: `${(performanceData.conversionRate * 100).toFixed(2)}%`,
+    actual: `${(conversionRate * 100).toFixed(2)}%`,
     accuracy: null,
     variance: '实际表现数据'
   })
@@ -141,7 +171,7 @@ export function comparePredictionVsActual(
   comparisons.push({
     metric: 'CPC (每次点击成本)',
     predicted: '未预测',
-    actual: `$${performanceData.avgCpcUsd.toFixed(2)}`,
+    actual: `$${avgCpcUsd.toFixed(2)}`,
     accuracy: null,
     variance: '实际表现数据'
   })

@@ -83,15 +83,7 @@ export async function GET(request: NextRequest) {
           SUM(cp.impressions) as impressions,
           SUM(cp.clicks) as clicks,
           SUM(cp.conversions) as conversions,
-          SUM(cp.cost) as cost,
-          CASE
-            WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
-            ELSE 0
-          END as ctr,
-          CASE
-            WHEN SUM(cp.clicks) > 0 THEN SUM(cp.conversions) * 100.0 / SUM(cp.clicks)
-            ELSE 0
-          END as conversion_rate
+          SUM(cp.cost) as cost
         FROM campaigns c
         LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         WHERE c.offer_id = ?
@@ -99,10 +91,15 @@ export async function GET(request: NextRequest) {
           AND cp.date >= ?
       `, [creative.offer_id, userId, cutoffDateStr]) as any
 
-      // 计算平均CPC
-      const avgCpc = performanceData?.clicks > 0
-        ? performanceData.cost / performanceData.clicks
-        : 0
+      // 安全计算指标
+      const impressions = performanceData?.impressions || 0
+      const clicks = performanceData?.clicks || 0
+      const conversions = performanceData?.conversions || 0
+      const cost = performanceData?.cost || 0
+
+      const ctr = impressions > 0 ? clicks * 100.0 / impressions : 0
+      const avgCpc = clicks > 0 ? cost / clicks : 0
+      const conversionRate = clicks > 0 ? conversions * 100.0 / clicks : 0
 
       return {
         id: creative.id,
@@ -121,13 +118,13 @@ export async function GET(request: NextRequest) {
         isSelected: creative.is_selected === 1,
         createdAt: creative.created_at,
         performance: {
-          impressions: performanceData?.impressions || 0,
-          clicks: performanceData?.clicks || 0,
-          conversions: performanceData?.conversions || 0,
-          costUsd: Math.round((performanceData?.cost || 0) * 100) / 100,
-          ctr: Math.round((performanceData?.ctr || 0) * 100) / 100,
+          impressions: impressions,
+          clicks: clicks,
+          conversions: conversions,
+          costUsd: Math.round(cost * 100) / 100,
+          ctr: Math.round(ctr * 100) / 100,
           avgCpcUsd: Math.round(avgCpc * 100) / 100,
-          conversionRate: Math.round((performanceData?.conversion_rate || 0) * 100) / 100,
+          conversionRate: Math.round(conversionRate * 100) / 100,
         }
       }
     }))

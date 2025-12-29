@@ -53,48 +53,58 @@ export async function GET(
     // 4. 获取Campaign对比数据
     const campaigns = await getCampaignPerformanceComparison(offerId, userId, daysBack)
 
-    // 5. 计算ROI（如果提供了avgOrderValue）
+    // 5. 计算日期范围
+    const endDate = new Date()
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - daysBack)
+    const startDateStr = startDate.toISOString().split('T')[0]
+    const endDateStr = endDate.toISOString().split('T')[0]
+
+    // 6. 计算ROI（如果提供了avgOrderValue）
     let roi = null
     if (avgOrderValue > 0) {
       roi = await calculateOfferROI(offerId, userId, avgOrderValue, daysBack)
     }
 
-    // 6. 格式化返回数据
+    // 7. 格式化返回数据
+    // 处理null值，确保计算安全
+    const safeSummary = {
+      campaignCount: summary?.campaign_count || 0,
+      impressions: summary?.impressions || 0,
+      clicks: summary?.clicks || 0,
+      conversions: summary?.conversions || 0,
+      costUsd: Math.round((summary?.cost || 0) * 100) / 100,
+      ctr: Math.round((summary?.ctr || 0) * 100) / 100,
+      avgCpcUsd: Math.round((summary?.avg_cpc || 0) * 100) / 100,
+      conversionRate: Math.round((summary?.conversion_rate || 0) * 100) / 100,
+      dateRange: { start: startDateStr, end: endDateStr, days: daysBack }
+    }
+
     return NextResponse.json({
       success: true,
       offerId,
       daysBack,
-      summary: {
-        campaignCount: summary.campaign_count,
-        impressions: summary.impressions,
-        clicks: summary.clicks,
-        conversions: summary.conversions,
-        costUsd: Math.round(summary.cost * 100) / 100,
-        ctr: Math.round(summary.ctr * 100) / 100,
-        avgCpcUsd: Math.round(summary.avg_cpc * 100) / 100,
-        conversionRate: Math.round(summary.conversion_rate * 100) / 100,
-        dateRange: summary.date_range
-      },
+      summary: safeSummary,
       trend: trend.map(t => ({
         date: t.date,
-        impressions: t.impressions,
-        clicks: t.clicks,
-        conversions: t.conversions,
-        costUsd: Math.round(t.cost * 100) / 100,
-        ctr: Math.round(t.ctr * 100) / 100,
-        conversionRate: Math.round(t.conversion_rate * 100) / 100
+        impressions: t.impressions || 0,
+        clicks: t.clicks || 0,
+        conversions: t.conversions || 0,
+        costUsd: Math.round((t.cost || 0) * 100) / 100,
+        ctr: Math.round((t.ctr || 0) * 100) / 100,
+        conversionRate: Math.round((t.conversion_rate || 0) * 100) / 100
       })),
       campaigns: campaigns.map(c => ({
         campaignId: c.campaign_id,
         campaignName: c.campaign_name,
         googleCampaignId: c.google_campaign_id,
-        impressions: c.impressions,
-        clicks: c.clicks,
-        conversions: c.conversions,
-        costUsd: Math.round(c.cost * 100) / 100,
-        ctr: Math.round(c.ctr * 100) / 100,
-        cpcUsd: Math.round(c.cpc * 100) / 100,
-        conversionRate: Math.round(c.conversion_rate * 100) / 100
+        impressions: c.impressions || 0,
+        clicks: c.clicks || 0,
+        conversions: c.conversions || 0,
+        costUsd: Math.round((c.cost || 0) * 100) / 100,
+        ctr: Math.round((c.ctr || 0) * 100) / 100,
+        cpcUsd: Math.round((c.cpc || 0) * 100) / 100,
+        conversionRate: Math.round((c.conversion_rate || 0) * 100) / 100
       })),
       roi: roi ? {
         totalCostUsd: roi.total_cost_usd,
