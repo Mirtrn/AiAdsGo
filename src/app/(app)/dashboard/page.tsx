@@ -124,9 +124,9 @@ export default function DashboardPage() {
     fetchData()
   }, [days])
 
-  const formatNumber = (num: number) => num.toLocaleString()
-  const formatCurrency = (num: number) => `¥${num.toFixed(2)}`
-  const formatPercent = (num: number) => `${num.toFixed(2)}%`
+  const formatNumber = (num: number | null | undefined) => (num ?? 0).toLocaleString()
+  const formatCurrency = (num: number | null | undefined) => `¥${(num ?? 0).toFixed(2)}`
+  const formatPercent = (num: number | null | undefined) => `${(num ?? 0).toFixed(2)}%`
 
   // 加载骨架屏
   if (loading) {
@@ -208,7 +208,7 @@ export default function DashboardPage() {
                     <TrendingDown className="w-4 h-4 text-red-500" />
                   )}
                   <span className={`text-sm font-medium ${kpiData.changes.impressions >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {kpiData.changes.impressions >= 0 ? '+' : ''}{kpiData.changes.impressions.toFixed(1)}%
+                    {kpiData.changes.impressions >= 0 ? '+' : ''}{(kpiData.changes.impressions ?? 0).toFixed(1)}%
                   </span>
                   <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
                 </div>
@@ -238,7 +238,7 @@ export default function DashboardPage() {
                     <TrendingDown className="w-4 h-4 text-red-500" />
                   )}
                   <span className={`text-sm font-medium ${kpiData.changes.clicks >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {kpiData.changes.clicks >= 0 ? '+' : ''}{kpiData.changes.clicks.toFixed(1)}%
+                    {kpiData.changes.clicks >= 0 ? '+' : ''}{(kpiData.changes.clicks ?? 0).toFixed(1)}%
                   </span>
                   <span className="text-xs text-gray-400 ml-1">vs 上周期</span>
                 </div>
