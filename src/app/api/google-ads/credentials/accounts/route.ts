@@ -893,13 +893,13 @@ export async function GET(request: NextRequest) {
           o.offer_name,
           o.brand,
           o.target_country,
-          CASE WHEN o.is_deleted = TRUE OR o.is_deleted = 1 THEN 0 ELSE 1 END as is_active,
+          CASE WHEN o.is_deleted = TRUE THEN 0 ELSE 1 END as is_active,
           COUNT(DISTINCT c.id) as campaign_count
         FROM offers o
         INNER JOIN campaigns c ON o.id = c.offer_id
         WHERE c.google_ads_account_id = ?
           AND c.user_id = ?
-          AND (o.is_deleted = FALSE OR o.is_deleted = 0 OR o.is_deleted IS NULL)
+          AND o.is_deleted = FALSE
           AND c.status != 'REMOVED'
         GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_deleted
       `, [dbAccountId, userId])
