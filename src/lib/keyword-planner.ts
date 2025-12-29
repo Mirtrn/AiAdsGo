@@ -221,7 +221,7 @@ export async function getKeywordSearchVolumes(
       FROM global_keywords
       WHERE keyword IN (${placeholders})
         AND country = ? AND language = ?
-        AND created_at > datetime('now', '-7 days')
+        AND created_at > NOW() - INTERVAL '7 days'
     `, [...uncachedKeywords.map(k => k.toLowerCase()), country, language]) as Array<{ keyword: string; search_volume: number; competition_level?: string; avg_cpc_micros?: number }>
     rows.forEach(row => {
       // 修复(2025-12-19): 从数据库读取competition_level和avg_cpc_micros
@@ -236,9 +236,9 @@ export async function getKeywordSearchVolumes(
       })
     })
     console.log(`[KeywordPlanner] 数据库缓存命中: ${dbVolumes.size}/${uncachedKeywords.length} 个关键词`)
-  } catch {
-    // Table might not exist yet
-    console.log(`[KeywordPlanner] 数据库缓存查询失败或表不存在`)
+  } catch (error) {
+    // Table might not exist yet or query failed
+    console.error(`[KeywordPlanner] 数据库缓存查询失败:`, error instanceof Error ? error.message : String(error))
   }
 
   // Keywords still needing API call
