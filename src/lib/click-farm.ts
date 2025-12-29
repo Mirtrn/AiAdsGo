@@ -458,7 +458,7 @@ export async function getAdminClickFarmStats(): Promise<{
   const global = await db.queryOne<any>(`
     SELECT
       COUNT(*) as total_tasks,
-      SUM(CASE WHEN status = 'running' AND is_deleted = 0 THEN 1 ELSE 0 END) as active_tasks,
+      SUM(CASE WHEN status = 'running' AND is_deleted = FALSE THEN 1 ELSE 0 END) as active_tasks,
       COALESCE(SUM(total_clicks), 0) as total_clicks,
       COALESCE(SUM(success_clicks), 0) as success_clicks,
       COALESCE(SUM(failed_clicks), 0) as failed_clicks

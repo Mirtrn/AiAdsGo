@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       FROM users u
       LEFT JOIN click_farm_tasks t ON t.user_id = u.id
       GROUP BY u.id, u.username
-      HAVING total_clicks > 0
+      HAVING COALESCE(SUM(t.total_clicks), 0) > 0
       ORDER BY total_clicks DESC
       LIMIT 10
     `, []);
