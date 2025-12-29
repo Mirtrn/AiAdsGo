@@ -1098,8 +1098,7 @@ export default function CampaignsPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                    )
-                  }))}
+                  )})}
                 </TableBody>
               </Table>
               </div>
