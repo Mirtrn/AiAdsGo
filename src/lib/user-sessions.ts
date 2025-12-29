@@ -290,10 +290,10 @@ async function isDeviceTrusted(
   deviceFingerprint: string
 ): Promise<boolean> {
   const db = await getDatabase()
-  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  // 注意：trusted_devices.is_active 在 PostgreSQL 和 SQLite 中都是 INTEGER 类型
   const trusted = await db.queryOne<{ id: number }>(
     `SELECT id FROM trusted_devices
-     WHERE user_id = ? AND device_fingerprint = ? AND ${isActiveCondition}`,
+     WHERE user_id = ? AND device_fingerprint = ? AND is_active = 1`,
     [userId, deviceFingerprint]
   )
   return !!trusted
@@ -455,9 +455,9 @@ export async function untrustDevice(
   deviceFingerprint: string
 ): Promise<boolean> {
   const db = await getDatabase()
-  const isActiveFalse = db.type === 'postgres' ? 'is_active = false' : 'is_active = 0'
+  // 注意：trusted_devices.is_active 在 PostgreSQL 和 SQLite 中都是 INTEGER 类型
   const result = await db.exec(
-    `UPDATE trusted_devices SET ${isActiveFalse}
+    `UPDATE trusted_devices SET is_active = 0
      WHERE user_id = ? AND device_fingerprint = ?`,
     [userId, deviceFingerprint]
   )
@@ -471,10 +471,10 @@ export async function getTrustedDevices(
   userId: number
 ): Promise<TrustedDevice[]> {
   const db = await getDatabase()
-  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  // 注意：trusted_devices.is_active 在 PostgreSQL 和 SQLite 中都是 INTEGER 类型
   return db.query<TrustedDevice>(
     `SELECT * FROM trusted_devices
-     WHERE user_id = ? AND ${isActiveCondition}
+     WHERE user_id = ? AND is_active = 1
      ORDER BY last_used_at DESC`,
     [userId]
   )
