@@ -426,6 +426,62 @@ export class UnifiedQueueManager {
   }
 
   /**
+   * 检查错误是否可恢复
+   *
+   * 不可恢复的错误（直接标记失败，不重试）：
+   * - 配置缺失（Google Ads凭证、API Key等）
+   * - 权限错误
+   * - 认证失败
+   * - 资源不存在
+   * - 数据验证失败
+   *
+   * 可恢复的错误（重试）：
+   * - 网络超时
+   * - 临时服务故障
+   * - 限流错误（429）
+   * - 数据库连接错误
+   * - 临时故障
+   *
+   * 🔧 修复(2025-12-29): 统一错误分类标准，避免因配置不完整导致无效重试
+   */
+  private isRecoverableError(error: any): boolean {
+    const errorMessage = error?.message || String(error)
+
+    // 不可恢复的错误模式
+    const nonRecoverablePatterns = [
+      '未配置',              // 配置缺失
+      '未配置完整',          // 配置不完整
+      '需要',                // 需要某个参数
+      '必需参数',            // 缺少必需参数
+      '缺少',                // 缺少某个参数
+      '缺失',                // 参数缺失
+      '权限',                // 权限相关
+      '认证',                // 认证相关
+      '授权',                // 授权相关
+      '不存在',              // 资源不存在
+      '无效的',              // 无效的参数/资源
+      '找不到',              // 找不到资源
+      'unauthorized',        // 未授权
+      'forbidden',           // 禁止访问
+      'not found',           // 未找到
+      'invalid',             // 无效的
+      'missing',             // 缺失的
+      'required',            // 必需的
+      'credential',          // 凭证相关
+      'config',              // 配置相关
+    ]
+
+    for (const pattern of nonRecoverablePatterns) {
+      if (errorMessage.toLowerCase().includes(pattern)) {
+        return false
+      }
+    }
+
+    // 其他错误视为可恢复的
+    return true
+  }
+
+  /**
    * 执行单个任务
    */
   private async executeTask(task: Task, executor: TaskExecutor): Promise<void> {
@@ -481,8 +537,11 @@ export class UnifiedQueueManager {
         this.proxyManager.markProxyFailed(task.proxyConfig)
       }
 
-      // 重试逻辑
-      const shouldRetry = (task.retryCount || 0) < (task.maxRetries || 0)
+      // 判断错误是否可恢复
+      const isRecoverable = this.isRecoverableError(error)
+
+      // 重试逻辑：仅对可恢复的错误执行重试
+      const shouldRetry = isRecoverable && (task.retryCount || 0) < (task.maxRetries || 0)
       if (shouldRetry) {
         task.retryCount = (task.retryCount || 0) + 1
         task.status = 'pending'
@@ -494,7 +553,10 @@ export class UnifiedQueueManager {
           await this.adapter.enqueue(task)
         }, this.config.retryDelay)
       } else {
-        // 超过重试次数，标记为失败
+        // 不可恢复的错误或超过重试次数，标记为失败
+        if (!isRecoverable) {
+          console.log(`⚠️ 不可恢复的错误，不再重试: ${task.id}`)
+        }
         // 队列恢复功能已移除，用户可重新提交任务
         await this.adapter.updateTaskStatus(task.id, 'failed', error.message)
       }
