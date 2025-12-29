@@ -137,7 +137,7 @@ export async function saveLinkCheckResult(
 ): Promise<number> {
   const db = await getDatabase()
 
-  const info = await db.exec(
+  const info = await db.queryOne<{ id: number }>(
     `
     INSERT INTO link_check_history (
       user_id,
@@ -151,6 +151,7 @@ export async function saveLinkCheckResult(
       check_country,
       error_message
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    RETURNING id
   `,
     [
       userId,
@@ -166,7 +167,7 @@ export async function saveLinkCheckResult(
     ]
   )
 
-  return info.lastInsertRowid as number
+  return info?.id ?? 0
 }
 
 /**
@@ -210,7 +211,7 @@ export async function createRiskAlert(
   }
 
   // 创建新提示
-  const info = await db.exec(
+  const result = await db.queryOne<{ id: number }>(
     `
     INSERT INTO risk_alerts (
       user_id,
@@ -222,6 +223,7 @@ export async function createRiskAlert(
       message,
       details
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    RETURNING id
   `,
     [
       userId,
@@ -235,7 +237,7 @@ export async function createRiskAlert(
     ]
   )
 
-  return info.lastInsertRowid as number
+  return result?.id ?? 0
 }
 
 /**

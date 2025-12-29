@@ -261,11 +261,15 @@ class PostgresAdapter implements DatabaseAdapter {
     const pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
 
-    // 🔥 调试日志：记录SQL转换（仅在开发环境或首次转换时）
-    if (process.env.NODE_ENV === 'development' && sql !== convertedSql) {
-      console.log('🔄 SQL转换:', {
-        原始: sql.substring(0, 200),
-        转换后: convertedSql.substring(0, 200)
+    // 🔥 调试日志：记录SQL转换和参数（仅在开发环境）
+    if (process.env.NODE_ENV === 'development') {
+      const placeholderCount = (pgSql.match(/\$[0-9]+/g) || []).length
+      console.log('🔍 SQL执行:', {
+        原始SQL: sql.substring(0, 150),
+        转换后SQL: pgSql.substring(0, 150),
+        参数数量: params.length,
+        转换后参数: cleanParams,
+        期望占位符: placeholderCount
       })
     }
 
@@ -278,6 +282,20 @@ class PostgresAdapter implements DatabaseAdapter {
     const convertedSql = this.convertSqliteSyntax(sql)
     const pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
+
+    // 🔥 调试日志：记录SQL转换和参数（仅在开发环境）
+    if (process.env.NODE_ENV === 'development') {
+      const placeholderCount = (pgSql.match(/\$[0-9]+/g) || []).length
+      if (placeholderCount !== cleanParams.length) {
+        console.error('❌ 参数数量不匹配!', {
+          SQL: pgSql.substring(0, 200),
+          占位符数量: placeholderCount,
+          参数数量: cleanParams.length,
+          参数: cleanParams
+        })
+      }
+    }
+
     const result = await this.sql.unsafe(pgSql, cleanParams)
     return result[0] as T | undefined
   }
