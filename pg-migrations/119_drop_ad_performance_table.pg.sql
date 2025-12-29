@@ -8,11 +8,10 @@
 -- 1. 检查表是否存在
 SELECT '检查 ad_performance 表是否存在...' AS status;
 
--- 2. 如果表存在，先删除外键约束和索引
+-- 2. 如果表存在，先删除外键约束和主键约束
 DO $$
 DECLARE
     constraint_name TEXT;
-    index_name TEXT;
 BEGIN
     -- 获取并删除所有外键约束
     FOR constraint_name IN
@@ -25,14 +24,26 @@ BEGIN
         RAISE NOTICE '已删除外键约束: %', constraint_name;
     END LOOP;
 
-    -- 获取并删除所有索引
-    FOR index_name IN
-        SELECT indexname
-        FROM pg_indexes
-        WHERE tablename = 'ad_performance'
+    -- 删除主键约束（这会自动删除相关的主键索引）
+    FOR constraint_name IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'ad_performance'::regclass
+        AND contype = 'p'
     LOOP
-        EXECUTE 'DROP INDEX IF EXISTS ' || quote_ident(index_name);
-        RAISE NOTICE '已删除索引: %', index_name;
+        EXECUTE 'ALTER TABLE ad_performance DROP CONSTRAINT ' || quote_ident(constraint_name);
+        RAISE NOTICE '已删除主键约束: %', constraint_name;
+    END LOOP;
+
+    -- 删除所有其他约束（如唯一约束）
+    FOR constraint_name IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'ad_performance'::regclass
+        AND contype IN ('u', 'c')
+    LOOP
+        EXECUTE 'ALTER TABLE ad_performance DROP CONSTRAINT ' || quote_ident(constraint_name);
+        RAISE NOTICE '已删除约束: %', constraint_name;
     END LOOP;
 END $$;
 
