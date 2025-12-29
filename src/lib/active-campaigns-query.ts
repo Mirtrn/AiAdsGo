@@ -47,9 +47,10 @@ export async function queryActiveCampaigns(
   const db = await getDatabase()
 
   // 1. 获取Google Ads账号信息（包含parent_mcc_id用于MCC子账号权限）
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
   const adsAccount = await db.queryOne(
     `SELECT id, customer_id, parent_mcc_id FROM google_ads_accounts
-     WHERE id = ? AND user_id = ? AND is_active = 1`,
+     WHERE id = ? AND user_id = ? AND ${isActiveCondition}`,
     [Number(googleAdsAccountId), Number(userId)]
   ) as any
 
@@ -72,7 +73,7 @@ export async function queryActiveCampaigns(
   // 检查是否有服务账号配置
   const serviceAccount = await db.queryOne(`
     SELECT id FROM google_ads_service_accounts
-    WHERE user_id = ? AND is_active = 1
+    WHERE user_id = ? AND ${isActiveCondition}
     ORDER BY created_at DESC LIMIT 1
   `, [userId]) as { id: string } | undefined
 
@@ -155,16 +156,17 @@ export async function pauseCampaigns(
   const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
 
   // 检查OAuth凭证或服务账号配置
-  const credentials = await getGoogleAdsCredentials(userId)
+  const credentials2 = await getGoogleAdsCredentials(userId)
 
   // 检查是否有服务账号配置
-  const serviceAccount = await db.queryOne(`
+  const isActiveCondition2 = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  const serviceAccount2 = await db.queryOne(`
     SELECT id FROM google_ads_service_accounts
-    WHERE user_id = ? AND is_active = 1
+    WHERE user_id = ? AND ${isActiveCondition2}
     ORDER BY created_at DESC LIMIT 1
   `, [userId]) as { id: string } | undefined
 
-  if (!credentials?.refresh_token && !serviceAccount) {
+  if (!credentials2?.refresh_token && !serviceAccount2) {
     throw new Error('Google Ads OAuth凭证或服务账号配置无效')
   }
 

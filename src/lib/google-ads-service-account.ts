@@ -7,11 +7,12 @@ import { getGoogleAdsClient } from './google-ads-api'
  */
 export async function getServiceAccountConfig(userId: number, serviceAccountId?: string) {
   const db = await getDatabase()
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
 
   let query = `
     SELECT id, name, mcc_customer_id, developer_token, service_account_email, private_key, project_id
     FROM google_ads_service_accounts
-    WHERE user_id = ? AND is_active = 1
+    WHERE user_id = ? AND ${isActiveCondition}
   `
   const params: any[] = [userId]
 

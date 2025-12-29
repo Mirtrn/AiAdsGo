@@ -5,15 +5,15 @@ import type { ValidationResult } from './base-provider'
 /**
  * IpMars代理提供商
  * 处理格式: host:port:username:password
- * 示例: ipmars.com:4950:username:password
+ * 示例: ipmars.com:4950:username:password 或 ipmars.vip:4950:username:password
  * 直接从URL解析，无需API调用
  */
 export class IpMarsProvider implements ProxyProvider {
   name = 'IpMars'
 
   canHandle(url: string): boolean {
-    // 检查是否包含ipmars域名且使用冒号分隔格式
-    return url.includes('ipmars.com') && url.includes(':')
+    // 检查是否包含ipmars域名（.com 或 .vip）且使用冒号分隔格式
+    return (url.includes('ipmars.com') || url.includes('ipmars.vip')) && url.includes(':')
   }
 
   validate(url: string): ValidationResult {
@@ -39,9 +39,9 @@ export class IpMarsProvider implements ProxyProvider {
       const username = parts[2]
       const password = parts[3]
 
-      // 验证主机名包含ipmars.com
-      if (!host.includes('ipmars.com')) {
-        errors.push('主机名必须包含ipmars.com')
+      // 验证主机名包含ipmars.com或ipmars.vip
+      if (!host.includes('ipmars.com') && !host.includes('ipmars.vip')) {
+        errors.push('主机名必须包含ipmars.com或ipmars.vip')
       }
 
       // 验证端口号

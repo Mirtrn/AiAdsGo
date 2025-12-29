@@ -22,9 +22,10 @@ export async function getUserAuthType(userId: number): Promise<{
   }
 
   // 检查服务账号配置
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
   const serviceAccount = await db.queryOne(
     `SELECT id FROM google_ads_service_accounts
-     WHERE user_id = ? AND is_active = 1
+     WHERE user_id = ? AND ${isActiveCondition}
      ORDER BY created_at DESC LIMIT 1`,
     [userId]
   ) as { id: string } | undefined
@@ -304,10 +305,11 @@ export async function verifyGoogleAdsCredentials(userId: number): Promise<{
     const db = await getDatabase()
 
     // 1. 检查是否有已激活的服务账号配置
+    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
     const serviceAccount = await db.queryOne(`
       SELECT id, name, mcc_customer_id, developer_token, service_account_email
       FROM google_ads_service_accounts
-      WHERE user_id = ? AND is_active = 1
+      WHERE user_id = ? AND ${isActiveCondition}
       ORDER BY created_at DESC LIMIT 1
     `, [userId]) as {
       id: string

@@ -38,6 +38,10 @@ export async function GET(request: NextRequest) {
     const startDateStr = startDate.toISOString().split('T')[0]
     const endDateStr = endDate.toISOString().split('T')[0]
 
+    // PostgreSQL/SQLite 兼容性条件
+    const isSelectedTrue = db.type === 'postgres' ? 'is_selected = true' : 'is_selected = 1'
+    const isSelectedFalse = db.type === 'postgres' ? 'is_selected = false' : 'is_selected = 0'
+
     // 3. 查询每日新增创意数量趋势
     let dailyCreativesQuery = `
       SELECT
@@ -70,7 +74,7 @@ export async function GET(request: NextRequest) {
     let statusQuery = `
       SELECT
         CASE
-          WHEN is_selected = 1 THEN 'selected'
+          WHEN ${isSelectedTrue} THEN 'selected'
           ELSE 'draft'
         END as status,
         COUNT(*) as count
@@ -153,8 +157,8 @@ export async function GET(request: NextRequest) {
     // 8. 查询创意使用情况
     let usageQuery = `
       SELECT
-        SUM(CASE WHEN is_selected = 1 THEN 1 ELSE 0 END) as selected,
-        SUM(CASE WHEN is_selected = 0 OR is_selected IS NULL THEN 1 ELSE 0 END) as notSelected,
+        SUM(CASE WHEN ${isSelectedTrue} THEN 1 ELSE 0 END) as selected,
+        SUM(CASE WHEN ${isSelectedFalse} OR is_selected IS NULL THEN 1 ELSE 0 END) as notSelected,
         COUNT(*) as total
       FROM ad_creatives
       WHERE user_id = ?

@@ -100,6 +100,7 @@ export class SyncScheduler {
     try {
       const db = await getDatabase()
       const now = new Date().toISOString()
+      const autoSyncCondition = db.type === 'postgres' ? 'sc.auto_sync_enabled = true' : 'sc.auto_sync_enabled = 1'
 
       // Find users with auto sync enabled and next sync time has passed
       const pendingSyncs = await db.query(
@@ -114,7 +115,7 @@ export class SyncScheduler {
           sc.notify_on_failure,
           sc.notification_email
         FROM sync_config sc
-        WHERE sc.auto_sync_enabled = 1
+        WHERE ${autoSyncCondition}
           AND (
             sc.next_scheduled_sync_at IS NULL
             OR sc.next_scheduled_sync_at <= ?

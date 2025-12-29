@@ -290,9 +290,10 @@ async function isDeviceTrusted(
   deviceFingerprint: string
 ): Promise<boolean> {
   const db = await getDatabase()
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
   const trusted = await db.queryOne<{ id: number }>(
     `SELECT id FROM trusted_devices
-     WHERE user_id = ? AND device_fingerprint = ? AND is_active = 1`,
+     WHERE user_id = ? AND device_fingerprint = ? AND ${isActiveCondition}`,
     [userId, deviceFingerprint]
   )
   return !!trusted
@@ -454,8 +455,9 @@ export async function untrustDevice(
   deviceFingerprint: string
 ): Promise<boolean> {
   const db = await getDatabase()
+  const isActiveFalse = db.type === 'postgres' ? 'is_active = false' : 'is_active = 0'
   const result = await db.exec(
-    `UPDATE trusted_devices SET is_active = 0
+    `UPDATE trusted_devices SET ${isActiveFalse}
      WHERE user_id = ? AND device_fingerprint = ?`,
     [userId, deviceFingerprint]
   )
@@ -469,9 +471,10 @@ export async function getTrustedDevices(
   userId: number
 ): Promise<TrustedDevice[]> {
   const db = await getDatabase()
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
   return db.query<TrustedDevice>(
     `SELECT * FROM trusted_devices
-     WHERE user_id = ? AND is_active = 1
+     WHERE user_id = ? AND ${isActiveCondition}
      ORDER BY last_used_at DESC`,
     [userId]
   )

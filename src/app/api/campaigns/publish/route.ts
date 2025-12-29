@@ -313,9 +313,10 @@ export async function POST(request: NextRequest) {
 
     // 检查是否有服务账号配置
     const db2 = await getDatabase()
+    const isActiveCondition = db2.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
     const serviceAccount = await db2.queryOne(`
       SELECT id FROM google_ads_service_accounts
-      WHERE user_id = ? AND is_active = 1
+      WHERE user_id = ? AND ${isActiveCondition}
       ORDER BY created_at DESC LIMIT 1
     `, [userId]) as { id: string } | undefined
 

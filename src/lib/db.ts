@@ -223,11 +223,13 @@ class PostgresAdapter implements DatabaseAdapter {
       }
     }
 
-    // 查找WHERE子句中的所有 field = ?
+    // 查找WHERE子句中的所有 field = ? 或 field IN (?)
+    // 🔧 修复：不要只查找 WHERE 子句中的 field = ?，而是查找所有 field (=|IN) ?
     const whereMatches = sql.matchAll(/WHERE[^;]*/gi)
     for (const whereMatch of whereMatches) {
       const whereClause = whereMatch[0]
-      const fieldMatches = whereClause.matchAll(/(\w+)\s*=\s*\?/g)
+      // 匹配 field = ? 或 field IN (?)
+      const fieldMatches = whereClause.matchAll(/(\w+)\s*(?:=|IN\s*\()\s*\?/gi)
       for (const match of fieldMatches) {
         const field = match[1]
         fieldPositions.push({ field, paramIndex: paramIndex++ })

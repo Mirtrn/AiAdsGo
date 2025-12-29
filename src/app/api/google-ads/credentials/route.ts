@@ -110,9 +110,10 @@ export async function GET(request: NextRequest) {
     let serviceAccountName: string | null = null
     try {
       const db = await getDatabase()
+      const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
       const serviceAccount = await db.queryOne(`
         SELECT id, name FROM google_ads_service_accounts
-        WHERE user_id = ? AND is_active = 1
+        WHERE user_id = ? AND ${isActiveCondition}
         ORDER BY created_at DESC
         LIMIT 1
       `, [userId]) as { id: string; name: string } | undefined
