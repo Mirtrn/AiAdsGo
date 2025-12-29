@@ -397,11 +397,16 @@ export default function ClickFarmTaskModal({
         daily_click_count: dailyClickCount,
         start_time: startTime,
         end_time: endTime,
-        duration_days: durationDays === 9999 ? null : durationDays,
+        duration_days: durationDays === 9999 ? -1 : durationDays,  // 🔧 使用-1表示无限期，避免null导致的JSON序列化问题
         scheduled_start_date: scheduledStartDate,  // 🆕 包含scheduled_start_date
         hourly_distribution: distribution,
         timezone: timezone,  // 🆕 使用自动匹配的timezone state，而不是服务器时区
       };
+
+      console.log('[ClickFarmTaskModal] 发送请求数据:', {
+        ...requestData,
+        hourly_distribution: `[array of ${requestData.hourly_distribution.length} items]`
+      });
 
       // 🆕 编辑模式：使用PUT方法
       const response = await fetch(

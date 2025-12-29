@@ -24,12 +24,43 @@ export async function POST(request: NextRequest) {
     }
 
     const userIdNum = parseInt(userId);
-    const body = await request.json() as CreateClickFarmTaskRequest;
+
+    // 🔧 修复：获取原始请求体文本，并进行详细的调试
+    const rawBody = await request.text();
+    console.log('[CreateClickFarmTask] 接收到请求体:', rawBody.substring(0, 200));
+
+    if (!rawBody) {
+      return NextResponse.json(
+        { error: 'validation_error', message: '请求体为空' },
+        { status: 400 }
+      );
+    }
+
+    let body: CreateClickFarmTaskRequest;
+    try {
+      body = JSON.parse(rawBody) as CreateClickFarmTaskRequest;
+    } catch (parseError) {
+      console.error('[CreateClickFarmTask] JSON解析失败:', parseError);
+      console.error('[CreateClickFarmTask] 原始请求体:', rawBody);
+      return NextResponse.json(
+        { error: 'validation_error', message: 'JSON格式错误: ' + (parseError instanceof Error ? parseError.message : '未知错误') },
+        { status: 400 }
+      );
+    }
 
     // 验证必填字段
+    console.log('[CreateClickFarmTask] 解析后的请求数据:', {
+      offer_id: body.offer_id,
+      daily_click_count: body.daily_click_count,
+      timezone: body.timezone,
+      duration_days: body.duration_days,
+      scheduled_start_date: body.scheduled_start_date,
+      hourly_distribution_length: Array.isArray(body.hourly_distribution) ? body.hourly_distribution.length : 'not-array'
+    });
+
     if (!body.offer_id || !body.daily_click_count) {
       return NextResponse.json(
-        { error: 'validation_error', message: '缺少必填字段' },
+        { error: 'validation_error', message: '缺少必填字段: offer_id=' + body.offer_id + ', daily_click_count=' + body.daily_click_count },
         { status: 400 }
       );
     }
