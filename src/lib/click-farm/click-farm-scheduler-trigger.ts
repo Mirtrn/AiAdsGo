@@ -10,6 +10,12 @@ import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
 import { getDatabase } from '@/lib/db';
 import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
+import type { ClickFarmTask } from '@/lib/click-farm-types';
+
+// 🆕 扩展ClickFarmTask类型，支持referer_config
+interface TaskWithRefererConfig extends ClickFarmTask {
+  referer_config?: string | null;
+}
 
 interface TriggerResult {
   taskId: string;
@@ -192,10 +198,13 @@ export async function triggerAllPendingTasks(): Promise<{
   const results = { processed: 0, queued: 0, paused: 0, skipped: 0 };
 
   for (const task of tasks) {
+    // 🆕 将task断言为TaskWithRefererConfig以访问referer_config
+    const typedTask = task as TaskWithRefererConfig;
+
     results.processed++;
 
     // 检查开始日期
-    if (task.scheduled_start_date) {
+    if (typedTask.scheduled_start_date) {
       const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
       if (todayInTaskTimezone < task.scheduled_start_date) {
         results.skipped++;
@@ -247,10 +256,10 @@ export async function triggerAllPendingTasks(): Promise<{
     // 🆕 获取任务的Referer配置
     let refererConfig: { type: 'none' | 'random' | 'specific'; referer?: string } | undefined;
     try {
-      if (task.referer_config) {
-        refererConfig = typeof task.referer_config === 'string'
-          ? JSON.parse(task.referer_config)
-          : task.referer_config;
+      if (typedTask.referer_config) {
+        refererConfig = typeof typedTask.referer_config === 'string'
+          ? JSON.parse(typedTask.referer_config)
+          : typedTask.referer_config;
       }
     } catch (error) {
       console.error(`[TriggerAll] 解析Referer配置失败:`, error);

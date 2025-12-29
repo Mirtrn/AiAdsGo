@@ -18,7 +18,7 @@ import { Alert } from '@/components/ui/alert';
 import { Loader2, AlertCircle, TrendingUp, Edit3, RotateCcw, GripVertical, Clock, Globe, Link, Tag, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTimezoneByCountry } from '@/lib/timezone-utils';
-import type { CreateClickFarmTaskRequest, REFERER_OPTIONS, SOCIAL_MEDIA_REFERRERS } from '@/lib/click-farm-types';
+import { REFERER_OPTIONS, SOCIAL_MEDIA_REFERRERS, CreateClickFarmTaskRequest } from '@/lib/click-farm-types';
 import { balanceDistribution, generateDefaultDistribution } from '@/lib/click-farm/distribution';
 import HourlyDistributionEditor from '@/components/ui/HourlyDistributionEditor';
 
@@ -904,10 +904,10 @@ export default function ClickFarmTaskModal({
                 <Select
                   id="refererType"
                   value={refererConfig.type}
-                  onValueChange={(value: 'none' | 'random' | 'specific') => {
+                  onValueChange={(value) => {
                     setRefererConfig(prev => ({
                       ...prev,
-                      type: value,
+                      type: value as 'none' | 'random' | 'specific',
                       // 当选择none或random时，清除specific referer
                       referer: value === 'specific' ? prev.referer : undefined
                     }));
