@@ -263,10 +263,20 @@ export async function POST(request: NextRequest) {
                 continue
               }
 
+              // 🔧 调试：记录原始URL
+              console.log(`🔍 验证代理 #${i + 1}:`, {
+                country: item.country,
+                url: item.url,
+                urlType: typeof item.url,
+                urlLength: item.url.length,
+                trimmedUrl: item.url.trim()
+              })
+
               // 🔥 使用新的Provider系统验证URL
               try {
-                const provider = ProxyProviderRegistry.getProvider(item.url)
-                const validation = provider.validate(item.url)
+                const trimmedUrl = item.url.trim()
+                const provider = ProxyProviderRegistry.getProvider(trimmedUrl)
+                const validation = provider.validate(trimmedUrl)
 
                 if (!validation.isValid) {
                   errors.push(`第${i + 1}个URL (${item.country}) 格式错误: ${validation.errors.join(', ')}`)
@@ -274,14 +284,8 @@ export async function POST(request: NextRequest) {
                   console.log(`✅ 第${i + 1}个URL验证通过: ${provider.name} Provider`)
                 }
               } catch (error) {
-                errors.push(`第${i + 1}个URL (${item.country}) 验证失败: ${error instanceof Error ? error.message : String(error)}`)
-              }
-
-              // 基本URL格式验证
-              try {
-                new URL(item.url)
-              } catch {
-                errors.push(`第${i + 1}个URL (${item.country}) URL格式无效`)
+                console.error(`❌ 第${i + 1}个URL验证失败:`, error)
+                errors.push(`第${i + 1}个URL (${item.country}) 验证失败:${error instanceof Error ? error.message : String(error)}`)
               }
             }
 
