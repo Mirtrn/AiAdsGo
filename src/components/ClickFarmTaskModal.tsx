@@ -382,6 +382,11 @@ export default function ClickFarmTaskModal({
       return;
     }
 
+    if (!distribution || distribution.length !== 24) {
+      toast.error('请先生成时间分布');
+      return;
+    }
+
     if (proxyWarning) {
       toast.error('请先配置代理');
       return;
