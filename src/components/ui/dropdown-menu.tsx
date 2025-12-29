@@ -1,23 +1,19 @@
 "use client"
 
 import * as React from "react"
-import * as ReactDOM from "react-dom"
 import { cn } from "@/lib/utils"
 
 const DropdownMenuContext = React.createContext<{
     open: boolean;
     setOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    triggerRef: React.RefObject<HTMLElement> | null;
 }>({
     open: false,
     setOpen: () => { },
-    triggerRef: null,
 });
 
 const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
     const [open, setOpen] = React.useState(false);
     const containerRef = React.useRef<HTMLDivElement>(null);
-    const triggerRef = React.useRef<HTMLElement>(null);
 
     React.useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -33,7 +29,7 @@ const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
     }, []);
 
     return (
-        <DropdownMenuContext.Provider value={{ open, setOpen, triggerRef }}>
+        <DropdownMenuContext.Provider value={{ open, setOpen }}>
             <div className="relative inline-block text-left" ref={containerRef}>
                 {children}
             </div>
@@ -47,20 +43,12 @@ const DropdownMenuTrigger = React.forwardRef<
     HTMLButtonElement,
     React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }
 >(({ className, children, asChild = false, ...props }, ref) => {
-    const { open, setOpen, triggerRef } = React.useContext(DropdownMenuContext);
+    const { open, setOpen } = React.useContext(DropdownMenuContext);
     const Comp = asChild ? Slot : "button"
 
     return (
         <Comp
-            ref={(node) => {
-                // 合并 refs
-                if (typeof ref === 'function') {
-                    ref(node);
-                } else if (ref) {
-                    ref.current = node;
-                }
-                (triggerRef as React.MutableRefObject<HTMLElement | null>).current = node;
-            }}
+            ref={ref}
             type={asChild ? undefined : "button"}
             onClick={() => setOpen(!open)}
             className={cn(className)}
@@ -75,66 +63,28 @@ DropdownMenuTrigger.displayName = "DropdownMenuTrigger";
 const DropdownMenuContent = React.forwardRef<
     HTMLDivElement,
     React.HTMLAttributes<HTMLDivElement> & { align?: "start" | "end" | "center" }
->(({ className, align = "center", children, ...props }, ref) => {
-    const { open, triggerRef } = React.useContext(DropdownMenuContext);
-    const [position, setPosition] = React.useState({ top: 0, left: 0 });
-
-    // 计算下拉菜单的位置
-    React.useLayoutEffect(() => {
-        if (!open || !triggerRef?.current) return;
-
-        const triggerRect = triggerRef.current.getBoundingClientRect();
-        let left = 0;
-
-        // 根据 align 计算水平位置
-        switch (align) {
-            case "start":
-                left = triggerRect.left;
-                break;
-            case "end":
-                left = triggerRect.right;
-                break;
-            case "center":
-            default:
-                left = triggerRect.left + triggerRect.width / 2;
-                break;
-        }
-
-        setPosition({
-            top: triggerRect.bottom + window.scrollY + 8, // 8px 间距
-            left: left + window.scrollX,
-        });
-    }, [open, align, triggerRef]);
+>(({ className, align = "center", ...props }, ref) => {
+    const { open } = React.useContext(DropdownMenuContext);
 
     if (!open) return null;
 
     const alignmentClasses = {
-        start: "",
-        end: "-translate-x-full",
-        center: "-translate-x-1/2",
+        start: "left-0",
+        end: "right-0",
+        center: "left-1/2 -translate-x-1/2",
     };
 
-    // Portal: 将下拉菜单渲染到 body 下，避免被 overflow 容器裁剪
-    const dropdownContent = (
+    return (
         <div
             ref={ref}
             className={cn(
-                "fixed z-[100] min-w-[8rem] overflow-hidden rounded-md border bg-white p-1 text-gray-950 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+                "absolute z-50 mt-2 min-w-[8rem] overflow-hidden rounded-md border bg-white p-1 text-gray-950 shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
                 alignmentClasses[align],
                 className
             )}
-            style={{
-                top: `${position.top}px`,
-                left: `${position.left}px`,
-            }}
             {...props}
-        >
-            {children}
-        </div>
+        />
     );
-
-    // 使用 Portal 渲染到 document.body
-    return ReactDOM.createPortal(dropdownContent, document.body);
 });
 DropdownMenuContent.displayName = "DropdownMenuContent";
 
