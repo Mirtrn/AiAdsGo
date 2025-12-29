@@ -300,11 +300,12 @@ export default function UserManagementPage() {
 
     const handleDisableUser = (userId: number, username: string, currentStatus: number) => {
         const action = currentStatus === 1 ? '禁用' : '启用'
+        const confirmButtonText = currentStatus === 1 ? '禁用用户' : '启用用户'
         setConfirmDialog({
             open: true,
             title: `${action}用户`,
             description: `确定要${action}用户 "${username}" 吗？`,
-            confirmText: action,
+            confirmText: confirmButtonText,
             variant: currentStatus === 1 ? 'destructive' : 'default',
             onConfirm: async () => {
                 try {
