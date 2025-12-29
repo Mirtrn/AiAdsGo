@@ -5,6 +5,7 @@ import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
+import { toNumber } from '@/lib/utils'
 
 // Google Ads CustomerStatus 枚举值映射
 // 参考: https://developers.google.com/google-ads/api/reference/rpc/latest/CustomerStatusEnum.CustomerStatus
@@ -507,7 +508,7 @@ async function syncAccountsFromAPI(
             const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
             // 余额 = 预算 - 已使用
             accountBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
-            console.log(`   💰 ${customerId} 余额: ${accountBalance ? (accountBalance / 1000000).toFixed(2) : 'N/A'}`)
+            console.log(`   💰 ${customerId} 余额: ${accountBalance ? parseFloat((accountBalance / 1000000).toFixed(2)) : 'N/A'}`)
           }
         } catch (budgetError) {
           console.log(`   ⚠️ ${customerId} 无法获取预算信息（可能账户无预算设置）`)
@@ -623,7 +624,7 @@ async function syncAccountsFromAPI(
                       const amountServed = Number(budget?.amount_served_micros || 0)
                       const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
                       childBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
-                      console.log(`      💰 ${childId} 余额: ${childBalance ? (childBalance / 1000000).toFixed(2) : 'N/A'}`)
+                      console.log(`      💰 ${childId} 余额: ${childBalance ? parseFloat((childBalance / 1000000).toFixed(2)) : 'N/A'}`)
                     }
                   } catch (budgetError: any) {
                     // 🔧 修复(2025-12-26): 减少日志噪音，账户状态异常时不需要警告
