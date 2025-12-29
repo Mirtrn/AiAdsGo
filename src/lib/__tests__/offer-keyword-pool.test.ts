@@ -20,6 +20,16 @@ import {
   type BucketType
 } from '../offer-keyword-pool'
 
+// 新增导入
+import {
+  getPureBrandKeywords,
+  containsPureBrand,
+  isBrandIrrelevant,
+  filterLowIntentKeywords,
+  filterMismatchedGeoKeywords,
+  calculateSearchVolumeThreshold
+} from '../keyword-quality-filter'
+
 // Mock 数据
 const mockKeywordPool: OfferKeywordPool = {
   id: 1,
@@ -366,6 +376,210 @@ describe('OfferKeywordPool', () => {
       for (const kw of demandKeywords) {
         expect(kw.toLowerCase()).toMatch(/wireless|night|vision|2k|4k|motion|best|top|solar|battery/i)
       }
+    })
+  })
+
+  // ========== 新增测试：纯品牌词函数 ==========
+  describe('getPureBrandKeywords - 多词品牌识别', () => {
+    it('should return full brand name and first word for multi-word brands', () => {
+      const result = getPureBrandKeywords('Eufy Security')
+      expect(result).toContain('eufy security')
+      expect(result).toContain('eufy')
+      expect(result).toHaveLength(2)
+    })
+
+    it('should return only full name for single-word brands', () => {
+      const result = getPureBrandKeywords('Eufy')
+      expect(result).toContain('eufy')
+      expect(result).toHaveLength(1)
+    })
+
+    it('should handle three-word brands', () => {
+      const result = getPureBrandKeywords('Ring Alarm Security')
+      expect(result).toContain('ring alarm security')
+      expect(result).toContain('ring')
+      expect(result).toHaveLength(2)
+    })
+
+    it('should be case-insensitive and trim whitespace', () => {
+      const result = getPureBrandKeywords('  Eufy Security  ')
+      expect(result).toContain('eufy security')
+      expect(result).toContain('eufy')
+    })
+  })
+
+  describe('containsPureBrand - 品牌包含检查', () => {
+    it('should return true for exact brand match', () => {
+      const pureBrandKeywords = ['eufy security', 'eufy']
+      expect(containsPureBrand('eufy', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('eufy security', pureBrandKeywords)).toBe(true)
+    })
+
+    it('should return true for keywords containing brand', () => {
+      const pureBrandKeywords = ['eufy']
+      expect(containsPureBrand('eufy camera', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('eufy security camera', pureBrandKeywords)).toBe(true)
+    })
+
+    it('should return false for non-brand keywords', () => {
+      const pureBrandKeywords = ['eufy']
+      expect(containsPureBrand('security camera', pureBrandKeywords)).toBe(false)
+      expect(containsPureBrand('indoor camera', pureBrandKeywords)).toBe(false)
+    })
+
+    it('should be case-insensitive', () => {
+      const pureBrandKeywords = ['eufy']
+      expect(containsPureBrand('EUFY CAMERA', pureBrandKeywords)).toBe(true)
+    })
+  })
+
+  // ========== 新增测试：品牌无关词过滤（多语言公司后缀） ==========
+  describe('isBrandIrrelevant - 多语言公司后缀过滤', () => {
+    describe('Italian suffixes', () => {
+      it('should detect Italian company suffixes', () => {
+        expect(isBrandIrrelevant('eureka unito')).toBe(true)
+        expect(isBrandIrrelevant('eureka srl')).toBe(true)
+        expect(isBrandIrrelevant('eureka sa')).toBe(true)
+        expect(isBrandIrrelevant('eureka scarl')).toBe(true)
+      })
+
+      it('should accept valid Italian keywords', () => {
+        expect(isBrandIrrelevant('eureka lavapavimenti')).toBe(false)
+        expect(isBrandIrrelevant('eureka aspirapolvere')).toBe(false)
+      })
+    })
+
+    describe('German suffixes', () => {
+      it('should detect German company suffixes', () => {
+        expect(isBrandIrrelevant('eureka gmbh')).toBe(true)
+        expect(isBrandIrrelevant('eureka ag')).toBe(true)
+        expect(isBrandIrrelevant('eureka kg')).toBe(true)
+        expect(isBrandIrrelevant('eureka mbh')).toBe(true)
+      })
+
+      it('should accept valid German keywords', () => {
+        expect(isBrandIrrelevant('eureka staubsauger')).toBe(false)
+        expect(isBrandIrrelevant('eureka roboter')).toBe(false)
+      })
+    })
+
+    describe('English suffixes', () => {
+      it('should detect English company suffixes', () => {
+        expect(isBrandIrrelevant('eureka inc')).toBe(true)
+        expect(isBrandIrrelevant('eureka ltd')).toBe(true)
+        expect(isBrandIrrelevant('eureka llc')).toBe(true)
+        expect(isBrandIrrelevant('eureka corp')).toBe(true)
+      })
+
+      it('should accept valid English keywords', () => {
+        expect(isBrandIrrelevant('eureka vacuum')).toBe(false)
+        expect(isBrandIrrelevant('eureka robot')).toBe(false)
+      })
+    })
+
+    describe('French suffixes', () => {
+      it('should detect French company suffixes', () => {
+        expect(isBrandIrrelevant('eureka sas')).toBe(true)
+        expect(isBrandIrrelevant('eureka sa')).toBe(true)
+        expect(isBrandIrrelevant('eureka sarl')).toBe(true)
+      })
+
+      it('should accept valid French keywords', () => {
+        expect(isBrandIrrelevant('eureka aspirateur')).toBe(false)
+        expect(isBrandIrrelevant('eureka robot')).toBe(false)
+      })
+    })
+
+    describe('Chinese suffixes', () => {
+      it('should detect Chinese company suffixes', () => {
+        expect(isBrandIrrelevant('品牌有限公司')).toBe(true)
+        expect(isBrandIrrelevant('品牌股份有限公司')).toBe(true)
+        expect(isBrandIrrelevant('品牌有限责任公司')).toBe(true)
+      })
+
+      it('should accept valid Chinese keywords', () => {
+        expect(isBrandIrrelevant('品牌吸尘器')).toBe(false)
+        expect(isBrandIrrelevant('品牌扫地机器人')).toBe(false)
+      })
+    })
+
+    describe('Japanese suffixes', () => {
+      it('should detect Japanese company suffixes', () => {
+        expect(isBrandIrrelevant('ブランド株式会社')).toBe(true)
+        expect(isBrandIrrelevant('ブランド有限会社')).toBe(true)
+      })
+
+      it('should accept valid Japanese keywords', () => {
+        expect(isBrandIrrelevant('ブランド掃除機')).toBe(false)
+        expect(isBrandIrrelevant('ブランドロボット')).toBe(false)
+      })
+    })
+
+    describe('Korean suffixes', () => {
+      it('should detect Korean company suffixes', () => {
+        expect(isBrandIrrelevant('브랜드 주식회사')).toBe(true)
+        expect(isBrandIrrelevant('브랜드 유한회사')).toBe(true)
+      })
+
+      it('should accept valid Korean keywords', () => {
+        expect(isBrandIrrelevant('브랜드 청소기')).toBe(false)
+        expect(isBrandIrrelevant('브랜드 로봇')).toBe(false)
+      })
+    })
+  })
+
+  // ========== 新增测试：低意图关键词过滤 ==========
+  describe('filterLowIntentKeywords - 低购买意图过滤', () => {
+    it('should filter out informational queries', () => {
+      const keywords = [
+        'what is eufy',
+        'how to use eufy camera',
+        'eufy review',
+        'eufy camera price',
+        'buy eufy camera',
+        'eufy camera amazon'
+      ]
+      const result = filterLowIntentKeywords(keywords)
+      expect(result).not.toContain('what is eufy')
+      expect(result).not.toContain('how to use eufy camera')
+      expect(result).not.toContain('eufy review')
+      expect(result).toContain('eufy camera price')
+      expect(result).toContain('buy eufy camera')
+      expect(result).toContain('eufy camera amazon')
+    })
+
+    it('should keep purchase intent keywords', () => {
+      const keywords = [
+        'eufy camera price',
+        'buy eufy camera',
+        'eufy camera amazon',
+        'best eufy camera',
+        'eufy camera deal'
+      ]
+      const result = filterLowIntentKeywords(keywords)
+      expect(result).toHaveLength(5)
+    })
+  })
+
+  // ========== 新增测试：搜索量阈值计算 ==========
+  describe('calculateSearchVolumeThreshold - 动态阈值计算', () => {
+    it('should calculate threshold based on median volume', () => {
+      const volumes = [100, 200, 300, 400, 500, 1000, 2000, 5000, 10000]
+      const threshold = calculateSearchVolumeThreshold(volumes)
+      expect(threshold).toBeGreaterThan(0)
+      // Median is 500, threshold should be around 10% = 50
+      expect(threshold).toBeLessThan(1000)
+    })
+
+    it('should return 0 for empty array', () => {
+      const threshold = calculateSearchVolumeThreshold([])
+      expect(threshold).toBe(0)
+    })
+
+    it('should return minimum threshold for small volumes', () => {
+      const volumes = [10, 20, 30]
+      const threshold = calculateSearchVolumeThreshold(volumes)
+      expect(threshold).toBeGreaterThan(0)
     })
   })
 })

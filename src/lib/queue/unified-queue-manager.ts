@@ -48,6 +48,7 @@ export class UnifiedQueueManager {
   private healthCheckLoop: NodeJS.Timeout | null = null
   private readonly HEALTH_CHECK_INTERVAL = 5 * 60 * 1000  // 5分钟检查一次
   private readonly STALE_TASK_TIMEOUT = 30 * 60 * 1000    // 30分钟超时
+  private readonly BATCH_STATUS_CHECK_INTERVAL = 60 * 1000  // 1分钟检查一次 batch 状态
 
   // 🔥 错误追踪和退避机制（防止Redis连接问题时的错误刷屏）
   private consecutiveErrors: number = 0
@@ -785,6 +786,102 @@ export class UnifiedQueueManager {
   }
 
   /**
+   * 🔥 清理数据库中超时的 running 任务
+   *
+   * 这个方法直接操作数据库，不依赖 Redis 适配器
+   * 用于处理那些虽然数据库标记为 running，但实际上已经超时的任务
+   */
+  async cleanupStaleDatabaseTasks(): Promise<{
+    cleanedCount: number
+    taskIds: string[]
+  }> {
+    try {
+      const { getDatabase } = await import('@/lib/db')
+      const db = getDatabase()
+      const db_type = db.type
+
+      // PostgreSQL 和 SQLite 使用不同的超时计算方式
+      let timeoutThreshold: string
+      if (db_type === 'postgres') {
+        timeoutThreshold = `NOW() - INTERVAL '${this.STALE_TASK_TIMEOUT / 1000} seconds'`
+      } else {
+        timeoutThreshold = `datetime('now', '-${this.STALE_TASK_TIMEOUT / 1000} seconds')`
+      }
+
+      // 获取超时的 running 任务
+      const staleTasks = await db.query<{ id: string; batch_id: string | null; started_at: string }>(`
+        SELECT id, batch_id, started_at
+        FROM offer_tasks
+        WHERE status = 'running'
+          AND started_at < ${timeoutThreshold}
+      `, [])
+
+      if (staleTasks.length === 0) {
+        return { cleanedCount: 0, taskIds: [] }
+      }
+
+      console.log(`⚠️ 发现 ${staleTasks.length} 个数据库超时任务: ${staleTasks.map(t => t.id).join(', ')}`)
+
+      // 将超时任务标记为 failed
+      const nowFunc = db_type === 'postgres' ? 'NOW()' : "datetime('now')"
+      const updateResult = await db.exec(`
+        UPDATE offer_tasks
+        SET status = 'failed',
+            message = '任务超时',
+            error = jsonb_build_object('timeout', true, 'message', 'Task timeout - no heartbeat received'),
+            updated_at = ${nowFunc}
+        WHERE status = 'running'
+          AND started_at < ${timeoutThreshold}
+      `, [])
+
+      // 如果有超时的 batch 任务，一并处理
+      const staleBatchIds = [...new Set(staleTasks.filter(t => t.batch_id).map(t => t.batch_id!))]
+      for (const batchId of staleBatchIds) {
+        // 检查该 batch 是否所有任务都已完成或失败
+        const batchStats = await db.queryOne<{
+          total: number
+          completed: number
+          failed: number
+          running: number
+          pending: number
+        }>(`
+          SELECT
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE status = 'completed') as completed,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed,
+            COUNT(*) FILTER (WHERE status = 'running') as running,
+            COUNT(*) FILTER (WHERE status = 'pending') as pending
+          FROM offer_tasks
+          WHERE batch_id = ?
+        `, [batchId])
+
+        if (batchStats && batchStats.running === 0 && batchStats.pending === 0) {
+          // 所有任务都完成了，更新 batch 状态
+          const newStatus = batchStats.failed > 0 ? 'failed' : 'completed'
+          await db.exec(`
+            UPDATE batch_tasks
+            SET status = ?,
+                completed_at = ${nowFunc},
+                updated_at = ${nowFunc}
+            WHERE id = ?
+          `, [newStatus, batchId])
+          console.log(`📦 Batch ${batchId} 状态已更新为: ${newStatus}`)
+        }
+      }
+
+      console.log(`✅ 已清理 ${updateResult.changes} 个超时任务`)
+
+      return {
+        cleanedCount: updateResult.changes,
+        taskIds: staleTasks.map(t => t.id)
+      }
+    } catch (error: any) {
+      console.error('❌ 清理数据库超时任务失败:', error.message)
+      return { cleanedCount: 0, taskIds: [] }
+    }
+  }
+
+  /**
    * 🔥 启动健康检查循环
    */
   private startHealthCheckLoop(): void {
@@ -798,7 +895,14 @@ export class UnifiedQueueManager {
     // 设置定期检查
     this.healthCheckLoop = setInterval(async () => {
       try {
+        // 1. 执行队列健康检查（依赖 Redis）
         await this.performHealthCheck()
+
+        // 2. 清理数据库中超时的任务（不依赖 Redis）
+        const dbCleanup = await this.cleanupStaleDatabaseTasks()
+        if (dbCleanup.cleanedCount > 0) {
+          console.log(`🧹 数据库清理: ${dbCleanup.cleanedCount} 个超时任务已标记为失败`)
+        }
       } catch (error: any) {
         console.error('❌ 定期健康检查失败:', error.message)
       }
@@ -828,41 +932,169 @@ export class UnifiedQueueManager {
     try {
       await this.ensureInitialized()
 
-      // 1. 从offer_tasks表获取所有子任务ID
+      // 1. 获取数据库实例
       const { getDatabase } = await import('@/lib/db')
       const db = getDatabase()
+      const db_type = db.type
+      const nowFunc = db_type === 'postgres' ? 'NOW()' : "datetime('now')"
 
-      const childTasks = await db.query<{ id: string }>(`
-        SELECT id FROM offer_tasks WHERE batch_id = ? AND status IN ('pending', 'running')
+      // 2. 获取所有子任务（包括 pending 和 running 状态）
+      const childTasks = await db.query<{
+        id: string
+        status: string
+      }>(`
+        SELECT id, status FROM offer_tasks WHERE batch_id = ? AND status IN ('pending', 'running')
       `, [batchId])
 
       let cancelledCount = 0
 
-      // 2. 从队列中移除这些任务
+      // 3. 从队列中移除 pending 任务
       for (const childTask of childTasks) {
-        try {
-          await this.adapter.removeTask?.(childTask.id)
-          cancelledCount++
-          console.log(`🚫 已取消子任务: ${childTask.id}`)
-        } catch (err) {
-          console.warn(`⚠️ 移除任务失败: ${childTask.id}`)
+        if (childTask.status === 'pending') {
+          try {
+            await this.adapter.removeTask?.(childTask.id)
+            cancelledCount++
+            console.log(`🚫 已从队列移除 pending 任务: ${childTask.id}`)
+          } catch (err) {
+            console.warn(`⚠️ 移除任务失败: ${childTask.id}`, err)
+          }
         }
       }
 
-      // 3. 更新offer_tasks状态为cancelled
-      if (childTasks.length > 0) {
-        const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+      // 4. 将 running/pending 任务标记为 failed（因为无法直接停止正在执行的代码）
+      // PostgreSQL 使用 JSONB，SQLite 使用 JSON 字符串
+      if (db_type === 'postgres') {
         await db.exec(`
           UPDATE offer_tasks
-          SET status = 'cancelled', updated_at = ${nowFunc}
+          SET status = 'failed',
+              message = '因批次取消而终止',
+              error = jsonb_build_object('cancelled', true, 'message', 'Batch cancelled by user', 'cancelled_at', ${nowFunc}),
+              updated_at = ${nowFunc}
+          WHERE batch_id = ? AND status IN ('pending', 'running')
+        `, [batchId])
+      } else {
+        // SQLite
+        await db.exec(`
+          UPDATE offer_tasks
+          SET status = 'failed',
+              message = '因批次取消而终止',
+              error = json_object('cancelled', 1, 'message', 'Batch cancelled by user'),
+              updated_at = ${nowFunc}
           WHERE batch_id = ? AND status IN ('pending', 'running')
         `, [batchId])
       }
+
+      console.log(`✅ 批量任务 ${batchId} 已取消，共处理 ${cancelledCount} 个 pending 任务`)
 
       return cancelledCount
     } catch (error: any) {
       console.error('❌ 取消批量任务失败:', error)
       throw error
+    }
+  }
+
+  /**
+   * 🔥 同步批量任务状态
+   *
+   * 检查 batch_tasks 的状态是否与子任务状态一致
+   * 如果不一致，自动修正状态
+   *
+   * @param batchId 可选，指定要同步的 batch，不指定则同步所有
+   * @returns 同步结果统计
+   */
+  async syncBatchStatus(batchId?: string): Promise<{
+    checked: number
+    fixed: number
+    details: string[]
+  }> {
+    try {
+      const { getDatabase } = await import('@/lib/db')
+      const db = getDatabase()
+      const db_type = db.type
+      const nowFunc = db_type === 'postgres' ? 'NOW()' : "datetime('now')"
+
+      let batches: { id: string; status: string }[]
+
+      if (batchId) {
+        // 只检查指定的 batch
+        const batch = await db.queryOne<{ id: string; status: string }>(
+          'SELECT id, status FROM batch_tasks WHERE id = ?',
+          [batchId]
+        )
+        batches = batch ? [batch] : []
+      } else {
+        // 检查所有 running 状态的 batch
+        batches = await db.query<{ id: string; status: string }>(
+          'SELECT id, status FROM batch_tasks WHERE status = ?',
+          ['running']
+        )
+      }
+
+      let fixed = 0
+      const details: string[] = []
+
+      for (const batch of batches) {
+        // 统计子任务状态
+        const stats = await db.queryOne<{
+          total: number
+          completed: number
+          failed: number
+          running: number
+          pending: number
+        }>(`
+          SELECT
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE status = 'completed') as completed,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed,
+            COUNT(*) FILTER (WHERE status = 'running') as running,
+            COUNT(*) FILTER (WHERE status = 'pending') as pending
+          FROM offer_tasks
+          WHERE batch_id = ?
+        `, [batch.id])
+
+        if (!stats) continue
+
+        let newStatus: string | null = null
+
+        // 根据子任务状态决定 batch 状态
+        if (stats.completed > 0 && stats.running === 0 && stats.pending === 0) {
+          // 所有任务都完成了
+          newStatus = stats.failed > 0 ? 'partial' : 'completed'
+        } else if (stats.running === 0 && stats.pending === 0) {
+          // 没有正在运行和等待的任务
+          newStatus = stats.failed === stats.total ? 'failed' : 'partial'
+        }
+
+        // 如果状态不一致，更新 batch 状态
+        if (newStatus && newStatus !== batch.status) {
+          await db.exec(`
+            UPDATE batch_tasks
+            SET status = ?,
+                completed_count = ?,
+                failed_count = ?,
+                completed_at = ${nowFunc},
+                updated_at = ${nowFunc}
+            WHERE id = ?
+          `, [newStatus, stats.completed, stats.failed, batch.id])
+
+          fixed++
+          details.push(
+            `Batch ${batch.id}: ${batch.status} → ${newStatus} ` +
+            `(completed: ${stats.completed}, failed: ${stats.failed}, running: ${stats.running}, pending: ${stats.pending})`
+          )
+        }
+      }
+
+      console.log(`🔄 Batch 状态同步完成: 检查 ${batches.length} 个, 修复 ${fixed} 个`)
+
+      return {
+        checked: batches.length,
+        fixed,
+        details
+      }
+    } catch (error: any) {
+      console.error('❌ 同步 batch 状态失败:', error)
+      return { checked: 0, fixed: 0, details: [`错误: ${error.message}`] }
     }
   }
 

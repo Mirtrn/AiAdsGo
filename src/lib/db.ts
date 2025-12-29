@@ -129,63 +129,73 @@ class PostgresAdapter implements DatabaseAdapter {
       return `to_char(${column.trim()}::timestamp, 'YYYY-MM')`
     })
 
-    // 5. 转换布尔字段的整数比较为布尔比较
-    // 已知的布尔字段列表（在 PostgreSQL 中是 BOOLEAN 类型）
-    const booleanFields = [
-      'is_active', 'is_selected', 'is_success', 'must_change_password',
-      'is_default', 'is_manager', 'is_manager_account', 'is_idle',
-      'enabled', 'is_deleted', 'is_sensitive', 'is_required'  // 🔥 修复：添加 system_settings 表的布尔字段
-    ]
-
-    // 转换 field = 1 -> field = true, field = 0 -> field = false
-    // 🔥 修复：支持括号内的表达式，例如 (is_deleted = 0 OR ...)
-    for (const field of booleanFields) {
-      // 匹配 field = 1 (包括括号内、表达式中的情况)
-      const pattern1 = new RegExp(`(${field})\\s*=\\s*1\\b`, 'gi')
-      result = result.replace(pattern1, `$1 = true`)
-
-      // 匹配 field = 0 (包括括号内、表达式中的情况)
-      const pattern0 = new RegExp(`(${field})\\s*=\\s*0\\b`, 'gi')
-      result = result.replace(pattern0, `$1 = false`)
+    // 5. 转换布尔字段的整数比较为布尔比较（PostgreSQL 使用 BOOLEAN，SQLite 使用 INTEGER）
+    // 只对在 PostgreSQL 中是 BOOLEAN 类型的字段进行转换
+    const booleanFieldsPostgres: Record<string, string[]> = {
+      // 表名: [字段名列表]
+      'users': ['is_active', 'must_change_password'],
+      'offers': ['is_active', 'is_deleted', 'is_manager_account'],
+      'ad_creatives': ['is_selected'],
+      'campaigns': ['is_deleted'],
+      'click_farm_tasks': ['is_deleted'],
+      'google_ads_accounts': ['is_active'],
+      'google_ads_api_usage': ['is_success'],
+      'google_ads_credentials': ['is_active'],
+      'google_ads_service_accounts': ['is_active'],
+      'prompt_versions': ['is_active'],
+      // 注意：以下表的 is_active/is_resolved/is_current 是 INTEGER 类型，无需转换
+      // - trusted_devices.is_active = INTEGER
+      // - account_sharing_alerts.is_resolved = INTEGER
+      // - user_sessions.is_current = INTEGER
     }
 
-    // 6. 转换 CASE WHEN field = 1 中的布尔比较
-    // 匹配 WHEN is_selected = 1 -> WHEN is_selected = true
-    for (const field of booleanFields) {
-      const patternWhen1 = new RegExp(`(WHEN\\s+${field}\\s*=\\s*)1\\b`, 'gi')
-      result = result.replace(patternWhen1, '$1true')
+    // 转换 field = 1 -> field = true
+    for (const [tableName, fields] of Object.entries(booleanFieldsPostgres)) {
+      for (const field of fields) {
+        // 匹配 table.field = 1 或单独的 field = 1
+        const pattern1 = new RegExp(`(?:${tableName}\\.)?${field}\\s*=\\s*1\\b`, 'gi')
+        result = result.replace(pattern1, `${field} = true`)
 
-      const patternWhen0 = new RegExp(`(WHEN\\s+${field}\\s*=\\s*)0\\b`, 'gi')
-      result = result.replace(patternWhen0, '$1false')
-    }
+        // 匹配 field = 0 -> field = false
+        const pattern0 = new RegExp(`(?:${tableName}\\.)?${field}\\s*=\\s*0\\b`, 'gi')
+        result = result.replace(pattern0, `${field} = false`)
 
-    // 7. 转换 SET field = 0/1 中的布尔赋值
-    for (const field of booleanFields) {
-      const patternSet1 = new RegExp(`(SET\\s+${field}\\s*=\\s*)1\\b`, 'gi')
-      result = result.replace(patternSet1, '$1true')
+        // 转换 CASE WHEN field = 1
+        const patternWhen1 = new RegExp(`(WHEN\\s+${field}\\s*=\\s*)1\\b`, 'gi')
+        result = result.replace(patternWhen1, '$1true')
 
-      const patternSet0 = new RegExp(`(SET\\s+${field}\\s*=\\s*)0\\b`, 'gi')
-      result = result.replace(patternSet0, '$1false')
+        // 转换 CASE WHEN field = 0
+        const patternWhen0 = new RegExp(`(WHEN\\s+${field}\\s*=\\s*)0\\b`, 'gi')
+        result = result.replace(patternWhen0, '$1false')
+
+        // 转换 SET field = 1
+        const patternSet1 = new RegExp(`(SET\\s+${field}\\s*=\\s*)1\\b`, 'gi')
+        result = result.replace(patternSet1, '$1true')
+
+        // 转换 SET field = 0
+        const patternSet0 = new RegExp(`(SET\\s+${field}\\s*=\\s*)0\\b`, 'gi')
+        result = result.replace(patternSet0, '$1false')
+      }
     }
 
     return result
   }
 
   // 转换参数中的布尔值：SQLite 使用 0/1，PostgreSQL 使用 true/false
+  // 只对已知是 BOOLEAN 类型的字段进行转换
   private convertParams(params: any[], sql: string): any[] {
-    // 已知的布尔字段列表（需要从 0/1 转换为 true/false）
-    const booleanFields = [
+    // 已知的布尔字段列表（PostgreSQL 中是 BOOLEAN 类型）
+    const booleanFields = new Set([
       'is_active', 'is_selected', 'is_success', 'must_change_password',
       'is_default', 'is_manager', 'is_manager_account', 'is_idle',
       'enabled', 'is_deleted', 'is_sensitive', 'is_required'
-    ]
+    ])
 
     // 提取SQL中所有 field = ? 的字段名和位置
     const fieldPositions: { field: string; paramIndex: number }[] = []
     let paramIndex = 0
 
     // 查找SET子句中的所有 field = ? （UPDATE语句）
-    // 使用case-insensitive查找，提取SET和WHERE/;之间的内容
     const sqlUpper = sql.toUpperCase()
     const setIndex = sqlUpper.indexOf('SET')
     if (setIndex !== -1) {
@@ -193,7 +203,6 @@ class PostgresAdapter implements DatabaseAdapter {
       const endIndex = whereIndex !== -1 ? whereIndex : sql.length
       const setClause = sql.substring(setIndex + 3, endIndex)
 
-      // 提取所有 field = ? 模式
       const fieldMatches = setClause.matchAll(/(\w+)\s*=\s*\?/g)
       for (const match of fieldMatches) {
         const field = match[1]
@@ -205,7 +214,6 @@ class PostgresAdapter implements DatabaseAdapter {
     const whereMatches = sql.matchAll(/WHERE[^;]*/gi)
     for (const whereMatch of whereMatches) {
       const whereClause = whereMatch[0]
-      // 提取WHERE子句中的所有 field = ? 模式
       const fieldMatches = whereClause.matchAll(/(\w+)\s*=\s*\?/g)
       for (const match of fieldMatches) {
         const field = match[1]
@@ -222,7 +230,7 @@ class PostgresAdapter implements DatabaseAdapter {
       const field = fieldPosition?.field
 
       // 如果是布尔字段且参数是 0 或 1，转换为布尔值
-      if (field && booleanFields.some(f => f.toLowerCase() === field.toLowerCase()) && (p === 0 || p === 1)) {
+      if (field && booleanFields.has(field.toLowerCase()) && (p === 0 || p === 1)) {
         return p === 1 ? true : false
       }
 

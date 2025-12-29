@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle, ChevronLeft, ChevronRight, ArrowUp, ArrowUpDown, ArrowDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -103,6 +103,15 @@ export default function QueueManagementPage() {
     totalPages: 0
   })
 
+  // 排序状态
+  const [sortConfig, setSortConfig] = useState<{
+    key: string
+    direction: 'asc' | 'desc'
+  }>({
+    key: 'running',
+    direction: 'desc'
+  })
+
   // 配置表单状态
   const [config, setConfig] = useState<QueueConfig>(() => {
     // 根据服务器配置动态设置默认值
@@ -194,12 +203,11 @@ export default function QueueManagementPage() {
 
         // 计算用户队列表格分页
         const totalUsers = adaptedStats.perUser.length
-        const totalPages = Math.ceil(totalUsers / userQueuePagination.limit) || 1
         setUserQueuePagination(prev => ({
           ...prev,
           total: totalUsers,
-          totalPages,
-          page: Math.min(prev.page, totalPages) // 确保当前页不超过总页数
+          totalPages: Math.ceil(totalUsers / prev.limit) || 1,
+          page: Math.min(prev.page, Math.ceil(totalUsers / prev.limit) || 1)
         }))
 
         // 手动刷新时显示成功提示
@@ -257,6 +265,58 @@ export default function QueueManagementPage() {
     }
   }
 
+  // 排序处理函数
+  const handleSort = (key: string) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }))
+  }
+
+  // 获取排序后的用户数据
+  const getSortedUsers = () => {
+    if (!stats) return []
+
+    const users = [...stats.perUser]
+
+    return users.sort((a, b) => {
+      let aValue: number | string
+      let bValue: number | string
+
+      switch (sortConfig.key) {
+        case 'username':
+          aValue = a.username.toLowerCase()
+          bValue = b.username.toLowerCase()
+          break
+        case 'running':
+        case 'queued':
+        case 'completed':
+        case 'failed':
+          aValue = a[sortConfig.key as keyof typeof a] as number
+          bValue = b[sortConfig.key as keyof typeof b] as number
+          break
+        case 'utilization':
+          // 计算利用率
+          aValue = stats.config.perUserConcurrency > 0
+            ? (a.running / stats.config.perUserConcurrency)
+            : 0
+          bValue = stats.config.perUserConcurrency > 0
+            ? (b.running / stats.config.perUserConcurrency)
+            : 0
+          break
+        default:
+          aValue = a.running
+          bValue = b.running
+      }
+
+      if (sortConfig.direction === 'asc') {
+        return aValue > bValue ? 1 : -1
+      } else {
+        return aValue < bValue ? 1 : -1
+      }
+    })
+  }
+
   const saveConfig = async () => {
     setSavingConfig(true)
     try {
@@ -303,6 +363,19 @@ export default function QueueManagementPage() {
   useEffect(() => {
     fetchStats()
   }, [activeTab])
+
+  // 当每页显示数量或用户数据变化时，重新计算分页
+  useEffect(() => {
+    if (stats?.perUser) {
+      const totalUsers = stats.perUser.length
+      setUserQueuePagination(prev => ({
+        ...prev,
+        total: totalUsers,
+        totalPages: Math.ceil(totalUsers / prev.limit) || 1,
+        page: Math.min(prev.page, Math.ceil(totalUsers / prev.limit) || 1)
+      }))
+    }
+  }, [stats?.perUser, userQueuePagination.limit])
 
   if (loading) {
     return (
@@ -521,19 +594,116 @@ export default function QueueManagementPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">用户</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">运行中</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">队列中</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">已完成</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">失败</th>
-                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-600 w-32">利用率</th>
+                      <th
+                        className="text-left py-3 px-4 text-sm font-medium text-gray-600 cursor-pointer hover:text-gray-900 hover:bg-gray-50 transition-colors select-none"
+                        onClick={() => handleSort('username')}
+                      >
+                        <div className="flex items-center gap-1">
+                          用户
+                          {sortConfig.key === 'username' ? (
+                            sortConfig.direction === 'asc' ? (
+                              <ArrowUp className="w-4 h-4" />
+                            ) : (
+                              <ArrowDown className="w-4 h-4" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="text-center py-3 px-4 text-sm font-medium text-gray-600 cursor-pointer hover:text-gray-900 hover:bg-gray-50 transition-colors select-none"
+                        onClick={() => handleSort('running')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          运行中
+                          {sortConfig.key === 'running' ? (
+                            sortConfig.direction === 'asc' ? (
+                              <ArrowUp className="w-4 h-4" />
+                            ) : (
+                              <ArrowDown className="w-4 h-4" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="text-center py-3 px-4 text-sm font-medium text-gray-600 cursor-pointer hover:text-gray-900 hover:bg-gray-50 transition-colors select-none"
+                        onClick={() => handleSort('queued')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          队列中
+                          {sortConfig.key === 'queued' ? (
+                            sortConfig.direction === 'asc' ? (
+                              <ArrowUp className="w-4 h-4" />
+                            ) : (
+                              <ArrowDown className="w-4 h-4" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="text-center py-3 px-4 text-sm font-medium text-gray-600 cursor-pointer hover:text-gray-900 hover:bg-gray-50 transition-colors select-none"
+                        onClick={() => handleSort('completed')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          已完成
+                          {sortConfig.key === 'completed' ? (
+                            sortConfig.direction === 'asc' ? (
+                              <ArrowUp className="w-4 h-4" />
+                            ) : (
+                              <ArrowDown className="w-4 h-4" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="text-center py-3 px-4 text-sm font-medium text-gray-600 cursor-pointer hover:text-gray-900 hover:bg-gray-50 transition-colors select-none"
+                        onClick={() => handleSort('failed')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          失败
+                          {sortConfig.key === 'failed' ? (
+                            sortConfig.direction === 'asc' ? (
+                              <ArrowUp className="w-4 h-4" />
+                            ) : (
+                              <ArrowDown className="w-4 h-4" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="text-center py-3 px-4 text-sm font-medium text-gray-600 w-32 cursor-pointer hover:text-gray-900 hover:bg-gray-50 transition-colors select-none"
+                        onClick={() => handleSort('utilization')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          利用率
+                          {sortConfig.key === 'utilization' ? (
+                            sortConfig.direction === 'asc' ? (
+                              <ArrowUp className="w-4 h-4" />
+                            ) : (
+                              <ArrowDown className="w-4 h-4" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {(() => {
                       const startIndex = (userQueuePagination.page - 1) * userQueuePagination.limit
                       const endIndex = startIndex + userQueuePagination.limit
-                      const paginatedUsers = stats.perUser.slice(startIndex, endIndex)
+                      const sortedUsers = getSortedUsers()
+                      const paginatedUsers = sortedUsers.slice(startIndex, endIndex)
 
                       return paginatedUsers.map((userStat) => {
                         const userUtilization = stats.config.perUserConcurrency > 0
@@ -591,9 +761,9 @@ export default function QueueManagementPage() {
 
               {/* Pagination Controls */}
               {userQueuePagination.total > 0 && (
-                <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
-                  <div className="flex items-center space-x-2">
-                    <label className="text-sm font-medium text-gray-600">每页显示：</label>
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-gray-200 pt-4">
+                  <div className="flex items-center space-x-2 flex-shrink-0">
+                    <span className="text-sm font-medium text-gray-600 whitespace-nowrap">每页显示：</span>
                     <Select
                       value={String(userQueuePagination.limit)}
                       onValueChange={(newLimit) => {
@@ -616,11 +786,11 @@ export default function QueueManagementPage() {
                     </Select>
                   </div>
 
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-gray-600 whitespace-nowrap">
                     显示 {(userQueuePagination.page - 1) * userQueuePagination.limit + 1} - {Math.min(userQueuePagination.page * userQueuePagination.limit, userQueuePagination.total)} 条，共 {userQueuePagination.total} 条
                   </span>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 flex-shrink-0">
                     <Button
                       variant="outline"
                       size="sm"
@@ -631,7 +801,7 @@ export default function QueueManagementPage() {
                       上一页
                     </Button>
 
-                    <span className="text-sm font-medium text-gray-700 px-2">
+                    <span className="text-sm font-medium text-gray-700 px-2 whitespace-nowrap">
                       第 {userQueuePagination.page} / {userQueuePagination.totalPages} 页
                     </span>
 

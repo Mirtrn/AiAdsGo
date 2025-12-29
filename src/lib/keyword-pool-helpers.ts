@@ -1,13 +1,31 @@
 /**
- * 关键词池辅助函数
- * 🔥 2025-12-16新增：全量扩展、智能过滤、智能选择
+ * 关键词池辅助函数 (v2.0)
+ * 🔥 2025-12-29 优化：根据认证类型分发不同扩展策略
+ *
+ * 策略：
+ * - OAuth模式：Keyword Planner迭代查询（移除Trends）
+ * - 服务账号模式：Google下拉词 + 增强提取 + Google Trends
  */
 
 import type { PoolKeywordData } from './offer-keyword-pool'
 import { expandKeywordsWithSeeds } from './unified-keyword-service'
-import { getTrendsKeywords, getPopularSearchTerms } from './google-trends'
+import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
-import { detectCountryInKeyword } from './google-suggestions'
+import {
+  detectCountryInKeyword,
+  filterLowIntentKeywords,
+  filterMismatchedGeoKeywords,
+  getBrandSearchSuggestions
+} from './google-suggestions'
+import {
+  getPureBrandKeywords,
+  containsPureBrand,
+  isPureBrandKeyword,
+  isBrandVariant,
+  isSemanticQuery,
+  isBrandIrrelevant
+} from './keyword-quality-filter'
+import type { Offer } from './offers'
 
 // ============================================
 // 动态过滤逻辑（无硬编码配置）
@@ -31,16 +49,30 @@ function isCompetitorKeyword(keyword: string, brandName: string): boolean {
 }
 
 // ============================================
-// 全量扩展
+// 主入口：根据认证类型分发扩展策略（🔥 2025-12-29 新增）
 // ============================================
 
 /**
- * 全量关键词扩展（🔥 2025-12-24 新增：集成 Google Trends 数据源）
+ * 全量关键词扩展（v2.0）
  *
- * 策略：
- * 1. Keyword Planner 扩展（主数据源）
- * 2. Google Trends 变体扩展（补充长尾词）
- * 3. 热门品类词补充
+ * 根据认证类型选择不同的扩展策略：
+ * - OAuth模式：Keyword Planner迭代查询（移除Trends）
+ * - 服务账号模式：Google下拉词 + 增强提取 + Google Trends
+ *
+ * @param initialKeywords - 初始关键词
+ * @param brandName - 品牌名称
+ * @param category - 产品类别
+ * @param targetCountry - 目标国家
+ * @param targetLanguage - 目标语言
+ * @param authType - 认证类型
+ * @param offer - Offer信息（服务账号模式需要）
+ * @param userId - 用户ID
+ * @param customerId - Google Ads客户ID（OAuth模式需要）
+ * @param refreshToken - 刷新令牌（OAuth模式需要）
+ * @param accountId - 账户ID
+ * @param clientId - OAuth客户端ID
+ * @param clientSecret - OAuth客户端密钥
+ * @param developerToken - 开发者令牌
  */
 export async function expandAllKeywords(
   initialKeywords: PoolKeywordData[],
@@ -48,6 +80,8 @@ export async function expandAllKeywords(
   category: string,
   targetCountry: string,
   targetLanguage: string,
+  authType: 'oauth' | 'service_account',
+  offer?: Offer,
   userId?: number,
   customerId?: string,
   refreshToken?: string,
@@ -56,134 +90,675 @@ export async function expandAllKeywords(
   clientSecret?: string,
   developerToken?: string
 ): Promise<PoolKeywordData[]> {
-  console.log(`\n📋 全量关键词扩展策略 (🔥 v4.17 增强版):`)
+  console.log(`\n📋 关键词扩展策略 (v2.0 - 认证类型: ${authType}):`)
   console.log(`   初始关键词数量: ${initialKeywords.length}`)
+  console.log(`   品牌: ${brandName}`)
 
-  const allKeywords = [...initialKeywords]
-  const seedKeywords = initialKeywords.map(kw => kw.keyword)
-
-  console.log(`   扩展种子词: ${seedKeywords.length}个`)
-
-  try {
-    // ========== 阶段1: Keyword Planner 扩展 ==========
-    console.log(`\n   📊 阶段1: Keyword Planner 扩展`)
-    const expandedResults = await expandKeywordsWithSeeds({
-      expansionSeeds: seedKeywords,
-      country: targetCountry,
-      language: targetLanguage,
-      userId,
+  if (authType === 'oauth') {
+    return expandForOAuth({
+      initialKeywords,
       brandName,
+      category,
+      targetCountry,
+      targetLanguage,
+      userId,
       customerId,
       refreshToken,
       accountId,
       clientId,
       clientSecret,
-      developerToken,
-      maxKeywords: DEFAULTS.maxKeywords,
-      minSearchVolume: DEFAULTS.minSearchVolume
+      developerToken
     })
-
-    // 合并结果（去重）
-    expandedResults.forEach(kw => {
-      if (!allKeywords.find(k => k.keyword === kw.keyword)) {
-        allKeywords.push({
-          keyword: kw.keyword,
-          searchVolume: kw.searchVolume,
-          competition: kw.competition,
-          competitionIndex: kw.competitionIndex,
-          lowTopPageBid: kw.lowTopPageBid,
-          highTopPageBid: kw.highTopPageBid,
-          source: 'EXPANDED',
-          matchType: kw.matchType
-        })
-      }
-    })
-
-    console.log(`   Keyword Planner 扩展后: ${allKeywords.length} 个`)
-
-    // ========== 阶段2: Google Trends 扩展（🔥 2025-12-24 新增） ==========
-    console.log(`\n   📊 阶段2: Google Trends 变体扩展`)
-
-    try {
-      const trendsKeywords = await getTrendsKeywords(
-        seedKeywords.slice(0, 10), // 限制种子词数量，避免过多变体
-        brandName,
-        category
-      )
-
-      // 合并 Trends 关键词
-      let trendsAdded = 0
-      trendsKeywords.forEach(kw => {
-        if (!allKeywords.find(k => k.keyword.toLowerCase() === kw.keyword.toLowerCase())) {
-          allKeywords.push(kw)
-          trendsAdded++
-        }
-      })
-      console.log(`   Google Trends 新增: ${trendsAdded} 个`)
-    } catch (error: any) {
-      console.warn(`   ⚠️ Google Trends 扩展失败: ${error.message}`)
+  } else {
+    if (!offer || !userId) {
+      throw new Error('服务账号模式需要提供 offer 和 userId 参数')
     }
-
-    // ========== 阶段3: 热门品类词补充（🔥 2025-12-24 新增） ==========
-    console.log(`\n   📊 阶段3: 热门品类词补充`)
-
-    const popularTerms = getPopularSearchTerms(category)
-    let popularAdded = 0
-
-    for (const term of popularTerms) {
-      // 检查是否已存在
-      const exists = allKeywords.some(k =>
-        k.keyword.toLowerCase().includes(term.toLowerCase()) ||
-        term.toLowerCase().includes(k.keyword.toLowerCase())
-      )
-
-      if (!exists) {
-        allKeywords.push({
-          keyword: `${brandName} ${term}`,
-          searchVolume: 0,
-          competition: 'MEDIUM',
-          competitionIndex: 50,
-          lowTopPageBid: 0,
-          highTopPageBid: 0,
-          source: 'POPULAR',
-          matchType: 'BROAD'
-        })
-        popularAdded++
-      }
-    }
-
-    console.log(`   热门品类词新增: ${popularAdded} 个`)
-
-    console.log(`\n   📊 扩展后关键词数量: ${allKeywords.length}`)
-
-    // 🔥 2025-12-22新增：应用增强去重算法
-    // 从关键词列表中提取纯文本进行去重
-    const keywordTexts = allKeywords.map(k => k.keyword)
-    const deduplicatedTexts = deduplicateKeywords(keywordTexts, {
-      // 示例品牌变体映射（实际使用时从配置获取）
-      // 'brandinc': 'brand',
-      // 'brandy': 'brand'
+    return expandForServiceAccount({
+      initialKeywords,
+      brandName,
+      category,
+      targetCountry,
+      targetLanguage,
+      offer,
+      userId
     })
-
-    // 根据去重后的文本列表过滤PoolKeywordData
-    const deduplicatedKeywords = allKeywords.filter(kw =>
-      deduplicatedTexts.includes(kw.keyword.toLowerCase().trim())
-    )
-
-    console.log(`   去重后关键词数量: ${deduplicatedKeywords.length}`)
-    console.log(`   去重率: ${((allKeywords.length - deduplicatedKeywords.length) / allKeywords.length * 100).toFixed(1)}%`)
-
-    return deduplicatedKeywords
-  } catch (error: any) {
-    console.error(`   ⚠️ 关键词扩展失败: ${error.message}`)
-    console.log(`   使用初始关键词继续`)
   }
-
-  return allKeywords
 }
 
 // ============================================
-// 智能过滤
+// OAuth模式：Keyword Planner迭代查询
+// ============================================
+
+interface OAuthExpandParams {
+  initialKeywords: PoolKeywordData[]
+  brandName: string
+  category: string
+  targetCountry: string
+  targetLanguage: string
+  userId?: number
+  customerId?: string
+  refreshToken?: string
+  accountId?: number
+  clientId?: string
+  clientSecret?: string
+  developerToken?: string
+}
+
+/**
+ * OAuth模式关键词扩展：Keyword Planner迭代查询
+ *
+ * 策略：
+ * 1. 生成纯品牌词种子
+ * 2. 迭代查询Keyword Planner（最多3轮，Top20）
+ * 3. 质量过滤（品牌变体/语义/品牌无关/低意图）
+ * 4. 搜索量过滤（纯品牌词豁免）
+ */
+async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordData[]> {
+  const {
+    initialKeywords,
+    brandName,
+    category,
+    targetCountry,
+    targetLanguage,
+    userId,
+    customerId,
+    refreshToken,
+    accountId,
+    clientId,
+    clientSecret,
+    developerToken
+  } = params
+
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+  const allKeywords = new Map<string, PoolKeywordData>()
+  const maxRounds = 3
+  const topN = 20
+
+  // 初始化种子词
+  let seedKeywords = initialKeywords.map(kw => kw.keyword)
+
+  // 如果没有初始关键词，使用纯品牌词
+  if (seedKeywords.length === 0) {
+    seedKeywords = pureBrandKeywords
+  }
+
+  console.log(`   初始种子词: ${seedKeywords.length}个`)
+
+  try {
+    // 迭代查询Keyword Planner
+    for (let round = 1; round <= maxRounds; round++) {
+      console.log(`\n   📊 Round ${round}/${maxRounds}: Keyword Planner 查询`)
+      console.log(`      种子词: ${seedKeywords.slice(0, 5).join(', ')}${seedKeywords.length > 5 ? '...' : ''}`)
+
+      if (!customerId || !userId) {
+        console.warn(`   ⚠️ 缺少 customerId 或 userId，跳过Keyword Planner查询`)
+        break
+      }
+
+      const results = await expandKeywordsWithSeeds({
+        expansionSeeds: seedKeywords,
+        country: targetCountry,
+        language: targetLanguage,
+        userId,
+        brandName,
+        customerId,
+        refreshToken,
+        accountId,
+        clientId,
+        clientSecret,
+        developerToken,
+        maxKeywords: DEFAULTS.maxKeywords,
+        minSearchVolume: DEFAULTS.minSearchVolume
+      })
+
+      console.log(`      返回 ${results.length} 个关键词`)
+
+      // 处理结果：只保留包含品牌词的关键词
+      let newCount = 0
+      for (const kw of results) {
+        const kwLower = kw.keyword.toLowerCase()
+        const keywordText = kwLower.trim()
+
+        if (!keywordText) continue
+
+        // 只保留包含品牌词的关键词
+        if (!containsPureBrand(kw.keyword, pureBrandKeywords)) {
+          continue
+        }
+
+        if (!allKeywords.has(keywordText)) {
+          allKeywords.set(keywordText, {
+            keyword: kw.keyword,
+            searchVolume: kw.searchVolume,
+            competition: kw.competition,
+            competitionIndex: kw.competitionIndex,
+            lowTopPageBid: kw.lowTopPageBid,
+            highTopPageBid: kw.highTopPageBid,
+            source: 'KEYWORD_PLANNER',
+            matchType: kw.matchType,
+            isPureBrand: isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+          })
+          newCount++
+        }
+      }
+
+      console.log(`      新增 ${newCount} 个品牌关键词`)
+
+      // 准备下一轮种子词（按搜索量排序，取Top20）
+      const sortedKeywords = Array.from(allKeywords.values())
+        .sort((a, b) => b.searchVolume - a.searchVolume)
+        .slice(0, topN)
+
+      // 如果种子词不再变化，提前结束
+      if (sortedKeywords.length < topN) {
+        console.log(`      种子词数量不足，结束迭代`)
+        break
+      }
+
+      seedKeywords = sortedKeywords.map(kw => kw.keyword)
+    }
+
+    console.log(`\n   📊 Keyword Planner 迭代完成: ${allKeywords.size} 个关键词`)
+
+    // 质量过滤
+    console.log(`\n   📊 质量过滤`)
+    const filtered = qualityFilterOAuth(
+      Array.from(allKeywords.values()),
+      brandName,
+      targetCountry
+    )
+
+    console.log(`   过滤后: ${filtered.length} 个关键词`)
+
+    return filtered
+
+  } catch (error: any) {
+    console.error(`   ⚠️ OAuth模式关键词扩展失败: ${error.message}`)
+    return initialKeywords
+  }
+}
+
+/**
+ * OAuth模式质量过滤
+ */
+function qualityFilterOAuth(
+  keywords: PoolKeywordData[],
+  brandName: string,
+  targetCountry?: string
+): PoolKeywordData[] {
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+  const dynamicThreshold = calculateDynamicThreshold(keywords)
+
+  console.log(`      动态搜索量阈值: ${dynamicThreshold}`)
+
+  let brandKeptCount = 0
+  let brandVariantRemoved = 0
+  let semanticRemoved = 0
+  let irrelevantRemoved = 0
+  let lowIntentRemoved = 0
+  let geoRemoved = 0
+  let volumeRemoved = 0
+
+  const filtered = keywords.filter(kw => {
+    const kwLower = kw.keyword.toLowerCase()
+    const isPureBrand = isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+
+    // 1. 品牌变体词过滤
+    if (isBrandVariant(kw.keyword, brandName)) {
+      brandVariantRemoved++
+      return false
+    }
+
+    // 2. 品牌无关词过滤
+    if (isBrandIrrelevant(kwLower, brandName)) {
+      irrelevantRemoved++
+      return false
+    }
+
+    // 3. 语义查询词过滤
+    if (isSemanticQuery(kwLower)) {
+      semanticRemoved++
+      return false
+    }
+
+    // 4. 地理过滤
+    if (targetCountry) {
+      const detectedCountries = detectCountryInKeyword(kw.keyword)
+      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
+        geoRemoved++
+        return false
+      }
+    }
+
+    // 5. 搜索量过滤（纯品牌词豁免）
+    if (!isPureBrand && kw.searchVolume > 0 && kw.searchVolume < dynamicThreshold) {
+      volumeRemoved++
+      return false
+    }
+
+    if (isPureBrand) {
+      kw.isPureBrand = true
+      brandKeptCount++
+    }
+
+    return true
+  })
+
+  console.log(`      保留: ${filtered.length}`)
+  console.log(`      纯品牌词: ${brandKeptCount}`)
+  console.log(`      移除: 品牌变体(${brandVariantRemoved}) 语义(${semanticRemoved}) 品牌无关(${irrelevantRemoved}) 低意图(${lowIntentRemoved}) 地理(${geoRemoved}) 搜索量(${volumeRemoved})`)
+
+  return filtered
+}
+
+// ============================================
+// 服务账号模式：Google下拉词 + 增强提取 + Google Trends（🔥 2025-12-29 新增）
+// ============================================
+
+interface ServiceAccountExpandParams {
+  initialKeywords: PoolKeywordData[]
+  brandName: string
+  category: string
+  targetCountry: string
+  targetLanguage: string
+  offer: Offer
+  userId: number
+}
+
+/**
+ * 服务账号模式关键词扩展
+ *
+ * 策略：
+ * 1. Google下拉词
+ * 2. 增强提取
+ * 3. Google Trends扩展
+ * 4. 质量过滤（无搜索量过滤）
+ */
+async function expandForServiceAccount(params: ServiceAccountExpandParams): Promise<PoolKeywordData[]> {
+  const {
+    initialKeywords,
+    brandName,
+    category,
+    targetCountry,
+    targetLanguage,
+    offer,
+    userId
+  } = params
+
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+  const allKeywords = new Map<string, PoolKeywordData>()
+
+  try {
+    // ========== 阶段1: Google下拉词 ==========
+    console.log(`\n   📊 阶段1: Google下拉词`)
+
+    try {
+      const googleSuggestKeywords = await getBrandSearchSuggestions({
+        brand: brandName,
+        country: targetCountry,
+        language: getLanguageCode(targetLanguage),
+        useProxy: true,
+        productName: offer.product_name || offer.brand,
+        category: offer.category || category
+      })
+
+      // 过滤低意图和地理不匹配
+      const filteredSuggest = filterLowIntentKeywords(
+        filterMismatchedGeoKeywords(
+          googleSuggestKeywords.map(kw => kw.keyword),
+          targetCountry
+        )
+      )
+
+      console.log(`      Google下拉词: ${filteredSuggest.length} 个`)
+
+      for (const text of filteredSuggest) {
+        const kwLower = text.toLowerCase().trim()
+        if (!kwLower) continue
+
+        // 只保留包含品牌词的关键词
+        if (!containsPureBrand(kwLower, pureBrandKeywords)) {
+          continue
+        }
+
+        if (!allKeywords.has(kwLower)) {
+          allKeywords.set(kwLower, {
+            keyword: text,
+            searchVolume: 0,
+            competition: 'UNKNOWN',
+            competitionIndex: 0,
+            lowTopPageBid: 0,
+            highTopPageBid: 0,
+            source: 'GOOGLE_SUGGEST',
+            matchType: 'BROAD',
+            isPureBrand: isPureBrandKeyword(text, pureBrandKeywords)
+          })
+        }
+      }
+    } catch (error: any) {
+      console.warn(`   ⚠️ Google下拉词获取失败: ${error.message}`)
+    }
+
+    // ========== 阶段2: 增强提取 ==========
+    console.log(`\n   📊 阶段2: 增强提取`)
+
+    try {
+      // 延迟导入避免循环依赖
+      const { extractKeywordsEnhanced } = await import('./enhanced-keyword-extractor')
+
+      const enhancedKeywords = await extractKeywordsEnhanced({
+        productName: offer.product_name || offer.brand,
+        brandName: brandName,
+        category: offer.category || category,
+        description: offer.brand_description || '',
+        features: extractFeaturesFromOffer(offer),
+        useCases: extractUseCasesFromOffer(offer),
+        targetAudience: extractAudienceFromOffer(offer).join(', '),
+        competitors: extractCompetitorsFromOffer(offer),
+        targetCountry: targetCountry,
+        targetLanguage: targetLanguage,
+      }, userId)
+
+      console.log(`      增强提取: ${enhancedKeywords.length} 个`)
+
+      for (const kw of enhancedKeywords) {
+        const kwLower = kw.keyword.toLowerCase().trim()
+        if (!kwLower) continue
+
+        // 只保留包含品牌词的关键词
+        if (!containsPureBrand(kwLower, pureBrandKeywords)) {
+          continue
+        }
+
+        if (!allKeywords.has(kwLower)) {
+          allKeywords.set(kwLower, {
+            keyword: kw.keyword,
+            searchVolume: 0,
+            competition: kw.competition || 'UNKNOWN',
+            competitionIndex: 0,
+            lowTopPageBid: 0,
+            highTopPageBid: 0,
+            source: 'ENHANCED_EXTRACT',
+            matchType: 'BROAD',
+            isPureBrand: isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+          })
+        }
+      }
+    } catch (error: any) {
+      console.warn(`   ⚠️ 增强提取失败: ${error.message}`)
+    }
+
+    // ========== 阶段3: Google Trends扩展 ==========
+    console.log(`\n   📊 阶段3: Google Trends扩展`)
+
+    try {
+      const seedKeywords = Array.from(allKeywords.values())
+        .slice(0, 10)
+        .map(kw => kw.keyword)
+
+      const trendsKeywords = await getTrendsKeywords(seedKeywords, brandName, category)
+
+      console.log(`      Trends扩展: ${trendsKeywords.length} 个`)
+
+      for (const kw of trendsKeywords) {
+        const kwLower = kw.keyword.toLowerCase().trim()
+        if (!kwLower) continue
+
+        // 只保留包含品牌词的关键词
+        if (!containsPureBrand(kwLower, pureBrandKeywords)) {
+          continue
+        }
+
+        if (!allKeywords.has(kwLower)) {
+          allKeywords.set(kwLower, {
+            keyword: kw.keyword,
+            searchVolume: kw.searchVolume || 0,
+            competition: kw.competition || 'UNKNOWN',
+            competitionIndex: kw.competitionIndex || 0,
+            lowTopPageBid: kw.lowTopPageBid || 0,
+            highTopPageBid: kw.highTopPageBid || 0,
+            source: 'GOOGLE_TRENDS',
+            matchType: 'BROAD',
+            isPureBrand: isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+          })
+        }
+      }
+    } catch (error: any) {
+      console.warn(`   ⚠️ Google Trends扩展失败: ${error.message}`)
+    }
+
+    console.log(`\n   📊 服务账号模式关键词收集完成: ${allKeywords.size} 个`)
+
+    // 质量过滤（无搜索量过滤）
+    console.log(`\n   📊 质量过滤`)
+    const filtered = qualityFilterServiceAccount(
+      Array.from(allKeywords.values()),
+      brandName,
+      targetCountry
+    )
+
+    console.log(`   过滤后: ${filtered.length} 个关键词`)
+
+    return filtered
+
+  } catch (error: any) {
+    console.error(`   ⚠️ 服务账号模式关键词扩展失败: ${error.message}`)
+    return initialKeywords
+  }
+}
+
+/**
+ * 服务账号模式质量过滤（无搜索量过滤）
+ */
+function qualityFilterServiceAccount(
+  keywords: PoolKeywordData[],
+  brandName: string,
+  targetCountry?: string
+): PoolKeywordData[] {
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+
+  let brandKeptCount = 0
+  let brandVariantRemoved = 0
+  let semanticRemoved = 0
+  let irrelevantRemoved = 0
+  let geoRemoved = 0
+
+  const filtered = keywords.filter(kw => {
+    const kwLower = kw.keyword.toLowerCase()
+    const isPureBrand = isPureBrandKeyword(kw.keyword, pureBrandKeywords)
+
+    // 1. 品牌变体词过滤
+    if (isBrandVariant(kw.keyword, brandName)) {
+      brandVariantRemoved++
+      return false
+    }
+
+    // 2. 品牌无关词过滤
+    if (isBrandIrrelevant(kwLower, brandName)) {
+      irrelevantRemoved++
+      return false
+    }
+
+    // 3. 语义查询词过滤
+    if (isSemanticQuery(kwLower)) {
+      semanticRemoved++
+      return false
+    }
+
+    // 4. 地理过滤
+    if (targetCountry) {
+      const detectedCountries = detectCountryInKeyword(kw.keyword)
+      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
+        geoRemoved++
+        return false
+      }
+    }
+
+    // 无搜索量过滤（服务账号无法获取搜索量）
+
+    if (isPureBrand) {
+      kw.isPureBrand = true
+      brandKeptCount++
+    }
+
+    return true
+  })
+
+  console.log(`      保留: ${filtered.length}`)
+  console.log(`      纯品牌词: ${brandKeptCount}`)
+  console.log(`      移除: 品牌变体(${brandVariantRemoved}) 语义(${semanticRemoved}) 品牌无关(${irrelevantRemoved}) 地理(${geoRemoved})`)
+
+  return filtered
+}
+
+// ============================================
+// 辅助函数
+// ============================================
+
+/**
+ * 将语言名称转换为语言代码
+ */
+function getLanguageCode(language: string): string {
+  const languageMap: Record<string, string> = {
+    English: 'en',
+    German: 'de',
+    French: 'fr',
+    Spanish: 'es',
+    Italian: 'it',
+    Portuguese: 'pt',
+    Japanese: 'ja',
+    Korean: 'ko',
+    Chinese: 'zh',
+  }
+  return languageMap[language] || 'en'
+}
+
+/**
+ * 从Offer中提取特性列表
+ */
+function extractFeaturesFromOffer(offer: Offer): string[] {
+  const features: string[] = []
+
+  // 尝试从产品名称提取型号信息
+  if (offer.product_name) {
+    // 提取型号信息，如 "J15 Pro", "E20S" 等
+    const modelMatch = offer.product_name.match(/([A-Z]\d{2,}[A-Z]?)/)
+    if (modelMatch) {
+      features.push(modelMatch[1])
+    }
+
+    // 提取常见功能词
+    const featureWords = ['wireless', 'smart', 'automatic', 'rechargeable', 'portable']
+    for (const word of featureWords) {
+      if (offer.product_name.toLowerCase().includes(word)) {
+        features.push(word)
+      }
+    }
+  }
+
+  return [...new Set(features)].slice(0, 5)
+}
+
+/**
+ * 从Offer中提取使用场景
+ */
+function extractUseCasesFromOffer(offer: Offer): string[] {
+  const useCases: string[] = []
+
+  if (offer.category) {
+    useCases.push(offer.category)
+  }
+
+  // 尝试从产品名称或品牌描述中提取
+  const textToSearch = `${offer.product_name || ''} ${offer.brand_description || ''}`
+
+  if (textToSearch) {
+    const useCasePatterns = [
+      /home (security|monitoring|protection)/gi,
+      /indoor (use|monitoring)/gi,
+      /outdoor (use|security)/gi,
+      /pet (monitoring|care)/gi,
+      /baby (monitoring|care)/gi,
+    ]
+
+    for (const pattern of useCasePatterns) {
+      const matches = textToSearch.match(pattern)
+      if (matches) {
+        useCases.push(...matches)
+      }
+    }
+  }
+
+  return [...new Set(useCases)].slice(0, 3)
+}
+
+/**
+ * 从Offer中提取目标受众
+ */
+function extractAudienceFromOffer(offer: Offer): string[] {
+  const audiences: string[] = []
+
+  if (offer.target_audience) {
+    // 从target_audience字段提取
+    const parsed = JSON.parse(offer.target_audience)
+    if (Array.isArray(parsed)) {
+      audiences.push(...parsed)
+    }
+  }
+
+  // 默认受众
+  if (audiences.length === 0) {
+    audiences.push(
+      'homeowners',
+      'tech-savvy users',
+      'security-conscious consumers'
+    )
+  }
+
+  return audiences.slice(0, 3)
+}
+
+/**
+ * 从Offer中提取竞品（简单实现）
+ */
+function extractCompetitorsFromOffer(offer: Offer): string[] {
+  // 尝试从竞品分析中提取
+  if (offer.competitor_analysis) {
+    try {
+      const parsed = JSON.parse(offer.competitor_analysis)
+      if (Array.isArray(parsed)) {
+        return parsed.slice(0, 5)
+      }
+    } catch {
+      // 解析失败，返回空数组
+    }
+  }
+
+  return []
+}
+
+/**
+ * 计算动态搜索量阈值
+ */
+function calculateDynamicThreshold(keywords: PoolKeywordData[]): number {
+  const keywordsWithVolume = keywords.filter(kw => kw.searchVolume > 0)
+
+  if (keywordsWithVolume.length === 0) {
+    return 100 // 默认阈值
+  }
+
+  const volumes = keywordsWithVolume
+    .map(kw => kw.searchVolume)
+    .sort((a, b) => a - b)
+
+  const medianVolume = volumes[Math.floor(volumes.length / 2)]
+
+  // 阈值设为中位数的10%，但不超过500，不低于100
+  return Math.min(500, Math.max(100, Math.floor(medianVolume * 0.1)))
+}
+
+// ============================================
+// 智能过滤（保留向后兼容）
 // ============================================
 
 /**

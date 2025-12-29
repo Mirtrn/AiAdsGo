@@ -114,8 +114,11 @@ export async function logLoginAttempt(
   failureReason?: string
 ): Promise<void> {
   const db = await getDatabase()
+  const db_type = db.type
 
   try {
+    // PostgreSQL使用布尔值，SQLite使用整数
+    const successValue = db_type === 'postgres' ? success : (success ? 1 : 0)
     await db.exec(`
       INSERT INTO login_attempts (username_or_email, ip_address, user_agent, success, failure_reason)
       VALUES (?, ?, ?, ?, ?)
@@ -123,7 +126,7 @@ export async function logLoginAttempt(
       usernameOrEmail,
       ipAddress,
       userAgent,
-      success ? 1 : 0,
+      successValue,
       failureReason || null
     ])
   } catch (error) {

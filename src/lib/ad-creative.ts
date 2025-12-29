@@ -297,17 +297,21 @@ export async function selectAdCreative(id: number, userId: number): Promise<void
     throw new Error('广告创意不存在')
   }
 
+  // PostgreSQL 使用 BOOLEAN，SQLite 使用 INTEGER
+  const isSelectedTrue = db.type === 'postgres' ? 'is_selected = true' : 'is_selected = 1'
+  const isSelectedFalse = db.type === 'postgres' ? 'is_selected = false' : 'is_selected = 0'
+
   await db.exec(`
     UPDATE ad_creatives
-    SET is_selected = 0,
+    SET ${isSelectedFalse},
         updated_at = datetime('now')
-    WHERE offer_id = ? AND user_id = ? AND is_selected = 1
+    WHERE offer_id = ? AND user_id = ? AND ${isSelectedTrue}
   `, [creative.offer_id, userId])
 
   // 标记当前创意为已选中
   await db.exec(`
     UPDATE ad_creatives
-    SET is_selected = 1,
+    SET ${isSelectedTrue},
         updated_at = datetime('now')
     WHERE id = ? AND user_id = ?
   `, [id, userId])

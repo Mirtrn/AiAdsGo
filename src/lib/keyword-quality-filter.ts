@@ -1,15 +1,104 @@
 /**
- * 关键词质量过滤模块
+ * 关键词质量过滤模块 (v2.0)
  *
  * 职责：过滤低质量关键词，确保关键词与产品相关
  *
  * 过滤规则：
  * 1. 品牌变体词过滤：品牌名 + 随机字符后缀（如 eurekaddl）
  * 2. 语义查询词过滤：非购买意图的查询词（如 significato、serie）
- * 3. 产品类别验证：确保关键词与产品类别相关
+ * 3. 品牌无关词过滤：多语言企业类型后缀（如 unito, gmbh, inc）
+ * 4. 纯品牌词检测：支持多单词品牌（eufy security → eufy + eufy security）
+ *
+ * 🔥 2025-12-29 优化：
+ * - 新增纯品牌词检测函数
+ * - 新增多语言品牌无关词过滤
+ * - 支持OAuth和服务账号两种模式
  */
 
 import type { PoolKeywordData } from './offer-keyword-pool'
+
+// ============================================
+// 纯品牌词检测（🔥 2025-12-29 新增）
+// ============================================
+
+/**
+ * 获取品牌的纯品牌词列表
+ *
+ * 对于多单词品牌名称，纯品牌词包含：
+ * - 品牌全名（如 "eufy security"）
+ * - 品牌首词（如 "eufy"）
+ *
+ * @param brandName - 品牌名称
+ * @returns 纯品牌词数组
+ *
+ * @example
+ * getPureBrandKeywords("eufy security") → ["eufy", "eufy security"]
+ * getPureBrandKeywords("eureka") → ["eureka"]
+ * getPureBrandKeywords("Wahl Professional") → ["wahl", "wahl professional"]
+ */
+export function getPureBrandKeywords(brandName: string): string[] {
+  if (!brandName || !brandName.trim()) {
+    return []
+  }
+
+  // 先trim再split，避免空字符串
+  const trimmed = brandName.trim()
+  const words = trimmed.split(/\s+/)
+  const pureBrandKeywords: string[] = []
+
+  // 添加品牌全名
+  pureBrandKeywords.push(trimmed.toLowerCase())
+
+  // 添加品牌首词（如果品牌名超过一个词）
+  if (words.length > 1 && words[0]) {
+    pureBrandKeywords.push(words[0].toLowerCase())
+  }
+
+  return [...new Set(pureBrandKeywords)]
+}
+
+/**
+ * 检测关键词是否包含纯品牌词
+ *
+ * @param keyword - 要检测的关键词
+ * @param pureBrandKeywords - 纯品牌词列表
+ * @returns 是否包含纯品牌词
+ *
+ * @example
+ * containsPureBrand("eufy security camera", ["eufy", "eufy security"]) → true
+ * containsPureBrand("security camera", ["eufy", "eufy security"]) → false
+ */
+export function containsPureBrand(keyword: string, pureBrandKeywords: string[]): boolean {
+  if (!keyword || !pureBrandKeywords || pureBrandKeywords.length === 0) {
+    return false
+  }
+
+  const kwLower = keyword.toLowerCase()
+  return pureBrandKeywords.some(brand => kwLower.includes(brand.toLowerCase()))
+}
+
+/**
+ * 检测关键词是否为纯品牌词本身
+ *
+ * @param keyword - 要检测的关键词
+ * @param pureBrandKeywords - 纯品牌词列表
+ * @returns 是否为纯品牌词本身
+ *
+ * @example
+ * isPureBrandKeyword("eufy", ["eufy", "eufy security"]) → true
+ * isPureBrandKeyword("eufy security", ["eufy", "eufy security"]) → true
+ * isPureBrandKeyword("eufy camera", ["eufy", "eufy security"]) → false
+ */
+export function isPureBrandKeyword(keyword: string, pureBrandKeywords: string[]): boolean {
+  if (!keyword || !pureBrandKeywords || pureBrandKeywords.length === 0) {
+    return false
+  }
+
+  const kwLower = keyword.toLowerCase().trim()
+  return pureBrandKeywords.some(brand =>
+    kwLower === brand.toLowerCase().trim()
+  )
+}
 
 // ============================================
 // 语义查询词列表（需要过滤的关键词类型）
@@ -151,6 +240,88 @@ export function extractValidBrandTerms(keyword: string, brandName: string): stri
 }
 
 // ============================================
+// 品牌无关词检测（🔥 2025-12-29 新增：多语言支持）
+// ============================================
+
+/**
+ * 多语言企业类型后缀模式
+ * 用于检测与品牌无关的商业实体关键词
+ */
+const BRAND_IRRELEVANT_PATTERNS: RegExp[] = [
+  // 意大利语
+  /\b\w+(unito|srl|sa|scarl)\b/i,
+  // 德语
+  /\b\w+(gmbh|ag|kg|mbh)\b/i,
+  // 英语
+  /\b\w+(inc|ltd|llc|corp|corporation|limited)\b/i,
+  // 法语
+  /\b\w+(sa|sas|eurl|sarl)\b/i,
+  // 西班牙语
+  /\b\w+(sa|srl|sl)\b/i,
+  // 中文（使用Unicode正则）
+  /\b(有限公司|股份有限公司|有限责任公司)\b/u,
+  // 日语
+  /\b(株式会社|有限会社)\b/,
+  // 韩语
+  /\b(주식회사|유한회사)\b/,
+  // 荷兰语
+  /\b\w+(bv)\b/i,
+  // 波兰语
+  /\b\w+(sp|sp\.?o\.?|z\.?o\.?o\.?)\b/i,
+]
+
+/**
+ * 检测关键词是否为品牌无关词
+ *
+ * 品牌无关词特征：
+ * - 包含企业类型后缀（unito, gmbh, inc等）
+ * - 不包含纯品牌词
+ *
+ * @param keyword - 要检测的关键词
+ * @param brandName - 品牌名称
+ * @returns 是否为品牌无关词
+ *
+ * @example
+ * isBrandIrrelevant("eureka unito", "eureka") → true (意大利语企业)
+ * isBrandIrrelevant("eureka gmbh", "eureka") → true (德语企业)
+ * isBrandIrrelevant("eureka security camera", "eureka") → false (包含品牌词)
+ * isBrandIrrelevant("eureka unito") → true (无品牌名时只检查公司后缀)
+ */
+export function isBrandIrrelevant(keyword: string, brandName?: string): boolean {
+  if (!keyword) return false
+
+  const pureBrandKeywords = brandName ? getPureBrandKeywords(brandName) : []
+
+  // 如果提供了品牌名，检查关键词是否包含品牌词
+  // 如果不包含品牌词，不认为是品牌无关（完全不相关）
+  if (pureBrandKeywords.length > 0 && !containsPureBrand(keyword, pureBrandKeywords)) {
+    return false
+  }
+
+  // 检查是否匹配任一品牌无关模式
+  return BRAND_IRRELEVANT_PATTERNS.some(pattern => pattern.test(keyword))
+}
+
+/**
+ * 获取匹配的品牌无关词模式
+ *
+ * @param keyword - 要检测的关键词
+ * @returns 匹配的模式（如果没有匹配返回null）
+ */
+export function getMatchedIrrelevantPattern(keyword: string): string | null {
+  if (!keyword) return null
+
+  for (const pattern of BRAND_IRRELEVANT_PATTERNS) {
+    const match = keyword.match(pattern)
+    if (match) {
+      return match[0] || pattern.source
+    }
+  }
+
+  return null
+}
+
+// ============================================
 // 语义查询词检测
 // ============================================
 
@@ -199,7 +370,7 @@ export function getMatchedFilterPattern(keyword: string): string | null {
 // ============================================
 
 /**
- * 关键词质量过滤选项
+ * 关键词质量过滤选项（🔥 2025-12-29 更新）
  */
 export interface KeywordQualityFilterOptions {
   brandName: string
@@ -208,10 +379,15 @@ export interface KeywordQualityFilterOptions {
   targetLanguage?: string
   minWordCount?: number  // 最少单词数
   maxWordCount?: number  // 最多单词数
+  /**
+   * 是否必须包含纯品牌词
+   * @default true
+   */
+  mustContainBrand?: boolean
 }
 
 /**
- * 过滤低质量关键词
+ * 过滤低质量关键词（🔥 2025-12-29 增强）
  *
  * @param keywords - 关键词数组（PoolKeywordData[]）
  * @param options - 过滤选项
@@ -229,8 +405,10 @@ export function filterKeywordQuality(
     category,
     minWordCount = 1,
     maxWordCount = 8,
+    mustContainBrand = true,
   } = options
 
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
   const removed: Array<{ keyword: PoolKeywordData; reason: string }> = []
   const filtered: PoolKeywordData[] = []
 
@@ -240,18 +418,29 @@ export function filterKeywordQuality(
 
     let removeReason: string | null = null
 
-    // 1. 检查品牌变体词
-    if (isBrandVariant(keyword, brandName)) {
+    // 1. 检查是否必须包含纯品牌词
+    if (mustContainBrand && !containsPureBrand(keyword, pureBrandKeywords)) {
+      removeReason = `不含纯品牌词: "${keyword}"`
+    }
+    // 2. 检查品牌变体词
+    else if (isBrandVariant(keyword, brandName)) {
       removeReason = `品牌变体词: "${keyword}"`
     }
-    // 2. 检查语义查询词
+    // 3. 检查品牌无关词（🔥 2025-12-29 新增）
+    else if (isBrandIrrelevant(keyword, brandName)) {
+      const pattern = getMatchedIrrelevantPattern(keyword)
+      removeReason = pattern
+        ? `品牌无关词: "${keyword}" (包含: ${pattern})`
+        : `品牌无关词: "${keyword}"`
+    }
+    // 4. 检查语义查询词
     else if (isSemanticQuery(keyword)) {
       const pattern = getMatchedFilterPattern(keyword)
       removeReason = pattern
         ? `语义查询词: "${keyword}" (包含: ${pattern})`
         : `语义查询词: "${keyword}"`
     }
-    // 3. 检查单词数
+    // 5. 检查单词数
     else if (wordCount < minWordCount || wordCount > maxWordCount) {
       removeReason = `单词数不匹配: ${wordCount} (范围: ${minWordCount}-${maxWordCount})`
     }

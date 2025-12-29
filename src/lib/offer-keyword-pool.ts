@@ -30,6 +30,8 @@ import { filterKeywordQuality, generateFilterReport } from './keyword-quality-fi
 /**
  * 🆕 关键词池数据结构 - 包含完整元数据
  * 用途：存储关键词的搜索量、CPC、竞争度等数据，避免重复调用 Keyword Planner
+ *
+ * 🔥 2025-12-29: 新增 isPureBrand 属性用于标记纯品牌词
  */
 export interface PoolKeywordData {
   keyword: string
@@ -40,6 +42,7 @@ export interface PoolKeywordData {
   highTopPageBid?: number // CPC 数据
   source: string
   matchType?: 'EXACT' | 'PHRASE' | 'BROAD'
+  isPureBrand?: boolean   // 🔥 2025-12-29 新增：标记是否为纯品牌词（豁免搜索量过滤）
 }
 
 /**
@@ -1952,21 +1955,26 @@ export async function generateOfferKeywordPool(
     console.log(`📊 种子词质量过滤: ${beforeFilterCount} → ${initialKeywords.length}`)
   }
 
-  // 3. 🆕 全量扩展（替换3轮品牌种子词策略）
+  // 3. 🆕 全量扩展（v2.0：根据认证类型分发）
   const { expandAllKeywords, filterKeywords } = await import('./keyword-pool-helpers')
 
-  // 获取Google Ads凭证（用于扩展）
+  // 获取Google Ads凭证和认证类型（用于扩展）
   let customerId: string | undefined
   let refreshToken: string | undefined
   let accountId: number | undefined
   let clientId: string | undefined
   let clientSecret: string | undefined
   let developerToken: string | undefined
+  let authType: 'oauth' | 'service_account' = 'oauth'
 
   try {
     const { getGoogleAdsConfig } = await import('./keyword-planner')
     const { getDatabase } = await import('./db')
     const db = await getDatabase()
+
+    // 获取认证类型
+    const auth = await getUserAuthType(userId)
+    authType = auth.authType
 
     // 🔧 PostgreSQL兼容性修复: is_active/is_manager_account在PostgreSQL中是BOOLEAN类型
     const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
@@ -1979,7 +1987,6 @@ export async function generateOfferKeywordPool(
     `, [userId]) as { id: number; customer_id: string } | undefined
 
     if (adsAccount) {
-      // 🔧 修复(2025-12-25): 支持OAuth和服务账号两种认证方式
       const config = await getGoogleAdsConfig(userId)
       if (config) {
         customerId = adsAccount.customer_id
@@ -2000,6 +2007,8 @@ export async function generateOfferKeywordPool(
     offer.category || '',
     offer.target_country,
     offer.target_language || 'en',
+    authType,           // 🔥 2025-12-29 新增：认证类型
+    offer,              // 🔥 2025-12-29 新增：Offer信息（服务账号模式需要）
     userId,
     customerId,
     refreshToken,
