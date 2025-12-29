@@ -118,6 +118,16 @@ class PostgresAdapter implements DatabaseAdapter {
     })
 
     // 3. 转换 datetime('now') 为 PostgreSQL 的 CURRENT_TIMESTAMP
+    // 转换 datetime('now', '-N hours') 或 datetime('now', '-N minutes') 等
+    result = result.replace(/datetime\s*\(\s*'now'\s*,\s*'(-?\d+)\s+(hours?|minutes?)'\s*\)/gi, (_, value, unit) => {
+      const numValue = parseInt(value)
+      if (unit.startsWith('hour')) {
+        return `CURRENT_TIMESTAMP - INTERVAL '${Math.abs(numValue)} hours'`
+      } else {
+        return `CURRENT_TIMESTAMP - INTERVAL '${Math.abs(numValue)} minutes'`
+      }
+    })
+    // 简单的 datetime('now') 转换
     result = result.replace(/datetime\s*\(\s*'now'\s*\)/gi, 'CURRENT_TIMESTAMP')
 
     // 4. 转换 strftime 为 PostgreSQL 的 to_char
