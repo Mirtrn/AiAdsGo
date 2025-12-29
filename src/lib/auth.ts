@@ -179,7 +179,13 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     input.mustChangePassword !== undefined ? input.mustChangePassword : 1
   ])
 
-  const user = await findUserById(result.lastInsertRowid as number)
+  // PostgreSQL 返回 { id: xxx } 格式
+  const insertedId = result.lastInsertRowid
+  if (insertedId === undefined) {
+    throw new Error('用户创建失败：无法获取插入的ID')
+  }
+
+  const user = await findUserById(insertedId as number)
   if (!user) {
     throw new Error('用户创建失败')
   }
