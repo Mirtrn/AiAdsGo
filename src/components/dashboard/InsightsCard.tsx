@@ -326,23 +326,23 @@ export function InsightsCard({ days }: InsightsCardProps) {
                         <div>
                           <span className="text-muted-foreground">当前值: </span>
                           <span className="font-semibold text-foreground">
-                            {insight.metrics.current.toFixed(2)}
+                            {(insight.metrics?.current ?? 0).toFixed(2)}
                           </span>
                         </div>
                         <div>
                           <span className="text-muted-foreground">基准值: </span>
                           <span className="font-semibold text-foreground">
-                            {insight.metrics.benchmark.toFixed(2)}
+                            {(insight.metrics?.benchmark ?? 0).toFixed(2)}
                           </span>
                         </div>
                         <div>
                           <span className="text-muted-foreground">差异: </span>
                           <span
-                            className={`font-semibold ${insight.metrics.change >= 0 ? 'text-green-600' : 'text-red-600'
+                            className={`font-semibold ${(insight.metrics?.change ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'
                               }`}
                           >
-                            {insight.metrics.change >= 0 ? '+' : ''}
-                            {insight.metrics.change.toFixed(2)}
+                            {(insight.metrics?.change ?? 0) >= 0 ? '+' : ''}
+                            {(insight.metrics?.change ?? 0).toFixed(2)}
                           </span>
                         </div>
                       </div>

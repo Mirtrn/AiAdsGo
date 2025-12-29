@@ -302,7 +302,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
-                  tickFormatter={(value) => `${value.toFixed(2)}%`}
+                  tickFormatter={(value) => `${(Number(value) ?? 0).toFixed(2)}%`}
                 />
                 <ChartTooltip
                   content={<ChartTooltipContent formatter={(value) => `${Number(value).toFixed(2)}%`} />}

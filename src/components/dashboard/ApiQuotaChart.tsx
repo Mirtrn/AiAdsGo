@@ -191,7 +191,7 @@ export function ApiQuotaChart({ days = 7 }: Props) {
               </div>
               <div className="text-xs text-gray-500">/ {(today.quotaLimit ?? 0).toLocaleString('en-US')}</div>
               <div className={`text-xs font-medium mt-0.5 ${getStatusColor()}`}>
-                {usagePercent.toFixed(1)}%
+                {((usagePercent ?? 0) * 100).toFixed(1)}%
               </div>
             </div>
           </div>
@@ -209,8 +209,8 @@ export function ApiQuotaChart({ days = 7 }: Props) {
             <div className="text-xs text-gray-500">成功率</div>
             <div className="text-lg font-semibold text-gray-900">
               {today.totalRequests > 0
-                ? ((today.successfulOperations / (today.successfulOperations + today.failedOperations)) * 100).toFixed(1)
-                : 0}%
+                ? ((today.successfulOperations ?? 0) / ((today.successfulOperations ?? 0) + (today.failedOperations ?? 0)) * 100).toFixed(1)
+                : '0'}%
             </div>
           </div>
         </div>
