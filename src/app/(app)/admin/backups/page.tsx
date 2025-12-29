@@ -77,7 +77,16 @@ export default function AdminScheduledTasksPage() {
   // 🔧 数据清理相关state
   const [cleanupStats, setCleanupStats] = useState<any>(null)
   const [cleanupLoading, setCleanupLoading] = useState(false)
-  const [cleanupPreview, setCleanupPreview] = useState<any>(null)
+  const [cleanupResult, setCleanupResult] = useState<{
+    success: boolean
+    message: string
+    details?: {
+      scraped_products: number
+      ad_creatives: number
+      google_ads_accounts: number
+      total: number
+    }
+  } | null>(null)
 
   // 加载定时任务数据
   const loadData = async () => {
@@ -188,6 +197,84 @@ export default function AdminScheduledTasksPage() {
         {labels[status] || status}
       </span>
     )
+  }
+
+  // 加载清理统计信息
+  const loadCleanupStats = async () => {
+    try {
+      setCleanupLoading(true)
+      const response = await fetch('/api/admin/cleanup', {
+        credentials: 'include',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '获取统计失败')
+      }
+
+      setCleanupStats(data)
+    } catch (err: any) {
+      console.error('获取清理统计失败:', err)
+      showError('获取统计失败', err.message || '请稍后重试')
+    } finally {
+      setCleanupLoading(false)
+    }
+  }
+
+  // 处理清理操作
+  const handleCleanup = async (mode?: 'preview') => {
+    try {
+      setCleanupLoading(true)
+      setCleanupResult(null)
+
+      const url = mode === 'preview' ? '/api/admin/cleanup?mode=preview' : '/api/admin/cleanup'
+      const response = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tables: ['scraped_products', 'ad_creatives', 'google_ads_accounts'],
+          dryRun: mode === 'preview',
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '清理失败')
+      }
+
+      const success = mode === 'preview'
+        ? data.summary.totalRecordsToDelete > 0
+        : data.summary.totalRecordsDeleted > 0
+
+      setCleanupResult({
+        success,
+        message: data.message,
+        details: {
+          scraped_products: data.summary.results?.scraped_products?.count || 0,
+          ad_creatives: data.summary.results?.ad_creatives?.count || 0,
+          google_ads_accounts: data.summary.results?.google_ads_accounts?.count || 0,
+          total: success ? data.summary.totalRecordsToDelete : data.summary.totalRecordsDeleted,
+        },
+      })
+
+      if (mode === 'preview') {
+        showSuccess('预览完成', `可清理 ${data.summary.totalRecordsToDelete} 条记录`)
+      } else {
+        showSuccess('清理完成', `已清理 ${data.summary.totalRecordsDeleted} 条记录`)
+      }
+
+      // 刷新统计
+      await loadCleanupStats()
+    } catch (err: any) {
+      console.error('清理失败:', err)
+      setCleanupResult({ success: false, message: err.message || '清理失败' })
+      showError('清理失败', err.message || '请稍后重试')
+    } finally {
+      setCleanupLoading(false)
+    }
   }
 
   // Tab组件
@@ -677,7 +764,7 @@ export default function AdminScheduledTasksPage() {
                     </button>
 
                     <button
-                      onClick={handleCleanup}
+                      onClick={() => handleCleanup()}
                       disabled={cleanupLoading || !cleanupStats?.cleanable?.total}
                       className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:bg-gray-400"
                     >

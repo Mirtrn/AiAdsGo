@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyAuth } from '@/lib/auth'
+import { verifyAuth, type AuthResult } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 
 /**
@@ -11,8 +11,8 @@ import { getDatabase } from '@/lib/db'
 export async function GET(request: NextRequest) {
   try {
     // 验证管理员权限
-    const user = await verifyAuth(request)
-    if (!user || user.role !== 'admin') {
+    const authResult = await verifyAuth(request) as AuthResult
+    if (!authResult.authenticated || authResult.user?.role !== 'admin') {
       return NextResponse.json(
         { error: '需要管理员权限' },
         { status: 403 }
