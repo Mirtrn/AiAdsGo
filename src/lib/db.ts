@@ -298,20 +298,22 @@ class PostgresAdapter implements DatabaseAdapter {
       pgSql = pgSql.replace(/;\s*$/, '') + ' RETURNING id'
     }
 
-    const result = await this.sql.unsafe(pgSql, cleanParams)
-    console.log('[PostgresAdapter.exec] result:', JSON.stringify(result), 'sql:', pgSql.substring(0, 100))
+    const pgResult = await this.sql.unsafe(pgSql, cleanParams) as any
     // PostgreSQL INSERT ... RETURNING id 返回数组或对象
-    // 尝试多种方式获取 lastInsertRowid
     let lastInsertRowid: number | undefined
-    if (Array.isArray(result) && result.length > 0) {
-      lastInsertRowid = result[0]?.id
-    } else if (result && typeof result === 'object') {
-      lastInsertRowid = (result as any).id ?? (result as any).lastInsertRowid
+    let changes = 0
+
+    if (Array.isArray(pgResult)) {
+      changes = pgResult.length
+      if (pgResult.length > 0) {
+        lastInsertRowid = pgResult[0]?.id
+      }
+    } else if (pgResult && typeof pgResult === 'object') {
+      changes = pgResult.count || 1
+      lastInsertRowid = pgResult.id ?? pgResult.lastInsertRowid
     }
-    return {
-      changes: result.count || (Array.isArray(result) ? result.length : 1),
-      lastInsertRowid
-    }
+
+    return { changes, lastInsertRowid }
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
