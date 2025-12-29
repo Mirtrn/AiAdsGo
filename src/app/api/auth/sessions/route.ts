@@ -16,9 +16,9 @@ import {
  * 获取当前用户的活跃会话和信任设备
  */
 const getHandler: AuthenticatedHandler = async (request, user) => {
-  const sessions = await getActiveSessions(user.id)
-  const trustedDevices = await getTrustedDevices(user.id)
-  const alerts = await getUserAlerts(user.id, false)
+  const sessions = await getActiveSessions(user.userId)
+  const trustedDevices = await getTrustedDevices(user.userId)
+  const alerts = await getUserAlerts(user.userId, false)
 
   return NextResponse.json({
     sessions: sessions.map(s => ({
@@ -59,7 +59,7 @@ const deleteHandler: AuthenticatedHandler = async (request, user) => {
 
   if (revokeAll) {
     // 撤销所有会话
-    const count = await revokeAllSessions(user.id)
+    const count = await revokeAllSessions(user.userId)
     return NextResponse.json({
       success: true,
       message: `已撤销 ${count} 个会话`,
@@ -68,7 +68,7 @@ const deleteHandler: AuthenticatedHandler = async (request, user) => {
 
   if (sessionToken) {
     // 撤销特定会话
-    const success = await revokeSession(sessionToken, user.id)
+    const success = await revokeSession(sessionToken, user.userId)
     if (success) {
       return NextResponse.json({
         success: true,

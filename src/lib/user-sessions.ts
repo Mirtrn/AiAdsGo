@@ -11,10 +11,8 @@ import { createHash } from 'crypto'
 
 // Configuration
 const SESSION_DURATION_DAYS = 7
-const SESSION_GRACE_MINUTES = 5
-const MAX_CONCURRENT_SESSIONS = 5
+const MAX_CONCURRENT_SESSIONS = 3
 const IP_CHANGE_WINDOW_HOURS = 1  // Flag if different IP within this window
-const MAX_IPS_IN_WINDOW = 3       // Max unique IPs before flagging as suspicious
 
 export interface SessionInfo {
   id: number
@@ -87,6 +85,7 @@ export async function createUserSession(
   ipAddress: string,
   userAgent: string
 ): Promise<{ session: SessionInfo; alerts: SharingAlert[] }> {
+  const db = await getDatabase()
   const sessionToken = generateSessionToken()
   const deviceFingerprint = generateDeviceFingerprint(userAgent, ipAddress)
   const expiresAt = new Date(
@@ -141,7 +140,17 @@ export async function createUserSession(
         alert.ipAddresses,
         alert.deviceFingerprints
       )
-      alerts.push({ ...alert, id: alertId, userId })
+      alerts.push({
+        id: alertId,
+        userId,
+        alertType: alert.type,
+        severity: alert.severity,
+        description: alert.description,
+        ipAddresses: alert.ipAddresses,
+        deviceFingerprints: alert.deviceFingerprints,
+        isResolved: false,
+        createdAt: new Date().toISOString()
+      })
     }
   }
 
@@ -181,6 +190,7 @@ async function checkSharingPatterns(
     deviceFingerprints: string[]
   }>
 }> {
+  const db = await getDatabase()
   const alerts: Array<{
     type: string
     severity: 'info' | 'warning' | 'critical'
@@ -215,9 +225,9 @@ async function checkSharingPatterns(
   }
 
   // Get unique IPs in the window
-  const uniqueIps = new Set(recentSessions.map(s => s.ip_address))
+  const uniqueIps = new Set(recentSessions.map((s: { ip_address: string }) => s.ip_address))
   const uniqueFingerprints = new Set(
-    recentSessions.map(s => s.device_fingerprint)
+    recentSessions.map((s: { device_fingerprint: string }) => s.device_fingerprint)
   )
 
   // Pattern 1: Multiple IPs in short time window
@@ -236,7 +246,7 @@ async function checkSharingPatterns(
 
   // Pattern 2: New device from different location
   const existingFingerprints = new Set(
-    recentSessions.map(s => s.device_fingerprint)
+    recentSessions.map((s: { device_fingerprint: string }) => s.device_fingerprint)
   )
   if (!existingFingerprints.has(currentFingerprint) && existingFingerprints.size > 0) {
     const oldFpArray = Array.from(existingFingerprints)
@@ -267,6 +277,7 @@ async function isDeviceTrusted(
   userId: number,
   deviceFingerprint: string
 ): Promise<boolean> {
+  const db = await getDatabase()
   const trusted = await db.queryOne<{ id: number }>(
     `SELECT id FROM trusted_devices
      WHERE user_id = ? AND device_fingerprint = ? AND is_active = 1`,
@@ -286,6 +297,7 @@ async function createAlert(
   ipAddresses: string[],
   deviceFingerprints: string[]
 ): Promise<number> {
+  const db = await getDatabase()
   const result = await db.queryOne<{ lastInsertRowid: number }>(
     `INSERT INTO account_sharing_alerts (
       user_id, alert_type, severity, description,
@@ -307,7 +319,7 @@ async function createAlert(
  * Enforce maximum concurrent sessions per user
  */
 async function enforceMaxConcurrentSessions(userId: number): Promise<void> {
-  // Get current active sessions ordered by creation time (keep most recent)
+  const db = await getDatabase()
   const sessions = await db.query<{ id: number; created_at: string }>(`
     SELECT id, created_at FROM user_sessions
     WHERE user_id = ? AND is_current = 1 AND revoked_at IS NULL
@@ -317,7 +329,7 @@ async function enforceMaxConcurrentSessions(userId: number): Promise<void> {
   if (sessions.length > MAX_CONCURRENT_SESSIONS) {
     // Revoke oldest sessions beyond the limit
     const toRevoke = sessions.slice(MAX_CONCURRENT_SESSIONS)
-    const idsToRevoke = toRevoke.map(s => s.id)
+    const idsToRevoke = toRevoke.map((s: { id: number }) => s.id)
 
     await db.exec(
       `UPDATE user_sessions SET revoked_at = datetime('now')
@@ -331,9 +343,10 @@ async function enforceMaxConcurrentSessions(userId: number): Promise<void> {
  * Clean up expired sessions
  */
 async function cleanupExpiredSessions(userId?: number): Promise<number> {
+  const db = await getDatabase()
   let sql = `UPDATE user_sessions SET revoked_at = datetime('now')
              WHERE expires_at < datetime('now') AND revoked_at IS NULL`
-  const params: number[] = []
+  const params: (number | undefined)[] = []
 
   if (userId) {
     sql += ' AND user_id = ?'
@@ -350,6 +363,7 @@ async function cleanupExpiredSessions(userId?: number): Promise<number> {
 export async function getActiveSessions(
   userId: number
 ): Promise<SessionInfo[]> {
+  const db = await getDatabase()
   return db.query<SessionInfo>(`
     SELECT * FROM user_sessions
     WHERE user_id = ? AND is_current = 1 AND revoked_at IS NULL
@@ -364,6 +378,7 @@ export async function revokeSession(
   sessionToken: string,
   userId: number
 ): Promise<boolean> {
+  const db = await getDatabase()
   const result = await db.exec(
     `UPDATE user_sessions
      SET revoked_at = datetime('now')
@@ -377,6 +392,7 @@ export async function revokeSession(
  * Revoke all sessions for a user (logout all devices)
  */
 export async function revokeAllSessions(userId: number): Promise<number> {
+  const db = await getDatabase()
   const result = await db.exec(
     `UPDATE user_sessions
      SET revoked_at = datetime('now')
@@ -390,6 +406,7 @@ export async function revokeAllSessions(userId: number): Promise<number> {
  * Update last activity timestamp
  */
 export async function updateSessionActivity(sessionToken: string): Promise<void> {
+  const db = await getDatabase()
   await db.exec(
     `UPDATE user_sessions SET last_activity_at = datetime('now')
      WHERE session_token = ?`,
@@ -405,6 +422,7 @@ export async function trustDevice(
   deviceFingerprint: string,
   deviceName?: string
 ): Promise<number> {
+  const db = await getDatabase()
   const result = await db.queryOne<{ lastInsertRowid: number }>(
     `INSERT OR REPLACE INTO trusted_devices
      (user_id, device_fingerprint, device_name, last_used_at, created_at, is_active)
@@ -421,6 +439,7 @@ export async function untrustDevice(
   userId: number,
   deviceFingerprint: string
 ): Promise<boolean> {
+  const db = await getDatabase()
   const result = await db.exec(
     `UPDATE trusted_devices SET is_active = 0
      WHERE user_id = ? AND device_fingerprint = ?`,
@@ -435,6 +454,7 @@ export async function untrustDevice(
 export async function getTrustedDevices(
   userId: number
 ): Promise<TrustedDevice[]> {
+  const db = await getDatabase()
   return db.query<TrustedDevice>(
     `SELECT * FROM trusted_devices
      WHERE user_id = ? AND is_active = 1
@@ -450,6 +470,7 @@ export async function getUserAlerts(
   userId: number,
   includeResolved = false
 ): Promise<SharingAlert[]> {
+  const db = await getDatabase()
   let sql = `
     SELECT * FROM account_sharing_alerts
     WHERE user_id = ?
@@ -477,8 +498,8 @@ export async function getUserAlerts(
     alertType: a.alert_type,
     severity: a.severity as 'info' | 'warning' | 'critical',
     description: a.description,
-    ipAddresses: JSON.parse(a.ip_addresses || '[]'),
-    deviceFingerprints: JSON.parse(a.device_fingerprints || '[]'),
+    ipAddresses: JSON.parse(a.ip_addresses || '[]') as string[],
+    deviceFingerprints: JSON.parse(a.device_fingerprints || '[]') as string[],
     isResolved: a.is_resolved === 1,
     createdAt: a.created_at
   }))
@@ -491,6 +512,7 @@ export async function resolveAlert(
   alertId: number,
   resolvedByUserId: number
 ): Promise<boolean> {
+  const db = await getDatabase()
   const result = await db.exec(
     `UPDATE account_sharing_alerts
      SET is_resolved = 1, resolved_at = datetime('now'), resolved_by = ?

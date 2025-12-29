@@ -19,7 +19,7 @@ const trustHandler: AuthenticatedHandler = async (request, user) => {
 
   const deviceFingerprint = generateDeviceFingerprint(userAgent, ipAddress)
 
-  const id = await trustDevice(user.id, deviceFingerprint, deviceName)
+  const id = await trustDevice(user.userId, deviceFingerprint, deviceName)
 
   return NextResponse.json({
     success: true,
@@ -48,7 +48,7 @@ const untrustHandler: AuthenticatedHandler = async (request, user) => {
     )
   }
 
-  const success = await untrustDevice(user.id, deviceFingerprint)
+  const success = await untrustDevice(user.userId, deviceFingerprint)
 
   if (success) {
     return NextResponse.json({
