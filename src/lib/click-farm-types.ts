@@ -157,7 +157,7 @@ export interface CreateClickFarmTaskRequest {
    * 格式 HH:mm（24小时制），任务不会在这个时间后执行
    */
   end_time: string;
-  duration_days: number | null;  // 7/14/30/null(无限)，null 表示无限期
+  duration_days: number;  // 正整数(7/14/30/etc) 或 -1 表示无限期
   /**
    * scheduled_start_date: "2024-12-30" 相对于该任务的 timezone（目标国家时区的本地日期）
    * 格式 YYYY-MM-DD，默认当天。任务会在该日期的 start_time 时刻开始执行

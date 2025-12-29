@@ -175,16 +175,16 @@ describe('ClickFarm Types', () => {
       expect(request.hourly_distribution).toHaveLength(24);
     });
 
-    it('应该支持null的duration_days（无限期）', () => {
+    it('应该支持-1的duration_days表示无限期', () => {
       const request: CreateClickFarmTaskRequest = {
         offer_id: 1,
         daily_click_count: 100,
         start_time: '00:00',
         end_time: '24:00',
-        duration_days: null  // 无限期
+        duration_days: -1  // -1表示无限期
       };
 
-      expect(request.duration_days).toBeNull();
+      expect(request.duration_days).toBe(-1);
     });
 
     it('应该支持可选的timezone', () => {
