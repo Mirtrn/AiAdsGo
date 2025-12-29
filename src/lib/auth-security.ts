@@ -157,11 +157,11 @@ export async function getRecentFailedAttempts(
   return await db.query(`
     SELECT username_or_email, ip_address, user_agent, failure_reason, attempted_at
     FROM login_attempts
-    WHERE success = 0
+    WHERE success = ?
       AND ${timeCondition}
     ORDER BY attempted_at DESC
     LIMIT ?
-  `, [limit]) as any[]
+  `, [0, limit]) as any[]
 }
 
 /**

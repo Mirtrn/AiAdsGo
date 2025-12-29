@@ -471,12 +471,14 @@ export async function getUserAlerts(
   includeResolved = false
 ): Promise<SharingAlert[]> {
   const db = await getDatabase()
+  const params: any[] = [userId]
   let sql = `
     SELECT * FROM account_sharing_alerts
     WHERE user_id = ?
   `
   if (!includeResolved) {
-    sql += ' AND is_resolved = 0'
+    sql += ' AND is_resolved = ?'
+    params.push(0)
   }
   sql += ' ORDER BY created_at DESC'
 

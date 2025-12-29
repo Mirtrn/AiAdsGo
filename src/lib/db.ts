@@ -143,10 +143,12 @@ class PostgresAdapter implements DatabaseAdapter {
       'google_ads_credentials': ['is_active'],
       'google_ads_service_accounts': ['is_active'],
       'prompt_versions': ['is_active'],
-      // 注意：以下表的 is_active/is_resolved/is_current 是 INTEGER 类型，无需转换
+      // 以下表的 is_active/is_resolved/is_current/is_suspicious 是 INTEGER 类型，无需转换
       // - trusted_devices.is_active = INTEGER
       // - account_sharing_alerts.is_resolved = INTEGER
       // - user_sessions.is_current = INTEGER
+      // - user_sessions.is_suspicious = INTEGER
+      // - login_attempts.success = INTEGER
     }
 
     // 转换 field = 1 -> field = true
@@ -191,6 +193,12 @@ class PostgresAdapter implements DatabaseAdapter {
       'enabled', 'is_deleted', 'is_sensitive', 'is_required'
     ])
 
+    // INTEGER 类型的布尔字段（不需要转换参数值）
+    const integerBooleanFields = new Set([
+      'is_current', 'is_suspicious', 'is_resolved', 'is_active',
+      'success'  // login_attempts.success
+    ])
+
     // 提取SQL中所有 field = ? 的字段名和位置
     const fieldPositions: { field: string; paramIndex: number }[] = []
     let paramIndex = 0
@@ -230,7 +238,11 @@ class PostgresAdapter implements DatabaseAdapter {
       const field = fieldPosition?.field
 
       // 如果是布尔字段且参数是 0 或 1，转换为布尔值
-      if (field && booleanFields.has(field.toLowerCase()) && (p === 0 || p === 1)) {
+      // 但如果是 INTEGER 类型的布尔字段，则保持 0/1 不变
+      if (field &&
+          booleanFields.has(field.toLowerCase()) &&
+          !integerBooleanFields.has(field.toLowerCase()) &&
+          (p === 0 || p === 1)) {
         return p === 1 ? true : false
       }
 
