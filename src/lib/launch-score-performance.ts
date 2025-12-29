@@ -40,7 +40,7 @@ export interface PerformanceEnhancedAnalysis {
 }
 
 /**
- * 获取Offer的实际性能数据
+ * 获取Offer的实际性能数据（使用 campaign_performance）
  */
 export async function getPerformanceDataForOffer(
   offerId: number,
@@ -56,24 +56,31 @@ export async function getPerformanceDataForOffer(
 
   const result = await db.queryOne(`
     SELECT
-      SUM(impressions) as total_impressions,
-      SUM(clicks) as total_clicks,
-      SUM(conversions) as total_conversions,
-      SUM(cost_micros) as total_cost_micros,
-      AVG(ctr) as avg_ctr,
-      AVG(conversion_rate) as avg_conversion_rate
-    FROM ad_performance
-    WHERE offer_id = ?
-      AND user_id = ?
-      AND date >= ?
-      AND date <= ?
+      SUM(cp.impressions) as total_impressions,
+      SUM(cp.clicks) as total_clicks,
+      SUM(cp.conversions) as total_conversions,
+      SUM(cp.cost) as total_cost,
+      CASE
+        WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
+        ELSE 0
+      END as avg_ctr,
+      CASE
+        WHEN SUM(cp.clicks) > 0 THEN SUM(cp.conversions) * 100.0 / SUM(cp.clicks)
+        ELSE 0
+      END as avg_conversion_rate
+    FROM campaigns c
+    LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
+    WHERE c.offer_id = ?
+      AND c.user_id = ?
+      AND cp.date >= ?
+      AND cp.date <= ?
   `, [offerId, userId, cutoffDateStr, today]) as any
 
   if (!result || result.total_impressions === null || result.total_impressions === 0) {
     return null // 没有性能数据
   }
 
-  const totalCostUsd = result.total_cost_micros ? result.total_cost_micros / 1000000 : 0
+  const totalCostUsd = result.total_cost || 0
   const avgCpcUsd = result.total_clicks > 0
     ? totalCostUsd / result.total_clicks
     : 0

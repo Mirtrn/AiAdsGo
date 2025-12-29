@@ -451,35 +451,7 @@ export const TABLES: TableDef[] = [
   },
 
   // -------------------------------------------------------------------------
-  // 14. ad_performance - 广告表现数据
-  // -------------------------------------------------------------------------
-  {
-    name: 'ad_performance',
-    columns: [
-      { name: 'id', type: 'INTEGER', primaryKey: true, autoIncrement: true },
-      { name: 'campaign_id', type: 'INTEGER', notNull: true, references: { table: 'campaigns', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'offer_id', type: 'INTEGER', notNull: true, references: { table: 'offers', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'user_id', type: 'INTEGER', notNull: true, references: { table: 'users', column: 'id', onDelete: 'CASCADE' } },
-      { name: 'google_campaign_id', type: 'TEXT', notNull: true },
-      { name: 'google_ad_group_id', type: 'TEXT' },
-      { name: 'google_ad_id', type: 'TEXT' },
-      { name: 'date', type: 'DATE', notNull: true },
-      { name: 'impressions', type: 'INTEGER', default: 0 },
-      { name: 'clicks', type: 'INTEGER', default: 0 },
-      { name: 'conversions', type: 'REAL', default: 0 },
-      { name: 'cost_micros', type: 'BIGINT', default: 0 },
-      { name: 'ctr', type: 'REAL' },
-      { name: 'cpc_micros', type: 'BIGINT' },
-      { name: 'conversion_rate', type: 'REAL' },
-      { name: 'raw_data', type: 'TEXT' },
-      { name: 'synced_at', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
-      { name: 'created_at', type: 'TIMESTAMP', default: 'CURRENT_TIMESTAMP' },
-    ],
-    uniqueConstraints: [['google_campaign_id', 'google_ad_id', 'date']],
-  },
-
-  // -------------------------------------------------------------------------
-  // 15. search_term_reports - 搜索词报告
+  // 14. search_term_reports - 搜索词报告
   // -------------------------------------------------------------------------
   {
     name: 'search_term_reports',
