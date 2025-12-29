@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { toNumber } from '@/lib/utils'
 
 /**
  * Campaign性能数据
@@ -121,13 +122,21 @@ export async function GET(request: NextRequest) {
 
     // 计算派生指标
     const campaigns: CampaignPerformance[] = rawData.map((row) => {
-      const ctr = row.impressions > 0 ? (row.clicks / row.impressions) * 100 : 0
-      const cpc = row.clicks > 0 ? row.cost / row.clicks : 0
-      const conversionRate =
-        row.clicks > 0 ? (row.conversions / row.clicks) * 100 : 0
+      const impressions = toNumber(row.impressions)
+      const clicks = toNumber(row.clicks)
+      const cost = toNumber(row.cost)
+      const conversions = toNumber(row.conversions)
+
+      const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0
+      const cpc = clicks > 0 ? cost / clicks : 0
+      const conversionRate = clicks > 0 ? (conversions / clicks) * 100 : 0
 
       return {
         ...row,
+        impressions,
+        clicks,
+        cost,
+        conversions,
         ctr: parseFloat(ctr.toFixed(2)),
         cpc: parseFloat(cpc.toFixed(2)),
         conversionRate: parseFloat(conversionRate.toFixed(2)),
@@ -152,15 +161,15 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * pageSize
     const paginatedCampaigns = campaigns.slice(offset, offset + pageSize)
 
-    // 计算汇总统计（✅ 修复：确保数值类型安全，处理NULL值）
+    // 计算汇总统计
     const summary = {
       totalCampaigns: total,
       activeCampaigns: campaigns.filter((c) => c.status === 'ENABLED').length,
       pausedCampaigns: campaigns.filter((c) => c.status === 'PAUSED').length,
-      totalImpressions: campaigns.reduce((sum, c) => sum + (Number(c.impressions) || 0), 0),
-      totalClicks: campaigns.reduce((sum, c) => sum + (Number(c.clicks) || 0), 0),
-      totalCost: campaigns.reduce((sum, c) => sum + (Number(c.cost) || 0), 0),
-      totalConversions: campaigns.reduce((sum, c) => sum + (Number(c.conversions) || 0), 0),
+      totalImpressions: campaigns.reduce((sum, c) => sum + toNumber(c.impressions), 0),
+      totalClicks: campaigns.reduce((sum, c) => sum + toNumber(c.clicks), 0),
+      totalCost: campaigns.reduce((sum, c) => sum + toNumber(c.cost), 0),
+      totalConversions: campaigns.reduce((sum, c) => sum + toNumber(c.conversions), 0),
     }
 
     return NextResponse.json({

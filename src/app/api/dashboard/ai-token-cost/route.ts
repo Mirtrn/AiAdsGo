@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { toNumber } from '@/lib/utils'
 
 /**
  * GET /api/dashboard/ai-token-cost
@@ -52,9 +53,9 @@ export async function GET(request: NextRequest) {
     // 计算今日总计
     const todayTotals = todayData.reduce(
       (acc, row) => ({
-        totalCost: acc.totalCost + Number(row.cost || 0),
-        totalTokens: acc.totalTokens + Number(row.total_tokens || 0),
-        totalCalls: acc.totalCalls + Number(row.call_count || 0),
+        totalCost: acc.totalCost + toNumber(row.cost),
+        totalTokens: acc.totalTokens + toNumber(row.total_tokens),
+        totalCalls: acc.totalCalls + toNumber(row.call_count),
       }),
       { totalCost: 0, totalTokens: 0, totalCalls: 0 }
     )
@@ -74,12 +75,12 @@ export async function GET(request: NextRequest) {
         })
       }
       const modelData = modelUsageMap.get(model)
-      // Ensure numeric addition by explicitly converting to numbers
-      modelData.inputTokens += Number(row.input_tokens || 0)
-      modelData.outputTokens += Number(row.output_tokens || 0)
-      modelData.totalTokens += Number(row.total_tokens || 0)
-      modelData.cost += Number(row.cost || 0)
-      modelData.callCount += Number(row.call_count || 0)
+      // Convert all numeric values using toNumber() for consistency
+      modelData.inputTokens += toNumber(row.input_tokens)
+      modelData.outputTokens += toNumber(row.output_tokens)
+      modelData.totalTokens += toNumber(row.total_tokens)
+      modelData.cost += toNumber(row.cost)
+      modelData.callCount += toNumber(row.call_count)
     }
 
     // 获取趋势数据（最近N天）
@@ -120,12 +121,12 @@ export async function GET(request: NextRequest) {
         })
       }
       const opData = operationTypeMap.get(opType)
-      // Ensure numeric addition by explicitly converting to numbers
-      opData.inputTokens += Number(row.input_tokens || 0)
-      opData.outputTokens += Number(row.output_tokens || 0)
-      opData.totalTokens += Number(row.total_tokens || 0)
-      opData.cost += Number(row.cost || 0)
-      opData.callCount += Number(row.call_count || 0)
+      // Convert all numeric values using toNumber() for consistency
+      opData.inputTokens += toNumber(row.input_tokens)
+      opData.outputTokens += toNumber(row.output_tokens)
+      opData.totalTokens += toNumber(row.total_tokens)
+      opData.cost += toNumber(row.cost)
+      opData.callCount += toNumber(row.call_count)
     }
 
     // 识别高成本操作
@@ -170,30 +171,30 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         today: {
-          totalCost: Number((todayTotals.totalCost ?? 0).toFixed(2)),
-          totalTokens: todayTotals.totalTokens,
-          totalCalls: todayTotals.totalCalls,
+          totalCost: parseFloat(toNumber(todayTotals.totalCost).toFixed(2)),
+          totalTokens: toNumber(todayTotals.totalTokens),
+          totalCalls: toNumber(todayTotals.totalCalls),
           modelUsage: Array.from(modelUsageMap.values()).map(m => ({
             ...m,
-            cost: Number((m.cost ?? 0).toFixed(4)), // 保留4位小数用于统计
+            cost: parseFloat(toNumber(m.cost).toFixed(4)), // 保留4位小数用于统计
           })),
           operationUsage: Array.from(operationTypeMap.values())
             .sort((a, b) => b.cost - a.cost)
             .slice(0, 5)
             .map(op => ({
               ...op,
-              cost: Number((op.cost ?? 0).toFixed(4)), // 保留4位小数用于统计
+              cost: parseFloat(toNumber(op.cost).toFixed(4)), // 保留4位小数用于统计
             })),
         },
         trend: trendData.map(row => ({
           date: row.date,
-          totalTokens: Number(row.total_tokens || 0),
-          totalCost: Number(((Number(row.total_cost || 0)) ?? 0).toFixed(2)),
+          totalTokens: toNumber(row.total_tokens),
+          totalCost: parseFloat(toNumber(row.total_cost).toFixed(2)),
         })),
         recommendations,
         highCostOperations: highCostOperations.map(op => ({
           ...op,
-          cost: Number((op.cost ?? 0).toFixed(4)),
+          cost: parseFloat(toNumber(op.cost).toFixed(4)),
         })),
       },
     })

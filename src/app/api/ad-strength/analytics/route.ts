@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { toNumber } from '@/lib/utils'
 
 /**
  * GET /api/ad-strength/analytics
@@ -207,15 +208,15 @@ function generateInsights(
   const average = ratingPerformance.find(r => r.rating === 'AVERAGE')
 
   if (excellent && good) {
-    const cvrDiff = ((excellent.avg_cvr - good.avg_cvr) / good.avg_cvr * 100).toFixed(1)
-    if (parseFloat(cvrDiff) > 0) {
+    const cvrDiff = parseFloat(((toNumber(excellent.avg_cvr) - toNumber(good.avg_cvr)) / toNumber(good.avg_cvr) * 100).toFixed(1))
+    if (cvrDiff > 0) {
       insights.push(`EXCELLENT评级创意的转化率比GOOD高${cvrDiff}%`)
     }
   }
 
   if (excellent && average) {
-    const cvrDiff = ((excellent.avg_cvr - average.avg_cvr) / average.avg_cvr * 100).toFixed(1)
-    if (parseFloat(cvrDiff) > 0) {
+    const cvrDiff = parseFloat(((toNumber(excellent.avg_cvr) - toNumber(average.avg_cvr)) / toNumber(average.avg_cvr) * 100).toFixed(1))
+    if (cvrDiff > 0) {
       insights.push(`EXCELLENT评级创意的转化率比AVERAGE高${cvrDiff}%`)
     }
   }
@@ -225,8 +226,8 @@ function generateInsights(
   const withNumbers = numbersImpact.find(f => f.has_feature === 1)
   const withoutNumbers = numbersImpact.find(f => f.has_feature === 0)
 
-  if (withNumbers && withoutNumbers && withNumbers.avg_cvr > withoutNumbers.avg_cvr) {
-    const diff = ((withNumbers.avg_cvr - withoutNumbers.avg_cvr) / withoutNumbers.avg_cvr * 100).toFixed(1)
+  if (withNumbers && withoutNumbers && toNumber(withNumbers.avg_cvr) > toNumber(withoutNumbers.avg_cvr)) {
+    const diff = parseFloat(((toNumber(withNumbers.avg_cvr) - toNumber(withoutNumbers.avg_cvr)) / toNumber(withoutNumbers.avg_cvr) * 100).toFixed(1))
     insights.push(`包含数字的创意转化率提升${diff}%`)
   }
 
@@ -234,8 +235,8 @@ function generateInsights(
   const withCTA = ctaImpact.find(f => f.has_feature === 1)
   const withoutCTA = ctaImpact.find(f => f.has_feature === 0)
 
-  if (withCTA && withoutCTA && withCTA.avg_cvr > withoutCTA.avg_cvr) {
-    const diff = ((withCTA.avg_cvr - withoutCTA.avg_cvr) / withoutCTA.avg_cvr * 100).toFixed(1)
+  if (withCTA && withoutCTA && toNumber(withCTA.avg_cvr) > toNumber(withoutCTA.avg_cvr)) {
+    const diff = parseFloat(((toNumber(withCTA.avg_cvr) - toNumber(withoutCTA.avg_cvr)) / toNumber(withoutCTA.avg_cvr) * 100).toFixed(1))
     insights.push(`包含CTA的创意转化率提升${diff}%`)
   }
 
@@ -243,7 +244,7 @@ function generateInsights(
   const highScore = scoreCorrelation.find(s => s.score_range === '90-100')
   const midScore = scoreCorrelation.find(s => s.score_range === '70-79')
 
-  if (highScore && midScore && highScore.avg_cvr > midScore.avg_cvr) {
+  if (highScore && midScore && toNumber(highScore.avg_cvr) > toNumber(midScore.avg_cvr)) {
     insights.push(`90分以上的创意表现显著优于70-79分`)
   }
 
