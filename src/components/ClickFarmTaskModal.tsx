@@ -119,6 +119,49 @@ export default function ClickFarmTaskModal({
     }
   }, [open]);
 
+  // 🆕 并行加载辅助数据（代理检查和分布生成同时进行）
+  const loadAuxiliaryData = async (offer: Offer, offersList: Offer[]) => {
+    const [proxyResult, distributionResult] = await Promise.all([
+      // 并行检查代理
+      fetch(`/api/settings/proxy?country=${offer.targetCountry.toLowerCase()}`)
+        .then(async (res) => {
+          if (!res.ok) return { warning: `未配置${offer.targetCountry}代理，请先前往设置页面配置` };
+          const data = await res.json();
+          if (!data.data?.proxy_url) return { warning: `未配置${offer.targetCountry}代理，请先前往设置页面配置` };
+          return { warning: '' };
+        })
+        .catch(() => ({ warning: '检查代理配置失败' })),
+      // 并行生成分布
+      dailyClickCount > 0 ? fetch('/api/click-farm/distribution/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          daily_click_count: dailyClickCount,
+          start_time: timePeriod.split('-')[0],
+          end_time: timePeriod.split('-')[1],
+        }),
+      }).then(async (res) => {
+        if (!res.ok) throw new Error('生成分布失败');
+        const data = await res.json();
+        return { distribution: data.data.distribution };
+      }).catch(() => ({ distribution: null })) : Promise.resolve({ distribution: null })
+    ]);
+
+    // 更新状态
+    if (proxyResult.warning) {
+      setProxyWarning(proxyResult.warning);
+    } else {
+      setProxyWarning('');
+    }
+
+    const autoTimezone = getTimezoneByCountry(offer.targetCountry);
+    setTimezone(autoTimezone);
+
+    if (distributionResult.distribution) {
+      setDistribution(distributionResult.distribution);
+    }
+  };
+
   // 🆕 使用 useLayoutEffect 确保在 DOM 更新前处理 preSelectedOfferId
   // 关键：每次 open 变为 true 时都执行
   useLayoutEffect(() => {
@@ -189,17 +232,20 @@ export default function ClickFarmTaskModal({
         console.log('[ClickFarmTaskModal] loadOffers: 检测到 preSelectedOfferId =', preSelectedOfferId);
         const offer = findOffer(preSelectedOfferId);
         if (offer) {
-          console.log('[ClickFarmTaskModal] loadOffers: 调用 handleOfferChange (使用本地 offersData)');
-          await handleOfferChange(preSelectedOfferId, offersData);
+          console.log('[ClickFarmTaskModal] loadOffers: 调用 loadAuxiliaryData (并行加载)');
+          setSelectedOfferId(preSelectedOfferId);
+          await loadAuxiliaryData(offer, offersData);
         } else {
           console.log('[ClickFarmTaskModal] loadOffers: offer不存在，使用第一个');
           if (offersData.length > 0) {
-            await handleOfferChange(offersData[0].id, offersData);
+            setSelectedOfferId(offersData[0].id);
+            await loadAuxiliaryData(offersData[0], offersData);
           }
         }
       } else if (offersData.length > 0 && !selectedOfferId) {
         console.log('[ClickFarmTaskModal] loadOffers: 没有preSelectedOfferId，选择第一个');
-        await handleOfferChange(offersData[0].id, offersData);
+        setSelectedOfferId(offersData[0].id);
+        await loadAuxiliaryData(offersData[0], offersData);
       } else {
         console.log('[ClickFarmTaskModal] loadOffers: 条件不满足 - preSelectedOfferId:', preSelectedOfferId, 'selectedOfferId:', selectedOfferId);
       }
@@ -270,17 +316,8 @@ export default function ClickFarmTaskModal({
     const offer = offersList.find(o => o.id === offerId);
     console.log('[ClickFarmTaskModal] handleOfferChange: 找到offer?', !!offer, 'offerName:', offer?.offerName, 'brand:', offer?.brand, 'targetCountry:', offer?.targetCountry);
     if (offer) {
-      await checkProxy(offer.targetCountry);
-      const autoTimezone = getTimezoneByCountry(offer.targetCountry);
-      setTimezone(autoTimezone);
-      console.log(`[ClickFarmTaskModal] handleOfferChange: timezone = ${autoTimezone}, dailyClickCount = ${dailyClickCount}, distribution.length = ${distribution.length}`);
-
-      if (dailyClickCount > 0 && distribution.length === 0) {
-        console.log('[ClickFarmTaskModal] handleOfferChange: 调用 generateDistribution');
-        await generateDistribution();
-      } else {
-        console.log('[ClickFarmTaskModal] handleOfferChange: 跳过 generateDistribution, distribution.length =', distribution.length);
-      }
+      // 🆕 使用并行加载替代串行调用
+      await loadAuxiliaryData(offer, offersList);
     }
     console.log('[ClickFarmTaskModal] handleOfferChange END');
   };
