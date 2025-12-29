@@ -1,4 +1,4 @@
--- Migration: 122_fix_soft_delete_historical_data.pg.sql
+-- Migration: 123_fix_soft_delete_historical_data.pg.sql
 -- Description: 修复软删除机制，确保历史performance数据得到保留
 -- Author: AutoBB
 -- Date: 2025-12-29
@@ -101,7 +101,7 @@ BEGIN
   SELECT COUNT(*) INTO total_performance FROM campaign_performance;
 
   RAISE NOTICE '========================================';
-  RAISE NOTICE 'SUCCESS: Migration 122 completed';
+  RAISE NOTICE 'SUCCESS: Migration 123 completed';
   RAISE NOTICE 'Deleted campaigns: %', deleted_campaigns;
   RAISE NOTICE 'Deleted offers: %', deleted_offers;
   RAISE NOTICE 'Total performance records: %', total_performance;

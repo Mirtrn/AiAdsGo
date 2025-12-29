@@ -1,4 +1,4 @@
--- Migration: 122_fix_soft_delete_historical_data.sql
+-- Migration: 123_fix_soft_delete_historical_data.sql
 -- Description: 修复软删除机制，确保历史performance数据得到保留
 -- Author: AutoBB
 -- Date: 2025-12-29
@@ -78,7 +78,7 @@ WHERE is_deleted IS NULL;
 -- Step 4: 验证结果
 -- ==========================================
 
-SELECT 'SUCCESS: Migration 122 completed' AS result,
+SELECT 'SUCCESS: Migration 123 completed' AS result,
        (SELECT COUNT(*) FROM campaigns WHERE is_deleted = 1) as deleted_campaigns,
        (SELECT COUNT(*) FROM offers WHERE is_deleted = 1) as deleted_offers,
        (SELECT COUNT(*) FROM campaign_performance) as total_performance_records;
