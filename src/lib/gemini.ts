@@ -19,6 +19,8 @@
 import { getUserOnlySetting } from './settings'
 import { resetVertexAIClient } from './gemini-vertex'
 import { selectOptimalModel, type ModelType } from './model-selector'
+import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
+import { getDatabase } from './db'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -74,19 +76,27 @@ export interface GeminiGenerateResult {
  */
 async function isVertexAIConfigured(userId: number): Promise<boolean> {
   try {
-    const useVertexAI = await getUserOnlySetting('ai', 'use_vertex_ai', userId)
+    // 🔧 2025-12-29 更新：从 system_settings 表检查 gemini_provider 字段
+    const db = await getDatabase()
+    const settings = await db.queryOne(`
+      SELECT value as gemini_provider
+      FROM system_settings
+      WHERE user_id = ? AND category = 'ai' AND key = 'gemini_provider'
+    `, [userId]) as { gemini_provider?: GeminiProvider } | undefined
+
+    // 检查 GCP 配置
     const gcpProjectId = await getUserOnlySetting('ai', 'gcp_project_id', userId)
     const gcpServiceAccountJson = await getUserOnlySetting('ai', 'gcp_service_account_json', userId)
 
     // 调试日志
     console.log(`🔍 Vertex AI配置检查 (用户ID: ${userId}):`)
-    console.log(`   use_vertex_ai: ${useVertexAI?.value} (类型: ${typeof useVertexAI?.value})`)
+    console.log(`   gemini_provider: ${settings?.gemini_provider}`)
     console.log(`   gcp_project_id: ${gcpProjectId?.value ? '已配置' : '未配置'}`)
     console.log(`   gcp_service_account_json: ${gcpServiceAccountJson?.value ? '已配置' : '未配置'}`)
 
-    // 必须明确启用Vertex AI，且配置了项目ID和Service Account
+    // 必须是 vertex provider 且配置了项目ID和Service Account
     const isConfigured = (
-      useVertexAI?.value === 'true' &&
+      settings?.gemini_provider === 'vertex' &&
       !!gcpProjectId?.value &&
       !!gcpServiceAccountJson?.value
     )

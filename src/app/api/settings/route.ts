@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAllSettings, getSettingsByCategory, updateSettings } from '@/lib/settings'
 import { invalidateProxyPoolCache } from '@/lib/offer-utils'
+import { GEMINI_PROVIDERS, getGeminiEndpoint, getGeminiApiKeyUrl, type GeminiProvider } from '@/lib/gemini-config'
 import { z } from 'zod'
 
 /**
@@ -39,6 +40,39 @@ export async function GET(request: NextRequest) {
         validationMessage: setting.validationMessage,
         lastValidatedAt: setting.lastValidatedAt,
         description: setting.description,
+      })
+    }
+
+    // 🔧 2025-12-29: 为 AI 分类添加动态计算字段
+    if (groupedSettings['ai']) {
+      // 获取 gemini_provider 值
+      const providerSetting = groupedSettings['ai'].find(s => s.key === 'gemini_provider')
+      const provider = (providerSetting?.value || 'official') as GeminiProvider
+
+      // 添加计算字段：gemini_endpoint
+      groupedSettings['ai'].push({
+        key: 'gemini_endpoint',
+        value: getGeminiEndpoint(provider),
+        dataType: 'string',
+        isSensitive: false,
+        isRequired: false,
+        validationStatus: null,
+        validationMessage: null,
+        lastValidatedAt: null,
+        description: 'Gemini API 端点（系统自动计算，只读）',
+      })
+
+      // 添加计算字段：gemini_api_key_url
+      groupedSettings['ai'].push({
+        key: 'gemini_api_key_url',
+        value: getGeminiApiKeyUrl(provider),
+        dataType: 'string',
+        isSensitive: false,
+        isRequired: false,
+        validationStatus: null,
+        validationMessage: null,
+        lastValidatedAt: null,
+        description: 'Gemini API Key 获取地址（系统自动计算，只读）',
       })
     }
 
@@ -101,6 +135,27 @@ export async function PUT(request: NextRequest) {
     }
 
     const { updates } = validationResult.data
+
+    // 🔧 2025-12-29: 如果更新了 gemini_provider，自动填充 gemini_endpoint
+    const geminiProviderUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_provider')
+    if (geminiProviderUpdate) {
+      const provider = geminiProviderUpdate.value as GeminiProvider
+      const endpoint = getGeminiEndpoint(provider)
+
+      // 添加或更新 gemini_endpoint
+      const existingEndpointUpdate = updates.find(u => u.category === 'ai' && u.key === 'gemini_endpoint')
+      if (existingEndpointUpdate) {
+        existingEndpointUpdate.value = endpoint
+      } else {
+        updates.push({
+          category: 'ai',
+          key: 'gemini_endpoint',
+          value: endpoint,
+        })
+      }
+
+      console.log(`🔄 自动更新 gemini_endpoint: ${provider} → ${endpoint}`)
+    }
 
     // 更新配置
     updateSettings(updates, userIdNum)

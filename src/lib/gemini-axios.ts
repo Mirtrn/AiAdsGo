@@ -8,6 +8,8 @@
 
 import axios, { AxiosInstance } from 'axios'
 import { getUserOnlySetting } from './settings'
+import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
+import { getDatabase } from './db'
 
 /**
  * Gemini API 请求接口
@@ -63,16 +65,44 @@ export interface GeminiAxiosGenerateResult {
 }
 
 /**
- * 创建 axios 实例用于 Gemini API（直连，不使用代理）
+ * 根据用户配置获取 Gemini 端点
  *
- * 🔧 2025-12-28 超时调整：
- * - 将超时从 240s 减少到 180s（3分钟）
- * - 原因：平衡可靠性与响应时间
- * - 批次大小已从80减少到50
+ * @param userId - 用户ID
+ * @returns Gemini API 端点 URL
  */
-export function createGeminiAxiosClient(): AxiosInstance {
+async function getGeminiEndpoint(userId: number): Promise<string> {
+  const db = await getDatabase()
+  const settings = await db.queryOne(`
+    SELECT value as gemini_provider
+    FROM system_settings
+    WHERE user_id = ? AND category = 'ai' AND key = 'gemini_provider'
+  `, [userId]) as { gemini_provider?: GeminiProvider } | undefined
+
+  const provider = settings?.gemini_provider as GeminiProvider || 'official'
+  return GEMINI_PROVIDERS[provider].endpoint
+}
+
+/**
+ * 创建 axios 实例用于 Gemini API
+ *
+ * 🔧 2025-12-29 更新：支持动态端点
+ * - 根据用户配置自动选择官方或中转端点
+ * - 直连访问，不使用代理
+ *
+ * 超时设置：
+ * - 180秒（3分钟）
+ * - 原因：平衡可靠性与响应时间
+ */
+export async function createGeminiAxiosClient(userId: number): Promise<AxiosInstance> {
+  const endpoint = await getGeminiEndpoint(userId)
+
+  if (endpoint === 'vertex') {
+    // Vertex AI 使用专用客户端
+    throw new Error('Use Vertex AI client instead')
+  }
+
   return axios.create({
-    baseURL: 'https://generativelanguage.googleapis.com',
+    baseURL: endpoint, // 动态端点
     timeout: 180000, // 180 秒（3分钟）
     headers: {
       'Content-Type': 'application/json',
@@ -121,7 +151,7 @@ export async function generateContent(params: {
   }
 
   // 创建 axios 客户端（直连，不使用代理）
-  const client = createGeminiAxiosClient()
+  const client = await createGeminiAxiosClient(userId)
   console.log(`🌐 直接访问Gemini API（不使用代理）`)
 
   // 构建请求
