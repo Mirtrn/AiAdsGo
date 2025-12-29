@@ -58,21 +58,32 @@ ON system_settings(gemini_provider);
 -- 3. 已删除的campaigns无法体现在历史统计数据中
 
 -- 修复内容：
--- 1. ✅ 代码层面：campaigns.ts deleteCampaign改为UPDATE软删除
--- 2. ✅ 代码层面：所有查询API统一处理is_deleted过滤
--- 3. 🔧 数据库层面：添加索引优化软删除查询性能
--- 4. 📊 数据验证：检查现有数据一致性
+-- 1. ✅ 添加 is_deleted 列到 campaigns 表（如果不存在）
+-- 2. ✅ 代码层面：campaigns.ts deleteCampaign改为UPDATE软删除
+-- 3. ✅ 代码层面：所有查询API统一处理is_deleted过滤
+-- 4. 🔧 数据库层面：添加索引优化软删除查询性能
+-- 5. 📊 数据验证：检查现有数据一致性
 
--- 2.1 添加索引优化软删除查询
+-- 2.1 添加 is_deleted 列到 campaigns 表（SQLite 幂等性处理）
+-- SQLite 不支持 IF NOT EXISTS for ALTER TABLE ADD COLUMN
+-- 如果列已存在会报错，这是可接受的行为
+ALTER TABLE campaigns
+ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0;
+
+-- 2.2 添加 deleted_at 列到 campaigns 表（记录删除时间）
+ALTER TABLE campaigns
+ADD COLUMN deleted_at TIMESTAMP NULL;
+
+-- 2.3 添加索引优化软删除查询
 -- campaigns表：优化is_deleted + user_id查询
 CREATE INDEX IF NOT EXISTS idx_campaigns_user_is_deleted
 ON campaigns(user_id, is_deleted, created_at DESC);
 
--- offers表：优化is_deleted + user_id查询
+-- offers表：优化is_deleted + user_id查询（offers表已有is_deleted列）
 CREATE INDEX IF NOT EXISTS idx_offers_user_is_deleted
 ON offers(user_id, is_deleted);
 
--- 2.2 数据验证和统计
+-- 2.4 数据验证和统计
 -- 验证：检查是否有campaigns没有正确设置is_deleted字段
 SELECT 'Data Validation: Campaigns without is_deleted field' AS check_name,
        COUNT(*) as count
@@ -98,7 +109,7 @@ FROM campaign_performance cp
 INNER JOIN campaigns c ON cp.campaign_id = c.id
 WHERE c.is_deleted = 1;
 
--- 2.3 修复NULL值（防御性修复）
+-- 2.5 修复NULL值（防御性修复）
 -- 将NULL is_deleted字段设置为0（未删除）
 UPDATE campaigns
 SET is_deleted = 0
@@ -108,7 +119,7 @@ UPDATE offers
 SET is_deleted = 0
 WHERE is_deleted IS NULL;
 
--- 2.4 验证结果
+-- 2.6 验证结果
 SELECT 'SUCCESS: Migration 122 completed (Combined)' AS result,
        (SELECT COUNT(*) FROM campaigns WHERE is_deleted = 1) as deleted_campaigns,
        (SELECT COUNT(*) FROM offers WHERE is_deleted = 1) as deleted_offers,
