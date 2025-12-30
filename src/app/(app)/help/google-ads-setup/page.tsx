@@ -65,7 +65,7 @@ export default function GoogleAdsSetupGuidePage() {
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                    <span>只需<strong>测试权限</strong>的 Developer Token</span>
+                    <span>Developer Token 会<strong>自动升级</strong>到 Explorer Access</span>
                   </li>
                 </ul>
               </div>
@@ -207,9 +207,9 @@ export default function GoogleAdsSetupGuidePage() {
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">4</div>
                     <div>
-                      <h4 className="font-medium">申请测试权限 Developer Token</h4>
+                      <h4 className="font-medium">申请 Developer Token</h4>
                       <p className="text-sm text-gray-600 mt-1">
-                        在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token，服务账号方式只需<strong>测试权限</strong>
+                        在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token（初始为测试权限，Google 会在几天内自动升级到 Explorer Access）
                       </p>
                     </div>
                   </div>
@@ -237,7 +237,7 @@ export default function GoogleAdsSetupGuidePage() {
 
                 <Alert className="mt-4 bg-blue-50 border-blue-200">
                   <AlertDescription>
-                    <strong>提示：</strong>服务账号方式只需要测试权限的 Developer Token，无需等待审核
+                    <strong>提示：</strong>初次申请会获得测试权限的 Developer Token，Google 通常会在几天内自动升级到 Explorer Access（可访问真实账号）
                   </AlertDescription>
                 </Alert>
 
@@ -425,7 +425,7 @@ export default function GoogleAdsSetupGuidePage() {
                 <div>
                   <h4 className="font-semibold mb-2">Q: Developer Token 审核需要多久？</h4>
                   <p className="text-sm text-gray-600">
-                    <strong>测试权限</strong>通常立即可用；<strong>基本访问权限</strong>通常需要 1-3 个工作日审核。
+                    <strong>测试权限</strong>（Test Access）立即可用；Google 会在几天内自动升级到 <strong>Explorer Access</strong>；<strong>Basic/Standard Access</strong> 需要申请审核（1-3 个工作日）。
                   </p>
                 </div>
                 <div>

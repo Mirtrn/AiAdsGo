@@ -240,9 +240,19 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     // 从日志可见：返回结果: [{"id":409}]
     // 注意：result 是数组，需要从第一个元素中提取 id
     const returnedRows = result as any
-    if (Array.isArray(returnedRows) && returnedRows.length > 0 && returnedRows[0].id) {
-      insertedId = returnedRows[0].id
+    console.log('🔍 [createOffer] PostgreSQL result:', JSON.stringify(result))
+    console.log('🔍 [createOffer] returnedRows type:', typeof returnedRows, Array.isArray(returnedRows))
+    if (Array.isArray(returnedRows) && returnedRows.length > 0) {
+      console.log('🔍 [createOffer] returnedRows[0]:', JSON.stringify(returnedRows[0]))
+      console.log('🔍 [createOffer] returnedRows[0].id:', returnedRows[0]?.id, 'type:', typeof returnedRows[0]?.id)
     } else {
+      console.log('🔍 [createOffer] returnedRows is empty or not array')
+    }
+    if (Array.isArray(returnedRows) && returnedRows.length > 0 && returnedRows[0]?.id !== undefined) {
+      insertedId = returnedRows[0].id
+      console.log('🔍 [createOffer] Extracted insertedId:', insertedId)
+    } else {
+      console.error('🔍 [createOffer] FAILED to extract id, throwing error...')
       throw new Error('PostgreSQL INSERT 未返回 id')
     }
   } else {
