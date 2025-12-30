@@ -826,9 +826,9 @@ export default function ClickFarmTaskModal({
             )}
 
             {/* Configuration Fields - 2 Column Layout */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               {/* Daily Click Count */}
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="dailyClicks">每日点击数 *</Label>
                 <Input
                   id="dailyClicks"
@@ -849,7 +849,7 @@ export default function ClickFarmTaskModal({
               </div>
 
               {/* Scheduled Start Date */}
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="scheduledStartDate">开始日期 *</Label>
                 <Input
                   id="scheduledStartDate"
@@ -865,7 +865,7 @@ export default function ClickFarmTaskModal({
               </div>
 
               {/* Time Period */}
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="timePeriod">时间段 *</Label>
                 <Select
                   id="timePeriod"
@@ -884,7 +884,7 @@ export default function ClickFarmTaskModal({
               </div>
 
               {/* Duration */}
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="duration">持续时长 *</Label>
                 <Select
                   id="duration"
@@ -904,7 +904,7 @@ export default function ClickFarmTaskModal({
             </div>
 
             {/* Referer配置 */}
-            <div className="space-y-3 pt-2 border-t">
+            <div className="space-y-1.5 pt-2.5 border-t">
               <Label className="flex items-center gap-2">
                 <Globe className="h-4 w-4" />
                 Referer来源配置
@@ -913,9 +913,9 @@ export default function ClickFarmTaskModal({
                 模拟真实用户来源，防止反爬识别
               </p>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                 {/* Referer类型选择 */}
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <Label htmlFor="refererType">Referer类型</Label>
                   <Select
                     id="refererType"
@@ -943,7 +943,7 @@ export default function ClickFarmTaskModal({
 
                 {/* 特定Referer选择（仅当类型为specific时显示） */}
                 {refererConfig.type === 'specific' ? (
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                     <Label htmlFor="specificReferer">选择Referer</Label>
                     <Select
                       id="specificReferer"
@@ -961,11 +961,7 @@ export default function ClickFarmTaskModal({
                       </SelectContent>
                     </Select>
                   </div>
-                ) : (
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    {refererConfig.type === 'none' ? '不设置Referer头' : `随机从${SOCIAL_MEDIA_REFERRERS.length}个社交媒体中选择`}
-                  </div>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
