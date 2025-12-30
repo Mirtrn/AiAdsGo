@@ -154,7 +154,7 @@ export async function PUT(request: NextRequest) {
         })
       }
 
-      console.log(`🔄 自动更新 gemini_endpoint: ${provider} → ${endpoint}`)
+      console.log(`🔄 根据服务商(${provider})自动更新 gemini_endpoint → ${endpoint}`)
     }
 
     // 更新配置

@@ -151,6 +151,7 @@ export async function POST(request: NextRequest) {
             // 第三方中转：验证 gemini_relay_api_key
             if (config.gemini_relay_api_key && config.gemini_relay_api_key !== '············') {
               geminiRelayApiKey = config.gemini_relay_api_key
+              console.log(`🔍 使用前端传来的中转 API Key（已隐藏）`)
             } else {
               const relayApiKeySetting = await getUserOnlySetting('ai', 'gemini_relay_api_key', userIdNum)
               if (!relayApiKeySetting?.value) {
@@ -160,8 +161,8 @@ export async function POST(request: NextRequest) {
                 )
               }
               geminiRelayApiKey = relayApiKeySetting.value
+              console.log(`🔍 使用数据库中的中转 API Key（已隐藏，前缀：${geminiRelayApiKey.substring(0, 8)}）`)
             }
-            console.log(`🔍 使用中转服务商的 API Key 验证`)
           } else {
             // 官方：验证 gemini_api_key
             if (config.gemini_api_key && config.gemini_api_key !== '············') {

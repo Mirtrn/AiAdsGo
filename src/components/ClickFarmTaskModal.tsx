@@ -138,6 +138,7 @@ export default function ClickFarmTaskModal({
   }, [open]);
 
   // 🆕 并行加载辅助数据（代理检查和分布计算同时进行）
+  // 🔧 修复(2025-12-30): loadOffers 需要等待分布数据生成完成，避免用户点击"创建任务"时 distribution 仍为空
   const loadAuxiliaryData = async (offer: Offer, offersList: Offer[]) => {
     // 🆕 分布曲线使用前端计算，无需API调用
     const [proxyResult] = await Promise.all([
@@ -150,15 +151,6 @@ export default function ClickFarmTaskModal({
           return { warning: '' };
         })
         .catch(() => ({ warning: '检查代理配置失败' })),
-      // 🆕 前端直接计算分布曲线
-      Promise.resolve().then(() => {
-        if (dailyClickCount > 0) {
-          const [startTime, endTime] = timePeriod.split('-');
-          const dist = generateDefaultDistribution(dailyClickCount, startTime, endTime);
-          return { distribution: dist };
-        }
-        return { distribution: null };
-      })
     ]);
 
     // 更新状态
@@ -171,13 +163,11 @@ export default function ClickFarmTaskModal({
     const autoTimezone = getTimezoneByCountry(offer.targetCountry);
     setTimezone(autoTimezone);
 
-    // 🆕 从计算结果中获取分布
-    const distributionResult = dailyClickCount > 0
-      ? { distribution: generateDefaultDistribution(dailyClickCount, timePeriod.split('-')[0], timePeriod.split('-')[1]) }
-      : { distribution: null };
-
-    if (distributionResult.distribution) {
-      setDistribution(distributionResult.distribution);
+    // 🆕 同步计算分布曲线（确保在 loadOffers 返回前已完成）
+    if (dailyClickCount > 0) {
+      const [startTime, endTime] = timePeriod.split('-');
+      const dist = generateDefaultDistribution(dailyClickCount, startTime, endTime);
+      setDistribution(dist);
     }
   };
 
@@ -245,6 +235,7 @@ export default function ClickFarmTaskModal({
         if (offerData) {
           setOffers([offerData]);
           setSelectedOfferId(preSelectedOfferId);
+          // 🔧 修复(2025-12-30): 等待分布数据生成完成后再返回，避免用户点击"创建任务"时 distribution 仍为空
           await loadAuxiliaryData(offerData, [offerData]);
         }
       } else {
@@ -277,6 +268,7 @@ export default function ClickFarmTaskModal({
 
     if (offersData.length > 0) {
       setSelectedOfferId(offersData[0].id);
+      // 🔧 修复(2025-12-30): 等待分布数据生成完成后再返回，避免用户点击"创建任务"时 distribution 仍为空
       await loadAuxiliaryData(offersData[0], offersData);
     }
   };
