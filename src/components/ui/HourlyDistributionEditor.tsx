@@ -284,26 +284,26 @@ export default function HourlyDistributionEditor({
 
                   {/* 数值标签 */}
                   {showLabel && (
-                    <g>
-                      <rect
-                        x={point.xPercent - 8}
-                        y={point.yPercent - 16}
-                        width="16"
-                        height="12"
-                        rx="3"
-                        fill="rgba(0,0,0,0.75)"
-                      />
-                      <text
-                        x={point.xPercent}
-                        y={point.yPercent - 8}
-                        textAnchor="middle"
-                        fill="white"
-                        fontSize="8"
-                        fontWeight="600"
-                      >
-                        {point.value}
-                      </text>
-                    </g>
+                    <text
+                      x={point.xPercent}
+                      y={point.yPercent - 6}
+                      textAnchor="middle"
+                      fontSize="10"
+                      fontWeight="700"
+                      fill={
+                        isDragged
+                          ? 'rgb(249, 115, 22)'
+                          : point.isActive
+                          ? (isEditing ? 'rgb(34, 197, 94)' : 'rgb(59, 130, 246)')
+                          : 'rgb(107, 114, 128)'
+                      }
+                      stroke="white"
+                      strokeWidth="2.5"
+                      paintOrder="stroke"
+                      className="select-none"
+                    >
+                      {point.value}
+                    </text>
                   )}
 
                   {/* 数据点圆圈 - 只在需要时显示 */}
