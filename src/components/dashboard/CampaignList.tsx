@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { TableLoadingSkeleton } from '@/components/ui/loading-skeleton' // P2-6: 统一loading
 import { NoCampaignsState } from '@/components/ui/empty-state' // P2-7: 统一空状态
-import { safeToFixed } from '@/lib/utils'
+import { safeToFixed, formatCurrency } from '@/lib/utils'
 
 interface CampaignPerformance {
   campaignId: number
@@ -37,6 +37,7 @@ interface CampaignPerformance {
   ctr: number
   cpc: number
   conversionRate: number
+  currency?: string // 🔧 新增(2025-12-30): 货币代码
 }
 
 export function CampaignList() {
@@ -214,13 +215,13 @@ export function CampaignList() {
                         {(campaign.clicks ?? 0).toLocaleString('en-US')}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        ${safeToFixed(Number(campaign.cost) || 0, 2)}
+                        {formatCurrency(Number(campaign.cost) || 0, campaign.currency || 'USD', 2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {safeToFixed(Number(campaign.ctr) || 0, 2)}%
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        ${safeToFixed(Number(campaign.cpc) || 0, 2)}
+                        {formatCurrency(Number(campaign.cpc) || 0, campaign.currency || 'USD', 2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {campaign.conversions}

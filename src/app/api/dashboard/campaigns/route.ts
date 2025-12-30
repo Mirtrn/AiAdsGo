@@ -5,6 +5,7 @@ import { toNumber } from '@/lib/utils'
 
 /**
  * Campaign性能数据
+ * 🔧 修复(2025-12-30): 增加currency字段支持多货币
  */
 interface CampaignPerformance {
   campaignId: number
@@ -19,6 +20,7 @@ interface CampaignPerformance {
   cpc: number
   conversionRate: number
   createdAt: string
+  currency?: string // 🔧 新增: 货币代码
 }
 
 /**
@@ -85,7 +87,7 @@ export async function GET(request: NextRequest) {
 
     const whereClause = conditions.join(' AND ')
 
-    // 查询Campaign及其聚合性能数据
+    // 🔧 修复(2025-12-30): 查询Campaign及其聚合性能数据（增加currency字段）
     const query = `
       SELECT
         c.id as campaignId,
@@ -96,7 +98,9 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(cp.impressions), 0) as impressions,
         COALESCE(SUM(cp.clicks), 0) as clicks,
         COALESCE(SUM(cp.cost), 0) as cost,
-        COALESCE(SUM(cp.conversions), 0) as conversions
+        COALESCE(SUM(cp.conversions), 0) as conversions,
+        (SELECT DISTINCT cp2.currency FROM campaign_performance cp2
+         WHERE cp2.campaign_id = c.id AND cp2.date >= ? AND cp2.date <= ? LIMIT 1) as currency
       FROM campaigns c
       LEFT JOIN offers o ON c.offer_id = o.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
@@ -106,7 +110,8 @@ export async function GET(request: NextRequest) {
       GROUP BY c.id, c.campaign_name, c.status, o.brand, c.created_at
     `
 
-    params.unshift(formatDate(startDate), formatDate(endDate))
+    // 🔧 修复(2025-12-30): 参数顺序需要匹配子查询中的2次日期使用 + 主查询的2次日期使用
+    params.unshift(formatDate(startDate), formatDate(endDate), formatDate(startDate), formatDate(endDate))
 
     const rawData = await db.query(query, [...params]) as Array<{
       campaignId: number
@@ -118,6 +123,7 @@ export async function GET(request: NextRequest) {
       clicks: number
       cost: number
       conversions: number
+      currency?: string // 🔧 新增: 货币代码
     }>
 
     // 计算派生指标
@@ -140,6 +146,7 @@ export async function GET(request: NextRequest) {
         ctr: parseFloat(ctr.toFixed(2)),
         cpc: parseFloat(cpc.toFixed(2)),
         conversionRate: parseFloat(conversionRate.toFixed(2)),
+        currency: row.currency || 'USD', // 🔧 新增: 默认USD
       }
     })
 
