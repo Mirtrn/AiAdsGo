@@ -81,13 +81,14 @@ export async function POST(request: NextRequest) {
     // 生成新密码哈希
     const newPasswordHash = await hashPassword(newPassword)
 
-    // 更新密码并将must_change_password设为0 (兼容PostgreSQL和SQLite)
+    // 更新密码并将must_change_password设为false (兼容PostgreSQL和SQLite)
     const db_type = db.type
     const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime(\'now\')'
+    const falseValue = db_type === 'postgres' ? 'false' : '0'
     await db.exec(`
       UPDATE users
       SET password_hash = ?,
-          must_change_password = 0,
+          must_change_password = ${falseValue},
           updated_at = ${nowFunc}
       WHERE id = ?
     `, [newPasswordHash, payload.userId])
