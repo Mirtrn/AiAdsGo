@@ -37,7 +37,7 @@ interface Offer {
   brand?: string;
   brand_name?: string;
   targetCountry: string;  // API返回驼峰命名
-  affiliate_link?: string;
+  affiliateLink?: string;  // API返回驼峰命名
 }
 
 const TIME_PERIODS = [
@@ -451,12 +451,12 @@ export default function ClickFarmTaskModal({
     // 1.3 校验Offer基本信息完整性
     const offerValidationErrors: string[] = [];
 
-    if (!selectedOffer.affiliate_link) {
-      offerValidationErrors.push('联盟推广链接（affiliate_link）未配置');
+    if (!selectedOffer.affiliateLink) {
+      offerValidationErrors.push('联盟推广链接（affiliateLink）未配置');
     } else {
       // 1.4 校验联盟链接格式有效性
       try {
-        const url = new URL(selectedOffer.affiliate_link);
+        const url = new URL(selectedOffer.affiliateLink);
         if (!url.protocol.startsWith('http')) {
           offerValidationErrors.push('联盟推广链接协议无效（需http/https）');
         }
@@ -638,7 +638,7 @@ export default function ClickFarmTaskModal({
           id: selectedOffer.id,
           name: offerName,
           country: selectedOffer.targetCountry,
-          affiliate_link: '***hidden***'
+          affiliateLink: '***hidden***'
         },
         referer_config: requestData.referer_config
       });
@@ -763,14 +763,14 @@ export default function ClickFarmTaskModal({
                     <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <span className="text-muted-foreground block mb-1">联盟推广链接:</span>
-                      {selectedOffer.affiliate_link ? (
+                      {selectedOffer.affiliateLink ? (
                         <a
-                          href={selectedOffer.affiliate_link}
+                          href={selectedOffer.affiliateLink}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:underline text-xs break-all flex items-center gap-1"
                         >
-                          <span className="truncate max-w-[400px]">{selectedOffer.affiliate_link}</span>
+                          <span className="truncate max-w-[400px]">{selectedOffer.affiliateLink}</span>
                           <ExternalLink className="h-3 w-3 shrink-0" />
                         </a>
                       ) : (

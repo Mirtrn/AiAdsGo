@@ -119,9 +119,10 @@ export async function GET(request: NextRequest) {
         impressions: Number(c.impressions) || 0,
         clicks: Number(c.clicks) || 0,
         conversions: Number(c.conversions) || 0,
-        cost: Number(c.cost) || 0,
+        // 🔧 修复(2025-12-30): 字段名与前端接口一致 (costUsd/cpcUsd)
+        costUsd: Number(c.cost) || 0,
         ctr: Number(c.ctr) || 0,
-        cpc: Number(c.cpc) || 0,
+        cpcUsd: Number(c.cpc) || 0,
         conversionRate: Number(c.conversion_rate) || 0,
         dateRange: {
           start: startDateStr,
