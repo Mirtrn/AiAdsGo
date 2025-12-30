@@ -124,16 +124,13 @@ export function getEndpointByProvider(provider: GeminiProvider): string {
  * 超时设置：
  * - 180秒（3分钟）
  * - 原因：平衡可靠性与响应时间
+ *
+ * 🔧 2025-12-30 修复：
+ * - 使用 getSetting() 正确读取配置
+ * - 添加浏览器 headers 绕过 Cloudflare 机器人检测
  */
 export async function createGeminiAxiosClient(userId: number): Promise<AxiosInstance> {
-  const db = await getDatabase()
-  const settings = await db.queryOne(`
-    SELECT value as gemini_provider
-    FROM system_settings
-    WHERE user_id = ? AND category = 'ai' AND key = 'gemini_provider'
-  `, [userId]) as { gemini_provider?: GeminiProvider } | undefined
-
-  const provider = (settings?.gemini_provider || 'official') as GeminiProvider
+  const provider = await getGeminiProvider(userId)
   const endpoint = getEndpointByProvider(provider)
 
   if (endpoint === 'vertex') {
@@ -146,6 +143,13 @@ export async function createGeminiAxiosClient(userId: number): Promise<AxiosInst
     timeout: 180000, // 180 秒（3分钟）
     headers: {
       'Content-Type': 'application/json',
+      // 🔧 修复(2025-12-30): 添加浏览器headers绕过Cloudflare机器人检测
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Origin': endpoint,
+      'Referer': `${endpoint}/`,
     },
   })
 }
