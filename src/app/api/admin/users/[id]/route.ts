@@ -82,7 +82,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
     }
 
-    updates.push('updated_at = datetime(\'now\')')
+    // 🔧 修复(2025-12-30): PostgreSQL兼容性 - 使用CURRENT_TIMESTAMP替代datetime('now')
+    const timestampFunc = db.type === 'postgres' ? 'CURRENT_TIMESTAMP' : 'datetime(\'now\')'
+    updates.push(`updated_at = ${timestampFunc}`)
     values.push(userId)
 
     // 构建最终 SQL（用于调试）

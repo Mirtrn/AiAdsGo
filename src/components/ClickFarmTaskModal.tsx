@@ -687,7 +687,7 @@ export default function ClickFarmTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEditMode ? '编辑补点击任务' : '创建补点击任务'}</DialogTitle>
           <DialogDescription>
@@ -735,65 +735,63 @@ export default function ClickFarmTaskModal({
 
               {/* Offer Info Card */}
               {selectedOffer ? (
-                <div className="bg-muted/50 rounded-lg p-4">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                    {/* Offer ID */}
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="text-muted-foreground truncate">Offer ID:</span>
-                      <span className="font-medium truncate">#{selectedOffer.id}</span>
-                    </div>
+                <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                  {/* Offer ID */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground">Offer ID:</span>
+                    <span className="font-medium">#{selectedOffer.id}</span>
+                  </div>
 
-                    {/* 产品标识：带标签 */}
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-muted-foreground truncate">产品标识:</span>
-                      <Badge className="h-5 text-xs shrink-0" variant="outline">
-                        {selectedOffer.offerName || selectedOffer.brand || selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
-                      </Badge>
-                    </div>
+                  {/* 产品标识 */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">产品标识:</span>
+                    <Badge className="h-5 text-xs" variant="outline">
+                      {selectedOffer.offerName || selectedOffer.brand || selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
+                    </Badge>
+                  </div>
 
-                    {/* 投放国家 */}
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="text-muted-foreground truncate">投放国家:</span>
-                      <span className="font-medium truncate">{selectedOffer.targetCountry}</span>
-                    </div>
+                  {/* 投放国家 */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground">投放国家:</span>
+                    <span className="font-medium">{selectedOffer.targetCountry}</span>
+                  </div>
 
-                    {/* 执行时区 */}
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="text-muted-foreground truncate">时区:</span>
-                      <span className="font-medium truncate max-w-[120px]">{timezone}</span>
-                    </div>
+                  {/* 执行时区 */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground">时区:</span>
+                    <span className="font-medium">{timezone}</span>
+                  </div>
 
-                    {/* 联盟推广链接：独占整行，改进长链接处理 */}
-                    <div className="col-span-2 flex items-start gap-2 pt-2 border-t border-muted-foreground/20">
-                      <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-muted-foreground text-xs block mb-1">联盟推广链接:</span>
-                        {selectedOffer.affiliateLink ? (
-                          <div className="relative group">
-                            <a
-                              href={selectedOffer.affiliateLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:underline text-xs break-all block"
-                            >
-                              {selectedOffer.affiliateLink.length > 80
-                                ? `${selectedOffer.affiliateLink.substring(0, 80)}...`
-                                : selectedOffer.affiliateLink}
-                            </a>
-                            {/* Tooltip显示完整链接 */}
-                            <div className="hidden group-hover:block absolute z-10 left-0 bottom-full mb-2 p-2 bg-popover text-popover-foreground text-xs rounded shadow-lg border max-w-[400px] break-all">
-                              {selectedOffer.affiliateLink}
-                            </div>
+                  {/* 联盟推广链接：单行显示，截断 */}
+                  <div className="flex items-start gap-2 pt-2 border-t border-muted-foreground/20">
+                    <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-muted-foreground text-xs block">联盟推广链接:</span>
+                      {selectedOffer.affiliateLink ? (
+                        <div className="relative group">
+                          <a
+                            href={selectedOffer.affiliateLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline text-xs break-all block"
+                          >
+                            {selectedOffer.affiliateLink.length > 60
+                              ? `${selectedOffer.affiliateLink.substring(0, 60)}...`
+                              : selectedOffer.affiliateLink}
+                          </a>
+                          {/* Tooltip显示完整链接 */}
+                          <div className="hidden group-hover:block absolute z-10 left-0 bottom-full mb-2 p-2 bg-popover text-popover-foreground text-xs rounded shadow-lg border max-w-[350px] break-all">
+                            {selectedOffer.affiliateLink}
                           </div>
-                        ) : (
-                          <Badge variant="destructive" className="text-xs">
-                            未配置联盟链接
-                          </Badge>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <Badge variant="destructive" className="text-xs">
+                          未配置联盟链接
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 </div>
