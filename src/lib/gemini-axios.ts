@@ -138,25 +138,18 @@ export async function createGeminiAxiosClient(userId: number): Promise<AxiosInst
     throw new Error('Use Vertex AI client instead')
   }
 
+  // 🔧 修复(2025-12-30): 简化headers配置
+  // - Node.js服务器环境不应使用浏览器特定headers（Origin, Referer, sec-fetch-*）
+  // - 这些headers可能触发Cloudflare拦截导致503/UPSTREAM_UNAVAILABLE
+  // - curl测试成功证明只需基本headers即可
   return axios.create({
     baseURL: endpoint, // 动态端点
     timeout: 180000, // 180 秒（3分钟）
     headers: {
       'Content-Type': 'application/json',
-      // 🔧 修复(2025-12-30): 添加完整浏览器headers绕过Cloudflare机器人检测
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
-      'Origin': endpoint,
-      'Referer': `${endpoint}/`,
-      // 🆕 添加 Chrome 安全相关 headers
-      'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"macOS"',
-      'sec-fetch-dest': 'empty',
-      'sec-fetch-mode': 'cors',
-      'sec-fetch-site': 'same-origin',
+      'Accept': 'application/json',
+      // 保留User-Agent以避免被识别为bot（但使用更简洁的版本）
+      'User-Agent': 'AutoAds/1.0',
     },
   })
 }
@@ -277,6 +270,7 @@ export async function generateContent(params: {
     // 检查响应基本结构
     if (!response.data.candidates || response.data.candidates.length === 0) {
       console.error('❌ Gemini API响应异常: 没有candidates')
+      console.error('   - 完整响应:', JSON.stringify(response.data, null, 2))
       throw new Error('Gemini API 返回了空响应（没有candidates）')
     }
 
