@@ -76,7 +76,8 @@ export default function ClickFarmTaskModal({
   const [isEditingDistribution, setIsEditingDistribution] = useState(false);
   const [isDistributionManuallyModified, setIsDistributionManuallyModified] = useState(false);
   const [draggedHour, setDraggedHour] = useState<number | null>(null);
-  const [timezone, setTimezone] = useState<string>('America/New_York');  // 🆕 timezone状态
+  // 🔧 修复P2-10(2025-12-30): 初始值设为空,避免误导用户,实际值由选择offer时自动设置
+  const [timezone, setTimezone] = useState<string>('');
 
   // 🆕 Referer配置状态
   const [refererConfig, setRefererConfig] = useState<{
@@ -85,6 +86,15 @@ export default function ClickFarmTaskModal({
   }>({ type: 'none' });
 
   const isEditMode = !!editTaskId;  // 🆕 判断是否为编辑模式
+
+  // 🔧 修复P1-2(2025-12-30): 清理拖拽事件监听器,防止内存泄漏
+  useEffect(() => {
+    // 当对话框关闭时,清理可能残留的全局事件监听器
+    if (!open) {
+      setDraggedHour(null);
+      setIsEditingDistribution(false);
+    }
+  }, [open]);
 
   // 🆕 加载现有任务数据（编辑模式）
   useEffect(() => {
@@ -103,10 +113,10 @@ export default function ClickFarmTaskModal({
 
       setSelectedOfferId(task.offer_id);
       setDailyClickCount(task.daily_click_count);
-      setTimePeriod(task.start_time === '00:00' && task.end_time === '24:00'
-        ? '00:00-24:00'
-        : '06:00-24:00');
-      setDurationDays(task.duration_days);
+      // 🔧 修复P0-2(2025-12-30): 直接使用后端返回的时间范围,避免数据丢失
+      setTimePeriod(`${task.start_time}-${task.end_time}`);
+      // 🔧 修复P0-3(2025-12-30): 后端-1表示不限期,前端转换为9999
+      setDurationDays(task.duration_days === -1 ? 9999 : task.duration_days);
       setScheduledStartDate(task.scheduled_start_date);  // 🆕 加载scheduled_start_date
       setDistribution(task.hourly_distribution);
       setTimezone(task.timezone);  // 🆕 加载timezone
@@ -122,7 +132,9 @@ export default function ClickFarmTaskModal({
       } else {
         setRefererConfig({ type: 'none' });
       }
-      setIsDistributionManuallyModified(false); // 重置手动修改标志
+      // 🔧 修复P0-1(2025-12-30): 编辑模式下加载的distribution不应被useEffect覆盖
+      // 设置为true表示这是从服务器加载的数据,阻止自动生成
+      setIsDistributionManuallyModified(true);
     } catch (error) {
       console.error('加载任务失败:', error);
       toast.error('加载任务失败');
@@ -137,77 +149,10 @@ export default function ClickFarmTaskModal({
     }
   }, [open]);
 
-  // 🆕 并行加载辅助数据（代理检查和分布计算同时进行）
-  // 🔧 修复(2025-12-30): loadOffers 需要等待分布数据生成完成，避免用户点击"创建任务"时 distribution 仍为空
-  const loadAuxiliaryData = async (offer: Offer, offersList: Offer[]) => {
-    // 🆕 分布曲线使用前端计算，无需API调用
-    const [proxyResult] = await Promise.all([
-      // 并行检查代理
-      fetch(`/api/settings/proxy?country=${offer.targetCountry.toLowerCase()}`)
-        .then(async (res) => {
-          if (!res.ok) return { warning: `未配置${offer.targetCountry}代理，请先前往设置页面配置` };
-          const data = await res.json();
-          if (!data.data?.proxy_url) return { warning: `未配置${offer.targetCountry}代理，请先前往设置页面配置` };
-          return { warning: '' };
-        })
-        .catch(() => ({ warning: '检查代理配置失败' })),
-    ]);
-
-    // 更新状态
-    if (proxyResult.warning) {
-      setProxyWarning(proxyResult.warning);
-    } else {
-      setProxyWarning('');
-    }
-
-    const autoTimezone = getTimezoneByCountry(offer.targetCountry);
-    setTimezone(autoTimezone);
-
-    console.log('[ClickFarmTaskModal] loadAuxiliaryData DEBUG: dailyClickCount=', dailyClickCount, 'timePeriod=', timePeriod);
-
-    // 🆕 同步计算分布曲线（确保在 loadOffers 返回前已完成）
-    if (dailyClickCount > 0) {
-      const [startTime, endTime] = timePeriod.split('-');
-      console.log('[ClickFarmTaskModal] loadAuxiliaryData: 计算分布 startTime=', startTime, 'endTime=', endTime, 'dailyClickCount=', dailyClickCount);
-      const dist = generateDefaultDistribution(dailyClickCount, startTime, endTime);
-      console.log('[ClickFarmTaskModal] loadAuxiliaryData: 生成分布 dist.length=', dist.length, 'sum=', dist.reduce((a,b)=>a+b,0));
-      setDistribution(dist);
-      console.log('[ClickFarmTaskModal] loadAuxiliaryData: setDistribution 已调用');
-    } else {
-      console.log('[ClickFarmTaskModal] loadAuxiliaryData: dailyClickCount <= 0，跳过分布生成');
-    }
-  };
-
-  // 🆕 使用 useLayoutEffect 确保在 DOM 更新前处理 preSelectedOfferId
-  // 关键：每次 open 变为 true 时都执行
-  // 注意：distribution 由 loadAuxiliaryData 自动生成，无需在此处调用 generateDistribution
-  useLayoutEffect(() => {
-    console.log('[ClickFarmTaskModal] useLayoutEffect EXECUTE: open=', open, 'preSelectedOfferId=', preSelectedOfferId, 'offers.length=', offers.length, 'selectedOfferId=', selectedOfferId, 'distribution.length=', distribution.length);
-    if (!open) return;
-
-    // 如果有 preSelectedOfferId 且 offers 已加载，找到并选中它
-    if (preSelectedOfferId && offers.length > 0) {
-      const offer = offers.find(o => o.id === preSelectedOfferId);
-      if (offer) {
-        console.log('[ClickFarmTaskModal] useLayoutEffect: 选中 offer id =', offer.id, 'name =', offer.name);
-        setSelectedOfferId(preSelectedOfferId);
-        // distribution 由 loadAuxiliaryData 自动生成，无需重复调用
-      } else {
-        console.log('[ClickFarmTaskModal] useLayoutEffect: 未找到对应的 offer');
-      }
-    } else if (!preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
-      // 如果没有 preSelectedOfferId，选择第一个 offer
-      console.log('[ClickFarmTaskModal] useLayoutEffect: 无 preSelectedOfferId，选择第一个 offer');
-      if (offers[0]) {
-        handleOfferChange(offers[0].id);
-      }
-    } else {
-      console.log('[ClickFarmTaskModal] useLayoutEffect: 条件不满足 - preSelectedOfferId:', preSelectedOfferId, 'offers.length:', offers.length, 'selectedOfferId:', selectedOfferId);
-    }
-  }, [open, preSelectedOfferId, offers.length]);
-
-  // Update distribution when settings change (only if not manually modified)
-  // 注意：初始分布由 loadAuxiliaryData 自动生成，无需额外调用
+  // 🔧 修复(2025-12-30): [核心] distribution状态的唯一管理源
+  // 这是distribution自动生成的唯一入口,避免多处设置导致竞态条件
+  // 触发条件: selectedOfferId变化 || dailyClickCount变化 || timePeriod变化 || 手动修改标志重置
+  // 手动修改场景(不触发此effect): 拖拽编辑、均衡分布、编辑器修改、编辑模式加载
   useEffect(() => {
     if (selectedOfferId && dailyClickCount > 0 && timePeriod && !isDistributionManuallyModified) {
       const [startTime, endTime] = timePeriod.split('-');
@@ -215,6 +160,64 @@ export default function ClickFarmTaskModal({
       setDistribution(newDist);
     }
   }, [selectedOfferId, dailyClickCount, timePeriod, isDistributionManuallyModified]);
+
+  // 🔧 修复(2025-12-30): loadAuxiliaryData只负责检查代理和设置时区,不涉及distribution
+  // distribution统一由useEffect(line 142-148)管理
+  const loadAuxiliaryData = async (offer: Offer, offersList: Offer[]) => {
+    // 🔧 修复P2-4(2025-12-30): 添加错误处理,防止时区设置失败影响整体流程
+    try {
+      // 并行检查代理
+      const proxyResult = await fetch(`/api/settings/proxy?country=${offer.targetCountry.toLowerCase()}`)
+        .then(async (res) => {
+          if (!res.ok) return { warning: `未配置${offer.targetCountry}代理，请先前往设置页面配置` };
+          const data = await res.json();
+          if (!data.data?.proxy_url) return { warning: `未配置${offer.targetCountry}代理，请先前往设置页面配置` };
+          return { warning: '' };
+        })
+        .catch(() => ({ warning: '检查代理配置失败' }));
+      if (proxyResult.warning) {
+        setProxyWarning(proxyResult.warning);
+      } else {
+        setProxyWarning('');
+      }
+
+      // 自动设置时区
+      const autoTimezone = getTimezoneByCountry(offer.targetCountry);
+      setTimezone(autoTimezone);
+    } catch (error) {
+      console.error('[loadAuxiliaryData] 错误:', error);
+      // 设置失败不阻塞,使用默认时区
+      toast.error('获取时区信息失败,已使用默认时区');
+    }
+  };
+
+  // 🔧 修复(2025-12-30): 简化useLayoutEffect逻辑,避免复杂的调用链
+  // 该effect只负责设置selectedOfferId,distribution由useEffect(line 142-148)统一管理
+  // 🔧 修复P1-1(2025-12-30): 添加selectedOfferId到依赖数组,避免闭包陈旧值
+  useLayoutEffect(() => {
+    console.log('[ClickFarmTaskModal] useLayoutEffect EXECUTE: open=', open, 'preSelectedOfferId=', preSelectedOfferId, 'offers.length=', offers.length, 'selectedOfferId=', selectedOfferId);
+    if (!open) return;
+
+    // 如果有 preSelectedOfferId 且 offers 已加载，选中它
+    if (preSelectedOfferId && offers.length > 0) {
+      const offer = offers.find(o => o.id === preSelectedOfferId);
+      if (offer && selectedOfferId !== preSelectedOfferId) {
+        console.log('[ClickFarmTaskModal] useLayoutEffect: 选中 offer id =', offer.id, 'name =', offer.name);
+        setSelectedOfferId(preSelectedOfferId);
+      }
+    } else if (!preSelectedOfferId && offers.length > 0 && !selectedOfferId) {
+      // 如果没有 preSelectedOfferId，选择第一个 offer
+      console.log('[ClickFarmTaskModal] useLayoutEffect: 无 preSelectedOfferId，选择第一个 offer');
+      setSelectedOfferId(offers[0].id);
+      // 异步加载辅助数据(代理检查、时区设置)
+      loadAuxiliaryData(offers[0], offers).catch(e => {
+        console.error('[ClickFarmTaskModal] loadAuxiliaryData 错误', e);
+      });
+    }
+  }, [open, preSelectedOfferId, offers.length, selectedOfferId]);
+
+  // 🔧 修复(2025-12-30): 删除重复的useEffect,统一由第142-148行的useEffect管理distribution生成
+  // 原代码在此处有重复的useEffect,导致distribution被设置两次,引发竞态条件
 
   const loadOffers = async () => {
     try {
@@ -242,8 +245,11 @@ export default function ClickFarmTaskModal({
         if (offerData) {
           setOffers([offerData]);
           setSelectedOfferId(preSelectedOfferId);
-          // 🔧 修复(2025-12-30): 等待分布数据生成完成后再返回，避免用户点击"创建任务"时 distribution 仍为空
-          await loadAuxiliaryData(offerData, [offerData]);
+          // 🔧 修复(2025-12-30): 异步加载辅助数据(代理检查、时区设置),不阻塞主流程
+          // distribution由useEffect自动生成,无需等待
+          loadAuxiliaryData(offerData, [offerData]).catch(e => {
+            console.error('[ClickFarmTaskModal] loadAuxiliaryData 错误', e);
+          });
         }
       } else {
         // 没有 preSelectedOfferId 时，获取列表
@@ -275,8 +281,10 @@ export default function ClickFarmTaskModal({
 
     if (offersData.length > 0) {
       setSelectedOfferId(offersData[0].id);
-      // 🔧 修复(2025-12-30): 等待分布数据生成完成后再返回，避免用户点击"创建任务"时 distribution 仍为空
-      await loadAuxiliaryData(offersData[0], offersData);
+      // 🔧 修复(2025-12-30): 异步加载辅助数据,不阻塞主流程
+      loadAuxiliaryData(offersData[0], offersData).catch(e => {
+        console.error('[ClickFarmTaskModal] loadAuxiliaryData 错误', e);
+      });
     }
   };
 
@@ -297,49 +305,31 @@ export default function ClickFarmTaskModal({
 
       const data = await response.json();
       setDistribution(data.data.distribution);
+      // 🔧 修复P2-2(2025-12-30): API生成的distribution也标记为手动修改,防止被覆盖
+      setIsDistributionManuallyModified(true);
     } catch (error) {
       console.error('生成时间分布失败:', error);
       toast.error('生成时间分布失败');
     }
   };
 
-  const checkProxy = async (targetCountry: string) => {
-    try {
-      const response = await fetch(
-        `/api/settings/proxy?country=${targetCountry.toLowerCase()}`
-      );
+  // 🔧 修复P2-1(2025-12-30): checkProxy函数未使用,已删除冗余代码
+  // 代理检查逻辑已整合到loadAuxiliaryData中
 
-      if (!response.ok) {
-        setProxyWarning(`未配置${targetCountry}代理，请先前往设置页面配置`);
-        return false;
-      }
-
-      const data = await response.json();
-      if (!data.data?.proxy_url) {
-        setProxyWarning(`未配置${targetCountry}代理，请先前往设置页面配置`);
-        return false;
-      }
-
-      setProxyWarning('');
-      return true;
-    } catch (error) {
-      setProxyWarning('检查代理配置失败');
-      return false;
-    }
-  };
-
-  const handleOfferChange = async (offerId: number, offersDataParam?: Offer[]) => {
+  const handleOfferChange = (offerId: number, offersDataParam?: Offer[]) => {
     console.log('[ClickFarmTaskModal] handleOfferChange START: offerId =', offerId, 'current offers.length =', offers.length, 'current selectedOfferId =', selectedOfferId);
     setSelectedOfferId(offerId);
     setIsDistributionManuallyModified(false); // 重置手动修改标志
 
-    // 🆕 使用传入的 offersDataParam，如果没传则使用 state offers
+    // 使用传入的 offersDataParam，如果没传则使用 state offers
     const offersList = offersDataParam || offers;
     const offer = offersList.find(o => o.id === offerId);
     console.log('[ClickFarmTaskModal] handleOfferChange: 找到offer?', !!offer, 'offerName:', offer?.offerName, 'brand:', offer?.brand, 'targetCountry:', offer?.targetCountry);
     if (offer) {
-      // 🆕 使用并行加载替代串行调用
-      await loadAuxiliaryData(offer, offersList);
+      // 🔧 修复(2025-12-30): 异步加载辅助数据,不阻塞
+      loadAuxiliaryData(offer, offersList).catch(e => {
+        console.error('[ClickFarmTaskModal] loadAuxiliaryData 错误', e);
+      });
     }
     console.log('[ClickFarmTaskModal] handleOfferChange END');
   };
@@ -350,8 +340,14 @@ export default function ClickFarmTaskModal({
   const handleDistributionBarDrag = (hour: number, deltaY: number) => {
     if (!isEditingDistribution || distribution.length === 0) return;
 
-    // Calculate new value based on drag distance
+    // 🔧 修复P2-3(2025-12-30): 防止除零错误,处理全为0的边界情况
     const maxValue = Math.max(...distribution);
+    if (maxValue === 0) {
+      // 如果所有值都是0,直接返回,不处理拖拽
+      return;
+    }
+
+    // Calculate new value based on drag distance
     const pixelsPerClick = 40 / maxValue; // 40px max height
     const clicksDelta = Math.round(-deltaY / pixelsPerClick); // negative because drag up = increase
 
@@ -380,6 +376,8 @@ export default function ClickFarmTaskModal({
     }
 
     setDistribution(newDistribution);
+    // 🔧 修复(2025-12-30): 拖拽编辑后标记为手动修改,阻止useEffect自动覆盖
+    setIsDistributionManuallyModified(true);
   };
 
   const handleBarMouseDown = (hour: number, e: React.MouseEvent) => {
@@ -573,20 +571,17 @@ export default function ClickFarmTaskModal({
     }
 
     // 2.7 校验分布数据有效性
+    const [startHour] = startTime.split(':').map(Number);
+    const [endHour] = endTime.split(':').map(Number);
+
     const invalidHours = distribution.find((count, hour) => {
       if (typeof count !== 'number' || count < 0) return true;
-      // 检查时间与分布的对应关系
-      const [startHour] = startTime.split(':').map(Number);
-      const [endHour] = endTime.split(':').map(Number);
       // 非执行时间内应该有0点击
       if (endTime === '24:00') {
-        // 🔧 修复(2025-12-30): 非执行时间应该检查count !== 0,而不是直接返回true
         if (hour < startHour) return count !== 0;
       } else if (endHour > startHour) {
-        // 普通时间段，如 06:00-18:00
         if (hour < startHour || hour >= endHour) return count !== 0;
       } else {
-        // 跨越午夜，如 22:00-06:00
         if (hour < startHour && hour >= endHour) return count !== 0;
       }
       return false;
@@ -609,6 +604,12 @@ export default function ClickFarmTaskModal({
 
     if (proxyWarning) {
       toast.error('请先配置代理');
+      return;
+    }
+
+    // 🔧 修复P2-8(2025-12-30): 校验refererConfig完整性
+    if (refererConfig.type === 'specific' && !refererConfig.referer) {
+      toast.error('请选择具体的Referer来源');
       return;
     }
 
@@ -662,18 +663,8 @@ export default function ClickFarmTaskModal({
       onOpenChange(false);
       onSuccess?.();
 
-      // Reset form
-      setSelectedOfferId(null);
-      setDailyClickCount(216);
-      setTimePeriod('06:00-24:00');
-      setDurationDays(14);
-      setScheduledStartDate(new Date().toISOString().split('T')[0]);  // 🆕 重置为当天
-      setDistribution([]);
-      setProxyWarning('');
-      setIsEditingDistribution(false);
-      setIsDistributionManuallyModified(false);
-      setDraggedHour(null);
-      setRefererConfig({ type: 'none' });  // 🆕 重置Referer配置
+      // Reset form - 使用统一的重置函数
+      resetFormState();
 
     } catch (error: any) {
       console.error('创建任务失败:', error);
@@ -685,8 +676,36 @@ export default function ClickFarmTaskModal({
 
   const selectedOffer = offers.find(o => o.id === selectedOfferId);
 
+  // 🔧 修复P2-7(2025-12-30): 添加重置表单状态的函数
+  const resetFormState = () => {
+    setSelectedOfferId(null);
+    setDailyClickCount(216);
+    setTimePeriod('06:00-24:00');
+    setDurationDays(14);
+    setScheduledStartDate(new Date().toISOString().split('T')[0]);
+    setDistribution([]);
+    setProxyWarning('');
+    setIsEditingDistribution(false);
+    setIsDistributionManuallyModified(false);
+    setDraggedHour(null);
+    setTimezone(''); // 重置为空,等待选择offer时设置
+    setRefererConfig({ type: 'none' });
+  };
+
+  // 处理对话框关闭,根据情况重置状态
+  const handleDialogOpenChange = (newOpen: boolean) => {
+    // 如果关闭对话框且不是编辑模式,重置表单
+    if (!newOpen && !loading) {
+      // 延迟重置,避免关闭动画时显示重置效果
+      setTimeout(() => {
+        resetFormState();
+      }, 200);
+    }
+    onOpenChange(newOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-xl sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEditMode ? '编辑补点击任务' : '创建补点击任务'}</DialogTitle>
@@ -698,8 +717,8 @@ export default function ClickFarmTaskModal({
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column: Offer Selection + Offer Info Card */}
           <div className="space-y-4">
-            {/* Offer Selection - Show dropdown when no preSelectedOfferId */}
-            {!preSelectedOfferId && (
+            {/* Offer Selection - Show dropdown when no preSelectedOfferId and not in edit mode */}
+            {!preSelectedOfferId && !isEditMode && (
               <div className="space-y-2">
                 <Label htmlFor="offer">选择Offer *</Label>
                 {loadingOffers ? (
@@ -759,12 +778,14 @@ export default function ClickFarmTaskModal({
                     <span className="font-medium">{selectedOffer.targetCountry}</span>
                   </div>
 
-                  {/* 执行时区 */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-muted-foreground">时区:</span>
-                    <span className="font-medium">{timezone}</span>
-                  </div>
+                  {/* 执行时区 - 🔧 修复P2-10(2025-12-30): 只在timezone有值时显示 */}
+                  {timezone && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground">时区:</span>
+                      <span className="font-medium">{timezone}</span>
+                    </div>
+                  )}
 
                   {/* 联盟推广链接：单行显示，截断 */}
                   <div className="flex items-start gap-2 pt-2 border-t border-muted-foreground/20">
@@ -837,7 +858,14 @@ export default function ClickFarmTaskModal({
                   max={1000}
                   value={dailyClickCount}
                   onChange={(e) => {
-                    setDailyClickCount(parseInt(e.target.value) || 0);
+                    // 🔧 修复P2-5(2025-12-30): 改进清空行为,空值时保留NaN而非设为0
+                    const value = e.target.value;
+                    if (value === '') {
+                      setDailyClickCount(0); // 临时设为0,用户继续输入时会更新
+                    } else {
+                      const parsed = parseInt(value);
+                      setDailyClickCount(isNaN(parsed) ? 0 : parsed);
+                    }
                     setIsDistributionManuallyModified(false); // Reset manual modification flag
                   }}
                   placeholder="建议: 216次/天"
@@ -870,7 +898,11 @@ export default function ClickFarmTaskModal({
                 <Select
                   id="timePeriod"
                   value={timePeriod}
-                  onValueChange={setTimePeriod}
+                  onValueChange={(value) => {
+                    setTimePeriod(value);
+                    // 🔧 修复P1-3(2025-12-30): 改变时间段时重置手动修改标志,触发distribution重新生成
+                    setIsDistributionManuallyModified(false);
+                  }}
                   required
                 >
                   <SelectContent>
@@ -1053,6 +1085,8 @@ export default function ClickFarmTaskModal({
                     }
 
                     setDistribution(newDistribution);
+                    // 🔧 修复(2025-12-30): 编辑器修改后标记为手动修改,阻止useEffect自动覆盖
+                    setIsDistributionManuallyModified(true);
                   }}
                 />
               </div>

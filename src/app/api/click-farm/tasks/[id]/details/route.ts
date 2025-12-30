@@ -23,8 +23,8 @@ export async function GET(
     const task = await db.queryOne<any>(`
       SELECT
         t.*,
-        o.name as offer_name,
-        o.brand_name,
+        o.offer_name,
+        o.brand,
         o.target_country,
         o.affiliate_link
       FROM click_farm_tasks t
@@ -81,7 +81,7 @@ export async function GET(
       offer: {
         id: task.offer_id,
         name: task.offer_name,
-        brand_name: task.brand_name,
+        brand: task.brand,
         target_country: task.target_country,
         affiliate_link: task.affiliate_link,
       },

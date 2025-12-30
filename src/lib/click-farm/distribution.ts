@@ -34,6 +34,7 @@ const ECOMMERCE_DAYTIME_WEIGHTS = [
 /**
  * 归一化分布曲线
  * 确保总和等于目标值，同时保持相对比例
+ * 注意：非执行时间段（值为0的小时）保持为0，不改为最小值1
  *
  * @param distribution - 原始分布（24个整数）
  * @param targetTotal - 目标总和（每日点击数量）
@@ -43,23 +44,40 @@ export function normalizeDistribution(
   distribution: number[],
   targetTotal: number
 ): number[] {
-  // Step 1: 确保最小值为1（每小时至少1次）
-  const minNormalized = distribution.map(count => Math.max(1, count));
+  // Step 1: 识别执行时间段内的元素（非0的保持>=1，0的保持0）
+  const activeHours = distribution.map((count, hour) => ({
+    hour,
+    count,
+    isActive: count > 0
+  }));
 
-  // Step 2: 按比例调整
-  const currentTotal = minNormalized.reduce((sum, n) => sum + n, 0);
-  const adjusted = minNormalized.map(n =>
-    Math.round((n / currentTotal) * targetTotal)
-  );
+  // Step 2: 只对活跃时段进行归一化
+  const activeCounts = activeHours.filter(h => h.isActive).map(h => h.count);
+  const currentActiveTotal = activeCounts.reduce((sum, n) => sum + n, 0);
 
-  // Step 3: 处理舍入误差
-  const adjustedTotal = adjusted.reduce((sum, n) => sum + n, 0);
-  const diff = targetTotal - adjustedTotal;
+  // 按比例调整活跃时段的点击数
+  const adjusted = distribution.map(count => {
+    if (count === 0) return 0; // 非执行时间段保持0
+    return Math.round((count / currentActiveTotal) * targetTotal);
+  });
+
+  // Step 3: 处理舍入误差（只调整活跃时段）
+  const adjustedActiveTotal = adjusted.filter(n => n > 0).reduce((sum, n) => sum + n, 0);
+  const diff = targetTotal - adjustedActiveTotal;
 
   if (diff !== 0) {
-    // 将差额加到最大的值（对整体分布影响最小）
-    const maxIndex = adjusted.indexOf(Math.max(...adjusted));
-    adjusted[maxIndex] += diff;
+    // 将差额加到最大的活跃时段值
+    let maxActiveHour = -1;
+    let maxActiveValue = -1;
+    for (let hour = 0; hour < 24; hour++) {
+      if (adjusted[hour] > maxActiveValue) {
+        maxActiveValue = adjusted[hour];
+        maxActiveHour = hour;
+      }
+    }
+    if (maxActiveHour >= 0) {
+      adjusted[maxActiveHour] += diff;
+    }
   }
 
   return adjusted;
@@ -102,7 +120,44 @@ export function generateDefaultDistribution(
     distribution[hour] = Math.max(1, count);
   }
 
-  return normalizeDistribution(distribution, dailyCount);
+  // 🔧 修复(2025-12-30): 不使用normalizeDistribution，直接确保总和精确
+  // 直接对 distribution 进行归一化，确保总和精确等于 dailyCount
+  const currentTotal = distribution.reduce((sum, n) => sum + n, 0);
+  const diff = dailyCount - currentTotal;
+
+  if (diff !== 0) {
+    // 将差额加到最大的小时值
+    let maxHour = -1;
+    let maxValue = -1;
+    for (let hour = startHour; hour < endHour; hour++) {
+      if (distribution[hour] > maxValue) {
+        maxValue = distribution[hour];
+        maxHour = hour;
+      }
+    }
+    if (maxHour >= 0) {
+      distribution[maxHour] += diff;
+    }
+  }
+
+  // 🔧 修复(2025-12-30): 再次检查并确保总和精确（处理diff过大的情况）
+  const finalTotal = distribution.reduce((sum, n) => sum + n, 0);
+  const finalDiff = dailyCount - finalTotal;
+  if (finalDiff !== 0) {
+    let maxHour = -1;
+    let maxValue = -1;
+    for (let hour = startHour; hour < endHour; hour++) {
+      if (distribution[hour] > maxValue) {
+        maxValue = distribution[hour];
+        maxHour = hour;
+      }
+    }
+    if (maxHour >= 0) {
+      distribution[maxHour] += finalDiff;
+    }
+  }
+
+  return distribution;
 }
 
 /**

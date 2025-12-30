@@ -38,34 +38,35 @@ export async function createClickFarmTask(
   });
 
   try {
+    // 🔧 修复(2025-12-30): 由于id是TEXT类型的UUID，需要先生成ID再插入
+    // 否则lastInsertRowid无法获取TEXT类型的主键值
+    const taskId = crypto.randomUUID().toLowerCase().replace(/-/g, '');
+
+    console.log('[createClickFarmTask] 生成任务ID:', taskId);
+
     const result = await db.exec(`
       INSERT INTO click_farm_tasks (
-        user_id, offer_id, daily_click_count, start_time, end_time,
-        duration_days, scheduled_start_date, hourly_distribution, timezone
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, user_id, offer_id, daily_click_count, start_time, end_time,
+        duration_days, scheduled_start_date, hourly_distribution, timezone, referer_config
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
+      taskId,  // 🔧 修复：明确指定id
       userId,
       input.offer_id,
       input.daily_click_count,
       input.start_time,
       input.end_time,
       input.duration_days,
-      scheduledStartDate,  // 🆕 添加scheduled_start_date字段
+      scheduledStartDate,
       JSON.stringify(input.hourly_distribution),
-      input.timezone || 'America/New_York'
+      input.timezone || 'America/New_York',
+      input.referer_config ? JSON.stringify(input.referer_config) : null  // 🔧 修复：添加referer_config
     ]);
 
     console.log('[createClickFarmTask] INSERT结果:', result);
 
-    // 🔧 修复(2025-12-29): lastInsertRowid可能是数字(SQLite)或字符串(PostgreSQL)
-    // 需要转换为正确的类型用于查询
-    const insertedId = result.lastInsertRowid ? String(result.lastInsertRowid) : null;
-
-    if (!insertedId) {
-      throw new Error('Failed to insert task: no insert ID returned');
-    }
-
-    console.log('[createClickFarmTask] 获取插入的ID:', insertedId);
+    const insertedId = taskId;
+    console.log('[createClickFarmTask] 使用生成的ID:', insertedId);
 
     const task = (await getClickFarmTaskById(insertedId, userId))!;
 
