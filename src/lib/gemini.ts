@@ -76,13 +76,10 @@ export interface GeminiGenerateResult {
  */
 async function isVertexAIConfigured(userId: number): Promise<boolean> {
   try {
-    // 🔧 2025-12-29 更新：从 system_settings 表检查 gemini_provider 字段
-    const db = await getDatabase()
-    const settings = await db.queryOne(`
-      SELECT value as gemini_provider
-      FROM system_settings
-      WHERE user_id = ? AND category = 'ai' AND key = 'gemini_provider'
-    `, [userId]) as { gemini_provider?: GeminiProvider } | undefined
+    // 🔧 关键修复(2025-12-30): 使用 getSetting() 而非直接查询数据库
+    // 保持与其他配置读取逻辑的一致性，避免未来出现类似 getGeminiApiKey 的bug
+    const { getSetting } = await import('./settings')
+    const providerSetting = await getSetting('ai', 'gemini_provider', userId)
 
     // 检查 GCP 配置
     const gcpProjectId = await getUserOnlySetting('ai', 'gcp_project_id', userId)
@@ -90,13 +87,13 @@ async function isVertexAIConfigured(userId: number): Promise<boolean> {
 
     // 调试日志
     console.log(`🔍 Vertex AI配置检查 (用户ID: ${userId}):`)
-    console.log(`   gemini_provider: ${settings?.gemini_provider}`)
+    console.log(`   gemini_provider: ${providerSetting?.value || 'official'}`)
     console.log(`   gcp_project_id: ${gcpProjectId?.value ? '已配置' : '未配置'}`)
     console.log(`   gcp_service_account_json: ${gcpServiceAccountJson?.value ? '已配置' : '未配置'}`)
 
     // 必须是 vertex provider 且配置了项目ID和Service Account
     const isConfigured = (
-      settings?.gemini_provider === 'vertex' &&
+      providerSetting?.value === 'vertex' &&
       !!gcpProjectId?.value &&
       !!gcpServiceAccountJson?.value
     )
