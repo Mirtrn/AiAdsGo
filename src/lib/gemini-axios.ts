@@ -125,32 +125,42 @@ export function getEndpointByProvider(provider: GeminiProvider): string {
  * - 180秒（3分钟）
  * - 原因：平衡可靠性与响应时间
  *
- * 🔧 2025-12-30 修复：
- * - 使用 getSetting() 正确读取配置
- * - 添加浏览器 headers 绕过 Cloudflare 机器人检测
+ * 🔧 2025-12-31 修复：
+ * - relay 服务商使用 Cloudflare 防护，需要浏览器特征 headers 绕过检测
+ * - official 服务商不需要这些 headers（官方API不使用Cloudflare）
  */
-export async function createGeminiAxiosClient(userId: number): Promise<AxiosInstance> {
-  const provider = await getGeminiProvider(userId)
-  const endpoint = getEndpointByProvider(provider)
+export async function createGeminiAxiosClient(userId: number, provider?: GeminiProvider): Promise<AxiosInstance> {
+  const geminiProvider = provider || await getGeminiProvider(userId)
+  const endpoint = getEndpointByProvider(geminiProvider)
 
   if (endpoint === 'vertex') {
     // Vertex AI 使用专用客户端
     throw new Error('Use Vertex AI client instead')
   }
 
-  // 🔧 修复(2025-12-30): 简化headers配置
-  // - Node.js服务器环境不应使用浏览器特定headers（Origin, Referer, sec-fetch-*）
-  // - 这些headers可能触发Cloudflare拦截导致503/UPSTREAM_UNAVAILABLE
-  // - curl测试成功证明只需基本headers即可
+  // 🔧 2025-12-31 修复：relay 服务商需要浏览器特征 headers 绕过 Cloudflare
+  // ThunderRelay 使用 Cloudflare 防护，服务器请求需要模拟浏览器行为
+  const isRelayProvider = geminiProvider === 'relay'
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  }
+
+  // 🔧 relay 服务商需要额外的浏览器特征 headers 绕过 Cloudflare
+  if (isRelayProvider) {
+    headers['Origin'] = 'https://cc.thunderrelay.com'
+    headers['Referer'] = 'https://cc.thunderrelay.com/'
+    headers['sec-fetch-dest'] = 'empty'
+    headers['sec-fetch-mode'] = 'cors'
+    headers['sec-fetch-site'] = 'same-origin'
+  }
+
   return axios.create({
     baseURL: endpoint, // 动态端点
     timeout: 180000, // 180 秒（3分钟）
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      // 保留User-Agent以避免被识别为bot（但使用更简洁的版本）
-      'User-Agent': 'AutoAds/1.0',
-    },
+    headers,
   })
 }
 
@@ -208,9 +218,8 @@ export async function generateContent(params: {
   const apiKey = overrideConfig ? overrideConfig.apiKey : await getGeminiApiKey(userId, provider)
   console.log(`🌐 使用 ${GEMINI_PROVIDERS[provider].name} 服务商${overrideConfig ? '（临时配置）' : ''}`)
 
-  // 创建 axios 客户端（直连，不使用代理）
-  const client = await createGeminiAxiosClient(userId)
-  console.log(`🌐 直接访问Gemini API（不使用代理）`)
+  // 🔧 2025-12-31 修复：传递 provider 参数以确保正确设置 headers（relay 需要 Cloudflare 绕过 headers）
+  const client = await createGeminiAxiosClient(userId, provider)
 
   // 构建请求
   // 构建generationConfig（根据是否有responseSchema）
