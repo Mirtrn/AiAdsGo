@@ -844,7 +844,7 @@ export default function ClickFarmTaskModal({
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  推荐216次/天模拟自然流量
+                  按需配置自然点击量
                 </p>
               </div>
 
