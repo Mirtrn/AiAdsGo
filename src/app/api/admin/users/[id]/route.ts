@@ -37,6 +37,17 @@ export async function PATCH(
     const body = await request.json()
     const { email, packageType, packageExpiresAt, isActive } = body
 
+    // 🔍 调试日志：查看前端发送的数据
+    console.log('🔍 [Admin PATCH] 接收到的请求数据:', {
+      userId,
+      body,
+      email,
+      packageType,
+      packageExpiresAt,
+      isActive,
+      isActiveType: typeof isActive
+    })
+
     const db = getDatabase()
 
     // 获取更新前的用户数据（用于审计日志）
@@ -48,6 +59,13 @@ export async function PATCH(
     if (!beforeUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
+
+    // 🔍 调试日志：数据库中的用户数据
+    console.log('🔍 [Admin PATCH] 数据库中的用户数据:', {
+      beforeUser,
+      isActiveType: typeof beforeUser.is_active,
+      isActiveValue: beforeUser.is_active
+    })
 
     // Build update query dynamically
     const updates: string[] = []
@@ -75,6 +93,17 @@ export async function PATCH(
       const currentIsActive = !!(beforeUser.is_active as any)
       // 🔧 修复(2025-12-30): 前端可能发送数字1/0，需要转换为boolean
       const isActiveBoolean = Boolean(isActive)
+
+      // 🔍 调试日志：is_active比较
+      console.log('🔍 [Admin PATCH] is_active比较:', {
+        isActive,
+        isActiveType: typeof isActive,
+        isActiveBoolean,
+        currentIsActive,
+        'beforeUser.is_active': beforeUser.is_active,
+        areEqual: isActiveBoolean === currentIsActive
+      })
+
       if (isActiveBoolean !== currentIsActive) {
         updates.push('is_active = ?')
         // PostgreSQL接受boolean值，SQLite需要0/1
