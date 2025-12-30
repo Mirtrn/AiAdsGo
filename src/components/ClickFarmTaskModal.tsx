@@ -163,11 +163,18 @@ export default function ClickFarmTaskModal({
     const autoTimezone = getTimezoneByCountry(offer.targetCountry);
     setTimezone(autoTimezone);
 
+    console.log('[ClickFarmTaskModal] loadAuxiliaryData DEBUG: dailyClickCount=', dailyClickCount, 'timePeriod=', timePeriod);
+
     // 🆕 同步计算分布曲线（确保在 loadOffers 返回前已完成）
     if (dailyClickCount > 0) {
       const [startTime, endTime] = timePeriod.split('-');
+      console.log('[ClickFarmTaskModal] loadAuxiliaryData: 计算分布 startTime=', startTime, 'endTime=', endTime, 'dailyClickCount=', dailyClickCount);
       const dist = generateDefaultDistribution(dailyClickCount, startTime, endTime);
+      console.log('[ClickFarmTaskModal] loadAuxiliaryData: 生成分布 dist.length=', dist.length, 'sum=', dist.reduce((a,b)=>a+b,0));
       setDistribution(dist);
+      console.log('[ClickFarmTaskModal] loadAuxiliaryData: setDistribution 已调用');
+    } else {
+      console.log('[ClickFarmTaskModal] loadAuxiliaryData: dailyClickCount <= 0，跳过分布生成');
     }
   };
 
