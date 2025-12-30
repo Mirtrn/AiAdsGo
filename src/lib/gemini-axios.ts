@@ -314,8 +314,29 @@ export async function generateContent(params: {
     console.error(`❌ Gemini API调用失败:`)
     console.error(`   - HTTP状态: ${error.response?.status}`)
     console.error(`   - 错误消息: ${error.message}`)
+
+    // 🔧 修复(2025-12-30): 正确处理可能是Buffer或压缩数据的错误响应
     if (error.response?.data) {
-      console.error(`   - 响应数据: ${JSON.stringify(error.response.data, null, 2)}`)
+      try {
+        // 如果是Buffer，转换为字符串
+        let dataStr = error.response.data
+        if (Buffer.isBuffer(dataStr)) {
+          dataStr = dataStr.toString('utf-8')
+        }
+        // 如果是对象，序列化为JSON
+        if (typeof dataStr === 'object') {
+          dataStr = JSON.stringify(dataStr, null, 2)
+        }
+        // 限制输出长度，避免日志过长
+        const maxLength = 500
+        if (dataStr.length > maxLength) {
+          console.error(`   - 响应数据（前${maxLength}字符）: ${dataStr.substring(0, maxLength)}...`)
+        } else {
+          console.error(`   - 响应数据: ${dataStr}`)
+        }
+      } catch (parseError) {
+        console.error(`   - 响应数据解析失败:`, parseError)
+      }
     }
 
     // 检查是否是模型过载错误（503或overloaded消息）
@@ -323,6 +344,26 @@ export async function generateContent(params: {
       error.response?.status === 503 ||
       error.message?.toLowerCase().includes('overload') ||
       error.response?.data?.error?.message?.toLowerCase().includes('overload')
+
+    // 🔧 修复(2025-12-30): 针对403错误给出更明确的提示
+    if (error.response?.status === 403) {
+      const providerName = GEMINI_PROVIDERS[provider]?.name || '当前服务商'
+      throw new Error(
+        `Gemini API调用失败: 403 Forbidden\n` +
+        `\n` +
+        `可能的原因：\n` +
+        `1. API Key无效或过期（${providerName}）\n` +
+        `2. ${providerName === '第三方中转' ? '中转服务的' : ''}API Key权限不足\n` +
+        `3. ${providerName === '第三方中转' ? '中转服务的Cloudflare防护拦截了请求\n' : 'IP地址被限制\n'}` +
+        `\n` +
+        `请检查：\n` +
+        `- API Key是否正确配置\n` +
+        `- API Key是否仍然有效\n` +
+        `- ${providerName === '第三方中转' ? '中转服务账户是否有足够余额\n' : '账户是否处于正常状态\n'}` +
+        `\n` +
+        `原始错误: ${error.message}`
+      )
+    }
 
     // 如果是gemini-2.5-pro过载且未指定其他模型，降级到gemini-2.5-flash
     if (isOverloaded && model === 'gemini-2.5-pro') {
