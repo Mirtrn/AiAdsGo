@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 
 /**
  * GET /api/creatives/:id/versions
@@ -249,6 +250,8 @@ export async function POST(
       ]
     )
 
+    const versionId = getInsertedId(result, db.type)
+
     // 获取新创建的版本
     const newVersion = await db.queryOne<any>(
       `SELECT
@@ -267,7 +270,7 @@ export async function POST(
         change_summary as changeSummary,
         created_at as createdAt
       FROM creative_versions WHERE id = ?`,
-      [result.lastInsertRowid]
+      [versionId]
     )
 
     return NextResponse.json({

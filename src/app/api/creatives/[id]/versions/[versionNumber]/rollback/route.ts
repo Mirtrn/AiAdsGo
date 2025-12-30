@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 
 /**
  * POST /api/creatives/:id/versions/:versionNumber/rollback
@@ -112,6 +113,8 @@ export async function POST(
       `回滚到版本 ${versionNumber}`
     ])
 
+    const versionId = getInsertedId(result, db.type)
+
     // 同时更新ad_creatives表的当前内容
     await db.exec(`
       UPDATE ad_creatives
@@ -135,7 +138,7 @@ export async function POST(
     // 获取新创建的版本
     const newVersion = await db.queryOne<any>(
       'SELECT * FROM creative_versions WHERE id = ?',
-      [result.lastInsertRowid]
+      [versionId]
     )
 
     return NextResponse.json({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 
 /**
  * GET /api/admin/prompts
@@ -182,10 +183,12 @@ export async function POST(request: NextRequest) {
       ]
     )
 
+    const versionId = getInsertedId(result, db.type)
+
     return NextResponse.json({
       success: true,
       data: {
-        id: result.lastInsertRowid,
+        id: versionId,
         promptId,
         version,
         message: '新版本创建成功'

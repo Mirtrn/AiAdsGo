@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 import { calculateBonusScore, saveCreativePerformance } from '@/lib/bonus-score-calculator'
 import { getIndustryBenchmark } from '@/lib/industry-classifier'
 import { verifyAuth } from '@/lib/auth'
@@ -75,6 +76,8 @@ export async function POST(
       feedbackNote || null
     ])
 
+    const feedbackId = getInsertedId(result, db.type)
+
     // 获取现有效果数据并更新转化信息
     const existingPerformance = await db.queryOne<any>(`
       SELECT * FROM ad_creative_performance
@@ -120,7 +123,7 @@ export async function POST(
 
       return NextResponse.json({
         success: true,
-        feedbackId: result.lastInsertRowid,
+        feedbackId,
         bonusScore: bonusResult.totalBonus,
         breakdown: bonusResult.breakdown,
         message: 'Conversion feedback saved and bonus score updated'
@@ -129,7 +132,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      feedbackId: result.lastInsertRowid,
+      feedbackId,
       message: 'Conversion feedback saved. Bonus score will be calculated when performance data is available.'
     })
   } catch (error) {

@@ -3,6 +3,7 @@ import { verifyAuth } from '@/lib/auth'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { getGoogleAdsClient, getCustomer } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
 import { toNumber } from '@/lib/utils'
@@ -158,7 +159,8 @@ async function upsertAccount(userId: number, account: {
       account.account_balance ?? null,
       account.parent_mcc || null
     ])
-    return { id: result.lastInsertRowid as number, last_sync_at: new Date().toISOString() }
+    const insertedId = getInsertedId(result, db.type)
+    return { id: insertedId, last_sync_at: new Date().toISOString() }
   }
 }
 

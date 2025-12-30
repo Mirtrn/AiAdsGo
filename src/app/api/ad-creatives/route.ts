@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 import { z } from 'zod'
 
 /**
@@ -191,7 +192,7 @@ export async function POST(request: NextRequest) {
       ]
     )
 
-    const creativeId = Number(result.lastInsertRowid)
+    const creativeId = getInsertedId(result, db.type)
 
     // 查询创建的记录并返回
     const creative = await db.queryOne(

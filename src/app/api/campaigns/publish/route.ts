@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 import {
   createGoogleAdsCampaign,
   createGoogleAdsAdGroup,
@@ -751,7 +752,7 @@ export async function POST(request: NextRequest) {
         now
       ])
 
-      const campaignId = Number(campaignInsert.lastInsertRowid)
+      const campaignId = getInsertedId(campaignInsert, db.type)
       createdCampaigns.push({
         campaignId,
         creative,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 import { toNumber } from '@/lib/utils'
 
 /**
@@ -316,9 +317,11 @@ export async function POST(request: NextRequest) {
       creativeData?.avgDescriptionLength || null
     ]])
 
+    const historyId = getInsertedId(result, db.type)
+
     return NextResponse.json({
       success: true,
-      historyId: result.lastInsertRowid,
+      historyId,
       message: 'Ad Strength历史记录已保存'
     })
   } catch (error: any) {

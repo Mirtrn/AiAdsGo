@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
+import { getInsertedId } from '@/lib/db-helpers'
 
 /**
  * Sync configuration interface
@@ -72,6 +73,8 @@ export async function GET(request: NextRequest) {
         [userId]
       )
 
+      const configId = getInsertedId(result, db.type)
+
       config = await db.queryOne(
         `SELECT
           id,
@@ -89,7 +92,7 @@ export async function GET(request: NextRequest) {
           created_at as createdAt,
           updated_at as updatedAt
         FROM sync_config WHERE id = ?`,
-        [result.lastInsertRowid]
+        [configId]
       ) as SyncConfig
     }
 
