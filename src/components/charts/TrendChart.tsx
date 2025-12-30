@@ -277,6 +277,10 @@ export function TrendChart({
                 <ChartTooltip
                   content={
                     <ChartTooltipContent
+                      labelFormatter={(value) => {
+                        const date = new Date(value)
+                        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+                      }}
                       formatter={(value, name, item, index, payload) => {
                         const metric = metrics.find(m => m.key === name)
                         const label = metric?.label || name
@@ -363,6 +367,10 @@ export function TrendChart({
                 <ChartTooltip
                   content={
                     <ChartTooltipContent
+                      labelFormatter={(value) => {
+                        const date = new Date(value)
+                        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+                      }}
                       formatter={(value, name, item, index, payload) => {
                         const metric = metrics.find(m => m.key === name)
                         const label = metric?.label || name

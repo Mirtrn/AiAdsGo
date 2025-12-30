@@ -243,7 +243,8 @@ export async function insertAndReturn<T>(
 
   // 将 id 添加到 SELECT 参数的第一位
   const fullParams = [insertedId, ...selectParams]
-  return await db.queryOne<T>(selectSql, fullParams)
+  const queryResult = await db.queryOne<T>(selectSql, fullParams)
+  return queryResult ?? null
 }
 
 /**

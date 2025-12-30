@@ -628,7 +628,7 @@ function calculateMatchRate(actual: number[], configured: number[]): number {
  * 解析数据库任务对象
  */
 function parseClickFarmTask(row: any): ClickFarmTaskListItem {
-  const task: ClickFarmTaskListItem = {
+  const task = {
     id: row.id,
     user_id: row.user_id,
     offer_id: row.offer_id,
@@ -636,7 +636,7 @@ function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     start_time: row.start_time,
     end_time: row.end_time,
     duration_days: row.duration_days,
-    scheduled_start_date: row.scheduled_start_date,  // 🆕 添加scheduled_start_date字段
+    scheduled_start_date: row.scheduled_start_date,
     hourly_distribution: JSON.parse(row.hourly_distribution),
     status: row.status,
     pause_reason: row.pause_reason,
@@ -648,7 +648,7 @@ function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     failed_clicks: row.failed_clicks,
     daily_history: JSON.parse(row.daily_history || '[]'),
     timezone: row.timezone,
-    referer_config: row.referer_config ? JSON.parse(row.referer_config) : null,  // 🔧 修复(2025-12-30): 添加referer_config字段解析
+    referer_config: row.referer_config ? JSON.parse(row.referer_config) : null,
     is_deleted: Boolean(row.is_deleted),
     deleted_at: row.deleted_at,
     started_at: row.started_at,
@@ -656,9 +656,9 @@ function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     next_run_at: row.next_run_at,
     created_at: row.created_at,
     updated_at: row.updated_at
-  };
+  } as ClickFarmTaskListItem;
 
-  // 🆕 如果有target_country字段（从JOIN查询返回），保留它用于前端显示
+  // 如果有target_country字段（从JOIN查询返回），保留它用于前端显示
   if (row.target_country) {
     task.target_country = row.target_country;
   }

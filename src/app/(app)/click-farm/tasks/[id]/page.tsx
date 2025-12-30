@@ -44,7 +44,7 @@ interface TaskDetails {
   offer: {
     id: number;
     name: string;
-    brand_name: string;
+    brand: string;
     target_country: string;
     affiliate_link: string;
   };

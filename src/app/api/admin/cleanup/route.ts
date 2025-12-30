@@ -134,27 +134,29 @@ export async function GET(request: NextRequest) {
     }
 
     const db = await getDatabase()
+    const isPostgres = db.type === 'postgres'
+    const deletedFlag = isPostgres ? 'TRUE' : '1'
     const retentionDays = 90
 
     // 统计所有软删除记录
     const scrapedProducts = await db.queryOne(`
-      SELECT COUNT(*) as count FROM scraped_products WHERE is_deleted = 1
+      SELECT COUNT(*) as count FROM scraped_products WHERE is_deleted = ${deletedFlag}
     `) as { count: number }
 
     const adCreatives = await db.queryOne(`
-      SELECT COUNT(*) as count FROM ad_creatives WHERE is_deleted = 1
+      SELECT COUNT(*) as count FROM ad_creatives WHERE is_deleted = ${deletedFlag}
     `) as { count: number }
 
     const googleAdsAccounts = await db.queryOne(`
-      SELECT COUNT(*) as count FROM google_ads_accounts WHERE is_deleted = 1
+      SELECT COUNT(*) as count FROM google_ads_accounts WHERE is_deleted = ${deletedFlag}
     `) as { count: number }
 
     const campaigns = await db.queryOne(`
-      SELECT COUNT(*) as count FROM campaigns WHERE is_deleted = 1
+      SELECT COUNT(*) as count FROM campaigns WHERE is_deleted = ${deletedFlag}
     `) as { count: number }
 
     const offers = await db.queryOne(`
-      SELECT COUNT(*) as count FROM offers WHERE is_deleted = 1
+      SELECT COUNT(*) as count FROM offers WHERE is_deleted = ${deletedFlag}
     `) as { count: number }
 
     return NextResponse.json({
