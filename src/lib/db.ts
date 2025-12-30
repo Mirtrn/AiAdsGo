@@ -308,6 +308,15 @@ class PostgresAdapter implements DatabaseAdapter {
     let pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
 
+    // 🔥 详细调试日志
+    console.log('🔍 [PostgreSQL exec] ==================')
+    console.log('原始SQL:', sql)
+    console.log('转换后SQL:', pgSql)
+    console.log('原始参数:', params)
+    console.log('清理后参数:', cleanParams)
+    console.log('占位符数量:', (pgSql.match(/\$\d+/g) || []).length)
+    console.log('参数数量:', cleanParams.length)
+
     // 🔥 PostgreSQL INSERT 语句需要 RETURNING id 才能获取插入的ID
     // 检测是否是 INSERT 语句，如果是且没有 RETURNING，自动添加
     const isInsert = /^\s*INSERT\s+INTO\s+/i.test(pgSql)
@@ -316,9 +325,21 @@ class PostgresAdapter implements DatabaseAdapter {
     if (isInsert && !hasReturning) {
       // 移除末尾的分号（如果有），添加 RETURNING id
       pgSql = pgSql.replace(/;\s*$/, '') + ' RETURNING id'
+      console.log('添加RETURNING后:', pgSql)
     }
 
-    const pgResult = await this.sql.unsafe(pgSql, cleanParams) as any
+    let pgResult: any
+    try {
+      pgResult = await this.sql.unsafe(pgSql, cleanParams)
+      console.log('🔍 [PostgreSQL exec] 执行成功')
+      console.log('返回结果类型:', typeof pgResult)
+      console.log('是否数组:', Array.isArray(pgResult))
+      console.log('返回结果:', JSON.stringify(pgResult))
+    } catch (error: any) {
+      console.error('❌ [PostgreSQL exec] 执行失败:', error.message)
+      console.error('错误详情:', error)
+      throw error
+    }
 
     // PostgreSQL INSERT ... RETURNING id 返回数组或对象
     let lastInsertRowid: number | undefined
@@ -333,6 +354,9 @@ class PostgresAdapter implements DatabaseAdapter {
       changes = pgResult.count || 1
       lastInsertRowid = pgResult.id ?? pgResult.lastInsertRowid
     }
+
+    console.log('最终返回:', { changes, lastInsertRowid })
+    console.log('🔍 [PostgreSQL exec] ==================\n')
 
     return { changes, lastInsertRowid: lastInsertRowid ?? undefined }
   }
