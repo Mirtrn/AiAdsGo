@@ -107,14 +107,15 @@ export async function findCampaignByGoogleId(campaignId: string, userId: number)
 export async function findCampaignsByOfferId(offerId: number, userId: number): Promise<Campaign[]> {
   const db = await getDatabase()
 
-  // 🔧 修复: 排除已软删除的campaigns
-  const isDeletedFalse = db.type === 'postgres' ? false : 0
+  // 🔧 修复: PostgreSQL兼容性 - 使用BOOLEAN类型字面量直接嵌入SQL
+  // 避免 prepared statement 中的 boolean = integer 类型不匹配问题
+  const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
 
   const rows = await db.query(`
     SELECT * FROM campaigns
-    WHERE offer_id = ? AND user_id = ? AND is_deleted = ?
+    WHERE offer_id = ? AND user_id = ? AND ${isDeletedCheck}
     ORDER BY created_at DESC
-  `, [offerId, userId, isDeletedFalse]) as any[]
+  `, [offerId, userId]) as any[]
 
   return rows.map(mapRowToCampaign)
 }
@@ -125,12 +126,12 @@ export async function findCampaignsByOfferId(offerId: number, userId: number): P
 export async function findCampaignsByUserId(userId: number, limit?: number): Promise<Campaign[]> {
   const db = await getDatabase()
 
-  // 🔧 修复: 排除已软删除的campaigns
-  const isDeletedFalse = db.type === 'postgres' ? false : 0
+  // 🔧 修复: PostgreSQL兼容性 - 使用BOOLEAN类型字面量直接嵌入SQL
+  const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
 
   let sql = `
     SELECT * FROM campaigns
-    WHERE user_id = ? AND is_deleted = ?
+    WHERE user_id = ? AND ${isDeletedCheck}
     ORDER BY created_at DESC
   `
 
@@ -138,7 +139,7 @@ export async function findCampaignsByUserId(userId: number, limit?: number): Pro
     sql += ` LIMIT ${limit}`
   }
 
-  const rows = await db.query(sql, [userId, isDeletedFalse]) as any[]
+  const rows = await db.query(sql, [userId]) as any[]
   return rows.map(mapRowToCampaign)
 }
 
@@ -151,14 +152,14 @@ export async function findCampaignsByAccountId(
 ): Promise<Campaign[]> {
   const db = await getDatabase()
 
-  // 🔧 修复: 排除已软删除的campaigns
-  const isDeletedFalse = db.type === 'postgres' ? false : 0
+  // 🔧 修复: PostgreSQL兼容性 - 使用BOOLEAN类型字面量直接嵌入SQL
+  const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
 
   const rows = await db.query(`
     SELECT * FROM campaigns
-    WHERE google_ads_account_id = ? AND user_id = ? AND is_deleted = ?
+    WHERE google_ads_account_id = ? AND user_id = ? AND ${isDeletedCheck}
     ORDER BY created_at DESC
-  `, [googleAdsAccountId, userId, isDeletedFalse]) as any[]
+  `, [googleAdsAccountId, userId]) as any[]
 
   return rows.map(mapRowToCampaign)
 }
