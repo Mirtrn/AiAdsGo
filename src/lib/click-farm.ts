@@ -625,16 +625,28 @@ function calculateMatchRate(actual: number[], configured: number[]): number {
 
 /**
  * 解析数据库任务对象
+ * 🔧 修复(2025-12-31): PostgreSQL jsonb 类型会被自动解析为 JS 对象/数组，
+ * 不需要再调用 JSON.parse。SQLite 返回字符串，需要解析。
  */
 function parseClickFarmTask(row: any): ClickFarmTaskListItem {
-  // 🔧 修复(2025-12-31): 安全解析 referer_config，空字符串会导致 JSON.parse 失败
-  let refererConfig: { type: string; referer?: string } | null = null;
-  if (row.referer_config && typeof row.referer_config === 'string' && row.referer_config.trim() && row.referer_config !== 'null') {
-    try {
-      refererConfig = JSON.parse(row.referer_config);
-    } catch (e) {
-      console.warn('[parseClickFarmTask] 解析 referer_config 失败:', row.referer_config);
+  // 安全解析函数：处理字符串（SQLite）或已解析对象（PostgreSQL jsonb）
+  const safeParse = (value: any, defaultValue: any = null): any => {
+    if (value === null || value === undefined) return defaultValue;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch (e) {
+        console.warn('[parseClickFarmTask] JSON解析失败:', value);
+        return defaultValue;
+      }
     }
+    return value; // 已经是对象/数组（PostgreSQL jsonb）
+  };
+
+  // 安全解析 referer_config
+  let refererConfig: { type: string; referer?: string } | null = null;
+  if (row.referer_config) {
+    refererConfig = safeParse(row.referer_config, null);
   }
 
   const task = {
@@ -646,7 +658,7 @@ function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     end_time: row.end_time,
     duration_days: row.duration_days,
     scheduled_start_date: row.scheduled_start_date,
-    hourly_distribution: JSON.parse(row.hourly_distribution),
+    hourly_distribution: safeParse(row.hourly_distribution, []),
     status: row.status,
     pause_reason: row.pause_reason,
     pause_message: row.pause_message,
@@ -655,7 +667,7 @@ function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     total_clicks: row.total_clicks,
     success_clicks: row.success_clicks,
     failed_clicks: row.failed_clicks,
-    daily_history: JSON.parse(row.daily_history || '[]'),
+    daily_history: safeParse(row.daily_history, []),
     timezone: row.timezone,
     referer_config: refererConfig,
     is_deleted: Boolean(row.is_deleted),
