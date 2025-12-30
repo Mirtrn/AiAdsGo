@@ -1648,33 +1648,10 @@ export default function SettingsPage() {
                         当前已支持IPRocket、Oxylabs、Abcproxy、IpMars四种代理格式
                       </p>
 
-                      {/* 重要推荐说明 - IPRocket */}
-                      <div className="mt-3 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 rounded-lg shadow-sm">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-shrink-0 w-10 h-10 bg-amber-500 rounded-full flex items-center justify-center">
-                            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-base font-bold text-amber-900 mb-2 flex items-center gap-2">
-                              ⚡ 强烈推荐使用 IPRocket
-                            </p>
-                            <p className="text-sm text-amber-800 leading-relaxed">
-                              IPRocket 稳定性好、价格实惠，是最佳选择。
-                              <span className="font-semibold text-amber-900 ml-1">请联系管理员购买代理服务。</span>
-                            </p>
-                            <div className="mt-3 inline-flex items-center gap-2 px-3 py-2 bg-red-100 border-2 border-red-400 rounded-md">
-                              <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                              </svg>
-                              <span className="text-sm font-bold text-red-700">
-                                ⚠️ 千万不要购买官网套餐！
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      {/* IPRocket推荐说明 - 简洁版 */}
+                      <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-400 rounded px-3 py-2 flex items-center gap-1">
+                        <span>💡 <strong>推荐使用IPRocket</strong>（稳定便宜），请联系管理员购买，<span className="text-red-700 font-semibold">千万不要买官网套餐</span></span>
+                      </p>
 
                       {/* 代理URL格式说明 */}
                       <div className="mt-3 p-4 bg-slate-50 border border-slate-200 rounded-lg">
