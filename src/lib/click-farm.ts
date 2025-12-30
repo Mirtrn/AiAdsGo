@@ -38,9 +38,8 @@ export async function createClickFarmTask(
   });
 
   try {
-    // 🔧 修复(2025-12-30): 由于id是TEXT类型的UUID，需要先生成ID再插入
-    // 否则lastInsertRowid无法获取TEXT类型的主键值
-    const taskId = crypto.randomUUID().toLowerCase().replace(/-/g, '');
+    // 🔧 修复(2025-12-31): 使用标准 UUID 格式（带 -），PostgreSQL 的 uuid 类型可以正确识别
+    const taskId = crypto.randomUUID().toLowerCase();
 
     console.log('[createClickFarmTask] 生成任务ID:', taskId);
 
@@ -50,7 +49,7 @@ export async function createClickFarmTask(
         duration_days, scheduled_start_date, hourly_distribution, timezone, referer_config
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      taskId,  // 🔧 修复：明确指定id
+      taskId,  // 🔧 修复：使用标准 UUID 格式
       userId,
       input.offer_id,
       input.daily_click_count,
