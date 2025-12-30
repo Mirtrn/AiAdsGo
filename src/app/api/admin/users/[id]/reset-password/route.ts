@@ -48,9 +48,11 @@ export async function POST(
     const hashedPassword = await bcrypt.hash(newPassword, 10)
 
     // Update user password and set must_change_password flag
+    // 🔧 修复(2025-12-30): PostgreSQL兼容性 - 使用CURRENT_TIMESTAMP替代datetime('now')
+    const timestampFunc = db.type === 'postgres' ? 'CURRENT_TIMESTAMP' : 'datetime(\'now\')'
     const result = await db.exec(`
       UPDATE users
-      SET password_hash = ?, must_change_password = 1, updated_at = datetime('now')
+      SET password_hash = ?, must_change_password = 1, updated_at = ${timestampFunc}
       WHERE id = ?
     `, [hashedPassword, userId])
 

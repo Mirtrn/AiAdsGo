@@ -95,7 +95,8 @@ export async function GET(request: NextRequest) {
     const statusCondition = ` AND is_active = ?`
     query += statusCondition
     countQuery += statusCondition
-    params.push(status === 'active' ? 1 : 0)
+    // 🔧 修复(2025-12-30): PostgreSQL兼容性 - 发送boolean值
+    params.push(db.type === 'postgres' ? (status === 'active') : (status === 'active' ? 1 : 0))
   }
 
   // Package type filter
