@@ -43,7 +43,9 @@ function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps
 
   const formatValue = (val: string | number | null | undefined): string => {
     if (format === 'currency') {
-      return `¥${safeToFixed(val, 2)}`
+      // 🔧 修复(2025-12-30): 数据库存储的是美元（从Google Ads API的cost_micros转换）
+      // campaign_performance.cost字段单位是USD，不是CNY
+      return `$${safeToFixed(val, 2)}`
     } else if (format === 'percentage') {
       return `${safeToFixed(val, 2)}%`
     } else {
@@ -236,7 +238,7 @@ export function KPICards({ days }: KPICardsProps) {
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">平均CPC</p>
               <p className="text-2xl font-bold text-primary">
-                ¥{safeToFixed(data.current?.cpc ?? 0, 2)}
+                ${safeToFixed(data.current?.cpc ?? 0, 2)}
               </p>
             </CardContent>
           </Card>

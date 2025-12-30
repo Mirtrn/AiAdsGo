@@ -127,7 +127,9 @@ export default function DashboardPage() {
   const formatNumber = (num: number | null | undefined) => (num ?? 0).toLocaleString()
   const formatCurrency = (num: number | null | undefined) => {
     const value = Number(num ?? 0)
-    return isNaN(value) ? '¥0.00' : `¥${value.toFixed(2)}`
+    // 🔧 修复(2025-12-30): 数据库存储的是美元（从Google Ads API的cost_micros转换）
+    // campaign_performance.cost字段单位是USD，不是CNY
+    return isNaN(value) ? '$0.00' : `$${value.toFixed(2)}`
   }
   const formatPercent = (num: number | null | undefined) => {
     const value = Number(num ?? 0)

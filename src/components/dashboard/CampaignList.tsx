@@ -214,13 +214,13 @@ export function CampaignList() {
                         {(campaign.clicks ?? 0).toLocaleString('en-US')}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        ¥{safeToFixed(Number(campaign.cost) || 0, 2)}
+                        ${safeToFixed(Number(campaign.cost) || 0, 2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {safeToFixed(Number(campaign.ctr) || 0, 2)}%
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        ¥{safeToFixed(Number(campaign.cpc) || 0, 2)}
+                        ${safeToFixed(Number(campaign.cpc) || 0, 2)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {campaign.conversions}

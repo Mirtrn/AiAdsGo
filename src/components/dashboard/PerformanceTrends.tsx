@@ -331,7 +331,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
                   strokeWidth={2}
                   dot={{ r: 4 }}
                   activeDot={{ r: 6 }}
-                  name="CPC (¥)"
+                  name="CPC ($)"
                 />
               </LineChart>
             </ChartContainer>
@@ -358,7 +358,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-purple-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">总花费</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-purple-600`}>
-                ¥{safeToFixed(Number(data.summary?.totalCost) || 0, isMobile ? 0 : 2)}
+                ${safeToFixed(Number(data.summary?.totalCost) || 0, isMobile ? 0 : 2)}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-orange-50 rounded-lg`}>
@@ -376,7 +376,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-pink-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">平均CPC</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-pink-600`}>
-                ¥{safeToFixed(data.summary?.avgCPC ?? 0, isMobile ? 1 : 2)}
+                ${safeToFixed(data.summary?.avgCPC ?? 0, isMobile ? 1 : 2)}
               </p>
             </div>
           </div>
