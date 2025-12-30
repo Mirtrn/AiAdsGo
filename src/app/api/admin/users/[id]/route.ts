@@ -37,17 +37,6 @@ export async function PATCH(
     const body = await request.json()
     const { email, packageType, packageExpiresAt, isActive } = body
 
-    // 🔍 调试日志：查看前端发送的数据
-    console.log('🔍 [Admin PATCH] 接收到的请求数据:', {
-      userId,
-      body,
-      email,
-      packageType,
-      packageExpiresAt,
-      isActive,
-      isActiveType: typeof isActive
-    })
-
     const db = getDatabase()
 
     // 获取更新前的用户数据（用于审计日志）
@@ -59,13 +48,6 @@ export async function PATCH(
     if (!beforeUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
-
-    // 🔍 调试日志：数据库中的用户数据
-    console.log('🔍 [Admin PATCH] 数据库中的用户数据:', {
-      beforeUser,
-      isActiveType: typeof beforeUser.is_active,
-      isActiveValue: beforeUser.is_active
-    })
 
     // Build update query dynamically
     const updates: string[] = []
@@ -88,22 +70,10 @@ export async function PATCH(
       changedFields.push('package_expires_at')
     }
     if (isActive !== undefined) {
-      // 🔧 修复(2025-12-30): PostgreSQL返回boolean类型，需要正确转换
-      // PostgreSQL: true/false, SQLite: 1/0
-      const currentIsActive = !!(beforeUser.is_active as any)
-      // 🔧 修复(2025-12-30): 前端可能发送数字1/0，需要转换为boolean
+      // 🔧 修复(2025-12-30): PostgreSQL返回boolean类型，SQLite返回number类型
+      // 使用类型断言避免TypeScript错误，但保持原有的运行时判断逻辑
+      const currentIsActive = (beforeUser.is_active as any) === true || (beforeUser.is_active as any) === 1
       const isActiveBoolean = Boolean(isActive)
-
-      // 🔍 调试日志：is_active比较
-      console.log('🔍 [Admin PATCH] is_active比较:', {
-        isActive,
-        isActiveType: typeof isActive,
-        isActiveBoolean,
-        currentIsActive,
-        'beforeUser.is_active': beforeUser.is_active,
-        areEqual: isActiveBoolean === currentIsActive
-      })
-
       if (isActiveBoolean !== currentIsActive) {
         updates.push('is_active = ?')
         // PostgreSQL接受boolean值，SQLite需要0/1
@@ -162,9 +132,9 @@ export async function PATCH(
 
     // 根据变更类型记录不同的审计日志
     if (changedFields.includes('is_active')) {
-      // 🔧 修复(2025-12-30): PostgreSQL返回boolean类型
-      const wasActive = !!(beforeUser.is_active as any)
-      const isNowActive = !!(updatedUser.is_active as any)
+      // 🔧 修复(2025-12-30): PostgreSQL返回boolean类型，SQLite返回number类型
+      const wasActive = (beforeUser.is_active as any) === true || (beforeUser.is_active as any) === 1
+      const isNowActive = (updatedUser.is_active as any) === true || (updatedUser.is_active as any) === 1
       if (!wasActive && isNowActive) {
         await logUserEnabled(auditContext)
       } else if (wasActive && !isNowActive) {
@@ -215,8 +185,8 @@ export async function DELETE(
     }
 
     // Prevent deleting active users
-    // 🔧 修复(2025-12-30): PostgreSQL返回boolean类型
-    if (!!(user.is_active as any)) {
+    // 🔧 修复(2025-12-30): PostgreSQL返回boolean类型，SQLite返回number类型
+    if ((user.is_active as any) === true || (user.is_active as any) === 1) {
       return NextResponse.json({ error: '无法删除启用状态的用户，请先禁用该用户' }, { status: 400 })
     }
 

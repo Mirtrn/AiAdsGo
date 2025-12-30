@@ -308,15 +308,6 @@ class PostgresAdapter implements DatabaseAdapter {
     let pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
 
-    // 🔥 调试日志：查看SQL转换过程
-    console.log('🔍 [PostgreSQL exec] SQL转换过程:', {
-      原始SQL: sql,
-      转换后SQL_step1: convertedSql,
-      转换后SQL_step2: pgSql,
-      原始params: params,
-      清理后params: cleanParams
-    })
-
     // 🔥 PostgreSQL INSERT 语句需要 RETURNING id 才能获取插入的ID
     // 检测是否是 INSERT 语句，如果是且没有 RETURNING，自动添加
     const isInsert = /^\s*INSERT\s+INTO\s+/i.test(pgSql)
@@ -328,15 +319,6 @@ class PostgresAdapter implements DatabaseAdapter {
     }
 
     const pgResult = await this.sql.unsafe(pgSql, cleanParams) as any
-
-    // 🔥 调试日志：查看PostgreSQL返回结果
-    console.log('🔍 [PostgreSQL exec] 执行结果:', {
-      pgResult,
-      pgResultType: typeof pgResult,
-      isArray: Array.isArray(pgResult),
-      pgResultCount: pgResult?.count,
-      pgResultCommand: pgResult?.command
-    })
 
     // PostgreSQL INSERT ... RETURNING id 返回数组或对象
     let lastInsertRowid: number | undefined
