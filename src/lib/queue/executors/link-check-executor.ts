@@ -100,11 +100,14 @@ export function createLinkCheckExecutor(): TaskExecutor<LinkCheckTaskData, LinkC
       if (useUrlResolver) {
         const db = await getDatabase()
 
+        // 🔧 修复: PostgreSQL BOOLEAN 兼容性
+        const isActiveCondition = db.type === 'postgres' ? 'o.is_active = true' : 'o.is_active = 1'
+
         // 构建查询条件
         let query = `
           SELECT o.id, o.affiliate_link, o.target_country, o.user_id, o.brand, o.offer_name
           FROM offers o
-          WHERE o.is_active = 1 AND o.affiliate_link IS NOT NULL
+          WHERE ${isActiveCondition} AND o.affiliate_link IS NOT NULL
         `
         const params: any[] = []
 
