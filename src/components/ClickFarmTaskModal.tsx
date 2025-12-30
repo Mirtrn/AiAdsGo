@@ -687,7 +687,7 @@ export default function ClickFarmTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEditMode ? '编辑补点击任务' : '创建补点击任务'}</DialogTitle>
           <DialogDescription>
