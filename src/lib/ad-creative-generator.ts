@@ -22,6 +22,23 @@ import {
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
 import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数
 
+/**
+ * 🔧 安全解析JSON字段
+ * 处理 PostgreSQL jsonb 类型（自动解析为JS对象/数组）和 SQLite text 类型（需要JSON.parse）
+ */
+function safeParseJson(value: any, defaultValue: any = null): any {
+  if (value === null || value === undefined) return defaultValue;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch (e) {
+      console.warn('[safeParseJson] 解析失败:', value);
+      return defaultValue;
+    }
+  }
+  return value; // 已经是对象/数组（PostgreSQL jsonb）
+}
+
 // Keyword with search volume data
 // 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
 // 🎯 意图分类（3类）
@@ -1083,12 +1100,11 @@ This creative focuses on "${intent || intentEn}" user intent.
     pageType?: 'store' | 'product'
   } | null = null
 
+  // 🔧 修复(2025-12-31): 使用 safeParseJson 处理 PostgreSQL jsonb 字段
   if (offer.ai_analysis_v32) {
-    try {
-      v32Analysis = JSON.parse(offer.ai_analysis_v32)
+    v32Analysis = safeParseJson(offer.ai_analysis_v32)
+    if (v32Analysis) {
       console.log(`[AdCreativeGenerator] 🎯 使用v3.2分析数据: pageType=${v32Analysis?.pageType}`)
-    } catch (error) {
-      console.error('[AdCreativeGenerator] ❌ 解析ai_analysis_v32失败:', error)
     }
   }
 
@@ -1378,36 +1394,30 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   let aiCompetitiveEdges: any = null
   let aiReviews: any = null
 
+  // 🔧 修复(2025-12-31): 使用 safeParseJson 处理 PostgreSQL jsonb 字段
   // 读取AI增强的关键词数据
   if (offer.ai_keywords) {
-    try {
-      aiKeywords = JSON.parse(offer.ai_keywords)
+    aiKeywords = safeParseJson(offer.ai_keywords, [])
+    if (Array.isArray(aiKeywords)) {
       console.log(`[AdCreativeGenerator] 🎯 使用AI生成关键词: ${aiKeywords.length}个`)
-    } catch (error) {
-      console.error('[AdCreativeGenerator] ❌ 解析ai_keywords失败:', error)
+    } else {
       aiKeywords = []
     }
   }
 
   // 读取AI竞争优势数据
   if (offer.ai_competitive_edges) {
-    try {
-      aiCompetitiveEdges = JSON.parse(offer.ai_competitive_edges)
+    aiCompetitiveEdges = safeParseJson(offer.ai_competitive_edges, null)
+    if (aiCompetitiveEdges) {
       console.log(`[AdCreativeGenerator] 🏆 使用AI竞争优势数据:`, aiCompetitiveEdges)
-    } catch (error) {
-      console.error('[AdCreativeGenerator] ❌ 解析ai_competitive_edges失败:', error)
-      aiCompetitiveEdges = null
     }
   }
 
   // 读取AI评论洞察数据
   if (offer.ai_reviews) {
-    try {
-      aiReviews = JSON.parse(offer.ai_reviews)
+    aiReviews = safeParseJson(offer.ai_reviews, null)
+    if (aiReviews) {
       console.log(`[AdCreativeGenerator] ⭐ 使用AI评论洞察: rating=${aiReviews.rating}, sentiment=${aiReviews.sentiment}`)
-    } catch (error) {
-      console.error('[AdCreativeGenerator] ❌ 解析ai_reviews失败:', error)
-      aiReviews = null
     }
   }
 
