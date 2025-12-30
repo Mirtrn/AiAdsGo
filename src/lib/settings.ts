@@ -528,7 +528,8 @@ export async function validateGoogleAdsConfig(
 export async function validateGeminiConfig(
   apiKey: string,
   model: string = 'gemini-2.5-pro',
-  userId: number
+  userId: number,
+  provider?: string  // 🔧 关键修复(2025-12-30): 新增 provider 参数，用于验证未保存配置
 ): Promise<{ valid: boolean; message: string }> {
   // Step 1: 基础验证
   if (!apiKey) {
@@ -558,6 +559,13 @@ export async function validateGeminiConfig(
   try {
     const { generateContent } = await import('./gemini-axios')
 
+    // 🔧 关键修复(2025-12-30): 使用临时配置覆盖参数
+    // 避免 generateContent → getGeminiApiKey 从数据库读取空值
+    const overrideConfig = provider ? {
+      provider,
+      apiKey
+    } : undefined
+
     // 使用选择的模型进行测试（使用用户级AI配置）
     // 注意：Gemini 2.5+ 模型有"思考"功能，思考过程可能占用大量tokens
     // 为了确保有足够的输出空间，设置maxOutputTokens为1000
@@ -566,7 +574,7 @@ export async function validateGeminiConfig(
       prompt: 'Say "OK" if you can hear me.',
       temperature: 0.1,
       maxOutputTokens: 4096, // 🔧 修复(2025-12-11): 增加token限制以容纳思考过程和实际输出
-    }, userId)
+    }, userId, overrideConfig)
 
     return {
       valid: true,

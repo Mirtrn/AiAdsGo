@@ -176,6 +176,7 @@ export async function POST(request: NextRequest) {
         } else {
           // 验证Gemini直接API配置
           // 🔧 修复(2025-12-30): 根据 gemini_provider 选择验证哪个 API Key
+          // 🔧 关键修复(2025-12-30): 支持未保存配置的验证
           let geminiApiKey: string
           let geminiRelayApiKey: string
           let selectedModel: string
@@ -244,7 +245,9 @@ export async function POST(request: NextRequest) {
           const apiKeyToValidate = geminiProvider === 'relay' ? geminiRelayApiKey! : geminiApiKey!
           const keyFieldToUpdate = geminiProvider === 'relay' ? 'gemini_relay_api_key' : 'gemini_api_key'
 
-          result = await validateGeminiConfig(apiKeyToValidate, selectedModel, userIdNum)
+          // 🔧 关键修复(2025-12-30): 传递服务商类型和临时 API Key 给验证函数
+          // 避免 validateGeminiConfig → generateContent → getGeminiApiKey 从数据库读取空值
+          result = await validateGeminiConfig(apiKeyToValidate, selectedModel, userIdNum, geminiProvider)
 
           // 更新对应 API Key 的验证状态
           updateValidationStatus(

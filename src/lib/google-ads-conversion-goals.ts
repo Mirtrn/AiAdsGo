@@ -46,10 +46,12 @@ export async function setCampaignPageViewGoalWithCredentials(params: {
     // OAuth 模式：使用 getCustomerWithCredentials
     const customer = await getCustomerWithCredentials(params)
 
+    // 🔧 修复(2025-12-30): 使用字符串名称而非枚举数字值
     // 构建 CampaignConversionGoal 的 resource_name
     // 格式: customers/{customer_id}/campaignConversionGoals/{campaign_id}~{category}~{origin}
-    const category = enums.ConversionActionCategory.PAGE_VIEW
-    const origin = enums.ConversionOrigin.WEBSITE
+    // 注意：category 和 origin 必须使用字符串名称，不能使用枚举数字
+    const category = 'PAGE_VIEW'  // 不能用 enums.ConversionActionCategory.PAGE_VIEW (值为3)
+    const origin = 'WEBSITE'      // 不能用 enums.ConversionOrigin.WEBSITE (值为2)
     const goalResourceName = `customers/${customerId}/campaignConversionGoals/${campaignId}~${category}~${origin}`
 
     console.log(`   Goal Resource: ${goalResourceName}`)
@@ -113,10 +115,11 @@ export async function setCampaignPageViewGoal(
     const customerId = match[1]
     const campaignId = match[2]
 
+    // 🔧 修复(2025-12-30): 使用字符串名称而非枚举数字值
     // 构建 CampaignConversionGoal 的 resource_name
     // 格式: customers/{customer_id}/campaignConversionGoals/{campaign_id}~{category}~{origin}
-    const category = enums.ConversionActionCategory.PAGE_VIEW
-    const origin = enums.ConversionOrigin.WEBSITE
+    const category = 'PAGE_VIEW'  // 不能用 enums.ConversionActionCategory.PAGE_VIEW (值为3)
+    const origin = 'WEBSITE'      // 不能用 enums.ConversionOrigin.WEBSITE (值为2)
     const goalResourceName = `customers/${customerId}/campaignConversionGoals/${campaignId}~${category}~${origin}`
 
     console.log(`🎯 配置Campaign转化目标:`)
@@ -171,10 +174,11 @@ export async function setCustomerPageViewGoal(
   customerId: string
 ): Promise<boolean> {
   try {
+    // 🔧 修复(2025-12-30): 使用字符串名称而非枚举数字值
     // 构建 CustomerConversionGoal 的 resource_name
     // 格式: customers/{customer_id}/customerConversionGoals/{category}~{origin}
-    const category = enums.ConversionActionCategory.PAGE_VIEW
-    const origin = enums.ConversionOrigin.WEBSITE
+    const category = 'PAGE_VIEW'  // 不能用 enums.ConversionActionCategory.PAGE_VIEW (值为3)
+    const origin = 'WEBSITE'      // 不能用 enums.ConversionOrigin.WEBSITE (值为2)
     const goalResourceName = `customers/${customerId}/customerConversionGoals/${category}~${origin}`
 
     console.log(`🎯 配置账号级别转化目标:`)

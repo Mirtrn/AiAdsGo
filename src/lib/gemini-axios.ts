@@ -185,6 +185,9 @@ async function getGeminiProvider(userId: number): Promise<GeminiProvider> {
  * @param params.temperature - 温度参数，默认 0.7
  * @param params.maxOutputTokens - 最大输出tokens，默认 8192
  * @param userId - 用户ID（必需，用于获取用户的API密钥）
+ * @param overrideConfig - 临时配置覆盖（可选，用于验证未保存的配置）
+ * @param overrideConfig.provider - 服务商类型（'official' | 'relay'）
+ * @param overrideConfig.apiKey - API密钥
  * @returns 生成的文本内容
  */
 export async function generateContent(params: {
@@ -194,7 +197,7 @@ export async function generateContent(params: {
   maxOutputTokens?: number
   responseSchema?: any  // 🆕 Token优化：JSON schema
   responseMimeType?: string  // 🆕 Token优化：MIME类型
-}, userId: number): Promise<GeminiAxiosGenerateResult> {
+}, userId: number, overrideConfig?: { provider: string; apiKey: string }): Promise<GeminiAxiosGenerateResult> {
   const {
     model = 'gemini-2.5-pro',
     prompt,
@@ -204,10 +207,11 @@ export async function generateContent(params: {
     responseMimeType,  // 🆕 Token优化：MIME类型
   } = params
 
+  // 🔧 关键修复(2025-12-30): 支持临时配置覆盖（用于验证未保存的配置）
   // 根据用户配置获取服务商类型和对应的 API Key
-  const provider = await getGeminiProvider(userId)
-  const apiKey = await getGeminiApiKey(userId, provider)
-  console.log(`🌐 使用 ${GEMINI_PROVIDERS[provider].name} 服务商`)
+  const provider = overrideConfig ? overrideConfig.provider as GeminiProvider : await getGeminiProvider(userId)
+  const apiKey = overrideConfig ? overrideConfig.apiKey : await getGeminiApiKey(userId, provider)
+  console.log(`🌐 使用 ${GEMINI_PROVIDERS[provider].name} 服务商${overrideConfig ? '（临时配置）' : ''}`)
 
   // 创建 axios 客户端（直连，不使用代理）
   const client = await createGeminiAxiosClient(userId)
