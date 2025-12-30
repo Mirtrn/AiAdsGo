@@ -228,7 +228,7 @@ export default function HourlyDistributionEditor({
               d={curvePath}
               fill="none"
               stroke={isEditing ? 'rgb(34, 197, 94)' : 'rgb(59, 130, 246)'}
-              strokeWidth="1.5"
+              strokeWidth="1"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
@@ -286,7 +286,7 @@ export default function HourlyDistributionEditor({
                   <circle
                     cx={point.xPercent}
                     cy={point.yPercent}
-                    r={isDragged ? 3.5 : isHovered ? 2.5 : 2}
+                    r={isDragged ? 2.5 : isHovered ? 2 : 1.5}
                     fill={
                       isDragged
                         ? 'rgb(249, 115, 22)'
@@ -295,7 +295,7 @@ export default function HourlyDistributionEditor({
                         : 'rgb(156, 163, 175)'
                     }
                     stroke="white"
-                    strokeWidth="1.5"
+                    strokeWidth="1"
                     className={`${point.isActive && isEditing ? 'cursor-grab active:cursor-grabbing' : ''} transition-all duration-150`}
                     style={{ touchAction: 'none' }}
                     onPointerDown={(e) => point.isActive && handlePointerDown(point.hour, e)}
