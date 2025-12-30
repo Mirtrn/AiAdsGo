@@ -17,7 +17,7 @@ BEGIN
     FROM pg_constraint
     WHERE conrelid = 'click_farm_tasks'::regclass
     AND contype = 'f'
-    AND conkey = ARRAY[2, 3];  -- offer_id, user_id 的位置
+    AND conkey = ARRAY[2, 3]::smallint[];  -- 🔧 修复：显式指定smallint[]类型
 
     IF fk_name IS NOT NULL THEN
         EXECUTE 'ALTER TABLE click_farm_tasks DROP CONSTRAINT ' || fk_name;
@@ -36,7 +36,7 @@ BEGIN
         SELECT 1 FROM pg_constraint
         WHERE conrelid = 'click_farm_tasks'::regclass
         AND contype = 'f'
-        AND conkey = ARRAY[3]  -- offer_id 的位置
+        AND conkey = ARRAY[3]::smallint[]  -- 🔧 修复：显式指定smallint[]类型
         AND confrelid = 'offers'::regclass
     ) INTO cons_exists;
 
