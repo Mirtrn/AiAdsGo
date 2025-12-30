@@ -175,23 +175,53 @@ export async function POST(request: NextRequest) {
           )
         } else {
           // 验证Gemini直接API配置
-          // 🔧 修复(2025-12-24): 优先使用前端传来的配置，如果前端没传则从数据库读取
+          // 🔧 修复(2025-12-30): 根据 gemini_provider 选择验证哪个 API Key
           let geminiApiKey: string
+          let geminiRelayApiKey: string
           let selectedModel: string
+          let geminiProvider: string
 
-          if (config.gemini_api_key && config.gemini_api_key !== '············') {
-            // 前端传来了新的API密钥（不是占位符）
-            geminiApiKey = config.gemini_api_key
+          // 获取用户选择的服务商
+          if (config.gemini_provider) {
+            geminiProvider = config.gemini_provider
           } else {
-            // 从数据库读取已保存的API密钥
-            const geminiApiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
-            if (!geminiApiKeySetting?.value) {
-              return NextResponse.json(
-                { error: '请先保存 Gemini API 密钥配置' },
-                { status: 400 }
-              )
+            const providerSetting = await getUserOnlySetting('ai', 'gemini_provider', userIdNum)
+            geminiProvider = providerSetting?.value || 'official'
+          }
+
+          console.log(`🔍 验证AI配置: 服务商=${geminiProvider}`)
+
+          // 根据服务商获取对应的 API Key
+          if (geminiProvider === 'relay') {
+            // 第三方中转：验证 gemini_relay_api_key
+            if (config.gemini_relay_api_key && config.gemini_relay_api_key !== '············') {
+              geminiRelayApiKey = config.gemini_relay_api_key
+            } else {
+              const relayApiKeySetting = await getUserOnlySetting('ai', 'gemini_relay_api_key', userIdNum)
+              if (!relayApiKeySetting?.value) {
+                return NextResponse.json(
+                  { error: '请先保存第三方中转 API Key 配置' },
+                  { status: 400 }
+                )
+              }
+              geminiRelayApiKey = relayApiKeySetting.value
             }
-            geminiApiKey = geminiApiKeySetting.value
+            console.log(`🔍 使用中转服务商的 API Key 验证`)
+          } else {
+            // 官方：验证 gemini_api_key
+            if (config.gemini_api_key && config.gemini_api_key !== '············') {
+              geminiApiKey = config.gemini_api_key
+            } else {
+              const apiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userIdNum)
+              if (!apiKeySetting?.value) {
+                return NextResponse.json(
+                  { error: '请先保存 Gemini 官方 API Key 配置' },
+                  { status: 400 }
+                )
+              }
+              geminiApiKey = apiKeySetting.value
+            }
+            console.log(`🔍 使用官方服务商的 API Key 验证`)
           }
 
           // 优先使用前端传来的模型配置
@@ -210,12 +240,16 @@ export async function POST(request: NextRequest) {
 
           console.log(`🔍 验证AI配置: 使用模型配置 ${selectedModel}`)
 
-          result = await validateGeminiConfig(geminiApiKey, selectedModel, userIdNum)
+          // 根据服务商选择验证哪个 API Key
+          const apiKeyToValidate = geminiProvider === 'relay' ? geminiRelayApiKey! : geminiApiKey!
+          const keyFieldToUpdate = geminiProvider === 'relay' ? 'gemini_relay_api_key' : 'gemini_api_key'
 
-          // 更新API密钥验证状态
+          result = await validateGeminiConfig(apiKeyToValidate, selectedModel, userIdNum)
+
+          // 更新对应 API Key 的验证状态
           updateValidationStatus(
             'ai',
-            'gemini_api_key',
+            keyFieldToUpdate,
             result.valid ? 'valid' : 'invalid',
             result.message,
             userIdNum
