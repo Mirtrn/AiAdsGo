@@ -8,6 +8,7 @@ import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange } fro
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
 import { getDatabase } from '@/lib/db';
+import { nowFunc } from '@/lib/db-helpers';
 import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest) {
         if (!task.started_at) {
           await db.exec(`
             UPDATE click_farm_tasks
-            SET started_at = datetime('now'), updated_at = datetime('now')
+            SET started_at = ${nowFunc(db.type)}, updated_at = ${nowFunc(db.type)}
             WHERE id = ?
           `, [task.id]);
 

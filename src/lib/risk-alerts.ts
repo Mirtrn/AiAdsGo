@@ -8,6 +8,7 @@
  */
 
 import { getDatabase } from '@/lib/db'
+import { nowFunc } from '@/lib/db-helpers'
 import { proxyHead } from './proxy-axios'
 
 export interface RiskAlert {
@@ -304,8 +305,8 @@ export async function updateAlertStatus(
   const stmt = `
     UPDATE risk_alerts
     SET status = ?,
-        ${status === 'acknowledged' ? 'acknowledged_at = datetime("now")' : ''},
-        ${status === 'resolved' ? 'resolved_at = datetime("now")' : ''},
+        ${status === 'acknowledged' ? `acknowledged_at = ${nowFunc(db.type)}` : ''},
+        ${status === 'resolved' ? `resolved_at = ${nowFunc(db.type)}` : ''},
         resolution_note = ?
     WHERE id = ? AND user_id = ?
   `
