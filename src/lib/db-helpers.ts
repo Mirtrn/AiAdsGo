@@ -32,9 +32,19 @@ export function getInsertedId(
 ): number {
   if (dbType === 'postgres') {
     // PostgreSQL: INSERT ... RETURNING id 返回数组 [{id: 123}]
-    const returnedRows = result as any
-    if (Array.isArray(returnedRows) && returnedRows.length > 0 && returnedRows[0]?.id !== undefined) {
-      return Number(returnedRows[0].id)
+    // 或 Result 对象同时继承 Array 和 Object
+    const pgResult = result as any
+    // 优先检查 lastInsertRowid（如果 db.ts 已经解析好了）
+    if (pgResult.lastInsertRowid !== undefined) {
+      return Number(pgResult.lastInsertRowid)
+    }
+    // 检查数组格式（INSERT RETURNING）
+    if (Array.isArray(pgResult) && pgResult.length > 0 && pgResult[0]?.id !== undefined) {
+      return Number(pgResult[0].id)
+    }
+    // 兜底：直接尝试访问 id 属性
+    if (pgResult.id !== undefined) {
+      return Number(pgResult.id)
     }
     throw new Error('PostgreSQL INSERT 未返回 id (请确保 SQL 包含 RETURNING id 或 db.exec 自动添加)')
   } else {
