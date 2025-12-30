@@ -199,9 +199,9 @@ export type RefererConfigType = 'none' | 'random' | 'specific';
  * 🆕 社交媒体Referer选项（用于UI下拉选择）
  */
 export const REFERER_OPTIONS = [
-  { value: 'none', label: '留空', description: '不配置Referer，使用默认值' },
-  { value: 'random', label: '随机', description: '每次点击随机从社交媒体列表中选择' },
-  { value: 'specific', label: '固定', description: '使用指定的固定Referer URL' },
+  { value: 'none', label: '留空', description: '不设置Referer头' },
+  { value: 'random', label: '随机', description: '随机选择社交媒体来源' },
+  { value: 'specific', label: '固定', description: '使用固定社交媒体来源' },
 ] as const;
 
 export const SOCIAL_MEDIA_REFERRERS = [

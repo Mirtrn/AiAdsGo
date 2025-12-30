@@ -844,7 +844,7 @@ export default function ClickFarmTaskModal({
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  推荐: 216次/天（模拟自然流量）
+                  推荐216次/天模拟自然流量
                 </p>
               </div>
 
@@ -860,7 +860,7 @@ export default function ClickFarmTaskModal({
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  默认当天，可选择未来日期
+                  默认今天，可选未来日期
                 </p>
               </div>
 
@@ -911,7 +911,7 @@ export default function ClickFarmTaskModal({
                 <Badge variant="secondary" className="text-xs">防爬优化</Badge>
               </Label>
               <p className="text-xs text-muted-foreground">
-                配置访问时的Referer头，模拟真实用户来源，防止被反爬机制识别
+                模拟真实用户来源，防止反爬识别
               </p>
 
               <div className="grid grid-cols-2 gap-4">
@@ -962,7 +962,7 @@ export default function ClickFarmTaskModal({
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      选择固定的社交媒体来源作为Referer
+                      选择固定社交媒体来源
                     </p>
                   </div>
                 ) : (

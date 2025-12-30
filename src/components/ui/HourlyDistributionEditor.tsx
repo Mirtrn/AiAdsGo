@@ -205,7 +205,7 @@ export default function HourlyDistributionEditor({
               />
             ))}
 
-            {/* X轴网格线（垂直虚线）- 对齐每个小时 */}
+            {/* X轴网格线（垂直虚线）- 对齐每个小时，使用明显颜色 */}
             {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
               const xPercent = (hour / 23) * 100;
               return (
@@ -215,11 +215,10 @@ export default function HourlyDistributionEditor({
                   y1="0"
                   x2={xPercent}
                   y2="100"
-                  stroke="currentColor"
-                  strokeWidth="0.15"
-                  className="text-border"
-                  strokeDasharray="2,3"
-                  opacity="0.4"
+                  stroke="rgb(147, 197, 253)"
+                  strokeWidth="0.3"
+                  strokeDasharray="3,3"
+                  opacity="0.6"
                 />
               );
             })}
