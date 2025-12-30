@@ -1824,8 +1824,15 @@ export default function SettingsPage() {
                           }
                           // Gemini API模式：只显示Gemini API相关字段
                           else {
-                            if (!['gemini_provider', 'gemini_endpoint', 'gemini_api_key', 'gemini_model'].includes(setting.key)) {
-                              return null // 隐藏Vertex AI字段
+                            const provider = formData.ai?.gemini_provider || 'official'
+
+                            // 根据服务商决定显示哪个 API Key 字段
+                            const allowedKeys = provider === 'relay'
+                              ? ['gemini_provider', 'gemini_endpoint', 'gemini_relay_api_key', 'gemini_model']
+                              : ['gemini_provider', 'gemini_endpoint', 'gemini_api_key', 'gemini_model']
+
+                            if (!allowedKeys.includes(setting.key)) {
+                              return null // 隐藏其他字段
                             }
                           }
                         }
