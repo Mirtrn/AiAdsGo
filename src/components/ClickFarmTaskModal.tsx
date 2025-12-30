@@ -745,6 +745,7 @@ export default function ClickFarmTaskModal({
 
                   {/* 产品标识 */}
                   <div className="flex items-center gap-2 text-sm">
+                    <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="text-muted-foreground">产品标识:</span>
                     <Badge className="h-5 text-xs" variant="outline">
                       {selectedOffer.offerName || selectedOffer.brand || selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
@@ -769,14 +770,14 @@ export default function ClickFarmTaskModal({
                   <div className="flex items-start gap-2 pt-2 border-t border-muted-foreground/20">
                     <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
-                      <span className="text-muted-foreground text-xs block">联盟推广链接:</span>
+                      <span className="text-muted-foreground text-sm block">联盟推广链接:</span>
                       {selectedOffer.affiliateLink ? (
                         <div className="relative group">
                           <a
                             href={selectedOffer.affiliateLink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline text-xs break-all block"
+                            className="text-blue-600 hover:underline text-sm break-all block"
                           >
                             {selectedOffer.affiliateLink.length > 60
                               ? `${selectedOffer.affiliateLink.substring(0, 60)}...`
