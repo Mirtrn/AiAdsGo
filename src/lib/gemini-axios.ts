@@ -251,14 +251,27 @@ export async function generateContent(params: {
     console.log(`   - temperature: ${temperature}`)
     console.log(`   - 使用responseSchema: ${!!responseSchema}`)
 
+    // 🔧 修复(2025-12-30): 第三方中转服务需要在headers中传递API Key
+    // - 官方API: query参数 ?key=xxx
+    // - ThunderRelay中转: header x-api-key: xxx
+    const requestConfig = provider === 'relay'
+      ? {
+          headers: {
+            'x-api-key': apiKey,
+          },
+        }
+      : {
+          params: {
+            key: apiKey,
+          },
+        }
+
+    console.log(`   - API Key传递方式: ${provider === 'relay' ? 'headers (x-api-key)' : 'query params (key)'}`)
+
     const response = await client.post<GeminiResponse>(
       `/v1beta/models/${model}:generateContent`,
       request,
-      {
-        params: {
-          key: apiKey,
-        },
-      }
+      requestConfig
     )
 
     // 检查响应基本结构
@@ -370,14 +383,23 @@ export async function generateContent(params: {
       console.warn(`⚠️ ${model} 模型过载，自动降级到 gemini-2.5-flash`)
 
       try {
+        // 🔧 修复(2025-12-30): fallback也需要使用正确的API Key传递方式
+        const fallbackRequestConfig = provider === 'relay'
+          ? {
+              headers: {
+                'x-api-key': apiKey,
+              },
+            }
+          : {
+              params: {
+                key: apiKey,
+              },
+            }
+
         const fallbackResponse = await client.post<GeminiResponse>(
           `/v1beta/models/gemini-2.5-flash:generateContent`,
           request,
-          {
-            params: {
-              key: apiKey,
-            },
-          }
+          fallbackRequestConfig
         )
 
         // 检查fallback响应基本结构
