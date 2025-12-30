@@ -72,16 +72,14 @@ export interface GeminiAxiosGenerateResult {
  * @returns API Key
  */
 async function getGeminiApiKey(userId: number, provider: GeminiProvider): Promise<string> {
-  const db = await getDatabase()
+  // 🔧 关键修复(2025-12-30): 使用 getSetting() 正确处理加密字段
+  // 直接查询 value 字段会忽略 encrypted_value，导致已配置的用户报错
+  const { getSetting } = await import('./settings')
 
   // 根据服务商选择对应的字段
   const keyField = provider === 'relay' ? 'gemini_relay_api_key' : 'gemini_api_key'
 
-  const setting = await db.queryOne(`
-    SELECT value
-    FROM system_settings
-    WHERE user_id = ? AND category = 'ai' AND key = ?
-  `, [userId, keyField]) as { value?: string } | undefined
+  const setting = await getSetting('ai', keyField, userId)
 
   if (!setting?.value) {
     throw new Error(
@@ -96,18 +94,13 @@ async function getGeminiApiKey(userId: number, provider: GeminiProvider): Promis
 /**
  * 根据用户配置获取 Gemini 端点
  *
+ * 🔧 关键修复(2025-12-30): 使用 getSetting() 正确处理配置字段
+ *
  * @param userId - 用户ID
  * @returns Gemini API 端点 URL
  */
 async function getGeminiEndpoint(userId: number): Promise<string> {
-  const db = await getDatabase()
-  const settings = await db.queryOne(`
-    SELECT value as gemini_provider
-    FROM system_settings
-    WHERE user_id = ? AND category = 'ai' AND key = 'gemini_provider'
-  `, [userId]) as { gemini_provider?: GeminiProvider } | undefined
-
-  const provider = settings?.gemini_provider as GeminiProvider || 'official'
+  const provider = await getGeminiProvider(userId)
   return getEndpointByProvider(provider)
 }
 
@@ -159,16 +152,14 @@ export async function createGeminiAxiosClient(userId: number): Promise<AxiosInst
 
 /**
  * 获取用户配置的服务商类型
+ *
+ * 🔧 关键修复(2025-12-30): 使用 getSetting() 正确处理配置字段
  */
 async function getGeminiProvider(userId: number): Promise<GeminiProvider> {
-  const db = await getDatabase()
-  const settings = await db.queryOne(`
-    SELECT value
-    FROM system_settings
-    WHERE user_id = ? AND category = 'ai' AND key = 'gemini_provider'
-  `, [userId]) as { value?: string } | undefined
+  const { getSetting } = await import('./settings')
+  const setting = await getSetting('ai', 'gemini_provider', userId)
 
-  return (settings?.value as GeminiProvider) || 'official'
+  return (setting?.value as GeminiProvider) || 'official'
 }
 
 /**
