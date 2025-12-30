@@ -26,6 +26,7 @@ import {
 import { InsightsCard } from '@/components/dashboard/InsightsCard'
 import { ApiQuotaChart } from '@/components/dashboard/ApiQuotaChart'
 import { AiTokenCostChart } from '@/components/dashboard/AiTokenCostChart'
+import { formatCurrency, formatMultiCurrency } from '@/lib/utils'
 
 interface KPIData {
   current: {
@@ -34,6 +35,8 @@ interface KPIData {
     cost: number
     ctr: number
     cpc: number
+    currency?: string // 🔧 新增(2025-12-30): 货币代码
+    costs?: Array<{ currency: string; amount: number }> // 🔧 新增: 多货币详情
   }
   changes: {
     impressions: number
@@ -125,12 +128,6 @@ export default function DashboardPage() {
   }, [days])
 
   const formatNumber = (num: number | null | undefined) => (num ?? 0).toLocaleString()
-  const formatCurrency = (num: number | null | undefined) => {
-    const value = Number(num ?? 0)
-    // 🔧 修复(2025-12-30): 数据库存储的是美元（从Google Ads API的cost_micros转换）
-    // campaign_performance.cost字段单位是USD，不是CNY
-    return isNaN(value) ? '$0.00' : `$${value.toFixed(2)}`
-  }
   const formatPercent = (num: number | null | undefined) => {
     const value = Number(num ?? 0)
     return isNaN(value) ? '0.00%' : `${value.toFixed(2)}%`
@@ -143,6 +140,23 @@ export default function DashboardPage() {
     const value = Number(num ?? 0)
     if (isNaN(value)) return '0'.padEnd(decimals > 0 ? decimals + 2 : 1, '0')
     return value.toFixed(decimals)
+  }
+
+  /**
+   * 🔧 新增(2025-12-30): 格式化费用显示（支持多货币）
+   */
+  const formatCostDisplay = (kpiData: KPIData | null): string => {
+    if (!kpiData) return formatCurrency(0, 'USD')
+
+    const { current } = kpiData
+
+    // 多货币场景
+    if (current.currency === 'MIXED' && current.costs && current.costs.length > 0) {
+      return formatMultiCurrency(current.costs)
+    }
+
+    // 单一货币场景
+    return formatCurrency(current.cost, current.currency || 'USD')
   }
 
   // 加载骨架屏
@@ -270,7 +284,7 @@ export default function DashboardPage() {
                 <div>
                   <p className="text-sm text-gray-500 mb-1">总花费</p>
                   <p className="text-2xl font-bold">
-                    {kpiData ? formatCurrency(kpiData.current.cost) : '-'}
+                    {kpiData ? formatCostDisplay(kpiData) : '-'}
                   </p>
                 </div>
                 <div className="p-3 bg-purple-50 rounded-xl">
@@ -284,7 +298,7 @@ export default function DashboardPage() {
                   </span>
                   <span className="text-gray-300">·</span>
                   <span className="text-sm text-gray-500">
-                    每次点击费用(CPC) {formatCurrency(kpiData.current.cpc)}
+                    每次点击费用(CPC) {formatCurrency(kpiData.current.cpc, kpiData.current.currency || 'USD')}
                   </span>
                 </div>
               )}

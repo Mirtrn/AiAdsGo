@@ -1,8 +1,9 @@
 'use client'
 
 /**
- * KPICards - P1-5优化版
+ * KPICards - P1-5优化版 + 多货币支持
  * 使用shadcn/ui Card组件，增强视觉设计
+ * 🔧 修复(2025-12-30): 支持多货币显示
  */
 
 import { useEffect, useState } from 'react'
@@ -10,7 +11,7 @@ import { TrendingUp, TrendingDown, Eye, MousePointerClick, DollarSign, Target } 
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { KPILoadingSkeleton } from '@/components/ui/loading-skeleton' // P2-6: 统一loading
-import { safeToFixed } from '@/lib/utils'
+import { safeToFixed, formatCurrency } from '@/lib/utils'
 
 interface KPIData {
   current: {
@@ -21,6 +22,8 @@ interface KPIData {
     ctr: number
     cpc: number
     conversionRate: number
+    currency?: string // 🔧 新增(2025-12-30): 货币代码
+    costs?: Array<{ currency: string; amount: number }> // 🔧 新增: 多货币详情
   }
   changes: {
     impressions: number
@@ -36,16 +39,16 @@ interface KPICardProps {
   change: number
   icon: React.ReactNode
   format?: 'number' | 'currency' | 'percentage'
+  currency?: string // 🔧 新增(2025-12-30): 货币代码
 }
 
-function KPICard({ title, value, change, icon, format = 'number' }: KPICardProps) {
+function KPICard({ title, value, change, icon, format = 'number', currency = 'USD' }: KPICardProps) {
   const isPositive = (change ?? 0) >= 0
 
   const formatValue = (val: string | number | null | undefined): string => {
     if (format === 'currency') {
-      // 🔧 修复(2025-12-30): 数据库存储的是美元（从Google Ads API的cost_micros转换）
-      // campaign_performance.cost字段单位是USD，不是CNY
-      return `$${safeToFixed(val, 2)}`
+      // 🔧 修复(2025-12-30): 使用新的formatCurrency工具函数支持多货币
+      return formatCurrency(val, currency)
     } else if (format === 'percentage') {
       return `${safeToFixed(val, 2)}%`
     } else {
@@ -212,6 +215,7 @@ export function KPICards({ days }: KPICardsProps) {
             change={data.changes.cost}
             icon={<DollarSign className="h-6 w-6" />}
             format="currency"
+            currency={data.current.currency || 'USD'}
           />
           <KPICard
             title="转化量"
@@ -238,7 +242,7 @@ export function KPICards({ days }: KPICardsProps) {
             <CardContent className="pt-6">
               <p className="text-sm font-medium text-muted-foreground mb-2">平均CPC</p>
               <p className="text-2xl font-bold text-primary">
-                ${safeToFixed(data.current?.cpc ?? 0, 2)}
+                {formatCurrency(data.current?.cpc ?? 0, data.current?.currency || 'USD')}
               </p>
             </CardContent>
           </Card>
