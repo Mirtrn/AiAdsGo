@@ -51,34 +51,9 @@ export async function POST(request: NextRequest) {
           config.developer_token || ''
         )
 
-        // 更新验证状态
-        if (config.client_id) {
-          updateValidationStatus(
-            'google_ads',
-            'client_id',
-            result.valid ? 'valid' : 'invalid',
-            result.message,
-            userIdNum
-          )
-        }
-        if (config.client_secret) {
-          updateValidationStatus(
-            'google_ads',
-            'client_secret',
-            result.valid ? 'valid' : 'invalid',
-            result.message,
-            userIdNum
-          )
-        }
-        if (config.developer_token) {
-          updateValidationStatus(
-            'google_ads',
-            'developer_token',
-            result.valid ? 'valid' : 'invalid',
-            result.message,
-            userIdNum
-          )
-        }
+        // 🔧 修复(2025-12-30): 移除持久化验证状态到数据库的逻辑
+        // 验证结果应该是临时反馈，不应该在刷新页面、切换模型后仍然显示
+        // 验证成功/失败信息只通过toast和API响应提示用户
         break
 
       case 'ai':
@@ -149,30 +124,9 @@ export async function POST(request: NextRequest) {
             gcpServiceAccountJson
           )
 
-          // 更新Vertex AI验证状态
-          updateValidationStatus(
-            'ai',
-            'gcp_project_id',
-            result.valid ? 'valid' : 'invalid',
-            result.message,
-            userIdNum
-          )
-
-          updateValidationStatus(
-            'ai',
-            'gcp_service_account_json',
-            result.valid ? 'valid' : 'invalid',
-            result.message,
-            userIdNum
-          )
-
-          updateValidationStatus(
-            'ai',
-            'gcp_location',
-            result.valid ? 'valid' : 'invalid',
-            result.valid ? `区域 ${gcpLocation} 可用` : result.message,
-            userIdNum
-          )
+          // 🔧 修复(2025-12-30): 移除持久化验证状态到数据库的逻辑
+          // 验证结果应该是临时反馈，不应该在刷新页面、切换模型后仍然显示
+          // 验证成功/失败信息只通过toast和API响应提示用户
         } else {
           // 验证Gemini直接API配置
           // 🔧 修复(2025-12-30): 根据 gemini_provider 选择验证哪个 API Key
@@ -249,23 +203,9 @@ export async function POST(request: NextRequest) {
           // 避免 validateGeminiConfig → generateContent → getGeminiApiKey 从数据库读取空值
           result = await validateGeminiConfig(apiKeyToValidate, selectedModel, userIdNum, geminiProvider)
 
-          // 更新对应 API Key 的验证状态
-          updateValidationStatus(
-            'ai',
-            keyFieldToUpdate,
-            result.valid ? 'valid' : 'invalid',
-            result.message,
-            userIdNum
-          )
-
-          // 更新模型验证状态
-          updateValidationStatus(
-            'ai',
-            'gemini_model',
-            result.valid ? 'valid' : 'invalid',
-            result.valid ? `模型 ${selectedModel} 可用` : result.message,
-            userIdNum
-          )
+          // 🔧 修复(2025-12-30): 移除持久化验证状态到数据库的逻辑
+          // 验证结果应该是临时反馈，不应该在刷新页面、切换模型后仍然显示
+          // 验证成功/失败信息只通过toast和API响应提示用户
         }
         break
 

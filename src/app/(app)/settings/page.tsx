@@ -1888,9 +1888,12 @@ export default function SettingsPage() {
                               {isRequired && (
                                 <span className="text-caption text-red-500">*必填</span>
                               )}
-                              {setting.validationStatus && (
-                                <span>{getValidationIcon(setting.validationStatus)}</span>
-                              )}
+                              {/* 🔧 修复(2025-12-30): 移除持久化验证状态图标
+                                  验证结果应该是临时反馈（通过toast），不应该在刷新页面、切换模型后仍然显示
+                                  {setting.validationStatus && (
+                                    <span>{getValidationIcon(setting.validationStatus)}</span>
+                                  )}
+                              */}
                             </Label>
                             {metadata?.helpLink && (
                               <a
@@ -1912,11 +1915,14 @@ export default function SettingsPage() {
 
                           {renderInput(category, setting)}
 
-                          {setting.validationMessage && (
-                            <p className={`text-caption ${setting.validationStatus === 'valid' ? 'text-green-600' : 'text-red-600'}`}>
-                              {setting.validationMessage}
-                            </p>
-                          )}
+                          {/* 🔧 修复(2025-12-30): 移除持久化验证消息的显示
+                              验证结果应该是临时反馈（通过toast），不应该在刷新页面、切换模型后仍然显示
+                              {setting.validationMessage && (
+                                <p className={`text-caption ${setting.validationStatus === 'valid' ? 'text-green-600' : 'text-red-600'}`}>
+                                  {setting.validationMessage}
+                                </p>
+                              )}
+                          */}
                         </div>
                         )
                       })}
