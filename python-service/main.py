@@ -387,6 +387,16 @@ async def execute_gaql_query(request: GAQLQueryRequest):
 
     except Exception as e:
         error_str = str(e)
+
+        # 🔧 修复(2025-12-30): DEVELOPER_TOKEN_NOT_APPROVED 是配置错误，必须明确告知用户
+        # 不能静默处理为"预期错误"
+        if "DEVELOPER_TOKEN_NOT_APPROVED" in error_str:
+            logger.error(f"[user_id={user_id}] Developer Token 权限不足: {e}")
+            raise HTTPException(
+                status_code=403,
+                detail="Developer Token 权限不足。测试权限的 Token 只能访问测试账号，无法访问真实账号。请升级到 Basic 或 Standard Access 权限。"
+            )
+
         # 🔧 修复(2025-12-26): 对预期内的错误返回空结果，而非500错误
         # 这些错误表示账户状态异常，查询预算返回空结果是合理的
         expected_errors = [
