@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import bcrypt from 'bcrypt'
+import crypto from 'crypto'
 import { logPasswordReset, UserManagementContext } from '@/lib/audit-logger'
 
 // 获取客户端IP地址
@@ -37,24 +38,23 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Generate new random password (12 characters: letters + numbers)
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-    let newPassword = ''
-    for (let i = 0; i < 12; i++) {
-      newPassword += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
+    // 🔧 修复(2025-12-30): 使用crypto.randomBytes生成密码学安全的随机密码
+    // 生成16字节随机数，转为base64编码，取前16个字符
+    const randomBytes = crypto.randomBytes(16)
+    const newPassword = randomBytes.toString('base64').slice(0, 16)
 
     // Hash password
     const hashedPassword = await bcrypt.hash(newPassword, 10)
 
     // Update user password and set must_change_password flag
-    // 🔧 修复(2025-12-30): PostgreSQL兼容性 - 使用CURRENT_TIMESTAMP替代datetime('now')
-    const timestampFunc = db.type === 'postgres' ? 'CURRENT_TIMESTAMP' : 'datetime(\'now\')'
+    // 🔧 修复(2025-12-30): PostgreSQL兼容性
+    // PostgreSQL的must_change_password可能是BOOLEAN类型，需要根据数据库类型传值
+    const mustChangeValue = db.type === 'postgres' ? true : 1
     const result = await db.exec(`
       UPDATE users
-      SET password_hash = ?, must_change_password = 1, updated_at = ${timestampFunc}
+      SET password_hash = ?, must_change_password = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `, [hashedPassword, userId])
+    `, [hashedPassword, mustChangeValue, userId])
 
     if (result.changes === 0) {
       return NextResponse.json({ error: 'Failed to reset password' }, { status: 500 })

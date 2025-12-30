@@ -47,7 +47,8 @@ interface User {
     role: string
     packageType: string
     packageExpiresAt: string | null
-    isActive: number
+    // 🔧 修复(2025-12-30): API统一返回boolean类型
+    isActive: boolean
     createdAt: string
     lockedUntil: string | null
     failedLoginCount: number
@@ -93,6 +94,9 @@ export default function UserManagementPage() {
     const [isEditOpen, setIsEditOpen] = useState(false)
     const [selectedUser, setSelectedUser] = useState<User | null>(null)
 
+    // 🔧 新增(2025-12-30): loading状态管理，防止重复提交
+    const [isSubmitting, setIsSubmitting] = useState(false)
+
     // Create Form State
     const [createUsername, setCreateUsername] = useState('')
     const [createEmail, setCreateEmail] = useState('')
@@ -136,8 +140,8 @@ export default function UserManagementPage() {
             const exists = data.users?.some((u: User) => u.username === username)
 
             if (exists) {
-                // 如果存在，递归重新生成
-                generateUsername()
+                // 🔧 修复(2025-12-30): 添加return，避免设置冲突的用户名
+                return generateUsername()
             } else {
                 setCreateUsername(username)
             }
@@ -164,7 +168,8 @@ export default function UserManagementPage() {
     const [editEmail, setEditEmail] = useState('')
     const [editPackage, setEditPackage] = useState('')
     const [editExpiry, setEditExpiry] = useState('')
-    const [editStatus, setEditStatus] = useState(1)
+    // 🔧 修复(2025-12-30): 改为boolean类型匹配API
+    const [editStatus, setEditStatus] = useState(true)
 
     // Reset password dialog
     const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false)
@@ -245,6 +250,10 @@ export default function UserManagementPage() {
             return
         }
 
+        // 🔧 修复(2025-12-30): 防止重复提交
+        if (isSubmitting) return
+        setIsSubmitting(true)
+
         try {
             const res = await fetch('/api/admin/users', {
                 method: 'POST',
@@ -275,11 +284,17 @@ export default function UserManagementPage() {
             setCreateExpiry('')
         } catch (error: any) {
             toast.error(error.message)
+        } finally {
+            setIsSubmitting(false)
         }
     }
 
     const handleEditUser = async () => {
         if (!selectedUser) return
+
+        // 🔧 修复(2025-12-30): 防止重复提交
+        if (isSubmitting) return
+        setIsSubmitting(true)
 
         try {
             const res = await fetch(`/api/admin/users/${selectedUser.id}`, {
@@ -301,25 +316,28 @@ export default function UserManagementPage() {
             fetchUsers(pagination.page)
         } catch (error: any) {
             toast.error(error.message)
+        } finally {
+            setIsSubmitting(false)
         }
     }
 
-    const handleDisableUser = (userId: number, username: string, currentStatus: number) => {
-        const action = currentStatus === 1 ? '禁用' : '启用'
-        const confirmButtonText = currentStatus === 1 ? '禁用用户' : '启用用户'
+    const handleDisableUser = (userId: number, username: string, currentStatus: boolean) => {
+        // 🔧 修复(2025-12-30): 改为boolean判断
+        const action = currentStatus ? '禁用' : '启用'
+        const confirmButtonText = currentStatus ? '禁用用户' : '启用用户'
         setConfirmDialog({
             open: true,
             title: `${action}用户`,
             description: `确定要${action}用户 "${username}" 吗？`,
             confirmText: confirmButtonText,
-            variant: currentStatus === 1 ? 'destructive' : 'default',
+            variant: currentStatus ? 'destructive' : 'default',
             onConfirm: async () => {
                 try {
                     const res = await fetch(`/api/admin/users/${userId}`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            isActive: currentStatus === 1 ? 0 : 1
+                            isActive: !currentStatus
                         })
                     })
 
@@ -336,9 +354,10 @@ export default function UserManagementPage() {
         })
     }
 
-    const handleDeleteUser = (userId: number, username: string, isActive: number) => {
+    const handleDeleteUser = (userId: number, username: string, isActive: boolean) => {
         // 检查用户是否处于启用状态
-        if (isActive === 1) {
+        // 🔧 修复(2025-12-30): 改为boolean判断
+        if (isActive) {
             toast.error('无法删除启用状态的用户，请先禁用该用户')
             return
         }
@@ -670,7 +689,8 @@ export default function UserManagementPage() {
                                                 )}
                                             </TableCell>
                                             <TableCell>
-                                                {user.isActive === 0 ? (
+                                                {/* 🔧 修复(2025-12-30): 改为boolean判断 */}
+                                                {!user.isActive ? (
                                                     <Badge variant="destructive">
                                                         🚫 已禁用
                                                     </Badge>
@@ -737,6 +757,7 @@ export default function UserManagementPage() {
                                                         onClick={() => handleDisableUser(user.id, user.username, user.isActive)}
                                                         title={user.isActive ? '禁用' : '启用'}
                                                     >
+                                                        {/* 🔧 修复(2025-12-30): 改为boolean判断 */}
                                                         {user.isActive ? (
                                                             <XCircle className="w-4 h-4" />
                                                         ) : (
@@ -891,8 +912,10 @@ export default function UserManagementPage() {
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsCreateOpen(false)}>取消</Button>
-                        <Button onClick={handleCreateUser} disabled={!createUsername || !createExpiry}>创建用户</Button>
+                        <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isSubmitting}>取消</Button>
+                        <Button onClick={handleCreateUser} disabled={!createUsername || !createExpiry || isSubmitting}>
+                            {isSubmitting ? '创建中...' : '创建用户'}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -946,20 +969,23 @@ export default function UserManagementPage() {
                         </div>
                         <div className="space-y-2">
                             <Label>账号状态</Label>
-                            <Select value={String(editStatus)} onValueChange={(v) => setEditStatus(Number(v))}>
+                            {/* 🔧 修复(2025-12-30): 改为boolean值 */}
+                            <Select value={String(editStatus)} onValueChange={(v) => setEditStatus(v === 'true')}>
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="1">正常</SelectItem>
-                                    <SelectItem value="0">禁用</SelectItem>
+                                    <SelectItem value="true">正常</SelectItem>
+                                    <SelectItem value="false">禁用</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsEditOpen(false)}>取消</Button>
-                        <Button onClick={handleEditUser}>保存更改</Button>
+                        <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={isSubmitting}>取消</Button>
+                        <Button onClick={handleEditUser} disabled={isSubmitting}>
+                            {isSubmitting ? '保存中...' : '保存更改'}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

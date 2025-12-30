@@ -18,6 +18,7 @@ function getClientIP(request: NextRequest): string {
 
 /**
  * 🔧 修复(2025-12-11): 转换数据库字段名为 camelCase
+ * 🔧 修复(2025-12-30): 统一isActive为boolean类型（兼容PostgreSQL和SQLite）
  * 规范: API响应使用 camelCase，数据库字段使用 snake_case
  */
 function transformUserToApiResponse(user: any) {
@@ -29,7 +30,8 @@ function transformUserToApiResponse(user: any) {
     role: user.role,
     packageType: user.package_type,
     packageExpiresAt: user.package_expires_at,
-    isActive: user.is_active,
+    // PostgreSQL返回boolean，SQLite返回0/1，统一转为boolean
+    isActive: user.is_active === true || user.is_active === 1,
     lastLoginAt: user.last_login_at,
     createdAt: user.created_at,
     lockedUntil: user.locked_until,

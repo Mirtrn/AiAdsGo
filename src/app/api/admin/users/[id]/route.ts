@@ -50,23 +50,20 @@ export async function PATCH(
     }
 
     // Build update query dynamically
-    const updates: string[] = []
-    const values: any[] = []
+    // 🔧 修复(2025-12-30): 使用结构化对象管理字段更新，避免updates和values数组顺序混乱
+    const fieldUpdates: Array<{ sql: string; value: any }> = []
     const changedFields: string[] = []
 
     if (email !== undefined && email !== beforeUser.email) {
-      updates.push('email = ?')
-      values.push(email)
+      fieldUpdates.push({ sql: 'email = ?', value: email })
       changedFields.push('email')
     }
     if (packageType !== undefined && packageType !== beforeUser.package_type) {
-      updates.push('package_type = ?')
-      values.push(packageType)
+      fieldUpdates.push({ sql: 'package_type = ?', value: packageType })
       changedFields.push('package_type')
     }
     if (packageExpiresAt !== undefined && packageExpiresAt !== beforeUser.package_expires_at) {
-      updates.push('package_expires_at = ?')
-      values.push(packageExpiresAt)
+      fieldUpdates.push({ sql: 'package_expires_at = ?', value: packageExpiresAt })
       changedFields.push('package_expires_at')
     }
     if (isActive !== undefined) {
@@ -75,21 +72,22 @@ export async function PATCH(
       const currentIsActive = (beforeUser.is_active as any) === true || (beforeUser.is_active as any) === 1
       const isActiveBoolean = Boolean(isActive)
       if (isActiveBoolean !== currentIsActive) {
-        updates.push('is_active = ?')
         // PostgreSQL接受boolean值，SQLite需要0/1
-        values.push(db.type === 'postgres' ? isActiveBoolean : (isActiveBoolean ? 1 : 0))
+        const valueToSet = db.type === 'postgres' ? isActiveBoolean : (isActiveBoolean ? 1 : 0)
+        fieldUpdates.push({ sql: 'is_active = ?', value: valueToSet })
         changedFields.push('is_active')
       }
     }
 
-    if (updates.length === 0) {
+    if (fieldUpdates.length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
     }
 
-    // 🔧 修复(2025-12-30): PostgreSQL兼容性 - 使用CURRENT_TIMESTAMP替代datetime('now')
-    const timestampFunc = db.type === 'postgres' ? 'CURRENT_TIMESTAMP' : 'datetime(\'now\')'
-    updates.push(`updated_at = ${timestampFunc}`)
-    values.push(userId)
+    // 构建SQL和参数数组
+    const updates = fieldUpdates.map(f => f.sql)
+    updates.push('updated_at = CURRENT_TIMESTAMP')  // 所有数据库都支持CURRENT_TIMESTAMP
+
+    const values = [...fieldUpdates.map(f => f.value), userId]  // WHERE id = ?
 
     // 构建最终 SQL（用于调试）
     const finalSql = `
