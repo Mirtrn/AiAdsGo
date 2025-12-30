@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { getDatabase } from './db'
 import { hashPassword, verifyPassword } from './crypto'
 import { generateToken, JWTPayload, verifyToken } from './jwt'
+import { getInsertedId } from './db-helpers'
 import {
   checkAccountLockout,
   recordFailedLogin,
@@ -179,13 +180,10 @@ export async function createUser(input: CreateUserInput): Promise<User> {
     input.mustChangePassword !== undefined ? input.mustChangePassword : 1
   ])
 
-  // PostgreSQL 返回 { id: xxx } 格式
-  const insertedId = result.lastInsertRowid
-  if (insertedId === undefined) {
-    throw new Error('用户创建失败：无法获取插入的ID')
-  }
+  // 从INSERT结果中提取ID（兼容PostgreSQL和SQLite）
+  const insertedId = getInsertedId(result, db.type)
 
-  const user = await findUserById(insertedId as number)
+  const user = await findUserById(insertedId)
   if (!user) {
     throw new Error('用户创建失败')
   }

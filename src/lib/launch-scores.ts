@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { getInsertedId } from './db-helpers'
 import crypto from 'crypto'
 
 /**
@@ -340,7 +341,8 @@ export async function createLaunchScore(
     options?.campaignConfigHash || null
   ])
 
-  return (await findLaunchScoreById(info.lastInsertRowid as number, userId))!
+  const insertedId = getInsertedId(info, db.type)
+  return (await findLaunchScoreById(insertedId, userId))!
 }
 
 /**

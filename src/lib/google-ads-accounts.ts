@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { getInsertedId, nowFunc, toBool } from './db-helpers'
 
 export interface GoogleAdsAccount {
   id: number
@@ -58,7 +59,8 @@ export async function createGoogleAdsAccount(input: CreateGoogleAdsAccountInput)
     input.tokenExpiresAt || null
   ])
 
-  return (await findGoogleAdsAccountById(result.lastInsertRowid as number, input.userId))!
+  const insertedId = getInsertedId(result, db.type)
+  return (await findGoogleAdsAccountById(insertedId, input.userId))!
 }
 
 /**
@@ -232,7 +234,7 @@ export async function updateGoogleAdsAccount(
     return account
   }
 
-  fields.push("updated_at = datetime('now')")
+  fields.push(`updated_at = ${nowFunc(db.type)}`)
   values.push(id, userId)
 
   await db.exec(`

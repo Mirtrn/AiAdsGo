@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { getInsertedId } from './db-helpers'
 
 export interface Keyword {
   id: number
@@ -63,7 +64,8 @@ export async function createKeyword(input: CreateKeywordInput): Promise<Keyword>
     ]
   )
 
-  return (await findKeywordById(result.lastInsertRowid as number, input.userId))!
+  const insertedId = getInsertedId(result, db.type)
+  return (await findKeywordById(insertedId, input.userId))!
 }
 
 /**

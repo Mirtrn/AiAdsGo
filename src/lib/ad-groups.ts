@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { getInsertedId, nowFunc } from './db-helpers'
 
 export interface AdGroup {
   id: number
@@ -42,7 +43,8 @@ export async function createAdGroup(input: CreateAdGroupInput): Promise<AdGroup>
     input.cpcBidMicros || null
   ])
 
-  return (await findAdGroupById(result.lastInsertRowid as number, input.userId))!
+  const insertedId = getInsertedId(result, db.type)
+  return (await findAdGroupById(insertedId, input.userId))!
 }
 
 /**
@@ -178,7 +180,7 @@ export async function updateAdGroup(
     return adGroup
   }
 
-  fields.push('updated_at = datetime("now")')
+  fields.push(`updated_at = ${nowFunc(db.type)}`)
   values.push(id, userId)
 
   await db.exec(`

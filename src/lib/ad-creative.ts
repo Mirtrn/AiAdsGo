@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { getInsertedId, nowFunc } from './db-helpers'
 
 /**
  * 关键词搜索量数据
@@ -227,7 +228,8 @@ export async function createAdCreative(
     data.bucket_intent || null
   ])
 
-  const creative = await findAdCreativeById(result.lastInsertRowid!, userId)
+  const insertedId = getInsertedId(result, db.type)
+  const creative = await findAdCreativeById(insertedId, userId)
   if (!creative) {
     throw new Error('广告创意创建失败')
   }
@@ -306,7 +308,7 @@ export async function selectAdCreative(id: number, userId: number): Promise<void
   await db.exec(`
     UPDATE ad_creatives
     SET ${isSelectedFalse},
-        updated_at = datetime('now')
+        updated_at = ${nowFunc(db.type)}
     WHERE offer_id = ? AND user_id = ? AND ${isSelectedTrue}
   `, [creative.offer_id, userId])
 
@@ -314,7 +316,7 @@ export async function selectAdCreative(id: number, userId: number): Promise<void
   await db.exec(`
     UPDATE ad_creatives
     SET ${isSelectedTrue},
-        updated_at = datetime('now')
+        updated_at = ${nowFunc(db.type)}
     WHERE id = ? AND user_id = ?
   `, [id, userId])
 }

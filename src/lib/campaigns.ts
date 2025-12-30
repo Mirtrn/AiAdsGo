@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { getInsertedId } from './db-helpers'
 
 export interface Campaign {
   id: number
@@ -62,7 +63,8 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Campai
     input.endDate || null
   ])
 
-  return (await findCampaignById(result.lastInsertRowid as number, input.userId))!
+  const insertedId = getInsertedId(result, db.type)
+  return (await findCampaignById(insertedId, input.userId))!
 }
 
 /**

@@ -3,6 +3,7 @@ import { getServiceAccountConfig } from './google-ads-service-account'
 import { getDatabase } from './db'
 import { getUserAuthType, getGoogleAdsCredentials } from './google-ads-oauth'
 import { executeGAQLQueryPython } from './python-ads-client'
+import { getInsertedId } from './db-helpers'
 
 /**
  * 同步状态
@@ -284,7 +285,7 @@ export class DataSyncService {
             [userId, account.id, syncType, startedAt]
           )
 
-          accountSyncLogId = logResult.lastInsertRowid as number
+          accountSyncLogId = getInsertedId(logResult, db.type)
           syncLogId = accountSyncLogId  // 保留最后一个syncLogId用于整体同步日志
 
           // 查询该账户下的所有Campaigns
