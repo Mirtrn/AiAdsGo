@@ -343,15 +343,22 @@ export default function HourlyDistributionEditor({
             })}
           </svg>
 
-          {/* X轴：小时标签（0-23） */}
-          <div className="flex justify-between mt-2 px-[1%]">
-            {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
-              <div key={hour} className="flex flex-col items-center text-center" style={{ width: `${100/24}%` }}>
-                <span className="text-[10px] text-muted-foreground font-medium">
-                  {hour}
-                </span>
-              </div>
-            ))}
+          {/* X轴：小时标签（0-23）- 🔧 修复(2025-12-30): 使用绝对定位对齐虚线 */}
+          <div className="relative mt-2 h-4">
+            {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
+              const xPercent = (hour / 24) * 100;
+              return (
+                <div
+                  key={hour}
+                  className="absolute -translate-x-1/2"
+                  style={{ left: `${xPercent}%` }}
+                >
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    {hour}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

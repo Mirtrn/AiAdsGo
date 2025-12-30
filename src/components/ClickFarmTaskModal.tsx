@@ -581,7 +581,8 @@ export default function ClickFarmTaskModal({
       const [endHour] = endTime.split(':').map(Number);
       // 非执行时间内应该有0点击
       if (endTime === '24:00') {
-        if (hour < startHour) return true;
+        // 🔧 修复(2025-12-30): 非执行时间应该检查count !== 0,而不是直接返回true
+        if (hour < startHour) return count !== 0;
       } else if (endHour > startHour) {
         // 普通时间段，如 06:00-18:00
         if (hour < startHour || hour >= endHour) return count !== 0;
