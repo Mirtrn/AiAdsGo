@@ -695,249 +695,230 @@ export default function ClickFarmTaskModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Offer Selection - Show dropdown when no preSelectedOfferId */}
-          {!preSelectedOfferId && (
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left Column: Offer Selection + Offer Info Card */}
+          <div className="space-y-4">
+            {/* Offer Selection - Show dropdown when no preSelectedOfferId */}
+            {!preSelectedOfferId && (
+              <div className="space-y-2">
+                <Label htmlFor="offer">选择Offer *</Label>
+                {loadingOffers ? (
+                  <div className="flex items-center justify-center h-10 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    加载中...
+                  </div>
+                ) : (
+                  <Select
+                    id="offer"
+                    value={selectedOfferId?.toString() || ''}
+                    onValueChange={(value) => handleOfferChange(parseInt(value))}
+                    required
+                  >
+                    <SelectContent>
+                      <SelectItem value="" disabled>
+                        请选择Offer
+                      </SelectItem>
+                      {offers.map((offer) => (
+                        <SelectItem key={offer.id} value={offer.id.toString()}>
+                          #{offer.id} - {offer.offerName || offer.brand || offer.name || offer.brand_name} ({offer.targetCountry})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+
+            {/* Offer Info - Show full offer details (displayed after selection or when preSelectedOfferId is provided) */}
             <div className="space-y-2">
-              <Label htmlFor="offer">选择Offer *</Label>
-              {loadingOffers ? (
-                <div className="flex items-center justify-center h-10 text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  加载中...
+              <Label>关联 Offer</Label>
+
+              {/* Offer Info Card */}
+              {selectedOffer ? (
+                <div className="bg-muted/50 rounded-lg p-4">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span>
+                        <span className="text-muted-foreground">Offer ID:</span> #{selectedOffer.id}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge className="h-5 text-xs" variant="outline">
+                        {selectedOffer.offerName || selectedOffer.brand || selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span>
+                        <span className="text-muted-foreground">投放国家:</span> {selectedOffer.targetCountry}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span>
+                        <span className="text-muted-foreground">执行时区:</span> {timezone}
+                      </span>
+                    </div>
+                    {/* Additional row: Alliance Promotion Link (spans full width) */}
+                    <div className="col-span-2 flex items-start gap-2 pt-2 border-t border-muted-foreground/20">
+                      <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-muted-foreground block mb-1">联盟推广链接:</span>
+                        {selectedOffer.affiliateLink ? (
+                          <a
+                            href={selectedOffer.affiliateLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline text-xs break-all flex items-center gap-1"
+                          >
+                            <span className="truncate max-w-[400px]">{selectedOffer.affiliateLink}</span>
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                          </a>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs">
+                            Warning: 未配置联盟链接
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ) : (
+                <div className="text-sm text-muted-foreground italic">
+                  请选择一个 Offer
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Proxy Warning + Core Config + Referer Config */}
+          <div className="space-y-4">
+            {/* Proxy Warning */}
+            {proxyWarning && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <div className="ml-2">
+                  <p className="font-medium">{proxyWarning}</p>
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-xs"
+                    onClick={() => window.open('/settings', '_blank')}
+                  >
+                    前往配置
+                  </Button>
+                </div>
+              </Alert>
+            )}
+
+            {/* Configuration Fields - 2 Column Layout */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Daily Click Count */}
+              <div className="space-y-2">
+                <Label htmlFor="dailyClicks">每日点击数 *</Label>
+                <Input
+                  id="dailyClicks"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={dailyClickCount}
+                  onChange={(e) => {
+                    setDailyClickCount(parseInt(e.target.value) || 0);
+                    setIsDistributionManuallyModified(false); // Reset manual modification flag
+                  }}
+                  placeholder="建议: 216次/天"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  推荐: 216次/天（模拟自然流量）
+                </p>
+              </div>
+
+              {/* Scheduled Start Date */}
+              <div className="space-y-2">
+                <Label htmlFor="scheduledStartDate">开始日期 *</Label>
+                <Input
+                  id="scheduledStartDate"
+                  type="date"
+                  value={scheduledStartDate}
+                  min={new Date().toISOString().split('T')[0]}
+                  onChange={(e) => setScheduledStartDate(e.target.value)}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  默认当天，可选择未来日期
+                </p>
+              </div>
+
+              {/* Time Period */}
+              <div className="space-y-2">
+                <Label htmlFor="timePeriod">时间段 *</Label>
                 <Select
-                  id="offer"
-                  value={selectedOfferId?.toString() || ''}
-                  onValueChange={(value) => handleOfferChange(parseInt(value))}
+                  id="timePeriod"
+                  value={timePeriod}
+                  onValueChange={setTimePeriod}
                   required
                 >
                   <SelectContent>
-                    <SelectItem value="" disabled>
-                      请选择Offer
-                    </SelectItem>
-                    {offers.map((offer) => (
-                      <SelectItem key={offer.id} value={offer.id.toString()}>
-                        #{offer.id} - {offer.offerName || offer.brand || offer.name || offer.brand_name} ({offer.targetCountry})
+                    {TIME_PERIODS.map((period) => (
+                      <SelectItem key={period.value} value={period.value}>
+                        {period.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              )}
-            </div>
-          )}
-
-          {/* Offer Info - Show full offer details (displayed after selection or when preSelectedOfferId is provided) */}
-          <div className="space-y-2">
-            <Label>关联 Offer</Label>
-
-            {/* Offer Info Card */}
-            {selectedOffer ? (
-              <div className="bg-muted/50 rounded-lg p-4">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span>
-                      <span className="text-muted-foreground">Offer ID:</span> #{selectedOffer.id}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="h-5 text-xs" variant="outline">
-                      {selectedOffer.offerName || selectedOffer.brand || selectedOffer.name || selectedOffer.brand_name || `Offer #${selectedOffer.id}`}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span>
-                      <span className="text-muted-foreground">投放国家:</span> {selectedOffer.targetCountry}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span>
-                      <span className="text-muted-foreground">执行时区:</span> {timezone}
-                    </span>
-                  </div>
-                  {/* 🔧 新增：联盟推广链接（占据整行） */}
-                  <div className="col-span-2 flex items-start gap-2 pt-2 border-t border-muted-foreground/20">
-                    <Link className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-muted-foreground block mb-1">联盟推广链接:</span>
-                      {selectedOffer.affiliateLink ? (
-                        <a
-                          href={selectedOffer.affiliateLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline text-xs break-all flex items-center gap-1"
-                        >
-                          <span className="truncate max-w-[400px]">{selectedOffer.affiliateLink}</span>
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                        </a>
-                      ) : (
-                        <Badge variant="destructive" className="text-xs">
-                          ⚠️ 未配置联盟链接
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
               </div>
-            ) : (
-              <div className="text-sm text-muted-foreground italic">
-                请选择一个 Offer
-              </div>
-            )}
-          </div>
 
-          {/* Proxy Warning */}
-          {proxyWarning && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <div className="ml-2">
-                <p className="font-medium">{proxyWarning}</p>
-                <Button
-                  type="button"
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-xs"
-                  onClick={() => window.open('/settings', '_blank')}
-                >
-                  前往配置 →
-                </Button>
-              </div>
-            </Alert>
-          )}
-
-          {/* Configuration Fields - 2 Column Layout */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* Daily Click Count */}
-            <div className="space-y-2">
-              <Label htmlFor="dailyClicks">每日点击数 *</Label>
-              <Input
-                id="dailyClicks"
-                type="number"
-                min={1}
-                max={1000}
-                value={dailyClickCount}
-                onChange={(e) => {
-                  setDailyClickCount(parseInt(e.target.value) || 0);
-                  setIsDistributionManuallyModified(false); // 重置手动修改标志
-                }}
-                placeholder="建议: 216次/天"
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                推荐: 216次/天（模拟自然流量）
-              </p>
-            </div>
-
-            {/* Scheduled Start Date */}
-            <div className="space-y-2">
-              <Label htmlFor="scheduledStartDate">开始日期 *</Label>
-              <Input
-                id="scheduledStartDate"
-                type="date"
-                value={scheduledStartDate}
-                min={new Date().toISOString().split('T')[0]}
-                onChange={(e) => setScheduledStartDate(e.target.value)}
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                默认当天，可选择未来日期
-              </p>
-            </div>
-
-            {/* Time Period */}
-            <div className="space-y-2">
-              <Label htmlFor="timePeriod">时间段 *</Label>
-              <Select
-                id="timePeriod"
-                value={timePeriod}
-                onValueChange={setTimePeriod}
-                required
-              >
-                <SelectContent>
-                  {TIME_PERIODS.map((period) => (
-                    <SelectItem key={period.value} value={period.value}>
-                      {period.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Duration */}
-            <div className="space-y-2">
-              <Label htmlFor="duration">持续时长 *</Label>
-              <Select
-                id="duration"
-                value={durationDays.toString()}
-                onValueChange={(value) => setDurationDays(parseInt(value))}
-                required
-              >
-                <SelectContent>
-                  {DURATION_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value.toString()}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* 🆕 Referer配置 - 防爬优化 */}
-          <div className="space-y-3 pt-2 border-t">
-            <Label className="flex items-center gap-2">
-              <Globe className="h-4 w-4" />
-              Referer来源配置
-              <Badge variant="secondary" className="text-xs">防爬优化</Badge>
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              配置访问时的Referer头，模拟真实用户来源，防止被反爬机制识别
-            </p>
-
-            <div className="grid grid-cols-2 gap-4">
-              {/* Referer类型选择 */}
+              {/* Duration */}
               <div className="space-y-2">
-                <Label htmlFor="refererType">Referer类型</Label>
+                <Label htmlFor="duration">持续时长 *</Label>
                 <Select
-                  id="refererType"
-                  value={refererConfig.type}
-                  onValueChange={(value) => {
-                    setRefererConfig(prev => ({
-                      ...prev,
-                      type: value as 'none' | 'random' | 'specific',
-                      referer: value === 'specific' ? prev.referer : undefined
-                    }));
-                  }}
+                  id="duration"
+                  value={durationDays.toString()}
+                  onValueChange={(value) => setDurationDays(parseInt(value))}
+                  required
                 >
                   <SelectContent>
-                    {REFERER_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
+                    {DURATION_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value.toString()}>
                         {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  {REFERER_OPTIONS.find(o => o.value === refererConfig.type)?.description}
-                </p>
               </div>
+            </div>
 
-              {/* 特定Referer选择（仅当类型为specific时显示） */}
-              {refererConfig.type === 'specific' ? (
+            {/* Referer配置 - Anti-crawler Optimization */}
+            <div className="space-y-3 pt-2 border-t">
+              <Label className="flex items-center gap-2">
+                <Globe className="h-4 w-4" />
+                Referer来源配置
+                <Badge variant="secondary" className="text-xs">防爬优化</Badge>
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                配置访问时的Referer头，模拟真实用户来源，防止被反爬机制识别
+              </p>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Referer类型选择 */}
                 <div className="space-y-2">
-                  <Label htmlFor="specificReferer">选择Referer</Label>
+                  <Label htmlFor="refererType">Referer类型</Label>
                   <Select
-                    id="specificReferer"
-                    value={refererConfig.referer || ''}
+                    id="refererType"
+                    value={refererConfig.type}
                     onValueChange={(value) => {
-                      setRefererConfig(prev => ({ ...prev, referer: value }));
+                      setRefererConfig(prev => ({
+                        ...prev,
+                        type: value as 'none' | 'random' | 'specific',
+                        referer: value === 'specific' ? prev.referer : undefined
+                      }));
                     }}
                   >
                     <SelectContent>
-                      {SOCIAL_MEDIA_REFERRERS.map((option) => (
+                      {REFERER_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
                         </SelectItem>
@@ -945,121 +926,152 @@ export default function ClickFarmTaskModal({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    选择固定的社交媒体来源作为Referer
+                    {REFERER_OPTIONS.find(o => o.value === refererConfig.type)?.description}
                   </p>
                 </div>
-              ) : (
-                <div className="flex items-center text-sm text-muted-foreground">
-                  {refererConfig.type === 'none' ? '不设置Referer头' : `随机从${SOCIAL_MEDIA_REFERRERS.length}个社交媒体中选择`}
-                </div>
-              )}
+
+                {/* 特定Referer选择（仅当类型为specific时显示） */}
+                {refererConfig.type === 'specific' ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="specificReferer">选择Referer</Label>
+                    <Select
+                      id="specificReferer"
+                      value={refererConfig.referer || ''}
+                      onValueChange={(value) => {
+                        setRefererConfig(prev => ({ ...prev, referer: value }));
+                      }}
+                    >
+                      <SelectContent>
+                        {SOCIAL_MEDIA_REFERRERS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      选择固定的社交媒体来源作为Referer
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center text-sm text-muted-foreground">
+                    {refererConfig.type === 'none' ? '不设置Referer头' : `随机从${SOCIAL_MEDIA_REFERRERS.length}个社交媒体中选择`}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Distribution Preview - Enhanced Editor */}
-          {distribution.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4" />
-                  时间分布曲线
-                </Label>
-                <div className="flex items-center gap-2">
-                  {isEditingDistribution && (
-                    <>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={handleBalanceDistribution}
-                        className="h-8 text-xs"
-                      >
-                        <TrendingUp className="h-3 w-3 mr-1" />
-                        均衡分布
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={resetDistribution}
-                        className="h-8 text-xs"
-                      >
-                        <RotateCcw className="h-3 w-3 mr-1" />
-                        重置
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={isEditingDistribution ? "default" : "outline"}
-                    onClick={toggleEditMode}
-                    className="h-8"
-                  >
-                    {isEditingDistribution ? '完成编辑' : '自定义编辑'}
-                  </Button>
+          {/* Bottom: Time Distribution Curve (spans both columns) */}
+          <div className="col-span-1 lg:col-span-2">
+            {/* Distribution Preview - Enhanced Editor */}
+            {distribution.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    时间分布曲线
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    {isEditingDistribution && (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={handleBalanceDistribution}
+                          className="h-8 text-xs"
+                        >
+                          <TrendingUp className="h-3 w-3 mr-1" />
+                          均衡分布
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={resetDistribution}
+                          className="h-8 text-xs"
+                        >
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          重置
+                        </Button>
+                      </>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={isEditingDistribution ? "default" : "outline"}
+                      onClick={toggleEditMode}
+                      className="h-8"
+                    >
+                      {isEditingDistribution ? '完成编辑' : '自定义编辑'}
+                    </Button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Enhanced Distribution Editor */}
-              <HourlyDistributionEditor
-                distribution={distribution}
-                dailyClickCount={dailyClickCount}
-                timePeriod={timePeriod}
-                isEditing={isEditingDistribution}
-                onChange={(hour, value) => {
-                  if (!isEditingDistribution) return;
-                  const newDistribution = [...distribution];
-                  newDistribution[hour] = Math.max(0, value);
+                {/* Enhanced Distribution Editor */}
+                <HourlyDistributionEditor
+                  distribution={distribution}
+                  dailyClickCount={dailyClickCount}
+                  timePeriod={timePeriod}
+                  isEditing={isEditingDistribution}
+                  onChange={(hour, value) => {
+                    if (!isEditingDistribution) return;
+                    const newDistribution = [...distribution];
+                    newDistribution[hour] = Math.max(0, value);
 
-                  // 保持总数不变，智能重新分配差值
-                  const currentTotal = newDistribution.reduce((sum, n) => sum + n, 0);
-                  const diff = dailyClickCount - currentTotal;
+                    // 保持总数不变，智能重新分配差值
+                    const currentTotal = newDistribution.reduce((sum, n) => sum + n, 0);
+                    const diff = dailyClickCount - currentTotal;
 
-                  if (diff !== 0) {
-                    // 将差值按比例分配给其他小时
-                    const otherHours = newDistribution
-                      .map((val, idx) => ({ idx, val }))
-                      .filter(({ idx }) => idx !== hour && newDistribution[idx] > 0);
+                    if (diff !== 0) {
+                      // 将差值按比例分配给其他小时
+                      const otherHours = newDistribution
+                        .map((val, idx) => ({ idx, val }))
+                        .filter(({ idx }) => idx !== hour && newDistribution[idx] > 0);
 
-                    if (otherHours.length > 0) {
-                      const totalOthers = otherHours.reduce((sum, { val }) => sum + val, 0);
+                      if (otherHours.length > 0) {
+                        const totalOthers = otherHours.reduce((sum, { val }) => sum + val, 0);
 
-                      for (const { idx } of otherHours) {
-                        const ratio = totalOthers > 0 ? newDistribution[idx] / totalOthers : 1 / otherHours.length;
-                        newDistribution[idx] = Math.max(0, Math.round(newDistribution[idx] + diff * ratio));
+                        for (const { idx } of otherHours) {
+                          const ratio = totalOthers > 0 ? newDistribution[idx] / totalOthers : 1 / otherHours.length;
+                          newDistribution[idx] = Math.max(0, Math.round(newDistribution[idx] + diff * ratio));
+                        }
+                      }
+
+                      // 最终微调确保总数精确
+                      const finalTotal = newDistribution.reduce((sum, n) => sum + n, 0);
+                      const finalDiff = dailyClickCount - finalTotal;
+                      if (finalDiff !== 0) {
+                        const maxIdx = newDistribution.indexOf(Math.max(...newDistribution));
+                        newDistribution[maxIdx] = Math.max(0, newDistribution[maxIdx] + finalDiff);
                       }
                     }
 
-                    // 最终微调确保总数精确
-                    const finalTotal = newDistribution.reduce((sum, n) => sum + n, 0);
-                    const finalDiff = dailyClickCount - finalTotal;
-                    if (finalDiff !== 0) {
-                      const maxIdx = newDistribution.indexOf(Math.max(...newDistribution));
-                      newDistribution[maxIdx] = Math.max(0, newDistribution[maxIdx] + finalDiff);
-                    }
-                  }
+                    setDistribution(newDistribution);
+                  }}
+                />
+              </div>
+            )}
 
-                  setDistribution(newDistribution);
-                }}
-              />
+            {/* DialogFooter inside form */}
+            <div className="pt-4 border-t">
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  disabled={loading}
+                >
+                  取消
+                </Button>
+                <Button type="submit" disabled={loading || !!proxyWarning}>
+                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {isEditMode ? '更新任务' : '创建任务'}
+                </Button>
+              </DialogFooter>
             </div>
-          )}
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={loading}
-            >
-              取消
-            </Button>
-            <Button type="submit" disabled={loading || !!proxyWarning}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isEditMode ? '更新任务' : '创建任务'}
-            </Button>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
