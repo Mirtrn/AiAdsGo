@@ -42,10 +42,13 @@ export async function GET(request: NextRequest) {
     const isSelectedTrue = db.type === 'postgres' ? 'is_selected = true' : 'is_selected = 1'
     const isSelectedFalse = db.type === 'postgres' ? 'is_selected = false' : 'is_selected = 0'
 
+    // DATE() 函数兼容性：PostgreSQL的created_at是TEXT类型，需要转换
+    const dateFunc = db.type === 'postgres' ? 'created_at::date' : 'DATE(created_at)'
+
     // 3. 查询每日新增创意数量趋势
     let dailyCreativesQuery = `
       SELECT
-        DATE(created_at) as date,
+        ${dateFunc} as date,
         COUNT(*) as newCreatives,
         AVG(COALESCE(score, 0)) as avgScore,
         SUM(CASE WHEN score >= 80 THEN 1 ELSE 0 END) as highQuality,
@@ -53,8 +56,8 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN score < 60 OR score IS NULL THEN 1 ELSE 0 END) as lowQuality
       FROM ad_creatives
       WHERE user_id = ?
-        AND DATE(created_at) >= ?
-        AND DATE(created_at) <= ?
+        AND ${dateFunc} >= ?
+        AND ${dateFunc} <= ?
     `
     const params: any[] = [userId, startDateStr, endDateStr]
 
@@ -64,7 +67,7 @@ export async function GET(request: NextRequest) {
     }
 
     dailyCreativesQuery += `
-      GROUP BY DATE(created_at)
+      GROUP BY ${dateFunc}
       ORDER BY date ASC
     `
 
