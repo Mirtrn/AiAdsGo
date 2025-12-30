@@ -155,10 +155,16 @@ const SETTING_METADATA: Record<string, {
   },
   // AI - Gemini API配置
   'ai.gemini_api_key': {
-    label: 'Gemini API密钥',
-    description: 'Gemini API模式：Google Gemini API密钥，用于AI创意生成',
-    placeholder: '输入您的Gemini API密钥',
-    // helpLink将根据gemini_provider动态设置，不在这里硬编码
+    label: 'Gemini 官方 API Key',
+    description: 'Google Gemini 官方 API 密钥，用于 AI 创意生成',
+    placeholder: '输入官方 API Key',
+    helpLink: 'https://aistudio.google.com/app/api-keys'
+  },
+  'ai.gemini_relay_api_key': {
+    label: '第三方中转 API Key',
+    description: '第三方中转服务 API 密钥，适合国内用户访问',
+    placeholder: '输入中转服务 API Key',
+    helpLink: 'https://cc.thunderrelay.com/user-register?ref=4K5GVEY2'
   },
   'ai.gemini_model': {
     label: 'Gemini模型（Pro级别）',
@@ -292,6 +298,7 @@ const CATEGORY_FIELDS: Record<string, {
     { key: 'gemini_provider', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gemini_endpoint', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false },
+    { key: 'gemini_relay_api_key', dataType: 'string', isSensitive: true, isRequired: false },
     { key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gcp_project_id', dataType: 'string', isSensitive: false, isRequired: false },
     { key: 'gcp_location', dataType: 'string', isSensitive: false, isRequired: false },
@@ -737,11 +744,21 @@ export default function SettingsPage() {
             return
           }
 
-          const geminiApiKey = formData.ai?.['gemini_api_key']
-          if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
-            toast.error('使用Gemini API模式时，必须填写Gemini API密钥')
-            setSaving(false)
-            return
+          // 根据服务商验证对应的 API Key
+          if (geminiProvider === 'official') {
+            const geminiApiKey = formData.ai?.['gemini_api_key']
+            if (!geminiApiKey || geminiApiKey.trim() === '' || geminiApiKey === '············') {
+              toast.error('使用 Gemini 官方服务商时，必须填写官方 API Key')
+              setSaving(false)
+              return
+            }
+          } else if (geminiProvider === 'relay') {
+            const geminiRelayApiKey = formData.ai?.['gemini_relay_api_key']
+            if (!geminiRelayApiKey || geminiRelayApiKey.trim() === '' || geminiRelayApiKey === '············') {
+              toast.error('使用第三方中转服务商时，必须填写中转 API Key')
+              setSaving(false)
+              return
+            }
           }
         }
 
@@ -1819,24 +1836,19 @@ export default function SettingsPage() {
                           const useVertexAI = formData.ai?.use_vertex_ai === 'true'
                           // AI模式始终必填
                           if (setting.key === 'use_vertex_ai') return true
-                          // Gemini API模式：gemini_provider 和 gemini_api_key 必填
-                          if (!useVertexAI && ['gemini_provider', 'gemini_api_key'].includes(setting.key)) return true
+                          // Gemini API模式：根据服务商选择必填字段
+                          if (!useVertexAI && setting.key === 'gemini_provider') return true
+                          // 官方服务商必填 gemini_api_key，中转服务商必填 gemini_relay_api_key
+                          if (!useVertexAI) {
+                            const provider = formData.ai?.gemini_provider || 'official'
+                            if (provider === 'official' && setting.key === 'gemini_api_key') return true
+                            if (provider === 'relay' && setting.key === 'gemini_relay_api_key') return true
+                          }
                           // Vertex AI模式：gcp_location, gcp_project_id, gcp_service_account_json必填
                           if (useVertexAI && ['gcp_location', 'gcp_project_id', 'gcp_service_account_json'].includes(setting.key)) return true
                         }
                         return setting.isRequired
                       })()
-
-                      // 🆕 动态 helpLink：根据 gemini_provider 设置 gemini_api_key 的获取链接
-                      let dynamicHelpLink = metadata?.helpLink
-                      if (category === 'ai' && setting.key === 'gemini_api_key') {
-                        const provider = formData.ai?.gemini_provider || 'official'
-                        if (provider === 'official') {
-                          dynamicHelpLink = 'https://aistudio.google.com/app/api-keys'
-                        } else if (provider === 'relay') {
-                          dynamicHelpLink = 'https://cc.thunderrelay.com/user-register?ref=4K5GVEY2'
-                        }
-                      }
 
                       return (
                         <div key={setting.key} className="space-y-2">
@@ -1850,9 +1862,9 @@ export default function SettingsPage() {
                                 <span>{getValidationIcon(setting.validationStatus)}</span>
                               )}
                             </Label>
-                            {dynamicHelpLink && (
+                            {metadata?.helpLink && (
                               <a
-                                href={dynamicHelpLink}
+                                href={metadata.helpLink}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-caption text-indigo-600 hover:text-indigo-700 flex items-center gap-1"

@@ -65,6 +65,35 @@ export interface GeminiAxiosGenerateResult {
 }
 
 /**
+ * 根据用户配置获取对应的 Gemini API Key
+ *
+ * @param userId - 用户ID
+ * @param provider - 服务商类型
+ * @returns API Key
+ */
+async function getGeminiApiKey(userId: number, provider: GeminiProvider): Promise<string> {
+  const db = await getDatabase()
+
+  // 根据服务商选择对应的字段
+  const keyField = provider === 'relay' ? 'gemini_relay_api_key' : 'gemini_api_key'
+
+  const setting = await db.queryOne(`
+    SELECT value
+    FROM system_settings
+    WHERE user_id = ? AND category = 'ai' AND key = ?
+  `, [userId, keyField]) as { value?: string } | undefined
+
+  if (!setting?.value) {
+    throw new Error(
+      `用户(ID=${userId})未配置 ${GEMINI_PROVIDERS[provider].name} 的 API 密钥。` +
+      `请在设置页面配置。`
+    )
+  }
+
+  return setting.value
+}
+
+/**
  * 根据用户配置获取 Gemini 端点
  *
  * @param userId - 用户ID
@@ -79,6 +108,16 @@ async function getGeminiEndpoint(userId: number): Promise<string> {
   `, [userId]) as { gemini_provider?: GeminiProvider } | undefined
 
   const provider = settings?.gemini_provider as GeminiProvider || 'official'
+  return getEndpointByProvider(provider)
+}
+
+/**
+ * 根据服务商类型获取端点 URL（纯函数）
+ */
+export function getEndpointByProvider(provider: GeminiProvider): string {
+  if (provider === 'vertex') {
+    return 'vertex'
+  }
   return GEMINI_PROVIDERS[provider].endpoint
 }
 
@@ -94,7 +133,15 @@ async function getGeminiEndpoint(userId: number): Promise<string> {
  * - 原因：平衡可靠性与响应时间
  */
 export async function createGeminiAxiosClient(userId: number): Promise<AxiosInstance> {
-  const endpoint = await getGeminiEndpoint(userId)
+  const db = await getDatabase()
+  const settings = await db.queryOne(`
+    SELECT value as gemini_provider
+    FROM system_settings
+    WHERE user_id = ? AND category = 'ai' AND key = 'gemini_provider'
+  `, [userId]) as { gemini_provider?: GeminiProvider } | undefined
+
+  const provider = (settings?.gemini_provider || 'official') as GeminiProvider
+  const endpoint = getEndpointByProvider(provider)
 
   if (endpoint === 'vertex') {
     // Vertex AI 使用专用客户端
@@ -108,6 +155,20 @@ export async function createGeminiAxiosClient(userId: number): Promise<AxiosInst
       'Content-Type': 'application/json',
     },
   })
+}
+
+/**
+ * 获取用户配置的服务商类型
+ */
+async function getGeminiProvider(userId: number): Promise<GeminiProvider> {
+  const db = await getDatabase()
+  const settings = await db.queryOne(`
+    SELECT value
+    FROM system_settings
+    WHERE user_id = ? AND category = 'ai' AND key = 'gemini_provider'
+  `, [userId]) as { value?: string } | undefined
+
+  return (settings?.value as GeminiProvider) || 'official'
 }
 
 /**
@@ -143,12 +204,10 @@ export async function generateContent(params: {
     responseMimeType,  // 🆕 Token优化：MIME类型
   } = params
 
-  // 从用户配置获取API密钥（不使用全局配置）
-  const apiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userId)
-  const apiKey = apiKeySetting?.value
-  if (!apiKey) {
-    throw new Error(`用户(ID=${userId})未配置 Gemini API 密钥。请在设置页面配置您自己的 API 密钥。`)
-  }
+  // 根据用户配置获取服务商类型和对应的 API Key
+  const provider = await getGeminiProvider(userId)
+  const apiKey = await getGeminiApiKey(userId, provider)
+  console.log(`🌐 使用 ${GEMINI_PROVIDERS[provider].name} 服务商`)
 
   // 创建 axios 客户端（直连，不使用代理）
   const client = await createGeminiAxiosClient(userId)

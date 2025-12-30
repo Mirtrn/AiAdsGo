@@ -387,9 +387,9 @@ async function insertDefaultSystemSettings(): Promise<void> {
     { category: 'google_ads', key: 'client_secret', dataType: 'string', isSensitive: true, isRequired: false, description: 'Google Ads API Client Secret（可选）' },
     { category: 'google_ads', key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: false, description: 'Google Ads Developer Token（可选）' },
 
-    // AI配置 - Gemini直接API模式
-    { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: 'Gemini API密钥（直接API模式）' },
-    { category: 'ai', key: 'gemini_model', dataType: 'string', isSensitive: false, isRequired: true, description: 'Gemini模型版本', defaultValue: 'gemini-2.5-pro' },
+    // AI配置 - Gemini API模式（支持多服务商）
+    { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: 'Gemini 官方 API Key' },
+    { category: 'ai', key: 'gemini_relay_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: '第三方中转服务 API Key' },
 
     // AI配置 - Vertex AI模式（优先使用）
     { category: 'ai', key: 'use_vertex_ai', dataType: 'boolean', isSensitive: false, isRequired: false, description: '是否使用Vertex AI', defaultValue: 'false' },
