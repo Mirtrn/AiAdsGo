@@ -85,13 +85,27 @@ export async function PATCH(
     updates.push('updated_at = datetime(\'now\')')
     values.push(userId)
 
-    const result = await db.exec(`
+    // 构建最终 SQL（用于调试）
+    const finalSql = `
       UPDATE users
       SET ${updates.join(', ')}
       WHERE id = ?
-    `, values)
+    `
+
+    // 🔧 调试日志
+    console.log('🔍 [Admin] 更新用户 SQL:', {
+      sql: finalSql.trim(),
+      params: values,
+      updates: updates
+    })
+
+    const result = await db.exec(finalSql, values)
+
+    // 🔧 调试日志
+    console.log('🔍 [Admin] 更新结果:', result)
 
     if (result.changes === 0) {
+      console.error('❌ [Admin] 更新用户失败:', { userId, finalSql, values })
       return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
     }
 
