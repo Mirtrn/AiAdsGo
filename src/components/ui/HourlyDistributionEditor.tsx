@@ -250,14 +250,31 @@ export default function HourlyDistributionEditor({
               );
             })}
 
-            {/* 数据点 - 显示所有小时的点，但只有活跃时段可拖拽 */}
+            {/* 数据点 - 默认隐藏，只在编辑模式或悬停时显示 */}
             {chartPoints.map((point) => {
               const isHovered = hoveredHour === point.hour;
               const isDragged = draggedHour === point.hour;
               const showLabel = isHovered || isDragged;
+              // 只在编辑模式或悬停时显示数据点
+              const showPoint = isEditing || isHovered || isDragged;
 
               return (
                 <g key={point.hour}>
+                  {/* 透明悬停区域 - 始终存在以便触发悬停效果 */}
+                  <circle
+                    cx={point.xPercent}
+                    cy={point.yPercent}
+                    r="3"
+                    fill="transparent"
+                    className={`${point.isActive && isEditing ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+                    style={{ touchAction: 'none' }}
+                    onPointerDown={(e) => point.isActive && handlePointerDown(point.hour, e)}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerEnter={() => setHoveredHour(point.hour)}
+                    onPointerLeave={() => setHoveredHour(null)}
+                  />
+
                   {/* 数值标签 */}
                   {showLabel && (
                     <g>
@@ -282,28 +299,24 @@ export default function HourlyDistributionEditor({
                     </g>
                   )}
 
-                  {/* 数据点圆圈 - 所有点都显示，但休息时段不可交互 */}
-                  <circle
-                    cx={point.xPercent}
-                    cy={point.yPercent}
-                    r={isDragged ? 2.5 : isHovered ? 2 : 1.5}
-                    fill={
-                      isDragged
-                        ? 'rgb(249, 115, 22)'
-                        : point.isActive
-                        ? (isEditing ? 'rgb(34, 197, 94)' : 'rgb(59, 130, 246)')
-                        : 'rgb(156, 163, 175)'
-                    }
-                    stroke="white"
-                    strokeWidth="1"
-                    className={`${point.isActive && isEditing ? 'cursor-grab active:cursor-grabbing' : ''} transition-all duration-150`}
-                    style={{ touchAction: 'none' }}
-                    onPointerDown={(e) => point.isActive && handlePointerDown(point.hour, e)}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onPointerEnter={() => setHoveredHour(point.hour)}
-                    onPointerLeave={() => setHoveredHour(null)}
-                  />
+                  {/* 数据点圆圈 - 只在需要时显示 */}
+                  {showPoint && (
+                    <circle
+                      cx={point.xPercent}
+                      cy={point.yPercent}
+                      r={isDragged ? 2.5 : isHovered ? 2 : 1.5}
+                      fill={
+                        isDragged
+                          ? 'rgb(249, 115, 22)'
+                          : point.isActive
+                          ? (isEditing ? 'rgb(34, 197, 94)' : 'rgb(59, 130, 246)')
+                          : 'rgb(156, 163, 175)'
+                      }
+                      stroke="white"
+                      strokeWidth="1"
+                      className="transition-all duration-150 pointer-events-none"
+                    />
+                  )}
 
                   {/* 拖拽时的垂直辅助线 */}
                   {isDragged && (
