@@ -481,10 +481,10 @@ async def create_campaign(request: CreateCampaignRequest):
         # 🎯 恢复转化目标配置 (2025-12-28)
         # 根据 Google Ads API 官方文档：
         # 1. goal_config_settings 用于指定营销目标级别和具体目标类型
-        # 2. url_expansion_opt_out = False 启用URL扩展，优化网站流量
+        # 2. final_url_expansion_opt_out = False 启用URL扩展，优化网站流量
         # 3. goal = WEBSITE_TRAFFIC 对应 UI 中的"网站流量"目标
         # 参考：https://developers.google.com/google-ads/api/reference/rpc/v21/Campaign
-        campaign.url_expansion_opt_out = False
+        campaign.final_url_expansion_opt_out = False
         campaign.goal_config_settings.goal_config_level = client.enums.GoalConfigLevelEnum.CAMPAIGN
         campaign.goal_config_settings.goal = client.enums.GoalTypeEnum.WEBSITE_TRAFFIC
 
