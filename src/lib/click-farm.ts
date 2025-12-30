@@ -628,6 +628,16 @@ function calculateMatchRate(actual: number[], configured: number[]): number {
  * 解析数据库任务对象
  */
 function parseClickFarmTask(row: any): ClickFarmTaskListItem {
+  // 🔧 修复(2025-12-31): 安全解析 referer_config，空字符串会导致 JSON.parse 失败
+  let refererConfig: { type: string; referer?: string } | null = null;
+  if (row.referer_config && typeof row.referer_config === 'string' && row.referer_config.trim() && row.referer_config !== 'null') {
+    try {
+      refererConfig = JSON.parse(row.referer_config);
+    } catch (e) {
+      console.warn('[parseClickFarmTask] 解析 referer_config 失败:', row.referer_config);
+    }
+  }
+
   const task = {
     id: row.id,
     user_id: row.user_id,
@@ -648,7 +658,7 @@ function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     failed_clicks: row.failed_clicks,
     daily_history: JSON.parse(row.daily_history || '[]'),
     timezone: row.timezone,
-    referer_config: row.referer_config ? JSON.parse(row.referer_config) : null,
+    referer_config: refererConfig,
     is_deleted: Boolean(row.is_deleted),
     deleted_at: row.deleted_at,
     started_at: row.started_at,

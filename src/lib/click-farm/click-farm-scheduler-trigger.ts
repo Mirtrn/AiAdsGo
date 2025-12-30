@@ -127,7 +127,9 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   // 🆕 获取任务的Referer配置
   let refererConfig: { type: 'none' | 'random' | 'specific'; referer?: string } | undefined;
   try {
-    if (task.referer_config) {
+    // 🔧 修复(2025-12-31): 空字符串是truthy，需要同时检查非空和有效JSON
+    // 修复 "Unexpected end of JSON input" 错误
+    if (task.referer_config && task.referer_config.trim() && task.referer_config !== 'null') {
       refererConfig = typeof task.referer_config === 'string'
         ? JSON.parse(task.referer_config)
         : task.referer_config;
@@ -257,7 +259,8 @@ export async function triggerAllPendingTasks(): Promise<{
     // 🆕 获取任务的Referer配置
     let refererConfig: { type: 'none' | 'random' | 'specific'; referer?: string } | undefined;
     try {
-      if (typedTask.referer_config) {
+      // 🔧 修复(2025-12-31): 空字符串是truthy，需要同时检查非空和有效JSON
+      if (typedTask.referer_config && typedTask.referer_config.trim() && typedTask.referer_config !== 'null') {
         refererConfig = typeof typedTask.referer_config === 'string'
           ? JSON.parse(typedTask.referer_config)
           : typedTask.referer_config;

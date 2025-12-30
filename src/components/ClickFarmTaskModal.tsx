@@ -121,7 +121,8 @@ export default function ClickFarmTaskModal({
       setDistribution(task.hourly_distribution);
       setTimezone(task.timezone);  // 🆕 加载timezone
       // 🆕 加载Referer配置
-      if (task.referer_config) {
+      // 🔧 修复(2025-12-31): 空字符串是truthy，需要同时检查非空
+      if (task.referer_config && task.referer_config.trim() && task.referer_config !== 'null') {
         const refererCfg = typeof task.referer_config === 'string'
           ? JSON.parse(task.referer_config)
           : task.referer_config;
