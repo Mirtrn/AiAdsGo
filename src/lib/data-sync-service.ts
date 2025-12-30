@@ -248,9 +248,10 @@ export class DataSyncService {
       const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
 
       // 1. 获取用户的所有Google Ads账户
+      // 🔧 修复(2025-12-30): 添加currency字段以支持多货币账户
       const accounts = await db.query(
         `
-        SELECT id, customer_id, refresh_token, user_id, service_account_id
+        SELECT id, customer_id, refresh_token, user_id, service_account_id, currency
         FROM google_ads_accounts
         WHERE user_id = ? AND ${isActiveCondition}
       `,
@@ -261,6 +262,7 @@ export class DataSyncService {
         refresh_token: string
         user_id: number
         service_account_id: string | null
+        currency: string | null
       }>
 
       if (accounts.length === 0) {
@@ -377,13 +379,17 @@ export class DataSyncService {
               const cpa =
                 record.conversions > 0 ? record.cost / record.conversions : 0
 
+              // 🔧 修复(2025-12-30): 支持多货币账户
+              // Google Ads API返回的cost_micros是账户货币的微单位，需要保存原始货币信息
+              const accountCurrency = account.currency || 'USD'
+
               await db.exec(
                 `
                 INSERT INTO campaign_performance (
                   user_id, campaign_id, date,
                   impressions, clicks, conversions, cost,
-                  ctr, cpc, cpa, conversion_rate
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  ctr, cpc, cpa, conversion_rate, currency
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(campaign_id, date) DO UPDATE SET
                   impressions = excluded.impressions,
                   clicks = excluded.clicks,
@@ -392,7 +398,8 @@ export class DataSyncService {
                   ctr = excluded.ctr,
                   cpc = excluded.cpc,
                   cpa = excluded.cpa,
-                  conversion_rate = excluded.conversion_rate
+                  conversion_rate = excluded.conversion_rate,
+                  currency = excluded.currency
               `,
                 [
                   userId,
@@ -406,6 +413,7 @@ export class DataSyncService {
                   record.cpc,
                   cpa,
                   record.conversion_rate,
+                  accountCurrency,
                 ]
               )
               accountRecordCount++

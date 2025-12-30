@@ -5,6 +5,7 @@ import { apiCache, generateCacheKey } from '@/lib/api-cache'
 
 /**
  * KPI数据响应
+ * 🔧 修复(2025-12-30): 添加货币信息支持多货币账户
  */
 interface KPIData {
   current: {
@@ -15,6 +16,8 @@ interface KPIData {
     ctr: number
     cpc: number
     conversionRate: number
+    currency?: string // 单一货币时的货币代码
+    costs?: Array<{ currency: string; amount: number }> // 多货币时的详细信息
   }
   previous: {
     impressions: number
@@ -73,8 +76,64 @@ export async function GET(request: NextRequest) {
 
     const db = await getDatabase()
 
+    // 🔧 修复(2025-12-30): 查询货币分布以支持多货币账户
+    const currencyQuery = `
+      SELECT DISTINCT currency
+      FROM campaign_performance
+      WHERE user_id = ?
+        AND date >= ?
+        AND date <= ?
+    `
+    const currencies = await db.query(
+      currencyQuery,
+      [userId, formatDate(startDate), formatDate(endDate)]
+    ) as Array<{ currency: string }>
+
+    const uniqueCurrencies = currencies.map(c => c.currency).filter(Boolean)
+    const isSingleCurrency = uniqueCurrencies.length === 1
+    const isMultiCurrency = uniqueCurrencies.length > 1
+
     // 查询当前周期数据
-    const currentPeriodQuery = `
+    // 🔧 修复(2025-12-30): 按货币分组以支持多货币场景
+    const currentPeriodQuery = isMultiCurrency ? `
+      SELECT
+        currency,
+        SUM(impressions) as impressions,
+        SUM(clicks) as clicks,
+        SUM(cost) as cost,
+        SUM(conversions) as conversions
+      FROM campaign_performance
+      WHERE user_id = ?
+        AND date >= ?
+        AND date <= ?
+      GROUP BY currency
+    ` : `
+      SELECT
+        currency,
+        SUM(impressions) as impressions,
+        SUM(clicks) as clicks,
+        SUM(cost) as cost,
+        SUM(conversions) as conversions
+      FROM campaign_performance
+      WHERE user_id = ?
+        AND date >= ?
+        AND date <= ?
+    `
+
+    const currentDataRaw = isMultiCurrency
+      ? await db.query(currentPeriodQuery, [userId, formatDate(startDate), formatDate(endDate)])
+      : [await db.queryOne(currentPeriodQuery, [userId, formatDate(startDate), formatDate(endDate)])]
+
+    const currentData = currentDataRaw as Array<{
+      currency: string | null
+      impressions: number | null
+      clicks: number | null
+      cost: number | null
+      conversions: number | null
+    }>
+
+    // 查询上个周期数据（用于环比）
+    const previousPeriodQuery = `
       SELECT
         SUM(impressions) as impressions,
         SUM(clicks) as clicks,
@@ -86,23 +145,8 @@ export async function GET(request: NextRequest) {
         AND date <= ?
     `
 
-    const currentData = await db.queryOne(
-      currentPeriodQuery,
-      [
-        userId,
-        formatDate(startDate),
-        formatDate(endDate)
-      ]
-    ) as {
-      impressions: number | null
-      clicks: number | null
-      cost: number | null
-      conversions: number | null
-    } | undefined
-
-    // 查询上个周期数据（用于环比）
     const previousData = await db.queryOne(
-      currentPeriodQuery,
+      previousPeriodQuery,
       [
         userId,
         formatDate(previousStartDate),
@@ -116,14 +160,28 @@ export async function GET(request: NextRequest) {
     } | undefined
 
     // 处理数据
+    // 🔧 修复(2025-12-30): 聚合多货币数据
+    const totalImpressions = currentData.reduce((sum, row) => sum + (Number(row?.impressions) || 0), 0)
+    const totalClicks = currentData.reduce((sum, row) => sum + (Number(row?.clicks) || 0), 0)
+    const totalCost = currentData.reduce((sum, row) => sum + (Number(row?.cost) || 0), 0)
+    const totalConversions = currentData.reduce((sum, row) => sum + (Number(row?.conversions) || 0), 0)
+
     const current = {
-      impressions: Number(currentData?.impressions) || 0,
-      clicks: Number(currentData?.clicks) || 0,
-      cost: Number(currentData?.cost) || 0,
-      conversions: Number(currentData?.conversions) || 0,
+      impressions: totalImpressions,
+      clicks: totalClicks,
+      cost: totalCost,
+      conversions: totalConversions,
       ctr: 0,
       cpc: 0,
       conversionRate: 0,
+      // 货币信息
+      currency: isSingleCurrency ? uniqueCurrencies[0] : (isMultiCurrency ? 'MIXED' : 'USD'),
+      costs: isMultiCurrency
+        ? currentData.map(row => ({
+            currency: row.currency || 'USD',
+            amount: Number(row.cost) || 0
+          }))
+        : undefined
     }
 
     const previous = {

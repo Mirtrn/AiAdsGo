@@ -384,7 +384,27 @@ export async function generateContent(params: {
       const errorData = error.response?.data
       const balance = errorData?.billing?.balance ?? 0
       const message = errorData?.message || '账户余额不足'
+      const errorCode = errorData?.error
 
+      // 🔧 新增(2025-12-30): 处理BILLING_BINDING_MISSING错误
+      if (errorCode === 'BILLING_BINDING_MISSING') {
+        throw new Error(
+          `Gemini API调用失败: 需要绑定专属账户\n` +
+          `\n` +
+          `${providerName}配置问题：\n` +
+          `- 错误代码: BILLING_BINDING_MISSING\n` +
+          `- 服务消息: ${message}\n` +
+          `- 计费模式: ${errorData?.billing?.mode || 'payg'} (按量付费)\n` +
+          `\n` +
+          `解决方案：\n` +
+          `1. 登录ThunderRelay平台 (https://cc.thunderrelay.com)\n` +
+          `2. 前往账户设置，绑定Gemini专属账户\n` +
+          `3. 或联系ThunderRelay管理员配置账户绑定\n` +
+          `4. 配置完成后重新验证API Key\n`
+        )
+      }
+
+      // 余额不足错误
       throw new Error(
         `Gemini API调用失败: 402 Payment Required\n` +
         `\n` +
