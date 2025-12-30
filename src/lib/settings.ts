@@ -546,8 +546,10 @@ export async function validateGeminiConfig(
     }
   }
 
-  // Step 2: 验证模型名称（仅支持Pro模型，Flash任务由系统自动选择）
-  const validModels = ['gemini-2.5-pro', 'gemini-3-flash-preview']
+  // Step 2: 验证模型名称
+  // - Gemini 官方支持：gemini-2.5-pro, gemini-3-flash-preview
+  // - ThunderRelay 中转支持：gemini-2.5-pro, gemini-3-flash
+  const validModels = ['gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-flash']
   if (!validModels.includes(model)) {
     return {
       valid: false,

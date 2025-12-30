@@ -143,13 +143,20 @@ export async function createGeminiAxiosClient(userId: number): Promise<AxiosInst
     timeout: 180000, // 180 秒（3分钟）
     headers: {
       'Content-Type': 'application/json',
-      // 🔧 修复(2025-12-30): 添加浏览器headers绕过Cloudflare机器人检测
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      // 🔧 修复(2025-12-30): 添加完整浏览器headers绕过Cloudflare机器人检测
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
+      'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+      'Accept-Encoding': 'gzip, deflate, br, zstd',
       'Origin': endpoint,
       'Referer': `${endpoint}/`,
+      // 🆕 添加 Chrome 安全相关 headers
+      'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"macOS"',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-origin',
     },
   })
 }

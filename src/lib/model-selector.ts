@@ -14,11 +14,14 @@
 
 import { getUserOnlySetting } from './settings'
 
-// 支持的Gemini Pro模型（Flash任务固定使用gemini-2.5-flash）
+// 支持的Gemini模型
+// - Gemini 官方：gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview
+// - ThunderRelay 中转：gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash
 export type ModelType =
   | 'gemini-2.5-pro'
   | 'gemini-2.5-flash'
   | 'gemini-3-flash-preview'
+  | 'gemini-3-flash'
 
 export interface ModelSelection {
   model: ModelType
@@ -106,7 +109,8 @@ const PRO_OPERATIONS = new Set<string>([
  * 获取用户选择的Pro模型
  *
  * - 用户选"Gemini 2.5 Pro" → 返回'gemini-2.5-pro'
- * - 用户选"Gemini 3 Flash Preview" → 返回'gemini-3-flash-preview'
+ * - 用户选"Gemini 3 Flash Preview" → 返回'gemini-3-flash-preview'（官方专用）
+ * - 用户选"Gemini 3 Flash" → 返回'gemini-3-flash'（ThunderRelay中转专用）
  *
  * @param userId - 用户ID
  * @returns 用户选择的模型
@@ -118,11 +122,13 @@ export async function getUserProModel(userId?: number): Promise<ModelType> {
 
   try {
     const modelSetting = await getUserOnlySetting('ai', 'gemini_model', userId)
-    const selectedModel = modelSetting?.value
+    const selectedModel = modelSetting?.value as ModelType | undefined
 
-    // 🔧 修复(2025-12-22): 用户选择的模型决定Pro任务使用哪个模型
+    // 🔧 修复(2025-12-30): 支持3个模型选项
     if (selectedModel === 'gemini-3-flash-preview') {
-      return 'gemini-3-flash-preview' // 用户选择了Gemini 3 Flash Preview
+      return 'gemini-3-flash-preview' // 官方服务商的Gemini 3
+    } else if (selectedModel === 'gemini-3-flash') {
+      return 'gemini-3-flash' // ThunderRelay中转的Gemini 3
     } else {
       return 'gemini-2.5-pro' // 默认Pro模型
     }
@@ -163,9 +169,15 @@ export async function selectOptimalModel(
 
   // Flash适用场景：简单任务使用Flash版本
   if (FLASH_OPERATIONS.has(operationType)) {
-    // 🔧 修复(2025-12-22): 用户选了Gemini 3 Flash Preview时，Flash任务也用3-flash-preview
-    // 用户选了Gemini 2.5 Pro时，Flash任务用2.5-flash
-    const flashModel = userProModel === 'gemini-3-flash-preview' ? 'gemini-3-flash-preview' : 'gemini-2.5-flash'
+    // 🔧 修复(2025-12-30): 支持3个模型选项的Flash任务路由
+    // - 用户选 gemini-3-flash-preview（官方） → Flash任务也用 gemini-3-flash-preview
+    // - 用户选 gemini-3-flash（中转） → Flash任务也用 gemini-3-flash
+    // - 用户选 gemini-2.5-pro（默认） → Flash任务用 gemini-2.5-flash
+    const flashModel =
+      userProModel === 'gemini-3-flash-preview' ? 'gemini-3-flash-preview' :
+      userProModel === 'gemini-3-flash' ? 'gemini-3-flash' :
+      'gemini-2.5-flash'
+
     return {
       model: flashModel,
       reason: `结构化输出任务，使用Flash版本: ${flashModel}`,
@@ -247,5 +259,10 @@ export function shouldUseFlashForABTest(
  * 获取模型成本倍数（相对于Flash）
  */
 export function getModelCostMultiplier(model: ModelType): number {
-  return model === 'gemini-2.5-pro' ? 5.0 : 1.0
+  // Pro模型成本是Flash的5倍
+  if (model === 'gemini-2.5-pro') {
+    return 5.0
+  }
+  // Flash模型成本基准
+  return 1.0
 }
