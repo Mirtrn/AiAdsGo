@@ -236,23 +236,13 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
   // 🔧 修复(2025-12-30): PostgreSQL 使用 RETURNING id，SQLite 使用 lastInsertRowid
   let insertedId: number
   if (db.type === 'postgres') {
-    // PostgreSQL: db.exec 已经自动添加 RETURNING id，结果在返回的数组中
-    // 从日志可见：返回结果: [{"id":409}]
-    // 注意：result 是数组，需要从第一个元素中提取 id
-    const returnedRows = result as any
-    console.log('🔍 [createOffer] PostgreSQL result:', JSON.stringify(result))
-    console.log('🔍 [createOffer] returnedRows type:', typeof returnedRows, Array.isArray(returnedRows))
-    if (Array.isArray(returnedRows) && returnedRows.length > 0) {
-      console.log('🔍 [createOffer] returnedRows[0]:', JSON.stringify(returnedRows[0]))
-      console.log('🔍 [createOffer] returnedRows[0].id:', returnedRows[0]?.id, 'type:', typeof returnedRows[0]?.id)
+    // PostgreSQL: db.exec 已经自动添加 RETURNING id，结果在 result.lastInsertRowid
+    // 格式: { changes: number, lastInsertRowid: number }
+    const pgResult = result as { changes: number; lastInsertRowid?: number }
+    if (pgResult.lastInsertRowid !== undefined) {
+      insertedId = pgResult.lastInsertRowid
+      console.log('🔍 [createOffer] PostgreSQL insertedId:', insertedId)
     } else {
-      console.log('🔍 [createOffer] returnedRows is empty or not array')
-    }
-    if (Array.isArray(returnedRows) && returnedRows.length > 0 && returnedRows[0]?.id !== undefined) {
-      insertedId = returnedRows[0].id
-      console.log('🔍 [createOffer] Extracted insertedId:', insertedId)
-    } else {
-      console.error('🔍 [createOffer] FAILED to extract id, throwing error...')
       throw new Error('PostgreSQL INSERT 未返回 id')
     }
   } else {

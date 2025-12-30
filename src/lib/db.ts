@@ -347,21 +347,28 @@ class PostgresAdapter implements DatabaseAdapter {
     let lastInsertRowid: number | undefined
     let changes = 0
 
-    // 1. INSERT ... RETURNING返回数组 (优先检查)
-    if (Array.isArray(pgResult) && pgResult.length > 0 && pgResult[0]?.id !== undefined) {
-      changes = pgResult.length
-      lastInsertRowid = pgResult[0].id
-      console.log(`✅ [INSERT RETURNING] 提取到 id=${lastInsertRowid}`)
-    }
-    // 2. UPDATE/DELETE返回Result对象（有count属性）
-    else if (pgResult && typeof pgResult === 'object' && 'count' in pgResult) {
-      changes = typeof pgResult.count === 'number' ? pgResult.count : 0
-      lastInsertRowid = pgResult.id ?? pgResult.lastInsertRowid
-    }
-    // 3. 其他情况（兜底）
-    else if (pgResult && typeof pgResult === 'object') {
-      changes = 1
-      lastInsertRowid = pgResult.id ?? pgResult.lastInsertRowid
+    // 🔧 修复(2025-12-31): 确保Result对象被正确处理
+    // pgResult是Result对象，它继承Array但Array.isArray()判断可能不稳定
+    // 优先检查是否有count属性（UPDATE/DELETE）或id属性（INSERT RETURNING）
+    if (pgResult && typeof pgResult === 'object') {
+      // 检查是否是 INSERT ... RETURNING 结果（有id属性或行数据）
+      const pgAny = pgResult as any
+      if (Array.isArray(pgAny) && pgAny.length > 0 && pgAny[0]?.id !== undefined) {
+        // INSERT ... RETURNING 返回数组
+        changes = pgAny.length
+        lastInsertRowid = pgAny[0].id
+        console.log(`✅ [INSERT RETURNING] 提取到 id=${lastInsertRowid}`)
+      } else if (pgAny.count !== undefined) {
+        // UPDATE/DELETE 返回 Result 对象（有count属性）
+        changes = typeof pgAny.count === 'number' ? pgAny.count : 0
+        lastInsertRowid = pgAny.id ?? pgAny.lastInsertRowid
+      } else {
+        // 兜底：尝试直接访问可能的id
+        lastInsertRowid = pgAny.id ?? pgAny.lastInsertRowid
+        if (lastInsertRowid !== undefined) {
+          changes = 1
+        }
+      }
     }
 
     console.log('最终返回:', { changes, lastInsertRowid })
