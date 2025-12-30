@@ -388,6 +388,8 @@ async function insertDefaultSystemSettings(): Promise<void> {
     { category: 'google_ads', key: 'developer_token', dataType: 'string', isSensitive: true, isRequired: false, description: 'Google Ads Developer Token（可选）' },
 
     // AI配置 - Gemini API模式（支持多服务商）
+    { category: 'ai', key: 'gemini_provider', dataType: 'string', isSensitive: false, isRequired: false, description: 'Gemini API 服务商', defaultValue: 'official' },
+    { category: 'ai', key: 'gemini_endpoint', dataType: 'string', isSensitive: false, isRequired: false, description: 'Gemini API 端点（系统自动计算）' },
     { category: 'ai', key: 'gemini_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: 'Gemini 官方 API Key' },
     { category: 'ai', key: 'gemini_relay_api_key', dataType: 'string', isSensitive: true, isRequired: false, description: '第三方中转服务 API Key' },
 
