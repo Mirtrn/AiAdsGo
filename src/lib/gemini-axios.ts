@@ -378,6 +378,27 @@ export async function generateContent(params: {
       )
     }
 
+    // 🔧 新增(2025-12-30): 针对402错误（余额不足）给出明确提示
+    if (error.response?.status === 402) {
+      const providerName = GEMINI_PROVIDERS[provider]?.name || '当前服务商'
+      const errorData = error.response?.data
+      const balance = errorData?.billing?.balance ?? 0
+      const message = errorData?.message || '账户余额不足'
+
+      throw new Error(
+        `Gemini API调用失败: 402 Payment Required\n` +
+        `\n` +
+        `${providerName}账户余额不足：\n` +
+        `- 当前余额: ${balance} 积分\n` +
+        `- 服务消息: ${message}\n` +
+        `\n` +
+        `解决方案：\n` +
+        `1. ${providerName === '第三方中转' ? '前往中转服务平台充值积分\n' : '检查账户配额并充值\n'}` +
+        `2. 更换其他有余额的API Key\n` +
+        `3. ${providerName === '第三方中转' ? '切换到Gemini官方API或Vertex AI\n' : '联系服务提供商\n'}`
+      )
+    }
+
     // 如果是gemini-2.5-pro过载且未指定其他模型，降级到gemini-2.5-flash
     if (isOverloaded && model === 'gemini-2.5-pro') {
       console.warn(`⚠️ ${model} 模型过载，自动降级到 gemini-2.5-flash`)
