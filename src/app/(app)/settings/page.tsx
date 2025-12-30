@@ -524,6 +524,16 @@ export default function SettingsPage() {
           ...updated.ai,
           gemini_endpoint: endpointMap[value] || endpointMap['official']
         }
+
+        // 🔧 修复(2025-12-30): 切换服务商时，清空另一个服务商的API Key显示值
+        // 避免用户困惑（虽然两个API Key可能都已配置，但只会使用当前选中的）
+        if (value === 'official') {
+          // 切换到官方：清空中转API Key的显示（不影响数据库，只是前端显示）
+          updated.ai.gemini_relay_api_key = ''
+        } else if (value === 'relay') {
+          // 切换到中转：清空官方API Key的显示（不影响数据库，只是前端显示）
+          updated.ai.gemini_api_key = ''
+        }
       }
 
       return updated
