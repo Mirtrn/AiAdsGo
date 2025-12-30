@@ -250,6 +250,121 @@ export default function GoogleAdsSetupGuidePage() {
               </CardContent>
             </Card>
 
+            {/* Developer Token 访问级别说明 */}
+            <Card className="border-blue-200 bg-blue-50/30">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <HelpCircle className="w-5 h-5 text-blue-600" />
+                  Developer Token 访问级别说明
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="text-sm space-y-3">
+                  <p className="text-gray-700">
+                    Developer Token 有多个访问级别，影响可访问的账号类型和每日操作限制：
+                  </p>
+
+                  <div className="space-y-3">
+                    {/* Test Account Access */}
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <div className="flex items-start gap-2 mb-2">
+                        <Badge variant="outline" className="bg-gray-100">Test Account Access</Badge>
+                        <span className="text-xs text-gray-500">（初始级别）</span>
+                      </div>
+                      <ul className="text-sm text-gray-600 space-y-1 ml-2">
+                        <li className="flex items-start gap-2">
+                          <span className="text-red-500 mt-0.5">⚠️</span>
+                          <span><strong>仅限测试账号</strong>：无法访问真实的 Google Ads 账号</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-green-500 mt-0.5">✓</span>
+                          <span>无需审核，立即可用</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-500 mt-0.5">ℹ️</span>
+                          <span>限制：15,000 operations/day</span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    {/* Explorer Access */}
+                    <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg p-3 border-2 border-blue-200">
+                      <div className="flex items-start gap-2 mb-2">
+                        <Badge className="bg-blue-600">Explorer Access</Badge>
+                        <Badge variant="outline" className="bg-yellow-100 border-yellow-300">自动升级</Badge>
+                      </div>
+                      <ul className="text-sm text-gray-700 space-y-1 ml-2">
+                        <li className="flex items-start gap-2">
+                          <span className="text-green-500 mt-0.5 font-bold">✓</span>
+                          <span><strong>可访问真实账号</strong>：Google 可能在几天内自动升级测试权限 Token</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-green-500 mt-0.5">✓</span>
+                          <span>无需人工审核，系统自动判断</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-500 mt-0.5">ℹ️</span>
+                          <span>限制：2,880 operations/day（足够日常使用）</span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    {/* Basic Access */}
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <div className="flex items-start gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-100">Basic Access</Badge>
+                        <span className="text-xs text-gray-500">（需申请）</span>
+                      </div>
+                      <ul className="text-sm text-gray-600 space-y-1 ml-2">
+                        <li className="flex items-start gap-2">
+                          <span className="text-green-500 mt-0.5">✓</span>
+                          <span>可访问真实账号 + Keyword Planner API</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-orange-500 mt-0.5">⏱</span>
+                          <span>需审核 1-3 个工作日</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-blue-500 mt-0.5">ℹ️</span>
+                          <span>限制：15,000 operations/day</span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    {/* Standard Access */}
+                    <div className="bg-white rounded-lg p-3 border border-gray-200">
+                      <div className="flex items-start gap-2 mb-2">
+                        <Badge variant="outline" className="bg-purple-100">Standard Access</Badge>
+                        <span className="text-xs text-gray-500">（需申请）</span>
+                      </div>
+                      <ul className="text-sm text-gray-600 space-y-1 ml-2">
+                        <li className="flex items-start gap-2">
+                          <span className="text-green-500 mt-0.5">✓</span>
+                          <span>无限制操作次数</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-orange-500 mt-0.5">⏱</span>
+                          <span>需审核，通常需要更长时间</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <Alert className="bg-green-50 border-green-200">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-sm">
+                      <strong>推荐策略：</strong>初次配置使用测试权限 Token，等待 Google 自动升级到 Explorer Access（通常几天内）。如需 Keyword Planner API 或更高限额，再申请 Basic/Standard Access。
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">
+                    <p className="font-semibold mb-1">如何检查当前访问级别？</p>
+                    <p>访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a>，查看 Developer Token 状态。如显示"Test - Ready to use"表示测试权限，升级后会显示为其他级别。</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* 详细指南：获取服务账号 JSON */}
             <Card id="service-account-json">
               <CardHeader>
@@ -392,7 +507,77 @@ export default function GoogleAdsSetupGuidePage() {
                   </Alert>
                 </div>
 
-                {/* 错误2：PERMISSION_DENIED */}
+                {/* 错误2：DEVELOPER_TOKEN_NOT_APPROVED */}
+                <div className="bg-white rounded-lg p-4 border-2 border-yellow-300">
+                  <h5 className="font-semibold text-yellow-800 mb-3 flex items-center gap-2">
+                    <span className="w-5 h-5 bg-yellow-100 rounded flex items-center justify-center text-xs">!</span>
+                    错误：DEVELOPER_TOKEN_NOT_APPROVED
+                  </h5>
+                  <p className="text-sm text-gray-600 mb-3">
+                    如果日志中出现 <code className="bg-yellow-50 px-1 rounded">DEVELOPER_TOKEN_NOT_APPROVED: The developer token is only approved for use with test accounts</code> 错误，说明您的 Developer Token 还是 <strong>Test Account Access</strong> 级别，只能访问测试账号。
+                  </p>
+
+                  <div className="bg-blue-50 rounded p-3 mb-3">
+                    <p className="text-sm text-gray-700 font-semibold mb-2">这是正常的！原因：</p>
+                    <ul className="text-sm text-gray-600 space-y-1 ml-2">
+                      <li>• 新创建的 Developer Token 默认是 Test Account Access 级别</li>
+                      <li>• Google 通常会在<strong>几天内自动升级到 Explorer Access</strong></li>
+                      <li>• Explorer Access 可以访问真实账号（限制 2,880 operations/day）</li>
+                    </ul>
+                  </div>
+
+                  <p className="text-sm text-gray-600 mb-2">
+                    <strong>解决方法（3 种选择）：</strong>
+                  </p>
+                  <div className="space-y-3 ml-2">
+                    <div className="flex items-start gap-2">
+                      <span className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center text-xs flex-shrink-0 font-bold">推荐</span>
+                      <div>
+                        <strong className="text-sm text-green-700">等待 Google 自动升级（1-7天）</strong>
+                        <p className="text-xs text-gray-600 mt-1">
+                          无需任何操作，Google 会自动将您的 Token 升级到 <strong>Explorer Access</strong>。升级后可访问真实账号，每日限额 2,880 次操作（足够日常使用）。
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          💡 可在 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">API Center</a> 查看 Token 状态
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">2</span>
+                      <div>
+                        <strong className="text-sm">申请 Basic/Standard Access</strong>
+                        <p className="text-xs text-gray-600 mt-1">
+                          访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">API Center</a>，点击"Apply for Basic Access"或"Apply for Standard Access"。审核通常需要 1-3 个工作日。
+                        </p>
+                        <ul className="text-xs text-gray-500 mt-1 ml-3 space-y-0.5">
+                          <li>• Basic: 15,000 operations/day + Keyword Planner API</li>
+                          <li>• Standard: 无限制</li>
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-6 h-6 bg-purple-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">3</span>
+                      <div>
+                        <strong className="text-sm">使用测试 MCC 账号</strong>
+                        <p className="text-xs text-gray-600 mt-1">
+                          创建 <a href="https://developers.google.com/google-ads/api/docs/best-practices/test-accounts" target="_blank" className="text-blue-600 hover:underline">Test Manager Account</a>，Test Account Access Token 可以立即使用（但只能测试，无法投放真实广告）。
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Alert className="mt-3 bg-green-50 border-green-200">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-sm">
+                      <strong>推荐策略：</strong>继续使用当前配置，等待 Google 自动升级到 Explorer Access（通常几天内）。如需 Keyword Planner API 或更高限额，再申请 Basic/Standard Access。<br/>
+                      详见上方 <a href="#" className="text-blue-600 hover:underline" onClick={(e) => { e.preventDefault(); document.querySelector('.border-blue-200.bg-blue-50\\/30')?.scrollIntoView({ behavior: 'smooth' }); }}>Developer Token 访问级别说明</a>
+                    </AlertDescription>
+                  </Alert>
+                </div>
+
+                {/* 错误3：PERMISSION_DENIED */}
                 <div className="bg-white rounded-lg p-4 border border-red-200">
                   <h5 className="font-semibold text-red-800 mb-3 flex items-center gap-2">
                     <span className="w-5 h-5 bg-red-100 rounded flex items-center justify-center text-xs">!</span>
