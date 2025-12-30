@@ -578,24 +578,10 @@ export async function createGoogleAdsCampaign(params: {
     },
   }
 
-  // 🎯 恢复转化目标配置 (2025-12-28)
-  // 根据 Google Ads API 官方文档：
-  // 1. goal_config_settings 用于指定营销目标级别和具体目标类型
-  // 2. final_url_expansion_opt_out = false 启用URL扩展，优化网站流量
-  // 3. goal = 20 (WEBSITE_TRAFFIC) 对应 UI 中的"网站流量"目标
-  // 参考：https://developers.google.com/google-ads/api/reference/rpc/v21/Campaign
-  //
-  // 🔧 注意：GoalType 枚举未在 google-ads-api 库中暴露，使用数值 20
-
-  // 启用URL扩展，优化网站流量目标
-  campaign.final_url_expansion_opt_out = false
-
-  // 设置营销目标为广告系列级别，并指定为网站流量目标
-  // GoalType.WEBSITE_TRAFFIC = 20
-  campaign.goal_config_settings = {
-    goal_config_level: enums.GoalConfigLevel.CAMPAIGN,
-    goal: 20 as any  // WEBSITE_TRAFFIC = 20
-  }
+  // 🔧 修复(2025-12-30): 移除不兼容的字段
+  // - final_url_expansion_opt_out: 仅支持Performance Max和AI Max Search，普通Search Campaign不支持
+  // - goal_config_settings: Campaign对象中不存在此字段，应使用ConversionGoalCampaignConfig资源
+  // 转化目标将使用账号级别的默认配置
 
   // 设置出价策略 - Maximize Clicks (TARGET_SPEND)
   // 根据业务规范：Bidding Strategy = Maximize Clicks，CPC Bid = 0.17 USD

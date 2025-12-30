@@ -478,15 +478,10 @@ async def create_campaign(request: CreateCampaignRequest):
                 request.cpc_bid_ceiling_micros
             )
 
-        # 🎯 恢复转化目标配置 (2025-12-28)
-        # 根据 Google Ads API 官方文档：
-        # 1. goal_config_settings 用于指定营销目标级别和具体目标类型
-        # 2. final_url_expansion_opt_out = False 启用URL扩展，优化网站流量
-        # 3. goal = WEBSITE_TRAFFIC 对应 UI 中的"网站流量"目标
-        # 参考：https://developers.google.com/google-ads/api/reference/rpc/v21/Campaign
-        campaign.final_url_expansion_opt_out = False
-        campaign.goal_config_settings.goal_config_level = client.enums.GoalConfigLevelEnum.CAMPAIGN
-        campaign.goal_config_settings.goal = client.enums.GoalTypeEnum.WEBSITE_TRAFFIC
+        # 🔧 修复(2025-12-30): 移除不兼容的字段
+        # - final_url_expansion_opt_out: 仅支持Performance Max和AI Max Search，普通Search Campaign不支持
+        # - goal_config_settings: Campaign对象中不存在此字段，应使用ConversionGoalCampaignConfig资源
+        # 转化目标将使用账号级别的默认配置
 
         # 🔧 修复(2025-12-27): 添加必填字段 contains_eu_political_advertising
         # 大多数Campaign不包含政治广告，设置为DOES_NOT_CONTAIN
