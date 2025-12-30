@@ -903,12 +903,11 @@ export default function ClickFarmTaskModal({
               </div>
             </div>
 
-            {/* Referer配置 - Anti-crawler Optimization */}
+            {/* Referer配置 */}
             <div className="space-y-3 pt-2 border-t">
               <Label className="flex items-center gap-2">
                 <Globe className="h-4 w-4" />
                 Referer来源配置
-                <Badge variant="secondary" className="text-xs">防爬优化</Badge>
               </Label>
               <p className="text-xs text-muted-foreground">
                 模拟真实用户来源，防止反爬识别
@@ -961,9 +960,6 @@ export default function ClickFarmTaskModal({
                         ))}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">
-                      选择固定社交媒体来源
-                    </p>
                   </div>
                 ) : (
                   <div className="flex items-center text-sm text-muted-foreground">
