@@ -72,29 +72,36 @@ export default function HourlyDistributionEditor({
     }));
 
     // 计算24个数据点的坐标 (百分比)
+    // 使用 (hour / 24) 而不是 (hour / 23) 来确保宽度一致性，24个小时均匀分布
     const chartPoints = distribution.map((value, hour) => ({
       hour,
       value,
-      xPercent: (hour / 23) * 100, // 0h在0%, 23h在100%
+      xPercent: (hour / 24) * 100, // 0h在0%, 24h在100% (但实际只到23h约96%)
       yPercent: (1 - value / maxValue) * 100, // 值越大，y越小（SVG坐标系）
       isActive: isActiveHour(hour),
     }));
 
-    // 生成平滑贝塞尔曲线路径（使用三次贝塞尔曲线获得更平滑的效果）
+    // 生成平滑贝塞尔曲线路径（Catmull-Rom样条算法获得更自然的平滑曲线）
     let curvePath = `M ${chartPoints[0].xPercent},${chartPoints[0].yPercent}`;
+
     for (let i = 0; i < chartPoints.length - 1; i++) {
-      const curr = chartPoints[i];
-      const next = chartPoints[i + 1];
+      const p0 = chartPoints[Math.max(0, i - 1)];
+      const p1 = chartPoints[i];
+      const p2 = chartPoints[i + 1];
+      const p3 = chartPoints[Math.min(chartPoints.length - 1, i + 2)];
 
-      // 计算控制点，使用三次贝塞尔曲线（C命令）获得更平滑的曲线
-      const tension = 0.3; // 张力系数，越小越平滑
-      const deltaX = next.xPercent - curr.xPercent;
-      const cp1x = curr.xPercent + deltaX * tension;
-      const cp1y = curr.yPercent;
-      const cp2x = next.xPercent - deltaX * tension;
-      const cp2y = next.yPercent;
+      // Catmull-Rom样条控制点计算
+      const tension = 0.5; // 张力系数 (0.5为标准Catmull-Rom)
 
-      curvePath += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${next.xPercent},${next.yPercent}`;
+      // 第一个控制点
+      const cp1x = p1.xPercent + (p2.xPercent - p0.xPercent) / 6 * tension;
+      const cp1y = p1.yPercent + (p2.yPercent - p0.yPercent) / 6 * tension;
+
+      // 第二个控制点
+      const cp2x = p2.xPercent - (p3.xPercent - p1.xPercent) / 6 * tension;
+      const cp2y = p2.yPercent - (p3.yPercent - p1.yPercent) / 6 * tension;
+
+      curvePath += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.xPercent},${p2.yPercent}`;
     }
 
     // 生成填充区域路径
@@ -207,7 +214,7 @@ export default function HourlyDistributionEditor({
 
             {/* X轴网格线（垂直虚线）- 对齐每个小时，使用明显颜色 */}
             {Array.from({ length: 24 }, (_, i) => i).map((hour) => {
-              const xPercent = (hour / 23) * 100;
+              const xPercent = (hour / 24) * 100;
               return (
                 <line
                   key={`x-${hour}`}
