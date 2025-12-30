@@ -27,6 +27,7 @@ import {
   createGoogleAdsSitelinkExtensions,
   ensureKeywordsInHeadlines,
 } from '@/lib/google-ads-api'
+import { setCampaignPageViewGoalWithCredentials } from '@/lib/google-ads-conversion-goals'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { generateNamingScheme, type NamingScheme } from '@/lib/naming-convention'
 
@@ -559,7 +560,23 @@ export async function executeCampaignPublish(
     const extensionsDuration = Date.now() - extensionsStartTime
     console.log(`🔄 Extensions串行执行完成，耗时: ${extensionsDuration}ms`)
 
-    // 13. 启用Campaign（如果需要）
+    // 14. 配置Campaign转化目标为"网页浏览"（非阻塞操作）
+    console.log(`\n🎯 配置Campaign转化目标...`)
+    try {
+      await setCampaignPageViewGoalWithCredentials({
+        customerId: adsAccount.customer_id,
+        refreshToken: refreshToken,
+        campaignId: googleCampaignId,
+        userId,
+        loginCustomerId: finalLoginCustomerId,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId,
+      })
+    } catch (goalError: any) {
+      console.warn(`⚠️ 转化目标配置失败（非致命错误）: ${goalError.message}`)
+    }
+
+    // 15. 启用Campaign（如果需要）
     let finalCampaignStatus: 'ENABLED' | 'PAUSED' = 'PAUSED'
     if (enableCampaignImmediately) {
       try {
@@ -582,7 +599,7 @@ export async function executeCampaignPublish(
       }
     }
 
-    // 14. 更新数据库记录
+    // 16. 更新数据库记录
     await db.exec(
       `UPDATE campaigns
        SET google_campaign_id = ?, google_ad_group_id = ?, google_ad_id = ?,
