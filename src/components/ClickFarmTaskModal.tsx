@@ -687,8 +687,8 @@ export default function ClickFarmTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{isEditMode ? '编辑补点击任务' : '创建补点击任务'}</DialogTitle>
           <DialogDescription>
             配置自动点击任务，帮助广告冷启动和提升投放表现
@@ -900,7 +900,7 @@ export default function ClickFarmTaskModal({
             <div className="grid grid-cols-2 gap-4">
               {/* Referer类型选择 */}
               <div className="space-y-2">
-                <Label htmlFor="refererType">Referer类型 *</Label>
+                <Label htmlFor="refererType">Referer类型</Label>
                 <Select
                   id="refererType"
                   value={refererConfig.type}
@@ -908,11 +908,9 @@ export default function ClickFarmTaskModal({
                     setRefererConfig(prev => ({
                       ...prev,
                       type: value as 'none' | 'random' | 'specific',
-                      // 当选择none或random时，清除specific referer
                       referer: value === 'specific' ? prev.referer : undefined
                     }));
                   }}
-                  required
                 >
                   <SelectContent>
                     {REFERER_OPTIONS.map((option) => (
@@ -928,16 +926,15 @@ export default function ClickFarmTaskModal({
               </div>
 
               {/* 特定Referer选择（仅当类型为specific时显示） */}
-              {refererConfig.type === 'specific' && (
+              {refererConfig.type === 'specific' ? (
                 <div className="space-y-2">
-                  <Label htmlFor="specificReferer">选择Referer *</Label>
+                  <Label htmlFor="specificReferer">选择Referer</Label>
                   <Select
                     id="specificReferer"
                     value={refererConfig.referer || ''}
                     onValueChange={(value) => {
                       setRefererConfig(prev => ({ ...prev, referer: value }));
                     }}
-                    required
                   >
                     <SelectContent>
                       {SOCIAL_MEDIA_REFERRERS.map((option) => (
@@ -951,15 +948,11 @@ export default function ClickFarmTaskModal({
                     选择固定的社交媒体来源作为Referer
                   </p>
                 </div>
+              ) : (
+                <div className="flex items-center text-sm text-muted-foreground">
+                  {refererConfig.type === 'none' ? '不设置Referer头' : `随机从${SOCIAL_MEDIA_REFERRERS.length}个社交媒体中选择`}
+                </div>
               )}
-            </div>
-
-            {/* 预览信息 */}
-            <div className="bg-muted/30 rounded p-2 text-xs text-muted-foreground">
-              <span className="font-medium">当前配置: </span>
-              {refererConfig.type === 'none' && '不设置Referer头'}
-              {refererConfig.type === 'random' && `随机从${SOCIAL_MEDIA_REFERRERS.length}个社交媒体中选择`}
-              {refererConfig.type === 'specific' && `固定Referer: ${SOCIAL_MEDIA_REFERRERS.find(r => r.value === refererConfig.referer)?.label || '自定义'}`}
             </div>
           </div>
 
