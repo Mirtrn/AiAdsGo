@@ -1,8 +1,9 @@
 'use client'
 
 /**
- * PerformanceTrends - P2-1优化新增 + P2-4移动端优化
+ * PerformanceTrends - P2-1优化新增 + P2-4移动端优化 + 多货币支持
  * 使用shadcn/ui Chart + Recharts展示广告表现数据趋势
+ * 🔧 修复(2025-12-30): 支持多货币显示
  */
 
 import { useEffect, useState } from 'react'
@@ -17,7 +18,7 @@ import {
 } from '@/components/ui/chart'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
 import { useIsMobile } from '@/hooks/useMediaQuery'
-import { safeToFixed } from '@/lib/utils'
+import { safeToFixed, formatCurrency } from '@/lib/utils'
 
 interface TrendData {
   date: string
@@ -38,6 +39,7 @@ interface PerformanceTrendsData {
     totalConversions: number
     avgCTR: number
     avgCPC: number
+    currency?: string // 🔧 新增(2025-12-30): 货币代码
   }
 }
 
@@ -331,7 +333,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
                   strokeWidth={2}
                   dot={{ r: 4 }}
                   activeDot={{ r: 6 }}
-                  name="CPC ($)"
+                  name={`CPC (${data.summary?.currency === 'CNY' ? '¥' : data.summary?.currency === 'EUR' ? '€' : '$'})`}
                 />
               </LineChart>
             </ChartContainer>
@@ -358,7 +360,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-purple-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">总花费</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-purple-600`}>
-                ${safeToFixed(Number(data.summary?.totalCost) || 0, isMobile ? 0 : 2)}
+                {formatCurrency(Number(data.summary?.totalCost) || 0, data.summary?.currency || 'USD', isMobile ? 0 : 2)}
               </p>
             </div>
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-orange-50 rounded-lg`}>
@@ -376,7 +378,7 @@ export function PerformanceTrends({ days }: PerformanceTrendsProps) {
             <div className={`text-center ${isMobile ? 'p-2' : 'p-3'} bg-pink-50 rounded-lg`}>
               <p className="text-xs text-muted-foreground mb-1">平均CPC</p>
               <p className={`${isMobile ? 'text-base' : 'text-lg'} font-bold text-pink-600`}>
-                ${safeToFixed(data.summary?.avgCPC ?? 0, isMobile ? 1 : 2)}
+                {formatCurrency(data.summary?.avgCPC ?? 0, data.summary?.currency || 'USD', isMobile ? 1 : 2)}
               </p>
             </div>
           </div>

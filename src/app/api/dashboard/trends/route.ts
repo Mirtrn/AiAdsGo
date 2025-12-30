@@ -29,6 +29,23 @@ export async function GET(request: NextRequest) {
     // 获取数据库实例
     const db = await getDatabase()
 
+    // 🔧 修复(2025-12-30): 查询货币信息以支持多货币账户
+    const currencyQuery = `
+      SELECT DISTINCT currency
+      FROM campaign_performance
+      WHERE user_id = ?
+        AND date >= ?
+        AND date <= ?
+    `
+    const currencies = await db.query(currencyQuery, [
+      userId,
+      startDate.toISOString().split('T')[0],
+      endDate.toISOString().split('T')[0]
+    ]) as Array<{ currency: string }>
+
+    const uniqueCurrencies = currencies.map(c => c.currency).filter(Boolean)
+    const mainCurrency = uniqueCurrencies.length === 1 ? uniqueCurrencies[0] : (uniqueCurrencies.length > 1 ? 'MIXED' : 'USD')
+
     // 查询每日表现数据
     const query = `
       SELECT
@@ -76,6 +93,7 @@ export async function GET(request: NextRequest) {
       totalConversions: rows.reduce((sum, row) => sum + (Number(row.conversions) || 0), 0),
       avgCTR: 0,
       avgCPC: 0,
+      currency: mainCurrency, // 🔧 新增(2025-12-30): 货币代码
     }
 
     // 计算平均CTR和CPC
