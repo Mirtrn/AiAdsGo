@@ -261,6 +261,10 @@ export async function generateContent(params: {
 
     console.log(`   - API Key传递方式: ${provider === 'relay' ? 'headers (x-api-key)' : 'query params (key)'}`)
 
+    // 🔧 调试(2025-12-30): 记录API Key前缀用于确认key正确
+    const apiKeyPrefix = apiKey ? apiKey.substring(0, Math.min(15, apiKey.length)) : '空'
+    console.log(`   - API Key前缀: ${apiKeyPrefix}...`)
+
     const response = await client.post<GeminiResponse>(
       `/v1beta/models/${model}:generateContent`,
       request,
