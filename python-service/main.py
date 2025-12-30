@@ -78,6 +78,12 @@ class KeywordIdeasRequest(BaseModel):
 
 def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient:
     """创建 Google Ads 客户端（服务账号认证）"""
+    # 🔧 调试：输出 developer_token 信息
+    token_preview = sa_config.developer_token[:10] + "..." if len(sa_config.developer_token) > 10 else sa_config.developer_token
+    logger.info(f"🔑 Developer Token: {token_preview} (length: {len(sa_config.developer_token)})")
+    logger.info(f"📧 Service Account Email: {sa_config.email}")
+    logger.info(f"🏢 Login Customer ID: {sa_config.login_customer_id}")
+
     service_account_info = {
         "type": "service_account",
         "client_email": sa_config.email,

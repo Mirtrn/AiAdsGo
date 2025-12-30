@@ -128,6 +128,12 @@ async function getServiceAccountAuth(userId: number, serviceAccountId?: string):
     )
   }
 
+  // 🔧 调试：输出 developer_token 信息
+  const tokenPreview = sa.developerToken.substring(0, 10) + '...'
+  console.log(`[User #${userId}] 🔑 Developer Token from DB: ${tokenPreview} (length: ${sa.developerToken.length})`)
+  console.log(`[User #${userId}] 📧 Service Account Email: ${sa.serviceAccountEmail}`)
+  console.log(`[User #${userId}] 🏢 MCC Customer ID: ${sa.mccCustomerId}`)
+
   return {
     email: sa.serviceAccountEmail,
     private_key: sa.privateKey || '',
