@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
 
     // 查询当前周期数据
     // 🔧 修复(2025-12-30): 按货币分组以支持多货币场景
+    // 🔧 修复(2025-12-30): PostgreSQL GROUP BY兼容性 - 单货币场景不SELECT currency字段
     const currentPeriodQuery = isMultiCurrency ? `
       SELECT
         currency,
@@ -109,7 +110,6 @@ export async function GET(request: NextRequest) {
       GROUP BY currency
     ` : `
       SELECT
-        currency,
         SUM(impressions) as impressions,
         SUM(clicks) as clicks,
         SUM(cost) as cost,
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
       : [await db.queryOne(currentPeriodQuery, [userId, formatDate(startDate), formatDate(endDate)])]
 
     const currentData = currentDataRaw as Array<{
-      currency: string | null
+      currency?: string | null
       impressions: number | null
       clicks: number | null
       cost: number | null
