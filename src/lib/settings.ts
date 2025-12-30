@@ -547,10 +547,10 @@ export async function validateGeminiConfig(
   }
 
   // Step 2: 验证模型名称
-  // - Gemini 官方支持：gemini-2.5-pro, gemini-3-flash-preview
-  // - ThunderRelay 中转支持：gemini-2.5-pro, gemini-3-flash, gemini-3-flash-preview（兼容官方名称）
-  // 🔧 实测验证(2025-12-30): ThunderRelay同时支持两种命名，兼容性良好
-  const validModels = ['gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-flash']
+  // 🔧 更新(2025-12-30): 明确ThunderRelay支持的模型列表
+  // - 官方API: gemini-2.5-pro, gemini-3-flash-preview
+  // - ThunderRelay中转: gemini-2.5-pro, gemini-3-flash-preview（与官方一致）
+  const validModels = ['gemini-2.5-pro', 'gemini-3-flash-preview']
   if (!validModels.includes(model)) {
     return {
       valid: false,

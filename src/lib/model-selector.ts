@@ -15,13 +15,13 @@
 import { getUserOnlySetting } from './settings'
 
 // 支持的Gemini模型
-// - Gemini 官方：gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview
-// - ThunderRelay 中转：gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash
+// 🔧 更新(2025-12-30): ThunderRelay与官方API统一支持的模型列表
+// - 官方API: gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview
+// - ThunderRelay中转: gemini-2.5-pro, gemini-3-flash-preview
 export type ModelType =
   | 'gemini-2.5-pro'
   | 'gemini-2.5-flash'
   | 'gemini-3-flash-preview'
-  | 'gemini-3-flash'
 
 export interface ModelSelection {
   model: ModelType
@@ -108,9 +108,9 @@ const PRO_OPERATIONS = new Set<string>([
 /**
  * 获取用户选择的Pro模型
  *
+ * 🔧 更新(2025-12-30): ThunderRelay统一使用gemini-3-flash-preview
  * - 用户选"Gemini 2.5 Pro" → 返回'gemini-2.5-pro'
- * - 用户选"Gemini 3 Flash Preview" → 返回'gemini-3-flash-preview'（官方专用）
- * - 用户选"Gemini 3 Flash" → 返回'gemini-3-flash'（ThunderRelay中转专用）
+ * - 用户选"Gemini 3 Flash Preview" → 返回'gemini-3-flash-preview'
  *
  * @param userId - 用户ID
  * @returns 用户选择的模型
@@ -124,11 +124,9 @@ export async function getUserProModel(userId?: number): Promise<ModelType> {
     const modelSetting = await getUserOnlySetting('ai', 'gemini_model', userId)
     const selectedModel = modelSetting?.value as ModelType | undefined
 
-    // 🔧 修复(2025-12-30): 支持3个模型选项
+    // 🔧 更新(2025-12-30): 支持2个模型选项
     if (selectedModel === 'gemini-3-flash-preview') {
-      return 'gemini-3-flash-preview' // 官方服务商的Gemini 3
-    } else if (selectedModel === 'gemini-3-flash') {
-      return 'gemini-3-flash' // ThunderRelay中转的Gemini 3
+      return 'gemini-3-flash-preview'
     } else {
       return 'gemini-2.5-pro' // 默认Pro模型
     }
@@ -169,13 +167,11 @@ export async function selectOptimalModel(
 
   // Flash适用场景：简单任务使用Flash版本
   if (FLASH_OPERATIONS.has(operationType)) {
-    // 🔧 修复(2025-12-30): 支持3个模型选项的Flash任务路由
-    // - 用户选 gemini-3-flash-preview（官方） → Flash任务也用 gemini-3-flash-preview
-    // - 用户选 gemini-3-flash（中转） → Flash任务也用 gemini-3-flash
-    // - 用户选 gemini-2.5-pro（默认） → Flash任务用 gemini-2.5-flash
+    // 🔧 更新(2025-12-30): Flash任务路由逻辑
+    // - 用户选 gemini-3-flash-preview → Flash任务也用 gemini-3-flash-preview
+    // - 用户选 gemini-2.5-pro → Flash任务用 gemini-2.5-flash
     const flashModel =
       userProModel === 'gemini-3-flash-preview' ? 'gemini-3-flash-preview' :
-      userProModel === 'gemini-3-flash' ? 'gemini-3-flash' :
       'gemini-2.5-flash'
 
     return {

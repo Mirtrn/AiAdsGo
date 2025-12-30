@@ -169,13 +169,12 @@ const SETTING_METADATA: Record<string, {
   'ai.gemini_model': {
     label: 'Gemini模型（Pro级别）',
     description: '用于复杂任务的Pro模型。简单任务将自动使用Flash模型以节省成本',
-    // 注意：实际可用模型取决于服务商
-    // - Gemini 官方：gemini-2.5-pro, gemini-3-flash-preview
-    // - ThunderRelay 中转：gemini-2.5-pro, gemini-3-flash
+    // 🔧 更新(2025-12-30): ThunderRelay与官方API统一支持的模型
+    // - 官方API: gemini-2.5-pro, gemini-3-flash-preview
+    // - ThunderRelay中转: gemini-2.5-pro, gemini-3-flash-preview
     options: [
       { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（默认，稳定版）' },
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview（官方专用）' },
-      { value: 'gemini-3-flash', label: 'Gemini 3 Flash（第三方中转专用）' }
+      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview（最新，高效）' },
     ],
     defaultValue: 'gemini-2.5-pro'
   },
@@ -539,19 +538,8 @@ export default function SettingsPage() {
           updated.ai.gemini_api_key = ''
         }
 
-        // 🆕 重置模型选择：切换服务商时，检查当前选择的模型是否兼容
-        const currentModel = updated.ai.gemini_model
-        if (value === 'official') {
-          // 切换到官方：如果当前是 gemini-3-flash（中转专用），重置为默认
-          if (currentModel === 'gemini-3-flash') {
-            updated.ai.gemini_model = 'gemini-2.5-pro'
-          }
-        } else if (value === 'relay') {
-          // 切换到中转：如果当前是 gemini-3-flash-preview（官方专用），重置为默认
-          if (currentModel === 'gemini-3-flash-preview') {
-            updated.ai.gemini_model = 'gemini-2.5-pro'
-          }
-        }
+        // 🔧 更新(2025-12-30): ThunderRelay与官方API统一支持相同模型，无需重置
+        // gemini-2.5-pro 和 gemini-3-flash-preview 两个服务商都支持
       }
 
       return updated
@@ -1076,20 +1064,11 @@ export default function SettingsPage() {
         { value: 'false', label: '否' }
       ]
 
-      // 🔧 特殊处理：gemini_model 根据 gemini_provider 动态筛选可用模型
+      // 🔧 更新(2025-12-30): ThunderRelay与官方API统一支持相同模型
+      // 两个服务商都支持：gemini-2.5-pro, gemini-3-flash-preview
+      // 无需根据服务商过滤模型选项
       if (category === 'ai' && setting.key === 'gemini_model') {
-        const provider = formData.ai?.gemini_provider || 'official'
-        if (provider === 'official') {
-          // Gemini 官方：gemini-2.5-pro, gemini-3-flash-preview
-          options = options.filter(opt =>
-            opt.value === 'gemini-2.5-pro' || opt.value === 'gemini-3-flash-preview'
-          )
-        } else if (provider === 'relay') {
-          // ThunderRelay 中转：gemini-2.5-pro, gemini-3-flash
-          options = options.filter(opt =>
-            opt.value === 'gemini-2.5-pro' || opt.value === 'gemini-3-flash'
-          )
-        }
+        // 所有模型选项都可用，无需过滤
       }
 
       return (
