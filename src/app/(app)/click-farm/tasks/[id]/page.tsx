@@ -187,163 +187,200 @@ export default function TaskDetailPage() {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.push('/click-farm')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold">任务详情</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              ID: {taskId}
-            </p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header - Fixed Top Bar */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="icon" onClick={() => router.push('/click-farm')}>
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">补点击任务详情</h1>
+              </div>
+              {getStatusBadge(task.status)}
+            </div>
+            <div className="flex gap-2">
+              {task.status === 'running' && (
+                <Button variant="outline" onClick={handleStopTask} disabled={actionLoading}>
+                  <Square className="mr-2 h-4 w-4" />
+                  停止任务
+                </Button>
+              )}
+              {(task.status === 'stopped' || task.status === 'paused') && (
+                <Button variant="outline" onClick={handleRestartTask} disabled={actionLoading}>
+                  <Play className="mr-2 h-4 w-4" />
+                  重启任务
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          {task.status === 'running' && (
-            <Button variant="outline" onClick={handleStopTask} disabled={actionLoading}>
-              <Square className="mr-2 h-4 w-4" />
-              停止任务
-            </Button>
-          )}
-          {(task.status === 'stopped' || task.status === 'paused') && (
-            <Button variant="outline" onClick={handleRestartTask} disabled={actionLoading}>
-              <Play className="mr-2 h-4 w-4" />
-              重启任务
-            </Button>
-          )}
         </div>
       </div>
 
-      {/* Offer Info Card */}
+      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+
+      {/* Offer Info Card - Compact Style */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            Offer 信息
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium text-gray-600">
+            关联 Offer
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
-              <p className="text-sm text-muted-foreground">Offer ID</p>
+              <p className="text-xs text-muted-foreground">Offer ID</p>
               <p className="font-medium">#{offer.id}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">品牌名称</p>
-              <p className="font-medium">{offer.brand_name || offer.name}</p>
+              <p className="text-xs text-muted-foreground">品牌名称</p>
+              <p className="font-medium">{offer.brand || offer.name}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">目标国家</p>
-              <p className="font-medium">{offer.target_country}</p>
+              <p className="text-xs text-muted-foreground">目标国家</p>
+              <Badge variant="outline" className="mt-1">{offer.target_country}</Badge>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">任务状态</p>
-              <div className="mt-1">{getStatusBadge(task.status)}</div>
+              <p className="text-xs text-muted-foreground">时区</p>
+              <p className="font-medium text-xs">{task.timezone}</p>
             </div>
           </div>
+          {offer.affiliate_link && (
+            <div className="pt-2 border-t">
+              <p className="text-xs text-muted-foreground mb-1">联盟推广链接</p>
+              <a
+                href={offer.affiliate_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline text-sm break-all"
+              >
+                {offer.affiliate_link}
+              </a>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">总点击数</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{task.total_clicks.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              成功: {task.success_clicks} / 失败: {task.failed_clicks}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">成功率</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{statistics.success_rate.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              成功: {task.success_clicks.toLocaleString()} 次
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">总流量</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatBytes(statistics.total_traffic)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              基于点击数推算
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">运行时长</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {statistics.duration_days > 0
-                ? `${statistics.duration_days}天`
-                : statistics.duration_hours > 0
-                ? `${statistics.duration_hours}小时`
-                : '未开始'}
+      {/* Statistics Cards - Compact Style */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card className="py-4">
+          <CardContent className="pt-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gray-600">总点击数</p>
+                <p className="text-xl font-bold text-gray-900 mt-1">
+                  {task.total_clicks.toLocaleString()}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  成功 {task.success_clicks} / 失败 {task.failed_clicks}
+                </p>
+              </div>
+              <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+                <Activity className="w-4 h-4 text-blue-600" />
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              进度: {task.progress}%
-            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="py-4">
+          <CardContent className="pt-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gray-600">成功率</p>
+                <p className="text-xl font-bold text-gray-900 mt-1">
+                  {statistics.success_rate.toFixed(1)}%
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  成功 {task.success_clicks.toLocaleString()} 次
+                </p>
+              </div>
+              <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+                <CheckCircle className="w-4 h-4 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="py-4">
+          <CardContent className="pt-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gray-600">总流量</p>
+                <p className="text-xl font-bold text-gray-900 mt-1">
+                  {formatBytes(statistics.total_traffic)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  基于点击数推算
+                </p>
+              </div>
+              <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center shrink-0">
+                <TrendingUp className="w-4 h-4 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="py-4">
+          <CardContent className="pt-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gray-600">运行时长</p>
+                <p className="text-xl font-bold text-gray-900 mt-1">
+                  {statistics.duration_days > 0
+                    ? `${statistics.duration_days}天`
+                    : statistics.duration_hours > 0
+                    ? `${statistics.duration_hours}小时`
+                    : '未开始'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  进度 {task.progress}%
+                </p>
+              </div>
+              <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4 text-purple-600" />
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Configuration Card */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium text-gray-600">
             任务配置
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
             <div>
-              <p className="text-sm text-muted-foreground">每日点击数</p>
+              <p className="text-xs text-muted-foreground">每日点击数</p>
               <p className="font-medium text-lg">{task.daily_click_count}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">执行时间段</p>
-              <p className="font-medium text-lg">{task.start_time} - {task.end_time}</p>
+              <p className="text-xs text-muted-foreground">执行时间段</p>
+              <p className="font-medium">{task.start_time} - {task.end_time}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">持续时长</p>
-              <p className="font-medium text-lg">
+              <p className="text-xs text-muted-foreground">持续时长</p>
+              <p className="font-medium">
                 {task.duration_days === -1 ? '不限期' : `${task.duration_days}天`}
               </p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">时区</p>
-              <p className="font-medium">{task.timezone}</p>
+              <p className="text-xs text-muted-foreground">开始日期</p>
+              <p className="font-medium">{task.scheduled_start_date || '-'}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">创建时间</p>
-              <p className="font-medium">{new Date(task.created_at).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">创建时间</p>
+              <p className="font-medium text-xs">{new Date(task.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
             </div>
             {task.started_at && (
               <div>
-                <p className="text-sm text-muted-foreground">开始时间</p>
-                <p className="font-medium">{new Date(task.started_at).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">开始时间</p>
+                <p className="font-medium text-xs">{new Date(task.started_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
               </div>
             )}
           </div>
@@ -438,6 +475,7 @@ export default function TaskDetailPage() {
           )}
         </CardContent>
       </Card>
+      </main>
     </div>
   );
 }

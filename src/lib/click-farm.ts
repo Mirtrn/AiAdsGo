@@ -214,6 +214,12 @@ export async function updateClickFarmTask(
     values.push(updates.timezone);
   }
 
+  // 🔧 修复(2025-12-30): 支持更新referer_config
+  if (updates.referer_config !== undefined) {
+    fields.push('referer_config = ?');
+    values.push(updates.referer_config ? JSON.stringify(updates.referer_config) : null);
+  }
+
   if (fields.length === 0) {
     throw new Error('No fields to update');
   }
@@ -642,6 +648,7 @@ function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     failed_clicks: row.failed_clicks,
     daily_history: JSON.parse(row.daily_history || '[]'),
     timezone: row.timezone,
+    referer_config: row.referer_config ? JSON.parse(row.referer_config) : null,  // 🔧 修复(2025-12-30): 添加referer_config字段解析
     is_deleted: Boolean(row.is_deleted),
     deleted_at: row.deleted_at,
     started_at: row.started_at,

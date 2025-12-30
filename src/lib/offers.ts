@@ -233,7 +233,27 @@ export async function createOffer(userId: number, input: CreateOfferInput): Prom
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, params)
 
-  const offer = await findOfferById(result.lastInsertRowid as number, userId)
+  // 🔧 修复(2025-12-30): PostgreSQL 使用 RETURNING id，SQLite 使用 lastInsertRowid
+  let insertedId: number
+  if (db.type === 'postgres') {
+    // PostgreSQL: db.exec 已经自动添加 RETURNING id，结果在返回的数组中
+    // 从日志可见：返回结果: [{"id":409}]
+    // 注意：result 是数组，需要从第一个元素中提取 id
+    const returnedRows = result as any
+    if (Array.isArray(returnedRows) && returnedRows.length > 0 && returnedRows[0].id) {
+      insertedId = returnedRows[0].id
+    } else {
+      throw new Error('PostgreSQL INSERT 未返回 id')
+    }
+  } else {
+    // SQLite: 使用 lastInsertRowid
+    if (!result.lastInsertRowid) {
+      throw new Error('SQLite INSERT 未返回 lastInsertRowid')
+    }
+    insertedId = result.lastInsertRowid as number
+  }
+
+  const offer = await findOfferById(insertedId, userId)
   if (!offer) {
     throw new Error('Offer创建失败')
   }

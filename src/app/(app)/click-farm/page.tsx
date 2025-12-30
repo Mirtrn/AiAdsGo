@@ -168,6 +168,28 @@ export default function ClickFarmPage() {
     }
   };
 
+  const handleTriggerTask = async (taskId: string) => {
+    try {
+      setActionLoading(taskId);
+      const response = await fetch(`/api/click-farm/tasks/${taskId}/trigger`, {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || '触发任务失败');
+      }
+
+      toast.success(data.message || '任务已触发');
+      await loadData();
+    } catch (error: any) {
+      toast.error(error.message || '触发任务失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleDeleteTask = async () => {
     if (!deleteTaskId) return;
 
@@ -470,7 +492,16 @@ export default function ClickFarmPage() {
                           #{task.offer_id}
                         </Button>
                       </TableCell>
-                      <TableCell>{getStatusBadge(task.status)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          {getStatusBadge(task.status)}
+                          {task.status === 'paused' && task.pause_message && (
+                            <span className="text-xs text-red-600" title={task.pause_message}>
+                              {task.pause_message}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Badge variant="outline" className="text-xs">
@@ -521,6 +552,18 @@ export default function ClickFarmPage() {
                               title="编辑任务"
                             >
                               <Edit2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {task.status === 'pending' && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleTriggerTask(task.id)}
+                              disabled={actionLoading === task.id}
+                              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                              title="立即触发"
+                            >
+                              <Zap className="w-4 h-4" />
                             </Button>
                           )}
                           {task.status === 'running' && (

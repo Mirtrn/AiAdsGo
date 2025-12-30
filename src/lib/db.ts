@@ -343,19 +343,20 @@ class PostgresAdapter implements DatabaseAdapter {
 
     // PostgreSQL返回值处理
     // 🔧 修复(2025-12-30): postgres.js的Result对象同时继承Array和Object
-    // 优先检查count属性（UPDATE/DELETE），再检查数组（INSERT RETURNING）
+    // INSERT ... RETURNING 优先检查（因为可能同时有count和数组元素）
     let lastInsertRowid: number | undefined
     let changes = 0
 
-    // 1. UPDATE/DELETE返回Result对象（有count属性）
-    if (pgResult && typeof pgResult === 'object' && 'count' in pgResult) {
+    // 1. INSERT ... RETURNING返回数组 (优先检查)
+    if (Array.isArray(pgResult) && pgResult.length > 0 && pgResult[0]?.id !== undefined) {
+      changes = pgResult.length
+      lastInsertRowid = pgResult[0].id
+      console.log(`✅ [INSERT RETURNING] 提取到 id=${lastInsertRowid}`)
+    }
+    // 2. UPDATE/DELETE返回Result对象（有count属性）
+    else if (pgResult && typeof pgResult === 'object' && 'count' in pgResult) {
       changes = typeof pgResult.count === 'number' ? pgResult.count : 0
       lastInsertRowid = pgResult.id ?? pgResult.lastInsertRowid
-    }
-    // 2. INSERT ... RETURNING返回数组
-    else if (Array.isArray(pgResult) && pgResult.length > 0) {
-      changes = pgResult.length
-      lastInsertRowid = pgResult[0]?.id
     }
     // 3. 其他情况（兜底）
     else if (pgResult && typeof pgResult === 'object') {

@@ -9,6 +9,7 @@ import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifica
 import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
 import { getDatabase } from '@/lib/db';
 import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
+import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 import type { ClickFarmTask } from '@/lib/click-farm-types';
 
@@ -82,13 +83,12 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     return { taskId, status: 'paused', message: 'Offer已删除，任务已暂停' };
   }
 
-  // 检查代理配置
-  const proxyConfig = await db.queryOne<any>(`
-    SELECT proxy_url FROM system_settings
-    WHERE user_id = ? AND key = ?
-  `, [task.user_id, `proxy_${offer.target_country.toLowerCase()}`]);
+  // 🔧 修复(2025-12-30): 使用新的代理配置系统（proxy.urls JSON数组）
+  const proxyUrls = await getAllProxyUrls(task.user_id);
+  const targetCountry = offer.target_country.toUpperCase();
+  const proxyConfig = proxyUrls?.find(p => p.country.toUpperCase() === targetCountry);
 
-  if (!proxyConfig || !proxyConfig.proxy_url) {
+  if (!proxyConfig) {
     await pauseClickFarmTask(
       task.id,
       'no_proxy',
@@ -144,7 +144,7 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     const taskData: ClickFarmTaskData = {
       taskId: task.id,
       url: offer.affiliate_link,
-      proxyUrl: proxyConfig.proxy_url,
+      proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
       offerId: task.offer_id,
       refererConfig  // 🆕 传递Referer配置
     };
@@ -230,11 +230,12 @@ export async function triggerAllPendingTasks(): Promise<{
       continue;
     }
 
-    const proxyConfig = await db.queryOne<any>(`
-      SELECT proxy_url FROM system_settings WHERE user_id = ? AND key = ?
-    `, [task.user_id, `proxy_${offer.target_country.toLowerCase()}`]);
+    // 🔧 修复(2025-12-30): 使用新的代理配置系统
+    const proxyUrls = await getAllProxyUrls(task.user_id);
+    const targetCountry = offer.target_country.toUpperCase();
+    const proxyConfig = proxyUrls?.find(p => p.country.toUpperCase() === targetCountry);
 
-    if (!proxyConfig?.proxy_url) {
+    if (!proxyConfig) {
       await pauseClickFarmTask(task.id, 'no_proxy', '缺少代理配置');
       results.paused++;
       continue;
@@ -272,7 +273,7 @@ export async function triggerAllPendingTasks(): Promise<{
         await queueManager.enqueue('click-farm', {
           taskId: task.id,
           url: offer.affiliate_link,
-          proxyUrl: proxyConfig.proxy_url,
+          proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
           offerId: task.offer_id,
           refererConfig  // 🆕 传递Referer配置
         }, task.user_id, { priority: 'normal', maxRetries: 2 });

@@ -4,10 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getClickFarmTaskById, restartClickFarmTask } from '@/lib/click-farm';
 import { notifyTaskResumed } from '@/lib/click-farm/notifications';
 import { getDatabase } from '@/lib/db';
+import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const userId = request.headers.get('x-user-id');
@@ -18,7 +19,8 @@ export async function POST(
       );
     }
 
-    const task = await getClickFarmTaskById(params.id, parseInt(userId!));
+    const { id } = await context.params;
+    const task = await getClickFarmTaskById(id, parseInt(userId!));
     if (!task) {
       return NextResponse.json(
         { error: 'not_found', message: '任务不存在' },
@@ -41,13 +43,12 @@ export async function POST(
       `, [task.offer_id]);
 
       if (offer) {
-        const proxyConfig = await db.queryOne<any>(`
-          SELECT proxy_url
-          FROM system_settings
-          WHERE user_id = ? AND key = ?
-        `, [parseInt(userId!), `proxy_${offer.target_country.toLowerCase()}`]);
+        // 🔧 修复(2025-12-30): 使用新的代理配置系统（proxy.urls JSON数组）
+        const proxyUrls = await getAllProxyUrls(parseInt(userId!));
+        const targetCountry = offer.target_country.toUpperCase();
+        const proxyConfig = proxyUrls?.find(p => p.country.toUpperCase() === targetCountry);
 
-        if (!proxyConfig || !proxyConfig.proxy_url) {
+        if (!proxyConfig) {
           return NextResponse.json(
             {
               error: 'proxy_required',
@@ -69,21 +70,21 @@ export async function POST(
 
     // 如果任务从未开始，重启后应该会设置started_at
     if (!task.started_at) {
-      console.log(`[Restart] 任务 ${params.id} 从未开始，重启后将首次执行`);
+      console.log(`[Restart] 任务 ${id} 从未开始，重启后将首次执行`);
     } else if (task.scheduled_start_date) {
       // 检查scheduled_start_date是否已经过期
       const today = new Date().toISOString().split('T')[0];
       if (task.scheduled_start_date < today) {
         // scheduled_start_date已过期，任务应该已经运行了一段时间
         // 不需要特殊处理，next_run_at会在Cron中自动更新
-        console.log(`[Restart] 任务 ${params.id} 的scheduled_start_date(${task.scheduled_start_date})已过期，状态正常`);
+        console.log(`[Restart] 任务 ${id} 的scheduled_start_date(${task.scheduled_start_date})已过期，状态正常`);
       }
     }
 
-    const updatedTask = await restartClickFarmTask(params.id, parseInt(userId!));
+    const updatedTask = await restartClickFarmTask(id, parseInt(userId!));
 
     // 🔔 发送任务恢复通知
-    await notifyTaskResumed(parseInt(userId!), params.id);
+    await notifyTaskResumed(parseInt(userId!), id);
 
     return NextResponse.json({
       success: true,
