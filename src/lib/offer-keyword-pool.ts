@@ -820,14 +820,18 @@ export async function clusterKeywordsByIntent(
       lastError = error
       const isTimeout = error.message?.includes('timeout') || error.code === 'ECONNABORTED'
       const isRateLimited = error.response?.status === 429
+      const isGatewayError = error.response?.status >= 500  // 504, 502, 500 等服务器错误
 
-      if (retryCount < maxRetries && (isTimeout || isRateLimited)) {
+      // 🔧 修复(2025-12-31): 添加 5xx 网关错误识别，支持 504 等错误重试
+      if (retryCount < maxRetries && (isTimeout || isRateLimited || isGatewayError)) {
         // 🔥 2025-12-27 优化：添加随机抖动，避免重试风暴
         const baseDelayMs = baseDelay * Math.pow(2, retryCount)
         const jitter = Math.random() * 2000  // 0-2秒随机抖动
         const delay = Math.min(baseDelayMs + jitter, 60000)  // 最多60秒
-        console.warn(`⚠️ 分批聚类第 ${retryCount + 1} 次失败，${(delay / 1000).toFixed(1)}s 后重试...`)
-        console.warn(`   错误: ${error.message}`)
+        const errorInfo = error.response?.status
+          ? `HTTP ${error.response.status}`
+          : error.message?.substring(0, 50)
+        console.warn(`⚠️ 分批聚类第 ${retryCount + 1} 次失败 (${errorInfo})，${(delay / 1000).toFixed(1)}s 后重试...`)
         await new Promise(resolve => setTimeout(resolve, delay))
         continue
       }
@@ -1059,13 +1063,17 @@ async function clusterKeywordsDirectly(
       lastError = error
       const isTimeout = error.message?.includes('timeout') || error.code === 'ECONNABORTED'
       const isRateLimited = error.response?.status === 429
+      const isGatewayError = error.response?.status >= 500  // 🔧 2025-12-31: 5xx 网关错误（502, 504 等）
 
-      if (retryCount < maxRetries && (isTimeout || isRateLimited)) {
+      if (retryCount < maxRetries && (isTimeout || isRateLimited || isGatewayError)) {
         // 🔥 2025-12-27 优化：添加随机抖动，避免重试风暴
         const baseDelayMs = baseDelay * Math.pow(2, retryCount)
         const jitter = Math.random() * 2000  // 0-2秒随机抖动
         const delay = Math.min(baseDelayMs + jitter, 60000)  // 最多60秒
-        console.warn(`⚠️ AI 聚类第 ${retryCount + 1} 次失败，${(delay / 1000).toFixed(1)}s 后重试...`)
+        const errorInfo = error.response?.status
+          ? `HTTP ${error.response.status} ${error.response.status === 504 ? '(Gateway Timeout)' : ''}`
+          : error.message?.substring(0, 50)
+        console.warn(`⚠️ AI 聚类第 ${retryCount + 1} 次失败 (${errorInfo})，${(delay / 1000).toFixed(1)}s 后重试...`)
         console.warn(`   错误: ${error.message}`)
         await new Promise(resolve => setTimeout(resolve, delay))
         continue
