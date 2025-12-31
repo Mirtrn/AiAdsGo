@@ -263,16 +263,16 @@ class PostgresAdapter implements DatabaseAdapter {
     const pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
 
-    // 🔥 调试日志：记录SQL转换和参数（仅在开发环境）
+    // 生产环境不输出详细日志
     if (process.env.NODE_ENV === 'development') {
       const placeholderCount = (pgSql.match(/\$[0-9]+/g) || []).length
-      console.log('🔍 SQL执行:', {
-        原始SQL: sql.substring(0, 150),
-        转换后SQL: pgSql.substring(0, 150),
-        参数数量: params.length,
-        转换后参数: cleanParams,
-        期望占位符: placeholderCount
-      })
+      if (placeholderCount !== cleanParams.length) {
+        console.error('❌ 参数数量不匹配!', {
+          SQL: pgSql.substring(0, 200),
+          占位符数量: placeholderCount,
+          参数数量: cleanParams.length
+        })
+      }
     }
 
     const result = await this.sql.unsafe(pgSql, cleanParams)
@@ -285,15 +285,14 @@ class PostgresAdapter implements DatabaseAdapter {
     const pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
 
-    // 🔥 调试日志：记录SQL转换和参数（仅在开发环境）
+    // 生产环境不输出详细日志
     if (process.env.NODE_ENV === 'development') {
       const placeholderCount = (pgSql.match(/\$[0-9]+/g) || []).length
       if (placeholderCount !== cleanParams.length) {
         console.error('❌ 参数数量不匹配!', {
           SQL: pgSql.substring(0, 200),
           占位符数量: placeholderCount,
-          参数数量: cleanParams.length,
-          参数: cleanParams
+          参数数量: cleanParams.length
         })
       }
     }
@@ -308,14 +307,14 @@ class PostgresAdapter implements DatabaseAdapter {
     let pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
 
-    // 🔥 详细调试日志
-    console.log('🔍 [PostgreSQL exec] ==================')
-    console.log('原始SQL:', sql)
-    console.log('转换后SQL:', pgSql)
-    console.log('原始参数:', params)
-    console.log('清理后参数:', cleanParams)
-    console.log('占位符数量:', (pgSql.match(/\$\d+/g) || []).length)
-    console.log('参数数量:', cleanParams.length)
+    // 🔥 生产环境不输出详细SQL日志（减少日志噪音）
+    const isDev = process.env.NODE_ENV === 'development'
+    if (isDev) {
+      console.log('🔍 [PostgreSQL exec]', {
+        table: extractTableName(sql),
+        op: sql.trim().substring(0, 20).replace(/\s+/g, ' ')
+      })
+    }
 
     // 🔥 PostgreSQL INSERT 语句需要 RETURNING id 才能获取插入的ID
     // 检测是否是 INSERT 语句，如果是且没有 RETURNING，自动添加
@@ -325,19 +324,16 @@ class PostgresAdapter implements DatabaseAdapter {
     if (isInsert && !hasReturning) {
       // 移除末尾的分号（如果有），添加 RETURNING id
       pgSql = pgSql.replace(/;\s*$/, '') + ' RETURNING id'
-      console.log('添加RETURNING后:', pgSql)
     }
 
     let pgResult: any
     try {
       pgResult = await this.sql.unsafe(pgSql, cleanParams)
-      console.log('🔍 [PostgreSQL exec] 执行成功')
-      console.log('返回结果类型:', typeof pgResult)
-      console.log('是否数组:', Array.isArray(pgResult))
-      console.log('返回结果:', JSON.stringify(pgResult))
+      if (isDev) {
+        console.log('✅ [PostgreSQL exec] 完成:', { changes: pgResult?.count ?? pgResult?.length })
+      }
     } catch (error: any) {
-      console.error('❌ [PostgreSQL exec] 执行失败:', error.message)
-      console.error('错误详情:', error)
+      console.error('❌ [PostgreSQL exec] 失败:', error.message)
       throw error
     }
 
@@ -357,7 +353,6 @@ class PostgresAdapter implements DatabaseAdapter {
         // INSERT ... RETURNING 返回数组
         changes = pgAny.length
         lastInsertRowid = pgAny[0].id
-        console.log(`✅ [INSERT RETURNING] 提取到 id=${lastInsertRowid}`)
       } else if (pgAny.count !== undefined) {
         // UPDATE/DELETE 返回 Result 对象（有count属性）
         changes = typeof pgAny.count === 'number' ? pgAny.count : 0
@@ -370,9 +365,6 @@ class PostgresAdapter implements DatabaseAdapter {
         }
       }
     }
-
-    console.log('最终返回:', { changes, lastInsertRowid })
-    console.log('🔍 [PostgreSQL exec] ==================\n')
 
     return { changes, lastInsertRowid: lastInsertRowid ?? undefined }
   }
@@ -398,6 +390,12 @@ class PostgresAdapter implements DatabaseAdapter {
   getRawConnection(): postgres.Sql {
     return this.sql
   }
+}
+
+// 从SQL中提取表名（用于日志）
+function extractTableName(sql: string): string {
+  const match = sql.match(/^\s*(?:INSERT|UPDATE|DELETE|SELECT)\s+(?:INTO\s+)?(\w+)/i)
+  return match ? match[1] : 'unknown'
 }
 
 // 全局单例实例 - 使用 global 对象防止热重载时重置

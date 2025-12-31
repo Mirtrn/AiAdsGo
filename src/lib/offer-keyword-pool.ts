@@ -690,19 +690,12 @@ export async function clusterKeywordsByIntent(
   targetLanguage?: string,
   pageType: 'product' | 'store' = 'product'
 ): Promise<KeywordBuckets> {
-  // 🔍 调试日志：检查接收到的参数
-  console.log(`🔍 [clusterKeywordsByIntent] 接收到的参数:`)
-  console.log(`   - targetCountry: ${targetCountry} (类型: ${typeof targetCountry})`)
-  console.log(`   - targetLanguage: ${targetLanguage} (类型: ${typeof targetLanguage})`)
-  console.log(`   - pageType: ${pageType}`)
-  console.log(`   - keywords数量: ${keywords.length}`)
-
   if (keywords.length === 0) {
     console.log('⚠️ 无关键词需要聚类，返回空桶')
     return pageType === 'store' ? createEmptyStoreBuckets() : createEmptyBuckets()
   }
 
-  console.log(`\n🎯 开始 AI 语义聚类: ${keywords.length} 个关键词 (${pageType}链接)`)
+  console.log(`🎯 开始 AI 语义聚类: ${keywords.length} 个关键词 (${pageType}链接)`)
 
   // 🔥 2025-12-22 整合优化：先生成高购买意图关键词
   // 🆕 v4.16: 店铺链接不生成高购买意图关键词
@@ -2059,13 +2052,6 @@ export async function generateOfferKeywordPool(
   // 🆕 v4.16: 确定页面类型
   const pageType = (offer.page_type as 'product' | 'store') || 'product'
   console.log(`📊 页面类型: ${pageType}`)
-
-  // 🔍 调试日志：检查传递给聚类的参数
-  console.log(`🔍 [Debug] Offer数据:`)
-  console.log(`   - brand: ${offer.brand}`)
-  console.log(`   - target_country: ${offer.target_country} (类型: ${typeof offer.target_country})`)
-  console.log(`   - target_language: ${offer.target_language} (类型: ${typeof offer.target_language})`)
-  console.log(`   - pageType: ${pageType}`)
 
   // 6. AI 语义聚类（传递国家和语言参数用于查询高购买意图词搜索量）
   // 🆕 v4.16: 传递 pageType 参数

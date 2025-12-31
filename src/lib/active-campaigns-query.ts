@@ -61,11 +61,9 @@ export async function queryActiveCampaigns(
   // 🔧 处理MCC子账号的login-customer-id参数
   // 如果有parent_mcc_id，说明是子账号，需要传递loginCustomerId
   let effectiveLoginCustomerId = adsAccount.parent_mcc_id
-  console.log(`🔍 [Debug] 账号 ${adsAccount.customer_id} 的 parent_mcc_id: ${adsAccount.parent_mcc_id} (类型: ${typeof adsAccount.parent_mcc_id})`)
 
   // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
   const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
-  console.log(`🔍 [Debug] 转换后的 finalLoginCustomerId: ${finalLoginCustomerId} (类型: ${typeof finalLoginCustomerId})`)
 
   // 2. 检查OAuth凭证或服务账号配置
   const credentials = await getGoogleAdsCredentials(userId)

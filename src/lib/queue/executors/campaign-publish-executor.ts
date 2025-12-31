@@ -136,36 +136,28 @@ export async function executeCampaignPublish(
     // 🔧 修复(2025-12-19): 如果parent_mcc_id为NULL，从用户设置中获取login_customer_id
     // 这确保MCC账户ID正确传递给Google Ads API
     let effectiveLoginCustomerId = adsAccount.parent_mcc_id
-    console.log(`🔍 [Debug] 账号 ${adsAccount.customer_id} 的 parent_mcc_id: ${adsAccount.parent_mcc_id} (类型: ${typeof adsAccount.parent_mcc_id})`)
 
     if (!effectiveLoginCustomerId) {
       try {
         // 🔧 修复(2025-12-25): 支持OAuth和服务账号两种方式获取login_customer_id
         const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
         const config = await getGoogleAdsConfig(userId)
-        console.log(`🔍 [Debug] 用户配置的 login_customer_id: ${config?.loginCustomerId} (类型: ${typeof config?.loginCustomerId})`)
 
         if (config?.loginCustomerId) {
           effectiveLoginCustomerId = config.loginCustomerId
-          console.log(`⚠️ 使用来自用户设置的login_customer_id: ${effectiveLoginCustomerId} (类型: ${typeof effectiveLoginCustomerId})`)
-
           // 同时更新数据库，避免后续调用继续走这条路径
           await db.exec(
             `UPDATE google_ads_accounts SET parent_mcc_id = ? WHERE id = ?`,
             [effectiveLoginCustomerId, adsAccount.id]
           )
-          console.log(`✅ 已更新parent_mcc_id到数据库`)
         }
       } catch (settingsError: any) {
         console.warn(`⚠️ 无法从用户设置获取login_customer_id: ${settingsError.message}`)
       }
     }
 
-    console.log(`🔍 [Debug] 最终使用的 effectiveLoginCustomerId: ${effectiveLoginCustomerId} (类型: ${typeof effectiveLoginCustomerId})`)
-
     // 🔧 确保loginCustomerId是字符串类型（Google Ads API要求）
     const finalLoginCustomerId = effectiveLoginCustomerId ? String(effectiveLoginCustomerId) : undefined
-    console.log(`🔍 [Debug] 转换后的 finalLoginCustomerId: ${finalLoginCustomerId} (类型: ${typeof finalLoginCustomerId})`)
 
     // 2. 检查OAuth凭证或服务账号配置
     const credentials = await getGoogleAdsCredentials(userId)
