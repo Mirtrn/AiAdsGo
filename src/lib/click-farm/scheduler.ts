@@ -253,15 +253,27 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
 
   // 如果提供了任务对象且任务未开始，计算首次执行时间
   if (task.scheduled_start_date && !task.started_at) {
-    // 🔧 修复：使用 getDateInTimezone 获取任务时区的当前日期
-    // ⚠️ 重要：scheduled_start_date 是相对于 task.timezone 的本地日期
-    // 必须在同一时区进行比较，不能混合使用服务器本地时区
+    // 🔧 修复(2025-12-31): 确保 scheduled_start_date 是 "YYYY-MM-DD" 格式的字符串
+    // PostgreSQL date 类型返回 Date 对象，需要转换
+    let scheduledStartDateStr: string;
+    if (typeof task.scheduled_start_date === 'string') {
+      // 如果已经是字符串，提取日期部分（处理 "2025-12-31T00:00:00.000Z" 格式）
+      scheduledStartDateStr = task.scheduled_start_date.split('T')[0];
+    } else if (task.scheduled_start_date instanceof Date) {
+      // 如果是 Date 对象，转换为 YYYY-MM-DD 格式
+      const year = task.scheduled_start_date.getFullYear();
+      const month = String(task.scheduled_start_date.getMonth() + 1).padStart(2, '0');
+      const day = String(task.scheduled_start_date.getDate()).padStart(2, '0');
+      scheduledStartDateStr = `${year}-${month}-${day}`;
+    } else {
+      scheduledStartDateStr = String(task.scheduled_start_date);
+    }
+
+    // 使用 getDateInTimezone 获取任务时区的当前日期
     const todayInTaskTimezone = getDateInTimezone(new Date(), timezone);
 
-    // ✅ 正确：在同一时区（任务时区）进行日期对比
-    // 🔧 修复(2025-12-31): 确保 scheduled_start_date 是字符串
-    const scheduledStartDate = String(task.scheduled_start_date || '');
-    if (scheduledStartDate < todayInTaskTimezone) {
+    // 在同一时区进行日期对比
+    if (scheduledStartDateStr < todayInTaskTimezone) {
       // 还没有到开始日期，返回下一个小时
       const nextHour = new Date(now);
       nextHour.setHours(now.getHours() + 1, 0, 0, 0);
@@ -277,7 +289,6 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
 
     if (firstActiveHour !== -1) {
       // 解析 start_time (格式: "HH:mm")
-      // 🔧 修复(2025-12-31): 确保 start_time 是字符串
       const startTimeStr = String(task.start_time || '06:00');
       const [startHourStr] = startTimeStr.split(':');
       const startHour = parseInt(startHourStr) || 0;
@@ -285,9 +296,9 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
       // 使用第一个活跃小时和start_time中较大的那个
       const targetHour = Math.max(firstActiveHour, startHour);
 
-      // 使用createDateInTimezone正确构造timezone的时间
+      // 🔧 修复(2025-12-31): 使用字符串格式的日期传递给 createDateInTimezone
       const firstRunAt = createDateInTimezone(
-        task.scheduled_start_date,
+        scheduledStartDateStr,
         `${targetHour}:00`,
         timezone
       );
