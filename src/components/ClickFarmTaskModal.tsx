@@ -117,18 +117,32 @@ export default function ClickFarmTaskModal({
       setTimePeriod(`${task.start_time}-${task.end_time}`);
       // 🔧 修复P0-3(2025-12-30): 后端-1表示不限期,前端转换为9999
       setDurationDays(task.duration_days === -1 ? 9999 : task.duration_days);
-      setScheduledStartDate(task.scheduled_start_date);  // 🆕 加载scheduled_start_date
+      // 🔧 修复(2025-12-31): scheduled_start_date可能是ISO格式，转换为yyyy-MM-dd格式
+      const startDateStr = task.scheduled_start_date;
+      if (startDateStr) {
+        const formattedDate = typeof startDateStr === 'string'
+          ? startDateStr.split('T')[0]
+          : startDateStr;
+        setScheduledStartDate(formattedDate);
+      } else {
+        setScheduledStartDate(new Date().toISOString().split('T')[0]);
+      }
       setDistribution(task.hourly_distribution);
       setTimezone(task.timezone);  // 🆕 加载timezone
       // 🆕 加载Referer配置
-      // 🔧 修复(2025-12-31): 空字符串是truthy，需要同时检查非空
-      if (task.referer_config && task.referer_config.trim() && task.referer_config !== 'null') {
-        const refererCfg = typeof task.referer_config === 'string'
-          ? JSON.parse(task.referer_config)
-          : task.referer_config;
+      // 🔧 修复(2025-12-31): referer_config可能是对象或字符串，需要先检查类型
+      const refererConfigValue = task.referer_config;
+      if (refererConfigValue && typeof refererConfigValue === 'string' && refererConfigValue.trim() && refererConfigValue !== 'null') {
+        const refererCfg = JSON.parse(refererConfigValue);
         setRefererConfig({
           type: refererCfg.type || 'none',
           referer: refererCfg.referer
+        });
+      } else if (refererConfigValue && typeof refererConfigValue === 'object') {
+        // referer_config 已经是对象
+        setRefererConfig({
+          type: refererConfigValue.type || 'none',
+          referer: refererConfigValue.referer
         });
       } else {
         setRefererConfig({ type: 'none' });
