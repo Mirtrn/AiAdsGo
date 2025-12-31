@@ -627,6 +627,8 @@ function calculateMatchRate(actual: number[], configured: number[]): number {
  * 解析数据库任务对象
  * 🔧 修复(2025-12-31): PostgreSQL jsonb 类型会被自动解析为 JS 对象/数组，
  * 不需要再调用 JSON.parse。SQLite 返回字符串，需要解析。
+ * 🔧 额外修复：PostgreSQL time without time zone 类型返回 Date 对象，
+ * 需要转换为字符串格式 "HH:mm" 才能使用 split() 方法。
  */
 export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
   // 安全解析函数：处理字符串（SQLite）或已解析对象（PostgreSQL jsonb）
@@ -643,6 +645,24 @@ export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     return value; // 已经是对象/数组（PostgreSQL jsonb）
   };
 
+  // 安全解析时间字段（PostgreSQL time without time zone 返回 Date 对象）
+  // 需要转换为字符串格式 "HH:mm" 才能使用 split() 方法
+  const safeParseTime = (value: any, defaultValue: string = '06:00'): string => {
+    if (value === null || value === undefined) return defaultValue;
+    if (typeof value === 'string') {
+      // 格式可能是 "06:00:00" 或 "06:00"，取前5个字符
+      return value.substring(0, 5);
+    }
+    if (value instanceof Date) {
+      // PostgreSQL time 类型返回的是 Date 对象（只有时间部分）
+      const hours = String(value.getHours()).padStart(2, '0');
+      const minutes = String(value.getMinutes()).padStart(2, '0');
+      return `${hours}:${minutes}`;
+    }
+    // 兜底：转换为字符串
+    return String(value).substring(0, 5) || defaultValue;
+  };
+
   // 安全解析 referer_config
   let refererConfig: { type: string; referer?: string } | null = null;
   if (row.referer_config) {
@@ -654,8 +674,8 @@ export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     user_id: row.user_id,
     offer_id: row.offer_id,
     daily_click_count: row.daily_click_count,
-    start_time: row.start_time,
-    end_time: row.end_time,
+    start_time: safeParseTime(row.start_time, '06:00'),
+    end_time: safeParseTime(row.end_time, '24:00'),
     duration_days: row.duration_days,
     scheduled_start_date: row.scheduled_start_date,
     hourly_distribution: safeParse(row.hourly_distribution, []),
