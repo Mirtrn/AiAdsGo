@@ -77,10 +77,10 @@ export async function POST(req: NextRequest) {
     const taskId = crypto.randomUUID()
     await db.exec(
       `INSERT INTO offer_tasks (
-        id, user_id, affiliate_link, target_country, status, stage, progress, message,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'pending', 'resolving_link', 0, '准备开始提取...', ${nowFunc}, ${nowFunc})`,
-      [taskId, userIdNum, affiliate_link, target_country]
+        id, user_id, affiliate_link, target_country, product_price, commission_payout,
+        status, stage, progress, message, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 'resolving_link', 0, '准备开始提取...', ${nowFunc}, ${nowFunc})`,
+      [taskId, userIdNum, affiliate_link, target_country, product_price || null, commission_payout || null]
     )
 
     // 4. 将任务加入队列
