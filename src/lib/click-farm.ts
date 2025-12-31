@@ -426,8 +426,9 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
 
   statusDistribution.forEach(row => {
     const status = row.status as ClickFarmTaskStatus;
-    taskStatusDistribution[status] = row.count;
-    taskStatusDistribution.total += row.count;
+    const count = Number(row.count);  // 🔧 修复：确保count是数字
+    taskStatusDistribution[status] = count;
+    taskStatusDistribution.total += count;
   });
 
   return {
@@ -544,8 +545,9 @@ export async function getAdminClickFarmStats(): Promise<{
 
   statusDistribution.forEach(row => {
     const status = row.status as ClickFarmTaskStatus;
-    taskStatusDistribution[status] = row.count;
-    taskStatusDistribution.total += row.count;
+    const count = Number(row.count);  // 🔧 修复：确保count是数字
+    taskStatusDistribution[status] = count;
+    taskStatusDistribution.total += count;
   });
 
   return {
