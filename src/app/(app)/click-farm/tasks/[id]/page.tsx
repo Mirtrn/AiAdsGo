@@ -158,6 +158,18 @@ export default function TaskDetailPage() {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   };
 
+  // 🆕 格式化日期显示（处理Date对象和ISO字符串）
+  const formatDate = (dateValue: any): string => {
+    if (!dateValue) return '-';
+    if (dateValue instanceof Date) {
+      return dateValue.toISOString().split('T')[0];
+    }
+    if (typeof dateValue === 'string') {
+      return dateValue.split('T')[0];
+    }
+    return String(dateValue);
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto py-6 space-y-6">
@@ -371,7 +383,7 @@ export default function TaskDetailPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">开始日期</p>
-              <p className="font-medium">{task.scheduled_start_date || '-'}</p>
+              <p className="font-medium">{formatDate(task.scheduled_start_date)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">创建时间</p>
