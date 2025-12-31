@@ -1382,6 +1382,28 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                             }
                           }
 
+                          // Fallback: 从keywordBucket直接映射（当bucketIntent缺失时的主要回退）
+                          const bucketKey = creative.keywordBucket?.toUpperCase()
+                          // 🏷️ 根据链接类型选择不同的映射表
+                          const productBucketMap: Record<string, string> = {
+                            'A': '产品型号导向',
+                            'B': '购买意图导向',
+                            'C': '功能特性导向',
+                            'D': '紧迫促销导向',
+                            'S': '综合推广'
+                          }
+                          const storeBucketMap: Record<string, string> = {
+                            'A': '品牌信任导向',
+                            'B': '场景解决导向',
+                            'C': '精选推荐导向',
+                            'D': '信任信号导向',
+                            'S': '店铺全景导向'
+                          }
+                          const bucketKeyMap = isStore ? storeBucketMap : productBucketMap
+                          if (bucketKey && bucketKeyMap[bucketKey]) {
+                            return bucketKeyMap[bucketKey]
+                          }
+
                           // Fallback: 综合创意标记
                           if (creative.isSynthetic || creative.keywordBucket === 'S') {
                             return isStore ? '店铺全景导向' : '综合推广'
