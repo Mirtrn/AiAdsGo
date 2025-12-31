@@ -256,17 +256,18 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
     // 🔧 修复(2025-12-31): 确保 scheduled_start_date 是 "YYYY-MM-DD" 格式的字符串
     // PostgreSQL date 类型返回 Date 对象，需要转换
     let scheduledStartDateStr: string;
-    if (typeof task.scheduled_start_date === 'string') {
+    const dateValue = task.scheduled_start_date as any;
+    if (typeof dateValue === 'string') {
       // 如果已经是字符串，提取日期部分（处理 "2025-12-31T00:00:00.000Z" 格式）
-      scheduledStartDateStr = task.scheduled_start_date.split('T')[0];
-    } else if (task.scheduled_start_date instanceof Date) {
+      scheduledStartDateStr = dateValue.split('T')[0];
+    } else if (dateValue instanceof Date) {
       // 如果是 Date 对象，转换为 YYYY-MM-DD 格式
-      const year = task.scheduled_start_date.getFullYear();
-      const month = String(task.scheduled_start_date.getMonth() + 1).padStart(2, '0');
-      const day = String(task.scheduled_start_date.getDate()).padStart(2, '0');
+      const year = dateValue.getFullYear();
+      const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+      const day = String(dateValue.getDate()).padStart(2, '0');
       scheduledStartDateStr = `${year}-${month}-${day}`;
     } else {
-      scheduledStartDateStr = String(task.scheduled_start_date);
+      scheduledStartDateStr = String(dateValue);
     }
 
     // 使用 getDateInTimezone 获取任务时区的当前日期
