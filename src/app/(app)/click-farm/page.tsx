@@ -134,6 +134,12 @@ export default function ClickFarmPage() {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   };
 
+  // 🆕 安全格式化百分比（处理NaN、undefined等）
+  const formatPercent = (value: number | undefined | null): string => {
+    if (value === undefined || value === null || isNaN(value)) return '0%';
+    return `${value.toFixed(1)}%`;
+  };
+
   // 🆕 格式化日期显示（处理 Date 对象和字符串格式）
   const formatDate = (dateValue: any): string => {
     if (!dateValue) return '-';
@@ -414,7 +420,7 @@ export default function ClickFarmPage() {
                   <div>
                     <p className="text-xs font-medium text-gray-600">今日成功率</p>
                     <p className="text-xl font-bold text-gray-900 mt-1">
-                      {stats.today.successRate}%
+                      {formatPercent(stats.today.successRate)}
                     </p>
                   </div>
                   <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center shrink-0">
@@ -462,7 +468,7 @@ export default function ClickFarmPage() {
                   <div>
                     <p className="text-xs font-medium text-gray-600">累计成功率</p>
                     <p className="text-xl font-bold text-gray-900 mt-1">
-                      {stats.cumulative.successRate}%
+                      {formatPercent(stats.cumulative.successRate)}
                     </p>
                   </div>
                   <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center shrink-0">
