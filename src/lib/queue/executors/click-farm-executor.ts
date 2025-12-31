@@ -238,20 +238,49 @@ export async function executeClickFarmTask(
           headers['Referer'] = referer;
         }
 
-        const response = await axios.get(url, {
-          proxy,
-          timeout: 3000,  // 🔥 短超时（3秒）
-          validateStatus: () => true,  // 接受所有状态码
-          maxRedirects: 0,
-          headers,
-        });
+        // 🔧 修复(2025-12-31): 处理HTTPS SSL错误，尝试降级到HTTP
+        let targetUrl = url;
+        let useHttps = url.startsWith('https://');
 
-        // 🔧 修复：根据HTTP状态码判断成功/失败
-        // 2xx-3xx 表示成功，其他状态码表示失败
-        const isSuccess = response.status >= 200 && response.status < 400;
+        const executeRequest = async (requestUrl: string, tryHttpFallback: boolean): Promise<{ success: boolean; status: number; isFallback: boolean }> => {
+          try {
+            const response = await axios.get(requestUrl, {
+              proxy,
+              timeout: 3000,
+              validateStatus: () => true,
+              maxRedirects: 0,
+              headers,
+            });
+            return { success: response.status >= 200 && response.status < 400, status: response.status, isFallback: false };
+          } catch (error: any) {
+            // 🔧 SSL错误降级处理
+            if (tryHttpFallback && error.message && error.message.includes('SSL')) {
+              console.log(`[ClickFarm] HTTPS请求SSL错误，降级到HTTP: ${requestUrl.substring(0, 50)}...`);
+              const httpUrl = requestUrl.replace('https://', 'http://');
+              try {
+                const response = await axios.get(httpUrl, {
+                  proxy,
+                  timeout: 3000,
+                  validateStatus: () => true,
+                  maxRedirects: 0,
+                  headers,
+                });
+                return { success: response.status >= 200 && response.status < 400, status: response.status, isFallback: true };
+              } catch (httpError: any) {
+                console.log(`[ClickFarm] HTTP降级也失败: ${httpError.message}`);
+                return { success: false, status: 0, isFallback: true };
+              }
+            }
+            return { success: false, status: 0, isFallback: false };
+          }
+        };
+
+        const result = await executeRequest(targetUrl, useHttps);
+        const isSuccess = result.success;
         await updateTaskStats(taskId, isSuccess);
 
-        console.log(`[ClickFarm] 点击执行完成: ${url.substring(0, 50)}... (${response.status}) [${Date.now() - startTime}ms]` +
+        const fallbackNote = result.isFallback ? ' [降级HTTP]' : '';
+        console.log(`[ClickFarm] 点击执行完成: ${targetUrl.substring(0, 50)}... (${result.status}) [${Date.now() - startTime}ms]${fallbackNote}` +
           (referer ? ` [Referer: ${referer.substring(0, 30)}...]` : ''));
       } catch (error: any) {
         // 网络错误、超时等真正的失败
