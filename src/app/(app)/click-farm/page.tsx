@@ -623,7 +623,7 @@ export default function ClickFarmPage() {
                             className="p-0 h-auto text-blue-600 font-medium"
                             onClick={() => router.push(`/offers/${task.offer_id}`)}
                           >
-                            {task.product_identifier || `#${task.offer_id}`}
+                            {task.offer_name || `#${task.offer_id}`}
                           </Button>
                           <span className="text-xs text-gray-400">ID: #{task.offer_id}</span>
                         </div>

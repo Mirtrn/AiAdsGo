@@ -257,7 +257,7 @@ export interface TaskFilters {
  */
 export interface ClickFarmTaskListItem extends ClickFarmTask {
   target_country?: string;  // 该任务对应的Offer的目标国家代码（如 "US", "UK", "CN"）
-  product_identifier?: string;  // 该任务对应的Offer的产品标识（如 "Eufy_GB_02"）
+  offer_name?: string;  // 该任务对应的Offer的产品标识（如 "Eufy_GB_02"）
 }
 
 /**
