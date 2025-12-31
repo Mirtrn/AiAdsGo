@@ -69,6 +69,23 @@ export async function createClickFarmTask(
 
     const task = (await getClickFarmTaskById(insertedId, userId))!;
 
+    // 🔧 修复(2025-12-31): 详细日志追踪问题
+    console.log('[createClickFarmTask] 任务对象:', {
+      id: task?.id,
+      id_type: typeof task?.id,
+      start_time: task?.start_time,
+      start_time_type: typeof task?.start_time,
+      end_time: task?.end_time,
+      end_time_type: typeof task?.end_time,
+      timezone: task?.timezone,
+      timezone_type: typeof task?.timezone,
+      scheduled_start_date: task?.scheduled_start_date,
+      scheduled_start_date_type: typeof task?.scheduled_start_date,
+      hourly_distribution: task?.hourly_distribution,
+      hourly_distribution_type: typeof task?.hourly_distribution,
+      hourly_distribution_isArray: Array.isArray(task?.hourly_distribution)
+    });
+
     // 🆕 计算并设置 next_run_at
     const nextRunAt = generateNextRunAt(task.timezone, task);
     await db.exec(`
@@ -632,17 +649,30 @@ function calculateMatchRate(actual: number[], configured: number[]): number {
  */
 export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
   // 安全解析函数：处理字符串（SQLite）或已解析对象（PostgreSQL jsonb）
+  // 🔧 修复(2025-12-31): 增强类型检查，确保返回正确类型
   const safeParse = (value: any, defaultValue: any = null): any => {
     if (value === null || value === undefined) return defaultValue;
     if (typeof value === 'string') {
       try {
-        return JSON.parse(value);
+        const parsed = JSON.parse(value);
+        // 如果解析结果是数组或对象，直接返回
+        if (Array.isArray(parsed) || (typeof parsed === 'object' && parsed !== null)) {
+          return parsed;
+        }
+        // 否则返回默认值（不是有效的 JSON 结构）
+        console.warn('[parseClickFarmTask] JSON解析结果不是对象/数组:', value);
+        return defaultValue;
       } catch (e) {
         console.warn('[parseClickFarmTask] JSON解析失败:', value);
         return defaultValue;
       }
     }
-    return value; // 已经是对象/数组（PostgreSQL jsonb）
+    // 如果已经是数组或对象（PostgreSQL jsonb），直接返回
+    if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+      return value;
+    }
+    // 其他类型返回默认值
+    return defaultValue;
   };
 
   // 安全解析时间字段（PostgreSQL time without time zone 返回 Date 对象）

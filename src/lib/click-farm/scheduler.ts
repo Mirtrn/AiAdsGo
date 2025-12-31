@@ -243,15 +243,25 @@ export function shouldCompleteTask(task: ClickFarmTask): boolean {
 export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date {
   const now = new Date();
 
+  // 🔧 修复(2025-12-31): 防御性检查，确保 task 是有效对象
+  if (!task || typeof task !== 'object') {
+    console.warn('[generateNextRunAt] 无效的任务对象，返回下一个整点');
+    const nextHour = new Date(now);
+    nextHour.setHours(now.getHours() + 1, 0, 0, 0);
+    return nextHour;
+  }
+
   // 如果提供了任务对象且任务未开始，计算首次执行时间
-  if (task && task.scheduled_start_date && !task.started_at) {
+  if (task.scheduled_start_date && !task.started_at) {
     // 🔧 修复：使用 getDateInTimezone 获取任务时区的当前日期
     // ⚠️ 重要：scheduled_start_date 是相对于 task.timezone 的本地日期
     // 必须在同一时区进行比较，不能混合使用服务器本地时区
     const todayInTaskTimezone = getDateInTimezone(new Date(), timezone);
 
     // ✅ 正确：在同一时区（任务时区）进行日期对比
-    if (todayInTaskTimezone < task.scheduled_start_date) {
+    // 🔧 修复(2025-12-31): 确保 scheduled_start_date 是字符串
+    const scheduledStartDate = String(task.scheduled_start_date || '');
+    if (scheduledStartDate < todayInTaskTimezone) {
       // 还没有到开始日期，返回下一个小时
       const nextHour = new Date(now);
       nextHour.setHours(now.getHours() + 1, 0, 0, 0);
@@ -267,9 +277,9 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
 
     if (firstActiveHour !== -1) {
       // 解析 start_time (格式: "HH:mm")
-      // 🔧 修复：防御性检查 start_time 是否为有效字符串
-      const startTime = task.start_time || '06:00';
-      const [startHourStr] = startTime.split(':');
+      // 🔧 修复(2025-12-31): 确保 start_time 是字符串
+      const startTimeStr = String(task.start_time || '06:00');
+      const [startHourStr] = startTimeStr.split(':');
       const startHour = parseInt(startHourStr) || 0;
 
       // 使用第一个活跃小时和start_time中较大的那个
