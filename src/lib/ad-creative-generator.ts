@@ -21,6 +21,7 @@ import {
   logDuplicateKeywords
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
 import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数
+import { filterByCategoryWhitelist, extractMainCategoryWords } from './unified-keyword-service'  // 🔥 2025-12-31: 导入品类过滤函数
 
 /**
  * 🔧 安全解析JSON字段
@@ -2694,8 +2695,33 @@ export async function generateAdCreative(
 
     // 🎯 读取增强数据（优先使用，因为质量更高）
     if ((offer as any).enhanced_keywords) {
-      enhancedData.keywords = JSON.parse((offer as any).enhanced_keywords)
-      console.log(`✨ 读取到 ${enhancedData.keywords?.length || 0} 个增强关键词`)
+      let rawKeywords: Array<{ keyword: string; volume?: number; competition?: string; score?: number }> = JSON.parse((offer as any).enhanced_keywords)
+      console.log(`✨ 读取到 ${rawKeywords?.length || 0} 个增强关键词`)
+
+      // 🔥 2025-12-31: 品类过滤 - 过滤掉同品牌其他品类的关键词
+      // 例如：Eufy 品牌有多个品类（vacuum、doorbell、camera），需要过滤掉不相关的品类词
+      const categoryWhitelist = extractMainCategoryWords(offer as any)
+      console.log(`📋 品类白名单: ${categoryWhitelist.slice(0, 5).join(', ')}${categoryWhitelist.length > 5 ? '...' : ''}`)
+
+      const categoryFilterResult = filterByCategoryWhitelist(rawKeywords, offer as any)
+      console.log(`🔍 品类过滤: 保留${categoryFilterResult.stats.kept}/${categoryFilterResult.stats.total}个关键词`)
+
+      // 显示被过滤的跨品类关键词（调试用）
+      if (categoryFilterResult.stats.filtered > 0 && categoryFilterResult.stats.filtered <= 10) {
+        console.log('   被过滤的跨品类关键词:')
+        categoryFilterResult.stats.filteredKeywords.forEach(({ keyword, reason }) => {
+          console.log(`      - "${keyword}" (${reason})`)
+        })
+      }
+
+      // 使用过滤后的关键词（保留原始字段）
+      enhancedData.keywords = categoryFilterResult.filtered.map(kw => ({
+        keyword: kw.keyword,
+        volume: (kw as any).volume || 0,
+        competition: (kw as any).competition || '',
+        score: (kw as any).score || 0
+      }))
+      console.log(`✅ 品类过滤完成，剩余 ${enhancedData.keywords?.length || 0} 个增强关键词`)
     }
     if ((offer as any).enhanced_product_info) {
       enhancedData.productInfo = JSON.parse((offer as any).enhanced_product_info)
