@@ -3,7 +3,7 @@
  * 用于创建任务后立即触发调度（无需外部Cron）
  */
 
-import { getPendingTasks, updateTaskStatus, pauseClickFarmTask, initializeDailyHistory } from '@/lib/click-farm';
+import { getPendingTasks, updateTaskStatus, pauseClickFarmTask, initializeDailyHistory, parseClickFarmTask } from '@/lib/click-farm';
 import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange } from '@/lib/click-farm/scheduler';
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
@@ -14,8 +14,9 @@ import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executo
 import type { ClickFarmTask } from '@/lib/click-farm-types';
 
 // 🆕 扩展ClickFarmTask类型，支持referer_config
+// 🔧 修复(2025-12-31): ClickFarmTask 已包含 referer_config，不需要额外定义
 interface TaskWithRefererConfig extends ClickFarmTask {
-  referer_config?: string | null;
+  // referer_config 已在 ClickFarmTask 类型中定义
 }
 
 interface TriggerResult {
@@ -33,13 +34,16 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   const db = getDatabase();
 
   // 获取任务
-  const task = await db.queryOne<any>(`
+  const taskRow = await db.queryOne<any>(`
     SELECT * FROM click_farm_tasks WHERE id = ?
   `, [taskId]);
 
-  if (!task) {
+  if (!taskRow) {
     return { taskId, status: 'error', message: '任务不存在' };
   }
+
+  // 🔧 修复：解析任务数据，确保字段类型正确（hourly_distribution、referer_config 等）
+  const task = parseClickFarmTask(taskRow);
 
   // 检查任务状态
   if (task.status !== 'pending' && task.status !== 'running') {
@@ -125,18 +129,10 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   }
 
   // 🆕 获取任务的Referer配置
-  let refererConfig: { type: 'none' | 'random' | 'specific'; referer?: string } | undefined;
-  try {
-    // 🔧 修复(2025-12-31): 空字符串是truthy，需要同时检查非空和有效JSON
-    // 修复 "Unexpected end of JSON input" 错误
-    if (task.referer_config && task.referer_config.trim() && task.referer_config !== 'null') {
-      refererConfig = typeof task.referer_config === 'string'
-        ? JSON.parse(task.referer_config)
-        : task.referer_config;
-    }
-  } catch (error) {
-    console.error(`[Trigger] 解析Referer配置失败:`, error);
-  }
+  // 🔧 修复(2025-12-31): parseClickFarmTask 已经解析好了 referer_config
+  const refererConfig = task.referer_config && task.referer_config.type !== 'none'
+    ? task.referer_config
+    : undefined;
 
   // 获取队列管理器并加入队列
   const queueManager = await getOrCreateQueueManager();
@@ -200,13 +196,10 @@ export async function triggerAllPendingTasks(): Promise<{
   const results = { processed: 0, queued: 0, paused: 0, skipped: 0 };
 
   for (const task of tasks) {
-    // 🆕 将task断言为TaskWithRefererConfig以访问referer_config
-    const typedTask = task as TaskWithRefererConfig;
-
     results.processed++;
 
     // 检查开始日期
-    if (typedTask.scheduled_start_date) {
+    if (task.scheduled_start_date) {
       const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
       if (todayInTaskTimezone < task.scheduled_start_date) {
         results.skipped++;
@@ -257,17 +250,10 @@ export async function triggerAllPendingTasks(): Promise<{
     }
 
     // 🆕 获取任务的Referer配置
-    let refererConfig: { type: 'none' | 'random' | 'specific'; referer?: string } | undefined;
-    try {
-      // 🔧 修复(2025-12-31): 空字符串是truthy，需要同时检查非空和有效JSON
-      if (typedTask.referer_config && typedTask.referer_config.trim() && typedTask.referer_config !== 'null') {
-        refererConfig = typeof typedTask.referer_config === 'string'
-          ? JSON.parse(typedTask.referer_config)
-          : typedTask.referer_config;
-      }
-    } catch (error) {
-      console.error(`[TriggerAll] 解析Referer配置失败:`, error);
-    }
+    // 🔧 修复(2025-12-31): parseClickFarmTask 已经解析好了 referer_config
+    const refererConfig = task.referer_config && task.referer_config.type !== 'none'
+      ? task.referer_config
+      : undefined;
 
     // 加入队列
     let queued = 0;

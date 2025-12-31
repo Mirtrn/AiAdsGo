@@ -628,7 +628,7 @@ function calculateMatchRate(actual: number[], configured: number[]): number {
  * 🔧 修复(2025-12-31): PostgreSQL jsonb 类型会被自动解析为 JS 对象/数组，
  * 不需要再调用 JSON.parse。SQLite 返回字符串，需要解析。
  */
-function parseClickFarmTask(row: any): ClickFarmTaskListItem {
+export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
   // 安全解析函数：处理字符串（SQLite）或已解析对象（PostgreSQL jsonb）
   const safeParse = (value: any, defaultValue: any = null): any => {
     if (value === null || value === undefined) return defaultValue;

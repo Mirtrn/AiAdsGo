@@ -97,6 +97,12 @@ export interface ClickFarmTask {
    */
   timezone: string;
 
+  /**
+   * 🆕 referer_config: Referer 头配置
+   * 控制点击请求的 Referer 头，模拟不同来源的流量
+   */
+  referer_config: { type: 'none' | 'random' | 'specific'; referer?: string } | null;
+
   // 软删除
   is_deleted: boolean;
   deleted_at: string | null;

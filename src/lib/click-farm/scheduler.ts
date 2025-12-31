@@ -74,6 +74,9 @@ export function generateSubTasks(
  * @returns 当前时间是否在 [start_time, end_time] 范围内
  */
 export function isWithinExecutionTimeRange(task: ClickFarmTask): boolean {
+  // 🔧 修复：防御性检查，确保 task 字段有有效值
+  if (!task) return false;
+
   // 获取任务时区的当前小时和分钟
   const now = new Date();
   const timeStr = now.toLocaleString('en-US', {
@@ -88,17 +91,21 @@ export function isWithinExecutionTimeRange(task: ClickFarmTask): boolean {
   const currentMinute = parseInt(minuteStr);
 
   // 解析 start_time (格式: "HH:mm")
-  const [startHourStr, startMinuteStr] = task.start_time.split(':');
+  // 🔧 修复：防御性检查 start_time 是否为有效字符串
+  const startTime = task.start_time || '06:00';
+  const [startHourStr, startMinuteStr] = startTime.split(':');
   const startHour = parseInt(startHourStr);
   const startMinute = parseInt(startMinuteStr);
 
   // 解析 end_time (格式: "HH:mm" 或 "24:00")
-  const [endHourStr, endMinuteStr] = task.end_time.split(':');
+  // 🔧 修复：防御性检查 end_time 是否为有效字符串
+  const endTime = task.end_time || '24:00';
+  const [endHourStr, endMinuteStr] = endTime.split(':');
   let endHour = parseInt(endHourStr);
   let endMinute = parseInt(endMinuteStr);
 
   // 特殊处理 end_time = "24:00"（表示整天到结束）
-  if (task.end_time === '24:00') {
+  if (endTime === '24:00') {
     endHour = 23;
     endMinute = 59;
   }
@@ -253,12 +260,17 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
 
     // 如果已经到了或超过开始日期，计算首次执行时间
     // 找到第一个有点击数的小时
-    const firstActiveHour = task.hourly_distribution.findIndex(count => count > 0);
+    const hourlyDistribution = task.hourly_distribution || [];
+    const firstActiveHour = Array.isArray(hourlyDistribution)
+      ? hourlyDistribution.findIndex(count => count > 0)
+      : -1;
 
     if (firstActiveHour !== -1) {
       // 解析 start_time (格式: "HH:mm")
-      const [startHourStr] = task.start_time.split(':');
-      const startHour = parseInt(startHourStr);
+      // 🔧 修复：防御性检查 start_time 是否为有效字符串
+      const startTime = task.start_time || '06:00';
+      const [startHourStr] = startTime.split(':');
+      const startHour = parseInt(startHourStr) || 0;
 
       // 使用第一个活跃小时和start_time中较大的那个
       const targetHour = Math.max(firstActiveHour, startHour);
