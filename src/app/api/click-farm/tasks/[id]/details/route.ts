@@ -36,9 +36,20 @@ export async function GET(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // 解析JSON字段
-    const hourlyDistribution = JSON.parse(task.hourly_distribution || '[]');
-    const dailyHistory = JSON.parse(task.daily_history || '[]');
+    // 🆕 安全解析JSON字段（处理空值和无效JSON）
+    const safeParseJSON = (str: any, fallback: any) => {
+      if (!str || str === 'null' || str === 'undefined') return fallback;
+      if (typeof str !== 'string') return fallback;
+      try {
+        return JSON.parse(str);
+      } catch {
+        return fallback;
+      }
+    };
+
+    const hourlyDistribution = safeParseJSON(task.hourly_distribution, []);
+    const dailyHistory = safeParseJSON(task.daily_history, []);
+    const refererConfig = safeParseJSON(task.referer_config, null);
 
     // 计算额外的统计信息
     const successRate = task.total_clicks > 0
@@ -61,6 +72,7 @@ export async function GET(
         ...task,
         hourly_distribution: hourlyDistribution,
         daily_history: dailyHistory,
+        referer_config: refererConfig,
         is_deleted: Boolean(task.is_deleted),
       },
       statistics: {
