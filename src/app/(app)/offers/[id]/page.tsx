@@ -677,22 +677,22 @@ export default function OfferDetailPage() {
                         {
                           key: 'impressions',
                           label: '展示次数',
-                          color: 'hsl(var(--chart-1))',
+                          color: '#3b82f6',  // blue-500
                         },
                         {
                           key: 'clicks',
                           label: '点击次数',
-                          color: 'hsl(var(--chart-2))',
+                          color: '#10b981',  // emerald-500
                         },
                         {
                           key: 'conversions',
                           label: '转化次数',
-                          color: 'hsl(var(--chart-4))',
+                          color: '#8b5cf6',  // violet-500
                         },
                         {
                           key: 'costUsd',
                           label: '花费 (USD)',
-                          color: 'hsl(var(--chart-5))',
+                          color: '#f59e0b',  // amber-500
                           formatter: (value) => `$${value.toFixed(2)}`,
                         },
                       ]}
