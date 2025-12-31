@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     // 2. 解析请求参数
     const body = await req.json()
-    const { affiliate_link, target_country, skipCache, skipWarmup } = body
+    const { affiliate_link, target_country, product_price, commission_payout, skipCache, skipWarmup } = body
 
     // 参数验证
     if (!affiliate_link || typeof affiliate_link !== 'string' || affiliate_link.trim() === '') {
@@ -89,6 +89,9 @@ export async function POST(req: NextRequest) {
       targetCountry: target_country,
       skipCache: skipCache || false,
       skipWarmup: skipWarmup || false,
+      // 🔧 修复（2025-12-31）：添加产品价格和佣金比例
+      productPrice: product_price || undefined,
+      commissionPayout: commission_payout || undefined,
     }
 
     console.log(`📝 Created offer_task: ${taskId} for user ${userIdNum}`)
