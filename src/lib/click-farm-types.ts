@@ -253,10 +253,11 @@ export interface TaskFilters {
 }
 
 /**
- * 任务列表项 - 用于前端显示，包含Offer的国家信息
+ * 任务列表项 - 用于前端显示，包含Offer的国家和产品信息
  */
 export interface ClickFarmTaskListItem extends ClickFarmTask {
   target_country?: string;  // 该任务对应的Offer的目标国家代码（如 "US", "UK", "CN"）
+  product_identifier?: string;  // 该任务对应的Offer的产品标识（如 "Eufy_GB_02"）
 }
 
 /**

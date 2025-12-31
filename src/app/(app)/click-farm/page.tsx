@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table,
   TableBody,
@@ -35,7 +36,8 @@ import {
   Zap,
   FileText,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  Trash
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal';
@@ -57,6 +59,12 @@ export default function ClickFarmPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+
+  // 🆕 批量选择状态
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null);
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
@@ -124,6 +132,21 @@ export default function ClickFarmPage() {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  // 🆕 格式化日期显示（处理 Date 对象和字符串格式）
+  const formatDate = (dateValue: any): string => {
+    if (!dateValue) return '-';
+    // 如果是 Date 对象
+    if (dateValue instanceof Date) {
+      return dateValue.toISOString().split('T')[0];
+    }
+    // 如果是字符串
+    if (typeof dateValue === 'string') {
+      // 处理 "2025-12-31T00:00:00.000Z" 格式
+      return dateValue.split('T')[0];
+    }
+    return String(dateValue);
   };
 
   const handleStopTask = async (taskId: string) => {
@@ -215,6 +238,88 @@ export default function ClickFarmPage() {
     }
   };
 
+  // 🆕 全选/取消全选
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allIds = new Set(paginatedTasks.map(t => t.id));
+      setSelectedTaskIds(allIds);
+    } else {
+      setSelectedTaskIds(new Set());
+    }
+  };
+
+  // 🆕 单选切换
+  const handleSelectTask = (taskId: string, checked: boolean) => {
+    const newSelected = new Set(selectedTaskIds);
+    if (checked) {
+      newSelected.add(taskId);
+    } else {
+      newSelected.delete(taskId);
+    }
+    setSelectedTaskIds(newSelected);
+  };
+
+  // 🆕 批量删除处理函数
+  const handleBatchDelete = async () => {
+    if (selectedTaskIds.size === 0) return;
+
+    try {
+      setBatchDeleting(true);
+      setBatchDeleteError(null);
+
+      // 并行删除所有选中的任务
+      const deletePromises = Array.from(selectedTaskIds).map(async (taskId) => {
+        const response = await fetch(`/api/click-farm/tasks/${taskId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+
+        const data = await response.json();
+        return { taskId, response, data };
+      });
+
+      const results = await Promise.allSettled(deletePromises);
+
+      // 收集所有错误
+      const errors: string[] = [];
+
+      results.forEach((result) => {
+        if (result.status === 'rejected') {
+          errors.push(result.reason?.message || '网络错误');
+        } else if (result.status === 'fulfilled') {
+          const { response, data, taskId } = result.value;
+          if (!response.ok) {
+            const taskInfo = `#${taskId.slice(0, 8)}`;
+            errors.push(`${taskInfo}: ${data.error || '删除失败'}`);
+          }
+        }
+      });
+
+      if (errors.length > 0) {
+        // 在对话框内显示错误，不关闭对话框
+        setBatchDeleteError(`${errors.length}/${selectedTaskIds.size} 个任务删除失败：\n${errors.join('\n')}`);
+        // 刷新列表以显示成功删除的结果
+        await loadData();
+        return;
+      }
+
+      // 全部删除成功
+      await loadData();
+
+      // 清空选中状态
+      setSelectedTaskIds(new Set());
+
+      // 关闭对话框
+      setIsBatchDeleteDialogOpen(false);
+      setBatchDeleteError(null);
+      toast.success(`已删除 ${selectedTaskIds.size} 个任务`);
+    } catch (err: any) {
+      setBatchDeleteError(err.message || '批量删除失败');
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string }> = {
       running: { label: '运行中', variant: 'default', className: 'bg-green-600' },
@@ -258,6 +363,18 @@ export default function ClickFarmPage() {
               </Badge>
             </div>
             <div className="flex items-center gap-3">
+              {/* 🆕 批量删除按钮 - 有选中项时显示 */}
+              {selectedTaskIds.size > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setIsBatchDeleteDialogOpen(true)}
+                  className="flex items-center gap-2"
+                >
+                  <Trash className="w-4 h-4" />
+                  删除选中 ({selectedTaskIds.size})
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={loadData}
@@ -465,6 +582,14 @@ export default function ClickFarmPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {/* 🆕 全选复选框 */}
+                    <TableHead className="w-[50px]">
+                      <Checkbox
+                        checked={paginatedTasks.length > 0 && selectedTaskIds.size === paginatedTasks.length}
+                        onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
+                        aria-label="全选"
+                      />
+                    </TableHead>
                     <TableHead className="w-[60px]">ID</TableHead>
                     <TableHead className="w-[80px]">Offer</TableHead>
                     <TableHead className="w-[100px]">状态</TableHead>
@@ -479,18 +604,29 @@ export default function ClickFarmPage() {
                 <TableBody>
                   {paginatedTasks.map((task) => (
                     <TableRow key={task.id} className="hover:bg-gray-50/50">
+                      {/* 🆕 行选择复选框 */}
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedTaskIds.has(task.id)}
+                          onCheckedChange={(checked) => handleSelectTask(task.id, checked as boolean)}
+                          aria-label={`选择任务 ${task.id.slice(0, 8)}`}
+                        />
+                      </TableCell>
                       <TableCell className="font-mono text-xs">
                         #{task.id.slice(0, 8)}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="p-0 h-auto text-blue-600"
-                          onClick={() => router.push(`/offers/${task.offer_id}`)}
-                        >
-                          #{task.offer_id}
-                        </Button>
+                        <div className="flex flex-col items-start gap-1">
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="p-0 h-auto text-blue-600 font-medium"
+                            onClick={() => router.push(`/offers/${task.offer_id}`)}
+                          >
+                            {task.product_identifier || `#${task.offer_id}`}
+                          </Button>
+                          <span className="text-xs text-gray-400">ID: #{task.offer_id}</span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
@@ -527,7 +663,7 @@ export default function ClickFarmPage() {
                           : '-'}
                       </TableCell>
                       <TableCell className="text-sm text-gray-500">
-                        {task.scheduled_start_date}
+                        {formatDate(task.scheduled_start_date)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
@@ -656,6 +792,35 @@ export default function ClickFarmPage() {
             >
               确认删除
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 🆕 Batch Delete Confirmation Dialog */}
+      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={setIsBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量删除？</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除选中的 {selectedTaskIds.size} 个任务吗？这些任务将被标记为已删除，但历史统计数据会被保留。此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {/* 🆕 显示批量删除错误信息 */}
+          {batchDeleteError && (
+            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+              {batchDeleteError}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchDeleting}>取消</AlertDialogCancel>
+            <Button
+              onClick={handleBatchDelete}
+              disabled={batchDeleting}
+              variant="destructive"
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {batchDeleting ? '删除中...' : `确认删除 (${selectedTaskIds.size})`}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

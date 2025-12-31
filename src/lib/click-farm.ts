@@ -135,7 +135,7 @@ export async function getClickFarmTasks(
   const db = await getDatabase();
 
   let query = `
-    SELECT cft.*, o.target_country
+    SELECT cft.*, o.target_country, o.product_identifier
     FROM click_farm_tasks cft
     LEFT JOIN offers o ON cft.offer_id = o.id
     WHERE cft.user_id = ? AND cft.is_deleted = FALSE
@@ -732,6 +732,11 @@ export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
   // 如果有target_country字段（从JOIN查询返回），保留它用于前端显示
   if (row.target_country) {
     task.target_country = row.target_country;
+  }
+
+  // 🆕 如果有product_identifier字段（从JOIN查询返回），保留它用于前端显示
+  if (row.product_identifier) {
+    task.product_identifier = row.product_identifier;
   }
 
   return task;
