@@ -762,7 +762,19 @@ export async function initializeDailyHistory(task: ClickFarmTask): Promise<void>
   }
 
   // 从scheduled_start_date开始
-  let currentDateStr = task.scheduled_start_date;
+  // 🔧 修复(2025-12-31): 确保 scheduled_start_date 是字符串格式 YYYY-MM-DD
+  let currentDateStr: string;
+  const dateValue = task.scheduled_start_date as any;
+  if (typeof dateValue === 'string') {
+    currentDateStr = dateValue.split('T')[0];
+  } else if (dateValue instanceof Date) {
+    const year = dateValue.getFullYear();
+    const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+    const day = String(dateValue.getDate()).padStart(2, '0');
+    currentDateStr = `${year}-${month}-${day}`;
+  } else {
+    currentDateStr = String(dateValue);
+  }
   const dailyHistory: DailyHistoryEntry[] = [];
 
   // 计算应该创建的最后一天
@@ -771,7 +783,7 @@ export async function initializeDailyHistory(task: ClickFarmTask): Promise<void>
     // 有限期任务：计算结束日期
     // 🔧 修复：使用createDateInTimezone确保日期计算在正确的时区
     const startDate = createDateInTimezone(
-      task.scheduled_start_date,
+      currentDateStr,
       '00:00',
       task.timezone
     );
