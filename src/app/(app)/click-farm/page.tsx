@@ -29,7 +29,7 @@ import {
   Search,
   RefreshCw,
   Play,
-  Square,
+  Pause,
   Eye,
   Edit2,
   Trash2,
@@ -711,7 +711,7 @@ export default function ClickFarmPage() {
                               className="text-yellow-600"
                               title="停止任务"
                             >
-                              <Square className="w-4 h-4" />
+                              <Pause className="w-4 h-4" />
                             </Button>
                           )}
                           {(task.status === 'stopped' || task.status === 'paused') && (
