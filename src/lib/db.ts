@@ -101,6 +101,11 @@ class PostgresAdapter implements DatabaseAdapter {
   private convertSqliteSyntax(sql: string): string {
     let result = sql
 
+    // 🔧 调试：记录原始 SQL
+    if (process.env.NODE_ENV === 'development' || sql.includes('IS_DELETED')) {
+      console.log('🔍 [db] convertSqliteSyntax 原始 SQL:', sql.substring(0, 200))
+    }
+
     // 1. 转换 date('now', '-N days') 为 PostgreSQL 兼容语法
     // 由于 date 字段在数据库中是 TEXT 类型（存储 'YYYY-MM-DD' 格式），
     // 需要将结果转换为同样的 TEXT 格式以便比较
@@ -288,8 +293,13 @@ class PostgresAdapter implements DatabaseAdapter {
   }
 
   async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    // 🔧 调试：打印原始 SQL
+    console.log('🔍 [db.query] 原始 SQL:', sql.substring(0, 300).replace(/\s+/g, ' '));
+
     // 先转换 SQLite 特有语法，再转换占位符
     const convertedSql = this.convertSqliteSyntax(sql)
+    console.log('🔍 [db.query] 转换后 SQL:', convertedSql.substring(0, 300).replace(/\s+/g, ' '));
+
     const pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
 
