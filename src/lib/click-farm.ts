@@ -385,7 +385,7 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     ? (today.successClicks / today.clicks) * 100
     : 0;
 
-  // 累计统计（包含已删除任务的历史数据，以便保留历史记录）
+  // 累计统计（不含已删除任务）
   // 如果指定了daysBack，则只统计指定范围内的数据
   let cumulativeFilter = '';
   let cumulativeParams: (string | number)[] = [userId];
@@ -395,15 +395,14 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     cumulativeFilter = ` AND created_at >= datetime('${cutoffDate.toISOString()}')`;
   }
 
-  // 累计统计（包含已删除任务的历史数据，以便保留历史记录）
-  // 注意：如果需要只统计未删除任务，添加 AND is_deleted = 0 条件
+  // 累计统计（不含已删除任务）
   const cumulative = await db.queryOne<any>(`
     SELECT
       COALESCE(SUM(total_clicks), 0) as clicks,
       COALESCE(SUM(success_clicks), 0) as successClicks,
       COALESCE(SUM(failed_clicks), 0) as failedClicks
     FROM click_farm_tasks
-    WHERE user_id = ? ${cumulativeFilter}
+    WHERE user_id = ? AND IS_DELETED_FALSE ${cumulativeFilter}
   `, cumulativeParams);
 
   const cumulativeSuccessRate = cumulative.clicks > 0
