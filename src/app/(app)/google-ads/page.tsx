@@ -181,6 +181,7 @@ export default function GoogleAdsPage() {
     }
   }
 
+  // OAuth模式获取账户列表
   const fetchAccounts = async (forceRefresh = false) => {
     try {
       setAccountsLoading(true)
@@ -233,12 +234,42 @@ export default function GoogleAdsPage() {
     }
   }
 
-  const handleRefreshAccounts = () => {
+  // 刷新账户列表（服务账号模式下会重新获取最新的服务账号配置）
+  const handleRefreshAccounts = async () => {
     setError('')
-    if (currentAuthType === 'service_account' && currentServiceAccountId) {
-      fetchAccountsWithServiceAccount(currentServiceAccountId, true) // 强制刷新
+
+    // 🔧 优化：服务账号模式下每次刷新都重新获取最新的服务账号配置
+    if (currentAuthType === 'service_account') {
+      try {
+        setAccountsLoading(true)
+        // 重新获取最新的服务账号
+        const saResponse = await fetch('/api/google-ads/service-account', {
+          credentials: 'include',
+        })
+
+        if (saResponse.ok) {
+          const saData = await saResponse.json()
+          const accounts = saData.accounts || []
+
+          if (accounts.length > 0) {
+            const latestServiceAccountId = accounts[0].id
+            setCurrentServiceAccountId(latestServiceAccountId)
+            await fetchAccountsWithServiceAccount(latestServiceAccountId, true)
+          } else {
+            // 没有服务账号配置，切换到OAuth模式或提示
+            setError('未找到服务账号配置，请前往设置页面配置')
+          }
+        } else {
+          throw new Error('获取服务账号配置失败')
+        }
+      } catch (err: any) {
+        console.error('刷新账户列表失败:', err)
+        setError(err.message || '刷新账户列表失败')
+        setAccountsLoading(false)
+      }
     } else {
-      fetchAccounts(true) // 强制刷新
+      // OAuth模式
+      fetchAccounts(true)
     }
   }
 
