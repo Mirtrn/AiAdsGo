@@ -296,11 +296,13 @@ function startScheduler() {
   log('  - A/B测试监控: [已禁用] 当前业务未使用')
 
   // 任务0: 每小时整点执行补点击任务调度
+  // 注意：调度器的时区只影响触发时机，实际执行时间判断使用每个任务自己的时区
   cron.schedule('0 * * * *', async () => {
     await clickFarmSchedulerTask()
   }, {
-    scheduled: true,
-    timezone: 'Asia/Shanghai' // 使用中国时区，与补点击任务的时区配置保持一致
+    scheduled: true
+    // 不指定时区，使用系统默认 UTC
+    // 每个任务的执行时间范围由其自身的 timezone 配置决定
   })
 
   // 任务1: 每6小时同步数据 (0, 6, 12, 18点)
