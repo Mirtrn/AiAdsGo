@@ -9,8 +9,10 @@ import { decrypt } from '@/lib/crypto'
 import { toNumber } from '@/lib/utils'
 
 // 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
-const IS_DELETED_TRUE = 'TRUE'
-const IS_DELETED_FALSE = 'FALSE'
+// 注意：这些常量会在 db.ts 的 convertSqliteSyntax 中转换为实际的 SQL 条件
+// PostgreSQL 使用 TRUE/FALSE 布尔值，SQLite 使用 0/1 整数
+const IS_DELETED_TRUE = 'IS_DELETED_TRUE'
+const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
 
 // Google Ads CustomerStatus 枚举值映射
 // 参考: https://developers.google.com/google-ads/api/reference/rpc/latest/CustomerStatusEnum.CustomerStatus
