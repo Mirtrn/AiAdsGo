@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
     // PostgreSQL/SQLite 兼容性条件
     const isSelectedTrue = db.type === 'postgres' ? 'is_selected = true' : 'is_selected = 1'
     const isSelectedFalse = db.type === 'postgres' ? 'is_selected = false' : 'is_selected = 0'
+    const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
 
     // DATE() 函数兼容性：PostgreSQL的created_at是TEXT类型，需要转换
     const dateFunc = db.type === 'postgres' ? '(created_at::date)' : 'DATE(created_at)'
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN score >= 60 AND score < 80 THEN 1 ELSE 0 END) as mediumQuality,
         SUM(CASE WHEN score < 60 OR score IS NULL THEN 1 ELSE 0 END) as lowQuality
       FROM ad_creatives
-      WHERE user_id = ?
+      WHERE user_id = ? AND ${isDeletedCheck}
         AND ${dateFunc} >= ?
         AND ${dateFunc} <= ?
     `
@@ -102,7 +103,7 @@ export async function GET(request: NextRequest) {
         END as status,
         COUNT(*) as count
       FROM ad_creatives
-      WHERE user_id = ?
+      WHERE user_id = ? AND ${isDeletedCheck}
     `
     const statusParams: any[] = [userId]
 
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
         COALESCE(ad_strength_data, 'UNKNOWN') as ad_strength,
         COUNT(*) as count
       FROM ad_creatives
-      WHERE user_id = ?
+      WHERE user_id = ? AND ${isDeletedCheck}
     `
     const adStrengthParams: any[] = [userId]
 
@@ -145,7 +146,7 @@ export async function GET(request: NextRequest) {
         END as quality_level,
         COUNT(*) as count
       FROM ad_creatives
-      WHERE user_id = ?
+      WHERE user_id = ? AND ${isDeletedCheck}
     `
     const qualityParams: any[] = [userId]
 
@@ -164,7 +165,7 @@ export async function GET(request: NextRequest) {
         COALESCE(theme, 'unknown') as theme,
         COUNT(*) as count
       FROM ad_creatives
-      WHERE user_id = ?
+      WHERE user_id = ? AND ${isDeletedCheck}
     `
     const themeParams: any[] = [userId]
 
@@ -184,7 +185,7 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN ${isSelectedFalse} OR is_selected IS NULL THEN 1 ELSE 0 END) as notSelected,
         COUNT(*) as total
       FROM ad_creatives
-      WHERE user_id = ?
+      WHERE user_id = ? AND ${isDeletedCheck}
     `
     const usageParams: any[] = [userId]
 
