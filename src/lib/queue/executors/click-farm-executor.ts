@@ -1,6 +1,7 @@
 // 补点击任务执行器
 // src/lib/queue/executors/click-farm-executor.ts
 
+import { randomUUID } from 'crypto'
 import axios from 'axios';
 import https from 'https';
 import http from 'http';
@@ -9,6 +10,7 @@ import type { Task } from '../types';
 import { updateTaskStats } from '@/lib/click-farm';
 import { getHourInTimezone } from '@/lib/timezone-utils';
 import { getDatabase } from '@/lib/db';
+import { getAllProxyUrls } from '@/lib/settings';
 
 /**
  * 补点击任务数据结构
@@ -190,7 +192,43 @@ function getRandomAcceptLanguage(): string {
 export async function executeClickFarmTask(
   task: Task<ClickFarmTaskData>
 ): Promise<{ success: boolean; traffic: number }> {
-  const { taskId, url, proxyUrl, refererConfig, scheduledAt } = task.data;
+  const { taskId, url, refererConfig, scheduledAt } = task.data;
+
+  // 🔧 修复：动态获取代理URL（重试时会清除旧代理，需要重新获取）
+  let proxyUrl = task.data.proxyUrl
+  if (!proxyUrl) {
+    console.log(`[ClickFarm] 任务 ${taskId} 未配置代理，尝试动态获取...`)
+    try {
+      // 获取任务信息以确定目标国家
+      const db = await getDatabase()
+      const taskRow = await db.queryOne<any>(`
+        SELECT t.user_id, o.target_country
+        FROM click_farm_tasks t
+        JOIN offers o ON t.offer_id = o.id
+        WHERE t.id = ?
+      `, [taskId])
+
+      if (taskRow) {
+        const proxyUrls = await getAllProxyUrls(taskRow.user_id)
+        const targetCountry = taskRow.target_country?.toUpperCase()
+        const proxyConfig = proxyUrls?.find(p => p.country.toUpperCase() === targetCountry)
+
+        if (proxyConfig && proxyConfig.url) {
+          proxyUrl = proxyConfig.url
+          console.log(`[ClickFarm] 任务 ${taskId} 动态获取到代理: ${targetCountry} (${proxyUrl.substring(0, 30)}...)`)
+        }
+      }
+    } catch (error: any) {
+      console.error(`[ClickFarm] 动态获取代理失败: ${error.message}`)
+    }
+  }
+
+  // 如果仍然没有代理，记录错误
+  if (!proxyUrl) {
+    console.error(`[ClickFarm] 任务 ${taskId} 缺少代理配置，无法执行`)
+    await updateTaskStats(taskId, false)
+    return { success: false, traffic: 0 }
+  }
 
   // 🆕 检查是否需要延迟执行
   if (scheduledAt) {

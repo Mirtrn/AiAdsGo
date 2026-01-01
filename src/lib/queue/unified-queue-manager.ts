@@ -555,7 +555,15 @@ export class UnifiedQueueManager {
         task.retryCount = (task.retryCount || 0) + 1
         task.status = 'pending'
 
-        console.log(`🔄 任务重试 (${task.retryCount}/${task.maxRetries}): ${task.id}`)
+        // 🔧 修复：重试时清除代理配置，强制重新获取新代理
+        // 这样可以避免使用失败的代理IP，提高重试成功率
+        if (task.type === 'click-farm' && task.data?.proxyUrl) {
+          console.log(`🔄 任务重试 (${task.retryCount}/${task.maxRetries}): ${task.id} - 清除旧代理，准备更换新代理`)
+          delete task.data.proxyUrl
+          task.proxyConfig = undefined
+        } else {
+          console.log(`🔄 任务重试 (${task.retryCount}/${task.maxRetries}): ${task.id}`)
+        }
 
         // 延迟后重新入队
         setTimeout(async () => {
