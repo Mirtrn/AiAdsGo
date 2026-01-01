@@ -348,10 +348,7 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   if (daysBack !== 'all') {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-    const dateStr = cutoffDate.toISOString();
-    console.log('🔍 [click-farm] cutoffDate:', dateStr);
-    dateFilter = ` AND started_at >= datetime('${dateStr}')`;
-    console.log('🔍 [click-farm] dateFilter:', dateFilter);
+    dateFilter = ` AND started_at >= datetime('${cutoffDate.toISOString()}')`;
   }
 
   // 🔧 修复：获取所有任务及其对应的timezone，在应用层按每个任务的timezone过滤今日数据
@@ -363,15 +360,6 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     WHERE user_id = ? AND IS_DELETED_FALSE AND started_at IS NOT NULL ${dateFilter}
   `;
 
-  // 🔧 临时测试：直接测试转换后的 SQL
-  const dbAny = db as any;
-  console.log('🔍 [click-farm] db.type:', db.type);
-
-  // 测试转换
-  const convertedSql = dbAny.convertSqliteSyntax ? dbAny.convertSqliteSyntax(allTasksQuery) : allTasksQuery;
-  console.log('🔍 [click-farm] 转换后 SQL:', convertedSql.replace(/\\s+/g, ' ').trim());
-
-  // 执行查询
   const allTasks = await db.query<{
     timezone: string;
     started_at: string | null;
@@ -379,8 +367,6 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     success_clicks: number;
     failed_clicks: number;
   }>(allTasksQuery, [userId]);
-
-  console.log('🔍 [click-farm] allTasks count:', allTasks.length);
 
   // 按每个任务的timezone单独判断是否为今日
   const todayTasks = allTasks.filter(task => {
@@ -408,10 +394,7 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   if (daysBack !== 'all') {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-    const dateStr = cutoffDate.toISOString();
-    console.log('🔍 [click-farm] cumulative cutoffDate:', dateStr);
-    cumulativeFilter = ` AND created_at >= datetime('${dateStr}')`;
-    console.log('🔍 [click-farm] cumulativeFilter:', cumulativeFilter);
+    cumulativeFilter = ` AND created_at >= datetime('${cutoffDate.toISOString()}')`;
   }
 
   // 累计统计（不含已删除任务）
@@ -426,7 +409,6 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
 
   // 🔧 修复: PostgreSQL queryOne 在无结果时返回 undefined，需要提供默认值
   const cumulative = cumulativeResult || { clicks: 0, successClicks: 0, failedClicks: 0 };
-  console.log('🔍 [click-farm] cumulative:', cumulative);
 
   const cumulativeSuccessRate = cumulative.clicks > 0
     ? (cumulative.successClicks / cumulative.clicks) * 100
