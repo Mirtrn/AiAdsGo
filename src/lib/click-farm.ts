@@ -368,6 +368,12 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     failed_clicks: number;
   }>(allTasksQuery, [userId]);
 
+  // 🔧 调试：查看查询结果
+  console.log('🔍 [click-farm] allTasks 数量:', allTasks.length);
+  if (allTasks.length > 0) {
+    console.log('🔍 [click-farm] 示例任务:', JSON.stringify(allTasks[0]));
+  }
+
   // 按每个任务的timezone单独判断是否为今日
   const todayTasks = allTasks.filter(task => {
     if (!task.started_at) return false;
@@ -377,11 +383,14 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     return taskDate === todayInTaskTimezone;
   });
 
+  console.log('🔍 [click-farm] todayTasks 数量:', todayTasks.length);
+
   const today = {
     clicks: todayTasks.reduce((sum, t) => sum + t.total_clicks, 0),
     successClicks: todayTasks.reduce((sum, t) => sum + t.success_clicks, 0),
     failedClicks: todayTasks.reduce((sum, t) => sum + t.failed_clicks, 0),
   };
+  console.log('🔍 [click-farm] today 统计:', today);
 
   const todaySuccessRate = today.clicks > 0
     ? (today.successClicks / today.clicks) * 100
