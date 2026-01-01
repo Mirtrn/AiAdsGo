@@ -362,9 +362,16 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     FROM click_farm_tasks
     WHERE user_id = ? AND IS_DELETED_FALSE AND started_at IS NOT NULL ${dateFilter}
   `;
-  console.log('🔍 [click-farm] allTasksQuery:', allTasksQuery.replace(/\s+/g, ' ').trim());
-  console.log('🔍 [click-farm] allTasks userId:', userId);
 
+  // 🔧 临时测试：直接测试转换后的 SQL
+  const dbAny = db as any;
+  console.log('🔍 [click-farm] db.type:', db.type);
+
+  // 测试转换
+  const convertedSql = dbAny.convertSqliteSyntax ? dbAny.convertSqliteSyntax(allTasksQuery) : allTasksQuery;
+  console.log('🔍 [click-farm] 转换后 SQL:', convertedSql.replace(/\\s+/g, ' ').trim());
+
+  // 执行查询
   const allTasks = await db.query<{
     timezone: string;
     started_at: string | null;
