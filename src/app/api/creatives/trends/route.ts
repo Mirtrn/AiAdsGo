@@ -45,6 +45,10 @@ export async function GET(request: NextRequest) {
     // DATE() 函数兼容性：PostgreSQL的created_at是TEXT类型，需要转换
     const dateFunc = db.type === 'postgres' ? 'created_at::date' : 'DATE(created_at)'
 
+    // 🔧 修复(2025-12-31): PostgreSQL日期比较需要显式类型转换
+    // 占位符参数会被当作TEXT，需要在SQL中转换为DATE类型
+    const dateCastFunc = db.type === 'postgres' ? '?::date' : '?'
+
     // 3. 查询每日新增创意数量趋势
     let dailyCreativesQuery = `
       SELECT
@@ -56,8 +60,8 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN score < 60 OR score IS NULL THEN 1 ELSE 0 END) as lowQuality
       FROM ad_creatives
       WHERE user_id = ?
-        AND ${dateFunc} >= ?
-        AND ${dateFunc} <= ?
+        AND ${dateFunc} >= ${dateCastFunc}
+        AND ${dateFunc} <= ${dateCastFunc}
     `
     const params: any[] = [userId, startDateStr, endDateStr]
 
