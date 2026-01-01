@@ -3,11 +3,12 @@
  * 使用node-cron实现定时调度，由supervisord管理进程
  *
  * 功能：
- * 1. 每6小时同步Google Ads数据
- * 2. 每天凌晨2点备份数据库
- * 3. 每天凌晨3点清理90天前的数据
- * 4. 每天凌晨2点检查链接可用性和账号状态（需求20优化）
- * 5. [已禁用] A/B测试监控 - 当前业务场景未使用，暂时禁用以减少日志噪音
+ * 1. 每小时执行补点击任务（迁移到统一队列系统）
+ * 2. 每6小时同步Google Ads数据
+ * 3. 每天凌晨2点备份数据库
+ * 4. 每天凌晨3点清理90天前的数据
+ * 5. 每天凌晨2点检查链接可用性和账号状态（需求20优化）
+ * 6. [已禁用] A/B测试监控 - 当前业务场景未使用，暂时禁用以减少日志噪音
  */
 
 import cron from 'node-cron'
@@ -28,6 +29,25 @@ function log(message: string) {
 function logError(message: string, error: any) {
   const timestamp = new Date().toISOString()
   console.error(`[${timestamp}] ${message}`, error instanceof Error ? error.message : String(error))
+}
+
+/**
+ * 任务0: 补点击任务调度
+ * 频率: 每小时执行一次
+ * 🔄 已迁移到统一队列系统，自动检查并执行待处理的补点击任务
+ */
+async function clickFarmSchedulerTask() {
+  log('🖱️ 开始执行补点击任务调度...')
+
+  try {
+    // 直接调用内部触发函数，不依赖外部cron
+    const { triggerAllPendingTasks } = await import('./lib/click-farm/click-farm-scheduler-trigger')
+    const result = await triggerAllPendingTasks()
+
+    log(`🖱️ 补点击任务调度完成 - 处理: ${result.processed}, 入队: ${result.queued}, 跳过: ${result.skipped}, 暂停: ${result.paused}`)
+  } catch (error) {
+    logError('❌ 补点击任务调度执行失败:', error)
+  }
 }
 
 /**
@@ -268,11 +288,20 @@ function isTimeMatch(currentTime: string, targetTime: string, toleranceMinutes: 
 function startScheduler() {
   log('🚀 定时任务调度器启动')
   log('📅 任务调度计划:')
+  log('  - 补点击任务: 每小时整点 (0 * * * *)')
   log('  - 数据同步: 每6小时 (0, 6, 12, 18点)')
   log('  - 数据库备份: 每天凌晨2点')
   log('  - 链接和账号检查: 每天凌晨2点 (需求20优化)')
   log('  - 数据清理: 每天凌晨3点')
   log('  - A/B测试监控: [已禁用] 当前业务未使用')
+
+  // 任务0: 每小时整点执行补点击任务调度
+  cron.schedule('0 * * * *', async () => {
+    await clickFarmSchedulerTask()
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Shanghai' // 使用中国时区，与补点击任务的时区配置保持一致
+  })
 
   // 任务1: 每6小时同步数据 (0, 6, 12, 18点)
   cron.schedule('0 */6 * * *', async () => {

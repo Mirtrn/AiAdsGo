@@ -1,9 +1,11 @@
 // Cron调度器 - 每小时执行补点击任务
 // /api/cron/click-farm-scheduler
 // 🔄 重构版本：使用UnifiedQueueManager队列系统
+// ⚠️ 注意：此端点现在主要保留给外部cron服务调用
+// 内部调度器通过 scheduler.ts 直接调用 triggerAllPendingTasks()
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getPendingTasks, updateTaskStatus, pauseClickFarmTask, initializeDailyHistory } from '@/lib/click-farm';
+import { updateTaskStatus, pauseClickFarmTask, initializeDailyHistory, parseClickFarmTask } from '@/lib/click-farm';
 import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange, generateSubTasks } from '@/lib/click-farm/scheduler';
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
@@ -12,6 +14,32 @@ import { nowFunc } from '@/lib/db-helpers';
 import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
 import { getAllProxyUrls } from '@/lib/settings';
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
+import type { ClickFarmTask } from '@/lib/click-farm-types';
+
+/**
+ * 获取待执行的任务
+ * 包括：pending（等待首次执行）+ running（进行中）
+ *
+ * 🔧 修复(2025-12-31): 增强查询条件，确保能获取到所有需要处理的任务
+ */
+async function getClickFarmTasksForCron(): Promise<ClickFarmTask[]> {
+  const db = getDatabase();
+
+  // 查询条件：
+  // 1. status IN ('pending', 'running') - 状态为待执行或进行中
+  // 2. is_deleted = FALSE - 未删除
+  // 3. next_run_at IS NULL OR next_run_at <= now - 可以立即执行
+  const tasks = await db.query<any>(`
+    SELECT * FROM click_farm_tasks
+    WHERE status IN ('pending', 'running')
+      AND is_deleted = FALSE
+      AND (next_run_at IS NULL OR next_run_at <= datetime('now'))
+    ORDER BY created_at ASC
+    LIMIT 100
+  `, []);
+
+  return tasks.map(parseClickFarmTask);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,13 +52,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // 获取数据库实例和队列管理器实例
     const db = getDatabase();
-    const tasks = await getPendingTasks();
-
-    // 获取队列管理器实例
     const queueManager = await getOrCreateQueueManager();
 
-    console.log(`[Cron] 开始执行补点击任务，找到 ${tasks.length} 个待处理任务`);
+    // 🔧 修复(2025-12-31): 使用增强的任务查询函数
+    const tasks = await getClickFarmTasksForCron();
+
+    // 🔧 调试日志：检查当前时间和 next_run_at
+    const now = new Date();
+    console.log(`[Cron] === 开始执行补点击任务 ===`);
+    console.log(`[Cron] 当前时间 (UTC): ${now.toISOString()}`);
+    console.log(`[Cron] 找到 ${tasks.length} 个待处理任务`);
+    if (tasks.length > 0) {
+      console.log(`[Cron] 任务详情:`);
+      for (const task of tasks) {
+        const nextRunAt = task.next_run_at ? new Date(task.next_run_at).toISOString() : 'NULL';
+        const timeInTz = now.toLocaleString('en-US', { timeZone: task.timezone, hour: '2-digit', minute: '2-digit', hour12: false });
+        console.log(`[Cron]   - ${task.id}: status=${task.status}, next_run_at=${nextRunAt}, timezone=${task.timezone} (${timeInTz})`);
+      }
+    }
 
     const results = {
       processed: 0,
