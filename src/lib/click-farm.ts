@@ -392,13 +392,23 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     if (history.length > 0 && task.timezone) {
       // 用任务的时区获取今天的日期
       const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
+      console.log('🔍 [click-farm] 任务时区:', task.timezone, '今日日期:', todayInTaskTimezone);
+      console.log('🔍 [click-farm] daily_history 前3条:', JSON.stringify(history.slice(0, 3)));
+
       // 从 daily_history 中找今天的记录
       const todayEntry = history.find((entry: any) => entry.date === todayInTaskTimezone);
       if (todayEntry) {
+        console.log('🔍 [click-farm] 找到今日记录:', JSON.stringify(todayEntry));
         todayClicks += (todayEntry.actual || 0);
         todaySuccessClicks += (todayEntry.success || 0);
         todayFailedClicks += (todayEntry.failed || 0);
+      } else {
+        console.log('🔍 [click-farm] 未找到今日记录，尝试查找最近日期');
+        const latestEntry = history[history.length - 1];
+        console.log('🔍 [click-farm] 最新记录:', JSON.stringify(latestEntry));
       }
+    } else {
+      console.log('🔍 [click-farm] 跳过任务: history.length=', history.length, 'timezone=', task.timezone);
     }
   }
 
