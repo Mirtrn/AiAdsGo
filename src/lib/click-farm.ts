@@ -355,7 +355,7 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   // ⚠️ 注意：每个任务可能有不同的timezone（来自offer的target_country）
   // 必须按每个任务的timezone单独判断"today"，然后聚合统计
   const allTasksQuery = `
-    SELECT timezone, started_at, total_clicks, success_clicks, failed_clicks
+    SELECT timezone, started_at, total_clicks, success_clicks, failed_clicks, daily_history
     FROM click_farm_tasks
     WHERE user_id = ? AND IS_DELETED_FALSE AND started_at IS NOT NULL ${dateFilter}
   `;
