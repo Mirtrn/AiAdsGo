@@ -104,15 +104,26 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
 
   // 检查执行时间范围
   const currentHour = getHourInTimezone(new Date(), task.timezone);
+  const now = new Date();
+  const timeInTaskTimezone = now.toLocaleString('en-US', {
+    timeZone: task.timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+
+  console.log('[TriggerTaskScheduling] 执行时间检查:', {
+    taskId,
+    timezone: task.timezone,
+    currentHour,
+    now: now.toISOString(),
+    timeInTaskTimezone,
+    start_time: task.start_time,
+    end_time: task.end_time,
+    isWithinRange: isWithinExecutionTimeRange(task)
+  });
 
   if (!isWithinExecutionTimeRange(task)) {
-    const now = new Date();
-    const timeInTaskTimezone = now.toLocaleString('en-US', {
-      timeZone: task.timezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
     return {
       taskId,
       status: 'skipped',

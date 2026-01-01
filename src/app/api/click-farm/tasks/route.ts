@@ -185,6 +185,15 @@ export async function POST(request: NextRequest) {
     const todayInTaskTimezone = getDateInTimezone(new Date(), timezone);
     const scheduledDate = task.scheduled_start_date || todayInTaskTimezone;
 
+    console.log('[CreateTask] 触发调度条件检查:', {
+      taskId: task.id,
+      timezone,
+      scheduled_start_date: task.scheduled_start_date,
+      todayInTaskTimezone,
+      scheduledDate,
+      isToday: scheduledDate === todayInTaskTimezone
+    });
+
     if (scheduledDate === todayInTaskTimezone) {
       console.log(`[CreateTask] 任务 ${task.id} 开始日期是今天，触发调度...`);
       try {
@@ -194,6 +203,9 @@ export async function POST(request: NextRequest) {
         console.error(`[CreateTask] 任务 ${task.id} 调度失败:`, error);
         // 调度失败不影响任务创建成功返回
       }
+    } else {
+      console.log(`[CreateTask] 任务 ${task.id} 开始日期不是今天，跳过立即调度`);
+      console.log(`[CreateTask] scheduledDate=${scheduledDate}, todayInTaskTimezone=${todayInTaskTimezone}`);
     }
 
     return NextResponse.json({
