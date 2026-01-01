@@ -396,7 +396,7 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   }
 
   // 累计统计（不含已删除任务）
-  const cumulative = await db.queryOne<any>(`
+  const cumulativeResult = await db.queryOne<any>(`
     SELECT
       COALESCE(SUM(total_clicks), 0) as clicks,
       COALESCE(SUM(success_clicks), 0) as successClicks,
@@ -404,6 +404,9 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     FROM click_farm_tasks
     WHERE user_id = ? AND IS_DELETED_FALSE ${cumulativeFilter}
   `, cumulativeParams);
+
+  // 🔧 修复: PostgreSQL queryOne 在无结果时返回 undefined，需要提供默认值
+  const cumulative = cumulativeResult || { clicks: 0, successClicks: 0, failedClicks: 0 };
 
   const cumulativeSuccessRate = cumulative.clicks > 0
     ? (cumulative.successClicks / cumulative.clicks) * 100
