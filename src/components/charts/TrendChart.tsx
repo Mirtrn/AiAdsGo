@@ -115,10 +115,9 @@ export function TrendChart({
     )
   }
 
-  // No data state
-  const hasNoData = data.length === 0 || metrics.every(metric =>
-    data.every(item => (item[metric.key] as number) === 0)
-  )
+  // No data state - 只有在没有数据点时才显示空状态
+  // 如果有数据点（即使值都是0），也应该显示图表
+  const hasNoData = data.length === 0
 
   // Build chart config
   const chartConfig: ChartConfig = metrics.reduce((acc, metric) => {

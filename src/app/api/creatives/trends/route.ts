@@ -81,14 +81,17 @@ export async function GET(request: NextRequest) {
       ORDER BY date ASC
     `
 
-    // 🔧 调试：添加日志
-    console.log('🔍 [trends] Query SQL:', dailyCreativesQuery.replace(/\s+/g, ' ').trim())
-    console.log('🔍 [trends] Params:', params)
-    console.log('🔍 [trends] db.type:', db.type)
-
     const dailyTrends = await db.query(dailyCreativesQuery, params) as any[]
 
-    console.log('🔍 [trends] Result:', dailyTrends.length, 'rows')
+    // 9. 格式化趋势数据 - 使用 Number() 确保 bigint 能正确转换为 number
+    const formattedTrends = dailyTrends.map((row) => ({
+      date: String(row.date || ''),
+      newCreatives: Number(row.newCreatives) || 0,
+      avgQualityScore: Math.round((Number(row.avgScore) || 0) * 10) / 10,
+      highQuality: Number(row.highQuality) || 0,
+      mediumQuality: Number(row.mediumQuality) || 0,
+      lowQuality: Number(row.lowQuality) || 0,
+    }))
 
     // 4. 查询创意是否被选中的分布（使用is_selected字段）
     let statusQuery = `
@@ -192,51 +195,41 @@ export async function GET(request: NextRequest) {
 
     const usageStats = await db.queryOne(usageQuery, usageParams) as any
 
-    // 9. 格式化趋势数据
-    const formattedTrends = dailyTrends.map((row) => ({
-      date: row.date,
-      newCreatives: row.newCreatives || 0,
-      avgQualityScore: Math.round((row.avgScore || 0) * 10) / 10,
-      highQuality: row.highQuality || 0,
-      mediumQuality: row.mediumQuality || 0,
-      lowQuality: row.lowQuality || 0,
-    }))
-
     // 10. 返回结果
     return NextResponse.json({
       success: true,
-      // 每日趋势数据
+      // 每日趋势数据（使用之前格式化好的 formattedTrends）
       trends: formattedTrends,
-      // 分布统计
+      // 分布统计（确保 count 转换为 number）
       distributions: {
         // 状态分布
         status: statusDistribution.reduce((acc, item) => {
-          acc[item.status || 'unknown'] = item.count
+          acc[item.status || 'unknown'] = Number(item.count) || 0
           return acc
         }, {} as Record<string, number>),
         // Ad Strength分布
         adStrength: adStrengthDistribution.reduce((acc, item) => {
-          acc[item.ad_strength] = item.count
+          acc[item.ad_strength] = Number(item.count) || 0
           return acc
         }, {} as Record<string, number>),
         // 质量评分分布
         quality: qualityDistribution.reduce((acc, item) => {
-          acc[item.quality_level] = item.count
+          acc[item.quality_level] = Number(item.count) || 0
           return acc
         }, {} as Record<string, number>),
         // 主题分布
         theme: themeDistribution.reduce((acc, item) => {
-          acc[item.theme] = item.count
+          acc[item.theme] = Number(item.count) || 0
           return acc
         }, {} as Record<string, number>),
       },
-      // 使用统计
+      // 使用统计（确保转换为 number）
       usage: {
-        selected: usageStats?.selected || 0,
-        notSelected: usageStats?.notSelected || 0,
-        total: usageStats?.total || 0,
+        selected: Number(usageStats?.selected) || 0,
+        notSelected: Number(usageStats?.notSelected) || 0,
+        total: Number(usageStats?.total) || 0,
         usageRate: usageStats?.total > 0
-          ? Math.round((usageStats.selected / usageStats.total) * 100)
+          ? Math.round((Number(usageStats.selected) / Number(usageStats.total)) * 100)
           : 0,
       },
       dateRange: {
