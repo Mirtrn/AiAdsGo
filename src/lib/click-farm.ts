@@ -445,7 +445,12 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   `, cumulativeParams);
 
   // 🔧 修复: PostgreSQL queryOne 在无结果时返回 undefined，需要提供默认值
-  const cumulative = cumulativeResult || { clicks: 0, successClicks: 0, failedClicks: 0 };
+  // 确保所有字段都是数字类型
+  const cumulative = {
+    clicks: Number(cumulativeResult?.clicks || 0),
+    successClicks: Number(cumulativeResult?.successClicks || 0),
+    failedClicks: Number(cumulativeResult?.failedClicks || 0),
+  };
 
   const cumulativeSuccessRate = cumulative.clicks > 0
     ? (cumulative.successClicks / cumulative.clicks) * 100
