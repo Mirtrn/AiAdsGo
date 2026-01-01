@@ -655,22 +655,26 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       if (!enqueueResponse.ok) {
         const errorData = await enqueueResponse.json()
 
-        // 🔧 修复(2025-12-22): 检查是否是API配置缺失错误
-        const isApiConfigError = errorData.error?.includes('Google Ads API 配置')
-          || errorData.details?.includes('Google Ads API')
-          || errorData.missingFields?.length > 0
+        // 🔧 修复: 安全处理错误数据，确保字段类型正确
+        const errorMessage = typeof errorData.error === 'string' ? errorData.error : String(errorData.error || '任务入队失败')
+        const errorDetails = typeof errorData.details === 'string' ? errorData.details : ''
+
+        // 检查是否是API配置缺失错误
+        const isApiConfigError = errorMessage.includes('Google Ads API 配置')
+          || errorDetails.includes('Google Ads API')
+          || (Array.isArray(errorData.missingFields) && errorData.missingFields.length > 0)
 
         if (isApiConfigError) {
           // 友好提示：API配置缺失
           throw new Error(
             `⚠️ 缺少 Google Ads API 配置\n\n` +
             `为了获取关键词真实搜索量，需要配置 Google Ads API 凭证：\n` +
-            `${errorData.missingFields?.map((field: string) => `• ${field}`).join('\n') || '• Developer Token\n• Refresh Token\n• Customer ID'}\n\n` +
+            `${Array.isArray(errorData.missingFields) ? errorData.missingFields.map((field: string) => `• ${field}`).join('\n') : '• Developer Token\n• Refresh Token\n• Customer ID'}\n\n` +
             `请前往【设置】→【Google Ads API】进行配置后重试。`
           )
         }
 
-        throw new Error(errorData.error || '任务入队失败')
+        throw new Error(errorMessage)
       }
 
       const { taskId } = await enqueueResponse.json()
