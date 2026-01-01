@@ -84,15 +84,36 @@ export async function GET(request: NextRequest) {
 
     const dailyTrends = await db.query(dailyCreativesQuery, params) as any[]
 
+    // 🔧 调试日志：检查原始查询结果
+    console.log('[Trends API] 原始查询结果:', JSON.stringify(dailyTrends, null, 2))
+    console.log('[Trends API] 日期范围:', { startDateStr, endDateStr, daysBack, userId, offerId: offerId || '全部' })
+
     // 9. 格式化趋势数据 - 使用 Number() 确保 bigint 能正确转换为 number
+    // 🔧 修复(2025-01-01): 正确格式化日期，PostgreSQL返回的DATE类型需要提取YYYY-MM-DD
+    const formatDate = (dateValue: any): string => {
+      if (!dateValue) return ''
+      // 如果是 Date 对象，提取 YYYY-MM-DD
+      if (dateValue instanceof Date) {
+        const year = dateValue.getFullYear()
+        const month = String(dateValue.getMonth() + 1).padStart(2, '0')
+        const day = String(dateValue.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+      // 如果已经是字符串，直接返回
+      return String(dateValue)
+    }
+
     const formattedTrends = dailyTrends.map((row) => ({
-      date: String(row.date || ''),
+      date: formatDate(row.date),
       newCreatives: Number(row.newCreatives) || 0,
       avgQualityScore: Math.round((Number(row.avgScore) || 0) * 10) / 10,
       highQuality: Number(row.highQuality) || 0,
       mediumQuality: Number(row.mediumQuality) || 0,
       lowQuality: Number(row.lowQuality) || 0,
     }))
+
+    // 🔧 调试日志：检查格式化后的结果
+    console.log('[Trends API] 格式化后的趋势数据:', JSON.stringify(formattedTrends, null, 2))
 
     // 4. 查询创意是否被选中的分布（使用is_selected字段）
     let statusQuery = `
@@ -195,6 +216,21 @@ export async function GET(request: NextRequest) {
     }
 
     const usageStats = await db.queryOne(usageQuery, usageParams) as any
+
+    // 🔧 调试日志：检查最终返回数据
+    console.log('[Trends API] 最终返回数据:', {
+      trendsCount: formattedTrends.length,
+      trendsSample: formattedTrends.slice(0, 3),
+      distributions: {
+        statusCount: statusDistribution.length,
+        qualityCount: qualityDistribution.length,
+        themeCount: themeDistribution.length,
+      },
+      usage: {
+        total: Number(usageStats?.total) || 0,
+        selected: Number(usageStats?.selected) || 0,
+      }
+    })
 
     // 10. 返回结果
     return NextResponse.json({
