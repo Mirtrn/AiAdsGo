@@ -190,11 +190,17 @@ export default function TaskDetailPage() {
   const { task, statistics, offer } = details;
 
   // Prepare distribution chart data
+  // hourly_breakdown 格式: [{actual, success, failed}, ...] (24小时)
+  const lastDay = task.daily_history.length > 0
+    ? task.daily_history[task.daily_history.length - 1]
+    : null;
+  const hourlyActual = lastDay?.hourly_breakdown
+    ? lastDay.hourly_breakdown.map((h: any) => h.actual || 0)
+    : Array(24).fill(0);
+
   const distributionData = {
     date: new Date().toISOString().split('T')[0],
-    hourlyActual: task.daily_history.length > 0
-      ? task.daily_history[task.daily_history.length - 1].hourly || Array(24).fill(0)
-      : Array(24).fill(0),
+    hourlyActual,
     hourlyConfigured: task.hourly_distribution,
   };
 
