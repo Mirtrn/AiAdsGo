@@ -133,7 +133,12 @@ class PostgresAdapter implements DatabaseAdapter {
 
     // 🔧 修复(2025-01-01): 转换 datetime('YYYY-MM-DDTHH:mm:ss.sssZ') 为 PostgreSQL 的 timestamp
     // 匹配: datetime('2025-01-01T12:00:00.000Z') -> timestamp '2025-01-01 12:00:00'
+    // 排除 'now' 关键字（datetime('now') 由上面的规则处理）
     result = result.replace(/datetime\s*\(\s*'([^']+)'\s*\)/gi, (_, dateStr) => {
+      // 跳过 'now' 或 'now, -N days' 等情况
+      if (dateStr.startsWith('now')) {
+        return _;  // 返回原始字符串，保留给后续规则处理
+      }
       // 将 ISO 8601 格式转换为 PostgreSQL timestamp 格式
       // '2025-01-01T12:00:00.000Z' -> '2025-01-01 12:00:00'
       const normalized = dateStr.replace('T', ' ').replace(/\.\d{3}Z$/, '')
