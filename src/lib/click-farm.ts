@@ -366,34 +366,52 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     total_clicks: number;
     success_clicks: number;
     failed_clicks: number;
+    daily_history: string | any[];
   }>(allTasksQuery, [userId]);
 
-  // 🔧 调试：查看查询结果
-  console.log('🔍 [click-farm] allTasks 数量:', allTasks.length);
-  if (allTasks.length > 0) {
-    console.log('🔍 [click-farm] 示例任务:', JSON.stringify(allTasks[0]));
+  // 🔧 修复：今日统计应该从 daily_history 中按任务的时区查找今天的记录
+  // 而不是判断 started_at 是否在今天
+  // 今日点击数据
+  let todayClicks = 0;
+  let todaySuccessClicks = 0;
+  let todayFailedClicks = 0;
+
+  // 从每个任务的 daily_history 中提取今日数据
+  for (const task of allTasks) {
+    let history: any[] = [];
+    if (typeof task.daily_history === 'string') {
+      try {
+        history = JSON.parse(task.daily_history);
+      } catch (e) {
+        history = [];
+      }
+    } else if (Array.isArray(task.daily_history)) {
+      history = task.daily_history;
+    }
+
+    if (history.length > 0 && task.timezone) {
+      // 用任务的时区获取今天的日期
+      const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
+      // 从 daily_history 中找今天的记录
+      const todayEntry = history.find((entry: any) => entry.date === todayInTaskTimezone);
+      if (todayEntry) {
+        todayClicks += (todayEntry.actual || 0);
+        todaySuccessClicks += (todayEntry.success || 0);
+        todayFailedClicks += (todayEntry.failed || 0);
+      }
+    }
   }
 
-  // 按每个任务的timezone单独判断是否为今日
-  const todayTasks = allTasks.filter(task => {
-    if (!task.started_at) return false;
-    // 用该任务的timezone来判断"today"
-    const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
-    const taskDate = getDateInTimezone(new Date(task.started_at), task.timezone);
-    return taskDate === todayInTaskTimezone;
+  console.log('🔍 [click-farm] 今日统计（从daily_history）:', {
+    clicks: todayClicks,
+    successClicks: todaySuccessClicks,
+    failedClicks: todayFailedClicks
   });
 
-  console.log('🔍 [click-farm] todayTasks 数量:', todayTasks.length);
+  // 累计统计（不含已删除任务）
 
-  const today = {
-    clicks: todayTasks.reduce((sum, t) => sum + t.total_clicks, 0),
-    successClicks: todayTasks.reduce((sum, t) => sum + t.success_clicks, 0),
-    failedClicks: todayTasks.reduce((sum, t) => sum + t.failed_clicks, 0),
-  };
-  console.log('🔍 [click-farm] today 统计:', today);
-
-  const todaySuccessRate = today.clicks > 0
-    ? (today.successClicks / today.clicks) * 100
+  const todaySuccessRate = todayClicks > 0
+    ? (todaySuccessClicks / todayClicks) * 100
     : 0;
 
   // 累计统计（不含已删除任务）
@@ -450,11 +468,11 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
 
   return {
     today: {
-      clicks: today.clicks,
-      successClicks: today.successClicks,
-      failedClicks: today.failedClicks,
+      clicks: todayClicks,
+      successClicks: todaySuccessClicks,
+      failedClicks: todayFailedClicks,
       successRate: parseFloat(todaySuccessRate.toFixed(1)),
-      traffic: estimateTraffic(today.clicks)  // 🔧 统一使用估算函数
+      traffic: estimateTraffic(todayClicks)  // 🔧 统一使用估算函数
     },
     cumulative: {
       clicks: cumulative.clicks,
