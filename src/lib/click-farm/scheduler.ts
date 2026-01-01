@@ -231,10 +231,7 @@ export function shouldCompleteTask(task: ClickFarmTask): boolean {
  * 在 updateTaskStatus 中会通过 toISOString() 转换为 ISO 8601 格式（UTC）存储到数据库
  * 数据库查询时使用 next_run_at <= datetime('now') 进行比较（datetime('now')返回UTC）
  *
- * 关于时区：
- * - 返回的 Date 对象虽然使用了服务器本地时间的 setHours()
- * - 但由于 Date 内部存储的始终是 UTC，toISOString() 会正确转换
- * - 最终存储和查询都是基于 UTC，所以逻辑是正确的
+ * 🔧 修复(2025-12-31): 所有"下一个整点"的计算必须基于任务时区，而不是服务器本地时间
  *
  * @param timezone - 时区
  * @param task - 可选，任务对象（用于计算首次执行时间）
@@ -245,10 +242,8 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
 
   // 🔧 修复(2025-12-31): 防御性检查，确保 task 是有效对象
   if (!task || typeof task !== 'object') {
-    console.warn('[generateNextRunAt] 无效的任务对象，返回下一个整点');
-    const nextHour = new Date(now);
-    nextHour.setHours(now.getHours() + 1, 0, 0, 0);
-    return nextHour;
+    console.warn('[generateNextRunAt] 无效的任务对象，返回任务时区的下一个整点');
+    return getNextHourInTimezone(now, timezone);
   }
 
   // 如果提供了任务对象且任务未开始，计算首次执行时间
@@ -275,10 +270,8 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
 
     // 在同一时区进行日期对比
     if (scheduledStartDateStr < todayInTaskTimezone) {
-      // 还没有到开始日期，返回下一个小时
-      const nextHour = new Date(now);
-      nextHour.setHours(now.getHours() + 1, 0, 0, 0);
-      return nextHour;
+      // 还没有到开始日期，返回任务时区的下一个小时
+      return getNextHourInTimezone(now, timezone);
     }
 
     // 如果已经到了或超过开始日期，计算首次执行时间
@@ -304,19 +297,54 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
         timezone
       );
 
-      // 如果计算出的时间是过去，返回下一个整点
+      // 如果计算出的时间是过去，返回任务时区的下一个整点
       if (firstRunAt <= now) {
-        const nextHour = new Date(now);
-        nextHour.setHours(now.getHours() + 1, 0, 0, 0);
-        return nextHour;
+        return getNextHourInTimezone(now, timezone);
       }
 
       return firstRunAt;
     }
   }
 
-  // 默认逻辑：下一个整点
-  const nextHour = new Date(now);
-  nextHour.setHours(now.getHours() + 1, 0, 0, 0);
-  return nextHour;
+  // 默认逻辑：返回任务时区的下一个整点
+  return getNextHourInTimezone(now, timezone);
+}
+
+/**
+ * 🆕 获取指定时区的下一个整点时间
+ *
+ * @param now - 当前时间
+ * @param timezone - 目标时区
+ * @returns 下一个整点的 Date 对象（UTC）
+ *
+ * @example
+ * // 当前 UTC 时间：2025-12-31 03:12:00
+ * // 伦敦时间（GMT）：2025-12-31 03:12:00
+ * getNextHourInTimezone(now, 'Europe/London')
+ * // 返回：伦敦时间 04:00 = UTC 04:00
+ */
+function getNextHourInTimezone(now: Date, timezone: string): Date {
+  // 获取任务时区的当前时间
+  const currentHour = getHourInTimezone(now, timezone);
+  const currentDate = getDateInTimezone(now, timezone);
+
+  // 计算下一个整点（当前小时 + 1）
+  let nextHour = currentHour + 1;
+  let nextDate = currentDate;
+
+  // 如果超过 23 点，进入下一天的 0 点
+  if (nextHour >= 24) {
+    nextHour = 0;
+    const [year, month, day] = currentDate.split('-').map(Number);
+    const dateObj = new Date(year, month - 1, day);
+    dateObj.setDate(dateObj.getDate() + 1);
+    nextDate = dateObj.toISOString().split('T')[0];
+  }
+
+  // 在任务时区中构造下一个整点的时间
+  return createDateInTimezone(
+    nextDate,
+    `${nextHour.toString().padStart(2, '0')}:00`,
+    timezone
+  );
 }

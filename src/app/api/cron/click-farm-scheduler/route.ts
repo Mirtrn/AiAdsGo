@@ -4,12 +4,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPendingTasks, updateTaskStatus, pauseClickFarmTask, initializeDailyHistory } from '@/lib/click-farm';
-import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange } from '@/lib/click-farm/scheduler';
+import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange, generateSubTasks } from '@/lib/click-farm/scheduler';
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
 import { getDatabase } from '@/lib/db';
 import { nowFunc } from '@/lib/db-helpers';
 import { getDateInTimezone, getHourInTimezone } from '@/lib/timezone-utils';
+import { getAllProxyUrls } from '@/lib/settings';
 import type { ClickFarmTaskData } from '@/lib/queue/executors/click-farm-executor';
 
 export async function GET(request: NextRequest) {
@@ -103,12 +104,12 @@ export async function GET(request: NextRequest) {
         }
 
         // 检查代理配置
-        const proxyConfig = await db.queryOne<any>(`
-          SELECT proxy_url FROM system_settings
-          WHERE user_id = ? AND key = ?
-        `, [task.user_id, `proxy_${offer.target_country.toLowerCase()}`]);
+        // 🔧 修复(2025-12-31): 使用统一的 getAllProxyUrls 函数，与触发器和其他模块保持一致
+        const proxyUrls = await getAllProxyUrls(task.user_id);
+        const targetCountry = offer.target_country.toUpperCase();
+        const proxyConfig = proxyUrls.find(p => p.country.toUpperCase() === targetCountry);
 
-        if (!proxyConfig || !proxyConfig.proxy_url) {
+        if (!proxyConfig) {
           // 代理缺失，中止任务
           await pauseClickFarmTask(
             task.id,
@@ -189,24 +190,27 @@ export async function GET(request: NextRequest) {
         // 🔥 核心改进：将所有点击任务加入队列系统
         console.log(`[Cron] 任务 ${task.id} 将创建 ${clickCount} 个队列任务`);
 
+        // 🆕 使用 generateSubTasks 生成分散执行时间的子任务
+        const subTasks = generateSubTasks(
+          task,
+          currentHour,
+          clickCount,
+          offer.affiliate_link,
+          offer.target_country
+        );
+
         // 🔧 修复P1-3：添加错误恢复机制
         let queued = 0;
         let queueErrors: any[] = [];
 
-        for (let i = 0; i < clickCount; i++) {
-          // 🔥 计算该点击在当前小时内的执行时间（秒级随机分布，避开整分钟）
-          let randomSecond = Math.floor(Math.random() * 3600);
-
-          // 🔥 需求10：避开整分钟触发（:00秒）
-          if (randomSecond % 60 === 0) {
-            randomSecond = (randomSecond + Math.floor(Math.random() * 30) + 15) % 3600;
-          }
-
+        for (let i = 0; i < subTasks.length; i++) {
+          const subTask = subTasks[i];
           const taskData: ClickFarmTaskData = {
             taskId: task.id,
-            url: offer.affiliate_link,
-            proxyUrl: proxyConfig.proxy_url,
-            offerId: task.offer_id
+            url: subTask.url,
+            proxyUrl: proxyConfig.url,
+            offerId: task.offer_id,
+            scheduledAt: subTask.scheduledAt.toISOString()  // 🆕 传递计划执行时间，实现时间分散
           };
 
           try {

@@ -2,8 +2,11 @@
 // src/lib/queue/executors/click-farm-executor.ts
 
 import axios from 'axios';
+import https from 'https';
 import type { Task, ProxyConfig } from '../types';
 import { updateTaskStats } from '@/lib/click-farm';
+import { getHourInTimezone } from '@/lib/timezone-utils';
+import { getDatabase } from '@/lib/db';
 
 /**
  * 补点击任务数据结构
@@ -13,6 +16,8 @@ export interface ClickFarmTaskData {
   url: string;           // 要访问的affiliate链接
   proxyUrl: string;      // 代理URL
   offerId: number;       // Offer ID（用于日志）
+  // 🆕 计划执行时间（用于将点击分散到1小时内不同时间点执行）
+  scheduledAt?: string;  // ISO 8601 格式的时间戳字符串
   // 🆕 Referer配置
   refererConfig?: {
     type: 'none' | 'random' | 'specific';
@@ -122,24 +127,24 @@ function parseProxyUrl(proxyUrl: string): {
 
 /**
  * 生成随机的User-Agent
- * 模拟不同浏览器和设备
+ * 模拟不同浏览器和设备（使用最新版本）
  */
 function getRandomUserAgent(): string {
   const userAgents = [
-    // Chrome on Windows
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    // Chrome on macOS
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-    // Firefox on Windows
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0',
-    // Safari on macOS
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-    // Edge on Windows
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+    // Chrome on Windows (最新版本)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+    // Chrome on macOS (最新版本)
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    // Firefox on Windows (最新版本)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
+    // Safari on macOS (最新版本)
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15',
+    // Edge on Windows (最新版本)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
   ];
 
   return userAgents[Math.floor(Math.random() * userAgents.length)];
@@ -175,11 +180,32 @@ function getRandomAcceptLanguage(): string {
  * - 随机Accept-Language
  * - 可配置的Referer（模拟不同来源）
  * - 随机请求间隔（避免固定频率）
+ *
+ * 🆕 时间分散执行：
+ * - 支持 scheduledAt 字段，将点击分散到1小时内的不同时间点执行
+ * - 如果当前时间早于 scheduledAt，延迟执行
  */
 export async function executeClickFarmTask(
   task: Task<ClickFarmTaskData>
 ): Promise<{ success: boolean; traffic: number }> {
-  const { taskId, url, proxyUrl, refererConfig } = task.data;
+  const { taskId, url, proxyUrl, refererConfig, scheduledAt } = task.data;
+
+  // 🆕 检查是否需要延迟执行
+  if (scheduledAt) {
+    const scheduledTime = new Date(scheduledAt).getTime();
+    const now = Date.now();
+    const delay = scheduledTime - now;
+
+    if (delay > 0) {
+      // 延迟到计划时间执行
+      console.log(`[ClickFarm] 任务 ${taskId} 延迟执行，等待 ${Math.round(delay / 1000)} 秒 (计划: ${scheduledAt})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    } else if (delay < -60000) {
+      // 如果计划时间已经过去超过1分钟，说明任务严重延迟，直接跳过
+      // 但仍然执行（不要丢失点击）
+      console.log(`[ClickFarm] 警告: 任务 ${taskId} 计划时间已过去 ${Math.round(-delay / 1000)} 秒，仍将执行`);
+    }
+  }
 
   try {
     // 🔧 修复：支持多种代理URL格式
@@ -218,12 +244,13 @@ export async function executeClickFarmTask(
     // 后台异步执行和追踪（不await）
     (async () => {
       try {
-        // 🆕 构建请求头（防爬优化）
+        // 🆕 构建请求头（完整的浏览器指纹，绕过反爬虫）
+        const userAgent = getRandomUserAgent();
         const headers: Record<string, string> = {
-          'User-Agent': getRandomUserAgent(),
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'User-Agent': userAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
           'Accept-Language': getRandomAcceptLanguage(),
-          'Accept-Encoding': 'gzip, deflate, br',
+          'Accept-Encoding': 'gzip, deflate, br, zstd',
           'Connection': 'keep-alive',
           'Upgrade-Insecure-Requests': '1',
           'Sec-Fetch-Dest': 'document',
@@ -231,61 +258,90 @@ export async function executeClickFarmTask(
           'Sec-Fetch-Site': 'cross-site',
           'Sec-Fetch-User': '?1',
           'Cache-Control': 'max-age=0',
+          'DNT': '1',
         };
+
+        // 🆕 添加Chrome特征头（Sec-CH-UA系列）
+        if (userAgent.includes('Chrome') && !userAgent.includes('Edg')) {
+          const chromeVersion = userAgent.match(/Chrome\/(\d+)/)?.[1] || '131';
+          headers['Sec-CH-UA'] = `"Not_A Brand";v="8", "Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}"`;
+          headers['Sec-CH-UA-Mobile'] = '?0';
+          headers['Sec-CH-UA-Platform'] = userAgent.includes('Windows') ? '"Windows"' : '"macOS"';
+        } else if (userAgent.includes('Edg')) {
+          const edgeVersion = userAgent.match(/Edg\/(\d+)/)?.[1] || '131';
+          headers['Sec-CH-UA'] = `"Not_A Brand";v="8", "Chromium";v="${edgeVersion}", "Microsoft Edge";v="${edgeVersion}"`;
+          headers['Sec-CH-UA-Mobile'] = '?0';
+          headers['Sec-CH-UA-Platform'] = '"Windows"';
+        }
 
         // 🆕 添加Referer头（如果配置了）
         if (referer) {
           headers['Referer'] = referer;
         }
 
-        // 🔧 修复(2025-12-31): 处理HTTPS SSL错误，尝试降级到HTTP
-        let targetUrl = url;
-        let useHttps = url.startsWith('https://');
+        // 🔧 优化(2025-12-31): 强制使用HTTPS + 禁用SSL验证（绕过代理SSL问题）
+        const httpsAgent = new https.Agent({
+          rejectUnauthorized: false,  // 禁用SSL证书验证
+          keepAlive: true,             // 启用连接复用
+          maxSockets: 50,              // 最大并发连接数
+        });
 
-        const executeRequest = async (requestUrl: string, tryHttpFallback: boolean): Promise<{ success: boolean; status: number; isFallback: boolean }> => {
-          try {
-            const response = await axios.get(requestUrl, {
-              proxy,
-              timeout: 3000,
-              validateStatus: () => true,
-              maxRedirects: 0,
-              headers,
-            });
-            return { success: response.status >= 200 && response.status < 400, status: response.status, isFallback: false };
-          } catch (error: any) {
-            // 🔧 SSL错误降级处理
-            if (tryHttpFallback && error.message && error.message.includes('SSL')) {
-              console.log(`[ClickFarm] HTTPS请求SSL错误，降级到HTTP: ${requestUrl.substring(0, 50)}...`);
-              const httpUrl = requestUrl.replace('https://', 'http://');
-              try {
-                const response = await axios.get(httpUrl, {
-                  proxy,
-                  timeout: 3000,
-                  validateStatus: () => true,
-                  maxRedirects: 0,
-                  headers,
-                });
-                return { success: response.status >= 200 && response.status < 400, status: response.status, isFallback: true };
-              } catch (httpError: any) {
-                console.log(`[ClickFarm] HTTP降级也失败: ${httpError.message}`);
-                return { success: false, status: 0, isFallback: true };
+        // 🔥 执行HTTPS请求（不降级）
+        try {
+          const response = await axios.get(url, {
+            proxy,
+            httpsAgent,                // 使用自定义HTTPS Agent
+            timeout: 2000,             // 优化：减少超时到2秒
+            validateStatus: () => true, // 接受所有状态码
+            maxRedirects: 0,           // 禁用重定向
+            headers,
+          });
+
+          // 🔧 Fire & Forget模式 - 只要收到HTTP响应就算成功
+          const isSuccess = response.status > 0;
+
+          // 🆕 P0修复：从 scheduledAt 提取计划执行的小时数，而不是使用实际执行时间
+          let scheduledHour: number | undefined;
+          if (scheduledAt) {
+            try {
+              const db = await getDatabase();
+              const taskRow = await db.queryOne<any>(`
+                SELECT timezone FROM click_farm_tasks WHERE id = ?
+              `, [taskId]);
+              if (taskRow && taskRow.timezone) {
+                scheduledHour = getHourInTimezone(new Date(scheduledAt), taskRow.timezone);
               }
+            } catch (e) {
+              console.warn(`[ClickFarm] 获取任务时区失败，使用实际时间:`, e);
             }
-            return { success: false, status: 0, isFallback: false };
           }
-        };
+          await updateTaskStats(taskId, isSuccess, scheduledHour);
 
-        const result = await executeRequest(targetUrl, useHttps);
-        const isSuccess = result.success;
-        await updateTaskStats(taskId, isSuccess);
-
-        const fallbackNote = result.isFallback ? ' [降级HTTP]' : '';
-        console.log(`[ClickFarm] 点击执行完成: ${targetUrl.substring(0, 50)}... (${result.status}) [${Date.now() - startTime}ms]${fallbackNote}` +
-          (referer ? ` [Referer: ${referer.substring(0, 30)}...]` : ''));
+          console.log(`[ClickFarm] 点击执行完成: ${url.substring(0, 50)}... (${response.status}) [${Date.now() - startTime}ms] [HTTPS]` +
+            (referer ? ` [Referer: ${referer.substring(0, 30)}...]` : ''));
+        } catch (error: any) {
+          // 网络错误、超时等真正的失败
+          // 🆕 P0修复：从 scheduledAt 提取计划执行的小时数
+          let scheduledHour: number | undefined;
+          if (scheduledAt) {
+            try {
+              const db = await getDatabase();
+              const taskRow = await db.queryOne<any>(`
+                SELECT timezone FROM click_farm_tasks WHERE id = ?
+              `, [taskId]);
+              if (taskRow && taskRow.timezone) {
+                scheduledHour = getHourInTimezone(new Date(scheduledAt), taskRow.timezone);
+              }
+            } catch (e) {
+              console.warn(`[ClickFarm] 获取任务时区失败，使用实际时间:`, e);
+            }
+          }
+          await updateTaskStats(taskId, false, scheduledHour);
+          console.log(`[ClickFarm] 点击执行失败: ${url.substring(0, 50)}... [${error.message}]`);
+        }
       } catch (error: any) {
-        // 网络错误、超时等真正的失败
-        await updateTaskStats(taskId, false);
-        console.log(`[ClickFarm] 点击执行失败: ${url.substring(0, 50)}... [${error.message}]`);
+        // 外层错误处理
+        console.error(`[ClickFarm] 点击执行异常: ${url.substring(0, 50)}...`, error);
       }
     })().catch(err => {
       // 捕获异步任务中的未处理错误

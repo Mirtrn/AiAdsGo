@@ -5,6 +5,7 @@ import { getClickFarmTaskById, restartClickFarmTask } from '@/lib/click-farm';
 import { notifyTaskResumed } from '@/lib/click-farm/notifications';
 import { getDatabase } from '@/lib/db';
 import { getAllProxyUrls } from '@/lib/settings';  // 🔧 修复：导入新的代理查询函数
+import { getDateInTimezone } from '@/lib/timezone-utils';
 
 export async function POST(
   request: NextRequest,
@@ -73,8 +74,9 @@ export async function POST(
       console.log(`[Restart] 任务 ${id} 从未开始，重启后将首次执行`);
     } else if (task.scheduled_start_date) {
       // 检查scheduled_start_date是否已经过期
-      const today = new Date().toISOString().split('T')[0];
-      if (task.scheduled_start_date < today) {
+      // 🔧 修复(2025-12-31): 使用任务时区的日期进行比较，而非 UTC 日期
+      const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
+      if (task.scheduled_start_date < todayInTaskTimezone) {
         // scheduled_start_date已过期，任务应该已经运行了一段时间
         // 不需要特殊处理，next_run_at会在Cron中自动更新
         console.log(`[Restart] 任务 ${id} 的scheduled_start_date(${task.scheduled_start_date})已过期，状态正常`);

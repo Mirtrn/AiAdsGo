@@ -4,7 +4,7 @@
  */
 
 import { getPendingTasks, updateTaskStatus, pauseClickFarmTask, initializeDailyHistory, parseClickFarmTask } from '@/lib/click-farm';
-import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange } from '@/lib/click-farm/scheduler';
+import { shouldCompleteTask, generateNextRunAt, isWithinExecutionTimeRange, generateSubTasks } from '@/lib/click-farm/scheduler';
 import { notifyTaskPaused, notifyTaskCompleted } from '@/lib/click-farm/notifications';
 import { getOrCreateQueueManager } from '@/lib/queue/init-queue';
 import { getDatabase } from '@/lib/db';
@@ -134,16 +134,33 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     ? task.referer_config
     : undefined;
 
+  // 🆕 使用 generateSubTasks 生成分散执行时间的子任务
+  // 这样点击会分散到当前小时内的不同时间点执行，而不是集中在一起
+  const subTasks = generateSubTasks(
+    task,
+    currentHour,
+    clickCount,
+    offer.affiliate_link,
+    offer.target_country
+  );
+
   // 获取队列管理器并加入队列
   const queueManager = await getOrCreateQueueManager();
   let queued = 0;
 
-  for (let i = 0; i < clickCount; i++) {
+  // 🔧 修复(2025-12-31): 大批量点击时使用分批处理，避免内存溢出
+  // 每批处理 50 个，批间等待 50ms 让 GC 有机会回收
+  const BATCH_SIZE = 50;
+  const BATCH_DELAY_MS = 50;
+
+  for (let i = 0; i < subTasks.length; i++) {
+    const subTask = subTasks[i];
     const taskData: ClickFarmTaskData = {
       taskId: task.id,
-      url: offer.affiliate_link,
+      url: subTask.url,
       proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
       offerId: task.offer_id,
+      scheduledAt: subTask.scheduledAt.toISOString(),  // 🆕 传递计划执行时间，实现时间分散
       refererConfig  // 🆕 传递Referer配置
     };
 
@@ -153,6 +170,12 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
         maxRetries: 2
       });
       queued++;
+
+      // 🔧 修复(2025-12-31): 每 BATCH_SIZE 个任务后让出主线程，让 GC 回收
+      if (queued % BATCH_SIZE === 0) {
+        console.log(`[Trigger] 任务 ${task.id} 已加入 ${queued}/${clickCount} 个点击到队列...`);
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      }
     } catch (error) {
       console.error(`[Trigger] 任务 ${task.id} 加入队列失败:`, error);
     }
@@ -255,18 +278,38 @@ export async function triggerAllPendingTasks(): Promise<{
       ? task.referer_config
       : undefined;
 
+    // 🆕 使用 generateSubTasks 生成分散执行时间的子任务
+    const subTasks = generateSubTasks(
+      task,
+      currentHour,
+      clickCount,
+      offer.affiliate_link,
+      offer.target_country
+    );
+
+    // 🔧 修复(2025-12-31): 大批量点击时使用分批处理，避免内存溢出
+    const BATCH_SIZE = 100;
+    const BATCH_DELAY_MS = 50;
+
     // 加入队列
     let queued = 0;
-    for (let i = 0; i < clickCount; i++) {
+    for (let i = 0; i < subTasks.length; i++) {
+      const subTask = subTasks[i];
       try {
         await queueManager.enqueue('click-farm', {
           taskId: task.id,
-          url: offer.affiliate_link,
+          url: subTask.url,
           proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
           offerId: task.offer_id,
+          scheduledAt: subTask.scheduledAt.toISOString(),  // 🆕 传递计划执行时间
           refererConfig  // 🆕 传递Referer配置
         }, task.user_id, { priority: 'normal', maxRetries: 2 });
         queued++;
+
+        // 🔧 修复(2025-12-31): 每 BATCH_SIZE 个任务后让出主线程
+        if (queued % BATCH_SIZE === 0) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+        }
       } catch (error) {
         console.error(`[TriggerAll] 任务 ${task.id} 加入队列失败:`, error);
       }
