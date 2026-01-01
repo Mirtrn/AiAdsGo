@@ -81,7 +81,14 @@ export async function GET(request: NextRequest) {
       ORDER BY date ASC
     `
 
+    // 🔧 调试：添加日志
+    console.log('🔍 [trends] Query SQL:', dailyCreativesQuery.replace(/\s+/g, ' ').trim())
+    console.log('🔍 [trends] Params:', params)
+    console.log('🔍 [trends] db.type:', db.type)
+
     const dailyTrends = await db.query(dailyCreativesQuery, params) as any[]
+
+    console.log('🔍 [trends] Result:', dailyTrends.length, 'rows')
 
     // 4. 查询创意是否被选中的分布（使用is_selected字段）
     let statusQuery = `
