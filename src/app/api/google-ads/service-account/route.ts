@@ -26,6 +26,12 @@ export async function POST(req: NextRequest) {
     const id = crypto.randomUUID()
     const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
+    // 🔧 修复：只保留1个服务账号，先删除旧的，再插入新的
+    await db.exec(`
+      DELETE FROM google_ads_service_accounts
+      WHERE user_id = ?
+    `, [user.id])
+
     await db.exec(`
       INSERT INTO google_ads_service_accounts (
         id, user_id, name, mcc_customer_id, developer_token,
