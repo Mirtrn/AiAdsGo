@@ -102,10 +102,10 @@ export async function POST(
   try {
     const db = getDatabase()
 
-    // 🆕 检查是否已达到5次生成上限
+    // 🆕 检查是否已达到5次生成上限（只计算未删除的创意）
     const existingCreatives = await db.query<{ count: number }>(
       `SELECT COUNT(*) as count FROM ad_creatives
-       WHERE offer_id = ? AND user_id = ?`,
+       WHERE offer_id = ? AND user_id = ? AND is_deleted = 0`,
       [parseInt(id, 10), parseInt(userId, 10)]
     )
 
