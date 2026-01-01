@@ -140,6 +140,21 @@ class PostgresAdapter implements DatabaseAdapter {
       return `timestamp '${normalized}'`
     })
 
+    // 🔧 修复(2025-01-01): 转换 IS_DELETED_FALSE/TRUE 占位符为实际 SQL 条件
+    // 这些常量在各业务文件中定义，PostgreSQL 需要转换为实际的条件
+    // 处理不带表名前缀的情况: IS_DELETED_FALSE -> is_deleted = FALSE
+    result = result.replace(/\bIS_DELETED_FALSE\b/g, 'is_deleted = FALSE')
+    result = result.replace(/\bIS_DELETED_TRUE\b/g, 'is_deleted = TRUE')
+    // 处理带表名前缀的情况: t.IS_DELETED_FALSE -> t.is_deleted = FALSE
+    result = result.replace(/\b\w+\.IS_DELETED_FALSE\b/g, (match) => {
+      const table = match.replace('.IS_DELETED_FALSE', '')
+      return `${table}.is_deleted = FALSE`
+    })
+    result = result.replace(/\b\w+\.IS_DELETED_TRUE\b/g, (match) => {
+      const table = match.replace('.IS_DELETED_TRUE', '')
+      return `${table}.is_deleted = TRUE`
+    })
+
     // 4. 转换 strftime 为 PostgreSQL 的 to_char
     // 匹配: strftime('%Y-%m-%d', column) -> to_char(column, 'YYYY-MM-DD')
     result = result.replace(/strftime\s*\(\s*'%Y-%m-%d'\s*,\s*([^)]+)\)/gi, (_, column) => {
