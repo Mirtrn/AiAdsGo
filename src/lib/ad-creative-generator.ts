@@ -3758,6 +3758,43 @@ export async function generateAdCreative(
   const removedByIntent = beforeIntentFilter - finalKeywords.length
   console.log(`   ✅ 意图过滤完成: 移除 ${removedByIntent} 个低意图词，保留 ${finalKeywords.length} 个`)
 
+  // 🔥 2025-01-01: 最终品类过滤 - 确保所有关键词都经过品类过滤
+  // 在所有关键词来源合并后应用品类过滤，覆盖以下场景：
+  // 1. 关键词池 (keywordPool) - 行 2625
+  // 2. extracted_keywords fallback - 行 2674
+  // 3. 关键词池扩展 (newKeywords) - 行 3265-3282
+  // 4. extracted_elements.keywords 合并 - 行 3311-3445
+  console.log(`\n📋 最终品类过滤（覆盖所有关键词来源）...`)
+  const finalCategoryWhitelist = extractMainCategoryWords(offer as any)
+  console.log(`   品类白名单: ${finalCategoryWhitelist.slice(0, 5).join(', ')}${finalCategoryWhitelist.length > 5 ? '...' : ''}`)
+
+  const beforeCategoryFilter = finalKeywords.length
+  const categoryFilteredOut: string[] = []
+
+  finalKeywords = finalKeywords.filter(kw => {
+    const kwLower = kw.keyword.toLowerCase()
+    // 移除品牌名前缀后检查是否包含品类词
+    const kwWithoutBrand = kwLower.replace(new RegExp(`^${escapeRegex(brandName)}[\\s-]*`), '').trim()
+
+    // 检查是否包含至少一个核心品类词
+    const hasCategory = finalCategoryWhitelist.length === 0 ||
+      finalCategoryWhitelist.some(catWord => kwWithoutBrand.includes(catWord))
+
+    if (!hasCategory) {
+      categoryFilteredOut.push(kw.keyword)
+    }
+
+    return hasCategory
+  })
+
+  if (categoryFilteredOut.length > 0) {
+    console.log(`   ⚠️ 品类过滤: 移除 ${categoryFilteredOut.length} 个跨品类关键词`)
+    categoryFilteredOut.slice(0, 10).forEach(kw => {
+      console.log(`      - "${kw}" (不包含品类词: ${finalCategoryWhitelist.slice(0, 3).join(', ')}等)`)
+    })
+  }
+  console.log(`   ✅ 品类过滤完成: ${beforeCategoryFilter} → ${finalKeywords.length} 个关键词`)
+
   // 🎯 第7步：品牌词优先排序 + 比例控制
   // 优化(2025-12-15): 确保品牌词至少占50%，避免被高搜索量通用词淹没
   console.log(`\n📊 关键词排序规则: 品牌词优先 + 比例控制（品牌词至少50%）`)
