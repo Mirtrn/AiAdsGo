@@ -3,6 +3,9 @@
 
 import { getDatabase } from '@/lib/db';
 
+// 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
+const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
+
 /**
  * 通知类型
  */
@@ -124,7 +127,7 @@ export async function getUserNotifications(userId: number): Promise<ClickFarmNot
       updated_at
     FROM click_farm_tasks
     WHERE user_id = ?
-      AND is_deleted = FALSE
+      AND IS_DELETED_FALSE
       AND (
         (status = 'paused' AND paused_at > datetime('now', '-24 hours'))
         OR (status = 'completed' AND completed_at > datetime('now', '-24 hours'))

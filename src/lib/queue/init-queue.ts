@@ -22,11 +22,26 @@ import type { UnifiedQueueManager } from './unified-queue-manager'
 import type { QueueConfig } from './types'
 import { getDataSyncScheduler } from './schedulers/data-sync-scheduler'
 
+// 🔧 修复(2025-01-01): 防止队列重复初始化
+let __queueInitialized = false
+let __queueInitPromise: Promise<UnifiedQueueManager> | null = null
+
 /**
  * 初始化统一队列系统
  */
-export async function initializeQueue() {
-  try {
+export async function initializeQueue(): Promise<UnifiedQueueManager> {
+  // 🔧 修复(2025-01-01): 防止重复初始化
+  if (__queueInitialized) {
+    console.log('⏭️ 队列系统已初始化，跳过重复初始化')
+    return getQueueManager()
+  }
+
+  // 防止并发初始化时的竞态条件
+  if (__queueInitPromise) {
+    return __queueInitPromise
+  }
+
+  __queueInitPromise = (async () => {
     console.log('🚀 初始化统一队列系统...')
 
     console.log(`📝 环境配置:`)
@@ -68,9 +83,17 @@ export async function initializeQueue() {
     console.log('📝 代理配置：任务执行时按需从用户设置加载')
     console.log('🔄 数据同步调度器已集成启动')
 
+    // 🔧 修复(2025-01-01): 标记为已初始化
+    __queueInitialized = true
+
     return queue
+  })()
+
+  try {
+    return await __queueInitPromise
   } catch (error: any) {
     console.error('❌ 队列系统初始化失败:', error.message)
+    __queueInitPromise = null  // 重置失败的初始化承诺
     throw error
   }
 }

@@ -6,6 +6,9 @@ import { getDatabase } from '@/lib/db';
 import { estimateTraffic } from '@/lib/click-farm/distribution';
 import type { ClickFarmTask } from '@/lib/click-farm-types';
 
+// 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
+const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -29,7 +32,7 @@ export async function GET(
         o.affiliate_link
       FROM click_farm_tasks t
       LEFT JOIN offers o ON t.offer_id = o.id
-      WHERE t.id = ? AND t.user_id = ? AND t.is_deleted = FALSE
+      WHERE t.id = ? AND t.user_id = ? AND t.IS_DELETED_FALSE
     `, [id, parseInt(userId)]);
 
     if (!task) {

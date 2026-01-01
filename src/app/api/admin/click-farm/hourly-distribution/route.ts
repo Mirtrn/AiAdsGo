@@ -3,6 +3,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/db';
 
+// 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
+const IS_DELETED_FALSE = 'IS_DELETED_FALSE'
+
 export async function GET(request: NextRequest) {
   try {
     const userId = request.headers.get('x-user-id');
@@ -20,7 +23,7 @@ export async function GET(request: NextRequest) {
     const tasks = await db.query<any>(`
       SELECT hourly_distribution
       FROM click_farm_tasks
-      WHERE is_deleted = FALSE AND status IN ('running', 'completed')
+      WHERE IS_DELETED_FALSE AND status IN ('running', 'completed')
     `, []);
 
     const hourlyConfigured = new Array(24).fill(0);

@@ -8,6 +8,10 @@ import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
 import { toNumber } from '@/lib/utils'
 
+// 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
+const IS_DELETED_TRUE = 'TRUE'
+const IS_DELETED_FALSE = 'FALSE'
+
 // Google Ads CustomerStatus 枚举值映射
 // 参考: https://developers.google.com/google-ads/api/reference/rpc/latest/CustomerStatusEnum.CustomerStatus
 const CustomerStatusMap: Record<number | string, string> = {
@@ -895,13 +899,13 @@ export async function GET(request: NextRequest) {
           o.offer_name,
           o.brand,
           o.target_country,
-          CASE WHEN o.is_deleted = TRUE THEN 0 ELSE 1 END as is_active,
+          CASE WHEN o.is_deleted = IS_DELETED_TRUE THEN 0 ELSE 1 END as is_active,
           COUNT(DISTINCT c.id) as campaign_count
         FROM offers o
         INNER JOIN campaigns c ON o.id = c.offer_id
         WHERE c.google_ads_account_id = ?
           AND c.user_id = ?
-          AND o.is_deleted = FALSE
+          AND o.is_deleted = IS_DELETED_FALSE
           AND c.status != 'REMOVED'
         GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_deleted
       `, [dbAccountId, userId])
