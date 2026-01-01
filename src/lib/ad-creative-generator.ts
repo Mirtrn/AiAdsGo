@@ -40,6 +40,13 @@ function safeParseJson(value: any, defaultValue: any = null): any {
   return value; // 已经是对象/数组（PostgreSQL jsonb）
 }
 
+/**
+ * 转义正则表达式特殊字符
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 // Keyword with search volume data
 // 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
 // 🎯 意图分类（3类）
@@ -2977,6 +2984,44 @@ export async function generateAdCreative(
     }
 
     result.keywords = filtered.filtered.map(kw => kw.keyword)
+
+    // 🔥 2025-01-01: 品类过滤 - 过滤掉同品牌其他品类的关键词（如Eufy品牌的doorbell、camera）
+    // 必须在关键词质量过滤之后、去重之前应用
+    const categoryWhitelist = extractMainCategoryWords(offer as any)
+    if (categoryWhitelist.length > 0) {
+      console.log(`📋 品类白名单: ${categoryWhitelist.slice(0, 5).join(', ')}${categoryWhitelist.length > 5 ? '...' : ''}`)
+
+      const categoryFiltered: string[] = []
+      const filteredOut: string[] = []
+
+      for (const kw of result.keywords) {
+        const kwLower = kw.toLowerCase()
+        const kwWithoutBrand = kwLower.replace(new RegExp(`^${escapeRegex(brandName)}[\\s-]*`), '').trim()
+
+        // 检查是否包含至少一个核心品类词
+        const hasCategory = categoryWhitelist.some(catWord =>
+          kwWithoutBrand.includes(catWord)
+        )
+
+        if (hasCategory) {
+          categoryFiltered.push(kw)
+        } else {
+          filteredOut.push(kw)
+        }
+      }
+
+      if (filteredOut.length > 0) {
+        console.warn(`⚠️ 品类过滤: 移除 ${filteredOut.length} 个跨品类关键词`)
+        filteredOut.slice(0, 10).forEach(kw => {
+          console.warn(`   - "${kw}" (不包含品类词: ${categoryWhitelist.slice(0, 3).join(', ')}等)`)
+        })
+      }
+
+      result.keywords = categoryFiltered
+      console.log(`✅ 品类过滤完成，剩余 ${result.keywords.length} 个关键词`)
+    } else {
+      console.warn(`⚠️ 无法提取主品类词，跳过品类过滤`)
+    }
 
     // 🔧 修复(2025-12-27): 添加Google Ads标准化去重，消除AI生成的重复关键词
     const { deduplicateKeywordsWithPriority } = await import('./google-ads-keyword-normalizer')
