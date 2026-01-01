@@ -3,7 +3,9 @@
 
 import axios from 'axios';
 import https from 'https';
-import type { Task, ProxyConfig } from '../types';
+import http from 'http';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+import type { Task } from '../types';
 import { updateTaskStats } from '@/lib/click-farm';
 import { getHourInTimezone } from '@/lib/timezone-utils';
 import { getDatabase } from '@/lib/db';
@@ -208,7 +210,7 @@ export async function executeClickFarmTask(
   }
 
   try {
-    // 🔧 修复：支持多种代理URL格式
+    // 🔧 修复：使用HttpsProxyAgent（与offer爬取一致）
     const proxyParsed = parseProxyUrl(proxyUrl);
     if (!proxyParsed) {
       console.error(`[ClickFarm] 代理URL解析失败: ${proxyUrl}`);
@@ -216,11 +218,14 @@ export async function executeClickFarmTask(
       return { success: false, traffic: 0 };
     }
 
-    const proxy = {
-      host: proxyParsed.host,
-      port: proxyParsed.port,
-      auth: proxyParsed.auth
-    };
+    // 构建代理URL格式: http://user:pass@host:port
+    const proxyAddress = proxyParsed.auth
+      ? `http://${proxyParsed.auth.username}:${proxyParsed.auth.password}@${proxyParsed.host}:${proxyParsed.port}`
+      : `http://${proxyParsed.host}:${proxyParsed.port}`;
+
+    // 使用HttpsProxyAgent（与offer爬取相同的方案）
+    const proxyAgent = new HttpsProxyAgent(proxyAddress);
+    const httpAgent = new http.Agent();
 
     // 🆕 确定Referer
     let referer: string | undefined;
@@ -279,21 +284,22 @@ export async function executeClickFarmTask(
           headers['Referer'] = referer;
         }
 
-        // 🔧 优化(2025-12-31): 强制使用HTTPS + 禁用SSL验证（绕过代理SSL问题）
+        // 🔧 使用HttpsProxyAgent（与offer爬取一致）
+        // 禁用SSL验证以处理代理SSL问题
         const httpsAgent = new https.Agent({
-          rejectUnauthorized: false,  // 禁用SSL证书验证
-          keepAlive: true,             // 启用连接复用
-          maxSockets: 50,              // 最大并发连接数
+          rejectUnauthorized: false,
+          keepAlive: true,
+          maxSockets: 50,
         });
 
-        // 🔥 执行HTTPS请求（不降级）
+        // 🔥 执行请求（使用HttpsProxyAgent）
         try {
           const response = await axios.get(url, {
-            proxy,
-            httpsAgent,                // 使用自定义HTTPS Agent
-            timeout: 2000,             // 优化：减少超时到2秒
+            httpAgent,                  // HTTP请求使用代理
+            httpsAgent,                 // HTTPS请求使用代理 + SSL验证禁用
+            timeout: 2000,              // 优化：减少超时到2秒
             validateStatus: () => true, // 接受所有状态码
-            maxRedirects: 0,           // 禁用重定向
+            maxRedirects: 0,            // 禁用重定向
             headers,
           });
 
