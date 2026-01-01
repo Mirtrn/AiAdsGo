@@ -103,9 +103,11 @@ export async function POST(
     const db = getDatabase()
 
     // 🆕 检查是否已达到5次生成上限（只计算未删除的创意）
+    // 🔧 修复(2025-01-01): PostgreSQL boolean类型处理（FALSE vs 0）
+    const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
     const existingCreatives = await db.query<{ count: number }>(
       `SELECT COUNT(*) as count FROM ad_creatives
-       WHERE offer_id = ? AND user_id = ? AND is_deleted = 0`,
+       WHERE offer_id = ? AND user_id = ? AND ${isDeletedCheck}`,
       [parseInt(id, 10), parseInt(userId, 10)]
     )
 
