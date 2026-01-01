@@ -131,6 +131,15 @@ class PostgresAdapter implements DatabaseAdapter {
     // 简单的 datetime('now') 转换（支持单引号和双引号）
     result = result.replace(/datetime\s*\(\s*["']now["']\s*\)/gi, 'CURRENT_TIMESTAMP')
 
+    // 🔧 修复(2025-01-01): 转换 datetime('YYYY-MM-DDTHH:mm:ss.sssZ') 为 PostgreSQL 的 timestamp
+    // 匹配: datetime('2025-01-01T12:00:00.000Z') -> timestamp '2025-01-01 12:00:00'
+    result = result.replace(/datetime\s*\(\s*'([^']+)'\s*\)/gi, (_, dateStr) => {
+      // 将 ISO 8601 格式转换为 PostgreSQL timestamp 格式
+      // '2025-01-01T12:00:00.000Z' -> '2025-01-01 12:00:00'
+      const normalized = dateStr.replace('T', ' ').replace(/\.\d{3}Z$/, '')
+      return `timestamp '${normalized}'`
+    })
+
     // 4. 转换 strftime 为 PostgreSQL 的 to_char
     // 匹配: strftime('%Y-%m-%d', column) -> to_char(column, 'YYYY-MM-DD')
     result = result.replace(/strftime\s*\(\s*'%Y-%m-%d'\s*,\s*([^)]+)\)/gi, (_, column) => {
