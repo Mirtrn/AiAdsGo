@@ -232,7 +232,15 @@ export function TrendChart({
                   axisLine={false}
                   tickMargin={8}
                   tickFormatter={(value) => {
-                    const date = new Date(value)
+                    // 解析日期，处理 "YYYY-MM-DD" 格式
+                    let date: Date
+                    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                      // 手动解析 "YYYY-MM-DD" 格式，避免时区问题
+                      const [year, month, day] = value.split('-').map(Number)
+                      date = new Date(year, month - 1, day)
+                    } else {
+                      date = new Date(value)
+                    }
                     return `${date.getMonth() + 1}/${date.getDate()}`
                   }}
                 />
@@ -277,7 +285,15 @@ export function TrendChart({
                   content={
                     <ChartTooltipContent
                       labelFormatter={(value) => {
-                        const date = new Date(value)
+                        // 解析日期，处理 "YYYY-MM-DD" 格式
+                        let date: Date
+                        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                          // 手动解析 "YYYY-MM-DD" 格式，避免时区问题
+                          const [year, month, day] = value.split('-').map(Number)
+                          date = new Date(year, month - 1, day)
+                        } else {
+                          date = new Date(value)
+                        }
                         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
                       }}
                       formatter={(value, name, item, index, payload) => {
@@ -322,7 +338,15 @@ export function TrendChart({
                   axisLine={false}
                   tickMargin={8}
                   tickFormatter={(value) => {
-                    const date = new Date(value)
+                    // 解析日期，处理 "YYYY-MM-DD" 格式
+                    let date: Date
+                    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                      // 手动解析 "YYYY-MM-DD" 格式，避免时区问题
+                      const [year, month, day] = value.split('-').map(Number)
+                      date = new Date(year, month - 1, day)
+                    } else {
+                      date = new Date(value)
+                    }
                     return `${date.getMonth() + 1}/${date.getDate()}`
                   }}
                 />
@@ -367,7 +391,15 @@ export function TrendChart({
                   content={
                     <ChartTooltipContent
                       labelFormatter={(value) => {
-                        const date = new Date(value)
+                        // 解析日期，处理 "YYYY-MM-DD" 格式
+                        let date: Date
+                        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                          // 手动解析 "YYYY-MM-DD" 格式，避免时区问题
+                          const [year, month, day] = value.split('-').map(Number)
+                          date = new Date(year, month - 1, day)
+                        } else {
+                          date = new Date(value)
+                        }
                         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
                       }}
                       formatter={(value, name, item, index, payload) => {
@@ -396,6 +428,7 @@ export function TrendChart({
                     fill={metric.color}
                     name={metric.label}
                     yAxisId={dualYAxis ? (metric.yAxisId || 'left') : 'left'}
+                    radius={[4, 4, 0, 0]}
                   />
                 ))}
               </BarChart>
