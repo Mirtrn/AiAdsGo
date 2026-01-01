@@ -103,13 +103,14 @@ export async function GET(request: NextRequest) {
       return String(dateValue)
     }
 
+    // 🔧 修复(2025-01-01): PostgreSQL返回小写列名，需要使用小写访问
     const formattedTrends = dailyTrends.map((row) => ({
       date: formatDate(row.date),
-      newCreatives: Number(row.newCreatives) || 0,
-      avgQualityScore: Math.round((Number(row.avgScore) || 0) * 10) / 10,
-      highQuality: Number(row.highQuality) || 0,
-      mediumQuality: Number(row.mediumQuality) || 0,
-      lowQuality: Number(row.lowQuality) || 0,
+      newCreatives: Number(row.newcreatives) || 0,
+      avgQualityScore: Math.round((Number(row.avgscore) || 0) * 10) / 10,
+      highQuality: Number(row.highquality) || 0,
+      mediumQuality: Number(row.mediumquality) || 0,
+      lowQuality: Number(row.lowquality) || 0,
     }))
 
     // 🔧 调试日志：检查格式化后的结果
