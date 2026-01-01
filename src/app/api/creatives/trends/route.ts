@@ -31,25 +31,31 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase()
 
     // 2. 计算日期范围
+    // 🔧 修复(2025-01-01): 使用本地日期而非 UTC 日期，避免时区问题
     const endDate = new Date()
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - daysBack)
 
-    const startDateStr = startDate.toISOString().split('T')[0]
-    const endDateStr = endDate.toISOString().split('T')[0]
+    // 格式化为 YYYY-MM-DD 本地日期
+    const toLocalDateStr = (date: Date) => {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
+    const startDateStr = toLocalDateStr(startDate)
+    const endDateStr = toLocalDateStr(endDate)
 
     // PostgreSQL/SQLite 兼容性条件
     const isSelectedTrue = db.type === 'postgres' ? 'is_selected = true' : 'is_selected = 1'
     const isSelectedFalse = db.type === 'postgres' ? 'is_selected = false' : 'is_selected = 0'
 
     // DATE() 函数兼容性：PostgreSQL的created_at是TEXT类型，需要转换
-    const dateFunc = db.type === 'postgres' ? 'created_at::date' : 'DATE(created_at)'
-
-    // 🔧 修复(2025-12-31): PostgreSQL日期比较需要显式类型转换
-    // 占位符参数会被当作TEXT，需要在SQL中转换为DATE类型
-    const dateCastFunc = db.type === 'postgres' ? '?::date' : '?'
+    const dateFunc = db.type === 'postgres' ? '(created_at::date)' : 'DATE(created_at)'
 
     // 3. 查询每日新增创意数量趋势
+    // 🔧 修复(2025-01-01): 使用正确的日期参数占位符，不要在SQL中包含::date转换
     let dailyCreativesQuery = `
       SELECT
         ${dateFunc} as date,
@@ -60,8 +66,8 @@ export async function GET(request: NextRequest) {
         SUM(CASE WHEN score < 60 OR score IS NULL THEN 1 ELSE 0 END) as lowQuality
       FROM ad_creatives
       WHERE user_id = ?
-        AND ${dateFunc} >= ${dateCastFunc}
-        AND ${dateFunc} <= ${dateCastFunc}
+        AND ${dateFunc} >= ?
+        AND ${dateFunc} <= ?
     `
     const params: any[] = [userId, startDateStr, endDateStr]
 
