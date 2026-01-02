@@ -2464,9 +2464,10 @@ export async function canGenerateSyntheticCreative(offerId: number): Promise<boo
 export async function getAvailableBuckets(offerId: number): Promise<BucketType[]> {
   const db = await getDatabase()
 
+  // 🔧 修复(2025-01-02): 只查询未删除的创意，排除软删除的创意
   const usedBuckets = await db.query<{ keyword_bucket: string }>(
     `SELECT DISTINCT keyword_bucket FROM ad_creatives
-     WHERE offer_id = ? AND keyword_bucket IS NOT NULL`,
+     WHERE offer_id = ? AND keyword_bucket IS NOT NULL AND deleted_at IS NULL`,
     [offerId]
   )
 
@@ -2486,9 +2487,10 @@ export async function getAvailableBuckets(offerId: number): Promise<BucketType[]
 export async function getUsedBuckets(offerId: number): Promise<BucketType[]> {
   const db = await getDatabase()
 
+  // 🔧 修复(2025-01-02): 只查询未删除的创意，排除软删除的创意
   const usedBuckets = await db.query<{ keyword_bucket: string }>(
     `SELECT DISTINCT keyword_bucket FROM ad_creatives
-     WHERE offer_id = ? AND keyword_bucket IS NOT NULL`,
+     WHERE offer_id = ? AND keyword_bucket IS NOT NULL AND deleted_at IS NULL`,
     [offerId]
   )
 
