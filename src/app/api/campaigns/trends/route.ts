@@ -25,9 +25,10 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase()
 
     // 2. 计算日期范围
+    // 🔧 修复(2025-01-02): 当选择7天时，应该返回7天的数据（今天 + 过去6天 = 7天）
     const endDate = new Date()
     const startDate = new Date()
-    startDate.setDate(startDate.getDate() - daysBack)
+    startDate.setDate(startDate.getDate() - daysBack + 1)  // +1 确保包含今天，共 daysBack 天数据
 
     const startDateStr = startDate.toISOString().split('T')[0]
     const endDateStr = endDate.toISOString().split('T')[0]

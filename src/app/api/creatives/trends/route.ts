@@ -31,10 +31,11 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase()
 
     // 2. 计算日期范围
-    // 🔧 修复(2025-01-01): 使用本地日期而非 UTC 日期，避免时区问题
+    // 🔧 修复(2025-01-02): 使用本地日期而非 UTC 日期，避免时区问题
+    // 修复 daysBack 计算：当选择7天时，应该返回7天的数据（今天 + 过去6天 = 7天）
     const endDate = new Date()
     const startDate = new Date()
-    startDate.setDate(startDate.getDate() - daysBack)
+    startDate.setDate(startDate.getDate() - daysBack + 1)  // +1 确保包含今天，共 daysBack 天数据
 
     // 格式化为 YYYY-MM-DD 本地日期
     const toLocalDateStr = (date: Date) => {
