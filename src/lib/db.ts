@@ -316,6 +316,15 @@ class PostgresAdapter implements DatabaseAdapter {
     const pgSql = this.convertPlaceholders(convertedSql)
     const cleanParams = this.convertParams(params, sql)
 
+    // 🔧 调试：查看累计统计查询
+    const isCumulativeQuery = sql.includes('SUM(success_clicks)');
+    if (isCumulativeQuery) {
+      console.log('🔍 [PostgreSQL queryOne] 累计统计查询');
+      console.log('  原始SQL:', sql.substring(0, 200));
+      console.log('  转换后SQL:', pgSql.substring(0, 200));
+      console.log('  参数:', cleanParams);
+    }
+
     // 生产环境不输出详细日志
     if (process.env.NODE_ENV === 'development') {
       const placeholderCount = (pgSql.match(/\$[0-9]+/g) || []).length
@@ -329,6 +338,13 @@ class PostgresAdapter implements DatabaseAdapter {
     }
 
     const result = await this.sql.unsafe(pgSql, cleanParams)
+
+    // 🔧 调试：查看累计统计查询结果
+    if (isCumulativeQuery) {
+      console.log('🔍 [PostgreSQL queryOne] 查询结果:', JSON.stringify(result[0]));
+      console.log('  result[0] 所有键:', result[0] ? Object.keys(result[0]) : 'undefined');
+    }
+
     return result[0] as T | undefined
   }
 
