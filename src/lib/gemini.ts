@@ -107,13 +107,32 @@ async function isVertexAIConfigured(userId: number): Promise<boolean> {
 
 /**
  * 检查用户是否配置了Gemini API（只检查用户级配置）
+ * 支持三种provider：vertex（Vertex AI）、official（Google官方API）、relay（第三方中转）
  * @param userId - 用户ID（必需）
  */
 async function isGeminiAPIConfigured(userId: number): Promise<boolean> {
   try {
-    const apiKey = await getUserOnlySetting('ai', 'gemini_api_key', userId)
-    return !!apiKey?.value
+    const { getSetting } = await import('./settings')
+    const providerSetting = await getSetting('ai', 'gemini_provider', userId)
+    const provider = providerSetting?.value || 'official'
+
+    // 🔧 修复(2026-01-01): 支持 relay provider，检查对应的 relay API key
+    if (provider === 'relay') {
+      const relayApiKey = await getUserOnlySetting('ai', 'gemini_relay_api_key', userId)
+      const isConfigured = !!relayApiKey?.value
+      console.log(`🔍 Gemini API配置检查 (用户ID: ${userId}): relay provider`)
+      console.log(`   gemini_relay_api_key: ${isConfigured ? '已配置' : '未配置'}`)
+      return isConfigured
+    } else {
+      // official 或其他 provider（如 vertex 降级到 direct-api）
+      const apiKey = await getUserOnlySetting('ai', 'gemini_api_key', userId)
+      const isConfigured = !!apiKey?.value
+      console.log(`🔍 Gemini API配置检查 (用户ID: ${userId}): ${provider} provider`)
+      console.log(`   gemini_api_key: ${isConfigured ? '已配置' : '未配置'}`)
+      return isConfigured
+    }
   } catch (error) {
+    console.error(`🔍 Gemini API配置检查失败:`, error)
     return false
   }
 }
@@ -310,6 +329,7 @@ export async function generateContent(
 
 /**
  * 调用Gemini直接API（直连，不使用代理，只使用用户级配置）
+ * 支持三种provider：vertex（Vertex AI）、official（Google官方API）、relay（第三方中转）
  * @param userId - 用户ID（必需）
  */
 async function callDirectAPI(
@@ -318,15 +338,35 @@ async function callDirectAPI(
 ): Promise<GeminiGenerateResult> {
   const { model, prompt, temperature, maxOutputTokens, operationType, responseSchema, responseMimeType } = params
 
-  // 检查用户的API密钥配置
-  const apiKey = await getUserOnlySetting('ai', 'gemini_api_key', userId)
-  if (!apiKey?.value) {
-    throw new Error(
-      `用户(ID=${userId})未配置 Gemini API 密钥。请在设置页面配置您自己的 Gemini API 密钥。`
-    )
+  const { getSetting } = await import('./settings')
+  const providerSetting = await getSetting('ai', 'gemini_provider', userId)
+  const provider = providerSetting?.value || 'official'
+
+  let apiKey: string | undefined
+
+  // 🔧 修复(2026-01-01): 支持 relay provider
+  if (provider === 'relay') {
+    const relayApiKey = await getUserOnlySetting('ai', 'gemini_relay_api_key', userId)
+    if (!relayApiKey?.value) {
+      throw new Error(
+        `用户(ID=${userId})未配置 Thunderrelay 中转 API 密钥。请在设置页面配置您自己的 relay API 密钥。`
+      )
+    }
+    apiKey = relayApiKey.value as string
+    console.log(`🌐 使用用户(ID=${userId})的 Thunderrelay 中转 API`)
+  } else {
+    // official 或其他 provider
+    const apiKeySetting = await getUserOnlySetting('ai', 'gemini_api_key', userId)
+    if (!apiKeySetting?.value) {
+      throw new Error(
+        `用户(ID=${userId})未配置 Gemini API 密钥。请在设置页面配置您自己的 Gemini API 密钥。`
+      )
+    }
+    apiKey = apiKeySetting.value as string
+    console.log(`🌐 使用用户(ID=${userId})的 Gemini 直接 API`)
   }
 
-  // 使用代理模式调用（传递用户的API密钥）
+  // 使用代理模式调用（传递用户的API密钥和provider类型）
   const { generateContent: axiosGenerate } = await import('./gemini-axios')
 
   const result = await axiosGenerate({
