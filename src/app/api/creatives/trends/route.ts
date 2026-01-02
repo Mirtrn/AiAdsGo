@@ -89,6 +89,34 @@ export async function GET(request: NextRequest) {
     console.log('[Trends API] 原始查询结果:', JSON.stringify(dailyTrends, null, 2))
     console.log('[Trends API] 日期范围:', { startDateStr, endDateStr, daysBack, userId, offerId: offerId || '全部' })
 
+    // 10. 补全缺失的日期（确保返回完整的日期范围，包括没有数据的日期）
+    const allDates: string[] = []
+    const currentDate = new Date(startDate)
+    while (currentDate <= endDate) {
+      allDates.push(toLocalDateStr(currentDate))
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
+
+    // 创建日期到数据的映射
+    const trendsMap = new Map<string, typeof dailyTrends[0]>()
+    dailyTrends.forEach(row => {
+      const dateKey = formatDate(row.date)
+      trendsMap.set(dateKey, row)
+    })
+
+    // 补全所有日期，缺失的日期值为0
+    const completeTrends = allDates.map(date => {
+      const row = trendsMap.get(date)
+      return {
+        date,
+        newCreatives: row ? Number(row.newcreatives) || 0 : 0,
+        avgQualityScore: row && row.avgscore ? Math.round((Number(row.avgscore) || 0) * 10) / 10 : 0,
+        highQuality: row ? Number(row.highquality) || 0 : 0,
+        mediumQuality: row ? Number(row.mediumquality) || 0 : 0,
+        lowQuality: row ? Number(row.lowquality) || 0 : 0,
+      }
+    })
+
     // 9. 格式化趋势数据 - 使用 Number() 确保 bigint 能正确转换为 number
     // 🔧 修复(2025-01-01): 正确格式化日期，PostgreSQL返回的DATE类型需要提取YYYY-MM-DD
     const formatDate = (dateValue: any): string => {
@@ -104,18 +132,8 @@ export async function GET(request: NextRequest) {
       return String(dateValue)
     }
 
-    // 🔧 修复(2025-01-01): PostgreSQL返回小写列名，需要使用小写访问
-    const formattedTrends = dailyTrends.map((row) => ({
-      date: formatDate(row.date),
-      newCreatives: Number(row.newcreatives) || 0,
-      avgQualityScore: Math.round((Number(row.avgscore) || 0) * 10) / 10,
-      highQuality: Number(row.highquality) || 0,
-      mediumQuality: Number(row.mediumquality) || 0,
-      lowQuality: Number(row.lowquality) || 0,
-    }))
-
     // 🔧 调试日志：检查格式化后的结果
-    console.log('[Trends API] 格式化后的趋势数据:', JSON.stringify(formattedTrends, null, 2))
+    console.log('[Trends API] 完整趋势数据（含缺失日期）:', JSON.stringify(completeTrends, null, 2))
 
     // 4. 查询创意是否被选中的分布（使用is_selected字段）
     let statusQuery = `
@@ -221,8 +239,8 @@ export async function GET(request: NextRequest) {
 
     // 🔧 调试日志：检查最终返回数据
     console.log('[Trends API] 最终返回数据:', {
-      trendsCount: formattedTrends.length,
-      trendsSample: formattedTrends.slice(0, 3),
+      trendsCount: completeTrends.length,
+      trendsSample: completeTrends.slice(0, 3),
       distributions: {
         statusCount: statusDistribution.length,
         qualityCount: qualityDistribution.length,
@@ -234,11 +252,11 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // 10. 返回结果
+    // 11. 返回结果（使用 completeTrends 而不是 formattedTrends）
     return NextResponse.json({
       success: true,
-      // 每日趋势数据（使用之前格式化好的 formattedTrends）
-      trends: formattedTrends,
+      // 每日趋势数据（使用补全后的 completeTrends）
+      trends: completeTrends,
       // 分布统计（确保 count 转换为 number）
       distributions: {
         // 状态分布
