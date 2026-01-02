@@ -267,7 +267,7 @@ export async function deleteClickFarmTask(
 
   await db.exec(`
     UPDATE click_farm_tasks
-    SET is_deleted = TRUE, deleted_at = datetime('now'), updated_at = datetime('now')
+    SET is_deleted = IS_DELETED_TRUE, deleted_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ? AND user_id = ?
   `, [id, userId]);
 }
