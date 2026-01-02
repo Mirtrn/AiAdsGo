@@ -148,13 +148,18 @@ export function TrendChart({
         );
         const leftMax = Math.max(...leftMaxValues);
         if (leftMax > 0) {
-          // 根据最大值智能计算合适的Y轴范围
+          // 🔥 2026-01-02 修复：根据最大值智能计算合适的Y轴范围
+          // 修复原逻辑中 100-1000 范围被错误四舍五入到100的问题
           if (leftMax <= 10) {
             leftDomain = [0, Math.ceil(leftMax * 1.2)];
           } else if (leftMax <= 100) {
-            leftDomain = [0, Math.ceil(leftMax * 1.2 / 5) * 5];
+            leftDomain = [0, Math.ceil(leftMax * 1.2 / 10) * 10];
+          } else if (leftMax <= 1000) {
+            leftDomain = [0, Math.ceil(leftMax * 1.2 / 100) * 100];
+          } else if (leftMax <= 10000) {
+            leftDomain = [0, Math.ceil(leftMax * 1.2 / 500) * 500];
           } else {
-            leftDomain = [0, Math.ceil((leftMax * 1.2) / 100) * 100];
+            leftDomain = [0, Math.ceil(leftMax * 1.2 / 1000) * 1000];
           }
         }
       }
@@ -169,13 +174,17 @@ export function TrendChart({
         );
         const rightMax = Math.max(...rightMaxValues);
         if (rightMax > 0) {
-          // 根据最大值智能计算合适的Y轴范围
+          // 🔥 2026-01-02 修复：根据最大值智能计算合适的Y轴范围
           if (rightMax <= 10) {
             rightDomain = [0, Math.ceil(rightMax * 1.2)];
           } else if (rightMax <= 100) {
-            rightDomain = [0, Math.ceil(rightMax * 1.2 / 5) * 5];
+            rightDomain = [0, Math.ceil(rightMax * 1.2 / 10) * 10];
+          } else if (rightMax <= 1000) {
+            rightDomain = [0, Math.ceil(rightMax * 1.2 / 100) * 100];
+          } else if (rightMax <= 10000) {
+            rightDomain = [0, Math.ceil(rightMax * 1.2 / 500) * 500];
           } else {
-            rightDomain = [0, Math.ceil((rightMax * 1.2) / 100) * 100];
+            rightDomain = [0, Math.ceil(rightMax * 1.2 / 1000) * 1000];
           }
         }
       }
@@ -189,16 +198,17 @@ export function TrendChart({
       );
       const maxValue = Math.max(...allMaxValues);
       if (maxValue > 0) {
-        // 根据最大值智能计算合适的Y轴范围
+        // 🔥 2026-01-02 修复：根据最大值智能计算合适的Y轴范围
         if (maxValue <= 10) {
-          // 小数值：直接向上取整到合适的整数
           leftDomain = [0, Math.ceil(maxValue * 1.2)];
         } else if (maxValue <= 100) {
-          // 中等数值：向上取整到最近的5或10
-          leftDomain = [0, Math.ceil(maxValue * 1.2 / 5) * 5];
+          leftDomain = [0, Math.ceil(maxValue * 1.2 / 10) * 10];
+        } else if (maxValue <= 1000) {
+          leftDomain = [0, Math.ceil(maxValue * 1.2 / 100) * 100];
+        } else if (maxValue <= 10000) {
+          leftDomain = [0, Math.ceil(maxValue * 1.2 / 500) * 500];
         } else {
-          // 大数值：保持原有逻辑，向上取整到最近的100
-          leftDomain = [0, Math.ceil((maxValue * 1.2) / 100) * 100];
+          leftDomain = [0, Math.ceil(maxValue * 1.2 / 1000) * 1000];
         }
       }
     }
