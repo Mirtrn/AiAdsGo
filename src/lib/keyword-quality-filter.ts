@@ -292,11 +292,29 @@ export function isPlatformMismatch(keyword: string, productUrl: string): boolean
 // ============================================
 
 /**
+ * 常见产品词列表（后缀包含这些词时不认为是品牌变体词）
+ */
+const PRODUCT_WORD_PATTERNS = [
+  'pro', 'max', 'ultra', 'plus', 'mini', 'lite', 'air', 's',
+  'se', 'x', 'c', 'e', 'a', 'v', 't',
+  'edition', 'version', 'gen', 'generation',
+  'camera', 'cam', 'vacuum', 'robot', 'cleaner',
+  'doorbell', 'security', 'tracker', 'sensor',
+  'starter', 'bundle', 'kit', 'set', 'pack'
+]
+
+/**
  * 检测是否为品牌变体词
  *
  * 品牌变体词特征：
  * - 品牌名 + 3个以上无意义字母后缀
  * - 例如：eureka + ddl = eurekaddl
+ *
+ * 🔥 2026-01-02 优化：
+ * - 包含数字的后缀不是变体词（产品型号，如 j15, x20）
+ * - 后缀完全等于常见产品词的不是变体词（如 pro, ultra, max）
+ * - 后缀以"产品词+"开头的（如 pro-）的不是变体词
+ * - 纯品牌词（后缀为空）豁免
  *
  * @param keyword - 关键词
  * @param brandName - 品牌名称
@@ -314,20 +332,35 @@ export function isBrandVariant(keyword: string, brandName: string): boolean {
   }
 
   // 提取品牌名后面的部分
-  const suffix = normalized.slice(brand.length)
+  const suffix = normalized.slice(brand.length).trim()
 
-  // 如果后面没有内容，不是变体词
+  // 如果后面没有内容，不是变体词（纯品牌词）
   if (!suffix) {
     return false
   }
 
-  // 检查后缀是否都是字母
-  if (!/^[a-z]+$/.test(suffix)) {
-    return false // 包含数字或特殊字符，不算变体词
+  // 1. 检查后缀是否包含数字（如果包含数字，不是变体词，是产品型号）
+  if (/\d/.test(suffix)) {
+    // 包含数字，如 "j15", "x20", "e20s" - 这些是产品型号，不是变体词
+    return false
   }
 
-  // 后缀长度 >= 3 且 <= 8，认为是变体词
-  // 例如：eurekaddl (ddl=3), eurekajetpack (jetpack=8)
+  // 2. 检查后缀是否等于常见产品词（或产品词+空格后缀）
+  // 只排除单个产品词（如 "pro", "ultra"），不排除连写词（如 "camerabundle"）
+  const isExactProductWord = PRODUCT_WORD_PATTERNS.includes(suffix)
+  if (isExactProductWord) {
+    return false
+  }
+
+  // 3. 检查后缀是否以"产品词-"开头（如 "pro-bundle", "ultra-s"）
+  const hasProductWordPrefix = PRODUCT_WORD_PATTERNS.some(pattern =>
+    suffix.startsWith(pattern + '-') || suffix.startsWith(pattern + ' ')
+  )
+  if (hasProductWordPrefix) {
+    return false
+  }
+
+  // 4. 检查后缀长度：3-10个字母后缀认为是变体词
   const suffixLength = suffix.length
   return suffixLength >= 3 && suffixLength <= 10
 }

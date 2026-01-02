@@ -769,7 +769,8 @@ function calculateDynamicThreshold(keywords: PoolKeywordData[]): number {
  * 2. 新增地理位置过滤（过滤非目标国家的关键词）
  *
  * 🔥 2026-01-02优化：策略A（保守）- 品牌词为主 + 少量高搜索量品类词
- * - 品牌词：保留所有有效搜索量（≥10）
+ * - 纯品牌词：100%豁免所有过滤（无搜索量要求）
+ * - 品牌相关词：保留所有有效搜索量（≥10）
  * - 品类词：只保留头部词（≥10000），用于品牌曝光
  * - 理由：品牌词高购买意图、高转化率、低CPC；品类词ROI不确定
  */
@@ -779,31 +780,40 @@ export function filterKeywords(
   category: string,
   targetCountry?: string
 ): PoolKeywordData[] {
-  // 提取核心品牌词（取第一个单词）
-  // 示例："eufy security" → "eufy", "Reolink" → "reolink"
-  const coreBrandLower = brandName.split(' ')[0].toLowerCase()
+  // 获取纯品牌词列表
+  // 示例：brandName="eufy security" → ["eufy", "eufy security"]
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
 
   let geoFilteredCount = 0
-  let brandKeptCount = 0
-  let highVolumeCategoryKeptCount = 0  // 🔥 2026-01-02: 统计头部品类词保留数量
-
-  // 🔥 2026-01-02：移除动态阈值计算（策略A不需要）
-  // 品牌词和品类词使用固定阈值
+  let pureBrandKeptCount = 0      // 纯品牌词保留数
+  let brandRelatedKeptCount = 0   // 品牌相关词保留数
+  let highVolumeCategoryKeptCount = 0  // 头部品类词保留数
 
   const filtered = keywords.filter(kw => {
     const kwLower = kw.keyword.toLowerCase()
+    const isPureBrand = containsPureBrand(kw.keyword, pureBrandKeywords)
+
+    // ✅ 纯品牌词：100%豁免（无搜索量限制）
+    // 例如："eufy", "eufy security", "eureka" 等
+    if (isPureBrand) {
+      pureBrandKeptCount++
+      console.log(`   ✅ 保留纯品牌词: "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
+      // 纯品牌词不参与后续过滤，直接通过
+      return true
+    }
+
+    // ✅ 品牌相关词：包含品牌名但不是纯品牌词（如 "eufy camera", "eureka j15"）
+    const coreBrandLower = brandName.split(' ')[0].toLowerCase()
     const hasBrand = kwLower.includes(coreBrandLower)
 
-    // ✅ 策略A（保守）：品牌词 vs 品类词分层过滤
-    const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
-
     if (hasBrand) {
-      // ✅ 品牌词：保留所有有效搜索量（≥10）
+      // 品牌相关词：保留所有有效搜索量（≥10）
       // 理由：品牌词高购买意图（80-90%），高转化率（15-25%），低CPC（$1-3）
+      const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
       if (hasSearchVolumeData && kw.searchVolume < 10) {
         return false  // 只过滤极低搜索量（拼写错误、超长尾）
       }
-      brandKeptCount++
+      brandRelatedKeptCount++
     } else {
       // ✅ 品类词：只保留头部词（≥10000）
       // 理由：品类词低购买意图（20-40%），低转化率（2-8%），高CPC（$5-15）
@@ -833,10 +843,11 @@ export function filterKeywords(
   })
 
   console.log(`   过滤: ${keywords.length} → ${filtered.length}`)
-  console.log(`      品牌词保留: ${brandKeptCount}`)
+  console.log(`      纯品牌词保留(100%豁免): ${pureBrandKeptCount}`)
+  console.log(`      品牌相关词保留(≥10): ${brandRelatedKeptCount}`)
   console.log(`      头部品类词保留(≥10000): ${highVolumeCategoryKeptCount}`)
   console.log(`      地理过滤: ${geoFilteredCount}`)
-  console.log(`      策略: A-保守（品牌词为主）`)
+  console.log(`      策略: A-保守（纯品牌词豁免，品牌词为主）`)
 
   return filtered
 }
