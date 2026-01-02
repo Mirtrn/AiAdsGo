@@ -20,7 +20,7 @@ import {
   deduplicateKeywordsWithPriority,
   logDuplicateKeywords
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
-import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数
+import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords, containsPureBrand } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数
 
 /**
  * 🔧 安全解析JSON字段
@@ -3418,18 +3418,21 @@ export async function generateAdCreative(
   // targetCountry 已在外层作用域定义 (line 2767)
   const brandKeywordLower = offerBrand.toLowerCase()
 
+  // 🔥 2026-01-02: 获取完整纯品牌词列表
+  const pureBrandKeywordsList = getPureBrandKeywords(offerBrand)
+
   // 第1步：分离品牌词、品牌相关词和非品牌词
   // 🔧 修复(2025-12-16): 品牌相关词（包含品牌名）也应该被保留，不受搜索量过滤
-  // - 纯品牌词：关键词 === 品牌名（精确匹配）
-  // - 品牌相关词：关键词包含品牌名（如 "Waterdrop filter"）
+  // - 纯品牌词：关键词在纯品牌词列表中（如 "eufy", "eufy security"）
+  // - 品牌相关词：关键词包含品牌名但不在纯品牌词列表中（如 "eufy camera"）
   // - 非品牌词：不包含品牌名的关键词
-  const pureBrandKeywords: typeof keywordsWithVolume = []      // 精确匹配品牌名
-  const brandRelatedKeywords: typeof keywordsWithVolume = []   // 包含品牌名
+  const pureBrandKeywords: typeof keywordsWithVolume = []      // 精确匹配纯品牌词列表
+  const brandRelatedKeywords: typeof keywordsWithVolume = []   // 包含品牌名但非纯品牌
   const nonBrandKeywords: typeof keywordsWithVolume = []       // 不含品牌名
 
   keywordsWithVolume.forEach(kw => {
     const kwLower = kw.keyword.toLowerCase()
-    const isPureBrand = kwLower === brandKeywordLower
+    const isPureBrand = containsPureBrand(kw.keyword, pureBrandKeywordsList)
     const isBrandRelated = !isPureBrand && kwLower.includes(brandKeywordLower)
 
     if (isPureBrand) {
@@ -3441,7 +3444,7 @@ export async function generateAdCreative(
     }
   })
 
-  console.log(`   📊 关键词分类结果:`)
+  console.log(`   📊 关键词分类结果 (使用纯品牌词列表: [${pureBrandKeywordsList.slice(0, 3).join(', ')}${pureBrandKeywordsList.length > 3 ? '...' : ''}])`)
   console.log(`      🏷️ 纯品牌词: ${pureBrandKeywords.length} 个`)
   console.log(`      🔗 品牌相关词: ${brandRelatedKeywords.length} 个`)
   console.log(`      📝 非品牌词: ${nonBrandKeywords.length} 个`)
