@@ -1573,6 +1573,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   variables.store_creative_instructions = store_creative_instructions
 
   // 🆕 v4.17: 添加输出格式要求（解决AI返回非JSON格式问题）
+  // 🔧 2026-01-02: 修复AI只返回1个关键词的问题，明确要求返回多个关键词
   variables.output_format_section = `
 ## 📋 OUTPUT (JSON only, no markdown):
 
@@ -1584,7 +1585,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   "descriptions": [
     {"text": "...", "type": "feature-benefit-cta|problem-solution-proof|offer-urgency-trust|usp-differentiation", "length": N}
   ],
-  "keywords": ["..."],
+  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5", ...],
   "callouts": ["..."],
   "sitelinks": [{"text": "...", "url": "/", "description": "..."}],
   "path1": "...",
@@ -1592,6 +1593,13 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   "theme": "..."
 }
 \`\`\`
+
+**CRITICAL - KEYWORD REQUIREMENTS:**
+- Return at least 5-10 keywords in the "keywords" array
+- Include a mix of: brand keywords, product keywords, and high-volume generic keywords
+- Each keyword should be 2-8 words long
+- Use the exact keyword format from the provided keyword pool
+- DO NOT return only 1 keyword - this is incorrect behavior!
 
 **IMPORTANT**: You MUST return ONLY valid JSON. Do not add any explanations, German text, or markdown formatting outside the JSON code block. All headlines must be in the target language ({{target_language}}) and the JSON must be parseable.`
 
@@ -2622,6 +2630,7 @@ export async function generateAdCreative(
 
       // 🔥 2025-12-28: 关键词质量过滤
       // 从关键词池获取关键词后再次过滤，确保移除品牌变体词和语义查询词
+      // 🔧 修复：确保 mustContainBrand: true，保留包含品牌名的关键词
       const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
         brandName: offer.brand,
         category: offer.category || undefined,
@@ -2629,6 +2638,7 @@ export async function generateAdCreative(
         targetLanguage: offer.target_language || undefined,
         minWordCount: 1,
         maxWordCount: 8,
+        mustContainBrand: true,
       })
 
       // 生成过滤报告
@@ -2670,6 +2680,7 @@ export async function generateAdCreative(
 
         // 🔥 2025-12-28: 关键词质量过滤（Fallback路径也需要过滤）
         // 只有当 keywords 存在且非空时才进行过滤
+        // 🔧 修复：确保 mustContainBrand: true，保留包含品牌名的关键词
         if (extractedElements.keywords && extractedElements.keywords.length > 0) {
           const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
             brandName: offer.brand,
@@ -2678,6 +2689,7 @@ export async function generateAdCreative(
             targetLanguage: offer.target_language || undefined,
             minWordCount: 1,
             maxWordCount: 8,
+            mustContainBrand: true,
           })
           const filterReport = generateFilterReport(extractedElements.keywords.length, keywordFilterResult.removed)
           console.log(filterReport)
@@ -2843,6 +2855,7 @@ export async function generateAdCreative(
 
   // 🔥 2025-12-28: 最终关键词质量过滤
   // 确保所有来源的关键词都经过过滤，移除品牌变体词和语义查询词
+  // 🔧 修复：确保 mustContainBrand: true，保留包含品牌名的关键词
   const finalKeywordFilter = filterKeywordQuality(uniqueKeywords, {
     brandName: offer.brand,
     category: offer.category || undefined,
@@ -2850,6 +2863,7 @@ export async function generateAdCreative(
     targetLanguage: offer.target_language || undefined,
     minWordCount: 1,
     maxWordCount: 8,
+    mustContainBrand: true,
   })
 
   if (finalKeywordFilter.removed.length > 0) {
@@ -2973,7 +2987,8 @@ export async function generateAdCreative(
     const filtered = filterKeywordQuality(keywordData, {
       brandName,
       minWordCount: 1,
-      maxWordCount: 8
+      maxWordCount: 8,
+      mustContainBrand: true,  // 🔧 修复：保留包含品牌名的关键词
     })
 
     if (filtered.removed.length > 0) {

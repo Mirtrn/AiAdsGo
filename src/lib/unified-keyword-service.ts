@@ -690,6 +690,34 @@ export function extractMainCategoryWords(offer: OfferData): string[] {
  * // ✅ 保留: "eufy camera", "security camera", "wireless camera"
  * // ❌ 过滤: "eufy doorbell", "eufy vacuum", "eufy breast pump"
  */
+
+/**
+ * 简单的词干提取（去除复数后缀）
+ * 用于品类词匹配，解决 "vacuum" 和 "vacuums" 的匹配问题
+ */
+function stemWord(word: string): string {
+  // 去除复数后缀 -s, -es (简单处理)
+  const stemmed = word.toLowerCase()
+    .replace(/ies$/, 'y')   // vacuums -> vacuum (ies -> y)
+    .replace(/es$/, '')     // boxes -> box (es -> '')
+    .replace(/s$/, '')      // vacuums -> vacuum (s -> '')
+  return stemmed
+}
+
+/**
+ * 品类白名单过滤
+ *
+ * 核心逻辑：
+ * 1. 包含竞品品牌名 → 过滤
+ * 2. 包含自身品牌名 + 品类词 → 检查品类是否匹配
+ * 3. 不包含品牌名 → 检查是否包含品类词
+ *
+ * 问题场景修复：
+ * - "eufy doorbell" → 包含品牌名 "eufy"，但品类词 "doorbell" 不匹配 "vacuum" → 过滤 ❌
+ * - "eufy vacuum" → 包含品牌名 "eufy"，品类词 "vacuum" 匹配 → 保留 ✅
+ * - "eufy s1 pro" → 包含品牌名 "eufy"，但不包含品类词 → 保留（信任品牌搜索）✅
+ * - "robot vacuum" → 不含品牌名，包含品类词 "vacuum" → 保留 ✅
+ */
 export function filterByCategoryWhitelist<T extends { keyword: string }>(
   keywords: T[],
   offer: OfferData
@@ -723,24 +751,60 @@ export function filterByCategoryWhitelist<T extends { keyword: string }>(
 
   const filteredKeywords: Array<{ keyword: string; reason: string }> = []
 
-  const brandName = offer.brand?.toLowerCase() || ''
+  const brandName = offer.brand || ''
+  const brandCore = brandName.toLowerCase().split(/\s+/)[0]
+
+  // 检查关键词是否包含自身品牌名
+  function containsOwnBrand(keyword: string): boolean {
+    if (!brandCore || brandCore.length < 3) return false
+    const keywordLower = keyword.toLowerCase()
+    const brandPattern = new RegExp(`\\b${escapeRegex(brandCore)}\\b`, 'i')
+    return brandPattern.test(keywordLower)
+  }
+
+  // 检查关键词中的品类词（支持词干匹配）
+  function findCategoryInKeyword(keyword: string): string | null {
+    const kwLower = keyword.toLowerCase()
+    const kwStems = new Set(kwLower.split(/[\s\-_]+/).map(stemWord))
+
+    for (const catWord of categoryWhitelist) {
+      const catStem = stemWord(catWord)
+      // 检查关键词中是否包含品类词或词干
+      if (kwLower.includes(catWord) || kwStems.has(catStem)) {
+        return catWord
+      }
+    }
+    return null
+  }
 
   const filtered = keywords.filter(kw => {
-    const kwLower = kw.keyword.toLowerCase()
+    const keywordLower = kw.keyword.toLowerCase()
 
-    // 移除品牌名前缀后检查是否包含品类词
-    // 避免 "ringconn smart watch" 因包含品牌名 "ring" 而被误保留
-    const kwWithoutBrand = kwLower.replace(new RegExp(`^${escapeRegex(brandName)}[\\s-]*`), '').trim()
+    // Step 1: 检查是否包含竞品品牌名 → 过滤
+    const detectedBrand = detectBrandInKeyword(kw.keyword)
+    if (detectedBrand && detectedBrand.toLowerCase() !== brandCore.toLowerCase()) {
+      filteredKeywords.push({
+        keyword: kw.keyword,
+        reason: `包含竞品品牌词 "${detectedBrand}"`
+      })
+      return false
+    }
 
-    // 检查是否包含至少一个核心品类词
-    const hasCategory = categoryWhitelist.some(catWord =>
-      kwWithoutBrand.includes(catWord)
-    )
+    // Step 2: 检查是否包含自身品牌名
+    if (containsOwnBrand(kw.keyword)) {
+      // 🔧 2026-01-02: 包含品牌名的关键词直接保留（信任用户搜索品牌产品是相关的）
+      // 这是为了避免 "eufy s1 pro"、"eufy vacuum" 等被误过滤
+      // 品类白名单过滤只用于不包含品牌名的通用词
+      return true
+    }
+
+    // Step 3: 不包含品牌名 → 检查是否包含品类词
+    const hasCategory = findCategoryInKeyword(keywordLower) !== null
 
     if (!hasCategory) {
       filteredKeywords.push({
         keyword: kw.keyword,
-        reason: `不包含主品类词（${categoryWhitelist.slice(0, 3).join(', ')}等）`
+        reason: `不包含品牌名且不匹配品类词（${categoryWhitelist.slice(0, 3).join(', ')}等）`
       })
     }
 
