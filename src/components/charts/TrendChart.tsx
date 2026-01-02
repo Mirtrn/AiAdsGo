@@ -148,7 +148,14 @@ export function TrendChart({
         );
         const leftMax = Math.max(...leftMaxValues);
         if (leftMax > 0) {
-          leftDomain = [0, Math.ceil((leftMax * 1.2) / 100) * 100];
+          // 根据最大值智能计算合适的Y轴范围
+          if (leftMax <= 10) {
+            leftDomain = [0, Math.ceil(leftMax * 1.2)];
+          } else if (leftMax <= 100) {
+            leftDomain = [0, Math.ceil(leftMax * 1.2 / 5) * 5];
+          } else {
+            leftDomain = [0, Math.ceil((leftMax * 1.2) / 100) * 100];
+          }
         }
       }
 
@@ -162,7 +169,14 @@ export function TrendChart({
         );
         const rightMax = Math.max(...rightMaxValues);
         if (rightMax > 0) {
-          rightDomain = [0, Math.ceil((rightMax * 1.2) / 100) * 100];
+          // 根据最大值智能计算合适的Y轴范围
+          if (rightMax <= 10) {
+            rightDomain = [0, Math.ceil(rightMax * 1.2)];
+          } else if (rightMax <= 100) {
+            rightDomain = [0, Math.ceil(rightMax * 1.2 / 5) * 5];
+          } else {
+            rightDomain = [0, Math.ceil((rightMax * 1.2) / 100) * 100];
+          }
         }
       }
     } else {
@@ -175,7 +189,17 @@ export function TrendChart({
       );
       const maxValue = Math.max(...allMaxValues);
       if (maxValue > 0) {
-        leftDomain = [0, Math.ceil((maxValue * 1.2) / 100) * 100];
+        // 根据最大值智能计算合适的Y轴范围
+        if (maxValue <= 10) {
+          // 小数值：直接向上取整到合适的整数
+          leftDomain = [0, Math.ceil(maxValue * 1.2)];
+        } else if (maxValue <= 100) {
+          // 中等数值：向上取整到最近的5或10
+          leftDomain = [0, Math.ceil(maxValue * 1.2 / 5) * 5];
+        } else {
+          // 大数值：保持原有逻辑，向上取整到最近的100
+          leftDomain = [0, Math.ceil((maxValue * 1.2) / 100) * 100];
+        }
       }
     }
   }
