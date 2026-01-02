@@ -34,7 +34,7 @@ const ECOMMERCE_DAYTIME_WEIGHTS = [
 /**
  * 归一化分布曲线
  * 确保总和等于目标值，同时保持相对比例
- * 注意：非执行时间段（值为0的小时）保持为0，不改为最小值1
+ * 规则：非活跃时段（原始值为0）保持为0；活跃时段（原始值>0）归一化后至少为1
  *
  * @param distribution - 原始分布（24个整数）
  * @param targetTotal - 目标总和（每日点击数量）
@@ -44,43 +44,61 @@ export function normalizeDistribution(
   distribution: number[],
   targetTotal: number
 ): number[] {
-  // Step 1: 识别执行时间段内的元素（非0的保持>=1，0的保持0）
+  // Step 1: 识别活跃时段（原始值 > 0）和非活跃时段（原始值 = 0）
   const activeHours = distribution.map((count, hour) => ({
     hour,
     count,
     isActive: count > 0
   }));
 
-  // Step 2: 只对活跃时段进行归一化
+  // Step 2: 计算活跃时段的当前总和
   const activeCounts = activeHours.filter(h => h.isActive).map(h => h.count);
   const currentActiveTotal = activeCounts.reduce((sum, n) => sum + n, 0);
 
-  // 按比例调整活跃时段的点击数
-  const adjusted = distribution.map(count => {
-    if (count === 0) return 0; // 非执行时间段保持0
-    return Math.round((count / currentActiveTotal) * targetTotal);
+  // 如果没有活跃时段，返回全0的分布
+  if (currentActiveTotal === 0) {
+    return new Array(24).fill(0);
+  }
+
+  // Step 3: 检查是否目标总和太小，无法保持最小值约束
+  const activeCount = activeCounts.length;
+  const minPossibleTotal = activeCount; // 每个活跃时段至少1
+
+  if (targetTotal < minPossibleTotal) {
+    // 目标总和太小，无法保持每个活跃时段至少1
+    // 返回全0分布（业务逻辑：无法分配）
+    return new Array(24).fill(0);
+  }
+
+  // Step 4: 按比例调整活跃时段的点击数
+  const result = distribution.map((count, hour) => {
+    if (count === 0) return 0; // 非活跃时段保持0
+    const adjusted = Math.round((count / currentActiveTotal) * targetTotal);
+    return Math.max(adjusted, 1); // 活跃时段至少为1
   });
 
-  // Step 3: 处理舍入误差（只调整活跃时段）
-  const adjustedActiveTotal = adjusted.filter(n => n > 0).reduce((sum, n) => sum + n, 0);
-  const diff = targetTotal - adjustedActiveTotal;
+  // Step 5: 处理舍入误差（只调整活跃时段）
+  const resultActiveTotal = result.filter(n => n > 0).reduce((sum, n) => sum + n, 0);
+  const diff = targetTotal - resultActiveTotal;
 
   if (diff !== 0) {
     // 将差额加到最大的活跃时段值
     let maxActiveHour = -1;
     let maxActiveValue = -1;
     for (let hour = 0; hour < 24; hour++) {
-      if (adjusted[hour] > maxActiveValue) {
-        maxActiveValue = adjusted[hour];
+      if (result[hour] > maxActiveValue) {
+        maxActiveValue = result[hour];
         maxActiveHour = hour;
       }
     }
     if (maxActiveHour >= 0) {
-      adjusted[maxActiveHour] += diff;
+      const newValue = result[maxActiveHour] + diff;
+      // 确保不会变成负数或0（保持至少1）
+      result[maxActiveHour] = Math.max(1, newValue);
     }
   }
 
-  return adjusted;
+  return result;
 }
 
 /**
@@ -103,25 +121,25 @@ export function generateDefaultDistribution(
 
   const startHour = parseInt(startTime.split(':')[0]);
   const endHour = parseInt(endTime.split(':')[0]);
+  const offset = startTime === "00:00" ? 0 : 6;
 
+  // Step 1: 初始分布，非活跃时段保持为0
   const distribution = new Array(24).fill(0);
 
-  // 只计算执行时间段内的权重
+  // Step 2: 只在执行时间段内应用权重
   let totalWeight = 0;
-  const offset = startTime === "00:00" ? 0 : 6;
   for (let hour = startHour; hour < endHour; hour++) {
     totalWeight += weights[hour - offset];
   }
 
-  // 按权重分配点击数
+  // Step 3: 按权重分配点击数，确保每个活跃时段至少为1
   for (let hour = startHour; hour < endHour; hour++) {
     const weight = weights[hour - offset];
     const count = Math.round((weight / totalWeight) * dailyCount);
     distribution[hour] = Math.max(1, count);
   }
 
-  // 🔧 修复(2025-12-30): 不使用normalizeDistribution，直接确保总和精确
-  // 直接对 distribution 进行归一化，确保总和精确等于 dailyCount
+  // Step 4: 处理舍入误差，确保总和精确
   const currentTotal = distribution.reduce((sum, n) => sum + n, 0);
   const diff = dailyCount - currentTotal;
 
@@ -140,7 +158,7 @@ export function generateDefaultDistribution(
     }
   }
 
-  // 🔧 修复(2025-12-30): 再次检查并确保总和精确（处理diff过大的情况）
+  // Step 5: 再次检查并确保总和精确（处理diff过大的情况）
   const finalTotal = distribution.reduce((sum, n) => sum + n, 0);
   const finalDiff = dailyCount - finalTotal;
   if (finalDiff !== 0) {

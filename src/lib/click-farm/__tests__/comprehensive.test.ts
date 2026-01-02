@@ -446,10 +446,10 @@ describe('ClickFarm 综合业务流程测试', () => {
 
       // 第12个小时应该远大于其他小时
       expect(normalized[12]).toBeGreaterThan(100);
-      // 其他小时应该是最小值1
+      // 非活跃时段（原始值=0）保持为0
       for (let i = 0; i < 24; i++) {
         if (i !== 12) {
-          expect(normalized[i]).toBe(1);
+          expect(normalized[i]).toBe(0);
         }
       }
     });
@@ -589,14 +589,13 @@ describe('ClickFarm 权重曲线测试', () => {
     it('白天版曲线应该正确跳过凌晨时段', () => {
       const distribution = generateDefaultDistribution(240, '06:00', '24:00');
 
-      // 凌晨时段应该是最小值1（normalizeDistribution确保每个值至少为1）
-      expect(distribution[0]).toBe(1);
-      expect(distribution[5]).toBe(1);
+      // 凌晨时段应该是0（未设置权重，保持为0）
+      expect(distribution[0]).toBe(0);
+      expect(distribution[5]).toBe(0);
 
-      // 白天时段应该有大部分分布
+      // 白天时段应该有所有分布
       const dayTraffic = distribution.slice(6, 24).reduce((a, b) => a + b, 0);
-      // 240 - 6个最小值 = 234
-      expect(dayTraffic).toBe(234);
+      expect(dayTraffic).toBe(240);
     });
 
     it('自定义时间范围应该正确应用', () => {
@@ -606,18 +605,18 @@ describe('ClickFarm 权重曲线测试', () => {
       const total = distribution.reduce((a, b) => a + b, 0);
       expect(total).toBe(120);
 
-      // 验证时间段外为最小值1（normalizeDistribution确保每个值至少为1）
-      // 08:00之前有8个小时(0-7)，每个应该是1
+      // 验证时间段外为0（未设置权重，保持为0）
+      // 08:00之前有8个小时(0-7)
       const beforeRange = distribution.slice(0, 8).reduce((a, b) => a + b, 0);
-      expect(beforeRange).toBe(8);  // 8 * 1 = 8
+      expect(beforeRange).toBe(0);
 
-      // 20:00之后有4个小时(20-23)，每个应该是1
+      // 20:00之后有4个小时(20-23)
       const afterRange = distribution.slice(20, 24).reduce((a, b) => a + b, 0);
-      expect(afterRange).toBe(4);  // 4 * 1 = 4
+      expect(afterRange).toBe(0);
 
-      // 08:00-19:59应该包含大部分点击
+      // 08:00-19:59应该包含所有点击
       const inRange = distribution.slice(8, 20).reduce((a, b) => a + b, 0);
-      expect(inRange).toBe(120 - 12);  // 120 - 12个最小值 = 108
+      expect(inRange).toBe(120);
     });
   });
 
@@ -626,11 +625,11 @@ describe('ClickFarm 权重曲线测试', () => {
       const distribution = Array(24).fill(0);
       const result = normalizeDistribution(distribution, 24);
 
-      // 每个值应该是1
+      // 全0输入应该返回全0（非活跃时段保持为0）
       result.forEach(value => {
-        expect(value).toBe(1);
+        expect(value).toBe(0);
       });
-      expect(result.reduce((a, b) => a + b, 0)).toBe(24);
+      expect(result.reduce((a, b) => a + b, 0)).toBe(0);
     });
 
     it('应该正确处理全相同值', () => {

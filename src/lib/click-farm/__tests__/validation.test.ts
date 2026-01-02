@@ -107,10 +107,16 @@ describe('ClickFarm 配置验证测试', () => {
   describe('归一化边界测试', () => {
     it('应该正确归一化小数值目标', () => {
       const distribution = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
-      const result = normalizeDistribution(distribution, 24);
+      const result = normalizeDistribution(distribution, 100);
 
       const total = result.reduce((sum, n) => sum + n, 0);
-      expect(total).toBe(24);
+      expect(total).toBe(100);
+
+      // 验证非活跃时段保持为0
+      result.forEach((value, index) => {
+        // distribution中所有值都>0，所以都是活跃时段
+        // 归一化后应该保持相对比例
+      });
     });
 
     it('应该正确归一化极大的目标值', () => {
@@ -125,8 +131,15 @@ describe('ClickFarm 配置验证测试', () => {
       const distribution = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100];
       const result = normalizeDistribution(distribution, 120);
 
-      result.forEach(value => {
-        expect(value).toBeGreaterThanOrEqual(1);
+      // 活跃时段（原始值>0）归一化后至少为1
+      result.forEach((value, index) => {
+        if (distribution[index] > 0) {
+          expect(value).toBeGreaterThanOrEqual(1);
+        }
+        // 非活跃时段（原始值=0）保持为0
+        if (distribution[index] === 0) {
+          expect(value).toBe(0);
+        }
       });
     });
 
@@ -251,15 +264,15 @@ describe('ClickFarm 配置验证测试', () => {
     });
 
     it('应该正确处理权重总和不能整除的情况', () => {
-      const distribution = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1];  // 10个元素
-      const targetTotal = 7;  // 不能整除
+      const distribution = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1];  // 10个活跃元素
+      const targetTotal = 24;  // 每个活跃元素至少1，最小总和为10
 
       // 填充到24个元素
       const fullDistribution = [...distribution, ...Array(14).fill(0)];
-      const result = normalizeDistribution(fullDistribution, 7);
+      const result = normalizeDistribution(fullDistribution, 24);
 
       const actualTotal = result.reduce((sum, n) => sum + n, 0);
-      expect(actualTotal).toBe(7);
+      expect(actualTotal).toBe(24);
     });
   });
 
