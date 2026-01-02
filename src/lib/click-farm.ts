@@ -438,18 +438,18 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   const cumulativeResult = await db.queryOne<any>(`
     SELECT
       COALESCE(SUM(total_clicks), 0) as clicks,
-      COALESCE(SUM(success_clicks), 0) as successClicks,
-      COALESCE(SUM(failed_clicks), 0) as failedClicks
+      COALESCE(SUM(success_clicks), 0) as success_clicks,
+      COALESCE(SUM(failed_clicks), 0) as failed_clicks
     FROM click_farm_tasks
     WHERE user_id = ? AND IS_DELETED_FALSE ${cumulativeFilter}
   `, cumulativeParams);
 
-  // 🔧 修复: PostgreSQL queryOne 在无结果时返回 undefined，需要提供默认值
+  // 🔧 修复: PostgreSQL 列名是小写的（success_clicks 而非 successClicks）
   // 确保所有字段都是数字类型（PostgreSQL numeric 类型可能返回字符串）
   const cumulative = {
     clicks: parseFloat(String(cumulativeResult?.clicks || 0)),
-    successClicks: parseFloat(String(cumulativeResult?.successClicks || 0)),
-    failedClicks: parseFloat(String(cumulativeResult?.failedClicks || 0)),
+    successClicks: parseFloat(String(cumulativeResult?.success_clicks || 0)),
+    failedClicks: parseFloat(String(cumulativeResult?.failed_clicks || 0)),
   };
 
   const cumulativeSuccessRate = cumulative.clicks > 0
