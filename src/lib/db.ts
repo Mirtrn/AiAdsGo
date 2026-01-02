@@ -157,10 +157,9 @@ class PostgresAdapter implements DatabaseAdapter {
       const table = match.replace('.IS_DELETED_TRUE', '')
       return `${table}.is_deleted = TRUE`
     })
-    // 处理不带表名前缀的情况: IS_DELETED_FALSE -> FALSE, IS_DELETED_TRUE -> TRUE
-    // 🔧 2026-01-02 修复: 直接替换为布尔值，而不是 is_deleted = TRUE（会产生语法错误）
-    result = result.replace(/\bIS_DELETED_FALSE\b/g, 'FALSE')
-    result = result.replace(/\bIS_DELETED_TRUE\b/g, 'TRUE')
+    // 处理不带表名前缀的情况: IS_DELETED_FALSE -> is_deleted = FALSE
+    result = result.replace(/\bIS_DELETED_FALSE\b/g, 'is_deleted = FALSE')
+    result = result.replace(/\bIS_DELETED_TRUE\b/g, 'is_deleted = TRUE')
 
     // 4. 转换 strftime 为 PostgreSQL 的 to_char
     // 匹配: strftime('%Y-%m-%d', column) -> to_char(column, 'YYYY-MM-DD')
