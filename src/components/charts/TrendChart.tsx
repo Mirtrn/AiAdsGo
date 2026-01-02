@@ -149,17 +149,19 @@ export function TrendChart({
         const leftMax = Math.max(...leftMaxValues);
         if (leftMax > 0) {
           // 🔥 2026-01-02 修复：根据最大值智能计算合适的Y轴范围
-          // 修复原逻辑中 100-1000 范围被错误四舍五入到100的问题
+          // 确保Y轴最大值至少比数据最大值大20%
+          const targetMax = leftMax * 1.2;
           if (leftMax <= 10) {
-            leftDomain = [0, Math.ceil(leftMax * 1.2)];
+            leftDomain = [0, Math.ceil(targetMax)];
           } else if (leftMax <= 100) {
-            leftDomain = [0, Math.ceil(leftMax * 1.2 / 10) * 10];
+            leftDomain = [0, Math.ceil(targetMax / 10) * 10];
           } else if (leftMax <= 1000) {
-            leftDomain = [0, Math.ceil(leftMax * 1.2 / 100) * 100];
+            // 🔥 修复：使用50为单位，避免500被四舍五入到600的问题
+            leftDomain = [0, Math.ceil(targetMax / 50) * 50];
           } else if (leftMax <= 10000) {
-            leftDomain = [0, Math.ceil(leftMax * 1.2 / 500) * 500];
+            leftDomain = [0, Math.ceil(targetMax / 500) * 500];
           } else {
-            leftDomain = [0, Math.ceil(leftMax * 1.2 / 1000) * 1000];
+            leftDomain = [0, Math.ceil(targetMax / 1000) * 1000];
           }
         }
       }
@@ -175,16 +177,18 @@ export function TrendChart({
         const rightMax = Math.max(...rightMaxValues);
         if (rightMax > 0) {
           // 🔥 2026-01-02 修复：根据最大值智能计算合适的Y轴范围
+          const targetMax = rightMax * 1.2;
           if (rightMax <= 10) {
-            rightDomain = [0, Math.ceil(rightMax * 1.2)];
+            rightDomain = [0, Math.ceil(targetMax)];
           } else if (rightMax <= 100) {
-            rightDomain = [0, Math.ceil(rightMax * 1.2 / 10) * 10];
+            rightDomain = [0, Math.ceil(targetMax / 10) * 10];
           } else if (rightMax <= 1000) {
-            rightDomain = [0, Math.ceil(rightMax * 1.2 / 100) * 100];
+            // 🔥 修复：使用50为单位
+            rightDomain = [0, Math.ceil(targetMax / 50) * 50];
           } else if (rightMax <= 10000) {
-            rightDomain = [0, Math.ceil(rightMax * 1.2 / 500) * 500];
+            rightDomain = [0, Math.ceil(targetMax / 500) * 500];
           } else {
-            rightDomain = [0, Math.ceil(rightMax * 1.2 / 1000) * 1000];
+            rightDomain = [0, Math.ceil(targetMax / 1000) * 1000];
           }
         }
       }
@@ -199,16 +203,18 @@ export function TrendChart({
       const maxValue = Math.max(...allMaxValues);
       if (maxValue > 0) {
         // 🔥 2026-01-02 修复：根据最大值智能计算合适的Y轴范围
+        const targetMax = maxValue * 1.2;
         if (maxValue <= 10) {
-          leftDomain = [0, Math.ceil(maxValue * 1.2)];
+          leftDomain = [0, Math.ceil(targetMax)];
         } else if (maxValue <= 100) {
-          leftDomain = [0, Math.ceil(maxValue * 1.2 / 10) * 10];
+          leftDomain = [0, Math.ceil(targetMax / 10) * 10];
         } else if (maxValue <= 1000) {
-          leftDomain = [0, Math.ceil(maxValue * 1.2 / 100) * 100];
+          // 🔥 修复：使用50为单位
+          leftDomain = [0, Math.ceil(targetMax / 50) * 50];
         } else if (maxValue <= 10000) {
-          leftDomain = [0, Math.ceil(maxValue * 1.2 / 500) * 500];
+          leftDomain = [0, Math.ceil(targetMax / 500) * 500];
         } else {
-          leftDomain = [0, Math.ceil(maxValue * 1.2 / 1000) * 1000];
+          leftDomain = [0, Math.ceil(targetMax / 1000) * 1000];
         }
       }
     }
