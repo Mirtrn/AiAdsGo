@@ -444,6 +444,16 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     WHERE user_id = ? AND IS_DELETED_FALSE ${cumulativeFilter}
   `, cumulativeParams);
 
+  // 🔧 调试日志：查看PostgreSQL返回的原始数据
+  console.log('🔍 [click-farm] cumulativeResult 原始数据:', JSON.stringify(cumulativeResult));
+  console.log('🔍 [click-farm] cumulativeResult 字段:', {
+    clicks: cumulativeResult?.clicks,
+    success_clicks: cumulativeResult?.success_clicks,
+    failed_clicks: cumulativeResult?.failed_clicks,
+    successClicks: cumulativeResult?.successClicks,
+    failedClicks: cumulativeResult?.failedClicks
+  });
+
   // 🔧 修复: PostgreSQL 列名是小写的（success_clicks 而非 successClicks）
   // 确保所有字段都是数字类型（PostgreSQL numeric 类型可能返回字符串）
   const cumulative = {
@@ -451,6 +461,8 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
     successClicks: parseFloat(String(cumulativeResult?.success_clicks || 0)),
     failedClicks: parseFloat(String(cumulativeResult?.failed_clicks || 0)),
   };
+
+  console.log('🔍 [click-farm] cumulative 解析后:', cumulative);
 
   const cumulativeSuccessRate = cumulative.clicks > 0
     ? parseFloat(((cumulative.successClicks / cumulative.clicks) * 100).toFixed(1))
