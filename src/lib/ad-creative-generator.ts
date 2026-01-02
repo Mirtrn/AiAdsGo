@@ -21,7 +21,6 @@ import {
   logDuplicateKeywords
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
 import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数
-import { filterByCategoryWhitelist, extractMainCategoryWords } from './unified-keyword-service'  // 🔥 2025-12-31: 导入品类过滤函数
 
 /**
  * 🔧 安全解析JSON字段
@@ -2717,30 +2716,16 @@ export async function generateAdCreative(
       let rawKeywords: Array<{ keyword: string; volume?: number; competition?: string; score?: number }> = JSON.parse((offer as any).enhanced_keywords)
       console.log(`✨ 读取到 ${rawKeywords?.length || 0} 个增强关键词`)
 
-      // 🔥 2025-12-31: 品类过滤 - 过滤掉同品牌其他品类的关键词
-      // 例如：Eufy 品牌有多个品类（vacuum、doorbell、camera），需要过滤掉不相关的品类词
-      const categoryWhitelist = extractMainCategoryWords(offer as any)
-      console.log(`📋 品类白名单: ${categoryWhitelist.slice(0, 5).join(', ')}${categoryWhitelist.length > 5 ? '...' : ''}`)
-
-      const categoryFilterResult = filterByCategoryWhitelist(rawKeywords, offer as any)
-      console.log(`🔍 品类过滤: 保留${categoryFilterResult.stats.kept}/${categoryFilterResult.stats.total}个关键词`)
-
-      // 显示被过滤的跨品类关键词（调试用）
-      if (categoryFilterResult.stats.filtered > 0 && categoryFilterResult.stats.filtered <= 10) {
-        console.log('   被过滤的跨品类关键词:')
-        categoryFilterResult.stats.filteredKeywords.forEach(({ keyword, reason }) => {
-          console.log(`      - "${keyword}" (${reason})`)
-        })
-      }
-
-      // 使用过滤后的关键词（保留原始字段）
-      enhancedData.keywords = categoryFilterResult.filtered.map(kw => ({
+      // 🔥 2026-01-02: 移除品类过滤 - 避免误杀有效关键词
+      // 依赖Google Ads自动优化机制（质量得分、智能出价）淘汰不相关关键词
+      // 保留其他过滤机制：竞品品牌、品牌变体、语义查询、搜索量过滤
+      enhancedData.keywords = rawKeywords.map(kw => ({
         keyword: kw.keyword,
         volume: (kw as any).volume || 0,
         competition: (kw as any).competition || '',
         score: (kw as any).score || 0
       }))
-      console.log(`✅ 品类过滤完成，剩余 ${enhancedData.keywords?.length || 0} 个增强关键词`)
+      console.log(`✅ 关键词处理完成，共 ${enhancedData.keywords?.length || 0} 个增强关键词`)
     }
     if ((offer as any).enhanced_product_info) {
       enhancedData.productInfo = JSON.parse((offer as any).enhanced_product_info)
@@ -3000,43 +2985,9 @@ export async function generateAdCreative(
 
     result.keywords = filtered.filtered.map(kw => kw.keyword)
 
-    // 🔥 2025-01-01: 品类过滤 - 过滤掉同品牌其他品类的关键词（如Eufy品牌的doorbell、camera）
-    // 必须在关键词质量过滤之后、去重之前应用
-    const categoryWhitelist = extractMainCategoryWords(offer as any)
-    if (categoryWhitelist.length > 0) {
-      console.log(`📋 品类白名单: ${categoryWhitelist.slice(0, 5).join(', ')}${categoryWhitelist.length > 5 ? '...' : ''}`)
-
-      const categoryFiltered: string[] = []
-      const filteredOut: string[] = []
-
-      for (const kw of result.keywords) {
-        const kwLower = kw.toLowerCase()
-        const kwWithoutBrand = kwLower.replace(new RegExp(`^${escapeRegex(brandName)}[\\s-]*`), '').trim()
-
-        // 检查是否包含至少一个核心品类词
-        const hasCategory = categoryWhitelist.some(catWord =>
-          kwWithoutBrand.includes(catWord)
-        )
-
-        if (hasCategory) {
-          categoryFiltered.push(kw)
-        } else {
-          filteredOut.push(kw)
-        }
-      }
-
-      if (filteredOut.length > 0) {
-        console.warn(`⚠️ 品类过滤: 移除 ${filteredOut.length} 个跨品类关键词`)
-        filteredOut.slice(0, 10).forEach(kw => {
-          console.warn(`   - "${kw}" (不包含品类词: ${categoryWhitelist.slice(0, 3).join(', ')}等)`)
-        })
-      }
-
-      result.keywords = categoryFiltered
-      console.log(`✅ 品类过滤完成，剩余 ${result.keywords.length} 个关键词`)
-    } else {
-      console.warn(`⚠️ 无法提取主品类词，跳过品类过滤`)
-    }
+    // 🔥 2026-01-02: 移除品类过滤 - 避免误杀有效关键词
+    // 依赖Google Ads自动优化机制（质量得分、智能出价）淘汰不相关关键词
+    console.log(`✅ 关键词质量过滤完成，共 ${result.keywords.length} 个关键词`)
 
     // 🔧 修复(2025-12-27): 添加Google Ads标准化去重，消除AI生成的重复关键词
     const { deduplicateKeywordsWithPriority } = await import('./google-ads-keyword-normalizer')
@@ -3779,36 +3730,9 @@ export async function generateAdCreative(
   // 2. extracted_keywords fallback - 行 2674
   // 3. 关键词池扩展 (newKeywords) - 行 3265-3282
   // 4. extracted_elements.keywords 合并 - 行 3311-3445
-  console.log(`\n📋 最终品类过滤（覆盖所有关键词来源）...`)
-  const finalCategoryWhitelist = extractMainCategoryWords(offer as any)
-  console.log(`   品类白名单: ${finalCategoryWhitelist.slice(0, 5).join(', ')}${finalCategoryWhitelist.length > 5 ? '...' : ''}`)
-
-  const beforeCategoryFilter = finalKeywords.length
-  const categoryFilteredOut: string[] = []
-
-  finalKeywords = finalKeywords.filter(kw => {
-    const kwLower = kw.keyword.toLowerCase()
-    // 移除品牌名前缀后检查是否包含品类词
-    const kwWithoutBrand = kwLower.replace(new RegExp(`^${escapeRegex(brandName)}[\\s-]*`), '').trim()
-
-    // 检查是否包含至少一个核心品类词
-    const hasCategory = finalCategoryWhitelist.length === 0 ||
-      finalCategoryWhitelist.some(catWord => kwWithoutBrand.includes(catWord))
-
-    if (!hasCategory) {
-      categoryFilteredOut.push(kw.keyword)
-    }
-
-    return hasCategory
-  })
-
-  if (categoryFilteredOut.length > 0) {
-    console.log(`   ⚠️ 品类过滤: 移除 ${categoryFilteredOut.length} 个跨品类关键词`)
-    categoryFilteredOut.slice(0, 10).forEach(kw => {
-      console.log(`      - "${kw}" (不包含品类词: ${finalCategoryWhitelist.slice(0, 3).join(', ')}等)`)
-    })
-  }
-  console.log(`   ✅ 品类过滤完成: ${beforeCategoryFilter} → ${finalKeywords.length} 个关键词`)
+  console.log(`\n✅ 关键词收集完成，共 ${finalKeywords.length} 个关键词`)
+  // 🔥 2026-01-02: 移除品类过滤 - 避免误杀有效关键词
+  // 依赖Google Ads自动优化机制（质量得分、智能出价）淘汰不相关关键词
 
   // 🎯 第7步：品牌词优先排序 + 比例控制
   // 优化(2025-12-15): 确保品牌词至少占50%，避免被高搜索量通用词淹没

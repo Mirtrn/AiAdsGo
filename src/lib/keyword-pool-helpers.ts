@@ -762,18 +762,21 @@ function calculateDynamicThreshold(keywords: PoolKeywordData[]): number {
 // ============================================
 
 /**
- * 智能过滤（3层过滤：品牌词 + 地理位置 + 搜索量）
+ * 智能过滤（2层过滤：地理位置 + 动态搜索量）
  *
  * 🔥 2025-12-17优化：
  * 1. 移除竞品词穷举过滤（无法穷举所有竞品）
- * 2. 只保留核心品牌词过滤（如"eufy security" → "eufy"）
+ * 2. 新增地理位置过滤（过滤非目标国家的关键词）
  * 3. 提高搜索量阈值到500（保留高价值关键词）
- * 4. 🆕 新增地理位置过滤（过滤非目标国家的关键词）
- * 5. 🆕 2025-12-18优化：保留高搜索量通用品类词（>10000）
  *
  * 🔥 2025-12-26优化：动态搜索量阈值
  * - 根据初始种子词数量和分布自动计算阈值
  * - 种子词少时降低阈值，种子词多时提高阈值
+ *
+ * 🔥 2026-01-02优化：移除品牌相关性过滤
+ * - 移除第1层的10000搜索量阈值过滤（与第2层动态阈值冲突）
+ * - 保留所有品类词（由动态阈值统一过滤）
+ * - 保留搜索量500-10000的长尾品类词（高购买意图）
  */
 export function filterKeywords(
   keywords: PoolKeywordData[],
@@ -787,7 +790,7 @@ export function filterKeywords(
 
   let geoFilteredCount = 0
   let brandKeptCount = 0
-  let highVolumeGenericCount = 0
+  let categoryKeptCount = 0  // 🔥 2026-01-02: 统计品类词保留数量
 
   // 🔥 2025-12-26：动态计算搜索量阈值
   // 计算有搜索量的关键词分布
@@ -809,26 +812,23 @@ export function filterKeywords(
     const kwLower = kw.keyword.toLowerCase()
     const hasBrand = kwLower.includes(coreBrandLower)
 
-    // ✅ 第1层：品牌相关性过滤
-    // 保留2种关键词：
-    // 1. 包含核心品牌词的关键词（品牌词）
-    // 2. 搜索量>10000的通用品类词（高价值通用词）
-    // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留所有非品牌词
-    const isHighVolumeGeneric = !hasBrand && kw.searchVolume >= 10000
+    // ❌ 2026-01-02: 移除第1层品牌相关性过滤（10000阈值过滤）
+    // 理由：与第2层动态阈值冲突，导致搜索量500-10000的长尾品类词被错误过滤
+    // 所有关键词现在统一由第2层的动态搜索量阈值过滤
+    //
+    // const isHighVolumeGeneric = !hasBrand && kw.searchVolume >= 10000
+    // if (!hasBrand && !isHighVolumeGeneric && kw.searchVolume > 0) {
+    //   return false
+    // }
 
-    if (!hasBrand && !isHighVolumeGeneric && kw.searchVolume > 0) {
-      return false
-    }
-
-    // 记录保留的品牌词和高搜索量通用词
+    // 记录保留的品牌词和品类词
     if (hasBrand) {
       brandKeptCount++
-    } else if (isHighVolumeGeneric) {
-      highVolumeGenericCount++
-      console.log(`   ✅ 保留高搜索量通用词: "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
+    } else {
+      categoryKeptCount++
     }
 
-    // ✅ 第2层：地理位置过滤（过滤非目标国家的关键词）
+    // ✅ 第1层：地理位置过滤（过滤非目标国家的关键词）
     // 🔧 修复(2025-12-17): 扩展阶段也需要地理过滤
     if (targetCountry) {
       const detectedCountries = detectCountryInKeyword(kw.keyword)
@@ -840,7 +840,7 @@ export function filterKeywords(
       }
     }
 
-    // ✅ 第3层：搜索量过滤（使用动态自适应阈值）
+    // ✅ 第2层：搜索量过滤（使用动态自适应阈值）
     // 🔧 容错处理：当searchVolume未知时（undefined/null/0），保留关键词
     // 这样当Google Ads API不可用时，初始关键词不会被全部过滤掉
     const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
@@ -851,8 +851,9 @@ export function filterKeywords(
 
   console.log(`   过滤: ${keywords.length} → ${filtered.length}`)
   console.log(`      品牌词保留: ${brandKeptCount}`)
-  console.log(`      高搜索量通用词(>10000): ${highVolumeGenericCount}`)
+  console.log(`      品类词保留: ${categoryKeptCount}`)
   console.log(`      地理过滤: ${geoFilteredCount}`)
+  console.log(`      动态搜索量阈值: ${dynamicThreshold}`)
 
   return filtered
 }
