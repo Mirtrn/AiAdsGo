@@ -762,21 +762,16 @@ function calculateDynamicThreshold(keywords: PoolKeywordData[]): number {
 // ============================================
 
 /**
- * 智能过滤（2层过滤：地理位置 + 动态搜索量）
+ * 智能过滤（2层过滤：地理位置 + 分层搜索量）
  *
  * 🔥 2025-12-17优化：
  * 1. 移除竞品词穷举过滤（无法穷举所有竞品）
  * 2. 新增地理位置过滤（过滤非目标国家的关键词）
- * 3. 提高搜索量阈值到500（保留高价值关键词）
  *
- * 🔥 2025-12-26优化：动态搜索量阈值
- * - 根据初始种子词数量和分布自动计算阈值
- * - 种子词少时降低阈值，种子词多时提高阈值
- *
- * 🔥 2026-01-02优化：移除品牌相关性过滤
- * - 移除第1层的10000搜索量阈值过滤（与第2层动态阈值冲突）
- * - 保留所有品类词（由动态阈值统一过滤）
- * - 保留搜索量500-10000的长尾品类词（高购买意图）
+ * 🔥 2026-01-02优化：策略A（保守）- 品牌词为主 + 少量高搜索量品类词
+ * - 品牌词：保留所有有效搜索量（≥10）
+ * - 品类词：只保留头部词（≥10000），用于品牌曝光
+ * - 理由：品牌词高购买意图、高转化率、低CPC；品类词ROI不确定
  */
 export function filterKeywords(
   keywords: PoolKeywordData[],
@@ -790,46 +785,40 @@ export function filterKeywords(
 
   let geoFilteredCount = 0
   let brandKeptCount = 0
-  let categoryKeptCount = 0  // 🔥 2026-01-02: 统计品类词保留数量
+  let highVolumeCategoryKeptCount = 0  // 🔥 2026-01-02: 统计头部品类词保留数量
 
-  // 🔥 2025-12-26：动态计算搜索量阈值
-  // 计算有搜索量的关键词分布
-  const keywordsWithVolume = keywords.filter(kw => kw.searchVolume > 0)
-  const volumeDistribution = keywordsWithVolume.map(kw => kw.searchVolume).sort((a, b) => a - b)
-
-  // 策略：保留搜索量中位数以上的关键词，或至少保留50个
-  const defaultThreshold = 500
-  let dynamicThreshold = defaultThreshold // 默认500
-  if (volumeDistribution.length > 0) {
-    const medianVolume = volumeDistribution[Math.floor(volumeDistribution.length / 2)]
-    // 阈值设为中位数的10%，但不高于500
-    dynamicThreshold = Math.min(defaultThreshold, Math.max(100, Math.floor(medianVolume * 0.1)))
-  }
-
-  console.log(`   🔧 动态搜索量阈值: ${dynamicThreshold} (中位数: ${volumeDistribution[Math.floor(volumeDistribution.length / 2)] || 'N/A'})`)
+  // 🔥 2026-01-02：移除动态阈值计算（策略A不需要）
+  // 品牌词和品类词使用固定阈值
 
   const filtered = keywords.filter(kw => {
     const kwLower = kw.keyword.toLowerCase()
     const hasBrand = kwLower.includes(coreBrandLower)
 
-    // ❌ 2026-01-02: 移除第1层品牌相关性过滤（10000阈值过滤）
-    // 理由：与第2层动态阈值冲突，导致搜索量500-10000的长尾品类词被错误过滤
-    // 所有关键词现在统一由第2层的动态搜索量阈值过滤
-    //
-    // const isHighVolumeGeneric = !hasBrand && kw.searchVolume >= 10000
-    // if (!hasBrand && !isHighVolumeGeneric && kw.searchVolume > 0) {
-    //   return false
-    // }
+    // ✅ 策略A（保守）：品牌词 vs 品类词分层过滤
+    const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
 
-    // 记录保留的品牌词和品类词
     if (hasBrand) {
+      // ✅ 品牌词：保留所有有效搜索量（≥10）
+      // 理由：品牌词高购买意图（80-90%），高转化率（15-25%），低CPC（$1-3）
+      if (hasSearchVolumeData && kw.searchVolume < 10) {
+        return false  // 只过滤极低搜索量（拼写错误、超长尾）
+      }
       brandKeptCount++
     } else {
-      categoryKeptCount++
+      // ✅ 品类词：只保留头部词（≥10000）
+      // 理由：品类词低购买意图（20-40%），低转化率（2-8%），高CPC（$5-15）
+      //       只保留头部词用于品牌曝光，中低搜索量品类词ROI不确定
+      const isHighVolumeCategoryKeyword = kw.searchVolume >= 10000
+
+      if (!isHighVolumeCategoryKeyword) {
+        return false  // 过滤所有中低搜索量品类词（<10000）
+      }
+
+      highVolumeCategoryKeptCount++
+      console.log(`   ✅ 保留头部品类词: "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
     }
 
-    // ✅ 第1层：地理位置过滤（过滤非目标国家的关键词）
-    // 🔧 修复(2025-12-17): 扩展阶段也需要地理过滤
+    // ✅ 地理位置过滤（过滤非目标国家的关键词）
     if (targetCountry) {
       const detectedCountries = detectCountryInKeyword(kw.keyword)
       // 如果检测到国家，且不包含目标国家，则过滤
@@ -840,20 +829,14 @@ export function filterKeywords(
       }
     }
 
-    // ✅ 第2层：搜索量过滤（使用动态自适应阈值）
-    // 🔧 容错处理：当searchVolume未知时（undefined/null/0），保留关键词
-    // 这样当Google Ads API不可用时，初始关键词不会被全部过滤掉
-    const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
-    if (hasSearchVolumeData && kw.searchVolume < dynamicThreshold) return false
-
     return true
   })
 
   console.log(`   过滤: ${keywords.length} → ${filtered.length}`)
   console.log(`      品牌词保留: ${brandKeptCount}`)
-  console.log(`      品类词保留: ${categoryKeptCount}`)
+  console.log(`      头部品类词保留(≥10000): ${highVolumeCategoryKeptCount}`)
   console.log(`      地理过滤: ${geoFilteredCount}`)
-  console.log(`      动态搜索量阈值: ${dynamicThreshold}`)
+  console.log(`      策略: A-保守（品牌词为主）`)
 
   return filtered
 }
