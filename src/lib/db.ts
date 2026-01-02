@@ -145,22 +145,32 @@ class PostgresAdapter implements DatabaseAdapter {
       return `timestamp '${normalized}'`
     })
 
-    // 🔧 修复(2025-01-01): 转换 IS_DELETED_FALSE/TRUE 占位符为实际 SQL 条件
+    // 🔧 修复(2025-01-02): 转换 IS_DELETED_FALSE/TRUE 占位符为实际 SQL 条件
     // 这些常量在各业务文件中定义，PostgreSQL 需要转换为实际的条件
-    // 重要：必须先替换带表名前缀的，再替换不带表名前缀的，否则会产生重复的 is_deleted =
-    // 处理带表名前缀的情况: t.IS_DELETED_FALSE -> t.is_deleted = FALSE
-    result = result.replace(/\b\w+\.IS_DELETED_FALSE\b/g, (match) => {
-      const table = match.replace('.IS_DELETED_FALSE', '')
-      return `${table}.is_deleted = FALSE`
-    })
-    result = result.replace(/\b\w+\.IS_DELETED_TRUE\b/g, (match) => {
-      const table = match.replace('.IS_DELETED_TRUE', '')
-      return `${table}.is_deleted = TRUE`
-    })
-    // 处理不带表名前缀的情况: IS_DELETED_FALSE -> is_deleted = FALSE
-    // 注意：SET 语句中需要使用 SET is_deleted = IS_DELETED_TRUE 格式
-    result = result.replace(/\bIS_DELETED_FALSE\b/g, 'is_deleted = FALSE')
+    //
+    // 支持三种使用模式：
+    // 模式1: field = IS_DELETED_TRUE -> field = TRUE (标准用法)
+    // 模式2: t.IS_DELETED_FALSE -> t.is_deleted = FALSE (带表前缀的简写)
+    // 模式3: IS_DELETED_TRUE -> is_deleted = TRUE (独立简写)
+    //
+    // 重要：必须按顺序处理，避免双重替换和双重等号错误
+
+    // 模式1a: 标准用法 - t.is_deleted = IS_DELETED_TRUE -> t.is_deleted = TRUE
+    result = result.replace(/(\w+\.is_deleted)\s*=\s*IS_DELETED_TRUE\b/g, '$1 = TRUE')
+    result = result.replace(/(\w+\.is_deleted)\s*=\s*IS_DELETED_FALSE\b/g, '$1 = FALSE')
+
+    // 模式1b: 标准用法（不带表前缀）- is_deleted = IS_DELETED_TRUE -> is_deleted = TRUE
+    result = result.replace(/\bis_deleted\s*=\s*IS_DELETED_TRUE\b/g, 'is_deleted = TRUE')
+    result = result.replace(/\bis_deleted\s*=\s*IS_DELETED_FALSE\b/g, 'is_deleted = FALSE')
+
+    // 模式2: 简写形式（带表前缀）- t.IS_DELETED_FALSE -> t.is_deleted = FALSE
+    result = result.replace(/\b(\w+)\.IS_DELETED_TRUE\b/g, '$1.is_deleted = TRUE')
+    result = result.replace(/\b(\w+)\.IS_DELETED_FALSE\b/g, '$1.is_deleted = FALSE')
+
+    // 模式3: 简写形式（独立使用）- IS_DELETED_TRUE -> is_deleted = TRUE
+    // 注意：这个替换必须最后执行，避免影响前面的模式
     result = result.replace(/\bIS_DELETED_TRUE\b/g, 'is_deleted = TRUE')
+    result = result.replace(/\bIS_DELETED_FALSE\b/g, 'is_deleted = FALSE')
 
     // 4. 转换 strftime 为 PostgreSQL 的 to_char
     // 匹配: strftime('%Y-%m-%d', column) -> to_char(column, 'YYYY-MM-DD')
