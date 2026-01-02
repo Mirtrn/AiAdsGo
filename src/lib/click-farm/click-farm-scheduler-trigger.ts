@@ -67,6 +67,13 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
       task.total_clicks || 0,
       task.success_clicks || 0
     );
+    // 同时更新 completed_at 字段
+    const db = getDatabase();
+    await db.exec(`
+      UPDATE click_farm_tasks
+      SET completed_at = datetime('now'), updated_at = datetime('now')
+      WHERE id = ?
+    `, [task.id]);
     return { taskId, status: 'completed', message: '任务已完成' };
   }
 
@@ -124,6 +131,8 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   });
 
   if (!isWithinExecutionTimeRange(task)) {
+    // 🔧 修复：即使跳过任务，也要更新 next_run_at
+    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
     return {
       taskId,
       status: 'skipped',
@@ -225,11 +234,14 @@ export async function triggerAllPendingTasks(): Promise<{
   const queueManager = await getOrCreateQueueManager();
   const db = getDatabase();
 
-  console.log(`[TriggerAll] 开始执行，找到 ${tasks.length} 个待处理任务`);
+  // 🔧 添加调试日志
+  console.log(`[TriggerAll] 开始执行，找到 ${tasks.length} 个待处理任务，当前时间: ${new Date().toISOString()}`);
 
   const results = { processed: 0, queued: 0, paused: 0, skipped: 0 };
 
   for (const task of tasks) {
+    // 🔧 添加任务详情日志
+    console.log(`[TriggerAll] 处理任务 ${task.id}: status=${task.status}, duration_days=${task.duration_days}, started_at=${task.started_at}, next_run_at=${task.next_run_at}`);
     results.processed++;
 
     // 检查开始日期
@@ -244,6 +256,12 @@ export async function triggerAllPendingTasks(): Promise<{
     // 检查是否完成
     if (shouldCompleteTask(task)) {
       await updateTaskStatus(task.id, 'completed');
+      // 同时更新 completed_at 字段
+      await db.exec(`
+        UPDATE click_farm_tasks
+        SET completed_at = datetime('now'), updated_at = datetime('now')
+        WHERE id = ?
+      `, [task.id]);
       results.skipped++;
       continue;
     }
@@ -273,12 +291,16 @@ export async function triggerAllPendingTasks(): Promise<{
     // 检查执行时间
     const currentHour = getHourInTimezone(new Date(), task.timezone);
     if (!isWithinExecutionTimeRange(task)) {
+      // 🔧 修复：即使跳过任务，也要更新 next_run_at
+      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
       results.skipped++;
       continue;
     }
 
     const clickCount = task.hourly_distribution[currentHour] || 0;
     if (clickCount === 0) {
+      // 🔧 修复：即使跳过任务，也要更新 next_run_at
+      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
       results.skipped++;
       continue;
     }

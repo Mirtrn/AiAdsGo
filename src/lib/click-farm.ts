@@ -445,15 +445,15 @@ export async function getClickFarmStats(userId: number, daysBack: number | 'all'
   `, cumulativeParams);
 
   // 🔧 修复: PostgreSQL queryOne 在无结果时返回 undefined，需要提供默认值
-  // 确保所有字段都是数字类型
+  // 确保所有字段都是数字类型（PostgreSQL numeric 类型可能返回字符串）
   const cumulative = {
-    clicks: Number(cumulativeResult?.clicks || 0),
-    successClicks: Number(cumulativeResult?.successClicks || 0),
-    failedClicks: Number(cumulativeResult?.failedClicks || 0),
+    clicks: parseFloat(String(cumulativeResult?.clicks || 0)),
+    successClicks: parseFloat(String(cumulativeResult?.successClicks || 0)),
+    failedClicks: parseFloat(String(cumulativeResult?.failedClicks || 0)),
   };
 
   const cumulativeSuccessRate = cumulative.clicks > 0
-    ? (cumulative.successClicks / cumulative.clicks) * 100
+    ? parseFloat(((cumulative.successClicks / cumulative.clicks) * 100).toFixed(1))
     : 0;
 
   // 🆕 任务状态分布统计（不含已删除任务）
@@ -751,6 +751,34 @@ export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     refererConfig = safeParse(row.referer_config, null);
   }
 
+  // 🔧 修复：动态计算进度（按时间进度，而非数据库中的静态值）
+  // 进度计算逻辑：
+  // - pending: 0%
+  // - paused/stopped: 保持当前时间进度
+  // - running: (已执行天数 / 总天数) * 100
+  // - completed: 100%
+  let calculatedProgress = 0;
+  if (row.status === 'completed') {
+    calculatedProgress = 100;
+  } else if (row.status === 'running' && row.started_at && row.duration_days > 0) {
+    // 按时间进度计算
+    const startedAtUTC = new Date(row.started_at).getTime();
+    const nowUTC = Date.now();
+    const elapsedMs = nowUTC - startedAtUTC;
+    const elapsedDays = elapsedMs / (1000 * 60 * 60 * 24);
+    calculatedProgress = Math.min(100, Math.round((elapsedDays / row.duration_days) * 100));
+  } else if (row.status === 'paused' || row.status === 'stopped') {
+    // 已暂停/停止的任务，保持最后的时间进度
+    if (row.started_at && row.duration_days > 0) {
+      const startedAtUTC = new Date(row.started_at).getTime();
+      const pausedAtUTC = row.paused_at ? new Date(row.paused_at).getTime() : Date.now();
+      const elapsedMs = pausedAtUTC - startedAtUTC;
+      const elapsedDays = elapsedMs / (1000 * 60 * 60 * 24);
+      calculatedProgress = Math.min(100, Math.round((elapsedDays / row.duration_days) * 100));
+    }
+  }
+  // pending 状态保持 0%
+
   const task = {
     id: row.id,
     user_id: row.user_id,
@@ -765,7 +793,7 @@ export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
     pause_reason: row.pause_reason,
     pause_message: row.pause_message,
     paused_at: row.paused_at,
-    progress: row.progress,
+    progress: calculatedProgress,  // 🔧 使用动态计算的值
     total_clicks: row.total_clicks,
     success_clicks: row.success_clicks,
     failed_clicks: row.failed_clicks,
@@ -1037,6 +1065,21 @@ export async function getPendingTasks(): Promise<ClickFarmTask[]> {
     ORDER BY created_at ASC
     LIMIT 100
   `, []);
+
+  // 🔧 添加调试日志
+  if (process.env.DEBUG_CLICK_FARM === 'true') {
+    console.log('[getPendingTasks] 查询结果:', {
+      count: tasks.length,
+      now: new Date().toISOString(),
+      tasks: tasks.map(t => ({
+        id: t.id,
+        status: t.status,
+        next_run_at: t.next_run_at,
+        started_at: t.started_at,
+        duration_days: t.duration_days
+      }))
+    });
+  }
 
   return tasks.map(parseClickFarmTask);
 }

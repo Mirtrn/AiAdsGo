@@ -694,6 +694,7 @@ export default function OfferDetailPage() {
                           label: '花费 (USD)',
                           color: '#f59e0b',  // amber-500
                           formatter: (value) => `$${value.toFixed(2)}`,
+                          yAxisId: 'right',  // 花费使用右侧Y轴（与展示/点击/转化的量级不同）
                         },
                       ]}
                       title="投放趋势"
@@ -703,6 +704,7 @@ export default function OfferDetailPage() {
                       onRetry={fetchTrends}
                       height={280}
                       hideTimeRangeSelector={true}
+                      dualYAxis={true}  // 启用双Y轴
                     />
                   </div>
 

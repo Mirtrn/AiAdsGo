@@ -297,6 +297,7 @@ function startScheduler() {
 
   // 任务0: 每小时整点执行补点击任务调度
   // 注意：调度器的时区只影响触发时机，实际执行时间判断使用每个任务自己的时区
+  console.log(`[Scheduler] 补点击任务调度器启动，当前时间: ${new Date().toISOString()}`);
   cron.schedule('0 * * * *', async () => {
     await clickFarmSchedulerTask()
   }, {

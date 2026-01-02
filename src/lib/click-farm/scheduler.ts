@@ -202,26 +202,33 @@ export function shouldCompleteTask(task: ClickFarmTask): boolean {
     return false;
   }
 
-  // 🔧 修复：按任务时区计算"完整日期数"
-  // 转换 started_at 为任务时区的本地日期
-  const startedAtInTimezone = getDateInTimezone(new Date(task.started_at), task.timezone);
-  // 转换 当前时间 为任务时区的本地日期
-  const nowInTimezone = getDateInTimezone(new Date(), task.timezone);
+  // 🔧 修复：使用 UTC 时间戳计算经过的天数，避免时区边界问题
+  // 例如：如果 started_at 是 2025-12-31 23:00:00 UTC，duration_days = 1
+  // 应该等到 2026-01-01 23:00:00 UTC 才算完成，而不是 2026-01-01 00:00:01 UTC
+  const startedAtUTC = new Date(task.started_at).getTime();
+  const nowUTC = Date.now();
 
-  // 解析日期字符串 (格式: "YYYY-MM-DD")
-  const [startYear, startMonth, startDay] = startedAtInTimezone.split('-').map(Number);
-  const [nowYear, nowMonth, nowDay] = nowInTimezone.split('-').map(Number);
+  // 计算经过的完整天数（向上取整，确保跨过完整的 duration_days 天）
+  const elapsedMs = nowUTC - startedAtUTC;
+  const elapsedDays = Math.floor(elapsedMs / (1000 * 60 * 60 * 24));
 
-  // 创建纯日期对象（不涉及时间部分）
-  const startDate = new Date(startYear, startMonth - 1, startDay, 0, 0, 0, 0);
-  const nowDate = new Date(nowYear, nowMonth - 1, nowDay, 0, 0, 0, 0);
+  const shouldComplete = elapsedDays >= task.duration_days;
 
-  // 计算完整日期差
-  const elapsedDays = Math.floor(
-    (nowDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-  );
+  // 🔧 添加调试日志
+  if (process.env.NODE_ENV === 'development' || process.env.DEBUG_CLICK_FARM === 'true') {
+    console.log('[shouldCompleteTask] 调试信息:', {
+      taskId: task.id,
+      timezone: task.timezone,
+      startedAtUTC: new Date(startedAtUTC).toISOString(),
+      nowUTC: new Date(nowUTC).toISOString(),
+      durationDays: task.duration_days,
+      elapsedMs,
+      elapsedDays,
+      shouldComplete
+    });
+  }
 
-  return elapsedDays >= task.duration_days;
+  return shouldComplete;
 }
 
 /**
@@ -306,8 +313,9 @@ export function generateNextRunAt(timezone: string, task?: ClickFarmTask): Date 
     }
   }
 
-  // 默认逻辑：返回任务时区的下一个整点
-  return getNextHourInTimezone(now, timezone);
+  // 默认逻辑：返回任务时区中下一个有配额的小时
+  // 🔧 优化：直接跳到下一个有配额且在执行范围内的小时，避免逐小时跳过
+  return getNextHourWithQuota(now, task);
 }
 
 /**
@@ -347,4 +355,81 @@ function getNextHourInTimezone(now: Date, timezone: string): Date {
     `${nextHour.toString().padStart(2, '0')}:00`,
     timezone
   );
+}
+
+/**
+ * 🆕 获取任务时区中下一个有配额的小时
+ * 用于优化 next_run_at，避免逐小时跳过
+ *
+ * @param now - 当前时间
+ * @param task - 任务对象
+ * @returns 下一个有配额小时的执行时间（UTC）
+ */
+function getNextHourWithQuota(now: Date, task: ClickFarmTask): Date {
+  const currentHour = getHourInTimezone(now, task.timezone);
+  const currentDate = getDateInTimezone(now, task.timezone);
+  const hourlyDistribution = task.hourly_distribution || [];
+
+  // 解析 start_time 和 end_time
+  const startTimeStr = String(task.start_time || '06:00');
+  const [startHourStr] = startTimeStr.split(':');
+  const startHour = parseInt(startHourStr) || 0;
+
+  const endTimeStr = String(task.end_time || '24:00');
+  const [endHourStr] = endTimeStr.split(':');
+  let endHour = parseInt(endHourStr) || 0;
+  if (endTimeStr === '24:00') {
+    endHour = 23; // 24:00 等同于 23:59，使用 23:59 后的下一个整点
+  }
+
+  // 从下一个小时开始搜索，找到第一个有配额且在执行范围内的小时
+  for (let i = 1; i <= 24; i++) {
+    const checkHour = (currentHour + i) % 24;
+    const checkDate = currentHour + i >= 24
+      ? incrementDate(currentDate)
+      : currentDate;
+
+    // 检查是否在执行时间范围内
+    const isInTimeRange = startHour <= endHour
+      ? checkHour >= startHour && checkHour <= endHour
+      : checkHour >= startHour || checkHour <= endHour; // 跨越午夜的情况
+
+    if (isInTimeRange && hourlyDistribution[checkHour] > 0) {
+      return createDateInTimezone(
+        checkDate,
+        `${checkHour.toString().padStart(2, '0')}:00`,
+        task.timezone
+      );
+    }
+  }
+
+  // 如果没找到今天有配额的小时，返回明天第一个有配额的小时
+  // 搜索明天的 0-23 小时
+  const tomorrowDate = incrementDate(currentDate);
+  for (let hour = 0; hour < 24; hour++) {
+    if (hourlyDistribution[hour] > 0) {
+      return createDateInTimezone(
+        tomorrowDate,
+        `${hour.toString().padStart(2, '0')}:00`,
+        task.timezone
+      );
+    }
+  }
+
+  // 如果没有任何有配额的小时（理论上不应该发生），返回明天的 start_time
+  return createDateInTimezone(
+    tomorrowDate,
+    `${startHour.toString().padStart(2, '0')}:00`,
+    task.timezone
+  );
+}
+
+/**
+ * 🆕 日期字符串 +1 天
+ */
+function incrementDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const dateObj = new Date(year, month - 1, day);
+  dateObj.setDate(dateObj.getDate() + 1);
+  return dateObj.toISOString().split('T')[0];
 }

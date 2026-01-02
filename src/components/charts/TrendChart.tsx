@@ -128,40 +128,54 @@ export function TrendChart({
     return acc
   }, {} as ChartConfig)
 
-  // 计算Y轴domain（如果启用了双Y轴）
+  // 计算Y轴domain
   let leftDomain: [number, number] | undefined = undefined;
   let rightDomain: [number, number] | undefined = undefined;
 
-  if (dualYAxis && data.length > 0) {
-    // 获取左轴和右轴的metrics
-    const leftMetrics = metrics.filter(m => m.yAxisId === 'left' || !m.yAxisId);
-    const rightMetrics = metrics.filter(m => m.yAxisId === 'right');
+  if (data.length > 0) {
+    if (dualYAxis) {
+      // 双Y轴模式：分别计算左右轴的domain
+      const leftMetrics = metrics.filter(m => m.yAxisId === 'left' || !m.yAxisId);
+      const rightMetrics = metrics.filter(m => m.yAxisId === 'right');
 
-    // 计算左轴domain
-    if (leftMetrics.length > 0) {
-      const leftMaxValues = leftMetrics.map(m =>
-        Math.max(...data.map(d => {
-          const val = d[m.key];
-          return typeof val === 'number' ? val : 0;
-        }))
-      );
-      const leftMax = Math.max(...leftMaxValues);
-      if (leftMax > 0) {
-        leftDomain = [0, Math.ceil((leftMax * 1.2) / 100) * 100];
+      // 计算左轴domain
+      if (leftMetrics.length > 0) {
+        const leftMaxValues = leftMetrics.map(m =>
+          Math.max(...data.map(d => {
+            const val = d[m.key];
+            return typeof val === 'number' ? val : 0;
+          }))
+        );
+        const leftMax = Math.max(...leftMaxValues);
+        if (leftMax > 0) {
+          leftDomain = [0, Math.ceil((leftMax * 1.2) / 100) * 100];
+        }
       }
-    }
 
-    // 计算右轴domain
-    if (rightMetrics.length > 0) {
-      const rightMaxValues = rightMetrics.map(m =>
+      // 计算右轴domain
+      if (rightMetrics.length > 0) {
+        const rightMaxValues = rightMetrics.map(m =>
+          Math.max(...data.map(d => {
+            const val = d[m.key];
+            return typeof val === 'number' ? val : 0;
+          }))
+        );
+        const rightMax = Math.max(...rightMaxValues);
+        if (rightMax > 0) {
+          rightDomain = [0, Math.ceil((rightMax * 1.2) / 100) * 100];
+        }
+      }
+    } else {
+      // 单Y轴模式：所有metrics使用同一个自适应domain
+      const allMaxValues = metrics.map(m =>
         Math.max(...data.map(d => {
           const val = d[m.key];
           return typeof val === 'number' ? val : 0;
         }))
       );
-      const rightMax = Math.max(...rightMaxValues);
-      if (rightMax > 0) {
-        rightDomain = [0, Math.ceil((rightMax * 1.2) / 100) * 100];
+      const maxValue = Math.max(...allMaxValues);
+      if (maxValue > 0) {
+        leftDomain = [0, Math.ceil((maxValue * 1.2) / 100) * 100];
       }
     }
   }
