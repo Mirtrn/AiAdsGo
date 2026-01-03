@@ -1,0 +1,122 @@
+/**
+ * 换链接任务验证模块
+ * src/lib/url-swap-validator.ts
+ *
+ * 功能：验证换链接任务是否可以执行
+ * - 代理配置验证
+ * - 域名类型检查
+ */
+
+import { getProxyPool } from './url-resolver-enhanced'
+import type { UrlSwapValidationResult } from './url-swap-types'
+
+/**
+ * 验证换链接任务是否可以执行
+ * @param offerId - Offer ID
+ * @returns 验证结果
+ */
+export async function validateUrlSwapTask(offerId: number): Promise<UrlSwapValidationResult> {
+  const offer = await getOfferById(offerId)
+  if (!offer) {
+    return {
+      valid: false,
+      error: 'Offer不存在或已被删除'
+    }
+  }
+
+  const proxyPool = getProxyPool()
+
+  // 1. 代理检查（必须）
+  if (!proxyPool.hasProxyForCountry(offer.target_country)) {
+    return {
+      valid: false,
+      error: `未配置 ${offer.target_country} 国家的代理。请前往设置页面配置代理后重试。`
+    }
+  }
+
+  // 2. 域名类型检查（可选警告）
+  const domainWarning = checkDomainType(offer.affiliate_link)
+  if (domainWarning) {
+    return {
+      valid: true,
+      warning: domainWarning
+    }
+  }
+
+  return { valid: true }
+}
+
+/**
+ * 验证任务配置
+ * @param intervalMinutes - 换链间隔（分钟）
+ * @param durationDays - 持续天数
+ * @returns 验证结果
+ */
+export function validateTaskConfig(
+  intervalMinutes: number,
+  durationDays: number
+): UrlSwapValidationResult {
+  // 验证间隔
+  const validIntervals = [5, 10, 30, 60, 120, 240, 480, 1440]
+  if (!validIntervals.includes(intervalMinutes)) {
+    return {
+      valid: false,
+      error: `换链间隔必须是以下值之一：${validIntervals.join(', ')} 分钟`
+    }
+  }
+
+  // 验证持续天数
+  if (durationDays !== -1 && (durationDays < 1 || durationDays > 365)) {
+    return {
+      valid: false,
+      error: '持续天数必须是 1-365 之间的整数，或 -1 表示无限期'
+    }
+  }
+
+  return { valid: true }
+}
+
+/**
+ * 检查推广链接域名类型
+ * @param affiliateLink - 推广链接
+ * @returns 警告信息（如果有）
+ */
+function checkDomainType(affiliateLink: string): string | null {
+  const { getOptimalResolver } = require('./resolver-domains')
+
+  const resolverMethod = getOptimalResolver(affiliateLink)
+
+  if (resolverMethod === 'playwright') {
+    return '检测到推广链接需要JavaScript渲染，解析可能较慢（3-5秒）。'
+  }
+
+  if (resolverMethod === 'http-with-fallback') {
+    return '检测到未知重定向类型，可能需要更长的解析时间。'
+  }
+
+  return null
+}
+
+/**
+ * 获取缺少代理的国家列表
+ * @param offerIds - Offer ID列表
+ * @returns 缺少代理的国家列表
+ */
+export async function getMissingProxyCountries(offerIds: number[]): Promise<string[]> {
+  const proxyPool = getProxyPool()
+  const missingCountries: string[] = []
+
+  for (const offerId of offerIds) {
+    const offer = await getOfferById(offerId)
+    if (offer && !proxyPool.hasProxyForCountry(offer.target_country)) {
+      if (!missingCountries.includes(offer.target_country)) {
+        missingCountries.push(offer.target_country)
+      }
+    }
+  }
+
+  return missingCountries
+}
+
+// 类型声明（临时，实际应从db.ts导入）
+declare function getOfferById(offerId: number): Promise<any | null>

@@ -29,7 +29,8 @@ const DEFAULT_QUEUE_CONFIG = {
     'batch-offer-creation': 1,
     'ad-creative': 3,  // 创意生成任务（允许多用户同时生成）
     'campaign-publish': 2,  // 广告系列发布并发限制
-    'click-farm': 999  // 🔥 补点击任务并发限制（设置为999，最大化并发）
+    'click-farm': 999,  // 🔥 补点击任务并发限制（设置为999，最大化并发）
+    'url-swap': 10  // 换链接任务并发限制
   },
   maxQueueSize: 1000,
   taskTimeout: 600000,

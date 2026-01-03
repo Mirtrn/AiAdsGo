@@ -1,0 +1,137 @@
+// GET /api/url-swap/tasks - 获取换链接任务列表
+// POST /api/url-swap/tasks - 创建换链接任务
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createUrlSwapTask, getUrlSwapTasks, hasUrlSwapTask } from '@/lib/url-swap';
+import { triggerUrlSwapScheduling } from '@/lib/url-swap-scheduler';
+import { validateUrlSwapTask } from '@/lib/url-swap-validator';
+import type { CreateUrlSwapTaskRequest } from '@/lib/url-swap-types';
+
+/**
+ * GET - 获取换链接任务列表
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'unauthorized', message: '未登录' },
+        { status: 401 }
+      );
+    }
+
+    const userIdNum = parseInt(userId);
+    const { searchParams } = new URL(request.url);
+
+    // 解析查询参数
+    const status = searchParams.get('status') as any;
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '20');
+
+    const result = await getUrlSwapTasks(userIdNum, {
+      status: status || undefined,
+      page,
+      limit
+    });
+
+    return NextResponse.json({
+      tasks: result.tasks,
+      pagination: {
+        page,
+        limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / limit)
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[url-swap] 获取任务列表失败:', error);
+    return NextResponse.json(
+      { error: 'internal_error', message: '获取任务列表失败: ' + error.message },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST - 创建换链接任务
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'unauthorized', message: '未登录' },
+        { status: 401 }
+      );
+    }
+
+    const userIdNum = parseInt(userId);
+
+    // 获取原始请求体
+    const rawBody = await request.text();
+    if (!rawBody) {
+      return NextResponse.json(
+        { error: 'validation_error', message: '请求体为空' },
+        { status: 400 }
+      );
+    }
+
+    let body: CreateUrlSwapTaskRequest;
+    try {
+      body = JSON.parse(rawBody) as CreateUrlSwapTaskRequest;
+    } catch (parseError: any) {
+      return NextResponse.json(
+        { error: 'validation_error', message: 'JSON格式错误: ' + parseError.message },
+        { status: 400 }
+      );
+    }
+
+    // 验证必填字段
+    if (!body.offer_id) {
+      return NextResponse.json(
+        { error: 'validation_error', message: '缺少必填字段: offer_id' },
+        { status: 400 }
+      );
+    }
+
+    // 检查是否已存在任务
+    const existing = await hasUrlSwapTask(body.offer_id, userIdNum);
+    if (existing) {
+      return NextResponse.json(
+        { error: 'task_exists', message: '该Offer已有关联的换链接任务，请先删除现有任务或使用更新功能' },
+        { status: 409 }
+      );
+    }
+
+    // 验证代理配置
+    const validation = await validateUrlSwapTask(body.offer_id);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: 'validation_error', message: validation.error },
+        { status: 400 }
+      );
+    }
+
+    // 创建任务
+    const task = await createUrlSwapTask(userIdNum, body);
+
+    // 立即触发调度（事件驱动）
+    await triggerUrlSwapScheduling(task.id);
+
+    console.log(`[url-swap] 创建任务成功: ${task.id}`);
+
+    return NextResponse.json({
+      success: true,
+      task,
+      message: '换链接任务创建成功'
+    });
+
+  } catch (error: any) {
+    console.error('[url-swap] 创建任务失败:', error);
+    return NextResponse.json(
+      { error: 'internal_error', message: '创建任务失败: ' + error.message },
+      { status: 500 }
+    );
+  }
+}

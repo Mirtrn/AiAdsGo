@@ -1,0 +1,582 @@
+/**
+ * 换链接任务核心业务逻辑
+ * src/lib/url-swap.ts
+ *
+ * 功能：换链接任务的CRUD操作和数据访问
+ */
+
+import { getDatabase } from './db'
+import { resolveAffiliateLink } from './url-resolver-enhanced'
+import { calculateNextSwapAt } from './url-swap-scheduler'
+import { validateUrlSwapTask, validateTaskConfig } from './url-swap-validator'
+import type {
+  UrlSwapTask,
+  UrlSwapTaskStatus,
+  CreateUrlSwapTaskRequest,
+  UpdateUrlSwapTaskRequest,
+  SwapHistoryEntry,
+  UrlSwapTaskStats,
+  UrlSwapGlobalStats
+} from './url-swap-types'
+
+/**
+ * 创建换链接任务
+ */
+export async function createUrlSwapTask(
+  userId: number,
+  input: CreateUrlSwapTaskRequest
+): Promise<UrlSwapTask> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  // 1. 验证任务配置
+  const intervalMinutes = input.swap_interval_minutes || 60
+  const durationDays = input.duration_days || 7
+  const configValidation = validateTaskConfig(intervalMinutes, durationDays)
+  if (!configValidation.valid) {
+    throw new Error(configValidation.error)
+  }
+
+  // 2. 获取Offer信息
+  const offer = await getOfferById(input.offer_id)
+  if (!offer) {
+    throw new Error('Offer不存在或已被删除')
+  }
+
+  // 3. 验证代理配置
+  const validation = await validateUrlSwapTask(input.offer_id)
+  if (!validation.valid) {
+    throw new Error(validation.error)
+  }
+
+  // 4. 解析推广链接（首次解析，禁用缓存）
+  const resolved = await resolveAffiliateLink(offer.affiliate_link, {
+    targetCountry: offer.target_country,
+    skipCache: true
+  })
+
+  // 5. 获取关联的Campaign
+  const campaign = await getCampaignByOfferId(input.offer_id)
+
+  // 6. 生成任务ID
+  const taskId = crypto.randomUUID().toLowerCase()
+
+  // 7. 计算首次执行时间
+  const nextSwapAt = calculateNextSwapAt(intervalMinutes)
+
+  // 8. 创建任务
+  await db.exec(`
+    INSERT INTO url_swap_tasks (
+      id, user_id, offer_id,
+      swap_interval_minutes, enabled, duration_days,
+      google_customer_id, google_campaign_id,
+      current_final_url, current_final_url_suffix,
+      progress, total_swaps, success_swaps, failed_swaps, url_changed_count,
+      swap_history,
+      status, started_at, next_swap_at,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    taskId,
+    userId,
+    input.offer_id,
+    intervalMinutes,
+    true,  // enabled
+    durationDays,
+    campaign?.customer_id || null,
+    campaign?.campaign_id || null,
+    resolved.finalUrl,
+    resolved.finalUrlSuffix,
+    0, 0, 0, 0, 0,
+    JSON.stringify([]),  // 空历史
+    'enabled',
+    now,
+    nextSwapAt.toISOString(),
+    now,
+    now
+  ])
+
+  console.log(`[url-swap] 创建换链接任务成功: ${taskId}`)
+
+  return (await getUrlSwapTaskById(taskId, userId))!
+}
+
+/**
+ * 获取任务（带权限验证）
+ */
+export async function getUrlSwapTaskById(
+  id: string,
+  userId: number
+): Promise<UrlSwapTask | null> {
+  const db = await getDatabase()
+
+  const task = await db.queryOne<any>(`
+    SELECT * FROM url_swap_tasks
+    WHERE id = ? AND user_id = ?
+  `, [id, userId])
+
+  if (!task) return null
+
+  return parseUrlSwapTask(task)
+}
+
+/**
+ * 根据Offer ID获取任务
+ */
+export async function getUrlSwapTaskByOfferId(
+  offerId: number,
+  userId: number
+): Promise<UrlSwapTask | null> {
+  const db = await getDatabase()
+
+  const task = await db.queryOne<any>(`
+    SELECT * FROM url_swap_tasks
+    WHERE offer_id = ? AND user_id = ?
+  `, [offerId, userId])
+
+  if (!task) return null
+
+  return parseUrlSwapTask(task)
+}
+
+/**
+ * 检查Offer是否已有关联任务
+ */
+export async function hasUrlSwapTask(offerId: number, userId: number): Promise<boolean> {
+  const task = await getUrlSwapTaskByOfferId(offerId, userId)
+  return task !== null && task.status !== 'completed'
+}
+
+/**
+ * 获取任务列表
+ */
+export async function getUrlSwapTasks(
+  userId: number,
+  options: {
+    status?: UrlSwapTaskStatus
+    page?: number
+    limit?: number
+  } = {}
+): Promise<{ tasks: UrlSwapTask[]; total: number }> {
+  const db = await getDatabase()
+  const page = options.page || 1
+  const limit = options.limit || 20
+  const offset = (page - 1) * limit
+
+  let whereClause = 'user_id = ? AND is_deleted = 0'
+  const params: any[] = [userId]
+
+  if (options.status) {
+    whereClause += ' AND status = ?'
+    params.push(options.status)
+  }
+
+  // 获取总数
+  const countResult = await db.queryOne<{ count: number }>(`
+    SELECT COUNT(*) as count FROM url_swap_tasks
+    WHERE ${whereClause}
+  `, params)
+
+  const total = countResult?.count || 0
+
+  // 获取任务列表
+  const tasks = await db.query<any>(`
+    SELECT * FROM url_swap_tasks
+    WHERE ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+  `, [...params, limit, offset])
+
+  return {
+    tasks: tasks.map(parseUrlSwapTask),
+    total
+  }
+}
+
+/**
+ * 更新任务配置
+ */
+export async function updateUrlSwapTask(
+  id: string,
+  userId: number,
+  updates: UpdateUrlSwapTaskRequest
+): Promise<UrlSwapTask> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  // 验证更新字段
+  if (updates.swap_interval_minutes !== undefined || updates.duration_days !== undefined) {
+    const interval = updates.swap_interval_minutes || 60
+    const duration = updates.duration_days || 7
+    const validation = validateTaskConfig(interval, duration)
+    if (!validation.valid) {
+      throw new Error(validation.error)
+    }
+  }
+
+  const fields: string[] = []
+  const values: any[] = []
+
+  if (updates.swap_interval_minutes !== undefined) {
+    fields.push('swap_interval_minutes = ?')
+    values.push(updates.swap_interval_minutes)
+  }
+
+  if (updates.duration_days !== undefined) {
+    fields.push('duration_days = ?')
+    values.push(updates.duration_days)
+  }
+
+  if (fields.length === 0) {
+    return (await getUrlSwapTaskById(id, userId))!
+  }
+
+  fields.push('updated_at = ?')
+  values.push(now)
+  values.push(id, userId)
+
+  await db.exec(`
+    UPDATE url_swap_tasks
+    SET ${fields.join(', ')}
+    WHERE id = ? AND user_id = ?
+  `, values)
+
+  console.log(`[url-swap] 更新任务配置: ${id}`)
+
+  return (await getUrlSwapTaskById(id, userId))!
+}
+
+/**
+ * 禁用任务
+ */
+export async function disableUrlSwapTask(id: string, userId: number): Promise<void> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  await db.exec(`
+    UPDATE url_swap_tasks
+    SET status = 'disabled', updated_at = ?
+    WHERE id = ? AND user_id = ?
+  `, [now, id, userId])
+
+  console.log(`[url-swap] 禁用任务: ${id}`)
+}
+
+/**
+ * 启用任务
+ */
+export async function enableUrlSwapTask(id: string, userId: number): Promise<void> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+  const task = await getUrlSwapTaskById(id, userId)
+
+  if (!task) {
+    throw new Error('任务不存在')
+  }
+
+  // 计算下次执行时间
+  const nextSwapAt = calculateNextSwapAt(task.swap_interval_minutes)
+
+  await db.exec(`
+    UPDATE url_swap_tasks
+    SET status = 'enabled', next_swap_at = ?, updated_at = ?
+    WHERE id = ? AND user_id = ?
+  `, [nextSwapAt.toISOString(), now, id, userId])
+
+  console.log(`[url-swap] 启用任务: ${id}`)
+}
+
+/**
+ * 设置任务错误状态
+ */
+export async function setTaskError(
+  id: string,
+  errorMessage: string
+): Promise<void> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  await db.exec(`
+    UPDATE url_swap_tasks
+    SET status = 'error', error_message = ?, error_at = ?, updated_at = ?
+    WHERE id = ?
+  `, [errorMessage, now, now, id])
+
+  console.log(`[url-swap] 任务错误: ${id} - ${errorMessage}`)
+}
+
+/**
+ * 更新任务状态
+ */
+export async function updateTaskStatus(
+  id: string,
+  status: UrlSwapTaskStatus,
+  nextSwapAt?: string
+): Promise<void> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  if (nextSwapAt) {
+    await db.exec(`
+      UPDATE url_swap_tasks
+      SET status = ?, next_swap_at = ?, updated_at = ?
+      WHERE id = ?
+    `, [status, nextSwapAt, now, id])
+  } else {
+    await db.exec(`
+      UPDATE url_swap_tasks
+      SET status = ?, updated_at = ?
+      WHERE id = ?
+    `, [status, now, id])
+  }
+}
+
+/**
+ * 获取待处理的任务（用于调度器）
+ */
+export async function getPendingTasks(): Promise<UrlSwapTask[]> {
+  const db = await getDatabase()
+
+  const tasks = await db.query<any>(`
+    SELECT * FROM url_swap_tasks
+    WHERE status = 'enabled'
+      AND next_swap_at <= datetime('now')
+      AND started_at <= datetime('now')
+      AND is_deleted = 0
+    ORDER BY next_swap_at ASC
+  `)
+
+  return tasks.map(parseUrlSwapTask)
+}
+
+/**
+ * 记录换链历史
+ */
+export async function recordSwapHistory(
+  taskId: string,
+  entry: SwapHistoryEntry
+): Promise<void> {
+  const db = await getDatabase()
+  const task = await getUrlSwapTaskById(taskId, 0)  // 使用userId=0避免权限检查
+
+  if (!task) return
+
+  const existingHistory = task.swap_history || []
+  existingHistory.push(entry)
+
+  // 只保留最近100条记录
+  if (existingHistory.length > 100) {
+    existingHistory.splice(0, existingHistory.length - 100)
+  }
+
+  await db.exec(`
+    UPDATE url_swap_tasks
+    SET swap_history = ?, updated_at = ?
+    WHERE id = ?
+  `, [JSON.stringify(existingHistory), new Date().toISOString(), taskId])
+}
+
+/**
+ * 换链成功后更新任务
+ */
+export async function updateTaskAfterSwap(
+  taskId: string,
+  newFinalUrl: string,
+  newFinalUrlSuffix: string
+): Promise<void> {
+  const db = await getDatabase()
+  const task = await getUrlSwapTaskById(taskId, 0)
+  if (!task) return
+
+  const now = new Date().toISOString()
+  const nextSwapAt = calculateNextSwapAt(task.swap_interval_minutes)
+
+  await db.exec(`
+    UPDATE url_swap_tasks
+    SET current_final_url = ?,
+        current_final_url_suffix = ?,
+        total_swaps = total_swaps + 1,
+        success_swaps = success_swaps + 1,
+        url_changed_count = url_changed_count + 1,
+        next_swap_at = ?,
+        updated_at = ?
+    WHERE id = ?
+  `, [newFinalUrl, newFinalUrlSuffix, nextSwapAt.toISOString(), now, taskId])
+
+  console.log(`[url-swap] 换链成功更新: ${taskId}`)
+}
+
+/**
+ * 获取任务统计
+ */
+export async function getUrlSwapTaskStats(taskId: string, userId: number): Promise<UrlSwapTaskStats> {
+  const task = await getUrlSwapTaskById(taskId, userId)
+  if (!task) {
+    throw new Error('任务不存在')
+  }
+
+  const successRate = task.total_swaps > 0
+    ? Math.round((task.success_swaps / task.total_swaps) * 100)
+    : 0
+
+  return {
+    swap_count: task.total_swaps,
+    success_count: task.success_swaps,
+    failed_count: task.failed_swaps,
+    success_rate: successRate,
+    last_swap_at: task.swap_history.length > 0
+      ? task.swap_history[task.swap_history.length - 1].swapped_at
+      : null,
+    next_swap_at: task.next_swap_at,
+    current_final_url: task.current_final_url || '',
+    current_final_url_suffix: task.current_final_url_suffix || '',
+    status: task.status
+  }
+}
+
+/**
+ * 获取全局统计（管理员）
+ */
+export async function getUrlSwapGlobalStats(): Promise<UrlSwapGlobalStats> {
+  const db = await getDatabase()
+
+  const stats = await db.queryOne<any>(`
+    SELECT
+      COUNT(*) as total_tasks,
+      SUM(CASE WHEN status = 'enabled' THEN 1 ELSE 0 END) as active_tasks,
+      SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) as disabled_tasks,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_tasks,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
+      COALESCE(SUM(total_swaps), 0) as total_swaps,
+      COALESCE(SUM(success_swaps), 0) as success_swaps,
+      COALESCE(SUM(failed_swaps), 0) as failed_swaps,
+      COALESCE(SUM(url_changed_count), 0) as url_changed_count
+    FROM url_swap_tasks
+    WHERE is_deleted = 0
+  `)
+
+  const successRate = stats.total_swaps > 0
+    ? Math.round((stats.success_swaps / stats.total_swaps) * 100)
+    : 0
+
+  return {
+    total_tasks: stats.total_tasks || 0,
+    active_tasks: stats.active_tasks || 0,
+    disabled_tasks: stats.disabled_tasks || 0,
+    error_tasks: stats.error_tasks || 0,
+    completed_tasks: stats.completed_tasks || 0,
+    total_swaps: stats.total_swaps || 0,
+    success_swaps: stats.success_swaps || 0,
+    failed_swaps: stats.failed_swaps || 0,
+    url_changed_count: stats.url_changed_count || 0,
+    success_rate: successRate
+  }
+}
+
+/**
+ * 获取所有任务列表（管理员）
+ */
+export async function getAllUrlSwapTasks(
+  options: {
+    status?: UrlSwapTaskStatus
+    page?: number
+    limit?: number
+  } = {}
+): Promise<{ tasks: (UrlSwapTask & { username?: string })[]; total: number }> {
+  const db = await getDatabase()
+  const page = options.page || 1
+  const limit = options.limit || 20
+  const offset = (page - 1) * limit
+
+  let whereClause = 'ust.is_deleted = 0'
+  const params: any[] = []
+
+  if (options.status) {
+    whereClause += ' AND ust.status = ?'
+    params.push(options.status)
+  }
+
+  // 获取总数
+  const countResult = await db.queryOne<{ count: number }>(`
+    SELECT COUNT(*) as count FROM url_swap_tasks ust
+    WHERE ${whereClause}
+  `, params)
+
+  const total = countResult?.count || 0
+
+  // 获取任务列表（关联用户表）
+  const tasks = await db.query<any>(`
+    SELECT ust.*, u.username
+    FROM url_swap_tasks ust
+    LEFT JOIN users u ON ust.user_id = u.id
+    WHERE ${whereClause}
+    ORDER BY ust.created_at DESC
+    LIMIT ? OFFSET ?
+  `, [...params, limit, offset])
+
+  return {
+    tasks: tasks.map(t => ({
+      ...parseUrlSwapTask(t),
+      username: t.username
+    })),
+    total
+  }
+}
+
+/**
+ * 解析数据库记录为任务对象
+ */
+function parseUrlSwapTask(row: any): UrlSwapTask {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    offer_id: row.offer_id,
+    swap_interval_minutes: row.swap_interval_minutes,
+    enabled: Boolean(row.enabled),
+    duration_days: row.duration_days,
+    google_customer_id: row.google_customer_id,
+    google_campaign_id: row.google_campaign_id,
+    current_final_url: row.current_final_url,
+    current_final_url_suffix: row.current_final_url_suffix,
+    progress: row.progress || 0,
+    total_swaps: row.total_swaps || 0,
+    success_swaps: row.success_swaps || 0,
+    failed_swaps: row.failed_swaps || 0,
+    url_changed_count: row.url_changed_count || 0,
+    swap_history: typeof row.swap_history === 'string'
+      ? JSON.parse(row.swap_history)
+      : row.swap_history || [],
+    status: row.status,
+    error_message: row.error_message,
+    error_at: row.error_at,
+    started_at: row.started_at,
+    completed_at: row.completed_at,
+    next_swap_at: row.next_swap_at,
+    is_deleted: Boolean(row.is_deleted),
+    deleted_at: row.deleted_at,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  }
+}
+
+/**
+ * 辅助函数：获取Offer信息
+ */
+export async function getOfferById(offerId: number): Promise<any | null> {
+  const db = await getDatabase()
+  return db.queryOne(`SELECT * FROM offers WHERE id = ?`, [offerId])
+}
+
+/**
+ * 辅助函数：根据Offer ID获取关联的Campaign
+ */
+export async function getCampaignByOfferId(offerId: number): Promise<{ customer_id: string; campaign_id: string } | null> {
+  const db = await getDatabase()
+  const result = await db.queryOne(`
+    SELECT c.customer_id, c.campaign_id
+    FROM campaigns c
+    INNER JOIN offers o ON o.campaign_id = c.id
+    WHERE o.id = ?
+  `, [offerId])
+  return result || null
+}

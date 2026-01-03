@@ -18,6 +18,7 @@ import { executeBatchCreation } from './batch-creation-executor'
 import { executeAdCreativeGeneration } from './ad-creative-executor'
 import { executeCampaignPublish } from './campaign-publish-executor'
 import { createClickFarmExecutor } from './click-farm-executor'
+import { executeUrlSwapTask } from './url-swap-executor'
 
 /**
  * 注册所有任务执行器
@@ -61,6 +62,9 @@ export function registerAllExecutors(queue: UnifiedQueueManager): void {
 
   // 🆕 注册 click-farm 执行器（补点击任务，带代理和超时控制）
   queue.registerExecutor('click-farm', createClickFarmExecutor())
+
+  // 🆕 注册 url-swap 执行器（换链接任务，监测和更新广告链接）
+  queue.registerExecutor('url-swap', executeUrlSwapTask)
 }
 
 export { createScrapeExecutor, convertPriorityToEnum } from './scrape-executor'
@@ -82,4 +86,5 @@ export type { CleanupTaskData } from './cleanup-executor'
 export type { AdCreativeTaskData } from './ad-creative-executor'
 export type { CampaignPublishTaskData } from './campaign-publish-executor'
 export type { ClickFarmTaskData } from './click-farm-executor'
+export type { UrlSwapTaskData } from './url-swap-executor'
 
