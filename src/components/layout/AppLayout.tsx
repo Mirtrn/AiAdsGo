@@ -23,7 +23,8 @@ import {
   TrendingUp,
   FileText,
   Clock,
-  Zap
+  Zap,
+  RefreshCw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -123,6 +124,11 @@ const navigationItems: NavItem[] = [
     icon: Zap,
   },
   {
+    label: '换链接任务',
+    href: '/url-swap',
+    icon: Link2,
+  },
+  {
     label: '系统设置',
     href: '/settings',
     icon: Settings,
@@ -164,6 +170,12 @@ const adminNavigationItems: NavItem[] = [
     label: '补点击管理',
     href: '/admin/click-farm',
     icon: Zap,
+    requireAdmin: true,
+  },
+  {
+    label: '换链接管理',
+    href: '/admin/url-swap',
+    icon: RefreshCw,
     requireAdmin: true,
   },
 ]
