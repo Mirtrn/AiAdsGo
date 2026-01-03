@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
   AlertCircle,
@@ -73,6 +74,7 @@ interface LinkCheckResult {
 }
 
 export default function RiskAlertPanel() {
+  const router = useRouter()
   const [alerts, setAlerts] = useState<RiskAlert[]>([])
   const [statistics, setStatistics] = useState<Statistics | null>(null)
   const [loading, setLoading] = useState(true)
@@ -426,6 +428,19 @@ export default function RiskAlertPanel() {
                                     )}
                                   </CardContent>
                                 </Card>
+                              )}
+
+                              {/* 🆕 快捷操作按钮 - OAuth token过期等需要立即处理的警报 */}
+                              {details?.actionUrl && (
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  onClick={() => router.push(details.actionUrl)}
+                                  className="w-full bg-blue-600 hover:bg-blue-700"
+                                >
+                                  <ArrowRight className="mr-2 h-4 w-4" />
+                                  {details.actionRequired || '立即处理'}
+                                </Button>
                               )}
 
                               <div className="space-y-3">
