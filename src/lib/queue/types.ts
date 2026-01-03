@@ -142,6 +142,12 @@ export interface QueueStorageAdapter {
   clearCompleted(): Promise<number>
   clearFailed(): Promise<number>
 
+  // 🔥 按类型和状态删除任务（用于服务重启时清理特定任务）
+  deleteTasksByTypeAndStatus?(
+    type: TaskType,
+    status: 'pending' | 'running'
+  ): Promise<number>
+
   // 🔥 启动时清理操作（可选，Redis适配器实现）
   clearAllUnfinished?(): Promise<{
     pendingCleared: number

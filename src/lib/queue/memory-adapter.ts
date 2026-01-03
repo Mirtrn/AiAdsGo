@@ -199,6 +199,61 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
   }
 
   /**
+   * 🔥 按类型和状态删除任务（用于服务重启时清理特定任务）
+   *
+   * @param type 任务类型（如 'url-swap'）
+   * @param status 任务状态（'pending' 或 'running'）
+   * @returns 删除的任务数量
+   */
+  async deleteTasksByTypeAndStatus(
+    type: TaskType,
+    status: 'pending' | 'running'
+  ): Promise<number> {
+    if (!this.connected) return 0
+
+    let deletedCount = 0
+
+    if (status === 'pending') {
+      // 过滤出非指定类型的任务（保留其他任务）
+      const originalLength = this.pendingQueue.length
+      this.pendingQueue = this.pendingQueue.filter((task) => {
+        if (task.type === type) {
+          // 从tasks Map中删除
+          this.tasks.delete(task.id)
+          return false  // 不保留
+        }
+        return true  // 保留
+      })
+
+      deletedCount = originalLength - this.pendingQueue.length
+    } else {
+      // running状态
+      const runningTasksToDelete: string[] = []
+
+      // 找出需要删除的running任务
+      for (const taskId of this.runningTasks) {
+        const task = this.tasks.get(taskId)
+        if (task && task.type === type) {
+          runningTasksToDelete.push(taskId)
+        }
+      }
+
+      // 删除任务
+      for (const taskId of runningTasksToDelete) {
+        this.runningTasks.delete(taskId)
+        this.tasks.delete(taskId)
+        deletedCount++
+      }
+    }
+
+    if (deletedCount > 0) {
+      console.log(`[Memory] 删除 ${deletedCount} 个 type=${type} status=${status} 的任务`)
+    }
+
+    return deletedCount
+  }
+
+  /**
    * 🔥 获取所有pending任务（用于批量任务取消）
    */
   async getAllPendingTasks(): Promise<Task[]> {

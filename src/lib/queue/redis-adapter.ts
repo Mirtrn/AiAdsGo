@@ -397,6 +397,80 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
   }
 
   /**
+   * 🔥 按类型和状态删除任务（用于服务重启时清理特定任务）
+   *
+   * 使用场景：服务重启时清理URL Swap任务，避免重复执行
+   *
+   * @param type 任务类型（如 'url-swap'）
+   * @param status 任务状态（'pending' 或 'running'）
+   * @returns 删除的任务数量
+   */
+  async deleteTasksByTypeAndStatus(
+    type: TaskType,
+    status: 'pending' | 'running'
+  ): Promise<number> {
+    if (!this.client) return 0
+
+    // 1. 获取指定状态的所有任务ID
+    let taskIds: string[]
+    if (status === 'pending') {
+      taskIds = await this.client.zrange(this.getKey('pending:all'), 0, -1)
+    } else {
+      taskIds = await this.client.smembers(this.getKey('running'))
+    }
+
+    if (taskIds.length === 0) return 0
+
+    // 2. 从tasks hash中获取任务详情，过滤出指定type的任务
+    const tasksToDelete: string[] = []
+    for (const taskId of taskIds) {
+      const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
+      if (taskJson) {
+        const task = JSON.parse(taskJson) as Task
+        if (task.type === type) {
+          tasksToDelete.push(taskId)
+        }
+      }
+    }
+
+    if (tasksToDelete.length === 0) return 0
+
+    // 3. 批量删除任务（需要先获取任务详情以获取userId）
+    const taskDetails = new Map<string, Task>()
+    for (const taskId of tasksToDelete) {
+      const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
+      if (taskJson) {
+        taskDetails.set(taskId, JSON.parse(taskJson) as Task)
+      }
+    }
+
+    // 4. 使用pipeline批量删除
+    const pipeline = this.client.pipeline()
+
+    for (const taskId of tasksToDelete) {
+      const task = taskDetails.get(taskId)
+      if (!task) continue
+
+      // 从tasks hash中删除
+      pipeline.hdel(this.getKey('tasks'), taskId)
+
+      // 从状态集合中删除
+      if (status === 'pending') {
+        pipeline.zrem(this.getKey('pending:all'), taskId)
+        pipeline.zrem(this.getKey(`pending:user:${task.userId}`), taskId)
+      } else {
+        pipeline.srem(this.getKey('running'), taskId)
+      }
+    }
+
+    await pipeline.exec()
+
+    console.log(`[Redis] 删除 ${tasksToDelete.length} 个 type=${type} status=${status} 的任务`)
+
+    return tasksToDelete.length
+  }
+
+  /**
    * 🔥 全面清理所有未完成任务（启动时使用）
    *
    * 解决僵尸任务问题：

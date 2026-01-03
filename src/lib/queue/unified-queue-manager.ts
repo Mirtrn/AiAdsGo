@@ -179,6 +179,9 @@ export class UnifiedQueueManager {
       // 🔥 启动时清理僵尸任务（关键步骤）
       await this.cleanupZombieTasks('startup')
 
+      // 🔥 启动时清理URL Swap队列任务（避免重复执行）
+      await this.cleanupUrlSwapTasksOnStartup()
+
       // 启动处理循环（每100ms检查一次）
       this.processingLoop = setInterval(() => {
         this.processQueue()
@@ -928,6 +931,44 @@ export class UnifiedQueueManager {
       clearInterval(this.healthCheckLoop)
       this.healthCheckLoop = null
       console.log('🏥 队列健康检查已停止')
+    }
+  }
+
+  /**
+   * 🔥 服务启动时清理URL Swap队列任务
+   *
+   * 目的：避免服务重启时重复执行换链接任务
+   * - 删除所有type='url-swap'且status='pending'或'running'的任务
+   * - 不修改url_swap_tasks表的统计数据
+   * - 调度器会在下一个时间间隔重新入队
+   */
+  private async cleanupUrlSwapTasksOnStartup(): Promise<void> {
+    try {
+      console.log('[队列健康] 🧹 服务启动，清理换链接队列任务...')
+
+      // 检查adapter是否支持deleteTasksByTypeAndStatus
+      if (!this.adapter.deleteTasksByTypeAndStatus) {
+        console.log('[队列健康] ⚠️ 当前适配器不支持按类型删除任务，跳过清理')
+        return
+      }
+
+      // 清理 running 状态的 url-swap 任务（最重要）
+      const runningDeleted = await this.adapter.deleteTasksByTypeAndStatus('url-swap', 'running')
+
+      // 清理 pending 状态的 url-swap 任务（防止重复入队）
+      const pendingDeleted = await this.adapter.deleteTasksByTypeAndStatus('url-swap', 'pending')
+
+      const total = runningDeleted + pendingDeleted
+
+      if (total > 0) {
+        console.log(`[队列健康] ✅ 清理 ${total} 个换链接任务 (running: ${runningDeleted}, pending: ${pendingDeleted})`)
+        console.log('[队列健康] ℹ️  任务将在下一个时间间隔由调度器重新入队')
+      } else {
+        console.log('[队列健康] ✅ 无需清理换链接任务')
+      }
+    } catch (error: any) {
+      console.error('[队列健康] ❌ 清理换链接任务失败:', error.message)
+      // 不阻塞启动流程
     }
   }
 
