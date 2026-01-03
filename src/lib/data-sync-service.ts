@@ -251,9 +251,10 @@ export class DataSyncService {
 
       // 1. 获取用户的所有Google Ads账户
       // 🔧 修复(2025-12-30): 添加currency字段以支持多货币账户
+      // 🔧 修复(2026-01-03): 添加account_name字段用于风险警报显示
       const accounts = await db.query(
         `
-        SELECT id, customer_id, refresh_token, user_id, service_account_id, currency
+        SELECT id, customer_id, account_name, refresh_token, user_id, service_account_id, currency
         FROM google_ads_accounts
         WHERE user_id = ? AND ${isActiveCondition}
       `,
@@ -261,6 +262,7 @@ export class DataSyncService {
       ) as Array<{
         id: number
         customer_id: string
+        account_name: string | null
         refresh_token: string
         user_id: number
         service_account_id: string | null
