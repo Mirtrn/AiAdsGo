@@ -917,6 +917,41 @@ async def update_campaign_budget(request: UpdateCampaignBudgetRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class UpdateCampaignFinalUrlSuffixRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    campaign_resource_name: str
+    final_url_suffix: str
+
+
+@app.post("/api/google-ads/campaign/update-final-url-suffix")
+async def update_campaign_final_url_suffix(request: UpdateCampaignFinalUrlSuffixRequest):
+    """更新广告系列 Final URL Suffix（用于URL Swap换链接任务）"""
+    user_id = request.service_account.user_id
+    try:
+        client = create_google_ads_client(request.service_account)
+        campaign_service = client.get_service("CampaignService")
+
+        operation = client.get_type("CampaignOperation")
+        campaign = operation.update
+        campaign.resource_name = request.campaign_resource_name
+        campaign.final_url_suffix = request.final_url_suffix
+
+        # 🔧 修复(2025-12-27): v22 直接设置 update_mask 路径列表
+        operation.update_mask.paths.append("final_url_suffix")
+
+        campaign_service.mutate_campaigns(
+            customer_id=request.customer_id, operations=[operation]
+        )
+
+        logger.info(f"[user_id={user_id}] Successfully updated campaign final URL suffix: {request.campaign_resource_name}")
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"[user_id={user_id}] Update campaign final URL suffix error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class CreateCalloutExtensionsRequest(BaseModel):
     service_account: ServiceAccountConfig
     customer_id: str
