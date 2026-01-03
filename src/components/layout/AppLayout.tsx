@@ -98,11 +98,11 @@ const navigationItems: NavItem[] = [
     href: '/creatives',
     icon: Lightbulb,
   },
-  {
-    label: '投放评分',
-    href: '/launch-score',
-    icon: Rocket,
-  },
+  // {
+  //   label: '投放评分',
+  //   href: '/launch-score',
+  //   icon: Rocket,
+  // },
   {
     label: 'Google Ads账号',
     href: '/google-ads',
@@ -154,12 +154,12 @@ const adminNavigationItems: NavItem[] = [
     icon: TrendingUp,
     requireAdmin: true,
   },
-  {
-    label: '抓取与AI测试',
-    href: '/admin/scrape-test',
-    icon: Beaker,
-    requireAdmin: true,
-  },
+  // {
+  //   label: '抓取与AI测试',
+  //   href: '/admin/scrape-test',
+  //   icon: Beaker,
+  //   requireAdmin: true,
+  // },
   {
     label: 'Prompt管理',
     href: '/admin/prompts',
