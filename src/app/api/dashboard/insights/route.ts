@@ -445,23 +445,41 @@ export async function GET(request: NextRequest) {
     // ==================== URL Swap 换链接任务洞察 ====================
 
     // 规则7: 检测URL Swap任务错误
-    const urlSwapErrorQuery = `
-      SELECT
-        t.id as task_id,
-        t.offer_id,
-        t.error_message,
-        t.error_at,
-        o.name as offer_name,
-        o.product_url
-      FROM url_swap_tasks t
-      INNER JOIN offers o ON t.offer_id = o.id
-      WHERE t.user_id = ?
-        AND t.status = 'error'
-        AND t.is_deleted = 0
-        AND t.error_at >= datetime('now', '-24 hours')
-      ORDER BY t.error_at DESC
-      LIMIT 5
-    `
+    const urlSwapErrorQuery = db.type === 'postgres'
+      ? `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.error_message,
+          t.error_at,
+          o.name as offer_name,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status = 'error'
+          AND t.is_deleted = 0
+          AND t.error_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+        ORDER BY t.error_at DESC
+        LIMIT 5
+      `
+      : `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.error_message,
+          t.error_at,
+          o.name as offer_name,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status = 'error'
+          AND t.is_deleted = 0
+          AND t.error_at >= datetime('now', '-24 hours')
+        ORDER BY t.error_at DESC
+        LIMIT 5
+      `
 
     const urlSwapErrors = await db.query(
       urlSwapErrorQuery,
@@ -493,25 +511,45 @@ export async function GET(request: NextRequest) {
     })
 
     // 规则8: 检测最近的URL变化（成功的换链）
-    const urlSwapChangesQuery = `
-      SELECT
-        t.id as task_id,
-        t.offer_id,
-        t.current_final_url,
-        t.url_changed_count,
-        t.updated_at,
-        o.name as offer_name,
-        o.product_url
-      FROM url_swap_tasks t
-      INNER JOIN offers o ON t.offer_id = o.id
-      WHERE t.user_id = ?
-        AND t.status = 'enabled'
-        AND t.is_deleted = 0
-        AND t.url_changed_count > 0
-        AND t.updated_at >= datetime('now', '-24 hours')
-      ORDER BY t.updated_at DESC
-      LIMIT 3
-    `
+    const urlSwapChangesQuery = db.type === 'postgres'
+      ? `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.current_final_url,
+          t.url_changed_count,
+          t.updated_at,
+          o.name as offer_name,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status = 'enabled'
+          AND t.is_deleted = 0
+          AND t.url_changed_count > 0
+          AND t.updated_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+        ORDER BY t.updated_at DESC
+        LIMIT 3
+      `
+      : `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.current_final_url,
+          t.url_changed_count,
+          t.updated_at,
+          o.name as offer_name,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status = 'enabled'
+          AND t.is_deleted = 0
+          AND t.url_changed_count > 0
+          AND t.updated_at >= datetime('now', '-24 hours')
+        ORDER BY t.updated_at DESC
+        LIMIT 3
+      `
 
     const urlSwapChanges = await db.query(
       urlSwapChangesQuery,
@@ -544,26 +582,47 @@ export async function GET(request: NextRequest) {
     })
 
     // 规则9: 检测暂停的换链任务（可能需要关注）
-    const urlSwapPausedQuery = `
-      SELECT
-        t.id as task_id,
-        t.offer_id,
-        t.error_message,
-        t.updated_at,
-        t.failed_swaps,
-        t.total_swaps,
-        o.name as offer_name,
-        o.product_url
-      FROM url_swap_tasks t
-      INNER JOIN offers o ON t.offer_id = o.id
-      WHERE t.user_id = ?
-        AND t.status = 'disabled'
-        AND t.is_deleted = 0
-        AND t.updated_at >= datetime('now', '-48 hours')
-        AND t.failed_swaps > 0
-      ORDER BY t.updated_at DESC
-      LIMIT 3
-    `
+    const urlSwapPausedQuery = db.type === 'postgres'
+      ? `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.error_message,
+          t.updated_at,
+          t.failed_swaps,
+          t.total_swaps,
+          o.name as offer_name,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status = 'disabled'
+          AND t.is_deleted = 0
+          AND t.updated_at >= CURRENT_TIMESTAMP - INTERVAL '48 hours'
+          AND t.failed_swaps > 0
+        ORDER BY t.updated_at DESC
+        LIMIT 3
+      `
+      : `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.error_message,
+          t.updated_at,
+          t.failed_swaps,
+          t.total_swaps,
+          o.name as offer_name,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status = 'disabled'
+          AND t.is_deleted = 0
+          AND t.updated_at >= datetime('now', '-48 hours')
+          AND t.failed_swaps > 0
+        ORDER BY t.updated_at DESC
+        LIMIT 3
+      `
 
     const urlSwapPaused = await db.query(
       urlSwapPausedQuery,
@@ -603,35 +662,65 @@ export async function GET(request: NextRequest) {
     })
 
     // 规则10: 检测推广链接解析失败（高优先级错误）
-    const linkResolutionErrorQuery = `
-      SELECT
-        t.id as task_id,
-        t.offer_id,
-        t.error_message,
-        t.error_at,
-        t.consecutive_failures,
-        o.name as offer_name,
-        o.affiliate_link,
-        o.product_url
-      FROM url_swap_tasks t
-      INNER JOIN offers o ON t.offer_id = o.id
-      WHERE t.user_id = ?
-        AND t.status IN ('error', 'disabled')
-        AND t.is_deleted = 0
-        AND t.error_at >= datetime('now', '-48 hours')
-        AND (
-          t.error_message LIKE '%推广链接解析失败%'
-          OR t.error_message LIKE '%resolve%'
-          OR t.error_message LIKE '%无法访问%'
-          OR t.error_message LIKE '%Failed to fetch%'
-          OR t.error_message LIKE '%timeout%'
-          OR t.error_message LIKE '%ENOTFOUND%'
-          OR t.error_message LIKE '%ECONNREFUSED%'
-          OR t.error_message LIKE '%network%'
-        )
-      ORDER BY t.error_at DESC
-      LIMIT 5
-    `
+    const linkResolutionErrorQuery = db.type === 'postgres'
+      ? `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.error_message,
+          t.error_at,
+          t.consecutive_failures,
+          o.name as offer_name,
+          o.affiliate_link,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status IN ('error', 'disabled')
+          AND t.is_deleted = 0
+          AND t.error_at >= CURRENT_TIMESTAMP - INTERVAL '48 hours'
+          AND (
+            t.error_message LIKE '%推广链接解析失败%'
+            OR t.error_message LIKE '%resolve%'
+            OR t.error_message LIKE '%无法访问%'
+            OR t.error_message LIKE '%Failed to fetch%'
+            OR t.error_message LIKE '%timeout%'
+            OR t.error_message LIKE '%ENOTFOUND%'
+            OR t.error_message LIKE '%ECONNREFUSED%'
+            OR t.error_message LIKE '%network%'
+          )
+        ORDER BY t.error_at DESC
+        LIMIT 5
+      `
+      : `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.error_message,
+          t.error_at,
+          t.consecutive_failures,
+          o.name as offer_name,
+          o.affiliate_link,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status IN ('error', 'disabled')
+          AND t.is_deleted = 0
+          AND t.error_at >= datetime('now', '-48 hours')
+          AND (
+            t.error_message LIKE '%推广链接解析失败%'
+            OR t.error_message LIKE '%resolve%'
+            OR t.error_message LIKE '%无法访问%'
+            OR t.error_message LIKE '%Failed to fetch%'
+            OR t.error_message LIKE '%timeout%'
+            OR t.error_message LIKE '%ENOTFOUND%'
+            OR t.error_message LIKE '%ECONNREFUSED%'
+            OR t.error_message LIKE '%network%'
+          )
+        ORDER BY t.error_at DESC
+        LIMIT 5
+      `
 
     const linkResolutionErrors = await db.query(
       linkResolutionErrorQuery,
@@ -684,36 +773,67 @@ export async function GET(request: NextRequest) {
     })
 
     // 规则11: 检测Google Ads API调用失败（高优先级错误）
-    const googleAdsApiErrorQuery = `
-      SELECT
-        t.id as task_id,
-        t.offer_id,
-        t.error_message,
-        t.error_at,
-        t.consecutive_failures,
-        t.google_campaign_id,
-        o.name as offer_name,
-        o.product_url
-      FROM url_swap_tasks t
-      INNER JOIN offers o ON t.offer_id = o.id
-      WHERE t.user_id = ?
-        AND t.status IN ('error', 'disabled')
-        AND t.is_deleted = 0
-        AND t.error_at >= datetime('now', '-48 hours')
-        AND (
-          t.error_message LIKE '%Google Ads API%'
-          OR t.error_message LIKE '%google_ads%'
-          OR t.error_message LIKE '%OAuth%'
-          OR t.error_message LIKE '%refresh_token%'
-          OR t.error_message LIKE '%authentication%'
-          OR t.error_message LIKE '%authorization%'
-          OR t.error_message LIKE '%quota%'
-          OR t.error_message LIKE '%campaign%'
-          OR t.error_message LIKE '%Customer%'
-        )
-      ORDER BY t.error_at DESC
-      LIMIT 5
-    `
+    const googleAdsApiErrorQuery = db.type === 'postgres'
+      ? `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.error_message,
+          t.error_at,
+          t.consecutive_failures,
+          t.google_campaign_id,
+          o.name as offer_name,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status IN ('error', 'disabled')
+          AND t.is_deleted = 0
+          AND t.error_at >= CURRENT_TIMESTAMP - INTERVAL '48 hours'
+          AND (
+            t.error_message LIKE '%Google Ads API%'
+            OR t.error_message LIKE '%google_ads%'
+            OR t.error_message LIKE '%OAuth%'
+            OR t.error_message LIKE '%refresh_token%'
+            OR t.error_message LIKE '%authentication%'
+            OR t.error_message LIKE '%authorization%'
+            OR t.error_message LIKE '%quota%'
+            OR t.error_message LIKE '%campaign%'
+            OR t.error_message LIKE '%Customer%'
+          )
+        ORDER BY t.error_at DESC
+        LIMIT 5
+      `
+      : `
+        SELECT
+          t.id as task_id,
+          t.offer_id,
+          t.error_message,
+          t.error_at,
+          t.consecutive_failures,
+          t.google_campaign_id,
+          o.name as offer_name,
+          o.product_url
+        FROM url_swap_tasks t
+        INNER JOIN offers o ON t.offer_id = o.id
+        WHERE t.user_id = ?
+          AND t.status IN ('error', 'disabled')
+          AND t.is_deleted = 0
+          AND t.error_at >= datetime('now', '-48 hours')
+          AND (
+            t.error_message LIKE '%Google Ads API%'
+            OR t.error_message LIKE '%google_ads%'
+            OR t.error_message LIKE '%OAuth%'
+            OR t.error_message LIKE '%refresh_token%'
+            OR t.error_message LIKE '%authentication%'
+            OR t.error_message LIKE '%authorization%'
+            OR t.error_message LIKE '%quota%'
+            OR t.error_message LIKE '%campaign%'
+            OR t.error_message LIKE '%Customer%'
+          )
+        ORDER BY t.error_at DESC
+        LIMIT 5
+      `
 
     const googleAdsApiErrors = await db.query(
       googleAdsApiErrorQuery,
