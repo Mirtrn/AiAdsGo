@@ -348,6 +348,17 @@ export async function triggerAllPendingTasks(): Promise<{
       }
     }
 
+    // 🔧 修复：第一次执行时设置 started_at（在 triggerTaskScheduling 中已有，这里补充）
+    if (queued > 0 && !task.started_at) {
+      await db.exec(`
+        UPDATE click_farm_tasks
+        SET started_at = datetime('now'), updated_at = datetime('now')
+        WHERE id = ?
+      `, [task.id]);
+      const { initializeDailyHistory } = await import('@/lib/click-farm');
+      await initializeDailyHistory({ ...task, started_at: new Date().toISOString() });
+    }
+
     if (queued > 0) {
       await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
       results.queued += queued;
