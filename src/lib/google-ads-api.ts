@@ -5,6 +5,19 @@ import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 import { getUserOnlySetting } from './settings'
 
 /**
+ * 清理关键词，移除Google Ads不支持的特殊字符
+ * Google Ads关键词只支持: 字母(A-Z,a-z)、数字(0-9)、空格、下划线(_)、连字符(-)
+ */
+export function sanitizeKeyword(keyword: string): string {
+  // 只保留字母、数字、空格、下划线、连字符
+  const cleaned = keyword.replace(/[^\w\s-]/g, '')
+  // 清理多余的空格
+  const normalized = cleaned.replace(/\s+/g, ' ').trim()
+  // 清理开头和结尾的连字符
+  return normalized.replace(/^-+|-+$/g, '')
+}
+
+/**
  * 从数据库获取用户的Google Ads凭证
  *
  * 🆕 新增(2025-12-22): 统一的凭证获取函数,确保所有API调用都从数据库读取
@@ -1209,10 +1222,16 @@ export async function createGoogleAdsKeywordsBatch(params: {
         ? (kw.negativeKeywordMatchType || 'EXACT')  // 负向词默认用 EXACT 匹配，防止误伤
         : kw.matchType  // 正向词用提供的 matchType
 
+      // 清理关键词，移除Google Ads不支持的特殊字符
+      const sanitizedText = sanitizeKeyword(kw.keywordText)
+      if (sanitizedText !== kw.keywordText) {
+        console.log(`[Keyword] Sanitized: "${kw.keywordText}" -> "${sanitizedText}"`)
+      }
+
       const operation = {
         ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
         keyword: {
-          text: kw.keywordText,
+          text: sanitizedText,
           match_type: enums.KeywordMatchType[effectiveMatchType],
         },
       }

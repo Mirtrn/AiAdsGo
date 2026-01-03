@@ -22,6 +22,21 @@ def format_customer_id(v: str) -> str:
     return v.replace("-", "").replace(" ", "")
 
 
+def sanitize_keyword(keyword: str) -> str:
+    """
+    清理关键词，移除Google Ads不支持的特殊字符
+    Google Ads关键词只支持: 字母(A-Z,a-z)、数字(0-9)、空格、下划线(_)、连字符(-)
+    """
+    import re
+    # 只保留字母、数字、空格、下划线、连字符
+    cleaned = re.sub(r'[^\w\s-]', '', keyword)
+    # 清理多余的空格
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    # 清理开头和结尾的连字符
+    cleaned = cleaned.strip('-')
+    return cleaned
+
+
 def validate_login_customer_id(v: str) -> str:
     """验证并格式化 login_customer_id"""
     # 记录原始值（调试用）
@@ -646,7 +661,10 @@ async def create_keywords(request: CreateKeywordsRequest):
                     kw.match_type
                 ]
 
-            criterion.keyword.text = kw.text
+            # 清理关键词，移除Google Ads不支持的特殊字符
+            sanitized_text = sanitize_keyword(kw.text)
+            logger.info(f"Keyword sanitization: '{kw.text}' -> '{sanitized_text}'")
+            criterion.keyword.text = sanitized_text
 
             if kw.final_url:
                 criterion.final_urls.append(kw.final_url)
