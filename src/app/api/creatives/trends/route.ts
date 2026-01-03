@@ -48,6 +48,20 @@ export async function GET(request: NextRequest) {
     const startDateStr = toLocalDateStr(startDate)
     const endDateStr = toLocalDateStr(endDate)
 
+    // 格式化日期函数（PostgreSQL返回的DATE类型需要提取YYYY-MM-DD）
+    const formatDate = (dateValue: any): string => {
+      if (!dateValue) return ''
+      // 如果是 Date 对象，提取 YYYY-MM-DD
+      if (dateValue instanceof Date) {
+        const year = dateValue.getFullYear()
+        const month = String(dateValue.getMonth() + 1).padStart(2, '0')
+        const day = String(dateValue.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+      // 如果已经是字符串，直接返回
+      return String(dateValue)
+    }
+
     // PostgreSQL/SQLite 兼容性条件
     const isSelectedTrue = db.type === 'postgres' ? 'is_selected = true' : 'is_selected = 1'
     const isSelectedFalse = db.type === 'postgres' ? 'is_selected = false' : 'is_selected = 0'
@@ -116,21 +130,6 @@ export async function GET(request: NextRequest) {
         lowQuality: row ? Number(row.lowquality) || 0 : 0,
       }
     })
-
-    // 9. 格式化趋势数据 - 使用 Number() 确保 bigint 能正确转换为 number
-    // 🔧 修复(2025-01-01): 正确格式化日期，PostgreSQL返回的DATE类型需要提取YYYY-MM-DD
-    const formatDate = (dateValue: any): string => {
-      if (!dateValue) return ''
-      // 如果是 Date 对象，提取 YYYY-MM-DD
-      if (dateValue instanceof Date) {
-        const year = dateValue.getFullYear()
-        const month = String(dateValue.getMonth() + 1).padStart(2, '0')
-        const day = String(dateValue.getDate()).padStart(2, '0')
-        return `${year}-${month}-${day}`
-      }
-      // 如果已经是字符串，直接返回
-      return String(dateValue)
-    }
 
     // 🔧 调试日志：检查格式化后的结果
     console.log('[Trends API] 完整趋势数据（含缺失日期）:', JSON.stringify(completeTrends, null, 2))
