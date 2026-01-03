@@ -527,6 +527,8 @@ export async function getAdminClickFarmStats(): Promise<{
   success_clicks: number;
   success_rate: number;
   today_clicks: number;
+  today_success_clicks: number;  // 🆕 今日成功点击数
+  today_success_rate: number;    // 🆕 今日成功率
   today_traffic: number;
   total_traffic: number;
   taskStatusDistribution: {
@@ -556,31 +558,52 @@ export async function getAdminClickFarmStats(): Promise<{
     : 0;
 
   // 2️⃣ 今日统计（按每个任务的timezone判断）
-  // 获取所有任务及其timezone和统计数据
+  // 🔧 修复：从每个任务的 daily_history 中提取今日数据
+  // 而不是判断 started_at 是否为今天（started_at 是任务首次开始日期，可能是很久以前）
   const allTasks = await db.query<{
     timezone: string;
     started_at: string | null;
-    total_clicks: number;
-    success_clicks: number;
-    failed_clicks: number;
+    daily_history: string | any[];
   }>(`
-    SELECT timezone, started_at, total_clicks, success_clicks, failed_clicks
+    SELECT timezone, started_at, daily_history
     FROM click_farm_tasks
     WHERE IS_DELETED_FALSE AND started_at IS NOT NULL
   `, []);
 
-  // 🔧 在应用层按每个任务的timezone过滤"今日"数据
-  const todayTasks = allTasks.filter(task => {
-    if (!task.started_at) return false;
-    const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
-    const taskDate = getDateInTimezone(new Date(task.started_at), task.timezone);
-    return taskDate === todayInTaskTimezone;
-  });
+  // 从每个任务的 daily_history 中提取今日数据
+  let todayClicks = 0;
+  let todaySuccessClicks = 0;
+  let todayFailedClicks = 0;
+
+  for (const task of allTasks) {
+    let history: any[] = [];
+    if (typeof task.daily_history === 'string') {
+      try {
+        history = JSON.parse(task.daily_history);
+      } catch (e) {
+        history = [];
+      }
+    } else if (Array.isArray(task.daily_history)) {
+      history = task.daily_history;
+    }
+
+    if (history.length > 0 && task.timezone) {
+      // 用任务的时区获取今天的日期
+      const todayInTaskTimezone = getDateInTimezone(new Date(), task.timezone);
+      // 从 daily_history 中找今天的记录
+      const todayEntry = history.find((entry: any) => entry.date === todayInTaskTimezone);
+      if (todayEntry) {
+        todayClicks += (todayEntry.actual || 0);
+        todaySuccessClicks += (todayEntry.success || 0);
+        todayFailedClicks += (todayEntry.failed || 0);
+      }
+    }
+  }
 
   const today = {
-    clicks: todayTasks.reduce((sum, t) => sum + t.total_clicks, 0),
-    successClicks: todayTasks.reduce((sum, t) => sum + t.success_clicks, 0),
-    failedClicks: todayTasks.reduce((sum, t) => sum + t.failed_clicks, 0),
+    clicks: todayClicks,
+    successClicks: todaySuccessClicks,
+    failedClicks: todayFailedClicks,
   };
 
   const todaySuccessRate = today.clicks > 0
@@ -619,6 +642,8 @@ export async function getAdminClickFarmStats(): Promise<{
     success_clicks: global.success_clicks,
     success_rate: parseFloat(successRate.toFixed(1)),
     today_clicks: today.clicks,
+    today_success_clicks: today.successClicks,  // 🆕 今日成功点击数
+    today_success_rate: parseFloat(todaySuccessRate.toFixed(1)),  // 🆕 今日成功率
     today_traffic: estimateTraffic(today.clicks),  // 🔧 统一使用估算函数
     total_traffic: estimateTraffic(global.total_clicks),  // 🔧 统一使用估算函数
     taskStatusDistribution

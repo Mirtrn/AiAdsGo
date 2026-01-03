@@ -28,6 +28,8 @@ interface GlobalStats {
   success_clicks: number;
   success_rate: number;
   today_clicks: number;
+  today_success_clicks: number;  // 🆕 今日成功点击数
+  today_success_rate: number;    // 🆕 今日成功率
   today_traffic: number;
   total_traffic: number;
   taskStatusDistribution: {
@@ -152,9 +154,7 @@ export default function AdminClickFarmPage() {
                   <div>
                     <p className="text-xs font-medium text-gray-600">今日成功率</p>
                     <p className="text-xl font-bold text-gray-900 mt-1">
-                      {stats.today_clicks > 0
-                        ? ((stats.success_clicks / stats.total_clicks) * 100).toFixed(1)
-                        : '0.0'}%
+                      {stats.today_success_rate.toFixed(1)}%
                     </p>
                   </div>
                   <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center shrink-0">
