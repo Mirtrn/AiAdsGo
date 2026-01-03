@@ -21,6 +21,7 @@ import { NODE_ENV, REDIS_PREFIX_CONFIG } from '../config'
 import type { UnifiedQueueManager } from './unified-queue-manager'
 import type { QueueConfig } from './types'
 import { getDataSyncScheduler } from './schedulers/data-sync-scheduler'
+import { getUrlSwapScheduler } from './schedulers/url-swap-scheduler'
 
 // 🔧 修复(2025-01-01): 防止队列重复初始化
 let __queueInitialized = false
@@ -79,9 +80,14 @@ export async function initializeQueue(): Promise<UnifiedQueueManager> {
     const syncScheduler = getDataSyncScheduler()
     syncScheduler.start()
 
+    // 🔄 启动内置的URL Swap调度器（替代外部crontab）
+    const urlSwapScheduler = getUrlSwapScheduler()
+    urlSwapScheduler.start()
+
     console.log('✅ 统一队列系统已启动')
     console.log('📝 代理配置：任务执行时按需从用户设置加载')
     console.log('🔄 数据同步调度器已集成启动')
+    console.log('🔄 URL Swap调度器已集成启动')
 
     // 🔧 修复(2025-01-01): 标记为已初始化
     __queueInitialized = true
@@ -108,6 +114,10 @@ export async function shutdownQueue() {
     // 停止数据同步调度器
     const syncScheduler = getDataSyncScheduler()
     syncScheduler.stop()
+
+    // 停止URL Swap调度器
+    const urlSwapScheduler = getUrlSwapScheduler()
+    urlSwapScheduler.stop()
 
     // 停止队列处理
     const queue = getQueueManager()
