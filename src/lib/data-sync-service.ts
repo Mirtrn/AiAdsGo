@@ -4,6 +4,7 @@ import { getDatabase } from './db'
 import { getUserAuthType, getGoogleAdsCredentials } from './google-ads-oauth'
 import { executeGAQLQueryPython } from './python-ads-client'
 import { getInsertedId } from './db-helpers'
+import { createRiskAlert } from './risk-alerts'
 
 /**
  * 同步状态
@@ -439,8 +440,9 @@ export class DataSyncService {
           )
         } catch (accountError) {
           // 🔧 修复(2025-12-28): 为该账户的sync_log记录错误
+          const errorMessage = accountError instanceof Error ? accountError.message : String(accountError)
+
           if (accountSyncLogId) {
-            const errorMessage = accountError instanceof Error ? accountError.message : String(accountError)
             await db.exec(
               `
               UPDATE sync_logs
@@ -450,7 +452,43 @@ export class DataSyncService {
               [errorMessage, Date.now() - startTime, new Date().toISOString(), accountSyncLogId]
             )
           }
+
           console.error(`❌ 账户 ${account.customer_id} 同步失败:`, accountError)
+
+          // 🆕 修复(2026-01-02): 检测OAuth token过期错误并创建风险警报
+          const isTokenExpiredError =
+            errorMessage.includes('invalid_grant') ||
+            errorMessage.includes('Token has been expired') ||
+            errorMessage.includes('Token has been revoked')
+
+          if (isTokenExpiredError) {
+            console.warn(`⚠️ 检测到OAuth token过期，创建风险警报...`)
+            try {
+              await createRiskAlert(
+                userId,
+                'oauth_token_expired',
+                'critical',
+                'Google Ads授权已过期',
+                `您的Google Ads授权已过期或被撤销，无法同步账户数据。请前往设置页面重新授权以恢复数据同步。`,
+                {
+                  details: {
+                    accountId: account.id,
+                    customerId: account.customer_id,
+                    accountName: account.account_name || `账户 ${account.customer_id}`,
+                    errorType: 'invalid_grant',
+                    errorMessage: errorMessage.substring(0, 200), // 截取前200字符
+                    actionRequired: '重新授权Google Ads',
+                    actionUrl: '/settings'
+                  }
+                }
+              )
+              console.log(`✅ 已创建OAuth token过期风险警报`)
+            } catch (alertError) {
+              console.error(`❌ 创建风险警报失败:`, alertError)
+              // 不影响主流程
+            }
+          }
+
           // 继续处理下一个账户，不中断整体同步流程
         }
       }
