@@ -101,7 +101,48 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
     { value: 'enterprise', label: '私有化部署 (¥29,999)', color: 'text-purple-700' },
   ]
 
-  // 快速设置有效期
+  // 套餐类型变更时自动更新有效期
+  const handlePackageTypeChange = (newPackageType: string) => {
+    setFormData({ ...formData, packageType: newPackageType })
+
+    // 根据套餐类型自动设置有效期
+    const today = new Date()
+    let validFrom = today.toISOString().split('T')[0]
+    let validUntil: string | null = null
+
+    switch (newPackageType) {
+      case 'trial': {     // 试用版 → 7天
+        const untilDate = new Date()
+        untilDate.setDate(untilDate.getDate() + 7)
+        validUntil = untilDate.toISOString().split('T')[0]
+        break
+      }
+      case 'annual': {    // 年卡版 → 12个月
+        const untilDate = new Date()
+        untilDate.setMonth(untilDate.getMonth() + 12)
+        validUntil = untilDate.toISOString().split('T')[0]
+        break
+      }
+      case 'lifetime': {  // 终身版 → 120个月（10年）
+        const untilDate = new Date()
+        untilDate.setMonth(untilDate.getMonth() + 120)
+        validUntil = untilDate.toISOString().split('T')[0]
+        break
+      }
+      case 'enterprise': { // 私有化 → 120个月（10年）
+        const untilDate = new Date()
+        untilDate.setMonth(untilDate.getMonth() + 120)
+        validUntil = untilDate.toISOString().split('T')[0]
+        break
+      }
+      default:
+        return // 其他类型不自动修改
+    }
+
+    setFormData(prev => ({ ...prev, validFrom, validUntil }))
+  }
+
+  // 快速设置有效期（手动调整）
   const setQuickValidity = (months: number) => {
     const today = new Date()
     const validFrom = today.toISOString().split('T')[0]
@@ -149,7 +190,7 @@ export default function UserEditModal({ isOpen, onClose, onSuccess, user }: User
             </label>
             <select
               value={formData.packageType}
-              onChange={(e) => setFormData({ ...formData, packageType: e.target.value })}
+              onChange={(e) => handlePackageTypeChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {packageOptions.map((option) => (
