@@ -79,7 +79,7 @@ export async function queryActiveCampaigns(
     throw new Error('Google Ads OAuth凭证或服务账号配置无效')
   }
 
-  // 3. 查询Google Ads账号中的所有广告系列
+  // 3. 查询Google Ads账号中的所有广告系列（跳过缓存，获取实时状态）
   console.log(`🔍 查询Google Ads账号 ${adsAccount.customer_id} 中的广告系列...`)
   const auth = await getUserAuthType(userId)
   const allCampaigns = await listGoogleAdsCampaigns({
@@ -90,6 +90,7 @@ export async function queryActiveCampaigns(
     loginCustomerId: finalLoginCustomerId,
     authType: auth.authType,
     serviceAccountId: auth.serviceAccountId,
+    skipCache: true  // 🔧 修复：暂停操作必须获取最新状态，不能使用缓存
   })
 
   // 4. 转换为简化格式
