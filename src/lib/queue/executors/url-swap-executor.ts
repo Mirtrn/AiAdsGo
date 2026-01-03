@@ -11,7 +11,7 @@
 
 import type { Task } from '../types'
 import { resolveAffiliateLink } from '@/lib/url-resolver-enhanced'
-import { updateTaskAfterSwap, recordSwapHistory, setTaskError } from '@/lib/url-swap'
+import { updateTaskAfterSwap, recordSwapHistory, setTaskError, type UrlSwapErrorType } from '@/lib/url-swap'
 import type { UrlSwapTaskData } from '@/lib/url-swap-types'
 import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
@@ -148,6 +148,25 @@ export async function executeUrlSwapTask(
   } catch (error: any) {
     console.error(`[url-swap-executor] 执行失败: ${taskId}`, error.message)
 
+    // 检测错误类型
+    let errorType: UrlSwapErrorType = 'other'
+    let enhancedMessage = error.message
+
+    // 检测推广链接解析失败
+    if (
+      error.message.includes('resolve') ||
+      error.message.includes('affiliate') ||
+      error.message.includes('无法访问') ||
+      error.message.includes('Failed to fetch') ||
+      error.message.includes('timeout') ||
+      error.message.includes('ENOTFOUND') ||
+      error.message.includes('ECONNREFUSED') ||
+      error.message.includes('network')
+    ) {
+      errorType = 'link_resolution'
+      enhancedMessage = `推广链接解析失败: ${error.message}`
+    }
+
     // 记录错误历史
     await recordSwapHistory(taskId, {
       swapped_at: new Date().toISOString(),
@@ -156,14 +175,14 @@ export async function executeUrlSwapTask(
       new_final_url: '',
       new_final_url_suffix: '',
       success: false,
-      error_message: error.message
+      error_message: enhancedMessage
     })
 
     // 更新失败统计
     await updateTaskStats(taskId, false, false)
 
-    // 设置错误状态（如果多次失败）
-    await setTaskError(taskId, error.message)
+    // 设置错误状态（带错误类型分类）
+    await setTaskError(taskId, enhancedMessage, errorType)
 
     return { success: false, changed: false }
   }
@@ -186,6 +205,9 @@ async function updateTaskStats(
       SET total_swaps = total_swaps + 1,
           ${changed ? 'url_changed_count = url_changed_count + 1,' : ''}
           success_swaps = success_swaps + 1,
+          consecutive_failures = 0,
+          error_message = NULL,
+          error_at = NULL,
           updated_at = ?
       WHERE id = ?
     `, [now, taskId])

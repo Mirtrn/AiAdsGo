@@ -287,22 +287,92 @@ export async function enableUrlSwapTask(id: string, userId: number): Promise<voi
 }
 
 /**
+ * 错误类型
+ */
+export type UrlSwapErrorType = 'link_resolution' | 'google_ads_api' | 'other'
+
+/**
  * 设置任务错误状态
+ *
+ * @param id 任务ID
+ * @param errorMessage 错误信息
+ * @param errorType 错误类型（用于区分链接解析失败和其他错误）
+ *
+ * 连续失败策略：
+ * - 链接解析失败：连续3个时间间隔失败后自动暂停（disabled）
+ * - 其他错误：仅设置error状态，不自动暂停
  */
 export async function setTaskError(
   id: string,
-  errorMessage: string
+  errorMessage: string,
+  errorType: UrlSwapErrorType = 'other'
 ): Promise<void> {
   const db = await getDatabase()
   const now = new Date().toISOString()
 
+  // 1. 查询当前任务状态
+  const task = await db.queryOne<{
+    consecutive_failures: number
+    failed_swaps: number
+    total_swaps: number
+  }>(`
+    SELECT consecutive_failures, failed_swaps, total_swaps
+    FROM url_swap_tasks
+    WHERE id = ?
+  `, [id])
+
+  if (!task) {
+    console.error(`[url-swap] 任务不存在: ${id}`)
+    return
+  }
+
+  // 2. 计算新的连续失败次数
+  const newConsecutiveFailures = task.consecutive_failures + 1
+
+  // 3. 确定新状态和错误信息
+  let newStatus: UrlSwapTaskStatus = 'error'
+  let enhancedMessage = errorMessage
+
+  if (errorType === 'link_resolution') {
+    // 链接解析失败：连续3次失败后自动暂停
+    if (newConsecutiveFailures >= 3) {
+      newStatus = 'disabled'
+      enhancedMessage = `🔴 推广链接连续解析失败 ${newConsecutiveFailures} 次，任务已自动暂停。\n\n` +
+        `错误详情: ${errorMessage}\n\n` +
+        `建议操作：\n` +
+        `1. 检查推广链接是否有效\n` +
+        `2. 确认链接未过期或被撤销\n` +
+        `3. 修复问题后，在任务详情页重新启用任务`
+
+      console.warn(`[url-swap] ⚠️ 任务自动暂停（连续失败${newConsecutiveFailures}次）: ${id}`)
+    } else {
+      newStatus = 'error'
+      enhancedMessage = `⚠️ 推广链接解析失败（连续失败 ${newConsecutiveFailures}/3）。\n\n` +
+        `错误详情: ${errorMessage}\n\n` +
+        `系统将在下个时间间隔继续尝试。连续失败3次后将自动暂停任务。`
+
+      console.warn(`[url-swap] ⚠️ 链接解析失败 ${newConsecutiveFailures}/3: ${id}`)
+    }
+  } else {
+    // 其他错误（Google Ads API失败等）：仅设置error状态
+    newStatus = 'error'
+    enhancedMessage = errorMessage
+    console.error(`[url-swap] 任务错误: ${id} - ${errorMessage}`)
+  }
+
+  // 4. 更新数据库
   await db.exec(`
     UPDATE url_swap_tasks
-    SET status = 'error', error_message = ?, error_at = ?, updated_at = ?
+    SET
+      status = ?,
+      error_message = ?,
+      error_at = ?,
+      consecutive_failures = ?,
+      updated_at = ?
     WHERE id = ?
-  `, [errorMessage, now, now, id])
+  `, [newStatus, enhancedMessage, now, newConsecutiveFailures, now, id])
 
-  console.log(`[url-swap] 任务错误: ${id} - ${errorMessage}`)
+  console.log(`[url-swap] 任务错误已记录: ${id} (连续失败: ${newConsecutiveFailures}, 状态: ${newStatus})`)
 }
 
 /**
@@ -398,6 +468,9 @@ export async function updateTaskAfterSwap(
         total_swaps = total_swaps + 1,
         success_swaps = success_swaps + 1,
         url_changed_count = url_changed_count + 1,
+        consecutive_failures = 0,
+        error_message = NULL,
+        error_at = NULL,
         next_swap_at = ?,
         updated_at = ?
     WHERE id = ?

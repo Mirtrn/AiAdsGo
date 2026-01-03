@@ -52,6 +52,7 @@ export interface UrlSwapTask {
   success_swaps: number;    // 成功次数
   failed_swaps: number;     // 失败次数
   url_changed_count: number; // URL实际发生变化的次数
+  consecutive_failures: number; // 连续失败次数（用于自动暂停策略）
 
   // === 历史数据（简化版，不需要按小时分布） ===
   swap_history: SwapHistoryEntry[];

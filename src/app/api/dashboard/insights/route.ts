@@ -602,6 +602,87 @@ export async function GET(request: NextRequest) {
       })
     })
 
+    // 规则10: 检测推广链接解析失败（高优先级错误）
+    const linkResolutionErrorQuery = `
+      SELECT
+        t.id as task_id,
+        t.offer_id,
+        t.error_message,
+        t.error_at,
+        t.consecutive_failures,
+        o.name as offer_name,
+        o.affiliate_link,
+        o.product_url
+      FROM url_swap_tasks t
+      INNER JOIN offers o ON t.offer_id = o.id
+      WHERE t.user_id = ?
+        AND t.status IN ('error', 'disabled')
+        AND t.is_deleted = 0
+        AND t.error_at >= datetime('now', '-48 hours')
+        AND (
+          t.error_message LIKE '%推广链接解析失败%'
+          OR t.error_message LIKE '%resolve%'
+          OR t.error_message LIKE '%无法访问%'
+          OR t.error_message LIKE '%Failed to fetch%'
+          OR t.error_message LIKE '%timeout%'
+          OR t.error_message LIKE '%ENOTFOUND%'
+          OR t.error_message LIKE '%ECONNREFUSED%'
+          OR t.error_message LIKE '%network%'
+        )
+      ORDER BY t.error_at DESC
+      LIMIT 5
+    `
+
+    const linkResolutionErrors = await db.query(
+      linkResolutionErrorQuery,
+      [userId]
+    ) as Array<{
+      task_id: string
+      offer_id: number
+      error_message: string
+      error_at: string
+      consecutive_failures: number
+      offer_name: string
+      affiliate_link: string
+      product_url: string
+    }>
+
+    linkResolutionErrors.forEach((task) => {
+      // 确定是否已自动暂停
+      const isAutoPaused = task.error_message.includes('任务已自动暂停')
+      const failureCount = task.consecutive_failures
+
+      insights.push({
+        id: `link-resolution-error-${task.task_id}`,
+        type: 'error',
+        priority: 'high',
+        title: '🔴 推广链接解析失败',
+        message: isAutoPaused
+          ? `Offer "${task.offer_name}" 的推广链接连续解析失败 ${failureCount} 次，任务已自动暂停`
+          : `Offer "${task.offer_name}" 的推广链接解析失败（连续失败 ${failureCount}/3）`,
+        recommendation: isAutoPaused
+          ? `**需要立即处理的问题：**\n\n` +
+            `1. **检查推广链接是否有效**: ${task.affiliate_link}\n` +
+            `2. **确认链接未过期或被撤销**: 联系广告主确认链接状态\n` +
+            `3. **检查网络访问**: 确认链接可正常访问\n` +
+            `4. **修复后重新启用**: 在任务详情页重新启用任务\n\n` +
+            `**故障排除建议：**\n` +
+            `- 在浏览器中直接访问推广链接，检查是否正常跳转\n` +
+            `- 检查推广链接是否需要特殊授权或Cookie\n` +
+            `- 确认推广链接未被限制地区访问`
+          : `**警告：** 系统将在下个时间间隔继续尝试。连续失败3次后将自动暂停任务。\n\n` +
+            `1. **立即检查推广链接**: ${task.affiliate_link}\n` +
+            `2. **确认链接可访问性**: 在浏览器中测试链接\n` +
+            `3. **查看详细错误**: ${task.error_message.substring(0, 200)}`,
+        relatedOffer: {
+          id: task.offer_id,
+          name: task.offer_name,
+          url: task.product_url,
+        },
+        createdAt: task.error_at,
+      })
+    })
+
     // 按优先级排序
     const priorityOrder = { high: 1, medium: 2, low: 3 }
     insights.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority])
