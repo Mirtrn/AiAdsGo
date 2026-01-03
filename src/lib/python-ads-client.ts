@@ -428,6 +428,28 @@ export async function updateCampaignBudgetPython(params: {
 }
 
 /**
+ * 更新广告系列 Final URL Suffix（服务账号模式）
+ * 🆕 新增(2025-01-03): 用于换链接任务系统自动更新Campaign的追踪参数
+ */
+export async function updateCampaignFinalUrlSuffixPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  campaignResourceName: string
+  finalUrlSuffix: string
+}): Promise<void> {
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/update-final-url-suffix', async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update-final-url-suffix`, {
+      service_account: serviceAccount,
+      customer_id: params.customerId,
+      campaign_resource_name: params.campaignResourceName,
+      final_url_suffix: params.finalUrlSuffix,
+    })
+  })
+}
+
+/**
  * 创建附加宣传信息（服务账号模式）
  */
 export async function createCalloutExtensionsPython(params: {

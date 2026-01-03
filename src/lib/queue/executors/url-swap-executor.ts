@@ -14,6 +14,8 @@ import { resolveAffiliateLink } from '@/lib/url-resolver-enhanced'
 import { updateTaskAfterSwap, recordSwapHistory, setTaskError } from '@/lib/url-swap'
 import type { UrlSwapTaskData } from '@/lib/url-swap-types'
 import { getDatabase } from '@/lib/db'
+import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
+import { updateCampaignFinalUrlSuffix } from '@/lib/google-ads-api'
 
 /**
  * URL域名验证
@@ -91,13 +93,36 @@ export async function executeUrlSwapTask(
     if (googleCustomerId && googleCampaignId) {
       console.log(`[url-swap-executor] 更新Google Ads: customer=${googleCustomerId}, campaign=${googleCampaignId}`)
       try {
-        // TODO: 实现updateCampaignFinalUrlSuffix函数
-        // await updateCampaignFinalUrlSuffix({
-        //   customerId: googleCustomerId,
-        //   campaignId: googleCampaignId,
-        //   finalUrlSuffix: resolved.finalUrlSuffix
-        // })
-        console.log(`[url-swap-executor] Google Ads更新已跳过（待实现）: ${taskId}`)
+        // 获取用户认证信息
+        const credentials = await getGoogleAdsCredentials(task.userId)
+        const auth = await getUserAuthType(task.userId)
+
+        // 查询服务账号配置（如果使用服务账号模式）
+        const db = await getDatabase()
+        const serviceAccount = await db.queryOne(`
+          SELECT id FROM google_ads_service_accounts
+          WHERE user_id = ? AND is_active = true
+          ORDER BY created_at DESC LIMIT 1
+        `, [task.userId]) as { id: string } | undefined
+
+        if ((!credentials || !credentials.refresh_token) && !serviceAccount) {
+          throw new Error('OAuth refresh token或服务账号配置缺失，请重新授权或配置服务账号')
+        }
+
+        const refreshToken = credentials?.refresh_token || ''
+
+        // 调用Google Ads API更新Final URL Suffix
+        await updateCampaignFinalUrlSuffix({
+          customerId: googleCustomerId,
+          refreshToken,
+          campaignId: googleCampaignId,
+          finalUrlSuffix: resolved.finalUrlSuffix,
+          userId: task.userId,
+          authType: auth.authType,
+          serviceAccountId: auth.serviceAccountId,
+        })
+
+        console.log(`[url-swap-executor] Google Ads更新成功: ${taskId}`)
       } catch (adsError: any) {
         console.error(`[url-swap-executor] Google Ads更新失败: ${taskId}`, adsError.message)
         // 即使Ads API失败，仍然记录URL变化（用户可以手动更新）

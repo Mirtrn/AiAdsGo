@@ -2059,6 +2059,76 @@ export function ensureKeywordsInHeadlines(
   return result
 }
 
+/**
+ * 更新Google Ads广告系列的Final URL Suffix
+ *
+ * 🆕 新增(2025-01-03): 用于换链接任务系统自动更新Campaign的追踪参数
+ *
+ * @param params 更新参数
+ * @param params.customerId Google Ads Customer ID
+ * @param params.refreshToken OAuth刷新令牌
+ * @param params.campaignId Campaign ID
+ * @param params.finalUrlSuffix 新的Final URL Suffix
+ * @param params.userId 用户ID
+ * @param params.loginCustomerId Login Customer ID（OAuth模式）
+ * @param params.authType 认证类型（oauth或service_account）
+ * @param params.serviceAccountId 服务账号ID（服务账号模式）
+ */
+export async function updateCampaignFinalUrlSuffix(params: {
+  customerId: string
+  refreshToken: string
+  campaignId: string
+  finalUrlSuffix: string
+  accountId?: number
+  userId: number
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
+}): Promise<void> {
+  // 🔧 修复(2025-01-03): 服务账号模式使用Python服务
+  if (params.authType === 'service_account') {
+    const { updateCampaignFinalUrlSuffixPython } = await import('./python-ads-client')
+    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+    await updateCampaignFinalUrlSuffixPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      campaignResourceName: resourceName,
+      finalUrlSuffix: params.finalUrlSuffix,
+    })
+  } else {
+    const customer = await getCustomerWithCredentials({
+      ...params,
+      authType: params.authType,
+      serviceAccountId: params.serviceAccountId,
+    })
+
+    const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
+
+    await withRetry(
+      () => customer.campaigns.update([{
+        resource_name: resourceName,
+        final_url_suffix: params.finalUrlSuffix,
+      }]),
+      {
+        maxRetries: 3,
+        initialDelay: 1000,
+        operationName: `Update Campaign Final URL Suffix: ${params.campaignId}`
+      }
+    )
+  }
+
+  // 清除相关缓存
+  const getCacheKey = generateGadsApiCacheKey('getCampaign', params.customerId, {
+    campaignId: params.campaignId
+  })
+  const listCacheKey = generateGadsApiCacheKey('listCampaigns', params.customerId)
+
+  gadsApiCache.delete(getCacheKey)
+  gadsApiCache.delete(listCacheKey)
+  console.log(`🗑️ 已清除Campaign缓存（Final URL Suffix更新）: ${params.campaignId}`)
+}
+
 // ==================== Re-exports ====================
 
 // 重新导出 enums 和 GoogleAdsApi 供其他模块使用，统一入口
