@@ -34,10 +34,15 @@ import {
   CheckCircle,
   Clock,
   Users,
+  Activity,
+  TrendingUp,
+  XCircle,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ResponsivePagination } from '@/components/ui/responsive-pagination';
 import type { UrlSwapTask, UrlSwapGlobalStats } from '@/lib/url-swap-types';
+import type { UrlSwapHealthStatus } from '@/lib/url-swap/monitoring';
 
 interface UrlSwapAdminStats extends UrlSwapGlobalStats {
   userTaskDistribution: {
@@ -55,10 +60,12 @@ export default function AdminUrlSwapPage() {
   const [tasks, setTasks] = useState<UrlSwapTask[]>([]);
   const [filteredTasks, setFilteredTasks] = useState<UrlSwapTask[]>([]);
   const [stats, setStats] = useState<UrlSwapAdminStats | null>(null);
+  const [health, setHealth] = useState<UrlSwapHealthStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   // UI states
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [healthCheckLoading, setHealthCheckLoading] = useState(false);
   const [retryDialogOpen, setRetryDialogOpen] = useState(false);
   const [retryTaskId, setRetryTaskId] = useState<string | null>(null);
 
@@ -81,9 +88,10 @@ export default function AdminUrlSwapPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [tasksRes, statsRes] = await Promise.all([
+      const [tasksRes, statsRes, healthRes] = await Promise.all([
         fetch('/api/admin/url-swap/tasks'),
         fetch('/api/admin/url-swap/stats'),
+        fetch('/api/admin/url-swap/health'),
       ]);
 
       if (tasksRes.ok) {
@@ -94,6 +102,11 @@ export default function AdminUrlSwapPage() {
       if (statsRes.ok) {
         const data = await statsRes.json();
         setStats(data.data);
+      }
+
+      if (healthRes.ok) {
+        const data = await healthRes.json();
+        setHealth(data.data);
       }
     } catch (error) {
       console.error('加载数据失败:', error);
@@ -161,6 +174,28 @@ export default function AdminUrlSwapPage() {
     }
   };
 
+  const handleHealthCheck = async () => {
+    try {
+      setHealthCheckLoading(true);
+      const response = await fetch('/api/admin/url-swap/health/auto-fix', {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || '健康检查失败');
+      }
+
+      toast.success(data.message || '健康检查完成');
+      await loadData();
+    } catch (error: any) {
+      toast.error(error.message || '健康检查失败');
+    } finally {
+      setHealthCheckLoading(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string }> = {
       enabled: { label: '启用', variant: 'default', className: 'bg-green-600' },
@@ -203,6 +238,15 @@ export default function AdminUrlSwapPage() {
               </Badge>
             </div>
             <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={handleHealthCheck}
+                disabled={healthCheckLoading}
+                className="flex items-center gap-2"
+              >
+                <Activity className="w-4 h-4" />
+                {healthCheckLoading ? '检查中...' : '健康检查'}
+              </Button>
               <Button
                 variant="outline"
                 onClick={loadData}
@@ -302,6 +346,140 @@ export default function AdminUrlSwapPage() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Health Monitoring */}
+        {health && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Activity className="w-5 h-5" />
+                  系统健康监控
+                </CardTitle>
+                <Badge
+                  variant={
+                    health.overall === 'healthy' ? 'default' :
+                    health.overall === 'warning' ? 'secondary' :
+                    'destructive'
+                  }
+                  className={
+                    health.overall === 'healthy' ? 'bg-green-600' :
+                    health.overall === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+                    ''
+                  }
+                >
+                  {health.overall === 'healthy' ? '🟢 健康' :
+                   health.overall === 'warning' ? '🟡 警告' :
+                   '🔴 严重'}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Performance Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">总执行次数</p>
+                  <p className="text-lg font-bold">{health.performance.totalSwaps}</p>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">成功次数</p>
+                  <p className="text-lg font-bold text-green-600">{health.performance.successSwaps}</p>
+                </div>
+                <div className="text-center p-3 bg-red-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">失败次数</p>
+                  <p className="text-lg font-bold text-red-600">{health.performance.failedSwaps}</p>
+                </div>
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">成功率</p>
+                  <p className="text-lg font-bold text-blue-600">{health.performance.successRate}%</p>
+                </div>
+              </div>
+
+              {/* Issues Summary */}
+              {(health.issues.errorTasks.length > 0 ||
+                health.issues.highFailureRate.length > 0 ||
+                health.issues.stuckTasks.length > 0 ||
+                health.issues.domainChanges.length > 0) && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t">
+                  <div className="flex items-center gap-2">
+                    <XCircle className="w-4 h-4 text-red-600" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">错误任务</p>
+                      <p className="text-sm font-medium">{health.issues.errorTasks.length}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-orange-600" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">高失败率</p>
+                      <p className="text-sm font-medium">{health.issues.highFailureRate.length}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-yellow-600" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">卡住任务</p>
+                      <p className="text-sm font-medium">{health.issues.stuckTasks.length}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-purple-600" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">域名变化</p>
+                      <p className="text-sm font-medium">{health.issues.domainChanges.length}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Alerts */}
+              {health.alerts.length > 0 && (
+                <div className="pt-4 border-t">
+                  <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    最近告警 ({health.alerts.length})
+                  </h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {health.alerts.slice(0, 10).map((alert, index) => (
+                      <div
+                        key={index}
+                        className={`p-3 rounded-lg text-sm ${
+                          alert.level === 'error' ? 'bg-red-50 border border-red-200' :
+                          alert.level === 'warning' ? 'bg-yellow-50 border border-yellow-200' :
+                          'bg-blue-50 border border-blue-200'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="shrink-0">
+                            {alert.level === 'error' ? '❌' : alert.level === 'warning' ? '⚠️' : 'ℹ️'}
+                          </span>
+                          <div className="flex-1">
+                            <p className="font-medium">{alert.message}</p>
+                            {alert.taskId && (
+                              <button
+                                onClick={() => router.push(`/url-swap/${alert.taskId}`)}
+                                className="text-xs text-blue-600 hover:underline mt-1"
+                              >
+                                查看任务 #{alert.taskId.slice(0, 8)}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {health.alerts.length === 0 && health.overall === 'healthy' && (
+                <div className="text-center py-4 text-muted-foreground">
+                  <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                  <p>系统运行正常，无异常告警</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* User Distribution */}
