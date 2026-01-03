@@ -627,6 +627,7 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
     success_swaps: row.success_swaps || 0,
     failed_swaps: row.failed_swaps || 0,
     url_changed_count: row.url_changed_count || 0,
+    consecutive_failures: row.consecutive_failures || 0,
     swap_history: typeof row.swap_history === 'string'
       ? JSON.parse(row.swap_history)
       : row.swap_history || [],

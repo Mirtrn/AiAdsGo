@@ -1169,6 +1169,37 @@ export class UnifiedQueueManager {
   getConfig(): Readonly<QueueConfig> {
     return { ...this.config }
   }
+
+  /**
+   * 🔥 获取所有待处理任务（供外部使用，如清理Offer关联任务）
+   */
+  async getPendingTasks(): Promise<Task[]> {
+    try {
+      if (this.adapter.getAllPendingTasks) {
+        return await this.adapter.getAllPendingTasks()
+      }
+      return []
+    } catch (error) {
+      console.error('[队列] 获取待处理任务失败:', error)
+      return []
+    }
+  }
+
+  /**
+   * 🔥 从队列中移除指定任务（供外部使用，如清理Offer关联任务）
+   */
+  async removeTask(taskId: string): Promise<boolean> {
+    try {
+      if (this.adapter.removeTask) {
+        await this.adapter.removeTask(taskId)
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error(`[队列] 移除任务失败: ${taskId}`, error)
+      return false
+    }
+  }
 }
 
 // 使用 globalThis 防止 Next.js 热重载时重置单例

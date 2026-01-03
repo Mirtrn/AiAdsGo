@@ -790,20 +790,18 @@ export async function deleteOffer(
       const { getOrCreateQueueManager } = await import('./queue/init-queue')
       const queueManager = await getOrCreateQueueManager()
 
-      if (queueManager.adapter.getAllPendingTasks && queueManager.adapter.removeTask) {
-        const pendingTasks = await queueManager.adapter.getAllPendingTasks()
-        let removedCount = 0
+      const pendingTasks = await queueManager.getPendingTasks()
+      let removedCount = 0
 
-        for (const task of pendingTasks) {
-          if (task.type === 'url-swap' && task.data.offerId === id) {
-            await queueManager.adapter.removeTask(task.id)
-            removedCount++
-          }
+      for (const task of pendingTasks) {
+        if (task.type === 'url-swap' && task.data.offerId === id) {
+          await queueManager.removeTask(task.id)
+          removedCount++
         }
+      }
 
-        if (removedCount > 0) {
-          console.log(`[Offer删除] 从队列移除 ${removedCount} 个待处理的URL Swap任务`)
-        }
+      if (removedCount > 0) {
+        console.log(`[Offer删除] 从队列移除 ${removedCount} 个待处理的URL Swap任务`)
       }
     } catch (queueError: any) {
       // 队列清理失败不影响主流程
