@@ -167,10 +167,25 @@ export async function POST(request: NextRequest) {
     }
 
     // 🆕 如果没有提供timezone，从offer的target_country自动获取
+    // 🔧 修复(2026-01-03): 强制验证并修正timezone，确保与target_country一致
+    const expectedTimezone = getTimezoneByCountry(offer.target_country);
     let timezone = body.timezone;
+
     if (!timezone) {
-      timezone = getTimezoneByCountry(offer.target_country);
+      // 前端未提供timezone，使用自动匹配
+      timezone = expectedTimezone;
       console.log(`[CreateTask] 自动设置timezone: ${offer.target_country} → ${timezone}`);
+    } else if (timezone !== expectedTimezone) {
+      // 前端提供了timezone，但与target_country不匹配，强制修正
+      console.warn(`[CreateTask] ⚠️ 时区不匹配，已自动修正:`, {
+        offerId: offer.id,
+        targetCountry: offer.target_country,
+        providedTimezone: timezone,
+        correctedTimezone: expectedTimezone
+      });
+      timezone = expectedTimezone;
+    } else {
+      console.log(`[CreateTask] timezone验证通过: ${timezone} (国家: ${offer.target_country})`);
     }
 
     // 创建任务
