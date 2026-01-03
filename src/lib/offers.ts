@@ -762,6 +762,55 @@ export async function deleteOffer(
     `, [isDeletedTrue, id, userId])
   }
 
+  // 🔥 需求：禁用关联的URL Swap换链接任务
+  // 当Offer删除后，换链接任务自动禁用（保留历史统计数据）
+  const urlSwapTasks = await db.query<any>(`
+    SELECT id, status
+    FROM url_swap_tasks
+    WHERE offer_id = ? AND user_id = ? AND ${isDeletedCondition}
+  `, [id, userId])
+
+  if (urlSwapTasks.length > 0) {
+    // 禁用所有启用/错误状态的任务
+    await db.exec(`
+      UPDATE url_swap_tasks
+      SET status = 'disabled',
+          error_message = 'Offer已删除，任务自动禁用',
+          updated_at = ${nowFunc}
+      WHERE offer_id = ? AND user_id = ?
+        AND ${isDeletedCondition}
+        AND status != 'disabled'
+    `, [id, userId])
+
+    console.log(`[Offer删除] 禁用 ${urlSwapTasks.length} 个关联的URL Swap任务`)
+
+    // 🔥 （可选）从队列中移除待处理的URL Swap任务
+    // 避免已禁用的任务仍在队列中等待执行
+    try {
+      const { getOrCreateQueueManager } = await import('./queue/init-queue')
+      const queueManager = await getOrCreateQueueManager()
+
+      if (queueManager.adapter.getAllPendingTasks && queueManager.adapter.removeTask) {
+        const pendingTasks = await queueManager.adapter.getAllPendingTasks()
+        let removedCount = 0
+
+        for (const task of pendingTasks) {
+          if (task.type === 'url-swap' && task.data.offerId === id) {
+            await queueManager.adapter.removeTask(task.id)
+            removedCount++
+          }
+        }
+
+        if (removedCount > 0) {
+          console.log(`[Offer删除] 从队列移除 ${removedCount} 个待处理的URL Swap任务`)
+        }
+      }
+    } catch (queueError: any) {
+      // 队列清理失败不影响主流程
+      console.warn(`[Offer删除] 队列清理失败:`, queueError.message)
+    }
+  }
+
   // 软删除Offer（保留历史数据）
   await db.exec(`
     UPDATE offers
@@ -775,9 +824,9 @@ export async function deleteOffer(
   return {
     success: true,
     message: autoUnlink
-      ? `Offer删除成功，已自动解除 ${linkedAccounts.length} 个广告系列的关联${clickFarmTasks.length > 0 ? `，已终止并删除 ${clickFarmTasks.length} 个补点击任务` : ''}`
-      : clickFarmTasks.length > 0
-        ? `Offer删除成功，已终止并删除 ${clickFarmTasks.length} 个补点击任务`
+      ? `Offer删除成功，已自动解除 ${linkedAccounts.length} 个广告系列的关联${clickFarmTasks.length > 0 ? `，已终止并删除 ${clickFarmTasks.length} 个补点击任务` : ''}${urlSwapTasks.length > 0 ? `，已禁用 ${urlSwapTasks.length} 个换链接任务` : ''}`
+      : clickFarmTasks.length > 0 || urlSwapTasks.length > 0
+        ? `Offer删除成功${clickFarmTasks.length > 0 ? `，已终止并删除 ${clickFarmTasks.length} 个补点击任务` : ''}${urlSwapTasks.length > 0 ? `，已禁用 ${urlSwapTasks.length} 个换链接任务` : ''}`
         : 'Offer删除成功'
   }
 }

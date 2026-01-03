@@ -637,7 +637,10 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
  */
 export async function getOfferById(offerId: number): Promise<any | null> {
   const db = await getDatabase()
-  return db.queryOne(`SELECT * FROM offers WHERE id = ?`, [offerId])
+  return db.queryOne(`
+    SELECT * FROM offers
+    WHERE id = ? AND is_deleted = 0
+  `, [offerId])
 }
 
 /**
@@ -649,7 +652,7 @@ export async function getCampaignByOfferId(offerId: number): Promise<{ customer_
     SELECT c.customer_id, c.campaign_id
     FROM campaigns c
     INNER JOIN offers o ON o.campaign_id = c.id
-    WHERE o.id = ?
+    WHERE o.id = ? AND o.is_deleted = 0
   `, [offerId])
   return result || null
 }
