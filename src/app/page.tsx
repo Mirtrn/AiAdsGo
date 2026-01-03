@@ -9,6 +9,7 @@ import { WorkflowTimeline } from "@/components/marketing/WorkflowTimeline";
 import { ComparisonChart } from "@/components/marketing/ComparisonChart";
 import { ScenarioTabs } from "@/components/marketing/ScenarioTabs";
 import { ClickFarmHighlight } from "@/components/marketing/ClickFarmHighlight";
+import { UrlSwapHighlight } from "@/components/marketing/UrlSwapHighlight";
 
 export const metadata = pageMetadata.home;
 
@@ -40,6 +41,9 @@ export default function MarketingHome() {
               </a>
               <a href="https://www.urlchecker.dev/batchopen" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 免费补点击
+              </a>
+              <a href="/url-swap" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
+                自动换链接
               </a>
             </nav>
             <div className="flex items-center gap-4">
@@ -201,6 +205,9 @@ export default function MarketingHome() {
 
       {/* Comparison Chart Section */}
       <ComparisonChart />
+
+      {/* Url Swap Highlight Section */}
+      <UrlSwapHighlight />
 
       {/* Scenario Tabs Section */}
       <ScenarioTabs />
