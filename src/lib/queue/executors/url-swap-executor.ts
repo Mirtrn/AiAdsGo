@@ -92,6 +92,9 @@ export async function executeUrlSwapTask(
     // 4. 调用Google Ads API更新（如有配置）
     if (googleCustomerId && googleCampaignId) {
       console.log(`[url-swap-executor] 更新Google Ads: customer=${googleCustomerId}, campaign=${googleCampaignId}`)
+
+      let adsApiError: Error | null = null
+
       try {
         // 获取用户认证信息
         const credentials = await getGoogleAdsCredentials(task.userId)
@@ -125,7 +128,12 @@ export async function executeUrlSwapTask(
         console.log(`[url-swap-executor] Google Ads更新成功: ${taskId}`)
       } catch (adsError: any) {
         console.error(`[url-swap-executor] Google Ads更新失败: ${taskId}`, adsError.message)
-        // 即使Ads API失败，仍然记录URL变化（用户可以手动更新）
+        adsApiError = new Error(`Google Ads API调用失败: ${adsError.message}`)
+      }
+
+      // 如果Ads API失败，抛出错误让外层catch处理
+      if (adsApiError) {
+        throw adsApiError
       }
     }
 
@@ -165,6 +173,22 @@ export async function executeUrlSwapTask(
     ) {
       errorType = 'link_resolution'
       enhancedMessage = `推广链接解析失败: ${error.message}`
+    }
+    // 检测Google Ads API失败
+    else if (
+      error.message.includes('Google Ads') ||
+      error.message.includes('google_ads') ||
+      error.message.includes('campaign') ||
+      error.message.includes('Customer') ||
+      error.message.includes('authentication') ||
+      error.message.includes('authorization') ||
+      error.message.includes('OAuth') ||
+      error.message.includes('refresh_token') ||
+      error.message.includes('quota') ||
+      error.message.includes('API')
+    ) {
+      errorType = 'google_ads_api'
+      enhancedMessage = `Google Ads API调用失败: ${error.message}`
     }
 
     // 记录错误历史

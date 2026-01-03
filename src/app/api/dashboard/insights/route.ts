@@ -683,6 +683,89 @@ export async function GET(request: NextRequest) {
       })
     })
 
+    // 规则11: 检测Google Ads API调用失败（高优先级错误）
+    const googleAdsApiErrorQuery = `
+      SELECT
+        t.id as task_id,
+        t.offer_id,
+        t.error_message,
+        t.error_at,
+        t.consecutive_failures,
+        t.google_campaign_id,
+        o.name as offer_name,
+        o.product_url
+      FROM url_swap_tasks t
+      INNER JOIN offers o ON t.offer_id = o.id
+      WHERE t.user_id = ?
+        AND t.status IN ('error', 'disabled')
+        AND t.is_deleted = 0
+        AND t.error_at >= datetime('now', '-48 hours')
+        AND (
+          t.error_message LIKE '%Google Ads API%'
+          OR t.error_message LIKE '%google_ads%'
+          OR t.error_message LIKE '%OAuth%'
+          OR t.error_message LIKE '%refresh_token%'
+          OR t.error_message LIKE '%authentication%'
+          OR t.error_message LIKE '%authorization%'
+          OR t.error_message LIKE '%quota%'
+          OR t.error_message LIKE '%campaign%'
+          OR t.error_message LIKE '%Customer%'
+        )
+      ORDER BY t.error_at DESC
+      LIMIT 5
+    `
+
+    const googleAdsApiErrors = await db.query(
+      googleAdsApiErrorQuery,
+      [userId]
+    ) as Array<{
+      task_id: string
+      offer_id: number
+      error_message: string
+      error_at: string
+      consecutive_failures: number
+      google_campaign_id: string | null
+      offer_name: string
+      product_url: string
+    }>
+
+    googleAdsApiErrors.forEach((task) => {
+      // 确定是否已自动暂停
+      const isAutoPaused = task.error_message.includes('任务已自动暂停')
+      const failureCount = task.consecutive_failures
+
+      insights.push({
+        id: `google-ads-api-error-${task.task_id}`,
+        type: 'error' as const,
+        priority: 'high' as const,
+        title: '🔴 Google Ads API调用失败',
+        message: isAutoPaused
+          ? `Offer "${task.offer_name}" 的Google Ads API连续失败 ${failureCount} 次，任务已自动暂停`
+          : `Offer "${task.offer_name}" 的Google Ads API调用失败（连续失败 ${failureCount}/3）`,
+        recommendation: isAutoPaused
+          ? `**需要立即处理的问题：**\n\n` +
+            `1. **检查Google Ads账号权限**: 确认OAuth授权有效\n` +
+            `2. **检查API配额**: 确认未超出每日配额限制\n` +
+            `3. **检查服务账号配置**: 如使用服务账号模式，确认配置正确\n` +
+            `4. **修复后重新启用**: 在任务详情页重新启用任务\n\n` +
+            `**故障排除建议：**\n` +
+            `- 前往 Google Cloud Console 检查API启用状态\n` +
+            `- 确认OAuth refresh token未过期\n` +
+            `- 检查Google Ads账号的开发者Token是否有效\n` +
+            `- 确认campaign ${task.google_campaign_id || 'N/A'} 存在且有权限访问`
+          : `**警告：** 系统将在下个时间间隔继续尝试。连续失败3次后将自动暂停任务。\n\n` +
+            `1. **检查账号权限**: 确认OAuth授权有效\n` +
+            `2. **检查API配额**: 确认未超出每日配额\n` +
+            `3. **查看详细错误**: ${task.error_message.substring(0, 200)}`,
+        relatedOffer: {
+          id: task.offer_id,
+          name: task.offer_name,
+          url: task.product_url,
+        },
+        createdAt: task.error_at,
+      })
+    })
+
     // 按优先级排序
     const priorityOrder = { high: 1, medium: 2, low: 3 }
     insights.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority])

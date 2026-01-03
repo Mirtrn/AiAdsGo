@@ -296,11 +296,12 @@ export type UrlSwapErrorType = 'link_resolution' | 'google_ads_api' | 'other'
  *
  * @param id 任务ID
  * @param errorMessage 错误信息
- * @param errorType 错误类型（用于区分链接解析失败和其他错误）
+ * @param errorType 错误类型（用于区分不同类型的错误）
  *
  * 连续失败策略：
- * - 链接解析失败：连续3个时间间隔失败后自动暂停（disabled）
- * - 其他错误：仅设置error状态，不自动暂停
+ * - 链接解析失败（link_resolution）：连续3个时间间隔失败后自动暂停（disabled）
+ * - Google Ads API失败（google_ads_api）：连续3个时间间隔失败后自动暂停（disabled）
+ * - 其他错误（other）：仅设置error状态，不自动暂停
  */
 export async function setTaskError(
   id: string,
@@ -333,28 +334,38 @@ export async function setTaskError(
   let newStatus: UrlSwapTaskStatus = 'error'
   let enhancedMessage = errorMessage
 
-  if (errorType === 'link_resolution') {
-    // 链接解析失败：连续3次失败后自动暂停
-    if (newConsecutiveFailures >= 3) {
+  // 需要自动暂停的错误类型：链接解析失败、Google Ads API失败
+  const shouldAutoPause = errorType === 'link_resolution' || errorType === 'google_ads_api'
+
+  if (shouldAutoPause) {
+    // 构建错误类型描述
+    const errorTypeLabel = errorType === 'link_resolution' ? '推广链接解析失败' : 'Google Ads API调用失败'
+    const autoPauseThreshold = 3
+
+    if (newConsecutiveFailures >= autoPauseThreshold) {
+      // 连续3次失败后自动暂停
       newStatus = 'disabled'
-      enhancedMessage = `🔴 推广链接连续解析失败 ${newConsecutiveFailures} 次，任务已自动暂停。\n\n` +
+      enhancedMessage = `🔴 ${errorTypeLabel}连续失败 ${newConsecutiveFailures} 次，任务已自动暂停。\n\n` +
         `错误详情: ${errorMessage}\n\n` +
         `建议操作：\n` +
-        `1. 检查推广链接是否有效\n` +
-        `2. 确认链接未过期或被撤销\n` +
-        `3. 修复问题后，在任务详情页重新启用任务`
+        `${errorType === 'link_resolution' ?
+          `1. 检查推广链接是否有效\n2. 确认链接未过期或被撤销` :
+          `1. 检查Google Ads账号权限和配额\n2. 确认OAuth授权有效\n3. 检查服务账号配置（如使用）`
+        }\n` +
+        `4. 修复问题后，在任务详情页重新启用任务`
 
-      console.warn(`[url-swap] ⚠️ 任务自动暂停（连续失败${newConsecutiveFailures}次）: ${id}`)
+      console.warn(`[url-swap] ⚠️ 任务自动暂停（${errorType}连续失败${newConsecutiveFailures}次）: ${id}`)
     } else {
+      // 尚未达到暂停阈值
       newStatus = 'error'
-      enhancedMessage = `⚠️ 推广链接解析失败（连续失败 ${newConsecutiveFailures}/3）。\n\n` +
+      enhancedMessage = `⚠️ ${errorTypeLabel}（连续失败 ${newConsecutiveFailures}/${autoPauseThreshold}）。\n\n` +
         `错误详情: ${errorMessage}\n\n` +
-        `系统将在下个时间间隔继续尝试。连续失败3次后将自动暂停任务。`
+        `系统将在下个时间间隔继续尝试。连续失败${autoPauseThreshold}次后将自动暂停任务。`
 
-      console.warn(`[url-swap] ⚠️ 链接解析失败 ${newConsecutiveFailures}/3: ${id}`)
+      console.warn(`[url-swap] ⚠️ ${errorType}失败 ${newConsecutiveFailures}/${autoPauseThreshold}: ${id}`)
     }
   } else {
-    // 其他错误（Google Ads API失败等）：仅设置error状态
+    // 其他错误：仅设置error状态，不自动暂停
     newStatus = 'error'
     enhancedMessage = errorMessage
     console.error(`[url-swap] 任务错误: ${id} - ${errorMessage}`)
