@@ -41,10 +41,10 @@ interface GlobalStats {
 }
 
 interface TopUser {
-  user_id: number;
+  userId: number;
   username: string;
-  total_clicks: number;
-  success_rate: number;
+  totalClicks: number;
+  successRate: number;
   traffic: number;
 }
 
@@ -295,16 +295,16 @@ export default function AdminClickFarmPage() {
                 </TableHeader>
                 <TableBody>
                   {topUsers.map((user, index) => (
-                    <TableRow key={user.user_id}>
+                    <TableRow key={user.userId}>
                       <TableCell className="font-medium">#{index + 1}</TableCell>
-                      <TableCell className="font-mono text-sm">{user.user_id}</TableCell>
+                      <TableCell className="font-mono text-sm">{user.userId}</TableCell>
                       <TableCell>{user.username}</TableCell>
                       <TableCell className="text-right font-medium">
-                        {user.total_clicks.toLocaleString()}
+                        {user.totalClicks.toLocaleString()}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className={user.success_rate >= 95 ? 'text-green-600 font-medium' : ''}>
-                          {user.success_rate.toFixed(1)}%
+                        <span className={user.successRate >= 95 ? 'text-green-600 font-medium' : ''}>
+                          {user.successRate.toFixed(1)}%
                         </span>
                       </TableCell>
                       <TableCell className="text-right">{formatBytes(user.traffic)}</TableCell>
