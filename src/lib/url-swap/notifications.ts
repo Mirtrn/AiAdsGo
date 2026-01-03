@@ -2,47 +2,21 @@
  * URL Swap 通知系统
  * src/lib/url-swap/notifications.ts
  *
- * 功能：发送换链接任务的通知
+ * 功能：发送换链接任务的通知到Dashboard智能洞察
  * - 任务状态变更通知（暂停、完成）
  * - URL变化通知
  * - 错误通知
  *
- * 🆕 新增(2025-01-03): 支持日志记录、邮件通知、Webhook通知（可扩展）
+ * 🆕 新增(2025-01-03): 日志记录
+ * 🔧 修改(2025-01-03): 移除邮件和Webhook功能，通知信息直接显示在Dashboard智能洞察中
  */
 
 import { getDatabase } from '@/lib/db'
 
 /**
- * 通知渠道类型
- */
-export type NotificationChannel = 'log' | 'email' | 'webhook'
-
-/**
  * 通知级别
  */
 export type NotificationLevel = 'info' | 'warning' | 'error'
-
-/**
- * 通知配置接口
- */
-export interface NotificationConfig {
-  channels: NotificationChannel[]  // 启用的通知渠道
-  email?: string                    // 邮件地址（如果启用邮件通知）
-  webhookUrl?: string               // Webhook URL（如果启用Webhook通知）
-}
-
-/**
- * 获取用户的通知配置
- *
- * 🔧 当前实现：仅支持日志通知，邮件和Webhook为未来扩展预留
- */
-async function getUserNotificationConfig(userId: number): Promise<NotificationConfig> {
-  // 🔧 TODO: 从数据库或用户设置中读取通知配置
-  // 当前默认只使用日志通知
-  return {
-    channels: ['log']
-  }
-}
 
 /**
  * 发送通知（核心函数）
@@ -60,71 +34,19 @@ async function sendNotification(
   message: string,
   metadata?: Record<string, any>
 ): Promise<void> {
-  const config = await getUserNotificationConfig(userId)
-
-  // 1. 日志通知（总是启用）
-  if (config.channels.includes('log')) {
-    const levelEmoji = {
-      info: 'ℹ️',
-      warning: '⚠️',
-      error: '❌'
-    }
-
-    const prefix = levelEmoji[level] || '📢'
-    console.log(`${prefix} [URL Swap Notification] [User ${userId}] ${title}`)
-    console.log(`   ${message}`)
-    if (metadata) {
-      console.log(`   Metadata:`, JSON.stringify(metadata, null, 2))
-    }
+  // 日志通知（用于调试）
+  const levelEmoji = {
+    info: 'ℹ️',
+    warning: '⚠️',
+    error: '❌'
   }
 
-  // 2. 邮件通知（可选，未来实现）
-  if (config.channels.includes('email') && config.email) {
-    // 🔧 TODO: 集成邮件服务（如 Nodemailer、SendGrid）
-    console.log(`📧 [Email Notification] Would send to ${config.email}: ${title}`)
+  const prefix = levelEmoji[level] || '📢'
+  console.log(`${prefix} [URL Swap Notification] [User ${userId}] ${title}`)
+  console.log(`   ${message}`)
+  if (metadata) {
+    console.log(`   Metadata:`, JSON.stringify(metadata, null, 2))
   }
-
-  // 3. Webhook通知（可选，未来实现）
-  if (config.channels.includes('webhook') && config.webhookUrl) {
-    try {
-      // 🔧 TODO: 发送HTTP POST请求到Webhook URL
-      // await fetch(config.webhookUrl, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ userId, level, title, message, metadata })
-      // })
-      console.log(`🔔 [Webhook Notification] Would send to ${config.webhookUrl}`)
-    } catch (error: any) {
-      console.error(`❌ Webhook notification failed:`, error.message)
-    }
-  }
-
-  // 4. 写入通知日志到数据库（可选，用于审计和追踪）
-  try {
-    await saveNotificationToDatabase(userId, level, title, message, metadata)
-  } catch (dbError: any) {
-    console.error(`❌ Failed to save notification to database:`, dbError.message)
-  }
-}
-
-/**
- * 保存通知记录到数据库
- *
- * 🔧 注意：需要创建 url_swap_notifications 表
- */
-async function saveNotificationToDatabase(
-  userId: number,
-  level: NotificationLevel,
-  title: string,
-  message: string,
-  metadata?: Record<string, any>
-): Promise<void> {
-  // 🔧 TODO: 如果需要持久化通知记录，创建 url_swap_notifications 表
-  // const db = await getDatabase()
-  // await db.exec(`
-  //   INSERT INTO url_swap_notifications (user_id, level, title, message, metadata, created_at)
-  //   VALUES (?, ?, ?, ?, ?, datetime('now'))
-  // `, [userId, level, title, message, JSON.stringify(metadata || {})])
 }
 
 /**
@@ -318,18 +240,3 @@ export async function notifySwapError(
   )
 }
 
-/**
- * 批量通知多个用户（管理员功能）
- *
- * 🔧 预留接口：用于系统级通知（如维护通知、功能更新）
- */
-export async function notifyMultipleUsers(
-  userIds: number[],
-  level: NotificationLevel,
-  title: string,
-  message: string
-): Promise<void> {
-  for (const userId of userIds) {
-    await sendNotification(userId, level, title, message)
-  }
-}

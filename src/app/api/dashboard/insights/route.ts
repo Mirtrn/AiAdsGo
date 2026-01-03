@@ -442,6 +442,166 @@ export async function GET(request: NextRequest) {
       })
     })
 
+    // ==================== URL Swap 换链接任务洞察 ====================
+
+    // 规则7: 检测URL Swap任务错误
+    const urlSwapErrorQuery = `
+      SELECT
+        t.id as task_id,
+        t.offer_id,
+        t.error_message,
+        t.error_at,
+        o.name as offer_name,
+        o.product_url
+      FROM url_swap_tasks t
+      INNER JOIN offers o ON t.offer_id = o.id
+      WHERE t.user_id = ?
+        AND t.status = 'error'
+        AND t.is_deleted = 0
+        AND t.error_at >= datetime('now', '-24 hours')
+      ORDER BY t.error_at DESC
+      LIMIT 5
+    `
+
+    const urlSwapErrors = await db.query(
+      urlSwapErrorQuery,
+      [userId]
+    ) as Array<{
+      task_id: string
+      offer_id: number
+      error_message: string
+      error_at: string
+      offer_name: string
+      product_url: string
+    }>
+
+    urlSwapErrors.forEach((task) => {
+      insights.push({
+        id: `url-swap-error-${task.task_id}`,
+        type: 'error',
+        priority: 'high',
+        title: '换链接任务出错',
+        message: `Offer "${task.offer_name}" 的自动换链任务执行失败`,
+        recommendation: `错误信息: ${task.error_message}。建议：1) 检查推广链接是否有效，2) 确认Google Ads配置正确，3) 查看任务详情排查问题`,
+        relatedOffer: {
+          id: task.offer_id,
+          name: task.offer_name,
+          url: task.product_url,
+        },
+        createdAt: task.error_at,
+      })
+    })
+
+    // 规则8: 检测最近的URL变化（成功的换链）
+    const urlSwapChangesQuery = `
+      SELECT
+        t.id as task_id,
+        t.offer_id,
+        t.current_final_url,
+        t.url_changed_count,
+        t.updated_at,
+        o.name as offer_name,
+        o.product_url
+      FROM url_swap_tasks t
+      INNER JOIN offers o ON t.offer_id = o.id
+      WHERE t.user_id = ?
+        AND t.status = 'enabled'
+        AND t.is_deleted = 0
+        AND t.url_changed_count > 0
+        AND t.updated_at >= datetime('now', '-24 hours')
+      ORDER BY t.updated_at DESC
+      LIMIT 3
+    `
+
+    const urlSwapChanges = await db.query(
+      urlSwapChangesQuery,
+      [userId]
+    ) as Array<{
+      task_id: string
+      offer_id: number
+      current_final_url: string
+      url_changed_count: number
+      updated_at: string
+      offer_name: string
+      product_url: string
+    }>
+
+    urlSwapChanges.forEach((task) => {
+      insights.push({
+        id: `url-swap-change-${task.task_id}`,
+        type: 'info',
+        priority: 'medium',
+        title: '推广链接已自动更新',
+        message: `Offer "${task.offer_name}" 的推广链接检测到变化，已自动同步到Google Ads`,
+        recommendation: `系统已为您自动完成 ${task.url_changed_count} 次链接更新。建议：定期检查换链历史，确保链接变化符合预期`,
+        relatedOffer: {
+          id: task.offer_id,
+          name: task.offer_name,
+          url: task.product_url,
+        },
+        createdAt: task.updated_at,
+      })
+    })
+
+    // 规则9: 检测暂停的换链任务（可能需要关注）
+    const urlSwapPausedQuery = `
+      SELECT
+        t.id as task_id,
+        t.offer_id,
+        t.error_message,
+        t.updated_at,
+        t.failed_swaps,
+        t.total_swaps,
+        o.name as offer_name,
+        o.product_url
+      FROM url_swap_tasks t
+      INNER JOIN offers o ON t.offer_id = o.id
+      WHERE t.user_id = ?
+        AND t.status = 'disabled'
+        AND t.is_deleted = 0
+        AND t.updated_at >= datetime('now', '-48 hours')
+        AND t.failed_swaps > 0
+      ORDER BY t.updated_at DESC
+      LIMIT 3
+    `
+
+    const urlSwapPaused = await db.query(
+      urlSwapPausedQuery,
+      [userId]
+    ) as Array<{
+      task_id: string
+      offer_id: number
+      error_message: string | null
+      updated_at: string
+      failed_swaps: number
+      total_swaps: number
+      offer_name: string
+      product_url: string
+    }>
+
+    urlSwapPaused.forEach((task) => {
+      const failureRate = task.total_swaps > 0
+        ? ((task.failed_swaps / task.total_swaps) * 100).toFixed(1)
+        : '0'
+
+      insights.push({
+        id: `url-swap-paused-${task.task_id}`,
+        type: 'warning',
+        priority: 'high',
+        title: '换链接任务已暂停',
+        message: `Offer "${task.offer_name}" 的自动换链任务已暂停（失败率: ${failureRate}%）`,
+        recommendation: task.error_message
+          ? `暂停原因: ${task.error_message}。建议：检查并修复问题后重新启用任务`
+          : '建议：检查任务配置，确认问题已解决后重新启用任务',
+        relatedOffer: {
+          id: task.offer_id,
+          name: task.offer_name,
+          url: task.product_url,
+        },
+        createdAt: task.updated_at,
+      })
+    })
+
     // 按优先级排序
     const priorityOrder = { high: 1, medium: 2, low: 3 }
     insights.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority])

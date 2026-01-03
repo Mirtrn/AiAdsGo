@@ -1,7 +1,7 @@
 # URL Swap 核心功能实现总结
 
 **日期**: 2025-01-03
-**状态**: ✅ 核心功能已完成
+**状态**: ✅ 核心功能已完成 + Dashboard集成完成
 
 ---
 
@@ -34,8 +34,8 @@
   - 智能错误处理（API失败不阻断流程）
   - 支持离线模式（无Google Ads配置时仍可记录URL变化）
 
-#### 3. URL Swap 通知系统
-**文件**: `src/lib/url-swap/notifications.ts` (345 lines)
+#### 3. URL Swap 通知系统 (已简化)
+**文件**: `src/lib/url-swap/notifications.ts` (243 lines)
 
 - ✅ **4个核心通知函数**
   1. `notifyUrlSwapTaskPaused(taskId, reason)` - 任务暂停通知
@@ -43,17 +43,42 @@
   3. `notifyUrlChanged(taskId, oldUrl, newUrl)` - URL变化通知
   4. `notifySwapError(taskId, errorMessage)` - 错误通知
 
-- ✅ **通知渠道支持**
-  - 日志通知（已实现）
-  - 邮件通知（接口预留）
-  - Webhook通知（接口预留）
+- ✅ **通知渠道**
+  - 日志通知（已实现，用于调试）
+  - ~~邮件通知~~（已移除，改用Dashboard集成）
+  - ~~Webhook通知~~（已移除，改用Dashboard集成）
 
 - ✅ **通知级别**
   - info（信息）
   - warning（警告）
   - error（错误）
 
-#### 4. URL Swap 监控告警系统
+#### 4. Dashboard 智能洞察集成 🆕
+**文件**: `src/app/api/dashboard/insights/route.ts` (Lines 445-603)
+
+- ✅ **3个URL Swap洞察规则**
+  1. **规则7: URL Swap任务错误** (高优先级, error类型)
+     - 检测最近24小时内错误状态的任务
+     - 显示错误信息和相关Offer
+     - 提供排查建议
+
+  2. **规则8: 推广链接已自动更新** (中优先级, info类型)
+     - 显示最近24小时内成功更新的链接
+     - 展示URL变化次数
+     - 提醒定期检查换链历史
+
+  3. **规则9: 换链接任务已暂停** (高优先级, warning类型)
+     - 检测最近48小时内暂停且有失败记录的任务
+     - 显示失败率统计
+     - 提供重启建议
+
+- ✅ **集成特点**
+  - 自动查询 `url_swap_tasks` 表
+  - 与其他洞察统一展示
+  - 按优先级排序（high → medium → low）
+  - 支持关联Offer信息跳转
+
+#### 5. URL Swap 监控告警系统
 **文件**: `src/lib/url-swap/monitoring.ts` (447 lines)
 
 - ✅ **getUrlSwapHealth() 函数**
@@ -78,11 +103,11 @@
 ## 📁 新增/修改文件列表
 
 ### 新增文件（3个）
-1. `src/lib/url-swap/notifications.ts` - 通知系统
+1. `src/lib/url-swap/notifications.ts` - 通知系统（已简化）
 2. `src/lib/url-swap/monitoring.ts` - 监控系统
 3. （本文档）`URL_SWAP_IMPLEMENTATION_SUMMARY.md` - 实现总结
 
-### 修改文件（3个）
+### 修改文件（4个）
 1. `src/lib/google-ads-api.ts`
    - 新增 `updateCampaignFinalUrlSuffix()` 函数
 
@@ -93,6 +118,10 @@
    - 导入 Google Ads 认证函数
    - 实现 Google Ads API 调用逻辑
    - 移除 TODO 注释
+
+4. `src/app/api/dashboard/insights/route.ts` 🆕
+   - 新增 3 个 URL Swap 洞察规则（规则7-9）
+   - 集成到现有Dashboard智能洞察系统
 
 ---
 
@@ -231,23 +260,13 @@ describe('URL Swap Monitoring', () => {
 
 ## 🚀 后续优化方向
 
-### 优先级 P1（必需）
+### 优先级 P0（必需）
 
 1. **Python服务端点实现**
    - 在 Python 服务中添加 `/api/google-ads/campaign/update-final-url-suffix` 端点
    - 参考现有端点 `/api/google-ads/campaign/update-status`
 
-2. **邮件通知集成**
-   - 集成 Nodemailer 或 SendGrid
-   - 支持用户配置通知邮箱
-   - 模板化邮件内容
-
-3. **Webhook通知**
-   - 支持用户配置 Webhook URL
-   - 发送 JSON 格式的通知数据
-   - 添加签名验证（防止伪造）
-
-### 优先级 P2（建议）
+### 优先级 P1（建议）
 
 1. **监控Dashboard**
    - 创建 `/admin/url-swap/monitoring` 页面
@@ -259,12 +278,7 @@ describe('URL Swap Monitoring', () => {
    - 调用 `performHealthCheckAndAutoFix()`
    - 记录检查结果到数据库
 
-3. **通知历史记录**
-   - 创建 `url_swap_notifications` 表
-   - 持久化通知记录
-   - 支持通知历史查询
-
-### 优先级 P3（可选）
+### 优先级 P2（可选）
 
 1. **智能告警降噪**
    - 添加告警冷却期（避免频繁通知）
@@ -292,13 +306,18 @@ describe('URL Swap Monitoring', () => {
 - [x] 通知系统实现
   - [x] 4个核心通知函数
   - [x] 日志通知
-  - [x] 邮件/Webhook接口预留
+  - [x] Dashboard智能洞察集成
 
 - [x] 监控系统实现
   - [x] 健康度评估
   - [x] 异常检测
   - [x] 自动修复
   - [x] 告警生成
+
+- [x] Dashboard集成完成 🆕
+  - [x] 3个URL Swap洞察规则
+  - [x] 与现有洞察统一展示
+  - [x] 支持Offer信息关联
 
 - [x] TypeScript 编译无错误
 - [ ] 手动测试通过（待执行）
@@ -316,13 +335,9 @@ describe('URL Swap Monitoring', () => {
    - 创建测试Offer
    - 运行完整换链流程
    - 验证Google Ads更新
+   - 验证Dashboard洞察显示
 
-3. **邮件通知** (P1)
-   - 选择邮件服务提供商
-   - 实现邮件发送逻辑
-   - 添加用户配置界面
-
-4. **监控Dashboard** (P2)
+3. **监控Dashboard** (P2)
    - 创建管理员监控页面
    - 显示实时健康状态
    - 支持手动操作
@@ -331,12 +346,21 @@ describe('URL Swap Monitoring', () => {
 
 ## 🎉 总结
 
-本次实现完成了 URL Swap 系统的 3 个核心缺失功能：
+本次实现完成了 URL Swap 系统的核心功能和 Dashboard 集成：
 
 1. **Google Ads API 集成** - 实现自动更新 Campaign Final URL Suffix
-2. **通知系统** - 4个通知函数，支持多渠道通知
+2. **通知系统** - 4个通知函数，简化为日志通知，主要通过Dashboard展示
 3. **监控告警系统** - 实时健康检查和自动修复
+4. **Dashboard智能洞察集成** 🆕 - 3个URL Swap洞察规则，统一展示在Dashboard
 
 所有代码已通过 TypeScript 编译检查，无错误。
 
+### 用户体验提升
+
+- ✅ URL Swap 通知直接显示在 Dashboard 智能洞察中
+- ✅ 与其他系统洞察统一展示，用户无需单独查看
+- ✅ 支持优先级排序，重要问题优先显示
+- ✅ 支持关联 Offer 信息，方便快速定位问题
+
 **下一步**: 执行手动测试并完成 Python 服务端点实现。
+
