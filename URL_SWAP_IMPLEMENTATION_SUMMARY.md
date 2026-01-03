@@ -110,12 +110,13 @@
 
 ## 📁 新增/修改文件列表
 
-### 新增文件（3个）
+### 新增文件（4个）
 1. `src/lib/url-swap/notifications.ts` - 通知系统（已简化）
 2. `src/lib/url-swap/monitoring.ts` - 监控系统
-3. （本文档）`URL_SWAP_IMPLEMENTATION_SUMMARY.md` - 实现总结
+3. `src/app/api/admin/url-swap/health/route.ts` 🆕 - 健康监控API端点
+4. （本文档）`URL_SWAP_IMPLEMENTATION_SUMMARY.md` - 实现总结
 
-### 修改文件（5个）
+### 修改文件（6个）
 1. `src/lib/google-ads-api.ts`
    - 新增 `updateCampaignFinalUrlSuffix()` 函数
 
@@ -127,13 +128,18 @@
    - 实现 Google Ads API 调用逻辑
    - 移除 TODO 注释
 
-4. `src/app/api/dashboard/insights/route.ts` 🆕
+4. `src/app/api/dashboard/insights/route.ts`
    - 新增 3 个 URL Swap 洞察规则（规则7-9）
    - 集成到现有Dashboard智能洞察系统
 
-5. `python-service/main.py` 🆕
+5. `python-service/main.py`
    - 新增 POST `/api/google-ads/campaign/update-final-url-suffix` 端点
    - 完整实现服务账号模式的 Final URL Suffix 更新
+
+6. `src/app/(app)/admin/url-swap/page.tsx` 🆕
+   - 集成健康监控指标展示
+   - 新增健康检查按钮和系统健康监控卡片
+   - 显示性能指标、异常任务统计和告警列表
 
 ---
 
@@ -274,18 +280,11 @@ describe('URL Swap Monitoring', () => {
 
 ### 优先级 P0（必需）
 
-1. **Python服务端点实现**
-   - 在 Python 服务中添加 `/api/google-ads/campaign/update-final-url-suffix` 端点
-   - 参考现有端点 `/api/google-ads/campaign/update-status`
+暂无
 
 ### 优先级 P1（建议）
 
-1. **监控Dashboard**
-   - 创建 `/admin/url-swap/monitoring` 页面
-   - 实时显示健康状态
-   - 支持手动触发健康检查
-
-2. **定时健康检查**
+1. **定时健康检查**
    - 创建 Cron 任务（每小时执行）
    - 调用 `performHealthCheckAndAutoFix()`
    - 记录检查结果到数据库
@@ -326,13 +325,20 @@ describe('URL Swap Monitoring', () => {
   - [x] 自动修复
   - [x] 告警生成
 
-- [x] Dashboard集成完成 🆕
+- [x] Dashboard集成完成
   - [x] 3个URL Swap洞察规则
   - [x] 与现有洞察统一展示
   - [x] 支持Offer信息关联
 
+- [x] 监控系统集成完成 🆕
+  - [x] 健康监控API端点（GET + POST）
+  - [x] /admin/url-swap页面集成监控指标
+  - [x] 实时健康状态展示
+  - [x] 性能指标和异常统计
+  - [x] 告警列表和自动修复功能
+
 - [x] TypeScript 编译无错误
-- [x] Python 端点实现（已完成） 🆕
+- [x] Python 端点实现（已完成）
 - [ ] 手动测试通过（待执行）
 
 ---
@@ -344,24 +350,22 @@ describe('URL Swap Monitoring', () => {
    - 运行完整换链流程
    - 验证Google Ads更新
    - 验证Dashboard洞察显示
+   - 验证健康监控页面展示 🆕
    - 测试服务账号模式的 Final URL Suffix 更新
-
-2. **监控Dashboard** (P2)
-   - 创建管理员监控页面
-   - 显示实时健康状态
-   - 支持手动操作
+   - 测试手动健康检查和自动修复功能 🆕
 
 ---
 
 ## 🎉 总结
 
-本次实现完成了 URL Swap 系统的核心功能、Dashboard 集成和 Python 服务端点：
+本次实现完成了 URL Swap 系统的完整功能：
 
 1. **Google Ads API 集成** - 实现自动更新 Campaign Final URL Suffix
-2. **Python 服务端点** 🆕 - 完整实现服务账号模式的 API 端点
+2. **Python 服务端点** - 完整实现服务账号模式的 API 端点
 3. **通知系统** - 4个通知函数，简化为日志通知，主要通过Dashboard展示
 4. **监控告警系统** - 实时健康检查和自动修复
 5. **Dashboard智能洞察集成** - 3个URL Swap洞察规则，统一展示在Dashboard
+6. **管理员健康监控** 🆕 - `/admin/url-swap`页面集成监控指标和自动修复功能
 
 所有代码已通过 TypeScript 和 Python 编译检查，无错误。
 
@@ -372,6 +376,15 @@ describe('URL Swap Monitoring', () => {
 - ✅ 支持优先级排序，重要问题优先显示
 - ✅ 支持关联 Offer 信息，方便快速定位问题
 
+### 管理员功能 🆕
+
+- ✅ `/admin/url-swap` 页面实时显示系统健康状态
+- ✅ 一键健康检查并自动修复问题
+- ✅ 可视化展示性能指标（总执行次数、成功次数、失败次数、成功率）
+- ✅ 异常任务统计（错误任务、高失败率、卡住任务、域名变化）
+- ✅ 最近告警列表（最多10条，支持点击查看任务详情）
+- ✅ 无需单独监控页面，统一在任务管理界面中展示
+
 ### 技术实现亮点
 
 - ✅ 双认证模式支持（OAuth + 服务账号）
@@ -379,6 +392,7 @@ describe('URL Swap Monitoring', () => {
 - ✅ 完整的错误处理和日志记录
 - ✅ 遵循 Google Ads API v22 最新规范
 - ✅ 智能缓存失效机制
+- ✅ 实时健康监控和自动修复策略
 
-**下一步**: 执行手动测试验证完整的换链流程。
+**下一步**: 执行手动测试验证完整的换链流程和健康监控功能。
 
