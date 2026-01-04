@@ -202,8 +202,8 @@ export async function createRiskAlert(
     [
       userId,
       alertType,
-      options?.resourceId || null,
-      options?.resourceId || null,
+      options?.resourceId ?? null,
+      options?.resourceId ?? null,
     ]
   )
 
