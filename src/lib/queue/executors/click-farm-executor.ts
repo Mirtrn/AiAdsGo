@@ -24,8 +24,8 @@ export interface ClickFarmTaskData {
   scheduledAt?: string;  // ISO 8601 格式的时间戳字符串
   // 🆕 Referer配置
   refererConfig?: {
-    type: 'none' | 'random' | 'specific';
-    referer?: string;    // specific类型时的固定referer
+    type: 'none' | 'random' | 'specific' | 'custom';
+    referer?: string;    // specific/custom类型时的固定referer
   };
 }
 
@@ -270,6 +270,7 @@ export async function executeClickFarmTask(
     if (refererConfig) {
       switch (refererConfig.type) {
         case 'specific':
+        case 'custom':
           referer = refererConfig.referer;
           break;
         case 'random':

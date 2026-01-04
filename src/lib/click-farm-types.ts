@@ -101,7 +101,7 @@ export interface ClickFarmTask {
    * 🆕 referer_config: Referer 头配置
    * 控制点击请求的 Referer 头，模拟不同来源的流量
    */
-  referer_config: { type: 'none' | 'random' | 'specific'; referer?: string } | null;
+  referer_config: { type: 'none' | 'random' | 'specific' | 'custom'; referer?: string } | null;
 
   // 软删除
   is_deleted: boolean;
@@ -188,18 +188,19 @@ export interface CreateClickFarmTaskRequest {
    * 用于防止反爬检测，模拟真实用户来源
    * - none: 不设置Referer头
    * - random: 每次点击随机从社交媒体列表中选择Referer
-   * - specific: 使用指定的固定Referer URL
+   * - specific: 使用指定的固定社交媒体Referer URL
+   * - custom: 使用用户自定义的Referer URL
    */
   referer_config?: {
-    type: 'none' | 'random' | 'specific';
-    referer?: string;  // specific类型时的固定Referer URL
+    type: 'none' | 'random' | 'specific' | 'custom';
+    referer?: string;  // specific/custom类型时的固定Referer URL
   };
 }
 
 /**
- * 🆕 Referer配置类型
- */
-export type RefererConfigType = 'none' | 'random' | 'specific';
+   * 🆕 Referer配置类型
+   */
+export type RefererConfigType = 'none' | 'random' | 'specific' | 'custom';
 
 /**
  * 🆕 社交媒体Referer选项（用于UI下拉选择）
@@ -208,6 +209,7 @@ export const REFERER_OPTIONS = [
   { value: 'none', label: '留空', description: '不设置Referer头' },
   { value: 'random', label: '随机', description: '随机选择社交媒体来源' },
   { value: 'specific', label: '固定', description: '使用固定社交媒体来源' },
+  { value: 'custom', label: '自定义', description: '输入任意Referer URL' },
 ] as const;
 
 export const SOCIAL_MEDIA_REFERRERS = [
@@ -238,7 +240,7 @@ export interface UpdateClickFarmTaskRequest {
   hourly_distribution?: number[];
   timezone?: string;  // 🆕 允许更新timezone（用于offer变更场景）
   referer_config?: {  // 🆕 Referer配置
-    type: 'none' | 'random' | 'specific';
+    type: 'none' | 'random' | 'specific' | 'custom';
     referer?: string;
   };
 }

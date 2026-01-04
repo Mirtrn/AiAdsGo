@@ -81,7 +81,7 @@ export default function ClickFarmTaskModal({
 
   // 🆕 Referer配置状态
   const [refererConfig, setRefererConfig] = useState<{
-    type: 'none' | 'random' | 'specific';
+    type: 'none' | 'random' | 'specific' | 'custom';
     referer?: string;
   }>({ type: 'none' });
 
@@ -627,6 +627,19 @@ export default function ClickFarmTaskModal({
       toast.error('请选择具体的Referer来源');
       return;
     }
+    // 🆕 校验自定义Referer URL
+    if (refererConfig.type === 'custom' && !refererConfig.referer) {
+      toast.error('请输入自定义Referer URL');
+      return;
+    }
+    if (refererConfig.type === 'custom' && refererConfig.referer) {
+      try {
+        new URL(refererConfig.referer);
+      } catch {
+        toast.error('自定义Referer URL格式无效，请输入完整的URL（如 https://example.com）');
+        return;
+      }
+    }
 
     // ==========================================
     // 第四部分：提交数据
@@ -970,8 +983,8 @@ export default function ClickFarmTaskModal({
                     onValueChange={(value) => {
                       setRefererConfig(prev => ({
                         ...prev,
-                        type: value as 'none' | 'random' | 'specific',
-                        referer: value === 'specific' ? prev.referer : undefined
+                        type: value as 'none' | 'random' | 'specific' | 'custom',
+                        referer: value === 'specific' || value === 'custom' ? prev.referer : undefined
                       }));
                     }}
                   >
@@ -1007,6 +1020,25 @@ export default function ClickFarmTaskModal({
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                ) : null}
+
+                {/* 自定义Referer输入（仅当类型为custom时显示） */}
+                {refererConfig.type === 'custom' ? (
+                  <div className="space-y-1">
+                    <Label htmlFor="customReferer">自定义Referer URL</Label>
+                    <Input
+                      id="customReferer"
+                      type="url"
+                      placeholder="https://example.com"
+                      value={refererConfig.referer || ''}
+                      onChange={(e) => {
+                        setRefererConfig(prev => ({ ...prev, referer: e.target.value }));
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      输入完整的Referer URL（需包含协议）
+                    </p>
                   </div>
                 ) : null}
               </div>
