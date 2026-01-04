@@ -51,6 +51,8 @@ interface PerTypeConcurrency {
   'batch-offer-creation': number
   'ad-creative': number
   'campaign-publish': number  // 🆕 广告系列发布
+  'click-farm': number         // 🆕 补点击任务
+  'url-swap': number           // 🆕 换链接任务
   [key: string]: number  // 允许其他自定义类型
 }
 
@@ -67,7 +69,9 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   'offer-extraction': 'Offer提取',
   'batch-offer-creation': '批量创建',
   'ad-creative': '广告创意生成',
-  'campaign-publish': '广告系列发布',  // 🆕 Campaign发布
+  'campaign-publish': '广告系列发布',
+  'click-farm': '补点击任务',  // 🆕 补点击任务
+  'url-swap': '换链接任务',    // 🆕 换链接任务
 }
 
 interface QueueConfig {
@@ -136,7 +140,9 @@ export default function QueueManagementPage() {
         'offer-extraction': 2,
         'batch-offer-creation': 1,
         'ad-creative': 3,
-        'campaign-publish': 2  // 🆕 广告系列发布（Google Ads API限制）
+        'campaign-publish': 2,  // 🆕 广告系列发布（Google Ads API限制）
+        'click-farm': 5,         // 🆕 补点击任务（高并发，代理IP池支持）
+        'url-swap': 3,           // 🆕 换链接任务（定时监测，中等并发）
       },
       maxQueueSize: 1000,
       taskTimeout: 300000,
@@ -236,7 +242,9 @@ export default function QueueManagementPage() {
                 'offer-extraction': 2,
                 'batch-offer-creation': 1,
                 'ad-creative': 3,
-                'campaign-publish': 2  // 🆕 广告系列发布
+                'campaign-publish': 2,  // 🆕 广告系列发布
+                'click-farm': 5,         // 🆕 补点击任务（高并发，代理IP池支持）
+                'url-swap': 3,           // 🆕 换链接任务（定时监测，中等并发）
               },
               maxQueueSize: dbConfig.maxQueueSize || 1000,
               taskTimeout: dbConfig.taskTimeout || 60000,
