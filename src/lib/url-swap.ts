@@ -163,7 +163,8 @@ export async function getUrlSwapTasks(
   const limit = options.limit || 20
   const offset = (page - 1) * limit
 
-  let whereClause = 'user_id = ? AND is_deleted = 0'
+  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+  let whereClause = `user_id = ? AND ${isDeletedCondition}`
   const params: any[] = [userId]
 
   if (options.status) {
@@ -418,12 +419,15 @@ export async function updateTaskStatus(
 export async function getPendingTasks(): Promise<UrlSwapTask[]> {
   const db = await getDatabase()
 
+  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+  const nowCondition = db.type === 'postgres' ? 'CURRENT_TIMESTAMP' : "datetime('now')"
+
   const tasks = await db.query<any>(`
     SELECT * FROM url_swap_tasks
     WHERE status = 'enabled'
-      AND next_swap_at <= datetime('now')
-      AND started_at <= datetime('now')
-      AND is_deleted = 0
+      AND next_swap_at <= ${nowCondition}
+      AND started_at <= ${nowCondition}
+      AND ${isDeletedCondition}
     ORDER BY next_swap_at ASC
   `)
 
@@ -524,6 +528,8 @@ export async function getUrlSwapTaskStats(taskId: string, userId: number): Promi
 export async function getUrlSwapGlobalStats(): Promise<UrlSwapGlobalStats> {
   const db = await getDatabase()
 
+  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+
   const stats = await db.queryOne<any>(`
     SELECT
       COUNT(*) as total_tasks,
@@ -536,7 +542,7 @@ export async function getUrlSwapGlobalStats(): Promise<UrlSwapGlobalStats> {
       COALESCE(SUM(failed_swaps), 0) as failed_swaps,
       COALESCE(SUM(url_changed_count), 0) as url_changed_count
     FROM url_swap_tasks
-    WHERE is_deleted = 0
+    WHERE ${isDeletedCondition}
   `)
 
   const successRate = stats.total_swaps > 0
@@ -572,7 +578,8 @@ export async function getAllUrlSwapTasks(
   const limit = options.limit || 20
   const offset = (page - 1) * limit
 
-  let whereClause = 'ust.is_deleted = 0'
+  const isDeletedCondition = db.type === 'postgres' ? 'ust.is_deleted = FALSE' : 'ust.is_deleted = 0'
+  let whereClause = isDeletedCondition
   const params: any[] = []
 
   if (options.status) {
@@ -649,9 +656,11 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
  */
 export async function getOfferById(offerId: number): Promise<any | null> {
   const db = await getDatabase()
+  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+
   return db.queryOne(`
     SELECT * FROM offers
-    WHERE id = ? AND is_deleted = 0
+    WHERE id = ? AND ${isDeletedCondition}
   `, [offerId])
 }
 
@@ -660,11 +669,13 @@ export async function getOfferById(offerId: number): Promise<any | null> {
  */
 export async function getCampaignByOfferId(offerId: number): Promise<{ customer_id: string; campaign_id: string } | null> {
   const db = await getDatabase()
+  const isDeletedCondition = db.type === 'postgres' ? 'o.is_deleted = FALSE' : 'o.is_deleted = 0'
+
   const result = await db.queryOne(`
     SELECT c.customer_id, c.campaign_id
     FROM campaigns c
     INNER JOIN offers o ON o.campaign_id = c.id
-    WHERE o.id = ? AND o.is_deleted = 0
+    WHERE o.id = ? AND ${isDeletedCondition}
   `, [offerId])
   return result || null
 }
