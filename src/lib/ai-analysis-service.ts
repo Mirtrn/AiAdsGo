@@ -1087,6 +1087,42 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             console.log('⚠️ 店铺产品中未找到评论数据')
             result.reviewAnalysisSuccess = true  // 不视为失败
           }
+        }
+        // 🔥 修复（2026-01-04）：独立站单品页面评论分析
+        // 问题：独立站单品页面的extractResult.reviews数组有评论数据，但之前的代码没有使用
+        // 修复：检查extractResult.reviews数组，如果有数据则执行评论分析
+        else if (extractResult.reviews && extractResult.reviews.length > 0 && !result.reviewAnalysisSuccess) {
+          console.log(`📊 独立站单品页面：使用已抓取的评论数据 (${extractResult.reviews.length}条评论)...`)
+
+          // 将独立站评论数据转换为RawReview格式
+          extractResult.reviews.forEach((review: any) => {
+            reviews.push({
+              rating: review.rating ? `${review.rating} out of 5 stars` : null,
+              title: review.title || null,
+              body: review.body || '',
+              helpful: null,
+              verified: review.verifiedBuyer || false,
+              date: review.date || new Date().toISOString(),
+              author: review.author || 'Reviewer',
+            })
+          })
+
+          if (reviews.length > 0) {
+            const reviewAnalysis = await analyzeReviewsWithAI(
+              reviews,
+              extractResult.brand || extractResult.productName || 'Unknown Product',
+              targetCountry,
+              userId,
+              { enableCompression: true, enableCache: true, cacheKey: extractResult.finalUrl }
+            )
+
+            result.reviewAnalysis = reviewAnalysis
+            result.reviewAnalysisSuccess = true
+            console.log(`✅ 独立站单品页面评论分析完成 (${reviews.length}条评论)`)
+          } else {
+            console.log('⚠️ 独立站单品页面评论数据转换后为空')
+            result.reviewAnalysisSuccess = true
+          }
         } else {
           console.log('ℹ️ 非店铺页面，评论分析将由后续流程处理')
           result.reviewAnalysisSuccess = true  // 标记为成功，让后续流程继续
@@ -1542,6 +1578,13 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             console.log('⚠️ 店铺产品数据不足（需要>=2个产品）')
             result.competitorAnalysisSuccess = true  // 不视为失败
           }
+        }
+        // 🔥 修复（2026-01-04）：独立站单品页面竞品分析
+        // 独立站单品页面通常没有竞品数据（不像Amazon有relatedAsins）
+        // 标记为成功但跳过分析，避免阻塞流程
+        else if (debug.isIndependentStore && !result.competitorAnalysisSuccess) {
+          console.log('ℹ️ 独立站单品页面：无竞品数据源，跳过竞品分析')
+          result.competitorAnalysisSuccess = true  // 不视为失败
         } else {
           console.log('ℹ️ 非店铺页面，竞品分析将由后续流程处理')
           result.competitorAnalysisSuccess = true  // 标记为成功，让后续流程继续

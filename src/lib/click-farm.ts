@@ -739,11 +739,20 @@ function calculateMatchRate(actual: number[], configured: number[]): number {
 export function parseClickFarmTask(row: any): ClickFarmTaskListItem {
   // 安全解析函数：处理字符串（SQLite）或已解析对象（PostgreSQL jsonb）
   // 🔧 修复(2025-12-31): 增强类型检查，确保返回正确类型
+  // 🔧 修复(2026-01-05): 处理双重JSON编码问题（PostgreSQL jsonb存储了JSON字符串）
   const safeParse = (value: any, defaultValue: any = null): any => {
     if (value === null || value === undefined) return defaultValue;
     if (typeof value === 'string') {
       try {
-        const parsed = JSON.parse(value);
+        let parsed = JSON.parse(value);
+        // 🔧 修复：如果解析结果仍然是字符串（双重编码），再解析一次
+        if (typeof parsed === 'string') {
+          try {
+            parsed = JSON.parse(parsed);
+          } catch (e) {
+            // 第二次解析失败，使用第一次的结果
+          }
+        }
         // 如果解析结果是数组或对象，直接返回
         if (Array.isArray(parsed) || (typeof parsed === 'object' && parsed !== null)) {
           return parsed;
