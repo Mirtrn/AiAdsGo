@@ -72,7 +72,27 @@ export interface ExtractOfferResult {
 
     // 单品页数据（可选）
     productName?: string
-    price?: string
+    productPrice?: string  // 🔥 统一字段名：price → productPrice
+    productCategory?: string
+    productFeatures?: string[]
+    metaTitle?: string
+    metaDescription?: string
+    // 🔥 2026-01-04新增：独立站增强数据字段（与ScrapedProductData保持一致）
+    reviews?: Array<{
+      rating: number
+      date: string
+      author: string
+      title: string
+      body: string
+      verifiedBuyer: boolean
+      images?: string[]
+    }>
+    faqs?: Array<{ question: string; answer: string }>
+    specifications?: Record<string, string>
+    packages?: Array<{ name: string; price: string | null; includes: string[] }>
+    socialProof?: Array<{ metric: string; value: string }>
+    coreFeatures?: string[]
+    secondaryFeatures?: string[]
 
     // Amazon单品页详细数据（可选）
     // 注意：rating/reviewCount 存储为字符串，保持与 AmazonProductData 一致

@@ -127,7 +127,7 @@ export async function executeOfferExtraction(
         final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
         // 🔥 2025-12-16修复：保存product_name到数据库
         product_name: extractResult.data.productName || undefined,
-        product_price: productPrice || extractResult.data.price || undefined,
+        product_price: productPrice || extractResult.data.productPrice || undefined,
         commission_payout: commissionPayout || undefined,
         page_type: extractResult.data.pageType || 'product',
       })
@@ -152,7 +152,7 @@ export async function executeOfferExtraction(
         final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
         // 🔥 2025-12-16修复：保存product_name到数据库
         product_name: extractResult.data.productName || undefined,
-        product_price: productPrice || extractResult.data.price || undefined,
+        product_price: productPrice || extractResult.data.productPrice || undefined,
         commission_payout: commissionPayout || undefined,
         page_type: extractResult.data.pageType || 'product',
       })
