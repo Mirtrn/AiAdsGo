@@ -6,9 +6,11 @@ import { cn } from "@/lib/utils"
 const DropdownMenuContext = React.createContext<{
     open: boolean;
     setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    containerRef: React.RefObject<HTMLDivElement | null>;
 }>({
     open: false,
     setOpen: () => { },
+    containerRef: { current: null },
 });
 
 const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
@@ -29,7 +31,7 @@ const DropdownMenu = ({ children }: { children: React.ReactNode }) => {
     }, []);
 
     return (
-        <DropdownMenuContext.Provider value={{ open, setOpen }}>
+        <DropdownMenuContext.Provider value={{ open, setOpen, containerRef }}>
             <div className="relative inline-block text-left" ref={containerRef}>
                 {children}
             </div>
@@ -62,9 +64,15 @@ DropdownMenuTrigger.displayName = "DropdownMenuTrigger";
 
 const DropdownMenuContent = React.forwardRef<
     HTMLDivElement,
-    React.HTMLAttributes<HTMLDivElement> & { align?: "start" | "end" | "center" }
->(({ className, align = "center", ...props }, ref) => {
-    const { open } = React.useContext(DropdownMenuContext);
+    React.HTMLAttributes<HTMLDivElement> & {
+        align?: "start" | "end" | "center";
+        side?: "top" | "bottom";
+        sideOffset?: number;
+    }
+>(({ className, align = "center", side, sideOffset = 8, style, ...props }, forwardedRef) => {
+    const { open, containerRef } = React.useContext(DropdownMenuContext);
+    const contentRef = React.useRef<HTMLDivElement | null>(null);
+    const [resolvedSide, setResolvedSide] = React.useState<"top" | "bottom">(side ?? "bottom");
 
     if (!open) return null;
 
@@ -74,14 +82,55 @@ const DropdownMenuContent = React.forwardRef<
         center: "left-1/2 -translate-x-1/2",
     };
 
+    React.useLayoutEffect(() => {
+        if (side) {
+            setResolvedSide(side);
+            return;
+        }
+
+        const anchorEl = containerRef.current;
+        const menuEl = contentRef.current;
+        if (!anchorEl || !menuEl) return;
+
+        const anchorRect = anchorEl.getBoundingClientRect();
+        const menuRect = menuEl.getBoundingClientRect();
+
+        const viewportPadding = 8;
+        const spaceBelow = window.innerHeight - anchorRect.bottom - viewportPadding;
+        const spaceAbove = anchorRect.top - viewportPadding;
+
+        // 底部空间不足时，自动向上展开，避免被分页/视口底部遮挡
+        if (spaceBelow < menuRect.height && spaceAbove > spaceBelow) {
+            setResolvedSide("top");
+        } else {
+            setResolvedSide("bottom");
+        }
+    }, [containerRef, open, side]);
+
+    const sideClasses = resolvedSide === "top" ? "bottom-full" : "top-full";
+    const resolvedStyle: React.CSSProperties = {
+        ...style,
+        marginTop: resolvedSide === "bottom" ? (style?.marginTop ?? sideOffset) : style?.marginTop,
+        marginBottom: resolvedSide === "top" ? (style?.marginBottom ?? sideOffset) : style?.marginBottom,
+    };
+
     return (
         <div
-            ref={ref}
+            ref={(node) => {
+                contentRef.current = node;
+                if (typeof forwardedRef === "function") {
+                    forwardedRef(node);
+                } else if (forwardedRef) {
+                    (forwardedRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+                }
+            }}
             className={cn(
-                "absolute z-50 mt-2 min-w-[8rem] overflow-hidden rounded-md border bg-white p-1 text-gray-950 shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+                "absolute z-[100] min-w-[8rem] overflow-hidden rounded-md border bg-white p-1 text-gray-950 shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+                sideClasses,
                 alignmentClasses[align],
                 className
             )}
+            style={resolvedStyle}
             {...props}
         />
     );
