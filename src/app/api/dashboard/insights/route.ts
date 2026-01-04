@@ -453,7 +453,7 @@ export async function GET(request: NextRequest) {
           t.error_message,
           t.error_at,
           o.offer_name,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -470,7 +470,7 @@ export async function GET(request: NextRequest) {
           t.error_message,
           t.error_at,
           o.offer_name,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -520,7 +520,7 @@ export async function GET(request: NextRequest) {
           t.url_changed_count,
           t.updated_at,
           o.offer_name,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -539,7 +539,7 @@ export async function GET(request: NextRequest) {
           t.url_changed_count,
           t.updated_at,
           o.offer_name,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -592,7 +592,7 @@ export async function GET(request: NextRequest) {
           t.failed_swaps,
           t.total_swaps,
           o.offer_name,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -612,7 +612,7 @@ export async function GET(request: NextRequest) {
           t.failed_swaps,
           t.total_swaps,
           o.offer_name,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -672,7 +672,7 @@ export async function GET(request: NextRequest) {
           t.consecutive_failures,
           o.offer_name,
           o.affiliate_link,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -701,7 +701,7 @@ export async function GET(request: NextRequest) {
           t.consecutive_failures,
           o.offer_name,
           o.affiliate_link,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -783,7 +783,7 @@ export async function GET(request: NextRequest) {
           t.consecutive_failures,
           t.google_campaign_id,
           o.offer_name,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
@@ -813,7 +813,7 @@ export async function GET(request: NextRequest) {
           t.consecutive_failures,
           t.google_campaign_id,
           o.offer_name,
-          o.product_url
+          o.url as product_url
         FROM url_swap_tasks t
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
