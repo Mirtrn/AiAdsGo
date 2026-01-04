@@ -5,7 +5,9 @@ import type { ValidationResult } from './base-provider'
 /**
  * Abcproxy代理提供商
  * 处理格式: host:port:username:password
- * 示例: na.02b22e116103ae77.abcproxy.vip:4950:abc4766772_6781_ds-zone-abc-region-US:Aa114524
+ * 示例:
+ *   - na.02b22e116103ae77.abcproxy.vip:4950:abc4766772_6781_ds-zone-abc-region-US:Aa114524
+ *   - http://na.02b22e116103ae77.abcproxy.vip:4950:abc4766772_6781_ds-zone-abc-region-US:Aa114524
  * 直接从URL解析，无需API调用
  */
 export class AbcproxyProvider implements ProxyProvider {
@@ -20,8 +22,11 @@ export class AbcproxyProvider implements ProxyProvider {
     const errors: string[] = []
 
     try {
+      // 🔧 移除 http:// 或 https:// 前缀（如果存在）
+      const cleanUrl = url.replace(/^https?:\/\//, '')
+
       // 验证格式：host:port:username:password
-      const parts = url.split(':')
+      const parts = cleanUrl.split(':')
 
       // 至少需要4个部分：host, port, username, password
       if (parts.length < 4) {
@@ -86,15 +91,18 @@ export class AbcproxyProvider implements ProxyProvider {
   }
 
   async extractCredentials(url: string): Promise<ProxyCredentials> {
+    // 🔧 移除 http:// 或 https:// 前缀（如果存在）
+    const cleanUrl = url.replace(/^https?:\/\//, '')
+
     // 验证URL
-    const validation = this.validate(url)
+    const validation = this.validate(cleanUrl)
     if (!validation.isValid) {
       throw new Error(`Abcproxy URL验证失败:\n${validation.errors.join('\n')}`)
     }
 
     try {
       // 解析各部分
-      const parts = url.split(':')
+      const parts = cleanUrl.split(':')
       const host = parts[0] // 第一部分是host
       const port = parts[1] // 第二部分是port
       const username = parts[2] // 第三部分是username
