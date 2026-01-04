@@ -1,19 +1,19 @@
 -- ============================================================
--- Migration: 130_update_prompts_enhanced_data.sql
+-- Migration: 130_update_prompts_enhanced_data.pg.sql
 -- Description: 整合迁移 - 更新6个Prompts到v4.15/v4.16版本
 --              新增独立站增强数据字段支持（reviews、faqs、specifications等）
 --
 -- 整合自以下迁移文件：
---   - 130_update_prompt_v4.16.sql (product_analysis_single)
---   - 131_update_ad_creative_prompt_v4.33.sql (ad_creative_generation)
---   - 132_update_brand_analysis_store_prompt_v4.16.sql (brand_analysis_store)
---   - 133_update_ad_elements_descriptions_prompt_v4.15.sql (ad_elements_descriptions)
---   - 134_update_ad_elements_headlines_prompt_v4.15.sql (ad_elements_headlines)
---   - 135_update_store_highlights_synthesis_prompt_v4.15.sql (store_highlights_synthesis)
+--   - 130_update_prompt_v4.16.pg.sql (product_analysis_single)
+--   - 131_update_ad_creative_prompt_v4.33.pg.sql (ad_creative_generation)
+--   - 132_update_brand_analysis_store_prompt_v4.16.pg.sql (brand_analysis_store)
+--   - 133_update_ad_elements_descriptions_prompt_v4.15.pg.sql (ad_elements_descriptions)
+--   - 134_update_ad_elements_headlines_prompt_v4.15.pg.sql (ad_elements_headlines)
+--   - 135_update_store_highlights_synthesis_prompt_v4.15.pg.sql (store_highlights_synthesis)
 --
 -- Author: Claude Code
 -- Date: 2026-01-04
--- Database: SQLite
+-- Database: PostgreSQL
 -- ============================================================
 
 -- ============================================================
@@ -54,11 +54,11 @@ Description: {{pageData.description}}
 === FULL PAGE DATA ===
 {{pageData.text}}
 
-=== ENHANCED DATA (P1 Optimization) ===
+=== 🎯 ENHANCED DATA (P1 Optimization) ===
 **Technical Specifications**: {{technicalDetails}}
 **Review Highlights**: {{reviewHighlights}}
 
-=== INDEPENDENT STORE ENHANCED DATA (v4.16 New) ===
+=== 🔥 INDEPENDENT STORE ENHANCED DATA (v4.16 New) ===
 **User Reviews**: {{reviews}}
 - Use reviews to identify real customer pain points and needs
 - Extract authentic use cases and satisfaction indicators
@@ -87,22 +87,48 @@ CRITICAL: Focus ONLY on the MAIN PRODUCT. IGNORE:
 - "Customers also bought", "Frequently bought together", "Related products"
 
 Analyze these dimensions:
-1. Product Core - Name, USPs, core features, target use cases
-2. Technical Analysis - Key specifications, dimensions, material quality
-3. Pricing Intelligence - Current vs Original price, discount, value proposition
-4. Review Insights - Sentiment, positives, concerns, real use cases
-5. Customer Intent Analysis - Use FAQs to understand concerns
-6. Market Position - Category ranking, badges, social proof
+1. **Product Core** - Name, USPs, core features, target use cases
+2. **Technical Analysis** - Key specifications, dimensions, material quality
+3. **Pricing Intelligence** - Current vs Original price, discount, value proposition
+4. **Review Insights** - Sentiment, positives, concerns, real use cases
+5. **Customer Intent Analysis** - Use FAQs to understand concerns
+6. **Market Position** - Category ranking, badges, social proof
 
 === OUTPUT LANGUAGE ===
 All output MUST be in {{langName}}.
 
 === OUTPUT FORMAT ===
-Return COMPLETE JSON with productDescription, sellingPoints, targetAudience, category, keywords, pricing, reviews, competitiveEdges, productHighlights.
+Return COMPLETE JSON:
+{
+  "productDescription": "Detailed description emphasizing technical specs and reviews",
+  "sellingPoints": ["USP 1", "USP 2", "USP 3", "USP 4"],
+  "targetAudience": "Customer description based on use cases",
+  "category": "Product category",
+  "keywords": ["keyword1", "keyword2", ...],
+  "pricing": {
+    "current": "$.XX",
+    "original": "$.XX or null",
+    "discount": "XX% or null",
+    "competitiveness": "Premium/Competitive/Budget"
+  },
+  "reviews": {
+    "rating": 4.5,
+    "count": 1234,
+    "sentiment": "Positive/Mixed/Negative",
+    "positives": ["Pro 1", "Pro 2"],
+    "concerns": ["Con 1", "Con 2"],
+    "useCases": ["Use case 1", "Use case 2"]
+  },
+  "competitiveEdges": {
+    "badges": ["Amazon''s Choice"],
+    "socialProof": ["18,000+ Installations"]
+  },
+  "productHighlights": ["Key spec 1", "Key spec 2", "Key spec 3"]
+}
 
 === IMPORTANT NOTES ===
-- Leverage User Reviews, FAQs, and Social Proof data for deeper insights
-- Prioritize customer-validated features over marketing claims',
+- 🔥 Leverage User Reviews, FAQs, and Social Proof data for deeper insights
+- 🔥 Prioritize customer-validated features over marketing claims',
   'English',
   1,
   1,
@@ -136,7 +162,7 @@ INSERT INTO prompt_versions (
   'You are a professional Google Ads copywriter. Generate high-converting Responsive Search Ads.
 
 === OUTPUT FORMAT ===
-JSON with 15 headlines (≤30 chars), 4 descriptions (≤90 chars), 15 keywords, 6 callouts (≤25 chars), 6 sitelinks.
+JSON with 15 headlines (≤30 chars), 4 descriptions (≤90 chars), 15 keywords, 6 callouts (≤25 chars), 6 sitelinks (text≤25, desc≤35).
 
 === INPUT DATA ===
 PRODUCT: {{product_description}}
@@ -144,23 +170,49 @@ USPs: {{unique_selling_points}}
 AUDIENCE: {{target_audience}}
 COUNTRY: {{target_country}} | LANGUAGE: {{target_language}}
 
-=== INDEPENDENT STORE ENHANCED DATA（v4.33新增）===
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.33新增）===
 {{extras_data}}
 
 === HEADLINE STRUCTURE: 2+4+4+2+3 (15 total) ===
-Group 1 - Brand (2): Include brand and product name, use {KeyWord:brand}
-Group 2 - Features (4): Highlight specs, use TECH SPECS and CORE FEATURES
-Group 3 - Benefits (4): User benefits, use USER PRAISES and SOCIAL PROOF METRICS
-Group 4 - Questions (2): Address pain points from CUSTOMER FAQs, end with "?"
-Group 5 - Urgency (3): Use SOCIAL PROOF METRICS, include "Limited Time"
+
+**Group 1 - Brand (2)**: Include brand and product name
+- Use {KeyWord:brand} for first headline
+- Example: "{KeyWord:Roborock} Official"
+
+**Group 2 - Features (4)**: Highlight technical specs
+- 🔥 Use TECH SPECS and CORE FEATURES
+- Include numbers: "25000 Pa Suction"
+
+**Group 3 - Benefits (4)**: User benefits
+- 🔥 Use USER PRAISES and SOCIAL PROOF METRICS
+- Example: "5000+ Happy Customers"
+
+**Group 4 - Questions (2)**: Address pain points
+- 🔥 Use CUSTOMER FAQs and REAL USER REVIEWS
+- Must end with "?"
+
+**Group 5 - Urgency (3)**: Competitive/urgent
+- 🔥 Use SOCIAL PROOF METRICS
+- Include "Limited Time" or metrics
 
 === DESCRIPTION STRUCTURE: 2+1+1 (4 total) ===
-1. Feature-Benefit-CTA: Use {{coreFeatures}} and {{techSpecs}}
-2. Problem-Solution-Proof: Address {{customerFaqs}}, use {{realUserReviews}}
-3. Offer-Urgency-Trust: Use {{promotionInfo}} and {{socialProofMetrics}}
-4. USP-Differentiation: Highlight unique advantages
+
+**Template 1 - Feature+Benefit+CTA**: Use {{coreFeatures}} and {{techSpecs}}
+**Template 2 - Problem+Solution+Proof**: Address {{customerFaqs}}, use {{realUserReviews}}
+**Template 3 - Offer+Urgency+Trust**: Use {{promotionInfo}} and {{socialProofMetrics}}
+**Template 4 - USP+Differentiation**: Highlight unique advantages
 
 Each description MUST end with: Shop Now / Buy Now / Get Yours / Order Now / Learn More
+
+=== CALLOUTS (2+2+2) ===
+**Trust Signals (2)**: 🔥 Use {{socialProofMetrics}} - "18,000+ Users"
+**Promotions (2)**: "Free Shipping", "Limited Time -23%"
+**Features (2)**: 🔥 Use {{techSpecs}} - "25000Pa Suction"
+
+=== SITELINKS (2+2+2) ===
+**Products (2)**: 🔥 Use {{packageOptions}} - "Qrevo Curv 2 Pro"
+**Brand (2)**: "Roborock Vacuums"
+**Use Cases (2)**: 🔥 Use {{customerFaqs}} - "Pet Hair Solution"
 
 === RULES ===
 1. Headlines ≤30 chars, Descriptions ≤90 chars
@@ -168,7 +220,7 @@ Each description MUST end with: Shop Now / Buy Now / Get Yours / Order Now / Lea
 3. 1 urgency headline (Limited/Today/Now)
 4. Brand word coverage: 3-4/15 (20-27%)
 5. All descriptions with English CTA
-6. Leverage all enhanced data from {{extras_data}}',
+6. 🔥 Leverage all enhanced data from {{extras_data}}',
   'English',
   1,
   1,
@@ -210,14 +262,14 @@ Description: {{pageData.description}}
 === STORE PRODUCTS DATA ===
 {{pageData.text}}
 
-=== INDEPENDENT STORE ENHANCED DATA（v4.16 New）===
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.16 New）===
 User Reviews: {{reviews}}
 FAQs: {{faqs}}
 Tech Specs: {{specifications}}
 Social Proof: {{socialProof}}
 Core Features: {{coreFeatures}}
 
-USE THIS DATA: If available, incorporate into your analysis.
+⚠️ USE THIS DATA: If available, incorporate into your analysis.
 
 === ANALYSIS PRIORITIES ===
 1. Hot Products Analysis - Use {{technicalDetails}} and {{coreFeatures}}
@@ -269,7 +321,7 @@ Brand: {{brand}}
 Price: {{price}}
 Rating: {{rating}}
 
-=== INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
 REAL USER REVIEWS: {{realUserReviews}}
 CUSTOMER FAQs: {{customerFaqs}}
 TECH SPECS: {{techSpecs}}
@@ -277,14 +329,14 @@ SOCIAL PROOF METRICS: {{socialProofMetrics}}
 CORE FEATURES: {{coreFeatures}}
 
 === TASK ===
-Generate 4 descriptions using templates:
+Generate 4 descriptions using these templates:
 1. FEATURE-BENEFIT-CTA - Use {{coreFeatures}} and {{techSpecs}}
-2. PROBLEM-SOLUTION-PROOF - Address {{customerFaqs}}, use {{realUserReviews}}
+2. PROBLEM-SOLUTION-PROOF - Address concerns from {{customerFaqs}}, use {{realUserReviews}}
 3. OFFER-URGENCY-TRUST - Use {{promotionInfo}} and {{socialProofMetrics}}
 4. USP-DIFFERENTIATION - Highlight unique advantages
 
 === OUTPUT FORMAT ===
-Return JSON: { "descriptions": ["d1", "d2", "d3", "d4"], "dataUtilization": { "enhancedDataUsed": true } }',
+Return JSON: { "descriptions": ["d1", "d2", "d3", "d4"], "dataUtilization": { "enhancedDataUsed": 1 } }',
   'Chinese',
   1,
   1,
@@ -322,7 +374,7 @@ Product: {{product.name}}
 Brand: {{product.brand}}
 Rating: {{product.rating}}
 
-=== INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
 REAL USER REVIEWS: {{realUserReviews}}
 TECH SPECS: {{techSpecs}}
 SOCIAL PROOF METRICS: {{socialProofMetrics}}
@@ -337,7 +389,7 @@ Generate 15 headlines in these groups:
 5. Question + Pain Point (3) - From {{realUserReviews}}
 
 === OUTPUT FORMAT ===
-Return JSON: { "headlines": ["h1", "h2", ...(15)], "dataUtilization": { "enhancedDataUsed": true } }',
+Return JSON: { "headlines": ["h1", "h2", ...(15)], "dataUtilization": { "enhancedDataUsed": 1 } }',
   'Chinese',
   1,
   1,
@@ -373,7 +425,7 @@ INSERT INTO prompt_versions (
 === INPUT: Product Highlights ===
 {{productHighlights}}
 
-=== INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
+=== 🔥 INDEPENDENT STORE ENHANCED DATA（v4.15 New）===
 STORE CORE FEATURES: {{coreFeatures}}
 STORE SOCIAL PROOF METRICS: {{socialProofMetrics}}
 STORE REVIEWS: {{storeReviews}}
@@ -387,7 +439,7 @@ Synthesize into 5-8 store highlights that:
 5. Validate with {{storeReviews}}
 
 === OUTPUT FORMAT ===
-Return JSON: { "storeHighlights": ["h1", "h2", ...], "dataUtilization": { "enhancedDataUsed": true } }
+Return JSON: { "storeHighlights": ["h1", "h2", ...], "dataUtilization": { "enhancedDataUsed": 1 } }
 
 Output in {{langName}}.',
   'English',
@@ -395,3 +447,15 @@ Output in {{langName}}.',
   1,
   'v4.15: 新增独立站增强数据字段支持（SOCIAL PROOF METRICS、CORE FEATURES、STORE REVIEWS）'
 );
+
+-- ============================================================
+-- Verification Query
+-- ============================================================
+-- SELECT prompt_id, version, name, is_active, created_at
+-- FROM prompt_versions
+-- WHERE prompt_id IN (
+--   'product_analysis_single', 'ad_creative_generation', 'brand_analysis_store',
+--   'ad_elements_descriptions', 'ad_elements_headlines', 'store_highlights_synthesis'
+-- )
+-- AND is_active = 1
+-- ORDER BY prompt_id;
