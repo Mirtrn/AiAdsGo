@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ClickFarmDistributionChart from '@/components/ClickFarmDistributionChart';
+import { getDateInTimezone } from '@/lib/timezone-utils';
 
 interface TaskDetails {
   task: any;
@@ -191,17 +192,33 @@ export default function TaskDetailPage() {
 
   // Prepare distribution chart data
   // hourly_breakdown 格式: [{actual, success, failed}, ...] (24小时)
-  const lastDay = task.daily_history.length > 0
-    ? task.daily_history[task.daily_history.length - 1]
-    : null;
-  const hourlyActual = lastDay?.hourly_breakdown
-    ? lastDay.hourly_breakdown.map((h: any) => h.actual || 0)
+  const todayInTaskTimezone = task?.timezone
+    ? getDateInTimezone(new Date(), task.timezone)
+    : new Date().toISOString().split('T')[0];
+
+  const lastExecutedDay = (() => {
+    if (!Array.isArray(task?.daily_history) || task.daily_history.length === 0) return null;
+
+    const todayEntry = task.daily_history.find((d: any) => d?.date === todayInTaskTimezone);
+    if (todayEntry) return todayEntry;
+
+    // daily_history 通常包含未来日期（初始化时会填满 duration_days），这里选择“<= 今天”的最近一天
+    const candidates = task.daily_history
+      .filter((d: any) => typeof d?.date === 'string' && d.date <= todayInTaskTimezone)
+      .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+
+    if (candidates.length > 0) return candidates[candidates.length - 1];
+    return task.daily_history[0];
+  })();
+
+  const hourlyActual = Array.isArray(lastExecutedDay?.hourly_breakdown)
+    ? lastExecutedDay.hourly_breakdown.map((h: any) => h?.actual || 0)
     : Array(24).fill(0);
 
   const distributionData = {
-    date: new Date().toISOString().split('T')[0],
+    date: lastExecutedDay?.date || todayInTaskTimezone,
     hourlyActual,
-    hourlyConfigured: task.hourly_distribution,
+    hourlyConfigured: Array.isArray(task.hourly_distribution) ? task.hourly_distribution : Array(24).fill(0),
   };
 
   return (

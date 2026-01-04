@@ -47,6 +47,11 @@ export async function createClickFarmTask(
 
     console.log('[createClickFarmTask] 生成任务ID:', taskId);
 
+    // 🔧 修复(2026-01-05): PostgreSQL JSONB字段需要JSON字符串，pg驱动会正确处理
+    // SQLite TEXT字段也需要JSON字符串，两者统一使用JSON.stringify
+    const hourlyDistributionJson = JSON.stringify(input.hourly_distribution);
+    const refererConfigJson = input.referer_config ? JSON.stringify(input.referer_config) : null;
+
     const result = await db.exec(`
       INSERT INTO click_farm_tasks (
         id, user_id, offer_id, daily_click_count, start_time, end_time,
@@ -61,9 +66,9 @@ export async function createClickFarmTask(
       input.end_time,
       input.duration_days,
       scheduledStartDate,
-      JSON.stringify(input.hourly_distribution),
+      hourlyDistributionJson,
       input.timezone || 'America/New_York',
-      input.referer_config ? JSON.stringify(input.referer_config) : null  // 🔧 修复：添加referer_config
+      refererConfigJson
     ]);
 
     console.log('[createClickFarmTask] INSERT结果:', result);

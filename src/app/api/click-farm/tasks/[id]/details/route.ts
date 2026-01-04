@@ -39,12 +39,28 @@ export async function GET(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // 🆕 安全解析JSON字段（处理空值和无效JSON）
-    const safeParseJSON = (str: any, fallback: any) => {
-      if (!str || str === 'null' || str === 'undefined') return fallback;
-      if (typeof str !== 'string') return fallback;
+    // 🆕 安全解析JSON字段（兼容 SQLite TEXT / PostgreSQL JSONB / 双重编码字符串）
+    const safeParseJSON = (value: any, fallback: any) => {
+      if (value === null || value === undefined) return fallback;
+      if (value === 'null' || value === 'undefined') return fallback;
+
+      // PostgreSQL JSONB 可能已经被驱动解析成对象/数组
+      if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+        return value;
+      }
+
+      if (typeof value !== 'string') return fallback;
       try {
-        return JSON.parse(str);
+        let parsed: any = JSON.parse(value);
+        // 处理“双重JSON编码”（jsonb 字段里存了 JSON 字符串）
+        if (typeof parsed === 'string') {
+          try {
+            parsed = JSON.parse(parsed);
+          } catch {
+            // ignore
+          }
+        }
+        return parsed ?? fallback;
       } catch {
         return fallback;
       }
