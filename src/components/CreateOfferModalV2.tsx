@@ -157,10 +157,28 @@ export default function CreateOfferModalV2({
   // 🔥 监听提取错误
   useEffect(() => {
     if (extractionError) {
-      // 检查是否为代理配置错误
-      if (extractionError.includes('PROXY_NOT_CONFIGURED') || extractionError.includes('代理')) {
-        setError('代理配置缺失。请先在设置页面配置代理IP才能创建offer。')
-      } else {
+      // 检查是否为代理连接问题
+      if (
+        extractionError.includes('ERR_TUNNEL_CONNECTION_FAILED') ||
+        extractionError.includes('代理连接问题') ||
+        extractionError.includes('代理失败') ||
+        extractionError.includes('代理标记为不健康') ||
+        extractionError.includes('代理不健康')
+      ) {
+        setError(
+          '代理连接失败，推广链接解析中断。可能原因：\n' +
+          '1. 代理服务器不可用或响应超时\n' +
+          '2. 代理配置错误（IP、端口、账号密码）\n' +
+          '3. 目标国家代理IP池耗尽\n\n' +
+          '请检查设置页面的代理配置，确保代理服务可用后重试。'
+        )
+      }
+      // 检查是否为代理配置缺失
+      else if (extractionError.includes('PROXY_NOT_CONFIGURED') || extractionError.includes('代理配置缺失')) {
+        setError('代理配置缺失。请先在设置页面配置代理IP才能创建Offer。')
+      }
+      // 其他错误
+      else {
         setError(extractionError)
       }
       setCurrentStep('input')
@@ -236,9 +254,28 @@ export default function CreateOfferModalV2({
 
         {/* 错误提示 */}
         {error && (
-          <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded text-sm flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <div>{error}</div>
+          <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded text-sm">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <div className="font-medium mb-1">创建失败</div>
+                <div className="whitespace-pre-line text-red-600">{error}</div>
+                {/* 如果是代理相关错误，显示前往设置按钮 */}
+                {(error.includes('代理') || error.includes('proxy')) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 border-red-300 text-red-700 hover:bg-red-100"
+                    onClick={() => {
+                      router.push('/settings')
+                      onOpenChange(false)
+                    }}
+                  >
+                    前往设置页面
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
