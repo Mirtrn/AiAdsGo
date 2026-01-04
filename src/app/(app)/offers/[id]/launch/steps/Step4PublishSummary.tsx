@@ -994,7 +994,7 @@ export default function Step4PublishSummary({
               {/* Publish Button */}
               <Button
                 onClick={handlePublish}
-                disabled={publishing || needsReauth}
+                disabled={publishing}
                 size="lg"
                 className="w-full h-12 text-base font-semibold"
               >
