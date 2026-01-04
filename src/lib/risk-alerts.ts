@@ -160,8 +160,9 @@ export async function saveLinkCheckResult(
       url,
       result.statusCode,
       result.responseTime,
-      result.isAccessible ? 1 : 0,
-      result.isRedirected ? 1 : 0,
+      // 🔧 PostgreSQL兼容性：确保boolean转换为正确的值
+      db.type === 'postgres' ? result.isAccessible : (result.isAccessible ? 1 : 0),
+      db.type === 'postgres' ? result.isRedirected : (result.isRedirected ? 1 : 0),
       result.finalUrl,
       country,
       result.errorMessage,
@@ -212,6 +213,7 @@ export async function createRiskAlert(
   }
 
   // 创建新提示
+  // 🔧 PostgreSQL兼容性：确保undefined值转换为null
   const result = await db.queryOne<{ id: number }>(
     `
     INSERT INTO risk_alerts (
@@ -230,8 +232,8 @@ export async function createRiskAlert(
       userId,
       alertType,
       severity,
-      options?.resourceType || null,
-      options?.resourceId || null,
+      options?.resourceType ?? null,
+      options?.resourceId ?? null,
       title,
       message,
       options?.details ? JSON.stringify(options.details) : null,
