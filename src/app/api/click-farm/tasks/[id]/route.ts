@@ -8,9 +8,38 @@ import {
   updateClickFarmTask,
   deleteClickFarmTask
 } from '@/lib/click-farm';
-import { validateDistribution } from '@/lib/click-farm/distribution';
+import { validateDistribution, generateDefaultDistribution } from '@/lib/click-farm/distribution';
 import { triggerTaskScheduling } from '@/lib/click-farm/click-farm-scheduler-trigger';
 import type { UpdateClickFarmTaskRequest } from '@/lib/click-farm-types';
+
+/**
+ * 按比例调整分布总和
+ * 当 daily_click_count 改变但 hourly_distribution 未传入时使用
+ */
+function scaleDistribution(
+  distribution: number[],
+  oldTotal: number,
+  newTotal: number
+): number[] {
+  if (oldTotal === 0 || distribution.length === 0) {
+    return generateDefaultDistribution(newTotal, '06:00', '24:00');
+  }
+
+  const ratio = newTotal / oldTotal;
+  let newDistribution = distribution.map(v => Math.round(v * ratio));
+
+  // 确保总和精确等于目标值
+  const newSum = newDistribution.reduce((a, b) => a + b, 0);
+  const diff = newTotal - newSum;
+
+  if (diff !== 0) {
+    // 将差值加到最大的元素上
+    const maxIndex = newDistribution.indexOf(Math.max(...newDistribution));
+    newDistribution[maxIndex] = Math.max(0, newDistribution[maxIndex] + diff);
+  }
+
+  return newDistribution;
+}
 
 /**
  * GET - 获取任务详情
@@ -91,6 +120,22 @@ export async function PUT(
         return NextResponse.json(
           { error: 'validation_error', message: '每日点击数必须在1-1000之间' },
           { status: 400 }
+        );
+      }
+    }
+
+    // 🔧 修复：当更新 daily_click_count 但未提供 hourly_distribution 时
+    // 自动按比例调整分布，使总和匹配新的目标值
+    if (body.daily_click_count !== undefined && body.hourly_distribution === undefined) {
+      const oldTotal = task.hourly_distribution.reduce((a, b) => a + b, 0);
+      const newTotal = body.daily_click_count;
+
+      if (oldTotal !== newTotal) {
+        console.log(`[UpdateTask] 自动调整分布: ${oldTotal} -> ${newTotal}`);
+        body.hourly_distribution = scaleDistribution(
+          task.hourly_distribution,
+          oldTotal,
+          newTotal
         );
       }
     }
