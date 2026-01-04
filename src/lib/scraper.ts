@@ -155,6 +155,13 @@ export interface ScrapedProductData {
   imageUrls: string[]
   metaTitle: string | null
   metaDescription: string | null
+  // 🔥 新增：独立站增强数据字段
+  faqs?: Array<{ question: string; answer: string }>
+  specifications?: Record<string, string>
+  packages?: Array<{ name: string; price: string | null; includes: string[] }>
+  socialProof?: Array<{ metric: string; value: string }>
+  coreFeatures?: string[]      // 核心卖点
+  secondaryFeatures?: string[] // 次要特性
 }
 
 /**
@@ -447,16 +454,129 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
 
 /**
  * Extract product data from Shopify stores
+ * 🔥 增强版：支持FAQ、技术规格、包装选项、社会证明等独立站特有数据
  */
 function extractShopifyData($: any, url: string): ScrapedProductData {
-  const features: string[] = []
-  $('[class*="feature"] li, [class*="spec"] li').each((i: number, el: any) => {
+  // ==================== 1. Features 提取（增强版：区分核心/次要特性）====================
+  const coreFeatures: string[] = []
+  const secondaryFeatures: string[] = []
+
+  // 核心特性：通常在产品主区域、key features、highlights等
+  $('h3:contains("Key Features") + ul li, h3:contains("Features") + ul li, [class*="key-feature"] li, [class*="highlight"] li, [class*="feature"] li:has(strong)').each((i: number, el: any) => {
     const text = $(el).text().trim()
-    if (text && text.length > 10) {
-      features.push(text)
+    if (text && text.length > 10 && text.length < 300) {
+      coreFeatures.push(text)
     }
   })
 
+  // 次要特性：其他列表项
+  $('[class*="feature"] li, [class*="spec"] li, ul li').each((i: number, el: any) => {
+    const text = $(el).text().trim()
+    if (text && text.length > 10 && text.length < 300 && !coreFeatures.includes(text)) {
+      secondaryFeatures.push(text)
+    }
+  })
+
+  // ==================== 2. FAQ 提取 ====================
+  const faqs: Array<{ question: string; answer: string }> = []
+
+  // 常见FAQ结构：accordion、collapsible、details/summary
+  $('[class*="faq"] [class*="item"], [class*="accordion"] [class*="item"], details').each((i: number, el: any) => {
+    let question = ''
+    let answer = ''
+
+    // 尝试多种选择器组合
+    question = $(el).find('h4, h3, summary, [class*="question"], [class*="title"]').first().text().trim()
+    answer = $(el).find('[class*="answer"], [class*="content"], p').map((j: number, p: any) => $(p).text().trim()).get().join('\n').trim()
+
+    // 如果是 details/summary 结构
+    if (!answer && $(el).is('details')) {
+      answer = $(el).find('> :not(summary)').text().trim()
+    }
+
+    if (question && answer && question.length > 5 && answer.length > 10) {
+      faqs.push({ question, answer })
+    }
+  })
+
+  console.log(`🔍 [Shopify FAQ] 提取到 ${faqs.length} 个FAQ`)
+
+  // ==================== 3. 技术规格提取 ====================
+  const specifications: Record<string, string> = {}
+
+  // 查找规格表格
+  $('table[class*="spec"], table[class*="technical"], [class*="spec"] table').each((i: number, table: any) => {
+    $(table).find('tr').each((j: number, row: any) => {
+      const cells = $(row).find('td, th')
+      if (cells.length >= 2) {
+        const key = $(cells[0]).text().trim()
+        const value = $(cells[1]).text().trim()
+        if (key && value && key.length < 100 && value.length < 200) {
+          specifications[key] = value
+        }
+      }
+    })
+  })
+
+  // 查找规格列表（dl/dt/dd结构）
+  $('dl[class*="spec"], [class*="spec"] dl').each((i: number, dl: any) => {
+    $(dl).find('dt').each((j: number, dt: any) => {
+      const key = $(dt).text().trim()
+      const value = $(dt).next('dd').text().trim()
+      if (key && value && key.length < 100 && value.length < 200) {
+        specifications[key] = value
+      }
+    })
+  })
+
+  console.log(`🔍 [Shopify Spec] 提取到 ${Object.keys(specifications).length} 个技术参数`)
+
+  // ==================== 4. 包装选项提取 ====================
+  const packages: Array<{ name: string; price: string | null; includes: string[] }> = []
+
+  $('[class*="package"] [class*="option"], [class*="variant"] [class*="option"], [class*="tier"]').each((i: number, el: any) => {
+    const name = $(el).find('h3, h4, [class*="name"], [class*="title"]').first().text().trim()
+    const priceText = $(el).find('[class*="price"]').first().text().trim()
+    const includes: string[] = []
+
+    $(el).find('li, [class*="include"]').each((j: number, item: any) => {
+      const text = $(item).text().trim()
+      if (text && text.length > 3 && text.length < 200) {
+        includes.push(text)
+      }
+    })
+
+    if (name && (priceText || includes.length > 0)) {
+      packages.push({
+        name,
+        price: priceText || null,
+        includes
+      })
+    }
+  })
+
+  console.log(`🔍 [Shopify Package] 提取到 ${packages.length} 个套餐选项`)
+
+  // ==================== 5. 社会证明数据提取 ====================
+  const socialProof: Array<{ metric: string; value: string }> = []
+
+  // 查找统计数字（如：18,000+ Installations, 60% Decrease）
+  $('[class*="stat"], [class*="metric"], [class*="proof"], h3:contains("+"), h3:contains("%")').each((i: number, el: any) => {
+    const text = $(el).text().trim()
+    // 匹配数字模式（如：18,000+、60%、100+）
+    const numberMatch = text.match(/(\d{1,3}(?:,\d{3})*|\d+)([+%])?/)
+    if (numberMatch) {
+      const value = numberMatch[0]
+      const metric = text.replace(value, '').trim()
+      if (metric && metric.length > 2 && metric.length < 100) {
+        socialProof.push({ value, metric })
+      }
+    }
+  })
+
+  console.log(`🔍 [Shopify Social] 提取到 ${socialProof.length} 个社会证明数据`)
+
+  // ==================== 6. 图片提取（保持原有逻辑：5张）====================
   const images: string[] = []
   const ogImage = $('meta[property="og:image"]').attr('content')
   if (ogImage) images.push(ogImage)
@@ -468,37 +588,44 @@ function extractShopifyData($: any, url: string): ScrapedProductData {
     }
   })
 
-  // 🔥 增强Shopify品牌提取逻辑
+  console.log(`🔍 [Shopify Images] 提取到 ${images.length} 张图片`)
+
+  // ==================== 7. 品牌提取（保持原有逻辑）====================
   let brandName = $('.product-vendor').text().trim() ||
                   $('[class*="vendor"]').text().trim() ||
                   $('meta[property="og:site_name"]').attr('content') || null
 
-  // 如果仍然没有品牌，尝试从页面标题提取
   if (!brandName) {
     const pageTitle = $('title').text().trim()
     console.log(`🔍 [Shopify] 尝试从页面标题提取品牌: ${pageTitle}`)
     if (pageTitle) {
-      // 从标题中提取第一个单词或品牌名（通常在 | 或 - 之前）
       const titleParts = pageTitle.split(/[\|\-]/)
       if (titleParts.length > 0) {
         const firstPart = titleParts[0].trim()
-        // 移除常见的后缀词
         brandName = firstPart.replace(/\s+(Store|Shop|Official|Site|Online|Outdoor Life)$/i, '').trim()
         console.log(`✅ [Shopify] 提取的品牌: ${brandName}`)
       }
     }
   }
 
+  // ==================== 8. 返回增强的数据结构 ====================
   return {
     productName: $('.product-title').text().trim() || $('h1').text().trim() || null,
     productDescription: $('.product-description').text().trim() || $('[class*="description"]').text().trim() || null,
     productPrice: $('.product-price').text().trim() || $('[class*="price"]').text().trim() || null,
     productCategory: $('.breadcrumbs').text().trim() || null,
-    productFeatures: features.slice(0, 10),
+    productFeatures: [...coreFeatures, ...secondaryFeatures].slice(0, 20), // 保持向后兼容
     brandName: brandName ? normalizeBrandName(brandName) : null,
-    imageUrls: images.slice(0, 5),
+    imageUrls: images.slice(0, 5), // 保持原有的5张限制
     metaTitle: $('title').text().trim() || null,
     metaDescription: $('meta[name="description"]').attr('content') || null,
+    // 🔥 新增字段
+    faqs: faqs.length > 0 ? faqs : undefined,
+    specifications: Object.keys(specifications).length > 0 ? specifications : undefined,
+    packages: packages.length > 0 ? packages : undefined,
+    socialProof: socialProof.length > 0 ? socialProof : undefined,
+    coreFeatures: coreFeatures.length > 0 ? coreFeatures : undefined,
+    secondaryFeatures: secondaryFeatures.length > 0 ? secondaryFeatures : undefined,
   }
 }
 
