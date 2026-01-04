@@ -10,6 +10,6 @@ ADD COLUMN consecutive_failures INTEGER DEFAULT 0;
 
 -- 验证字段添加成功
 SELECT 'consecutive_failures字段添加成功' AS result;
-SELECT name, type, notnull, dflt_value
+SELECT name, type, "notnull", dflt_value
 FROM pragma_table_info('url_swap_tasks')
 WHERE name = 'consecutive_failures';

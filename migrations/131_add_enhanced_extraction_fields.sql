@@ -25,7 +25,7 @@ ON offers(extraction_enhanced_at);
 
 -- 验证字段添加成功
 SELECT 'offers增强提取字段添加成功' AS result;
-SELECT name, type, notnull, dflt_value
+SELECT name, type, "notnull", dflt_value
 FROM pragma_table_info('offers')
 WHERE name IN (
   'enhanced_keywords',

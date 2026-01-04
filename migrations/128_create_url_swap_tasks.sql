@@ -91,7 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_url_swap_status
 
 -- Step 4: 验证表结构
 SELECT 'url_swap_tasks表创建成功' AS result;
-SELECT name, type, notnull, dflt_value
+SELECT name, type, "notnull", dflt_value
 FROM pragma_table_info('url_swap_tasks')
 WHERE name IN ('id', 'user_id', 'offer_id', 'swap_interval_minutes', 'enabled',
                'duration_days', 'status', 'next_swap_at', 'created_at');

@@ -841,7 +841,7 @@ async function ensureMigrationHistoryTable(): Promise<void> {
   const db = await getDatabase()
 
   if (db.type === 'sqlite') {
-    db.exec(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS migration_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         migration_name TEXT NOT NULL UNIQUE,
@@ -929,7 +929,13 @@ async function executeMigration(name: string, sql: string): Promise<void> {
     for (const stmt of statements) {
       if (stmt.trim()) {
         try {
-          db.exec(stmt)
+          const trimmedStmt = stmt.trim()
+          // SELECT/PRAGMA 这类查询语句不能用 SQLiteAdapter.exec(run) 执行，否则会抛错
+          if (/^(SELECT|PRAGMA)\b/i.test(trimmedStmt)) {
+            await db.query(trimmedStmt)
+          } else {
+            await db.exec(trimmedStmt)
+          }
         } catch (error) {
           // 忽略 "column already exists" 等幂等性错误
           const errorMsg = error instanceof Error ? error.message : String(error)
@@ -979,7 +985,7 @@ async function recordMigration(name: string, fileHash: string): Promise<void> {
 
   if (db.type === 'sqlite') {
     // 先尝试更新（如果存在），否则插入
-    db.exec(
+    await db.exec(
       `INSERT INTO migration_history (migration_name, file_hash, executed_at)
        VALUES (?, ?, datetime('now'))
        ON CONFLICT(migration_name) DO UPDATE SET
