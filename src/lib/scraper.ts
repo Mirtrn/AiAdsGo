@@ -162,6 +162,15 @@ export interface ScrapedProductData {
   socialProof?: Array<{ metric: string; value: string }>
   coreFeatures?: string[]      // 核心卖点
   secondaryFeatures?: string[] // 次要特性
+  reviews?: Array<{            // 用户评论（Judge.me等评论系统）
+    rating: number            // 评分 1-5
+    date: string              // 日期
+    author: string            // 评论者
+    title: string             // 标题
+    body: string              // 正文
+    verifiedBuyer: boolean    // 是否验证购买
+    images?: string[]         // 评论图片
+  }>
 }
 
 /**
@@ -608,7 +617,68 @@ function extractShopifyData($: any, url: string): ScrapedProductData {
     }
   }
 
-  // ==================== 8. 返回增强的数据结构 ====================
+  // ==================== 8. 评论数据提取（Judge.me系统）====================
+  const reviews: Array<{
+    rating: number
+    date: string
+    author: string
+    title: string
+    body: string
+    verifiedBuyer: boolean
+    images?: string[]
+  }> = []
+
+  // Judge.me评论系统选择器（适用于mydaysoutdoor.com等Shopify店铺）
+  $('.jdgm-rev').each((i: number, el: any) => {
+    const $review = $(el)
+
+    // 提取评分（data-score属性）
+    const ratingText = $review.find('.jdgm-rev__rating').attr('data-score')
+    const rating = ratingText ? parseInt(ratingText, 10) : 0
+
+    // 提取日期（data-content属性，格式：2024-01-26 00:00:00 UTC）
+    const dateText = $review.find('.jdgm-rev__timestamp').attr('data-content')
+    const date = dateText ? dateText.split(' ')[0] : '' // 取 YYYY-MM-DD 部分
+
+    // 提取评论者姓名
+    const author = $review.find('.jdgm-rev__author').text().trim()
+
+    // 提取评论标题
+    const title = $review.find('.jdgm-rev__title').text().trim()
+
+    // 提取评论正文
+    const body = $review.find('.jdgm-rev__body p').text().trim()
+
+    // 提取是否为验证购买者（data-verified-buyer属性）
+    const verifiedBuyerAttr = $review.attr('data-verified-buyer')
+    const verifiedBuyer = verifiedBuyerAttr === 'true'
+
+    // 提取评论图片（可选）
+    const images: string[] = []
+    $review.find('.jdgm-rev__pics img').each((j: number, img: any) => {
+      const src = $(img).attr('src')
+      if (src && !src.includes('data:image')) {
+        images.push(src)
+      }
+    })
+
+    // 只保存有效的评论（至少有评分和评论者）
+    if (rating > 0 && author && (title || body)) {
+      reviews.push({
+        rating,
+        date,
+        author,
+        title,
+        body,
+        verifiedBuyer,
+        images: images.length > 0 ? images : undefined
+      })
+    }
+  })
+
+  console.log(`🔍 [Shopify Reviews] 提取到 ${reviews.length} 条评论`)
+
+  // ==================== 9. 返回增强的数据结构 ====================
   return {
     productName: $('.product-title').text().trim() || $('h1').text().trim() || null,
     productDescription: $('.product-description').text().trim() || $('[class*="description"]').text().trim() || null,
@@ -626,6 +696,7 @@ function extractShopifyData($: any, url: string): ScrapedProductData {
     socialProof: socialProof.length > 0 ? socialProof : undefined,
     coreFeatures: coreFeatures.length > 0 ? coreFeatures : undefined,
     secondaryFeatures: secondaryFeatures.length > 0 ? secondaryFeatures : undefined,
+    reviews: reviews.length > 0 ? reviews : undefined,
   }
 }
 
