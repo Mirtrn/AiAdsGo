@@ -812,28 +812,18 @@ function extractGenericData($: any, url: string): ScrapedProductData {
  * This function wraps scrapeProductData and returns a simplified format
  * @param url - 产品页面URL
  * @param targetCountry - 目标国家（用于动态语言配置）
+ * 🔥 2026-01-04修复：直接返回ScrapedProductData，保留完整的reviews、faqs等数据
  */
 export async function extractProductInfo(
   url: string,
   targetCountry?: string
-): Promise<{
-  brand: string | null
-  description: string | null
-  productName: string | null
-  price: string | null
-  imageUrls: string[]  // 🔥 P1优化：添加图片URL数组
-}> {
+): Promise<ScrapedProductData> {
   try {
     // 🌍 传入targetCountry到scrapeProductData
     const productData = await scrapeProductData(url, undefined, targetCountry)
 
-    return {
-      brand: productData.brandName,
-      description: productData.productDescription || productData.metaDescription,
-      productName: productData.productName,
-      price: productData.productPrice,
-      imageUrls: productData.imageUrls || [],  // 🔥 P1优化：返回图片URL数组
-    }
+    // 🔥 直接返回完整的ScrapedProductData，不丢失任何字段
+    return productData
   } catch (error) {
     console.error('extractProductInfo error:', error)
     throw error

@@ -355,7 +355,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
 
     let brandName = null
     let productDescription = null
-    let scrapedData = null
+    let scrapedData: import('./scraper').ScrapedProductData | null = null
     let storeData = null
     let independentStoreData = null
     let amazonProductData = null
@@ -443,9 +443,14 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         productDescription = amazonProductData.productDescription
         scrapedData = {
           productName: amazonProductData.productName,
-          brand: amazonProductData.brandName,
-          description: amazonProductData.productDescription,
-          price: amazonProductData.productPrice,
+          productDescription: amazonProductData.productDescription,
+          productPrice: amazonProductData.productPrice,
+          productCategory: amazonProductData.category || null,
+          productFeatures: amazonProductData.features || [],
+          brandName: amazonProductData.brandName,
+          imageUrls: amazonProductData.imageUrls || [],
+          metaTitle: null,
+          metaDescription: null,
         }
         console.log(`✅ Amazon单品识别成功: ${brandName || 'Unknown'}`)
       } else if (isIndependentStore) {
@@ -471,7 +476,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         scrapedData = await extractProductInfo(resolvedData.finalUrl, targetCountry)
 
         // 🔥 检测是否需要JavaScript渲染：如果静态scraper返回的内容为空，则使用Playwright
-        if (!scrapedData || !scrapedData.brand) {
+        if (!scrapedData || !scrapedData.brandName) {
           console.warn('⚠️ 轻量级scraper返回数据不完整，尝试使用Playwright进行JavaScript渲染...')
 
           try {
@@ -488,9 +493,14 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
             // 使用Playwright获取的数据更新
             scrapedData = {
               productName: independentProductData.productName,
-              brand: independentProductData.brandName,
-              description: independentProductData.productDescription,
-              price: independentProductData.productPrice,
+              productDescription: independentProductData.productDescription,
+              productPrice: independentProductData.productPrice,
+              productCategory: null,
+              productFeatures: [],
+              brandName: independentProductData.brandName,
+              imageUrls: [],
+              metaTitle: null,
+              metaDescription: null,
             }
 
             console.log(`✅ Playwright渲染成功: ${independentProductData.brandName || 'Unknown'}`)
@@ -500,11 +510,11 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           }
         }
 
-        if (scrapedData?.brand) {
-          brandName = scrapedData.brand
+        if (scrapedData?.brandName) {
+          brandName = scrapedData.brandName
         }
-        if (scrapedData?.description) {
-          productDescription = scrapedData.description
+        if (scrapedData?.productDescription) {
+          productDescription = scrapedData.productDescription
         }
         // 🔥 单品页面：productCount应为1
         productCount = scrapedData ? 1 : 0
@@ -570,9 +580,24 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         targetLanguage,
 
         // 单品页数据（可选）
+        // 🔥 2026-01-04修复：保存完整的scrapedData（包含reviews、faqs、specifications等字段）
         ...(scrapedData && {
           productName: scrapedData.productName,
-          price: scrapedData.price,
+          productPrice: scrapedData.productPrice,
+          // 独立站增强数据字段
+          reviews: scrapedData.reviews,
+          faqs: scrapedData.faqs,
+          specifications: scrapedData.specifications,
+          packages: scrapedData.packages,
+          socialProof: scrapedData.socialProof,
+          coreFeatures: scrapedData.coreFeatures,
+          secondaryFeatures: scrapedData.secondaryFeatures,
+          // 基础字段
+          productFeatures: scrapedData.productFeatures,
+          imageUrls: scrapedData.imageUrls,
+          metaTitle: scrapedData.metaTitle,
+          metaDescription: scrapedData.metaDescription,
+          productCategory: scrapedData.productCategory,
         }),
 
         // Amazon单品页评论数据（复用已抓取数据，避免重复请求）
