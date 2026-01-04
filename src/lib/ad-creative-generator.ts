@@ -1291,6 +1291,94 @@ This creative focuses on "${intent || intentEn}" user intent.
     }
   }
 
+  // 🔥 2026-01-04新增：处理独立站增强数据字段（reviews、faqs、specifications、packages、socialProof等）
+  // 这些数据从scraped_data中提取，用于增强广告创意生成
+  if (offer.scraped_data) {
+    try {
+      const scrapedData = JSON.parse(offer.scraped_data)
+
+      // 1. User Reviews（真实用户评论）
+      if (scrapedData.reviews && Array.isArray(scrapedData.reviews) && scrapedData.reviews.length > 0) {
+        const reviewSummaries = scrapedData.reviews.slice(0, 5).map((r: any) =>
+          `${r.rating}★ - ${r.author}: ${r.title}${r.body ? `. ${r.body.substring(0, 80)}${r.body.length > 80 ? '...' : ''}` : ''}`
+        )
+        extras.push(`REAL USER REVIEWS: ${reviewSummaries.join(' | ')}`)
+
+        // 从评论中提取用户常用表达模式
+        const userPhrases: string[] = []
+        scrapedData.reviews.slice(0, 5).forEach((r: any) => {
+          if (r.body) {
+            const patterns = [
+              /very ([\w\s]+)/gi, /really ([\w\s]+)/gi, /love(s?)( the)?/gi,
+              /great ([\w\s]+)/gi, /perfect for/gi, /easy to/gi, /highly recommend/gi
+            ]
+            patterns.forEach(pattern => {
+              const matches = r.body.match(pattern)
+              if (matches) {
+                matches.slice(0, 2).forEach((m: string) => {
+                  const cleaned = m.toLowerCase().trim().substring(0, 25)
+                  if (cleaned.length > 5) userPhrases.push(cleaned)
+                })
+              }
+            })
+          }
+        })
+        const uniquePhrases = [...new Set(userPhrases)].slice(0, 5)
+        if (uniquePhrases.length > 0) {
+          extras.push(`USER LANGUAGE PATTERNS: ${uniquePhrases.join(', ')}`)
+        }
+      }
+
+      // 2. FAQs（常见问题）
+      if (scrapedData.faqs && Array.isArray(scrapedData.faqs) && scrapedData.faqs.length > 0) {
+        // 将FAQ转化为广告创意素材：回答用户关心的问题
+        const faqHighlights = scrapedData.faqs.slice(0, 4).map((f: any) =>
+          `Q: ${f.question.substring(0, 50)}${f.question.length > 50 ? '...' : ''}`
+        )
+        extras.push(`CUSTOMER FAQs: ${faqHighlights.join(' | ')}`)
+      }
+
+      // 3. Product Specifications（技术规格）
+      if (scrapedData.specifications && typeof scrapedData.specifications === 'object') {
+        const specEntries = Object.entries(scrapedData.specifications).slice(0, 5)
+        if (specEntries.length > 0) {
+          const specStr = specEntries.map(([k, v]) => `${k}: ${v}`).join(', ')
+          extras.push(`TECH SPECS: ${specStr}`)
+        }
+      }
+
+      // 4. Package Options（套餐选项）
+      if (scrapedData.packages && Array.isArray(scrapedData.packages) && scrapedData.packages.length > 0) {
+        const packageInfo = scrapedData.packages.slice(0, 3).map((p: any) =>
+          `${p.name || 'Package'}${p.price ? ` (${p.price})` : ''}: ${(p.includes || []).slice(0, 3).join(', ')}`
+        )
+        extras.push(`PACKAGE OPTIONS: ${packageInfo.join(' | ')}`)
+      }
+
+      // 5. Social Proof（社会证明）
+      if (scrapedData.socialProof && Array.isArray(scrapedData.socialProof) && scrapedData.socialProof.length > 0) {
+        const socialMetrics = scrapedData.socialProof.map((sp: any) =>
+          `${sp.metric}: ${sp.value}`
+        ).join(' | ')
+        extras.push(`SOCIAL PROOF METRICS: ${socialMetrics}`)
+      }
+
+      // 6. Core Features（核心卖点）
+      if (scrapedData.coreFeatures && Array.isArray(scrapedData.coreFeatures) && scrapedData.coreFeatures.length > 0) {
+        extras.push(`CORE FEATURES: ${scrapedData.coreFeatures.slice(0, 5).join(', ')}`)
+      }
+
+      // 7. Secondary Features（次要特性）
+      if (scrapedData.secondaryFeatures && Array.isArray(scrapedData.secondaryFeatures) && scrapedData.secondaryFeatures.length > 0) {
+        extras.push(`ADDITIONAL FEATURES: ${scrapedData.secondaryFeatures.slice(0, 5).join(', ')}`)
+      }
+
+      console.log('✅ 已加载独立站增强数据到Prompt')
+    } catch (parseError: any) {
+      console.warn('⚠️ 解析独立站增强数据失败（非致命错误）:', parseError.message)
+    }
+  }
+
   // Build extras_data section
   variables.extras_data = extras.length ? '\n' + extras.join(' | ') + '\n' : ''
 
