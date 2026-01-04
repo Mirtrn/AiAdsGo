@@ -1603,40 +1603,52 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         // 🔥 修复：重构数据结构以适配extractAdElements期望的格式
         // extractResult现在是扁平结构，需要根据debug标志重新组装
         const debug = extractResult.debug || {}
-        const isAmazonProductPage = debug.isAmazonProductPage || false
         const isAmazonStore = debug.isAmazonStore || false
+        const isIndependentStore = debug.isIndependentStore || false
 
-        // 重构Amazon产品数据（如果是Amazon产品页）
-        const amazonProductData = isAmazonProductPage && extractResult.rating ? {
-          productName: extractResult.productName,
-          brandName: extractResult.brand,
-          productDescription: extractResult.productDescription,
-          productPrice: extractResult.productPrice,
-          rating: extractResult.rating,
-          reviewCount: extractResult.reviewCount,
-          reviewHighlights: extractResult.reviewHighlights,
-          topReviews: extractResult.topReviews,
-          features: extractResult.features,
-          aboutThisItem: extractResult.aboutThisItem,
-          technicalDetails: extractResult.technicalDetails,
-          imageUrls: extractResult.imageUrls,
-          originalPrice: extractResult.originalPrice,
-          discount: extractResult.discount,
-          salesRank: extractResult.salesRank,
-          availability: extractResult.availability,
-          primeEligible: extractResult.primeEligible,
-          asin: extractResult.asin,
-          category: extractResult.category,
+        // 🔥 2026-01-04修复：独立站/非Amazon页面也需要提供product数据
+        // 否则extractAdElements会抛错，导致extractedKeywords为空，进而阻断关键词池/创意生成。
+        const adPageType: 'product' | 'store' | 'unknown' =
+          (extractResult as any).pageType === 'store' || (extractResult as any).pageType === 'product'
+            ? ((extractResult as any).pageType as 'store' | 'product')
+            : (isAmazonStore || isIndependentStore ? 'store' : 'product')
+
+        // 产品页：无论Amazon还是独立站，只要有基础商品字段就组装成AmazonProductData兼容结构
+        const productData = adPageType === 'product' ? {
+          productName: extractResult.productName ?? null,
+          productDescription: extractResult.productDescription ?? null,
+          productPrice: extractResult.productPrice ?? null,
+          originalPrice: extractResult.originalPrice ?? null,
+          discount: extractResult.discount ?? null,
+          brandName: extractResult.brand ?? null,
+          features: Array.isArray(extractResult.features) ? extractResult.features : [],
+          aboutThisItem: Array.isArray(extractResult.aboutThisItem) ? extractResult.aboutThisItem : [],
+          imageUrls: Array.isArray(extractResult.imageUrls) ? extractResult.imageUrls : [],
+          rating: extractResult.rating ?? null,
+          reviewCount: extractResult.reviewCount ?? null,
+          salesRank: extractResult.salesRank ?? null,
+          badge: (extractResult as any).badge ?? null,
+          availability: extractResult.availability ?? null,
+          primeEligible: Boolean((extractResult as any).primeEligible),
+          reviewHighlights: Array.isArray(extractResult.reviewHighlights) ? extractResult.reviewHighlights : [],
+          topReviews: Array.isArray(extractResult.topReviews) ? extractResult.topReviews : [],
+          technicalDetails: (extractResult.technicalDetails && typeof extractResult.technicalDetails === 'object')
+            ? extractResult.technicalDetails
+            : {},
+          asin: extractResult.asin ?? null,
+          category: extractResult.category ?? null,
+          relatedAsins: Array.isArray((extractResult as any).relatedAsins) ? (extractResult as any).relatedAsins : [],
+          reviewKeywords: Array.isArray((extractResult as any).reviewKeywords) ? (extractResult as any).reviewKeywords : undefined,
         } : undefined
 
         // 重构店铺产品数据（如果是Amazon Store或独立站）
-        const storeProducts = extractResult.products || undefined
+        const storeProducts = adPageType === 'store' ? (extractResult.products || undefined) : undefined
 
         const scraped = {
-          pageType: pageType as 'product' | 'store' | 'unknown',
-          product: amazonProductData as any,
+          pageType: adPageType,
+          product: productData as any,
           storeProducts: storeProducts as any,
-          hasDeepData: !!(amazonProductData || storeProducts),
+          hasDeepData: !!(productData || storeProducts),
         }
 
         const adElements = await extractAdElements(

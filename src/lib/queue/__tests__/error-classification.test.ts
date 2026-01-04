@@ -3,10 +3,7 @@
  * 验证 isRecoverableError 方法能否正确识别可恢复和不可恢复的错误
  */
 
-/**
- * 测试错误分类逻辑
- * 注意：这个测试文件是参考实现，展示如何测试错误分类逻辑
- */
+import { describe, it, expect } from 'vitest'
 
 // 模拟 isRecoverableError 方法的逻辑
 function isRecoverableError(error: any): boolean {
@@ -85,19 +82,16 @@ const recoverableErrors = [
   { message: 'Request timeout after 30000ms' },
 ]
 
-console.log('🧪 测试不可恢复的错误分类...')
-nonRecoverableErrors.forEach((error, index) => {
-  const result = isRecoverableError(error)
-  const status = result === false ? '✅' : '❌'
-  console.log(`  ${status} 错误 ${index + 1}: "${error.message}" => 不可恢复=${!result}`)
+describe('isRecoverableError', () => {
+  it('marks non-recoverable errors as false', () => {
+    for (const error of nonRecoverableErrors) {
+      expect(isRecoverableError(error), error.message).toBe(false)
+    }
+  })
+
+  it('marks recoverable errors as true', () => {
+    for (const error of recoverableErrors) {
+      expect(isRecoverableError(error), error.message).toBe(true)
+    }
+  })
 })
-
-console.log('\n🧪 测试可恢复的错误分类...')
-recoverableErrors.forEach((error, index) => {
-  const result = isRecoverableError(error)
-  const status = result === true ? '✅' : '❌'
-  console.log(`  ${status} 错误 ${index + 1}: "${error.message}" => 可恢复=${result}`)
-})
-
-console.log('\n✅ 所有测试完成！')
-

@@ -55,6 +55,7 @@ async function saveScrapedProducts(
   source: 'amazon_store' | 'independent_store' | 'amazon_product'
 ): Promise<void> {
   const db = await getDatabase()
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
 
   // 软删除该Offer之前的产品数据（更新场景）- 添加用户隔离
   // 🔧 修改历史：
@@ -82,7 +83,7 @@ async function saveScrapedProducts(
         ?, ?, ?, ?,
         ?, ?,
         ?, ?, ?,
-        datetime('now'), datetime('now')
+        ${nowFunc}, ${nowFunc}
       )
     `, [
       userId,

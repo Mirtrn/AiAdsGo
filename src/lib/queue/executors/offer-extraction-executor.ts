@@ -224,6 +224,15 @@ export async function executeOfferExtraction(
     // Offer已在提取完成后创建，这里只更新AI分析结果
     if (createdOfferId) {
       try {
+        // 🔥 2026-01-04修复：将AI生成的关键词持久化到offers.ai_keywords
+        // 关键词池生成依赖 ai_keywords / extracted_keywords；若不保存，独立站等场景可能出现“无可用关键词”
+        const aiKeywordSeeds: string[] | null =
+          Array.isArray((aiProductInfo as any)?.keywords) && (aiProductInfo as any).keywords.length > 0
+            ? (aiProductInfo as any).keywords
+            : (Array.isArray(aiAnalysisResult?.extractedKeywords) && aiAnalysisResult.extractedKeywords.length > 0
+                ? aiAnalysisResult.extractedKeywords
+                : null)
+
         await updateOfferScrapeStatus(createdOfferId, task.userId, 'completed', undefined, {
           brand: extractResult.data.brand || undefined,
           url: extractResult.data.finalUrl || undefined,
@@ -255,6 +264,7 @@ export async function executeOfferExtraction(
           extraction_metadata: aiAnalysisResult?.extractionMetadata ?
             JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
           extracted_at: new Date().toISOString(),
+          ai_keywords: aiKeywordSeeds ? JSON.stringify(aiKeywordSeeds) : undefined,
           scraped_data: JSON.stringify(extractResult.data),
           page_type: extractResult.data.pageType || undefined,
         })

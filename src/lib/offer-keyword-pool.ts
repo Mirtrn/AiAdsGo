@@ -2183,6 +2183,62 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
   const db = await getDatabase()
   const keywordMap = new Map<string, PoolKeywordData>()
 
+  const addKeywordData = (kw: PoolKeywordData) => {
+    const keyword = kw?.keyword?.trim()
+    if (!keyword) return
+    if (keywordMap.has(keyword)) return
+    keywordMap.set(keyword, kw)
+  }
+
+  const addKeywordString = (keyword: string, source: string) => {
+    const normalized = keyword?.trim()
+    if (!normalized) return
+    addKeywordData({
+      keyword: normalized,
+      searchVolume: 0,
+      source,
+      matchType: 'BROAD'
+    })
+  }
+
+  const addKeywordsFromJson = (raw: unknown, source: string) => {
+    if (raw == null) return
+
+    let parsed: unknown = raw
+    if (typeof raw === 'string') {
+      if (raw.trim() === '') return
+      try {
+        parsed = JSON.parse(raw)
+      } catch {
+        return
+      }
+    }
+
+    if (!Array.isArray(parsed)) return
+
+    for (const item of parsed) {
+      if (typeof item === 'string') {
+        addKeywordString(item, source)
+        continue
+      }
+      if (item && typeof item === 'object') {
+        const keyword = (item as any).keyword || (item as any).text
+        if (typeof keyword === 'string') {
+          addKeywordData({
+            keyword,
+            searchVolume: Number((item as any).searchVolume || (item as any).volume || 0) || 0,
+            competition: typeof (item as any).competition === 'string' ? (item as any).competition : undefined,
+            competitionIndex: typeof (item as any).competitionIndex === 'number' ? (item as any).competitionIndex : undefined,
+            lowTopPageBid: typeof (item as any).lowTopPageBid === 'number' ? (item as any).lowTopPageBid : undefined,
+            highTopPageBid: typeof (item as any).highTopPageBid === 'number' ? (item as any).highTopPageBid : undefined,
+            source,
+            matchType: (item as any).matchType || 'BROAD'
+          })
+        }
+      }
+    }
+  }
+
   // 从现有创意中提取关键词
   const creatives = await db.query<{ keywords: string }>(
     `SELECT keywords FROM ad_creatives
@@ -2219,34 +2275,69 @@ async function extractKeywordsFromOffer(offerId: number, userId: number): Promis
 
   // 如果没有创意关键词，从 AI 分析结果提取
   if (keywordMap.size === 0) {
-    const offer = await db.queryOne<{ ai_keywords: string; extracted_keywords: string }>(
-      'SELECT ai_keywords, extracted_keywords FROM offers WHERE id = ?',
-      [offerId]
+    const offer = await db.queryOne<{
+      ai_keywords: string | null
+      extracted_keywords: string | null
+      brand: string | null
+      category: string | null
+      product_name: string | null
+      product_highlights: string | null
+      unique_selling_points: string | null
+      scraped_data: string | null
+      page_type: string | null
+    }>(
+      `SELECT
+        ai_keywords,
+        extracted_keywords,
+        brand,
+        category,
+        product_name,
+        product_highlights,
+        unique_selling_points,
+        scraped_data,
+        page_type
+      FROM offers
+      WHERE id = ? AND user_id = ?`,
+      [offerId, userId]
     )
 
-    const keywordsJson = offer?.ai_keywords || offer?.extracted_keywords
+    // 先解析 ai_keywords；如果为空数组，再尝试 extracted_keywords
+    addKeywordsFromJson(offer?.ai_keywords, 'OFFER_AI_KEYWORDS')
+    addKeywordsFromJson(offer?.extracted_keywords, 'OFFER_EXTRACTED_KEYWORDS')
 
-    if (keywordsJson) {
+    // 兜底：某些页面类型（尤其店铺页/抓取降级）可能出现 ai_keywords='[]' 且 extracted_keywords=NULL
+    // 这种情况下用“真实已抓取”的结构化字段构建最小种子词，避免整个创意生成流程被阻断。
+    if (keywordMap.size === 0 && offer?.brand) {
+      console.warn(`[extractKeywordsFromOffer] Offer #${offerId} 无AI/提取关键词，使用兜底种子词生成 (pageType=${offer.page_type || 'unknown'})`)
+
+      // 1) 品牌词（保证至少有一个关键词）
+      addKeywordString(offer.brand, 'FALLBACK_BRAND')
+
+      // 2) 产品名 / 品类（来自抓取结果）
+      if (offer.product_name && offer.product_name !== offer.brand) {
+        addKeywordString(`${offer.brand} ${offer.product_name}`.slice(0, 80), 'FALLBACK_PRODUCT_NAME')
+      }
+      if (offer.category) {
+        addKeywordString(`${offer.brand} ${offer.category}`.slice(0, 80), 'FALLBACK_CATEGORY')
+      }
+
+      // 3) 尝试复用统一关键词服务的“意图感知种子词”构建逻辑（仅在兜底路径加载）
       try {
-        const parsedKeywords = JSON.parse(keywordsJson)
-        if (Array.isArray(parsedKeywords)) {
-          parsedKeywords.forEach((kw: any) => {
-            const kwStr = typeof kw === 'string' ? kw : kw.keyword
-            if (kwStr && !keywordMap.has(kwStr)) {
-              keywordMap.set(kwStr, {
-                keyword: kwStr,
-                searchVolume: typeof kw === 'object' ? (kw.searchVolume || 0) : 0,
-                competition: typeof kw === 'object' ? kw.competition : undefined,
-                competitionIndex: typeof kw === 'object' ? kw.competitionIndex : undefined,
-                lowTopPageBid: typeof kw === 'object' ? kw.lowTopPageBid : undefined,
-                highTopPageBid: typeof kw === 'object' ? kw.highTopPageBid : undefined,
-                source: 'OFFER_DATA',
-                matchType: typeof kw === 'object' ? kw.matchType : 'BROAD'
-              })
-            }
-          })
-        }
-      } catch {}
+        const { buildIntentAwareSeedPool } = await import('./unified-keyword-service')
+        const seedPool = buildIntentAwareSeedPool({
+          brand: offer.brand,
+          category: offer.category,
+          productTitle: offer.product_name || undefined,
+          productFeatures: offer.product_highlights || offer.unique_selling_points || undefined,
+          scrapedData: offer.scraped_data || undefined
+        })
+
+        seedPool.allSeeds
+          .slice(0, 50)
+          .forEach(seed => addKeywordString(seed, 'FALLBACK_INTENT_SEEDS'))
+      } catch (seedError: any) {
+        console.warn(`[extractKeywordsFromOffer] 兜底种子词构建失败: ${seedError?.message || seedError}`)
+      }
     }
   }
 

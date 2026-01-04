@@ -620,10 +620,20 @@ async function extractFromSingleProduct(
     })
 
     // 过滤搜索量过低的关键字（但保留搜索量为0的关键字，因为可能是API未返回数据）
+    // ⚠️ 重要：不能过滤到“0个关键词”，否则后续关键词池与创意生成会被阻断
     const hasAnyVolume = keywordsWithVolume.some(k => k.searchVolume > 0)
-    const filteredKeywords = hasAnyVolume
+    const filteredKeywordsCandidate = hasAnyVolume
       ? keywordsWithVolume.filter(k => k.searchVolume >= minSearchVolume || k.searchVolume === 0)
       : keywordsWithVolume // 如果所有关键词都是0，保留全部（API数据缺失）
+
+    const filteredKeywords = filteredKeywordsCandidate.length > 0
+      ? filteredKeywordsCandidate
+      : keywordsWithVolume
+
+    if (filteredKeywordsCandidate.length === 0 && keywordsWithVolume.length > 0) {
+      console.warn(`  ⚠️ 所有关键词搜索量均低于阈值(${minSearchVolume})，保留全部${keywordsWithVolume.length}个关键词以保证流程可用`)
+    }
+
     console.log(`  ✓ 过滤后剩余${filteredKeywords.length}个关键字（搜索量>=${minSearchVolume}${!hasAnyVolume ? '，API未返回数据' : ''}）`)
 
     // 按优先级和搜索量排序
