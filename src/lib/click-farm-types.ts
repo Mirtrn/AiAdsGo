@@ -212,17 +212,18 @@ export const REFERER_OPTIONS = [
 
 export const SOCIAL_MEDIA_REFERRERS = [
   { value: 'https://www.facebook.com/', label: 'Facebook' },
-  { value: 'https://twitter.com/', label: 'Twitter/X' },
+  { value: 'https://mail.google.com/', label: 'Gmail' },
   { value: 'https://www.instagram.com/', label: 'Instagram' },
-  { value: 'https://www.youtube.com/', label: 'YouTube' },
-  { value: 'https://www.tiktok.com/', label: 'TikTok' },
-  { value: 'https://www.pinterest.com/', label: 'Pinterest' },
-  { value: 'https://www.reddit.com/', label: 'Reddit' },
   { value: 'https://www.linkedin.com/', label: 'LinkedIn' },
   { value: 'https://medium.com/', label: 'Medium' },
-  { value: 'https://wa.me/', label: 'WhatsApp' },
-  { value: 'https://www.snapchat.com/', label: 'Snapchat' },
+  { value: 'https://www.pinterest.com/', label: 'Pinterest' },
   { value: 'https://www.quora.com/', label: 'Quora' },
+  { value: 'https://www.reddit.com/', label: 'Reddit' },
+  { value: 'https://www.snapchat.com/', label: 'Snapchat' },
+  { value: 'https://www.tiktok.com/', label: 'TikTok' },
+  { value: 'https://www.twitter.com/', label: 'Twitter/X' },
+  { value: 'https://wa.me/', label: 'WhatsApp' },
+  { value: 'https://www.youtube.com/', label: 'YouTube' },
 ] as const;
 
 /**
