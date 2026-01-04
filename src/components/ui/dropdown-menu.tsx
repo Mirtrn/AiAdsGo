@@ -74,8 +74,6 @@ const DropdownMenuContent = React.forwardRef<
     const contentRef = React.useRef<HTMLDivElement | null>(null);
     const [resolvedSide, setResolvedSide] = React.useState<"top" | "bottom">(side ?? "bottom");
 
-    if (!open) return null;
-
     const alignmentClasses = {
         start: "left-0",
         end: "right-0",
@@ -83,6 +81,8 @@ const DropdownMenuContent = React.forwardRef<
     };
 
     React.useLayoutEffect(() => {
+        if (!open) return;
+
         if (side) {
             setResolvedSide(side);
             return;
@@ -113,6 +113,8 @@ const DropdownMenuContent = React.forwardRef<
         marginTop: resolvedSide === "bottom" ? (style?.marginTop ?? sideOffset) : style?.marginTop,
         marginBottom: resolvedSide === "top" ? (style?.marginBottom ?? sideOffset) : style?.marginBottom,
     };
+
+    if (!open) return null;
 
     return (
         <div
