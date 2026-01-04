@@ -276,16 +276,6 @@ export default function UrlSwapPage() {
                 <RefreshCw className="w-4 h-4" />
                 刷新
               </Button>
-              <Button
-                onClick={() => {
-                  setEditTaskId(null);
-                  setModalOpen(true);
-                }}
-                className="flex items-center gap-2"
-              >
-                <Link className="w-4 h-4" />
-                创建任务
-              </Button>
             </div>
           </div>
         </div>
@@ -420,7 +410,7 @@ export default function UrlSwapPage() {
                 : '没有找到符合筛选条件的任务。'}
             </p>
             {tasks.length === 0 && (
-              <div className="mt-6">
+              <div className="mt-6 flex justify-center">
                 <Button
                   onClick={() => router.push('/offers')}
                   className="flex items-center gap-2"
