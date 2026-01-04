@@ -2129,7 +2129,7 @@ function normalizeDigits(text: string): string {
 /**
  * 解析AI响应
  */
-function parseAIResponse(text: string): GeneratedAdCreativeData {
+export function parseAIResponse(text: string): GeneratedAdCreativeData {
   console.log('🔍 AI原始响应长度:', text.length)
   console.log('🔍 AI原始响应前500字符:', text.substring(0, 500))
 
@@ -2202,7 +2202,17 @@ function parseAIResponse(text: string): GeneratedAdCreativeData {
   console.error('🐛 JSON后500字符:', jsonText.substring(Math.max(0, jsonText.length - 500)))
 
   try {
-    const data = JSON.parse(jsonText)
+    const raw = JSON.parse(jsonText)
+    const responsiveSearchAds =
+      raw?.responsive_search_ads ??
+      raw?.responsiveSearchAds
+
+    // 🔧 兼容新格式：AI 可能返回 { responsive_search_ads: { ... } }
+    // 旧解析器要求顶层字段 headlines/descriptions/keywords/callouts/sitelinks
+    const data =
+      responsiveSearchAds && typeof responsiveSearchAds === 'object'
+        ? { ...raw, ...responsiveSearchAds }
+        : raw
 
     // 验证必需字段
     if (!data.headlines || !Array.isArray(data.headlines) || data.headlines.length < 3) {
