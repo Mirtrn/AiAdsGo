@@ -1027,6 +1027,19 @@ export async function GET(request: NextRequest) {
       }, { status: statusCode })
     }
 
+    // 🔧 修复(2026-01-04): 检测 OAuth refresh token 过期错误
+    if (error.message?.includes('invalid_grant')) {
+      statusCode = 401
+      errorCode = 'OAUTH_TOKEN_EXPIRED'
+
+      return NextResponse.json({
+        error: 'OAuth 授权已过期',
+        code: errorCode,
+        message: 'Google OAuth refresh token 已过期或失效，请重新授权',
+        needsReauth: true
+      }, { status: statusCode })
+    }
+
     if (error.message?.includes('invalid_client')) {
       statusCode = 401  // 未授权
       errorCode = 'INVALID_CLIENT'

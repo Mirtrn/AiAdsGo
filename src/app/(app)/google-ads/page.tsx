@@ -47,6 +47,7 @@ export default function GoogleAdsPage() {
   const [accountsLoading, setAccountsLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [needsReauth, setNeedsReauth] = useState(false)  // 是否需要重新授权
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set())
@@ -141,6 +142,13 @@ export default function GoogleAdsPage() {
 
       if (!response.ok) {
         const errorData = await response.json()
+
+        // 检测OAuth授权过期错误
+        if (errorData.needsReauth || errorData.code === 'OAUTH_TOKEN_EXPIRED') {
+          setNeedsReauth(true)
+          throw new Error('OAuth授权已过期')
+        }
+
         throw new Error(errorData.message || '获取账户列表失败')
       }
 
@@ -194,6 +202,13 @@ export default function GoogleAdsPage() {
 
       if (!response.ok) {
         const errorData = await response.json()
+
+        // 检测OAuth授权过期错误
+        if (errorData.needsReauth || errorData.code === 'OAUTH_TOKEN_EXPIRED') {
+          setNeedsReauth(true)
+          throw new Error('OAuth授权已过期')
+        }
+
         throw new Error(errorData.message || '获取账户列表失败')
       }
 
@@ -404,6 +419,57 @@ export default function GoogleAdsPage() {
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
+          {/* OAuth 授权过期提示 - 优先显示 */}
+          {needsReauth && (
+            <div className="mb-4 bg-red-50 border-2 border-red-500 rounded-lg p-6">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div className="ml-3 flex-1">
+                  <h3 className="text-lg font-bold text-red-800 mb-2">
+                    ⚠️ Google OAuth 授权已过期
+                  </h3>
+                  <p className="text-sm text-red-700 mb-4">
+                    您的 Google Ads API 授权已失效。这通常是因为 OAuth refresh token 已过期、被撤销或 Google 账号密码已修改。
+                  </p>
+                  <div className="bg-white border border-red-200 rounded p-4 mb-4">
+                    <p className="text-sm font-semibold text-gray-800 mb-2">解决方法：</p>
+                    <ol className="text-sm text-gray-700 list-decimal list-inside space-y-1.5">
+                      <li>点击下方"重新授权"按钮</li>
+                      <li>在设置页面向下滚动到"Google Ads OAuth 授权"部分</li>
+                      <li>点击"开始 OAuth 授权"按钮</li>
+                      <li>按照提示完成 Google 账号授权流程</li>
+                      <li>授权成功后返回此页面刷新账户列表</li>
+                    </ol>
+                  </div>
+                  <div className="flex gap-3">
+                    <a
+                      href="/settings"
+                      className="inline-flex items-center px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                    >
+                      <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      立即重新授权
+                    </a>
+                    <button
+                      onClick={() => {
+                        setNeedsReauth(false)
+                        setError('')
+                      }}
+                      className="inline-flex items-center px-4 py-2 bg-white border border-red-300 text-red-700 text-sm font-medium rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                    >
+                      暂时关闭此提示
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
               {error}
