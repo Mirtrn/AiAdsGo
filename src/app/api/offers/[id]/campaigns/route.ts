@@ -151,19 +151,62 @@ export async function GET(
       }
     })
 
-    // 从数据库获取该Offer关联的campaign_id列表
+    // 从数据库获取该Offer关联的campaign_id列表，并JOIN google_ads_accounts表获取customer_id
     const db = await getDatabase()
     const localCampaigns = await db.query(`
-      SELECT campaign_id
-      FROM campaigns
-      WHERE offer_id = ? AND user_id = ?
-    `, [id, parseInt(userId, 10)]) as Array<{ campaign_id: string }>
-    const offerCampaignIds = new Set(localCampaigns.map(c => c.campaign_id))
+      SELECT
+        c.campaign_id,
+        c.google_campaign_id,
+        c.google_ads_account_id,
+        gaa.customer_id,
+        gaa.account_name,
+        c.created_at
+      FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+      WHERE c.offer_id = ? AND c.user_id = ? AND c.is_deleted = FALSE
+      ORDER BY c.created_at DESC
+    `, [id, parseInt(userId, 10)]) as Array<{
+      campaign_id: string;
+      google_campaign_id: string | null;
+      google_ads_account_id: number | null;
+      customer_id: string | null;
+      account_name: string | null;
+      created_at: string;
+    }>
 
-    // 过滤出属于该Offer的广告系列（基于数据库映射关系）
-    const offerCampaigns = formattedCampaigns.filter((campaign: any) => {
-      return offerCampaignIds.has(campaign.id)
-    })
+    // 创建映射：使用 google_campaign_id 或 campaign_id（优先 google_campaign_id）
+    const campaignDataMap = new Map(
+      localCampaigns.map(c => {
+        // 使用 google_campaign_id（如果存在），否则使用 campaign_id
+        const campaignKey = c.google_campaign_id || c.campaign_id
+        return [campaignKey, c]
+      })
+    )
+    const offerCampaignIds = new Set(
+      localCampaigns.map(c => c.google_campaign_id || c.campaign_id).filter(Boolean)
+    )
+
+    // 过滤出属于该Offer的广告系列（基于数据库映射关系），并补充数据库中的信息
+    const offerCampaigns = formattedCampaigns
+      .filter((campaign: any) => offerCampaignIds.has(campaign.id))
+      .map((campaign: any) => {
+        // 从 campaignDataMap 中获取数据库记录（使用 campaign.id 匹配）
+        const dbCampaign = campaignDataMap.get(campaign.id)
+
+        return {
+          ...campaign,
+          // 🆕 添加 google_campaign_id（优先使用数据库中的值）
+          google_campaign_id: dbCampaign?.google_campaign_id || campaign.id,
+          // 🆕 添加 google_ads_account 对象（包含 customer_id）
+          google_ads_account: dbCampaign?.customer_id ? {
+            id: dbCampaign.google_ads_account_id,
+            customer_id: dbCampaign.customer_id,
+            account_name: dbCampaign.account_name,
+          } : null,
+          // 🆕 添加创建时间（用于前端排序）
+          created_at: dbCampaign?.created_at,
+        }
+      })
 
     return NextResponse.json({
       success: true,
