@@ -81,6 +81,7 @@ export async function saveQueueConfig(
   userId?: number
 ): Promise<void> {
   const db = await getDatabase()
+  const effectiveUserId = userId ?? null
 
   try {
     const settings: Array<{ key: string; value: string }> = []
@@ -108,18 +109,27 @@ export async function saveQueueConfig(
     // 保存到数据库（使用DELETE+INSERT替代UPSERT，因为表没有唯一约束）
     for (const setting of settings) {
       // 1. 先删除已存在的配置
-      await db.exec(`
+      let deleteSql = `
         DELETE FROM system_settings
         WHERE category = 'queue'
           AND config_key = ?
-          AND (user_id = ? OR (user_id IS NULL AND ? IS NULL))
-      `, [setting.key, userId || null, userId || null])
+      `
+      const deleteParams: any[] = [setting.key]
+
+      if (effectiveUserId === null) {
+        deleteSql += ` AND user_id IS NULL`
+      } else {
+        deleteSql += ` AND user_id = ?`
+        deleteParams.push(effectiveUserId)
+      }
+
+      await db.exec(deleteSql, deleteParams)
 
       // 2. 插入新配置
       await db.exec(`
         INSERT INTO system_settings (category, config_key, config_value, user_id)
         VALUES ('queue', ?, ?, ?)
-      `, [setting.key, setting.value, userId || null])
+      `, [setting.key, setting.value, effectiveUserId])
     }
 
     console.log(`[QueueConfig] 保存配置成功 (userId=${userId}):`, config)

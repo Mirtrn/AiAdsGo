@@ -1,0 +1,112 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+type StubDb = {
+  queryOne: ReturnType<typeof vi.fn>
+  exec: ReturnType<typeof vi.fn>
+}
+
+const stubDb: StubDb = {
+  queryOne: vi.fn(),
+  exec: vi.fn(),
+}
+
+vi.mock('@/lib/db', () => ({
+  getDatabase: async () => stubDb,
+}))
+
+import { createRiskAlert } from '@/lib/risk-alerts'
+import { saveQueueConfig } from '@/lib/queue-config'
+
+describe('PostgreSQL placeholder type inference guards', () => {
+  beforeEach(() => {
+    stubDb.queryOne.mockReset()
+    stubDb.exec.mockReset()
+  })
+
+  it('createRiskAlert: resourceId=null should not generate "? IS NULL" placeholder-only check', async () => {
+    let selectSql = ''
+    let selectParams: any[] = []
+
+    stubDb.queryOne.mockImplementation(async (sql: string, params: any[]) => {
+      if (sql.includes('SELECT id FROM risk_alerts')) {
+        selectSql = sql
+        selectParams = params
+        return undefined
+      }
+      if (sql.includes('INSERT INTO risk_alerts')) return { id: 123 }
+      return undefined
+    })
+
+    const id = await createRiskAlert(
+      1,
+      'oauth_token_expired',
+      'critical',
+      'Google Ads授权已过期',
+      'msg',
+      { resourceId: undefined }
+    )
+
+    expect(id).toBe(123)
+    expect(selectSql).toContain('resource_id IS NULL')
+    expect(selectSql).not.toMatch(/\?\s+IS\s+NULL/i)
+    expect(selectParams).toEqual([1, 'oauth_token_expired'])
+  })
+
+  it('createRiskAlert: resourceId=number should use only one placeholder for resource_id', async () => {
+    let selectSql = ''
+    let selectParams: any[] = []
+
+    stubDb.queryOne.mockImplementation(async (sql: string, params: any[]) => {
+      if (sql.includes('SELECT id FROM risk_alerts')) {
+        selectSql = sql
+        selectParams = params
+        return undefined
+      }
+      if (sql.includes('INSERT INTO risk_alerts')) return { id: 456 }
+      return undefined
+    })
+
+    const id = await createRiskAlert(
+      2,
+      'link_check_failed',
+      'warning',
+      't',
+      'm',
+      { resourceId: 99 }
+    )
+
+    expect(id).toBe(456)
+    expect(selectSql).toContain('resource_id = ?')
+    expect(selectSql).not.toMatch(/\?\s+IS\s+NULL/i)
+    expect(selectParams).toEqual([2, 'link_check_failed', 99])
+  })
+
+  it('saveQueueConfig: delete SQL should not use placeholder-only "? IS NULL" checks', async () => {
+    const deleteSqls: string[] = []
+    const deleteParamsList: any[][] = []
+
+    stubDb.exec.mockImplementation(async (sql: string, params: any[]) => {
+      if (sql.includes('DELETE FROM system_settings')) {
+        deleteSqls.push(sql)
+        deleteParamsList.push(params)
+      }
+      return { changes: 1 }
+    })
+
+    // global (user_id IS NULL)
+    await saveQueueConfig({ perUserConcurrency: 2 }, undefined)
+    expect(deleteSqls[0]).toContain('user_id IS NULL')
+    expect(deleteSqls[0]).not.toMatch(/\?\s+IS\s+NULL/i)
+    expect(deleteParamsList[0]).toEqual(['per_user_concurrency'])
+
+    deleteSqls.length = 0
+    deleteParamsList.length = 0
+
+    // per-user (user_id = ?)
+    await saveQueueConfig({ perUserConcurrency: 2 }, 7)
+    expect(deleteSqls[0]).toContain('user_id = ?')
+    expect(deleteSqls[0]).not.toMatch(/\?\s+IS\s+NULL/i)
+    expect(deleteParamsList[0]).toEqual(['per_user_concurrency', 7])
+  })
+})
+

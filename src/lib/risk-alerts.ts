@@ -190,22 +190,25 @@ export async function createRiskAlert(
   const db = await getDatabase()
 
   // 检查是否已存在相同的活跃提示（避免重复）
-  const existing = await db.queryOne(
-    `
+  const resourceId = options?.resourceId ?? null
+  let existingQuery = `
     SELECT id FROM risk_alerts
     WHERE user_id = ?
       AND alert_type = ?
       AND status = 'active'
-      AND (resource_id = ? OR (resource_id IS NULL AND ? IS NULL))
       AND created_at >= date('now', '-1 day')
-  `,
-    [
-      userId,
-      alertType,
-      options?.resourceId ?? null,
-      options?.resourceId ?? null,
-    ]
-  )
+  `
+
+  const existingParams: any[] = [userId, alertType]
+
+  if (resourceId === null) {
+    existingQuery += ` AND resource_id IS NULL`
+  } else {
+    existingQuery += ` AND resource_id = ?`
+    existingParams.push(resourceId)
+  }
+
+  const existing = await db.queryOne(existingQuery, existingParams)
 
   if (existing) {
     // 已存在相同提示，不重复创建
