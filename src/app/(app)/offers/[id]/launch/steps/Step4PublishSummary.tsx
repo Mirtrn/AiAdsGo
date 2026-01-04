@@ -54,10 +54,32 @@ export default function Step4PublishSummary({
   const [pauseOldCampaigns, setPauseOldCampaigns] = useState(false)
   const [enableCampaignImmediately, setEnableCampaignImmediately] = useState(false)  // 默认不启用
   const [publishing, setPublishing] = useState(false)
+  const [needsReauth, setNeedsReauth] = useState(false)
+  const [reauthMessage, setReauthMessage] = useState<string>('')
 
   // 🔧 修复(2025-12-24): 获取正确的货币符号
   const accountCurrency = selectedAccount?.currencyCode || 'USD'
   const currencySymbol = CURRENCY_SYMBOLS[accountCurrency] || '$'
+
+  const parseApiError = (data: any): { message: string; needsReauth: boolean } => {
+    const needsReauthFlag =
+      data?.needsReauth === true ||
+      data?.code === 'OAUTH_TOKEN_EXPIRED' ||
+      data?.error?.code === 'OAUTH_TOKEN_EXPIRED' ||
+      data?.error?.code === 'GADS_4005' || // GADS_CREDENTIALS_EXPIRED
+      data?.error?.code === 'GADS_4006' || // GADS_CREDENTIALS_INVALID
+      data?.error?.details?.needsReauth === true
+
+    const message =
+      (typeof data?.message === 'string' && data.message) ||
+      (typeof data?.error === 'string' && data.error) ||
+      (typeof data?.error?.message === 'string' && data.error.message) ||
+      (typeof data?.error?.error?.message === 'string' && data.error.error.message) ||
+      (typeof data?.error?.details?.reason === 'string' && data.error.details.reason) ||
+      '发布失败'
+
+    return { message, needsReauth: needsReauthFlag }
+  }
 
   // 🔥 新增：调试日志 - 追踪selectedCreative中的否定关键词
   console.log(`[Step4] selectedCreative ID: ${selectedCreative.id}`)
@@ -144,9 +166,9 @@ export default function Step4PublishSummary({
       const response = await fetch('/api/campaigns/publish', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'credentials': 'include'
+          'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           offerId: offer.id,
           adCreativeId: selectedCreative.id,
@@ -159,6 +181,7 @@ export default function Step4PublishSummary({
       })
 
       const data = await response.json()
+      const apiError = parseApiError(data)
 
       // 处理可能的错误
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
@@ -187,17 +210,29 @@ export default function Step4PublishSummary({
       if (response.status === 422) {
         console.error('❌ 422错误:', data)
         setPublishing(false)
-        addPublishStep('creating', data.message || '发布失败', 'failed')
+        addPublishStep('creating', apiError.message, 'failed')
         setPublishStatus({
           step: 'failed',
-          message: data.error || data.message || '发布失败',
+          message: apiError.message,
           success: false
         })
         return
       }
 
       if (!response.ok) {
-        throw new Error(data.error || data.message || '发布失败')
+        if (apiError.needsReauth || response.status === 401) {
+          setNeedsReauth(true)
+          setReauthMessage(apiError.message || 'Google Ads 授权已过期或被撤销，请重新授权后再发布')
+          addPublishStep('creating', 'Google Ads 授权已过期，请重新授权', 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: 'Google Ads 授权已过期，请先前往设置重新授权后再发布',
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+        throw new Error(apiError.message)
       }
 
       // 发布成功
@@ -310,9 +345,9 @@ export default function Step4PublishSummary({
       const response = await fetch('/api/campaigns/publish', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'credentials': 'include'
+          'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           offerId: offer.id,
           adCreativeId: selectedCreative.id,
@@ -325,6 +360,7 @@ export default function Step4PublishSummary({
       })
 
       const data = await response.json()
+      const apiError = parseApiError(data)
 
       // 🔥 处理Launch Score过低的情况（422状态码）- 在卡片中显示而不是toast
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
@@ -426,17 +462,29 @@ export default function Step4PublishSummary({
       if (response.status === 422) {
         console.error('❌ 422错误（未识别的action或其他422错误）:', data)
         setPublishing(false)  // 🔥 关键：停止加载动画
-        addPublishStep('creating', data.message || '发布失败', 'failed')
+        addPublishStep('creating', apiError.message, 'failed')
         setPublishStatus({
           step: 'failed',
-          message: data.error || data.message || '发布失败',
+          message: apiError.message,
           success: false
         })
         return
       }
 
       if (!response.ok) {
-        throw new Error(data.error || data.message || '发布失败')
+        if (apiError.needsReauth || response.status === 401) {
+          setNeedsReauth(true)
+          setReauthMessage(apiError.message || 'Google Ads 授权已过期或被撤销，请重新授权后再发布')
+          addPublishStep('creating', 'Google Ads 授权已过期，请重新授权', 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: 'Google Ads 授权已过期，请先前往设置重新授权后再发布',
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+        throw new Error(apiError.message)
       }
 
       // 🔥 修复(2025-12-19): 202 Accepted表示任务已提交到后台队列
@@ -608,6 +656,7 @@ export default function Step4PublishSummary({
       })
 
       const data = await response.json()
+      const apiError = parseApiError(data)
 
       // 🔥 处理Launch Score过低的情况 - 在卡片中显示而不是toast (handleConfirmPauseAndPublish)
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
@@ -667,17 +716,30 @@ export default function Step4PublishSummary({
         console.error('❌ 422错误（未识别的action或其他422错误）:', data)
         setPublishing(false)  // 🔥 关键：停止加载动画
         addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
-        addPublishStep('creating', data.message || '发布失败', 'failed')
+        addPublishStep('creating', apiError.message, 'failed')
         setPublishStatus({
           step: 'failed',
-          message: data.error || data.message || '发布失败',
+          message: apiError.message,
           success: false
         })
         return
       }
 
       if (!response.ok) {
-        throw new Error(data.error || data.message || '发布失败')
+        if (apiError.needsReauth || response.status === 401) {
+          setNeedsReauth(true)
+          setReauthMessage(apiError.message || 'Google Ads 授权已过期或被撤销，请重新授权后再发布')
+          addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
+          addPublishStep('creating', 'Google Ads 授权已过期，请重新授权', 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: 'Google Ads 授权已过期，请先前往设置重新授权后再发布',
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+        throw new Error(apiError.message)
       }
 
       // 发布成功 - 在卡片中显示而不是toast
@@ -740,6 +802,7 @@ export default function Step4PublishSummary({
       })
 
       const data = await response.json()
+      const apiError = parseApiError(data)
 
       // 🔥 处理Launch Score过低的情况 - 在卡片中显示而不是toast (handlePublishTogether)
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
@@ -796,17 +859,29 @@ export default function Step4PublishSummary({
       if (response.status === 422) {
         console.error('❌ 422错误（未识别的action或其他422错误）:', data)
         setPublishing(false)  // 🔥 关键：停止加载动画
-        addPublishStep('creating', data.message || '发布失败', 'failed')
+        addPublishStep('creating', apiError.message, 'failed')
         setPublishStatus({
           step: 'failed',
-          message: data.error || data.message || '发布失败',
+          message: apiError.message,
           success: false
         })
         return
       }
 
       if (!response.ok) {
-        throw new Error(data.error || data.message || '发布失败')
+        if (apiError.needsReauth || response.status === 401) {
+          setNeedsReauth(true)
+          setReauthMessage(apiError.message || 'Google Ads 授权已过期或被撤销，请重新授权后再发布')
+          addPublishStep('creating', 'Google Ads 授权已过期，请重新授权', 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: 'Google Ads 授权已过期，请先前往设置重新授权后再发布',
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+        throw new Error(apiError.message)
       }
 
       // 发布成功 - 在卡片中显示而不是toast
@@ -919,7 +994,7 @@ export default function Step4PublishSummary({
               {/* Publish Button */}
               <Button
                 onClick={handlePublish}
-                disabled={publishing}
+                disabled={publishing || needsReauth}
                 size="lg"
                 className="w-full h-12 text-base font-semibold"
               >
@@ -965,6 +1040,25 @@ export default function Step4PublishSummary({
           </CardHeader>
           <CardContent className="flex-1 overflow-y-auto">
             <div className="space-y-4">
+              {needsReauth && (
+                <Alert className="border-red-200 bg-red-50">
+                  <AlertDescription className="space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 mt-0.5" />
+                      <div className="text-sm text-red-800">
+                        <div className="font-semibold">Google Ads 授权已过期</div>
+                        <div className="text-red-700 mt-1">
+                          {reauthMessage || 'refresh token 已过期或被撤销，请重新授权后再发布。'}
+                        </div>
+                        <div className="text-red-700 mt-2">
+                          前往 <a className="underline font-medium" href="/settings">设置</a> 完成重新授权，然后回到此页面重试。
+                        </div>
+                      </div>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {/* 等待发布状态 - 显示准备信息 */}
               {!showPublishResult && publishSteps.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full py-8">

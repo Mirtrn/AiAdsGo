@@ -28,6 +28,13 @@ import {
 } from '@/lib/launch-scores'
 import { generateNamingScheme } from '@/lib/naming-convention'
 
+function isOAuthTokenExpiredOrRevoked(err: any): boolean {
+  const message = String(err?.message || '')
+  const causeMessage = String(err?.cause?.message || '')
+  const combined = `${message}\n${causeMessage}`
+  return combined.includes('invalid_grant') || combined.includes('Token has been expired or revoked')
+}
+
 /**
  * 从ScoreAnalysis中提取所有问题（v4.0 - 4维度）
  */
@@ -886,6 +893,16 @@ export async function POST(request: NextRequest) {
       // 批量队列化的系统级错误
       console.error('Batch publish queue error:', error)
 
+      // OAuth refresh token 过期/被撤销：提示前端引导用户重新授权，避免用户反复重试
+      if (isOAuthTokenExpiredOrRevoked(error)) {
+        return NextResponse.json({
+          error: 'OAuth 授权已过期',
+          code: 'OAUTH_TOKEN_EXPIRED',
+          message: 'Google OAuth refresh token 已过期或失效，请前往设置页面重新授权后再发布',
+          needsReauth: true
+        }, { status: 401 })
+      }
+
       // 如果是AppError，直接返回
       if (error instanceof AppError) {
         return NextResponse.json(error.toJSON(), { status: error.httpStatus })
@@ -900,6 +917,16 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Publish campaign error:', error)
+
+    // OAuth refresh token 过期/被撤销：提示前端引导用户重新授权，避免用户反复重试
+    if (isOAuthTokenExpiredOrRevoked(error)) {
+      return NextResponse.json({
+        error: 'OAuth 授权已过期',
+        code: 'OAUTH_TOKEN_EXPIRED',
+        message: 'Google OAuth refresh token 已过期或失效，请前往设置页面重新授权后再发布',
+        needsReauth: true
+      }, { status: 401 })
+    }
 
     // 如果是AppError，直接返回
     if (error instanceof AppError) {
