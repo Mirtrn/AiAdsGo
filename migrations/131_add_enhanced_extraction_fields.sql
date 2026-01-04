@@ -3,7 +3,9 @@
 -- SQLite版本
 -- Date: 2026-01-04
 
--- 注意：SQLite 不支持 ADD COLUMN IF NOT EXISTS，因此假设该迁移只执行一次且列不存在。
+-- 幂等性说明：
+-- - SQLite 不支持 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+-- - 本项目迁移脚本 `scripts/migrate.ts` 会在执行前自动跳过“已存在列”的 ADD COLUMN 语句
 
 ALTER TABLE offers ADD COLUMN enhanced_keywords TEXT;            -- JSON字符串：增强关键词列表
 ALTER TABLE offers ADD COLUMN enhanced_product_info TEXT;        -- JSON字符串：增强产品信息
@@ -35,4 +37,3 @@ WHERE name IN (
   'localization_adapt',
   'brand_analysis'
 );
-

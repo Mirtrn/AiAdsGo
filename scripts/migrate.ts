@@ -73,6 +73,54 @@ async function migrateSQLite() {
     .filter(f => !f.includes('000_init_schema')) // 跳过初始化文件
     .sort()
 
+  /**
+   * SQLite 幂等性增强：
+   * - SQLite 不支持 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+   * - 为避免重复执行迁移时报 `duplicate column name`，这里在执行前自动跳过已存在的ADD COLUMN语句（仅限单行语句）
+   */
+  const makeSqliteMigrationIdempotent = (sqlContent: string): string => {
+    const lines = sqlContent.split('\n')
+    const out: string[] = []
+
+    for (const line of lines) {
+      const match = line.match(/^\s*ALTER\s+TABLE\s+([^\s]+)\s+ADD\s+COLUMN\s+([^\s;]+)\b/i)
+      if (!match) {
+        out.push(line)
+        continue
+      }
+
+      const rawTable = match[1]
+      const rawColumn = match[2]
+
+      const table = rawTable.replace(/^["'`]|["'`]$/g, '')
+      const column = rawColumn.replace(/^["'`]|["'`]$/g, '')
+
+      // 仅对简单标识符做幂等跳过，复杂/带点的名称保持原样执行
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(column)) {
+        out.push(line)
+        continue
+      }
+
+      try {
+        const tableQuoted = table.replace(/'/g, "''")
+        const exists = db.prepare(
+          `SELECT 1 AS ok FROM pragma_table_info('${tableQuoted}') WHERE name = ? LIMIT 1`
+        ).get(column) as { ok: 1 } | undefined
+
+        if (exists) {
+          out.push(`-- [idempotent] skipped: ${line.trim()}`)
+          continue
+        }
+      } catch {
+        // 查询失败时，不做跳过，按原语句执行，让迁移流程暴露真实问题
+      }
+
+      out.push(line)
+    }
+
+    return out.join('\n')
+  }
+
   console.log(`📋 发现 ${migrationFiles.length} 个迁移文件`)
   console.log(`✅ 已执行 ${appliedMigrations.size} 个迁移\n`)
 
@@ -89,7 +137,8 @@ async function migrateSQLite() {
     console.log(`🔄 执行: ${file}`)
 
     try {
-      const sqlContent = fs.readFileSync(path.join(migrationsPath, file), 'utf-8')
+      const rawContent = fs.readFileSync(path.join(migrationsPath, file), 'utf-8')
+      const sqlContent = makeSqliteMigrationIdempotent(rawContent)
 
       // 在事务中执行迁移
       db.transaction(() => {
