@@ -930,9 +930,22 @@ async function executeMigration(name: string, sql: string): Promise<void> {
       if (stmt.trim()) {
         try {
           const trimmedStmt = stmt.trim()
-          // SELECT/PRAGMA 这类查询语句不能用 SQLiteAdapter.exec(run) 执行，否则会抛错
-          if (/^(SELECT|PRAGMA)\b/i.test(trimmedStmt)) {
+          // SQLite：区分“返回结果的查询”与“无返回的语句”
+          // - SELECT 一定返回结果集（可能为空）
+          // - PRAGMA 既可能返回结果（如 PRAGMA table_info），也可能仅设置参数（如 PRAGMA foreign_keys=ON）
+          if (/^SELECT\b/i.test(trimmedStmt)) {
             await db.query(trimmedStmt)
+          } else if (/^PRAGMA\b/i.test(trimmedStmt)) {
+            try {
+              await db.query(trimmedStmt)
+            } catch (pragmaError) {
+              const pragmaMsg = pragmaError instanceof Error ? pragmaError.message : String(pragmaError)
+              if (pragmaMsg.includes('does not return data')) {
+                await db.exec(trimmedStmt)
+              } else {
+                throw pragmaError
+              }
+            }
           } else {
             await db.exec(trimmedStmt)
           }
