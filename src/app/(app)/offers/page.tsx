@@ -52,10 +52,11 @@ import { LaunchScoreModalDynamic } from '@/components/dynamic'
 import CreateOfferModalV2 from '@/components/CreateOfferModalV2'
 import DeleteOfferConfirmDialog from '@/components/DeleteOfferConfirmDialog'
 import ClickFarmTaskModal from '@/components/ClickFarmTaskModal'
+import UrlSwapTaskModal from '@/components/UrlSwapTaskModal'
 import { SortableTableHead } from '@/components/SortableTableHead'
 import { NoOffersState, NoResultsState } from '@/components/ui/empty-state'
 import { usePagination } from '@/hooks'
-import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle, MousePointerClick } from 'lucide-react'
+import { Search, Plus, Rocket, DollarSign, BarChart3, ExternalLink, Download, Trash2, Unlink, MoreHorizontal, FileDown, Upload, XCircle, AlertTriangle, MousePointerClick, Link2, RotateCw } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -131,6 +132,12 @@ export default function OffersPage() {
   const [selectedOfferForClickFarm, setSelectedOfferForClickFarm] = useState<Offer | null>(null)
   const [editTaskIdForClickFarm, setEditTaskIdForClickFarm] = useState<string | number | undefined>(undefined)
   const [clickFarmLoading, setClickFarmLoading] = useState(false)
+
+  // 换链接任务Modal
+  const [isUrlSwapModalOpen, setIsUrlSwapModalOpen] = useState(false)
+  const [selectedOfferForUrlSwap, setSelectedOfferForUrlSwap] = useState<Offer | null>(null)
+  const [editTaskIdForUrlSwap, setEditTaskIdForUrlSwap] = useState<string | undefined>(undefined)
+  const [urlSwapLoading, setUrlSwapLoading] = useState(false)
 
   // 删除确认对话框状态（支持关联账号详情）
   const [isDeleteConfirmDialogOpen, setIsDeleteConfirmDialogOpen] = useState(false)
@@ -1018,6 +1025,48 @@ export default function OffersPage() {
                                 disabled: clickFarmLoading,
                               },
                               {
+                                icon: <Link2 className="w-4 h-4 text-gray-500" />,
+                                label: '换链接任务',
+                                onClick: async () => {
+                                  setUrlSwapLoading(true)
+                                  try {
+                                    // 先查询是否有已存在的换链接任务
+                                    const response = await fetch(`/api/offers/${offer.id}/url-swap-task`, {
+                                      credentials: 'include',
+                                    })
+
+                                    if (response.ok) {
+                                      const data = await response.json()
+                                      if (data.data) {
+                                        // 有任务，进入编辑模式
+                                        setSelectedOfferForUrlSwap(offer)
+                                        setEditTaskIdForUrlSwap(data.data.id)
+                                      } else {
+                                        // 没有任务，进入创建模式
+                                        setSelectedOfferForUrlSwap(offer)
+                                        setEditTaskIdForUrlSwap(undefined)
+                                      }
+                                      setIsUrlSwapModalOpen(true)
+                                    } else {
+                                      console.error('查询换链接任务失败')
+                                      // 出错时默认进入创建模式
+                                      setSelectedOfferForUrlSwap(offer)
+                                      setEditTaskIdForUrlSwap(undefined)
+                                      setIsUrlSwapModalOpen(true)
+                                    }
+                                  } catch (error) {
+                                    console.error('查询换链接任务出错:', error)
+                                    setSelectedOfferForUrlSwap(offer)
+                                    setEditTaskIdForUrlSwap(undefined)
+                                    setIsUrlSwapModalOpen(true)
+                                  } finally {
+                                    setUrlSwapLoading(false)
+                                  }
+                                },
+                                disabled: urlSwapLoading || !offer.linkedAccounts?.length,
+                                title: !offer.linkedAccounts?.length ? '请先发布广告并关联Google Ads账号' : undefined,
+                              },
+                              {
                                 icon: <XCircle className="w-4 h-4" />,
                                 label: offer.isBlacklisted ? '取消拉黑' : '拉黑投放',
                                 onClick: () => {
@@ -1104,6 +1153,22 @@ export default function OffersPage() {
         }}
         preSelectedOfferId={selectedOfferForClickFarm?.id}
         editTaskId={editTaskIdForClickFarm}
+      />
+
+      <UrlSwapTaskModal
+        open={isUrlSwapModalOpen}
+        onOpenChange={(open) => {
+          setIsUrlSwapModalOpen(open)
+          if (!open) {
+            setSelectedOfferForUrlSwap(null)
+            setEditTaskIdForUrlSwap(undefined)
+          }
+        }}
+        onSuccess={() => {
+          // 任务创建/更新成功后可以选择刷新列表或显示提示
+        }}
+        offerId={selectedOfferForUrlSwap?.id}
+        editTaskId={editTaskIdForUrlSwap}
       />
 
       <CreateOfferModalV2

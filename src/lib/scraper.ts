@@ -678,11 +678,48 @@ function extractShopifyData($: any, url: string): ScrapedProductData {
 
   console.log(`🔍 [Shopify Reviews] 提取到 ${reviews.length} 条评论`)
 
-  // ==================== 9. 返回增强的数据结构 ====================
+  // ==================== 9. 商品描述提取（增强版：优先从About区域提取）====================
+  let productDescription: string | null = null
+
+  // 尝试1：从 "About [Product Name]" 标题后的列表中提取
+  const aboutHeadings = $('h1, h2, h3').filter((i: number, el: any) => {
+    const text = $(el).text().trim()
+    return text.startsWith('About ') || text.includes('About Heated') || text.includes('About Oversized')
+  })
+
+  if (aboutHeadings.length > 0) {
+    const descriptionItems: string[] = []
+    aboutHeadings.first().nextAll('ul, ol').first().find('li').each((i: number, el: any) => {
+      const text = $(el).text().trim()
+      if (text && text.length > 20) {
+        descriptionItems.push(text)
+      }
+    })
+
+    if (descriptionItems.length > 0) {
+      productDescription = descriptionItems.join('\n\n')
+      console.log(`🔍 [Shopify Desc] 从About区域提取到 ${descriptionItems.length} 条描述`)
+    }
+  }
+
+  // 尝试2：从传统选择器提取（排除订阅邮件文字）
+  if (!productDescription) {
+    const descText = $('.product-description').text().trim() || $('[class*="product"][class*="description"]').text().trim()
+    if (descText && !descText.includes('Get the latest updates') && !descText.includes('SUBSCRIBE')) {
+      productDescription = descText
+    }
+  }
+
+  // 尝试3：从meta description提取（最后的备选方案）
+  if (!productDescription) {
+    productDescription = $('meta[name="description"]').attr('content') || null
+  }
+
+  // ==================== 10. 返回增强的数据结构 ====================
   return {
-    productName: $('.product-title').text().trim() || $('h1').text().trim() || null,
-    productDescription: $('.product-description').text().trim() || $('[class*="description"]').text().trim() || null,
-    productPrice: $('.product-price').text().trim() || $('[class*="price"]').text().trim() || null,
+    productName: $('.product-title').text().trim() || $('h1').first().text().trim() || null,
+    productDescription,
+    productPrice: $('.product-price').first().text().trim() || $('[class*="price"]').first().text().trim() || null,
     productCategory: $('.breadcrumbs').text().trim() || null,
     productFeatures: [...coreFeatures, ...secondaryFeatures].slice(0, 20), // 保持向后兼容
     brandName: brandName ? normalizeBrandName(brandName) : null,

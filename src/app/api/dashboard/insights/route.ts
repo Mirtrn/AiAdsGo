@@ -458,7 +458,7 @@ export async function GET(request: NextRequest) {
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
           AND t.status = 'error'
-          AND t.is_deleted = 0
+          AND t.is_deleted = FALSE
           AND t.error_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
         ORDER BY t.error_at DESC
         LIMIT 5
@@ -525,7 +525,7 @@ export async function GET(request: NextRequest) {
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
           AND t.status = 'enabled'
-          AND t.is_deleted = 0
+          AND t.is_deleted = FALSE
           AND t.url_changed_count > 0
           AND t.updated_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
         ORDER BY t.updated_at DESC
@@ -597,7 +597,7 @@ export async function GET(request: NextRequest) {
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
           AND t.status = 'disabled'
-          AND t.is_deleted = 0
+          AND t.is_deleted = FALSE
           AND t.updated_at >= CURRENT_TIMESTAMP - INTERVAL '48 hours'
           AND t.failed_swaps > 0
         ORDER BY t.updated_at DESC
@@ -677,7 +677,7 @@ export async function GET(request: NextRequest) {
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
           AND t.status IN ('error', 'disabled')
-          AND t.is_deleted = 0
+          AND t.is_deleted = FALSE
           AND t.error_at >= CURRENT_TIMESTAMP - INTERVAL '48 hours'
           AND (
             t.error_message LIKE '%推广链接解析失败%'
@@ -788,7 +788,7 @@ export async function GET(request: NextRequest) {
         INNER JOIN offers o ON t.offer_id = o.id
         WHERE t.user_id = ?
           AND t.status IN ('error', 'disabled')
-          AND t.is_deleted = 0
+          AND t.is_deleted = FALSE
           AND t.error_at >= CURRENT_TIMESTAMP - INTERVAL '48 hours'
           AND (
             t.error_message LIKE '%Google Ads API%'
