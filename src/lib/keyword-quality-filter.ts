@@ -331,6 +331,14 @@ export function isBrandVariant(keyword: string, brandName: string): boolean {
     return false
   }
 
+  // 🔧 关键修复：仅把“品牌名后直接拼接的后缀”视为变体词
+  // 例如：eurekaddl（brand+ddl）✅
+  // 例如：auxito led / auxito-led / auxito_led ❌（这是正常的品牌+产品词组合）
+  const boundaryChar = normalized.charAt(brand.length)
+  if (boundaryChar && !/[a-z0-9]/.test(boundaryChar)) {
+    return false
+  }
+
   // 提取品牌名后面的部分
   const suffix = normalized.slice(brand.length).trim()
 
