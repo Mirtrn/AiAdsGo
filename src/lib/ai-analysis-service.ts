@@ -67,7 +67,28 @@ export interface AIAnalysisInput {
     }
     // Flattened product properties
     productName?: string
-    price?: string
+    productPrice?: string  // 🔥 统一字段名：price → productPrice
+    productCategory?: string
+    productFeatures?: string[]
+    metaTitle?: string
+    metaDescription?: string
+    // 🔥 2026-01-04新增：独立站增强数据字段（用于AI分析）
+    reviews?: Array<{
+      rating: number
+      date: string
+      author: string
+      title: string
+      body: string
+      verifiedBuyer: boolean
+      images?: string[]
+    }>
+    faqs?: Array<{ question: string; answer: string }>
+    specifications?: Record<string, string>
+    packages?: Array<{ name: string; price: string | null; includes: string[] }>
+    socialProof?: Array<{ metric: string; value: string }>
+    coreFeatures?: string[]
+    secondaryFeatures?: string[]
+    // Amazon单品页详细数据
     rating?: string | null
     reviewCount?: string | null
     reviewHighlights?: string[]
@@ -684,7 +705,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         `Product: ${extractResult.productName || 'Unknown'}`,
         `Brand: ${extractResult.brand || 'Unknown'}`,
         `Category: ${extractResult.category || 'General'}`,
-        `Price: ${extractResult.price || 'N/A'}`,
+        `Price: ${extractResult.productPrice || 'N/A'}`,
       ]
 
       // 添加评分和评论数
@@ -731,6 +752,17 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         text: pageData.text,
         targetCountry,
         pageType,
+        // 🔥 2026-01-04新增：传递独立站增强数据字段到AI分析
+        reviews: extractResult.reviews,
+        faqs: extractResult.faqs,
+        specifications: extractResult.specifications,
+        packages: extractResult.packages,
+        socialProof: extractResult.socialProof,
+        coreFeatures: extractResult.coreFeatures,
+        secondaryFeatures: extractResult.secondaryFeatures,
+        // P1优化字段
+        technicalDetails: extractResult.technicalDetails,
+        reviewHighlights: extractResult.reviewHighlights,
       },
       userId
     )
@@ -1111,7 +1143,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
 
                 // 从产品数据构建"我们的产品"对象
                 // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
-                const priceNum = parsePrice(extractResult.price)
+                const priceNum = parsePrice(extractResult.productPrice)
 
                 const ourProduct = {
                   name: extractResult.productName || extractResult.brand || 'Unknown Product',
@@ -1140,7 +1172,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
                 // 尝试使用搜索策略获取竞品
                 try {
                   const competitorProxyUrl = await getProxyUrlForCountry(targetCountry, userId)
-                  const priceNum = parsePrice(extractResult.price)
+                  const priceNum = parsePrice(extractResult.productPrice)
 
                   const ourProduct = {
                     name: extractResult.productName || extractResult.brand || 'Unknown Product',
@@ -1236,7 +1268,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
 
             // 构建"我们的产品"对象
             // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
-            const priceNum = parsePrice(extractResult.price)
+            const priceNum = parsePrice(extractResult.productPrice)
 
             const ourProduct = {
               name: extractResult.productName || extractResult.brand || 'Unknown Product',
@@ -1387,14 +1419,14 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
         // 只有在 Playwright 深度抓取未执行或失败时才使用
         if (isAmazonProductPage && !result.competitorAnalysisSuccess) {
           // 检查是否有足够的产品数据进行分析
-          const hasProductData = extractResult.price || extractResult.rating || extractResult.category
+          const hasProductData = extractResult.productPrice || extractResult.rating || extractResult.category
 
           if (hasProductData) {
             console.log(`📊 单品页面：使用产品数据进行竞品市场定位分析...`)
 
             // 从产品数据构建"我们的产品"对象
             // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
-            const priceNum = parsePrice(extractResult.price)
+            const priceNum = parsePrice(extractResult.productPrice)
 
             const ourProduct = {
               name: extractResult.productName || extractResult.brand || 'Unknown Product',
@@ -1485,7 +1517,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
 
           if (competitors.length >= 2) {
             // 🔧 修复：使用统一价格解析函数处理欧洲/美国格式
-            const productPrice = parsePrice(extractResult.price)
+            const productPrice = parsePrice(extractResult.productPrice)
 
             const ourProduct = {
               name: extractResult.productName || extractResult.brand || 'Unknown',
@@ -1536,7 +1568,7 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
           productName: extractResult.productName,
           brandName: extractResult.brand,
           productDescription: extractResult.productDescription,
-          productPrice: extractResult.price,
+          productPrice: extractResult.productPrice,
           rating: extractResult.rating,
           reviewCount: extractResult.reviewCount,
           reviewHighlights: extractResult.reviewHighlights,

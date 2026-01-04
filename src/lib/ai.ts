@@ -100,6 +100,22 @@ export async function analyzeProductPage(
     // 🎯 P1优化：新增字段用于增强AI分析
     technicalDetails?: Record<string, string>  // 技术规格
     reviewHighlights?: string[]  // 评论摘要
+    // 🔥 2026-01-04新增：独立站增强数据字段（用于AI分析）
+    reviews?: Array<{
+      rating: number
+      date: string
+      author: string
+      title: string
+      body: string
+      verifiedBuyer: boolean
+      images?: string[]
+    }>
+    faqs?: Array<{ question: string; answer: string }>
+    specifications?: Record<string, string>
+    packages?: Array<{ name: string; price: string | null; includes: string[] }>
+    socialProof?: Array<{ metric: string; value: string }>
+    coreFeatures?: string[]
+    secondaryFeatures?: string[]
   },
   userId?: number
 ): Promise<ProductInfo> {
@@ -184,6 +200,50 @@ export async function analyzeProductPage(
         ? '- ' + pageData.reviewHighlights.join('\n- ')
         : 'Not available'
 
+      // 🔥 2026-01-04新增：格式化独立站增强数据供AI使用
+      const reviewsText = pageData.reviews && pageData.reviews.length > 0
+        ? pageData.reviews.slice(0, 10).map((r, i) =>
+            `Review ${i + 1}:\n` +
+            `  Rating: ${r.rating}/5\n` +
+            `  Author: ${r.author} ${r.verifiedBuyer ? '(Verified)' : ''}\n` +
+            `  Date: ${r.date}\n` +
+            `  Title: ${r.title}\n` +
+            `  Body: ${r.body.substring(0, 200)}${r.body.length > 200 ? '...' : ''}`
+          ).join('\n\n')
+        : 'Not available'
+
+      const faqsText = pageData.faqs && pageData.faqs.length > 0
+        ? pageData.faqs.slice(0, 10).map((faq, i) =>
+            `Q${i + 1}: ${faq.question}\nA${i + 1}: ${faq.answer}`
+          ).join('\n\n')
+        : 'Not available'
+
+      const specificationsText = pageData.specifications && Object.keys(pageData.specifications).length > 0
+        ? Object.entries(pageData.specifications)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join('\n')
+        : 'Not available'
+
+      const packagesText = pageData.packages && pageData.packages.length > 0
+        ? pageData.packages.map((pkg, i) =>
+            `Package ${i + 1}: ${pkg.name}\n` +
+            `  Price: ${pkg.price || 'N/A'}\n` +
+            `  Includes: ${pkg.includes.join(', ')}`
+          ).join('\n\n')
+        : 'Not available'
+
+      const socialProofText = pageData.socialProof && pageData.socialProof.length > 0
+        ? pageData.socialProof.map(sp => `${sp.metric}: ${sp.value}`).join('\n')
+        : 'Not available'
+
+      const coreFeaturesText = pageData.coreFeatures && pageData.coreFeatures.length > 0
+        ? '- ' + pageData.coreFeatures.join('\n- ')
+        : 'Not available'
+
+      const secondaryFeaturesText = pageData.secondaryFeatures && pageData.secondaryFeatures.length > 0
+        ? '- ' + pageData.secondaryFeatures.join('\n- ')
+        : 'Not available'
+
       // 🎨 插值替换模板变量
       prompt = promptTemplate
         .replace('{{pageData.url}}', pageDataUrl)
@@ -193,6 +253,13 @@ export async function analyzeProductPage(
         .replace('{{pageData.text}}', pageDataText)
         .replace('{{technicalDetails}}', technicalDetailsText)
         .replace('{{reviewHighlights}}', reviewHighlightsText)
+        .replace('{{reviews}}', reviewsText)
+        .replace('{{faqs}}', faqsText)
+        .replace('{{specifications}}', specificationsText)
+        .replace('{{packages}}', packagesText)
+        .replace('{{socialProof}}', socialProofText)
+        .replace('{{coreFeatures}}', coreFeaturesText)
+        .replace('{{secondaryFeatures}}', secondaryFeaturesText)
         .replace(/\{\{langName\}\}/g, langName)
         .replace('{{categoryExamples}}', categoryExamples)
     }
