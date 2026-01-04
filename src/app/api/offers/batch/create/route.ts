@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase } from '@/lib/db'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
 import type { BatchCreationTaskData } from '@/lib/queue/executors/batch-creation-executor'
+import { canonicalizeOfferBatchCsvHeader, decodeCsvTextSmart, normalizeCsvHeaderCell } from '@/lib/offers/batch-offer-csv'
 import Papa from 'papaparse'
 
 export const maxDuration = 60
@@ -57,7 +58,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. 读取并解析CSV
-    const text = await file.text()
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const text = decodeCsvTextSmart(bytes)
 
     // 使用papaparse解析CSV，正确处理带逗号的值
     const parseResult = Papa.parse(text, {
@@ -80,39 +82,35 @@ export async function POST(req: NextRequest) {
     }
 
     // 解析标题行（支持中英文表头）
-    const rawHeaders = lines[0].map(h => h.trim())
+    const rawHeaders = lines[0].map(h => normalizeCsvHeaderCell(h))
 
-    // 字段映射：中文 → 英文
-    const fieldMapping: Record<string, string> = {
-      '推广链接': 'affiliate_link',
-      '推广国家': 'target_country',
-      '产品价格': 'product_price',
-      '佣金比例': 'commission_payout',
-      // 兼容英文表头
-      'affiliate_link': 'affiliate_link',
-      'target_country': 'target_country',
-      'product_price': 'product_price',
-      'commission_payout': 'commission_payout',
-    }
-
-    // 映射后的英文字段名
-    const headers = rawHeaders.map(h => fieldMapping[h] || h.toLowerCase())
+    // 映射后的英文字段名（兼容：中文/英文/带括号说明/带BOM等）
+    const headers = rawHeaders.map(h => canonicalizeOfferBatchCsvHeader(h))
 
     // 查找必填列索引
     const affiliateLinkIdx = headers.indexOf('affiliate_link')
     const targetCountryIdx = headers.indexOf('target_country')
 
+    const headersPreview = rawHeaders.filter(Boolean).slice(0, 20).join(', ')
+    const headersPreviewSuffix = rawHeaders.filter(Boolean).length > 20 ? ' ...' : ''
+
     // 校验必填列存在
     if (affiliateLinkIdx === -1) {
       return NextResponse.json(
-        { error: 'Invalid CSV', message: 'CSV文件缺少必需列：推广链接 (affiliate_link)' },
+        {
+          error: 'Invalid CSV',
+          message: `CSV文件缺少必需列：推广链接 (affiliate_link)${headersPreview ? `；检测到的列：${headersPreview}${headersPreviewSuffix}` : ''}`,
+        },
         { status: 400 }
       )
     }
 
     if (targetCountryIdx === -1) {
       return NextResponse.json(
-        { error: 'Invalid CSV', message: 'CSV文件缺少必需列：推广国家 (target_country)' },
+        {
+          error: 'Invalid CSV',
+          message: `CSV文件缺少必需列：推广国家 (target_country)${headersPreview ? `；检测到的列：${headersPreview}${headersPreviewSuffix}` : ''}`,
+        },
         { status: 400 }
       )
     }
