@@ -101,6 +101,7 @@ interface ResponsiveActionCellProps {
     disabled?: boolean
     variant?: "ghost" | "destructive" | "secondary"
     className?: string
+    title?: string
   }>
   className?: string
 }
@@ -149,6 +150,7 @@ export function ResponsiveActionCell({
                   action.variant === 'destructive' && 'text-red-600 focus:text-red-600',
                   action.className
                 )}
+                title={action.title || action.label}
               >
                 {action.icon}
                 <span className="ml-2">{action.label}</span>
