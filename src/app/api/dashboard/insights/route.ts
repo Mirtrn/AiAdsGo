@@ -331,6 +331,7 @@ export async function GET(request: NextRequest) {
 
     // 规则6: 检查每日链接检查结果
     // 获取最近24小时内的链接检查结果，只显示有问题的链接
+    // 注意：PostgreSQL中 is_accessible, brand_found, content_valid 可能是 boolean 类型
     const linkCheckQuery = db.type === 'postgres'
       ? `
         SELECT
@@ -350,9 +351,9 @@ export async function GET(request: NextRequest) {
         WHERE o.user_id = ?
           AND lch.checked_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
           AND (
-            lch.is_accessible = 0
-            OR lch.brand_found = 0
-            OR lch.content_valid = 0
+            lch.is_accessible = FALSE
+            OR lch.brand_found = FALSE
+            OR lch.content_valid = FALSE
           )
         ORDER BY lch.checked_at DESC
         LIMIT 5
