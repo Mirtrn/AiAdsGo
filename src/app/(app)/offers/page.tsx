@@ -129,6 +129,8 @@ export default function OffersPage() {
   // 补点击任务Modal
   const [isClickFarmModalOpen, setIsClickFarmModalOpen] = useState(false)
   const [selectedOfferForClickFarm, setSelectedOfferForClickFarm] = useState<Offer | null>(null)
+  const [editTaskIdForClickFarm, setEditTaskIdForClickFarm] = useState<string | number | undefined>(undefined)
+  const [clickFarmLoading, setClickFarmLoading] = useState(false)
 
   // 删除确认对话框状态（支持关联账号详情）
   const [isDeleteConfirmDialogOpen, setIsDeleteConfirmDialogOpen] = useState(false)
@@ -977,10 +979,43 @@ export default function OffersPage() {
                               {
                                 icon: <MousePointerClick className="w-4 h-4 text-gray-500" />,
                                 label: '补点击任务',
-                                onClick: () => {
-                                  setSelectedOfferForClickFarm(offer)
-                                  setIsClickFarmModalOpen(true)
+                                onClick: async () => {
+                                  setClickFarmLoading(true)
+                                  try {
+                                    // 先查询是否有已存在的补点击任务
+                                    const response = await fetch(`/api/offers/${offer.id}/click-farm-task`, {
+                                      credentials: 'include',
+                                    })
+
+                                    if (response.ok) {
+                                      const data = await response.json()
+                                      if (data.data) {
+                                        // 有任务，进入编辑模式
+                                        setSelectedOfferForClickFarm(offer)
+                                        setEditTaskIdForClickFarm(data.data.id)
+                                      } else {
+                                        // 没有任务，进入创建模式
+                                        setSelectedOfferForClickFarm(offer)
+                                        setEditTaskIdForClickFarm(undefined)
+                                      }
+                                      setIsClickFarmModalOpen(true)
+                                    } else {
+                                      console.error('查询补点击任务失败')
+                                      // 出错时默认进入创建模式
+                                      setSelectedOfferForClickFarm(offer)
+                                      setEditTaskIdForClickFarm(undefined)
+                                      setIsClickFarmModalOpen(true)
+                                    }
+                                  } catch (error) {
+                                    console.error('查询补点击任务出错:', error)
+                                    setSelectedOfferForClickFarm(offer)
+                                    setEditTaskIdForClickFarm(undefined)
+                                    setIsClickFarmModalOpen(true)
+                                  } finally {
+                                    setClickFarmLoading(false)
+                                  }
                                 },
+                                disabled: clickFarmLoading,
                               },
                               {
                                 icon: <XCircle className="w-4 h-4" />,
@@ -1059,13 +1094,16 @@ export default function OffersPage() {
         open={isClickFarmModalOpen}
         onOpenChange={(open) => {
           setIsClickFarmModalOpen(open)
-          if (!open) setSelectedOfferForClickFarm(null)
+          if (!open) {
+            setSelectedOfferForClickFarm(null)
+            setEditTaskIdForClickFarm(undefined)
+          }
         }}
         onSuccess={() => {
-          // 任务创建成功后可以选择刷新列表或显示提示
-          // fetchOffers() // 如果需要刷新列表
+          // 任务创建/更新成功后可以选择刷新列表或显示提示
         }}
         preSelectedOfferId={selectedOfferForClickFarm?.id}
+        editTaskId={editTaskIdForClickFarm}
       />
 
       <CreateOfferModalV2
