@@ -28,6 +28,26 @@ export function showError(message: string, description?: string) {
 }
 
 /**
+ * 错误通知（带操作按钮）
+ * 用于引导用户进行下一步操作，如"重建Offer"
+ */
+export function showErrorWithAction(
+  message: string,
+  description: string,
+  actionLabel: string,
+  onAction: () => void
+) {
+  toast.error(message, {
+    description,
+    duration: 6000, // 较长的持续时间，让用户有时间看到操作按钮
+    action: {
+      label: actionLabel,
+      onClick: onAction,
+    },
+  })
+}
+
+/**
  * 警告通知
  */
 export function showWarning(message: string, description?: string) {

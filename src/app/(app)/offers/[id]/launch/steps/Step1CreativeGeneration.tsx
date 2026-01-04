@@ -194,21 +194,21 @@ const getAdStrengthLabel = (rating: string) => {
 const ERROR_SOLUTIONS: Record<string, { title: string; description: string; action?: string; actionLabel?: string }> = {
   '无可用关键词': {
     title: '关键词数据不足',
-    description: '当前Offer还没有关键词数据。请返回Offer详情页检查网站数据抓取状态，确保抓取完成后再生成创意。',
-    action: 'offer-detail',
-    actionLabel: '返回Offer详情'
+    description: '当前Offer还没有关键词数据。网站可能未能成功抓取到产品关键词，建议重新创建Offer并确保网站可以正常访问抓取。',
+    action: 'recreate-offer',
+    actionLabel: '重建Offer'
   },
   '关键词池创建失败': {
     title: '关键词准备失败',
-    description: '无法创建关键词池。请检查Offer的网站数据是否抓取完成，如未完成请等待或重新创建Offer。',
-    action: 'offer-detail',
-    actionLabel: '返回Offer详情'
+    description: '无法创建关键词池。可能是网站数据抓取失败，建议重新创建Offer并确保网站可以正常访问抓取。',
+    action: 'recreate-offer',
+    actionLabel: '重建Offer'
   },
   '请先生成关键词': {
     title: '需要先完成数据抓取',
-    description: '创意生成需要关键词数据支持。请确保Offer的网站数据抓取已完成。',
-    action: 'offer-detail',
-    actionLabel: '返回Offer详情'
+    description: '创意生成需要关键词数据支持。网站可能未能成功抓取，建议重新创建Offer并确保网站可以正常访问抓取。',
+    action: 'recreate-offer',
+    actionLabel: '重建Offer'
   },
   'Offer信息抓取失败': {
     title: '网站数据抓取失败',
@@ -373,6 +373,10 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       case 'offer-detail':
         // 返回 Offer 详情页
         router.push(`/offers/${offer.id}`)
+        break
+      case 'recreate-offer':
+        // 🆕 跳转到新建Offer页面
+        router.push('/offers/new')
         break
       case 'settings':
         // 跳转到设置页面
@@ -837,7 +841,22 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
 
       const solution = getErrorSolution(errorMessage)
       setGenerationError({ message: errorMessage, solution })
-      showError(solution.title, solution.description)
+
+      // 🆕 如果有操作按钮，使用 showErrorWithAction 显示带操作的提示
+      if (solution.action && solution.actionLabel) {
+        // 🆕 捕获action到局部变量，确保类型安全
+        const action = solution.action
+        // 创建一个包装函数来处理操作
+        const handleAction = () => {
+          handleErrorAction(action)
+        }
+        // 使用动态导入避免循环依赖
+        import('@/lib/toast-utils').then(({ showErrorWithAction }) => {
+          showErrorWithAction(solution.title, solution.description, solution.actionLabel!, handleAction)
+        })
+      } else {
+        showError(solution.title, solution.description)
+      }
     } finally {
       // 🆕 如果SSE正常完成或任务已完成，才清理状态
       if (!sseTimeout) {
