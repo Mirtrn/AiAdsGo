@@ -1025,7 +1025,7 @@ export default function Step4PublishSummary({
                 {launchScoreBlockDetails && (
                   <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
                     {/* 标题和总分 */}
-                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-red-200">
+                    <div className="flex items-center justify-between mb-4 pb-3 border-b border-red-200">
                       <div className="flex items-center gap-2">
                         <AlertCircle className="w-5 h-5 text-red-600" />
                         <span className="text-sm font-semibold text-red-800">
@@ -1041,6 +1041,29 @@ export default function Step4PublishSummary({
                           最低要求 {launchScoreBlockDetails.threshold} 分
                         </div>
                       </div>
+                    </div>
+
+                    {/* 🔧 优化：操作按钮移到卡片顶部，用户一眼就能看到 */}
+                    <div className="mb-4 pb-4 border-b border-red-200 space-y-3">
+                      {/* 🔥 新增：强制发布按钮（仅在60-80分警告时显示）- 优先显示 */}
+                      {launchScoreBlockDetails.canForcePublish && (
+                        <Button
+                          variant="destructive"
+                          size="lg"
+                          onClick={() => setShowForcePublishConfirm(true)}
+                          className="w-full h-11 font-semibold"
+                        >
+                          强制发布（已确认风险）
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        onClick={resetPublishState}
+                        className="w-full h-11"
+                      >
+                        返回修改配置
+                      </Button>
                     </div>
 
                     {/* 各维度得分 */}
@@ -1137,29 +1160,6 @@ export default function Step4PublishSummary({
                         </ul>
                       </div>
                     )}
-
-                    {/* 返回修改按钮和强制发布按钮 */}
-                    <div className="mt-4 pt-3 border-t border-red-200 space-y-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={resetPublishState}
-                        className="w-full"
-                      >
-                        返回修改配置
-                      </Button>
-                      {/* 🔥 新增：强制发布按钮（仅在60-80分警告时显示） */}
-                      {launchScoreBlockDetails.canForcePublish && (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => setShowForcePublishConfirm(true)}
-                          className="w-full"
-                        >
-                          强制发布（已确认风险）
-                        </Button>
-                      )}
-                    </div>
                   </div>
                 )}
 

@@ -1064,7 +1064,6 @@ export default function OffersPage() {
                                   }
                                 },
                                 disabled: urlSwapLoading || !offer.linkedAccounts?.length,
-                                title: !offer.linkedAccounts?.length ? '请先发布广告并关联Google Ads账号' : undefined,
                               },
                               {
                                 icon: <XCircle className="w-4 h-4" />,
