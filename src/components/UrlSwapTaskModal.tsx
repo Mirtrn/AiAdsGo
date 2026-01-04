@@ -35,6 +35,9 @@ interface Offer {
   brand_name?: string;
   targetCountry: string;
   affiliateLink?: string;
+  // 🆕 关联的Google Ads信息（从Campaign获取）
+  googleCustomerId?: string;
+  googleCampaignId?: string;
 }
 
 const SWAP_INTERVAL_OPTIONS = [
@@ -120,12 +123,51 @@ export default function UrlSwapTaskModal({
     try {
       setLoadingOffer(true);
 
+      // 获取Offer信息
       const response = await fetch(`/api/offers/${id}`);
       if (!response.ok) throw new Error('加载Offer失败');
 
       const data = await response.json();
       const offerData = data.offer || data.data;
+
       if (offerData) {
+        // 🆕 获取该Offer关联的最新Campaign，提取Google Ads信息
+        try {
+          const campaignsResponse = await fetch(`/api/offers/${id}/campaigns`);
+          if (campaignsResponse.ok) {
+            const campaignsData = await campaignsResponse.json();
+            const campaigns = campaignsData.data || campaignsData.campaigns || [];
+
+            if (campaigns.length > 0) {
+              // 使用最新的Campaign（按创建时间降序）
+              const latestCampaign = campaigns[0];
+
+              // 从Campaign的google_ads_account获取customer_id
+              if (latestCampaign.google_ads_account) {
+                offerData.googleCustomerId = latestCampaign.google_ads_account.customer_id;
+              }
+
+              // 从Campaign获取google_campaign_id
+              if (latestCampaign.google_campaign_id) {
+                offerData.googleCampaignId = latestCampaign.google_campaign_id;
+              }
+
+              // 🔥 自动填充表单字段（仅在创建模式下，编辑模式使用已保存的值）
+              if (!isEditMode) {
+                if (offerData.googleCustomerId) {
+                  setGoogleCustomerId(offerData.googleCustomerId);
+                }
+                if (offerData.googleCampaignId) {
+                  setGoogleCampaignId(offerData.googleCampaignId);
+                }
+              }
+            }
+          }
+        } catch (campaignError) {
+          console.warn('获取Campaign信息失败:', campaignError);
+          // 不影响主流程，继续执行
+        }
+
         setOffer(offerData);
         checkProxy(offerData);
       }
@@ -364,14 +406,22 @@ export default function UrlSwapTaskModal({
             </div>
           </div>
 
-          {/* Google Ads Configuration (Optional) */}
+          {/* Google Ads Configuration */}
           <div className="space-y-3 pt-2 border-t">
             <Label className="flex items-center gap-2">
               <Globe className="h-4 w-4" />
-              Google Ads 配置（可选）
+              Google Ads 配置
+              {offer?.googleCustomerId || offer?.googleCampaignId ? (
+                <Badge variant="secondary" className="ml-2">已关联</Badge>
+              ) : (
+                <span className="text-xs text-muted-foreground font-normal">（可选）</span>
+              )}
             </Label>
             <p className="text-xs text-muted-foreground">
-              配置后可在广告账户中查看关联的换链任务
+              {offer?.googleCustomerId || offer?.googleCampaignId
+                ? '从关联的Campaign自动获取，如需修改请前往Campaign管理页面'
+                : '配置后可在广告账户中查看关联的换链任务'
+              }
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -381,6 +431,8 @@ export default function UrlSwapTaskModal({
                   value={googleCustomerId}
                   onChange={(e) => setGoogleCustomerId(e.target.value)}
                   placeholder="例如: 123-456-7890"
+                  disabled={!!(offer?.googleCustomerId)}
+                  className={offer?.googleCustomerId ? 'bg-gray-50' : ''}
                 />
               </div>
               <div className="space-y-2">
@@ -390,6 +442,8 @@ export default function UrlSwapTaskModal({
                   value={googleCampaignId}
                   onChange={(e) => setGoogleCampaignId(e.target.value)}
                   placeholder="例如: 123456789"
+                  disabled={!!(offer?.googleCampaignId)}
+                  className={offer?.googleCampaignId ? 'bg-gray-50' : ''}
                 />
               </div>
             </div>
