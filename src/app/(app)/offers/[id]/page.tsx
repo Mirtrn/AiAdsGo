@@ -32,9 +32,8 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { TrendingUp, DollarSign, Target, Activity, RefreshCcw, Link2 } from 'lucide-react'
+import { TrendingUp, DollarSign, Target, Activity, RefreshCcw } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
-import UrlSwapTaskModal from '@/components/UrlSwapTaskModal'
 
 interface Offer {
   id: number
@@ -154,9 +153,6 @@ export default function OfferDetailPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [rebuildError, setRebuildError] = useState<string | null>(null)
 
-  // URL Swap modal state
-  const [isUrlSwapModalOpen, setIsUrlSwapModalOpen] = useState(false)
-
   // Performance data states
   const [performanceLoading, setPerformanceLoading] = useState(true)
   const [performanceSummary, setPerformanceSummary] = useState<PerformanceSummary | null>(null)
@@ -170,15 +166,10 @@ export default function OfferDetailPage() {
   const [trendsLoading, setTrendsLoading] = useState(false)
   const [trendsError, setTrendsError] = useState<string | null>(null)
 
-  // URL Swap task state
-  const [urlSwapTask, setUrlSwapTask] = useState<any | null>(null)
-  const [urlSwapLoading, setUrlSwapLoading] = useState(false)
-
   useEffect(() => {
     fetchOffer()
     fetchPerformance()
     fetchTrends()
-    fetchUrlSwapTask()
   }, [offerId])
 
   useEffect(() => {
@@ -254,29 +245,6 @@ export default function OfferDetailPage() {
       setTrendsError(err.message || '加载趋势数据失败')
     } finally {
       setTrendsLoading(false)
-    }
-  }
-
-  const fetchUrlSwapTask = async () => {
-    try {
-      setUrlSwapLoading(true)
-      const response = await fetch(`/api/url-swap/tasks?offerId=${offerId}`, {
-        credentials: 'include',
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        const tasks = data.data?.tasks || []
-        if (tasks.length > 0) {
-          setUrlSwapTask(tasks[0])
-        } else {
-          setUrlSwapTask(null)
-        }
-      }
-    } catch (err: any) {
-      console.error('获取换链任务失败:', err)
-    } finally {
-      setUrlSwapLoading(false)
     }
   }
 
@@ -466,30 +434,6 @@ export default function OfferDetailPage() {
               <h1 className="text-xl font-bold text-gray-900">{offer.brand}</h1>
             </div>
             <div className="flex items-center space-x-3">
-              {/* URL Swap Task Button */}
-              {urlSwapTask ? (
-                <button
-                  onClick={() => router.push(`/url-swap/${urlSwapTask.id}`)}
-                  className="px-4 py-2 text-sm text-purple-600 hover:text-purple-800 flex items-center gap-1"
-                  title="查看换链任务"
-                >
-                  <Link2 className="w-4 h-4" />
-                  换链任务
-                  <Badge variant={urlSwapTask.status === 'enabled' ? 'default' : 'secondary'} className="ml-1">
-                    {urlSwapTask.status === 'enabled' ? '运行中' : '已暂停'}
-                  </Badge>
-                </button>
-              ) : (
-                <button
-                  onClick={() => setIsUrlSwapModalOpen(true)}
-                  disabled={!offer.affiliateLink}
-                  className="px-4 py-2 text-sm text-purple-600 hover:text-purple-800 disabled:opacity-50 flex items-center gap-1"
-                  title={!offer.affiliateLink ? '缺少推广链接，无法创建换链任务' : '创建换链任务'}
-                >
-                  <Link2 className="w-4 h-4" />
-                  创建换链任务
-                </button>
-              )}
               <button
                 onClick={handleSyncData}
                 disabled={syncing}
@@ -1495,16 +1439,6 @@ export default function OfferDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* URL Swap Task Modal */}
-      <UrlSwapTaskModal
-        open={isUrlSwapModalOpen}
-        onOpenChange={setIsUrlSwapModalOpen}
-        offerId={offer?.id!}
-        onSuccess={() => {
-          fetchUrlSwapTask()
-        }}
-      />
     </div>
   )
 }
