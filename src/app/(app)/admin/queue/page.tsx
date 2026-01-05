@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle, ChevronLeft, ChevronRight, ArrowUp, ArrowUpDown, ArrowDown } from 'lucide-react'
+import { useRef } from 'react'
+import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle, ChevronLeft, ChevronRight, ArrowUp, ArrowUpDown, ArrowDown, Cpu, HardDrive, Network } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -94,6 +95,55 @@ interface UserQueuePagination {
   totalPages: number
 }
 
+interface HostMetricsSnapshot {
+  timestamp: string
+  intervalSec: number | null
+  available: boolean
+  source: 'cgroup-v2' | 'fallback' | 'unavailable'
+  cpu: {
+    usagePct: number | null
+    throttledPct: number | null
+    quotaCores: number | null
+  }
+  memory: {
+    usedBytes: number | null
+    limitBytes: number | null
+    usagePct: number | null
+  }
+  diskIo: {
+    readBps: number | null
+    writeBps: number | null
+    readOpsPerSec: number | null
+    writeOpsPerSec: number | null
+  }
+  network: {
+    rxBps: number | null
+    txBps: number | null
+  }
+}
+
+const formatPct = (value: number | null | undefined) => {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '-'
+  return `${value.toFixed(1)}%`
+}
+
+const formatBytes = (bytes: number | null | undefined) => {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+const formatBps = (bps: number | null | undefined) => {
+  if (bps === null || bps === undefined || !Number.isFinite(bps)) return '-'
+  return `${formatBytes(bps)}/s`
+}
+
 export default function QueueManagementPage() {
   const [stats, setStats] = useState<QueueStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -154,6 +204,40 @@ export default function QueueManagementPage() {
   })
   const [savingConfig, setSavingConfig] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+
+  const [hostMetrics, setHostMetrics] = useState<HostMetricsSnapshot | null>(null)
+  const [hostMetricsError, setHostMetricsError] = useState<string | null>(null)
+  const hostMetricsInFlight = useRef(false)
+
+  const fetchHostMetrics = async (showSuccessToast = false) => {
+    if (hostMetricsInFlight.current) return
+    hostMetricsInFlight.current = true
+    try {
+      setHostMetricsError(null)
+      const result = await fetchWithRetry('/api/admin/host-metrics', undefined, {
+        maxRetries: 1,
+        retryDelay: 1000,
+        retryOnErrors: ['SERVICE_UNAVAILABLE', 'HTML_RESPONSE']
+      })
+      if (!result.success) {
+        setHostMetricsError(result.userMessage || '获取资源监控失败')
+        return
+      }
+      const data = result.data
+      if (data?.success && data.data) {
+        setHostMetrics(data.data as HostMetricsSnapshot)
+        if (showSuccessToast) {
+          toast.success('资源监控数据已更新')
+        }
+      } else {
+        setHostMetricsError(data?.error || '获取资源监控失败')
+      }
+    } catch (error: any) {
+      setHostMetricsError(error?.message || '获取资源监控失败')
+    } finally {
+      hostMetricsInFlight.current = false
+    }
+  }
 
   const fetchStats = async (showSuccessToast = false) => {
     setRefreshing(true)
@@ -377,6 +461,15 @@ export default function QueueManagementPage() {
     fetchStats()
   }, [activeTab])
 
+  useEffect(() => {
+    if (activeTab !== 'monitor') return
+    void fetchHostMetrics()
+    const interval = setInterval(() => {
+      void fetchHostMetrics()
+    }, 10_000)
+    return () => clearInterval(interval)
+  }, [activeTab])
+
   // 当每页显示数量或用户数据变化时，重新计算分页
   useEffect(() => {
     if (stats?.perUser) {
@@ -429,7 +522,10 @@ export default function QueueManagementPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => fetchStats(true)}
+              onClick={() => {
+                void fetchStats(true)
+                void fetchHostMetrics(true)
+              }}
               disabled={refreshing}
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
@@ -553,6 +649,98 @@ export default function QueueManagementPage() {
                 <p className="text-sm text-gray-500">
                   失败率: {totalTasks > 0 ? Math.round((stats.global.failed / totalTasks) * 100) : 0}%
                 </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Host Metrics (Container) */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">容器资源监控</h2>
+                <p className="text-sm text-gray-500">
+                  低频采样（10s），仅在本页打开时启用
+                  {hostMetrics?.timestamp ? `；更新时间：${new Date(hostMetrics.timestamp).toLocaleString('zh-CN')}` : ''}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fetchHostMetrics(true)}
+                disabled={hostMetricsInFlight.current}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${hostMetricsInFlight.current ? 'animate-spin' : ''}`} />
+                {hostMetricsInFlight.current ? '刷新中...' : '刷新'}
+              </Button>
+            </div>
+
+            {hostMetricsError && (
+              <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                {hostMetricsError}
+              </div>
+            )}
+
+            {!hostMetrics?.available && (
+              <div className="mb-4 rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
+                当前环境无法获取完整容器指标（source: {hostMetrics?.source || 'unavailable'}）
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-600">CPU</span>
+                  <Cpu className="w-4 h-4 text-gray-500" />
+                </div>
+                <div className="mt-2">
+                  <div className="text-2xl font-bold text-gray-900">{formatPct(hostMetrics?.cpu.usagePct)}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    throttled: {formatPct(hostMetrics?.cpu.throttledPct)}{hostMetrics?.cpu.quotaCores ? `；quota≈${hostMetrics.cpu.quotaCores.toFixed(2)} cores` : ''}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-600">内存</span>
+                  <Activity className="w-4 h-4 text-gray-500" />
+                </div>
+                <div className="mt-2">
+                  <div className="text-2xl font-bold text-gray-900">{formatPct(hostMetrics?.memory.usagePct)}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {formatBytes(hostMetrics?.memory.usedBytes)} / {hostMetrics?.memory.limitBytes ? formatBytes(hostMetrics.memory.limitBytes) : 'max'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-600">磁盘 IO</span>
+                  <HardDrive className="w-4 h-4 text-gray-500" />
+                </div>
+                <div className="mt-2">
+                  <div className="text-sm text-gray-900">
+                    读 {formatBps(hostMetrics?.diskIo.readBps)} / 写 {formatBps(hostMetrics?.diskIo.writeBps)}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    rIOPS {hostMetrics?.diskIo.readOpsPerSec?.toFixed(1) ?? '-'} / wIOPS {hostMetrics?.diskIo.writeOpsPerSec?.toFixed(1) ?? '-'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-600">网络 IO</span>
+                  <Network className="w-4 h-4 text-gray-500" />
+                </div>
+                <div className="mt-2">
+                  <div className="text-sm text-gray-900">
+                    RX {formatBps(hostMetrics?.network.rxBps)} / TX {formatBps(hostMetrics?.network.txBps)}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    interval: {hostMetrics?.intervalSec ? `${hostMetrics.intervalSec.toFixed(1)}s` : '-'}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
