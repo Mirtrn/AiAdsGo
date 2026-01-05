@@ -7,7 +7,7 @@
  * 优化：使用usePagination Hook统一分页逻辑
  */
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { exportOffers, type OfferExportData } from '@/lib/export-utils'
 import { fetchWithRetry } from '@/lib/api-error-handler'
@@ -81,6 +81,12 @@ export default function OffersPage() {
   const [filteredOffers, setFilteredOffers] = useState<Offer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const offersApiUrl = '/api/offers?noCache=true'
+  const offersRef = useRef<Offer[]>([])
+
+  useEffect(() => {
+    offersRef.current = offers
+  }, [offers])
 
   // P2-4: 移动端检测 - 已移除，统一使用表格视图
   // const isMobile = useIsMobile()
@@ -171,7 +177,7 @@ export default function OffersPage() {
     const pollInterval = setInterval(async () => {
       try {
         // 先用普通fetch检查401（因为fetchWithRetry会包装错误响应）
-        const checkResponse = await fetch('/api/offers', {
+        const checkResponse = await fetch(offersApiUrl, {
           credentials: 'include',
           cache: 'no-store',
         })
@@ -183,7 +189,7 @@ export default function OffersPage() {
         }
 
         // 如果不是401，使用fetchWithRetry获取数据
-        const result = await fetchWithRetry('/api/offers', {
+        const result = await fetchWithRetry(offersApiUrl, {
           credentials: 'include',
           cache: 'no-store',
         }, {
@@ -197,9 +203,31 @@ export default function OffersPage() {
         }
 
         const data = result.data
-        // 只有存在进行中的任务时才更新状态
-        if (data.offers.some((offer: Offer) => offer.scrapeStatus === 'in_progress')) {
-          console.log('[Polling] Found in-progress tasks, updating offers...')
+        const shouldUpdateOffers = (() => {
+          if (data.offers.some((offer: Offer) => offer.scrapeStatus === 'in_progress')) {
+            return true
+          }
+          const currentOffers = offersRef.current
+          if (currentOffers.length !== data.offers.length) {
+            return true
+          }
+          const currentById = new Map(currentOffers.map((offer) => [offer.id, offer]))
+          for (const nextOffer of data.offers as Offer[]) {
+            const currentOffer = currentById.get(nextOffer.id)
+            if (!currentOffer) return true
+            const currentLinked = currentOffer.linkedAccounts || []
+            const nextLinked = nextOffer.linkedAccounts || []
+            if (currentLinked.length !== nextLinked.length) return true
+            const currentCustomerIds = currentLinked.map((a) => a.customerId).join(',')
+            const nextCustomerIds = nextLinked.map((a) => a.customerId).join(',')
+            if (currentCustomerIds !== nextCustomerIds) return true
+          }
+          return false
+        })()
+
+        // 有进行中的任务或关键字段变化时才更新（避免不必要的重渲染）
+        if (shouldUpdateOffers) {
+          console.log('[Polling] Updating offers list...')
           setOffers(data.offers)
           setFilteredOffers(data.offers)
         }
@@ -291,7 +319,7 @@ export default function OffersPage() {
 
   const fetchOffers = async () => {
     try {
-      const response = await fetch('/api/offers', {
+      const response = await fetch(offersApiUrl, {
         credentials: 'include',
         cache: 'no-store', // 禁用 Next.js 自动缓存，确保获取最新数据
       })

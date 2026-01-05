@@ -159,6 +159,7 @@ export async function GET(request: NextRequest) {
     // 获取查询参数
     const searchParams = request.nextUrl.searchParams
     const idsParam = searchParams.get('ids') // 批量查询特定ID的Offers
+    const noCache = searchParams.get('noCache') === 'true' || searchParams.get('refresh') === 'true'
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : undefined
     const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!, 10) : undefined
     const isActive = searchParams.get('isActive') === 'true' ? true : searchParams.get('isActive') === 'false' ? false : undefined
@@ -202,10 +203,12 @@ export async function GET(request: NextRequest) {
       searchQuery,
     })
 
-    // 尝试从缓存获取
-    const cached = apiCache.get<any>(cacheKey)
-    if (cached) {
-      return NextResponse.json(cached)
+    if (!noCache) {
+      // 尝试从缓存获取
+      const cached = apiCache.get<any>(cacheKey)
+      if (cached) {
+        return NextResponse.json(cached)
+      }
     }
 
     const { offers, total } = await listOffers(parseInt(userId, 10), {
@@ -255,7 +258,9 @@ export async function GET(request: NextRequest) {
     }
 
     // 缓存结果（2分钟）
-    apiCache.set(cacheKey, result, 2 * 60 * 1000)
+    if (!noCache) {
+      apiCache.set(cacheKey, result, 2 * 60 * 1000)
+    }
 
     return NextResponse.json(result)
   } catch (error: any) {

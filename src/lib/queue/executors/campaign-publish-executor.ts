@@ -30,6 +30,7 @@ import {
 import { setCampaignPageViewGoalWithCredentials } from '@/lib/google-ads-conversion-goals'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { generateNamingScheme, type NamingScheme } from '@/lib/naming-convention'
+import { invalidateOfferCache } from '@/lib/api-cache'
 
 /**
  * 广告系列发布任务数据接口
@@ -600,6 +601,8 @@ export async function executeCampaignPublish(
        WHERE id = ?`,
       [googleCampaignId, googleAdGroupId, googleAdId, finalCampaignStatus, campaignId]
     )
+    // 🔧 发布完成后立即失效 Offer 列表缓存，确保 /offers 页面“关联Ads账号”及时更新
+    invalidateOfferCache(userId, offerId)
 
     apiSuccess = true
     console.log(`\n🎉 Campaign发布成功完成！`)
