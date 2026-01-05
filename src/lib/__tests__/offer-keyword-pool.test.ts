@@ -27,7 +27,8 @@ import {
   isBrandIrrelevant,
   filterLowIntentKeywords,
   filterMismatchedGeoKeywords,
-  calculateSearchVolumeThreshold
+  calculateSearchVolumeThreshold,
+  isPureBrandKeyword as isExactPureBrandKeyword  // 🔥 2026-01-05: 使用别名避免与 offer-keyword-pool.ts 中的同名函数冲突
 } from '../keyword-quality-filter'
 
 // Mock 数据
@@ -430,6 +431,41 @@ describe('OfferKeywordPool', () => {
     it('should be case-insensitive', () => {
       const pureBrandKeywords = ['eufy']
       expect(containsPureBrand('EUFY CAMERA', pureBrandKeywords)).toBe(true)
+    })
+  })
+
+  // ========== 新增测试：isPureBrandKeyword 精确匹配（2026-01-05） ==========
+  describe('isPureBrandKeyword - 精确品牌匹配', () => {
+    it('should return true for exact brand match', () => {
+      const pureBrandKeywords = ['eufy security', 'eufy']
+      expect(isExactPureBrandKeyword('eufy', pureBrandKeywords)).toBe(true)
+      expect(isExactPureBrandKeyword('eufy security', pureBrandKeywords)).toBe(true)
+    })
+
+    it('should return false for keywords containing brand but not equal', () => {
+      // 🔥 2026-01-05 修复：这是精确匹配，不是部分匹配
+      const pureBrandKeywords = ['eufy']
+      expect(isExactPureBrandKeyword('eufy camera', pureBrandKeywords)).toBe(false)
+      expect(isExactPureBrandKeyword('eufy security camera', pureBrandKeywords)).toBe(false)
+    })
+
+    it('should return false for non-brand keywords', () => {
+      const pureBrandKeywords = ['eufy']
+      expect(isExactPureBrandKeyword('security camera', pureBrandKeywords)).toBe(false)
+      expect(isExactPureBrandKeyword('indoor camera', pureBrandKeywords)).toBe(false)
+    })
+
+    it('should be case-insensitive', () => {
+      const pureBrandKeywords = ['eufy']
+      expect(isExactPureBrandKeyword('EUFY', pureBrandKeywords)).toBe(true)
+      expect(isExactPureBrandKeyword('Eufy', pureBrandKeywords)).toBe(true)
+    })
+
+    it('should handle multi-word brand names', () => {
+      const pureBrandKeywords = ['wahl professional', 'wahl']
+      expect(isExactPureBrandKeyword('wahl', pureBrandKeywords)).toBe(true)
+      expect(isExactPureBrandKeyword('wahl professional', pureBrandKeywords)).toBe(true)
+      expect(isExactPureBrandKeyword('wahl professional hair clipper', pureBrandKeywords)).toBe(false)
     })
   })
 

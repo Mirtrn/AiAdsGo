@@ -58,11 +58,14 @@ export function getPureBrandKeywords(brandName: string): string[] {
 }
 
 /**
- * 检测关键词是否包含纯品牌词
+ * 检测关键词是否包含纯品牌词（部分匹配）
+ *
+ * 用于过滤场景：只保留包含品牌词的关键词
+ * 注意：精确匹配请使用 isPureBrandKeyword
  *
  * @param keyword - 要检测的关键词
  * @param pureBrandKeywords - 纯品牌词列表
- * @returns 是否包含纯品牌词
+ * @returns 是否包含纯品牌词（部分匹配）
  *
  * @example
  * containsPureBrand("eufy security camera", ["eufy", "eufy security"]) → true
@@ -79,6 +82,10 @@ export function containsPureBrand(keyword: string, pureBrandKeywords: string[]):
 
 /**
  * 检测关键词是否为纯品牌词本身
+ *
+ * 纯品牌词定义：
+ * - 品牌全名（如 "eufy security"）
+ * - 品牌首词（如 "eufy"）
  *
  * @param keyword - 要检测的关键词
  * @param pureBrandKeywords - 纯品牌词列表
@@ -701,8 +708,9 @@ export function filterKeywordQuality(
 
     let removeReason: string | null = null
 
-    // 1. 检查是否必须包含纯品牌词
-    if (mustContainBrand && !containsPureBrand(keyword, pureBrandKeywords)) {
+    // 1. 检查是否必须包含纯品牌词（精确匹配）
+    // 🔥 2026-01-05 修复：使用 isPureBrandKeyword 精确匹配，而非 containsPureBrand 部分匹配
+    if (mustContainBrand && !isPureBrandKeyword(keyword, pureBrandKeywords)) {
       removeReason = `不含纯品牌词: "${keyword}"`
     }
     // 2. 检查品牌变体词
