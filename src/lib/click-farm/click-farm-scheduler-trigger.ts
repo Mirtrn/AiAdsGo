@@ -132,7 +132,8 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
 
   if (!isWithinExecutionTimeRange(task)) {
     // 🔧 修复：即使跳过任务，也要更新 next_run_at
-    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+    // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
+    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
     return {
       taskId,
       status: 'skipped',
@@ -144,7 +145,8 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
   const clickCount = task.hourly_distribution[currentHour] || 0;
 
   if (clickCount === 0) {
-    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+    // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
+    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
     return { taskId, status: 'skipped', message: '当前小时无需执行点击' };
   }
 
@@ -213,7 +215,8 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
 
   // 更新状态
   if (queued > 0) {
-    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+    // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
+    await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
     console.log(`[Trigger] 任务 ${task.id} 已加入 ${queued} 个点击到队列`);
   }
 
@@ -292,7 +295,8 @@ export async function triggerAllPendingTasks(): Promise<{
     const currentHour = getHourInTimezone(new Date(), task.timezone);
     if (!isWithinExecutionTimeRange(task)) {
       // 🔧 修复：即使跳过任务，也要更新 next_run_at
-      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+      // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
+      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
       results.skipped++;
       continue;
     }
@@ -300,7 +304,8 @@ export async function triggerAllPendingTasks(): Promise<{
     const clickCount = task.hourly_distribution[currentHour] || 0;
     if (clickCount === 0) {
       // 🔧 修复：即使跳过任务，也要更新 next_run_at
-      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+      // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
+      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
       results.skipped++;
       continue;
     }
@@ -360,7 +365,8 @@ export async function triggerAllPendingTasks(): Promise<{
     }
 
     if (queued > 0) {
-      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone));
+      // 🔧 修复(2026-01-05): 传入完整的 task 对象，确保返回下一个有配额的小时
+      await updateTaskStatus(task.id, 'running', generateNextRunAt(task.timezone, task));
       results.queued += queued;
     }
   }

@@ -364,6 +364,8 @@ function getNextHourInTimezone(now: Date, timezone: string): Date {
  * @param now - 当前时间
  * @param task - 任务对象
  * @returns 下一个有配额小时的执行时间（UTC）
+ *
+ * 🔧 修复(2026-01-05): 添加调试日志追踪调度决策
  */
 function getNextHourWithQuota(now: Date, task: ClickFarmTask): Date {
   const currentHour = getHourInTimezone(now, task.timezone);
@@ -382,6 +384,17 @@ function getNextHourWithQuota(now: Date, task: ClickFarmTask): Date {
     endHour = 23; // 24:00 等同于 23:59，使用 23:59 后的下一个整点
   }
 
+  // 🔧 调试日志：记录搜索条件
+  const debugInfo = {
+    taskId: task.id,
+    timezone: task.timezone,
+    currentHour,
+    currentDate,
+    startHour,
+    endHour,
+    hourlyDistribution: hourlyDistribution.join(',')
+  }
+
   // 从下一个小时开始搜索，找到第一个有配额且在执行范围内的小时
   for (let i = 1; i <= 24; i++) {
     const checkHour = (currentHour + i) % 24;
@@ -394,7 +407,17 @@ function getNextHourWithQuota(now: Date, task: ClickFarmTask): Date {
       ? checkHour >= startHour && checkHour <= endHour
       : checkHour >= startHour || checkHour <= endHour; // 跨越午夜的情况
 
-    if (isInTimeRange && hourlyDistribution[checkHour] > 0) {
+    const hasQuota = hourlyDistribution[checkHour] > 0;
+
+    // 🔧 记录每次检查
+    if (process.env.DEBUG_CLICK_FARM === 'true') {
+      console.log(`[getNextHourWithQuota] 检查: hour=${checkHour}, date=${checkDate}, inRange=${isInTimeRange}, quota=${hourlyDistribution[checkHour]}`)
+    }
+
+    if (isInTimeRange && hasQuota) {
+      // 🔧 找到目标小时，记录日志
+      console.log(`[getNextHourWithQuota] ✅ 找到目标小时: taskId=${task.id}, currentHour=${currentHour}, targetHour=${checkHour}, targetDate=${checkDate}, quota=${hourlyDistribution[checkHour]}`)
+
       return createDateInTimezone(
         checkDate,
         `${checkHour.toString().padStart(2, '0')}:00`,
@@ -408,6 +431,8 @@ function getNextHourWithQuota(now: Date, task: ClickFarmTask): Date {
   const tomorrowDate = incrementDate(currentDate);
   for (let hour = 0; hour < 24; hour++) {
     if (hourlyDistribution[hour] > 0) {
+      console.log(`[getNextHourWithQuota] ⏩ 今日无配额，跳转到明天: taskId=${task.id}, targetHour=${hour}, targetDate=${tomorrowDate}, quota=${hourlyDistribution[hour]}`)
+
       return createDateInTimezone(
         tomorrowDate,
         `${hour.toString().padStart(2, '0')}:00`,
@@ -417,6 +442,8 @@ function getNextHourWithQuota(now: Date, task: ClickFarmTask): Date {
   }
 
   // 如果没有任何有配额的小时（理论上不应该发生），返回明天的 start_time
+  console.log(`[getNextHourWithQuota] ⚠️ 无有效配额，返回明天start_time: taskId=${task.id}, startHour=${startHour}`)
+
   return createDateInTimezone(
     tomorrowDate,
     `${startHour.toString().padStart(2, '0')}:00`,
