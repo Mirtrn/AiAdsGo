@@ -57,11 +57,18 @@ export default function Step4PublishSummary({
   const [needsReauth, setNeedsReauth] = useState(false)
   const [reauthMessage, setReauthMessage] = useState<string>('')
 
+  // 🔥 新增：Google Ads API 限流状态
+  const [isRateLimited, setIsRateLimited] = useState(false)
+  const [rateLimitInfo, setRateLimitInfo] = useState<{
+    retryAfter: number  // 等待秒数
+    message: string
+  } | null>(null)
+
   // 🔧 修复(2025-12-24): 获取正确的货币符号
   const accountCurrency = selectedAccount?.currencyCode || 'USD'
   const currencySymbol = CURRENCY_SYMBOLS[accountCurrency] || '$'
 
-  const parseApiError = (data: any): { message: string; needsReauth: boolean } => {
+  const parseApiError = (data: any): { message: string; needsReauth: boolean; isRateLimited: boolean; retryAfter?: number } => {
     const needsReauthFlag =
       data?.needsReauth === true ||
       data?.code === 'OAUTH_TOKEN_EXPIRED' ||
@@ -70,15 +77,38 @@ export default function Step4PublishSummary({
       data?.error?.code === 'GADS_4006' || // GADS_CREDENTIALS_INVALID
       data?.error?.details?.needsReauth === true
 
-    const message =
-      (typeof data?.message === 'string' && data.message) ||
-      (typeof data?.error === 'string' && data.error) ||
-      (typeof data?.error?.message === 'string' && data.error.message) ||
-      (typeof data?.error?.error?.message === 'string' && data.error.error.message) ||
-      (typeof data?.error?.details?.reason === 'string' && data.error.details.reason) ||
-      '发布失败'
+    // 🔥 新增：检测 Google Ads API 限流错误 (429)
+    const isRateLimitedFlag =
+      data?.error?.code === 429 ||
+      data?.code === 'ERR_BAD_RESPONSE' ||
+      (typeof data?.detail === 'string' && data.detail.includes('429')) ||
+      (typeof data?.detail === 'string' && data.detail.includes('exhausted')) ||
+      (typeof data?.detail === 'string' && data.detail.includes('Too many requests'))
 
-    return { message, needsReauth: needsReauthFlag }
+    // 🔥 新增：解析重试时间（秒）
+    let retryAfter: number | undefined
+    if (isRateLimitedFlag) {
+      // 从错误信息中提取重试时间
+      const retryMatch = data?.detail?.match(/Retry in (\d+) seconds/)
+      if (retryMatch) {
+        retryAfter = parseInt(retryMatch[1], 10)
+      } else {
+        // 如果没有明确的重试时间，给一个默认值
+        retryAfter = 3600 // 默认 1 小时
+      }
+    }
+
+    const message =
+      isRateLimitedFlag
+        ? 'Google Ads API 调用次数已达今日上限，请稍后再试'
+        : (typeof data?.message === 'string' && data.message) ||
+          (typeof data?.error === 'string' && data.error) ||
+          (typeof data?.error?.message === 'string' && data.error.message) ||
+          (typeof data?.error?.error?.message === 'string' && data.error.error.message) ||
+          (typeof data?.error?.details?.reason === 'string' && data.error.details.reason) ||
+          '发布失败'
+
+    return { message, needsReauth: needsReauthFlag, isRateLimited: isRateLimitedFlag, retryAfter }
   }
 
   // 🔥 新增：调试日志 - 追踪selectedCreative中的否定关键词
@@ -87,6 +117,7 @@ export default function Step4PublishSummary({
   console.log(`[Step4] selectedCreative.negativeKeywords长度: ${selectedCreative.negativeKeywords?.length || 0}`)
   console.log(`[Step4] selectedCreative.negativeKeywords示例: ${selectedCreative.negativeKeywords?.slice(0, 5).join(', ') || 'NONE'}`)
 
+  // 🔧 修复(2026-01-05): 添加warnings字段支持
   const [publishStatus, setPublishStatus] = useState<{
     step: string
     message: string
@@ -484,6 +515,24 @@ export default function Step4PublishSummary({
           setPublishing(false)
           return
         }
+
+        // 🔥 新增：处理 Google Ads API 限流错误 (429)
+        if (apiError.isRateLimited) {
+          setIsRateLimited(true)
+          setRateLimitInfo({
+            retryAfter: apiError.retryAfter || 3600,
+            message: apiError.message
+          })
+          addPublishStep('creating', 'Google Ads API 限流，请稍后再试', 'failed')
+          setPublishStatus({
+            step: 'failed',
+            message: apiError.message,
+            success: false
+          })
+          setPublishing(false)
+          return
+        }
+
         throw new Error(apiError.message)
       }
 
@@ -542,7 +591,10 @@ export default function Step4PublishSummary({
                   console.log(`   Campaign ${campaignId}: ${campaign.creation_status}`)
 
                   if (campaign.creation_status === 'synced') {
-                    campaignStatuses[campaignId] = { status: 'success' }
+                    campaignStatuses[campaignId] = {
+                      status: 'success',
+                      error: campaign.creation_error // 包含警告信息
+                    }
                   } else if (campaign.creation_status === 'failed') {
                     campaignStatuses[campaignId] = { status: 'failed', error: campaign.creation_error }
                   } else {
@@ -569,6 +621,12 @@ export default function Step4PublishSummary({
           .map(([id, _]) => id)
 
         const successCount = Object.values(campaignStatuses).filter(s => s.status === 'success').length
+
+        // 🔧 修复(2026-01-05): 收集成功案例中的警告信息
+        const warnings = Object.values(campaignStatuses)
+          .filter(s => s.status === 'success' && s.error?.includes('[警告]'))
+          .map(s => s.error!)
+          .filter(w => w)
 
         if (failedCampaigns.length > 0) {
           // 部分或全部失败
@@ -599,13 +657,28 @@ export default function Step4PublishSummary({
 
         // 全部成功
         console.log(`✅ 所有${successCount}个广告系列发布成功`)
-        addPublishStep('syncing', '同步完成', 'success')
-        addPublishStep('completed', `${successCount}个广告系列已成功发布到Google Ads`, 'success')
-        setPublishStatus({
-          step: 'completed',
-          message: '发布成功！广告系列已上线',
-          success: true
-        })
+        if (warnings.length > 0) {
+          // 有警告的情况
+          console.warn(`⚠️ 有警告: ${warnings.join('; ')}`)
+          addPublishStep('syncing', '同步完成', 'success')
+          addPublishStep('completed', `${successCount}个广告系列已成功发布到Google Ads`, 'success')
+          // 额外添加警告提示
+          addPublishStep('warnings', `提示: ${warnings.join('; ').replace('[警告] ', '')}`, 'success')
+          setPublishStatus({
+            step: 'completed',
+            message: '发布成功！广告系列已上线',
+            success: true
+          })
+        } else {
+          // 完全成功
+          addPublishStep('syncing', '同步完成', 'success')
+          addPublishStep('completed', `${successCount}个广告系列已成功发布到Google Ads`, 'success')
+          setPublishStatus({
+            step: 'completed',
+            message: '发布成功！广告系列已上线',
+            success: true
+          })
+        }
         onPublishComplete()
         return
       }
@@ -1052,6 +1125,39 @@ export default function Step4PublishSummary({
                         </div>
                         <div className="text-red-700 mt-2">
                           前往 <a className="underline font-medium" href="/settings">设置</a> 完成重新授权，然后回到此页面重试。
+                        </div>
+                      </div>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* 🔥 新增：Google Ads API 限流友好提示 */}
+              {isRateLimited && rateLimitInfo && (
+                <Alert className="border-amber-200 bg-amber-50">
+                  <AlertDescription className="space-y-3">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5" />
+                      <div className="text-sm text-amber-800">
+                        <div className="font-semibold">API 调用次数已达上限</div>
+                        <div className="text-amber-700 mt-1">
+                          {rateLimitInfo.message}
+                        </div>
+                        <div className="text-amber-700 mt-2">
+                          <div className="flex items-center gap-2">
+                            <span>预计需要等待:</span>
+                            <span className="font-mono font-semibold bg-amber-100 px-2 py-0.5 rounded">
+                              {Math.floor(rateLimitInfo.retryAfter / 3600)} 小时 {Math.floor((rateLimitInfo.retryAfter % 3600) / 60)} 分钟
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-amber-700 mt-3 pt-3 border-t border-amber-200">
+                          <div className="text-xs font-medium mb-1">💡 建议：</div>
+                          <ul className="text-xs space-y-1 text-amber-700 list-disc list-inside">
+                            <li>Google Ads API 有每日调用次数限制</li>
+                            <li>建议稍后（{Math.ceil(rateLimitInfo.retryAfter / 60)} 分钟后）再尝试发布</li>
+                            <li>如需更高配额，可访问 <a href="https://support.google.com/google-ads/contact/quotas" target="_blank" rel="noopener noreferrer" className="underline">Google Ads API 配额申请</a></li>
+                          </ul>
                         </div>
                       </div>
                     </div>

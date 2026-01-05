@@ -517,38 +517,54 @@ export async function executeCampaignPublish(
     const googleAdId = adResult.adId
 
     // 13. 串行执行：Extensions（避免并发修改Campaign资源冲突）
+    // 🔧 修复(2026-01-05): Extensions是可选扩展，失败不应影响核心发布状态
     console.log(`\n🔄 开始串行执行Extensions（避免并发冲突）...`)
     const extensionsStartTime = Date.now()
 
-    // 13.1 添加Callout Extensions
-    totalApiOperations += finalCallouts.length + 1
-    await createGoogleAdsCalloutExtensions({
-      customerId: adsAccount.customer_id,
-      refreshToken: refreshToken,
-      campaignId: googleCampaignId,
-      callouts: finalCallouts,
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: finalLoginCustomerId,
-      authType: auth.authType,
-      serviceAccountId: auth.serviceAccountId
-    })
-    console.log(`  ✅ [串行1/2] 成功添加${finalCallouts.length}个Callout扩展`)
+    // 跟踪Extensions执行结果（非致命错误）
+    let extensionsErrors: string[] = []
 
-    // 13.2 添加Sitelink Extensions
-    totalApiOperations += formattedSitelinks.length + 1
-    await createGoogleAdsSitelinkExtensions({
-      customerId: adsAccount.customer_id,
-      refreshToken: refreshToken,
-      campaignId: googleCampaignId,
-      sitelinks: formattedSitelinks,
-      accountId: adsAccount.id,
-      userId,
-      loginCustomerId: finalLoginCustomerId,
-      authType: auth.authType,
-      serviceAccountId: auth.serviceAccountId
-    })
-    console.log(`  ✅ [串行2/2] 成功添加${formattedSitelinks.length}个Sitelink扩展`)
+    // 13.1 添加Callout Extensions（非致命，失败时记录错误但继续）
+    try {
+      totalApiOperations += finalCallouts.length + 1
+      await createGoogleAdsCalloutExtensions({
+        customerId: adsAccount.customer_id,
+        refreshToken: refreshToken,
+        campaignId: googleCampaignId,
+        callouts: finalCallouts,
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId: finalLoginCustomerId,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId
+      })
+      console.log(`  ✅ [串行1/2] 成功添加${finalCallouts.length}个Callout扩展`)
+    } catch (calloutError: any) {
+      const errorMsg = calloutError.message || String(calloutError)
+      extensionsErrors.push(`Callout扩展: ${errorMsg}`)
+      console.warn(`  ⚠️ [串行1/2] Callout扩展失败（非致命）: ${errorMsg}`)
+    }
+
+    // 13.2 添加Sitelink Extensions（非致命，失败时记录错误但继续）
+    try {
+      totalApiOperations += formattedSitelinks.length + 1
+      await createGoogleAdsSitelinkExtensions({
+        customerId: adsAccount.customer_id,
+        refreshToken: refreshToken,
+        campaignId: googleCampaignId,
+        sitelinks: formattedSitelinks,
+        accountId: adsAccount.id,
+        userId,
+        loginCustomerId: finalLoginCustomerId,
+        authType: auth.authType,
+        serviceAccountId: auth.serviceAccountId
+      })
+      console.log(`  ✅ [串行2/2] 成功添加${formattedSitelinks.length}个Sitelink扩展`)
+    } catch (sitelinkError: any) {
+      const errorMsg = sitelinkError.message || String(sitelinkError)
+      extensionsErrors.push(`Sitelink扩展: ${errorMsg}`)
+      console.warn(`  ⚠️ [串行2/2] Sitelink扩展失败（非致命）: ${errorMsg}`)
+    }
 
     const extensionsDuration = Date.now() - extensionsStartTime
     console.log(`🔄 Extensions串行执行完成，耗时: ${extensionsDuration}ms`)
@@ -593,23 +609,46 @@ export async function executeCampaignPublish(
     }
 
     // 16. 更新数据库记录
+    // 🔧 修复(2026-01-05): 核心成功但Extensions失败时，仍计为成功，只记录警告信息
+    let finalCreationStatus = 'synced'
+    let finalCreationError: string | null = null
+
+    if (extensionsErrors.length > 0) {
+      // 核心成功但Extensions失败 → 记录警告信息，不改变成功状态
+      finalCreationError = `[警告] ${extensionsErrors.join('; ')}`
+    }
+
     await db.exec(
       `UPDATE campaigns
        SET google_campaign_id = ?, google_ad_group_id = ?, google_ad_id = ?,
-           status = ?, creation_status = 'synced', creation_error = NULL,
+           status = ?, creation_status = ?, creation_error = ?,
            last_sync_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [googleCampaignId, googleAdGroupId, googleAdId, finalCampaignStatus, campaignId]
+      [googleCampaignId, googleAdGroupId, googleAdId, finalCampaignStatus, finalCreationStatus, finalCreationError, campaignId]
     )
-    // 🔧 发布完成后立即失效 Offer 列表缓存，确保 /offers 页面“关联Ads账号”及时更新
+    // 🔧 发布完成后立即失效 Offer 列表缓存，确保 /offers 页面"关联Ads账号"及时更新
     invalidateOfferCache(userId, offerId)
 
     apiSuccess = true
-    console.log(`\n🎉 Campaign发布成功完成！`)
-    console.log(`   📋 命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
-    console.log(`   💰 货币: ${adsAccount.currency}, CPC: ${effectiveMaxCpcBid}`)
-    console.log(`   🔗 Google IDs: Campaign=${googleCampaignId}, AdGroup=${googleAdGroupId}, Ad=${googleAdId}`)
-    console.log(`   📊 总计 ${totalApiOperations} 个API操作`)
+
+    // 🔧 修复(2026-01-05): 区分完全成功和部分成功
+    if (extensionsErrors.length === 0) {
+      console.log(`\n🎉 Campaign发布成功完成！`)
+      console.log(`   📋 命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
+      console.log(`   💰 货币: ${adsAccount.currency}, CPC: ${effectiveMaxCpcBid}`)
+      console.log(`   🔗 Google IDs: Campaign=${googleCampaignId}, AdGroup=${googleAdGroupId}, Ad=${googleAdId}`)
+      console.log(`   📊 总计 ${totalApiOperations} 个API操作`)
+    } else {
+      console.log(`\n⚠️ Campaign核心发布成功，但部分扩展失败`)
+      console.log(`   📋 命名: Campaign=${campaignName}, AdGroup=${adGroupName}`)
+      console.log(`   💰 货币: ${adsAccount.currency}, CPC: ${effectiveMaxCpcBid}`)
+      console.log(`   🔗 Google IDs: Campaign=${googleCampaignId}, AdGroup=${googleAdGroupId}, Ad=${googleAdId}`)
+      console.log(`   📊 总计 ${totalApiOperations} 个API操作`)
+      console.log(`   ⚠️ 扩展失败: ${extensionsErrors.length}项`)
+      extensionsErrors.forEach((err, i) => {
+        console.log(`      ${i + 1}. ${err}`)
+      })
+    }
 
     return {
       success: true,
