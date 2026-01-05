@@ -227,25 +227,30 @@ export default function QueueManagementPage() {
           const configResult = await fetchWithRetry('/api/queue/config')
           if (configResult.success && configResult.data?.config) {
             const dbConfig = configResult.data.config
+            const defaultPerTypeConcurrency: PerTypeConcurrency = {
+              scrape: 3,
+              'ai-analysis': 2,
+              sync: 1,
+              backup: 1,
+              email: 3,
+              export: 2,
+              'link-check': 2,
+              cleanup: 1,
+              'offer-extraction': 2,
+              'batch-offer-creation': 1,
+              'ad-creative': 3,
+              'campaign-publish': 2,
+              'click-farm': 5,
+              'url-swap': 3,
+            }
+            const mergedPerTypeConcurrency: PerTypeConcurrency = {
+              ...defaultPerTypeConcurrency,
+              ...(dbConfig.perTypeConcurrency || {})
+            }
             setConfig({
               globalConcurrency: dbConfig.globalConcurrency || 5,
               perUserConcurrency: dbConfig.perUserConcurrency || 2,
-              perTypeConcurrency: dbConfig.perTypeConcurrency || {
-                scrape: 3,
-                'ai-analysis': 2,
-                sync: 1,
-                backup: 1,
-                email: 3,
-                export: 2,
-                'link-check': 2,
-                cleanup: 1,
-                'offer-extraction': 2,
-                'batch-offer-creation': 1,
-                'ad-creative': 3,
-                'campaign-publish': 2,  // 🆕 广告系列发布
-                'click-farm': 5,         // 🆕 补点击任务（高并发，代理IP池支持）
-                'url-swap': 3,           // 🆕 换链接任务（定时监测，中等并发）
-              },
+              perTypeConcurrency: mergedPerTypeConcurrency,
               maxQueueSize: dbConfig.maxQueueSize || 1000,
               taskTimeout: dbConfig.taskTimeout || 60000,
               enablePriority: dbConfig.enablePriority !== false,
@@ -1020,7 +1025,10 @@ export default function QueueManagementPage() {
                 针对不同类型的任务设置独立的并发限制。系统会取三层限制（全局、用户、类型）中最严格的值。
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {Object.entries(config.perTypeConcurrency).map(([type, limit]) => (
+                {[
+                  ...Object.keys(TASK_TYPE_LABELS),
+                  ...Object.keys(config.perTypeConcurrency).filter(type => !(type in TASK_TYPE_LABELS)).sort()
+                ].map((type) => (
                   <div key={type} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                     <div className="flex-1">
                       <Label className="text-sm font-medium text-gray-700">
@@ -1031,8 +1039,8 @@ export default function QueueManagementPage() {
                     <Input
                       type="number"
                       min="1"
-                      max="10"
-                      value={limit}
+                      max="1000"
+                      value={config.perTypeConcurrency[type] ?? 2}
                       onChange={(e) => setConfig({
                         ...config,
                         perTypeConcurrency: {
@@ -1098,21 +1106,29 @@ export default function QueueManagementPage() {
             </div>
 
             {/* Per-Type Concurrency Current Values */}
-            {stats.config.perTypeConcurrency && (
-              <div className="mt-6 pt-4 border-t border-gray-200">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">任务类型并发限制</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
-                  {Object.entries(stats.config.perTypeConcurrency).map(([type, limit]) => (
-                    <div key={type} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
-                      <span className="text-gray-600 truncate" title={type}>
-                        {TASK_TYPE_LABELS[type] || type}
-                      </span>
-                      <span className="font-bold text-gray-900 ml-2">{limit}</span>
-                    </div>
-                  ))}
+            {(() => {
+              const perTypeConcurrency = stats.config.perTypeConcurrency
+              if (!perTypeConcurrency) return null
+
+              return (
+                <div className="mt-6 pt-4 border-t border-gray-200">
+                  <h3 className="text-sm font-medium text-gray-700 mb-3">任务类型并发限制</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
+                    {[
+                      ...Object.keys(TASK_TYPE_LABELS),
+                      ...Object.keys(perTypeConcurrency).filter(type => !(type in TASK_TYPE_LABELS)).sort()
+                    ].map((type) => (
+                      <div key={type} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                        <span className="text-gray-600 truncate" title={type}>
+                          {TASK_TYPE_LABELS[type] || type}
+                        </span>
+                        <span className="font-bold text-gray-900 ml-2">{perTypeConcurrency[type] ?? 2}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
         </div>
       )}

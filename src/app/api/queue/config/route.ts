@@ -38,6 +38,43 @@ const DEFAULT_QUEUE_CONFIG = {
   retryDelay: 5000,
 }
 
+const ALL_TASK_TYPES = [
+  'scrape',
+  'ai-analysis',
+  'sync',
+  'backup',
+  'email',
+  'export',
+  'link-check',
+  'cleanup',
+  'offer-extraction',
+  'batch-offer-creation',
+  'ad-creative',
+  'campaign-publish',
+  'click-farm',
+  'url-swap',
+] as const
+
+function normalizeQueueConfig(input: any): typeof DEFAULT_QUEUE_CONFIG {
+  const merged = {
+    ...DEFAULT_QUEUE_CONFIG,
+    ...(input || {}),
+    perTypeConcurrency: {
+      ...DEFAULT_QUEUE_CONFIG.perTypeConcurrency,
+      ...(input?.perTypeConcurrency || {}),
+    },
+  }
+
+  // 对缺失的任务类型，显式补齐为2，保持与运行时默认行为一致（避免UI不显示、配置丢失）
+  for (const taskType of ALL_TASK_TYPES) {
+    if (merged.perTypeConcurrency[taskType] === undefined) {
+      merged.perTypeConcurrency[taskType] = 2
+    }
+  }
+
+  return merged
+}
+
 // 统一队列配置验证Schema
 const queueConfigSchema = z.object({
   globalConcurrency: z.number().min(1).max(1000).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
@@ -62,7 +99,7 @@ async function getQueueConfigFromDB(): Promise<typeof DEFAULT_QUEUE_CONFIG | nul
     `)
 
     if (result?.value) {
-      return JSON.parse(result.value)
+      return normalizeQueueConfig(JSON.parse(result.value))
     }
     return null
   } catch (error) {
@@ -76,7 +113,7 @@ async function getQueueConfigFromDB(): Promise<typeof DEFAULT_QUEUE_CONFIG | nul
  */
 async function saveQueueConfigToDB(config: typeof DEFAULT_QUEUE_CONFIG): Promise<void> {
   const db = await getDatabase()
-  const configJson = JSON.stringify(config)
+  const configJson = JSON.stringify(normalizeQueueConfig(config))
 
   // 检查是否已存在
   const existing = await db.queryOne<{ id: number }>(`
@@ -119,7 +156,7 @@ export async function GET(request: NextRequest) {
 
     // 🔥 优先从数据库读取配置（确保多实例一致性）
     const dbConfig = await getQueueConfigFromDB()
-    const config = dbConfig || DEFAULT_QUEUE_CONFIG
+    const config = dbConfig || normalizeQueueConfig(DEFAULT_QUEUE_CONFIG)
 
     // 同步更新内存中的队列管理器配置
     const queueManager = getQueueManager()
@@ -138,11 +175,13 @@ export async function GET(request: NextRequest) {
         taskTimeout: config.taskTimeout,
         defaultMaxRetries: config.defaultMaxRetries,
         retryDelay: config.retryDelay,
+        enablePriority: true, // 统一队列始终启用优先级
         // 状态信息
         storageType: process.env.REDIS_URL ? 'redis' : 'memory',
         redisConnected: !!process.env.REDIS_URL,
         // 🔥 新增：标识配置来源
-        configSource: dbConfig ? 'database' : 'default'
+        configSource: dbConfig ? 'database' : 'default',
+        knownTaskTypes: ALL_TASK_TYPES
       }
     })
   } catch (error: any) {
@@ -193,7 +232,7 @@ export async function PUT(request: NextRequest) {
     const newConfig = validationResult.data
 
     // 🔥 先从数据库读取现有配置，合并后保存
-    const existingConfig = await getQueueConfigFromDB() || DEFAULT_QUEUE_CONFIG
+    const existingConfig = await getQueueConfigFromDB() || normalizeQueueConfig(DEFAULT_QUEUE_CONFIG)
     const mergedConfig = {
       ...existingConfig,
       ...newConfig,
@@ -205,18 +244,19 @@ export async function PUT(request: NextRequest) {
     }
 
     // 🔥 保存到数据库（持久化）
-    await saveQueueConfigToDB(mergedConfig)
+    const normalizedConfig = normalizeQueueConfig(mergedConfig)
+    await saveQueueConfigToDB(normalizedConfig)
 
     // 更新当前实例的内存配置
     const queueManager = getQueueManager()
-    queueManager.updateConfig(mergedConfig)
+    queueManager.updateConfig(normalizedConfig)
 
     console.log(`[UnifiedQueueConfig] 管理员 ${auth.user.email} (ID: ${auth.user.userId}) 更新了队列配置:`, newConfig)
 
     return NextResponse.json({
       success: true,
       message: '配置已保存到数据库并在当前实例生效',
-      config: mergedConfig,
+      config: normalizedConfig,
     })
   } catch (error: any) {
     console.error('[UnifiedQueueConfig] 更新配置失败:', error)

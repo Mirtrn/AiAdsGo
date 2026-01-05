@@ -1159,7 +1159,15 @@ export class UnifiedQueueManager {
    * 更新队列配置
    */
   updateConfig(config: Partial<QueueConfig>): void {
-    this.config = { ...this.config, ...config }
+    this.config = {
+      ...this.config,
+      ...config,
+      // 防御性合并：避免外部只传部分perTypeConcurrency导致其它类型丢失（进而回退到默认2并发）
+      perTypeConcurrency: {
+        ...this.config.perTypeConcurrency,
+        ...(config.perTypeConcurrency || {}),
+      },
+    }
     console.log('🔄 队列配置已更新')
   }
 

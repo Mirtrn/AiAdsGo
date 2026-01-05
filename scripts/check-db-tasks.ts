@@ -1,14 +1,22 @@
 #!/usr/bin/env tsx
 /**
- * 检查生产环境数据库中的任务状态
+ * 检查生产/测试环境数据库中的任务状态
+ *
+ * 使用方法：
+ *   DATABASE_URL='postgresql://<user>:<password>@<host>:<port>/<db>' tsx scripts/check-db-tasks.ts
  */
 
 import postgres from 'postgres'
 
-const DATABASE_URL = 'postgresql://<db_user>:<db_password>@<db_host>:<db_port>/<db_name>'
+const DATABASE_URL = process.env.DATABASE_URL
+
+if (!DATABASE_URL) {
+  console.error('❌ DATABASE_URL 环境变量未设置')
+  process.exit(1)
+}
 
 async function main() {
-  console.log('🔍 检查生产环境数据库任务状态\n')
+  console.log('🔍 检查数据库任务状态\n')
 
   const sql = postgres(DATABASE_URL)
 
@@ -83,3 +91,4 @@ async function main() {
 }
 
 main().catch(console.error)
+
