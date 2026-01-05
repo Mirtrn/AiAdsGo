@@ -19,17 +19,17 @@ export async function POST(
 
     console.log(`[API] 手动触发任务 ${id} 执行`);
 
-    // 🔧 修复(2025-12-30): 手动触发时清空next_run_at，让任务立即执行
-    // 正常情况下，任务会等到next_run_at时间才执行
-    // 手动触发应该忽略这个限制，立即执行
+    // 🔧 修复(2026-01-05): 不要清空 next_run_at，这会导致任务在每次 cron job 执行时被重复选中
+    // 而是设置为一个过去的值，让任务立即执行一次，然后在 triggerTaskScheduling 中正确更新 next_run_at
     const db = getDatabase();
+    // 🔧 PostgreSQL 语法：使用 INTERVAL
     await db.exec(`
       UPDATE click_farm_tasks
-      SET next_run_at = NULL, updated_at = datetime('now')
+      SET next_run_at = NOW() - INTERVAL '1 hour', updated_at = NOW()
       WHERE id = ? AND user_id = ?
     `, [id, parseInt(userId)]);
 
-    console.log(`[API] 已清空任务 ${id} 的next_run_at，准备立即触发`);
+    console.log(`[API] 已设置任务 ${id} 的 next_run_at 为过去时间，准备立即触发`);
 
     // 调用触发函数
     const result = await triggerTaskScheduling(id);
