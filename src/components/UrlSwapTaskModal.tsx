@@ -131,40 +131,29 @@ export default function UrlSwapTaskModal({
       const offerData = data.offer || data.data;
 
       if (offerData) {
-        // 🆕 获取该Offer关联的最新Campaign，提取Google Ads信息
+        // 🆕 从本地DB获取该Offer关联的Google Ads信息（不依赖Google Ads API）
         try {
-          const campaignsResponse = await fetch(`/api/offers/${id}/campaigns`);
-          if (campaignsResponse.ok) {
-            const campaignsData = await campaignsResponse.json();
-            const campaigns = campaignsData.data || campaignsData.campaigns || [];
+          const idsResponse = await fetch(`/api/offers/${id}/google-ads-ids`);
+          if (idsResponse.ok) {
+            const idsResult = await idsResponse.json();
+            const ids = idsResult?.data;
 
-            if (campaigns.length > 0) {
-              // 使用最新的Campaign（按创建时间降序）
-              const latestCampaign = campaigns[0];
-
-              // 从Campaign的google_ads_account获取customer_id
-              if (latestCampaign.google_ads_account) {
-                offerData.googleCustomerId = latestCampaign.google_ads_account.customer_id;
+            if (ids?.googleCustomerId) {
+              offerData.googleCustomerId = ids.googleCustomerId;
+              if (!isEditMode || !googleCustomerId) {
+                setGoogleCustomerId(ids.googleCustomerId);
               }
+            }
 
-              // 从Campaign获取google_campaign_id
-              if (latestCampaign.google_campaign_id) {
-                offerData.googleCampaignId = latestCampaign.google_campaign_id;
-              }
-
-              // 🔥 自动填充表单字段（仅在创建模式下，编辑模式使用已保存的值）
-              if (!isEditMode) {
-                if (offerData.googleCustomerId) {
-                  setGoogleCustomerId(offerData.googleCustomerId);
-                }
-                if (offerData.googleCampaignId) {
-                  setGoogleCampaignId(offerData.googleCampaignId);
-                }
+            if (ids?.googleCampaignId) {
+              offerData.googleCampaignId = ids.googleCampaignId;
+              if (!isEditMode || !googleCampaignId) {
+                setGoogleCampaignId(ids.googleCampaignId);
               }
             }
           }
-        } catch (campaignError) {
-          console.warn('获取Campaign信息失败:', campaignError);
+        } catch (idsError) {
+          console.warn('获取Offer关联Google Ads信息失败:', idsError);
           // 不影响主流程，继续执行
         }
 
