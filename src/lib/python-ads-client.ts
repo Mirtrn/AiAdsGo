@@ -32,6 +32,7 @@ async function withTracking<T>(
     const result = await fn()
     logger.info('python_service_call', {
       userId,
+      uid: userId,
       requestId,
       endpoint,
       operationType,
@@ -73,6 +74,7 @@ async function withTracking<T>(
       'python_service_call',
       {
         userId,
+        uid: userId,
         requestId,
         endpoint,
         operationType,

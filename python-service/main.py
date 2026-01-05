@@ -46,6 +46,7 @@ class JsonFormatter(logging.Formatter):
         user_id = getattr(record, "userId", None)
         if user_id is not None:
             payload["userId"] = user_id
+            payload["uid"] = user_id
 
         for key in ("method", "path", "status", "durationMs"):
             value = getattr(record, key, None)

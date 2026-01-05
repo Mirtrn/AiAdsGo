@@ -1,3 +1,5 @@
+import { getLogContext } from './log-context'
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 type LogFields = Record<string, unknown>
 
@@ -43,10 +45,12 @@ export const logger = {
 }
 
 export function log(level: LogLevel, msg: string, fields: LogFields = {}, error?: unknown) {
+  const context = getLogContext()
   const payload: Record<string, unknown> = {
     ...baseFields(),
     level,
     msg,
+    ...context,
     ...fields,
   }
 

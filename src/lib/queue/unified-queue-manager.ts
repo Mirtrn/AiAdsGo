@@ -14,6 +14,7 @@ import { RedisQueueAdapter } from './redis-adapter'
 import { SimpleProxyManager } from './proxy-manager'
 import { isProxyRequiredForTaskType, getProxyForCountry } from './user-proxy-loader'
 import { logger } from '@/lib/structured-logger'
+import { runWithLogContext } from '@/lib/log-context'
 
 /**
  * 统一队列管理器
@@ -333,6 +334,7 @@ export class UnifiedQueueManager {
       taskId: task.id,
       taskType: task.type,
       userId: task.userId,
+      uid: task.userId,
       parentRequestId: task.parentRequestId,
       priority: task.priority,
     })
@@ -512,16 +514,28 @@ export class UnifiedQueueManager {
     this.incrementConcurrency(task)
     const startedAt = Date.now()
 
-    logger.info('queue_task_started', {
+    const context = {
+      requestId: task.parentRequestId,
+      parentRequestId: task.parentRequestId,
+      userId: task.userId,
+      uid: task.userId,
       taskId: task.id,
       taskType: task.type,
-      userId: task.userId,
-      parentRequestId: task.parentRequestId,
-      retryCount: task.retryCount,
-      maxRetries: task.maxRetries,
-    })
+    }
 
-    try {
+    // 将任务上下文绑定到当前异步链路，确保执行器内部 console.* 也能带上 uid/taskId/requestId
+    await runWithLogContext(context, async () => {
+      logger.info('queue_task_started', {
+        taskId: task.id,
+        taskType: task.type,
+        userId: task.userId,
+        uid: task.userId,
+        parentRequestId: task.parentRequestId,
+        retryCount: task.retryCount,
+        maxRetries: task.maxRetries,
+      })
+
+      try {
       // 准备代理配置（按需加载）
       // 1. 检查任务类型是否需要代理
       // 2. 如果需要代理，从用户配置中加载
@@ -565,16 +579,18 @@ export class UnifiedQueueManager {
         taskId: task.id,
         taskType: task.type,
         userId: task.userId,
+        uid: task.userId,
         parentRequestId: task.parentRequestId,
         durationMs: Date.now() - startedAt,
       })
-    } catch (error: any) {
+      } catch (error: any) {
       logger.error(
         'queue_task_failed',
         {
           taskId: task.id,
           taskType: task.type,
           userId: task.userId,
+          uid: task.userId,
           parentRequestId: task.parentRequestId,
           durationMs: Date.now() - startedAt,
         },
@@ -610,6 +626,7 @@ export class UnifiedQueueManager {
           taskId: task.id,
           taskType: task.type,
           userId: task.userId,
+          uid: task.userId,
           parentRequestId: task.parentRequestId,
           retryCount: task.retryCount,
           maxRetries: task.maxRetries,
@@ -627,7 +644,7 @@ export class UnifiedQueueManager {
         // 队列恢复功能已移除，用户可重新提交任务
         await this.adapter.updateTaskStatus(task.id, 'failed', error.message)
       }
-    } finally {
+      } finally {
       // 减少并发计数
       this.decrementConcurrency(task)
 
@@ -654,7 +671,8 @@ export class UnifiedQueueManager {
           }
         }
       }
-    }
+      }
+    })
   }
 
   /**
