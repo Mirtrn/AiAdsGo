@@ -42,7 +42,7 @@ export default function MarketingHome() {
               <a href="https://www.urlchecker.dev/batchopen" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 免费补点击
               </a>
-              <a href="/url-swap" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
+              <a href="#url-swap" className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
                 自动换链接
               </a>
             </nav>

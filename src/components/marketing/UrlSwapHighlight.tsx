@@ -4,7 +4,7 @@ import { CheckCircle2, Link2, Clock, Shield, Zap, RefreshCw, AlertCircle, Trendi
 
 export function UrlSwapHighlight() {
   return (
-    <section className="py-24 bg-gradient-to-b from-white to-blue-50">
+    <section id="url-swap" className="py-24 bg-gradient-to-b from-white to-blue-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* 标题 */}
         <div className="text-center max-w-3xl mx-auto mb-16">
