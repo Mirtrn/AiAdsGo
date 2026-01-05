@@ -1106,7 +1106,6 @@ Rules:
           required: ['priceAdvantage', 'uniqueMarketPosition', 'competitiveComparison', 'valueEmphasis', 'confidence']
         },
         responseMimeType: 'application/json',
-        enableAutoModelSelection: false // 明确使用Flash模型
       }, userId)
     } catch (schemaError: any) {
       // 如果schema模式失败，降级到纯文本模式
@@ -1121,7 +1120,6 @@ Rules:
         prompt: fallbackPrompt,
         temperature: 0.3,
         maxOutputTokens: 4096, // 🔧 增加token限制，避免Gemini 2.5 Pro thinking模式导致MAX_TOKENS错误（thinking tokens ~2000 + response ~500）
-        enableAutoModelSelection: false
       }, userId)
 
       console.log(`   ✓ 降级模式成功获取响应`)
