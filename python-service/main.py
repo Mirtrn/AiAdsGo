@@ -2,19 +2,117 @@
 Google Ads API Service - 服务账号模式
 处理所有需要服务账号认证的 Google Ads API 调用
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 from google.ads.googleads.client import GoogleAdsClient
+from datetime import datetime, timezone
+import contextvars
 import logging
 import json
 import os
+import sys
 import tempfile
+import time
+import uuid
 
-logging.basicConfig(level=logging.INFO)
+request_id_ctx: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("request_id", default=None)
+user_id_ctx: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("user_id", default=None)
+
+
+class ContextFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.requestId = request_id_ctx.get()
+        record.userId = user_id_ctx.get()
+        return True
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload: Dict[str, Any] = {
+            "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "service": os.getenv("SERVICE_NAME") or "python-ads-service",
+            "env": os.getenv("ENV") or os.getenv("APP_ENV") or os.getenv("NODE_ENV") or "development",
+            "instanceId": os.getenv("HOSTNAME") or os.getenv("INSTANCE_ID"),
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+
+        request_id = getattr(record, "requestId", None)
+        if request_id:
+            payload["requestId"] = request_id
+
+        user_id = getattr(record, "userId", None)
+        if user_id is not None:
+            payload["userId"] = user_id
+
+        for key in ("method", "path", "status", "durationMs"):
+            value = getattr(record, key, None)
+            if value is not None:
+                payload[key] = value
+
+        if record.exc_info:
+            exc_type, exc, _tb = record.exc_info
+            payload["err"] = {
+                "name": getattr(exc_type, "__name__", "Exception"),
+                "message": str(exc),
+                "stack": self.formatException(record.exc_info),
+            }
+
+        return json.dumps(payload, ensure_ascii=False)
+
+
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(JsonFormatter())
+_handler.addFilter(ContextFilter())
+
+_root = logging.getLogger()
+_root.handlers = [_handler]
+_root.setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Google Ads Service Account API")
+
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    user_id_header = request.headers.get("x-user-id")
+    user_id = int(user_id_header) if user_id_header and user_id_header.isdigit() else None
+
+    request_id_token = request_id_ctx.set(request_id)
+    user_id_token = user_id_ctx.set(user_id)
+
+    start = time.time()
+    response = None
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        duration_ms = int((time.time() - start) * 1000)
+
+        if response is not None:
+            try:
+                response.headers["x-request-id"] = request_id
+            except Exception:
+                pass
+
+        try:
+            logger.info(
+                "http_request",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status": getattr(response, "status_code", 500),
+                    "durationMs": duration_ms,
+                },
+            )
+        except Exception:
+            pass
+
+        request_id_ctx.reset(request_id_token)
+        user_id_ctx.reset(user_id_token)
 
 
 def format_customer_id(v: str) -> str:
@@ -1148,4 +1246,4 @@ async def ensure_conversion_goal(request: EnsureConversionGoalRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_config=None, access_log=False)

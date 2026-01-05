@@ -13,6 +13,8 @@ import { MemoryQueueAdapter } from './memory-adapter'
 import { RedisQueueAdapter } from './redis-adapter'
 import { SimpleProxyManager } from './proxy-manager'
 import { isProxyRequiredForTaskType, getProxyForCountry } from './user-proxy-loader'
+import { tryGetCurrentRequestContext } from '@/lib/request-context'
+import { logger } from '@/lib/structured-logger'
 
 /**
  * 统一队列管理器
@@ -303,18 +305,22 @@ export class UnifiedQueueManager {
       proxyConfig?: ProxyConfig
       maxRetries?: number
       taskId?: string  // 可选的预定义taskId
+      parentRequestId?: string  // 可选：关联上游HTTP请求
     } = {}
   ): Promise<string> {
     // 自动确保队列已启动并注册执行器
     await this.ensureStarted()
 
     const taskId = options.taskId || randomUUID()
+    const { requestId } = tryGetCurrentRequestContext()
+    const parentRequestId = options.parentRequestId ?? requestId
 
     const task: Task<T> = {
       id: taskId,
       type,
       data,
       userId,
+      parentRequestId,
       priority: options.priority || 'normal',
       status: 'pending',
       requireProxy: options.requireProxy || false,
@@ -325,7 +331,13 @@ export class UnifiedQueueManager {
     }
 
     await this.adapter.enqueue(task)
-    console.log(`📥 任务已入队: ${task.id} (${type}, user=${userId})`)
+    logger.info('queue_task_enqueued', {
+      taskId: task.id,
+      taskType: task.type,
+      userId: task.userId,
+      parentRequestId: task.parentRequestId,
+      priority: task.priority,
+    })
 
     return task.id
   }
@@ -500,6 +512,16 @@ export class UnifiedQueueManager {
   private async executeTask(task: Task, executor: TaskExecutor): Promise<void> {
     // 更新并发计数
     this.incrementConcurrency(task)
+    const startedAt = Date.now()
+
+    logger.info('queue_task_started', {
+      taskId: task.id,
+      taskType: task.type,
+      userId: task.userId,
+      parentRequestId: task.parentRequestId,
+      retryCount: task.retryCount,
+      maxRetries: task.maxRetries,
+    })
 
     try {
       // 准备代理配置（按需加载）
@@ -541,9 +563,25 @@ export class UnifiedQueueManager {
 
       // 更新任务状态
       await this.adapter.updateTaskStatus(task.id, 'completed')
-      console.log(`✅ 任务完成: ${task.id} (${task.type})`)
+      logger.info('queue_task_completed', {
+        taskId: task.id,
+        taskType: task.type,
+        userId: task.userId,
+        parentRequestId: task.parentRequestId,
+        durationMs: Date.now() - startedAt,
+      })
     } catch (error: any) {
-      console.error(`❌ 任务失败: ${task.id}:`, error.message)
+      logger.error(
+        'queue_task_failed',
+        {
+          taskId: task.id,
+          taskType: task.type,
+          userId: task.userId,
+          parentRequestId: task.parentRequestId,
+          durationMs: Date.now() - startedAt,
+        },
+        error
+      )
 
       // 标记代理失败
       if (task.proxyConfig) {
@@ -570,6 +608,16 @@ export class UnifiedQueueManager {
         }
 
         // 延迟后重新入队
+        logger.warn('queue_task_retry_scheduled', {
+          taskId: task.id,
+          taskType: task.type,
+          userId: task.userId,
+          parentRequestId: task.parentRequestId,
+          retryCount: task.retryCount,
+          maxRetries: task.maxRetries,
+          retryDelayMs: this.config.retryDelay,
+        })
+
         setTimeout(async () => {
           await this.adapter.enqueue(task)
         }, this.config.retryDelay)

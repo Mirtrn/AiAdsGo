@@ -8,8 +8,12 @@
 export async function register() {
   // 只在 Node.js 运行时执行，不在 Edge Runtime 执行
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { patchConsoleToJsonOnce } = await import('./lib/console-json')
     const { initializeDatabase } = await import('./lib/db-init')
     const { recoverBatchTaskStatus } = await import('./lib/queue/batch-recovery')
+
+    // 日志：统一为结构化 JSON，并自动附带 requestId/userId（若可用）
+    patchConsoleToJsonOnce()
 
     try {
       await initializeDatabase()

@@ -228,17 +228,27 @@ const LEGITIMATE_PATHS = [
 export async function middleware(request: NextRequest) {
   const { pathname} = request.nextUrl
 
+  // 统一生成/透传 requestId，供日志与跨服务调用关联
+  const requestId = request.headers.get('x-request-id') || crypto.randomUUID()
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-request-id', requestId)
+
+  const attachRequestId = (response: NextResponse) => {
+    response.headers.set('x-request-id', requestId)
+    return response
+  }
+
   // 🛡️ 第一道防线：危险文件扩展名拦截（最高优先级）
   // 无论文件名是什么，根目录下的 .zip/.sql/.bak 等文件都不应该被访问
   if (DANGEROUS_EXTENSIONS.test(pathname)) {
-    return new NextResponse(null, { status: 404 })
+    return attachRequestId(new NextResponse(null, { status: 404 }))
   }
 
   // 🛡️ 第二道防线：恶意路径模式拦截
   // 先检查白名单，避免误拦截合法路径
   const isLegitimate = LEGITIMATE_PATHS.some(pattern => pattern.test(pathname))
   if (!isLegitimate && MALICIOUS_PATTERNS.some(pattern => pattern.test(pathname))) {
-    return new NextResponse(null, { status: 404 })
+    return attachRequestId(new NextResponse(null, { status: 404 }))
   }
 
   // 检查是否是公开路径
@@ -253,7 +263,7 @@ export async function middleware(request: NextRequest) {
 
   // 公开路径直接放行
   if (isPublicPath) {
-    return NextResponse.next()
+    return attachRequestId(NextResponse.next({ request: { headers: requestHeaders } }))
   }
 
   // 从Cookie中读取token（HttpOnly Cookie方式）
@@ -265,15 +275,15 @@ export async function middleware(request: NextRequest) {
 
     if (isApiRoute) {
       // API路径：返回401 JSON
-      return NextResponse.json(
+      return attachRequestId(NextResponse.json(
         { error: '未提供认证token，请先登录' },
         { status: 401 }
-      )
+      ))
     } else {
       // 页面路径：重定向到登录页
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('redirect', pathname)
-      return NextResponse.redirect(loginUrl)
+      return attachRequestId(NextResponse.redirect(loginUrl))
     }
   }
 
@@ -282,10 +292,10 @@ export async function middleware(request: NextRequest) {
   if (!payload) {
     if (isApiRoute) {
       // API路径：返回401 JSON
-      return NextResponse.json(
+      return attachRequestId(NextResponse.json(
         { error: 'Token无效或已过期，请重新登录' },
         { status: 401 }
-      )
+      ))
     } else {
       // 页面路径：重定向到登录页并清除无效cookie
       const loginUrl = new URL('/login', request.url)
@@ -294,12 +304,11 @@ export async function middleware(request: NextRequest) {
 
       const response = NextResponse.redirect(loginUrl)
       response.cookies.delete('auth_token')
-      return response
+      return attachRequestId(response)
     }
   }
 
   // Token有效，在请求头中添加用户信息，供后续API使用
-  const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-user-id', String(payload.userId))
   requestHeaders.set('x-user-email', String(payload.email))
   requestHeaders.set('x-user-role', String(payload.role))
@@ -315,24 +324,24 @@ export async function middleware(request: NextRequest) {
     if (!isPasswordChangeAllowed) {
       if (isApiRoute) {
         // API路径：返回403，提示需要先修改密码
-        return NextResponse.json(
+        return attachRequestId(NextResponse.json(
           { error: '请先修改初始密码', code: 'PASSWORD_CHANGE_REQUIRED' },
           { status: 403 }
-        )
+        ))
       } else {
         // 页面路径：重定向到修改密码页面
         const changePasswordUrl = new URL('/change-password', request.url)
         changePasswordUrl.searchParams.set('forced', 'true')
-        return NextResponse.redirect(changePasswordUrl)
+        return attachRequestId(NextResponse.redirect(changePasswordUrl))
       }
     }
   }
 
-  return NextResponse.next({
+  return attachRequestId(NextResponse.next({
     request: {
       headers: requestHeaders,
     },
-  })
+  }))
 }
 
 // 配置中间件匹配的路径

@@ -57,6 +57,11 @@ export interface Task<T = any> {
   type: TaskType
   data: T
   userId: number
+  /**
+   * 触发该任务的上游 requestId（若由一次 HTTP 请求创建）。
+   * 用于跨 API → 队列 → 下游服务的排障关联。
+   */
+  parentRequestId?: string
   priority: TaskPriority
   status: TaskStatus
   requireProxy?: boolean  // 是否需要代理IP
