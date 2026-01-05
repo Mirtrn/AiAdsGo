@@ -202,6 +202,27 @@ export function isAmazonDomain(url: string): boolean {
   return amazonDomains.some(domain => url.includes(domain))
 }
 
+function isPlausibleBrandCandidate(value: string | null): value is string {
+  if (!value) return false
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  if (trimmed.length > 60) return false
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length
+  if (wordCount > 6) return false
+  return true
+}
+
+function deriveBrandFromUrl(url: string): string | null {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./i, '')
+    const firstLabel = hostname.split('.')[0] || ''
+    const normalized = firstLabel.replace(/[-_]+/g, ' ').trim()
+    return normalized ? normalizeBrandName(normalized) : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Extract structured product data from a landing page
  * Supports Amazon, Shopify, and generic e-commerce sites
@@ -600,9 +621,15 @@ function extractShopifyData($: any, url: string): ScrapedProductData {
   console.log(`🔍 [Shopify Images] 提取到 ${images.length} 张图片`)
 
   // ==================== 7. 品牌提取（保持原有逻辑）====================
-  let brandName = $('.product-vendor').text().trim() ||
-                  $('[class*="vendor"]').text().trim() ||
-                  $('meta[property="og:site_name"]').attr('content') || null
+  const ogSiteName = $('meta[property="og:site_name"]').attr('content')?.trim() || null
+  const vendorText = $('.product-vendor').first().text().trim() || null
+  const itemPropBrand = $('[itemprop="brand"]').first().text().trim() || null
+
+  let brandName =
+    (isPlausibleBrandCandidate(ogSiteName) ? ogSiteName : null) ||
+    (isPlausibleBrandCandidate(vendorText) ? vendorText : null) ||
+    (isPlausibleBrandCandidate(itemPropBrand) ? itemPropBrand : null) ||
+    null
 
   if (!brandName) {
     const pageTitle = $('title').text().trim()
@@ -615,6 +642,10 @@ function extractShopifyData($: any, url: string): ScrapedProductData {
         console.log(`✅ [Shopify] 提取的品牌: ${brandName}`)
       }
     }
+  }
+
+  if (!isPlausibleBrandCandidate(brandName)) {
+    brandName = (isPlausibleBrandCandidate(ogSiteName) ? ogSiteName : null) || deriveBrandFromUrl(url)
   }
 
   // ==================== 8. 评论数据提取（Judge.me系统）====================
@@ -761,9 +792,17 @@ function extractGenericData($: any, url: string): ScrapedProductData {
   })
 
   // 🔥 增强品牌提取逻辑
-  let brandName = $('[class*="brand"]').text().trim() ||
-                  $('meta[property="og:brand"]').attr('content') ||
-                  $('meta[property="og:site_name"]').attr('content') || null
+  const ogBrand = $('meta[property="og:brand"]').attr('content')?.trim() || null
+  const ogSiteName = $('meta[property="og:site_name"]').attr('content')?.trim() || null
+  const itemPropBrand = $('[itemprop="brand"]').first().text().trim() || null
+  const brandText = $('[class*="brand"]').first().text().trim() || null
+
+  let brandName =
+    (isPlausibleBrandCandidate(ogBrand) ? ogBrand : null) ||
+    (isPlausibleBrandCandidate(ogSiteName) ? ogSiteName : null) ||
+    (isPlausibleBrandCandidate(itemPropBrand) ? itemPropBrand : null) ||
+    (isPlausibleBrandCandidate(brandText) ? brandText : null) ||
+    null
 
   // 优先从Amazon stores URL中提取品牌名（支持全球站点）
   if (!brandName && isAmazonDomain(url) && url.includes('/stores/')) {
@@ -792,6 +831,13 @@ function extractGenericData($: any, url: string): ScrapedProductData {
     }
   } else if (!url.includes('amazon.com/stores/')) {
     console.log(`✅ 从meta标签提取品牌: ${brandName}`)
+  }
+
+  if (!isPlausibleBrandCandidate(brandName)) {
+    brandName =
+      (isPlausibleBrandCandidate(ogBrand) ? ogBrand : null) ||
+      (isPlausibleBrandCandidate(ogSiteName) ? ogSiteName : null) ||
+      deriveBrandFromUrl(url)
   }
 
   return {
