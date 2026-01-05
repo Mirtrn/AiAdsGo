@@ -122,6 +122,24 @@ interface HostMetricsSnapshot {
   }
 }
 
+interface HostMetricsHistoryPoint {
+  timestamp: string
+  cpuUsagePct: number | null
+  cpuThrottledPct: number | null
+  memUsagePct: number | null
+  diskReadBps: number | null
+  diskWriteBps: number | null
+  netRxBps: number | null
+  netTxBps: number | null
+}
+
+interface HostMetricsPayload {
+  snapshot: HostMetricsSnapshot
+  history: HostMetricsHistoryPoint[]
+  windowSec: number
+  sampleIntervalSec: number
+}
+
 const formatPct = (value: number | null | undefined) => {
   if (value === null || value === undefined || !Number.isFinite(value)) return '-'
   return `${value.toFixed(1)}%`
@@ -142,6 +160,90 @@ const formatBytes = (bytes: number | null | undefined) => {
 const formatBps = (bps: number | null | undefined) => {
   if (bps === null || bps === undefined || !Number.isFinite(bps)) return '-'
   return `${formatBytes(bps)}/s`
+}
+
+function Sparkline({
+  series,
+  height = 28,
+  width = 120,
+  fixedDomain,
+}: {
+  series: Array<{ values: Array<number | null | undefined>, color: string }>
+  height?: number
+  width?: number
+  fixedDomain?: { min: number; max: number }
+}) {
+  const allValues: number[] = []
+  for (const s of series) {
+    for (const v of s.values) {
+      if (v === null || v === undefined) continue
+      if (!Number.isFinite(v)) continue
+      allValues.push(v)
+    }
+  }
+  const n = Math.max(...series.map(s => s.values.length), 0)
+  if (n < 2 || allValues.length === 0) {
+    return (
+      <div className="h-7 w-[120px] bg-gray-100 rounded" />
+    )
+  }
+
+  const domainMin = fixedDomain?.min ?? Math.min(...allValues)
+  const domainMax = fixedDomain?.max ?? Math.max(...allValues)
+  const min = Number.isFinite(domainMin) ? domainMin : 0
+  const max = Number.isFinite(domainMax) ? domainMax : min + 1
+  const range = max - min || 1
+
+  const pad = 2
+  const innerW = width - pad * 2
+  const innerH = height - pad * 2
+
+  const xFor = (i: number, len: number) => pad + (len <= 1 ? 0 : (i / (len - 1)) * innerW)
+  const yFor = (v: number) => pad + (1 - (v - min) / range) * innerH
+
+  const buildPath = (values: Array<number | null | undefined>) => {
+    let d = ''
+    let started = false
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i]
+      if (v === null || v === undefined || !Number.isFinite(v)) {
+        started = false
+        continue
+      }
+      const x = xFor(i, values.length)
+      const y = yFor(v)
+      if (!started) {
+        d += `M ${x} ${y}`
+        started = true
+      } else {
+        d += ` L ${x} ${y}`
+      }
+    }
+    return d
+  }
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className="block"
+    >
+      <rect x="0" y="0" width={width} height={height} fill="#F3F4F6" rx="6" />
+      {series.map((s, idx) => (
+        <path
+          key={idx}
+          d={buildPath(s.values)}
+          fill="none"
+          stroke={s.color}
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity="0.95"
+        />
+      ))}
+    </svg>
+  )
 }
 
 export default function QueueManagementPage() {
@@ -206,6 +308,8 @@ export default function QueueManagementPage() {
   const [refreshing, setRefreshing] = useState(false)
 
   const [hostMetrics, setHostMetrics] = useState<HostMetricsSnapshot | null>(null)
+  const [hostMetricsHistory, setHostMetricsHistory] = useState<HostMetricsHistoryPoint[]>([])
+  const [hostMetricsHistoryWindowSec, setHostMetricsHistoryWindowSec] = useState<number>(300)
   const [hostMetricsError, setHostMetricsError] = useState<string | null>(null)
   const hostMetricsInFlight = useRef(false)
 
@@ -225,7 +329,17 @@ export default function QueueManagementPage() {
       }
       const data = result.data
       if (data?.success && data.data) {
-        setHostMetrics(data.data as HostMetricsSnapshot)
+        const payloadOrSnapshot = data.data as HostMetricsPayload | HostMetricsSnapshot
+        if ((payloadOrSnapshot as HostMetricsPayload).snapshot) {
+          const payload = payloadOrSnapshot as HostMetricsPayload
+          setHostMetrics(payload.snapshot)
+          setHostMetricsHistory(payload.history || [])
+          setHostMetricsHistoryWindowSec(payload.windowSec || 300)
+        } else {
+          setHostMetrics(payloadOrSnapshot as HostMetricsSnapshot)
+          setHostMetricsHistory([])
+          setHostMetricsHistoryWindowSec(300)
+        }
         if (showSuccessToast) {
           toast.success('资源监控数据已更新')
         }
@@ -659,7 +773,7 @@ export default function QueueManagementPage() {
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">容器资源监控</h2>
                 <p className="text-sm text-gray-500">
-                  低频采样（10s），仅在本页打开时启用
+                  低频采样（10s），仅在本页打开时启用；趋势窗口：最近{Math.round(hostMetricsHistoryWindowSec / 60)}分钟
                   {hostMetrics?.timestamp ? `；更新时间：${new Date(hostMetrics.timestamp).toLocaleString('zh-CN')}` : ''}
                 </p>
               </div>
@@ -697,6 +811,15 @@ export default function QueueManagementPage() {
                   <div className="text-xs text-gray-500 mt-1">
                     throttled: {formatPct(hostMetrics?.cpu.throttledPct)}{hostMetrics?.cpu.quotaCores ? `；quota≈${hostMetrics.cpu.quotaCores.toFixed(2)} cores` : ''}
                   </div>
+                  <div className="mt-2">
+                    <Sparkline
+                      fixedDomain={{ min: 0, max: 100 }}
+                      series={[
+                        { values: hostMetricsHistory.map(p => p.cpuUsagePct), color: '#2563EB' },
+                        { values: hostMetricsHistory.map(p => p.cpuThrottledPct), color: '#DC2626' }
+                      ]}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -709,6 +832,14 @@ export default function QueueManagementPage() {
                   <div className="text-2xl font-bold text-gray-900">{formatPct(hostMetrics?.memory.usagePct)}</div>
                   <div className="text-xs text-gray-500 mt-1">
                     {formatBytes(hostMetrics?.memory.usedBytes)} / {hostMetrics?.memory.limitBytes ? formatBytes(hostMetrics.memory.limitBytes) : 'max'}
+                  </div>
+                  <div className="mt-2">
+                    <Sparkline
+                      fixedDomain={{ min: 0, max: 100 }}
+                      series={[
+                        { values: hostMetricsHistory.map(p => p.memUsagePct), color: '#16A34A' },
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
@@ -725,6 +856,14 @@ export default function QueueManagementPage() {
                   <div className="text-xs text-gray-500 mt-1">
                     rIOPS {hostMetrics?.diskIo.readOpsPerSec?.toFixed(1) ?? '-'} / wIOPS {hostMetrics?.diskIo.writeOpsPerSec?.toFixed(1) ?? '-'}
                   </div>
+                  <div className="mt-2">
+                    <Sparkline
+                      series={[
+                        { values: hostMetricsHistory.map(p => p.diskReadBps), color: '#0EA5E9' },
+                        { values: hostMetricsHistory.map(p => p.diskWriteBps), color: '#A855F7' }
+                      ]}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -739,6 +878,14 @@ export default function QueueManagementPage() {
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
                     interval: {hostMetrics?.intervalSec ? `${hostMetrics.intervalSec.toFixed(1)}s` : '-'}
+                  </div>
+                  <div className="mt-2">
+                    <Sparkline
+                      series={[
+                        { values: hostMetricsHistory.map(p => p.netRxBps), color: '#F59E0B' },
+                        { values: hostMetricsHistory.map(p => p.netTxBps), color: '#EF4444' }
+                      ]}
+                    />
                   </div>
                 </div>
               </div>

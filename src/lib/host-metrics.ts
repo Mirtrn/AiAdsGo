@@ -28,6 +28,24 @@ export type HostMetricsSnapshot = {
   }
 }
 
+export type HostMetricsHistoryPoint = {
+  timestamp: string
+  cpuUsagePct: number | null
+  cpuThrottledPct: number | null
+  memUsagePct: number | null
+  diskReadBps: number | null
+  diskWriteBps: number | null
+  netRxBps: number | null
+  netTxBps: number | null
+}
+
+export type HostMetricsPayload = {
+  snapshot: HostMetricsSnapshot
+  history: HostMetricsHistoryPoint[]
+  windowSec: number
+  sampleIntervalSec: number
+}
+
 type RawSample = {
   tsMs: number
   cpuUsageUsec: number | null
@@ -279,10 +297,12 @@ class HostMetricsCollector {
   private prev: RawSample | null = null
   private curr: RawSample | null = null
   private snapshot: HostMetricsSnapshot | null = null
+  private history: HostMetricsHistoryPoint[] = []
   private lastAccessMs: number = 0
 
   private readonly sampleIntervalMs = 10_000
   private readonly idleStopMs = 60_000
+  private readonly historyWindowMs = 5 * 60_000
 
   touch() {
     this.lastAccessMs = Date.now()
@@ -316,18 +336,58 @@ class HostMetricsCollector {
     this.prev = this.curr
     this.curr = next
     this.snapshot = computeSnapshot(this.prev, next)
+
+    if (this.snapshot) {
+      const point: HostMetricsHistoryPoint = {
+        timestamp: this.snapshot.timestamp,
+        cpuUsagePct: this.snapshot.cpu.usagePct,
+        cpuThrottledPct: this.snapshot.cpu.throttledPct,
+        memUsagePct: this.snapshot.memory.usagePct,
+        diskReadBps: this.snapshot.diskIo.readBps,
+        diskWriteBps: this.snapshot.diskIo.writeBps,
+        netRxBps: this.snapshot.network.rxBps,
+        netTxBps: this.snapshot.network.txBps,
+      }
+      this.history.push(point)
+
+      const cutoffMs = Date.now() - this.historyWindowMs
+      while (this.history.length > 0 && Date.parse(this.history[0].timestamp) < cutoffMs) {
+        this.history.shift()
+      }
+    }
   }
 
-  async getSnapshot(): Promise<HostMetricsSnapshot> {
+  async getPayload(): Promise<HostMetricsPayload> {
     await this.startIfNeeded()
     this.touch()
 
-    if (this.snapshot) return this.snapshot
-    const next = await readRawSample()
-    this.prev = this.curr
-    this.curr = next
-    this.snapshot = computeSnapshot(this.prev, next)
-    return this.snapshot
+    if (!this.snapshot) {
+      const next = await readRawSample()
+      this.prev = this.curr
+      this.curr = next
+      this.snapshot = computeSnapshot(this.prev, next)
+    }
+
+    // 防御：history为空时至少包含当前点，便于前端画图
+    if (this.snapshot && this.history.length === 0) {
+      this.history.push({
+        timestamp: this.snapshot.timestamp,
+        cpuUsagePct: this.snapshot.cpu.usagePct,
+        cpuThrottledPct: this.snapshot.cpu.throttledPct,
+        memUsagePct: this.snapshot.memory.usagePct,
+        diskReadBps: this.snapshot.diskIo.readBps,
+        diskWriteBps: this.snapshot.diskIo.writeBps,
+        netRxBps: this.snapshot.network.rxBps,
+        netTxBps: this.snapshot.network.txBps,
+      })
+    }
+
+    return {
+      snapshot: this.snapshot!,
+      history: this.history.slice(),
+      windowSec: this.historyWindowMs / 1000,
+      sampleIntervalSec: this.sampleIntervalMs / 1000,
+    }
   }
 }
 
@@ -340,6 +400,13 @@ export async function getHostMetricsSnapshot(): Promise<HostMetricsSnapshot> {
   if (!globalThis.__hostMetricsCollector) {
     globalThis.__hostMetricsCollector = new HostMetricsCollector()
   }
-  return await globalThis.__hostMetricsCollector.getSnapshot()
+  const payload = await globalThis.__hostMetricsCollector.getPayload()
+  return payload.snapshot
 }
 
+export async function getHostMetricsPayload(): Promise<HostMetricsPayload> {
+  if (!globalThis.__hostMetricsCollector) {
+    globalThis.__hostMetricsCollector = new HostMetricsCollector()
+  }
+  return await globalThis.__hostMetricsCollector.getPayload()
+}
