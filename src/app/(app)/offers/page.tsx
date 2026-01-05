@@ -914,6 +914,8 @@ export default function OffersPage() {
                             <div className="flex items-center gap-2">
                               <a
                                 href={`/offers/${offer.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-2"
                               >
                                 {offer.offerName || `${offer.brand}_${offer.targetCountry}_01`}
