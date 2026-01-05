@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDailyUsageStats, getUsageTrend, checkQuotaLimit } from '@/lib/google-ads-api-tracker'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
+import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
+import { getDatabase } from '@/lib/db'
 
 /**
  * GET /api/dashboard/api-quota
@@ -9,6 +11,10 @@ import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
  * 🔧 修复(2025-12-12): 独立账号模式 - 每个用户只能查看自己的API使用统计
  * - 如果用户配置了自己的Google Ads API凭证 → 显示该用户的API使用统计
  * - 如果用户未配置凭证 → 返回空数据，不再回退到管理员数据
+ *
+ * 🔧 修复(2025-01-05): 同时支持 OAuth 和服务账号两种认证模式
+ * - OAuth 用户: 检查 google_ads_credentials 表
+ * - 服务账号用户: 检查 google_ads_service_accounts 表
  */
 export async function GET(request: NextRequest) {
   try {
@@ -22,11 +28,17 @@ export async function GET(request: NextRequest) {
     const days = parseInt(searchParams.get('days') || '7', 10)
     const currentUserId = parseInt(userId, 10)
 
-    // 检查用户是否配置了自己的Google Ads API凭证
+    // 🔧 修复(2025-01-05): 同时检查 OAuth 和服务账号凭证
     const userCredentials = await getGoogleAdsCredentials(currentUserId)
+    const db = await getDatabase()
+    const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+    const serviceAccount = await db.queryOne(
+      `SELECT id FROM google_ads_service_accounts WHERE user_id = ? AND ${isActiveCondition} LIMIT 1`,
+      [currentUserId]
+    ) as { id: string } | undefined
 
-    // 🔧 修复(2025-12-12): 独立账号模式 - 不再回退到管理员数据
-    if (!userCredentials) {
+    // 如果两种认证模式都没有配置，返回空数据
+    if (!userCredentials && !serviceAccount) {
       return NextResponse.json({
         success: true,
         data: {

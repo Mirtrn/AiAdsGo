@@ -3,6 +3,44 @@ import { updateGoogleAdsAccount } from './google-ads-accounts'
 import { withRetry } from './retry'
 import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 import { getUserOnlySetting } from './settings'
+import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
+
+/**
+ * 🔧 新增(2025-01-05): OAuth API 调用追踪包装器
+ * 用于在 OAuth 模式下追踪 Google Ads API 调用
+ */
+async function trackOAuthApiCall<T>(
+  userId: number,
+  customerId: string,
+  operationType: ApiOperationType,
+  endpoint: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const startTime = Date.now()
+  try {
+    const result = await fn()
+    await trackApiUsage({
+      userId,
+      operationType,
+      endpoint,
+      customerId,
+      responseTimeMs: Date.now() - startTime,
+      isSuccess: true,
+    })
+    return result
+  } catch (error: any) {
+    await trackApiUsage({
+      userId,
+      operationType,
+      endpoint,
+      customerId,
+      responseTimeMs: Date.now() - startTime,
+      isSuccess: false,
+      errorMessage: error.message,
+    })
+    throw error
+  }
+}
 
 /**
  * 清理关键词，移除Google Ads不支持的特殊字符
@@ -570,6 +608,8 @@ export async function createGoogleAdsCampaign(params: {
     name: `${params.campaignName} Budget ${Date.now()}`,
     amount: params.budgetAmount,
     deliveryMethod: params.budgetType === 'DAILY' ? 'STANDARD' : 'ACCELERATED',
+    userId: params.userId,
+    customerId: params.customerId,
   })
 
   // 2. 创建广告系列（遵循Google Ads API官方最佳实践）
@@ -653,13 +693,19 @@ export async function createGoogleAdsCampaign(params: {
 
   let response
   try {
-    response = await withRetry(
-      () => customer.campaigns.create([campaign]),
-      {
-        maxRetries: 3,
-        initialDelay: 1000,
-        operationName: `Create Campaign: ${params.campaignName}`
-      }
+    response = await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE,
+      '/api/google-ads/campaign/create',
+      () => withRetry(
+        () => customer.campaigns.create([campaign]),
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          operationName: `Create Campaign: ${params.campaignName}`
+        }
+      )
     )
   } catch (error: any) {
     // 打印详细的错误信息，特别是location字段
@@ -732,20 +778,32 @@ export async function createGoogleAdsCampaign(params: {
   // 批量创建定位条件
   if (criteriaOperations.length > 0) {
     try {
-      await withRetry(
-        () => customer.campaignCriteria.create(criteriaOperations),
-        {
-          maxRetries: 3,
-          initialDelay: 1000,
-          operationName: `Create Campaign Criteria for ${params.campaignName}`
-        }
+      await trackOAuthApiCall(
+        params.userId,
+        params.customerId,
+        ApiOperationType.MUTATE,
+        '/api/google-ads/campaign-criteria/create',
+        () => withRetry(
+          () => customer.campaignCriteria.create(criteriaOperations),
+          {
+            maxRetries: 3,
+            initialDelay: 1000,
+            operationName: `Create Campaign Criteria for ${params.campaignName}`
+          }
+        )
       )
       console.log(`✅ 成功添加${criteriaOperations.length}个定位条件`)
     } catch (error: any) {
       console.error('❌ 添加定位条件失败:', error.message)
       // 如果定位条件创建失败，删除已创建的Campaign以保持数据一致性
       try {
-        await customer.campaigns.remove([campaignResourceName])
+        await trackOAuthApiCall(
+          params.userId,
+          params.customerId,
+          ApiOperationType.MUTATE,
+          '/api/google-ads/campaign/remove',
+          () => customer.campaigns.remove([campaignResourceName])
+        )
         console.log(`🗑️ 已删除Campaign ${campaignId}（因定位条件创建失败）`)
       } catch (rollbackError) {
         console.error('⚠️ Campaign删除失败:', rollbackError)
@@ -776,6 +834,8 @@ async function createCampaignBudget(
     name: string
     amount: number
     deliveryMethod: 'STANDARD' | 'ACCELERATED'
+    userId: number
+    customerId: string
   }
 ): Promise<string> {
   const budget = {
@@ -787,13 +847,19 @@ async function createCampaignBudget(
         : enums.BudgetDeliveryMethod.ACCELERATED,
   }
 
-  const response = await withRetry(
-    () => customer.campaignBudgets.create([budget]),
-    {
-      maxRetries: 3,
-      initialDelay: 1000,
-      operationName: `Create Budget: ${params.name}`
-    }
+  const response = await trackOAuthApiCall(
+    params.userId,
+    params.customerId,
+    ApiOperationType.MUTATE,
+    '/api/google-ads/campaign-budget/create',
+    () => withRetry(
+      () => customer.campaignBudgets.create([budget]),
+      {
+        maxRetries: 3,
+        initialDelay: 1000,
+        operationName: `Create Budget: ${params.name}`
+      }
+    )
   )
 
   if (!response || !response.results || response.results.length === 0) {
@@ -838,16 +904,22 @@ export async function updateGoogleAdsCampaignStatus(params: {
 
     const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-    await withRetry(
-      () => customer.campaigns.update([{
-        resource_name: resourceName,
-        status: enums.CampaignStatus[params.status],
-      }]),
-      {
-        maxRetries: 3,
-        initialDelay: 1000,
-        operationName: `Update Campaign Status: ${params.campaignId} -> ${params.status}`
-      }
+    await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE,
+      '/api/google-ads/campaign/update',
+      () => withRetry(
+        () => customer.campaigns.update([{
+          resource_name: resourceName,
+          status: enums.CampaignStatus[params.status],
+        }]),
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          operationName: `Update Campaign Status: ${params.campaignId} -> ${params.status}`
+        }
+      )
     )
   }
 
@@ -896,21 +968,29 @@ export async function updateGoogleAdsCampaignBudget(params: {
       name: `Budget ${params.campaignId} - ${Date.now()}`,
       amount: params.budgetAmount,
       deliveryMethod: params.budgetType === 'DAILY' ? 'STANDARD' : 'ACCELERATED',
+      userId: params.userId,
+      customerId: params.customerId,
     })
 
     // 2. 更新Campaign指向新预算
     const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-    await withRetry(
-      () => customer.campaigns.update([{
-        resource_name: resourceName,
-        campaign_budget: budgetResourceName,
-      }]),
-      {
-        maxRetries: 3,
-        initialDelay: 1000,
-        operationName: `Update Campaign Budget: ${params.campaignId} -> ${params.budgetAmount}`
-      }
+    await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE,
+      '/api/google-ads/campaign/update',
+      () => withRetry(
+        () => customer.campaigns.update([{
+          resource_name: resourceName,
+          campaign_budget: budgetResourceName,
+        }]),
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          operationName: `Update Campaign Budget: ${params.campaignId} -> ${params.budgetAmount}`
+        }
+      )
     )
   }
 
@@ -982,7 +1062,13 @@ export async function getGoogleAdsCampaign(params: {
     results = result.results || []
   } else {
     const customer = await getCustomerWithCredentials(params)
-    results = await customer.query(query)
+    results = await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.SEARCH,
+      '/api/google-ads/query',
+      () => customer.query(query)
+    )
   }
 
   const result = results[0] || null
@@ -1080,7 +1166,13 @@ export async function listGoogleAdsCampaigns(params: {
     ORDER BY campaign.name
   `
 
-  const results = await customer.query(query)
+  const results = await trackOAuthApiCall(
+    params.userId,
+    params.customerId,
+    ApiOperationType.SEARCH,
+    '/api/google-ads/query',
+    () => customer.query(query)
+  )
 
   // 缓存结果（30分钟TTL）
   gadsApiCache.set(cacheKey, results)
@@ -1141,7 +1233,13 @@ export async function createGoogleAdsAdGroup(params: {
     ;(adGroup as any).cpc_bid_micros = params.cpcBidMicros
   }
 
-  const response = await customer.adGroups.create([adGroup])
+  const response = await trackOAuthApiCall(
+    params.userId,
+    params.customerId,
+    ApiOperationType.MUTATE,
+    '/api/google-ads/ad-group/create',
+    () => customer.adGroups.create([adGroup])
+  )
 
   if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建Ad Group失败：无响应')
@@ -1248,7 +1346,13 @@ export async function createGoogleAdsKeywordsBatch(params: {
       return operation
     })
 
-    const response = await customer.adGroupCriteria.create(keywordOperations)
+    const response = await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE_BATCH,
+      '/api/google-ads/keywords/create',
+      () => customer.adGroupCriteria.create(keywordOperations)
+    )
 
     if (response && response.results && response.results.length > 0) {
       response.results.forEach((result, index) => {
@@ -1363,7 +1467,13 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
     ad.ad.responsive_search_ad.path2 = params.path2
   }
 
-  const response = await customer.adGroupAds.create([ad])
+  const response = await trackOAuthApiCall(
+    params.userId,
+    params.customerId,
+    ApiOperationType.MUTATE,
+    '/api/google-ads/responsive-search-ad/create',
+    () => customer.adGroupAds.create([ad])
+  )
 
   if (!response || !response.results || response.results.length === 0) {
     throw new Error('创建Responsive Search Ad失败：无响应')
@@ -1444,7 +1554,13 @@ export async function getCampaignPerformance(params: {
       response = result.results || []
     } else {
       const customer = await getCustomerWithCredentials(params)
-      response = await customer.query(query)
+      response = await trackOAuthApiCall(
+        params.userId,
+        params.customerId,
+        ApiOperationType.REPORT,
+        '/api/google-ads/query',
+        () => customer.query(query)
+      )
     }
 
     const performanceData = response.map((row: any) => ({
@@ -1529,7 +1645,13 @@ export async function getAdGroupPerformance(params: {
       response = result.results || []
     } else {
       const customer = await getCustomerWithCredentials(params)
-      response = await customer.query(query)
+      response = await trackOAuthApiCall(
+        params.userId,
+        params.customerId,
+        ApiOperationType.REPORT,
+        '/api/google-ads/query',
+        () => customer.query(query)
+      )
     }
 
     const performanceData = response.map((row: any) => ({
@@ -1614,7 +1736,13 @@ export async function getAdPerformance(params: {
       response = result.results || []
     } else {
       const customer = await getCustomerWithCredentials(params)
-      response = await customer.query(query)
+      response = await trackOAuthApiCall(
+        params.userId,
+        params.customerId,
+        ApiOperationType.REPORT,
+        '/api/google-ads/query',
+        () => customer.query(query)
+      )
     }
 
     const performanceData = response.map((row: any) => ({
@@ -1702,7 +1830,13 @@ export async function getBatchCampaignPerformance(params: {
       response = result.results || []
     } else {
       const customer = await getCustomerWithCredentials(params)
-      response = await customer.query(query)
+      response = await trackOAuthApiCall(
+        params.userId,
+        params.customerId,
+        ApiOperationType.REPORT,
+        '/api/google-ads/query',
+        () => customer.query(query)
+      )
     }
 
     // Group by campaign ID
@@ -1789,7 +1923,13 @@ export async function createGoogleAdsCalloutExtensions(params: {
     }))
 
     console.log(`📢 创建${params.callouts.length}个Callout Assets...`)
-    const assetResponse = await customer.assets.create(assetOperations)
+    const assetResponse = await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE_BATCH,
+      '/api/google-ads/assets/create',
+      () => customer.assets.create(assetOperations)
+    )
 
     if (assetResponse && assetResponse.results) {
       assetResponse.results.forEach((result: any) => {
@@ -1807,7 +1947,13 @@ export async function createGoogleAdsCalloutExtensions(params: {
     }))
 
     console.log(`🔗 关联Callout Assets到Campaign ${params.campaignId}...`)
-    await customer.campaignAssets.create(campaignAssetOperations)
+    await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE_BATCH,
+      '/api/google-ads/campaign-assets/create',
+      () => customer.campaignAssets.create(campaignAssetOperations)
+    )
     console.log(`✅ Callout Assets关联成功`)
 
     return { assetIds }
@@ -1895,7 +2041,13 @@ export async function createGoogleAdsSitelinkExtensions(params: {
 
     console.log(`🔗 创建${params.sitelinks.length}个Sitelink Assets...`)
     console.log(`📋 Sitelink数据:`, JSON.stringify(assetOperations, null, 2))
-    const assetResponse = await customer.assets.create(assetOperations)
+    const assetResponse = await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE_BATCH,
+      '/api/google-ads/assets/create',
+      () => customer.assets.create(assetOperations)
+    )
 
     if (assetResponse && assetResponse.results) {
       assetResponse.results.forEach((result: any) => {
@@ -1913,7 +2065,13 @@ export async function createGoogleAdsSitelinkExtensions(params: {
     }))
 
     console.log(`🔗 关联Sitelink Assets到Campaign ${params.campaignId}...`)
-    await customer.campaignAssets.create(campaignAssetOperations)
+    await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE_BATCH,
+      '/api/google-ads/campaign-assets/create',
+      () => customer.campaignAssets.create(campaignAssetOperations)
+    )
     console.log(`✅ Sitelink Assets关联成功`)
 
     return { assetIds }
@@ -2105,16 +2263,22 @@ export async function updateCampaignFinalUrlSuffix(params: {
 
     const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-    await withRetry(
-      () => customer.campaigns.update([{
-        resource_name: resourceName,
-        final_url_suffix: params.finalUrlSuffix,
-      }]),
-      {
-        maxRetries: 3,
-        initialDelay: 1000,
-        operationName: `Update Campaign Final URL Suffix: ${params.campaignId}`
-      }
+    await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.MUTATE,
+      '/api/google-ads/campaign/update',
+      () => withRetry(
+        () => customer.campaigns.update([{
+          resource_name: resourceName,
+          final_url_suffix: params.finalUrlSuffix,
+        }]),
+        {
+          maxRetries: 3,
+          initialDelay: 1000,
+          operationName: `Update Campaign Final URL Suffix: ${params.campaignId}`
+        }
+      )
     )
   }
 
