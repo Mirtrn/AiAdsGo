@@ -108,6 +108,58 @@ export function isPureBrandKeyword(keyword: string, pureBrandKeywords: string[])
 }
 
 // ============================================
+// 品牌词匹配策略（🔥 2026-01-05 新增：明确用途，避免混用）
+// ============================================
+
+/**
+ * 品牌词匹配策略说明
+ *
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │  场景1: 关键词过滤（保留包含品牌词的关键词）                      │
+ * │  → shouldKeepByBrand() - 部分匹配（"reolink argus" ✅）          │
+ * │                                                                 │
+ * │  场景2: 匹配类型分配（判断是否"纯品牌词"用 EXACT）                │
+ * │  → shouldUseExactMatch() - 精确匹配（"reolink" ✅, "reolink argus" ❌）│
+ * └─────────────────────────────────────────────────────────────────┘
+ */
+
+/**
+ * 判断关键词是否应该保留（用于质量过滤）
+ *
+ * 规则：只要包含品牌词就保留
+ * 用途：filterKeywordQuality() 的 mustContainBrand 检查
+ *
+ * @param keyword - 要检测的关键词
+ * @param pureBrandKeywords - 纯品牌词列表
+ * @returns 是否应该保留
+ *
+ * @example
+ * shouldKeepByBrand("reolink argus", ["reolink"]) → true
+ * shouldKeepByBrand("security camera", ["reolink"]) → false
+ */
+export function shouldKeepByBrand(keyword: string, pureBrandKeywords: string[]): boolean {
+  return containsPureBrand(keyword, pureBrandKeywords)
+}
+
+/**
+ * 判断关键词是否应该使用 EXACT 匹配类型
+ *
+ * 规则：必须是纯品牌词本身（无修饰词）
+ * 用途：ad-creative-generator.ts 的匹配类型分配
+ *
+ * @param keyword - 要检测的关键词
+ * @param pureBrandKeywords - 纯品牌词列表
+ * @returns 是否应该使用 EXACT 匹配
+ *
+ * @example
+ * shouldUseExactMatch("reolink", ["reolink"]) → true
+ * shouldUseExactMatch("reolink argus", ["reolink"]) → false
+ */
+export function shouldUseExactMatch(keyword: string, pureBrandKeywords: string[]): boolean {
+  return isPureBrandKeyword(keyword, pureBrandKeywords)
+}
+
+// ============================================
 // 语义查询词列表（需要过滤的关键词类型）
 // ============================================
 
@@ -708,9 +760,9 @@ export function filterKeywordQuality(
 
     let removeReason: string | null = null
 
-    // 1. 检查是否必须包含纯品牌词（精确匹配）
-    // 🔥 2026-01-05 修复：使用 isPureBrandKeyword 精确匹配，而非 containsPureBrand 部分匹配
-    if (mustContainBrand && !isPureBrandKeyword(keyword, pureBrandKeywords)) {
+    // 1. 检查是否必须包含纯品牌词（使用策略函数）
+    // 🔥 2026-01-05 使用 shouldKeepByBrand 策略函数，明确用途
+    if (mustContainBrand && !shouldKeepByBrand(keyword, pureBrandKeywords)) {
       removeReason = `不含纯品牌词: "${keyword}"`
     }
     // 2. 检查品牌变体词

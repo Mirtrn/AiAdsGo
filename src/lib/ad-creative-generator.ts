@@ -20,7 +20,7 @@ import {
   deduplicateKeywordsWithPriority,
   logDuplicateKeywords
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
-import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords, isPureBrandKeyword } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 isPureBrandKeyword 精确匹配
+import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
 
 /**
  * 🔧 安全解析JSON字段
@@ -3532,7 +3532,8 @@ export async function generateAdCreative(
 
   keywordsWithVolume.forEach(kw => {
     const kwLower = kw.keyword.toLowerCase()
-    const isPureBrand = isPureBrandKeyword(kw.keyword, pureBrandKeywordsList)
+    // 使用策略函数：判断是否应该使用 EXACT 匹配
+    const isPureBrand = shouldUseExactMatch(kw.keyword, pureBrandKeywordsList)
     const isBrandRelated = !isPureBrand && kwLower.includes(brandKeywordLower)
 
     if (isPureBrand) {
