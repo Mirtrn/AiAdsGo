@@ -1,5 +1,5 @@
 import { getDatabase } from './db'
-import { generateOfferName, getTargetLanguage, isOfferNameUnique, validateBrandName } from './offer-utils'
+import { generateOfferName, getTargetLanguage, isOfferNameUnique, normalizeBrandName, validateBrandName } from './offer-utils'
 import { generatePricingJSON, initializePromotionsJSON, initializeScrapedDataJSON } from './pricing-utils'
 
 export interface Offer {
@@ -979,12 +979,27 @@ export async function updateOfferScrapeStatus(
 
   if (status === 'completed' && scrapedData) {
     const rawBrand = scrapedData.brand?.trim() || null
-    const validatedBrand =
-      rawBrand && rawBrand !== 'Unknown' && validateBrandName(rawBrand).valid ? rawBrand : null
-
-    if (rawBrand && !validatedBrand) {
-      console.warn(`⚠️ 自动提取的品牌名无效，跳过写入 offers.brand: "${rawBrand.slice(0, 60)}"`)
+    const deriveBrandFromUrl = (inputUrl: string | null | undefined): string | null => {
+      if (!inputUrl) return null
+      try {
+        const hostname = new URL(inputUrl).hostname.replace(/^www\./i, '')
+        const firstLabel = hostname.split('.')[0] || ''
+        const normalized = firstLabel.replace(/[-_]+/g, ' ').trim()
+        return normalized ? normalizeBrandName(normalized) : null
+      } catch {
+        return null
+      }
     }
+
+    const fallbackBrand = deriveBrandFromUrl(scrapedData.url || null)
+    const brandForWrite = (() => {
+      if (!rawBrand || rawBrand === 'Unknown') return null
+      if (validateBrandName(rawBrand).valid) return rawBrand
+      if (fallbackBrand && validateBrandName(fallbackBrand).valid) return fallbackBrand
+      const truncated = rawBrand.slice(0, 25)
+      console.warn(`⚠️ 自动提取的品牌名过长，已截断写入 offers.brand: "${truncated}"`)
+      return truncated
+    })()
 
     // 🔧 修复：当品牌名更新时，同步更新offer_name
     // 需要先查询当前的offer_name以提取序号
@@ -999,11 +1014,11 @@ export async function updateOfferScrapeStatus(
       newOfferName = currentOffer?.offer_name || null
 
       // 如果提供了新的品牌名且不是Unknown，则更新offer_name
-      if (validatedBrand && currentOffer) {
+      if (brandForWrite && currentOffer) {
         // 从旧的offer_name中提取序号（格式：Brand_Country_序号）
         const parts = currentOffer.offer_name.split('_')
         const sequenceNumber = parts.length >= 3 ? parts[parts.length - 1] : '01'
-        const proposedOfferName = `${validatedBrand}_${currentOffer.target_country}_${sequenceNumber}`
+        const proposedOfferName = `${brandForWrite}_${currentOffer.target_country}_${sequenceNumber}`
 
         // 🔧 修复：检查新offer_name是否已被占用，如果是则重新生成唯一名称
         const isUnique = await isOfferNameUnique(proposedOfferName, userId, id)
@@ -1011,7 +1026,7 @@ export async function updateOfferScrapeStatus(
           newOfferName = proposedOfferName
         } else {
           // 已被占用，使用generateOfferName生成新的唯一名称
-          newOfferName = await generateOfferName(validatedBrand, currentOffer.target_country, userId)
+          newOfferName = await generateOfferName(brandForWrite, currentOffer.target_country, userId)
         }
       }
     } catch (nameError: any) {
@@ -1061,7 +1076,7 @@ export async function updateOfferScrapeStatus(
       WHERE id = ? AND user_id = ?
     `, [
       status,
-      validatedBrand,
+      brandForWrite,
       newOfferName,
       scrapedData.url || null,
       scrapedData.final_url_suffix || null,
