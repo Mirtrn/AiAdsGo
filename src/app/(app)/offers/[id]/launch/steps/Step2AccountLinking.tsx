@@ -86,7 +86,12 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
   const [accounts, setAccounts] = useState<GoogleAdsAccount[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(selectedAccount?.customerId || null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [hasCredentials, setHasCredentials] = useState(false)
+  const [isCached, setIsCached] = useState(false)
+  const [cacheStale, setCacheStale] = useState(false)
+  const [refreshFailed, setRefreshFailed] = useState(false)
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [showGuideDialog, setShowGuideDialog] = useState(false)
 
   useEffect(() => {
@@ -110,9 +115,14 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
     }
   }
 
-  const fetchAccounts = async () => {
+  const fetchAccounts = async (forceRefresh: boolean = false) => {
     try {
-      setLoading(true)
+      if (forceRefresh) {
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
+      setRefreshFailed(false)
 
       // 🔧 修复(2025-12-26): 检查认证类型，支持服务账号模式
       const credResponse = await fetch('/api/google-ads/credentials', {
@@ -124,7 +134,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
 
       // 构建查询参数
       const params = new URLSearchParams({
-        refresh: 'false',
+        refresh: forceRefresh ? 'true' : 'false',
         offerId: offer.id.toString(),
         auth_type: authType,
       })
@@ -144,6 +154,11 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
       const data = await response.json()
 
       if (data.success && data.data?.accounts) {
+        setIsCached(Boolean(data.data.cached))
+        setCacheStale(Boolean(data.data.cacheStale))
+        setRefreshFailed(Boolean(data.data.refreshFailed))
+        setLastSyncAt(data.data.lastSyncAt || null)
+
         const allAccounts = data.data.accounts as GoogleAdsAccount[]
 
         // 🔓 KISS优化(2025-12-12): 移除独占约束，只筛选基本条件
@@ -163,6 +178,10 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
 
         // API已按优先级排序，直接使用
         setAccounts(availableAccounts)
+
+        if (forceRefresh) {
+          showSuccess('已刷新', `已同步 ${allAccounts.length} 个账号`)
+        }
       } else {
         setAccounts([])
       }
@@ -171,6 +190,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
       showError('加载失败', error.message || '获取账号列表失败')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -220,11 +240,32 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
             选择或连接Google Ads账号，用于发布广告系列
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Button onClick={handleConnectNewAccount} variant="outline">
-            <Plus className="w-4 h-4 mr-2" />
-            连接新账号
-          </Button>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleConnectNewAccount} variant="outline">
+              <Plus className="w-4 h-4 mr-2" />
+              连接新账号
+            </Button>
+            <Button
+              onClick={() => fetchAccounts(true)}
+              variant="outline"
+              disabled={refreshing}
+            >
+              {refreshing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              刷新账号列表
+            </Button>
+          </div>
+
+          <div className="text-xs text-gray-500">
+            {lastSyncAt ? `上次同步：${new Date(lastSyncAt).toLocaleString('zh-CN')}` : '上次同步：-'}
+            {isCached ? '（来自缓存）' : '（已实时同步）'}
+            {cacheStale ? '（缓存已过期）' : ''}
+            {refreshFailed ? '（本次刷新失败，已回退缓存）' : ''}
+          </div>
         </CardContent>
       </Card>
 

@@ -81,6 +81,26 @@ interface CachedAccount {
   last_sync_at: string | null
 }
 
+const GOOGLE_ADS_ACCOUNTS_CACHE_MAX_AGE_MS = 60 * 60 * 1000 // 1小时：避免发布流程使用到过期账号信息
+
+function parseDbTimestampToMs(value: string | null | undefined) {
+  if (!value) return NaN
+  // SQLite datetime('now') 常见格式：'YYYY-MM-DD HH:mm:ss'（UTC，无时区标记）
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(value)) {
+    return Date.parse(value.replace(' ', 'T') + 'Z')
+  }
+  return Date.parse(value)
+}
+
+function getLatestSyncAtMs(accounts: CachedAccount[]) {
+  let latest = NaN
+  for (const acc of accounts) {
+    const ms = parseDbTimestampToMs(acc.last_sync_at)
+    if (!Number.isNaN(ms) && (Number.isNaN(latest) || ms > latest)) latest = ms
+  }
+  return latest
+}
+
 /**
  * 从数据库获取缓存的账号列表
  */
@@ -835,29 +855,52 @@ export async function GET(request: NextRequest) {
 
     // 检查缓存
     const cachedAccounts = await getCachedAccounts(userId)
+    const latestSyncAtMs = getLatestSyncAtMs(cachedAccounts)
+    const cacheAgeMs = Number.isNaN(latestSyncAtMs) ? Number.POSITIVE_INFINITY : Date.now() - latestSyncAtMs
+    const cacheStaleBeforeRefresh = cacheAgeMs > GOOGLE_ADS_ACCOUNTS_CACHE_MAX_AGE_MS
     console.log(`📦 缓存中有 ${cachedAccounts.length} 个账号`)
 
-    if (!forceRefresh && cachedAccounts.length > 0) {
+    const mapCachedAccounts = () => cachedAccounts.map(acc => ({
+      customer_id: acc.customer_id,
+      descriptive_name: acc.account_name || `客户 ${acc.customer_id}`,
+      currency_code: acc.currency,
+      time_zone: acc.timezone,
+      manager: acc.is_manager_account === 1,
+      test_account: acc.test_account === 1,
+      status: acc.status || 'UNKNOWN',
+      account_balance: acc.account_balance,
+      parent_mcc: acc.parent_mcc_id,
+      db_account_id: acc.id,
+      last_sync_at: acc.last_sync_at,
+    }))
+
+    let usedCache = false
+    let refreshFailed = false
+    let effectiveLastSyncAtIso: string | null = Number.isNaN(latestSyncAtMs) ? null : new Date(latestSyncAtMs).toISOString()
+
+    if (!forceRefresh && cachedAccounts.length > 0 && !cacheStaleBeforeRefresh) {
       // 使用缓存数据
-      console.log(`✅ 使用缓存的 ${cachedAccounts.length} 个账号`)
-      allAccounts = cachedAccounts.map(acc => ({
-        customer_id: acc.customer_id,
-        descriptive_name: acc.account_name || `客户 ${acc.customer_id}`,
-        currency_code: acc.currency,
-        time_zone: acc.timezone,
-        manager: acc.is_manager_account === 1,
-        test_account: acc.test_account === 1,
-        status: acc.status || 'UNKNOWN',
-        account_balance: acc.account_balance,
-        parent_mcc: acc.parent_mcc_id,
-        db_account_id: acc.id,
-        last_sync_at: acc.last_sync_at,
-      }))
+      usedCache = true
+      console.log(`✅ 使用缓存的 ${cachedAccounts.length} 个账号 (ageMs=${cacheAgeMs})`)
+      allAccounts = mapCachedAccounts()
     } else {
-      // 从 API 获取并同步
-      console.log(`🔄 强制刷新: 从 Google Ads API 同步账号...`)
-      allAccounts = await syncAccountsFromAPI(userId, credentials, authType, serviceAccountConfig)
-      console.log(`✅ 同步完成，获取到 ${allAccounts.length} 个账号`)
+      // 从 API 获取并同步（缓存过期时也会自动刷新）
+      console.log(`🔄 从 Google Ads API 同步账号... (forceRefresh=${forceRefresh}, cacheStale=${cacheStaleBeforeRefresh})`)
+      try {
+        allAccounts = await syncAccountsFromAPI(userId, credentials, authType, serviceAccountConfig)
+        console.log(`✅ 同步完成，获取到 ${allAccounts.length} 个账号`)
+        effectiveLastSyncAtIso = new Date().toISOString()
+      } catch (err) {
+        // 降级：如果刷新失败但有缓存，允许继续使用缓存（避免发布流程完全阻塞）
+        if (cachedAccounts.length > 0) {
+          refreshFailed = true
+          usedCache = true
+          console.warn(`⚠️ 同步账号失败，回退使用缓存账号列表:`, err)
+          allAccounts = mapCachedAccounts()
+        } else {
+          throw err
+        }
+      }
     }
 
     // 查询关联的 Offer 信息
@@ -985,7 +1028,10 @@ export async function GET(request: NextRequest) {
       data: {
         total: accountsWithOffers.length,
         accounts: accountsWithOffers,
-        cached: !forceRefresh && cachedAccounts.length > 0,
+        cached: usedCache,
+        cacheStale: usedCache ? cacheStaleBeforeRefresh : false,
+        refreshFailed,
+        lastSyncAt: effectiveLastSyncAtIso,
         loginCustomerId: loginCustomerId,
         authType: authType,
       },
