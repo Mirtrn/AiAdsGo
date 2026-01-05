@@ -358,6 +358,24 @@ export async function generateContent(params: {
       error.message?.toLowerCase().includes('overload') ||
       error.response?.data?.error?.message?.toLowerCase().includes('overload')
 
+    // 🔧 relay 额外降级策略：除过载外，遇到临时性失败也尝试降级到Flash
+    // 场景：用户选择 gemini-2.5-pro，但 relay 可能出现不稳定/网关类错误
+    const status = error.response?.status as number | undefined
+    const isTransientFailureForRelay =
+      provider === 'relay' &&
+      (
+        !status || // 网络错误/超时等（无HTTP状态）
+        status === 408 ||
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 504 ||
+        status === 522 ||
+        status === 524 ||
+        error.code === 'ECONNABORTED' ||
+        error.code === 'ETIMEDOUT'
+      )
+
     // 🔧 修复(2025-12-30): 针对403错误给出更明确的提示
     if (error.response?.status === 403) {
       const providerName = GEMINI_PROVIDERS[provider]?.name || '当前服务商'
@@ -419,9 +437,12 @@ export async function generateContent(params: {
       )
     }
 
-    // 如果是gemini-2.5-pro过载且未指定其他模型，降级到gemini-2.5-flash
-    if (isOverloaded && model === 'gemini-2.5-pro') {
-      console.warn(`⚠️ ${model} 模型过载，自动降级到 gemini-2.5-flash`)
+    // 如果是gemini-2.5-pro过载，或 relay 临时性失败，则降级到gemini-2.5-flash
+    if ((isOverloaded || isTransientFailureForRelay) && model === 'gemini-2.5-pro') {
+      console.warn(
+        `⚠️ ${model} 调用失败，自动降级到 gemini-2.5-flash` +
+        (isOverloaded ? '（模型过载）' : (isTransientFailureForRelay ? '（relay临时性失败）' : ''))
+      )
 
       try {
         // 🔧 修复(2025-12-30): fallback也需要使用正确的API Key传递方式

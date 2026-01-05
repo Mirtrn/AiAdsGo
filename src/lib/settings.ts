@@ -547,10 +547,8 @@ export async function validateGeminiConfig(
   }
 
   // Step 2: 验证模型名称
-  // 🔧 更新(2025-12-30): 明确ThunderRelay支持的模型列表
-  // - 官方API: gemini-2.5-pro, gemini-3-flash-preview
-  // - ThunderRelay中转: gemini-2.5-pro, gemini-3-flash-preview（与官方一致）
-  const validModels = ['gemini-2.5-pro', 'gemini-3-flash-preview']
+  // 🔧 更新(2026-01-05): 允许 flash 模型（业务会在 Pro/Flash 间切换；relay 过载/失败也会降级到 flash）
+  const validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview']
   if (!validModels.includes(model)) {
     return {
       valid: false,

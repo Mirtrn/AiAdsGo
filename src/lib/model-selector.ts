@@ -17,7 +17,7 @@ import { getUserOnlySetting } from './settings'
 // 支持的Gemini模型
 // 🔧 更新(2025-12-30): ThunderRelay与官方API统一支持的模型列表
 // - 官方API: gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview
-// - ThunderRelay中转: gemini-2.5-pro, gemini-3-flash-preview
+// - ThunderRelay中转: gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview
 export type ModelType =
   | 'gemini-2.5-pro'
   | 'gemini-2.5-flash'
