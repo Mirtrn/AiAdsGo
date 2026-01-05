@@ -89,6 +89,7 @@ function extractAllSuggestions(analysis: ScoreAnalysis): string[] {
  */
 export async function POST(request: NextRequest) {
   try {
+    const parentRequestId = request.headers.get('x-request-id') || undefined
     // 1. Verify authentication
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {
@@ -828,6 +829,7 @@ export async function POST(request: NextRequest) {
             taskData,
             userId,
             {
+              parentRequestId,
               priority: 'high'
             }
           )

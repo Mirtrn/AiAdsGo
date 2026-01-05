@@ -22,6 +22,7 @@ export async function POST(
 
     // 从中间件注入的请求头中获取用户ID
     const userId = request.headers.get('x-user-id')
+    const parentRequestId = request.headers.get('x-request-id') || undefined
     if (!userId) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
@@ -73,6 +74,7 @@ export async function POST(
       taskData,
       userIdNum,
       {
+        parentRequestId,
         priority: convertPriorityToEnum(priority),
         maxRetries: 2,  // 抓取任务最多重试2次
         requireProxy: true  // 抓取任务需要代理

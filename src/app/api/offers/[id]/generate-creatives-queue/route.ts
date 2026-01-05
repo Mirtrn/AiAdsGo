@@ -22,6 +22,7 @@ export async function POST(
 
   // 验证用户身份
   const userId = request.headers.get('x-user-id')
+  const parentRequestId = request.headers.get('x-request-id') || undefined
   if (!userId) {
     return new Response(JSON.stringify({ error: '未授权' }), {
       status: 401,
@@ -145,6 +146,7 @@ export async function POST(
     }
 
     await queue.enqueue('ad-creative', taskData, parseInt(userId, 10), {
+      parentRequestId,
       priority: 'high',
       taskId,
       maxRetries: 0  // 禁用队列重试，由执行器内部控制多轮生成

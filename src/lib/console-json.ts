@@ -1,5 +1,3 @@
-import 'server-only'
-
 import util from 'node:util'
 import { logger } from './structured-logger'
 
@@ -27,4 +25,3 @@ export function patchConsoleToJsonOnce() {
     logger.error(util.format(...args), {}, error)
   }
 }
-

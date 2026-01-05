@@ -31,6 +31,7 @@ export const maxDuration = 60
 export async function POST(req: NextRequest) {
   const db = getDatabase()
   const queue = getQueueManager()
+  const parentRequestId = req.headers.get('x-request-id') || undefined
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -251,6 +252,7 @@ export async function POST(req: NextRequest) {
       taskData,
       userIdNum,
       {
+        parentRequestId,
         priority: 'normal',
         maxRetries: 1 // 批量任务本身不重试，由子任务重试
       }

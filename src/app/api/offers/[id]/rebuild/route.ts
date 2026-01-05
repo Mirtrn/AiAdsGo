@@ -49,6 +49,7 @@ export async function POST(
 ) {
   const db = getDatabase()
   const queue = getQueueManager()
+  const parentRequestId = req.headers.get('x-request-id') || undefined
   const offerId = parseInt(params.id, 10)
 
   if (isNaN(offerId)) {
@@ -155,6 +156,7 @@ export async function POST(
       taskData,
       userIdNum,
       {
+        parentRequestId,
         priority: 'normal',
         requireProxy: true,
         maxRetries: 2,

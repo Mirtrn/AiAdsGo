@@ -13,7 +13,6 @@ import { MemoryQueueAdapter } from './memory-adapter'
 import { RedisQueueAdapter } from './redis-adapter'
 import { SimpleProxyManager } from './proxy-manager'
 import { isProxyRequiredForTaskType, getProxyForCountry } from './user-proxy-loader'
-import { tryGetCurrentRequestContext } from '@/lib/request-context'
 import { logger } from '@/lib/structured-logger'
 
 /**
@@ -312,8 +311,7 @@ export class UnifiedQueueManager {
     await this.ensureStarted()
 
     const taskId = options.taskId || randomUUID()
-    const { requestId } = tryGetCurrentRequestContext()
-    const parentRequestId = options.parentRequestId ?? requestId
+    const parentRequestId = options.parentRequestId
 
     const task: Task<T> = {
       id: taskId,

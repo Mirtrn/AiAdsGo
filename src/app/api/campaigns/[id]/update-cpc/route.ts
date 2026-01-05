@@ -24,7 +24,8 @@ async function mutateResources(
   operations: any[],
   userId: number,
   serviceAccountId: string | undefined,
-  customerId: string
+  customerId: string,
+  requestId?: string
 ): Promise<void> {
   if (isServiceAccount) {
     // 服务账号模式：使用 Python 服务更新
@@ -41,6 +42,7 @@ async function mutateResources(
           customerId,
           campaignResourceName: resourceName,
           cpcBidMicros,
+          requestId,
         })
       } else if (mutateType === 'ad_group') {
         await updateAdGroupPython({
@@ -49,6 +51,7 @@ async function mutateResources(
           customerId,
           adGroupResourceName: resourceName,
           cpcBidMicros,
+          requestId,
         })
       } else {
         throw new Error(`服务账号模式不支持的 mutate 类型: ${mutateType}`)
@@ -79,6 +82,7 @@ export async function PUT(
 ) {
   try {
     const { id: campaignId } = params
+    const requestId = request.headers.get('x-request-id') || undefined
 
     // 从中间件注入的请求头中获取用户ID
     const userId = request.headers.get('x-user-id')
@@ -199,7 +203,7 @@ export async function PUT(
 
     // 根据认证模式选择正确的查询方法
     const campaignResults = useServiceAccount
-      ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: auth.serviceAccountId, customerId: googleAdsAccount.customerId, query: campaignQuery })
+      ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: auth.serviceAccountId, customerId: googleAdsAccount.customerId, query: campaignQuery, requestId })
       : await customer.query(campaignQuery)
 
     if (campaignResults.length === 0) {
@@ -234,7 +238,7 @@ export async function PUT(
 
       // 根据认证模式选择正确的查询方法
       const adGroups = useServiceAccount
-        ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: auth.serviceAccountId, customerId: googleAdsAccount.customerId, query: adGroupQuery })
+        ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: auth.serviceAccountId, customerId: googleAdsAccount.customerId, query: adGroupQuery, requestId })
         : await customer.query(adGroupQuery)
 
       if (adGroups.length === 0) {
@@ -263,7 +267,8 @@ export async function PUT(
         adGroupOperations,
         parseInt(userId, 10),
         auth.serviceAccountId,
-        googleAdsAccount.customerId
+        googleAdsAccount.customerId,
+        requestId
       )
 
       return NextResponse.json({
@@ -294,7 +299,8 @@ export async function PUT(
         [campaignOperation],
         parseInt(userId, 10),
         auth.serviceAccountId,
-        googleAdsAccount.customerId
+        googleAdsAccount.customerId,
+        requestId
       )
 
       return NextResponse.json({
@@ -324,7 +330,8 @@ export async function PUT(
         [campaignOperation],
         parseInt(userId, 10),
         auth.serviceAccountId,
-        googleAdsAccount.customerId
+        googleAdsAccount.customerId,
+        requestId
       )
 
       return NextResponse.json({

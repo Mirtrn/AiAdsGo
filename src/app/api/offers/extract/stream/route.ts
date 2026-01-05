@@ -41,6 +41,7 @@ interface OfferTask {
 export async function POST(req: NextRequest) {
   const db = getDatabase()
   const queue = getQueueManager()
+  const parentRequestId = req.headers.get('x-request-id') || undefined
 
   // 🔧 PostgreSQL兼容性：根据数据库类型选择NOW函数
   const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest) {
 
     console.log(`📝 Created offer_task: ${taskId} for user ${userIdNum}`)
     const queueTaskId = await queue.enqueue('offer-extraction', taskData, userIdNum, {
+      parentRequestId,
       priority: 'normal',
       taskId,  // 关键：传递预定义的taskId，确保队列任务ID与offer_tasks记录ID一致
       maxRetries: 0,  // 禁用重试: Offer提取任务已经有详细进度,用户可重新提交

@@ -1,7 +1,3 @@
-import 'server-only'
-
-import { tryGetCurrentRequestContext } from './request-context'
-
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 type LogFields = Record<string, unknown>
 
@@ -47,13 +43,10 @@ export const logger = {
 }
 
 export function log(level: LogLevel, msg: string, fields: LogFields = {}, error?: unknown) {
-  const requestContext = tryGetCurrentRequestContext()
-
   const payload: Record<string, unknown> = {
     ...baseFields(),
     level,
     msg,
-    ...requestContext,
     ...fields,
   }
 
@@ -62,4 +55,3 @@ export function log(level: LogLevel, msg: string, fields: LogFields = {}, error?
 
   writeLogLine(payload)
 }
-
