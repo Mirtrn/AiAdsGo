@@ -63,6 +63,23 @@ export interface KeywordWithVolume {
   intentCategory?: IntentCategory // 🔥 意图分类（品牌/场景/功能）
 }
 
+export function buildDkiFirstHeadline(brandName: string, maxLength = 30): string {
+  const normalizedBrand = String(brandName || '').trim()
+  const suffix = ' Official'
+
+  // Google Ads DKI 规则：{KeyWord:DefaultText} token 本身不计入字符数，只计 DefaultText 的长度
+  // 但 token 之外的普通文本（如 " Official"）仍计入字符数。
+  if (normalizedBrand.length + suffix.length <= maxLength) {
+    return `{KeyWord:${normalizedBrand}}${suffix}`
+  }
+
+  if (normalizedBrand.length <= maxLength) {
+    return `{KeyWord:${normalizedBrand}}`
+  }
+
+  return `{KeyWord:${normalizedBrand.substring(0, maxLength)}}`
+}
+
 /**
  * AI广告创意生成器
  * 优先使用Vertex AI，其次使用Gemini API
@@ -3106,31 +3123,16 @@ export async function generateAdCreative(
   // 🔥 强制第一个headline为DKI品牌格式（自动处理30字符限制）
   const HEADLINE_MAX_LENGTH = 30
 
-  // 优先使用完整格式 "{KeyWord:Brand} Official"，超过30字符则去除 "Official"
-  const fullDKIHeadline = `{KeyWord:${brandName}} Official`
-  const shortDKIHeadline = `{KeyWord:${brandName}}`
-
-  const requiredFirstHeadline = fullDKIHeadline.length <= HEADLINE_MAX_LENGTH
-    ? fullDKIHeadline
-    : shortDKIHeadline
-
-  // 如果短格式仍超过限制，截断品牌名
-  let finalFirstHeadline = requiredFirstHeadline
-  if (finalFirstHeadline.length > HEADLINE_MAX_LENGTH) {
-    // 计算可用的品牌名长度: 30 - "{KeyWord:}".length = 30 - 10 = 20
-    const maxBrandLength = HEADLINE_MAX_LENGTH - 10
-    const truncatedBrand = brandName.substring(0, maxBrandLength)
-    finalFirstHeadline = `{KeyWord:${truncatedBrand}}`
-    console.log(`⚠️ DKI标题品牌名过长，截断: "${brandName}" → "${truncatedBrand}"`)
-  }
+  const finalFirstHeadline = buildDkiFirstHeadline(brandName, HEADLINE_MAX_LENGTH)
 
   if (result.headlines.length > 0) {
     // 检查第一个headline是否符合要求
     if (result.headlines[0] !== finalFirstHeadline) {
-      console.log(`🔧 强制第一个headline: "${result.headlines[0]}" → "${finalFirstHeadline}" (${finalFirstHeadline.length}字符)`)
+      // 说明：DKI token 本身不计入字符数，因此这里不使用 finalFirstHeadline.length 做判断
+      console.log(`🔧 强制第一个headline: "${result.headlines[0]}" → "${finalFirstHeadline}"`)
       result.headlines[0] = finalFirstHeadline
     } else {
-      console.log(`✅ 第一个headline已符合要求: "${finalFirstHeadline}" (${finalFirstHeadline.length}字符)`)
+      console.log(`✅ 第一个headline已符合要求: "${finalFirstHeadline}"`)
     }
   }
 
