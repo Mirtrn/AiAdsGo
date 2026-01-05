@@ -89,10 +89,12 @@ interface ResponsiveActionCellProps {
   primaryAction?: {
     icon: React.ReactNode
     label: string
-    onClick: () => void
+    href?: string  // 🔥 2026-01-05: 支持链接（用于打开新标签页）
+    onClick?: () => void
     disabled?: boolean
     variant?: "default" | "outline" | "ghost"
     title?: string
+    target?: string  // 🔥 2026-01-05: a标签的target属性
   }
   secondaryActions?: Array<{
     icon: React.ReactNode
@@ -117,19 +119,41 @@ export function ResponsiveActionCell({
 }: ResponsiveActionCellProps) {
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      {/* 主要操作按钮 */}
+      {/* 主要操作按钮 - 支持链接或onClick */}
       {primaryAction && (
-        <Button
-          size="sm"
-          variant={primaryAction.variant || "default"}
-          onClick={primaryAction.onClick}
-          disabled={primaryAction.disabled}
-          className="h-8 whitespace-nowrap"
-          title={primaryAction.disabled ? '请等待数据抓取完成' : (primaryAction.title || primaryAction.label)}
-        >
-          {primaryAction.icon}
-          <span className="hidden sm:inline ml-1.5">{primaryAction.label}</span>
-        </Button>
+        primaryAction.href ? (
+          // 🔥 2026-01-05: 使用<a>标签支持href和target
+          <a
+            href={primaryAction.href}
+            target={primaryAction.target}
+            rel={primaryAction.target === '_blank' ? 'noopener noreferrer' : undefined}
+            className={cn(
+              "inline-flex items-center justify-center h-8 px-3 text-sm font-medium rounded-md transition-colors",
+              primaryAction.variant === "outline" ? "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" :
+              primaryAction.variant === "ghost" ? "text-gray-700 hover:bg-gray-100" :
+              "bg-blue-600 text-white hover:bg-blue-700",
+              primaryAction.disabled && "opacity-50 pointer-events-none",
+              "whitespace-nowrap"
+            )}
+            title={primaryAction.disabled ? '请等待数据抓取完成' : (primaryAction.title || primaryAction.label)}
+          >
+            {primaryAction.icon}
+            <span className="hidden sm:inline ml-1.5">{primaryAction.label}</span>
+          </a>
+        ) : (
+          // 使用Button组件（onClick模式）
+          <Button
+            size="sm"
+            variant={primaryAction.variant || "default"}
+            onClick={primaryAction.onClick}
+            disabled={primaryAction.disabled}
+            className="h-8 whitespace-nowrap"
+            title={primaryAction.disabled ? '请等待数据抓取完成' : (primaryAction.title || primaryAction.label)}
+          >
+            {primaryAction.icon}
+            <span className="hidden sm:inline ml-1.5">{primaryAction.label}</span>
+          </Button>
+        )
       )}
 
       {/* 次要操作 - 下拉菜单 */}

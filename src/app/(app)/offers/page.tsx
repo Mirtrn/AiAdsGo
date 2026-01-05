@@ -990,7 +990,8 @@ export default function OffersPage() {
                             primaryAction={{
                               icon: <Rocket className="w-3.5 h-3.5" />,
                               label: '发布广告',
-                              onClick: () => router.push(`/offers/${offer.id}/launch`),
+                              href: `/offers/${offer.id}/launch`,  // 🔥 2026-01-05: 使用href打开新标签页
+                              target: '_blank',
                               disabled: offer.scrapeStatus !== 'completed',
                               title: offer.scrapeStatus !== 'completed' ? '请等待数据抓取完成' : undefined,
                             }}
