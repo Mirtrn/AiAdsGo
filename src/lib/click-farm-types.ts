@@ -223,7 +223,7 @@ export const SOCIAL_MEDIA_REFERRERS = [
   { value: 'https://www.reddit.com/', label: 'Reddit' },
   { value: 'https://www.snapchat.com/', label: 'Snapchat' },
   { value: 'https://www.tiktok.com/', label: 'TikTok' },
-  { value: 'https://www.twitter.com/', label: 'Twitter/X' },
+  { value: 'https://x.com/', label: 'Twitter/X' },  // 🔥 2026-01-05: Twitter/X 官网已变更为 x.com
   { value: 'https://wa.me/', label: 'WhatsApp' },
   { value: 'https://www.youtube.com/', label: 'YouTube' },
 ] as const;
