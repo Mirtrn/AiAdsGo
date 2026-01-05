@@ -4,7 +4,6 @@ export type LogContext = {
   requestId?: string
   parentRequestId?: string
   userId?: number
-  uid?: number
   taskId?: string
   taskType?: string
 }
@@ -22,4 +21,3 @@ export async function runWithLogContext<T>(context: LogContext, fn: () => Promis
 export function runWithLogContextSync<T>(context: LogContext, fn: () => T): T {
   return storage.run(context, fn)
 }
-

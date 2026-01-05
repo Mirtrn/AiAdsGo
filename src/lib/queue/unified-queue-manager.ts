@@ -334,7 +334,6 @@ export class UnifiedQueueManager {
       taskId: task.id,
       taskType: task.type,
       userId: task.userId,
-      uid: task.userId,
       parentRequestId: task.parentRequestId,
       priority: task.priority,
     })
@@ -518,18 +517,16 @@ export class UnifiedQueueManager {
       requestId: task.parentRequestId,
       parentRequestId: task.parentRequestId,
       userId: task.userId,
-      uid: task.userId,
       taskId: task.id,
       taskType: task.type,
     }
 
-    // 将任务上下文绑定到当前异步链路，确保执行器内部 console.* 也能带上 uid/taskId/requestId
+    // 将任务上下文绑定到当前异步链路，确保执行器内部 console.* 也能带上 userId/taskId/requestId
     await runWithLogContext(context, async () => {
       logger.info('queue_task_started', {
         taskId: task.id,
         taskType: task.type,
         userId: task.userId,
-        uid: task.userId,
         parentRequestId: task.parentRequestId,
         retryCount: task.retryCount,
         maxRetries: task.maxRetries,
@@ -579,7 +576,6 @@ export class UnifiedQueueManager {
         taskId: task.id,
         taskType: task.type,
         userId: task.userId,
-        uid: task.userId,
         parentRequestId: task.parentRequestId,
         durationMs: Date.now() - startedAt,
       })
@@ -590,7 +586,6 @@ export class UnifiedQueueManager {
           taskId: task.id,
           taskType: task.type,
           userId: task.userId,
-          uid: task.userId,
           parentRequestId: task.parentRequestId,
           durationMs: Date.now() - startedAt,
         },
@@ -626,7 +621,6 @@ export class UnifiedQueueManager {
           taskId: task.id,
           taskType: task.type,
           userId: task.userId,
-          uid: task.userId,
           parentRequestId: task.parentRequestId,
           retryCount: task.retryCount,
           maxRetries: task.maxRetries,
