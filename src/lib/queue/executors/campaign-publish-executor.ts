@@ -398,7 +398,15 @@ export async function executeCampaignPublish(
       : []
 
     // 10. 准备Callout Extensions数据
+    // 🔧 修复：支持两种格式 - 字符串数组 ["a","b"] 和对象数组 [{"text":"a"}]
     let finalCallouts = creative.callouts || []
+    // 转换为字符串数组（兼容对象数组格式）
+    finalCallouts = finalCallouts.map((c: any) => {
+      if (typeof c === 'string') return c
+      if (typeof c === 'object' && c?.text) return c.text
+      return null
+    }).filter((c: string | null): c is string => c !== null && c.trim().length > 0)
+
     if (finalCallouts.length === 0) {
       finalCallouts = [
         'Free Shipping',
