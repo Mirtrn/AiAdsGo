@@ -8,8 +8,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react'
+import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen, Star } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
 import { ServiceAccountPermissionError } from '@/components/ServiceAccountPermissionError'
 
@@ -1311,13 +1312,19 @@ export default function SettingsPage() {
                         <button
                           type="button"
                           onClick={() => setGoogleAdsAuthMethod('oauth')}
-                          className={`p-4 border-2 rounded-lg text-left transition-all ${
+                          className={`p-4 border-2 rounded-lg text-left transition-all relative ${
                             googleAdsAuthMethod === 'oauth'
                               ? 'border-blue-500 bg-blue-50'
                               : 'border-gray-200 hover:border-gray-300'
                           }`}
                         >
-                          <div className="font-semibold mb-1">OAuth 用户授权</div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="font-semibold">OAuth 用户授权</div>
+                            <Badge className="bg-orange-500 hover:bg-orange-600 text-white border-0 gap-1">
+                              <Star className="w-3 h-3 fill-current" />
+                              强烈推荐
+                            </Badge>
+                          </div>
                           <div className="text-sm text-gray-600">适合管理自己的 Google Ads 账号</div>
                         </button>
                         <button
