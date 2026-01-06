@@ -55,7 +55,6 @@ CREATE INDEX IF NOT EXISTS idx_risk_alerts_severity ON risk_alerts(severity);
 CREATE INDEX IF NOT EXISTS idx_risk_alerts_type ON risk_alerts(alert_type, status);
 CREATE INDEX IF NOT EXISTS idx_risk_alerts_user_severity_status ON risk_alerts(user_id, severity, status);
 CREATE INDEX IF NOT EXISTS idx_risk_alerts_user_status ON risk_alerts(user_id, status);
-
 -- Step 6: 重建视图（SQLite 在表结构变更后需要重建依赖视图）
 -- 删除旧视图（如果存在）
 DROP VIEW IF EXISTS v_offers_boolean_integrity;
