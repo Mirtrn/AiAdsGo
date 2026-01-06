@@ -792,7 +792,8 @@ CREATE TABLE rate_limits (
 CREATE TABLE risk_alerts (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL,
-  risk_type TEXT NOT NULL,
+  -- 🔥 2026-01-06: risk_type 字段已删除，使用 alert_type 替代
+  alert_type TEXT,
   severity TEXT NOT NULL,
   title TEXT NOT NULL,
   message TEXT NOT NULL,
@@ -804,7 +805,11 @@ CREATE TABLE risk_alerts (
   resolved_by INTEGER,
   detected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, alert_type TEXT, resource_type TEXT, resource_id INTEGER, details TEXT, acknowledged_at TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resource_type TEXT,
+  resource_id INTEGER,
+  details TEXT,
+  acknowledged_at TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (resolved_by) REFERENCES users(id)
 );
