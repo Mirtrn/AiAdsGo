@@ -7,24 +7,12 @@
  * - Cron备份：每5分钟检查待处理任务
  */
 
-import { getDatabase } from './db'
-import { getPendingTasks, updateTaskStatus, setTaskError, getOfferById } from './url-swap'
+import { calculateNextSwapAt } from './url-swap-time'
+import { getPendingTasks, updateTaskStatus, setTaskError, getOfferById, getUrlSwapTaskById } from './url-swap'
 import { shouldCompleteTask } from './click-farm/scheduler'
 import { getProxyPool } from './url-resolver-enhanced'
 import { getOrCreateQueueManager } from './queue/init-queue'
 import type { UrlSwapTaskData, TriggerResult } from './url-swap-types'
-
-/**
- * 计算下次执行时间（简单UTC时间计算）
- * @param intervalMinutes - 换链间隔（分钟）
- * @returns 下次执行时间
- */
-export function calculateNextSwapAt(intervalMinutes: number): Date {
-  const now = new Date()
-  const intervalMs = intervalMinutes * 60 * 1000
-  // 计算下一个间隔点
-  return new Date(Math.ceil(now.getTime() / intervalMs) * intervalMs)
-}
 
 /**
  * 触发所有待处理的换链接任务
@@ -163,6 +151,3 @@ export async function triggerUrlSwapScheduling(taskId: string): Promise<TriggerR
 
   return { taskId, status: 'queued', message: '任务已加入队列' }
 }
-
-// 辅助函数（从url-swap.ts导入）
-declare function getUrlSwapTaskById(id: string, userId: number): Promise<any>

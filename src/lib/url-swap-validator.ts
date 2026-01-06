@@ -7,6 +7,7 @@
  * - 域名类型检查
  */
 
+import { getDatabase } from './db'
 import { getProxyPool } from './url-resolver-enhanced'
 import type { UrlSwapValidationResult } from './url-swap-types'
 
@@ -118,5 +119,14 @@ export async function getMissingProxyCountries(offerIds: number[]): Promise<stri
   return missingCountries
 }
 
-// 类型声明（临时，实际应从db.ts导入）
-declare function getOfferById(offerId: number): Promise<any | null>
+async function getOfferById(offerId: number): Promise<any | null> {
+  const db = await getDatabase()
+  const isDeletedCondition = db.type === 'postgres'
+    ? '(is_deleted = FALSE OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  return db.queryOne(`
+    SELECT * FROM offers
+    WHERE id = ? AND ${isDeletedCondition}
+  `, [offerId])
+}

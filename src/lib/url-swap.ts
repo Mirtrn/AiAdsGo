@@ -7,7 +7,7 @@
 
 import { getDatabase } from './db'
 import { resolveAffiliateLink } from './url-resolver-enhanced'
-import { calculateNextSwapAt } from './url-swap-scheduler'
+import { calculateNextSwapAt } from './url-swap-time'
 import { validateUrlSwapTask, validateTaskConfig } from './url-swap-validator'
 import type {
   UrlSwapTask,
@@ -110,10 +110,19 @@ export async function getUrlSwapTaskById(
 ): Promise<UrlSwapTask | null> {
   const db = await getDatabase()
 
-  const task = await db.queryOne<any>(`
-    SELECT * FROM url_swap_tasks
-    WHERE id = ? AND user_id = ?
-  `, [id, userId])
+  const isDeletedCondition = db.type === 'postgres'
+    ? '(is_deleted = FALSE OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
+  const task = userId === 0
+    ? await db.queryOne<any>(`
+        SELECT * FROM url_swap_tasks
+        WHERE id = ? AND ${isDeletedCondition}
+      `, [id])
+    : await db.queryOne<any>(`
+        SELECT * FROM url_swap_tasks
+        WHERE id = ? AND user_id = ? AND ${isDeletedCondition}
+      `, [id, userId])
 
   if (!task) return null
 
@@ -656,7 +665,9 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
  */
 export async function getOfferById(offerId: number): Promise<any | null> {
   const db = await getDatabase()
-  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+  const isDeletedCondition = db.type === 'postgres'
+    ? '(is_deleted = FALSE OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
 
   return db.queryOne(`
     SELECT * FROM offers
@@ -669,7 +680,9 @@ export async function getOfferById(offerId: number): Promise<any | null> {
  */
 export async function getCampaignByOfferId(offerId: number): Promise<{ customer_id: string; campaign_id: string } | null> {
   const db = await getDatabase()
-  const isDeletedCondition = db.type === 'postgres' ? 'o.is_deleted = FALSE' : 'o.is_deleted = 0'
+  const isDeletedCondition = db.type === 'postgres'
+    ? '(o.is_deleted = FALSE OR o.is_deleted IS NULL)'
+    : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
 
   const result = await db.queryOne(`
     SELECT c.customer_id, c.campaign_id
