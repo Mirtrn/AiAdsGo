@@ -37,6 +37,50 @@ const formatSearchVolume = (volume?: number): string => {
 }
 
 /**
+ * 🔧 修复(2026-01-06): 安全获取callout文本
+ * 兼容两种格式：字符串数组 ['text'] 和对象数组 [{text: 'text'}]
+ */
+const getCalloutText = (callout: string | { text?: string } | any): string => {
+  if (typeof callout === 'string') return callout
+  if (typeof callout === 'object' && callout !== null && 'text' in callout) {
+    return String(callout.text)
+  }
+  return String(callout)
+}
+
+/**
+ * 🔧 修复(2026-01-06): 安全获取sitelink文本
+ * 兼容两种格式：字符串和对象 {text, url, description}
+ */
+const getSitelinkText = (sitelink: string | { text?: string } | any): string => {
+  if (typeof sitelink === 'string') return sitelink
+  if (typeof sitelink === 'object' && sitelink !== null && 'text' in sitelink) {
+    return String(sitelink.text)
+  }
+  return String(sitelink)
+}
+
+/**
+ * 🔧 修复(2026-01-06): 安全获取sitelink描述
+ */
+const getSitelinkDescription = (sitelink: string | { description?: string } | any): string => {
+  if (typeof sitelink === 'object' && sitelink !== null && 'description' in sitelink) {
+    return String(sitelink.description || '')
+  }
+  return ''
+}
+
+/**
+ * 🔧 修复(2026-01-06): 安全获取sitelink URL
+ */
+const getSitelinkUrl = (sitelink: string | { url?: string } | any): string => {
+  if (typeof sitelink === 'object' && sitelink !== null && 'url' in sitelink) {
+    return String(sitelink.url || '')
+  }
+  return ''
+}
+
+/**
  * 🆕 P0-1优化：动态CPC出价计算
  * 基于关键词的lowTopPageBid搜索量加权平均，上浮20%确保竞争力
  * 公式：Σ(lowTopPageBid × searchVolume) / Σ(searchVolume) × 1.2
@@ -1057,7 +1101,7 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               {config.callouts.map((callout, index) => (
                 <div key={index} className="flex gap-2">
                   <Input
-                    value={callout}
+                    value={getCalloutText(callout)}
                     onChange={(e) => handleCalloutChange(index, e.target.value)}
                     placeholder={`Callout ${index + 1}`}
                     maxLength={25}
@@ -1089,18 +1133,18 @@ export default function Step3CampaignConfig({ offer, selectedCreative, selectedA
               {config.sitelinks.map((sitelink, index) => (
                 <div key={index} className="grid md:grid-cols-3 gap-2 p-3 border rounded-lg">
                   <Input
-                    value={sitelink.text}
+                    value={getSitelinkText(sitelink)}
                     onChange={(e) => handleSitelinkChange(index, 'text', e.target.value)}
                     placeholder="链接文字"
                   />
                   <Input
-                    value={sitelink.description}
+                    value={getSitelinkDescription(sitelink)}
                     onChange={(e) => handleSitelinkChange(index, 'description', e.target.value)}
                     placeholder="描述"
                   />
                   <div className="flex gap-2">
                     <Input
-                      value={sitelink.url}
+                      value={getSitelinkUrl(sitelink)}
                       onChange={(e) => handleSitelinkChange(index, 'url', e.target.value)}
                       placeholder="URL"
                       className="flex-1"
