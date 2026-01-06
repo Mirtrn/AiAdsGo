@@ -355,10 +355,18 @@ export async function executeClickFarmTask(
               `, [taskId]);
               if (taskRow && taskRow.timezone) {
                 scheduledHour = getHourInTimezone(new Date(scheduledAt), taskRow.timezone);
+              } else {
+                // 时区查询失败，使用任务时区计算当前小时
+                scheduledHour = getHourInTimezone(new Date(), taskRow?.timezone || 'America/New_York');
               }
             } catch (e) {
-              console.warn(`[ClickFarm] 获取任务时区失败，使用实际时间:`, e);
+              console.warn(`[ClickFarm] 获取任务时区失败，使用当前时间:`, e);
+              // 使用默认时区计算当前小时
+              scheduledHour = getHourInTimezone(new Date(), 'America/New_York');
             }
+          } else {
+            // scheduledAt 不存在时，使用任务时区计算当前小时
+            scheduledHour = getHourInTimezone(new Date(), 'America/New_York');
           }
           await updateTaskStats(taskId, isSuccess, scheduledHour);
 
@@ -366,7 +374,7 @@ export async function executeClickFarmTask(
             (referer ? ` [Referer: ${referer.substring(0, 30)}...]` : ''));
         } catch (error: any) {
           // 网络错误、超时等真正的失败
-          // 🆕 P0修复：从 scheduledAt 提取计划执行的小时数
+          // 🆕 P0修复：从 scheduledAt 提取计划执行的小时数，而不是使用实际执行时间
           let scheduledHour: number | undefined;
           if (scheduledAt) {
             try {
@@ -376,10 +384,18 @@ export async function executeClickFarmTask(
               `, [taskId]);
               if (taskRow && taskRow.timezone) {
                 scheduledHour = getHourInTimezone(new Date(scheduledAt), taskRow.timezone);
+              } else {
+                // 时区查询失败，使用任务时区计算当前小时
+                scheduledHour = getHourInTimezone(new Date(), taskRow?.timezone || 'America/New_York');
               }
             } catch (e) {
-              console.warn(`[ClickFarm] 获取任务时区失败，使用实际时间:`, e);
+              console.warn(`[ClickFarm] 获取任务时区失败，使用当前时间:`, e);
+              // 使用默认时区计算当前小时
+              scheduledHour = getHourInTimezone(new Date(), 'America/New_York');
             }
+          } else {
+            // scheduledAt 不存在时，使用任务时区计算当前小时
+            scheduledHour = getHourInTimezone(new Date(), 'America/New_York');
           }
           await updateTaskStats(taskId, false, scheduledHour);
           console.log(`[ClickFarm] 点击执行失败: ${url.substring(0, 50)}... [${error.message}]`);
