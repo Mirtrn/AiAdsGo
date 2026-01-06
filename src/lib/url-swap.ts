@@ -56,7 +56,7 @@ export async function createUrlSwapTask(
   })
 
   // 5. 获取关联的Campaign
-  const campaign = await getCampaignByOfferId(input.offer_id)
+  const campaign = await getCampaignByOfferId(input.offer_id, userId)
 
   // 6. 生成任务ID
   const taskId = crypto.randomUUID().toLowerCase()
@@ -678,17 +678,41 @@ export async function getOfferById(offerId: number): Promise<any | null> {
 /**
  * 辅助函数：根据Offer ID获取关联的Campaign
  */
-export async function getCampaignByOfferId(offerId: number): Promise<{ customer_id: string; campaign_id: string } | null> {
+export async function getCampaignByOfferId(
+  offerId: number,
+  userId?: number
+): Promise<{ customer_id: string | null; campaign_id: string | null } | null> {
   const db = await getDatabase()
-  const isDeletedCondition = db.type === 'postgres'
-    ? '(o.is_deleted = FALSE OR o.is_deleted IS NULL)'
-    : '(o.is_deleted = 0 OR o.is_deleted IS NULL)'
+  const isDeletedCondition = db.type === 'postgres' ? 'c.is_deleted = FALSE' : 'c.is_deleted = 0'
 
-  const result = await db.queryOne(`
-    SELECT c.customer_id, c.campaign_id
+  const params: any[] = [offerId]
+  let userCondition = ''
+  if (userId && userId > 0) {
+    userCondition = 'AND c.user_id = ?'
+    params.push(userId)
+  }
+
+  const row = await db.queryOne<any>(`
+    SELECT
+      gaa.customer_id as customer_id,
+      COALESCE(NULLIF(c.google_campaign_id, ''), NULLIF(c.campaign_id, '')) as campaign_id
     FROM campaigns c
-    INNER JOIN offers o ON o.campaign_id = c.id
-    WHERE o.id = ? AND ${isDeletedCondition}
-  `, [offerId])
-  return result || null
+    LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+    WHERE c.offer_id = ?
+      ${userCondition}
+      AND ${isDeletedCondition}
+      AND c.status != 'REMOVED'
+      AND (
+        (c.google_campaign_id IS NOT NULL AND c.google_campaign_id != '')
+        OR (c.campaign_id IS NOT NULL AND c.campaign_id != '')
+      )
+    ORDER BY c.created_at DESC
+    LIMIT 1
+  `, params)
+
+  if (!row) return null
+  return {
+    customer_id: row.customer_id || null,
+    campaign_id: row.campaign_id || null,
+  }
 }
