@@ -77,6 +77,24 @@ function parseProxyUrl(proxyUrl: string): {
 
   const trimmedUrl = proxyUrl.trim();
 
+  // 格式0: 直连格式（可选带 http(s):// 前缀）: host:port:user:pass
+  const directUrl = trimmedUrl.replace(/^https?:\/\//, '');
+  const directParts = directUrl.split(':');
+  if (directParts.length >= 4) {
+    const port = parseInt(directParts[1]);
+    if (!isNaN(port)) {
+      return {
+        host: directParts[0],
+        port: port,
+        auth: {
+          username: directParts[2],
+          password: directParts[3]
+        },
+        protocol: 'http'
+      };
+    }
+  }
+
   // 格式1: 标准URL (http:// 或 https://)
   if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
     try {
@@ -96,24 +114,8 @@ function parseProxyUrl(proxyUrl: string): {
     }
   }
 
-  // 格式2: 直接格式 (host:port:user:password)
+  // 格式2: 简单格式 (host:port)
   const parts = trimmedUrl.split(':');
-  if (parts.length >= 4) {
-    const port = parseInt(parts[1]);
-    if (!isNaN(port)) {
-      return {
-        host: parts[0],
-        port: port,
-        auth: {
-          username: parts[2],
-          password: parts[3]
-        },
-        protocol: 'http'
-      };
-    }
-  }
-
-  // 格式3: 简单格式 (host:port)
   if (parts.length === 2) {
     const port = parseInt(parts[1]);
     if (!isNaN(port)) {

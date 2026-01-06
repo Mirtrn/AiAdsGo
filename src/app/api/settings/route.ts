@@ -3,6 +3,7 @@ import { getAllSettings, getSettingsByCategory, updateSettings } from '@/lib/set
 import { invalidateProxyPoolCache } from '@/lib/offer-utils'
 import { GEMINI_PROVIDERS, getGeminiEndpoint, getGeminiApiKeyUrl, type GeminiProvider } from '@/lib/gemini-config'
 import { z } from 'zod'
+import { ProxyProviderRegistry } from '@/lib/proxy/providers/provider-registry'
 
 /**
  * GET /api/settings
@@ -157,8 +158,59 @@ export async function PUT(request: NextRequest) {
       console.log(`🔄 根据服务商(${provider})自动更新 gemini_endpoint → ${endpoint}`)
     }
 
+    // 🔥 2026-01-06: 保存前强制校验代理URL（避免客户端校验遗漏导致运行时失败）
+    const proxyUrlsUpdate = updates.find(u => u.category === 'proxy' && u.key === 'urls')
+    if (proxyUrlsUpdate) {
+      let proxyUrls: Array<{ country?: string; url?: string }>
+      try {
+        proxyUrls = JSON.parse(proxyUrlsUpdate.value)
+      } catch (error) {
+        return NextResponse.json(
+          { error: '代理配置JSON格式错误' },
+          { status: 400 }
+        )
+      }
+
+      if (!Array.isArray(proxyUrls)) {
+        return NextResponse.json(
+          { error: '代理配置格式错误，应为数组格式' },
+          { status: 400 }
+        )
+      }
+
+      const errors: string[] = []
+      for (let i = 0; i < proxyUrls.length; i++) {
+        const item = proxyUrls[i]
+        const country = (item?.country || '').trim()
+        const url = (item?.url || '').trim()
+
+        // 允许用户保存空数组来禁用代理；但数组项必须完整
+        if (!country || !url) {
+          errors.push(`第${i + 1}个代理配置缺少 country 或 url`)
+          continue
+        }
+
+        try {
+          const provider = ProxyProviderRegistry.getProvider(url)
+          const validation = provider.validate(url)
+          if (!validation.isValid) {
+            errors.push(`第${i + 1}个URL (${country}) 格式错误: ${validation.errors.join(', ')}`)
+          }
+        } catch (error: any) {
+          errors.push(`第${i + 1}个URL (${country}) 不支持: ${error?.message || '未知错误'}`)
+        }
+      }
+
+      if (errors.length > 0) {
+        return NextResponse.json(
+          { error: errors.join('；') },
+          { status: 400 }
+        )
+      }
+    }
+
     // 更新配置
-    updateSettings(updates, userIdNum)
+    await updateSettings(updates, userIdNum)
 
     // 🔥 修复（2025-12-11）：如果更新了代理配置，清除代理池缓存
     const hasProxyUpdate = updates.some(u => u.category === 'proxy')

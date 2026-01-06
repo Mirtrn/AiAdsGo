@@ -3,6 +3,7 @@ import { IPRocketProvider } from './iprocket-provider'
 import { OxylabsProvider } from './oxylabs-provider'
 import { AbcproxyProvider } from './abcproxy-provider'
 import { IpMarsProvider } from './ipmars-provider'
+import { IpideaProvider } from './ipidea-provider'
 
 /**
  * 代理提供商注册表
@@ -16,6 +17,7 @@ export class ProxyProviderRegistry {
     new OxylabsProvider(),
     new AbcproxyProvider(),
     new IpMarsProvider(),
+    new IpideaProvider(),
   ]
 
   /**

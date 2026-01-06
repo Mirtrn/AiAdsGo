@@ -3,29 +3,32 @@ import type { ProxyCredentials } from '../types'
 import type { ValidationResult } from './base-provider'
 
 /**
- * IpMars代理提供商
+ * Ipidea 代理提供商
  * 处理格式: host:port:username:password
- * 示例: ipmars.com:4950:username:password 或 ipmars.vip:4950:username:password
+ * 示例: 34b5cb0f0e88f8bc.xji.eu.ipidea.online:2333:username:password
+ *
  * 直接从URL解析，无需API调用
  */
-export class IpMarsProvider implements ProxyProvider {
-  name = 'IpMars'
+export class IpideaProvider implements ProxyProvider {
+  name = 'Ipidea'
 
   canHandle(url: string): boolean {
-    // 检查是否包含ipmars域名（.com 或 .vip）且使用冒号分隔格式
-    // 支持可选 http(s):// 前缀，但不支持包含 @ 的标准URL认证格式
     const cleanUrl = url.replace(/^https?:\/\//, '')
     if (cleanUrl.includes('@')) return false
 
-    return (cleanUrl.includes('ipmars.com') || cleanUrl.includes('ipmars.vip')) && cleanUrl.includes(':')
+    return (
+      (cleanUrl.includes('ipidea.online') || cleanUrl.includes('ipidea.io') || cleanUrl.includes('ipidea.net')) &&
+      cleanUrl.includes(':')
+    )
   }
 
   validate(url: string): ValidationResult {
     const errors: string[] = []
 
     try {
-      // 验证格式：host:port:username:password
       const cleanUrl = url.replace(/^https?:\/\//, '')
+
+      // 验证格式：host:port:username:password
       const parts = cleanUrl.split(':')
 
       // 至少需要4个部分：host, port, username, password
@@ -44,9 +47,9 @@ export class IpMarsProvider implements ProxyProvider {
       const username = parts[2]
       const password = parts[3]
 
-      // 验证主机名包含ipmars.com或ipmars.vip
-      if (!host.includes('ipmars.com') && !host.includes('ipmars.vip')) {
-        errors.push('主机名必须包含ipmars.com或ipmars.vip')
+      // 验证主机名包含 ipidea 域名
+      if (!host.includes('ipidea.online') && !host.includes('ipidea.io') && !host.includes('ipidea.net')) {
+        errors.push('主机名必须包含 ipidea.online / ipidea.io / ipidea.net')
       }
 
       // 验证端口号
@@ -83,28 +86,33 @@ export class IpMarsProvider implements ProxyProvider {
 
   /**
    * 从用户名中提取国家代码（如果有）
-   * 例如: user_zone-US -> US
+   * 常见格式：
+   * - ...region-fr... -> FR
+   * - ...-fr         -> FR
    */
   private extractCountryCode(username: string): string | null {
-    const match = username.match(/[-_]([A-Z]{2})$/i)
-    return match ? match[1].toUpperCase() : null
+    const regionMatch = username.match(/region-([a-z]{2})/i)
+    if (regionMatch) return regionMatch[1].toUpperCase()
+
+    const suffixMatch = username.match(/[-_]([a-z]{2})$/i)
+    return suffixMatch ? suffixMatch[1].toUpperCase() : null
   }
 
   async extractCredentials(url: string): Promise<ProxyCredentials> {
     // 验证URL
     const validation = this.validate(url)
     if (!validation.isValid) {
-      throw new Error(`IpMars URL验证失败:\n${validation.errors.join('\n')}`)
+      throw new Error(`Ipidea URL验证失败:\n${validation.errors.join('\n')}`)
     }
 
     try {
-      // 解析各部分
+      // 解析各部分（支持可选 http(s):// 前缀）
       const cleanUrl = url.replace(/^https?:\/\//, '')
       const parts = cleanUrl.split(':')
-      const host = parts[0] // 第一部分是host
-      const port = parts[1] // 第二部分是port
-      const username = parts[2] // 第三部分是username
-      const password = parts[3] // 第四部分是password
+      const host = parts[0]
+      const port = parts[1]
+      const username = parts[2]
+      const password = parts[3]
 
       const credentials: ProxyCredentials = {
         host,
@@ -127,14 +135,15 @@ export class IpMarsProvider implements ProxyProvider {
         throw new Error('密码不能为空')
       }
 
-      console.log(`✅ [IpMars] 解析代理凭证: ${credentials.fullAddress}`)
+      console.log(`✅ [Ipidea] 解析代理凭证: ${credentials.fullAddress}`)
       if (validation.countryCode) {
         console.log(`   国家代码: ${validation.countryCode}`)
       }
 
       return credentials
     } catch (error) {
-      throw new Error(`解析IpMars URL失败: ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(`解析Ipidea URL失败: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 }
+

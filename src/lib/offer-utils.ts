@@ -128,6 +128,7 @@ export function detectPageType(url: string): PageTypeResult {
  */
 let proxyPoolInitialized = false
 let proxyPoolInitializedForUser: number | null = null
+let proxyPoolInitializedConfigSignature: string | null = null
 
 /**
  * 清除代理池缓存
@@ -150,11 +151,13 @@ export function invalidateProxyPoolCache(userId?: number): void {
     // 清除所有用户缓存
     proxyPoolInitialized = false
     proxyPoolInitializedForUser = null
+    proxyPoolInitializedConfigSignature = null
     console.log(`   - 全局缓存已清除`)
   } else if (proxyPoolInitializedForUser === userId || proxyPoolInitializedForUser === null) {
     // 清除当前用户缓存（或缓存未初始化）
     proxyPoolInitialized = false
     proxyPoolInitializedForUser = null
+    proxyPoolInitializedConfigSignature = null
     console.log(`   - 用户 ${userId} 的缓存已清除`)
   } else {
     // 缓存属于其他用户，不清除
@@ -173,14 +176,6 @@ export function invalidateProxyPoolCache(userId?: number): void {
  * @throws AppError 如果代理配置未设置
  */
 export async function initializeProxyPool(userId: number, targetCountry: string): Promise<void> {
-  // 检查是否已经初始化过，且是同一个用户
-  if (proxyPoolInitialized && proxyPoolInitializedForUser === userId) {
-    console.log(`✅ [initializeProxyPool] 代理池已初始化，跳过重复初始化`)
-    return
-  }
-
-  console.log(`🔍 [initializeProxyPool] 开始初始化代理池 (userId=${userId}, country=${targetCountry})`)
-
   // 获取用户配置的代理URL列表
   const proxyUrls = await getAllProxyUrls(userId)
 
@@ -190,6 +185,28 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
     error.code = 'PROXY_NOT_CONFIGURED'
     error.details = { targetCountry, userId }
     throw error
+  }
+
+  // 🔥 2026-01-06: 使用配置签名检测变更，避免“更新后仍使用旧配置”
+  const configSignature = proxyUrls
+    .map((p) => `${String(p.country).trim()}:${String(p.url).trim()}`)
+    .join('|')
+
+  // 检查是否已经初始化过，且是同一个用户且配置未变更
+  if (
+    proxyPoolInitialized &&
+    proxyPoolInitializedForUser === userId &&
+    proxyPoolInitializedConfigSignature === configSignature
+  ) {
+    console.log(`✅ [initializeProxyPool] 代理池已初始化且配置未变更，跳过重复初始化`)
+    return
+  }
+
+  const isSameUser = proxyPoolInitialized && proxyPoolInitializedForUser === userId
+  if (isSameUser && proxyPoolInitializedConfigSignature !== null && proxyPoolInitializedConfigSignature !== configSignature) {
+    console.log('🔄 [initializeProxyPool] 检测到代理配置变更，重新加载代理池')
+  } else {
+    console.log(`🔍 [initializeProxyPool] 开始初始化代理池 (userId=${userId}, country=${targetCountry})`)
   }
 
   // 🔥 修复:所有代理都不设置为 default（emergency）优先级
@@ -209,6 +226,7 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
   // 更新缓存状态
   proxyPoolInitialized = true
   proxyPoolInitializedForUser = userId
+  proxyPoolInitializedConfigSignature = configSignature
 
   console.log(`✅ 代理池初始化成功: ${proxiesWithDefault.length}个代理 (用户ID: ${userId})`)
 }

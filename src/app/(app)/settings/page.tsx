@@ -33,23 +33,28 @@ function validateProxyUrlFormat(url: string): { isValid: boolean; error?: string
   }
 
   // Oxylabs 格式 (https://username:password@pr.oxylabs.io:port)
-  if (url.includes('oxylabs.io')) {
+  if (url.includes('pr.oxylabs.io')) {
     return { isValid: true }
   }
 
-  // Abcproxy / IpMars / 通用格式 (host:port:username:password)
-  if (/^[a-zA-Z0-9.-]+:\d+:[^:]+:[^:]+$/.test(url)) {
+  // Abcproxy 格式 (host:port:username:password 或 http(s)://host:port:username:password)
+  if (/^(https?:\/\/)?[a-zA-Z0-9.-]*abcproxy\.vip:\d+:[^:]+:[^:]+$/.test(url)) {
     return { isValid: true }
   }
 
-  // HTTP/HTTPS 代理格式
-  if (url.startsWith('http://') || url.startsWith('https://')) {
+  // IpMars 格式 (host:port:username:password 或 http(s)://host:port:username:password)
+  if (/^(https?:\/\/)?[a-zA-Z0-9.-]*(ipmars\.com|ipmars\.vip):\d+:[^:]+:[^:]+$/.test(url)) {
+    return { isValid: true }
+  }
+
+  // Ipidea 格式 (host:port:username:password 或 http(s)://host:port:username:password)
+  if (/^(https?:\/\/)?[a-zA-Z0-9.-]*(ipidea\.online|ipidea\.io|ipidea\.net):\d+:[^:]+:[^:]+$/.test(url)) {
     return { isValid: true }
   }
 
   return {
     isValid: false,
-    error: '不支持的代理URL格式。当前仅支持：IPRocket、Oxylabs、Abcproxy、IpMars'
+    error: '不支持的代理URL格式。当前仅支持：IPRocket、Oxylabs、Abcproxy、IpMars、Ipidea'
   }
 }
 
@@ -1652,7 +1657,7 @@ export default function SettingsPage() {
                       </p>
                       <p className="text-xs text-blue-600 flex items-center gap-1">
                         <Info className="w-3 h-3 flex-shrink-0" />
-                        当前已支持IPRocket、Oxylabs、Abcproxy、IpMars四种代理格式
+                        当前已支持 IPRocket、Oxylabs、Abcproxy、IpMars、Ipidea 五种代理格式
                       </p>
 
                       {/* IPRocket推荐说明 - 简洁版 */}
@@ -1685,31 +1690,25 @@ export default function SettingsPage() {
                               <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">Oxylabs</span>
                               <span className="text-slate-600">直接格式 - 直接代理服务器地址</span>
                             </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                              https://用户名:密码@pr.oxylabs.io:端口
-                            </div>
+                          <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
+                            https://用户名:密码@pr.oxylabs.io:端口
+                          </div>
                           </div>
 
-                          {/* Abcproxy格式 */}
-                          <div className="bg-white p-3 rounded border border-orange-200">
-                            <div className="flex items-center gap-2 mb-2">
+                          {/* Abcproxy / IpMars / Ipidea 直连格式 */}
+                          <div className="bg-white p-3 rounded border border-violet-200">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
                               <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">Abcproxy</span>
-                              <span className="text-slate-600">直接格式 - 仅支持HTTP/HTTPS</span>
-                            </div>
-                            <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
-                              host:port:username:password
-                            </div>
-                          </div>
-
-                          {/* IpMars格式 */}
-                          <div className="bg-white p-3 rounded border border-purple-200">
-                            <div className="flex items-center gap-2 mb-2">
                               <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded">IpMars</span>
-                              <span className="text-slate-600">直接格式 - 仅支持HTTP/HTTPS</span>
+                              <span className="px-2 py-0.5 bg-sky-100 text-sky-700 text-xs font-medium rounded">Ipidea</span>
+                              <span className="text-slate-600">直连格式 - 无需调用API</span>
                             </div>
                             <div className="font-mono text-xs text-slate-700 bg-slate-100 p-2 rounded break-all">
                               host:port:username:password
                             </div>
+                            <p className="mt-2 text-xs text-slate-500">
+                              建议统一不带 <span className="font-mono">http(s)://</span> 前缀，直接填写上述格式
+                            </p>
                           </div>
                         </div>
 
@@ -1718,8 +1717,8 @@ export default function SettingsPage() {
                             <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             <span>
                               <strong>处理策略：</strong>
-                              <br />• IPRocket：先调用API获取代理IP，再使用代理IP访问
-                              <br />• Oxylabs/Abcproxy/IpMars：直接从URL提取参数，使用代理发起12次访问进行预热
+                              <br />• IPRocket：API格式（系统会先调用 API 获取代理IP）
+                              <br />• 直连格式：直接解析并使用代理（Oxylabs、Abcproxy、IpMars、Ipidea）
                             </span>
                           </p>
                         </div>
