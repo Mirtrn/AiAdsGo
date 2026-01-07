@@ -126,6 +126,17 @@ export async function queryActiveCampaigns(
   }
 }
 
+export interface PauseCampaignsResult {
+  attemptedCount: number
+  pausedCount: number
+  failedCount: number
+  failures: Array<{
+    id: string
+    name: string
+    error: string
+  }>
+}
+
 /**
  * 批量暂停广告系列
  *
@@ -137,7 +148,7 @@ export async function pauseCampaigns(
   campaigns: GoogleAdsCampaignInfo[],
   googleAdsAccountId: number,
   userId: number
-): Promise<void> {
+): Promise<PauseCampaignsResult> {
   const db = await getDatabase()
 
   // 获取账号信息（包含parent_mcc_id用于MCC子账号权限）
@@ -174,6 +185,8 @@ export async function pauseCampaigns(
 
   // 逐个暂停（串行执行，避免并发冲突）
   const auth = await getUserAuthType(userId)
+  const failures: PauseCampaignsResult['failures'] = []
+  let pausedCount = 0
   for (const campaign of campaigns) {
     try {
       console.log(`⏸️ 暂停广告系列: ${campaign.name} (${campaign.id})`)
@@ -189,9 +202,22 @@ export async function pauseCampaigns(
         serviceAccountId: auth.serviceAccountId,
       })
       console.log(`✅ 成功暂停: ${campaign.name}`)
+      pausedCount++
     } catch (error) {
       console.error(`❌ 暂停失败: ${campaign.name}`, error)
+      failures.push({
+        id: campaign.id,
+        name: campaign.name,
+        error: error instanceof Error ? error.message : String(error)
+      })
       // 继续处理其他广告系列，不中断流程
     }
+  }
+
+  return {
+    attemptedCount: campaigns.length,
+    pausedCount,
+    failedCount: failures.length,
+    failures
   }
 }

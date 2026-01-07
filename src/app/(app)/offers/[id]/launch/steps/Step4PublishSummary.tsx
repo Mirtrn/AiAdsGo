@@ -317,52 +317,15 @@ export default function Step4PublishSummary({
       // Step 1: Pause old campaigns if requested
       addPublishStep('preparing', '准备发布数据', 'success')
 
+      // ⚠️ 注意：旧广告系列暂停由 /api/campaigns/publish 在服务端基于“真实Google Ads状态”执行，
+      // 避免依赖本地DB状态导致误显示“已暂停0个广告系列”。
       if (pauseOldCampaigns) {
-        addPublishStep('pausing', '暂停已存在的广告系列...', 'running')
+        addPublishStep('pausing', '检测并暂停已激活的旧广告系列...', 'running')
         setPublishStatus({
           step: 'pausing',
-          message: '暂停已存在的广告系列...',
+          message: '检测并暂停已激活的旧广告系列...',
           success: false
         })
-
-        try {
-          const pauseResponse = await fetch(`/api/offers/${offer.id}/pause-campaigns`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            credentials: 'include'
-          })
-
-          const pauseData = await pauseResponse.json()
-
-          if (!pauseResponse.ok) {
-            console.warn('暂停旧广告系列失败:', pauseData.error)
-            addPublishStep('pausing', `暂停部分失败 (${pauseData.message || pauseData.error})`, 'failed')
-            setPublishStatus({
-              step: 'pausing',
-              message: `暂停旧广告系列部分失败 (${pauseData.message || pauseData.error})`,
-              success: false
-            })
-          } else {
-            addPublishStep('pausing', `已暂停 ${pauseData.pausedCount} 个广告系列`, 'success')
-            setPublishStatus({
-              step: 'pausing',
-              message: `已暂停 ${pauseData.pausedCount} 个广告系列`,
-              success: true
-            })
-          }
-        } catch (error: any) {
-          console.error('暂停旧广告系列错误:', error)
-          addPublishStep('pausing', '暂停失败，继续发布新广告', 'failed')
-          setPublishStatus({
-            step: 'pausing',
-            message: '暂停旧广告系列失败，但继续发布新广告',
-            success: false
-          })
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 500))
       }
 
       // Step 2: Create campaign structure
@@ -540,6 +503,24 @@ export default function Step4PublishSummary({
       // 不能立即认为成功，必须轮询campaign.creation_status直到synced或failed
       if (response.status === 202) {
         console.log('📦 任务已提交到后台队列，开始轮询状态...')
+
+        // 🔥 暂停旧广告系列结果（由后端返回）
+        if (pauseOldCampaigns) {
+          const pausedCount =
+            typeof data?.pausedOldCampaigns?.pausedCount === 'number'
+              ? data.pausedOldCampaigns.pausedCount
+              : (typeof data?.pausedOldCampaigns?.attemptedCount === 'number'
+                ? data.pausedOldCampaigns.attemptedCount
+                : undefined)
+
+          addPublishStep(
+            'pausing',
+            typeof pausedCount === 'number'
+              ? (pausedCount > 0 ? `已暂停 ${pausedCount} 个广告系列` : '未检测到需要暂停的广告系列')
+              : '旧广告系列暂停完成',
+            'success'
+          )
+        }
 
         // 🔥 新增(2025-12-19)：保存Launch Score评分结果
         if (data.launchScore) {
@@ -1191,7 +1172,7 @@ export default function Step4PublishSummary({
                     </div>
                     <div className="pt-4 border-t border-gray-200 w-full">
                       <div className="text-xs text-gray-500 text-center">
-                        已暂停 <span className="font-semibold text-gray-700">0</span> 个广告系列
+                        {pauseOldCampaigns ? '发布时将自动检测并暂停旧广告系列' : '旧广告系列将保持运行'}
                       </div>
                     </div>
                   </div>
@@ -1753,18 +1734,18 @@ export default function Step4PublishSummary({
                 <TableHeader>
                   <TableRow>
                     <TableHead>广告系列名称</TableHead>
-                    <TableHead>创意主题</TableHead>
+                    <TableHead>类型</TableHead>
                     <TableHead>预算</TableHead>
-                    <TableHead>创建时间</TableHead>
+                    <TableHead>Campaign ID</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {existingCampaigns.map((camp: any) => (
                     <TableRow key={camp.id}>
-                      <TableCell className="font-medium">{camp.campaignName}</TableCell>
-                      <TableCell>{camp.creativeTheme || '-'}</TableCell>
-                      <TableCell>{currencySymbol}{camp.budgetAmount}</TableCell>
-                      <TableCell>{new Date(camp.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell className="font-medium">{camp.name || '-'}</TableCell>
+                      <TableCell>{camp.type || '-'}</TableCell>
+                      <TableCell>{typeof camp.budget === 'number' ? `${currencySymbol}${camp.budget}` : '-'}</TableCell>
+                      <TableCell className="font-mono text-xs">{camp.id}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

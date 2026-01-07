@@ -275,6 +275,15 @@ export async function POST(request: NextRequest) {
       ...activeCampaignsResult.manualCampaigns
     ]
 
+    // 记录暂停结果（用于前端展示）
+    let pausedOldCampaignsSummary: {
+      attemptedCount: number
+      pausedCount: number
+      failedCount: number
+      ownCount: number
+      manualCount: number
+    } | undefined
+
     // ⚠️ 验证3：如果有需要暂停的广告系列且用户未确认，返回确认提示
     if (campaignsToPause.length > 0 && !_pauseOldCampaigns && !_forcePublish) {
       console.log(`⚠️ 需要用户确认: 是否暂停${campaignsToPause.length}个已激活的Campaign`)
@@ -283,12 +292,14 @@ export async function POST(request: NextRequest) {
       const ownCampaignsInfo = activeCampaignsResult.ownCampaigns.map(c => ({
         id: c.id,
         name: c.name,
+        budget: c.budget,
         type: '系统创建（属于当前Offer）'
       }))
 
       const manualCampaignsInfo = activeCampaignsResult.manualCampaigns.map(c => ({
         id: c.id,
         name: c.name,
+        budget: c.budget,
         type: '用户手动创建'
       }))
 
@@ -353,7 +364,14 @@ export async function POST(request: NextRequest) {
 
       // 批量暂停（串行执行，避免并发冲突）
       const { pauseCampaigns } = await import('@/lib/active-campaigns-query')
-      await pauseCampaigns(campaignsToPause, _googleAdsAccountId, userId)
+      const pauseResult = await pauseCampaigns(campaignsToPause, _googleAdsAccountId, userId)
+      pausedOldCampaignsSummary = {
+        attemptedCount: pauseResult.attemptedCount,
+        pausedCount: pauseResult.pausedCount,
+        failedCount: pauseResult.failedCount,
+        ownCount: activeCampaignsResult.ownCampaigns.length,
+        manualCount: activeCampaignsResult.manualCampaigns.length
+      }
 
       // 更新数据库中对应的campaign记录状态
       for (const campaign of campaignsToPause) {
@@ -867,6 +885,7 @@ export async function POST(request: NextRequest) {
         abTestId: abTestId,  // 🔧 修复(2025-12-11): ab_test_id → abTestId
         campaigns: publishResults,
         failed: failedCampaigns,
+        pausedOldCampaigns: pausedOldCampaignsSummary,
         summary: {
           total: createdCampaigns.length,
           successful: publishResults.length,
