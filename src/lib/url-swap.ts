@@ -138,9 +138,14 @@ export async function getUrlSwapTaskByOfferId(
 ): Promise<UrlSwapTask | null> {
   const db = await getDatabase()
 
+  const isDeletedCondition = db.type === 'postgres'
+    ? '(is_deleted = FALSE OR is_deleted IS NULL)'
+    : '(is_deleted = 0 OR is_deleted IS NULL)'
+
   const task = await db.queryOne<any>(`
     SELECT * FROM url_swap_tasks
-    WHERE offer_id = ? AND user_id = ?
+    WHERE offer_id = ? AND user_id = ? AND ${isDeletedCondition}
+    ORDER BY created_at DESC
   `, [offerId, userId])
 
   if (!task) return null
