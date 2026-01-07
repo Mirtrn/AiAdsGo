@@ -272,7 +272,12 @@ export async function executeAdCreativeGeneration(
       theme: bestCreative.theme,
       explanation: bestCreative.explanation,
       // 🔧 修复：使用isValidUrl验证final_url，避免"null/"字符串被当作有效URL
-      final_url: isValidUrl(offer.final_url) ? offer.final_url : offer.url,
+      // 确保 final_url 始终为 string 类型
+      final_url: (() => {
+        if (isValidUrl(offer.final_url)) return offer.final_url!
+        if (isValidUrl(offer.url)) return offer.url!
+        throw new Error('Offer缺少有效的URL（final_url和url均为无效值）')
+      })(),
       final_url_suffix: offer.final_url_suffix || undefined,
       score: bestEvaluation.finalScore,
       score_breakdown: {

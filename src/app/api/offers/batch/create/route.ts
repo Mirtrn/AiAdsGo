@@ -143,6 +143,14 @@ export async function POST(req: NextRequest) {
         continue // 跳过参数不全的行
       }
 
+      // 🔧 修复：检测无效的推广链接值（如 'null/', 'null' 等）
+      const normalizedAffiliateLink = affiliateLink.trim()
+      if (normalizedAffiliateLink === 'null' || normalizedAffiliateLink === 'null/' || normalizedAffiliateLink === 'undefined') {
+        skippedCount++
+        console.warn(`⚠️ 跳过第${i + 1}行：推广链接无效 (${normalizedAffiliateLink})`)
+        continue
+      }
+
       const row: any = {
         affiliate_link: affiliateLink,
         target_country: targetCountry,
