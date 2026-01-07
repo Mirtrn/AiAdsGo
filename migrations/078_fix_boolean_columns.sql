@@ -42,6 +42,11 @@ WHERE is_active IS NOT NULL AND is_active NOT IN (0, 1);
 -- ============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_is_deleted ON campaigns(is_deleted);
+
+-- 🛡️ 兼容：部分旧库/初始化schema可能缺少 campaigns.is_active
+-- SQLite 不支持 ADD COLUMN IF NOT EXISTS，这里直接尝试添加；若已存在由迁移执行器幂等跳过
+ALTER TABLE campaigns ADD COLUMN is_active INTEGER DEFAULT 1;
+
 CREATE INDEX IF NOT EXISTS idx_campaigns_is_active ON campaigns(is_active);
 
 -- 验证数据完整性

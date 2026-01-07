@@ -4,54 +4,16 @@
 -- Description:
 --   Google Ads API requires specifying match type for negative keywords (BROAD/PHRASE/EXACT).
 --   Previously, all negative keywords were hardcoded to BROAD match, causing unintended filtering.
---   This migration adds a JSONB field to track match type for each negative keyword.
+--   SQLite版本：使用 TEXT 存储 JSON（与现有 negative_keywords 字段一致）。
 --
 -- Example:
 --   negative_keywords = ["or", "free", "how to"]
---   negative_keywords_match_type = {
---     "or": "EXACT",
---     "free": "EXACT",
---     "how to": "PHRASE"
---   }
+--   negative_keywords_match_type = {"or":"EXACT","free":"EXACT","how to":"PHRASE"}
 
-BEGIN;
-
--- Add the new column
+-- Add the new column (SQLite: JSON stored as TEXT)
 ALTER TABLE ad_creatives
-ADD COLUMN negative_keywords_match_type JSONB DEFAULT '{}'::jsonb;
+ADD COLUMN negative_keywords_match_type TEXT DEFAULT '{}';
 
--- Initialize with default values for existing creatives
--- Strategy: Single-word negative keywords → EXACT, Multi-word phrases → PHRASE
--- Note: negative_keywords is stored as TEXT (JSON), not JSONB
-UPDATE ad_creatives
-SET negative_keywords_match_type = (
-  SELECT jsonb_object_agg(
-    kw,
-    CASE
-      WHEN kw ~ ' ' THEN 'PHRASE'  -- Contains space → PHRASE match
-      ELSE 'EXACT'                   -- Single word → EXACT match
-    END
-  )
-  FROM jsonb_array_elements_text(
-    CASE
-      WHEN negative_keywords IS NULL OR negative_keywords = '' THEN '[]'::jsonb
-      ELSE negative_keywords::jsonb
-    END
-  ) AS kw
-)
-WHERE negative_keywords IS NOT NULL
-  AND negative_keywords != ''
-  AND negative_keywords != 'null'
-  AND negative_keywords != '[]';
-
--- Add index for performance
-CREATE INDEX idx_ad_creatives_negative_keywords_match_type
-ON ad_creatives USING GIN (negative_keywords_match_type);
-
--- Add comment for documentation
-COMMENT ON COLUMN ad_creatives.negative_keywords_match_type IS
-'JSONB map of negative keywords to their match types (BROAD/PHRASE/EXACT).
-Example: {"or": "EXACT", "how to": "PHRASE"}.
-Prevents unintended filtering due to partial word matches.';
-
-COMMIT;
+-- Optional index (TEXT index for quick filtering/debug; SQLite 无 GIN)
+CREATE INDEX IF NOT EXISTS idx_ad_creatives_negative_keywords_match_type
+ON ad_creatives(negative_keywords_match_type);

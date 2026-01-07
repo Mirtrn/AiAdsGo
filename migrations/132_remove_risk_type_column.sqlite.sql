@@ -3,6 +3,18 @@
 -- Description: risk_type 和 alert_type 是重复字段，删除 risk_type 简化数据结构
 -- Note: SQLite 不支持直接删除列，使用重命名表的方式
 
+-- 🛡️ 防御：SQLite 在执行 DDL（DROP/ALTER）时会重新加载 schema，
+-- 若存在“损坏视图”（引用了不存在的列），会导致本迁移在早期步骤失败。
+-- 这里先删除相关视图，等表结构变更完成后再重建。
+DROP VIEW IF EXISTS v_offers_boolean_integrity;
+DROP VIEW IF EXISTS v_campaigns_boolean_integrity;
+DROP VIEW IF EXISTS v_google_ads_accounts_boolean_integrity;
+DROP VIEW IF EXISTS v_prompt_versions_boolean_integrity;
+DROP VIEW IF EXISTS v_system_settings_boolean_integrity;
+
+-- 防御：上次失败可能遗留临时表
+DROP TABLE IF EXISTS risk_alerts_new;
+
 -- Step 1: 创建新表（不含 risk_type）
 CREATE TABLE risk_alerts_new (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,12 +68,11 @@ CREATE INDEX IF NOT EXISTS idx_risk_alerts_type ON risk_alerts(alert_type, statu
 CREATE INDEX IF NOT EXISTS idx_risk_alerts_user_severity_status ON risk_alerts(user_id, severity, status);
 CREATE INDEX IF NOT EXISTS idx_risk_alerts_user_status ON risk_alerts(user_id, status);
 -- Step 6: 重建视图（SQLite 在表结构变更后需要重建依赖视图）
--- 删除旧视图（如果存在）
-DROP VIEW IF EXISTS v_offers_boolean_integrity;
-DROP VIEW IF EXISTS v_campaigns_boolean_integrity;
-DROP VIEW IF EXISTS v_google_ads_accounts_boolean_integrity;
-DROP VIEW IF EXISTS v_prompt_versions_boolean_integrity;
-DROP VIEW IF EXISTS v_system_settings_boolean_integrity;
+-- 🛡️ 兼容：campaigns 表可能被旧迁移重建后遗漏 is_active 列（例如 108），先补齐
+ALTER TABLE campaigns ADD COLUMN is_active INTEGER DEFAULT 1;
+UPDATE campaigns SET is_active = 1 WHERE is_active IS NULL;
+CREATE INDEX IF NOT EXISTS idx_campaigns_is_active ON campaigns(is_active);
+CREATE INDEX IF NOT EXISTS idx_offers_is_active ON offers(is_active);
 
 -- 重新创建视图（来自 078_fix_boolean_columns.sql）
 CREATE VIEW IF NOT EXISTS v_offers_boolean_integrity AS
