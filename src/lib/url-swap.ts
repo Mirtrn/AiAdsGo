@@ -348,9 +348,20 @@ export async function setTaskError(
   const shouldAutoPause = errorType === 'link_resolution' || errorType === 'google_ads_api'
 
   if (shouldAutoPause) {
+    const isOAuthInvalidGrant = errorType === 'google_ads_api' && (
+      errorMessage.includes('invalid_grant') ||
+      errorMessage.includes('Token has been expired') ||
+      errorMessage.includes('Token has been revoked') ||
+      errorMessage.includes('Token has been expired or revoked')
+    )
+
     // 构建错误类型描述
-    const errorTypeLabel = errorType === 'link_resolution' ? '推广链接解析失败' : 'Google Ads API调用失败'
-    const autoPauseThreshold = 3
+    const errorTypeLabel = errorType === 'link_resolution'
+      ? '推广链接解析失败'
+      : (isOAuthInvalidGrant ? 'Google OAuth 授权已过期或被撤销' : 'Google Ads API调用失败')
+
+    // invalid_grant 属于不可自愈错误，立即暂停避免无意义重试
+    const autoPauseThreshold = isOAuthInvalidGrant ? 1 : 3
 
     if (newConsecutiveFailures >= autoPauseThreshold) {
       // 连续3次失败后自动暂停
@@ -360,7 +371,10 @@ export async function setTaskError(
         `建议操作：\n` +
         `${errorType === 'link_resolution' ?
           `1. 检查推广链接是否有效\n2. 确认链接未过期或被撤销` :
-          `1. 检查Google Ads账号权限和配额\n2. 确认OAuth授权有效\n3. 检查服务账号配置（如使用）`
+          (isOAuthInvalidGrant
+            ? `1. 前往设置页面重新授权 Google Ads（OAuth）\n2. 或删除失效的OAuth配置并改用服务账号（如已配置）`
+            : `1. 检查Google Ads账号权限和配额\n2. 确认OAuth授权有效\n3. 检查服务账号配置（如使用）`
+          )
         }\n` +
         `4. 修复问题后，在任务详情页重新启用任务`
 
@@ -528,6 +542,47 @@ export async function getUrlSwapTaskStats(taskId: string, userId: number): Promi
     current_final_url: task.current_final_url || '',
     current_final_url_suffix: task.current_final_url_suffix || '',
     status: task.status
+  }
+}
+
+/**
+ * 获取当前用户的统计
+ */
+export async function getUrlSwapUserStats(userId: number): Promise<UrlSwapGlobalStats> {
+  const db = await getDatabase()
+
+  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+
+  const stats = await db.queryOne<any>(`
+    SELECT
+      COUNT(*) as total_tasks,
+      SUM(CASE WHEN status = 'enabled' THEN 1 ELSE 0 END) as active_tasks,
+      SUM(CASE WHEN status = 'disabled' THEN 1 ELSE 0 END) as disabled_tasks,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_tasks,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
+      COALESCE(SUM(total_swaps), 0) as total_swaps,
+      COALESCE(SUM(success_swaps), 0) as success_swaps,
+      COALESCE(SUM(failed_swaps), 0) as failed_swaps,
+      COALESCE(SUM(url_changed_count), 0) as url_changed_count
+    FROM url_swap_tasks
+    WHERE user_id = ? AND ${isDeletedCondition}
+  `, [userId])
+
+  const successRate = stats.total_swaps > 0
+    ? Math.round((stats.success_swaps / stats.total_swaps) * 100)
+    : 0
+
+  return {
+    total_tasks: stats.total_tasks || 0,
+    active_tasks: stats.active_tasks || 0,
+    disabled_tasks: stats.disabled_tasks || 0,
+    error_tasks: stats.error_tasks || 0,
+    completed_tasks: stats.completed_tasks || 0,
+    total_swaps: stats.total_swaps || 0,
+    success_swaps: stats.success_swaps || 0,
+    failed_swaps: stats.failed_swaps || 0,
+    url_changed_count: stats.url_changed_count || 0,
+    success_rate: successRate
   }
 }
 

@@ -7,6 +7,7 @@ import { getUrlSwapTaskById, updateUrlSwapTask, disableUrlSwapTask, enableUrlSwa
 import { getUrlSwapTaskStats } from '@/lib/url-swap';
 import { triggerUrlSwapScheduling } from '@/lib/url-swap-scheduler';
 import type { UpdateUrlSwapTaskRequest } from '@/lib/url-swap-types';
+import { getDatabase } from '@/lib/db';
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -38,6 +39,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const stats = await getUrlSwapTaskStats(id, parseInt(userId));
 
     return NextResponse.json({
+      success: true,
+      data: task, // 兼容前端（期望 data 为任务对象）
       task,
       stats
     });
@@ -100,6 +103,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({
       success: true,
+      data: task,
       task,
       message: '任务更新成功'
     });
@@ -139,11 +143,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // 软删除任务
     const db = await getDatabase();
     const now = new Date().toISOString();
+    const isDeletedValue = db.type === 'postgres' ? true : 1;
     await db.exec(`
       UPDATE url_swap_tasks
-      SET is_deleted = 1, deleted_at = ?, updated_at = ?
+      SET is_deleted = ?, deleted_at = ?, updated_at = ?
       WHERE id = ?
-    `, [now, now, id]);
+    `, [isDeletedValue, now, now, id]);
 
     console.log(`[url-swap] 删除任务成功: ${id}`);
 
@@ -160,7 +165,3 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     );
   }
 }
-
-declare function getDatabase(): Promise<{
-  exec(sql: string, params?: any[]): Promise<{ changes: number }>
-}>

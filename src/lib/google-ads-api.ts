@@ -353,6 +353,12 @@ export async function getCustomer(
       {
         maxRetries: 2,
         initialDelay: 500,
+        shouldRetry: (error) => {
+          const message = error?.message || String(error)
+          // invalid_grant / invalid_client 属于不可自愈错误，不需要重试
+          if (message.includes('invalid_grant') || message.includes('invalid_client')) return false
+          return true
+        },
         operationName: 'Refresh Google Ads Token'
       }
     )
@@ -2297,4 +2303,3 @@ export async function updateCampaignFinalUrlSuffix(params: {
 
 // 重新导出 enums 和 GoogleAdsApi 供其他模块使用，统一入口
 export { enums, GoogleAdsApi } from 'google-ads-api'
-

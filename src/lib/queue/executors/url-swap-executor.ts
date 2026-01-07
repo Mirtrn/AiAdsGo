@@ -41,6 +41,15 @@ function validateUrlDomainChange(oldUrl: string, newUrl: string): {
   }
 }
 
+function isOAuthInvalidGrantError(message: string): boolean {
+  return (
+    message.includes('invalid_grant') ||
+    message.includes('Token has been expired') ||
+    message.includes('Token has been revoked') ||
+    message.includes('Token has been expired or revoked')
+  )
+}
+
 /**
  * 导出任务数据类型（供index.ts使用）
  */
@@ -102,9 +111,10 @@ export async function executeUrlSwapTask(
 
         // 查询服务账号配置（如果使用服务账号模式）
         const db = await getDatabase()
+        const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
         const serviceAccount = await db.queryOne(`
           SELECT id FROM google_ads_service_accounts
-          WHERE user_id = ? AND is_active = true
+          WHERE user_id = ? AND ${isActiveCondition}
           ORDER BY created_at DESC LIMIT 1
         `, [task.userId]) as { id: string } | undefined
 
@@ -115,20 +125,40 @@ export async function executeUrlSwapTask(
         const refreshToken = credentials?.refresh_token || ''
 
         // 调用Google Ads API更新Final URL Suffix
-        await updateCampaignFinalUrlSuffix({
-          customerId: googleCustomerId,
-          refreshToken,
-          campaignId: googleCampaignId,
-          finalUrlSuffix: resolved.finalUrlSuffix,
-          userId: task.userId,
-          authType: auth.authType,
-          serviceAccountId: auth.serviceAccountId,
-        })
+        try {
+          await updateCampaignFinalUrlSuffix({
+            customerId: googleCustomerId,
+            refreshToken,
+            campaignId: googleCampaignId,
+            finalUrlSuffix: resolved.finalUrlSuffix,
+            userId: task.userId,
+            authType: auth.authType,
+            serviceAccountId: auth.serviceAccountId,
+          })
+        } catch (firstError: any) {
+          // OAuth refresh token 失效时，如果用户已配置服务账号，自动降级使用服务账号执行
+          const message = firstError?.message || String(firstError)
+          if (auth.authType === 'oauth' && isOAuthInvalidGrantError(message) && serviceAccount?.id) {
+            console.warn(`[url-swap-executor] OAuth refresh token无效，降级使用服务账号执行: ${serviceAccount.id}`)
+            await updateCampaignFinalUrlSuffix({
+              customerId: googleCustomerId,
+              refreshToken: '',
+              campaignId: googleCampaignId,
+              finalUrlSuffix: resolved.finalUrlSuffix,
+              userId: task.userId,
+              authType: 'service_account',
+              serviceAccountId: serviceAccount.id,
+            })
+          } else {
+            throw firstError
+          }
+        }
 
         console.log(`[url-swap-executor] Google Ads更新成功: ${taskId}`)
       } catch (adsError: any) {
         console.error(`[url-swap-executor] Google Ads更新失败: ${taskId}`, adsError.message)
-        adsApiError = new Error(`Google Ads API调用失败: ${adsError.message}`)
+        const message = adsError?.message || String(adsError)
+        adsApiError = message.includes('Google Ads') ? new Error(message) : new Error(`Google Ads API调用失败: ${message}`)
       }
 
       // 如果Ads API失败，抛出错误让外层catch处理
@@ -188,7 +218,15 @@ export async function executeUrlSwapTask(
       error.message.includes('API')
     ) {
       errorType = 'google_ads_api'
-      enhancedMessage = `Google Ads API调用失败: ${error.message}`
+      const message = error?.message || String(error)
+      if (isOAuthInvalidGrantError(message)) {
+        enhancedMessage =
+          `Google OAuth 授权已过期或被撤销（invalid_grant），无法更新 Google Ads。\n` +
+          `请前往设置页面重新授权，然后重新启用该任务。\n\n` +
+          `错误详情: ${message}`
+      } else {
+        enhancedMessage = message.startsWith('Google Ads') ? message : `Google Ads API调用失败: ${message}`
+      }
     }
 
     // 记录错误历史

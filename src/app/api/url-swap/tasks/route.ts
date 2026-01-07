@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       limit
     });
 
-    return NextResponse.json({
+    const payload = {
       tasks: result.tasks,
       pagination: {
         page,
@@ -42,7 +42,10 @@ export async function GET(request: NextRequest) {
         total: result.total,
         totalPages: Math.ceil(result.total / limit)
       }
-    });
+    }
+
+    // 兼容前端：既返回 data 包装，也保留原字段
+    return NextResponse.json({ ...payload, data: payload });
 
   } catch (error: any) {
     console.error('[url-swap] 获取任务列表失败:', error);
@@ -123,6 +126,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      data: task,
       task,
       message: '换链接任务创建成功'
     });
