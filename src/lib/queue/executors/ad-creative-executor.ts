@@ -26,6 +26,21 @@ import {
 } from '@/lib/offer-keyword-pool'
 
 /**
+ * 验证URL是否为有效的URL
+ * 排除 null, undefined, "null", "null/" 等无效值
+ */
+function isValidUrl(url: string | null | undefined): boolean {
+  if (!url) return false
+  if (url === 'null' || url === 'null/' || url === 'undefined') return false
+  try {
+    new URL(url)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * 广告创意生成任务数据接口
  */
 export interface AdCreativeTaskData {
@@ -256,7 +271,8 @@ export async function executeAdCreativeGeneration(
       sitelinks: bestCreative.sitelinks,
       theme: bestCreative.theme,
       explanation: bestCreative.explanation,
-      final_url: offer.final_url || offer.url,
+      // 🔧 修复：使用isValidUrl验证final_url，避免"null/"字符串被当作有效URL
+      final_url: isValidUrl(offer.final_url) ? offer.final_url : offer.url,
       final_url_suffix: offer.final_url_suffix || undefined,
       score: bestEvaluation.finalScore,
       score_breakdown: {

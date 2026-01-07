@@ -3949,7 +3949,12 @@ export async function generateAdCreative(
   // 需求优化：所有sitelinks统一使用offer的主URL，避免虚构的子路径
   if (result.sitelinks && result.sitelinks.length > 0) {
     // 优先使用final_url（推广链接解析后的真实URL），否则使用url
-    const offerUrl = (offer as { final_url?: string; url?: string }).final_url || (offer as { url?: string }).url
+    // 🔧 修复：验证final_url是否为有效URL，排除"null/"等无效值
+    const rawFinalUrl = (offer as { final_url?: string; url?: string }).final_url
+    const offerUrlRaw = (offer as { url?: string }).url
+    // 只有当final_url是有效的URL时才使用，否则fallback到url字段
+    const isFinalUrlValid = rawFinalUrl && rawFinalUrl !== 'null' && rawFinalUrl !== 'null/' && rawFinalUrl !== 'undefined'
+    const offerUrl = isFinalUrlValid ? rawFinalUrl : offerUrlRaw
     if (offerUrl) {
       result.sitelinks = result.sitelinks.map(link => {
         // 所有sitelinks统一使用offer的主URL（不拼接子路径）
