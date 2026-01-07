@@ -58,6 +58,11 @@ autoads.db
 # 注意：不要使用 backups/ 因为会忽略 src/app/(app)/admin/backups/ 页面
 *.db.bak
 
+# sqlite backup files created by rebuild scripts
+data/*.db.bak-*
+data/*.db-wal.bak-*
+data/*.db-shm.bak-*
+
 # database backups and dumps - 防止敏感数据泄露
 *.db.backup*
 *.sqlite.backup*
