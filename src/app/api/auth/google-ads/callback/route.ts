@@ -81,20 +81,44 @@ export async function GET(request: NextRequest) {
     // 计算token过期时间
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
 
-    // 检查账号是否已存在
-    const existingAccount = await findGoogleAdsAccountByCustomerId(customerId, parseInt(userId, 10))
+    // 🔧 修复(2026-01-07): 改进去重逻辑，避免多次OAuth回调创建重复账户
+    // 检查账号是否已存在（包括已删除的账户）
+    const { getDatabase } = await import('@/lib/db')
+    const db = await getDatabase()
+
+    const existingAccount = await db.queryOne(`
+      SELECT id, is_deleted FROM google_ads_accounts
+      WHERE user_id = ? AND customer_id = ?
+    `, [parseInt(userId, 10), customerId]) as { id: number; is_deleted: boolean } | undefined
 
     if (existingAccount) {
-      // 更新现有账号的tokens
+      // 账户已存在，更新tokens
       const { updateGoogleAdsAccount } = await import('@/lib/google-ads-accounts')
-      await updateGoogleAdsAccount(existingAccount.id, parseInt(userId, 10), {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        tokenExpiresAt: expiresAt,
-      })
+
+      // 如果是已删除的账户，恢复它
+      if (existingAccount.is_deleted) {
+        const isDeletedFalse = db.type === 'postgres' ? 'FALSE' : '0'
+        await db.exec(`
+          UPDATE google_ads_accounts
+          SET is_deleted = ${isDeletedFalse},
+              deleted_at = NULL,
+              access_token = ?,
+              refresh_token = ?,
+              token_expires_at = ?,
+              updated_at = ${db.type === 'postgres' ? 'NOW()' : "datetime('now')"}
+          WHERE id = ?
+        `, [tokens.access_token, tokens.refresh_token, expiresAt, existingAccount.id])
+      } else {
+        // 正常更新tokens
+        await updateGoogleAdsAccount(existingAccount.id, parseInt(userId, 10), {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          tokenExpiresAt: expiresAt,
+        })
+      }
     } else {
-      // 创建新账号
-      createGoogleAdsAccount({
+      // 账户不存在，创建新账号
+      await createGoogleAdsAccount({
         userId: parseInt(userId, 10),
         customerId,
         accessToken: tokens.access_token,
