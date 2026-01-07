@@ -127,7 +127,7 @@ const SETTING_METADATA: Record<string, {
   },
   'google_ads.developer_token': {
     label: 'Developer Token',
-    description: 'Google Ads API 开发者令牌，在 Google Ads 账户的 API 中心获取',
+    description: 'Google Ads API 开发者令牌。必须与 Client ID 在同一个 GCP Project 中申请，否则会报错',
     placeholder: '输入 Developer Token',
     helpLink: '/help/google-ads-setup?tab=oauth#oauth-developer-token'
   },
@@ -1308,6 +1308,30 @@ export default function SettingsPage() {
                           </p>
                         </div>
                       )}
+                    </div>
+
+                    {/* 重要提醒：Developer Token 与 OAuth 配置必须来自同一 GCP Project */}
+                    <div className="p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="font-semibold text-yellow-800 mb-2">重要：Developer Token 与 OAuth 必须来自同一 GCP Project</div>
+                          <div className="text-sm text-yellow-700 space-y-1">
+                            <p>• Developer Token 和 OAuth Client ID/Secret 必须在同一个 Google Cloud Project 中创建</p>
+                            <p>• 如果配置不匹配，将导致 "Developer token is not allowed with project" 错误</p>
+                            <p>• 建议先确认 Client ID 所属的 Project Number，然后在该 Project 中申请 Developer Token</p>
+                          </div>
+                          <a
+                            href="/help/google-ads-setup?tab=oauth#project-matching"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 mt-3 text-sm font-medium text-yellow-800 hover:text-yellow-900 underline"
+                          >
+                            查看详细配置指南
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      </div>
                     </div>
 
                     {/* 认证方式选择 */}

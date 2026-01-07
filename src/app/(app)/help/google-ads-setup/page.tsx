@@ -100,11 +100,17 @@ export default function GoogleAdsSetupGuidePage() {
 
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">2</div>
-                    <div>
-                      <h4 className="font-medium">创建 OAuth 客户端</h4>
+                    <div className="flex-1">
+                      <h4 className="font-medium" id="oauth-client-id">创建 OAuth 客户端</h4>
                       <p className="text-sm text-gray-600 mt-1">
                         进入<a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-blue-600 hover:underline">凭据</a>页面，点击"创建凭据"→"OAuth 2.0 客户端 ID"，选择"Web 应用"类型
                       </p>
+                      <Alert className="mt-3 bg-blue-50 border-blue-300">
+                        <HelpCircle className="h-4 w-4 text-blue-600" />
+                        <AlertDescription className="text-blue-800 text-sm">
+                          <strong>重要提示：</strong>记住当前 GCP Project 的项目编号（Project Number），后续申请 Developer Token 时必须在同一个 Project 中进行。您可以在 Cloud Console 的项目信息中查看项目编号。
+                        </AlertDescription>
+                      </Alert>
                     </div>
                   </div>
 
@@ -125,21 +131,40 @@ export default function GoogleAdsSetupGuidePage() {
 
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">4</div>
-                    <div>
+                    <div className="flex-1">
                       <h4 className="font-medium">获取 Client ID 和 Client Secret</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        创建完成后，点击客户端名称查看 <strong>客户端 ID</strong>和<strong>客户端密钥</strong>
-                      </p>
+                      <div className="text-sm text-gray-600 mt-1 space-y-2">
+                        <p>创建完成后，点击客户端名称查看 <strong>客户端 ID</strong>和<strong>客户端密钥</strong></p>
+                        <div className="p-3 bg-gray-50 border rounded-lg">
+                          <p className="font-medium text-gray-900 mb-1">Client ID 格式示例：</p>
+                          <code className="text-xs bg-white px-2 py-1 rounded border">449618981667-d39inm908a4lvqdlh6n2us7qnhek37pc.apps.googleusercontent.com</code>
+                          <p className="mt-2 text-xs text-gray-600">其中开头的数字 <code className="bg-white px-1 rounded border">449618981667</code> 就是 GCP Project Number</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">5</div>
-                    <div>
-                      <h4 className="font-medium">申请 Developer Token</h4>
+                    <div className="flex-1">
+                      <h4 className="font-medium" id="oauth-developer-token">申请 Developer Token</h4>
                       <p className="text-sm text-gray-600 mt-1">
                         访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token，OAuth 方式需要 <strong>基本访问权限</strong>（审核1-3个工作日）
                       </p>
+
+                      {/* 重要警告：Project 匹配 */}
+                      <Alert className="mt-3 bg-red-50 border-red-300" id="project-matching">
+                        <AlertCircle className="h-5 w-5 text-red-600" />
+                        <AlertDescription className="text-red-800">
+                          <div className="font-semibold mb-2">关键要求：Developer Token 必须与 OAuth Client ID 来自同一个 GCP Project</div>
+                          <ul className="text-sm space-y-1 ml-4 list-disc">
+                            <li>在申请 Developer Token 时，确保选择的 GCP Project 与步骤2创建 OAuth Client 的 Project 相同</li>
+                            <li>Client ID 格式为 <code className="bg-red-100 px-1 rounded">项目编号-xxx.apps.googleusercontent.com</code>，其中"项目编号"就是 Project Number</li>
+                            <li>如果配置不匹配，API 调用会报错：<code className="bg-red-100 px-1 rounded">Developer token is not allowed with project 'xxx'</code></li>
+                            <li><strong>解决方法</strong>：要么在 Client ID 所属的 Project 重新申请 Developer Token，要么在 Developer Token 所属的 Project 重新创建 OAuth Client</li>
+                          </ul>
+                        </AlertDescription>
+                      </Alert>
                     </div>
                   </div>
 
