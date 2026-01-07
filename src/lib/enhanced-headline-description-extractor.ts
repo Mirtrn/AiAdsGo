@@ -16,6 +16,64 @@
 import { generateContent } from './gemini'
 import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 
+/**
+ * 从AI响应中安全地提取JSON
+ * 处理AI返回非JSON文本的边缘情况
+ */
+function extractJsonFromAIResponse(response: string): any {
+  if (!response || typeof response !== 'string') {
+    console.warn('⚠️ AI响应为空或非字符串')
+    return null
+  }
+
+  let jsonText = response.trim()
+
+  // 1. 移除markdown代码块标记
+  jsonText = jsonText
+    .replace(/```json\s*/gi, '')
+    .replace(/```javascript\s*/gi, '')
+    .replace(/```\s*/gi, '')
+    .replace(/^json\s*/i, '')
+
+  // 2. 尝试直接解析
+  try {
+    return JSON.parse(jsonText)
+  } catch {
+    // 继续尝试其他方��
+  }
+
+  // 3. 尝试找到JSON对象或数组
+  const firstBrace = jsonText.indexOf('{')
+  const lastBrace = jsonText.lastIndexOf('}')
+  const firstBracket = jsonText.indexOf('[')
+  const lastBracket = jsonText.lastIndexOf(']')
+
+  // 优先尝试数组（headlines/descriptions通常是数组）
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    const possibleArray = jsonText.slice(firstBracket, lastBracket + 1)
+    try {
+      return JSON.parse(possibleArray)
+    } catch (e) {
+      console.warn(`⚠️ JSON数组解析失败: ${(e as Error).message}`)
+    }
+  }
+
+  // 尝试对象
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const possibleJson = jsonText.slice(firstBrace, lastBrace + 1)
+    try {
+      return JSON.parse(possibleJson)
+    } catch (e) {
+      console.warn(`⚠️ JSON对象解析失败: ${(e as Error).message}`)
+    }
+  }
+
+  // 4. 输出调试信息
+  console.warn(`❌ 无法从AI响应中提取JSON`)
+  console.warn(`前200字符: ${response.slice(0, 200)}`)
+  return null
+}
+
 export interface EnhancedHeadline {
   text: string
   type: 'brand' | 'feature' | 'promo' | 'cta' | 'urgency' | 'social_proof' | 'benefit'
@@ -360,18 +418,37 @@ async function generateHeadlinesWithAI(
 
       Requirements:
       - Each headline must be ≤30 characters
-      - Include different types: brand, feature, promo, CTA, urgency
+      - Include different types: brand, feature, promo, cta, urgency
       - Must be compelling and action-oriented
       - Avoid generic phrases
-
-      Return as JSON array with format: [{"text": "...", "type": "..."}]
-      IMPORTANT: Return ONLY the raw JSON array, no markdown code blocks.
     `
+
+    // 🔧 修复：使用responseSchema强制AI返回结构化JSON
+    const responseSchema = {
+      type: 'ARRAY' as const,
+      items: {
+        type: 'OBJECT' as const,
+        properties: {
+          text: {
+            type: 'STRING' as const,
+            description: 'The headline text (max 30 characters)'
+          },
+          type: {
+            type: 'STRING' as const,
+            description: 'Type of headline',
+            enum: ['brand', 'feature', 'promo', 'cta', 'urgency', 'social_proof', 'benefit']
+          }
+        },
+        required: ['text', 'type']
+      }
+    }
 
     // 智能模型选择：标题创意生成使用Pro模型（需要创造力）
     const aiResponse = await generateContent({
       operationType: 'headline_generation',
-      prompt
+      prompt,
+      responseSchema,  // 🆕 强制结构化输出
+      responseMimeType: 'application/json'  // 🆕 强制JSON格式
     }, userId)
 
     // 记录token使用
@@ -393,12 +470,13 @@ async function generateHeadlinesWithAI(
       })
     }
 
-    // 清理可能的markdown代码块
-    const cleanedResponse = aiResponse.text
-      .replace(/```json\s*/gi, '')
-      .replace(/```\s*/g, '')
-      .trim()
-    const headlines = JSON.parse(cleanedResponse)
+    // 🔧 修复：使用健壮的JSON提取逻辑（处理AI返回非JSON文本的情况）
+    const headlines = extractJsonFromAIResponse(aiResponse.text)
+
+    if (!headlines || !Array.isArray(headlines)) {
+      console.warn('⚠️ AI返回的不是数组格式，返回空数组')
+      return []
+    }
 
     return headlines.map((h: any) => ({
       text: h.text,
@@ -435,15 +513,34 @@ async function generateDescriptionsWithAI(
       - Include different types: value, action, feature, proof
       - Must include a clear call-to-action
       - Must be persuasive and benefit-focused
-
-      Return as JSON array with format: [{"text": "...", "type": "..."}]
-      IMPORTANT: Return ONLY the raw JSON array, no markdown code blocks.
     `
+
+    // 🔧 修复：使用responseSchema强制AI返回结构化JSON
+    const responseSchema = {
+      type: 'ARRAY' as const,
+      items: {
+        type: 'OBJECT' as const,
+        properties: {
+          text: {
+            type: 'STRING' as const,
+            description: 'The description text (max 90 characters)'
+          },
+          type: {
+            type: 'STRING' as const,
+            description: 'Type of description',
+            enum: ['value', 'action', 'feature', 'proof', 'urgency', 'benefit']
+          }
+        },
+        required: ['text', 'type']
+      }
+    }
 
     // 智能模型选择：描述创意生成使用Pro模型（需要创造力）
     const aiResponse = await generateContent({
       operationType: 'description_generation',
-      prompt
+      prompt,
+      responseSchema,  // 🆕 强制结构化输出
+      responseMimeType: 'application/json'  // 🆕 强制JSON格式
     }, userId)
 
     // 记录token使用
@@ -465,12 +562,13 @@ async function generateDescriptionsWithAI(
       })
     }
 
-    // 清理可能的markdown代码块
-    const cleanedResponse = aiResponse.text
-      .replace(/```json\s*/gi, '')
-      .replace(/```\s*/g, '')
-      .trim()
-    const descriptions = JSON.parse(cleanedResponse)
+    // 🔧 修复：使用健壮的JSON提取逻辑（处理AI返回非JSON文本的情况）
+    const descriptions = extractJsonFromAIResponse(aiResponse.text)
+
+    if (!descriptions || !Array.isArray(descriptions)) {
+      console.warn('⚠️ AI返回的不是数组格式，返回空数组')
+      return []
+    }
 
     return descriptions.map((d: any) => ({
       text: d.text,
