@@ -455,6 +455,8 @@ export default function SettingsPage() {
   const [googleAdsTestCredentialStatus, setGoogleAdsTestCredentialStatus] = useState<GoogleAdsTestCredentialStatus | null>(null)
   const [startingTestOAuth, setStartingTestOAuth] = useState(false)
   const [savingTestGoogleAdsConfig, setSavingTestGoogleAdsConfig] = useState(false)
+  const [clearingTestGoogleAdsCredentials, setClearingTestGoogleAdsCredentials] = useState(false)
+  const [clearTestGoogleAdsCredentialsConfirmOpen, setClearTestGoogleAdsCredentialsConfirmOpen] = useState(false)
   const [diagnosingTestMcc, setDiagnosingTestMcc] = useState(false)
   const [showTestMccSection, setShowTestMccSection] = useState(false)
   const [testProbeCustomerId, setTestProbeCustomerId] = useState('')
@@ -792,10 +794,9 @@ export default function SettingsPage() {
     }
   }
 
-  const handleClearGoogleAdsTestCredentials = async () => {
-    if (!confirm('确定要清除测试 OAuth 授权凭证吗？此操作不影响现有 OAuth 用户授权。')) return
-
+  const clearGoogleAdsTestCredentialsNow = async () => {
     try {
+      setClearingTestGoogleAdsCredentials(true)
       const response = await fetch('/api/google-ads/test-credentials', {
         method: 'DELETE',
         credentials: 'include',
@@ -807,6 +808,8 @@ export default function SettingsPage() {
       await fetchGoogleAdsTestCredentialStatus()
     } catch (err: any) {
       toast.error(err.message || '清除失败')
+    } finally {
+      setClearingTestGoogleAdsCredentials(false)
     }
   }
 
@@ -1564,6 +1567,32 @@ export default function SettingsPage() {
           </AlertDialogContent>
         </AlertDialog>
 
+        {/* 清除测试 OAuth 授权：弹窗确认 1 次（不影响真实 OAuth / 服务账号） */}
+        <AlertDialog open={clearTestGoogleAdsCredentialsConfirmOpen} onOpenChange={setClearTestGoogleAdsCredentialsConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>确认清除测试 OAuth 授权？</AlertDialogTitle>
+              <AlertDialogDescription>
+                仅会清除“测试权限 MCC 诊断”使用的测试 OAuth 授权凭证（测试 Refresh Token），不会删除测试配置项，也不会影响真实 OAuth 用户授权或服务账号配置。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={clearingTestGoogleAdsCredentials}>取消</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={clearingTestGoogleAdsCredentials}
+                onClick={async (e) => {
+                  e.preventDefault()
+                  await clearGoogleAdsTestCredentialsNow()
+                  setClearTestGoogleAdsCredentialsConfirmOpen(false)
+                }}
+              >
+                {clearingTestGoogleAdsCredentials ? '清除中...' : '确认清除'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <div className="mb-8">
           <h1 className="page-title">系统配置</h1>
           <p className="page-subtitle">管理 API 密钥、代理设置和系统偏好</p>
@@ -2010,9 +2039,10 @@ export default function SettingsPage() {
                             </Button>
 
                             <Button
-                              onClick={handleClearGoogleAdsTestCredentials}
+                              onClick={() => setClearTestGoogleAdsCredentialsConfirmOpen(true)}
                               variant="outline"
                               size="sm"
+                              disabled={!googleAdsTestCredentialStatus?.hasCredentials || clearingTestGoogleAdsCredentials}
                             >
                               清除测试授权
                             </Button>
