@@ -20,16 +20,30 @@ const nodeArch = process.arch
 const platform = process.platform
 
 let machineArch = null
+let hardwareArm64 = null
+let procTranslated = null
 try {
   machineArch = childProcess.execSync('uname -m', { encoding: 'utf8' }).trim()
 } catch {
   machineArch = null
+}
+try {
+  hardwareArm64 = childProcess.execSync('sysctl -n hw.optional.arm64', { encoding: 'utf8' }).trim()
+} catch {
+  hardwareArm64 = null
+}
+try {
+  procTranslated = childProcess.execSync('sysctl -n sysctl.proc_translated', { encoding: 'utf8' }).trim()
+} catch {
+  procTranslated = null
 }
 
 console.log('\n🔎 Runtime check')
 info('node', nodeVersion)
 info('arch', nodeArch)
 if (machineArch) info('machine_arch', machineArch)
+if (hardwareArm64) info('hw.optional.arm64', hardwareArm64)
+if (procTranslated) info('sysctl.proc_translated', procTranslated)
 info('node_abi', nodeAbi)
 info('execPath', process.execPath)
 
@@ -39,7 +53,7 @@ if (nodeMajor !== 22) {
   )
 }
 
-if (platform === 'darwin' && machineArch === 'arm64' && nodeArch === 'x64') {
+if (platform === 'darwin' && hardwareArm64 === '1' && nodeArch === 'x64') {
   fail(
     '检测到你在 Apple Silicon 上使用了 x86_64（Rosetta）Node，这会导致 better-sqlite3 等原生依赖架构不匹配。请用“非 Rosetta”的终端/Node（arm64）并重新安装依赖：`rm -rf node_modules .next && npm ci`。'
   )
@@ -56,8 +70,12 @@ try {
   console.error(err)
 
   if (platform === 'darwin' && /incompatible architecture/i.test(message)) {
+    const nodeBinDir = path.dirname(process.execPath)
     fail(
-      'better-sqlite3 架构不匹配（常见：之前用 x86_64 Node/npm 安装过依赖，现在切到 arm64 Node）。请确保当前终端是 arm64，然后执行：`rm -rf node_modules .next && npm ci`。'
+      `better-sqlite3 架构不匹配（常见：之前用 x86_64 Node/npm 安装过依赖，现在切到 arm64 Node）。\n` +
+      `建议用同一个 Node 重新安装依赖：\n` +
+      `  1) export PATH="${nodeBinDir}:$PATH"\n` +
+      `  2) rm -rf node_modules .next && npm ci`
     )
   }
 
