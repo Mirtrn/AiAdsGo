@@ -1,4 +1,5 @@
 import { getDatabase } from './db'
+import { boolCondition } from './db-helpers'
 
 /**
  * 获取用户的Google Ads授权方式
@@ -12,8 +13,9 @@ export async function getUserAuthType(userId: number): Promise<{
   const db = await getDatabase()
 
   // 检查OAuth配置
+  const isActiveCondition = boolCondition('is_active', true, db.type)
   const credentials = await db.queryOne(
-    `SELECT refresh_token FROM google_ads_credentials WHERE user_id = ?`,
+    `SELECT refresh_token FROM google_ads_credentials WHERE user_id = ? AND ${isActiveCondition}`,
     [userId]
   ) as { refresh_token: string | null } | undefined
 
@@ -22,10 +24,10 @@ export async function getUserAuthType(userId: number): Promise<{
   }
 
   // 检查服务账号配置
-  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  const serviceAccountIsActiveCondition = boolCondition('is_active', true, db.type)
   const serviceAccount = await db.queryOne(
     `SELECT id FROM google_ads_service_accounts
-     WHERE user_id = ? AND ${isActiveCondition}
+     WHERE user_id = ? AND ${serviceAccountIsActiveCondition}
      ORDER BY created_at DESC LIMIT 1`,
     [userId]
   ) as { id: string } | undefined

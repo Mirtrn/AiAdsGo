@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "bootstrap": "rm -rf node_modules .next && npm ci",
+    "predev": "node scripts/check-runtime.js",
     "dev": "next dev",
+    "dev:clean": "rm -rf .next && npm run dev",
     "build": "next build",
     "build:scheduler": "node build-scheduler.js",
     "start": "next start",
