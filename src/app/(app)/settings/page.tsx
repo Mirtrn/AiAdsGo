@@ -2044,7 +2044,7 @@ export default function SettingsPage() {
                               size="sm"
                               disabled={!googleAdsTestCredentialStatus?.hasCredentials || clearingTestGoogleAdsCredentials}
                             >
-                              清除测试授权
+                              清除测试 OAuth 授权
                             </Button>
                           </div>
 
