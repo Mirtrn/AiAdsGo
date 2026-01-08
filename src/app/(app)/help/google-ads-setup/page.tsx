@@ -89,6 +89,28 @@ export default function GoogleAdsSetupGuidePage() {
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-sm font-semibold">0</div>
+                    <div className="flex-1">
+                      <h4 className="font-medium">先跑一遍“测试权限”诊断（强烈建议）</h4>
+                      <p className="text-sm text-gray-600 mt-1">
+                        在向 Google 申请 MCC 的<strong>基本访问权限</strong>之前，建议先使用“测试权限/Test access”的 Token 完成一次真实调用，既能验证配置无误，也能触发测试调用记录，提高后续审批通过率。
+                      </p>
+                      <div className="text-sm text-gray-600 mt-2 space-y-2">
+                        <p>操作路径：<strong>/settings</strong> → <strong>Google Ads API</strong> → <strong>测试权限 MCC 诊断</strong></p>
+                        <ul className="ml-4 list-disc space-y-1">
+                          <li>填写并保存 4 个【测试】配置（测试 MCC ID / 测试 Client ID / 测试 Client Secret / 测试 Developer Token）</li>
+                          <li>点击“启动测试 OAuth 授权”，完成授权后回到设置页</li>
+                          <li>点击“运行诊断”（可选填写一个非测试账号 Customer ID 观察预期失败表现）</li>
+                        </ul>
+                        <p className="text-xs text-gray-500">
+                          提示：测试 OAuth 客户端的“已授权的重定向 URI”需包含
+                          <code className="bg-gray-100 px-2 py-0.5 rounded text-xs ml-1">https://www.autoads.dev/api/google-ads/test-oauth/callback</code>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">1</div>
                     <div>
                       <h4 className="font-medium">创建 GCP 项目并启用 API</h4>
@@ -182,7 +204,7 @@ export default function GoogleAdsSetupGuidePage() {
                 <Alert className="mt-4 bg-orange-50 border-orange-200">
                   <AlertCircle className="h-4 w-4 text-orange-500" />
                   <AlertDescription>
-                    OAuth 方式需要"基本访问权限"或更高级别的 Developer Token（测试权限不可用）
+                    OAuth 方式正式使用需要"基本访问权限"或更高级别的 Developer Token；测试权限仅用于上述“测试权限 MCC 诊断”
                   </AlertDescription>
                 </Alert>
               </CardContent>
