@@ -10,18 +10,9 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, Calendar, CheckCircle, XCircle, RefreshCw, Link as LinkIcon, ExternalLink } from 'lucide-react';
+import { Loader2, Calendar, CheckCircle, XCircle, RefreshCw, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
-
-interface SwapHistoryEntry {
-  timestamp: string;
-  action: 'check' | 'swap' | 'skip';
-  old_url?: string;
-  new_url?: string;
-  reason?: string;
-  success: boolean;
-  error_message?: string;
-}
+import type { SwapHistoryEntry } from '@/lib/url-swap-types';
 
 interface UrlSwapHistoryProps {
   open: boolean;
@@ -65,23 +56,24 @@ export default function UrlSwapHistory({
     }
   };
 
-  const formatDateTime = (dateValue: string): string => {
-    return new Date(dateValue).toLocaleString('zh-CN');
+  const formatDateTimeToMinute = (dateValue: string): string => {
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return '-';
+    const pad2 = (value: number) => String(value).padStart(2, '0');
+    const year = date.getFullYear();
+    const month = pad2(date.getMonth() + 1);
+    const day = pad2(date.getDate());
+    const hour = pad2(date.getHours());
+    const minute = pad2(date.getMinutes());
+    return `${year}-${month}-${day} ${hour}:${minute}`;
   };
 
-  const getActionBadge = (action: string) => {
-    const configs: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline'; className: string }> = {
-      check: { label: '检测', variant: 'secondary', className: 'bg-blue-100 text-blue-700' },
-      swap: { label: '换链', variant: 'default', className: 'bg-green-600' },
-      skip: { label: '跳过', variant: 'outline', className: '' },
-    };
-    const config = configs[action] || { label: action, variant: 'outline' as const, className: '' };
-
-    return (
-      <Badge variant={config.variant} className={config.className}>
-        {config.label}
-      </Badge>
-    );
+  const buildUrlWithSuffix = (finalUrl: string, suffix: string) => {
+    const trimmedFinalUrl = (finalUrl || '').trim();
+    const trimmedSuffix = (suffix || '').trim().replace(/^[?&]/, '');
+    if (!trimmedFinalUrl) return '';
+    if (!trimmedSuffix) return trimmedFinalUrl;
+    return `${trimmedFinalUrl}${trimmedFinalUrl.includes('?') ? '&' : '?'}${trimmedSuffix}`;
   };
 
   const getResultBadge = (success: boolean) => {
@@ -141,9 +133,9 @@ export default function UrlSwapHistory({
                 </div>
                 <div className="bg-blue-50 rounded-lg p-3 text-center">
                   <p className="text-2xl font-bold text-blue-600">
-                    {history.filter(h => h.action === 'swap').length}
+                    {history.length}
                   </p>
-                  <p className="text-xs text-blue-700">实际换链</p>
+                  <p className="text-xs text-blue-700">总执行</p>
                 </div>
               </div>
 
@@ -160,58 +152,63 @@ export default function UrlSwapHistory({
                   >
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-2">
-                        {getActionBadge(entry.action)}
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                          执行
+                        </Badge>
                         {getResultBadge(entry.success)}
                         <span className="text-xs text-muted-foreground">
-                          {formatDateTime(entry.timestamp)}
+                          {formatDateTimeToMinute(entry.swapped_at)}
                         </span>
                       </div>
                     </div>
 
                     {/* URL Changes */}
-                    {(entry.old_url || entry.new_url) && (
+                    {(entry.previous_final_url || entry.new_final_url) && (
                       <div className="grid grid-cols-2 gap-4 mb-3">
-                        {entry.old_url && (
+                        {entry.previous_final_url && (
                           <div className="bg-red-100/50 rounded p-2">
                             <p className="text-xs text-red-700 mb-1">原链接</p>
+                            {buildUrlWithSuffix(entry.previous_final_url, entry.previous_final_url_suffix) ? (
                             <a
-                              href={entry.old_url}
+                              href={buildUrlWithSuffix(entry.previous_final_url, entry.previous_final_url_suffix)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-xs text-red-800 hover:underline break-all"
                             >
-                              {entry.old_url.length > 60
-                                ? `${entry.old_url.substring(0, 60)}...`
-                                : entry.old_url}
+                              {buildUrlWithSuffix(entry.previous_final_url, entry.previous_final_url_suffix).length > 60
+                                ? `${buildUrlWithSuffix(entry.previous_final_url, entry.previous_final_url_suffix).substring(0, 60)}...`
+                                : buildUrlWithSuffix(entry.previous_final_url, entry.previous_final_url_suffix)}
                               <ExternalLink className="inline ml-1 h-3 w-3" />
                             </a>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">-</p>
+                            )}
                           </div>
                         )}
-                        {entry.new_url && (
+                        {entry.new_final_url && (
                           <div className="bg-green-100/50 rounded p-2">
                             <p className="text-xs text-green-700 mb-1">新链接</p>
+                            {buildUrlWithSuffix(entry.new_final_url, entry.new_final_url_suffix) ? (
                             <a
-                              href={entry.new_url}
+                              href={buildUrlWithSuffix(entry.new_final_url, entry.new_final_url_suffix)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-xs text-green-800 hover:underline break-all"
                             >
-                              {entry.new_url.length > 60
-                                ? `${entry.new_url.substring(0, 60)}...`
-                                : entry.new_url}
+                              {buildUrlWithSuffix(entry.new_final_url, entry.new_final_url_suffix).length > 60
+                                ? `${buildUrlWithSuffix(entry.new_final_url, entry.new_final_url_suffix).substring(0, 60)}...`
+                                : buildUrlWithSuffix(entry.new_final_url, entry.new_final_url_suffix)}
                               <ExternalLink className="inline ml-1 h-3 w-3" />
                             </a>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">-</p>
+                            )}
                           </div>
                         )}
                       </div>
                     )}
 
                     {/* Reason / Error Message */}
-                    {entry.reason && (
-                      <p className="text-xs text-muted-foreground mb-2">
-                        原因: {entry.reason}
-                      </p>
-                    )}
                     {entry.error_message && (
                       <p className="text-xs text-red-600">
                         错误: {entry.error_message}
