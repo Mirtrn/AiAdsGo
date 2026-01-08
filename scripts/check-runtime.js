@@ -76,7 +76,10 @@ try {
     const nodeBinDir = path.dirname(process.execPath)
     fail(
       `better-sqlite3 架构不匹配（常见：之前用 x86_64 Node/npm 安装过依赖，现在切到 arm64 Node）。\n` +
-      `建议用同一个 Node 重新安装依赖：\n` +
+      `建议用当前 Node 一键修复：\n` +
+      `  npm run bootstrap\n` +
+      `\n` +
+      `或手动修复（确保 npm 用的是同一个 Node）：\n` +
       `  1) export PATH="${nodeBinDir}:$PATH"\n` +
       `  2) rm -rf node_modules .next && npm ci`
     )
