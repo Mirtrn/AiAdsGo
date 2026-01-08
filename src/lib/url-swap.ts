@@ -348,6 +348,8 @@ export async function enableUrlSwapTask(id: string, userId: number): Promise<voi
  */
 export type UrlSwapErrorType = 'link_resolution' | 'google_ads_api' | 'other'
 
+const URL_SWAP_ERROR_THRESHOLD = 3
+
 /**
  * 设置任务错误状态
  *
@@ -356,9 +358,8 @@ export type UrlSwapErrorType = 'link_resolution' | 'google_ads_api' | 'other'
  * @param errorType 错误类型（用于区分不同类型的错误）
  *
  * 连续失败策略：
- * - 链接解析失败（link_resolution）：连续3个时间间隔失败后自动暂停（disabled）
- * - Google Ads API失败（google_ads_api）：连续3个时间间隔失败后自动暂停（disabled）
- * - 其他错误（other）：仅设置error状态，不自动暂停
+ * - 任意错误：连续3个“执行周期”失败后标记为 error
+ * - 单次失败：保持 enabled，等待下一个时间点继续执行
  */
 export async function setTaskError(
   id: string,
@@ -387,59 +388,34 @@ export async function setTaskError(
   // 2. 计算新的连续失败次数
   const newConsecutiveFailures = task.consecutive_failures + 1
 
-  // 3. 确定新状态和错误信息
-  let newStatus: UrlSwapTaskStatus = 'error'
-  let enhancedMessage = errorMessage
+  const errorTypeLabel = errorType === 'link_resolution'
+    ? '推广链接解析失败'
+    : (errorType === 'google_ads_api' ? 'Google Ads API调用失败' : '任务执行失败')
 
-  // 需要自动暂停的错误类型：链接解析失败、Google Ads API失败
-  const shouldAutoPause = errorType === 'link_resolution' || errorType === 'google_ads_api'
+  // 3. 确定新状态和错误信息（单次失败不进入 error，继续 enabled 等下次时间点）
+  const shouldMarkError = newConsecutiveFailures >= URL_SWAP_ERROR_THRESHOLD
+  const newStatus: UrlSwapTaskStatus = shouldMarkError ? 'error' : 'enabled'
 
-  if (shouldAutoPause) {
-    const isOAuthInvalidGrant = errorType === 'google_ads_api' && (
-      errorMessage.includes('invalid_grant') ||
-      errorMessage.includes('Token has been expired') ||
-      errorMessage.includes('Token has been revoked') ||
-      errorMessage.includes('Token has been expired or revoked')
-    )
+  const enhancedMessage = shouldMarkError
+    ? `🔴 ${errorTypeLabel}连续失败 ${newConsecutiveFailures} 次，任务已标记为错误状态。\n\n` +
+      `错误详情: ${errorMessage}\n\n` +
+      `建议操作：\n` +
+      `${errorType === 'link_resolution'
+        ? `1. 检查推广链接是否有效\n2. 检查代理可用性/Playwright资源是否足够`
+        : (errorType === 'google_ads_api'
+          ? `1. 检查Google Ads账号权限/配额\n2. 确认OAuth/服务账号配置有效`
+          : `1. 查看日志定位具体失败原因`
+        )
+      }\n` +
+      `2. 修复问题后在任务详情页重新启用任务`
+    : `⚠️ ${errorTypeLabel}（连续失败 ${newConsecutiveFailures}/${URL_SWAP_ERROR_THRESHOLD}）。\n\n` +
+      `错误详情: ${errorMessage}\n\n` +
+      `系统将在下一个执行时间点继续尝试。连续失败${URL_SWAP_ERROR_THRESHOLD}次后将标记为错误状态。`
 
-    // 构建错误类型描述
-    const errorTypeLabel = errorType === 'link_resolution'
-      ? '推广链接解析失败'
-      : (isOAuthInvalidGrant ? 'Google OAuth 授权已过期或被撤销' : 'Google Ads API调用失败')
-
-    // invalid_grant 属于不可自愈错误，立即暂停避免无意义重试
-    const autoPauseThreshold = isOAuthInvalidGrant ? 1 : 3
-
-    if (newConsecutiveFailures >= autoPauseThreshold) {
-      // 连续3次失败后自动暂停
-      newStatus = 'disabled'
-      enhancedMessage = `🔴 ${errorTypeLabel}连续失败 ${newConsecutiveFailures} 次，任务已自动暂停。\n\n` +
-        `错误详情: ${errorMessage}\n\n` +
-        `建议操作：\n` +
-        `${errorType === 'link_resolution' ?
-          `1. 检查推广链接是否有效\n2. 确认链接未过期或被撤销` :
-          (isOAuthInvalidGrant
-            ? `1. 前往设置页面重新授权 Google Ads（OAuth）\n2. 或删除失效的OAuth配置并改用服务账号（如已配置）`
-            : `1. 检查Google Ads账号权限和配额\n2. 确认OAuth授权有效\n3. 检查服务账号配置（如使用）`
-          )
-        }\n` +
-        `4. 修复问题后，在任务详情页重新启用任务`
-
-      console.warn(`[url-swap] ⚠️ 任务自动暂停（${errorType}连续失败${newConsecutiveFailures}次）: ${id}`)
-    } else {
-      // 尚未达到暂停阈值
-      newStatus = 'error'
-      enhancedMessage = `⚠️ ${errorTypeLabel}（连续失败 ${newConsecutiveFailures}/${autoPauseThreshold}）。\n\n` +
-        `错误详情: ${errorMessage}\n\n` +
-        `系统将在下个时间间隔继续尝试。连续失败${autoPauseThreshold}次后将自动暂停任务。`
-
-      console.warn(`[url-swap] ⚠️ ${errorType}失败 ${newConsecutiveFailures}/${autoPauseThreshold}: ${id}`)
-    }
+  if (shouldMarkError) {
+    console.warn(`[url-swap] ⚠️ 任务进入错误状态（连续失败${newConsecutiveFailures}次）: ${id}`)
   } else {
-    // 其他错误：仅设置error状态，不自动暂停
-    newStatus = 'error'
-    enhancedMessage = errorMessage
-    console.error(`[url-swap] 任务错误: ${id} - ${errorMessage}`)
+    console.warn(`[url-swap] ⚠️ 任务失败但保持启用（连续失败${newConsecutiveFailures}/${URL_SWAP_ERROR_THRESHOLD}）: ${id}`)
   }
 
   // 4. 更新数据库

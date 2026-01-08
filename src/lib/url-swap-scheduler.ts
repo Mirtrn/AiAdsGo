@@ -79,7 +79,7 @@ export async function triggerAllUrlSwapTasks(): Promise<{
 
       await queueManager.enqueue('url-swap', taskData, task.user_id, {
         priority: 'normal',
-        maxRetries: 3
+        maxRetries: 0 // 单次失败不立刻重试，等待下个时间点再执行
       })
 
       // 4. 更新下次执行时间
@@ -158,7 +158,7 @@ export async function triggerUrlSwapScheduling(taskId: string): Promise<TriggerR
 
   await queueManager.enqueue('url-swap', taskData, task.user_id, {
     priority: 'normal',
-    maxRetries: 3
+    maxRetries: 0 // 单次失败不立刻重试，等待下个时间点再执行
   })
 
   // 更新下次执行时间

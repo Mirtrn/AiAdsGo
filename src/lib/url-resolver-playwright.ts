@@ -123,7 +123,7 @@ async function getBrowserFromPool(proxyUrl?: string, targetCountry?: string): Pr
   }
 
   const pool = getPlaywrightPool()
-  const { browser, context, instanceId } = await pool.acquire(proxyUrl, proxyCredentials)
+  const { browser, context, instanceId } = await pool.acquire(proxyUrl, proxyCredentials, targetCountry)
 
   return { browser, context, instanceId, fromPool: true }
 }

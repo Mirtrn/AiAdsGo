@@ -77,7 +77,7 @@ export class UnifiedQueueManager {
         'ad-creative': 3,           // 创意生成任务并发限制（提高到3，允许多用户同时生成）
         'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
         'click-farm': 999,          // 🆕 补点击任务并发限制（设置为999，最大化并发）
-        'url-swap': 10              // 换链接任务并发限制
+        'url-swap': 3               // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
       },
       maxQueueSize: config.maxQueueSize || 1000,
       taskTimeout: config.taskTimeout || 900000,  // 15分钟超时（店铺深度抓取+竞品分析可能需要10-15分钟）
