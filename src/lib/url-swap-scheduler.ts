@@ -11,6 +11,7 @@ import { calculateNextSwapAt } from './url-swap-time'
 import { getPendingTasks, updateTaskStatus, setTaskError, getOfferById, getUrlSwapTaskById } from './url-swap'
 import { shouldCompleteTask } from './click-farm/scheduler'
 import { getProxyPool } from './url-resolver-enhanced'
+import { initializeProxyPool } from './offer-utils'
 import { getOrCreateQueueManager } from './queue/init-queue'
 import type { UrlSwapTaskData, TriggerResult } from './url-swap-types'
 
@@ -44,6 +45,15 @@ export async function triggerAllUrlSwapTasks(): Promise<{
       const offer = await getOfferById(task.offer_id)
       if (!offer) {
         await setTaskError(task.id, '关联的Offer已删除')
+        results.skipped++
+        continue
+      }
+
+      // 确保代理池已按该用户的设置加载（否则可能误报“缺少代理配置”）
+      try {
+        await initializeProxyPool(task.user_id, offer.target_country)
+      } catch (e: any) {
+        await setTaskError(task.id, e?.message || `缺少 ${offer.target_country} 国家的代理配置`)
         results.skipped++
         continue
       }
@@ -117,6 +127,14 @@ export async function triggerUrlSwapScheduling(taskId: string): Promise<TriggerR
   if (!offer) {
     await setTaskError(task.id, '关联的Offer已删除')
     return { taskId, status: 'error', message: 'Offer不存在' }
+  }
+
+  // 确保代理池已按该用户的设置加载（否则可能误报“缺少代理配置”）
+  try {
+    await initializeProxyPool(task.user_id, offer.target_country)
+  } catch (e: any) {
+    await setTaskError(task.id, e?.message || `缺少 ${offer.target_country} 国家的代理配置`)
+    return { taskId, status: 'error', message: '代理配置缺失' }
   }
 
   const proxyPool = getProxyPool()

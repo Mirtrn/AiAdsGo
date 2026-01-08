@@ -9,6 +9,7 @@
 
 import { getDatabase } from './db'
 import { getProxyPool } from './url-resolver-enhanced'
+import { initializeProxyPool } from './offer-utils'
 import type { UrlSwapValidationResult } from './url-swap-types'
 
 /**
@@ -22,6 +23,19 @@ export async function validateUrlSwapTask(offerId: number): Promise<UrlSwapValid
     return {
       valid: false,
       error: 'Offer不存在或已被删除'
+    }
+  }
+
+  // 代理池按用户配置加载（避免全局proxyPool未初始化导致误报）
+  // offer 表中包含 user_id，url-swap 任务属于该用户
+  if (offer.user_id) {
+    try {
+      await initializeProxyPool(offer.user_id, offer.target_country)
+    } catch (e: any) {
+      return {
+        valid: false,
+        error: e?.message || '未找到代理配置，请在设置页面配置代理URL'
+      }
     }
   }
 

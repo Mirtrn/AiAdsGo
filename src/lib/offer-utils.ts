@@ -189,7 +189,7 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
 
   // 🔥 2026-01-06: 使用配置签名检测变更，避免“更新后仍使用旧配置”
   const configSignature = proxyUrls
-    .map((p) => `${String(p.country).trim()}:${String(p.url).trim()}`)
+    .map((p) => `${String(p.country).trim().toUpperCase()}:${String(p.url).trim()}`)
     .join('|')
 
   // 检查是否已经初始化过，且是同一个用户且配置未变更
@@ -213,7 +213,7 @@ export async function initializeProxyPool(userId: number, targetCountry: string)
   // 代理池会自动将第一个代理作为兜底代理（如果需要）
   const proxiesWithDefault = proxyUrls.map((p: any) => ({
     url: p.url,
-    country: p.country,
+    country: String(p.country || '').trim().toUpperCase(),
     is_default: false, // 不自动设置兜底代理，让代理池自行管理
   }))
 

@@ -70,9 +70,10 @@ export class ProxyPoolManager {
     this.proxies.clear()
 
     for (const proxy of settingsProxies) {
+      const normalizedCountry = String(proxy.country || '').trim().toUpperCase()
       const config: ProxyConfig = {
         url: proxy.url,
-        country: proxy.country,
+        country: normalizedCountry,
         failureCount: 0,
         lastFailureTime: null,
         lastTemporaryFailureTime: null, // 🔥 初始化临时失败时间
@@ -99,11 +100,12 @@ export class ProxyPoolManager {
    * 优先级：目标国家健康代理 > 目标国家不健康代理 > 其他国家健康代理 > 第一个代理（默认）
    */
   getBestProxyForCountry(targetCountry: string): ProxyConfig | null {
+    const normalizedTargetCountry = String(targetCountry || '').trim().toUpperCase()
     const allProxies = Array.from(this.proxies.values())
 
     // 1. 优先使用目标国家的健康代理
     const countryProxies = allProxies
-      .filter(p => p.country === targetCountry && p.isHealthy)
+      .filter(p => p.country === normalizedTargetCountry && p.isHealthy)
       .sort((a, b) => a.failureCount - b.failureCount || a.avgResponseTime - b.avgResponseTime)
 
     if (countryProxies.length > 0) {
@@ -112,11 +114,11 @@ export class ProxyPoolManager {
 
     // 2. 尝试使用目标国家的不健康代理（失败次数较少的）
     const unhealthyCountryProxies = allProxies
-      .filter(p => p.country === targetCountry && !p.isHealthy)
+      .filter(p => p.country === normalizedTargetCountry && !p.isHealthy)
       .sort((a, b) => a.failureCount - b.failureCount)
 
     if (unhealthyCountryProxies.length > 0 && unhealthyCountryProxies[0].failureCount < 10) {
-      console.log(`⚠️ [Proxy] ${targetCountry}代理不健康，尝试使用 (failures:${unhealthyCountryProxies[0].failureCount})`)
+      console.log(`⚠️ [Proxy] ${normalizedTargetCountry}代理不健康，尝试使用 (failures:${unhealthyCountryProxies[0].failureCount})`)
       return unhealthyCountryProxies[0]
     }
 
@@ -126,7 +128,7 @@ export class ProxyPoolManager {
       .sort((a, b) => a.failureCount - b.failureCount || a.avgResponseTime - b.avgResponseTime)
 
     if (healthyProxies.length > 0) {
-      console.log(`⚠️ [Proxy] ${targetCountry}不可用，降级使用${healthyProxies[0].country}`)
+      console.log(`⚠️ [Proxy] ${normalizedTargetCountry}不可用，降级使用${healthyProxies[0].country}`)
       return healthyProxies[0]
     }
 
@@ -145,8 +147,9 @@ export class ProxyPoolManager {
    * @returns 如果目标国家有代理返回 true，否则返回 false
    */
   hasProxyForCountry(targetCountry: string): boolean {
+    const normalizedTargetCountry = String(targetCountry || '').trim().toUpperCase()
     const allProxies = Array.from(this.proxies.values())
-    return allProxies.some(p => p.country === targetCountry)
+    return allProxies.some(p => p.country === normalizedTargetCountry)
   }
 
   /**
@@ -154,13 +157,14 @@ export class ProxyPoolManager {
    * @returns 代理信息，包括是否匹配目标国家
    */
   getProxyInfo(targetCountry: string): { proxy: ProxyConfig | null; isTargetCountryMatch: boolean; usedCountry: string | null } {
-    const proxy = this.getBestProxyForCountry(targetCountry)
+    const normalizedTargetCountry = String(targetCountry || '').trim().toUpperCase()
+    const proxy = this.getBestProxyForCountry(normalizedTargetCountry)
     if (!proxy) {
       return { proxy: null, isTargetCountryMatch: false, usedCountry: null }
     }
     return {
       proxy,
-      isTargetCountryMatch: proxy.country === targetCountry,
+      isTargetCountryMatch: proxy.country === normalizedTargetCountry,
       usedCountry: proxy.country,
     }
   }

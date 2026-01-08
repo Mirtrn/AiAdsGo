@@ -16,6 +16,7 @@ import type { UrlSwapTaskData } from '@/lib/url-swap-types'
 import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { updateCampaignFinalUrlSuffix } from '@/lib/google-ads-api'
+import { initializeProxyPool } from '@/lib/offer-utils'
 
 /**
  * URL域名验证
@@ -66,6 +67,9 @@ export async function executeUrlSwapTask(
   console.log(`[url-swap-executor] 开始执行任务: ${taskId}, offer: ${offerId}`)
 
   try {
+    // 确保代理池已按该用户的设置加载（executor 运行在队列进程中，不能假设已初始化）
+    await initializeProxyPool(task.userId, targetCountry)
+
     // 1. 解析推广链接（禁用缓存，确保获取最新URL）
     console.log(`[url-swap-executor] 解析推广链接: ${affiliateLink}`)
     const resolved = await resolveAffiliateLink(affiliateLink, {
