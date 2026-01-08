@@ -1754,6 +1754,7 @@ export default function SettingsPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          className="flex-shrink-0 whitespace-nowrap min-w-20"
                           onClick={() => setShowTestMccSection(!showTestMccSection)}
                         >
                           {showTestMccSection ? (
