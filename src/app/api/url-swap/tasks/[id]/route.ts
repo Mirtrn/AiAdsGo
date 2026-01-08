@@ -3,9 +3,7 @@
 // DELETE /api/url-swap/tasks/[id] - 删除任务
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getUrlSwapTaskById, updateUrlSwapTask, disableUrlSwapTask, enableUrlSwapTask } from '@/lib/url-swap';
-import { getUrlSwapTaskStats } from '@/lib/url-swap';
-import { triggerUrlSwapScheduling } from '@/lib/url-swap-scheduler';
+import { getUrlSwapTaskById, getUrlSwapTaskStats, updateUrlSwapTask } from '@/lib/url-swap';
 import type { UpdateUrlSwapTaskRequest } from '@/lib/url-swap-types';
 import { getDatabase } from '@/lib/db';
 
@@ -92,6 +90,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     } catch (parseError: any) {
       return NextResponse.json(
         { error: 'validation_error', message: 'JSON格式错误: ' + parseError.message },
+        { status: 400 }
+      );
+    }
+
+    // 防御：前端会带 offer_id，但不允许更换任务关联的Offer
+    const offerIdFromBody = (body as any)?.offer_id
+    if (offerIdFromBody !== undefined && offerIdFromBody !== existingTask.offer_id) {
+      return NextResponse.json(
+        { error: 'validation_error', message: '不允许修改任务关联的Offer' },
         { status: 400 }
       );
     }

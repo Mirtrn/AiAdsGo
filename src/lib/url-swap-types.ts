@@ -120,6 +120,8 @@ export interface CreateUrlSwapTaskRequest {
   offer_id: number;
   swap_interval_minutes?: number;  // 可选，默认60
   duration_days?: number;          // 可选，默认7
+  google_customer_id?: string | null;
+  google_campaign_id?: string | null;
 }
 
 /**
@@ -128,6 +130,8 @@ export interface CreateUrlSwapTaskRequest {
 export interface UpdateUrlSwapTaskRequest {
   swap_interval_minutes?: number;
   duration_days?: number;
+  google_customer_id?: string | null;
+  google_campaign_id?: string | null;
 }
 
 /**

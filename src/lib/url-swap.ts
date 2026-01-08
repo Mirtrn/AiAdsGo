@@ -30,8 +30,8 @@ export async function createUrlSwapTask(
   const now = new Date().toISOString()
 
   // 1. 验证任务配置
-  const intervalMinutes = input.swap_interval_minutes || 60
-  const durationDays = input.duration_days || 7
+  const intervalMinutes = input.swap_interval_minutes ?? 60
+  const durationDays = input.duration_days ?? 7
   const configValidation = validateTaskConfig(intervalMinutes, durationDays)
   if (!configValidation.valid) {
     throw new Error(configValidation.error)
@@ -57,6 +57,8 @@ export async function createUrlSwapTask(
 
   // 5. 获取关联的Campaign
   const campaign = await getCampaignByOfferId(input.offer_id, userId)
+  const googleCustomerId = input.google_customer_id ?? campaign?.customer_id ?? null
+  const googleCampaignId = input.google_campaign_id ?? campaign?.campaign_id ?? null
 
   // 6. 生成任务ID
   const taskId = crypto.randomUUID().toLowerCase()
@@ -83,8 +85,8 @@ export async function createUrlSwapTask(
     intervalMinutes,
     true,  // enabled
     durationDays,
-    campaign?.customer_id || null,
-    campaign?.campaign_id || null,
+    googleCustomerId,
+    googleCampaignId,
     resolved.finalUrl,
     resolved.finalUrlSuffix,
     0, 0, 0, 0, 0,
@@ -219,10 +221,22 @@ export async function updateUrlSwapTask(
   const db = await getDatabase()
   const now = new Date().toISOString()
 
-  // 验证更新字段
+  const existingTask = await getUrlSwapTaskById(id, userId)
+  if (!existingTask) {
+    throw new Error('任务不存在')
+  }
+
+  const normalizedGoogleCustomerId = updates.google_customer_id === ''
+    ? null
+    : updates.google_customer_id
+  const normalizedGoogleCampaignId = updates.google_campaign_id === ''
+    ? null
+    : updates.google_campaign_id
+
+  // 验证更新字段（用“更新后”的配置进行验证，避免仅更新单字段时误用默认值）
   if (updates.swap_interval_minutes !== undefined || updates.duration_days !== undefined) {
-    const interval = updates.swap_interval_minutes || 60
-    const duration = updates.duration_days || 7
+    const interval = updates.swap_interval_minutes ?? existingTask.swap_interval_minutes
+    const duration = updates.duration_days ?? existingTask.duration_days
     const validation = validateTaskConfig(interval, duration)
     if (!validation.valid) {
       throw new Error(validation.error)
@@ -242,8 +256,36 @@ export async function updateUrlSwapTask(
     values.push(updates.duration_days)
   }
 
+  if (updates.google_customer_id !== undefined) {
+    fields.push('google_customer_id = ?')
+    values.push(normalizedGoogleCustomerId)
+  }
+
+  if (updates.google_campaign_id !== undefined) {
+    fields.push('google_campaign_id = ?')
+    values.push(normalizedGoogleCampaignId)
+  }
+
+  // 从 error 状态编辑更新，视为用户已干预：清理错误并恢复为 enabled
+  // （disabled/completed 不自动恢复，仍需用户显式启用）
+  const intervalAfterUpdate = updates.swap_interval_minutes ?? existingTask.swap_interval_minutes
+  if (existingTask.status === 'error') {
+    fields.push('status = ?')
+    values.push('enabled')
+    fields.push('consecutive_failures = ?')
+    values.push(0)
+    fields.push('error_message = NULL')
+    fields.push('error_at = NULL')
+    fields.push('next_swap_at = ?')
+    values.push(calculateNextSwapAt(intervalAfterUpdate).toISOString())
+  } else if (existingTask.status === 'enabled' && updates.swap_interval_minutes !== undefined) {
+    // 已启用任务修改间隔：重新计算下一次执行时间，立即生效
+    fields.push('next_swap_at = ?')
+    values.push(calculateNextSwapAt(intervalAfterUpdate).toISOString())
+  }
+
   if (fields.length === 0) {
-    return (await getUrlSwapTaskById(id, userId))!
+    return existingTask
   }
 
   fields.push('updated_at = ?')
