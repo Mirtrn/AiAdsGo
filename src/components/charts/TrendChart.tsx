@@ -68,6 +68,15 @@ export function TrendChart({
   hideTimeRangeSelector = false,
   dualYAxis = false,
 }: TrendChartProps) {
+  const toNumberSafe = (value: unknown): number => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+    if (typeof value === 'string') {
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+    return 0
+  }
+
   // Loading state
   if (loading) {
     return (
@@ -143,7 +152,7 @@ export function TrendChart({
         const leftMaxValues = leftMetrics.map(m =>
           Math.max(...data.map(d => {
             const val = d[m.key];
-            return typeof val === 'number' ? val : 0;
+            return toNumberSafe(val);
           }))
         );
         const leftMax = Math.max(...leftMaxValues);
@@ -171,7 +180,7 @@ export function TrendChart({
         const rightMaxValues = rightMetrics.map(m =>
           Math.max(...data.map(d => {
             const val = d[m.key];
-            return typeof val === 'number' ? val : 0;
+            return toNumberSafe(val);
           }))
         );
         const rightMax = Math.max(...rightMaxValues);
@@ -197,7 +206,7 @@ export function TrendChart({
       const allMaxValues = metrics.map(m =>
         Math.max(...data.map(d => {
           const val = d[m.key];
-          return typeof val === 'number' ? val : 0;
+          return toNumberSafe(val);
         }))
       );
       const maxValue = Math.max(...allMaxValues);
@@ -219,6 +228,13 @@ export function TrendChart({
       }
     }
   }
+
+  const isBar = chartType === 'bar'
+  const barSize = !isBar ? undefined : data.length > 60 ? 4 : data.length > 30 ? 6 : data.length > 14 ? 10 : 14
+  const enableHorizontalScroll = isBar && data.length > 20
+  const minChartWidth = enableHorizontalScroll
+    ? Math.max(640, data.length * (12 + (barSize ?? 10) * metrics.length))
+    : undefined
 
   return (
     <Card className={className}>
@@ -276,28 +292,33 @@ export function TrendChart({
             </div>
           </div>
         ) : (
-          <ChartContainer config={chartConfig} className="aspect-auto w-full" style={{ height: `${height}px` }}>
-            {chartType === 'line' ? (
-              <LineChart data={data} margin={{ top: 5, right: dualYAxis ? 60 : 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis
-                  dataKey="date"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  tickFormatter={(value) => {
-                    // 解析日期，处理 "YYYY-MM-DD" 格式
-                    let date: Date
-                    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-                      // 手动解析 "YYYY-MM-DD" 格式，避免时区问题
-                      const [year, month, day] = value.split('-').map(Number)
-                      date = new Date(year, month - 1, day)
-                    } else {
-                      date = new Date(value)
-                    }
-                    return `${date.getMonth() + 1}/${date.getDate()}`
-                  }}
-                />
+          <div className={enableHorizontalScroll ? 'w-full overflow-x-auto' : undefined}>
+            <ChartContainer
+              config={chartConfig}
+              className="aspect-auto w-full"
+              style={{ height: `${height}px`, minWidth: minChartWidth ? `${minChartWidth}px` : undefined }}
+            >
+              {chartType === 'line' ? (
+                <LineChart data={data} margin={{ top: 5, right: dualYAxis ? 60 : 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis
+                    dataKey="date"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    tickFormatter={(value) => {
+                      // 解析日期，处理 "YYYY-MM-DD" 格式
+                      let date: Date
+                      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+                        // 手动解析 "YYYY-MM-DD" 格式，避免时区问题
+                        const [year, month, day] = value.split('-').map(Number)
+                        date = new Date(year, month - 1, day)
+                      } else {
+                        date = new Date(value)
+                      }
+                      return `${date.getMonth() + 1}/${date.getDate()}`
+                    }}
+                  />
                 {/* 左侧Y轴 */}
                 <YAxis
                   yAxisId="left"
@@ -384,7 +405,12 @@ export function TrendChart({
                 ))}
               </LineChart>
             ) : (
-              <BarChart data={data} margin={{ top: 5, right: dualYAxis ? 60 : 30, left: 20, bottom: 5 }}>
+              <BarChart
+                data={data}
+                margin={{ top: 5, right: dualYAxis ? 60 : 30, left: 20, bottom: 5 }}
+                barGap={2}
+                barCategoryGap={enableHorizontalScroll ? 8 : '20%'}
+              >
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
                   dataKey="date"
@@ -483,11 +509,13 @@ export function TrendChart({
                     name={metric.label}
                     yAxisId={dualYAxis ? (metric.yAxisId || 'left') : 'left'}
                     radius={[4, 4, 0, 0]}
+                    barSize={barSize}
                   />
                 ))}
               </BarChart>
             )}
-          </ChartContainer>
+            </ChartContainer>
+          </div>
         )}
       </CardContent>
     </Card>

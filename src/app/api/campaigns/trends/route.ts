@@ -54,10 +54,10 @@ export async function GET(request: NextRequest) {
 
     // 4. 格式化数据（正确计算加权CTR/转化率/CPC/CPA）
     const formattedTrends = trends.map((row) => {
-      const impressions = row.impressions || 0
-      const clicks = row.clicks || 0
-      const conversions = row.conversions || 0
-      const cost = row.cost || 0
+      const impressions = Number(row.impressions) || 0
+      const clicks = Number(row.clicks) || 0
+      const conversions = Number(row.conversions) || 0
+      const cost = Number(row.cost) || 0
 
       return {
         date: row.date,

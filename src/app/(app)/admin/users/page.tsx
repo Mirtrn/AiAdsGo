@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, AlertTriangle, ShieldAlert } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Wand2, XCircle, CheckCircle, Search, Key, Copy, Check, History, Unlock, AlertTriangle, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -77,12 +77,18 @@ interface LoginRecord {
 export default function UserManagementPage() {
     const [users, setUsers] = useState<User[]>([])
     const [loading, setLoading] = useState(true)
+    const skipNextPageFetchRef = useRef(false)
     const [pagination, setPagination] = useState<Pagination>({
         total: 0,
         page: 1,
         limit: 10,
         totalPages: 0
     })
+
+    type SortField = 'id' | 'username' | 'role' | 'packageType' | 'packageExpiresAt' | 'createdAt' | 'lastLoginAt' | 'status'
+    type SortDirection = 'asc' | 'desc'
+    const [sortField, setSortField] = useState<SortField>('createdAt')
+    const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
     // Filters
     const [searchQuery, setSearchQuery] = useState('')
@@ -207,14 +213,41 @@ export default function UserManagementPage() {
 
     useEffect(() => {
         const timer = setTimeout(() => {
+            skipNextPageFetchRef.current = true
             fetchUsers(1)
         }, 300)
         return () => clearTimeout(timer)
-    }, [searchQuery, roleFilter, statusFilter, packageFilter])
+    }, [searchQuery, roleFilter, statusFilter, packageFilter, sortField, sortDirection])
 
     useEffect(() => {
+        if (skipNextPageFetchRef.current) {
+            skipNextPageFetchRef.current = false
+            return
+        }
         fetchUsers(pagination.page)
     }, [pagination.page])
+
+    const handleSort = (field: SortField) => {
+        const defaultDirection: SortDirection =
+            field === 'createdAt' || field === 'lastLoginAt' || field === 'id' ? 'desc' : 'asc'
+
+        if (sortField === field) {
+            setSortDirection((prevDir) => (prevDir === 'asc' ? 'desc' : 'asc'))
+            return
+        }
+
+        setSortField(field)
+        setSortDirection(defaultDirection)
+    }
+
+    const renderSortIcon = (field: SortField) => {
+        if (sortField !== field) {
+            return <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />
+        }
+        return sortDirection === 'asc'
+            ? <ArrowUp className="w-3.5 h-3.5" />
+            : <ArrowDown className="w-3.5 h-3.5" />
+    }
 
     const fetchUsers = async (page: number = 1, limit?: number) => {
         try {
@@ -225,7 +258,9 @@ export default function UserManagementPage() {
                 search: searchQuery,
                 role: roleFilter,
                 status: statusFilter,
-                package: packageFilter
+                package: packageFilter,
+                sortBy: sortField,
+                sortOrder: sortDirection
             })
 
             const res = await fetch(`/api/admin/users?${params}`)
@@ -621,14 +656,103 @@ export default function UserManagementPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-[80px]">用户ID</TableHead>
-                                    <TableHead>用户</TableHead>
-                                    <TableHead>角色</TableHead>
-                                    <TableHead>套餐</TableHead>
-                                    <TableHead>有效期</TableHead>
-                                    <TableHead>创建时间</TableHead>
-                                    <TableHead>上次登录</TableHead>
-                                    <TableHead>状态</TableHead>
+                                    <TableHead
+                                        className="w-[80px]"
+                                        aria-sort={sortField === 'id' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort('id')}
+                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                        >
+                                            用户ID
+                                            {renderSortIcon('id')}
+                                        </button>
+                                    </TableHead>
+                                    <TableHead
+                                        aria-sort={sortField === 'username' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort('username')}
+                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                        >
+                                            用户
+                                            {renderSortIcon('username')}
+                                        </button>
+                                    </TableHead>
+                                    <TableHead
+                                        aria-sort={sortField === 'role' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort('role')}
+                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                        >
+                                            角色
+                                            {renderSortIcon('role')}
+                                        </button>
+                                    </TableHead>
+                                    <TableHead
+                                        aria-sort={sortField === 'packageType' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort('packageType')}
+                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                        >
+                                            套餐
+                                            {renderSortIcon('packageType')}
+                                        </button>
+                                    </TableHead>
+                                    <TableHead
+                                        aria-sort={sortField === 'packageExpiresAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort('packageExpiresAt')}
+                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                        >
+                                            有效期
+                                            {renderSortIcon('packageExpiresAt')}
+                                        </button>
+                                    </TableHead>
+                                    <TableHead
+                                        aria-sort={sortField === 'createdAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort('createdAt')}
+                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                        >
+                                            创建时间
+                                            {renderSortIcon('createdAt')}
+                                        </button>
+                                    </TableHead>
+                                    <TableHead
+                                        aria-sort={sortField === 'lastLoginAt' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort('lastLoginAt')}
+                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                        >
+                                            上次登录
+                                            {renderSortIcon('lastLoginAt')}
+                                        </button>
+                                    </TableHead>
+                                    <TableHead
+                                        aria-sort={sortField === 'status' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSort('status')}
+                                            className="flex items-center gap-1 hover:text-foreground select-none"
+                                        >
+                                            状态
+                                            {renderSortIcon('status')}
+                                        </button>
+                                    </TableHead>
                                     <TableHead className="text-center">操作</TableHead>
                                 </TableRow>
                             </TableHeader>

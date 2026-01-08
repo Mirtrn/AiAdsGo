@@ -53,6 +53,10 @@ export async function GET(request: NextRequest) {
 
   const db = getDatabase()
 
+  const sortBy = (searchParams.get('sortBy') || 'createdAt') as string
+  const sortOrderRaw = (searchParams.get('sortOrder') || 'desc').toLowerCase()
+  const sortOrder = sortOrderRaw === 'asc' ? 'ASC' : 'DESC'
+
   let query = `
       SELECT
         id,
@@ -110,8 +114,44 @@ export async function GET(request: NextRequest) {
     params.push(packageType)
   }
 
-  // Pagination
-  query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : `datetime('now')`
+  const orderByWithNullsLast = (column: string) => `(${column} IS NULL) ASC, ${column} ${sortOrder}`
+
+  const orderBy = (() => {
+    switch (sortBy) {
+      case 'id':
+        return `id ${sortOrder}`
+      case 'username':
+        return `username ${sortOrder}`
+      case 'role':
+        return `role ${sortOrder}`
+      case 'packageType':
+        return `package_type ${sortOrder}`
+      case 'packageExpiresAt':
+        return orderByWithNullsLast('package_expires_at')
+      case 'createdAt':
+        return `created_at ${sortOrder}`
+      case 'lastLoginAt':
+        return orderByWithNullsLast('last_login_at')
+      case 'status': {
+        // 0: disabled, 1: locked, 2: normal
+        const isActiveFalse = db.type === 'postgres' ? 'FALSE' : '0'
+        const statusRank = `
+          CASE
+            WHEN is_active = ${isActiveFalse} THEN 0
+            WHEN locked_until IS NOT NULL AND locked_until > ${nowFunc} THEN 1
+            ELSE 2
+          END
+        `
+        return `${statusRank} ${sortOrder}, created_at DESC`
+      }
+      default:
+        return `created_at DESC`
+    }
+  })()
+
+  // Pagination + sorting (ORDER BY validated above)
+  query += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`
 
   // Get total count
   const total = await db.queryOne(countQuery, [...params]) as { count: number }
