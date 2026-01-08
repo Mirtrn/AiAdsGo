@@ -276,6 +276,24 @@ const ERROR_SOLUTIONS: Record<string, { title: string; description: string; acti
     action: 'settings',
     actionLabel: '查看配置'
   },
+  'UPSTREAM_ERROR': {
+    title: '上游服务暂不可用',
+    description: 'AI 上游服务当前不稳定或暂不可用，请稍后再试；若频繁出现，可更换时间段重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
+  '上游服务暂不可用': {
+    title: '上游服务暂不可用',
+    description: 'AI 上游服务当前不稳定或暂不可用，请稍后再试；若频繁出现，可更换时间段重试。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
+  'Gemini API调用失败': {
+    title: 'AI 服务调用失败',
+    description: 'AI 服务调用失败，请稍后重试；如果持续失败，可能是服务商临时故障或网络波动。',
+    action: 'retry',
+    actionLabel: '重新尝试'
+  },
   'Gemini': {
     title: 'AI服务配置问题',
     description: 'Gemini API 配置异常或配额不足。请检查 API Key 是否有效。',
@@ -819,7 +837,12 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                   setGeneratedBuckets([...generatedBuckets, newCreative.keywordBucket])
                 }
               } else if (data.type === 'error') {
-                throw new Error(data.error)
+                const message =
+                  (typeof data.error === 'string' && data.error) ||
+                  (typeof data.message === 'string' && data.message) ||
+                  (typeof data?.data?.message === 'string' && data.data.message) ||
+                  '任务失败'
+                throw new Error(message)
               }
             } catch (parseError: any) {
               // 🔧 修复(2025-12-27): SSE超时错误需要重新抛出，让外层catch处理

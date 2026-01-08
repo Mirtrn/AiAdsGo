@@ -76,11 +76,8 @@ export async function GET(
             if (!rows || rows.length === 0) {
               sendSSE({
                 type: 'error',
-                data: {
-                  message: 'Task not found',
-                  stage: 'error',
-                  details: {}
-                }
+                error: 'Task not found',
+                details: {}
               })
               clearInterval(pollInterval)
               controller.close()
