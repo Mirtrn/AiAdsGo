@@ -411,7 +411,16 @@ async function fetchIdentityVerificationSnapshot(params: {
       return extractIdentityVerificationSnapshot(resp)
     }
 
-    if (!params.customer?.identityVerifications?.getIdentityVerification) {
+    const identityVerificationService =
+      params.customer?.identityVerifications ||
+      params.customer?.identityVerification ||
+      params.customer?.identity_verifications ||
+      params.customer?.identity_verification ||
+      null
+
+    const getIdentityVerificationFn = identityVerificationService?.getIdentityVerification
+
+    if (typeof getIdentityVerificationFn !== 'function') {
       return {
         programStatus: null,
         verificationStartDeadlineTime: null,
@@ -420,7 +429,7 @@ async function fetchIdentityVerificationSnapshot(params: {
       }
     }
 
-    const resp = await params.customer.identityVerifications.getIdentityVerification({
+    const resp = await getIdentityVerificationFn.call(identityVerificationService, {
       customer_id: params.customerId,
     })
 
@@ -853,11 +862,34 @@ async function syncAccountsFromAPI(
 
                 const isChildManager = child.customer_client?.manager || false
 
+                // OAuth模式：必须在子账户 customer 上下文内查询身份验证信息
+                // 否则可能会误用MCC customer上下文，导致身份验证状态为空，从而被错误标记为“可投放”
+                let childCustomer: any | null = null
+                if (!isServiceAccount && !isChildManager) {
+                  try {
+                    childCustomer = await getCustomer(
+                      childId,
+                      credentials.refresh_token,
+                      credentials.login_customer_id,
+                      {
+                        client_id: clientId,
+                        client_secret: clientSecret,
+                        developer_token: developerToken,
+                      },
+                      userId,
+                      undefined,
+                      'oauth'
+                    )
+                  } catch {
+                    childCustomer = null
+                  }
+                }
+
                 const identityVerification = (!isChildManager && parsedChildStatus === 'ENABLED')
                   ? await fetchIdentityVerificationSnapshot({
                     userId,
                     customerId: childId,
-                    customer: isServiceAccount ? undefined : customer,
+                    customer: isServiceAccount ? undefined : (childCustomer ?? customer),
                     authType: isServiceAccount ? 'service_account' : 'oauth',
                     serviceAccountConfig,
                   })
@@ -900,20 +932,9 @@ async function syncAccountsFromAPI(
                       })
                       childBudgetInfo = result.results || []
                     } else {
-                      const childCustomer = await getCustomer(
-                        childId,
-                        credentials.refresh_token,
-                        credentials.login_customer_id,
-                        {
-                          client_id: clientId,
-                          client_secret: clientSecret,
-                          developer_token: developerToken,
-                        },
-                        userId,
-                        undefined,
-                        'oauth'
-                      )
-                      childBudgetInfo = extractSearchResults(await childCustomer.query(childBudgetQuery))
+                      childBudgetInfo = childCustomer
+                        ? extractSearchResults(await childCustomer.query(childBudgetQuery))
+                        : []
                     }
 
                     if (childBudgetInfo && childBudgetInfo.length > 0) {
