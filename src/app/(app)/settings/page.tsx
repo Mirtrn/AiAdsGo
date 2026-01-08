@@ -9,6 +9,16 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import { Info, ExternalLink, Shield, Zap, Globe, Settings as SettingsIcon, Plus, Trash2, Key, RefreshCw, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, BookOpen, Star } from 'lucide-react'
 import { getCountryOptionsForUI } from '@/lib/language-country-codes'
@@ -461,6 +471,11 @@ export default function SettingsPage() {
   const [loadingServiceAccounts, setLoadingServiceAccounts] = useState(false)
   const [deletingServiceAccountId, setDeletingServiceAccountId] = useState<string | null>(null)
   const [deletingOAuthConfig, setDeletingOAuthConfig] = useState(false)
+  const [deleteConfirmState, setDeleteConfirmState] = useState<
+    | { kind: 'oauth'; step: 1 | 2 }
+    | { kind: 'service_account'; step: 1 | 2; serviceAccountId: string }
+    | null
+  >(null)
   const [permissionError, setPermissionError] = useState<any | null>(null)
 
   /**
@@ -1225,9 +1240,7 @@ export default function SettingsPage() {
     }
   }
 
-  const handleDeleteServiceAccount = async (id: string) => {
-    if (!confirm('确定要删除此服务账号配置吗？')) return
-
+  const deleteServiceAccountNow = async (id: string) => {
     setDeletingServiceAccountId(id)
     try {
       const response = await fetch(`/api/google-ads/service-account?id=${id}`, {
@@ -1258,14 +1271,7 @@ export default function SettingsPage() {
     })
   }
 
-  const handleDeleteOAuthConfig = async () => {
-    const confirmed = confirm(
-      '确定要删除 OAuth 配置吗？\n\n' +
-      '此操作会清除：Client ID / Client Secret / Developer Token / Login Customer ID，以及已授权的 Refresh Token。\n' +
-      '删除后需要重新填写并重新授权才能使用 OAuth 模式。'
-    )
-    if (!confirmed) return
-
+  const deleteOAuthConfigNow = async () => {
     setDeletingOAuthConfig(true)
     try {
       const response = await fetch('/api/google-ads/credentials', {
@@ -1284,6 +1290,11 @@ export default function SettingsPage() {
       setDeletingOAuthConfig(false)
     }
   }
+
+  const requestDeleteOAuthConfig = () => setDeleteConfirmState({ kind: 'oauth', step: 1 })
+
+  const requestDeleteServiceAccount = (serviceAccountId: string) =>
+    setDeleteConfirmState({ kind: 'service_account', step: 1, serviceAccountId })
 
   const getValidationIcon = (status?: string | null): string => {
     switch (status) {
@@ -1462,6 +1473,132 @@ export default function SettingsPage() {
   return (
     <div className="p-8">
       <div className="max-w-4xl mx-auto">
+        {/* 删除操作：二次弹窗确认（OAuth / 服务账号） */}
+        <AlertDialog
+          open={deleteConfirmState?.kind === 'oauth' && deleteConfirmState.step === 1}
+          onOpenChange={(open) => {
+            if (!open) setDeleteConfirmState(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>确认删除 OAuth 配置？</AlertDialogTitle>
+              <AlertDialogDescription>
+                将清除 OAuth 基础配置（Client ID / Secret / Developer Token / Login Customer ID）以及 Refresh Token。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>取消</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => setDeleteConfirmState({ kind: 'oauth', step: 2 })}
+              >
+                继续
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={deleteConfirmState?.kind === 'oauth' && deleteConfirmState.step === 2}
+          onOpenChange={(open) => {
+            if (!open) setDeleteConfirmState(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>最后确认：此操作不可恢复</AlertDialogTitle>
+              <AlertDialogDescription>
+                删除后需要重新填写并重新授权才能使用 OAuth 模式。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deletingOAuthConfig}>取消</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deletingOAuthConfig}
+                onClick={async () => {
+                  await deleteOAuthConfigNow()
+                  setDeleteConfirmState(null)
+                }}
+              >
+                {deletingOAuthConfig ? '删除中...' : '确认删除'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={deleteConfirmState?.kind === 'service_account' && deleteConfirmState.step === 1}
+          onOpenChange={(open) => {
+            if (!open) setDeleteConfirmState(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>确认删除服务账号配置？</AlertDialogTitle>
+              <AlertDialogDescription>
+                将删除当前服务账号配置（包含私钥等敏感信息）。删除后需要重新上传服务账号 JSON 才能继续使用服务账号模式。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>取消</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (deleteConfirmState?.kind !== 'service_account') return
+                  setDeleteConfirmState({ ...deleteConfirmState, step: 2 })
+                }}
+              >
+                继续
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={deleteConfirmState?.kind === 'service_account' && deleteConfirmState.step === 2}
+          onOpenChange={(open) => {
+            if (!open) setDeleteConfirmState(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>最后确认：此操作不可恢复</AlertDialogTitle>
+              <AlertDialogDescription>
+                删除后若仍需投放，请重新配置服务账号认证。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={
+                  deleteConfirmState?.kind === 'service_account' &&
+                  deletingServiceAccountId === deleteConfirmState.serviceAccountId
+                }
+              >
+                取消
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={
+                  deleteConfirmState?.kind === 'service_account' &&
+                  deletingServiceAccountId === deleteConfirmState.serviceAccountId
+                }
+                onClick={async () => {
+                  if (deleteConfirmState?.kind !== 'service_account') return
+                  await deleteServiceAccountNow(deleteConfirmState.serviceAccountId)
+                  setDeleteConfirmState(null)
+                }}
+              >
+                {deleteConfirmState?.kind === 'service_account' &&
+                deletingServiceAccountId === deleteConfirmState.serviceAccountId
+                  ? '删除中...'
+                  : '确认删除'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <div className="mb-8">
           <h1 className="page-title">系统配置</h1>
           <p className="page-subtitle">管理 API 密钥、代理设置和系统偏好</p>
@@ -1571,7 +1708,7 @@ export default function SettingsPage() {
                         <Button
                           type="button"
                           variant="destructive"
-                          onClick={handleDeleteOAuthConfig}
+                          onClick={requestDeleteOAuthConfig}
                           disabled={deletingOAuthConfig}
                         >
                           {deletingOAuthConfig ? '删除中...' : '删除 OAuth 配置'}
@@ -1585,7 +1722,7 @@ export default function SettingsPage() {
                               toast.error('未检测到服务账号配置')
                               return
                             }
-                            handleDeleteServiceAccount(id)
+                            requestDeleteServiceAccount(id)
                           }}
                           disabled={!googleAdsCredentialStatus?.serviceAccountId || deletingServiceAccountId === googleAdsCredentialStatus?.serviceAccountId}
                         >
@@ -1808,7 +1945,7 @@ export default function SettingsPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => handleDeleteServiceAccount(account.id)}
+                                  onClick={() => requestDeleteServiceAccount(account.id)}
                                   disabled={deletingServiceAccountId === account.id}
                                   className="text-red-600 hover:text-red-700"
                                 >
