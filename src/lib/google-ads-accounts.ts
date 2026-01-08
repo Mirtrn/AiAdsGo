@@ -13,6 +13,11 @@ export interface GoogleAdsAccount {
   status: string | null
   testAccount: boolean
   parentMccId: string | null
+  identityVerificationProgramStatus?: string | null
+  identityVerificationStartDeadlineTime?: string | null
+  identityVerificationCompletionDeadlineTime?: string | null
+  identityVerificationOverdue?: boolean
+  identityVerificationCheckedAt?: string | null
   accessToken: string | null
   refreshToken: string | null
   tokenExpiresAt: string | null
@@ -151,6 +156,9 @@ export async function findEnabledGoogleAdsAccounts(userId: number): Promise<Goog
   // 使用SQL条件而非参数绑定，避免类型不匹配
   const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
   const isManagerCondition = db.type === 'postgres' ? 'is_manager_account = false' : 'is_manager_account = 0'
+  const identityVerificationOkCondition = db.type === 'postgres'
+    ? '(identity_verification_overdue IS NULL OR identity_verification_overdue = false)'
+    : '(identity_verification_overdue IS NULL OR identity_verification_overdue = 0)'
   const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
 
   const rows = await db.query(`
@@ -159,6 +167,7 @@ export async function findEnabledGoogleAdsAccounts(userId: number): Promise<Goog
       AND ${isActiveCondition}
       AND status = 'ENABLED'
       AND ${isManagerCondition}
+      AND ${identityVerificationOkCondition}
       AND ${isDeletedCheck}
     ORDER BY created_at DESC
   `, [userId]) as any[]
@@ -337,6 +346,11 @@ function mapRowToGoogleAdsAccount(row: any): GoogleAdsAccount {
     status: row.status || null,
     testAccount: toBool(row.test_account),
     parentMccId: row.parent_mcc_id || null,
+    identityVerificationProgramStatus: row.identity_verification_program_status ?? null,
+    identityVerificationStartDeadlineTime: row.identity_verification_start_deadline_time ?? null,
+    identityVerificationCompletionDeadlineTime: row.identity_verification_completion_deadline_time ?? null,
+    identityVerificationOverdue: toBool(row.identity_verification_overdue),
+    identityVerificationCheckedAt: row.identity_verification_checked_at ?? null,
     accessToken: row.access_token,
     refreshToken: row.refresh_token,
     tokenExpiresAt: row.token_expires_at,

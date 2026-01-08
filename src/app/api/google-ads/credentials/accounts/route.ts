@@ -20,18 +20,16 @@ const CustomerStatusMap: Record<number | string, string> = {
   0: 'UNSPECIFIED',
   1: 'UNKNOWN',
   2: 'ENABLED',
-  3: 'DISABLED',   // 账号已禁用
-  4: 'REMOVED',    // 账号已删除
+  3: 'CANCELED',
+  4: 'SUSPENDED',
+  5: 'CLOSED',
   'UNSPECIFIED': 'UNSPECIFIED',
   'UNKNOWN': 'UNKNOWN',
   'ENABLED': 'ENABLED',
-  'DISABLED': 'DISABLED',
-  'REMOVED': 'REMOVED',
-  // 兼容旧的错误映射
-  'CANCELED': 'DISABLED',
-  'CANCELLED': 'DISABLED',
-  'SUSPENDED': 'DISABLED',
-  'CLOSED': 'REMOVED',
+  'CANCELED': 'CANCELED',
+  'CANCELLED': 'CANCELED', // 兼容英式拼写
+  'SUSPENDED': 'SUSPENDED',
+  'CLOSED': 'CLOSED',
 }
 
 function parseStatus(status: any): string {
@@ -72,12 +70,17 @@ interface CachedAccount {
   account_name: string | null
   currency: string
   timezone: string
-  is_manager_account: number
-  is_active: number
+  is_manager_account: any
+  is_active: any
   status: string | null
-  test_account: number
+  test_account: any
   account_balance: number | null
   parent_mcc_id: string | null
+  identity_verification_program_status: string | null
+  identity_verification_start_deadline_time: string | null
+  identity_verification_completion_deadline_time: string | null
+  identity_verification_overdue: any
+  identity_verification_checked_at: string | null
   last_sync_at: string | null
 }
 
@@ -109,7 +112,13 @@ async function getCachedAccounts(userId: number): Promise<CachedAccount[]> {
   return await db.query(`
     SELECT id, customer_id, account_name, currency, timezone,
            is_manager_account, is_active, status, test_account,
-           account_balance, parent_mcc_id, last_sync_at
+           account_balance, parent_mcc_id,
+           identity_verification_program_status,
+           identity_verification_start_deadline_time,
+           identity_verification_completion_deadline_time,
+           identity_verification_overdue,
+           identity_verification_checked_at,
+           last_sync_at
     FROM google_ads_accounts
     WHERE user_id = ?
     ORDER BY is_manager_account DESC, account_name ASC
@@ -130,6 +139,11 @@ async function upsertAccount(userId: number, account: {
   status: string
   account_balance?: number | null
   parent_mcc?: string
+  identity_verification_program_status?: string | null
+  identity_verification_start_deadline_time?: string | null
+  identity_verification_completion_deadline_time?: string | null
+  identity_verification_overdue?: boolean
+  identity_verification_checked_at?: string | null
 }): Promise<{ id: number; last_sync_at: string }> {
   const db = await getDatabase()
 
@@ -151,6 +165,11 @@ async function upsertAccount(userId: number, account: {
           status = ?,
           account_balance = ?,
           parent_mcc_id = ?,
+          identity_verification_program_status = ?,
+          identity_verification_start_deadline_time = ?,
+          identity_verification_completion_deadline_time = ?,
+          identity_verification_overdue = ?,
+          identity_verification_checked_at = ?,
           last_sync_at = datetime('now'),
           updated_at = datetime('now')
       WHERE id = ?
@@ -158,11 +177,16 @@ async function upsertAccount(userId: number, account: {
       account.descriptive_name,
       account.currency_code,
       account.time_zone,
-      account.manager ? 1 : 0,
-      account.test_account ? 1 : 0,
+      account.manager,
+      account.test_account,
       account.status,
       account.account_balance ?? null,
       account.parent_mcc || null,
+      account.identity_verification_program_status ?? null,
+      account.identity_verification_start_deadline_time ?? null,
+      account.identity_verification_completion_deadline_time ?? null,
+      Boolean(account.identity_verification_overdue),
+      account.identity_verification_checked_at ?? null,
       existing.id
     ])
     return { id: existing.id, last_sync_at: new Date().toISOString() }
@@ -171,19 +195,30 @@ async function upsertAccount(userId: number, account: {
     const result = await db.exec(`
       INSERT INTO google_ads_accounts (
         user_id, customer_id, account_name, currency, timezone,
-        is_manager_account, test_account, status, account_balance, parent_mcc_id, last_sync_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        is_manager_account, test_account, status, account_balance, parent_mcc_id,
+        identity_verification_program_status,
+        identity_verification_start_deadline_time,
+        identity_verification_completion_deadline_time,
+        identity_verification_overdue,
+        identity_verification_checked_at,
+        last_sync_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `, [
       userId,
       account.customer_id,
       account.descriptive_name,
       account.currency_code,
       account.time_zone,
-      account.manager ? 1 : 0,
-      account.test_account ? 1 : 0,
+      account.manager,
+      account.test_account,
       account.status,
       account.account_balance ?? null,
-      account.parent_mcc || null
+      account.parent_mcc || null,
+      account.identity_verification_program_status ?? null,
+      account.identity_verification_start_deadline_time ?? null,
+      account.identity_verification_completion_deadline_time ?? null,
+      Boolean(account.identity_verification_overdue),
+      account.identity_verification_checked_at ?? null,
     ])
     const insertedId = getInsertedId(result, db.type)
     return { id: insertedId, last_sync_at: new Date().toISOString() }
@@ -231,6 +266,141 @@ function extractSearchResults(searchResult: any): any[] {
     if (firstKey && Array.isArray(searchResult[firstKey])) return searchResult[firstKey]
   }
   return []
+}
+
+type IdentityVerificationSnapshot = {
+  programStatus: string | null
+  verificationStartDeadlineTime: string | null
+  verificationCompletionDeadlineTime: string | null
+  overdue: boolean
+}
+
+function extractIdentityVerificationSnapshot(rawResponse: any): IdentityVerificationSnapshot {
+  const identityVerificationList =
+    rawResponse?.identity_verification ||
+    rawResponse?.identityVerification ||
+    rawResponse?.identity_verifications ||
+    rawResponse?.identityVerifications ||
+    []
+
+  if (!Array.isArray(identityVerificationList) || identityVerificationList.length === 0) {
+    return {
+      programStatus: null,
+      verificationStartDeadlineTime: null,
+      verificationCompletionDeadlineTime: null,
+      overdue: false,
+    }
+  }
+
+  const advertiserIdentity = identityVerificationList.find((item: any) => {
+    const program = item?.verification_program ?? item?.verificationProgram
+    return program === 'ADVERTISER_IDENTITY_VERIFICATION' || program === 2 || program === '2'
+  }) ?? identityVerificationList[0]
+
+  const requirement = advertiserIdentity?.identity_verification_requirement ?? advertiserIdentity?.identityVerificationRequirement
+  const progress = advertiserIdentity?.verification_progress ?? advertiserIdentity?.verificationProgress
+
+  const programStatusRaw = progress?.program_status ?? progress?.programStatus ?? null
+  const programStatus = programStatusRaw ? String(programStatusRaw).toUpperCase() : null
+
+  const verificationStartDeadlineTime =
+    requirement?.verification_start_deadline_time ??
+    requirement?.verificationStartDeadlineTime ??
+    null
+  const verificationCompletionDeadlineTime =
+    requirement?.verification_completion_deadline_time ??
+    requirement?.verificationCompletionDeadlineTime ??
+    null
+
+  const completionDeadlineMs = verificationCompletionDeadlineTime ? Date.parse(String(verificationCompletionDeadlineTime)) : NaN
+  const deadlinePassed = !Number.isNaN(completionDeadlineMs) && completionDeadlineMs < Date.now()
+
+  const overdue =
+    programStatus !== null &&
+    programStatus !== 'SUCCESS' &&
+    (programStatus === 'FAILURE' || deadlinePassed)
+
+  return {
+    programStatus,
+    verificationStartDeadlineTime: verificationStartDeadlineTime ? String(verificationStartDeadlineTime) : null,
+    verificationCompletionDeadlineTime: verificationCompletionDeadlineTime ? String(verificationCompletionDeadlineTime) : null,
+    overdue,
+  }
+}
+
+async function fetchIdentityVerificationSnapshot(params: {
+  userId: number
+  customerId: string
+  customer?: any
+  authType: 'oauth' | 'service_account'
+  serviceAccountConfig?: any
+}): Promise<IdentityVerificationSnapshot> {
+  const startTime = Date.now()
+  try {
+    if (params.authType === 'service_account') {
+      const { getIdentityVerificationPython } = await import('@/lib/python-ads-client')
+      const resp = await getIdentityVerificationPython({
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountConfig?.id?.toString(),
+        customerId: params.customerId,
+      })
+
+      await trackApiUsage({
+        userId: params.userId,
+        operationType: ApiOperationType.SEARCH,
+        endpoint: 'getIdentityVerification',
+        customerId: params.customerId,
+        requestCount: 1,
+        responseTimeMs: Date.now() - startTime,
+        isSuccess: true,
+      })
+
+      return extractIdentityVerificationSnapshot(resp)
+    }
+
+    if (!params.customer?.identityVerifications?.getIdentityVerification) {
+      return {
+        programStatus: null,
+        verificationStartDeadlineTime: null,
+        verificationCompletionDeadlineTime: null,
+        overdue: false,
+      }
+    }
+
+    const resp = await params.customer.identityVerifications.getIdentityVerification({
+      customer_id: params.customerId,
+    })
+
+    await trackApiUsage({
+      userId: params.userId,
+      operationType: ApiOperationType.SEARCH,
+      endpoint: 'getIdentityVerification',
+      customerId: params.customerId,
+      requestCount: 1,
+      responseTimeMs: Date.now() - startTime,
+      isSuccess: true,
+    })
+
+    return extractIdentityVerificationSnapshot(resp)
+  } catch (error: any) {
+    await trackApiUsage({
+      userId: params.userId,
+      operationType: ApiOperationType.SEARCH,
+      endpoint: 'getIdentityVerification',
+      customerId: params.customerId,
+      requestCount: 1,
+      responseTimeMs: Date.now() - startTime,
+      isSuccess: false,
+      errorMessage: error?.message || String(error),
+    }).catch(() => {})
+
+    return {
+      programStatus: null,
+      verificationStartDeadlineTime: null,
+      verificationCompletionDeadlineTime: null,
+      overdue: false,
+    }
+  }
 }
 
 /**
@@ -548,6 +718,25 @@ async function syncAccountsFromAPI(
         const isManagerAccount = account.customer?.manager || false
         const parentMcc = isManagerAccount ? null : (isServiceAccount ? serviceAccountConfig.mccCustomerId : credentials.login_customer_id)
 
+        // 🆕 身份验证（广告主验证）状态：用于识别“因未完成验证导致暂停但 customer.status 仍为 ENABLED”的情况
+        const identityVerification = (!isManagerAccount && parsedStatus === 'ENABLED')
+          ? await fetchIdentityVerificationSnapshot({
+            userId,
+            customerId,
+            customer: isServiceAccount ? undefined : customer,
+            authType: isServiceAccount ? 'service_account' : 'oauth',
+            serviceAccountConfig,
+          })
+          : {
+            programStatus: null,
+            verificationStartDeadlineTime: null,
+            verificationCompletionDeadlineTime: null,
+            overdue: false,
+          }
+
+        const effectiveStatus = (parsedStatus === 'ENABLED' && identityVerification.overdue) ? 'SUSPENDED' : parsedStatus
+        const identityVerificationCheckedAt = (!isManagerAccount && parsedStatus === 'ENABLED') ? new Date().toISOString() : null
+
         const accountData = {
           customer_id: customerId,
           descriptive_name: account.customer?.descriptive_name || `客户 ${customerId}`,
@@ -555,9 +744,14 @@ async function syncAccountsFromAPI(
           time_zone: account.customer?.time_zone || 'UTC',
           manager: isManagerAccount,
           test_account: account.customer?.test_account || false,
-          status: parsedStatus,
+          status: effectiveStatus,
           account_balance: accountBalance,
           parent_mcc: parentMcc,  // 🆕 设置parent_mcc：子账户的parent_mcc是MCC账户ID，MCC账户的parent_mcc为null
+          identity_verification_program_status: identityVerification.programStatus,
+          identity_verification_start_deadline_time: identityVerification.verificationStartDeadlineTime,
+          identity_verification_completion_deadline_time: identityVerification.verificationCompletionDeadlineTime,
+          identity_verification_overdue: identityVerification.overdue,
+          identity_verification_checked_at: identityVerificationCheckedAt,
         }
 
         // 保存到数据库
@@ -604,9 +798,30 @@ async function syncAccountsFromAPI(
                 const parsedChildStatus = parseStatus(rawChildStatus)
                 console.log(`[DEBUG] Child Account ${childId} parsed status:`, parsedChildStatus)
 
+                const isChildManager = child.customer_client?.manager || false
+
+                const identityVerification = (!isChildManager && parsedChildStatus === 'ENABLED')
+                  ? await fetchIdentityVerificationSnapshot({
+                    userId,
+                    customerId: childId,
+                    customer: isServiceAccount ? undefined : customer,
+                    authType: isServiceAccount ? 'service_account' : 'oauth',
+                    serviceAccountConfig,
+                  })
+                  : {
+                    programStatus: null,
+                    verificationStartDeadlineTime: null,
+                    verificationCompletionDeadlineTime: null,
+                    overdue: false,
+                  }
+
+                const effectiveChildStatus = (parsedChildStatus === 'ENABLED' && identityVerification.overdue)
+                  ? 'SUSPENDED'
+                  : parsedChildStatus
+                const identityVerificationCheckedAt = (!isChildManager && parsedChildStatus === 'ENABLED') ? new Date().toISOString() : null
+
                 // 查询子账户预算信息获取余额
                 let childBalance: number | null = null
-                const isChildManager = child.customer_client?.manager || false
                 if (!isChildManager) {
                   try {
                     const childBudgetQuery = `
@@ -674,9 +889,14 @@ async function syncAccountsFromAPI(
                   time_zone: child.customer_client?.time_zone || 'UTC',
                   manager: isChildManager,
                   test_account: child.customer_client?.test_account || false,
-                  status: parsedChildStatus,
+                  status: effectiveChildStatus,
                   account_balance: childBalance,
                   parent_mcc: customerId,
+                  identity_verification_program_status: identityVerification.programStatus,
+                  identity_verification_start_deadline_time: identityVerification.verificationStartDeadlineTime,
+                  identity_verification_completion_deadline_time: identityVerification.verificationCompletionDeadlineTime,
+                  identity_verification_overdue: identityVerification.overdue,
+                  identity_verification_checked_at: identityVerificationCheckedAt,
                 }
 
                 const { id: dbId, last_sync_at } = await upsertAccount(userId, childData)
@@ -860,19 +1080,30 @@ export async function GET(request: NextRequest) {
     const cacheStaleBeforeRefresh = cacheAgeMs > GOOGLE_ADS_ACCOUNTS_CACHE_MAX_AGE_MS
     console.log(`📦 缓存中有 ${cachedAccounts.length} 个账号`)
 
-    const mapCachedAccounts = () => cachedAccounts.map(acc => ({
-      customer_id: acc.customer_id,
-      descriptive_name: acc.account_name || `客户 ${acc.customer_id}`,
-      currency_code: acc.currency,
-      time_zone: acc.timezone,
-      manager: acc.is_manager_account === 1,
-      test_account: acc.test_account === 1,
-      status: acc.status || 'UNKNOWN',
-      account_balance: acc.account_balance,
-      parent_mcc: acc.parent_mcc_id,
-      db_account_id: acc.id,
-      last_sync_at: acc.last_sync_at,
-    }))
+    const mapCachedAccounts = () => cachedAccounts.map(acc => {
+      const identityVerificationOverdue = toNumber(acc.identity_verification_overdue, 0) === 1
+      const status = acc.status || 'UNKNOWN'
+      const effectiveStatus = (status === 'ENABLED' && identityVerificationOverdue) ? 'SUSPENDED' : status
+
+      return {
+        customer_id: acc.customer_id,
+        descriptive_name: acc.account_name || `客户 ${acc.customer_id}`,
+        currency_code: acc.currency,
+        time_zone: acc.timezone,
+        manager: toNumber(acc.is_manager_account, 0) === 1,
+        test_account: toNumber(acc.test_account, 0) === 1,
+        status: effectiveStatus,
+        account_balance: acc.account_balance,
+        parent_mcc: acc.parent_mcc_id,
+        identity_verification_program_status: acc.identity_verification_program_status,
+        identity_verification_start_deadline_time: acc.identity_verification_start_deadline_time,
+        identity_verification_completion_deadline_time: acc.identity_verification_completion_deadline_time,
+        identity_verification_overdue: identityVerificationOverdue,
+        identity_verification_checked_at: acc.identity_verification_checked_at,
+        db_account_id: acc.id,
+        last_sync_at: acc.last_sync_at,
+      }
+    })
 
     let usedCache = false
     let refreshFailed = false
@@ -929,6 +1160,13 @@ export async function GET(request: NextRequest) {
           status: account.status,
           accountBalance: account.account_balance,
           parentMcc: account.parent_mcc,
+          identityVerification: {
+            programStatus: account.identity_verification_program_status ?? null,
+            startDeadlineTime: account.identity_verification_start_deadline_time ?? null,
+            completionDeadlineTime: account.identity_verification_completion_deadline_time ?? null,
+            overdue: Boolean(account.identity_verification_overdue),
+            checkedAt: account.identity_verification_checked_at ?? null,
+          },
           dbAccountId: account.db_account_id,
           lastSyncAt: account.last_sync_at,
           linkedOffers: [],
@@ -998,6 +1236,13 @@ export async function GET(request: NextRequest) {
         status: account.status,
         accountBalance: account.account_balance,
         parentMcc: account.parent_mcc,
+        identityVerification: {
+          programStatus: account.identity_verification_program_status ?? null,
+          startDeadlineTime: account.identity_verification_start_deadline_time ?? null,
+          completionDeadlineTime: account.identity_verification_completion_deadline_time ?? null,
+          overdue: Boolean(account.identity_verification_overdue),
+          checkedAt: account.identity_verification_checked_at ?? null,
+        },
         dbAccountId: account.db_account_id,
         lastSyncAt: account.last_sync_at,
         linkedOffers: linkedOffersMapped,

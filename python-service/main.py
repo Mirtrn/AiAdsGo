@@ -525,6 +525,41 @@ async def execute_gaql_query(request: GAQLQueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class IdentityVerificationRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+
+    @field_validator("customer_id", mode="before")
+    @classmethod
+    def format_customer_id_field(cls, v: str) -> str:
+        return format_customer_id(v)
+
+
+@app.post("/api/google-ads/identity-verification")
+async def get_identity_verification(request: IdentityVerificationRequest):
+    user_id = request.service_account.user_id
+    """获取广告主身份验证信息（IdentityVerificationService）"""
+    try:
+        from google.protobuf.json_format import MessageToDict
+
+        client = create_google_ads_client(request.service_account)
+        identity_service = client.get_service("IdentityVerificationService")
+
+        response = identity_service.get_identity_verification(
+            customer_id=request.customer_id
+        )
+
+        response_dict = MessageToDict(
+            response._pb, preserving_proto_field_name=True
+        )
+
+        return response_dict
+
+    except Exception as e:
+        logger.error(f"[user_id={user_id}] Identity verification error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class CreateCampaignBudgetRequest(BaseModel):
     service_account: ServiceAccountConfig
     customer_id: str

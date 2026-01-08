@@ -282,6 +282,34 @@ export async function listAccessibleCustomersPython(params: {
 }
 
 /**
+ * 获取身份验证信息（服务账号模式）
+ */
+export async function getIdentityVerificationPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  requestId?: string
+}): Promise<any> {
+  return withTracking(
+    params.userId,
+    params.customerId,
+    ApiOperationType.SEARCH,
+    '/api/google-ads/identity-verification',
+    params.requestId,
+    async () => {
+      const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+      const response = await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/identity-verification`, {
+        service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
+        customer_id: params.customerId,
+      }, {
+        headers: getPythonRequestHeaders(params.userId, params.requestId),
+      })
+      return response.data
+    }
+  )
+}
+
+/**
  * 创建广告系列预算（服务账号模式）
  */
 export async function createCampaignBudgetPython(params: {

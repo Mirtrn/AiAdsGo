@@ -14,6 +14,13 @@ interface GoogleAdsAccount {
   accountBalance?: number | null  // 账户余额（单位：微货币，即实际金额×1,000,000）
   parentMcc?: string
   parentMccName?: string
+  identityVerification?: {
+    programStatus: string | null
+    startDeadlineTime: string | null
+    completionDeadlineTime: string | null
+    overdue: boolean
+    checkedAt: string | null
+  }
   dbAccountId: number | null
   lastSyncAt?: string
   linkedOffers?: Array<{
@@ -691,6 +698,16 @@ export default function GoogleAdsPage() {
                             <td className="px-6 py-4 whitespace-nowrap">
                               {(() => {
                                 const getStatusConfig = (status: string) => {
+                                  // 🆕 广告主身份验证导致的暂停/限制（customer.status 可能仍为 ENABLED）
+                                  if (account.identityVerification?.overdue) {
+                                    return { label: '验证暂停', color: 'bg-red-100 text-red-800' }
+                                  }
+                                  if (account.identityVerification?.programStatus &&
+                                    account.identityVerification.programStatus !== 'SUCCESS' &&
+                                    status === 'ENABLED') {
+                                    return { label: '需验证', color: 'bg-orange-100 text-orange-800' }
+                                  }
+
                                   switch (status) {
                                     case 'ENABLED':
                                       return { label: '启用', color: 'bg-green-100 text-green-800' }

@@ -99,6 +99,54 @@ export async function executeCampaignPublish(
   googleAdId?: string
   error?: string
 }> {
+  const safeJsonStringify = (value: unknown, space: number = 2): string => {
+    const seen = new WeakSet<object>()
+    return JSON.stringify(
+      value,
+      (_key, val) => {
+        if (typeof val === 'bigint') return val.toString()
+        if (typeof val === 'object' && val !== null) {
+          if (seen.has(val)) return '[Circular]'
+          seen.add(val)
+        }
+        return val
+      },
+      space
+    )
+  }
+
+  const buildErrorLogObject = (err: unknown): Record<string, unknown> => {
+    if (err instanceof Error) {
+      const ownProps: Record<string, unknown> = {}
+      for (const key of Object.getOwnPropertyNames(err)) {
+        ownProps[key] = (err as any)[key]
+      }
+      for (const key of Object.keys(err as any)) {
+        ownProps[key] = (err as any)[key]
+      }
+      return {
+        kind: 'Error',
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        ...ownProps,
+      }
+    }
+
+    if (typeof err === 'object' && err !== null) {
+      const ownProps: Record<string, unknown> = {}
+      for (const key of Object.getOwnPropertyNames(err)) {
+        ownProps[key] = (err as any)[key]
+      }
+      for (const key of Object.keys(err as any)) {
+        ownProps[key] = (err as any)[key]
+      }
+      return { kind: typeof err, ...ownProps }
+    }
+
+    return { kind: typeof err, value: err }
+  }
+
   const db = await getDatabase()
   const {
     campaignId,
@@ -270,8 +318,9 @@ export async function executeCampaignPublish(
     const keywordMatchTypeMap = new Map<string, 'EXACT' | 'PHRASE' | 'BROAD'>()
     if (creative.keywordsWithVolume) {
       creative.keywordsWithVolume.forEach(kw => {
-        if (kw?.keyword && kw?.matchType) {
-          keywordMatchTypeMap.set(kw.keyword.toLowerCase(), kw.matchType)
+        const rawKeyword = kw?.keyword
+        if (typeof rawKeyword === 'string' && rawKeyword.trim() && kw?.matchType) {
+          keywordMatchTypeMap.set(rawKeyword.trim().toLowerCase(), kw.matchType)
         }
       })
     }
@@ -348,7 +397,9 @@ export async function executeCampaignPublish(
         'email': ['Send us a message', 'Fast response time']
       }
 
-      const textLower = text.toLowerCase()
+      const safeText = typeof text === 'string' ? text : ''
+      const safeBaseDescription = typeof baseDescription === 'string' ? baseDescription : ''
+      const textLower = safeText.toLowerCase()
 
       // 尝试匹配预定义描述（优先匹配更具体的关键词）
       const sortedKeys = Object.keys(predefinedDescriptions).sort((a, b) => b.length - a.length)
@@ -360,9 +411,9 @@ export async function executeCampaignPublish(
       }
 
       // 默认处理：基于baseDescription生成两个相关描述
-      if (baseDescription) {
+      if (safeBaseDescription) {
         return {
-          desc1: baseDescription,
+          desc1: safeBaseDescription,
           desc2: 'Learn more about this'
         }
       }
@@ -417,7 +468,27 @@ export async function executeCampaignPublish(
     }
 
     // 11. 准备Sitelink Extensions数据
-    let finalSitelinks = creative.sitelinks || []
+    const normalizedSitelinks = (creative.sitelinks || [])
+      .map((link: any) => {
+        if (typeof link === 'string') {
+          const text = link.trim()
+          if (!text) return null
+          return { text, url: creative.finalUrl, description: undefined as string | undefined }
+        }
+
+        if (typeof link !== 'object' || link === null) return null
+
+        const rawText = typeof link.text === 'string' ? link.text.trim() : ''
+        const rawUrl = typeof link.url === 'string' ? link.url.trim() : ''
+        const url = rawUrl || creative.finalUrl
+        if (!rawText || !url) return null
+
+        const description = typeof link.description === 'string' ? link.description.trim() : undefined
+        return { text: rawText, url, description }
+      })
+      .filter((l): l is NonNullable<typeof l> => l !== null)
+
+    let finalSitelinks = normalizedSitelinks
     if (finalSitelinks.length === 0) {
       finalSitelinks = [
         {
@@ -680,7 +751,7 @@ export async function executeCampaignPublish(
       apiErrorMessage = error.message || String(error)
       console.error(`❌ Campaign发布失败: ${apiErrorMessage}`)
     }
-    console.error('完整错误对象:', JSON.stringify(error, null, 2))
+    console.error('完整错误对象:', safeJsonStringify(buildErrorLogObject(error), 2))
 
     // 更新数据库记录为失败状态
     try {

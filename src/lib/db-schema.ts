@@ -87,9 +87,15 @@ export const TABLES: TableDef[] = [
       { name: 'timezone', type: 'TEXT', notNull: true, default: 'Asia/Shanghai' },
       { name: 'is_manager_account', type: 'BOOLEAN', notNull: true, default: false },
       { name: 'is_active', type: 'BOOLEAN', notNull: true, default: true },
-      { name: 'status', type: 'TEXT', default: 'ENABLED' },  // Google Ads账户状态: ENABLED, DISABLED, SUSPENDED
+      { name: 'status', type: 'TEXT', default: 'ENABLED' },  // Google Ads账户状态: ENABLED, CANCELED, SUSPENDED, CLOSED, UNKNOWN
       { name: 'parent_mcc_id', type: 'TEXT' },  // 父级MCC账户ID（用于账户层级关系）
       { name: 'test_account', type: 'BOOLEAN', notNull: true, default: false },  // 标识是否为测试账户
+      // Identity Verification（广告主验证）：用于识别“验证导致暂停但 customer.status 仍为 ENABLED”的情况
+      { name: 'identity_verification_program_status', type: 'TEXT' },
+      { name: 'identity_verification_start_deadline_time', type: 'TEXT' },
+      { name: 'identity_verification_completion_deadline_time', type: 'TEXT' },
+      { name: 'identity_verification_overdue', type: 'BOOLEAN', notNull: true, default: false },
+      { name: 'identity_verification_checked_at', type: 'TEXT' },
       { name: 'access_token', type: 'TEXT' },
       { name: 'refresh_token', type: 'TEXT' },
       { name: 'token_expires_at', type: 'TIMESTAMP' },
