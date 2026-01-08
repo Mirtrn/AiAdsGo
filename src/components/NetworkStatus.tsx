@@ -99,10 +99,6 @@ export function OfflinePage() {
   const { status, isOnline } = useNetworkStatus()
   const [retrying, setRetrying] = useState(false)
 
-  if (isOnline) {
-    return null
-  }
-
   const handleRetry = useCallback(() => {
     setRetrying(true)
     // 延迟重试，模拟网络恢复
@@ -114,6 +110,10 @@ export function OfflinePage() {
       }
     }, 2000)
   }, [])
+
+  if (isOnline) {
+    return null
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">

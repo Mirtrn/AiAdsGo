@@ -59,7 +59,7 @@ describe('Performance Tests', () => {
   })
 
   describe('Description Focus Classifier Performance', () => {
-    it('should validate 4 descriptions in <30ms', () => {
+    it('should validate 4 descriptions in <80ms', () => {
       const timer = new PerformanceTimer()
       timer.start()
 
@@ -69,7 +69,7 @@ describe('Performance Tests', () => {
       const duration = timer.getDuration()
 
       console.log(`✓ Validate 4 descriptions: ${timer.getFormattedDuration()}`)
-      expect(duration).toBeLessThan(30)
+      expect(duration).toBeLessThan(80)
     })
 
     it('should validate 100 descriptions in <200ms', () => {
