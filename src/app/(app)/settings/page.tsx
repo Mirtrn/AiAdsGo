@@ -803,7 +803,8 @@ export default function SettingsPage() {
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || '清除失败')
-      toast.success('测试 OAuth 凭证已清除')
+      clearGoogleAdsFormFields(['test_login_customer_id', 'test_client_id', 'test_client_secret', 'test_developer_token'])
+      toast.success('测试 OAuth 授权与测试配置已清除')
       setTestMccDiagnoseResult(null)
       await fetchGoogleAdsTestCredentialStatus()
     } catch (err: any) {
@@ -1313,6 +1314,18 @@ export default function SettingsPage() {
 
   const hasServiceAccountConfigToDelete = Boolean(googleAdsCredentialStatus?.serviceAccountId)
 
+  const hasGoogleAdsTestConfigToClear = (() => {
+    const isSet = (key: string): boolean => {
+      const raw = formData.google_ads?.[key]
+      if (!raw) return false
+      if (raw === '············') return true
+      return raw.trim().length > 0
+    }
+
+    return Boolean(googleAdsTestCredentialStatus?.hasRefreshToken) ||
+      ['test_login_customer_id', 'test_client_id', 'test_client_secret', 'test_developer_token'].some(isSet)
+  })()
+
   const requestDeleteCurrentGoogleAdsConfig = () => {
     if (googleAdsAuthMethod === 'oauth') {
       if (!hasOAuthConfigToDelete) {
@@ -1571,9 +1584,9 @@ export default function SettingsPage() {
         <AlertDialog open={clearTestGoogleAdsCredentialsConfirmOpen} onOpenChange={setClearTestGoogleAdsCredentialsConfirmOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>确认清除测试 OAuth 授权？</AlertDialogTitle>
+              <AlertDialogTitle>确认清除测试 OAuth 授权与测试配置？</AlertDialogTitle>
               <AlertDialogDescription>
-                仅会清除“测试权限 MCC 诊断”使用的测试 OAuth 授权凭证（测试 Refresh Token），不会删除测试配置项，也不会影响真实 OAuth 用户授权或服务账号配置。
+                将撤销并清除“测试权限 MCC 诊断”使用的测试 OAuth 授权（测试 Refresh Token），并删除已保存的测试配置项（测试 MCC ID / 测试 Client ID/Secret / 测试 Developer Token）。不会影响真实 OAuth 用户授权或服务账号配置。
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -2042,7 +2055,7 @@ export default function SettingsPage() {
                               onClick={() => setClearTestGoogleAdsCredentialsConfirmOpen(true)}
                               variant="outline"
                               size="sm"
-                              disabled={!googleAdsTestCredentialStatus?.hasCredentials || clearingTestGoogleAdsCredentials}
+                              disabled={!hasGoogleAdsTestConfigToClear || clearingTestGoogleAdsCredentials}
                             >
                               清除测试 OAuth 授权
                             </Button>

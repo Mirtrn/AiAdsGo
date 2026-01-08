@@ -114,9 +114,18 @@ export async function deleteGoogleAdsTestCredentials(userId: number): Promise<vo
 
   await db.exec(`
     UPDATE google_ads_test_credentials
-    SET is_active = ?, updated_at = ${nowFunc}
+    SET is_active = ?,
+        refresh_token = ?,
+        access_token = NULL,
+        access_token_expires_at = NULL,
+        last_verified_at = NULL,
+        client_id = ?,
+        client_secret = ?,
+        developer_token = ?,
+        login_customer_id = NULL,
+        updated_at = ${nowFunc}
     WHERE user_id = ?
-  `, [isActiveValue, userId])
+  `, [isActiveValue, '', '', '', '', userId])
 }
 
 export async function getGoogleAdsTestCredentialStatus(userId: number): Promise<{
@@ -146,4 +155,3 @@ export async function getGoogleAdsTestCredentialStatus(userId: number): Promise<
     updatedAt: credentials.updated_at,
   }
 }
-
