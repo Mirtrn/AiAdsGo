@@ -137,8 +137,8 @@ export default function GoogleAdsSetupGuidePage() {
                         <p>创建完成后，点击客户端名称查看 <strong>客户端 ID</strong>和<strong>客户端密钥</strong></p>
                         <div className="p-3 bg-gray-50 border rounded-lg">
                           <p className="font-medium text-gray-900 mb-1">Client ID 格式示例：</p>
-                          <code className="text-xs bg-white px-2 py-1 rounded border">449618981667-d39inm908a4lvqdlh6n2us7qnhek37pc.apps.googleusercontent.com</code>
-                          <p className="mt-2 text-xs text-gray-600">其中开头的数字 <code className="bg-white px-1 rounded border">449618981667</code> 就是 GCP Project Number</p>
+                          <code className="text-xs bg-white px-2 py-1 rounded border">123456789012-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com</code>
+                          <p className="mt-2 text-xs text-gray-600">其中开头的数字 <code className="bg-white px-1 rounded border">123456789012</code> 就是 GCP Project Number</p>
                         </div>
                       </div>
                     </div>

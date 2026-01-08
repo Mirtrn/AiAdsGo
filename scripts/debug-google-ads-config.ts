@@ -201,15 +201,15 @@ async function main() {
         console.log(`\n✅ Ads账号 ${linkedAccount.customer_id} 使用 Service Account: ${linkedAccount.service_account_id}`);
       }
     } else {
-      console.log('❌ 用户没有配置 Service Account');
+    console.log('❌ 用户没有配置 Service Account');
     }
 
     console.log('\n=== 诊断结果 ===');
-    console.log('错误信息: Developer token is not allowed with project \'449618981667\'');
+    console.log('错误信息: Developer token is not allowed with project \'PROJECT_NUMBER\'');
     console.log('\n可能原因：');
     console.log('1. Developer Token 与 OAuth Client ID 所属的 GCP Project 不匹配');
     console.log('2. Developer Token 是从其他 GCP Project 申请的');
-    console.log('3. OAuth Client ID (client_id) 属于 Project 449618981667，但 Developer Token 不属于该项目');
+    console.log('3. OAuth Client ID (client_id) 属于 Project PROJECT_NUMBER，但 Developer Token 不属于该项目');
     console.log('\n解决方案：');
     console.log('1. 确认 Developer Token 和 OAuth Client ID 来自同一个 GCP Project');
     console.log('2. 或者重新申请与 Client ID 匹配的 Developer Token');
