@@ -72,6 +72,13 @@ interface GoogleAdsAccount {
 // Google Ads凭证状态接口
 interface GoogleAdsCredentialStatus {
   hasCredentials: boolean
+  hasRefreshToken?: boolean
+  hasServiceAccount?: boolean
+  serviceAccountId?: string | null
+  serviceAccountName?: string | null
+  authType?: 'oauth' | 'service_account'
+  clientId?: string | null
+  developerToken?: string | null
   loginCustomerId?: string
   lastVerifiedAt?: string
   isActive?: boolean
@@ -453,6 +460,7 @@ export default function SettingsPage() {
   const [serviceAccounts, setServiceAccounts] = useState<any[]>([])
   const [loadingServiceAccounts, setLoadingServiceAccounts] = useState(false)
   const [deletingServiceAccountId, setDeletingServiceAccountId] = useState<string | null>(null)
+  const [deletingOAuthConfig, setDeletingOAuthConfig] = useState(false)
   const [permissionError, setPermissionError] = useState<any | null>(null)
 
   /**
@@ -1239,6 +1247,44 @@ export default function SettingsPage() {
     }
   }
 
+  const clearGoogleAdsFormFields = (keys: string[]) => {
+    setFormData(prev => {
+      const next = { ...prev }
+      next.google_ads = { ...(next.google_ads || {}) }
+      for (const key of keys) {
+        next.google_ads[key] = ''
+      }
+      return next
+    })
+  }
+
+  const handleDeleteOAuthConfig = async () => {
+    const confirmed = confirm(
+      '确定要删除 OAuth 配置吗？\n\n' +
+      '此操作会清除：Client ID / Client Secret / Developer Token / Login Customer ID，以及已授权的 Refresh Token。\n' +
+      '删除后需要重新填写并重新授权才能使用 OAuth 模式。'
+    )
+    if (!confirmed) return
+
+    setDeletingOAuthConfig(true)
+    try {
+      const response = await fetch('/api/google-ads/credentials', {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || data.error || '删除失败')
+
+      clearGoogleAdsFormFields(['client_id', 'client_secret', 'developer_token', 'login_customer_id', 'use_service_account'])
+      toast.success('OAuth 配置已删除')
+      await fetchGoogleAdsCredentialStatus()
+    } catch (err: any) {
+      toast.error(err.message || '删除失败')
+    } finally {
+      setDeletingOAuthConfig(false)
+    }
+  }
+
   const getValidationIcon = (status?: string | null): string => {
     switch (status) {
       case 'valid':
@@ -1516,6 +1562,39 @@ export default function SettingsPage() {
                           </p>
                         </div>
                       )}
+                    </div>
+
+                    {/* 删除配置（OAuth / 服务账号） */}
+                    <div className="border-t pt-6">
+                      <Label className="label-text mb-3 block">删除配置</Label>
+                      <div className="flex flex-wrap gap-3">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          onClick={handleDeleteOAuthConfig}
+                          disabled={deletingOAuthConfig}
+                        >
+                          {deletingOAuthConfig ? '删除中...' : '删除 OAuth 配置'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          onClick={() => {
+                            const id = googleAdsCredentialStatus?.serviceAccountId
+                            if (!id) {
+                              toast.error('未检测到服务账号配置')
+                              return
+                            }
+                            handleDeleteServiceAccount(id)
+                          }}
+                          disabled={!googleAdsCredentialStatus?.serviceAccountId || deletingServiceAccountId === googleAdsCredentialStatus?.serviceAccountId}
+                        >
+                          {deletingServiceAccountId === googleAdsCredentialStatus?.serviceAccountId ? '删除中...' : '删除服务账号配置'}
+                        </Button>
+                      </div>
+                      <p className="text-caption text-muted-foreground mt-2">
+                        删除操作不可恢复；如需继续使用，请重新配置并授权。
+                      </p>
                     </div>
 
                     {/* 认证方式选择 */}

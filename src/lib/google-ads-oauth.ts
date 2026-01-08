@@ -193,7 +193,16 @@ export async function deleteGoogleAdsCredentials(userId: number): Promise<void> 
 
   await db.exec(`
     UPDATE google_ads_credentials
-    SET is_active = ?, updated_at = ${nowFunc}
+    SET is_active = ?,
+        client_id = '',
+        client_secret = '',
+        developer_token = '',
+        login_customer_id = NULL,
+        refresh_token = '',
+        access_token = NULL,
+        access_token_expires_at = NULL,
+        last_verified_at = NULL,
+        updated_at = ${nowFunc}
     WHERE user_id = ?
   `, [isActiveValue, userId])
 }
