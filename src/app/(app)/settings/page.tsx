@@ -1508,7 +1508,9 @@ export default function SettingsPage() {
                   (deleteConfirmState?.kind === 'service_account' &&
                     deletingServiceAccountId === deleteConfirmState.serviceAccountId)
                 }
-                onClick={async () => {
+                onClick={async (e) => {
+                  // 保持弹窗打开以展示“删除中...”，完成后手动关闭
+                  e.preventDefault()
                   const state = deleteConfirmState
                   if (!state) return
                   if (state.kind === 'oauth') {
@@ -1630,39 +1632,6 @@ export default function SettingsPage() {
                           </p>
                         </div>
                       )}
-                    </div>
-
-                    {/* 删除配置（OAuth / 服务账号） */}
-                    <div className="border-t pt-6">
-                      <Label className="label-text mb-3 block">删除配置</Label>
-                      <div className="flex flex-wrap gap-3">
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          onClick={requestDeleteOAuthConfig}
-                          disabled={deletingOAuthConfig}
-                        >
-                          {deletingOAuthConfig ? '删除中...' : '删除 OAuth 配置'}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          onClick={() => {
-                            const id = googleAdsCredentialStatus?.serviceAccountId
-                            if (!id) {
-                              toast.error('未检测到服务账号配置')
-                              return
-                            }
-                            requestDeleteServiceAccount(id)
-                          }}
-                          disabled={!googleAdsCredentialStatus?.serviceAccountId || deletingServiceAccountId === googleAdsCredentialStatus?.serviceAccountId}
-                        >
-                          {deletingServiceAccountId === googleAdsCredentialStatus?.serviceAccountId ? '删除中...' : '删除服务账号配置'}
-                        </Button>
-                      </div>
-                      <p className="text-caption text-muted-foreground mt-2">
-                        删除操作不可恢复；如需继续使用，请重新配置并授权。
-                      </p>
                     </div>
 
                     {/* 认证方式选择 */}
@@ -2480,6 +2449,34 @@ export default function SettingsPage() {
                   >
                     {(saving || savingServiceAccount) ? '保存中...' : '保存配置'}
                   </Button>
+
+                  {category === 'google_ads' && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={requestDeleteOAuthConfig}
+                        disabled={deletingOAuthConfig}
+                      >
+                        删除 OAuth 配置
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={() => {
+                          const id = googleAdsCredentialStatus?.serviceAccountId
+                          if (!id) {
+                            toast.error('未检测到服务账号配置')
+                            return
+                          }
+                          requestDeleteServiceAccount(id)
+                        }}
+                        disabled={!googleAdsCredentialStatus?.serviceAccountId || deletingServiceAccountId === googleAdsCredentialStatus?.serviceAccountId}
+                      >
+                        删除服务账号配置
+                      </Button>
+                    </>
+                  )}
 
                   {category === 'google_ads' && googleAdsAuthMethod === 'oauth' && (
                     <Button
