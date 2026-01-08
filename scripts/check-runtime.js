@@ -19,24 +19,28 @@ const nodeAbi = process.versions.modules
 const nodeArch = process.arch
 const platform = process.platform
 
+function readCommand(bin, args) {
+  try {
+    const shouldForceArch =
+      platform === 'darwin' && (nodeArch === 'arm64' || nodeArch === 'x64')
+    const command = shouldForceArch ? 'arch' : bin
+    const commandArgs = shouldForceArch
+      ? [`-${nodeArch === 'arm64' ? 'arm64' : 'x86_64'}`, bin, ...args]
+      : args
+    const result = childProcess.spawnSync(command, commandArgs, { encoding: 'utf8' })
+    if (result.status !== 0) return null
+    return String(result.stdout || '').trim() || null
+  } catch {
+    return null
+  }
+}
+
 let machineArch = null
 let hardwareArm64 = null
 let procTranslated = null
-try {
-  machineArch = childProcess.execSync('uname -m', { encoding: 'utf8' }).trim()
-} catch {
-  machineArch = null
-}
-try {
-  hardwareArm64 = childProcess.execSync('sysctl -n hw.optional.arm64', { encoding: 'utf8' }).trim()
-} catch {
-  hardwareArm64 = null
-}
-try {
-  procTranslated = childProcess.execSync('sysctl -n sysctl.proc_translated', { encoding: 'utf8' }).trim()
-} catch {
-  procTranslated = null
-}
+machineArch = readCommand('uname', ['-m'])
+hardwareArm64 = readCommand('sysctl', ['-n', 'hw.optional.arm64'])
+procTranslated = readCommand('sysctl', ['-n', 'sysctl.proc_translated'])
 
 console.log('\n🔎 Runtime check')
 info('node', nodeVersion)

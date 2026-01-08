@@ -4,6 +4,13 @@ const childProcess = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
+function getDarwinArchPrefix() {
+  if (process.platform !== 'darwin') return null
+  if (process.arch === 'arm64') return ['arch', '-arm64']
+  if (process.arch === 'x64') return ['arch', '-x86_64']
+  return null
+}
+
 function run(command, args, options = {}) {
   const result = childProcess.spawnSync(command, args, {
     stdio: 'inherit',
@@ -38,7 +45,10 @@ function getBundledNpmCliPath() {
 
 function runRuntimeCheck() {
   const checkPath = path.join(__dirname, 'check-runtime.js')
-  const result = childProcess.spawnSync(process.execPath, [checkPath], { stdio: 'inherit' })
+  const darwinArch = getDarwinArchPrefix()
+  const command = darwinArch ? darwinArch[0] : process.execPath
+  const args = darwinArch ? [...darwinArch.slice(1), process.execPath, checkPath] : [checkPath]
+  const result = childProcess.spawnSync(command, args, { stdio: 'inherit' })
   return result.status === 0
 }
 
@@ -62,24 +72,31 @@ console.log('\n🔧 重新安装依赖（同时清理 .next 缓存）...')
 rmIfExists(path.join(process.cwd(), 'node_modules'))
 rmIfExists(path.join(process.cwd(), '.next'))
 
+const nodeBinDir = path.dirname(process.execPath)
+const commonEnv = {
+  ...process.env,
+  PATH: `${nodeBinDir}${path.delimiter}${process.env.PATH || ''}`,
+  npm_config_scripts_prepend_node_path: 'true',
+  npm_config_audit: 'false',
+  npm_config_fund: 'false',
+  npm_config_update_notifier: 'false',
+}
+
 const npmCli = getBundledNpmCliPath()
 if (npmCli) {
-  run(process.execPath, [npmCli, 'ci'], {
-    env: {
-      ...process.env,
-      npm_config_audit: 'false',
-      npm_config_fund: 'false',
-      npm_config_update_notifier: 'false',
-    },
-  })
+  const darwinArch = getDarwinArchPrefix()
+  if (darwinArch) {
+    run(darwinArch[0], [...darwinArch.slice(1), process.execPath, npmCli, 'ci'], {
+      env: commonEnv,
+    })
+  } else {
+    run(process.execPath, [npmCli, 'ci'], {
+      env: commonEnv,
+    })
+  }
 } else {
   run('npm', ['ci'], {
-    env: {
-      ...process.env,
-      npm_config_audit: 'false',
-      npm_config_fund: 'false',
-      npm_config_update_notifier: 'false',
-    },
+    env: commonEnv,
   })
 }
 
