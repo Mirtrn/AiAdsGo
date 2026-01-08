@@ -40,6 +40,8 @@ interface Offer {
   url: string
   brand: string
   category: string | null
+  categoryRaw?: string | null
+  categorySource?: 'scraped_data' | 'category' | null
   targetCountry: string
   affiliateLink: string | null
   brandDescription: string | null
@@ -787,7 +789,12 @@ export default function OfferDetailPage() {
               </div>
               <div>
                 <dt className="text-sm font-medium text-gray-500">产品分类</dt>
-                <dd className="mt-1 text-sm text-gray-900">{offer.category || '未分类'}</dd>
+                <dd
+                  className="mt-1 text-sm text-gray-900 break-words"
+                  title={offer.categoryRaw || offer.category || ''}
+                >
+                  {offer.category || '未分类'}
+                </dd>
               </div>
               <div>
                 <dt className="text-sm font-medium text-gray-500">目标国家</dt>

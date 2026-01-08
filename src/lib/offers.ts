@@ -1,6 +1,7 @@
 import { getDatabase } from './db'
 import { generateOfferName, getTargetLanguage, isOfferNameUnique, normalizeBrandName, validateBrandName } from './offer-utils'
 import { generatePricingJSON, initializePromotionsJSON, initializeScrapedDataJSON } from './pricing-utils'
+import { compactCategoryLabel, deriveCategoryFromScrapedData } from './offer-category'
 
 export interface Offer {
   id: number
@@ -978,6 +979,9 @@ export async function updateOfferScrapeStatus(
   invalidateOfferCache(userId, id)
 
   if (status === 'completed' && scrapedData) {
+    const derivedCategory = deriveCategoryFromScrapedData(scrapedData.scraped_data)
+      ?? (scrapedData.category ? compactCategoryLabel(scrapedData.category) : null)
+
     const rawBrand = scrapedData.brand?.trim() || null
     const deriveBrandFromUrl = (inputUrl: string | null | undefined): string | null => {
       if (!inputUrl) return null
@@ -1085,7 +1089,7 @@ export async function updateOfferScrapeStatus(
       scrapedData.unique_selling_points || null,
       scrapedData.product_highlights || null,
       scrapedData.target_audience || null,
-      scrapedData.category || null,
+      derivedCategory,
       scrapedData.pricing || null,
       scrapedData.promotions || null,
       scrapedData.review_analysis || null,

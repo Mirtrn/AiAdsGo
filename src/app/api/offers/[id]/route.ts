@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { findOfferById, updateOffer, deleteOffer } from '@/lib/offers'
 import { invalidateOfferCache } from '@/lib/api-cache'
 import { z } from 'zod'
+import { compactCategoryLabel, deriveCategoryFromScrapedData } from '@/lib/offer-category'
 
 /**
  * GET /api/offers/:id
@@ -31,6 +32,11 @@ export async function GET(
       )
     }
 
+    const categoryFromScrape = deriveCategoryFromScrapedData(offer.scraped_data)
+    const categoryFromStored = offer.category ? compactCategoryLabel(offer.category) : null
+    const categoryForDisplay = categoryFromScrape || categoryFromStored || offer.category
+    const categorySource = categoryFromScrape ? 'scraped_data' : (categoryFromStored ? 'category' : null)
+
     return NextResponse.json({
       success: true,
       offer: {
@@ -38,7 +44,9 @@ export async function GET(
         url: offer.url,
         brand: offer.brand,
         offerName: offer.offer_name, // 🔧 添加offer_name字段映射
-        category: offer.category,
+        category: categoryForDisplay,
+        categoryRaw: offer.category,
+        categorySource,
         targetCountry: offer.target_country,
         targetLanguage: offer.target_language, // 🔧 修复(2025-12-11): 添加target_language字段
         affiliateLink: offer.affiliate_link,
@@ -149,7 +157,8 @@ export async function PUT(
         url: offer.url,
         brand: offer.brand,
         offerName: offer.offer_name, // 🔧 添加offer_name字段映射
-        category: offer.category,
+        category: offer.category ? compactCategoryLabel(offer.category) : offer.category,
+        categoryRaw: offer.category,
         targetCountry: offer.target_country,
         targetLanguage: offer.target_language, // 🔧 修复(2025-12-11): 添加target_language字段
         affiliateLink: offer.affiliate_link,
