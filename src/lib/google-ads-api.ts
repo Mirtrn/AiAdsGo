@@ -94,12 +94,22 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
       }
     | undefined
 
-  // 向后兼容：旧版本可能仍使用 system_settings 存储这些字段
-  const [clientIdSetting, clientSecretSetting, developerTokenSetting, loginCustomerIdSetting, useServiceAccountSetting] = await Promise.all([
-    getUserOnlySetting('google_ads', 'client_id', userId),
-    getUserOnlySetting('google_ads', 'client_secret', userId),
-    getUserOnlySetting('google_ads', 'developer_token', userId),
-    getUserOnlySetting('google_ads', 'login_customer_id', userId),
+  const hasDbClientId = typeof oauthCredentials?.client_id === 'string' && oauthCredentials.client_id.length > 0
+  const hasDbClientSecret = typeof oauthCredentials?.client_secret === 'string' && oauthCredentials.client_secret.length > 0
+  const hasDbDeveloperToken = typeof oauthCredentials?.developer_token === 'string' && oauthCredentials.developer_token.length > 0
+  const hasDbLoginCustomerId = typeof oauthCredentials?.login_customer_id === 'string' && oauthCredentials.login_customer_id.length > 0
+
+  const [
+    clientIdSetting,
+    clientSecretSetting,
+    developerTokenSetting,
+    loginCustomerIdSetting,
+    useServiceAccountSetting,
+  ] = await Promise.all([
+    hasDbClientId ? Promise.resolve(null) : getUserOnlySetting('google_ads', 'client_id', userId),
+    hasDbClientSecret ? Promise.resolve(null) : getUserOnlySetting('google_ads', 'client_secret', userId),
+    hasDbDeveloperToken ? Promise.resolve(null) : getUserOnlySetting('google_ads', 'developer_token', userId),
+    hasDbLoginCustomerId ? Promise.resolve(null) : getUserOnlySetting('google_ads', 'login_customer_id', userId),
     getUserOnlySetting('google_ads', 'use_service_account', userId),
   ])
 
