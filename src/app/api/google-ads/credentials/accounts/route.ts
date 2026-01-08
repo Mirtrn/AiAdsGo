@@ -1172,13 +1172,13 @@ export async function GET(request: NextRequest) {
     let refreshFailed = false
     let effectiveLastSyncAtIso: string | null = Number.isNaN(latestSyncAtMs) ? null : new Date(latestSyncAtMs).toISOString()
 
-    if (!forceRefresh && cachedAccounts.length > 0 && !cacheStaleBeforeRefresh) {
-      // 使用缓存数据
+    if (!forceRefresh && cachedAccounts.length > 0) {
+      // 使用缓存数据（即使缓存已过期也先返回，避免请求阻塞/网关超时；由 refresh=true 显式触发同步）
       usedCache = true
       console.log(`✅ 使用缓存的 ${cachedAccounts.length} 个账号 (ageMs=${cacheAgeMs})`)
       allAccounts = mapCachedAccounts()
     } else {
-      // 从 API 获取并同步（缓存过期时也会自动刷新）
+      // 从 API 获取并同步（仅在 refresh=true 或无缓存时执行）
       console.log(`🔄 从 Google Ads API 同步账号... (forceRefresh=${forceRefresh}, cacheStale=${cacheStaleBeforeRefresh})`)
       try {
         allAccounts = await syncAccountsFromAPI(userId, credentials, authType, serviceAccountConfig)

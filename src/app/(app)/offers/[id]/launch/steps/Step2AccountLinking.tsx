@@ -118,8 +118,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
 
       if (response.ok) {
         const data = await response.json()
-        // 🔧 修复(2025-12-11): 使用 camelCase (hasCredentials)
-        setHasCredentials(data.hasCredentials || false)
+        setHasCredentials(Boolean(data?.data?.hasCredentials))
       }
     } catch (error) {
       console.error('Failed to check credentials:', error)
