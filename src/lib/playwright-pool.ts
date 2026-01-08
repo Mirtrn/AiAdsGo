@@ -19,7 +19,7 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright'
  * - 减少每代理实例数：5 → 2（避免同一代理过多实例）
  */
 const POOL_CONFIG = {
-  maxInstances: 5,              // 🔥 内存优化：从10减到5
+  maxInstances: 8,              // 调整：从5提升到8，减少高并发等待
   maxInstancesPerProxy: 3,      // 🔥 放宽：避免高并发场景频繁等待超时
   maxIdleTime: 60 * 1000,       // 🔥 内存优化：从5分钟减到1分钟
   launchTimeout: 30000,         // 启动超时30秒
