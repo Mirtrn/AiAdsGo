@@ -1296,8 +1296,26 @@ export default function SettingsPage() {
   const requestDeleteServiceAccount = (serviceAccountId: string) =>
     setDeleteConfirmState({ kind: 'service_account', serviceAccountId })
 
+  const hasOAuthConfigToDelete = (() => {
+    const isSet = (key: string): boolean => {
+      const raw = formData.google_ads?.[key]
+      if (!raw) return false
+      if (raw === '············') return true
+      return raw.trim().length > 0
+    }
+
+    return Boolean(googleAdsCredentialStatus?.hasRefreshToken) ||
+      ['login_customer_id', 'client_id', 'client_secret', 'developer_token'].some(isSet)
+  })()
+
+  const hasServiceAccountConfigToDelete = Boolean(googleAdsCredentialStatus?.serviceAccountId)
+
   const requestDeleteCurrentGoogleAdsConfig = () => {
     if (googleAdsAuthMethod === 'oauth') {
+      if (!hasOAuthConfigToDelete) {
+        toast.error('当前未配置真实 OAuth 信息，无需删除')
+        return
+      }
       requestDeleteOAuthConfig()
       return
     }
@@ -2471,8 +2489,9 @@ export default function SettingsPage() {
                       onClick={requestDeleteCurrentGoogleAdsConfig}
                       disabled={
                         deletingOAuthConfig ||
+                        (googleAdsAuthMethod === 'oauth' && !hasOAuthConfigToDelete) ||
                         (googleAdsAuthMethod === 'service_account' &&
-                          (!!deletingServiceAccountId || !googleAdsCredentialStatus?.serviceAccountId))
+                          (!!deletingServiceAccountId || !hasServiceAccountConfigToDelete))
                       }
                     >
                       删除当前配置
