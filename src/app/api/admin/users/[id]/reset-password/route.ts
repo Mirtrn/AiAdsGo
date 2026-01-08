@@ -33,7 +33,7 @@ export async function POST(
     const db = getDatabase()
 
     // Check if user exists
-    const user = await db.queryOne('SELECT id, username FROM users WHERE id = ?', [userId]) as { id: number; username: string } | undefined
+    const user = await db.queryOne('SELECT id, username, role FROM users WHERE id = ?', [userId]) as { id: number; username: string; role: string } | undefined
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
@@ -49,7 +49,9 @@ export async function POST(
     // Update user password and set must_change_password flag
     // 🔧 修复(2025-12-30): PostgreSQL兼容性
     // PostgreSQL的must_change_password可能是BOOLEAN类型，需要根据数据库类型传值
-    const mustChangeValue = db.type === 'postgres' ? true : 1
+    // 管理员账号不强制修改密码（避免管理员被锁死在改密流程）
+    const shouldForceChange = user.role !== 'admin'
+    const mustChangeValue = db.type === 'postgres' ? shouldForceChange : (shouldForceChange ? 1 : 0)
     const result = await db.exec(`
       UPDATE users
       SET password_hash = ?, must_change_password = ?, updated_at = CURRENT_TIMESTAMP

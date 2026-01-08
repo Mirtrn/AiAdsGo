@@ -262,13 +262,16 @@ export async function loginWithPassword(
   // 更新最后登录时间
   await updateLastLogin(user.id)
 
+  // 管理员账号不强制修改密码（避免开发/运维默认管理员被锁死在改密流程）
+  const mustChangePassword = user.role !== 'admin' && !!user.must_change_password
+
   // 生成JWT token (包含强制修改密码标志)
   const token = generateToken({
     userId: user.id,
     email: user.email,
     role: user.role,
     packageType: user.package_type,
-    mustChangePassword: !!user.must_change_password,
+    mustChangePassword,
   })
 
   return {
@@ -282,7 +285,7 @@ export async function loginWithPassword(
       packageType: user.package_type,
       packageExpiresAt: user.package_expires_at
     },
-    mustChangePassword: !!user.must_change_password,
+    mustChangePassword,
   }
 }
 
@@ -344,13 +347,16 @@ export async function loginWithGoogle(googleProfile: {
   // 更新最后登录时间
   await updateLastLogin(user.id)
 
+  // 管理员账号不强制修改密码（与用户名密码登录保持一致）
+  const mustChangePassword = user.role !== 'admin' && !!user.must_change_password
+
   // 生成JWT token (包含强制修改密码标志)
   const token = generateToken({
     userId: user.id,
     email: user.email,
     role: user.role,
     packageType: user.package_type,
-    mustChangePassword: !!user.must_change_password,
+    mustChangePassword,
   })
 
   return {
@@ -364,7 +370,7 @@ export async function loginWithGoogle(googleProfile: {
       packageType: user.package_type,
       packageExpiresAt: user.package_expires_at
     },
-    mustChangePassword: !!user.must_change_password,
+    mustChangePassword,
   }
 }
 

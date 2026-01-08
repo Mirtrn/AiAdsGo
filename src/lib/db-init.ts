@@ -197,12 +197,12 @@ async function createDefaultAdmin(): Promise<void> {
 
       if (db.type === 'sqlite') {
         db.exec(
-          'UPDATE users SET password_hash = ?, is_active = 1 WHERE username = ? OR role = ?',
+          'UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1 WHERE username = ? OR role = ?',
           [passwordHash, DEFAULT_ADMIN.username, 'admin']
         )
       } else {
         await asyncDb!.query(
-          'UPDATE users SET password_hash = $1, is_active = TRUE WHERE username = $2 OR role = $3',
+          'UPDATE users SET password_hash = $1, must_change_password = FALSE, is_active = TRUE WHERE username = $2 OR role = $3',
           [passwordHash, DEFAULT_ADMIN.username, 'admin']
         )
       }
@@ -303,18 +303,30 @@ async function ensureAdminAccount(): Promise<void> {
 
         if (db.type === 'sqlite') {
           db.exec(
-            'UPDATE users SET password_hash = ?, is_active = 1 WHERE username = ? OR role = ?',
+            'UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1 WHERE username = ? OR role = ?',
             [passwordHash, DEFAULT_ADMIN.username, 'admin']
           )
         } else {
           await asyncDb!.query(
-            'UPDATE users SET password_hash = $1, is_active = TRUE WHERE username = $2 OR role = $3',
+            'UPDATE users SET password_hash = $1, must_change_password = FALSE, is_active = TRUE WHERE username = $2 OR role = $3',
             [passwordHash, DEFAULT_ADMIN.username, 'admin']
           )
         }
 
         console.log('✅ Admin password updated')
       } else {
+        // 兜底：即使不更新密码，也确保管理员不被强制修改密码
+        if (db.type === 'sqlite') {
+          db.exec(
+            'UPDATE users SET must_change_password = 0, is_active = 1 WHERE username = ? OR role = ?',
+            [DEFAULT_ADMIN.username, 'admin']
+          )
+        } else {
+          await asyncDb!.query(
+            'UPDATE users SET must_change_password = FALSE, is_active = TRUE WHERE username = $1 OR role = $2',
+            [DEFAULT_ADMIN.username, 'admin']
+          )
+        }
         console.log('✅ Admin account exists (password unchanged)')
       }
     } else {

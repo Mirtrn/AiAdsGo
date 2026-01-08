@@ -112,13 +112,13 @@ async function ensureAdminAccount() {
       if (isPostgres) {
         // PostgreSQL 版本
         await db.exec(
-          "UPDATE users SET password_hash = ?, updated_at = NOW() WHERE username = ?",
+          "UPDATE users SET password_hash = ?, must_change_password = FALSE, is_active = TRUE, updated_at = NOW() WHERE username = ?",
           [passwordHash, 'autoads']
         )
       } else {
         // SQLite 版本
         await db.exec(
-          "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE username = ?",
+          "UPDATE users SET password_hash = ?, must_change_password = 0, is_active = 1, updated_at = datetime('now') WHERE username = ?",
           [passwordHash, 'autoads']
         )
       }
