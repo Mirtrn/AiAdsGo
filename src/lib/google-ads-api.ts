@@ -4,6 +4,8 @@ import { withRetry } from './retry'
 import { gadsApiCache, generateGadsApiCacheKey } from './cache'
 import { getUserOnlySetting } from './settings'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
+import { getDatabase } from './db'
+import { boolCondition } from './db-helpers'
 
 /**
  * 🔧 新增(2025-01-05): OAuth API 调用追踪包装器
@@ -71,6 +73,28 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
   login_customer_id: string
   useServiceAccount: boolean
 }> {
+  // 优先从 google_ads_credentials 读取（当前生产环境实际存储位置）
+  const db = await getDatabase()
+  const isActiveCondition = boolCondition('is_active', true, db.type)
+  const oauthCredentials = await db.queryOne(
+    `
+      SELECT client_id, client_secret, developer_token, login_customer_id
+      FROM google_ads_credentials
+      WHERE user_id = ? AND ${isActiveCondition}
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT 1
+    `,
+    [userId]
+  ) as
+    | {
+        client_id: string | null
+        client_secret: string | null
+        developer_token: string | null
+        login_customer_id: string | null
+      }
+    | undefined
+
+  // 向后兼容：旧版本可能仍使用 system_settings 存储这些字段
   const [clientIdSetting, clientSecretSetting, developerTokenSetting, loginCustomerIdSetting, useServiceAccountSetting] = await Promise.all([
     getUserOnlySetting('google_ads', 'client_id', userId),
     getUserOnlySetting('google_ads', 'client_secret', userId),
@@ -81,20 +105,25 @@ export async function getGoogleAdsCredentialsFromDB(userId: number): Promise<{
 
   const useServiceAccount = String(useServiceAccountSetting?.value ?? '').toLowerCase() === 'true'
 
+  const clientId = oauthCredentials?.client_id || clientIdSetting?.value || ''
+  const clientSecret = oauthCredentials?.client_secret || clientSecretSetting?.value || ''
+  const developerToken = oauthCredentials?.developer_token || developerTokenSetting?.value || ''
+  const loginCustomerId = oauthCredentials?.login_customer_id || loginCustomerIdSetting?.value || ''
+
   // 🔧 修复(2025-12-25): 服务账号模式不需要login_customer_id
-  if (!clientIdSetting?.value || !clientSecretSetting?.value || !developerTokenSetting?.value) {
+  if (!clientId || !clientSecret || !developerToken) {
     throw new Error(`用户(ID=${userId})未配置完整的 Google Ads 凭证。请在设置页面配置所有必需参数。`)
   }
 
-  if (!useServiceAccount && !loginCustomerIdSetting?.value) {
+  if (!useServiceAccount && !loginCustomerId) {
     throw new Error(`用户(ID=${userId})未配置 login_customer_id。OAuth模式需要此参数。`)
   }
 
   return {
-    client_id: clientIdSetting.value,
-    client_secret: clientSecretSetting.value,
-    developer_token: developerTokenSetting.value,
-    login_customer_id: loginCustomerIdSetting?.value || '',
+    client_id: clientId,
+    client_secret: clientSecret,
+    developer_token: developerToken,
+    login_customer_id: loginCustomerId,
     useServiceAccount,
   }
 }
