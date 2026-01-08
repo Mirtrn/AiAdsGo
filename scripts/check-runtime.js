@@ -54,8 +54,11 @@ if (nodeMajor !== 22) {
 }
 
 if (platform === 'darwin' && hardwareArm64 === '1' && nodeArch === 'x64') {
-  fail(
-    '检测到你在 Apple Silicon 上使用了 x86_64（Rosetta）Node，这会导致 better-sqlite3 等原生依赖架构不匹配。请用“非 Rosetta”的终端/Node（arm64）并重新安装依赖：`rm -rf node_modules .next && npm ci`。'
+  console.warn(
+    '\n⚠️ 检测到 Apple Silicon + x86_64（Rosetta）Node。\n' +
+    '   这在“依赖由 x86_64 Node 安装、运行也用 x86_64 Node”时是可用的；\n' +
+    '   但非常容易出现 better-sqlite3 架构不匹配（依赖是 x86_64，而你用 arm64 Node 运行，或反之）。\n' +
+    '   推荐：使用 arm64 Node 22，并执行 `npm run bootstrap` 统一重装依赖。\n'
   )
 }
 
