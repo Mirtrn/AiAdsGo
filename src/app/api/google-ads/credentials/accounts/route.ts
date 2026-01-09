@@ -113,6 +113,34 @@ function formatErrorMessage(value: unknown): string {
   }
 }
 
+function getErrorHttpStatus(error: any): number | null {
+  const candidates = [
+    error?.status,
+    error?.statusCode,
+    error?.response?.status,
+    error?.response?.statusCode,
+  ]
+  for (const v of candidates) {
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+  }
+  return null
+}
+
+function getOAuthErrorFromResponse(error: any): { error?: string; errorDescription?: string } {
+  const data = error?.response?.data
+  if (!data) return {}
+
+  const oauthError = typeof data.error === 'string' ? data.error : undefined
+  const oauthErrorDescription =
+    typeof data.error_description === 'string'
+      ? data.error_description
+      : typeof data.errorDescription === 'string'
+        ? data.errorDescription
+        : undefined
+
+  return { error: oauthError, errorDescription: oauthErrorDescription }
+}
+
 function getAccountSyncStateStore(): Map<string, AccountSyncState> {
   const g = globalThis as any
   if (!g.__googleAdsAccountSyncStates) {
@@ -628,15 +656,16 @@ async function syncAccountsFromAPI(
           break
         } catch (error: any) {
           lastError = error
+          const errorMessage = formatErrorMessage(error) || '未知错误'
           loginAttempts.push({
             loginCustomerId: lcId,
-            error: error.message || '未知错误',
+            error: errorMessage,
             success: false
           })
-          console.warn(`   ⚠️ 使用 login_customer_id: ${lcIdDisplay} 失败: ${error.message}`)
+          console.warn(`   ⚠️ 使用 login_customer_id: ${lcIdDisplay} 失败: ${errorMessage}`)
 
           // 🆕 检测是否为PERMISSION_DENIED错误
-          if (error.message && error.message.includes('PERMISSION_DENIED')) {
+          if (errorMessage.includes('PERMISSION_DENIED')) {
             console.warn(`   🔍 检测到权限错误，记录详细信息用于前端提示`)
           }
 
@@ -1446,7 +1475,10 @@ export async function GET(request: NextRequest) {
     }
 
     // 🔧 修复(2026-01-04): 检测 OAuth refresh token 过期错误
-    if (error.message?.includes('invalid_grant')) {
+    const oauthError = getOAuthErrorFromResponse(error)
+    const httpStatus = getErrorHttpStatus(error)
+
+    if (oauthError.error === 'invalid_grant' || error.message?.includes('invalid_grant')) {
       statusCode = 401
       errorCode = 'OAUTH_TOKEN_EXPIRED'
 
@@ -1458,9 +1490,26 @@ export async function GET(request: NextRequest) {
       }, { status: statusCode })
     }
 
-    if (error.message?.includes('invalid_client')) {
-      statusCode = 401  // 未授权
+    // 🔧 更稳健：invalid_client 通常来自 client_id/client_secret 配置错误或已变更
+    if (oauthError.error === 'invalid_client' || error.message?.includes('invalid_client') || (httpStatus === 401 && error.message === 'Request failed')) {
+      statusCode = 401
       errorCode = 'INVALID_CLIENT'
+
+      return NextResponse.json({
+        error: 'Google OAuth 客户端配置无效',
+        code: errorCode,
+        message: oauthError.errorDescription || 'Google OAuth client_id/client_secret 配置错误或已失效，请在设置页面重新配置后再授权',
+        needsReauth: false,
+        solution: {
+          title: '如何修复',
+          steps: [
+            '前往设置页面检查 Google Ads OAuth 凭证（Client ID / Client Secret / Developer Token / MCC账号）',
+            '确认 Client ID 与 Client Secret 属于同一个 Google Cloud OAuth Client',
+            '保存后重新进行 OAuth 授权（生成新的 refresh token）',
+            '回到 Google Ads 页面点击“刷新账户列表”'
+          ]
+        }
+      }, { status: statusCode })
     } else if (error.message?.includes('没有访问权限') || error.message?.includes('permission')) {
       statusCode = 403  // 禁止访问
       errorCode = 'PERMISSION_DENIED'
@@ -1475,7 +1524,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: '获取Google Ads账户失败',
-        message: error.message || '未知错误',
+        message: oauthError.errorDescription || error.message || '未知错误',
         code: errorCode
       },
       { status: statusCode }

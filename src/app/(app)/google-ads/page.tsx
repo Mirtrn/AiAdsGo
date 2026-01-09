@@ -86,6 +86,27 @@ export default function GoogleAdsPage() {
     return msg ? msg : null
   }
 
+  const safeReadJson = async (response: Response): Promise<any | null> => {
+    try {
+      return await response.json()
+    } catch {
+      return null
+    }
+  }
+
+  const buildApiErrorMessage = (response: Response, body: any | null): string => {
+    const msgFromBody =
+      formatNullableErrorMessage(body?.message) ||
+      formatNullableErrorMessage(body?.error)
+
+    if (msgFromBody) return msgFromBody
+
+    // 兜底：尽量给出可操作提示
+    if (response.status === 401) return '未登录或登录已过期，请刷新页面或重新登录'
+    if (response.status === 403) return '权限不足'
+    return `请求失败 (HTTP ${response.status})`
+  }
+
   useEffect(() => {
     if (!searchParams) return
 
@@ -121,7 +142,8 @@ export default function GoogleAdsPage() {
       })
 
       if (!response.ok) {
-        throw new Error('获取凭证状态失败')
+        const errorData = await safeReadJson(response)
+        throw new Error(buildApiErrorMessage(response, errorData) || '获取凭证状态失败')
       }
 
       const data = await response.json()
@@ -191,15 +213,15 @@ export default function GoogleAdsPage() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
+        const errorData = await safeReadJson(response)
 
         // 检测OAuth授权过期错误
-        if (errorData.needsReauth || errorData.code === 'OAUTH_TOKEN_EXPIRED') {
+        if (errorData?.needsReauth || errorData?.code === 'OAUTH_TOKEN_EXPIRED') {
           setNeedsReauth(true)
           throw new Error('OAuth授权已过期')
         }
 
-        throw new Error(formatErrorMessage(errorData?.message) || '获取账户列表失败')
+        throw new Error(buildApiErrorMessage(response, errorData) || '获取账户列表失败')
       }
 
       const data = await response.json()
@@ -265,15 +287,15 @@ export default function GoogleAdsPage() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
+        const errorData = await safeReadJson(response)
 
         // 检测OAuth授权过期错误
-        if (errorData.needsReauth || errorData.code === 'OAUTH_TOKEN_EXPIRED') {
+        if (errorData?.needsReauth || errorData?.code === 'OAUTH_TOKEN_EXPIRED') {
           setNeedsReauth(true)
           throw new Error('OAuth授权已过期')
         }
 
-        throw new Error(formatErrorMessage(errorData?.message) || '获取账户列表失败')
+        throw new Error(buildApiErrorMessage(response, errorData) || '获取账户列表失败')
       }
 
       const data = await response.json()
