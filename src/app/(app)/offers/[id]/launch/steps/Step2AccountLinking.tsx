@@ -13,7 +13,7 @@
  * 优先级排序：当前Offer已用 > 同品牌Offer已用 > 未使用
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -98,16 +98,26 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
   const [selectedId, setSelectedId] = useState<string | null>(selectedAccount?.customerId || null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const refreshPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [hasCredentials, setHasCredentials] = useState(false)
   const [isCached, setIsCached] = useState(false)
   const [cacheStale, setCacheStale] = useState(false)
   const [refreshFailed, setRefreshFailed] = useState(false)
+  const [refreshInProgress, setRefreshInProgress] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [showGuideDialog, setShowGuideDialog] = useState(false)
 
   useEffect(() => {
     checkCredentials()
     fetchAccounts()
+
+    return () => {
+      if (refreshPollTimerRef.current) {
+        clearTimeout(refreshPollTimerRef.current)
+        refreshPollTimerRef.current = null
+      }
+    }
   }, [])
 
   const checkCredentials = async () => {
@@ -125,11 +135,18 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
     }
   }
 
-  const fetchAccounts = async (forceRefresh: boolean = false) => {
+  const scheduleRefreshPoll = () => {
+    if (refreshPollTimerRef.current) clearTimeout(refreshPollTimerRef.current)
+    refreshPollTimerRef.current = setTimeout(() => {
+      fetchAccounts(false, true)
+    }, 2000)
+  }
+
+  const fetchAccounts = async (forceRefresh: boolean = false, isPoll: boolean = false) => {
     try {
       if (forceRefresh) {
         setRefreshing(true)
-      } else {
+      } else if (!isPoll) {
         setLoading(true)
       }
       setRefreshFailed(false)
@@ -148,6 +165,10 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
         offerId: offer.id.toString(),
         auth_type: authType,
       })
+      // async 刷新：先返回缓存/部分结果，后台继续同步，前端通过轮询逐步更新
+      if (forceRefresh) {
+        params.append('async', 'true')
+      }
       if (serviceAccountId) {
         params.append('service_account_id', serviceAccountId)
       }
@@ -168,6 +189,8 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
         setCacheStale(Boolean(data.data.cacheStale))
         setRefreshFailed(Boolean(data.data.refreshFailed))
         setLastSyncAt(data.data.lastSyncAt || null)
+        setRefreshInProgress(Boolean(data.data.refreshInProgress))
+        setRefreshError(data.data.refreshError || null)
 
         const allAccounts = data.data.accounts as GoogleAdsAccount[]
 
@@ -192,7 +215,19 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
         setAccounts(availableAccounts)
 
         if (forceRefresh) {
-          showSuccess('已刷新', `已同步 ${allAccounts.length} 个账号`)
+          if (data.data.refreshInProgress) {
+            showSuccess('已开始刷新', '后台同步中，列表将自动更新')
+            scheduleRefreshPoll()
+          } else {
+            showSuccess('已刷新', `已同步 ${allAccounts.length} 个账号`)
+            setRefreshing(false)
+          }
+        } else if (isPoll) {
+          if (data.data.refreshInProgress) {
+            scheduleRefreshPoll()
+          } else {
+            setRefreshing(false)
+          }
         }
       } else {
         setAccounts([])
@@ -200,9 +235,13 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
     } catch (error: any) {
       console.error('获取账号列表失败:', error)
       showError('加载失败', error.message || '获取账号列表失败')
-    } finally {
-      setLoading(false)
       setRefreshing(false)
+      setRefreshInProgress(false)
+      setRefreshError(null)
+    } finally {
+      if (!isPoll) {
+        setLoading(false)
+      }
     }
   }
 

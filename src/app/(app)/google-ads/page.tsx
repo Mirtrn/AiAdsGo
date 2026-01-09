@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 interface GoogleAdsAccount {
@@ -52,6 +52,9 @@ export default function GoogleAdsPage() {
   const [credentials, setCredentials] = useState<Credentials | null>(null)
   const [loading, setLoading] = useState(true)
   const [accountsLoading, setAccountsLoading] = useState(false)
+  const [accountsSyncing, setAccountsSyncing] = useState(false)
+  const [accountsSyncError, setAccountsSyncError] = useState<string | null>(null)
+  const accountsPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [needsReauth, setNeedsReauth] = useState(false)  // 是否需要重新授权
@@ -82,6 +85,15 @@ export default function GoogleAdsPage() {
 
     fetchCredentials()
   }, [searchParams, router])
+
+  useEffect(() => {
+    return () => {
+      if (accountsPollTimerRef.current) {
+        clearTimeout(accountsPollTimerRef.current)
+        accountsPollTimerRef.current = null
+      }
+    }
+  }, [])
 
   const fetchCredentials = async () => {
     try {
@@ -114,6 +126,17 @@ export default function GoogleAdsPage() {
     }
   }
 
+  const scheduleAccountsPoll = (mode: 'oauth' | 'service_account', serviceAccountId?: string | null) => {
+    if (accountsPollTimerRef.current) clearTimeout(accountsPollTimerRef.current)
+    accountsPollTimerRef.current = setTimeout(() => {
+      if (mode === 'service_account') {
+        if (serviceAccountId) fetchAccountsWithServiceAccount(serviceAccountId, false, true)
+      } else {
+        fetchAccounts(false, true)
+      }
+    }, 2000)
+  }
+
   // 获取服务账号配置
   const fetchServiceAccounts = async () => {
     try {
@@ -137,11 +160,12 @@ export default function GoogleAdsPage() {
   }
 
   // 使用服务账号获取账户
-  const fetchAccountsWithServiceAccount = async (serviceAccountId: string, forceRefresh = false) => {
+  const fetchAccountsWithServiceAccount = async (serviceAccountId: string, forceRefresh = false, isPoll = false) => {
     try {
-      setAccountsLoading(true)
+      if (!isPoll && !forceRefresh) setAccountsLoading(true)
+      if (forceRefresh) setAccountsSyncing(true)
       const url = forceRefresh
-        ? `/api/google-ads/credentials/accounts?refresh=true&auth_type=service_account&service_account_id=${serviceAccountId}`
+        ? `/api/google-ads/credentials/accounts?refresh=true&async=true&auth_type=service_account&service_account_id=${serviceAccountId}`
         : `/api/google-ads/credentials/accounts?auth_type=service_account&service_account_id=${serviceAccountId}`
       const response = await fetch(url, {
         credentials: 'include',
@@ -162,6 +186,8 @@ export default function GoogleAdsPage() {
       const data = await response.json()
 
       if (data.success && data.data) {
+        setAccountsSyncError(data.data.refreshError || null)
+        setAccountsSyncing(Boolean(data.data.refreshInProgress))
         // 处理账号数据，添加 parentMccName
         const allAccounts = data.data.accounts || []
         const mccMap = new Map<string, string>()
@@ -187,21 +213,32 @@ export default function GoogleAdsPage() {
         if (allAccounts.length > 0 && allAccounts[0].lastSyncAt) {
           setLastSyncAt(allAccounts[0].lastSyncAt)
         }
+
+        if (forceRefresh || isPoll) {
+          if (data.data.refreshInProgress) {
+            scheduleAccountsPoll('service_account', serviceAccountId)
+          } else {
+            setAccountsSyncing(false)
+          }
+        }
       }
     } catch (err: any) {
       console.error('获取账户列表失败:', err)
       setError(err.message || '获取账户列表失败')
+      setAccountsSyncing(false)
+      setAccountsSyncError(null)
     } finally {
-      setAccountsLoading(false)
+      if (!isPoll && !forceRefresh) setAccountsLoading(false)
     }
   }
 
   // OAuth模式获取账户列表
-  const fetchAccounts = async (forceRefresh = false) => {
+  const fetchAccounts = async (forceRefresh = false, isPoll = false) => {
     try {
-      setAccountsLoading(true)
+      if (!isPoll && !forceRefresh) setAccountsLoading(true)
+      if (forceRefresh) setAccountsSyncing(true)
       const url = forceRefresh
-        ? '/api/google-ads/credentials/accounts?refresh=true'
+        ? '/api/google-ads/credentials/accounts?refresh=true&async=true'
         : '/api/google-ads/credentials/accounts'
       const response = await fetch(url, {
         credentials: 'include',
@@ -222,6 +259,8 @@ export default function GoogleAdsPage() {
       const data = await response.json()
 
       if (data.success && data.data) {
+        setAccountsSyncError(data.data.refreshError || null)
+        setAccountsSyncing(Boolean(data.data.refreshInProgress))
         // 处理账号数据，添加 parentMccName
         const allAccounts = data.data.accounts || []
         const mccMap = new Map<string, string>()
@@ -247,12 +286,22 @@ export default function GoogleAdsPage() {
         if (allAccounts.length > 0 && allAccounts[0].lastSyncAt) {
           setLastSyncAt(allAccounts[0].lastSyncAt)
         }
+
+        if (forceRefresh || isPoll) {
+          if (data.data.refreshInProgress) {
+            scheduleAccountsPoll('oauth')
+          } else {
+            setAccountsSyncing(false)
+          }
+        }
       }
     } catch (err: any) {
       console.error('获取账户列表失败:', err)
       setError(err.message || '获取账户列表失败')
+      setAccountsSyncing(false)
+      setAccountsSyncError(null)
     } finally {
-      setAccountsLoading(false)
+      if (!isPoll && !forceRefresh) setAccountsLoading(false)
     }
   }
 
@@ -263,7 +312,7 @@ export default function GoogleAdsPage() {
     // 🔧 优化：服务账号模式下每次刷新都重新获取最新的服务账号配置
     if (currentAuthType === 'service_account') {
       try {
-        setAccountsLoading(true)
+        setAccountsSyncing(true)
         // 重新获取最新的服务账号
         const saResponse = await fetch('/api/google-ads/service-account', {
           credentials: 'include',
@@ -287,7 +336,7 @@ export default function GoogleAdsPage() {
       } catch (err: any) {
         console.error('刷新账户列表失败:', err)
         setError(err.message || '刷新账户列表失败')
-        setAccountsLoading(false)
+        setAccountsSyncing(false)
       }
     } else {
       // OAuth模式
@@ -414,10 +463,10 @@ export default function GoogleAdsPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleRefreshAccounts}
-                disabled={accountsLoading || !isConfigured}
+                disabled={accountsLoading || accountsSyncing || !isConfigured}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {accountsLoading ? '刷新中...' : '刷新账户列表'}
+                {accountsSyncing ? '同步中...' : accountsLoading ? '加载中...' : '刷新账户列表'}
               </button>
             </div>
           </div>
@@ -483,6 +532,12 @@ export default function GoogleAdsPage() {
             </div>
           )}
 
+          {accountsSyncError && (
+            <div className="mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
+              同步失败：{accountsSyncError}
+            </div>
+          )}
+
           {success && (
             <div className="mb-4 bg-green-50 border border-green-400 text-green-700 px-4 py-3 rounded">
               {success}
@@ -534,7 +589,7 @@ export default function GoogleAdsPage() {
                 )}
               </div>
 
-              {accountsLoading ? (
+              {accountsLoading && accounts.length === 0 ? (
                 <div className="text-center py-12 bg-white rounded-lg shadow">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
                   <p className="mt-4 text-gray-600">加载账户列表...</p>

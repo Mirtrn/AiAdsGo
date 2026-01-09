@@ -139,6 +139,44 @@ interface CachedAccount {
 
 const GOOGLE_ADS_ACCOUNTS_CACHE_MAX_AGE_MS = 60 * 60 * 1000 // 1小时：避免发布流程使用到过期账号信息
 
+// ==========================
+// Async refresh state (memory)
+// ==========================
+// 用于“先返回缓存/部分结果、后台继续同步”的体验优化。
+// 注意：这是进程内状态，适用于单实例或粘性会话；多实例场景需要改为DB/Redis存储。
+type AccountSyncState = {
+  status: 'running' | 'completed' | 'failed'
+  startedAtMs: number
+  updatedAtMs: number
+  errorMessage?: string
+}
+
+const ACCOUNT_SYNC_STATE_TTL_MS = 10 * 60 * 1000
+
+function getAccountSyncStateStore(): Map<string, AccountSyncState> {
+  const g = globalThis as any
+  if (!g.__googleAdsAccountSyncStates) {
+    g.__googleAdsAccountSyncStates = new Map<string, AccountSyncState>()
+  }
+  return g.__googleAdsAccountSyncStates as Map<string, AccountSyncState>
+}
+
+function cleanupExpiredSyncStates(store: Map<string, AccountSyncState>) {
+  const now = Date.now()
+  for (const [key, state] of store.entries()) {
+    const age = now - (state.updatedAtMs || state.startedAtMs)
+    if (age > ACCOUNT_SYNC_STATE_TTL_MS) store.delete(key)
+  }
+}
+
+function buildSyncKey(params: {
+  userId: number
+  authType: 'oauth' | 'service_account'
+  serviceAccountId?: string | null
+}): string {
+  return `${params.userId}:${params.authType}:${params.serviceAccountId || ''}`
+}
+
 function parseDbTimestampToMs(value: string | null | undefined) {
   if (!value) return NaN
   // SQLite datetime('now') 常见格式：'YYYY-MM-DD HH:mm:ss'（UTC，无时区标记）
@@ -1086,11 +1124,12 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const forceRefresh = searchParams.get('refresh') === 'true'
+    const asyncRefresh = searchParams.get('async') === 'true'
     const offerId = searchParams.get('offerId') ? parseInt(searchParams.get('offerId')!, 10) : null
     const authType = (searchParams.get('auth_type') as 'oauth' | 'service_account') || 'oauth'
     const serviceAccountId = searchParams.get('service_account_id')
 
-    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}, offerId=${offerId}, authType=${authType}`)
+    console.log(`🔍 [GET /api/google-ads/credentials/accounts] forceRefresh=${forceRefresh}, asyncRefresh=${asyncRefresh}, offerId=${offerId}, authType=${authType}`)
 
     let credentials: any = null
     let serviceAccountConfig: any = null
@@ -1163,6 +1202,12 @@ export async function GET(request: NextRequest) {
 
     let allAccounts: any[]
 
+    const syncStore = getAccountSyncStateStore()
+    cleanupExpiredSyncStates(syncStore)
+    const syncKey = buildSyncKey({ userId, authType, serviceAccountId })
+    const syncState = syncStore.get(syncKey)
+    const refreshInProgress = syncState?.status === 'running'
+
     // 检查缓存
     const cachedAccounts = await getCachedAccounts(userId)
     const latestSyncAtMs = getLatestSyncAtMs(cachedAccounts)
@@ -1209,7 +1254,37 @@ export async function GET(request: NextRequest) {
     let refreshFailed = false
     let effectiveLastSyncAtIso: string | null = Number.isNaN(latestSyncAtMs) ? null : new Date(latestSyncAtMs).toISOString()
 
-    if (!forceRefresh && cachedAccounts.length > 0) {
+    if (forceRefresh && asyncRefresh) {
+      // 异步刷新：立即返回缓存（或空列表），后台继续同步，前端可通过轮询拿到逐步写入的账号数据
+      usedCache = true
+      allAccounts = cachedAccounts.length > 0 ? mapCachedAccounts() : []
+
+      if (!refreshInProgress) {
+        syncStore.set(syncKey, {
+          status: 'running',
+          startedAtMs: Date.now(),
+          updatedAtMs: Date.now(),
+        })
+
+        void (async () => {
+          try {
+            await syncAccountsFromAPI(userId, credentials, authType, serviceAccountConfig)
+            syncStore.set(syncKey, {
+              status: 'completed',
+              startedAtMs: syncStore.get(syncKey)?.startedAtMs || Date.now(),
+              updatedAtMs: Date.now(),
+            })
+          } catch (err: any) {
+            syncStore.set(syncKey, {
+              status: 'failed',
+              startedAtMs: syncStore.get(syncKey)?.startedAtMs || Date.now(),
+              updatedAtMs: Date.now(),
+              errorMessage: err?.message || String(err),
+            })
+          }
+        })()
+      }
+    } else if (!forceRefresh && cachedAccounts.length > 0) {
       // 使用缓存数据（即使缓存已过期也先返回，避免请求阻塞/网关超时；由 refresh=true 显式触发同步）
       usedCache = true
       console.log(`✅ 使用缓存的 ${cachedAccounts.length} 个账号 (ageMs=${cacheAgeMs})`)
@@ -1398,6 +1473,7 @@ export async function GET(request: NextRequest) {
     })
 
     // 🔧 修复(2025-12-12): 简化响应，移除共享配置相关信息
+    const finalSyncState = syncStore.get(syncKey)
     return NextResponse.json({
       success: true,
       data: {
@@ -1406,6 +1482,9 @@ export async function GET(request: NextRequest) {
         cached: usedCache,
         cacheStale: usedCache ? cacheStaleBeforeRefresh : false,
         refreshFailed,
+        refreshInProgress: finalSyncState?.status === 'running',
+        refreshError: finalSyncState?.status === 'failed' ? (finalSyncState.errorMessage || null) : null,
+        refreshStartedAt: finalSyncState?.startedAtMs ? new Date(finalSyncState.startedAtMs).toISOString() : null,
         lastSyncAt: effectiveLastSyncAtIso,
         loginCustomerId: loginCustomerId,
         authType: authType,
