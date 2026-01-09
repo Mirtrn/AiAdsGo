@@ -155,6 +155,15 @@ export interface IndependentStoreData {
     avgReviews: number
     topProductsCount: number
   }
+  // 🆕 产品分类（独立站店铺理解，与Amazon Store对齐）
+  productCategories?: {
+    primaryCategories: Array<{
+      name: string
+      count: number
+      url?: string
+    }>
+    totalCategories: number
+  }
   // 🔥 新增：深度抓取结果（热销商品详情页数据）
   deepScrapeResults?: {
     topProducts: Array<{

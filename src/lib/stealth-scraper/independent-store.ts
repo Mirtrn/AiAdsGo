@@ -251,6 +251,25 @@ export async function scrapeIndependentStoreDeep(
 
   console.log(`📊 深度抓取完成: 成功 ${deepResults.successCount}/${deepResults.totalScraped}`)
 
+  // 4.5. 聚合产品分类（用于Offer“产品分类”展示/筛选）
+  // 说明：独立站店铺页往往缺少统一的分类结构，这里优先从深度抓取到的商品详情 category 汇总。
+  const categoryCounts = new Map<string, number>()
+  for (const item of deepResults.topProducts) {
+    const category = item.productData?.category
+    if (typeof category !== 'string') continue
+    const normalized = category.trim()
+    if (!normalized) continue
+    categoryCounts.set(normalized, (categoryCounts.get(normalized) || 0) + 1)
+  }
+
+  const productCategories = categoryCounts.size > 0 ? {
+    primaryCategories: Array.from(categoryCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([name, count]) => ({ name, count })),
+    totalCategories: categoryCounts.size,
+  } : undefined
+
   // 4. 更新产品列表，添加从深度抓取获取的rating和reviewCount
   const enhancedProducts = storeData.products.map((product, index) => {
     const deepProduct = deepResults.topProducts.find(dp => dp.productUrl === product.productUrl)
@@ -289,6 +308,7 @@ export async function scrapeIndependentStoreDeep(
     ...storeData,
     products: productsWithScores,
     hotInsights,
+    ...(productCategories ? { productCategories } : {}),
     deepScrapeResults: deepResults
   }
 }

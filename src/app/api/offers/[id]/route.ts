@@ -65,6 +65,19 @@ export async function GET(
     )
     const scrapedStoreDescription = pickNonEmptyString(scrapedData?.storeDescription)
 
+    // 🔥 修复：历史数据可能错误写入 page_type=product（实际上是店铺）
+    // 规则：如果 scraped_data 体现“店铺结构”（storeName/products/deepScrapeResults），则详情页按店铺展示
+    const pageTypeFromScrapedData = (() => {
+      if (!scrapedData || typeof scrapedData !== 'object') return null
+      const productsLen = Array.isArray(scrapedData.products) ? scrapedData.products.length : 0
+      const hasStoreName = typeof scrapedData.storeName === 'string' && scrapedData.storeName.trim().length > 0
+      const hasDeep = !!scrapedData.deepScrapeResults
+      const explicit = typeof scrapedData.pageType === 'string' ? scrapedData.pageType : null
+      if (explicit === 'store' || explicit === 'product') return explicit
+      if (hasStoreName || hasDeep || productsLen >= 2) return 'store'
+      return null
+    })()
+
     return NextResponse.json({
       success: true,
       offer: {
@@ -99,7 +112,7 @@ export async function GET(
         reviewAnalysis: offer.review_analysis,
         competitorAnalysis: offer.competitor_analysis,
         // 链接类型（店铺/单品）
-        pageType: offer.page_type || 'product',
+        pageType: pageTypeFromScrapedData || offer.page_type || 'product',
       },
     })
   } catch (error: any) {

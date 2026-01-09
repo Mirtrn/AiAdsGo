@@ -390,6 +390,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     let scrapingError: string | null = null  // 🔥 新增：记录抓取错误
     let proxyApiUrl: string | null = null
     let brandSearchSupplement: BrandSearchSupplement | null = null
+    let isIndependentStore = false
 
     try {
       // 🔥 验证finalUrl有效性
@@ -398,7 +399,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       }
 
       // 检测是否为独立站店铺首页
-      const isIndependentStore = !isAmazonStore && !isAmazonProductPage && (() => {
+      isIndependentStore = !isAmazonStore && !isAmazonProductPage && (() => {
         try {
           const urlObj = new URL(resolvedData.finalUrl)
           const pathname = urlObj.pathname
@@ -414,7 +415,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         // 店铺首页特征：根路径、collections、shop等
         const isStorePage =
           pathname === '/' ||
-          pathname.match(/^\/(collections|shop|store|category|catalogue)(\/.+)?$/i) ||
+          !!pathname.match(/^\/(collections|shop|store|category|catalogue)(\/.+)?$/i) ||
           pathname.split('/').filter(Boolean).length <= 1
 
         return !isSingleProductPage && isStorePage
@@ -701,6 +702,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           logoUrl: independentStoreData.logoUrl,
           platform: independentStoreData.platform,
           hotInsights: independentStoreData.hotInsights,  // 🔥 新增：热销洞察
+          productCategories: (independentStoreData as any).productCategories,
           deepScrapeResults: independentStoreData.deepScrapeResults,  // 🔥 新增：深度抓取结果
         }),
 
@@ -715,7 +717,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         proxyUsed: resolvedData.proxyUsed || null,
 
         // 🔥 页面类型标识（根据isAmazonStore判断）
-        pageType: isAmazonStore ? 'store' : 'product',
+        pageType: (isAmazonStore || isIndependentStore) ? 'store' : 'product',
 
         // 调试信息
         debug: {
@@ -723,7 +725,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           brandAutoDetected: !!brandName,
           isAmazonStore: pageTypeByFinalUrl.isAmazonStore,  // ✅ 修复：基于URL模式判断
           isAmazonProductPage: pageTypeByFinalUrl.isAmazonProductPage,  // ✅ 修复：基于URL模式判断
-          isIndependentStore: !pageTypeByFinalUrl.isAmazonStore && !pageTypeByFinalUrl.isAmazonProductPage,  // ✅ 修复：基于URL模式判断
+          isIndependentStore,  // ✅ 修复：区分独立站店铺/单品
           productsExtracted: productCount,
           scrapeMethod: isAmazonStore ? 'playwright-store' :
                         amazonProductData ? 'playwright-product' :

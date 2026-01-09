@@ -73,6 +73,23 @@ export function deriveCategoryFromScrapedData(scrapedDataJson: string | null | u
     }
   }
 
+  // Store pages fallback: derive from deep-scraped product categories when store-level categories are missing.
+  const deepProducts = (parsed as any)?.deepScrapeResults?.topProducts
+  if (Array.isArray(deepProducts) && deepProducts.length > 0) {
+    const counts = new Map<string, number>()
+    for (const item of deepProducts) {
+      const raw = item?.productData?.category
+      if (typeof raw !== 'string') continue
+      const compact = compactCategoryLabel(raw)
+      if (!compact) continue
+      counts.set(compact, (counts.get(compact) || 0) + 1)
+    }
+    if (counts.size > 0) {
+      const [top] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
+      if (top?.[0]) return top[0]
+    }
+  }
+
   // Product pages: prefer breadcrumb category.
   const breadcrumb = (parsed as any)?.productCategory
   if (typeof breadcrumb === 'string') {
