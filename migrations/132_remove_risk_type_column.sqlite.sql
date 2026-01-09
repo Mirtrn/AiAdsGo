@@ -12,6 +12,36 @@ DROP VIEW IF EXISTS v_google_ads_accounts_boolean_integrity;
 DROP VIEW IF EXISTS v_prompt_versions_boolean_integrity;
 DROP VIEW IF EXISTS v_system_settings_boolean_integrity;
 
+-- ✅ 兼容：某些旧/异常环境可能缺少 risk_alerts 表，导致 Step 2 复制数据时报错
+-- 先确保表存在（空表也可），并补齐 risk_type/alert_type 以支持后续统一迁移逻辑
+CREATE TABLE IF NOT EXISTS risk_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  risk_type TEXT,
+  alert_type TEXT,
+  severity TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  related_type TEXT,
+  related_id INTEGER,
+  related_name TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  resolved_at TEXT,
+  resolved_by INTEGER,
+  detected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resource_type TEXT,
+  resource_id INTEGER,
+  details TEXT,
+  acknowledged_at TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (resolved_by) REFERENCES users(id)
+);
+ALTER TABLE risk_alerts ADD COLUMN risk_type TEXT;
+ALTER TABLE risk_alerts ADD COLUMN alert_type TEXT;
+UPDATE risk_alerts SET alert_type = COALESCE(alert_type, risk_type) WHERE alert_type IS NULL;
+
 -- 防御：上次失败可能遗留临时表
 DROP TABLE IF EXISTS risk_alerts_new;
 
@@ -55,7 +85,7 @@ SELECT
 FROM risk_alerts;
 
 -- Step 3: 删除旧表
-DROP TABLE risk_alerts;
+DROP TABLE IF EXISTS risk_alerts;
 
 -- Step 4: 重命名新表
 ALTER TABLE risk_alerts_new RENAME TO risk_alerts;
