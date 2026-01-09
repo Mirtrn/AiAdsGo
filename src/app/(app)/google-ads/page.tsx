@@ -68,6 +68,24 @@ export default function GoogleAdsPage() {
   const [currentServiceAccountId, setCurrentServiceAccountId] = useState<string | null>(null)
   const [currentAuthType, setCurrentAuthType] = useState<'oauth' | 'service_account'>('oauth')
 
+  const formatErrorMessage = (value: unknown): string => {
+    if (!value) return ''
+    if (typeof value === 'string') return value
+    if (value instanceof Error) return value.message
+    const maybeMessage = (value as any)?.message
+    if (typeof maybeMessage === 'string') return maybeMessage
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+
+  const formatNullableErrorMessage = (value: unknown): string | null => {
+    const msg = formatErrorMessage(value).trim()
+    return msg ? msg : null
+  }
+
   useEffect(() => {
     if (!searchParams) return
 
@@ -120,7 +138,7 @@ export default function GoogleAdsPage() {
       }
     } catch (err: any) {
       console.error('获取凭证状态失败:', err)
-      setError(err.message || '获取凭证状态失败')
+      setError(formatErrorMessage(err) || '获取凭证状态失败')
     } finally {
       setLoading(false)
     }
@@ -164,6 +182,7 @@ export default function GoogleAdsPage() {
     try {
       if (!isPoll && !forceRefresh) setAccountsLoading(true)
       if (forceRefresh) setAccountsSyncing(true)
+      if (forceRefresh) setAccountsSyncError(null)
       const url = forceRefresh
         ? `/api/google-ads/credentials/accounts?refresh=true&async=true&auth_type=service_account&service_account_id=${serviceAccountId}`
         : `/api/google-ads/credentials/accounts?auth_type=service_account&service_account_id=${serviceAccountId}`
@@ -180,13 +199,13 @@ export default function GoogleAdsPage() {
           throw new Error('OAuth授权已过期')
         }
 
-        throw new Error(errorData.message || '获取账户列表失败')
+        throw new Error(formatErrorMessage(errorData?.message) || '获取账户列表失败')
       }
 
       const data = await response.json()
 
       if (data.success && data.data) {
-        setAccountsSyncError(data.data.refreshError || null)
+        setAccountsSyncError(formatNullableErrorMessage(data.data.refreshError))
         setAccountsSyncing(Boolean(data.data.refreshInProgress))
         // 处理账号数据，添加 parentMccName
         const allAccounts = data.data.accounts || []
@@ -224,7 +243,7 @@ export default function GoogleAdsPage() {
       }
     } catch (err: any) {
       console.error('获取账户列表失败:', err)
-      setError(err.message || '获取账户列表失败')
+      setError(formatErrorMessage(err) || '获取账户列表失败')
       setAccountsSyncing(false)
       setAccountsSyncError(null)
     } finally {
@@ -237,6 +256,7 @@ export default function GoogleAdsPage() {
     try {
       if (!isPoll && !forceRefresh) setAccountsLoading(true)
       if (forceRefresh) setAccountsSyncing(true)
+      if (forceRefresh) setAccountsSyncError(null)
       const url = forceRefresh
         ? '/api/google-ads/credentials/accounts?refresh=true&async=true'
         : '/api/google-ads/credentials/accounts'
@@ -253,13 +273,13 @@ export default function GoogleAdsPage() {
           throw new Error('OAuth授权已过期')
         }
 
-        throw new Error(errorData.message || '获取账户列表失败')
+        throw new Error(formatErrorMessage(errorData?.message) || '获取账户列表失败')
       }
 
       const data = await response.json()
 
       if (data.success && data.data) {
-        setAccountsSyncError(data.data.refreshError || null)
+        setAccountsSyncError(formatNullableErrorMessage(data.data.refreshError))
         setAccountsSyncing(Boolean(data.data.refreshInProgress))
         // 处理账号数据，添加 parentMccName
         const allAccounts = data.data.accounts || []
@@ -297,7 +317,7 @@ export default function GoogleAdsPage() {
       }
     } catch (err: any) {
       console.error('获取账户列表失败:', err)
-      setError(err.message || '获取账户列表失败')
+      setError(formatErrorMessage(err) || '获取账户列表失败')
       setAccountsSyncing(false)
       setAccountsSyncError(null)
     } finally {
@@ -308,6 +328,7 @@ export default function GoogleAdsPage() {
   // 刷新账户列表（服务账号模式下会重新获取最新的服务账号配置）
   const handleRefreshAccounts = async () => {
     setError('')
+    setAccountsSyncError(null)
 
     // 🔧 优化：服务账号模式下每次刷新都重新获取最新的服务账号配置
     if (currentAuthType === 'service_account') {
@@ -335,7 +356,7 @@ export default function GoogleAdsPage() {
         }
       } catch (err: any) {
         console.error('刷新账户列表失败:', err)
-        setError(err.message || '刷新账户列表失败')
+        setError(formatErrorMessage(err) || '刷新账户列表失败')
         setAccountsSyncing(false)
       }
     } else {

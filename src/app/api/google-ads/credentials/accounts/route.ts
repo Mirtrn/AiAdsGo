@@ -100,6 +100,19 @@ type AccountSyncState = {
 
 const ACCOUNT_SYNC_STATE_TTL_MS = 10 * 60 * 1000
 
+function formatErrorMessage(value: unknown): string {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (value instanceof Error) return value.message
+  const maybeMessage = (value as any)?.message
+  if (typeof maybeMessage === 'string') return maybeMessage
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
 function getAccountSyncStateStore(): Map<string, AccountSyncState> {
   const g = globalThis as any
   if (!g.__googleAdsAccountSyncStates) {
@@ -1215,7 +1228,7 @@ export async function GET(request: NextRequest) {
               status: 'failed',
               startedAtMs: syncStore.get(syncKey)?.startedAtMs || Date.now(),
               updatedAtMs: Date.now(),
-              errorMessage: err?.message || String(err),
+              errorMessage: formatErrorMessage(err) || '同步失败',
             })
           }
         })()
