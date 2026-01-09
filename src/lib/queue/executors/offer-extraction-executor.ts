@@ -14,6 +14,7 @@ import { executeAIAnalysis } from '@/lib/ai-analysis-service'
 import { getTargetLanguage } from '@/lib/offer-utils'
 import { createOffer, updateOfferScrapeStatus } from '@/lib/offers'
 import type { BrandSearchSupplement, SerpSitelink } from '@/lib/google-brand-search'
+import { deriveCategoryFromScrapedData } from '@/lib/offer-category'
 
 function mergeUniqueStrings(primary: string[] | null | undefined, secondary: string[] | null | undefined, limit: number): string[] | null {
   const out: string[] = []
@@ -51,6 +52,79 @@ function mergeUniqueSitelinks(primary: SerpSitelink[] | null | undefined, second
     }
   }
   return out.length > 0 ? out : null
+}
+
+function pickNonEmptyString(...values: Array<unknown>): string | null {
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+  }
+  return null
+}
+
+function pickTopUniqueLines(input: unknown, limit: number): string[] {
+  if (!Array.isArray(input) || limit <= 0) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of input) {
+    if (typeof item !== 'string') continue
+    const line = item.replace(/\s+/g, ' ').trim()
+    if (!line) continue
+    const key = line.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(line)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+function deriveFallbackProductInfoFromExtractData(extractData: any): {
+  brandDescription?: string
+  uniqueSellingPoints?: string
+  productHighlights?: string
+  targetAudience?: string
+  category?: string
+} {
+  if (!extractData || typeof extractData !== 'object') return {}
+
+  const brandDescription = pickNonEmptyString(
+    extractData.productDescription,
+    extractData.storeDescription,
+    extractData.metaDescription
+  ) || undefined
+
+  const deepTopProducts = Array.isArray(extractData?.deepScrapeResults?.topProducts)
+    ? extractData.deepScrapeResults.topProducts
+    : []
+
+  const deepFeatures = deepTopProducts.flatMap((t: any) => Array.isArray(t?.productData?.features) ? t.productData.features : [])
+  const uniqueSellingPoints = pickTopUniqueLines(deepFeatures, 4).join('\n') || undefined
+  const productHighlights = pickTopUniqueLines(deepFeatures, 3).join('\n') || undefined
+
+  const category = deriveCategoryFromScrapedData(JSON.stringify(extractData)) || undefined
+
+  let targetAudience: string | undefined
+  const storeDesc = pickNonEmptyString(extractData.storeDescription)
+  if (storeDesc) {
+    const s = storeDesc.toLowerCase()
+    if (s.includes('hogar') && s.includes('empresa')) {
+      targetAudience = 'Usuarios domésticos y empresas que buscan protección de ciberseguridad.'
+    } else if (s.includes('hogar') || s.includes('familia')) {
+      targetAudience = 'Usuarios domésticos y familias que buscan protección de ciberseguridad.'
+    } else if (s.includes('empresa')) {
+      targetAudience = 'Empresas que buscan protección de ciberseguridad.'
+    }
+  }
+
+  return {
+    brandDescription,
+    uniqueSellingPoints,
+    productHighlights,
+    targetAudience,
+    category,
+  }
 }
 
 /**
@@ -296,39 +370,43 @@ export async function executeOfferExtraction(
 
     // ========== 🔥 2025-12-16重构：AI分析完成后更新Offer（增量保存第二阶段）==========
     // Offer已在提取完成后创建，这里只更新AI分析结果
-    if (createdOfferId) {
-      try {
-        // 🔥 2026-01-04修复：将AI生成的关键词持久化到offers.ai_keywords
-        // 关键词池生成依赖 ai_keywords / extracted_keywords；若不保存，独立站等场景可能出现“无可用关键词”
-        const aiKeywordSeeds: string[] | null =
-          Array.isArray((aiProductInfo as any)?.keywords) && (aiProductInfo as any).keywords.length > 0
+	    if (createdOfferId) {
+	      try {
+	        const fallbackProductInfo = deriveFallbackProductInfoFromExtractData(extractResult.data)
+
+	        // 🔥 2026-01-04修复：将AI生成的关键词持久化到offers.ai_keywords
+	        // 关键词池生成依赖 ai_keywords / extracted_keywords；若不保存，独立站等场景可能出现“无可用关键词”
+	        const aiKeywordSeeds: string[] | null =
+	          Array.isArray((aiProductInfo as any)?.keywords) && (aiProductInfo as any).keywords.length > 0
             ? (aiProductInfo as any).keywords
             : (Array.isArray(aiAnalysisResult?.extractedKeywords) && aiAnalysisResult.extractedKeywords.length > 0
                 ? aiAnalysisResult.extractedKeywords
                 : null)
 
-        await updateOfferScrapeStatus(createdOfferId, task.userId, 'completed', undefined, {
-          brand: (extractResult.data.brand || brandName) || undefined,
-          url: extractResult.data.finalUrl || undefined,
-          // 🔥 2025-12-16修复：保存final_url_suffix到数据库
-          final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
-          // 🔥 2025-12-16修复：保存product_name到数据库
-          product_name: extractResult.data.productName || undefined,
-          brand_description: aiProductInfo.brandDescription || undefined,
-          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
-            (Array.isArray(aiProductInfo.uniqueSellingPoints)
-              ? aiProductInfo.uniqueSellingPoints.join('\n')
-              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
-          product_highlights: aiProductInfo.productHighlights ?
-            (Array.isArray(aiProductInfo.productHighlights)
-              ? aiProductInfo.productHighlights.join('\n')
-              : String(aiProductInfo.productHighlights)) : undefined,
-          target_audience: aiProductInfo.targetAudience || undefined,
-          category: aiProductInfo.category || undefined,
-          review_analysis: aiAnalysisResult?.reviewAnalysis ?
-            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
-          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
-            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
+	        await updateOfferScrapeStatus(createdOfferId, task.userId, 'completed', undefined, {
+	          brand: (extractResult.data.brand || brandName) || undefined,
+	          url: extractResult.data.finalUrl || undefined,
+	          // 🔥 2025-12-16修复：保存final_url_suffix到数据库
+	          final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
+	          // 🔥 2025-12-16修复：保存product_name到数据库
+	          product_name: extractResult.data.productName || undefined,
+	          brand_description: aiProductInfo.brandDescription || fallbackProductInfo.brandDescription || undefined,
+	          unique_selling_points: aiProductInfo.uniqueSellingPoints ?
+	            (Array.isArray(aiProductInfo.uniqueSellingPoints)
+	              ? aiProductInfo.uniqueSellingPoints.join('\n')
+	              : String(aiProductInfo.uniqueSellingPoints)) : undefined,
+	          product_highlights: aiProductInfo.productHighlights ?
+	            (Array.isArray(aiProductInfo.productHighlights)
+	              ? aiProductInfo.productHighlights.join('\n')
+	              : String(aiProductInfo.productHighlights)) : undefined,
+	          ...(aiProductInfo.uniqueSellingPoints ? {} : { unique_selling_points: fallbackProductInfo.uniqueSellingPoints }),
+	          ...(aiProductInfo.productHighlights ? {} : { product_highlights: fallbackProductInfo.productHighlights }),
+	          target_audience: aiProductInfo.targetAudience || fallbackProductInfo.targetAudience || undefined,
+	          category: aiProductInfo.category || fallbackProductInfo.category || undefined,
+	          review_analysis: aiAnalysisResult?.reviewAnalysis ?
+	            JSON.stringify(aiAnalysisResult.reviewAnalysis) : undefined,
+	          competitor_analysis: aiAnalysisResult?.competitorAnalysis ?
+	            JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
           extracted_keywords: aiAnalysisResult?.extractedKeywords ?
             JSON.stringify(aiAnalysisResult.extractedKeywords) : undefined,
           extracted_headlines: mergedExtractedHeadlines ?

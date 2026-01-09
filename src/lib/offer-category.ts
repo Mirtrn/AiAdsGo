@@ -36,6 +36,13 @@ function isNoiseCategorySegment(segment: string): boolean {
   const noise = new Set([
     'home',
     'homepage',
+    'inicio',
+    'accueil',
+    'start',
+    'index',
+    '首页',
+    '主页',
+    'home page',
     'all',
     'all departments',
     'departments',
@@ -55,6 +62,79 @@ function isNoiseCategorySegment(segment: string): boolean {
   return false
 }
 
+function normalizeTextForCategory(input: string): string {
+  return input
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+}
+
+function isGenericStoreCategoryLabel(label: string): boolean {
+  const s = normalizeTextForCategory(label).trim()
+  if (!s) return true
+  if (isNoiseCategorySegment(s)) return true
+
+  const generic = [
+    'productos',
+    'productos domesticos',
+    'productos del hogar',
+    'hogar',
+    'inicio',
+  ]
+  if (generic.includes(s)) return true
+
+  if (s.startsWith('productos') && (s.includes('domestic') || s.includes('hogar'))) return true
+
+  return false
+}
+
+function deriveCategoryFromTextSignals(parsed: any): string | null {
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const textParts: string[] = []
+  const push = (v: unknown) => {
+    if (typeof v !== 'string') return
+    const t = v.trim()
+    if (t) textParts.push(t)
+  }
+
+  push(parsed.metaTitle)
+  push(parsed.metaDescription)
+  push(parsed.pageTitle)
+  push(parsed.storeDescription)
+  push(parsed.productDescription)
+  push(parsed.productName)
+  push(parsed.productCategory)
+
+  if (Array.isArray(parsed.products)) {
+    for (const p of parsed.products) push(p?.name)
+  }
+
+  const deepTop = parsed?.deepScrapeResults?.topProducts
+  if (Array.isArray(deepTop)) {
+    for (const item of deepTop) {
+      const pd = item?.productData
+      push(pd?.productName)
+      push(pd?.productDescription)
+      if (Array.isArray(pd?.features)) {
+        for (const f of pd.features) push(f)
+      }
+    }
+  }
+
+  const text = normalizeTextForCategory(textParts.join('\n'))
+  if (!text) return null
+
+  if (/(\\bantivirus\\b|malware|ransomware|phishing|spyware|rootkit|ciberseguridad|cybersecurity)/.test(text)) {
+    return 'Antivirus'
+  }
+  if (/(\\bvpn\\b|virtual private network)/.test(text)) {
+    return 'VPN'
+  }
+
+  return null
+}
+
 export function deriveCategoryFromScrapedData(scrapedDataJson: string | null | undefined): string | null {
   if (!scrapedDataJson) return null
 
@@ -64,12 +144,17 @@ export function deriveCategoryFromScrapedData(scrapedDataJson: string | null | u
   // Store pages: prefer aggregated primary categories if available.
   const primaryCategories = (parsed as any)?.productCategories?.primaryCategories
   if (Array.isArray(primaryCategories) && primaryCategories.length > 0) {
-    const top = [...primaryCategories]
+    const sorted = [...primaryCategories]
       .filter((c) => c && typeof c.name === 'string' && c.name.trim())
-      .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))[0]
-    if (top?.name) {
-      const compact = compactCategoryLabel(top.name)
-      if (compact) return compact
+      .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
+
+    for (const item of sorted) {
+      const name = item?.name
+      if (typeof name !== 'string' || !name.trim()) continue
+      const compact = compactCategoryLabel(name)
+      if (!compact) continue
+      if (isGenericStoreCategoryLabel(compact)) continue
+      return compact
     }
   }
 
@@ -82,6 +167,7 @@ export function deriveCategoryFromScrapedData(scrapedDataJson: string | null | u
       if (typeof raw !== 'string') continue
       const compact = compactCategoryLabel(raw)
       if (!compact) continue
+      if (isGenericStoreCategoryLabel(compact)) continue
       counts.set(compact, (counts.get(compact) || 0) + 1)
     }
     if (counts.size > 0) {
@@ -103,6 +189,9 @@ export function deriveCategoryFromScrapedData(scrapedDataJson: string | null | u
     const compact = compactCategoryLabel(category)
     if (compact) return compact
   }
+
+  const inferred = deriveCategoryFromTextSignals(parsed)
+  if (inferred) return inferred
 
   return null
 }

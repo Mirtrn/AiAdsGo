@@ -22,6 +22,79 @@ function pickNonEmptyString(...values: Array<unknown>): string | null {
   return null
 }
 
+function pickTopLines(input: unknown, limit: number): string[] {
+  if (!Array.isArray(input) || limit <= 0) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of input) {
+    if (typeof item !== 'string') continue
+    const line = item.replace(/\s+/g, ' ').trim()
+    if (!line) continue
+    const key = line.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(line)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+function buildStoreDescriptionFromScrapedData(scrapedData: any): {
+  brandDescription: string | null
+  uniqueSellingPoints: string | null
+  productHighlights: string | null
+  targetAudience: string | null
+} {
+  if (!scrapedData || typeof scrapedData !== 'object') {
+    return { brandDescription: null, uniqueSellingPoints: null, productHighlights: null, targetAudience: null }
+  }
+
+  const storeDescription = pickNonEmptyString(
+    scrapedData.storeDescription,
+    scrapedData.productDescription,
+    scrapedData.metaDescription
+  )
+
+  const deepTopProducts = Array.isArray(scrapedData?.deepScrapeResults?.topProducts)
+    ? scrapedData.deepScrapeResults.topProducts
+    : []
+
+  const productDescriptions = deepTopProducts
+    .map((t: any) => pickNonEmptyString(t?.productData?.productDescription))
+    .filter((v: any): v is string => typeof v === 'string' && v.trim().length > 0)
+
+  const features = deepTopProducts.flatMap((t: any) => Array.isArray(t?.productData?.features) ? t.productData.features : [])
+  const uniqueSellingPointsLines = pickTopLines(features, 4)
+  const productHighlightsLines = pickTopLines(features, 3)
+
+  const brandParts: string[] = []
+  if (storeDescription) brandParts.push(storeDescription)
+  for (const desc of productDescriptions) {
+    if (!brandParts.includes(desc)) brandParts.push(desc)
+    if (brandParts.length >= 3) break
+  }
+  const brandDescription = brandParts.length > 0 ? brandParts.join('\n\n').slice(0, 1600).trim() : null
+
+  let targetAudience: string | null = null
+  if (storeDescription) {
+    const s = storeDescription.toLowerCase()
+    if (s.includes('hogar') && s.includes('empresa')) {
+      targetAudience = 'Usuarios domésticos y empresas que buscan protección de ciberseguridad.'
+    } else if (s.includes('hogar') || s.includes('familia')) {
+      targetAudience = 'Usuarios domésticos y familias que buscan protección de ciberseguridad.'
+    } else if (s.includes('empresa')) {
+      targetAudience = 'Empresas que buscan protección de ciberseguridad.'
+    }
+  }
+
+  return {
+    brandDescription,
+    uniqueSellingPoints: uniqueSellingPointsLines.length > 0 ? uniqueSellingPointsLines.join('\n') : null,
+    productHighlights: productHighlightsLines.length > 0 ? productHighlightsLines.join('\n') : null,
+    targetAudience,
+  }
+}
+
 /**
  * GET /api/offers/:id
  * 获取单个Offer
@@ -56,7 +129,7 @@ export async function GET(
     const categorySource = categoryFromScrape ? 'scraped_data' : (categoryFromStored ? 'category' : null)
 
     // 🔥 修复：部分生产Offer没有写入 brand_description/product_highlights 等字段
-    // 但 scraped_data 中已有 productDescription/storeDescription，详情页“产品描述”会显示为空
+    // 但 scraped_data 中已有 storeDescription / deepScrapeResults，可用于详情页展示兜底
     const scrapedData = safeParseJson<any>(offer.scraped_data)
     const scrapedProductDescription = pickNonEmptyString(
       scrapedData?.productDescription,
@@ -64,6 +137,7 @@ export async function GET(
       scrapedData?.metaDescription
     )
     const scrapedStoreDescription = pickNonEmptyString(scrapedData?.storeDescription)
+    const storeDerived = buildStoreDescriptionFromScrapedData(scrapedData)
 
     // 🔥 修复：历史数据可能错误写入 page_type=product（实际上是店铺）
     // 规则：如果 scraped_data 体现“店铺结构”（storeName/products/deepScrapeResults），则详情页按店铺展示
@@ -91,10 +165,10 @@ export async function GET(
         targetCountry: offer.target_country,
         targetLanguage: offer.target_language, // 🔧 修复(2025-12-11): 添加target_language字段
         affiliateLink: offer.affiliate_link,
-        brandDescription: offer.brand_description || scrapedStoreDescription,
-        uniqueSellingPoints: offer.unique_selling_points,
-        productHighlights: offer.product_highlights || scrapedProductDescription,
-        targetAudience: offer.target_audience,
+        brandDescription: offer.brand_description || storeDerived.brandDescription || scrapedStoreDescription,
+        uniqueSellingPoints: offer.unique_selling_points || storeDerived.uniqueSellingPoints,
+        productHighlights: offer.product_highlights || storeDerived.productHighlights || scrapedProductDescription,
+        targetAudience: offer.target_audience || storeDerived.targetAudience,
         // Final URL字段（从推广链接解析后的最终落地页）
         finalUrl: offer.final_url,
         finalUrlSuffix: offer.final_url_suffix,
