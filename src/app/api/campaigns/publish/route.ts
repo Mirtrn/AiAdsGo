@@ -112,7 +112,6 @@ export async function POST(request: NextRequest) {
       enableSmartOptimization = false,
       variantCount = 3,
       forcePublish = false, // 强制发布标志（用于绕过60-80分警告）
-      confirmAccountNotDelivering = false, // 确认继续发布（账号可发布但预计不投放，如需广告主验证）
       // 向后兼容snake_case
       offer_id,
       ad_creative_id,
@@ -122,8 +121,7 @@ export async function POST(request: NextRequest) {
       enable_campaign_immediately,
       enable_smart_optimization,
       variant_count,
-      force_publish,
-      confirm_account_not_delivering
+      force_publish
     } = body
 
     // 使用camelCase优先，兼容snake_case
@@ -136,7 +134,6 @@ export async function POST(request: NextRequest) {
     const _enableSmartOptimization = enableSmartOptimization ?? enable_smart_optimization ?? false
     const _variantCount = variantCount ?? variant_count ?? 3
     const _forcePublish = forcePublish ?? force_publish ?? false
-    const _confirmAccountNotDelivering = confirmAccountNotDelivering ?? confirm_account_not_delivering ?? false
 
     // 3. 验证必填字段
     if (!_offerId || !_googleAdsAccountId || !_campaignConfig) {
@@ -240,19 +237,16 @@ export async function POST(request: NextRequest) {
     // 6. 获取Google Ads账号信息（customer_id）
     // 🔧 确保参数类型正确：googleAdsAccountId和userId应该是数字
     // 📝 注意：db.ts的convertParams会自动处理SQLite(1/0) ↔ PostgreSQL(true/false)转换
-    const adsAccount = await db.queryOne(`
-      SELECT
-        id,
-        customer_id,
-        parent_mcc_id,
-        is_active,
-        status,
-        identity_verification_program_status,
-        identity_verification_overdue,
-        identity_verification_completion_deadline_time
-      FROM google_ads_accounts
-      WHERE id = ? AND user_id = ? AND is_active = ?
-    `, [Number(_googleAdsAccountId), Number(userId), 1]) as any
+	    const adsAccount = await db.queryOne(`
+	      SELECT
+	        id,
+	        customer_id,
+	        parent_mcc_id,
+	        is_active,
+	        status
+	      FROM google_ads_accounts
+	      WHERE id = ? AND user_id = ? AND is_active = ?
+	    `, [Number(_googleAdsAccountId), Number(userId), 1]) as any
 
     if (!adsAccount) {
       const error = createError.gadsAccountNotActive({
@@ -267,76 +261,25 @@ export async function POST(request: NextRequest) {
     // 新逻辑：多个Offer可以共享同一Ads账号，通过前端优先级排序引导用户选择
     console.log(`✅ Ads账号 ${_googleAdsAccountId} 可供Offer #${_offerId} 使用（已移除独占约束）`)
 
-    // 🔍 验证1.5：账号投放可用性检查（“可发布但不可投放”的情况需用户确认）
-    // 典型场景：Google Ads 后台提示 “Account paused...complete advertiser verification.”（Advertiser Verification）
-    const identityProgramStatus = adsAccount.identity_verification_program_status
-      ? String(adsAccount.identity_verification_program_status).toUpperCase()
-      : null
-    const identityOverdue =
-      adsAccount.identity_verification_overdue === true ||
-      adsAccount.identity_verification_overdue === 1 ||
-      adsAccount.identity_verification_overdue === '1'
-    const accountStatus = String(adsAccount.status || 'UNKNOWN').toUpperCase()
+	    const accountStatus = String(adsAccount.status || 'UNKNOWN').toUpperCase()
 
-    const isBlockedAccount = accountStatus === 'CANCELED' || accountStatus === 'CANCELLED' || accountStatus === 'CLOSED'
-    const isPublishOnlyAccount =
-      identityOverdue ||
-      (identityProgramStatus !== null && identityProgramStatus !== 'SUCCESS') ||
-      accountStatus === 'SUSPENDED' ||
-      accountStatus === 'PAUSED' ||
-      accountStatus === 'DISABLED'
+	    const isNotUsableStatus =
+	      accountStatus === 'CANCELED' ||
+	      accountStatus === 'CANCELLED' ||
+	      accountStatus === 'CLOSED' ||
+	      accountStatus === 'SUSPENDED' ||
+	      accountStatus === 'PAUSED' ||
+	      accountStatus === 'DISABLED'
 
-    if (isBlockedAccount) {
-      return NextResponse.json({
-        action: 'ACCOUNT_NOT_DELIVERING_BLOCKED',
-        message: `该 Google Ads 账号状态为 ${accountStatus}，无法用于投放。请更换其他账号。`,
-        details: {
-          accountStatus,
-          identityVerification: {
-            programStatus: identityProgramStatus,
-            overdue: identityOverdue,
-            completionDeadlineTime: adsAccount.identity_verification_completion_deadline_time || null,
-          }
-        }
-      }, { status: 422 })
-    }
+	    if (isNotUsableStatus) {
+	      return NextResponse.json({
+	        action: 'ACCOUNT_STATUS_NOT_USABLE',
+	        message: `该 Google Ads 账号状态为 ${accountStatus}，无法用于发布/投放。请更换其他账号或先在 Google Ads 后台恢复账号状态。`,
+	        details: { accountStatus }
+	      }, { status: 422 })
+	    }
 
-    if (isPublishOnlyAccount && !_confirmAccountNotDelivering) {
-      const reason =
-        identityOverdue ? 'IDENTITY_VERIFICATION_OVERDUE'
-          : (identityProgramStatus !== null && identityProgramStatus !== 'SUCCESS')
-            ? 'IDENTITY_VERIFICATION_REQUIRED'
-            : `ACCOUNT_${accountStatus}`
-
-      const hint =
-        identityOverdue
-          ? '该账号存在身份验证超期/暂停限制：可创建但预计不会投放。请先完成 Advertiser Verification 后再投放。'
-          : (identityProgramStatus !== null && identityProgramStatus !== 'SUCCESS')
-            ? '该账号需要完成 Advertiser Verification：可创建但预计不会投放。完成验证后再发布或手动启用投放。'
-            : `该账号当前为 ${accountStatus} 状态：可创建但预计不会投放。请先在 Google Ads 后台恢复账号状态。`
-
-      return NextResponse.json({
-        action: 'CONFIRM_PUBLISH_WITH_ACCOUNT_NOT_DELIVERING',
-        message: '检测到该账号可能“可发布但不可投放”',
-        details: {
-          accountStatus,
-          reason,
-          hint,
-          identityVerification: {
-            programStatus: identityProgramStatus,
-            overdue: identityOverdue,
-            completionDeadlineTime: adsAccount.identity_verification_completion_deadline_time || null,
-          }
-        },
-        question: '仍要继续发布吗？（发布可能成功，但广告预计不会获得投放）',
-        options: [
-          { label: '继续发布（我已知晓）', value: 'continue', description: '继续创建广告结构，后续需在 Google Ads 后台完成验证/恢复状态才能投放' },
-          { label: '取消', value: 'cancel', description: '返回更换账号或先完成验证' }
-        ]
-      }, { status: 422 })
-    }
-
-    // 🔍 验证2：查询Google Ads账号中真实激活的广告系列（使用命名规范关联）
+	    // 🔍 验证2：查询Google Ads账号中真实激活的广告系列（使用命名规范关联）
     const { queryActiveCampaigns } = await import('@/lib/active-campaigns-query')
     const activeCampaignsResult = await queryActiveCampaigns(
       _offerId,

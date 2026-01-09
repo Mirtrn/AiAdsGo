@@ -7,7 +7,6 @@
  * 账号筛选规则：
  * 1. 不能是 MCC 账号（manager !== true）
  * 2. 过滤取消/关闭等不可用账号
- * 3. 保留“可发布但不可投放”的账号（如需广告主验证/账号暂停），避免误过滤
  *
  * 🔓 KISS优化(2025-12-12): 移除独占约束，允许多个Offer共享同一Ads账号
  * 优先级排序：当前Offer已用 > 同品牌Offer已用 > 未使用
@@ -59,9 +58,6 @@ interface GoogleAdsAccount {
     overdue: boolean
     checkedAt: string | null
   }
-  deliveryEligibility?: 'eligible' | 'publish_only' | 'blocked'
-  deliveryReason?: string | null
-  deliveryHint?: string | null
   parentMcc?: string
   parentMccName?: string
   dbAccountId: number | null
@@ -91,6 +87,28 @@ const formatBalance = (balance: number | null | undefined, currency: string): st
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(amount)
+}
+
+const getAccountStatusBadge = (status: string | null | undefined) => {
+  const statusUpper = String(status || 'UNKNOWN').toUpperCase()
+
+  if (statusUpper === 'ENABLED') {
+    return <Badge className="bg-green-100 text-green-800 border-green-300">启用</Badge>
+  }
+
+  if (statusUpper === 'PAUSED' || statusUpper === 'SUSPENDED' || statusUpper === 'DISABLED') {
+    return (
+      <Badge className="bg-orange-100 text-orange-800 border-orange-300">
+        {statusUpper === 'PAUSED' ? '暂停' : statusUpper === 'DISABLED' ? '停用' : '受限'}
+      </Badge>
+    )
+  }
+
+  if (statusUpper === 'CANCELED' || statusUpper === 'CANCELLED' || statusUpper === 'CLOSED') {
+    return <Badge className="bg-gray-100 text-gray-800 border-gray-300">已关闭</Badge>
+  }
+
+  return <Badge className="bg-gray-100 text-gray-800 border-gray-300">{statusUpper}</Badge>
 }
 
 export default function Step2AccountLinking({ offer, onAccountLinked, selectedAccount }: Props) {
@@ -198,13 +216,11 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
         // 筛选可用账号：
         // 1. 不能是 MCC 账号
         // 2. 过滤明显不可用（取消/关闭）的账号
-        // 3. 保留“可发布但不可投放”（如需广告主验证/账号暂停）的账号，避免被误过滤
         const availableAccounts = allAccounts.filter(account => {
           // 条件1：不能是 MCC 账号
           if (account.manager === true) return false
 
           // 条件2：明确不可用的账号不展示（一般不可恢复/不可操作）
-          if (account.deliveryEligibility === 'blocked') return false
           const status = String(account.status || '').toUpperCase()
           if (status === 'CANCELED' || status === 'CANCELLED' || status === 'CLOSED') return false
 
@@ -261,9 +277,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
       accountName: account.descriptiveName,
       isActive: account.status === 'ENABLED',
       currencyCode: account.currencyCode,  // 🔧 修复(2025-12-24): 传递货币代码
-      status: account.status,
-      deliveryEligibility: account.deliveryEligibility,
-      deliveryHint: account.deliveryHint
+      status: account.status
     }
 
     onAccountLinked(transformedAccount)
@@ -352,7 +366,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
           <CardHeader className="pb-3">
           <CardTitle className="text-base">可用账号列表</CardTitle>
           <CardDescription>
-              选择一个账号用于发布广告（已按推荐优先级排序；如账号需完成 Advertiser Verification，可能“可发布但不可投放”）
+            选择一个账号用于发布广告（已按推荐优先级排序）
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -404,21 +418,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
                       </TableCell>
                       <TableCell className="font-mono text-sm">{account.customerId}</TableCell>
                       <TableCell>
-                        {(() => {
-                          const eligibility = account.deliveryEligibility || 'eligible'
-                          if (eligibility === 'publish_only') {
-                            return (
-                              <Badge className="bg-orange-100 text-orange-800 border-orange-300">
-                                需验证/暂停
-                              </Badge>
-                            )
-                          }
-                          return (
-                            <Badge className="bg-green-100 text-green-800 border-green-300">
-                              可投放
-                            </Badge>
-                          )
-                        })()}
+                        {getAccountStatusBadge(account.status)}
                       </TableCell>
                       <TableCell>
                         {/* 🔓 KISS优化(2025-12-12): 优先级标识 */}
@@ -579,7 +579,7 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
                 <strong>重要提示</strong>
                 <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
                   <li>新账号必须在MCC账号下才能被系统识别</li>
-                  <li>建议选择“可投放”的账号；如显示“需验证/暂停”，请先在 Google Ads 后台完成验证/恢复状态</li>
+                  <li>建议选择状态为“启用(ENABLED)”的账号</li>
                   <li>不支持MCC账号，仅支持普通Ads账号</li>
                   <li>账号刷新可能需要1-2分钟时间</li>
                 </ul>

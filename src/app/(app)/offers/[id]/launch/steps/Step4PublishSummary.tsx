@@ -7,7 +7,7 @@
  * v2.1 - 两列布局：左侧发布选项/按钮，右侧发布结果
  */
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -161,29 +161,6 @@ export default function Step4PublishSummary({
   // 🔥 新增：强制发布确认对话框
   const [showForcePublishConfirm, setShowForcePublishConfirm] = useState(false)
 
-  // 🔥 新增：账号“可发布但不可投放”确认（如需广告主验证）
-  const confirmAccountNotDeliveringRef = useRef(false)
-  const [showAccountNotDeliveringConfirm, setShowAccountNotDeliveringConfirm] = useState(false)
-  const [accountNotDeliveringConfirmMessage, setAccountNotDeliveringConfirmMessage] = useState('')
-  const [pendingRetryAction, setPendingRetryAction] = useState<'publish' | 'force' | 'pause_and_publish' | 'publish_together' | null>(null)
-
-  const handleAccountNotDeliveringConfirm = () => {
-    confirmAccountNotDeliveringRef.current = true
-    setShowAccountNotDeliveringConfirm(false)
-
-    if (pendingRetryAction === 'force') {
-      handleForcePublish()
-    } else if (pendingRetryAction === 'pause_and_publish') {
-      handleConfirmPauseAndPublish()
-    } else if (pendingRetryAction === 'publish_together') {
-      handlePublishTogether()
-    } else {
-      handlePublish()
-    }
-
-    setPendingRetryAction(null)
-  }
-
   // 🔥 辅助函数：添加/更新发布步骤
   const addPublishStep = (step: string, message: string, status: 'pending' | 'running' | 'success' | 'failed') => {
     setPublishSteps(prev => {
@@ -231,21 +208,11 @@ export default function Step4PublishSummary({
           pauseOldCampaigns: pauseOldCampaigns,
           enableCampaignImmediately: enableCampaignImmediately,
           forcePublish: true,  // 🔥 关键：强制发布标志
-          confirmAccountNotDelivering: confirmAccountNotDeliveringRef.current
         })
       })
 
       const data = await response.json()
       const apiError = parseApiError(data)
-
-      // 🔥 处理账号“可发布但不可投放”的情况（422状态码）
-      if (response.status === 422 && data.action === 'CONFIRM_PUBLISH_WITH_ACCOUNT_NOT_DELIVERING') {
-        setAccountNotDeliveringConfirmMessage(data.details?.hint || data.message || '检测到账号可能无法投放')
-        setPendingRetryAction('force')
-        setShowAccountNotDeliveringConfirm(true)
-        setPublishing(false)
-        return
-      }
 
       // 处理可能的错误
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
@@ -383,21 +350,11 @@ export default function Step4PublishSummary({
           pauseOldCampaigns: pauseOldCampaigns,
           enableCampaignImmediately: enableCampaignImmediately,
           forcePublish: false,
-          confirmAccountNotDelivering: confirmAccountNotDeliveringRef.current
         })
       })
 
       const data = await response.json()
       const apiError = parseApiError(data)
-
-      // 🔥 处理账号“可发布但不可投放”的情况（422状态码）
-      if (response.status === 422 && data.action === 'CONFIRM_PUBLISH_WITH_ACCOUNT_NOT_DELIVERING') {
-        setAccountNotDeliveringConfirmMessage(data.details?.hint || data.message || '检测到账号可能无法投放')
-        setPendingRetryAction('publish')
-        setShowAccountNotDeliveringConfirm(true)
-        setPublishing(false)
-        return
-      }
 
       // 🔥 处理Launch Score过低的情况（422状态码）- 在卡片中显示而不是toast
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
@@ -749,21 +706,11 @@ export default function Step4PublishSummary({
           pauseOldCampaigns: true, // 用户确认暂停
           enableCampaignImmediately: enableCampaignImmediately,  // 是否立即启用Campaign
           forcePublish: false,
-          confirmAccountNotDelivering: confirmAccountNotDeliveringRef.current
         })
       })
 
       const data = await response.json()
       const apiError = parseApiError(data)
-
-      // 🔥 处理账号“可发布但不可投放”的情况（422状态码）
-      if (response.status === 422 && data.action === 'CONFIRM_PUBLISH_WITH_ACCOUNT_NOT_DELIVERING') {
-        setAccountNotDeliveringConfirmMessage(data.details?.hint || data.message || '检测到账号可能无法投放')
-        setPendingRetryAction('pause_and_publish')
-        setShowAccountNotDeliveringConfirm(true)
-        setPublishing(false)
-        return
-      }
 
       // 🔥 处理Launch Score过低的情况 - 在卡片中显示而不是toast (handleConfirmPauseAndPublish)
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
@@ -905,21 +852,11 @@ export default function Step4PublishSummary({
           pauseOldCampaigns: false, // 不暂停
           enableCampaignImmediately: enableCampaignImmediately,  // 是否立即启用Campaign
           forcePublish: true, // 强制发布（跳过确认）
-          confirmAccountNotDelivering: confirmAccountNotDeliveringRef.current
         })
       })
 
       const data = await response.json()
       const apiError = parseApiError(data)
-
-      // 🔥 处理账号“可发布但不可投放”的情况（422状态码）
-      if (response.status === 422 && data.action === 'CONFIRM_PUBLISH_WITH_ACCOUNT_NOT_DELIVERING') {
-        setAccountNotDeliveringConfirmMessage(data.details?.hint || data.message || '检测到账号可能无法投放')
-        setPendingRetryAction('publish_together')
-        setShowAccountNotDeliveringConfirm(true)
-        setPublishing(false)
-        return
-      }
 
       // 🔥 处理Launch Score过低的情况 - 在卡片中显示而不是toast (handlePublishTogether)
       if (response.status === 422 && data.action === 'LAUNCH_SCORE_BLOCKED') {
@@ -1758,29 +1695,10 @@ export default function Step4PublishSummary({
                 {selectedAccount.customerId}
               </div>
             </div>
-            {(() => {
-              const eligibility = selectedAccount?.deliveryEligibility || 'eligible'
-              if (eligibility === 'publish_only') {
-                return (
-                  <Badge variant="secondary" className="bg-orange-100 text-orange-800 border-orange-300">
-                    <AlertCircle className="w-3 h-3 mr-1" />
-                    可发布不可投放
-                  </Badge>
-                )
-              }
-              return (
-                <Badge variant="default" className="bg-green-600">
-                  <CheckCircle2 className="w-3 h-3 mr-1" />
-                  可投放
-                </Badge>
-              )
-            })()}
+            <Badge variant="secondary" className="bg-gray-100 text-gray-800 border-gray-300">
+              {String(selectedAccount.status || 'UNKNOWN').toUpperCase()}
+            </Badge>
           </div>
-          {selectedAccount?.deliveryEligibility === 'publish_only' && selectedAccount?.deliveryHint && (
-            <div className="mt-3 text-sm text-orange-700">
-              {selectedAccount.deliveryHint}
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -1855,37 +1773,6 @@ export default function Step4PublishSummary({
               disabled={publishing}
             >
               {publishing ? '暂停并发布中...' : '暂停旧系列并发布'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 🔥 新增：账号“可发布但不可投放”确认对话框 */}
-      <Dialog open={showAccountNotDeliveringConfirm} onOpenChange={setShowAccountNotDeliveringConfirm}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>账号可能无法投放</DialogTitle>
-            <DialogDescription>
-              {accountNotDeliveringConfirmMessage || '检测到该账号可能“可发布但不可投放”。'}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowAccountNotDeliveringConfirm(false)
-                setPendingRetryAction(null)
-              }}
-              disabled={publishing}
-            >
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleAccountNotDeliveringConfirm}
-              disabled={publishing}
-            >
-              {publishing ? '发布中...' : '继续发布（我已知晓）'}
             </Button>
           </DialogFooter>
         </DialogContent>

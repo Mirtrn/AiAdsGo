@@ -64,59 +64,6 @@ function parseStatus(status: any): string {
   return statusStr
 }
 
-type DeliveryEligibility = 'eligible' | 'publish_only' | 'blocked'
-
-function computeDeliveryEligibility(params: {
-  status?: string | null
-  identityVerification?: {
-    programStatus?: string | null
-    overdue?: boolean
-  } | null
-}): { eligibility: DeliveryEligibility; reason: string | null; hint: string | null } {
-  const status = String(params.status || 'UNKNOWN').toUpperCase()
-  const programStatusRaw = params.identityVerification?.programStatus ?? null
-  const programStatus = programStatusRaw ? String(programStatusRaw).toUpperCase() : null
-  const overdue = Boolean(params.identityVerification?.overdue)
-
-  // 1) 明确不可用（一般不可恢复/不可操作）
-  if (status === 'CANCELED' || status === 'CANCELLED' || status === 'CLOSED') {
-    return {
-      eligibility: 'blocked',
-      reason: `ACCOUNT_${status === 'CANCELLED' ? 'CANCELED' : status}`,
-      hint: '该账号已取消/关闭，无法用于投放。请更换其他账号。',
-    }
-  }
-
-  // 2) 广告主身份验证/广告主验证导致的暂停/限制：常见“可发布但不投放”
-  // 账号在 Google Ads 后台可能提示：Account paused...complete advertiser verification
-  if (overdue) {
-    return {
-      eligibility: 'publish_only',
-      reason: 'IDENTITY_VERIFICATION_OVERDUE',
-      hint: '该账号存在身份验证超期/暂停限制：可创建但预计不会投放。请先完成 Advertiser Verification 后再投放。',
-    }
-  }
-
-  if (programStatus && programStatus !== 'SUCCESS') {
-    return {
-      eligibility: 'publish_only',
-      reason: 'IDENTITY_VERIFICATION_REQUIRED',
-      hint: '该账号需要完成 Advertiser Verification：可创建但预计不会投放。完成验证后再发布或手动启用投放。',
-    }
-  }
-
-  // 3) 账号被暂停/限制（可能仍可写入，但不会投放）
-  if (status === 'SUSPENDED' || status === 'PAUSED' || status === 'DISABLED') {
-    return {
-      eligibility: 'publish_only',
-      reason: `ACCOUNT_${status}`,
-      hint: `该账号当前为 ${status} 状态：可创建但预计不会投放。请先在 Google Ads 后台恢复账号状态。`,
-    }
-  }
-
-  return { eligibility: 'eligible', reason: null, hint: null }
-}
-
 interface CachedAccount {
   id: number
   customer_id: string
@@ -1215,40 +1162,29 @@ export async function GET(request: NextRequest) {
     const cacheStaleBeforeRefresh = cacheAgeMs > GOOGLE_ADS_ACCOUNTS_CACHE_MAX_AGE_MS
     console.log(`📦 缓存中有 ${cachedAccounts.length} 个账号`)
 
-    const mapCachedAccounts = () => cachedAccounts.map(acc => {
-      const identityVerificationOverdue = toNumber(acc.identity_verification_overdue, 0) === 1
-      const status = acc.status || 'UNKNOWN'
-      const effectiveStatus = (status === 'ENABLED' && identityVerificationOverdue) ? 'SUSPENDED' : status
-      const delivery = computeDeliveryEligibility({
-        status: effectiveStatus,
-        identityVerification: {
-          programStatus: acc.identity_verification_program_status,
-          overdue: identityVerificationOverdue,
-        }
-      })
+	    const mapCachedAccounts = () => cachedAccounts.map(acc => {
+	      const identityVerificationOverdue = toNumber(acc.identity_verification_overdue, 0) === 1
+	      const status = acc.status || 'UNKNOWN'
 
-      return {
-        customer_id: acc.customer_id,
-        descriptive_name: acc.account_name || `客户 ${acc.customer_id}`,
-        currency_code: acc.currency,
-        time_zone: acc.timezone,
-        manager: toNumber(acc.is_manager_account, 0) === 1,
-        test_account: toNumber(acc.test_account, 0) === 1,
-        status: effectiveStatus,
-        account_balance: acc.account_balance,
-        parent_mcc: acc.parent_mcc_id,
-        identity_verification_program_status: acc.identity_verification_program_status,
-        identity_verification_start_deadline_time: acc.identity_verification_start_deadline_time,
-        identity_verification_completion_deadline_time: acc.identity_verification_completion_deadline_time,
-        identity_verification_overdue: identityVerificationOverdue,
-        identity_verification_checked_at: acc.identity_verification_checked_at,
-        delivery_eligibility: delivery.eligibility,
-        delivery_reason: delivery.reason,
-        delivery_hint: delivery.hint,
-        db_account_id: acc.id,
-        last_sync_at: acc.last_sync_at,
-      }
-    })
+	      return {
+	        customer_id: acc.customer_id,
+	        descriptive_name: acc.account_name || `客户 ${acc.customer_id}`,
+	        currency_code: acc.currency,
+	        time_zone: acc.timezone,
+	        manager: toNumber(acc.is_manager_account, 0) === 1,
+	        test_account: toNumber(acc.test_account, 0) === 1,
+	        status,
+	        account_balance: acc.account_balance,
+	        parent_mcc: acc.parent_mcc_id,
+	        identity_verification_program_status: acc.identity_verification_program_status,
+	        identity_verification_start_deadline_time: acc.identity_verification_start_deadline_time,
+	        identity_verification_completion_deadline_time: acc.identity_verification_completion_deadline_time,
+	        identity_verification_overdue: identityVerificationOverdue,
+	        identity_verification_checked_at: acc.identity_verification_checked_at,
+	        db_account_id: acc.id,
+	        last_sync_at: acc.last_sync_at,
+	      }
+	    })
 
     let usedCache = false
     let refreshFailed = false
@@ -1400,70 +1336,39 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 🔧 修复(2025-12-11): 转换snake_case为camelCase，保持API响应一致性
-      const delivery = computeDeliveryEligibility({
-        status: account.status,
-        identityVerification: {
-          programStatus: account.identity_verification_program_status ?? null,
-          overdue: Boolean(account.identity_verification_overdue),
-        }
-      })
-
-      return {
-        customerId: account.customer_id,
-        descriptiveName: account.descriptive_name,
-        currencyCode: account.currency_code,
+	      return {
+	        customerId: account.customer_id,
+	        descriptiveName: account.descriptive_name,
+	        currencyCode: account.currency_code,
         timeZone: account.time_zone,
         manager: account.manager,
         testAccount: account.test_account,
         status: account.status,
         accountBalance: account.account_balance,
         parentMcc: account.parent_mcc,
-        identityVerification: {
-          programStatus: account.identity_verification_program_status ?? null,
-          startDeadlineTime: account.identity_verification_start_deadline_time ?? null,
-          completionDeadlineTime: account.identity_verification_completion_deadline_time ?? null,
-          overdue: Boolean(account.identity_verification_overdue),
-          checkedAt: account.identity_verification_checked_at ?? null,
-        },
-        deliveryEligibility: delivery.eligibility,
-        deliveryReason: delivery.reason,
-        deliveryHint: delivery.hint,
-        dbAccountId: account.db_account_id,
-        lastSyncAt: account.last_sync_at,
-        linkedOffers: linkedOffersMapped,
-        // 🔓 KISS优化(2025-12-12): 优先级标识
-        priority,
-        priorityScore
-      }
-    }))
+	        identityVerification: {
+	          programStatus: account.identity_verification_program_status ?? null,
+	          startDeadlineTime: account.identity_verification_start_deadline_time ?? null,
+	          completionDeadlineTime: account.identity_verification_completion_deadline_time ?? null,
+	          overdue: Boolean(account.identity_verification_overdue),
+	          checkedAt: account.identity_verification_checked_at ?? null,
+	        },
+	        dbAccountId: account.db_account_id,
+	        lastSyncAt: account.last_sync_at,
+	        linkedOffers: linkedOffersMapped,
+	        // 🔓 KISS优化(2025-12-12): 优先级标识
+	        priority,
+	        priorityScore
+	      }
+	    }))
 
-    // 🔓 KISS优化(2025-12-12): 按优先级排序
-    // 排序规则: deliveryEligibility DESC > priorityScore DESC > is_manager_account DESC > account_name ASC
-    accountsWithOffers.sort((a, b) => {
-      const score = (v: any) => {
-        switch (v) {
-          case 'eligible':
-            return 2
-          case 'publish_only':
-            return 1
-          case 'blocked':
-          default:
-            return 0
-        }
-      }
-
-      // 0. 可投放的优先（避免“可发布但不可投放”的账号被默认选中）
-      const aDelivery = score(a.deliveryEligibility)
-      const bDelivery = score(b.deliveryEligibility)
-      if (bDelivery !== aDelivery) {
-        return bDelivery - aDelivery
-      }
-
-      // 1. 优先级分数高的在前
-      if (b.priorityScore !== a.priorityScore) {
-        return b.priorityScore - a.priorityScore
-      }
+	    // 🔓 KISS优化(2025-12-12): 按优先级排序
+	    // 排序规则: priorityScore DESC > is_manager_account DESC > account_name ASC
+	    accountsWithOffers.sort((a, b) => {
+	      // 1. 优先级分数高的在前
+	      if (b.priorityScore !== a.priorityScore) {
+	        return b.priorityScore - a.priorityScore
+	      }
       // 2. MCC账号在前（用于展示层级结构）
       if (a.manager !== b.manager) {
         return a.manager ? -1 : 1
