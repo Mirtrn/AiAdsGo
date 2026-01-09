@@ -4,6 +4,24 @@ import { invalidateOfferCache } from '@/lib/api-cache'
 import { z } from 'zod'
 import { compactCategoryLabel, deriveCategoryFromScrapedData } from '@/lib/offer-category'
 
+function safeParseJson<T>(input: unknown): T | null {
+  if (typeof input !== 'string' || !input.trim()) return null
+  try {
+    return JSON.parse(input) as T
+  } catch {
+    return null
+  }
+}
+
+function pickNonEmptyString(...values: Array<unknown>): string | null {
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+  }
+  return null
+}
+
 /**
  * GET /api/offers/:id
  * 获取单个Offer
@@ -37,6 +55,16 @@ export async function GET(
     const categoryForDisplay = categoryFromScrape || categoryFromStored || offer.category
     const categorySource = categoryFromScrape ? 'scraped_data' : (categoryFromStored ? 'category' : null)
 
+    // 🔥 修复：部分生产Offer没有写入 brand_description/product_highlights 等字段
+    // 但 scraped_data 中已有 productDescription/storeDescription，详情页“产品描述”会显示为空
+    const scrapedData = safeParseJson<any>(offer.scraped_data)
+    const scrapedProductDescription = pickNonEmptyString(
+      scrapedData?.productDescription,
+      scrapedData?.storeDescription,
+      scrapedData?.metaDescription
+    )
+    const scrapedStoreDescription = pickNonEmptyString(scrapedData?.storeDescription)
+
     return NextResponse.json({
       success: true,
       offer: {
@@ -50,9 +78,9 @@ export async function GET(
         targetCountry: offer.target_country,
         targetLanguage: offer.target_language, // 🔧 修复(2025-12-11): 添加target_language字段
         affiliateLink: offer.affiliate_link,
-        brandDescription: offer.brand_description,
+        brandDescription: offer.brand_description || scrapedStoreDescription,
         uniqueSellingPoints: offer.unique_selling_points,
-        productHighlights: offer.product_highlights,
+        productHighlights: offer.product_highlights || scrapedProductDescription,
         targetAudience: offer.target_audience,
         // Final URL字段（从推广链接解析后的最终落地页）
         finalUrl: offer.final_url,
