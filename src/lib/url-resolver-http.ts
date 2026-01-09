@@ -42,6 +42,9 @@ export async function resolveAffiliateLinkWithHttp(
       maxRedirects: 0, // 手动处理重定向
       validateStatus: (status: number) => status >= 200 && status < 400, // 接受2xx和3xx
       timeout: 15000, // 15秒超时
+      responseType: 'text',
+      maxContentLength: 1024 * 1024, // 1MB
+      maxBodyLength: 1024 * 1024, // 1MB
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -74,6 +77,44 @@ export async function resolveAffiliateLinkWithHttp(
     }
 
     const client: AxiosInstance = axios.create(axiosConfig)
+
+    const extractRedirectFromHtml = (html: unknown, baseUrl: string): string | null => {
+      if (typeof html !== 'string') return null
+      const content = html.slice(0, 200_000) // 防御：避免超大HTML导致正则过慢
+
+      // meta refresh: <meta http-equiv="refresh" content="0;url=https://...">
+      const metaRefresh = content.match(/<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["'][^"']*url=([^"'>\s]+)[^"']*["'][^>]*>/i)
+        || content.match(/<meta[^>]+content=["'][^"']*url=([^"'>\s]+)[^"']*["'][^>]+http-equiv=["']?refresh["']?[^>]*>/i)
+      const metaUrl = metaRefresh?.[1] ? metaRefresh[1].replace(/^['"]|['"]$/g, '') : null
+      if (metaUrl) {
+        try {
+          return new URL(metaUrl, baseUrl).toString()
+        } catch {
+          // ignore
+        }
+      }
+
+      // JS redirect patterns
+      const jsCandidates = [
+        /(?:window\.)?location\.replace\(\s*["']([^"']+)["']\s*\)/i,
+        /(?:window\.)?location\.assign\(\s*["']([^"']+)["']\s*\)/i,
+        /(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']/i,
+        /document\.location(?:\.href)?\s*=\s*["']([^"']+)["']/i,
+      ]
+      for (const re of jsCandidates) {
+        const m = content.match(re)
+        const u = m?.[1]?.trim()
+        if (!u) continue
+        if (!/^https?:\/\//i.test(u) && !u.startsWith('/')) continue
+        try {
+          return new URL(u, baseUrl).toString()
+        } catch {
+          // ignore
+        }
+      }
+
+      return null
+    }
 
     // 手动跟踪重定向
     while (redirectCount < maxRedirects) {
@@ -115,6 +156,16 @@ export async function resolveAffiliateLinkWithHttp(
         // 添加随机延迟模拟人类行为
         await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
       } else if (response.status === 200) {
+        // 🔥 某些tracking中间页会在HTML中通过meta refresh / JS跳转到真实落地页
+        const htmlRedirect = extractRedirectFromHtml(response.data, currentUrl)
+        if (htmlRedirect && htmlRedirect !== currentUrl) {
+          redirectChain.push(htmlRedirect)
+          currentUrl = htmlRedirect
+          redirectCount++
+          await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+          continue
+        }
+
         // 检查是否有meta refresh头（如yeahpromos.com）
         const refreshHeader = response.headers.refresh || response.headers.Refresh
 
@@ -139,6 +190,16 @@ export async function resolveAffiliateLinkWithHttp(
               continue
             }
           }
+        }
+
+        // 🔥 tracking域名兜底：从URL参数中提取嵌入的目标URL（例如 partnermatic ?url=https://...）
+        const embedded = extractEmbeddedTargetUrl(currentUrl)
+        if (embedded && embedded !== currentUrl) {
+          redirectChain.push(embedded)
+          currentUrl = embedded
+          redirectCount++
+          await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+          continue
         }
 
         // 没有meta refresh，成功到达最终页面

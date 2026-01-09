@@ -584,6 +584,12 @@ async function resolveWithHttp(
   }
 }
 
+function buildFullUrl(finalUrl: string, finalUrlSuffix: string | null | undefined): string {
+  const suffix = (finalUrlSuffix || '').trim()
+  if (!suffix) return finalUrl
+  return finalUrl.includes('?') ? `${finalUrl}&${suffix}` : `${finalUrl}?${suffix}`
+}
+
 // ==================== Playwright方式（Level 2） ====================
 
 async function resolveWithPlaywright(
@@ -693,7 +699,9 @@ export async function resolveAffiliateLink(
           if (isTrackingUrl) {
             console.log(`   ⚠️ 检测到tracking URL，可能需要继续追踪`)
             console.log(`   降级到Playwright完成后续重定向...`)
-            const playwrightResult = await resolveWithPlaywright(result.finalUrl, proxy.url, targetCountry)
+            // 🔥 必须带上HTTP解析得到的suffix，否则会丢失关键追踪参数（例如 partnermatic 的 ?url=...）
+            const fullTrackingUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
+            const playwrightResult = await resolveWithPlaywright(fullTrackingUrl, proxy.url, targetCountry)
 
             // 合并重定向链
             result = {
@@ -713,6 +721,19 @@ export async function resolveAffiliateLink(
         try {
           console.log(`   尝试HTTP解析（未知域名）...`)
           result = await resolveWithHttp(affiliateLink, proxy.url)
+
+          // 🔥 重要：即使HTTP有重定向，也可能停在 tracking 中间页（例如 partnermatic track），需要继续用Playwright追踪
+          const isTrackingUrl = /\/track|\/click|\/redirect|\/go|\/out|partnermatic|tradedoubler|awin|impact|cj\.com/i.test(result.finalUrl)
+          if (isTrackingUrl) {
+            console.log(`   ⚠️ 检测到tracking URL（未知域名路径），降级到Playwright继续解析...`)
+            const fullTrackingUrl = buildFullUrl(result.finalUrl, result.finalUrlSuffix)
+            const playwrightResult = await resolveWithPlaywright(fullTrackingUrl, proxy.url, targetCountry)
+            result = {
+              ...playwrightResult,
+              redirectChain: [...result.redirectChain, ...playwrightResult.redirectChain.slice(1)],
+              redirectCount: result.redirectCount + playwrightResult.redirectCount,
+            }
+          }
 
           // 检查是否真的有重定向（如果redirectCount=0可能需要Playwright）
           if (result.redirectCount === 0 && affiliateLink !== result.finalUrl) {

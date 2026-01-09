@@ -502,7 +502,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         // 尝试轻量级axios-cheerio抓取，如果失败则回退到Playwright渲染
         console.log('📦 检测到独立站单品页面，尝试使用轻量级scraper...')
 
-        scrapedData = await extractProductInfo(resolvedData.finalUrl, targetCountry)
+        // 🔥 必须使用包含suffix的完整URL，否则会丢失追踪参数导致落地页不正确（例如 partnermatic/awin 链路）
+        scrapedData = await extractProductInfo(fullTargetUrl, targetCountry)
 
         // 🔥 检测是否需要JavaScript渲染：如果静态scraper返回的内容为空，则使用Playwright
         if (!scrapedData || !scrapedData.brandName) {
@@ -609,7 +610,12 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           proxyApiUrl,
         })
         if (brandSearchSupplement) {
-          console.log(`🔎 Google品牌词补充完成: "${brandNameTrimmed}", headlines=${brandSearchSupplement.extracted.headlines.length}, descriptions=${brandSearchSupplement.extracted.descriptions.length}`)
+          const headlinesCount = brandSearchSupplement.extracted.headlines.length
+          const descriptionsCount = brandSearchSupplement.extracted.descriptions.length
+          const errorHint = (headlinesCount === 0 && descriptionsCount === 0 && brandSearchSupplement.errors?.length)
+            ? `, errors=${brandSearchSupplement.errors.slice(0, 2).join(' | ')}`
+            : ''
+          console.log(`🔎 Google品牌词补充完成: "${brandNameTrimmed}", headlines=${headlinesCount}, descriptions=${descriptionsCount}${errorHint}`)
         }
       } catch (serpError: any) {
         console.warn(`⚠️ Google品牌词补充失败（不影响主流程）: ${serpError?.message || serpError}`)
