@@ -192,16 +192,6 @@ export async function resolveAffiliateLinkWithHttp(
           }
         }
 
-        // 🔥 tracking域名兜底：从URL参数中提取嵌入的目标URL（例如 partnermatic ?url=https://...）
-        const embedded = extractEmbeddedTargetUrl(currentUrl)
-        if (embedded && embedded !== currentUrl) {
-          redirectChain.push(embedded)
-          currentUrl = embedded
-          redirectCount++
-          await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
-          continue
-        }
-
         // 没有meta refresh，成功到达最终页面
         break
       } else {
