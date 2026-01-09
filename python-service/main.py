@@ -135,6 +135,51 @@ def sanitize_keyword(keyword: str) -> str:
     return cleaned
 
 
+PROHIBITED_AD_TEXT_REPLACEMENTS: Dict[str, str] = {
+    # Google Ads policy: SYMBOLS (PROHIBITED) evidence: "±"
+    "±": "+/-",
+}
+
+
+PROHIBITED_AD_TEXT_CHARS = set(PROHIBITED_AD_TEXT_REPLACEMENTS.keys())
+
+
+def sanitize_ad_text(text: str, *, max_len: Optional[int] = None) -> str:
+    """
+    轻量清理广告文案，避免触发 Google Ads 的 PROHIBITED policy topics（如 SYMBOLS）。
+    - 尽量保留含义（例如 ± -> +/-）
+    - 不做过度清理（广告文案允许标点、变音符等）
+    """
+    if text is None:
+        return ""
+
+    sanitized = str(text)
+    for ch, repl in PROHIBITED_AD_TEXT_REPLACEMENTS.items():
+        sanitized = sanitized.replace(ch, repl)
+
+    # 统一空白字符（避免换行/制表符）
+    sanitized = " ".join(sanitized.split()).strip()
+
+    if max_len is not None and len(sanitized) > max_len:
+        # 如果替换导致超长，尝试移除被替换字符以保持长度
+        removed = str(text)
+        for ch in PROHIBITED_AD_TEXT_REPLACEMENTS.keys():
+            removed = removed.replace(ch, "")
+        removed = " ".join(removed.split()).strip()
+        if len(removed) <= max_len:
+            return removed
+        raise ValueError(f"ad text exceeds max_len={max_len} after sanitization: len={len(sanitized)}")
+
+    return sanitized
+
+
+def find_prohibited_ad_text_chars(text: str) -> List[str]:
+    if not text:
+        return []
+    found = sorted({ch for ch in PROHIBITED_AD_TEXT_CHARS if ch in text})
+    return found
+
+
 def validate_login_customer_id(v: str) -> str:
     """验证并格式化 login_customer_id"""
     # 记录原始值（调试用）
@@ -191,11 +236,8 @@ class KeywordIdeasRequest(BaseModel):
 
 def create_google_ads_client(sa_config: ServiceAccountConfig) -> GoogleAdsClient:
     """创建 Google Ads 客户端（服务账号认证）"""
-    # 🔧 调试：输出 developer_token 信息
-    token_preview = sa_config.developer_token[:10] + "..." if len(sa_config.developer_token) > 10 else sa_config.developer_token
-    logger.info(f"🔑 Developer Token: {token_preview} (length: {len(sa_config.developer_token)})")
-    logger.info(f"📧 Service Account Email: {sa_config.email}")
-    logger.info(f"🏢 Login Customer ID: {sa_config.login_customer_id}")
+    # 避免在生产日志中泄露敏感信息（developer_token / service account email / private key）
+    logger.info(f"Google Ads client init (login_customer_id={sa_config.login_customer_id})")
 
     service_account_info = {
         "type": "service_account",
@@ -846,12 +888,48 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
 
         # Responsive search ad
         rsa = ad_group_ad.ad.responsive_search_ad
-        for headline in request.headlines:
+        try:
+            sanitized_headlines: List[str] = [
+                sanitize_ad_text(headline, max_len=30) for headline in request.headlines
+            ]
+            sanitized_descriptions: List[str] = [
+                sanitize_ad_text(description, max_len=90) for description in request.descriptions
+            ]
+        except ValueError as ve:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "AD_TEXT_VALIDATION_ERROR",
+                    "message": str(ve),
+                },
+            )
+
+        violations: List[Dict[str, Any]] = []
+        for i, h in enumerate(sanitized_headlines):
+            chars = find_prohibited_ad_text_chars(h)
+            if chars:
+                violations.append({"field": "headlines", "index": i, "chars": chars, "text": h})
+        for i, d in enumerate(sanitized_descriptions):
+            chars = find_prohibited_ad_text_chars(d)
+            if chars:
+                violations.append({"field": "descriptions", "index": i, "chars": chars, "text": d})
+
+        if violations:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "AD_TEXT_POLICY_VIOLATION",
+                    "reason": "PROHIBITED_SYMBOLS",
+                    "violations": violations,
+                },
+            )
+
+        for headline in sanitized_headlines:
             headline_asset = client.get_type("AdTextAsset")
             headline_asset.text = headline
             rsa.headlines.append(headline_asset)
 
-        for description in request.descriptions:
+        for description in sanitized_descriptions:
             desc_asset = client.get_type("AdTextAsset")
             desc_asset.text = description
             rsa.descriptions.append(desc_asset)
@@ -874,6 +952,43 @@ async def create_responsive_search_ad(request: CreateResponsiveSearchAdRequest):
         return {"resource_name": response.results[0].resource_name}
 
     except Exception as e:
+        # 更友好的政策/参数错误映射，避免上游误判为 500
+        try:
+            from google.ads.googleads.errors import GoogleAdsException  # type: ignore
+        except Exception:
+            GoogleAdsException = None  # type: ignore
+
+        if GoogleAdsException is not None and isinstance(e, GoogleAdsException):  # type: ignore
+            policy_topics: List[Dict[str, Any]] = []
+            for err in getattr(e, "failure", {}).errors if getattr(e, "failure", None) else []:
+                details = getattr(err, "details", None)
+                pfd = getattr(details, "policy_finding_details", None) if details else None
+                if not pfd:
+                    continue
+                for entry in getattr(pfd, "policy_topic_entries", []):
+                    policy_topics.append(
+                        {
+                            "topic": getattr(entry, "topic", None),
+                            "type": str(getattr(entry, "type_", None)),
+                            "evidences": [
+                                list(getattr(ev, "text_list", None).texts)
+                                for ev in getattr(entry, "evidences", [])
+                                if getattr(ev, "text_list", None)
+                            ],
+                        }
+                    )
+
+            if policy_topics:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "GOOGLE_ADS_POLICY_FINDING",
+                        "message": str(e),
+                        "request_id": getattr(e, "request_id", None),
+                        "policy_topics": policy_topics,
+                    },
+                )
+
         logger.error(f"Create responsive search ad error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

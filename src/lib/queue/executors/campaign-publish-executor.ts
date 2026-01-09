@@ -115,7 +115,72 @@ export async function executeCampaignPublish(
     )
   }
 
+  const redactSecrets = (value: unknown, depth: number = 0): unknown => {
+    const MAX_DEPTH = 6
+    if (depth > MAX_DEPTH) return '[Truncated]'
+
+    const SENSITIVE_KEYS = new Set([
+      'private_key',
+      'privateKey',
+      'developer_token',
+      'developerToken',
+      'refresh_token',
+      'refreshToken',
+      'access_token',
+      'accessToken',
+      'authorization',
+      'cookie',
+      'set-cookie',
+    ])
+
+    const redactString = (s: string): string => {
+      if (s.includes('-----BEGIN PRIVATE KEY-----') || s.includes('BEGIN PRIVATE KEY')) return '[REDACTED_PRIVATE_KEY]'
+      if (s.length > 6000) return `[TRUNCATED_STRING len=${s.length}]`
+      return s
+    }
+
+    if (typeof value === 'string') return redactString(value)
+    if (typeof value !== 'object' || value === null) return value
+    if (Array.isArray(value)) return value.map(v => redactSecrets(v, depth + 1))
+
+    const obj = value as Record<string, unknown>
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(obj)) {
+      if (SENSITIVE_KEYS.has(k)) {
+        out[k] = '[REDACTED]'
+        continue
+      }
+      // AxiosError 常见的大字段：config.data / request / socket 等，既敏感又巨大
+      if (k === 'request' || k === 'socket' || k === 'agent') {
+        out[k] = '[OMITTED]'
+        continue
+      }
+      if (k === 'data' && typeof v === 'string' && v.includes('private_key')) {
+        out[k] = '[REDACTED]'
+        continue
+      }
+      out[k] = redactSecrets(v, depth + 1)
+    }
+    return out
+  }
+
   const buildErrorLogObject = (err: unknown): Record<string, unknown> => {
+    // 专门处理 AxiosError：避免把 config/request 等敏感和巨大对象打到日志
+    if (err && typeof err === 'object' && (err as any).isAxiosError) {
+      const ax = err as any
+      return redactSecrets({
+        kind: 'AxiosError',
+        name: ax.name,
+        message: ax.message,
+        code: ax.code,
+        url: ax.config?.url,
+        method: ax.config?.method,
+        status: ax.response?.status,
+        pythonRequestId: ax.response?.headers?.['x-request-id'],
+        responseData: ax.response?.data,
+      }) as Record<string, unknown>
+    }
+
     if (err instanceof Error) {
       const ownProps: Record<string, unknown> = {}
       for (const key of Object.getOwnPropertyNames(err)) {
@@ -124,13 +189,13 @@ export async function executeCampaignPublish(
       for (const key of Object.keys(err as any)) {
         ownProps[key] = (err as any)[key]
       }
-      return {
+      return redactSecrets({
         kind: 'Error',
         name: err.name,
         message: err.message,
         stack: err.stack,
         ...ownProps,
-      }
+      }) as Record<string, unknown>
     }
 
     if (typeof err === 'object' && err !== null) {
@@ -141,10 +206,10 @@ export async function executeCampaignPublish(
       for (const key of Object.keys(err as any)) {
         ownProps[key] = (err as any)[key]
       }
-      return { kind: typeof err, ...ownProps }
+      return redactSecrets({ kind: typeof err, ...ownProps }) as Record<string, unknown>
     }
 
-    return { kind: typeof err, value: err }
+    return redactSecrets({ kind: typeof err, value: err }) as Record<string, unknown>
   }
 
   const db = await getDatabase()

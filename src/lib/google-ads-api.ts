@@ -1443,6 +1443,21 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
 }): Promise<{ adId: string; resourceName: string }> {
   const authType = params.authType || 'oauth'
 
+  const sanitizeAdText = (text: string, maxLen: number): string => {
+    const original = String(text ?? '')
+    const replaced = original.replace(/±/g, '+/-').replace(/\s+/g, ' ').trim()
+    if (replaced.length <= maxLen) return replaced
+
+    // 如果替换导致超长，回退为移除该符号，优先保证长度合规
+    const removed = original.replace(/±/g, '').replace(/\s+/g, ' ').trim()
+    if (removed.length <= maxLen) return removed
+
+    throw new Error(`广告文案超过${maxLen}字符限制（清理后仍超长）: "${replaced}" (${replaced.length}字符)`)
+  }
+
+  const sanitizedHeadlines = params.headlines.map(h => sanitizeAdText(h, 30))
+  const sanitizedDescriptions = params.descriptions.map(d => sanitizeAdText(d, 90))
+
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (authType === 'service_account') {
     const { createResponsiveSearchAdPython } = await import('./python-ads-client')
@@ -1453,8 +1468,8 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
       serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
       adGroupResourceName,
-      headlines: params.headlines,
-      descriptions: params.descriptions,
+      headlines: sanitizedHeadlines,
+      descriptions: sanitizedDescriptions,
       finalUrls: params.finalUrls,
       finalUrlSuffix: params.finalUrlSuffix,
       path1: params.path1,
@@ -1481,14 +1496,14 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
   }
 
   // Validate headline length (max 30 characters each)
-  params.headlines.forEach((headline, index) => {
+  sanitizedHeadlines.forEach((headline, index) => {
     if (headline.length > 30) {
       throw new Error(`标题${index + 1}超过30字符限制: "${headline}" (${headline.length}字符)`)
     }
   })
 
   // Validate description length (max 90 characters each)
-  params.descriptions.forEach((desc, index) => {
+  sanitizedDescriptions.forEach((desc, index) => {
     if (desc.length > 90) {
       throw new Error(`描述${index + 1}超过90字符限制: "${desc}" (${desc.length}字符)`)
     }
@@ -1501,8 +1516,8 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
     ad: {
       final_urls: params.finalUrls,
       responsive_search_ad: {
-        headlines: params.headlines.map(text => ({ text })),
-        descriptions: params.descriptions.map(text => ({ text })),
+        headlines: sanitizedHeadlines.map(text => ({ text })),
+        descriptions: sanitizedDescriptions.map(text => ({ text })),
       },
     },
   }

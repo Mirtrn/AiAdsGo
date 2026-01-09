@@ -51,7 +51,41 @@ async function withTracking<T>(
   } catch (error: any) {
     // 🔧 修复(2025-12-29): 改进 Developer Token 权限错误的诊断信息
     let enhancedError = error
-    const errorMessage = error?.message || String(error)
+    const stringifyDetail = (detail: unknown): string => {
+      if (detail == null) return ''
+      if (typeof detail === 'string') return detail
+      try {
+        return JSON.stringify(detail)
+      } catch {
+        return String(detail)
+      }
+    }
+
+    const truncate = (value: string, maxLen: number): string => {
+      if (!value) return value
+      if (value.length <= maxLen) return value
+      return value.slice(0, maxLen) + `... (truncated, len=${value.length})`
+    }
+
+    // 避免把 AxiosError（含 request/config/data 等敏感字段）向上抛出
+    if (error?.isAxiosError) {
+      const status = error?.response?.status
+      const pythonRequestId = error?.response?.headers?.['x-request-id']
+      const serviceDetail = stringifyDetail(error?.response?.data?.detail) || error?.message || String(error)
+      const safeMessage =
+        `Python Ads Service 调用失败 (${endpoint})` +
+        (status ? ` [status=${status}]` : '') +
+        (pythonRequestId ? ` [x-request-id=${pythonRequestId}]` : '') +
+        `: ${truncate(serviceDetail, 4000)}`
+
+      const safeError = new Error(safeMessage)
+      ;(safeError as any).status = status
+      ;(safeError as any).pythonRequestId = pythonRequestId
+      ;(safeError as any).endpoint = endpoint
+      enhancedError = safeError
+    }
+
+    const errorMessage = enhancedError?.message || String(enhancedError)
 
     if (errorMessage.includes('only approved for use with test accounts')) {
       enhancedError = new Error(
@@ -65,7 +99,7 @@ async function withTracking<T>(
         `  4. 等待 Google 批准（通常 1-3 个工作日）\n` +
         `  5. 升级完成后系统会自动使用新的权限等级\n\n` +
         `更多信息: 请查看系统诊断文档或联系支持团队。\n\n` +
-        `原始错误: ${error.message}`
+        `原始错误: ${errorMessage}`
       )
     }
 
