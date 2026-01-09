@@ -3,98 +3,89 @@
  *
  * 功能:
  * - 登录失败计数
- * - 账户自动锁定（5次失败，锁定15分钟）
+ * - 账户自动禁用（3次失败后禁用，需管理员手动启用）
  * - 登录尝试日志记录
- * - 锁定状态检查
  */
 
 import { getDatabase } from './db'
-import { User } from './auth'
 import { logAuditEvent, AuditEventType } from './audit-logger'
 
 // 安全配置
-const MAX_FAILED_ATTEMPTS = 5 // 最大失败尝试次数
-const LOCKOUT_DURATION_MINUTES = 15 // 锁定时长（分钟）
+const MAX_FAILED_ATTEMPTS = 3 // 最大失败尝试次数（3次后禁用账户）
 
 /**
- * 检查账户是否被锁定
- *
- * @throws {Error} 如果账户被锁定，抛出包含剩余时间的错误
+ * 记录登录失败，并在达到阈值时禁用账户
  */
-export async function checkAccountLockout(user: User): Promise<void> {
-  if (user.locked_until) {
-    const lockoutEnd = new Date(user.locked_until)
-    const now = new Date()
-
-    if (lockoutEnd > now) {
-      const minutesRemaining = Math.ceil((lockoutEnd.getTime() - now.getTime()) / 60000)
-      throw new Error(`账户已被锁定，请在${minutesRemaining}分钟后重试`)
-    } else {
-      // 锁定期已过期，重置失败计数
-      await resetFailedAttempts(user.id)
-    }
-  }
-}
-
-/**
- * 记录登录失败，并在达到阈值时锁定账户
- */
-export async function recordFailedLogin(userId: number, ipAddress: string = 'unknown', userAgent: string = 'unknown'): Promise<void> {
+export async function recordFailedLogin(
+  userId: number,
+  ipAddress: string = 'unknown',
+  userAgent: string = 'unknown'
+): Promise<void> {
   const db = await getDatabase()
   const db_type = db.type
 
   // 增加失败计数
-  const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime(\'now\')'
-  await db.exec(`
+  const nowFunc = db_type === 'postgres' ? 'NOW()' : "datetime('now')"
+  await db.exec(
+    `
     UPDATE users
     SET failed_login_count = failed_login_count + 1,
         last_failed_login = ${nowFunc}
     WHERE id = ?
-  `, [userId])
+  `,
+    [userId]
+  )
 
-  // 检查是否需要锁定账户
-  const user = await db.queryOne('SELECT failed_login_count FROM users WHERE id = ?', [userId]) as { failed_login_count: number } | null
+  // 检查是否需要禁用账户
+  const user = (await db.queryOne(
+    'SELECT failed_login_count FROM users WHERE id = ?',
+    [userId]
+  )) as { failed_login_count: number } | null
 
   if (user && user.failed_login_count >= MAX_FAILED_ATTEMPTS) {
-    // 锁定账户
-    const lockUntilFunc = db_type === 'postgres'
-      ? `NOW() + INTERVAL '${LOCKOUT_DURATION_MINUTES} minutes'`
-      : `datetime('now', '+${LOCKOUT_DURATION_MINUTES} minutes')`
-    await db.exec(`
+    // 禁用账户（需要管理员手动启用）
+    await db.exec(
+      `
       UPDATE users
-      SET locked_until = ${lockUntilFunc}
+      SET is_active = 0
       WHERE id = ?
-    `, [userId])
+    `,
+      [userId]
+    )
 
-    console.warn(`[Security] User ${userId} locked due to ${MAX_FAILED_ATTEMPTS} failed login attempts`)
+    console.warn(
+      `[Security] User ${userId} DISABLED due to ${MAX_FAILED_ATTEMPTS} failed login attempts (requires admin to re-enable)`
+    )
 
-    // 记录账户锁定事件
+    // 记录账户禁用事件
     await logAuditEvent({
       userId,
-      eventType: AuditEventType.ACCOUNT_LOCKED,
+      eventType: AuditEventType.ACCOUNT_LOCKED, // 复用事件类型
       ipAddress,
       userAgent,
       details: {
-        reason: 'max_failed_attempts_exceeded',
+        reason: 'max_failed_attempts_exceeded_disabled',
         failed_attempts: user.failed_login_count,
-        lockout_duration_minutes: LOCKOUT_DURATION_MINUTES,
+        action: 'account_disabled_requires_admin',
       },
     })
   }
 }
 
 /**
- * 重置失败尝试计数（登录成功或锁定期过期时调用）
+ * 重置失败尝试计数（登录成功时调用）
  */
 export async function resetFailedAttempts(userId: number): Promise<void> {
   const db = await getDatabase()
-  await db.exec(`
+  await db.exec(
+    `
     UPDATE users
     SET failed_login_count = 0,
-        locked_until = NULL,
         last_failed_login = NULL
     WHERE id = ?
-  `, [userId])
+  `,
+    [userId]
+  )
 }
 
 /**
@@ -118,17 +109,14 @@ export async function logLoginAttempt(
 
   try {
     // PostgreSQL使用布尔值，SQLite使用整数
-    const successValue = db_type === 'postgres' ? success : (success ? 1 : 0)
-    await db.exec(`
+    const successValue = db_type === 'postgres' ? success : success ? 1 : 0
+    await db.exec(
+      `
       INSERT INTO login_attempts (username_or_email, ip_address, user_agent, success, failure_reason)
       VALUES (?, ?, ?, ?, ?)
-    `, [
-      usernameOrEmail,
-      ipAddress,
-      userAgent,
-      successValue,
-      failureReason || null
-    ])
+    `,
+      [usernameOrEmail, ipAddress, userAgent, successValue, failureReason || null]
+    )
   } catch (error) {
     console.error('[Security] Failed to log login attempt:', error)
     // 不抛出错误，避免影响登录流程
@@ -141,84 +129,112 @@ export async function logLoginAttempt(
 export async function getRecentFailedAttempts(
   hours: number = 1,
   limit: number = 100
-): Promise<Array<{
-  username_or_email: string
-  ip_address: string
-  user_agent: string
-  failure_reason: string
-  attempted_at: string
-}>> {
+): Promise<
+  Array<{
+    username_or_email: string
+    ip_address: string
+    user_agent: string
+    failure_reason: string
+    attempted_at: string
+  }>
+> {
   const db = await getDatabase()
   const db_type = db.type
-  const timeCondition = db_type === 'postgres'
-    ? `attempted_at > NOW() - INTERVAL '${hours} hours'`
-    : `attempted_at > datetime('now', '-${hours} hours')`
+  const timeCondition =
+    db_type === 'postgres'
+      ? `attempted_at > NOW() - INTERVAL '${hours} hours'`
+      : `attempted_at > datetime('now', '-${hours} hours')`
 
-  return await db.query(`
+  return (await db.query(
+    `
     SELECT username_or_email, ip_address, user_agent, failure_reason, attempted_at
     FROM login_attempts
     WHERE success = ?
       AND ${timeCondition}
     ORDER BY attempted_at DESC
     LIMIT ?
-  `, [0, limit]) as any[]
+  `,
+    [0, limit]
+  )) as any[]
 }
 
 /**
- * 获取当前被锁定的账户列表（管理员功能）
+ * 获取当前被禁用的账户列表（管理员功能）
  */
-export async function getLockedAccounts(): Promise<Array<{
-  id: number
-  username: string | null
-  email: string
-  locked_until: string
-  failed_login_count: number
-}>> {
+export async function getDisabledAccounts(): Promise<
+  Array<{
+    id: number
+    username: string | null
+    email: string
+    failed_login_count: number
+    last_failed_login: string | null
+  }>
+> {
   const db = await getDatabase()
-  const db_type = db.type
-  const nowFunc = db_type === 'postgres' ? 'NOW()' : 'datetime(\'now\')'
 
-  return await db.query(`
-    SELECT id, username, email, locked_until, failed_login_count
+  return (await db.query(
+    `
+    SELECT id, username, email, failed_login_count, last_failed_login
     FROM users
-    WHERE locked_until > ${nowFunc}
-    ORDER BY locked_until DESC
-  `, []) as any[]
+    WHERE is_active = 0
+    ORDER BY last_failed_login DESC
+  `,
+    []
+  )) as any[]
 }
 
 /**
- * 手动解锁账户（管理员功能）
+ * 启用账户并重置失败计数（管理员功能）
+ * 用于管理员手动启用因多次登录失败被禁用的账户
  */
-export async function unlockAccount(userId: number): Promise<void> {
+export async function enableAccount(userId: number): Promise<void> {
   const db = await getDatabase()
 
-  await db.exec(`
+  await db.exec(
+    `
     UPDATE users
-    SET locked_until = NULL,
+    SET is_active = 1,
         failed_login_count = 0,
         last_failed_login = NULL
     WHERE id = ?
-  `, [userId])
+  `,
+    [userId]
+  )
 
-  console.log(`[Security] Account ${userId} manually unlocked by admin`)
+  console.log(`[Security] Account ${userId} manually enabled by admin`)
+}
+
+/**
+ * @deprecated 使用 enableAccount 代替
+ * 保留此函数以兼容旧代码
+ */
+export async function unlockAccount(userId: number): Promise<void> {
+  return enableAccount(userId)
 }
 
 /**
  * 获取IP的登录尝试次数（用于IP级别的速率限制检测）
  */
-export async function getIpLoginAttempts(ipAddress: string, minutes: number = 5): Promise<number> {
+export async function getIpLoginAttempts(
+  ipAddress: string,
+  minutes: number = 5
+): Promise<number> {
   const db = await getDatabase()
   const db_type = db.type
-  const timeCondition = db_type === 'postgres'
-    ? `attempted_at > NOW() - INTERVAL '${minutes} minutes'`
-    : `attempted_at > datetime('now', '-${minutes} minutes')`
+  const timeCondition =
+    db_type === 'postgres'
+      ? `attempted_at > NOW() - INTERVAL '${minutes} minutes'`
+      : `attempted_at > datetime('now', '-${minutes} minutes')`
 
-  const result = await db.queryOne(`
+  const result = (await db.queryOne(
+    `
     SELECT COUNT(*) as count
     FROM login_attempts
     WHERE ip_address = ?
       AND ${timeCondition}
-  `, [ipAddress]) as { count: number } | null
+  `,
+    [ipAddress]
+  )) as { count: number } | null
 
   return result?.count || 0
 }

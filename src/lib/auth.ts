@@ -4,7 +4,6 @@ import { hashPassword, verifyPassword } from './crypto'
 import { generateToken, JWTPayload, verifyToken } from './jwt'
 import { getInsertedId } from './db-helpers'
 import {
-  checkAccountLockout,
   recordFailedLogin,
   resetFailedAttempts,
   logLoginAttempt,
@@ -223,17 +222,15 @@ export async function loginWithPassword(
     throw new Error('用户名或密码错误')
   }
 
-  // P0：检查账户锁定状态
-  await checkAccountLockout(user)
+  // 检查账户是否被禁用（3次登录失败会禁用账户）
+  if (!user.is_active) {
+    await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, false, '账户已禁用')
+    throw new Error('账户已被禁用，请联系管理员启用')
+  }
 
   if (!user.password_hash) {
     await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, false, '未设置密码')
     throw new Error('该账户未设置密码')
-  }
-
-  if (!user.is_active) {
-    await logLoginAttempt(usernameOrEmail, ipAddress, userAgent, false, '账户已禁用')
-    throw new Error('账户已被禁用')
   }
 
   // 检查套餐有效期
