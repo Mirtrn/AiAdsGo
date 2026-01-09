@@ -144,6 +144,29 @@ PROHIBITED_AD_TEXT_REPLACEMENTS: Dict[str, str] = {
 PROHIBITED_AD_TEXT_CHARS = set(PROHIBITED_AD_TEXT_REPLACEMENTS.keys())
 
 
+import re
+
+DKI_PATTERN = re.compile(r"\{keyword:([^}]*)\}", re.IGNORECASE)
+
+
+def ad_text_effective_length(text: str) -> int:
+    """
+    计算 Google Ads 文案的“有效长度”：
+    - 对 DKI token（{KeyWord:DefaultText}）按 DefaultText 计数，不计 token 结构本身。
+    """
+    if not text:
+        return 0
+
+    total = 0
+    last = 0
+    for m in DKI_PATTERN.finditer(text):
+        total += len(text[last:m.start()])
+        total += len(m.group(1) or "")
+        last = m.end()
+    total += len(text[last:])
+    return total
+
+
 def sanitize_ad_text(text: str, *, max_len: Optional[int] = None) -> str:
     """
     轻量清理广告文案，避免触发 Google Ads 的 PROHIBITED policy topics（如 SYMBOLS）。
@@ -160,15 +183,18 @@ def sanitize_ad_text(text: str, *, max_len: Optional[int] = None) -> str:
     # 统一空白字符（避免换行/制表符）
     sanitized = " ".join(sanitized.split()).strip()
 
-    if max_len is not None and len(sanitized) > max_len:
+    if max_len is not None and ad_text_effective_length(sanitized) > max_len:
         # 如果替换导致超长，尝试移除被替换字符以保持长度
         removed = str(text)
         for ch in PROHIBITED_AD_TEXT_REPLACEMENTS.keys():
             removed = removed.replace(ch, "")
         removed = " ".join(removed.split()).strip()
-        if len(removed) <= max_len:
+        if ad_text_effective_length(removed) <= max_len:
             return removed
-        raise ValueError(f"ad text exceeds max_len={max_len} after sanitization: len={len(sanitized)}")
+        raise ValueError(
+            f"ad text exceeds max_len={max_len} after sanitization: "
+            f"effective_len={ad_text_effective_length(sanitized)}, raw_len={len(sanitized)}"
+        )
 
     return sanitized
 

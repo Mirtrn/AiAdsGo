@@ -6,6 +6,7 @@ import { getUserOnlySetting } from './settings'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { getDatabase } from './db'
 import { boolCondition } from './db-helpers'
+import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText } from './google-ads-ad-text'
 
 /**
  * 🔧 新增(2025-01-05): OAuth API 调用追踪包装器
@@ -1443,20 +1444,8 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
 }): Promise<{ adId: string; resourceName: string }> {
   const authType = params.authType || 'oauth'
 
-  const sanitizeAdText = (text: string, maxLen: number): string => {
-    const original = String(text ?? '')
-    const replaced = original.replace(/±/g, '+/-').replace(/\s+/g, ' ').trim()
-    if (replaced.length <= maxLen) return replaced
-
-    // 如果替换导致超长，回退为移除该符号，优先保证长度合规
-    const removed = original.replace(/±/g, '').replace(/\s+/g, ' ').trim()
-    if (removed.length <= maxLen) return removed
-
-    throw new Error(`广告文案超过${maxLen}字符限制（清理后仍超长）: "${replaced}" (${replaced.length}字符)`)
-  }
-
-  const sanitizedHeadlines = params.headlines.map(h => sanitizeAdText(h, 30))
-  const sanitizedDescriptions = params.descriptions.map(d => sanitizeAdText(d, 90))
+  const sanitizedHeadlines = params.headlines.map(h => sanitizeGoogleAdsAdText(h, 30))
+  const sanitizedDescriptions = params.descriptions.map(d => sanitizeGoogleAdsAdText(d, 90))
 
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (authType === 'service_account') {
@@ -1497,15 +1486,17 @@ export async function createGoogleAdsResponsiveSearchAd(params: {
 
   // Validate headline length (max 30 characters each)
   sanitizedHeadlines.forEach((headline, index) => {
-    if (headline.length > 30) {
-      throw new Error(`标题${index + 1}超过30字符限制: "${headline}" (${headline.length}字符)`)
+    const effectiveLength = getGoogleAdsTextEffectiveLength(headline)
+    if (effectiveLength > 30) {
+      throw new Error(`标题${index + 1}超过30字符限制: "${headline}" (effective=${effectiveLength}, raw=${headline.length})`)
     }
   })
 
   // Validate description length (max 90 characters each)
   sanitizedDescriptions.forEach((desc, index) => {
-    if (desc.length > 90) {
-      throw new Error(`描述${index + 1}超过90字符限制: "${desc}" (${desc.length}字符)`)
+    const effectiveLength = getGoogleAdsTextEffectiveLength(desc)
+    if (effectiveLength > 90) {
+      throw new Error(`描述${index + 1}超过90字符限制: "${desc}" (effective=${effectiveLength}, raw=${desc.length})`)
     }
   })
 

@@ -15,6 +15,9 @@ import { mockHeadlines, mockDescriptions, mockKeywords, mockCreatives, mockOffer
 describe('Performance Tests', () => {
   describe('Headline Type Classifier Performance', () => {
     it('should validate 15 headlines in <50ms', () => {
+      // 预热：避免首次加载/编译导致的偶发抖动
+      validateTypeCoverage(mockHeadlines.complete)
+
       const timer = new PerformanceTimer()
       timer.start()
 

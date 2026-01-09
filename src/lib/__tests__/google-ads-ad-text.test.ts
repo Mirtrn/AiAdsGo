@@ -1,0 +1,25 @@
+import { describe, expect, it } from 'vitest'
+import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText } from '../google-ads-ad-text'
+
+describe('google-ads-ad-text', () => {
+  it('counts DKI token as defaultText only', () => {
+    const text = '{KeyWord:Sportsroyals} Official' // raw=31
+    expect(getGoogleAdsTextEffectiveLength(text)).toBe('Sportsroyals'.length + ' Official'.length)
+  })
+
+  it('counts non-DKI text as raw length', () => {
+    const text = 'Hello world'
+    expect(getGoogleAdsTextEffectiveLength(text)).toBe(text.length)
+  })
+
+  it('sanitizes prohibited ± symbol without breaking length constraints', () => {
+    const text = '±0,02 mm Maßtoleranz'
+    expect(sanitizeGoogleAdsAdText(text, 30)).toBe('+/-0,02 mm Maßtoleranz')
+  })
+
+  it('does not reject DKI strings that are over maxLen in raw length but under in effective length', () => {
+    const text = '{KeyWord:Sportsroyals} Official' // effective=21
+    expect(() => sanitizeGoogleAdsAdText(text, 30)).not.toThrow()
+  })
+})
+
