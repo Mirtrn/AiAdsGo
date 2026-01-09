@@ -5,6 +5,7 @@
  */
 
 import { scrapeUrl } from './scraper'
+import { getLanguageCodeForCountry } from './language-country-codes'
 
 export interface BrandServices {
   shipping: string[] // 配送相关服务
@@ -20,11 +21,13 @@ export interface BrandServices {
  */
 export async function extractBrandServices(
   websiteUrl: string,
-  targetCountry?: string
+  targetCountry?: string,
+  customProxyUrl?: string
 ): Promise<BrandServices> {
   try {
     // 抓取官网内容
-    const pageData = await scrapeUrl(websiteUrl)
+    const language = targetCountry ? getLanguageCodeForCountry(targetCountry) : undefined
+    const pageData = await scrapeUrl(websiteUrl, customProxyUrl, language)
     const text = pageData.text.toLowerCase()
 
     const services: BrandServices = {

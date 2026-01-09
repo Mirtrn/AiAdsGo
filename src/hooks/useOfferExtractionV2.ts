@@ -64,7 +64,8 @@ interface UseOfferExtractionV2Return {
     affiliateLink: string,
     targetCountry: string,
     productPrice?: string,
-    commissionPayout?: string
+    commissionPayout?: string,
+    brandName?: string
   ) => Promise<void>
   reconnect: (taskId: string) => Promise<void>
   reset: () => void
@@ -129,7 +130,8 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
     affiliateLink: string,
     targetCountry: string,
     productPrice?: string,
-    commissionPayout?: string
+    commissionPayout?: string,
+    brandName?: string
   ) => {
     reset()
     setIsExtracting(true)
@@ -153,6 +155,7 @@ export function useOfferExtractionV2(): UseOfferExtractionV2Return {
           target_country: targetCountry,
           product_price: productPrice,
           commission_payout: commissionPayout,
+          brand_name: brandName || undefined,
         }),
         signal: abortControllerRef.current.signal
       })

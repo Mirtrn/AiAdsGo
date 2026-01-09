@@ -149,7 +149,8 @@ export default function CreateOfferModalV2({
         // 🔥 2025-12-16新增：后端自动创建的Offer ID
         offerId: extractionResult.offerId || null,
       })
-      setBrandName(extractionResult.brand || '')
+      // 🔥 如果用户已提前填写品牌名，优先保留用户输入；否则使用自动识别结果
+      setBrandName((prev) => prev || extractionResult.brand || '')
       setCurrentStep('confirm')
     }
   }, [extractionResult, currentStage])
@@ -193,14 +194,38 @@ export default function CreateOfferModalV2({
     setCurrentStep('extracting')
 
     // 🔥 启动SSE流式提取
-    startExtraction(affiliateLink, targetCountry, productPrice, commissionPayout)
+    startExtraction(affiliateLink, targetCountry, productPrice, commissionPayout, brandName)
   }
 
   // ========== 步骤3: 用户确认后跳转到Offer详情页 ==========
   // 🔥 2025-12-16重构：Offer已在后端自动创建，用户确认只是跳转到详情页
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!extractedData?.offerId) {
       setError('Offer创建失败，请重试')
+      return
+    }
+
+    const finalBrandName = brandName.trim()
+    if (!finalBrandName) {
+      setError('请输入品牌名称')
+      return
+    }
+
+    setLoading(true)
+    try {
+      // 🔥 将用户确认/修正后的品牌名持久化到Offer
+      const res = await fetch(`/api/offers/${extractedData.offerId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand: finalBrandName }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || `HTTP ${res.status}`)
+      }
+    } catch (e: any) {
+      setError(`保存品牌名失败：${e?.message || String(e)}`)
+      setLoading(false)
       return
     }
 
@@ -222,6 +247,7 @@ export default function CreateOfferModalV2({
     setExtractedData(null)
     setCurrentStep('input')
     setError('')
+    setLoading(false)
     resetExtraction() // 🔥 重置SSE提取状态
   }
 
@@ -321,7 +347,22 @@ export default function CreateOfferModalV2({
 
               {/* 可选字段 */}
               <div className="pt-4 border-t border-slate-200 space-y-4">
-                <p className="text-sm font-medium text-slate-700">可选信息（用于CPC计算）</p>
+                <p className="text-sm font-medium text-slate-700">可选信息（用于CPC计算/独立站补充）</p>
+
+                <div>
+                  <Label htmlFor="brandNameOptional">品牌名（可选）</Label>
+                  <Input
+                    id="brandNameOptional"
+                    type="text"
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                    placeholder="如 kaspersky"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    若推广链接为独立站，系统会优先使用你填写的品牌名进行Google搜索，补充官方信息与广告元素
+                  </p>
+                </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -473,11 +514,20 @@ export default function CreateOfferModalV2({
               <Button type="button" variant="outline" onClick={handleBack} disabled={loading}>
                 返回修改
               </Button>
-              <Button onClick={handleConfirm} disabled={!extractedData?.offerId}>
+              <Button onClick={handleConfirm} disabled={loading || !extractedData?.offerId}>
                 {extractedData?.offerId ? (
                   <>
-                    <CheckCircle2 className="w-4 h-4 mr-2" />
-                    查看Offer详情
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        保存中...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        查看Offer详情
+                      </>
+                    )}
                   </>
                 ) : (
                   <>

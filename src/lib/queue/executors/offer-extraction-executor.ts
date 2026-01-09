@@ -13,6 +13,45 @@ import { getDatabase } from '@/lib/db'
 import { executeAIAnalysis } from '@/lib/ai-analysis-service'
 import { getTargetLanguage } from '@/lib/offer-utils'
 import { createOffer, updateOfferScrapeStatus } from '@/lib/offers'
+import type { BrandSearchSupplement, SerpSitelink } from '@/lib/google-brand-search'
+
+function mergeUniqueStrings(primary: string[] | null | undefined, secondary: string[] | null | undefined, limit: number): string[] | null {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const list of [primary, secondary]) {
+    if (!Array.isArray(list)) continue
+    for (const raw of list) {
+      if (typeof raw !== 'string') continue
+      const v = raw.trim()
+      if (!v) continue
+      const key = v.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(v)
+      if (out.length >= limit) return out
+    }
+  }
+  return out.length > 0 ? out : null
+}
+
+function mergeUniqueSitelinks(primary: SerpSitelink[] | null | undefined, secondary: SerpSitelink[] | null | undefined, limit: number): SerpSitelink[] | null {
+  const out: SerpSitelink[] = []
+  const seen = new Set<string>()
+  for (const list of [primary, secondary]) {
+    if (!Array.isArray(list)) continue
+    for (const item of list) {
+      const text = item?.text?.trim()
+      if (!text) continue
+      const description = item?.description?.trim() || undefined
+      const key = `${text.toLowerCase()}__${(description || '').toLowerCase()}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({ text, description })
+      if (out.length >= limit) return out
+    }
+  }
+  return out.length > 0 ? out : null
+}
 
 /**
  * Offer提取任务数据接口
@@ -25,6 +64,8 @@ export interface OfferExtractionTaskData {
   // 🔥 新增：产品价格和佣金比例（用于批量上传创建Offer）
   productPrice?: string
   commissionPayout?: string
+  // 🔥 新增：用户手动输入的品牌名（独立站Google搜索补充用）
+  brandName?: string
 }
 
 /**
@@ -33,7 +74,7 @@ export interface OfferExtractionTaskData {
 export async function executeOfferExtraction(
   task: Task<OfferExtractionTaskData>
 ): Promise<any> {
-  const { affiliateLink, targetCountry, skipCache = false, skipWarmup = false, productPrice, commissionPayout } = task.data
+  const { affiliateLink, targetCountry, skipCache = false, skipWarmup = false, productPrice, commissionPayout, brandName } = task.data
   const db = getDatabase()
 
   // 🔥 2025-12-12调试：记录task.data中的targetCountry
@@ -59,6 +100,7 @@ export async function executeOfferExtraction(
       userId: task.userId,
       skipCache,
       skipWarmup,
+      brandNameInput: brandName,
       // 进度回调：更新到数据库
       progressCallback: async (stage, status, message, data, duration) => {
         // 计算进度百分比 - 必须包含所有ProgressStage阶段
@@ -105,7 +147,7 @@ export async function executeOfferExtraction(
       createdOfferId = taskRow.offer_id
       console.log(`🔄 重建任务，更新现有Offer基础数据: taskId=${task.id}, offerId=${taskRow.offer_id}`)
       await updateOfferScrapeStatus(taskRow.offer_id, task.userId, 'in_progress', undefined, {
-        brand: extractResult.data.brand || undefined,
+        brand: (extractResult.data.brand || brandName) || undefined,
         url: extractResult.data.finalUrl || undefined,
         // 🔥 2025-12-16修复：保存final_url_suffix到数据库
         final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
@@ -119,7 +161,7 @@ export async function executeOfferExtraction(
       console.log(`📦 批量任务，创建Offer基础记录: ${task.id}`)
       const offer = await createOffer(task.userId, {
         url: extractResult.data.finalUrl || affiliateLink,
-        brand: extractResult.data.brand || '提取中...',
+        brand: extractResult.data.brand || brandName || '提取中...',
         target_country: targetCountry,
         affiliate_link: affiliateLink,
         final_url: extractResult.data.finalUrl || undefined,
@@ -144,7 +186,7 @@ export async function executeOfferExtraction(
       console.log(`🆕 普通SSE任务，创建Offer基础记录: ${task.id}`)
       const offer = await createOffer(task.userId, {
         url: extractResult.data.finalUrl || affiliateLink,
-        brand: extractResult.data.brand || '提取中...',
+        brand: extractResult.data.brand || brandName || '提取中...',
         target_country: targetCountry,
         affiliate_link: affiliateLink,
         final_url: extractResult.data.finalUrl || undefined,
@@ -200,6 +242,38 @@ export async function executeOfferExtraction(
       // AI分析失败不中断流程，继续保存基础数据
     }
 
+    // 🔥 独立站增强：合并Google品牌词搜索补充数据到“已提取广告元素”维度中
+    const brandSearchSupplement: BrandSearchSupplement | null =
+      (extractResult.data as any)?.brandSearchSupplement || null
+
+    const mergedExtractedHeadlines = mergeUniqueStrings(
+      brandSearchSupplement?.extracted?.headlines || null,
+      aiAnalysisResult?.extractedHeadlines || null,
+      60
+    )
+    const mergedExtractedDescriptions = mergeUniqueStrings(
+      brandSearchSupplement?.extracted?.descriptions || null,
+      aiAnalysisResult?.extractedDescriptions || null,
+      40
+    )
+    const mergedCallouts = mergeUniqueStrings(
+      brandSearchSupplement?.extracted?.callouts || null,
+      null,
+      30
+    )
+    const mergedSitelinks = mergeUniqueSitelinks(
+      brandSearchSupplement?.extracted?.sitelinks || null,
+      null,
+      20
+    )
+
+    const mergedExtractionMetadata = {
+      ...(aiAnalysisResult?.extractionMetadata || {}),
+      ...(brandSearchSupplement ? { brandSearchSupplement } : {}),
+      ...(mergedCallouts ? { serpCallouts: mergedCallouts } : {}),
+      ...(mergedSitelinks ? { serpSitelinks: mergedSitelinks } : {}),
+    }
+
     // 合并AI分析结果到提取数据（展平结构，与前端期望匹配）
     const aiProductInfo = aiAnalysisResult?.aiProductInfo || {}
     const finalResult = {
@@ -215,9 +289,9 @@ export async function executeOfferExtraction(
       competitorAnalysis: aiAnalysisResult?.competitorAnalysis || null,
       // 广告元素提取
       extractedKeywords: aiAnalysisResult?.extractedKeywords || null,
-      extractedHeadlines: aiAnalysisResult?.extractedHeadlines || null,
-      extractedDescriptions: aiAnalysisResult?.extractedDescriptions || null,
-      extractionMetadata: aiAnalysisResult?.extractionMetadata || null,
+      extractedHeadlines: mergedExtractedHeadlines,
+      extractedDescriptions: mergedExtractedDescriptions,
+      extractionMetadata: Object.keys(mergedExtractionMetadata).length > 0 ? mergedExtractionMetadata : null,
     }
 
     // ========== 🔥 2025-12-16重构：AI分析完成后更新Offer（增量保存第二阶段）==========
@@ -234,7 +308,7 @@ export async function executeOfferExtraction(
                 : null)
 
         await updateOfferScrapeStatus(createdOfferId, task.userId, 'completed', undefined, {
-          brand: extractResult.data.brand || undefined,
+          brand: (extractResult.data.brand || brandName) || undefined,
           url: extractResult.data.finalUrl || undefined,
           // 🔥 2025-12-16修复：保存final_url_suffix到数据库
           final_url_suffix: extractResult.data.finalUrlSuffix || undefined,
@@ -257,12 +331,12 @@ export async function executeOfferExtraction(
             JSON.stringify(aiAnalysisResult.competitorAnalysis) : undefined,
           extracted_keywords: aiAnalysisResult?.extractedKeywords ?
             JSON.stringify(aiAnalysisResult.extractedKeywords) : undefined,
-          extracted_headlines: aiAnalysisResult?.extractedHeadlines ?
-            JSON.stringify(aiAnalysisResult.extractedHeadlines) : undefined,
-          extracted_descriptions: aiAnalysisResult?.extractedDescriptions ?
-            JSON.stringify(aiAnalysisResult.extractedDescriptions) : undefined,
-          extraction_metadata: aiAnalysisResult?.extractionMetadata ?
-            JSON.stringify(aiAnalysisResult.extractionMetadata) : undefined,
+          extracted_headlines: mergedExtractedHeadlines ?
+            JSON.stringify(mergedExtractedHeadlines) : undefined,
+          extracted_descriptions: mergedExtractedDescriptions ?
+            JSON.stringify(mergedExtractedDescriptions) : undefined,
+          extraction_metadata: Object.keys(mergedExtractionMetadata).length > 0 ?
+            JSON.stringify(mergedExtractionMetadata) : undefined,
           extracted_at: new Date().toISOString(),
           ai_keywords: aiKeywordSeeds ? JSON.stringify(aiKeywordSeeds) : undefined,
           scraped_data: JSON.stringify(extractResult.data),

@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     // 2. 解析请求参数
     const body = await req.json()
-    const { affiliate_link, target_country, product_price, commission_payout, skipCache, skipWarmup } = body
+    const { affiliate_link, target_country, product_price, commission_payout, brand_name, skipCache, skipWarmup } = body
 
     // 参数验证
     if (!affiliate_link || typeof affiliate_link !== 'string' || affiliate_link.trim() === '') {
@@ -74,14 +74,30 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // 可选：品牌名（用于独立站Google搜索补充）
+    if (brand_name !== undefined && brand_name !== null) {
+      if (typeof brand_name !== 'string') {
+        return new Response(
+          JSON.stringify({ error: 'Invalid brand_name' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+      if (brand_name.trim().length > 120) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid brand_name (长度不能超过120字符)' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+    }
+
     // 3. 创建offer_tasks记录
     const taskId = crypto.randomUUID()
     await db.exec(
       `INSERT INTO offer_tasks (
-        id, user_id, affiliate_link, target_country, product_price, commission_payout,
+        id, user_id, affiliate_link, target_country, product_price, commission_payout, brand_name,
         status, stage, progress, message, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 'resolving_link', 0, '准备开始提取...', ${nowFunc}, ${nowFunc})`,
-      [taskId, userIdNum, affiliate_link, target_country, product_price || null, commission_payout || null]
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'resolving_link', 0, '准备开始提取...', ${nowFunc}, ${nowFunc})`,
+      [taskId, userIdNum, affiliate_link, target_country, product_price || null, commission_payout || null, (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : null]
     )
 
     // 4. 将任务加入队列
@@ -93,6 +109,7 @@ export async function POST(req: NextRequest) {
       // 🔧 修复（2025-12-31）：添加产品价格和佣金比例
       productPrice: product_price || undefined,
       commissionPayout: commission_payout || undefined,
+      brandName: (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : undefined,
     }
 
     console.log(`📝 Created offer_task: ${taskId} for user ${userIdNum}`)

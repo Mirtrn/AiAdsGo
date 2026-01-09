@@ -1480,6 +1480,39 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
       extracted_elements_section += `\n**EXTRACTED DESCRIPTIONS** (from product features, ≤90 chars):\n${extractedElements.descriptions.slice(0, 2).join('; ')}\n`
     }
 
+    // 🔥 独立站增强：从extraction_metadata中读取SERP补充的callout/sitelink（如果有）
+    const extractionMetadata = safeParseJson((offer as any).extraction_metadata, null)
+    const serpCalloutsRaw =
+      Array.isArray(extractionMetadata?.serpCallouts) ? extractionMetadata.serpCallouts
+        : (Array.isArray(extractionMetadata?.brandSearchSupplement?.extracted?.callouts)
+            ? extractionMetadata.brandSearchSupplement.extracted.callouts
+            : [])
+    const serpSitelinksRaw =
+      Array.isArray(extractionMetadata?.serpSitelinks) ? extractionMetadata.serpSitelinks
+        : (Array.isArray(extractionMetadata?.brandSearchSupplement?.extracted?.sitelinks)
+            ? extractionMetadata.brandSearchSupplement.extracted.sitelinks
+            : [])
+
+    const serpCallouts = serpCalloutsRaw
+      .filter((c: any) => typeof c === 'string' && c.trim().length > 0)
+      .map((c: string) => c.trim())
+      .slice(0, 6)
+    if (serpCallouts.length > 0) {
+      extracted_elements_section += `\n**EXTRACTED CALLOUTS** (from Google SERP/official site):\n${serpCallouts.join(', ')}\n`
+    }
+
+    const serpSitelinks = serpSitelinksRaw
+      .filter((s: any) => s && typeof s.text === 'string' && s.text.trim().length > 0)
+      .map((s: any) => {
+        const text = String(s.text).trim()
+        const desc = s.description ? String(s.description).trim() : ''
+        return desc ? `${text} - ${desc}` : text
+      })
+      .slice(0, 6)
+    if (serpSitelinks.length > 0) {
+      extracted_elements_section += `\n**EXTRACTED SITELINK IDEAS** (from official site):\n${serpSitelinks.join(' | ')}\n`
+    }
+
     extracted_elements_section += `\n**INSTRUCTION**: Use above extracted elements as reference. You can refine, expand, or create variations, but prioritize extracted keywords (they have real search volume). Generate complete 15 headlines and 4 descriptions as required.\n`
   }
   variables.extracted_elements_section = extracted_elements_section

@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     // 2. 解析请求参数
     const body = await req.json()
     // 🔥 修复（2025-12-08）：添加product_price和commission_payout参数支持
-    const { affiliate_link, target_country, product_price, commission_payout, skipCache, skipWarmup } = body
+    const { affiliate_link, target_country, product_price, commission_payout, brand_name, skipCache, skipWarmup } = body
 
     // 参数验证
     if (!affiliate_link || typeof affiliate_link !== 'string' || affiliate_link.trim() === '') {
@@ -69,6 +69,22 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // 可选：品牌名（用于独立站Google搜索补充）
+    if (brand_name !== undefined && brand_name !== null) {
+      if (typeof brand_name !== 'string') {
+        return NextResponse.json(
+          { error: 'Invalid request', message: 'brand_name must be a string' },
+          { status: 400 }
+        )
+      }
+      if (brand_name.trim().length > 120) {
+        return NextResponse.json(
+          { error: 'Invalid request', message: 'brand_name length must be <= 120' },
+          { status: 400 }
+        )
+      }
+    }
+
     // 3. 创建offer_tasks记录
     const taskId = crypto.randomUUID()
 
@@ -82,11 +98,12 @@ export async function POST(req: NextRequest) {
         target_country,
         product_price,
         commission_payout,
+        brand_name,
         skip_cache,
         skip_warmup,
         created_at,
         updated_at
-      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ${nowFunc}, ${nowFunc})
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ${nowFunc}, ${nowFunc})
     `, [
       taskId,
       userIdNum,
@@ -94,6 +111,7 @@ export async function POST(req: NextRequest) {
       target_country,
       product_price || null,
       commission_payout || null,
+      (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : null,
       skipCache ?? false,
       skipWarmup ?? false
     ])
@@ -109,6 +127,7 @@ export async function POST(req: NextRequest) {
       skipWarmup: skipWarmup ?? false,
       productPrice: product_price || undefined,
       commissionPayout: commission_payout || undefined,
+      brandName: (typeof brand_name === 'string' && brand_name.trim()) ? brand_name.trim() : undefined,
     }
 
     await queue.enqueue(

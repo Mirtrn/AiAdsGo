@@ -24,6 +24,7 @@ import {
 } from '@/lib/offer-utils'
 import { warmupAffiliateLink } from '@/lib/proxy-warmup'
 import { getProxyUrlForCountry } from '@/lib/settings'
+import { fetchBrandSearchSupplement, type BrandSearchSupplement } from '@/lib/google-brand-search'
 import type { ProgressStage } from '@/types/progress'
 
 /**
@@ -36,6 +37,8 @@ export interface ExtractOfferOptions {
   targetCountry: string
   /** 用户ID */
   userId: number
+  /** 用户手动输入的品牌名（可选，独立站Google搜索补充用） */
+  brandNameInput?: string
   /** 是否跳过缓存（默认true，确保获取最新URL重定向数据） */
   skipCache?: boolean
   /** 是否批量处理模式（启用快速失败策略） */
@@ -152,6 +155,9 @@ export interface ExtractOfferResult {
     logoUrl?: string
     platform?: string
 
+    // 🔥 独立站增强：Google品牌词搜索补充数据（可选）
+    brandSearchSupplement?: BrandSearchSupplement | null
+
     // 元数据
     redirectCount: number
     redirectChain: string[]
@@ -210,6 +216,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     affiliateLink,
     targetCountry,
     userId,
+    brandNameInput,
     skipCache = true,
     batchMode = false,
     skipWarmup = false,
@@ -381,6 +388,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     let amazonProductData = null
     let productCount = 0
     let scrapingError: string | null = null  // 🔥 新增：记录抓取错误
+    let proxyApiUrl: string | null = null
+    let brandSearchSupplement: BrandSearchSupplement | null = null
 
     try {
       // 🔥 验证finalUrl有效性
@@ -416,7 +425,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       })()
 
       // 获取用户代理配置
-      const proxyApiUrl = await getProxyUrlForCountry(targetCountry, userId)
+      proxyApiUrl = (await getProxyUrlForCountry(targetCountry, userId)) || null
       if (!proxyApiUrl) {
         trackStageProgress(progressCallback, accessingPageStartTime, 'accessing_page', 'error', `用户 ${userId} 未配置${targetCountry}国家的代理URL`)
         throw new Error(`用户 ${userId} 未配置${targetCountry}国家的代理URL`)
@@ -550,6 +559,12 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
       const extractingBrandStartTime = Date.now()
       progressCallback?.('extracting_brand', 'in_progress', '正在提取品牌信息...', undefined, 0)
 
+      // 🔥 如果用户已手动输入品牌名：独立站场景下优先使用用户输入
+      const brandNameTrimmed = typeof brandNameInput === 'string' ? brandNameInput.trim() : ''
+      if (!isAmazonStore && !isAmazonProductPage && brandNameTrimmed) {
+        brandName = brandNameTrimmed
+      }
+
       trackStageProgress(progressCallback, extractingBrandStartTime, 'extracting_brand', 'completed', '品牌信息提取完成', {
         brandName: brandName ?? undefined,
       })
@@ -582,6 +597,24 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
     // ========== 步骤8: 处理数据 ==========
     const processingDataStartTime = Date.now()
     progressCallback?.('processing_data', 'in_progress', '正在处理数据...', undefined, 0)
+
+    // 🔥 独立站增强：使用用户填写的品牌名进行Google搜索，补充广告元素与官网信息（best-effort）
+    const brandNameTrimmed = typeof brandNameInput === 'string' ? brandNameInput.trim() : ''
+    if (!isAmazonStore && !isAmazonProductPage && brandNameTrimmed && proxyApiUrl) {
+      try {
+        progressCallback?.('processing_data', 'in_progress', '正在通过Google搜索补充品牌信息...', undefined, 0)
+        brandSearchSupplement = await fetchBrandSearchSupplement({
+          brandName: brandNameTrimmed,
+          targetCountry,
+          proxyApiUrl,
+        })
+        if (brandSearchSupplement) {
+          console.log(`🔎 Google品牌词补充完成: "${brandNameTrimmed}", headlines=${brandSearchSupplement.extracted.headlines.length}, descriptions=${brandSearchSupplement.extracted.descriptions.length}`)
+        }
+      } catch (serpError: any) {
+        console.warn(`⚠️ Google品牌词补充失败（不影响主流程）: ${serpError?.message || serpError}`)
+      }
+    }
 
     // ========== 步骤9: 确定推广语言 ==========
     const targetLanguage = getTargetLanguage(targetCountry)
@@ -664,6 +697,9 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           hotInsights: independentStoreData.hotInsights,  // 🔥 新增：热销洞察
           deepScrapeResults: independentStoreData.deepScrapeResults,  // 🔥 新增：深度抓取结果
         }),
+
+        // 🔥 独立站增强：Google品牌词搜索补充数据
+        brandSearchSupplement,
 
         // 元数据
         redirectCount: resolvedData.redirectCount,
