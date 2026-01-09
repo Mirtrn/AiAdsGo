@@ -548,6 +548,18 @@ async function syncAccountsFromAPI(
     let apiErrorMessage: string | undefined
 
     try {
+      const basicAccountInfoQuery = `
+        SELECT
+          customer.id,
+          customer.descriptive_name,
+          customer.currency_code,
+          customer.time_zone,
+          customer.manager,
+          customer.test_account
+        FROM customer
+        WHERE customer.id = ${customerId}
+      `
+
       // 🔧 修复(2025-12-25): 服务账号模式自动降级login_customer_id
       // 策略：MCC ID → 子账户ID → null(省略login_customer_id)
       // 原因：根据Google Ads API文档，当直接访问账户(非通过管理账户)时，
@@ -557,6 +569,7 @@ async function syncAccountsFromAPI(
         : [credentials.login_customer_id, customerId, null]
 
       let customer: any
+      let preloadedAccountInfo: any[] | null = null
       let lastError: Error | null = null
       let successLoginCustomerId: string | null = null
 
@@ -584,7 +597,9 @@ async function syncAccountsFromAPI(
             // 如果执行成功，创建一个占位customer对象（后续查询会继续使用Python服务）
             customer = { _isPythonProxy: true, _customerId: customerId }
           } else {
-            customer = await getCustomer(
+            // OAuth模式：仅创建Customer实例不代表可访问（login_customer_id 不正确时，真正的请求会 PERMISSION_DENIED）
+            // 这里用一次轻量 GAQL 查询来验证访问性，并确保后续（含身份验证查询）使用正确的 login_customer_id
+            const candidateCustomer = await getCustomer(
               customerId,
               credentials.refresh_token,
               lcId,
@@ -597,6 +612,15 @@ async function syncAccountsFromAPI(
               undefined,
               'oauth'
             )
+
+            const searchResult = await candidateCustomer.query(basicAccountInfoQuery)
+            const results = extractSearchResults(searchResult)
+            if (!results || results.length === 0) {
+              throw new Error('账户基本信息查询返回空结果')
+            }
+
+            customer = candidateCustomer
+            preloadedAccountInfo = results
           }
 
           // 如果执行到这行代码没有抛出异常，说明成功
@@ -663,18 +687,6 @@ async function syncAccountsFromAPI(
 
       // 🔧 修复(2025-12-25): 分步查询，先查基本信息，再查 status
       // 有些账户的 status 字段可能有权限问题导致 field_violations 错误
-      const basicAccountInfoQuery = `
-        SELECT
-          customer.id,
-          customer.descriptive_name,
-          customer.currency_code,
-          customer.time_zone,
-          customer.manager,
-          customer.test_account
-        FROM customer
-        WHERE customer.id = ${customerId}
-      `
-
       // 🔧 修复(2025-12-25): 增加详细的错误捕获，处理 field_violations 等解析错误
       // 🔧 修复(2025-12-25): @htdangkhoa/google-ads库的search方法返回结构可能是 { results: [...] }
       let accountInfo: any[]
@@ -683,20 +695,24 @@ async function syncAccountsFromAPI(
       try {
         // 先查询基本信息（不包含 status，避免权限问题）
         // 🔧 修复(2025-12-26): 服务账号模式调用Python服务，OAuth模式使用query()
-        let searchResult
-        if (isServiceAccount) {
-          const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
-          searchResult = await executeGAQLQueryPython({
-            userId,
-            serviceAccountId: undefined,
-            customerId: customerId,
-            query: basicAccountInfoQuery
-          })
+        if (!isServiceAccount && preloadedAccountInfo) {
+          accountInfo = preloadedAccountInfo
         } else {
-          searchResult = await customer.query(basicAccountInfoQuery)
-        }
+          let searchResult
+          if (isServiceAccount) {
+            const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
+            searchResult = await executeGAQLQueryPython({
+              userId,
+              serviceAccountId: undefined,
+              customerId: customerId,
+              query: basicAccountInfoQuery
+            })
+          } else {
+            searchResult = await customer.query(basicAccountInfoQuery)
+          }
 
-        accountInfo = extractSearchResults(searchResult)
+          accountInfo = extractSearchResults(searchResult)
+        }
 
         if (accountInfo && accountInfo.length > 0) {
           // 尝试单独查询 status（如果失败也不影响基本信息）
@@ -1151,7 +1167,10 @@ export async function GET(request: NextRequest) {
     const cachedAccounts = await getCachedAccounts(userId)
     const latestSyncAtMs = getLatestSyncAtMs(cachedAccounts)
     const cacheAgeMs = Number.isNaN(latestSyncAtMs) ? Number.POSITIVE_INFINITY : Date.now() - latestSyncAtMs
-    const cacheStaleBeforeRefresh = cacheAgeMs > GOOGLE_ADS_ACCOUNTS_CACHE_MAX_AGE_MS
+    // 发布(launch)流程对账号状态更敏感：缩短最大缓存年龄，避免“账号已暂停但仍显示可投放”
+    const cacheMaxAgeMs = offerId ? 5 * 60 * 1000 : GOOGLE_ADS_ACCOUNTS_CACHE_MAX_AGE_MS
+    const cacheStaleBeforeRefresh = cacheAgeMs > cacheMaxAgeMs
+    const shouldRefresh = forceRefresh || (Boolean(offerId) && cacheStaleBeforeRefresh)
     console.log(`📦 缓存中有 ${cachedAccounts.length} 个账号`)
 
     const mapCachedAccounts = () => cachedAccounts.map(acc => {
@@ -1193,14 +1212,14 @@ export async function GET(request: NextRequest) {
     let refreshFailed = false
     let effectiveLastSyncAtIso: string | null = Number.isNaN(latestSyncAtMs) ? null : new Date(latestSyncAtMs).toISOString()
 
-    if (!forceRefresh && cachedAccounts.length > 0) {
+    if (!shouldRefresh && cachedAccounts.length > 0) {
       // 使用缓存数据（即使缓存已过期也先返回，避免请求阻塞/网关超时；由 refresh=true 显式触发同步）
       usedCache = true
-      console.log(`✅ 使用缓存的 ${cachedAccounts.length} 个账号 (ageMs=${cacheAgeMs})`)
+      console.log(`✅ 使用缓存的 ${cachedAccounts.length} 个账号 (ageMs=${cacheAgeMs}, maxAgeMs=${cacheMaxAgeMs})`)
       allAccounts = mapCachedAccounts()
     } else {
       // 从 API 获取并同步（仅在 refresh=true 或无缓存时执行）
-      console.log(`🔄 从 Google Ads API 同步账号... (forceRefresh=${forceRefresh}, cacheStale=${cacheStaleBeforeRefresh})`)
+      console.log(`🔄 从 Google Ads API 同步账号... (requestedRefresh=${forceRefresh}, autoRefresh=${Boolean(offerId) && cacheStaleBeforeRefresh})`)
       try {
         allAccounts = await syncAccountsFromAPI(userId, credentials, authType, serviceAccountConfig)
         console.log(`✅ 同步完成，获取到 ${allAccounts.length} 个账号`)

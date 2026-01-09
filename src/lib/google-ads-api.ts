@@ -356,7 +356,7 @@ export async function refreshAccessToken(
 export async function getCustomer(
   customerId: string,
   refreshToken: string,
-  loginCustomerId: string,
+  loginCustomerId: string | null,
   credentials: {
     client_id: string
     client_secret: string
@@ -375,8 +375,12 @@ export async function getCustomer(
     throw new Error('缺少Google Ads凭证,必须从数据库提供 credentials 参数')
   }
 
-  if (!loginCustomerId) {
-    throw new Error('缺少 Login Customer ID(MCC账户ID),必须从数据库提供')
+  // login_customer_id:
+  // - 通过MCC访问子账户时，通常需要设置为MCC customer_id
+  // - 直接访问账户(非通过管理账户)时，根据Google Ads API文档可省略
+  // 此处允许传入 null 来显式省略 login_customer_id（用于自动降级策略）
+  if (loginCustomerId === undefined) {
+    throw new Error('缺少 Login Customer ID(MCC账户ID)。如需省略，请显式传入 null。')
   }
 
   const client = getGoogleAdsClient(credentials)
@@ -412,11 +416,15 @@ export async function getCustomer(
     }
 
     // 创建customer实例
-    const customer = client.Customer({
+    const customerParams: any = {
       customer_id: customerId,
       refresh_token: refreshToken,
-      login_customer_id: loginCustomerId,
-    })
+    }
+    if (loginCustomerId) {
+      customerParams.login_customer_id = loginCustomerId
+    }
+
+    const customer = client.Customer(customerParams)
 
     return customer
   } catch (error: any) {
