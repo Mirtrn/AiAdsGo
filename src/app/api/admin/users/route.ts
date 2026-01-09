@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth, createUser, generateUniqueUsername } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { logUserCreated, UserManagementContext } from '@/lib/audit-logger'
+import { buildAdminUsersOrderBy } from '@/lib/admin/users-query'
 
 // 获取客户端IP地址
 function getClientIP(request: NextRequest): string {
@@ -46,18 +47,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const searchParams = request.nextUrl.searchParams
-  const page = parseInt(searchParams.get('page') || '1')
-  const limit = parseInt(searchParams.get('limit') || '10')
-  const offset = (page - 1) * limit
+  try {
+    const searchParams = request.nextUrl.searchParams
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '10')
+    const offset = (page - 1) * limit
 
-  const db = getDatabase()
+    const db = getDatabase()
 
-  const sortBy = (searchParams.get('sortBy') || 'createdAt') as string
-  const sortOrderRaw = (searchParams.get('sortOrder') || 'desc').toLowerCase()
-  const sortOrder = sortOrderRaw === 'asc' ? 'ASC' : 'DESC'
+    const sortBy = (searchParams.get('sortBy') || 'createdAt') as string
+    const sortOrderRaw = (searchParams.get('sortOrder') || 'desc').toLowerCase()
+    const sortOrder = sortOrderRaw === 'asc' ? 'ASC' : 'DESC'
 
-  let query = `
+    let query = `
       SELECT
         id,
         username,
@@ -74,100 +76,77 @@ export async function GET(request: NextRequest) {
       FROM users
       WHERE 1=1
     `
-  let countQuery = `SELECT COUNT(*) as count FROM users WHERE 1=1`
-  const params: any[] = []
+    let countQuery = `SELECT COUNT(*) as count FROM users WHERE 1=1`
+    const params: any[] = []
 
-  // Search filter
-  const search = searchParams.get('search')
-  if (search) {
-    const searchCondition = ` AND (username LIKE ? OR email LIKE ?)`
-    query += searchCondition
-    countQuery += searchCondition
-    params.push(`%${search}%`, `%${search}%`)
-  }
+    // Search filter
+    const search = searchParams.get('search')
+    if (search) {
+      const searchCondition = ` AND (username LIKE ? OR email LIKE ?)`
+      query += searchCondition
+      countQuery += searchCondition
+      params.push(`%${search}%`, `%${search}%`)
+    }
 
-  // Role filter
-  const role = searchParams.get('role')
-  if (role && role !== 'all') {
-    const roleCondition = ` AND role = ?`
-    query += roleCondition
-    countQuery += roleCondition
-    params.push(role)
-  }
+    // Role filter
+    const role = searchParams.get('role')
+    if (role && role !== 'all') {
+      const roleCondition = ` AND role = ?`
+      query += roleCondition
+      countQuery += roleCondition
+      params.push(role)
+    }
 
-  // Status filter
-  const status = searchParams.get('status')
-  if (status && status !== 'all') {
-    const statusCondition = ` AND is_active = ?`
-    query += statusCondition
-    countQuery += statusCondition
-    // 🔧 修复(2025-12-30): PostgreSQL兼容性 - 发送boolean值
-    params.push(db.type === 'postgres' ? (status === 'active') : (status === 'active' ? 1 : 0))
-  }
+    // Status filter
+    const status = searchParams.get('status')
+    if (status && status !== 'all') {
+      const statusCondition = ` AND is_active = ?`
+      query += statusCondition
+      countQuery += statusCondition
+      // 🔧 修复(2025-12-30): PostgreSQL兼容性 - 发送boolean值
+      params.push(db.type === 'postgres' ? (status === 'active') : (status === 'active' ? 1 : 0))
+    }
 
-  // Package type filter
-  const packageType = searchParams.get('package')
-  if (packageType && packageType !== 'all') {
-    const packageCondition = ` AND package_type = ?`
-    query += packageCondition
-    countQuery += packageCondition
-    params.push(packageType)
-  }
+    // Package type filter
+    const packageType = searchParams.get('package')
+    if (packageType && packageType !== 'all') {
+      const packageCondition = ` AND package_type = ?`
+      query += packageCondition
+      countQuery += packageCondition
+      params.push(packageType)
+    }
 
-  const nowFunc = db.type === 'postgres' ? 'NOW()' : `datetime('now')`
-  const orderByWithNullsLast = (column: string) => `(${column} IS NULL) ASC, ${column} ${sortOrder}`
+    const orderBy = buildAdminUsersOrderBy({
+      sortBy,
+      sortOrder,
+      dbType: db.type,
+    })
 
-  const orderBy = (() => {
-    switch (sortBy) {
-      case 'id':
-        return `id ${sortOrder}`
-      case 'username':
-        return `username ${sortOrder}`
-      case 'role':
-        return `role ${sortOrder}`
-      case 'packageType':
-        return `package_type ${sortOrder}`
-      case 'packageExpiresAt':
-        return orderByWithNullsLast('package_expires_at')
-      case 'createdAt':
-        return `created_at ${sortOrder}`
-      case 'lastLoginAt':
-        return orderByWithNullsLast('last_login_at')
-      case 'status': {
-        // 0: disabled, 1: locked, 2: normal
-        const isActiveFalse = db.type === 'postgres' ? 'FALSE' : '0'
-        const statusRank = `
-          CASE
-            WHEN is_active = ${isActiveFalse} THEN 0
-            WHEN locked_until IS NOT NULL AND locked_until > ${nowFunc} THEN 1
-            ELSE 2
-          END
-        `
-        return `${statusRank} ${sortOrder}, created_at DESC`
+    // Pagination + sorting (ORDER BY validated above)
+    query += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`
+
+    // Get total count
+    const total = await db.queryOne(countQuery, [...params]) as { count: number }
+
+    // Get users
+    const users = await db.query(query, [...params, limit, offset])
+
+    return NextResponse.json({
+      users: users.map(transformUserToApiResponse),
+      pagination: {
+        total: total.count,
+        page,
+        limit,
+        totalPages: Math.ceil(total.count / limit)
       }
-      default:
-        return `created_at DESC`
-    }
-  })()
-
-  // Pagination + sorting (ORDER BY validated above)
-  query += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`
-
-  // Get total count
-  const total = await db.queryOne(countQuery, [...params]) as { count: number }
-
-  // Get users
-  const users = await db.query(query, [...params, limit, offset])
-
-  return NextResponse.json({
-    users: users.map(transformUserToApiResponse),
-    pagination: {
-      total: total.count,
-      page,
-      limit,
-      totalPages: Math.ceil(total.count / limit)
-    }
-  })
+    })
+  } catch (error: any) {
+    console.error('[admin/users] list users failed', {
+      message: error?.message || String(error),
+      stack: error?.stack,
+    })
+    return NextResponse.json({ error: 'Failed to load users' }, { status: 500 })
+  }
 }
 
 // POST: Create new user

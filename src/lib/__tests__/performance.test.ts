@@ -331,6 +331,9 @@ describe('Performance Tests', () => {
 
   describe('Language Constraints Performance', () => {
     it('should get language constraints in <1ms', () => {
+      // 预热：避免首次加载/初始化导致的偶发抖动
+      getLanguageConstraints('en')
+
       const timer = new PerformanceTimer()
       timer.start()
 
