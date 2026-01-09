@@ -20,6 +20,9 @@
 .DS_Store
 *.pem
 
+# local AI/agent tooling
+.claude/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
@@ -39,9 +42,30 @@ yarn-error.log*
 # vercel
 .vercel
 
+# IDEs/editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# caches
+.eslintcache
+.stylelintcache
+.turbo/
+.cache/
+.pnpm-store/
+.direnv/
+.envrc
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
 
 # database files (SQLite) - 所有位置的数据库文件
 *.db
@@ -88,10 +112,13 @@ service-account.json
 # Claude文档目录 - 包含敏感信息和分析报告，不提交到Github
 claudedocs/
 docs/
+oldcode/
 
 # 安全相关 - 额外保护
 *.env*
 !.env.example
+!.env.production.example
+!.env.production.template
 *.pem
 *.p12
 *.pfx
@@ -120,10 +147,27 @@ test_cookies.txt
 debug_*.log
 temp_*.sh
 temp_*.ts
+*.pid
+*.sock
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+python-service/.venv/
 
 # storage目录 - 包含调试文件、测试脚本、临时数据
 storage/
 !storage/.gitkeep
+
+# playwright
+playwright-report/
+test-results/
+blob-report/
 
 # 临时分析报告文件
 ANALYSIS_SUMMARY.md

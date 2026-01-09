@@ -24,6 +24,8 @@ dist/
 !README.md
 docs/
 claudedocs/
+secrets/
+oldcode/
 .git/
 .gitignore
 .vscode/
