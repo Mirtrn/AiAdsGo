@@ -67,6 +67,13 @@ export async function setCampaignPageViewGoalWithCredentials(params: {
       {
         maxRetries: 3,
         initialDelay: 1000,
+        // 🔧 性能优化：NOT_FOUND / 权限类错误通常不可通过重试恢复，避免无意义的指数退避等待
+        shouldRetry: (error) => {
+          const message = error?.message || String(error)
+          if (message.includes('NOT_FOUND') || message.includes('does not exist')) return false
+          if (message.includes('PERMISSION_DENIED') || message.toLowerCase().includes('permission')) return false
+          return true
+        },
         operationName: `Set PAGE_VIEW goal for campaign ${campaignId}`
       }
     )
