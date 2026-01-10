@@ -110,23 +110,38 @@ export default function GoogleAdsSetupGuidePage() {
                     </div>
                   </div>
 
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">1</div>
-                    <div>
-                      <h4 className="font-medium">创建 GCP 项目并启用 API</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        访问 <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-600 hover:underline">Google Cloud Console</a> 创建项目，然后在"API和服务"→"库"中搜索并启用 <strong>Google Ads API</strong>
-                      </p>
-                    </div>
-                  </div>
+	                  <div className="flex items-start gap-3">
+	                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">1</div>
+	                    <div>
+	                      <h4 className="font-medium">创建 GCP 项目并启用 API</h4>
+	                      <p className="text-sm text-gray-600 mt-1">
+	                        访问 <a href="https://console.cloud.google.com/" target="_blank" className="text-blue-600 hover:underline">Google Cloud Console</a> 创建项目，然后在"API和服务"→"库"中搜索并启用 <strong>Google Ads API</strong>
+	                      </p>
+	                    </div>
+	                  </div>
 
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">2</div>
-                    <div className="flex-1">
-                      <h4 className="font-medium" id="oauth-client-id">创建 OAuth 客户端</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        进入<a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-blue-600 hover:underline">凭据</a>页面，点击"创建凭据"→"OAuth 2.0 客户端 ID"，选择"Web 应用"类型
-                      </p>
+	                  <div className="flex items-start gap-3">
+	                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">2</div>
+	                    <div>
+	                      <h4 className="font-medium">配置 OAuth 同意屏幕（目标对象：测试版 + OAuth 用户）</h4>
+	                      <div className="text-sm text-gray-600 mt-1 space-y-2">
+	                        <p>
+	                          进入 Cloud Console 的 <strong>OAuth 同意屏幕</strong>配置页，在“目标对象”中确认“发布状态”为<strong>测试版</strong>。
+	                        </p>
+	                        <p>
+	                          并将<strong>MCC 所属的 Gmail 邮箱</strong>加入到“OAuth 用户列表/测试用户”中，否则授权时可能无法通过。
+	                        </p>
+	                      </div>
+	                    </div>
+	                  </div>
+
+	                  <div className="flex items-start gap-3">
+	                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">3</div>
+	                    <div className="flex-1">
+	                      <h4 className="font-medium" id="oauth-client-id">创建 OAuth 客户端</h4>
+	                      <p className="text-sm text-gray-600 mt-1">
+	                        进入<a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-blue-600 hover:underline">凭据</a>页面，点击"创建凭据"→"OAuth 2.0 客户端 ID"，选择"Web 应用"类型
+	                      </p>
                       <Alert className="mt-3 bg-blue-50 border-blue-300">
                         <HelpCircle className="h-4 w-4 text-blue-600" />
                         <AlertDescription className="text-blue-800 text-sm">
@@ -134,29 +149,29 @@ export default function GoogleAdsSetupGuidePage() {
                         </AlertDescription>
                       </Alert>
                     </div>
-                  </div>
+	                  </div>
 
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">3</div>
-                    <div>
-                      <h4 className="font-medium">配置授权 URI</h4>
-                      <div className="text-sm text-gray-600 mt-1 space-y-2">
-                        <p>
-                          在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-2 py-0.5 rounded text-xs">https://www.autoads.dev/api/google-ads/oauth/callback</code>
+	                  <div className="flex items-start gap-3">
+	                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">4</div>
+	                    <div>
+	                      <h4 className="font-medium">配置授权 URI</h4>
+	                      <div className="text-sm text-gray-600 mt-1 space-y-2">
+	                        <p>
+	                          在"已授权的重定向 URI"中添加：<code className="bg-gray-100 px-2 py-0.5 rounded text-xs">https://www.autoads.dev/api/google-ads/oauth/callback</code>
                         </p>
                         <p>
                           在"已获授权的 JavaScript 来源"中添加：<code className="bg-gray-100 px-2 py-0.5 rounded text-xs">https://www.autoads.dev</code>
                         </p>
                       </div>
                     </div>
-                  </div>
+	                  </div>
 
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">4</div>
-                    <div className="flex-1">
-                      <h4 className="font-medium">获取 Client ID 和 Client Secret</h4>
-                      <div className="text-sm text-gray-600 mt-1 space-y-2">
-                        <p>创建完成后，点击客户端名称查看 <strong>客户端 ID</strong>和<strong>客户端密钥</strong></p>
+	                  <div className="flex items-start gap-3">
+	                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">5</div>
+	                    <div className="flex-1">
+	                      <h4 className="font-medium">获取 Client ID 和 Client Secret</h4>
+	                      <div className="text-sm text-gray-600 mt-1 space-y-2">
+	                        <p>创建完成后，点击客户端名称查看 <strong>客户端 ID</strong>和<strong>客户端密钥</strong></p>
                         <div className="p-3 bg-gray-50 border rounded-lg">
                           <p className="font-medium text-gray-900 mb-1">Client ID 格式示例：</p>
                           <code className="text-xs bg-white px-2 py-1 rounded border">123456789012-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com</code>
@@ -164,38 +179,38 @@ export default function GoogleAdsSetupGuidePage() {
                         </div>
                       </div>
                     </div>
-                  </div>
+	                  </div>
 
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">5</div>
-                    <div className="flex-1">
-                      <h4 className="font-medium" id="oauth-developer-token">申请 Developer Token</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token，OAuth 方式需要 <strong>基本访问权限</strong>（审核1-3个工作日）
+	                  <div className="flex items-start gap-3">
+	                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">6</div>
+	                    <div className="flex-1">
+	                      <h4 className="font-medium" id="oauth-developer-token">申请 Developer Token</h4>
+	                      <p className="text-sm text-gray-600 mt-1">
+	                        访问 <a href="https://ads.google.com/aw/apicenter" target="_blank" className="text-blue-600 hover:underline">Google Ads API Center</a> 申请 Token，OAuth 方式需要 <strong>基本访问权限</strong>（审核1-3个工作日）
                       </p>
 
                       {/* 重要警告：Project 匹配 */}
                       <Alert className="mt-3 bg-red-50 border-red-300" id="project-matching">
-                        <AlertCircle className="h-5 w-5 text-red-600" />
-                        <AlertDescription className="text-red-800">
-                          <div className="font-semibold mb-2">关键要求：Developer Token 必须与 OAuth Client ID 来自同一个 GCP Project</div>
-                          <ul className="text-sm space-y-1 ml-4 list-disc">
-                            <li>在申请 Developer Token 时，确保选择的 GCP Project 与步骤2创建 OAuth Client 的 Project 相同</li>
-                            <li>Client ID 格式为 <code className="bg-red-100 px-1 rounded">项目编号-xxx.apps.googleusercontent.com</code>，其中"项目编号"就是 Project Number</li>
-                            <li>如果配置不匹配，API 调用会报错：<code className="bg-red-100 px-1 rounded">Developer token is not allowed with project 'xxx'</code></li>
-                            <li><strong>解决方法</strong>：要么在 Client ID 所属的 Project 重新申请 Developer Token，要么在 Developer Token 所属的 Project 重新创建 OAuth Client</li>
-                          </ul>
-                        </AlertDescription>
-                      </Alert>
+	                        <AlertCircle className="h-5 w-5 text-red-600" />
+	                        <AlertDescription className="text-red-800">
+	                          <div className="font-semibold mb-2">关键要求：Developer Token 必须与 OAuth Client ID 来自同一个 GCP Project</div>
+	                          <ul className="text-sm space-y-1 ml-4 list-disc">
+	                            <li>在申请 Developer Token 时，确保选择的 GCP Project 与步骤3创建 OAuth Client 的 Project 相同</li>
+	                            <li>Client ID 格式为 <code className="bg-red-100 px-1 rounded">项目编号-xxx.apps.googleusercontent.com</code>，其中"项目编号"就是 Project Number</li>
+	                            <li>如果配置不匹配，API 调用会报错：<code className="bg-red-100 px-1 rounded">Developer token is not allowed with project 'xxx'</code></li>
+	                            <li><strong>解决方法</strong>：要么在 Client ID 所属的 Project 重新申请 Developer Token，要么在 Developer Token 所属的 Project 重新创建 OAuth Client</li>
+	                          </ul>
+	                        </AlertDescription>
+	                      </Alert>
                     </div>
-                  </div>
+	                  </div>
 
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">6</div>
-                    <div>
-                      <h4 className="font-medium">完成配置</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        在系统设置页面配置 Client ID、Client Secret、Developer Token，然后点击"启动 OAuth 授权"
+	                  <div className="flex items-start gap-3">
+	                    <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-sm font-semibold">7</div>
+	                    <div>
+	                      <h4 className="font-medium">完成配置</h4>
+	                      <p className="text-sm text-gray-600 mt-1">
+	                        在系统设置页面配置 Client ID、Client Secret、Developer Token，然后点击"启动 OAuth 授权"
                       </p>
                     </div>
                   </div>
