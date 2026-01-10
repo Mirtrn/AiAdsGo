@@ -2,6 +2,7 @@ import { getDatabase } from './db'
 import { generateOfferName, getTargetLanguage, isOfferNameUnique, normalizeBrandName, validateBrandName } from './offer-utils'
 import { generatePricingJSON, initializePromotionsJSON, initializeScrapedDataJSON } from './pricing-utils'
 import { compactCategoryLabel, deriveCategoryFromScrapedData } from './offer-category'
+import { deriveBrandFromProductTitle, isLikelyInvalidBrandName } from './brand-name-utils'
 
 export interface Offer {
   id: number
@@ -983,6 +984,17 @@ export async function updateOfferScrapeStatus(
       ?? (scrapedData.category ? compactCategoryLabel(scrapedData.category) : null)
 
     const rawBrand = scrapedData.brand?.trim() || null
+    const scrapedProductTitle = (() => {
+      if (!scrapedData.scraped_data) return null
+      try {
+        const parsed = JSON.parse(scrapedData.scraped_data)
+        return typeof parsed?.productName === 'string' ? parsed.productName : null
+      } catch {
+        return null
+      }
+    })()
+    const titleDerivedBrand = deriveBrandFromProductTitle(scrapedProductTitle)
+
     const deriveBrandFromUrl = (inputUrl: string | null | undefined): string | null => {
       if (!inputUrl) return null
       try {
@@ -1007,10 +1019,32 @@ export async function updateOfferScrapeStatus(
       }
     }
 
-    const fallbackBrand = deriveBrandFromUrl(scrapedData.url || null)
+    const isMarketplaceHost = (host: string): boolean => {
+      return (
+        host.includes('amazon.') ||
+        host.includes('ebay.') ||
+        host.includes('walmart.') ||
+        host.includes('aliexpress.') ||
+        host.includes('temu.') ||
+        host.includes('etsy.')
+      )
+    }
+
+    const urlHost = (() => {
+      try {
+        return scrapedData.url ? new URL(scrapedData.url).hostname.toLowerCase() : null
+      } catch {
+        return null
+      }
+    })()
+
+    const fallbackBrand = (urlHost && isMarketplaceHost(urlHost)) ? null : deriveBrandFromUrl(scrapedData.url || null)
     const brandForWrite = (() => {
-      if (!rawBrand || rawBrand === 'Unknown') return null
-      if (fallbackBrand && validateBrandName(fallbackBrand).valid) {
+      // Prefer a deterministic title-derived brand when the extracted label is missing or obviously wrong.
+      if (!rawBrand || rawBrand === 'Unknown' || isLikelyInvalidBrandName(rawBrand)) {
+        if (titleDerivedBrand && validateBrandName(titleDerivedBrand).valid) return titleDerivedBrand
+      }
+      if (rawBrand && fallbackBrand && validateBrandName(fallbackBrand).valid) {
         const rawLower = rawBrand.toLowerCase()
         const fallbackLower = fallbackBrand.toLowerCase()
         // Prefer domain-derived brand when it’s a meaningful substring of the extracted label.
@@ -1020,10 +1054,12 @@ export async function updateOfferScrapeStatus(
         }
       }
 
-      if (validateBrandName(rawBrand).valid) return rawBrand
+      if (rawBrand && validateBrandName(rawBrand).valid && !isLikelyInvalidBrandName(rawBrand)) return rawBrand
+      if (titleDerivedBrand && validateBrandName(titleDerivedBrand).valid) return titleDerivedBrand
       if (fallbackBrand && validateBrandName(fallbackBrand).valid) return fallbackBrand
+      if (!rawBrand) return null
       const truncated = rawBrand.slice(0, 25)
-      console.warn(`⚠️ 自动提取的品牌名过长，已截断写入 offers.brand: "${truncated}"`)
+      console.warn(`⚠️ 自动提取的品牌名不可靠或过长，已截断写入 offers.brand: "${truncated}"`)
       return truncated
     })()
 

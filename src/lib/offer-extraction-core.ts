@@ -25,6 +25,7 @@ import {
 import { warmupAffiliateLink } from '@/lib/proxy-warmup'
 import { getProxyUrlForCountry } from '@/lib/settings'
 import { fetchBrandSearchSupplement, type BrandSearchSupplement } from '@/lib/google-brand-search'
+import { deriveBrandFromProductTitle, isLikelyInvalidBrandName } from '@/lib/brand-name-utils'
 import type { ProgressStage } from '@/types/progress'
 
 /**
@@ -592,6 +593,13 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
 
         if (scrapedData?.brandName) {
           brandName = scrapedData.brandName
+        }
+        // Cross-check: avoid locale boilerplate being saved as brand (e.g. "Besuchen").
+        if (isLikelyInvalidBrandName(brandName) && scrapedData?.productName) {
+          const derived = deriveBrandFromProductTitle(scrapedData.productName)
+          if (derived) {
+            brandName = derived
+          }
         }
         if (scrapedData?.productDescription) {
           productDescription = scrapedData.productDescription

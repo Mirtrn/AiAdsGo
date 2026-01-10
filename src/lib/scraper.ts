@@ -5,6 +5,7 @@ import { getProxyIp } from './proxy/fetch-proxy-ip'
 import type { ProxyCredentials } from './proxy/types'
 import { normalizeBrandName } from './offer-utils'
 import { getAcceptLanguageHeader, getLanguageCodeForCountry } from './language-country-codes'
+import { deriveBrandFromProductTitle, isLikelyInvalidBrandName } from './brand-name-utils'
 
 const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true'
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -441,6 +442,11 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
                   poBrand.replace(/^Brand/, '') || // 备用选择器
                   null
 
+  // Guard: avoid persisting locale boilerplate as a brand (e.g. "Besuchen").
+  if (isLikelyInvalidBrandName(brandName)) {
+    brandName = null
+  }
+
   // 如果是Amazon stores URL且没有从页面提取到品牌，从URL中提取（支持全球站点）
   if (!brandName && isAmazonDomain(url) && url.includes('/stores/')) {
     const urlMatch = url.match(/\/stores\/([^\/]+)\//)
@@ -454,18 +460,10 @@ function extractAmazonData($: any, url: string): ScrapedProductData {
   // Amazon商品标题通常以品牌名开头，格式如: "REOLINK 12MP PoE Security Camera..."
   const productTitle = $('#productTitle').text().trim()
   if (!brandName && productTitle) {
-    // 方法1: 提取标题开头的全大写单词（常见品牌格式）
-    const upperCaseMatch = productTitle.match(/^([A-Z][A-Z0-9]+)(?:\s|$)/)
-    if (upperCaseMatch) {
-      brandName = upperCaseMatch[1]
-      console.log(`✅ [Amazon] 从商品标题提取品牌(大写): ${brandName}`)
-    } else {
-      // 方法2: 提取标题第一个单词（首字母大写）
-      const firstWordMatch = productTitle.match(/^([A-Z][a-z]+)(?:\s|$)/)
-      if (firstWordMatch) {
-        brandName = firstWordMatch[1]
-        console.log(`✅ [Amazon] 从商品标题提取品牌(首词): ${brandName}`)
-      }
+    const derived = deriveBrandFromProductTitle(productTitle)
+    if (derived) {
+      brandName = derived
+      console.log(`✅ [Amazon] 从商品标题提取品牌: ${brandName}`)
     }
   }
 

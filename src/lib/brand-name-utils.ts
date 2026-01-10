@@ -1,0 +1,75 @@
+/**
+ * Brand name resolution helpers.
+ *
+ * Goal: avoid persisting UI/locale boilerplate words (e.g. "Besuchen") as brand names,
+ * and provide a deterministic fallback using product titles when needed.
+ */
+
+const INVALID_SINGLE_TOKEN_BRANDS = new Set([
+  // German
+  'besuchen',
+  // English
+  'visit',
+  // French
+  'visitez',
+  // Italian / Spanish
+  'visita',
+  // Dutch
+  'bezoek',
+  // Polish
+  'odwiedź',
+  // Generic labels that occasionally leak from selectors
+  'brand',
+  'marke',
+  'marca',
+  'marque',
+  'merk',
+  'marka',
+])
+
+const GENERIC_TITLE_FIRST_WORDS = new Set([
+  'the', 'a', 'an',
+  'new', 'best',
+  // DE
+  'der', 'die', 'das',
+])
+
+export function isLikelyInvalidBrandName(candidate: string | null | undefined): boolean {
+  if (!candidate) return true
+  const trimmed = candidate.trim()
+  if (!trimmed) return true
+
+  const lower = trimmed.toLowerCase()
+  if (INVALID_SINGLE_TOKEN_BRANDS.has(lower)) return true
+
+  // Locale boilerplate fragments that can appear alone when markup is partially missing.
+  if (/^besuchen(\s+sie)?(\s+(den|die|das))?$/i.test(trimmed)) return true
+  if (/^visit(\s+the)?$/i.test(trimmed)) return true
+  if (/^visitez(\s+(la|le|les))?$/i.test(trimmed)) return true
+  if (/^visita(\s+(la|el|lo|il))?$/i.test(trimmed)) return true
+
+  return false
+}
+
+export function deriveBrandFromProductTitle(productTitle: string | null | undefined): string | null {
+  if (!productTitle) return null
+  const title = productTitle.trim()
+  if (!title) return null
+
+  // Prefer leading all-caps token (very common on Amazon product titles).
+  const upperCaseMatch = title.match(/^([A-Z][A-Z0-9&-]{2,})(?:\s|$)/)
+  if (upperCaseMatch?.[1]) {
+    const token = upperCaseMatch[1].trim()
+    if (!GENERIC_TITLE_FIRST_WORDS.has(token.toLowerCase())) return token
+  }
+
+  // Fallback: leading TitleCase token.
+  const firstWordMatch = title.match(/^([A-Z][a-z][a-z0-9&-]{1,})(?:\s|$)/)
+  if (firstWordMatch?.[1]) {
+    const token = firstWordMatch[1].trim()
+    if (!GENERIC_TITLE_FIRST_WORDS.has(token.toLowerCase())) return token
+  }
+
+  return null
+}
+
