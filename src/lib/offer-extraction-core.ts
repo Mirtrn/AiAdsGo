@@ -205,6 +205,47 @@ function trackStageProgress(
   progressCallback?.(step, status, message, data, duration)
 }
 
+function normalizeHost(input: string): string {
+  return input.trim().toLowerCase().replace(/\.+$/, '')
+}
+
+function isIpLike(hostname: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':')
+}
+
+function deriveBrandFromFinalUrl(finalUrl: string): string | null {
+  try {
+    const url = new URL(finalUrl)
+    const hostname = normalizeHost(url.hostname)
+    if (!hostname || isIpLike(hostname)) return null
+
+    const parts = hostname.split('.').filter(Boolean)
+    if (parts.length < 2) return null
+
+    const stripped = parts[0] === 'www' ? parts.slice(1) : parts
+    if (stripped.length < 2) return null
+
+    const tld = stripped[stripped.length - 1]
+    const sld = stripped[stripped.length - 2]
+    const sldIsCommonSecondLevel = new Set(['co', 'com', 'net', 'org', 'gov', 'edu'])
+
+    const label = (tld.length === 2 && sldIsCommonSecondLevel.has(sld) && stripped.length >= 3)
+      ? stripped[stripped.length - 3]
+      : sld
+
+    const candidate = label.replace(/[^a-z0-9-]/g, '').trim()
+    if (!candidate) return null
+
+    // Avoid returning hosting/platform domains as “brand”.
+    const blocked = new Set(['myshopify', 'shopify', 'wixsite', 'wordpress', 'blogspot', 'github', 'pages'])
+    if (blocked.has(candidate)) return null
+
+    return candidate
+  } catch {
+    return null
+  }
+}
+
 /**
  * Offer提取核心函数
  *
@@ -494,7 +535,15 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           targetCountry,
           3   // 并发数：最多同时抓取3个商品
         )
-        brandName = independentStoreData.storeName
+        // 🔥 品牌名归一：独立站主域名更稳定，避免 “Brand + 国家/语言” 作为品牌名
+        // 例：kaspersky.es 页面标题/店铺名为 “Kaspersky España”，但品牌应为 “kaspersky”
+        const brandFromUrl = deriveBrandFromFinalUrl(resolvedData.finalUrl)
+        const storeName = typeof independentStoreData.storeName === 'string' ? independentStoreData.storeName.trim() : ''
+        if (brandFromUrl && storeName && storeName.toLowerCase().includes(brandFromUrl)) {
+          brandName = brandFromUrl
+        } else {
+          brandName = storeName || brandFromUrl
+        }
         productDescription = independentStoreData.storeDescription
         productCount = independentStoreData.totalProducts
         console.log(`✅ 独立站深度识别成功: ${brandName}, 产品数: ${productCount}, 深度抓取: ${independentStoreData.deepScrapeResults?.successCount || 0}/${independentStoreData.deepScrapeResults?.totalScraped || 0}`)
