@@ -17,6 +17,7 @@ import { getKeywordSearchVolumes } from './keyword-planner'
 import { getKeywordIdeas } from './google-ads-keyword-planner'
 import { getUserAuthType } from './google-ads-oauth'
 import { PLATFORMS, BRAND_PATTERNS, DEFAULTS, THRESHOLD_LEVELS, CATEGORY_SYNONYMS } from './keyword-constants'
+import { getKeywordPlannerSiteFilterUrl } from './keyword-planner-site-filter'
 
 // ============================================
 // 类型定义
@@ -63,6 +64,12 @@ export interface UnifiedKeywordResult {
 export interface OfferData {
   brand: string
   category?: string | null
+  /** 可选：用于 Keyword Planner 的站点过滤（origin级别会在调用处做归一化） */
+  url?: string | null
+  /** 可选：最终落地页URL（优先用于站点过滤） */
+  final_url?: string | null
+  /** 可选：camelCase 兼容字段 */
+  finalUrl?: string | null
   productTitle?: string
   productFeatures?: string
   storeProductNames?: string[]
@@ -1065,6 +1072,7 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
         const keywordIdeas = await getKeywordIdeas({
           customerId,
           seedKeywords: roundSeeds,
+          pageUrl: getKeywordPlannerSiteFilterUrl(offer.final_url || offer.finalUrl || offer.url),
           targetCountry: country,
           targetLanguage: language,
           accountId,
@@ -1674,6 +1682,7 @@ export async function expandKeywordsWithSeeds(params: {
   language: string
   userId?: number
   brandName?: string
+  pageUrl?: string
   customerId?: string
   refreshToken?: string
   accountId?: number
@@ -1692,6 +1701,7 @@ export async function expandKeywordsWithSeeds(params: {
     language,
     userId,
     brandName,
+    pageUrl,
     customerId,
     refreshToken,
     accountId,
@@ -1747,6 +1757,7 @@ export async function expandKeywordsWithSeeds(params: {
       const keywordIdeas = await getKeywordIdeas({
         customerId,
         seedKeywords: finalSeedKeywords,  // 使用增强后的种子词
+        pageUrl,
         targetCountry: country,
         targetLanguage: language,
         userId,

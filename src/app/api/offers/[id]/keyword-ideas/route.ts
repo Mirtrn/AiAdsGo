@@ -16,6 +16,7 @@ import {
   filterLowIntentKeywords,
   filterMismatchedGeoKeywords,
 } from '@/lib/google-suggestions'
+import { getKeywordPlannerSiteFilterUrl } from '@/lib/keyword-planner-site-filter'
 
 /**
  * POST /api/offers/:id/keyword-ideas
@@ -115,6 +116,7 @@ export async function POST(
     }
 
     // 需求11：并行获取Google搜索下拉词和Keyword Planner建议
+    const siteFilterUrl = useUrl ? getKeywordPlannerSiteFilterUrl(offer.final_url || offer.url) : undefined
     const [googleSuggestKeywords, keywordPlannerIdeas] = await Promise.all([
       // 1. 获取Google搜索下拉词（自动过滤低意图关键词）
       getHighIntentKeywords({
@@ -131,7 +133,7 @@ export async function POST(
       getKeywordIdeas({
         customerId: googleAdsAccount.customerId,
         seedKeywords: finalSeedKeywords,
-        pageUrl: useUrl ? offer.url : undefined,
+        pageUrl: siteFilterUrl,
         targetCountry: offer.target_country,
         targetLanguage: offer.target_language || 'English',
         accountId: googleAdsAccount.id,

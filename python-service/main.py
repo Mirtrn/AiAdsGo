@@ -477,7 +477,16 @@ async def get_keyword_ideas(request: KeywordIdeasRequest):
             client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH
         )
 
-        if request.page_url:
+        # ✅ 正确实现 Keyword Planner 的 "keywords + site filter"
+        # GenerateKeywordIdeasRequest 的 seed 是 oneof：
+        # - keyword_seed
+        # - url_seed
+        # - keyword_and_url_seed
+        has_keywords = bool(request.keywords)
+        if request.page_url and has_keywords:
+            request_obj.keyword_and_url_seed.url = request.page_url
+            request_obj.keyword_and_url_seed.keywords.extend(request.keywords)
+        elif request.page_url:
             request_obj.url_seed.url = request.page_url
         else:
             request_obj.keyword_seed.keywords.extend(request.keywords)

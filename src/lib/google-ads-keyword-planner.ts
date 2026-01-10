@@ -165,22 +165,26 @@ export async function getKeywordIdeas(params: {
         include_adult_keywords: false,
       }
 
-      // 添加种子关键词（仅当批次非空时）
-      if (batch.length > 0) {
-        request.keyword_seed = {
-          keywords: batch,
+      // ✅ 正确实现 Keyword Planner 的 "keywords + site filter"
+      // GenerateKeywordIdeasRequest 的 seed 是 oneof：
+      // - keyword_seed
+      // - url_seed
+      // - keyword_and_url_seed
+      if (params.pageUrl) {
+        if (batch.length > 0) {
+          request.keyword_and_url_seed = {
+            keywords: batch,
+            url: params.pageUrl,
+          }
+        } else if (batchIndex === 0) {
+          request.url_seed = { url: params.pageUrl }
         }
-      }
-
-      // 添加URL种子（仅第一批添加，避免重复）
-      if (batchIndex === 0 && params.pageUrl) {
-        request.url_seed = {
-          url: params.pageUrl,
-        }
+      } else if (batch.length > 0) {
+        request.keyword_seed = { keywords: batch }
       }
 
       // 跳过既没有种子词也没有URL的请求
-      if (batch.length === 0 && !request.url_seed) {
+      if (!request.keyword_seed && !request.url_seed && !request.keyword_and_url_seed) {
         continue
       }
 

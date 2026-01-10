@@ -11,6 +11,7 @@ import type { PoolKeywordData } from './offer-keyword-pool'
 import { expandKeywordsWithSeeds } from './unified-keyword-service'
 import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
+import { getKeywordPlannerSiteFilterUrl } from './keyword-planner-site-filter'
 import {
   detectCountryInKeyword,
   filterLowIntentKeywords,
@@ -101,6 +102,7 @@ export async function expandAllKeywords(
       category,
       targetCountry,
       targetLanguage,
+      pageUrl: getKeywordPlannerSiteFilterUrl(offer?.final_url || offer?.url),
       userId,
       customerId,
       refreshToken,
@@ -135,6 +137,7 @@ interface OAuthExpandParams {
   category: string
   targetCountry: string
   targetLanguage: string
+  pageUrl?: string
   userId?: number
   customerId?: string
   refreshToken?: string
@@ -160,6 +163,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     category,
     targetCountry,
     targetLanguage,
+    pageUrl,
     userId,
     customerId,
     refreshToken,
@@ -201,6 +205,7 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
         language: targetLanguage,
         userId,
         brandName,
+        pageUrl,
         customerId,
         refreshToken,
         accountId,
