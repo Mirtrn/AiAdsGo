@@ -72,10 +72,13 @@ interface CachedAccount {
   timezone: string
   is_manager_account: any
   is_active: any
+  is_deleted?: any
   status: string | null
   test_account: any
   account_balance: number | null
   parent_mcc_id: string | null
+  auth_type?: string | null
+  service_account_id?: string | null
   identity_verification_program_status: string | null
   identity_verification_start_deadline_time: string | null
   identity_verification_completion_deadline_time: string | null
@@ -186,12 +189,32 @@ function getLatestSyncAtMs(accounts: CachedAccount[]) {
 /**
  * 从数据库获取缓存的账号列表
  */
-async function getCachedAccounts(userId: number): Promise<CachedAccount[]> {
+async function getCachedAccounts(params: {
+  userId: number
+  authType: 'oauth' | 'service_account'
+  serviceAccountId?: string | null
+}): Promise<CachedAccount[]> {
   const db = await getDatabase()
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
+
+  const scopeSqlParts: string[] = []
+  const scopeParams: any[] = []
+  if (params.authType === 'service_account') {
+    scopeSqlParts.push(`auth_type = 'service_account'`)
+    scopeSqlParts.push(`service_account_id = ?`)
+    scopeParams.push(params.serviceAccountId || '')
+  } else {
+    scopeSqlParts.push(`(auth_type IS NULL OR auth_type = 'oauth')`)
+    scopeSqlParts.push(`(service_account_id IS NULL OR service_account_id = '')`)
+  }
+  const scopeSql = scopeSqlParts.length > 0 ? scopeSqlParts.join(' AND ') : '1=1'
+
   return await db.query(`
     SELECT id, customer_id, account_name, currency, timezone,
-           is_manager_account, is_active, status, test_account,
+           is_manager_account, is_active, is_deleted, status, test_account,
            account_balance, parent_mcc_id,
+           auth_type, service_account_id,
            identity_verification_program_status,
            identity_verification_start_deadline_time,
            identity_verification_completion_deadline_time,
@@ -200,8 +223,11 @@ async function getCachedAccounts(userId: number): Promise<CachedAccount[]> {
            last_sync_at
     FROM google_ads_accounts
     WHERE user_id = ?
+      AND ${isActiveCondition}
+      AND ${isDeletedCheck}
+      AND ${scopeSql}
     ORDER BY is_manager_account DESC, account_name ASC
-  `, [userId]) as CachedAccount[]
+  `, [params.userId, ...scopeParams]) as CachedAccount[]
 }
 
 /**
@@ -223,8 +249,13 @@ async function upsertAccount(userId: number, account: {
   identity_verification_completion_deadline_time?: string | null
   identity_verification_overdue?: boolean
   identity_verification_checked_at?: string | null
+}, authScope?: {
+  authType: 'oauth' | 'service_account'
+  serviceAccountId?: string | null
 }): Promise<{ id: number; last_sync_at: string }> {
   const db = await getDatabase()
+  const activeValue = db.type === 'postgres' ? true : 1
+  const notDeletedValue = db.type === 'postgres' ? false : 0
 
   // 检查是否已存在
   const existing = await db.queryOne(`
@@ -240,10 +271,15 @@ async function upsertAccount(userId: number, account: {
           currency = ?,
           timezone = ?,
           is_manager_account = ?,
+          is_active = ?,
+          is_deleted = ?,
+          deleted_at = NULL,
           test_account = ?,
           status = ?,
           account_balance = ?,
           parent_mcc_id = ?,
+          auth_type = ?,
+          service_account_id = ?,
           identity_verification_program_status = ?,
           identity_verification_start_deadline_time = ?,
           identity_verification_completion_deadline_time = ?,
@@ -257,10 +293,14 @@ async function upsertAccount(userId: number, account: {
       account.currency_code,
       account.time_zone,
       account.manager,
+      activeValue,
+      notDeletedValue,
       account.test_account,
       account.status,
       account.account_balance ?? null,
       account.parent_mcc || null,
+      authScope?.authType || 'oauth',
+      authScope?.serviceAccountId || null,
       account.identity_verification_program_status ?? null,
       account.identity_verification_start_deadline_time ?? null,
       account.identity_verification_completion_deadline_time ?? null,
@@ -274,14 +314,16 @@ async function upsertAccount(userId: number, account: {
     const result = await db.exec(`
       INSERT INTO google_ads_accounts (
         user_id, customer_id, account_name, currency, timezone,
-        is_manager_account, test_account, status, account_balance, parent_mcc_id,
+        is_manager_account, is_active, is_deleted, deleted_at,
+        test_account, status, account_balance, parent_mcc_id,
+        auth_type, service_account_id,
         identity_verification_program_status,
         identity_verification_start_deadline_time,
         identity_verification_completion_deadline_time,
         identity_verification_overdue,
         identity_verification_checked_at,
         last_sync_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `, [
       userId,
       account.customer_id,
@@ -289,10 +331,14 @@ async function upsertAccount(userId: number, account: {
       account.currency_code,
       account.time_zone,
       account.manager,
+      activeValue,
+      notDeletedValue,
       account.test_account,
       account.status,
       account.account_balance ?? null,
       account.parent_mcc || null,
+      authScope?.authType || 'oauth',
+      authScope?.serviceAccountId || null,
       account.identity_verification_program_status ?? null,
       account.identity_verification_start_deadline_time ?? null,
       account.identity_verification_completion_deadline_time ?? null,
@@ -302,6 +348,62 @@ async function upsertAccount(userId: number, account: {
     const insertedId = getInsertedId(result, db.type)
     return { id: insertedId, last_sync_at: new Date().toISOString() }
   }
+}
+
+async function deactivateMissingAccounts(params: {
+  userId: number
+  authType: 'oauth' | 'service_account'
+  serviceAccountId?: string | null
+  seenCustomerIds: Set<string>
+}) {
+  if (!params.seenCustomerIds || params.seenCustomerIds.size === 0) return
+
+  const db = await getDatabase()
+  const inactiveValue = db.type === 'postgres' ? false : 0
+  const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+  const isDeletedCheck = db.type === 'sqlite' ? 'is_deleted = 0' : 'is_deleted = FALSE'
+
+  const scopeSqlParts: string[] = []
+  const scopeParams: any[] = []
+
+  if (params.authType === 'service_account') {
+    scopeSqlParts.push(`auth_type = 'service_account'`)
+    scopeSqlParts.push(`service_account_id = ?`)
+    scopeParams.push(params.serviceAccountId || '')
+  } else {
+    scopeSqlParts.push(`(auth_type IS NULL OR auth_type = 'oauth')`)
+    scopeSqlParts.push(`(service_account_id IS NULL OR service_account_id = '')`)
+  }
+
+  const scopeSql = scopeSqlParts.length > 0 ? scopeSqlParts.join(' AND ') : '1=1'
+
+  const existingActive = await db.query<{ customer_id: string }>(`
+    SELECT customer_id
+    FROM google_ads_accounts
+    WHERE user_id = ?
+      AND ${isActiveCondition}
+      AND ${isDeletedCheck}
+      AND ${scopeSql}
+  `, [params.userId, ...scopeParams])
+
+  const missing = (existingActive as any[])
+    .map((r) => r?.customer_id)
+    .filter((id) => typeof id === 'string' && id.trim().length > 0)
+    .filter((id) => !params.seenCustomerIds.has(id))
+
+  if (missing.length === 0) return
+
+  const placeholders = missing.map(() => '?').join(', ')
+  await db.exec(`
+    UPDATE google_ads_accounts
+    SET is_active = ?, updated_at = datetime('now')
+    WHERE user_id = ?
+      AND ${isDeletedCheck}
+      AND ${scopeSql}
+      AND customer_id IN (${placeholders})
+  `, [inactiveValue, params.userId, ...scopeParams, ...missing])
+
+  console.log(`🧹 已标记 ${missing.length} 个已解除关联的账号为非激活: ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? '...' : ''}`)
 }
 
 /**
@@ -564,6 +666,10 @@ async function syncAccountsFromAPI(
 
   const allAccounts: any[] = []
   const processedIds = new Set<string>()
+  const authScope = {
+    authType,
+    serviceAccountId: authType === 'service_account' ? (serviceAccountConfig?.id?.toString?.() || null) : null,
+  }
 
   for (const customerId of customerIds) {
     if (processedIds.has(customerId)) continue
@@ -860,9 +966,9 @@ async function syncAccountsFromAPI(
         }
 
         // 保存到数据库
-        const { id: dbId, last_sync_at } = await upsertAccount(userId, accountData)
-        allAccounts.push({ ...accountData, db_account_id: dbId, last_sync_at })
-        processedIds.add(customerId)
+      const { id: dbId, last_sync_at } = await upsertAccount(userId, accountData, authScope)
+      allAccounts.push({ ...accountData, db_account_id: dbId, last_sync_at })
+      processedIds.add(customerId)
 
         console.log(`   ✓ ${customerId}: ${accountData.descriptive_name} (MCC: ${accountData.manager})`)
 
@@ -1016,7 +1122,7 @@ async function syncAccountsFromAPI(
                   identity_verification_checked_at: identityVerificationCheckedAt,
                 }
 
-                const { id: dbId, last_sync_at } = await upsertAccount(userId, childData)
+                const { id: dbId, last_sync_at } = await upsertAccount(userId, childData, authScope)
                 allAccounts.push({ ...childData, db_account_id: dbId, last_sync_at })
                 processedIds.add(childId)
 
@@ -1070,7 +1176,7 @@ async function syncAccountsFromAPI(
         test_account: false,
         status: 'UNKNOWN',
       }
-      const { id: dbId, last_sync_at } = await upsertAccount(userId, fallbackData)
+      const { id: dbId, last_sync_at } = await upsertAccount(userId, fallbackData, authScope)
       allAccounts.push({ ...fallbackData, db_account_id: dbId, last_sync_at })
       processedIds.add(customerId)
     } finally {
@@ -1087,6 +1193,15 @@ async function syncAccountsFromAPI(
       })
     }
   }
+
+  // 🔥 清理：如果用户在MCC中解除部分账号关联，API不会返回这些账号
+  // 这里将“本次没再出现”的账号标记为 is_active=false，避免继续展示/使用。
+  await deactivateMissingAccounts({
+    userId,
+    authType,
+    serviceAccountId: authScope.serviceAccountId,
+    seenCustomerIds: processedIds,
+  })
 
   console.log(`✅ 同步完成，共 ${allAccounts.length} 个账户`)
   return allAccounts
@@ -1197,8 +1312,12 @@ export async function GET(request: NextRequest) {
     const syncState = syncStore.get(syncKey)
     const refreshInProgress = syncState?.status === 'running'
 
-    // 检查缓存
-    const cachedAccounts = await getCachedAccounts(userId)
+    // 检查缓存（按当前认证方式过滤；避免显示已删除/已解除关联/其他认证方式残留的账号）
+    const cachedAccounts = await getCachedAccounts({
+      userId,
+      authType,
+      serviceAccountId: authType === 'service_account' ? (serviceAccountId || null) : null,
+    })
     const latestSyncAtMs = getLatestSyncAtMs(cachedAccounts)
     const cacheAgeMs = Number.isNaN(latestSyncAtMs) ? Number.POSITIVE_INFINITY : Date.now() - latestSyncAtMs
     const cacheStaleBeforeRefresh = cacheAgeMs > GOOGLE_ADS_ACCOUNTS_CACHE_MAX_AGE_MS
