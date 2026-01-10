@@ -986,9 +986,21 @@ export async function updateOfferScrapeStatus(
     const deriveBrandFromUrl = (inputUrl: string | null | undefined): string | null => {
       if (!inputUrl) return null
       try {
-        const hostname = new URL(inputUrl).hostname.replace(/^www\./i, '')
-        const firstLabel = hostname.split('.')[0] || ''
-        const normalized = firstLabel.replace(/[-_]+/g, ' ').trim()
+        const hostname = new URL(inputUrl).hostname.trim().toLowerCase().replace(/\.+$/, '').replace(/^www\./i, '')
+        if (!hostname) return null
+
+        const parts = hostname.split('.').filter(Boolean)
+        if (parts.length < 2) return null
+
+        const tld = parts[parts.length - 1]
+        const sld = parts[parts.length - 2]
+        const sldIsCommonSecondLevel = new Set(['co', 'com', 'net', 'org', 'gov', 'edu'])
+
+        const label = (tld.length === 2 && sldIsCommonSecondLevel.has(sld) && parts.length >= 3)
+          ? parts[parts.length - 3]
+          : sld
+
+        const normalized = String(label || '').replace(/[-_]+/g, ' ').trim()
         return normalized ? normalizeBrandName(normalized) : null
       } catch {
         return null
@@ -998,6 +1010,16 @@ export async function updateOfferScrapeStatus(
     const fallbackBrand = deriveBrandFromUrl(scrapedData.url || null)
     const brandForWrite = (() => {
       if (!rawBrand || rawBrand === 'Unknown') return null
+      if (fallbackBrand && validateBrandName(fallbackBrand).valid) {
+        const rawLower = rawBrand.toLowerCase()
+        const fallbackLower = fallbackBrand.toLowerCase()
+        // Prefer domain-derived brand when it’s a meaningful substring of the extracted label.
+        // e.g. "Kaspersky España" -> "Kaspersky"
+        if (fallbackLower.length >= 3 && rawLower.includes(fallbackLower) && rawLower !== fallbackLower) {
+          return fallbackBrand
+        }
+      }
+
       if (validateBrandName(rawBrand).valid) return rawBrand
       if (fallbackBrand && validateBrandName(fallbackBrand).valid) return fallbackBrand
       const truncated = rawBrand.slice(0, 25)
