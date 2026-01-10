@@ -128,12 +128,15 @@ export default function Step4PublishSummary({
   const [publishSteps, setPublishSteps] = useState<Array<{
     step: string
     message: string
-    status: 'pending' | 'running' | 'success' | 'failed'
+    status: 'pending' | 'running' | 'success' | 'failed' | 'warning'
     timestamp?: Date
   }>>([])
 
   // 🔥 新增：发布结果模式（点击发布后切换）
   const [showPublishResult, setShowPublishResult] = useState(false)
+
+  // 🔥 新增：用于“超时后继续检查”的Campaign IDs
+  const [lastPublishCampaignIds, setLastPublishCampaignIds] = useState<number[]>([])
 
   // 🔥 新增(2025-12-19)：Launch Score评分结果（成功时显示）
   const [launchScoreSuccess, setLaunchScoreSuccess] = useState<{
@@ -162,7 +165,7 @@ export default function Step4PublishSummary({
   const [showForcePublishConfirm, setShowForcePublishConfirm] = useState(false)
 
   // 🔥 辅助函数：添加/更新发布步骤
-  const addPublishStep = (step: string, message: string, status: 'pending' | 'running' | 'success' | 'failed') => {
+  const addPublishStep = (step: string, message: string, status: 'pending' | 'running' | 'success' | 'failed' | 'warning') => {
     setPublishSteps(prev => {
       const existing = prev.find(s => s.step === step)
       if (existing) {
@@ -170,6 +173,88 @@ export default function Step4PublishSummary({
       }
       return [...prev, { step, message, status, timestamp: new Date() }]
     })
+  }
+
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+  const getPollDelayMs = (elapsedMs: number) => {
+    if (elapsedMs < 15_000) return 1000
+    if (elapsedMs < 60_000) return 2000
+    return 5000
+  }
+
+  const pollCampaignCreationStatus = async (campaignIds: number[], opts?: { maxWaitMs?: number }) => {
+    const maxWaitMs = typeof opts?.maxWaitMs === 'number' ? opts.maxWaitMs : 180_000
+    const startedAt = Date.now()
+    const campaignStatuses: Record<number, { status: 'success' | 'failed'; error?: string }> = {}
+
+    while (Date.now() - startedAt < maxWaitMs) {
+      const elapsedMs = Date.now() - startedAt
+      await sleep(getPollDelayMs(elapsedMs))
+
+      let hasPending = false
+      for (const campaignId of campaignIds) {
+        if (campaignStatuses[campaignId]) continue
+
+        try {
+          const statusRes = await fetch(`/api/offers/${offer.id}/campaigns/status?campaignId=${campaignId}`, {
+            credentials: 'include',
+            cache: 'no-store'
+          })
+
+          if (!statusRes.ok) {
+            hasPending = true
+            continue
+          }
+
+          const statusData = await statusRes.json()
+          const campaign = statusData?.campaign
+
+          if (!campaign) {
+            hasPending = true
+            continue
+          }
+
+          if (campaign.creation_status === 'synced') {
+            campaignStatuses[campaignId] = {
+              status: 'success',
+              error: campaign.creation_error
+            }
+            continue
+          }
+
+          if (campaign.creation_status === 'failed') {
+            campaignStatuses[campaignId] = {
+              status: 'failed',
+              error: campaign.creation_error
+            }
+            continue
+          }
+
+          hasPending = true
+        } catch (e) {
+          console.warn(`   查询Campaign ${campaignId}失败:`, e)
+          hasPending = true
+        }
+      }
+
+      if (!hasPending) break
+    }
+
+    const pendingIds = campaignIds.filter(id => !campaignStatuses[id])
+    const failedIds = Object.entries(campaignStatuses)
+      .filter(([_, s]) => s.status === 'failed')
+      .map(([id]) => Number(id))
+    const successIds = Object.entries(campaignStatuses)
+      .filter(([_, s]) => s.status === 'success')
+      .map(([id]) => Number(id))
+
+    const warnings = Object.values(campaignStatuses)
+      .filter(s => s.status === 'success' && s.error?.includes('[警告]'))
+      .map(s => s.error!)
+      .filter(Boolean)
+
+    return { campaignStatuses, pendingIds, failedIds, successIds, warnings, elapsedMs: Date.now() - startedAt }
   }
 
   // 🔥 新增：重置发布状态（用于"返回修改"）- 现在会直接跳转到第3步
@@ -266,27 +351,53 @@ export default function Step4PublishSummary({
         throw new Error(apiError.message)
       }
 
-      // 发布成功
+      // 🔥 修复：202 Accepted 表示后台异步队列，必须轮询 DB 状态确认
+      if (response.status === 202) {
+        addPublishStep('creating', '创建广告系列结构', 'success')
+        addPublishStep('syncing', '同步到Google Ads...(轮询中)', 'running')
+        setPublishStatus({ step: 'syncing', message: '正在后台处理，请稍候...', success: false })
+
+        const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
+        setLastPublishCampaignIds(campaignIds)
+        if (campaignIds.length === 0) {
+          addPublishStep('syncing', '发布任务已提交，但未返回Campaign列表，请稍后刷新查看结果', 'warning')
+          setPublishStatus({ step: 'timeout', message: '发布任务已提交，但返回的Campaign列表为空；请稍后刷新页面或在Google Ads中确认结果。', success: false })
+          setPublishing(false)
+          return
+        }
+
+        const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
+        if (failedIds.length > 0) {
+          const errorMsg = `${failedIds.length}个广告系列发布失败`
+          addPublishStep('syncing', errorMsg, 'failed')
+          setPublishStatus({ step: 'failed', message: errorMsg, success: false })
+          setPublishing(false)
+          return
+        }
+
+        if (pendingIds.length > 0) {
+          addPublishStep('syncing', `同步耗时较长：已完成 ${successIds.length}/${campaignIds.length}，仍在后台处理中`, 'warning')
+          setPublishStatus({ step: 'timeout', message: '处理耗时较长但后台仍在继续发布；请稍后点击“继续检查状态”或刷新页面查看最终结果。', success: false })
+          setPublishing(false)
+          return
+        }
+
+        addPublishStep('syncing', '同步完成', 'success')
+        addPublishStep('completed', `${successIds.length}个广告系列已成功发布到Google Ads`, 'success')
+        if (warnings.length > 0) {
+          addPublishStep('warnings', `提示: ${warnings.join('; ').replace('[警告] ', '')}`, 'warning')
+        }
+        setPublishStatus({ step: 'completed', message: '发布成功！广告系列已上线', success: true })
+        setLastPublishCampaignIds([])
+        onPublishComplete()
+        return
+      }
+
+      // 非异步：发布成功（兼容旧返回）
       addPublishStep('creating', '创建广告系列结构', 'success')
-      addPublishStep('syncing', '同步到Google Ads...', 'running')
-      setPublishStatus({
-        step: 'syncing',
-        message: '同步到Google Ads...',
-        success: false
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 2000))
-
-      addPublishStep('syncing', '同步完成', 'success')
       addPublishStep('completed', '广告系列已成功发布到Google Ads', 'success')
-      setPublishStatus({
-        step: 'completed',
-        message: '发布成功！广告系列已上线',
-        success: true
-      })
-
-      // 🔧 修复(2025-12-18): 发布成功后不再跳转，用户留在发布页面
-      // onPublishComplete() 已改为空操作，不需要延迟调用
+      setPublishStatus({ step: 'completed', message: '发布成功！广告系列已上线', success: true })
+      setLastPublishCampaignIds([])
       onPublishComplete()
     } catch (error: any) {
       addPublishStep('error', error.message || '发布失败', 'failed')
@@ -540,126 +651,50 @@ export default function Step4PublishSummary({
           success: false
         })
 
-        // 获取所有已创建的campaign ID
         const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
+        setLastPublishCampaignIds(campaignIds)
         console.log(`📊 需要轮询的Campaign数量: ${campaignIds.length}`)
 
-        // 轮询直到所有campaign完成或失败（最多30次轮询，每次1秒）
-        let allCompleted = false
-        let pollCount = 0
-        const maxPolls = 30
-        const campaignStatuses: Record<number, { status: string; error?: string }> = {}
-
-        while (!allCompleted && pollCount < maxPolls) {
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          pollCount++
-
-          // 检查每个campaign的状态
-          let hasRunning = false
-          for (const campaignId of campaignIds) {
-            if (campaignStatuses[campaignId]) continue // 已完成，无需再查
-
-            try {
-              const statusRes = await fetch(`/api/offers/${offer.id}/campaigns/status?campaignId=${campaignId}`, {
-                credentials: 'include'
-              })
-
-              if (statusRes.ok) {
-                const statusData = await statusRes.json()
-                const campaign = statusData.campaign
-
-                if (campaign) {
-                  console.log(`   Campaign ${campaignId}: ${campaign.creation_status}`)
-
-                  if (campaign.creation_status === 'synced') {
-                    campaignStatuses[campaignId] = {
-                      status: 'success',
-                      error: campaign.creation_error // 包含警告信息
-                    }
-                  } else if (campaign.creation_status === 'failed') {
-                    campaignStatuses[campaignId] = { status: 'failed', error: campaign.creation_error }
-                  } else {
-                    hasRunning = true
-                  }
-                }
-              }
-            } catch (e) {
-              console.warn(`   查询Campaign ${campaignId}失败:`, e)
-            }
-          }
-
-          allCompleted = !hasRunning
-
-          if (!allCompleted) {
-            const completed = Object.values(campaignStatuses).length
-            console.log(`⏳ 轮询 #${pollCount}/${maxPolls}: 已完成 ${completed}/${campaignIds.length} 个campaign`)
-          }
+        if (campaignIds.length === 0) {
+          addPublishStep('syncing', '发布任务已提交，但未返回Campaign列表，请稍后刷新查看结果', 'warning')
+          setPublishStatus({
+            step: 'timeout',
+            message: '发布任务已提交，但返回的Campaign列表为空；请稍后刷新页面或在Google Ads中确认结果。',
+            success: false
+          })
+          setPublishing(false)
+          return
         }
 
-        // 判断最终结果
-        const failedCampaigns = Object.entries(campaignStatuses)
-          .filter(([_, s]) => s.status === 'failed')
-          .map(([id, _]) => id)
+        const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
 
-        const successCount = Object.values(campaignStatuses).filter(s => s.status === 'success').length
-
-        // 🔧 修复(2026-01-05): 收集成功案例中的警告信息
-        const warnings = Object.values(campaignStatuses)
-          .filter(s => s.status === 'success' && s.error?.includes('[警告]'))
-          .map(s => s.error!)
-          .filter(w => w)
-
-        if (failedCampaigns.length > 0) {
-          // 部分或全部失败
-          const errorMsg = `${failedCampaigns.length}个广告系列发布失败`
+        if (failedIds.length > 0) {
+          const errorMsg = `${failedIds.length}个广告系列发布失败`
           console.error(`❌ ${errorMsg}`)
           addPublishStep('syncing', errorMsg, 'failed')
+          setPublishStatus({ step: 'failed', message: errorMsg, success: false })
+          setPublishing(false)
+          return
+        }
+
+        if (pendingIds.length > 0) {
+          addPublishStep('syncing', `同步耗时较长：已完成 ${successIds.length}/${campaignIds.length}，仍在后台处理中`, 'warning')
           setPublishStatus({
-            step: 'failed',
-            message: errorMsg,
+            step: 'timeout',
+            message: '处理耗时较长但后台仍在继续发布；请稍后点击“继续检查状态”或刷新页面查看最终结果。',
             success: false
           })
           setPublishing(false)
           return
         }
 
-        if (pollCount >= maxPolls && successCount === 0) {
-          // 超时未完成
-          console.error('❌ 广告系列处理超时')
-          addPublishStep('syncing', '处理超时，请稍后检查发布结果', 'failed')
-          setPublishStatus({
-            step: 'failed',
-            message: '处理超时，请稍后检查发布结果',
-            success: false
-          })
-          setPublishing(false)
-          return
-        }
-
-        // 全部成功
-        console.log(`✅ 所有${successCount}个广告系列发布成功`)
+        addPublishStep('syncing', '同步完成', 'success')
+        addPublishStep('completed', `${successIds.length}个广告系列已成功发布到Google Ads`, 'success')
         if (warnings.length > 0) {
-          // 有警告的情况
-          console.warn(`⚠️ 有警告: ${warnings.join('; ')}`)
-          addPublishStep('syncing', '同步完成', 'success')
-          addPublishStep('completed', `${successCount}个广告系列已成功发布到Google Ads`, 'success')
-          // 额外添加警告提示
-          addPublishStep('warnings', `提示: ${warnings.join('; ').replace('[警告] ', '')}`, 'success')
-          setPublishStatus({
-            step: 'completed',
-            message: '发布成功！广告系列已上线',
-            success: true
-          })
-        } else {
-          // 完全成功
-          addPublishStep('syncing', '同步完成', 'success')
-          addPublishStep('completed', `${successCount}个广告系列已成功发布到Google Ads`, 'success')
-          setPublishStatus({
-            step: 'completed',
-            message: '发布成功！广告系列已上线',
-            success: true
-          })
+          addPublishStep('warnings', `提示: ${warnings.join('; ').replace('[警告] ', '')}`, 'warning')
         }
+        setPublishStatus({ step: 'completed', message: '发布成功！广告系列已上线', success: true })
+        setLastPublishCampaignIds([])
         onPublishComplete()
         return
       }
@@ -796,18 +831,53 @@ export default function Step4PublishSummary({
         throw new Error(apiError.message)
       }
 
-      // 发布成功 - 在卡片中显示而不是toast
+      if (response.status === 202) {
+        addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
+        addPublishStep('creating', '创建广告系列结构', 'success')
+        addPublishStep('syncing', '同步到Google Ads...(轮询中)', 'running')
+        setPublishStatus({ step: 'syncing', message: '正在后台处理，请稍候...', success: false })
+
+        const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
+        setLastPublishCampaignIds(campaignIds)
+        if (campaignIds.length === 0) {
+          addPublishStep('syncing', '发布任务已提交，但未返回Campaign列表，请稍后刷新查看结果', 'warning')
+          setPublishStatus({ step: 'timeout', message: '发布任务已提交，但返回的Campaign列表为空；请稍后刷新页面或在Google Ads中确认结果。', success: false })
+          setPublishing(false)
+          return
+        }
+
+        const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
+        if (failedIds.length > 0) {
+          const errorMsg = `${failedIds.length}个广告系列发布失败`
+          addPublishStep('syncing', errorMsg, 'failed')
+          setPublishStatus({ step: 'failed', message: errorMsg, success: false })
+          setPublishing(false)
+          return
+        }
+
+        if (pendingIds.length > 0) {
+          addPublishStep('syncing', `同步耗时较长：已完成 ${successIds.length}/${campaignIds.length}，仍在后台处理中`, 'warning')
+          setPublishStatus({ step: 'timeout', message: '处理耗时较长但后台仍在继续发布；请稍后点击“继续检查状态”或刷新页面查看最终结果。', success: false })
+          setPublishing(false)
+          return
+        }
+
+        addPublishStep('syncing', '同步完成', 'success')
+        addPublishStep('completed', `${successIds.length}个广告系列已成功发布到Google Ads`, 'success')
+        if (warnings.length > 0) {
+          addPublishStep('warnings', `提示: ${warnings.join('; ').replace('[警告] ', '')}`, 'warning')
+        }
+        setPublishStatus({ step: 'completed', message: '发布成功！广告系列已上线', success: true })
+        setLastPublishCampaignIds([])
+        onPublishComplete()
+        return
+      }
+
       addPublishStep('pausing', `已暂停${existingCampaigns.length}个旧广告系列`, 'success')
       addPublishStep('creating', '创建广告系列结构', 'success')
       addPublishStep('completed', '新广告已创建', 'success')
-      setPublishStatus({
-        step: 'completed',
-        message: '发布成功！广告系列已上线',
-        success: true
-      })
-
-      // 🔧 修复(2025-12-18): 发布成功后不再跳转，用户留在发布页面
-      // onPublishComplete() 已改为空操作，不需要延迟调用
+      setPublishStatus({ step: 'completed', message: '发布成功！广告系列已上线', success: true })
+      setLastPublishCampaignIds([])
       onPublishComplete()
     } catch (error: any) {
       // 发布失败 - 在卡片中显示而不是toast
@@ -938,17 +1008,51 @@ export default function Step4PublishSummary({
         throw new Error(apiError.message)
       }
 
-      // 发布成功 - 在卡片中显示而不是toast
+      if (response.status === 202) {
+        addPublishStep('creating', '创建广告系列结构', 'success')
+        addPublishStep('syncing', '同步到Google Ads...(轮询中)', 'running')
+        setPublishStatus({ step: 'syncing', message: '正在后台处理，请稍候...', success: false })
+
+        const campaignIds: number[] = data.campaigns?.map((c: any) => c.id) || []
+        setLastPublishCampaignIds(campaignIds)
+        if (campaignIds.length === 0) {
+          addPublishStep('syncing', '发布任务已提交，但未返回Campaign列表，请稍后刷新查看结果', 'warning')
+          setPublishStatus({ step: 'timeout', message: '发布任务已提交，但返回的Campaign列表为空；请稍后刷新页面或在Google Ads中确认结果。', success: false })
+          setPublishing(false)
+          return
+        }
+
+        const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(campaignIds)
+        if (failedIds.length > 0) {
+          const errorMsg = `${failedIds.length}个广告系列发布失败`
+          addPublishStep('syncing', errorMsg, 'failed')
+          setPublishStatus({ step: 'failed', message: errorMsg, success: false })
+          setPublishing(false)
+          return
+        }
+
+        if (pendingIds.length > 0) {
+          addPublishStep('syncing', `同步耗时较长：已完成 ${successIds.length}/${campaignIds.length}，仍在后台处理中`, 'warning')
+          setPublishStatus({ step: 'timeout', message: '处理耗时较长但后台仍在继续发布；请稍后点击“继续检查状态”或刷新页面查看最终结果。', success: false })
+          setPublishing(false)
+          return
+        }
+
+        addPublishStep('syncing', '同步完成', 'success')
+        addPublishStep('completed', `${successIds.length}个广告系列已成功发布到Google Ads`, 'success')
+        if (warnings.length > 0) {
+          addPublishStep('warnings', `提示: ${warnings.join('; ').replace('[警告] ', '')}`, 'warning')
+        }
+        setPublishStatus({ step: 'completed', message: '发布成功！新旧广告同时运行', success: true })
+        setLastPublishCampaignIds([])
+        onPublishComplete()
+        return
+      }
+
       addPublishStep('creating', '创建广告系列结构', 'success')
       addPublishStep('completed', '新广告已创建，旧广告继续运行（A/B测试模式）', 'success')
-      setPublishStatus({
-        step: 'completed',
-        message: '发布成功！新旧广告同时运行',
-        success: true
-      })
-
-      // 🔧 修复(2025-12-18): 发布成功后不再跳转，用户留在发布页面
-      // onPublishComplete() 已改为空操作，不需要延迟调用
+      setPublishStatus({ step: 'completed', message: '发布成功！新旧广告同时运行', success: true })
+      setLastPublishCampaignIds([])
       onPublishComplete()
     } catch (error: any) {
       // 发布失败 - 在卡片中显示而不是toast
@@ -1074,6 +1178,8 @@ export default function Step4PublishSummary({
             ? 'border-green-200 bg-green-50/30'
             : publishStatus?.step === 'failed'
             ? 'border-red-200 bg-red-50/30'
+            : publishStatus?.step === 'timeout'
+            ? 'border-amber-200 bg-amber-50/30'
             : showPublishResult
             ? 'border-blue-200 bg-blue-50/30'
             : 'border-gray-200 bg-gray-50/30'
@@ -1084,6 +1190,8 @@ export default function Step4PublishSummary({
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
               ) : publishStatus?.step === 'failed' ? (
                 <AlertCircle className="w-4 h-4 text-red-600" />
+              ) : publishStatus?.step === 'timeout' ? (
+                <AlertCircle className="w-4 h-4 text-amber-600" />
               ) : showPublishResult ? (
                 <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
               ) : (
@@ -1182,6 +1290,62 @@ export default function Step4PublishSummary({
               {/* 发布中/已发布状态 - 显示步骤列表 */}
               {(showPublishResult || publishSteps.length > 0) && (
                 <>
+                  {publishStatus?.step === 'timeout' && lastPublishCampaignIds.length > 0 && (
+                    <Alert className="border-amber-200 bg-amber-50">
+                      <AlertDescription className="space-y-2">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5" />
+                          <div className="text-sm text-amber-800">
+                            <div className="font-semibold">后台仍在发布中</div>
+                            <div className="text-amber-700 mt-1">处理耗时较长不代表失败；你可以稍后继续检查发布结果。</div>
+                            <div className="mt-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                  try {
+                                    setPublishing(true)
+                                    addPublishStep('syncing', '重新检查同步状态...(轮询中)', 'running')
+                                    setPublishStatus({ step: 'syncing', message: '正在重新检查发布状态...', success: false })
+
+                                    const { pendingIds, failedIds, successIds, warnings } = await pollCampaignCreationStatus(lastPublishCampaignIds, { maxWaitMs: 120_000 })
+
+                                    if (failedIds.length > 0) {
+                                      const errorMsg = `${failedIds.length}个广告系列发布失败`
+                                      addPublishStep('syncing', errorMsg, 'failed')
+                                      setPublishStatus({ step: 'failed', message: errorMsg, success: false })
+                                      return
+                                    }
+
+                                    if (pendingIds.length > 0) {
+                                      addPublishStep('syncing', `仍在后台处理中：已完成 ${successIds.length}/${lastPublishCampaignIds.length}`, 'warning')
+                                      setPublishStatus({ step: 'timeout', message: '处理仍在继续；请稍后再检查或刷新页面。', success: false })
+                                      return
+                                    }
+
+                                    addPublishStep('syncing', '同步完成', 'success')
+                                    addPublishStep('completed', `${successIds.length}个广告系列已成功发布到Google Ads`, 'success')
+                                    if (warnings.length > 0) {
+                                      addPublishStep('warnings', `提示: ${warnings.join('; ').replace('[警告] ', '')}`, 'warning')
+                                    }
+                                    setPublishStatus({ step: 'completed', message: '发布成功！广告系列已上线', success: true })
+                                    setLastPublishCampaignIds([])
+                                    onPublishComplete()
+                                  } finally {
+                                    setPublishing(false)
+                                  }
+                                }}
+                                disabled={publishing}
+                              >
+                                继续检查状态
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   {/* 发布步骤列表 */}
                   <div className="space-y-2">
                   {publishSteps.map((step, idx) => (
@@ -1190,17 +1354,27 @@ export default function Step4PublishSummary({
                         <Loader2 className="w-4 h-4 text-blue-600 animate-spin flex-shrink-0" />
                       ) : step.status === 'success' ? (
                         <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                      ) : step.status === 'warning' ? (
+                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
                       ) : step.status === 'failed' ? (
                         <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
                       ) : (
                         <div className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0" />
                       )}
-                      <span className={`text-sm ${step.status === 'failed' ? 'text-red-700' : step.status === 'success' ? 'text-green-700' : 'text-gray-700'}`}>
+                      <span className={`text-sm ${
+                        step.status === 'failed'
+                          ? 'text-red-700'
+                          : step.status === 'warning'
+                          ? 'text-amber-700'
+                          : step.status === 'success'
+                          ? 'text-green-700'
+                          : 'text-gray-700'
+                      }`}>
                         {step.message}
                       </span>
                     </div>
                   ))}
-                </div>
+                  </div>
 
                 {/* 投放评分阻止详情 */}
                 {launchScoreBlockDetails && (
@@ -1453,6 +1627,8 @@ export default function Step4PublishSummary({
               ? 'bg-green-50 border-green-200'
               : publishStatus.step === 'failed'
               ? 'bg-red-50 border-red-200'
+              : publishStatus.step === 'timeout'
+              ? 'bg-amber-50 border-amber-200'
               : 'bg-blue-50 border-blue-200'
           }
         >
@@ -1460,6 +1636,8 @@ export default function Step4PublishSummary({
             <CheckCircle2 className="h-4 w-4 text-green-600" />
           ) : publishStatus.step === 'failed' ? (
             <AlertCircle className="h-4 w-4 text-red-600" />
+          ) : publishStatus.step === 'timeout' ? (
+            <AlertCircle className="h-4 w-4 text-amber-600" />
           ) : (
             <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
           )}
@@ -1469,6 +1647,8 @@ export default function Step4PublishSummary({
                 ? 'text-green-900'
                 : publishStatus.step === 'failed'
                 ? 'text-red-900'
+                : publishStatus.step === 'timeout'
+                ? 'text-amber-900'
                 : 'text-blue-900'
             }
           >
