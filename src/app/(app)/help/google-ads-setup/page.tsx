@@ -130,7 +130,7 @@ export default function GoogleAdsSetupGuidePage() {
                       <Alert className="mt-3 bg-blue-50 border-blue-300">
                         <HelpCircle className="h-4 w-4 text-blue-600" />
                         <AlertDescription className="text-blue-800 text-sm">
-                          <strong>重要提示：</strong>记住当前 GCP Project 的项目编号（Project Number），后续申请 Developer Token 时必须在同一个 Project 中进行。您可以在 Cloud Console 的项目信息中查看项目编号。
+                          <strong>重要提示：</strong>记住当前 GCP Project 的项目编号（Project Number），后续申请 Developer Token 时必须在同一个 Project 中进行，即注册MCC和GCP的Gmail邮箱需要保持同一个。
                         </AlertDescription>
                       </Alert>
                     </div>
