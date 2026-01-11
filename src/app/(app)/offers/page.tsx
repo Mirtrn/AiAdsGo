@@ -1005,6 +1005,10 @@ export default function OffersPage() {
                                   setSelectedOfferForCpc(offer)
                                   setIsAdjustCpcModalOpen(true)
                                 },
+                                disabled: !offer.linkedAccounts || offer.linkedAccounts.length === 0,
+                                title: !offer.linkedAccounts || offer.linkedAccounts.length === 0
+                                  ? '请先发布广告并关联Ads账号'
+                                  : undefined,
                               },
                               {
                                 icon: <BarChart3 className="w-4 h-4 text-gray-500" />,

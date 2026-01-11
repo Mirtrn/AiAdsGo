@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
-import { findEnabledGoogleAdsAccounts } from '@/lib/google-ads-accounts'
+import { getDatabase } from '@/lib/db'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
-import { getUserAuthType } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython, updateCampaignPython, updateAdGroupPython } from '@/lib/python-ads-client'
 
 /**
@@ -89,6 +89,7 @@ export async function PUT(
     if (!userId) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
+    const numericUserId = parseInt(userId, 10)
 
     const body = await request.json()
     const { newCpc } = body
@@ -100,48 +101,54 @@ export async function PUT(
       )
     }
 
-    // 获取用户可用的Google Ads账号（ENABLED状态，非Manager账号）
-    const googleAdsAccounts = await findEnabledGoogleAdsAccounts(parseInt(userId, 10))
+    // 通过本地campaign映射找到对应的Ads账号（避免用“第一个账号”导致权限/账号不匹配）
+    const db = await getDatabase()
+    const linked = await db.queryOne(`
+      SELECT google_ads_account_id
+      FROM campaigns
+      WHERE user_id = ?
+        AND status != 'REMOVED'
+        AND google_campaign_id = ?
+        AND google_ads_account_id IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `, [numericUserId, String(campaignId)]) as { google_ads_account_id: number } | undefined
 
-    if (googleAdsAccounts.length === 0) {
+    if (!linked?.google_ads_account_id) {
       return NextResponse.json(
-        {
-          error: '未找到已连接的Google Ads账号',
-          needsConnection: true,
-        },
+        { error: '未找到该广告系列对应的Ads账号，请确认该广告系列已由系统发布' },
+        { status: 404 }
+      )
+    }
+
+    const adsAccountRow = await db.queryOne(`
+      SELECT id, customer_id, parent_mcc_id, is_active, is_deleted
+      FROM google_ads_accounts
+      WHERE id = ? AND user_id = ?
+    `, [linked.google_ads_account_id, numericUserId]) as any
+
+    const isAccountActive = adsAccountRow?.is_active === true || adsAccountRow?.is_active === 1
+    const isAccountDeleted = adsAccountRow?.is_deleted === true || adsAccountRow?.is_deleted === 1
+
+    if (!adsAccountRow || !isAccountActive || isAccountDeleted) {
+      return NextResponse.json(
+        { error: '关联的Ads账号不可用（可能已解除关联），无法调整CPC' },
         { status: 400 }
       )
     }
 
-    // 使用第一个激活账号
-    const googleAdsAccount = googleAdsAccounts[0]
+    // 获取用户的 Google Ads 凭证（OAuth login_customer_id / developer_token 等）
+    const credentials = await getGoogleAdsCredentialsFromDB(numericUserId)
 
-    if (!googleAdsAccount.refreshToken && !googleAdsAccount.serviceAccountId) {
-      return NextResponse.json(
-        {
-          error: 'Google Ads账号缺少认证信息',
-          needsReauth: true,
-        },
-        { status: 400 }
-      )
-    }
-
-    // 获取用户的 Google Ads 凭证
-    const credentials = await getGoogleAdsCredentialsFromDB(parseInt(userId, 10))
-
-    // 判断使用服务账号还是 OAuth 认证
-    const useServiceAccount = !!(
-      googleAdsAccount.serviceAccountId &&
-      credentials.useServiceAccount
-    )
-
-    const auth = await getUserAuthType(parseInt(userId, 10))
+    // 认证方式：优先OAuth，无OAuth时使用服务账号
+    const auth = await getUserAuthType(numericUserId)
+    const useServiceAccount = auth.authType === 'service_account'
     let customer: any
 
-    if (auth.authType === 'service_account') {
+    if (useServiceAccount) {
       // 服务账号模式 - 检查配置是否存在
       const config = await getServiceAccountConfig(
-        parseInt(userId, 10),
+        numericUserId,
         auth.serviceAccountId
       )
 
@@ -154,39 +161,40 @@ export async function PUT(
 
       // 使用统一客户端（服务账号模式）
       customer = await getCustomerWithCredentials({
-        customerId: googleAdsAccount.customerId,
-        accountId: googleAdsAccount.id,
-        userId: parseInt(userId, 10),
-        loginCustomerId: googleAdsAccount.parentMccId || credentials.login_customer_id,
+        customerId: adsAccountRow.customer_id,
+        accountId: adsAccountRow.id,
+        userId: numericUserId,
+        loginCustomerId: adsAccountRow.parent_mcc_id || credentials.login_customer_id,
         authType: auth.authType,
         serviceAccountId: auth.serviceAccountId,
       })
     } else {
       // OAuth 模式
-      if (!googleAdsAccount.refreshToken) {
+      const oauthCredentials = await getGoogleAdsCredentials(numericUserId)
+      if (!oauthCredentials?.refresh_token) {
         return NextResponse.json(
           {
-            error: 'Google Ads账号缺少refresh token',
+            error: 'Google Ads未授权或已过期，请重新授权',
             needsReauth: true,
           },
           { status: 400 }
         )
       }
 
-      const loginCustomerId = googleAdsAccount.parentMccId || credentials.login_customer_id
+      const loginCustomerId = adsAccountRow.parent_mcc_id || credentials.login_customer_id
 
       // 使用统一客户端（OAuth模式）
       customer = await getCustomerWithCredentials({
-        customerId: googleAdsAccount.customerId,
-        refreshToken: googleAdsAccount.refreshToken,
+        customerId: adsAccountRow.customer_id,
+        refreshToken: oauthCredentials.refresh_token,
         loginCustomerId,
         credentials: {
           client_id: credentials.client_id,
           client_secret: credentials.client_secret,
           developer_token: credentials.developer_token,
         },
-        accountId: googleAdsAccount.id,
-        userId: parseInt(userId, 10),
+        accountId: adsAccountRow.id,
+        userId: numericUserId,
       })
     }
 
@@ -203,7 +211,7 @@ export async function PUT(
 
     // 根据认证模式选择正确的查询方法
     const campaignResults = useServiceAccount
-      ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: auth.serviceAccountId, customerId: googleAdsAccount.customerId, query: campaignQuery, requestId })
+      ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId: auth.serviceAccountId, customerId: adsAccountRow.customer_id, query: campaignQuery, requestId })
       : await customer.query(campaignQuery)
 
     if (campaignResults.length === 0) {
@@ -238,7 +246,7 @@ export async function PUT(
 
       // 根据认证模式选择正确的查询方法
       const adGroups = useServiceAccount
-        ? await executeGAQLQueryPython({ userId: parseInt(userId, 10), serviceAccountId: auth.serviceAccountId, customerId: googleAdsAccount.customerId, query: adGroupQuery, requestId })
+        ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId: auth.serviceAccountId, customerId: adsAccountRow.customer_id, query: adGroupQuery, requestId })
         : await customer.query(adGroupQuery)
 
       if (adGroups.length === 0) {
@@ -253,7 +261,7 @@ export async function PUT(
 
       const adGroupOperations = adGroups.map((adGroup: any) => ({
         update: {
-          resource_name: `customers/${googleAdsAccount.customerId}/adGroups/${adGroup.ad_group.id}`,
+          resource_name: `customers/${adsAccountRow.customer_id}/adGroups/${adGroup.ad_group.id}`,
           cpc_bid_micros: cpcMicros,
         },
         update_mask: 'cpc_bid_micros',
@@ -265,9 +273,9 @@ export async function PUT(
         useServiceAccount,
         'ad_group',
         adGroupOperations,
-        parseInt(userId, 10),
+        numericUserId,
         auth.serviceAccountId,
-        googleAdsAccount.customerId,
+        adsAccountRow.customer_id,
         requestId
       )
 
@@ -283,7 +291,7 @@ export async function PUT(
 
       const campaignOperation = {
         update: {
-          resource_name: `customers/${googleAdsAccount.customerId}/campaigns/${campaignId}`,
+          resource_name: `customers/${adsAccountRow.customer_id}/campaigns/${campaignId}`,
           maximize_clicks: {
             max_cpc_bid_micros: cpcMicros,
           },
@@ -297,9 +305,9 @@ export async function PUT(
         useServiceAccount,
         'campaign',
         [campaignOperation],
-        parseInt(userId, 10),
+        numericUserId,
         auth.serviceAccountId,
-        googleAdsAccount.customerId,
+        adsAccountRow.customer_id,
         requestId
       )
 
@@ -314,7 +322,7 @@ export async function PUT(
 
       const campaignOperation = {
         update: {
-          resource_name: `customers/${googleAdsAccount.customerId}/campaigns/${campaignId}`,
+          resource_name: `customers/${adsAccountRow.customer_id}/campaigns/${campaignId}`,
           target_cpa: {
             target_cpa_micros: cpaMicros,
           },
@@ -328,9 +336,9 @@ export async function PUT(
         useServiceAccount,
         'campaign',
         [campaignOperation],
-        parseInt(userId, 10),
+        numericUserId,
         auth.serviceAccountId,
-        googleAdsAccount.customerId,
+        adsAccountRow.customer_id,
         requestId
       )
 

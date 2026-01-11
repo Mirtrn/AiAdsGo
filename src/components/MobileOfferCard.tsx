@@ -25,6 +25,7 @@ interface Offer {
   targetLanguage: string | null
   productPrice?: string | null
   commissionPayout?: string | null
+  linkedAccounts?: any[]
 }
 
 interface MobileOfferCardProps {
@@ -107,6 +108,8 @@ export function MobileOfferCard({
               variant="outline"
               onClick={() => onAdjustCpc(offer)}
               className="justify-start"
+              disabled={!offer.linkedAccounts || offer.linkedAccounts.length === 0}
+              title={!offer.linkedAccounts || offer.linkedAccounts.length === 0 ? '请先发布广告并关联Ads账号' : undefined}
             >
               <DollarSign className="w-4 h-4 mr-1" />
               调整CPC

@@ -47,7 +47,8 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
       })
 
       if (!response.ok) {
-        throw new Error('获取广告系列失败')
+        const errorData = await response.json().catch(() => null)
+        throw new Error(errorData?.error || errorData?.message || '获取广告系列失败')
       }
 
       const data = await response.json()
