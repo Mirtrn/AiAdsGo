@@ -377,6 +377,12 @@ export async function listOffers(
   const isManagerCondition = db.type === 'postgres'
     ? 'gaa.is_manager_account = false'  // PostgreSQL: 直接使用false
     : 'gaa.is_manager_account = 0'      // SQLite: 使用0
+  const isActiveAccountCondition = db.type === 'postgres'
+    ? 'gaa.is_active = true'
+    : 'gaa.is_active = 1'
+  const isNotDeletedAccountCondition = db.type === 'postgres'
+    ? '(gaa.is_deleted = false OR gaa.is_deleted IS NULL)'
+    : '(gaa.is_deleted = 0 OR gaa.is_deleted IS NULL)'
 
   // 构建offer IDs的占位符
   const offerIds = offers.map(o => o.id)
@@ -395,6 +401,8 @@ export async function listOffers(
       AND c.user_id = ?
       AND c.status != 'REMOVED'
       AND ${isManagerCondition}
+      AND ${isActiveAccountCondition}
+      AND ${isNotDeletedAccountCondition}
       AND c.google_campaign_id IS NOT NULL
       AND c.google_campaign_id != ''
     ORDER BY c.offer_id, gaa.account_name
