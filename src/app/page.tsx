@@ -316,11 +316,11 @@ export default function MarketingHome() {
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto items-start">
             {/* Annual Plan */}
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 hover:border-blue-300 transition-all duration-300">
-              <h3 className="text-lg font-semibold text-slate-900 mb-2">年度会员</h3>
-              <div className="flex items-baseline mb-6">
-                <span className="text-4xl font-bold tracking-tight text-slate-900">¥5,999</span>
-                <span className="text-slate-500 ml-1">/年</span>
-              </div>
+	              <h3 className="text-lg font-semibold text-slate-900 mb-2">年度会员</h3>
+	              <div className="flex items-baseline mb-6">
+	                <span className="text-4xl font-bold tracking-tight text-slate-900">¥6,999</span>
+	                <span className="text-slate-500 ml-1">/年</span>
+	              </div>
               <p className="text-sm text-slate-600 mb-8">适合希望抓住 Q4 旺季的新手玩家</p>
               <ul className="space-y-4 mb-8">
                 {["12个月使用权", "完整功能访问", "AI 智能文案", "真实关键词数据"].map((item) => (
@@ -340,11 +340,11 @@ export default function MarketingHome() {
               <div className="absolute top-0 right-0 -mt-4 mr-4 bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-lg">
                 最受欢迎
               </div>
-              <h3 className="text-lg font-semibold text-white mb-2">终身会员</h3>
-              <div className="flex items-baseline mb-6">
-                <span className="text-4xl font-bold tracking-tight text-white">¥10,999</span>
-                <span className="text-slate-400 ml-1">/一次性</span>
-              </div>
+	              <h3 className="text-lg font-semibold text-white mb-2">终身会员</h3>
+	              <div className="flex items-baseline mb-6">
+	                <span className="text-4xl font-bold tracking-tight text-white">¥11,999</span>
+	                <span className="text-slate-400 ml-1">/一次性</span>
+	              </div>
               <p className="text-sm text-slate-400 mb-8">适合致力于长期发展的专业 Affiliate Marketer</p>
               <ul className="space-y-4 mb-8">
                 {["终身使用权", "完整功能访问", "AI 智能文案", "真实关键词数据", "优先更新支持"].map((item) => (
@@ -361,11 +361,11 @@ export default function MarketingHome() {
 
             {/* Enterprise Plan */}
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 hover:border-blue-300 transition-all duration-300">
-              <h3 className="text-lg font-semibold text-slate-900 mb-2">私有化部署</h3>
-              <div className="flex items-baseline mb-6">
-                <span className="text-4xl font-bold tracking-tight text-slate-900">¥29,999</span>
-                <span className="text-slate-500 ml-1">/授权</span>
-              </div>
+	              <h3 className="text-lg font-semibold text-slate-900 mb-2">私有化部署</h3>
+	              <div className="flex items-baseline mb-6">
+	                <span className="text-4xl font-bold tracking-tight text-slate-900">¥34,999</span>
+	                <span className="text-slate-500 ml-1">/授权</span>
+	              </div>
               <p className="text-sm text-slate-600 mb-8">适合需要数据隐私和定制功能的独立工作室</p>
               <ul className="space-y-4 mb-8">
                 {["私有化部署", "完整功能访问", "1年技术支持", "定制功能开发", "数据完全私有"].map((item) => (
