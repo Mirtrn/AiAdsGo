@@ -131,6 +131,12 @@ function deriveCategoryFromTextSignals(parsed: any): string | null {
   if (/(\\bvpn\\b|virtual private network)/.test(text)) {
     return 'VPN'
   }
+  if (/(ai\\s*companion|virtual\\s*friend|ai\\s*friend|conversation\\s*ai|mental\\s*wellness|emotional\\s*support)/.test(text)) {
+    return 'AI Companion'
+  }
+  if (/(\\bchatbot\\b|ai\\s*chatbot)/.test(text)) {
+    return 'Chatbot'
+  }
 
   return null
 }

@@ -805,15 +805,31 @@ export async function clusterKeywordsByIntent(
       // 3. 合并结果
       const mergedBuckets = mergeBatchResults(batchResults)
 
-      // 4. 验证结果
-      validateBuckets(mergedBuckets, allKeywordsForClustering)
+      // 4. 验证结果（店铺/单品分别处理）
+      if (pageType === 'store') {
+        const storeBuckets = mergedBuckets as unknown as StoreKeywordBuckets
+        redistributeStoreBucketsFromS(storeBuckets, allKeywordsForClustering)
+        applyStoreBucketPostProcessing(storeBuckets)
+        recalculateStoreBucketStatistics(storeBuckets)
+        validateStoreBuckets(storeBuckets, allKeywordsForClustering)
 
-      console.log(`✅ 分批 AI 聚类完成:`)
-      console.log(`   桶A [品牌导向]: ${mergedBuckets.bucketA.keywords.length} 个`)
-      console.log(`   桶B [场景导向]: ${mergedBuckets.bucketB.keywords.length} 个`)
-      console.log(`   桶C [功能导向]: ${mergedBuckets.bucketC.keywords.length} 个`)
-      console.log(`   桶D [高购买意图]: ${mergedBuckets.bucketD.keywords.length} 个`)
-      console.log(`   均衡度得分: ${mergedBuckets.statistics.balanceScore.toFixed(2)}`)
+        console.log(`✅ 分批 AI 聚类完成 (店铺):`)
+        console.log(`   桶A [品牌信任]: ${storeBuckets.bucketA.keywords.length} 个`)
+        console.log(`   桶B [场景解决]: ${storeBuckets.bucketB.keywords.length} 个`)
+        console.log(`   桶C [精选推荐]: ${storeBuckets.bucketC.keywords.length} 个`)
+        console.log(`   桶D [信任信号]: ${storeBuckets.bucketD.keywords.length} 个`)
+        console.log(`   桶S [店铺全景]: ${storeBuckets.bucketS.keywords.length} 个`)
+        console.log(`   均衡度得分: ${storeBuckets.statistics.balanceScore.toFixed(2)}`)
+      } else {
+        validateBuckets(mergedBuckets, allKeywordsForClustering)
+
+        console.log(`✅ 分批 AI 聚类完成:`)
+        console.log(`   桶A [品牌导向]: ${mergedBuckets.bucketA.keywords.length} 个`)
+        console.log(`   桶B [场景导向]: ${mergedBuckets.bucketB.keywords.length} 个`)
+        console.log(`   桶C [功能导向]: ${mergedBuckets.bucketC.keywords.length} 个`)
+        console.log(`   桶D [高购买意图]: ${mergedBuckets.bucketD.keywords.length} 个`)
+        console.log(`   均衡度得分: ${mergedBuckets.statistics.balanceScore.toFixed(2)}`)
+      }
 
       return mergedBuckets
     } catch (error: any) {
@@ -1018,11 +1034,16 @@ async function clusterKeywordsDirectly(
           throw new Error('AI返回的keywords不是数组')
         }
 
-        // 验证店铺结果
-        validateStoreBuckets(storeBuckets, keywords)
+        // 🔧 2026-01-11: 兜底修复 - 避免关键词全部落入桶S导致后续桶A-D无词
+        // 先尝试从桶S/原始关键词中恢复 A/B/C/D 的基础分布，再应用后处理规则。
+        redistributeStoreBucketsFromS(storeBuckets, keywords)
 
-        // 🔥 v4.18 新增：后处理规则修正错误分配
+        // 🔥 v4.18 新增：后处理规则修正错误分配（促销/型号/评价/地理）
         applyStoreBucketPostProcessing(storeBuckets)
+        recalculateStoreBucketStatistics(storeBuckets)
+
+        // 验证店铺结果（只告警，不阻断创意生成）
+        validateStoreBuckets(storeBuckets, keywords)
 
         console.log(`✅ AI 聚类完成 (店铺 5桶):`)
         console.log(`   桶A [品牌信任]: ${storeBuckets.bucketA.keywords.length} 个`)
@@ -1216,18 +1237,16 @@ function validateStoreBuckets(buckets: StoreKeywordBuckets, originalKeywords: st
   console.log(`   📊 有效桶数: ${nonZeroCounts}/5, 最大桶=${maxCount}, 最小非空桶=${minCount}`)
   console.log(`   📊 均衡度: ${reportedBalanceScore.toFixed(2)}`)
 
-  // 如果只有1个桶有词，说明聚类失败（除非总数<5）
-  if (originalKeywords.length >= 5 && nonZeroCounts <= 2) {
-    const errorMsg = `聚类结果严重不均衡: 只有 ${nonZeroCounts}/5 个桶有数据 (A=${counts[0]}, B=${counts[1]}, C=${counts[2]}, D=${counts[3]}, S=${counts[4]})，AI可能误解了分桶策略`
-    console.error(`❌ ${errorMsg}`)
-    throw new Error(errorMsg)
+  // ⚠️ 2026-01-11: 店铺链接在小样本/概念型站点（如SaaS落地页）上，AI 可能倾向把词都放到桶S。
+  // 这里不再直接抛错阻断创意生成，而是记录告警；上层会做兜底分桶/默认关键词降级。
+  if (originalKeywords.length >= 8 && nonZeroCounts <= 1) {
+    const warnMsg = `聚类结果不均衡: 只有 ${nonZeroCounts}/5 个桶有数据 (A=${counts[0]}, B=${counts[1]}, C=${counts[2]}, D=${counts[3]}, S=${counts[4]})`
+    console.warn(`⚠️ ${warnMsg}`)
   }
 
-  // 如果均衡度过低，也报错
-  if (reportedBalanceScore < 0.3 && originalKeywords.length >= 10) {
-    const errorMsg = `聚类均衡度过低: ${reportedBalanceScore.toFixed(2)} < 0.3 (A=${counts[0]}, B=${counts[1]}, C=${counts[2]}, D=${counts[3]}, S=${counts[4]})`
-    console.error(`❌ ${errorMsg}`)
-    throw new Error(errorMsg)
+  if (reportedBalanceScore < 0.2 && originalKeywords.length >= 20) {
+    const warnMsg = `聚类均衡度偏低: ${reportedBalanceScore.toFixed(2)} < 0.2 (A=${counts[0]}, B=${counts[1]}, C=${counts[2]}, D=${counts[3]}, S=${counts[4]})`
+    console.warn(`⚠️ ${warnMsg}`)
   }
 }
 
@@ -1241,6 +1260,108 @@ function calculateBalanceScore(counts: number[]): number {
   const avg = total / counts.length
   const maxDiff = Math.max(...counts.map(c => Math.abs(c - avg)))
   return Math.max(0, 1 - (maxDiff / total))
+}
+
+function normalizeKeywordsForBuckets(keywords: string[]): string[] {
+  const unique = new Map<string, string>()
+  for (const kw of keywords) {
+    const trimmed = String(kw || '').trim()
+    if (!trimmed) continue
+    const key = trimmed.toLowerCase()
+    if (!unique.has(key)) unique.set(key, trimmed)
+  }
+  return Array.from(unique.values())
+}
+
+function recalculateStoreBucketStatistics(buckets: StoreKeywordBuckets): void {
+  const counts = [
+    buckets.bucketA?.keywords?.length || 0,
+    buckets.bucketB?.keywords?.length || 0,
+    buckets.bucketC?.keywords?.length || 0,
+    buckets.bucketD?.keywords?.length || 0,
+    buckets.bucketS?.keywords?.length || 0,
+  ]
+
+  const totalKeywords = counts.reduce((a, b) => a + b, 0)
+  buckets.statistics.totalKeywords = totalKeywords
+  buckets.statistics.bucketACount = counts[0]
+  buckets.statistics.bucketBCount = counts[1]
+  buckets.statistics.bucketCCount = counts[2]
+  buckets.statistics.bucketDCount = counts[3]
+  buckets.statistics.bucketSCount = counts[4]
+  buckets.statistics.balanceScore = calculateBalanceScore(counts)
+}
+
+function redistributeStoreBucketsFromS(buckets: StoreKeywordBuckets, originalKeywords: string[]): void {
+  const all = normalizeKeywordsForBuckets([
+    ...originalKeywords,
+    ...(buckets.bucketA?.keywords || []),
+    ...(buckets.bucketB?.keywords || []),
+    ...(buckets.bucketC?.keywords || []),
+    ...(buckets.bucketD?.keywords || []),
+    ...(buckets.bucketS?.keywords || []),
+  ])
+
+  if (all.length === 0) return
+
+  const trustSignalsPattern =
+    /\b(review|reviews|rating|ratings|testimonial|testimonials|feedback|support|customer\s*service|warranty|guarantee|refund|return|secure|security|privacy|trusted|trust)\b/i
+  const sceneSolutionPattern =
+    /\b(lonely|loneliness|wellness|mental|anxiety|stress|depression|therapy|support|growth|self[- ]?reflection|mindfulness|sleep|relationship|friendship)\b/i
+  const collectionPattern =
+    /\b(best|top|popular|recommended|recommendation|features?|feature|compare|comparison|vs|alternatives?|examples?|templates?|list)\b/i
+  const brandTrustPattern =
+    /\b(official|authorized|authentic|download|app|signup|sign[- ]?up|login|subscribe|subscription|plan|pricing)\b/i
+  const productTypePattern =
+    /\b(ai|chatbot|assistant|companion|virtual|friend|conversation)\b/i
+
+  const assigned: Record<'A' | 'B' | 'C' | 'D', string[]> = { A: [], B: [], C: [], D: [] }
+
+  for (const kw of all) {
+    const lower = kw.toLowerCase()
+    if (trustSignalsPattern.test(lower)) {
+      assigned.D.push(kw)
+    } else if (sceneSolutionPattern.test(lower)) {
+      assigned.B.push(kw)
+    } else if (collectionPattern.test(lower)) {
+      assigned.C.push(kw)
+    } else if (brandTrustPattern.test(lower)) {
+      assigned.A.push(kw)
+    } else if (productTypePattern.test(lower)) {
+      assigned.C.push(kw)
+    } else {
+      assigned.B.push(kw)
+    }
+  }
+
+  // 确保 A/B/C/D 至少各有 1 个（当关键词数足够时）
+  const bucketOrder: Array<'A' | 'B' | 'C' | 'D'> = ['A', 'B', 'C', 'D']
+  if (all.length >= 4) {
+    for (const target of bucketOrder) {
+      if (assigned[target].length > 0) continue
+
+      let donor: 'A' | 'B' | 'C' | 'D' | null = null
+      let donorSize = 0
+      for (const candidate of bucketOrder) {
+        if (candidate === target) continue
+        if (assigned[candidate].length > donorSize) {
+          donor = candidate
+          donorSize = assigned[candidate].length
+        }
+      }
+      if (!donor || donorSize === 0) continue
+
+      const moved = assigned[donor].pop()
+      if (moved) assigned[target].push(moved)
+    }
+  }
+
+  buckets.bucketA.keywords = normalizeKeywordsForBuckets(assigned.A)
+  buckets.bucketB.keywords = normalizeKeywordsForBuckets(assigned.B)
+  buckets.bucketC.keywords = normalizeKeywordsForBuckets(assigned.C)
+  buckets.bucketD.keywords = normalizeKeywordsForBuckets(assigned.D)
+  buckets.bucketS.keywords = all
+  recalculateStoreBucketStatistics(buckets)
 }
 
 /**
@@ -2876,7 +2997,7 @@ export async function getKeywordsByLinkTypeAndBucket(
     return { keywords: [], intent: '', intentEn: '' }
   }
 
-  // 根据链接类型选择对应的桶
+    // 根据链接类型选择对应的桶
   if (linkType === 'store') {
     // 店铺链接使用店铺分桶
     switch (bucket) {
@@ -2905,14 +3026,16 @@ export async function getKeywordsByLinkTypeAndBucket(
           intentEn: 'Trust-Signals'
         }
       case 'S':
-        // S桶使用所有店铺桶的关键词组合
+        // S桶优先使用店铺全景桶（bucketS）的关键词；为空时回退为 A-D 的组合
         return {
-          keywords: [
-            ...keywordPool.storeBucketAKeywords,
-            ...keywordPool.storeBucketBKeywords,
-            ...keywordPool.storeBucketCKeywords,
-            ...keywordPool.storeBucketDKeywords
-          ],
+          keywords: (keywordPool.storeBucketSKeywords && keywordPool.storeBucketSKeywords.length > 0)
+            ? keywordPool.storeBucketSKeywords
+            : [
+              ...keywordPool.storeBucketAKeywords,
+              ...keywordPool.storeBucketBKeywords,
+              ...keywordPool.storeBucketCKeywords,
+              ...keywordPool.storeBucketDKeywords
+            ],
           intent: keywordPool.storeBucketSIntent,
           intentEn: 'Store-Overview'
         }

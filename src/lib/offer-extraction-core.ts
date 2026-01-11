@@ -455,10 +455,11 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           pathname.includes('/item/')
 
         // 店铺首页特征：根路径、collections、shop等
+        // 注意：不要用“仅1段路径”作为店铺判断（例如 /impact_special 这类落地页会被误判为 store）
         const isStorePage =
           pathname === '/' ||
-          !!pathname.match(/^\/(collections|shop|store|category|catalogue)(\/.+)?$/i) ||
-          pathname.split('/').filter(Boolean).length <= 1
+          pathname === '' ||
+          !!pathname.match(/^\/(collections|shop|store|category|catalogue)(\/|$)/i)
 
         return !isSingleProductPage && isStorePage
         } catch (urlError) {
