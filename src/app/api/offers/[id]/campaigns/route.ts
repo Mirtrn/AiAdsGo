@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getDatabase } from '@/lib/db'
-import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython } from '@/lib/python-ads-client'
 
 /**
@@ -71,28 +71,25 @@ export async function GET(
       })
     }
 
-    // 认证方式：优先OAuth，无OAuth时使用服务账号
-    const auth = await getUserAuthType(numericUserId)
-    const oauthRefreshToken = auth.authType === 'oauth'
+    const credentials = await getGoogleAdsCredentialsFromDB(numericUserId)
+    const useServiceAccount = Boolean(credentials.useServiceAccount)
+    let serviceAccountId: string | undefined
+
+    const oauthRefreshToken = !useServiceAccount
       ? (await getGoogleAdsCredentials(numericUserId))?.refresh_token || null
       : null
 
-    if (auth.authType === 'oauth' && !oauthRefreshToken) {
+    if (useServiceAccount) {
+      const config = await getServiceAccountConfig(numericUserId)
+      if (!config) {
+        return NextResponse.json({ error: '未找到服务账号配置' }, { status: 400 })
+      }
+      serviceAccountId = config.id
+    } else if (!oauthRefreshToken) {
       return NextResponse.json({
         error: 'Google Ads OAuth未授权或已过期，请先在设置页面重新授权',
         needsReauth: true,
       }, { status: 400 })
-    }
-
-    // 获取用户的 Google Ads 凭证（用于 OAuth login_customer_id / developer_token 等）
-    const credentials = await getGoogleAdsCredentialsFromDB(numericUserId)
-
-    if (auth.authType === 'service_account') {
-      // 服务账号模式 - 检查配置是否存在
-      const config = await getServiceAccountConfig(numericUserId, auth.serviceAccountId as string)
-      if (!config) {
-        return NextResponse.json({ error: '未找到服务账号配置' }, { status: 400 })
-      }
     }
 
     // 按账号分组 campaign ids（一个Offer可能关联多个Ads账号）
@@ -146,10 +143,10 @@ export async function GET(
         ORDER BY campaign.name
       `
 
-      if (auth.authType === 'service_account') {
+      if (useServiceAccount) {
         const fetched = await executeGAQLQueryPython({
           userId: numericUserId,
-          serviceAccountId: auth.serviceAccountId,
+          serviceAccountId,
           customerId: account.customerId,
           query,
           requestId

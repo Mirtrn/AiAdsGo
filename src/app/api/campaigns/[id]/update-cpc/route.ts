@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerWithCredentials, getGoogleAdsCredentialsFromDB } from '@/lib/google-ads-api'
 import { getDatabase } from '@/lib/db'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
-import { getGoogleAdsCredentials, getUserAuthType } from '@/lib/google-ads-oauth'
+import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython, updateCampaignPython, updateAdGroupPython } from '@/lib/python-ads-client'
 
 /**
@@ -33,18 +33,24 @@ async function mutateResources(
 
     for (const op of operations) {
       const resourceName = op.update.resource_name
-      const cpcBidMicros = op.update.cpc_bid_micros
 
       if (mutateType === 'campaign') {
+        const maxCpcBidMicros = op.update?.maximize_clicks?.max_cpc_bid_micros
+        const targetCpaMicros = op.update?.target_cpa?.target_cpa_micros
+        const cpcBidMicros = op.update?.cpc_bid_micros
+
         await updateCampaignPython({
           userId,
           serviceAccountId,
           customerId,
           campaignResourceName: resourceName,
           cpcBidMicros,
+          maxCpcBidMicros,
+          targetCpaMicros,
           requestId,
         })
       } else if (mutateType === 'ad_group') {
+        const cpcBidMicros = op.update?.cpc_bid_micros
         await updateAdGroupPython({
           userId,
           serviceAccountId,
@@ -90,6 +96,10 @@ export async function PUT(
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
     const numericUserId = parseInt(userId, 10)
+    const campaignIdNum = Number(campaignId)
+    if (!Number.isFinite(campaignIdNum)) {
+      return NextResponse.json({ error: '无效的campaignId' }, { status: 400 })
+    }
 
     const body = await request.json()
     const { newCpc } = body
@@ -140,17 +150,13 @@ export async function PUT(
     // 获取用户的 Google Ads 凭证（OAuth login_customer_id / developer_token 等）
     const credentials = await getGoogleAdsCredentialsFromDB(numericUserId)
 
-    // 认证方式：优先OAuth，无OAuth时使用服务账号
-    const auth = await getUserAuthType(numericUserId)
-    const useServiceAccount = auth.authType === 'service_account'
+    const useServiceAccount = Boolean(credentials.useServiceAccount)
     let customer: any
+    let serviceAccountId: string | undefined
 
     if (useServiceAccount) {
       // 服务账号模式 - 检查配置是否存在
-      const config = await getServiceAccountConfig(
-        numericUserId,
-        auth.serviceAccountId
-      )
+      const config = await getServiceAccountConfig(numericUserId)
 
       if (!config) {
         return NextResponse.json(
@@ -158,6 +164,7 @@ export async function PUT(
           { status: 400 }
         )
       }
+      serviceAccountId = config.id
 
       // 使用统一客户端（服务账号模式）
       customer = await getCustomerWithCredentials({
@@ -165,8 +172,8 @@ export async function PUT(
         accountId: adsAccountRow.id,
         userId: numericUserId,
         loginCustomerId: adsAccountRow.parent_mcc_id || credentials.login_customer_id,
-        authType: auth.authType,
-        serviceAccountId: auth.serviceAccountId,
+        authType: 'service_account',
+        serviceAccountId,
       })
     } else {
       // OAuth 模式
@@ -206,12 +213,12 @@ export async function PUT(
         campaign.bidding_strategy_type,
         campaign.status
       FROM campaign
-      WHERE campaign.id = ${campaignId}
+      WHERE campaign.id = ${campaignIdNum}
     `
 
     // 根据认证模式选择正确的查询方法
     const campaignResults = useServiceAccount
-      ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId: auth.serviceAccountId, customerId: adsAccountRow.customer_id, query: campaignQuery, requestId })
+      ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId, customerId: adsAccountRow.customer_id, query: campaignQuery, requestId })
       : await customer.query(campaignQuery)
 
     if (campaignResults.length === 0) {
@@ -240,13 +247,13 @@ export async function PUT(
           ad_group.name,
           ad_group.status
         FROM ad_group
-        WHERE campaign.id = ${campaignId}
+        WHERE campaign.id = ${campaignIdNum}
           AND ad_group.status != 'REMOVED'
       `
 
       // 根据认证模式选择正确的查询方法
       const adGroups = useServiceAccount
-        ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId: auth.serviceAccountId, customerId: adsAccountRow.customer_id, query: adGroupQuery, requestId })
+        ? await executeGAQLQueryPython({ userId: numericUserId, serviceAccountId, customerId: adsAccountRow.customer_id, query: adGroupQuery, requestId })
         : await customer.query(adGroupQuery)
 
       if (adGroups.length === 0) {
@@ -274,7 +281,7 @@ export async function PUT(
         'ad_group',
         adGroupOperations,
         numericUserId,
-        auth.serviceAccountId,
+        serviceAccountId,
         adsAccountRow.customer_id,
         requestId
       )
@@ -306,7 +313,7 @@ export async function PUT(
         'campaign',
         [campaignOperation],
         numericUserId,
-        auth.serviceAccountId,
+        serviceAccountId,
         adsAccountRow.customer_id,
         requestId
       )
@@ -337,7 +344,7 @@ export async function PUT(
         'campaign',
         [campaignOperation],
         numericUserId,
-        auth.serviceAccountId,
+        serviceAccountId,
         adsAccountRow.customer_id,
         requestId
       )

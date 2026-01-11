@@ -1067,6 +1067,7 @@ class UpdateCampaignRequest(BaseModel):
     customer_id: str
     campaign_resource_name: str
     cpc_bid_micros: Optional[int] = None
+    max_cpc_bid_micros: Optional[int] = None
     target_cpa_micros: Optional[int] = None
     status: Optional[str] = None
 
@@ -1087,6 +1088,11 @@ async def update_campaign(request: UpdateCampaignRequest):
         if request.cpc_bid_micros:
             campaign.target_spend.cpc_bid_ceiling_micros = request.cpc_bid_micros
             operation.update_mask.paths.append("target_spend.cpc_bid_ceiling_micros")
+
+        # Maximize Clicks 最大 CPC 限制更新
+        if request.max_cpc_bid_micros:
+            campaign.maximize_clicks.max_cpc_bid_micros = request.max_cpc_bid_micros
+            operation.update_mask.paths.append("maximize_clicks.max_cpc_bid_micros")
 
         # CPA 出价更新
         if request.target_cpa_micros:
