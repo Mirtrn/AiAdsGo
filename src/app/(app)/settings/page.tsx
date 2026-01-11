@@ -925,7 +925,7 @@ export default function SettingsPage() {
           return
         }
 
-        throw new Error(data.error || '获取账户列表失败')
+        throw new Error(data.message || data.error || '获取账户列表失败')
       }
 
       const data = await response.json()

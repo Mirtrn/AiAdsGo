@@ -116,6 +116,53 @@ function formatErrorMessage(value: unknown): string {
   }
 }
 
+function extractGoogleAdsFailureMessages(error: any): string[] {
+  const messages: string[] = []
+
+  if (!error) return messages
+
+  if (typeof error?.details === 'string' && error.details.trim()) {
+    messages.push(error.details.trim())
+  }
+
+  const errors = error?.errors
+  if (Array.isArray(errors)) {
+    for (const item of errors) {
+      if (typeof item?.message === 'string' && item.message.trim()) {
+        messages.push(item.message.trim())
+      }
+    }
+  }
+
+  const statusDetails = error?.statusDetails
+  if (Array.isArray(statusDetails)) {
+    for (const detail of statusDetails) {
+      const nestedErrors = detail?.errors
+      if (Array.isArray(nestedErrors)) {
+        for (const item of nestedErrors) {
+          if (typeof item?.message === 'string' && item.message.trim()) {
+            messages.push(item.message.trim())
+          }
+        }
+      }
+    }
+  }
+
+  return messages
+}
+
+function extractGoogleAdsErrorMessage(error: any): string {
+  if (!error) return ''
+  if (typeof error === 'string') return error
+  if (error instanceof Error && typeof error.message === 'string' && error.message.trim()) return error.message.trim()
+  if (typeof error?.message === 'string' && error.message.trim()) return error.message.trim()
+
+  const fromFailure = extractGoogleAdsFailureMessages(error)
+  if (fromFailure.length > 0) return fromFailure[0]
+
+  return formatErrorMessage(error)
+}
+
 function getErrorHttpStatus(error: any): number | null {
   const candidates = [
     error?.status,
@@ -1563,6 +1610,8 @@ export async function GET(request: NextRequest) {
     // 🔧 修复(2025-12-24): 根据错误类型返回合适的 HTTP 状态码
     let statusCode = 500
     let errorCode = 'UNKNOWN_ERROR'
+    const extractedMessage = extractGoogleAdsErrorMessage(error)
+    const extractedMessageLower = extractedMessage.toLowerCase()
 
     // 🆕 检测权限错误并构建详细响应
     if (error.isPermissionError && error.serviceAccountEmail && error.mccCustomerId) {
@@ -1640,10 +1689,62 @@ export async function GET(request: NextRequest) {
       errorCode = 'CREDENTIALS_ERROR'
     }
 
+    // 🔧 友好化：Developer Token 测试权限/未审批/无效
+    // 常见报错：
+    // - DEVELOPER_TOKEN_NOT_APPROVED: The developer token is only approved for use with test accounts
+    // - The developer token is not approved.
+    // - The developer token is not valid.
+    if (
+      extractedMessageLower.includes('developer_token_not_approved') ||
+      extractedMessageLower.includes('only approved for use with test accounts') ||
+      (extractedMessageLower.includes('developer token') && extractedMessageLower.includes('not approved'))
+    ) {
+      statusCode = 403
+      errorCode = 'DEVELOPER_TOKEN_NOT_APPROVED'
+      return NextResponse.json({
+        error: 'Google Ads Developer Token 权限不足',
+        code: errorCode,
+        message:
+          '当前 Google Ads Developer Token 仍为测试权限（Test access）或未通过生产权限审核，只能访问测试账号，无法读取此 MCC 下真实 Ads 账号列表。请在 Google Ads API Center 申请升级权限后再重试。',
+        solution: {
+          title: '下一步建议',
+          steps: [
+            '前往设置页面确认 Developer Token 填写正确',
+            '到 Google Ads API Center 申请将 Developer Token 升级到 Basic/Standard access（生产权限）',
+            '升级通过后，回到本页面点击“刷新账户列表”'
+          ],
+          docsUrl: '/help/google-ads-setup'
+        }
+      }, { status: statusCode })
+    }
+
+    if (
+      (extractedMessageLower.includes('developer token') && extractedMessageLower.includes('not valid')) ||
+      extractedMessageLower.includes('developer_token_invalid')
+    ) {
+      statusCode = 400
+      errorCode = 'DEVELOPER_TOKEN_INVALID'
+      return NextResponse.json({
+        error: 'Google Ads Developer Token 无效',
+        code: errorCode,
+        message:
+          '当前 Google Ads Developer Token 无效/已失效，或仍处于测试权限（Test access）未通过生产审核，导致无法拉取账号列表。请在设置页面检查 Developer Token 是否填写正确，并在 Google Ads API Center 申请升级权限后再重试。',
+        solution: {
+          title: '如何修复',
+          steps: [
+            '前往设置页面检查 Developer Token 是否填写正确（无多余空格/换行）',
+            '确认该 Developer Token 属于当前配置的 Google Ads API 项目',
+            '保存后回到本页面点击“刷新账户列表”'
+          ],
+          docsUrl: '/help/google-ads-setup'
+        }
+      }, { status: statusCode })
+    }
+
     return NextResponse.json(
       {
         error: '获取Google Ads账户失败',
-        message: oauthError.errorDescription || error.message || '未知错误',
+        message: oauthError.errorDescription || extractedMessage || '未知错误',
         code: errorCode
       },
       { status: statusCode }

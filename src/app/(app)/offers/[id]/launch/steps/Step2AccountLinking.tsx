@@ -96,16 +96,20 @@ const getAccountStatusBadge = (status: string | null | undefined) => {
     return <Badge className="bg-green-100 text-green-800 border-green-300">启用</Badge>
   }
 
-  if (statusUpper === 'PAUSED' || statusUpper === 'SUSPENDED' || statusUpper === 'DISABLED') {
-    return (
-      <Badge className="bg-orange-100 text-orange-800 border-orange-300">
-        {statusUpper === 'PAUSED' ? '暂停' : statusUpper === 'DISABLED' ? '停用' : '受限'}
-      </Badge>
-    )
+  if (statusUpper === 'PAUSED') {
+    return <Badge className="bg-amber-100 text-amber-800 border-amber-300">暂停</Badge>
+  }
+
+  if (statusUpper === 'SUSPENDED' || statusUpper === 'DISABLED') {
+    return <Badge className="bg-red-100 text-red-800 border-red-300">受限</Badge>
   }
 
   if (statusUpper === 'CANCELED' || statusUpper === 'CANCELLED' || statusUpper === 'CLOSED') {
     return <Badge className="bg-gray-100 text-gray-800 border-gray-300">已关闭</Badge>
+  }
+
+  if (statusUpper === 'UNKNOWN' || statusUpper === 'UNSPECIFIED') {
+    return <Badge className="bg-gray-100 text-gray-800 border-gray-300">未知</Badge>
   }
 
   return <Badge className="bg-gray-100 text-gray-800 border-gray-300">{statusUpper}</Badge>
@@ -197,7 +201,13 @@ export default function Step2AccountLinking({ offer, onAccountLinked, selectedAc
       })
 
       if (!response.ok) {
-        throw new Error('获取账号列表失败')
+        let errorData: any = null
+        try {
+          errorData = await response.json()
+        } catch {
+          errorData = null
+        }
+        throw new Error(errorData?.message || errorData?.error || '获取账号列表失败')
       }
 
       const data = await response.json()

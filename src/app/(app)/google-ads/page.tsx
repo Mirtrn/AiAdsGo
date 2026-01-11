@@ -570,13 +570,13 @@ export default function GoogleAdsPage() {
           )}
 
           {error && (
-            <div className="mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <div className="mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded whitespace-pre-line">
               {error}
             </div>
           )}
 
           {accountsSyncError && (
-            <div className="mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <div className="mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded whitespace-pre-line">
               同步失败：{accountsSyncError}
             </div>
           )}
