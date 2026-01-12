@@ -17,6 +17,18 @@ export interface HttpResolvedUrl {
   statusCode: number
 }
 
+function shouldAcceptServerErrorAsResolvedFinalUrl(url: string, statusCode: number): boolean {
+  if (statusCode < 500) return false
+  try {
+    const hostname = new URL(url).hostname.toLowerCase()
+    // Amazon 常对爬虫/代理返回 5xx（尤其 503 bot challenge），但 URL 本身仍是有效落地页。
+    // URL 解析阶段的目标是“拿到最终落地 URL”，因此允许在此处“带 5xx”返回，让后续抓取阶段用更强策略处理。
+    return /(^|\.)amazon\./.test(hostname)
+  } catch {
+    return false
+  }
+}
+
 function safeDestroyStream(stream: unknown): void {
   try {
     const s = stream as any
@@ -257,6 +269,10 @@ export async function resolveAffiliateLinkWithHttp(
 
         if (getResponse.status >= 500) {
           safeDestroyStream(getResponse.data)
+          if (shouldAcceptServerErrorAsResolvedFinalUrl(currentUrl, getResponse.status)) {
+            console.warn(`⚠️ HTTP到达最终URL但返回状态码 ${getResponse.status}，停止继续重定向追踪`)
+            break
+          }
           throw new Error(`HTTP请求失败: 状态码 ${getResponse.status}`)
         }
 
@@ -384,6 +400,12 @@ export async function resolveAffiliateLinkWithHttp(
         // 例如最终站点对代理/爬虫返回403，但finalUrl仍然是有效落地页URL，后续抓取阶段可用更强手段处理
         console.warn(`⚠️ HTTP到达最终URL但返回状态码 ${response.status}，停止继续重定向追踪`)
         break
+      } else if (response.status >= 500) {
+        if (shouldAcceptServerErrorAsResolvedFinalUrl(currentUrl, response.status)) {
+          console.warn(`⚠️ HTTP到达最终URL但返回状态码 ${response.status}，停止继续重定向追踪`)
+          break
+        }
+        throw new Error(`HTTP请求失败: 状态码 ${response.status}`)
       } else {
         throw new Error(`HTTP请求失败: 状态码 ${response.status}`)
       }

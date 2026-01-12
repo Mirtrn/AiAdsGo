@@ -191,6 +191,16 @@ export class ProxyPoolManager {
    * 判断错误是否为临时失败（网络超时等）
    */
   private isTemporaryFailure(error: string): boolean {
+    // HTTP 状态码错误（4xx/5xx）通常是目标站点/中间链路策略导致，
+    // 不应被当作“代理永久故障”去污染代理池健康状态。
+    if (
+      /状态码\s*(?:4\d\d|5\d\d)/.test(error) ||
+      /status\s*code\s*(?:4\d\d|5\d\d)/i.test(error) ||
+      /HTTP\s*(?:4\d\d|5\d\d)/i.test(error)
+    ) {
+      return true
+    }
+
     const temporaryErrorPatterns = [
       'timeout',
       'Timeout',
