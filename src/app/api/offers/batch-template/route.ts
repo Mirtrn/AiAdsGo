@@ -15,13 +15,16 @@
 import { NextResponse } from 'next/server'
 
 export async function GET() {
-  // CSV模板内容（匹配最新业务需求）
-  const csv = `推广链接,推广国家,品牌名,产品价格,佣金比例
-https://pboost.me/UKTs4I6,US,kaspersky,$699.00,6.75%
-https://pboost.me/xEAgQ8ec,DE,,€299.00,8.00%
-https://pboost.me/RKWwEZR9,UK,,£499.00,7.50%
-https://yeahpromos.com/index/index/openurl?track=606a814910875990&url=,US,,,5.00%
-`
+  // Excel 兼容：在部分 Mac 版 Microsoft Excel 中，UTF-8 CSV 如果没有 BOM 会出现中文列名乱码
+  // 这里主动添加 UTF-8 BOM（\uFEFF），并使用 CRLF 换行，提升跨平台兼容性
+  const csv = `\uFEFF${[
+    '推广链接,推广国家,品牌名,产品价格,佣金比例',
+    'https://pboost.me/UKTs4I6,US,kaspersky,$699.00,6.75%',
+    'https://pboost.me/xEAgQ8ec,DE,,€299.00,8.00%',
+    'https://pboost.me/RKWwEZR9,UK,,£499.00,7.50%',
+    'https://yeahpromos.com/index/index/openurl?track=606a814910875990&url=,US,,,5.00%',
+    '',
+  ].join('\r\n')}`
 
   // 返回CSV文件响应
   return new NextResponse(csv, {
