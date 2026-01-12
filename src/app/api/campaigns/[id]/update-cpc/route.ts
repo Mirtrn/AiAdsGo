@@ -219,7 +219,11 @@ export async function PUT(
         campaign.id,
         campaign.name,
         campaign.bidding_strategy_type,
-        campaign.status
+        campaign.status,
+        campaign.target_spend.cpc_bid_ceiling_micros,
+        campaign.manual_cpc.enhanced_cpc_enabled,
+        campaign.target_cpa.target_cpa_micros,
+        campaign.maximize_conversions.target_cpa_micros
       FROM campaign
       WHERE campaign.id = ${campaignIdNum}
     `
@@ -244,10 +248,22 @@ export async function PUT(
       )
     }
 
-    const biddingStrategy = campaign.bidding_strategy_type
+    const hasTargetSpend =
+      campaign?.target_spend?.cpc_bid_ceiling_micros !== undefined
 
-    // 根据竞价策略类型更新CPC
-    const biddingStrategyType = toBiddingStrategyType(biddingStrategy)
+    const hasManualCpc =
+      campaign?.manual_cpc?.enhanced_cpc_enabled !== undefined
+
+    const hasTargetCpa =
+      campaign?.target_cpa?.target_cpa_micros !== undefined ||
+      campaign?.maximize_conversions?.target_cpa_micros !== undefined
+
+    // 根据竞价策略类型更新CPC（服务账号模式下枚举可能会被序列化为数字，优先用字段存在性判断）
+    const biddingStrategyType =
+      hasTargetSpend ? 'TARGET_SPEND'
+      : hasManualCpc ? 'MANUAL_CPC'
+      : hasTargetCpa ? 'TARGET_CPA'
+      : toBiddingStrategyType(campaign.bidding_strategy_type)
 
     if (biddingStrategyType === 'MANUAL_CPC') {
       // Manual CPC: 更新该广告系列下所有Ad Group的CPC

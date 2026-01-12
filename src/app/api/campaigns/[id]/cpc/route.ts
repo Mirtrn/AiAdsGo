@@ -101,6 +101,7 @@ export async function GET(
         campaign.id,
         campaign.status,
         campaign.bidding_strategy_type,
+        campaign.target_spend.cpc_bid_ceiling_micros,
         campaign.target_cpa.target_cpa_micros,
         campaign.maximize_conversions.target_cpa_micros
       FROM campaign
@@ -139,38 +140,10 @@ export async function GET(
     const currency = linked.currency || 'USD'
 
     let currentCpc: number | null = null
-    if (biddingStrategyType === 'MAXIMIZE_CLICKS' || biddingStrategyType === 'TARGET_SPEND') {
-      const targetSpendQuery = `
-        SELECT
-          campaign.id,
-          campaign.target_spend.cpc_bid_ceiling_micros
-        FROM campaign
-        WHERE campaign.id = ${campaignIdNum}
-          AND campaign.status != 'REMOVED'
-      `
-
-      try {
-        const rows = useServiceAccount
-          ? extractSearchResults(await executeGAQLQueryPython({
-            userId: numericUserId,
-            serviceAccountId,
-            customerId: linked.customer_id,
-            query: targetSpendQuery,
-            requestId,
-          }))
-          : await (await getCustomerWithCredentials({
-            customerId: linked.customer_id,
-            refreshToken: oauthRefreshToken || undefined,
-            loginCustomerId: linked.parent_mcc_id || credentials.login_customer_id,
-            accountId: undefined,
-            userId: numericUserId,
-          })).query(targetSpendQuery)
-
-        const micros = Number(rows?.[0]?.campaign?.target_spend?.cpc_bid_ceiling_micros || 0)
-        currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
-      } catch {
-        currentCpc = 0
-      }
+    const targetSpendMicros = Number(campaign.target_spend?.cpc_bid_ceiling_micros || 0)
+    if (Number.isFinite(targetSpendMicros) && targetSpendMicros > 0) {
+      // 我们发布时使用 TARGET_SPEND（Maximize Clicks），因此优先使用 ceiling 作为“当前CPC”
+      currentCpc = targetSpendMicros / 1000000
     } else if (biddingStrategyType === 'TARGET_CPA') {
       const micros = Number(
         campaign.target_cpa?.target_cpa_micros ||
@@ -219,7 +192,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       campaignId: String(campaignIdNum),
-      biddingStrategyType,
+      biddingStrategyType: (Number.isFinite(targetSpendMicros) && targetSpendMicros > 0) ? 'MAXIMIZE_CLICKS' : biddingStrategyType,
       currency,
       currentCpc,
     })
