@@ -42,6 +42,9 @@ export function canonicalizeOfferBatchCsvHeader(value: unknown) {
   if (has(t => t === 'targetcountry' || t.includes('targetcountry') || t.includes('推广国家'))) {
     return 'target_country'
   }
+  if (has(t => t === 'brandname' || t.includes('brandname') || t === 'brand' || t.includes('品牌名') || t.includes('品牌名称') || t === '品牌')) {
+    return 'brand_name'
+  }
   if (has(t => t === 'productprice' || t.includes('productprice') || t.includes('产品价格'))) {
     return 'product_price'
   }

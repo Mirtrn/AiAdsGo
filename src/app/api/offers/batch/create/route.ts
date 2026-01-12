@@ -13,7 +13,7 @@
  *
  * CSV格式要求：
  * - 必需列：推广链接/affiliate_link, 推广国家/target_country（支持中英文表头）
- * - 可选列：产品价格/product_price, 佣金比例/commission_payout
+ * - 可选列：品牌名/brand_name（或brand）, 产品价格/product_price, 佣金比例/commission_payout
  * - 编码：UTF-8
  * - 最大有效行数：500行
  * - 缺少必填参数的行会被自动跳过
@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 查找可选列索引
+    const brandNameIdx = headers.indexOf('brand_name')
     const productPriceIdx = headers.indexOf('product_price')
     const commissionPayoutIdx = headers.indexOf('commission_payout')
 
@@ -124,6 +125,7 @@ export async function POST(req: NextRequest) {
     const rows: Array<{
       affiliate_link: string
       target_country: string
+      brand_name?: string
       product_price?: string
       commission_payout?: string
     }> = []
@@ -157,6 +159,15 @@ export async function POST(req: NextRequest) {
       }
 
       // 添加可选参数
+      if (brandNameIdx !== -1 && values[brandNameIdx]) {
+        const brandName = values[brandNameIdx].trim()
+        if (brandName.length > 120) {
+          skippedCount++
+          console.warn(`⚠️ 跳过第${i + 1}行：品牌名过长（>120）`)
+          continue
+        }
+        if (brandName) row.brand_name = brandName
+      }
       if (productPriceIdx !== -1 && values[productPriceIdx]) {
         row.product_price = values[productPriceIdx]
       }

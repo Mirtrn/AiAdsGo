@@ -259,7 +259,7 @@ export default function BatchOfferPage() {
           <div>
             <h2 className="text-lg font-medium text-gray-900">上传CSV文件</h2>
             <p className="mt-1 text-sm text-gray-600">
-              请先下载模板，填写后上传。文件必须包含"推广链接"和"推广国家"列。
+              请先下载模板，填写后上传。必填列："推广链接"、"推广国家"；选填列："品牌名"、"产品价格"、"佣金比例"。
             </p>
           </div>
           <button

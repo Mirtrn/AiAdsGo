@@ -8,19 +8,19 @@
  *
  * 模板字段说明：
  * - 必填：affiliate_link（推广链接）, target_country（推广国家）
- * - 可选：product_price（产品价格）, commission_payout（佣金比例）
- * - 说明：品牌名称、Final URL等信息会通过自动抓取获得
+ * - 可选：brand_name（品牌名）, product_price（产品价格）, commission_payout（佣金比例）
+ * - 说明：Final URL、评论分析、竞品分析等信息会通过自动抓取获得
  */
 
 import { NextResponse } from 'next/server'
 
 export async function GET() {
   // CSV模板内容（匹配最新业务需求）
-  const csv = `推广链接,推广国家,产品价格,佣金比例
-https://pboost.me/UKTs4I6,US,$699.00,6.75%
-https://pboost.me/xEAgQ8ec,DE,€299.00,8.00%
-https://pboost.me/RKWwEZR9,UK,£499.00,7.50%
-https://yeahpromos.com/index/index/openurl?track=606a814910875990&url=,US,$199.00,5.00%
+  const csv = `推广链接,推广国家,品牌名,产品价格,佣金比例
+https://pboost.me/UKTs4I6,US,kaspersky,$699.00,6.75%
+https://pboost.me/xEAgQ8ec,DE,,€299.00,8.00%
+https://pboost.me/RKWwEZR9,UK,,£499.00,7.50%
+https://yeahpromos.com/index/index/openurl?track=606a814910875990&url=,US,,,5.00%
 `
 
   // 返回CSV文件响应

@@ -26,6 +26,7 @@ export interface BatchCreationTaskData {
   rows: Array<{
     affiliate_link: string
     target_country: string
+    brand_name?: string
     product_price?: string
     commission_payout?: string
   }>
@@ -76,17 +77,23 @@ export async function executeBatchCreation(
           status,
           affiliate_link,
           target_country,
+          brand_name,
+          product_price,
+          commission_payout,
           skip_cache,
           skip_warmup,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, 'pending', ?, ?, false, false, ${nowFunc}, ${nowFunc})
+        ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, false, false, ${nowFunc}, ${nowFunc})
       `, [
         childTaskId,
         task.userId,
         batchId,
         row.affiliate_link,
-        row.target_country
+        row.target_country,
+        row.brand_name || null,
+        row.product_price || null,
+        row.commission_payout || null,
       ])
 
       // 加入队列
@@ -98,6 +105,7 @@ export async function executeBatchCreation(
         // 🔥 修复（2025-12-08）：传递产品价格和佣金比例，用于创建Offer记录
         productPrice: row.product_price,
         commissionPayout: row.commission_payout,
+        brandName: row.brand_name,
       }
 
       await queue.enqueue(

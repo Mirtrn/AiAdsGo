@@ -5,6 +5,7 @@ describe('offer batch csv header', () => {
   it('supports Chinese headers (with BOM)', () => {
     expect(canonicalizeOfferBatchCsvHeader('\uFEFF推广链接')).toBe('affiliate_link')
     expect(canonicalizeOfferBatchCsvHeader('推广国家')).toBe('target_country')
+    expect(canonicalizeOfferBatchCsvHeader('品牌名')).toBe('brand_name')
     expect(canonicalizeOfferBatchCsvHeader('产品价格')).toBe('product_price')
     expect(canonicalizeOfferBatchCsvHeader('佣金比例')).toBe('commission_payout')
   })
@@ -12,6 +13,7 @@ describe('offer batch csv header', () => {
   it('supports headers with annotations', () => {
     expect(canonicalizeOfferBatchCsvHeader('推广链接 (affiliate_link)')).toBe('affiliate_link')
     expect(canonicalizeOfferBatchCsvHeader('推广国家（target_country）')).toBe('target_country')
+    expect(canonicalizeOfferBatchCsvHeader('品牌名 / brand_name')).toBe('brand_name')
     expect(canonicalizeOfferBatchCsvHeader('产品价格 / product_price')).toBe('product_price')
     expect(canonicalizeOfferBatchCsvHeader('佣金比例｜commission_payout')).toBe('commission_payout')
   })
@@ -22,6 +24,9 @@ describe('offer batch csv header', () => {
     expect(canonicalizeOfferBatchCsvHeader('affiliate link')).toBe('affiliate_link')
     expect(canonicalizeOfferBatchCsvHeader('affiliate-link')).toBe('affiliate_link')
     expect(canonicalizeOfferBatchCsvHeader('targetCountry')).toBe('target_country')
+    expect(canonicalizeOfferBatchCsvHeader('brand')).toBe('brand_name')
+    expect(canonicalizeOfferBatchCsvHeader('brand_name')).toBe('brand_name')
+    expect(canonicalizeOfferBatchCsvHeader('BrandName')).toBe('brand_name')
   })
 
   it('decodes GBK/GB18030 CSV exported by Excel', () => {
