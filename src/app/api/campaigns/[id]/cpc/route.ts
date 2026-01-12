@@ -101,7 +101,7 @@ export async function GET(
         campaign.id,
         campaign.status,
         campaign.bidding_strategy_type,
-        campaign.maximize_clicks.max_cpc_bid_micros,
+        campaign.maximize_clicks.cpc_bid_ceiling_micros,
         campaign.target_cpa.target_cpa_micros,
         campaign.maximize_conversions.target_cpa_micros
       FROM campaign
@@ -141,7 +141,7 @@ export async function GET(
 
     let currentCpc: number | null = null
     if (biddingStrategyType === 'MAXIMIZE_CLICKS') {
-      const micros = Number(campaign.maximize_clicks?.max_cpc_bid_micros || 0)
+      const micros = Number(campaign.maximize_clicks?.cpc_bid_ceiling_micros || 0)
       currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
     } else if (biddingStrategyType === 'TARGET_CPA') {
       const micros = Number(
@@ -200,4 +200,3 @@ export async function GET(
     return NextResponse.json({ error: error.message || '获取Campaign CPC配置失败' }, { status: 500 })
   }
 }
-

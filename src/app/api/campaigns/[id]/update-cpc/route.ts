@@ -35,7 +35,7 @@ async function mutateResources(
       const resourceName = op.update.resource_name
 
       if (mutateType === 'campaign') {
-        const maxCpcBidMicros = op.update?.maximize_clicks?.max_cpc_bid_micros
+        const maxCpcBidMicros = op.update?.maximize_clicks?.cpc_bid_ceiling_micros ?? op.update?.maximize_clicks?.max_cpc_bid_micros
         const targetCpaMicros = op.update?.target_cpa?.target_cpa_micros
         const cpcBidMicros = op.update?.cpc_bid_micros
 
@@ -300,10 +300,10 @@ export async function PUT(
         update: {
           resource_name: `customers/${adsAccountRow.customer_id}/campaigns/${campaignId}`,
           maximize_clicks: {
-            max_cpc_bid_micros: cpcMicros,
+            cpc_bid_ceiling_micros: cpcMicros,
           },
         },
-        update_mask: 'maximize_clicks.max_cpc_bid_micros',
+        update_mask: 'maximize_clicks.cpc_bid_ceiling_micros',
       }
 
       // 更新广告系列

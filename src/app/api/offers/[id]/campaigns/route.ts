@@ -201,7 +201,7 @@ export async function GET(
           campaign.status,
           campaign_budget.amount_micros,
           campaign.bidding_strategy_type,
-          campaign.maximize_clicks.max_cpc_bid_micros,
+          campaign.maximize_clicks.cpc_bid_ceiling_micros,
           campaign.target_cpa.target_cpa_micros,
           campaign.target_roas.target_roas,
           campaign.manual_cpc.enhanced_cpc_enabled,
@@ -297,7 +297,7 @@ export async function GET(
 
       // 根据竞价策略类型获取CPC
       // - Manual CPC: 从 ad_group.cpc_bid_micros 推断当前配置（取第一个非0值）
-      // - Maximize Clicks: maximize_clicks.max_cpc_bid_micros
+      // - Maximize Clicks: maximize_clicks.cpc_bid_ceiling_micros
       // - Target CPA: target_cpa_micros（或 maximize_conversions.target_cpa_micros）
       if (biddingStrategyType === 'MANUAL_CPC') {
         const campaignIdNum = Number(campaign.campaign?.id)
@@ -306,7 +306,7 @@ export async function GET(
           : 0
         currentCpc = micros > 0 ? micros / 1000000 : 0
       } else if (biddingStrategyType === 'MAXIMIZE_CLICKS') {
-        const micros = Number(campaign.campaign?.maximize_clicks?.max_cpc_bid_micros || 0)
+        const micros = Number(campaign.campaign?.maximize_clicks?.cpc_bid_ceiling_micros || 0)
         currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
       } else if (biddingStrategyType === 'TARGET_CPA') {
         const targetCpaMicros =
