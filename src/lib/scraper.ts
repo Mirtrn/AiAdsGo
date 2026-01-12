@@ -234,7 +234,8 @@ function deriveBrandFromUrl(url: string): string | null {
 export async function scrapeProductData(
   url: string,
   customProxyUrl?: string,
-  targetCountry?: string
+  targetCountry?: string,
+  timeoutMs: number = 30000
 ): Promise<ScrapedProductData> {
   try {
     const proxyAgent = await getProxyAgent(customProxyUrl)
@@ -247,7 +248,7 @@ export async function scrapeProductData(
     }
 
     const response = await axios.get(url, {
-      timeout: 30000,
+      timeout: timeoutMs,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -863,11 +864,13 @@ function extractGenericData($: any, url: string): ScrapedProductData {
  */
 export async function extractProductInfo(
   url: string,
-  targetCountry?: string
+  targetCountry?: string,
+  customProxyUrl?: string,
+  timeoutMs?: number
 ): Promise<ScrapedProductData> {
   try {
     // 🌍 传入targetCountry到scrapeProductData
-    const productData = await scrapeProductData(url, undefined, targetCountry)
+    const productData = await scrapeProductData(url, customProxyUrl, targetCountry, timeoutMs)
 
     // 🔥 直接返回完整的ScrapedProductData，不丢失任何字段
     return productData

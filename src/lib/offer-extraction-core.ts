@@ -20,6 +20,7 @@ import {
   detectPageType,
   initializeProxyPool,
   getTargetLanguage,
+  normalizeBrandName,
   PageTypeResult,
 } from '@/lib/offer-utils'
 import { warmupAffiliateLink } from '@/lib/proxy-warmup'
@@ -468,14 +469,14 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         }
 	      })()
 
-	      // 🔥 防御：即使后续抓取失败，也至少用主域名提供一个稳定的品牌fallback
-	      // 避免被阻断/403时 brandName 为空或被阻断页文本污染
-	      if (isIndependentStore) {
-	        const brandFromUrlFallback = deriveBrandFromFinalUrl(resolvedData.finalUrl)
-	        if (brandFromUrlFallback && !isLikelyInvalidBrandName(brandFromUrlFallback)) {
-	          brandName = brandFromUrlFallback
-	        }
-	      }
+        // 🔥 防御：即使后续抓取失败，也至少用主域名提供一个稳定的品牌fallback
+        // 避免被阻断/403/超时时 brandName 为空或被阻断页文本污染
+        if (!isAmazonStore && !isAmazonProductPage && !brandName) {
+          const brandFromUrlFallback = deriveBrandFromFinalUrl(resolvedData.finalUrl)
+          if (brandFromUrlFallback && !isLikelyInvalidBrandName(brandFromUrlFallback)) {
+            brandName = normalizeBrandName(brandFromUrlFallback)
+          }
+        }
 
       // 获取用户代理配置
       proxyApiUrl = (await getProxyUrlForCountry(targetCountry, userId)) || null
@@ -572,7 +573,13 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         console.log('📦 检测到独立站单品页面，尝试使用轻量级scraper...')
 
         // 🔥 必须使用包含suffix的完整URL，否则会丢失追踪参数导致落地页不正确（例如 partnermatic/awin 链路）
-        scrapedData = await extractProductInfo(fullTargetUrl, targetCountry)
+        // 🔥 修复：独立站单品axios抓取也需要走代理（否则容易被风控/超时，导致品牌词为空）
+        try {
+          scrapedData = await extractProductInfo(fullTargetUrl, targetCountry, proxyApiUrl, 30000)
+        } catch (lightScrapeError: any) {
+          console.warn(`⚠️ 轻量级scraper失败: ${lightScrapeError?.message || lightScrapeError}`)
+          scrapedData = null
+        }
 
         // 🔥 检测是否需要JavaScript渲染：如果静态scraper返回的内容为空，则使用Playwright
         if (!scrapedData || !scrapedData.brandName) {
