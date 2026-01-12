@@ -198,6 +198,9 @@ export class ProxyPoolManager {
       'ETIMEDOUT',
       'ECONNRESET',
       'ENETUNREACH',
+      'EPROTO',
+      'wrong version number',
+      'ssl3_get_record',
       'ERR_EMPTY_RESPONSE',
       'ERR_CONNECTION_CLOSED',
       'ERR_HTTP2_PROTOCOL_ERROR',
@@ -522,6 +525,9 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
     'ECONNRESET',
     'ECONNREFUSED',
     'ENETUNREACH',
+    'EPROTO',
+    'wrong version number',
+    'ssl3_get_record',
     'ERR_NAME_NOT_RESOLVED',
     'ERR_EMPTY_RESPONSE',     // 服务器无响应（可能是代理IP被封）
     'ERR_CONNECTION_CLOSED',  // 连接被关闭

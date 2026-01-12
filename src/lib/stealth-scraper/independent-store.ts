@@ -23,8 +23,25 @@ import {
 } from './browser-stealth'
 import { isProxyConnectionError } from './proxy-utils'
 import type { IndependentStoreData, IndependentProductData } from './types'
+import { maskProxyUrl } from '../proxy/validate-url'
 
 const PROXY_URL = process.env.PROXY_URL || ''
+
+function isLikelyBlockedTitle(title: unknown): boolean {
+  if (typeof title !== 'string') return false
+  const trimmed = title.trim()
+  if (!trimmed) return false
+  return /access\s+denied|forbidden|attention\s+required|just\s+a\s+moment|verify\s+you\s+are\s+human|captcha|enable\s+cookies/i.test(trimmed)
+}
+
+function shouldRetryWithNewProxy(error: any): boolean {
+  if (!error) return false
+  const message = String(error.message || error)
+  if (isProxyConnectionError(error)) return true
+  if (message.includes('HTTP 401') || message.includes('HTTP 403') || message.includes('HTTP 407') || message.includes('HTTP 429')) return true
+  if (message.includes('Access Denied') || message.includes('Forbidden')) return true
+  return false
+}
 
 /**
  * Scrape independent e-commerce store page
@@ -53,7 +70,7 @@ export async function scrapeIndependentStore(
         // 🔥 清理代理IP缓存，强制获取新IP
         const { clearProxyCache } = await import('../proxy/fetch-proxy-ip')
         clearProxyCache(effectiveProxyUrl)
-        console.log(`🧹 已清理代理IP缓存: ${effectiveProxyUrl}`)
+        console.log(`🧹 已清理代理IP缓存: ${maskProxyUrl(effectiveProxyUrl)}`)
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
 
@@ -78,7 +95,12 @@ export async function scrapeIndependentStore(
 
         // 🔥 FIX: 处理429限流
         if (httpStatus === 429) {
-          throw new Error('HTTP 429: Rate limit, need retry')
+          throw new Error('HTTP 429: Rate limit, need retry with new proxy')
+        }
+
+        // 🔥 防御：403/401等常见阻断，必须换代理重试，避免把阻断页<title>当作店铺名
+        if (httpStatus === 401 || httpStatus === 403 || httpStatus === 407) {
+          throw new Error(`HTTP ${httpStatus}: Access denied, need retry with new proxy`)
         }
 
         // Wait for content to load with smart wait strategy
@@ -105,6 +127,11 @@ export async function scrapeIndependentStore(
         const finalUrl = page.url()
         console.log(`✅ 最终URL: ${finalUrl}`)
 
+        const title = await page.title().catch(() => '')
+        if (isLikelyBlockedTitle(title)) {
+          throw new Error(`Blocked page title detected: ${title}`)
+        }
+
         const html = await page.content()
 
         // Parse store data from HTML
@@ -112,6 +139,11 @@ export async function scrapeIndependentStore(
 
         console.log(`✅ 独立站抓取成功: ${storeData.storeName}`)
         console.log(`📊 发现 ${storeData.products.length} 个产品`)
+
+        // 进一步防御：解析出的店铺名仍然像阻断页时，直接重试换代理
+        if (isLikelyBlockedTitle(storeData.storeName)) {
+          throw new Error(`Blocked storeName detected: ${storeData.storeName}`)
+        }
 
         return storeData
       } finally {
@@ -129,7 +161,7 @@ export async function scrapeIndependentStore(
       console.error(`❌ 独立站抓取尝试 ${proxyAttempt + 1}/${maxProxyRetries + 1} 失败: ${error.message?.substring(0, 100)}`)
 
       // 如果是代理连接错误，尝试换新代理
-      if (isProxyConnectionError(error)) {
+      if (shouldRetryWithNewProxy(error)) {
         if (proxyAttempt < maxProxyRetries) {
           console.log(`🔄 检测到代理连接问题，准备换新代理重试...`)
           await new Promise(resolve => setTimeout(resolve, 2000))

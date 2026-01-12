@@ -701,6 +701,11 @@ class PlaywrightPool {
         password: proxy.password,
       }
 
+      // 🔥 代理链路上 Chromium 的 HTTP/2 更容易触发 PROTOCOL_ERROR（部分中转域名/代理不兼容）
+      // 强制降级为更兼容的 HTTP/1.1 以提高解析成功率。
+      launchOptions.args.push('--disable-http2')
+      launchOptions.args.push('--disable-quic')
+
       const proxySource = proxyCredentials ? '[缓存]' : '[独立]'
       console.log(`✅ Playwright实例使用代理 ${proxySource}: ${proxy.host}:${proxy.port}`)
     }

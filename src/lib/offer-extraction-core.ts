@@ -440,8 +440,8 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         throw new Error('Invalid finalUrl: URL解析返回了无效的URL')
       }
 
-      // 检测是否为独立站店铺首页
-      isIndependentStore = !isAmazonStore && !isAmazonProductPage && (() => {
+	      // 检测是否为独立站店铺首页
+	      isIndependentStore = !isAmazonStore && !isAmazonProductPage && (() => {
         try {
           const urlObj = new URL(resolvedData.finalUrl)
           const pathname = urlObj.pathname
@@ -466,7 +466,16 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           console.warn('⚠️ URL解析失败，默认判断为非独立站:', urlError)
           return false
         }
-      })()
+	      })()
+
+	      // 🔥 防御：即使后续抓取失败，也至少用主域名提供一个稳定的品牌fallback
+	      // 避免被阻断/403时 brandName 为空或被阻断页文本污染
+	      if (isIndependentStore) {
+	        const brandFromUrlFallback = deriveBrandFromFinalUrl(resolvedData.finalUrl)
+	        if (brandFromUrlFallback && !isLikelyInvalidBrandName(brandFromUrlFallback)) {
+	          brandName = brandFromUrlFallback
+	        }
+	      }
 
       // 获取用户代理配置
       proxyApiUrl = (await getProxyUrlForCountry(targetCountry, userId)) || null
@@ -530,8 +539,10 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         console.log('🏬 检测到独立站首页，使用深度抓取模式（包含热销商品详情）...')
         // 🔥 修改（2025-12-08）：使用深度抓取版本，与Amazon Store保持一致
         // 进入前5个热销商品详情页，获取详细评论和竞品数据
+        // 🔥 修复：店铺抓取不需要追踪query，优先使用finalUrl避免触发风控/403（例如 IHG/CJ 链路）
+        const storeScrapeUrl = resolvedData.finalUrl
         independentStoreData = await scrapeIndependentStoreDeep(
-          fullTargetUrl,
+          storeScrapeUrl,
           5,  // 抓取前5个热销商品的详情页
           proxyApiUrl,
           targetCountry,
@@ -541,11 +552,17 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         // 例：kaspersky.es 页面标题/店铺名为 “Kaspersky España”，但品牌应为 “kaspersky”
         const brandFromUrl = deriveBrandFromFinalUrl(resolvedData.finalUrl)
         const storeName = typeof independentStoreData.storeName === 'string' ? independentStoreData.storeName.trim() : ''
+        let brandCandidate: string | null = null
         if (brandFromUrl && storeName && storeName.toLowerCase().includes(brandFromUrl)) {
-          brandName = brandFromUrl
+          brandCandidate = brandFromUrl
         } else {
-          brandName = storeName || brandFromUrl
+          brandCandidate = storeName || brandFromUrl
         }
+        // 🔥 修复：过滤阻断页标题（如 “Access Denied”）被写入品牌名
+        if (isLikelyInvalidBrandName(brandCandidate)) {
+          brandCandidate = brandFromUrl || null
+        }
+        brandName = brandCandidate
         productDescription = independentStoreData.storeDescription
         productCount = independentStoreData.totalProducts
         console.log(`✅ 独立站深度识别成功: ${brandName}, 产品数: ${productCount}, 深度抓取: ${independentStoreData.deepScrapeResults?.successCount || 0}/${independentStoreData.deepScrapeResults?.totalScraped || 0}`)

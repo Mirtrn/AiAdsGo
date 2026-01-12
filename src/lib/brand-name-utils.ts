@@ -42,6 +42,18 @@ export function isLikelyInvalidBrandName(candidate: string | null | undefined): 
   const lower = trimmed.toLowerCase()
   if (INVALID_SINGLE_TOKEN_BRANDS.has(lower)) return true
 
+  // Block/anti-bot pages often leak as "brand" from <title>.
+  // Treat these as invalid brands so we can fallback to domain-based brand or user input.
+  if (/access\s+denied/i.test(trimmed)) return true
+  if (/forbidden/i.test(trimmed)) return true
+  if (/not\s+found/i.test(trimmed)) return true
+  if (/service\s+unavailable/i.test(trimmed)) return true
+  if (/attention\s+required/i.test(trimmed)) return true // Cloudflare
+  if (/just\s+a\s+moment/i.test(trimmed)) return true // Cloudflare challenge
+  if (/verify\s+you\s+are\s+human/i.test(trimmed)) return true
+  if (/enable\s+cookies/i.test(trimmed)) return true
+  if (/\bcaptcha\b/i.test(trimmed)) return true
+
   // Locale boilerplate fragments that can appear alone when markup is partially missing.
   if (/^besuchen(\s+sie)?(\s+(den|die|das))?$/i.test(trimmed)) return true
   if (/^visit(\s+the)?$/i.test(trimmed)) return true
@@ -72,4 +84,3 @@ export function deriveBrandFromProductTitle(productTitle: string | null | undefi
 
   return null
 }
-
