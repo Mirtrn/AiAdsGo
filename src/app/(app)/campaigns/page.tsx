@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
-import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, Package } from 'lucide-react'
+import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ArrowUpDown, ArrowUp, ArrowDown, Package } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
@@ -97,7 +97,6 @@ export default function CampaignsPage() {
   const [filteredCampaigns, setFilteredCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [syncing, setSyncing] = useState<number | null>(null)
   const [syncingData, setSyncingData] = useState(false)
   const [summary, setSummary] = useState<PerformanceSummary | null>(null)
 
@@ -337,36 +336,6 @@ export default function CampaignsPage() {
       showError('同步失败', err.message)
     } finally {
       setSyncingData(false)
-    }
-  }
-
-  const handleSync = async (campaignId: number) => {
-    setSyncing(campaignId)
-
-    try {
-      const response = await fetch(`/api/campaigns/${campaignId}/sync`, {
-        method: 'POST',
-        credentials: 'include',
-      })
-
-      // 处理401未授权 - 跳转到登录页
-      if (response.status === 401) {
-        handleUnauthorized()
-        return
-      }
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || '同步失败')
-      }
-
-      showSuccess('同步成功', '广告系列已成功同步到Google Ads')
-      fetchCampaigns()
-    } catch (err: any) {
-      showError('同步失败', err.message)
-    } finally {
-      setSyncing(null)
     }
   }
 
@@ -1028,24 +997,6 @@ export default function CampaignsPage() {
                       </TableCell>
 	                      <TableCell>
 	                        <div className="flex items-center gap-1">
-                          {/* Sync/Retry Button */}
-                          {(campaign.creationStatus === 'draft' || campaign.creationStatus === 'failed') && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleSync(campaign.id)}
-                              disabled={syncing === campaign.id}
-                              className={campaign.creationStatus === 'failed' ? 'text-orange-600 hover:text-orange-800' : 'text-indigo-600 hover:text-indigo-800'}
-                              title={syncing === campaign.id ? '同步中...' : (campaign.creationStatus === 'failed' ? '重试同步' : '同步到Google Ads')}
-                            >
-                              {campaign.creationStatus === 'failed' ? (
-                                <RotateCcw className={`w-4 h-4 ${syncing === campaign.id ? 'animate-spin' : ''}`} />
-                              ) : (
-                                <RefreshCw className={`w-4 h-4 ${syncing === campaign.id ? 'animate-spin' : ''}`} />
-                              )}
-                            </Button>
-                          )}
-
 	                          {/* View Offer Detail */}
 	                          <Button
 	                            size="sm"
@@ -1068,8 +1019,8 @@ export default function CampaignsPage() {
 	                            }}
 	                            disabled={!googleCampaignId || isDeleted || offerDeleted}
 	                            className="text-indigo-600 hover:text-indigo-800"
-	                            title={!googleCampaignId ? '该广告系列尚未同步到Google Ads，无法调整CPC' : '调整CPC出价'}
-	                            aria-label={!googleCampaignId ? '该广告系列尚未同步到Google Ads，无法调整CPC' : '调整CPC出价'}
+	                            title={!googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC' : '调整CPC出价'}
+	                            aria-label={!googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC' : '调整CPC出价'}
 	                          >
 	                            <DollarSign className="w-4 h-4" />
 	                          </Button>
@@ -1144,14 +1095,14 @@ export default function CampaignsPage() {
                   </div>
                 )}
                 {!batchDeleteError && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
-                    <p className="font-medium mb-1">⚠️ 重要提示：</p>
-                    <ul className="list-disc list-inside space-y-1 ml-2">
-                      <li>已同步到Google Ads的广告系列无法删除</li>
-                      <li>此操作不可撤销</li>
-                    </ul>
-                  </div>
-                )}
+	                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+	                    <p className="font-medium mb-1">⚠️ 重要提示：</p>
+	                    <ul className="list-disc list-inside space-y-1 ml-2">
+	                      <li>已发布到Google Ads的广告系列无法删除</li>
+	                      <li>此操作不可撤销</li>
+	                    </ul>
+	                  </div>
+	                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
