@@ -525,6 +525,8 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
     'ECONNRESET',
     'ECONNREFUSED',
     'ENETUNREACH',
+    '状态码 5',
+    'HTTP 5',
     'EPROTO',
     'wrong version number',
     'ssl3_get_record',
@@ -599,6 +601,30 @@ function buildFullUrl(finalUrl: string, finalUrlSuffix: string | null | undefine
   const suffix = (finalUrlSuffix || '').trim()
   if (!suffix) return finalUrl
   return finalUrl.includes('?') ? `${finalUrl}&${suffix}` : `${finalUrl}?${suffix}`
+}
+
+function shouldRetryHttpInsteadOfFallbackToPlaywright(error: unknown): boolean {
+  const msg = (error as any)?.message ? String((error as any).message) : String(error)
+
+  // HTTP 5xx：大概率是代理/中间链路瞬态问题，优先换代理重试，而不是降级到Playwright（同代理多半也会失败/更慢）
+  if (/状态码\s*5\d\d/.test(msg) || /HTTP\s*5\d\d/i.test(msg)) return true
+
+  // 典型网络/代理握手问题：应换代理重试
+  const transientPatterns = [
+    'timeout',
+    'Timeout',
+    'ETIMEDOUT',
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'ENETUNREACH',
+    'EPROTO',
+    'wrong version number',
+    'ssl3_get_record',
+    'ERR_HTTP2_PROTOCOL_ERROR',
+    'ERR_EMPTY_RESPONSE',
+    'ERR_CONNECTION_CLOSED',
+  ]
+  return transientPatterns.some(p => msg.includes(p))
 }
 
 // ==================== Playwright方式（Level 2） ====================
@@ -727,6 +753,10 @@ export async function resolveAffiliateLink(
         } catch (httpError: any) {
           // 🔥 修复：HTTP失败时降级到Playwright
           console.log(`   HTTP失败: ${httpError.message}`)
+          if (shouldRetryHttpInsteadOfFallbackToPlaywright(httpError)) {
+            console.log(`   HTTP临时失败（优先换代理重试），不降级到Playwright`)
+            throw httpError
+          }
           console.log(`   降级到Playwright...`)
           result = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
         }
@@ -766,6 +796,10 @@ export async function resolveAffiliateLink(
           }
         } catch (httpError: any) {
           console.log(`   HTTP失败: ${httpError.message}`)
+          if (shouldRetryHttpInsteadOfFallbackToPlaywright(httpError)) {
+            console.log(`   HTTP临时失败（优先换代理重试），不降级到Playwright`)
+            throw httpError
+          }
           console.log(`   降级到Playwright...`)
           result = await resolveWithPlaywright(affiliateLink, proxy.url, targetCountry)
         }

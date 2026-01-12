@@ -46,23 +46,9 @@ export function isProxyConnectionError(error: Error): boolean {
   // Amazon和短链接服务会立即封禁代理IP，导致page.goto永远无法完成
   // 这种情况下应该立即换代理，而不是用同一代理重试
   if (msg.includes('page.goto: Timeout') && msg.includes('exceeded')) {
-    // Amazon站点
-    if (msg.includes('amazon.')) {
-      return true  // Amazon超时 = 代理被封
-    }
-    // 🔥 新增：短链接/联盟tracking域名也需要快速换代理
-    // 这类中转域名通常反爬强，一旦代理IP被标记会“卡住”导致page.goto永远无法完成
-    const timeoutSensitivePatterns = [
-      // 短链接
-      'pboost.me', 'bit.ly', 'tinyurl', 'ow.ly', 'rebrand.ly',
-      'short.link', 'is.gd', 'buff.ly', 't.co', 'goo.gl', 'clk.',
-      // 联盟/Tracking（CJ/以及常见跳转中间页）
-      'jdoqocy.com', 'emjcd.com', 'dotomi.com', 'cj.com', 'onelink.me',
-      'qksrv.net', 'anrdoezrs.net', 'dpbolvw.net',
-    ]
-    if (timeoutSensitivePatterns.some(pattern => msg.includes(pattern))) {
-      return true
-    }
+    // page.goto 超时通常意味着代理链路/目标站点对该代理“卡死”(challenge/握手/中间链路不兼容)；
+    // URL解析阶段宁可快速换代理，也不要复用同一实例反复超时。
+    return true
   }
 
   // 🔥 新增：net::ERR_TIMED_OUT 格式的超时错误
