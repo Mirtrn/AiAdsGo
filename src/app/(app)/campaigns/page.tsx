@@ -38,9 +38,6 @@ import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/chart
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
   getCampaignStatusLabel,
-  getCreationStatusLabel,
-  type CampaignStatus,
-  type CreationStatus
 } from '@/lib/i18n-constants'
 
 interface Campaign {
@@ -56,6 +53,7 @@ interface Campaign {
   creationStatus: string
   creationError: string | null
   lastSyncAt: string | null
+  servingStartDate?: string | null
   createdAt: string
   // 🔧 新增: 软删除状态字段
   isDeleted?: boolean | number
@@ -106,7 +104,6 @@ export default function CampaignsPage() {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [creationStatusFilter, setCreationStatusFilter] = useState<string>('all')
   const [timeRange, setTimeRange] = useState<string>('7')
 
   // Pagination states
@@ -114,7 +111,7 @@ export default function CampaignsPage() {
   const [pageSize, setPageSize] = useState(10)
 
   // Sorting states
-  type SortField = 'campaignName' | 'budgetAmount' | 'impressions' | 'clicks' | 'ctr' | 'cpc' | 'conversions' | 'cost' | 'status' | 'creationStatus'
+  type SortField = 'campaignName' | 'budgetAmount' | 'impressions' | 'clicks' | 'ctr' | 'cpc' | 'conversions' | 'cost' | 'status' | 'servingStartDate'
   type SortDirection = 'asc' | 'desc' | null
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
@@ -173,14 +170,23 @@ export default function CampaignsPage() {
       result = result.filter((c) => c.status === statusFilter)
     }
 
-    // Creation Status filter
-    if (creationStatusFilter !== 'all') {
-      result = result.filter((c) => c.creationStatus === creationStatusFilter)
-    }
-
     // Sorting
     if (sortField && sortDirection) {
       result = [...result].sort((a, b) => {
+        if (sortField === 'servingStartDate') {
+          const aDate = a.servingStartDate
+          const bDate = b.servingStartDate
+
+          // 无投放日期的记录，始终排在最后（不随排序方向变化）
+          if (!aDate && !bDate) return 0
+          if (!aDate) return 1
+          if (!bDate) return -1
+
+          if (aDate < bDate) return sortDirection === 'asc' ? -1 : 1
+          if (aDate > bDate) return sortDirection === 'asc' ? 1 : -1
+          return 0
+        }
+
         let aVal: number | string = 0
         let bVal: number | string = 0
 
@@ -228,10 +234,6 @@ export default function CampaignsPage() {
             aVal = a.status
             bVal = b.status
             break
-          case 'creationStatus':
-            aVal = a.creationStatus
-            bVal = b.creationStatus
-            break
         }
 
         if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
@@ -242,7 +244,7 @@ export default function CampaignsPage() {
 
     setFilteredCampaigns(result)
     setCurrentPage(1) // Reset to first page when filters change
-  }, [campaigns, searchQuery, statusFilter, creationStatusFilter, sortField, sortDirection])
+  }, [campaigns, searchQuery, statusFilter, sortField, sortDirection])
 
   const fetchCampaigns = async () => {
     try {
@@ -508,22 +510,6 @@ export default function CampaignsPage() {
     return (
       <Badge variant={config.variant} className={`flex items-center gap-1 w-fit ${config.className}`}>
         <Icon className="w-3 h-3" />
-        {config.label}
-      </Badge>
-    )
-  }
-
-  const getCreationStatusBadge = (status: string) => {
-    const configs = {
-      draft: { label: getCreationStatusLabel('draft'), variant: 'secondary' as const, className: 'bg-gray-100 text-gray-600' },
-      pending: { label: getCreationStatusLabel('pending'), variant: 'secondary' as const, className: 'bg-blue-100 text-blue-700' },
-      synced: { label: getCreationStatusLabel('synced'), variant: 'default' as const, className: 'bg-green-600 hover:bg-green-700' },
-      failed: { label: getCreationStatusLabel('failed'), variant: 'destructive' as const, className: '' },
-    }
-    const config = configs[status as keyof typeof configs] || { label: status, variant: 'outline' as const, className: '' }
-
-    return (
-      <Badge variant={config.variant} className={config.className}>
         {config.label}
       </Badge>
     )
@@ -855,7 +841,7 @@ export default function CampaignsPage() {
         {/* Filters */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -889,20 +875,6 @@ export default function CampaignsPage() {
                   <SelectItem value="ENABLED">{getCampaignStatusLabel('ENABLED')}</SelectItem>
                   <SelectItem value="PAUSED">{getCampaignStatusLabel('PAUSED')}</SelectItem>
                   <SelectItem value="REMOVED">{getCampaignStatusLabel('REMOVED')}</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Creation Status Filter */}
-              <Select value={creationStatusFilter} onValueChange={setCreationStatusFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="同步状态" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">所有同步状态</SelectItem>
-                  <SelectItem value="draft">{getCreationStatusLabel('draft')}</SelectItem>
-                  <SelectItem value="synced">{getCreationStatusLabel('synced')}</SelectItem>
-                  <SelectItem value="failed">{getCreationStatusLabel('failed')}</SelectItem>
-                  <SelectItem value="pending">{getCreationStatusLabel('pending')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -960,7 +932,7 @@ export default function CampaignsPage() {
                       <SortableHeader field="conversions" className="w-[90px]">转化</SortableHeader>
                       <SortableHeader field="cost" className="w-[100px]">花费</SortableHeader>
                       <SortableHeader field="status" className="w-[110px]">投放状态</SortableHeader>
-                      <SortableHeader field="creationStatus" className="w-[110px]">同步状态</SortableHeader>
+                      <SortableHeader field="servingStartDate" className="w-[110px]">投放日期</SortableHeader>
                       <TableHead className="w-[140px]">操作</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1050,14 +1022,9 @@ export default function CampaignsPage() {
                         {getStatusBadge(campaign.status)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-col gap-1">
-                          {getCreationStatusBadge(campaign.creationStatus)}
-                          {campaign.creationError && (
-                            <span className="text-xs text-red-600 max-w-[200px] truncate" title={campaign.creationError}>
-                              {campaign.creationError}
-                            </span>
-                          )}
-                        </div>
+                        <span className="text-sm text-gray-900">
+                          {campaign.servingStartDate || '-'}
+                        </span>
                       </TableCell>
 	                      <TableCell>
 	                        <div className="flex items-center gap-1">

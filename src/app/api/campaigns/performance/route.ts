@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
     const campaigns = await db.query(`
       SELECT
         c.id,
+        c.campaign_id,
         c.campaign_name,
         c.offer_id,
         c.status,
@@ -54,6 +55,8 @@ export async function GET(request: NextRequest) {
         c.google_ads_account_id,
         c.budget_amount,
         c.budget_type,
+        c.creation_status,
+        c.creation_error,
         c.last_sync_at,
         c.created_at,
         c.is_deleted,
@@ -61,6 +64,7 @@ export async function GET(request: NextRequest) {
         o.brand as offer_brand,
         o.url as offer_url,
         o.is_deleted as offer_is_deleted,
+        cp_start.serving_start_date as serving_start_date,
         COALESCE(SUM(cp.impressions), 0) as impressions,
         COALESCE(SUM(cp.clicks), 0) as clicks,
         COALESCE(SUM(cp.conversions), 0) as conversions,
@@ -82,17 +86,32 @@ export async function GET(request: NextRequest) {
         END as conversion_rate
       FROM campaigns c
       LEFT JOIN offers o ON c.offer_id = o.id
+      LEFT JOIN (
+        SELECT
+          campaign_id as campaign_table_id,
+          MIN(date) as serving_start_date
+        FROM campaign_performance
+        WHERE user_id = ?
+          AND (
+            COALESCE(impressions, 0) > 0
+            OR COALESCE(clicks, 0) > 0
+            OR COALESCE(cost, 0) > 0
+            OR COALESCE(conversions, 0) > 0
+          )
+        GROUP BY campaign_id
+      ) cp_start ON cp_start.campaign_table_id = c.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         AND cp.date >= ?
         AND cp.date <= ?
       WHERE c.user_id = ?
       GROUP BY
-        c.id, c.campaign_name, c.offer_id, c.status,
+        c.id, c.campaign_id, c.campaign_name, c.offer_id, c.status,
         c.google_campaign_id, c.google_ads_account_id, c.budget_amount,
-        c.budget_type, c.last_sync_at, c.created_at, c.is_deleted, c.deleted_at,
-        o.brand, o.url, o.is_deleted
+        c.budget_type, c.creation_status, c.creation_error, c.last_sync_at,
+        c.created_at, c.is_deleted, c.deleted_at,
+        o.brand, o.url, o.is_deleted, cp_start.serving_start_date
       ORDER BY c.created_at DESC
-    `, [startDateStr, endDate, userId]) as any[]
+    `, [userId, startDateStr, endDate, userId]) as any[]
 
     // 4. Format response
     const formattedCampaigns = campaigns.map(c => ({
@@ -104,6 +123,10 @@ export async function GET(request: NextRequest) {
       status: c.status,
       googleCampaignId: c.google_campaign_id,
       googleAdsAccountId: c.google_ads_account_id,
+      campaignId: c.campaign_id,
+      creationStatus: c.creation_status,
+      creationError: c.creation_error ?? null,
+      servingStartDate: c.serving_start_date ?? null,
       // 🔧 修复(2025-12-29): 确保预算金额是数字类型
       budgetAmount: Number(c.budget_amount) || 0,
       budgetType: c.budget_type,
