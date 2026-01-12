@@ -223,13 +223,13 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="sm:max-w-5xl">
+      <DialogContent className="sm:max-w-6xl max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>调整CPC - {offer.offerName || offer.brand || `Offer #${offer.id}`}</DialogTitle>
           <DialogDescription>按广告系列批量调整CPC，支持一键比例填充。</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
           {error && (
             <div className="text-sm text-red-600">{error}</div>
           )}
@@ -240,16 +240,16 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
             <div className="text-sm text-muted-foreground">未找到广告系列（请先发布广告）。</div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[1040px] table-fixed">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[260px]">广告系列</TableHead>
-                    <TableHead className="min-w-[200px]">Ads账户</TableHead>
-                    <TableHead className="w-[120px]">状态</TableHead>
-                    <TableHead className="w-[140px]">竞价策略</TableHead>
-                    <TableHead className="w-[140px]">当前CPC</TableHead>
-                    <TableHead className="min-w-[260px]">更新后CPC</TableHead>
-                    <TableHead className="w-[110px] text-right">操作</TableHead>
+                    <TableHead className="w-[280px]">广告系列</TableHead>
+                    <TableHead className="w-[180px]">Ads账户</TableHead>
+                    <TableHead className="w-[80px]">状态</TableHead>
+                    <TableHead className="w-[120px]">竞价策略</TableHead>
+                    <TableHead className="w-[110px]">当前CPC</TableHead>
+                    <TableHead className="w-[260px]">更新后CPC</TableHead>
+                    <TableHead className="w-[80px] text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -257,19 +257,23 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                     const disableRow = updating || campaign.status === 'REMOVED'
                     return (
                       <TableRow key={campaign.id} className={campaign.status === 'REMOVED' ? 'opacity-60' : ''}>
-                        <TableCell>
-                          <div className="font-medium">{campaign.name}</div>
-                          <div className="text-xs text-muted-foreground font-mono">ID: {campaign.id}</div>
+                        <TableCell className="min-w-0">
+                          <div className="font-medium truncate" title={campaign.name}>{campaign.name}</div>
+                          <div className="text-xs text-muted-foreground font-mono truncate" title={campaign.id}>ID: {campaign.id}</div>
                         </TableCell>
                         <TableCell>
-                          <div className="text-sm">{campaign.adsAccountName?.trim() || '未命名账号'}</div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="text-sm truncate" title={campaign.adsAccountName?.trim() || '未命名账号'}>
+                            {campaign.adsAccountName?.trim() || '未命名账号'}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate" title={campaign.adsCustomerId ? `CID: ${campaign.adsCustomerId}` : 'CID: (未知)'}>
                             {campaign.adsCustomerId ? `CID: ${campaign.adsCustomerId}` : 'CID: (未知)'}
                           </div>
                         </TableCell>
                         <TableCell>{getStatusBadge(campaign.status)}</TableCell>
                         <TableCell>
-                          <span className="text-sm">{campaign.biddingStrategy || 'UNKNOWN'}</span>
+                          <span className="text-sm truncate block" title={campaign.biddingStrategy || 'UNKNOWN'}>
+                            {campaign.biddingStrategy || 'UNKNOWN'}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">{getCurrentCpcDisplay(campaign)}</span>
@@ -277,7 +281,7 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                         <TableCell>
                           <div className="space-y-2">
                             <div className="flex items-center gap-2">
-                              <div className="text-sm text-muted-foreground w-20">{campaign.currency}</div>
+                              <div className="text-sm text-muted-foreground w-14 shrink-0">{campaign.currency}</div>
                               <Input
                                 type="number"
                                 inputMode="decimal"
@@ -302,7 +306,7 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right whitespace-nowrap">
                           <Button
                             size="sm"
                             onClick={() => handleUpdateCpc(campaign.id)}
@@ -320,7 +324,7 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-2 sm:gap-0 border-t pt-3 flex-wrap">
           <Button type="button" variant="outline" onClick={onClose} disabled={updating}>
             关闭
           </Button>

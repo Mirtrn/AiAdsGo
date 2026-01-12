@@ -35,6 +35,17 @@ function normalizeBiddingStrategyType(raw: string): string {
   return raw
 }
 
+function safeParseJson<T = any>(value: unknown): T | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'object') return value as T
+  if (typeof value !== 'string') return null
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return null
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -113,6 +124,22 @@ export async function GET(
       return NextResponse.json({ error: 'Google Ads OAuth未授权或已过期', needsReauth: true }, { status: 400 })
     }
 
+    const currency = linked.currency || 'USD'
+
+    // DB 兜底：发布时配置 max_cpc / campaign_config.maxCpcBid（即使 GAQL 失败也要可展示）
+    let configuredCpc: number | null = null
+    let configuredBiddingStrategy: string | null = null
+    const directMaxCpc = Number(linked.max_cpc)
+    if (Number.isFinite(directMaxCpc) && directMaxCpc > 0) {
+      configuredCpc = directMaxCpc
+    } else if (linked.campaign_config) {
+      const cfg = safeParseJson<any>(linked.campaign_config)
+      const cfgMax = Number(cfg?.maxCpcBid)
+      if (Number.isFinite(cfgMax) && cfgMax > 0) configuredCpc = cfgMax
+      const cfgStrategy = String(cfg?.biddingStrategy || '').trim()
+      if (cfgStrategy) configuredBiddingStrategy = cfgStrategy.toUpperCase()
+    }
+
     const campaignQuery = `
       SELECT
         campaign.id,
@@ -126,51 +153,56 @@ export async function GET(
         AND campaign.status != 'REMOVED'
     `
 
-    let campaignRows: any[] = []
-    if (useServiceAccount) {
-      const fetched = await executeGAQLQueryPython({
-        userId: numericUserId,
-        serviceAccountId,
-        customerId: linked.customer_id,
-        query: campaignQuery,
-        requestId,
-      })
-      campaignRows = extractSearchResults(fetched)
-    } else {
-      const loginCustomerId = linked.parent_mcc_id || credentials.login_customer_id
-      const customer = await getCustomerWithCredentials({
-        customerId: linked.customer_id,
-        refreshToken: oauthRefreshToken || undefined,
-        loginCustomerId,
-        accountId: undefined,
-        userId: numericUserId,
-      })
-      campaignRows = await customer.query(campaignQuery)
-    }
-
-    const campaign = campaignRows?.[0]?.campaign
-    if (!campaign) {
-      return NextResponse.json({ error: '未找到该Campaign（可能已删除）' }, { status: 404 })
-    }
-
-    const rawBiddingStrategyType = toBiddingStrategyType(campaign.bidding_strategy_type)
-    const biddingStrategyType = normalizeBiddingStrategyType(rawBiddingStrategyType)
-    const currency = linked.currency || 'USD'
-
+    // GAQL 取值（“真值”）：失败不阻断，回退到DB配置
+    let campaign: any | null = null
+    let biddingStrategyType = 'UNKNOWN'
     let currentCpc: number | null = null
-    const targetSpendMicros = Number(campaign.target_spend?.cpc_bid_ceiling_micros || 0)
-    if (Number.isFinite(targetSpendMicros) && targetSpendMicros > 0) {
-      // 我们发布时使用 TARGET_SPEND（Maximize Clicks），因此优先使用 ceiling 作为“当前CPC”
-      currentCpc = targetSpendMicros / 1000000
-    } else {
-      const targetCpaMicros = Number(
-        campaign.target_cpa?.target_cpa_micros ||
-        campaign.maximize_conversions?.target_cpa_micros ||
-        0
-      )
-      if (Number.isFinite(targetCpaMicros) && targetCpaMicros > 0) {
-        currentCpc = targetCpaMicros / 1000000
+    let targetSpendMicros = 0
+
+    try {
+      let campaignRows: any[] = []
+      if (useServiceAccount) {
+        const fetched = await executeGAQLQueryPython({
+          userId: numericUserId,
+          serviceAccountId,
+          customerId: linked.customer_id,
+          query: campaignQuery,
+          requestId,
+        })
+        campaignRows = extractSearchResults(fetched)
+      } else {
+        const loginCustomerId = linked.parent_mcc_id || credentials.login_customer_id
+        const customer = await getCustomerWithCredentials({
+          customerId: linked.customer_id,
+          refreshToken: oauthRefreshToken || undefined,
+          loginCustomerId,
+          accountId: undefined,
+          userId: numericUserId,
+        })
+        campaignRows = await customer.query(campaignQuery)
       }
+
+      campaign = campaignRows?.[0]?.campaign || null
+      if (campaign) {
+        const rawBiddingStrategyType = toBiddingStrategyType(campaign.bidding_strategy_type)
+        biddingStrategyType = normalizeBiddingStrategyType(rawBiddingStrategyType)
+
+        targetSpendMicros = Number(campaign.target_spend?.cpc_bid_ceiling_micros || 0)
+        if (Number.isFinite(targetSpendMicros) && targetSpendMicros > 0) {
+          currentCpc = targetSpendMicros / 1000000
+        } else {
+          const targetCpaMicros = Number(
+            campaign.target_cpa?.target_cpa_micros ||
+            campaign.maximize_conversions?.target_cpa_micros ||
+            0
+          )
+          if (Number.isFinite(targetCpaMicros) && targetCpaMicros > 0) {
+            currentCpc = targetCpaMicros / 1000000
+          }
+        }
+      }
+    } catch {
+      // ignore
     }
 
     // Manual CPC best-effort（仅在还拿不到CPC时尝试）
@@ -187,25 +219,29 @@ export async function GET(
       `
 
       let adGroupRows: any[] = []
-      if (useServiceAccount) {
-        const fetched = await executeGAQLQueryPython({
-          userId: numericUserId,
-          serviceAccountId,
-          customerId: linked.customer_id,
-          query: adGroupQuery,
-          requestId,
-        })
-        adGroupRows = extractSearchResults(fetched)
-      } else {
-        const loginCustomerId = linked.parent_mcc_id || credentials.login_customer_id
-        const customer = await getCustomerWithCredentials({
-          customerId: linked.customer_id,
-          refreshToken: oauthRefreshToken || undefined,
-          loginCustomerId,
-          accountId: undefined,
-          userId: numericUserId,
-        })
-        adGroupRows = await customer.query(adGroupQuery)
+      try {
+        if (useServiceAccount) {
+          const fetched = await executeGAQLQueryPython({
+            userId: numericUserId,
+            serviceAccountId,
+            customerId: linked.customer_id,
+            query: adGroupQuery,
+            requestId,
+          })
+          adGroupRows = extractSearchResults(fetched)
+        } else {
+          const loginCustomerId = linked.parent_mcc_id || credentials.login_customer_id
+          const customer = await getCustomerWithCredentials({
+            customerId: linked.customer_id,
+            refreshToken: oauthRefreshToken || undefined,
+            loginCustomerId,
+            accountId: undefined,
+            userId: numericUserId,
+          })
+          adGroupRows = await customer.query(adGroupQuery)
+        }
+      } catch {
+        // ignore
       }
 
       const micros = Number(adGroupRows?.[0]?.ad_group?.cpc_bid_micros || 0)
@@ -213,19 +249,10 @@ export async function GET(
     }
 
     // DB 兜底：如果 GAQL 拿不到（或返回0），回退到发布时的配置 max_cpc / campaign_config.maxCpcBid
-    if (currentCpc === null || !(currentCpc > 0)) {
-      const directMaxCpc = Number(linked.max_cpc)
-      if (Number.isFinite(directMaxCpc) && directMaxCpc > 0) {
-        currentCpc = directMaxCpc
-      } else if (linked.campaign_config) {
-        try {
-          const cfg = JSON.parse(linked.campaign_config)
-          const cfgMax = Number(cfg?.maxCpcBid)
-          if (Number.isFinite(cfgMax) && cfgMax > 0) currentCpc = cfgMax
-        } catch {
-          // ignore
-        }
-      }
+    if (currentCpc === null || !(currentCpc > 0)) currentCpc = configuredCpc
+
+    if (biddingStrategyType === 'UNKNOWN' && configuredBiddingStrategy) {
+      biddingStrategyType = normalizeBiddingStrategyType(toBiddingStrategyType(configuredBiddingStrategy))
     }
 
     const derivedBiddingStrategyType =

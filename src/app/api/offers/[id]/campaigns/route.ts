@@ -64,6 +64,17 @@ function normalizeBiddingStrategyType(raw: string): string {
   return raw
 }
 
+function safeParseJson<T = any>(value: unknown): T | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'object') return value as T
+  if (typeof value !== 'string') return null
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return null
+  }
+}
+
 /**
  * GET /api/offers/:id/campaigns
  * 获取Offer关联的所有Google Ads广告系列
@@ -86,14 +97,18 @@ export async function GET(
     const numericUserId = parseInt(userId, 10)
     const offerId = parseInt(id, 10)
 
+    const isDeletedCheck = db.type === 'postgres' ? 'c.is_deleted = FALSE' : 'c.is_deleted = 0'
+
     // 从数据库获取该Offer关联的已发布campaign列表（google_campaign_id非空）
-    // 注意：campaigns 表没有 is_deleted 字段，使用 status='REMOVED' 作为解除关联/移除标记
+    // 注意：campaigns 有软删除字段 is_deleted，同时 status='REMOVED' 也可视为解除关联/移除标记
     const localCampaigns = await db.query(`
       SELECT
         c.google_campaign_id,
         c.google_ads_account_id,
+        c.campaign_name,
         c.max_cpc,
         c.campaign_config,
+        c.status,
         gaa.customer_id,
         gaa.account_name,
         gaa.currency,
@@ -106,6 +121,7 @@ export async function GET(
       LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       WHERE c.offer_id = ?
         AND c.user_id = ?
+        AND ${isDeletedCheck}
         AND c.status != 'REMOVED'
         AND c.google_campaign_id IS NOT NULL
         AND c.google_campaign_id != ''
@@ -114,8 +130,10 @@ export async function GET(
     `, [offerId, numericUserId]) as Array<{
       google_campaign_id: string
       google_ads_account_id: number
+      campaign_name: string
       max_cpc: number | null
       campaign_config: string | null
+      status: string
       customer_id: string | null
       account_name: string | null
       currency: string | null
@@ -167,6 +185,8 @@ export async function GET(
 
     const localMaxCpcByGoogleCampaignId = new Map<string, number>()
     const localBiddingStrategyByGoogleCampaignId = new Map<string, string>()
+    const localStatusByGoogleCampaignId = new Map<string, string>()
+    const localCampaignNameByGoogleCampaignId = new Map<string, string>()
     for (const row of localCampaigns) {
       if (!row.customer_id) continue
       const isActive = row.is_active === true || row.is_active === 1
@@ -176,22 +196,25 @@ export async function GET(
       const campaignIdNum = Number(row.google_campaign_id)
       if (!Number.isFinite(campaignIdNum)) continue
 
+      if (!localCampaignNameByGoogleCampaignId.has(row.google_campaign_id)) {
+        localCampaignNameByGoogleCampaignId.set(row.google_campaign_id, row.campaign_name)
+      }
+      if (!localStatusByGoogleCampaignId.has(row.google_campaign_id)) {
+        localStatusByGoogleCampaignId.set(row.google_campaign_id, row.status)
+      }
+
       // 本地兜底：优先 max_cpc，其次从 campaign_config.maxCpcBid 解析
       const directMaxCpc = Number(row.max_cpc)
       if (Number.isFinite(directMaxCpc) && directMaxCpc > 0) {
         localMaxCpcByGoogleCampaignId.set(row.google_campaign_id, directMaxCpc)
       } else if (row.campaign_config) {
-        try {
-          const cfg = JSON.parse(row.campaign_config)
-          const cfgMax = Number(cfg?.maxCpcBid)
-          if (Number.isFinite(cfgMax) && cfgMax > 0) {
-            localMaxCpcByGoogleCampaignId.set(row.google_campaign_id, cfgMax)
-          }
-          const cfgStrategy = String(cfg?.biddingStrategy || '').trim()
-          if (cfgStrategy) localBiddingStrategyByGoogleCampaignId.set(row.google_campaign_id, cfgStrategy.toUpperCase())
-        } catch {
-          // ignore
+        const cfg = safeParseJson<any>(row.campaign_config)
+        const cfgMax = Number(cfg?.maxCpcBid)
+        if (Number.isFinite(cfgMax) && cfgMax > 0) {
+          localMaxCpcByGoogleCampaignId.set(row.google_campaign_id, cfgMax)
         }
+        const cfgStrategy = String(cfg?.biddingStrategy || '').trim()
+        if (cfgStrategy) localBiddingStrategyByGoogleCampaignId.set(row.google_campaign_id, cfgStrategy.toUpperCase())
       }
 
       if (!campaignsByAccountId.has(row.google_ads_account_id)) {
@@ -215,7 +238,7 @@ export async function GET(
       })
     }
 
-    const results: any[] = []
+    const gaqlCampaignById = new Map<number, any>()
     const adGroupCpcMicrosByCampaignId = new Map<number, number>()
     const targetSpendCeilingMicrosByCampaignId = new Map<number, number>()
     for (const [googleAdsAccountId, account] of campaignsByAccountId.entries()) {
@@ -246,7 +269,6 @@ export async function GET(
           campaign.maximize_conversions.target_cpa_micros
         FROM campaign
         WHERE campaign.id IN (${uniqueIds.join(', ')})
-          AND campaign.status != 'REMOVED'
         ORDER BY campaign.name
       `
 
@@ -282,17 +304,33 @@ export async function GET(
           // ignore
         }
 
-        const fetched = await executeGAQLQueryPython({
-          userId: numericUserId,
-          serviceAccountId,
-          customerId: account.customerId,
-          query,
-          requestId
-        })
-        const rows = extractSearchResults(fetched)
+        // Campaign info best-effort（失败不阻断，改为使用DB兜底）
+        try {
+          const fetched = await executeGAQLQueryPython({
+            userId: numericUserId,
+            serviceAccountId,
+            customerId: account.customerId,
+            query,
+            requestId
+          })
+          const rows = extractSearchResults(fetched)
+          for (const r of rows) {
+            const cid = Number(r?.campaign?.id)
+            if (!Number.isFinite(cid) || gaqlCampaignById.has(cid)) continue
+            gaqlCampaignById.set(cid, {
+              campaign: r.campaign,
+              __currency: account.currency,
+              __googleAdsAccountId: googleAdsAccountId,
+              __adsCustomerId: account.customerId,
+              __adsAccountName: account.accountName,
+            })
+          }
+        } catch {
+          // ignore
+        }
 
         // target_spend ceiling best-effort（我们发布时使用 TARGET_SPEND，即 Maximize Clicks）
-        // 注意：服务账号模式下枚举可能会被序列化为数字字符串，避免依赖 bidding_strategy_type 判断，直接查询 ceiling
+        // 注意：不同API版本/账号状态下该字段可能不可选，失败则使用 AdGroup/DB 兜底
         try {
           const fetchedTargetSpend = await executeGAQLQueryPython({
             userId: numericUserId,
@@ -312,14 +350,6 @@ export async function GET(
         } catch {
           // ignore
         }
-
-        results.push(...rows.map((r: any) => ({
-          ...r,
-          __currency: account.currency,
-          __googleAdsAccountId: googleAdsAccountId,
-          __adsCustomerId: account.customerId,
-          __adsAccountName: account.accountName,
-        })))
       } else {
         const loginCustomerId = account.parentMccId || credentials.login_customer_id
         const customer = await getCustomerWithCredentials({
@@ -346,8 +376,24 @@ export async function GET(
           // ignore
         }
 
-        const fetched = await customer.query(query)
-        const rows = extractSearchResults(fetched)
+        // Campaign info best-effort（失败不阻断，改为使用DB兜底）
+        try {
+          const fetched = await customer.query(query)
+          const rows = extractSearchResults(fetched)
+          for (const r of rows) {
+            const cid = Number(r?.campaign?.id)
+            if (!Number.isFinite(cid) || gaqlCampaignById.has(cid)) continue
+            gaqlCampaignById.set(cid, {
+              campaign: r.campaign,
+              __currency: account.currency,
+              __googleAdsAccountId: googleAdsAccountId,
+              __adsCustomerId: account.customerId,
+              __adsAccountName: account.accountName,
+            })
+          }
+        } catch {
+          // ignore
+        }
 
         // target_spend ceiling best-effort（我们发布时使用 TARGET_SPEND，即 Maximize Clicks）
         // 避免依赖 bidding_strategy_type 判断，直接查询 ceiling
@@ -365,25 +411,32 @@ export async function GET(
           // ignore
         }
 
-        results.push(...rows.map((r: any) => ({
-          ...r,
-          __currency: account.currency,
-          __googleAdsAccountId: googleAdsAccountId,
-          __adsCustomerId: account.customerId,
-          __adsAccountName: account.accountName,
-        })))
       }
     }
 
-    // 提取CPC信息
-    const formattedCampaigns = results.map((campaign: any) => {
+    // 以本地关联关系为准输出（GAQL只是补充“真值”与实时状态），避免GAQL失败/异常导致返回错误的campaign列表
+    const seenLocal = new Set<string>()
+    const formattedCampaigns = localCampaigns
+      .filter((row) => {
+        const isActive = row.is_active === true || row.is_active === 1
+        const isDeleted = row.is_deleted === true || row.is_deleted === 1
+        if (!Boolean(row.customer_id) || !isActive || isDeleted) return false
+        if (!row.google_campaign_id) return false
+        if (seenLocal.has(row.google_campaign_id)) return false
+        seenLocal.add(row.google_campaign_id)
+        return true
+      })
+      .map((row) => {
+        const campaignIdNum = Number(row.google_campaign_id)
+        const ga = Number.isFinite(campaignIdNum) ? gaqlCampaignById.get(campaignIdNum) : undefined
+        const gaCampaign = ga?.campaign
+
       // 默认CPC值（如果没有设置则为0）
       let currentCpc = 0
-      let currency = campaign.__currency || 'USD'
-      const rawBiddingStrategyType = toBiddingStrategyType(campaign.campaign.bidding_strategy_type)
+      const currency = ga?.__currency || row.currency || 'USD'
+      const googleCampaignId = row.google_campaign_id
+      const rawBiddingStrategyType = toBiddingStrategyType(gaCampaign?.bidding_strategy_type)
       const biddingStrategyType = normalizeBiddingStrategyType(rawBiddingStrategyType)
-      const campaignIdNum = Number(campaign.campaign?.id)
-      const googleCampaignId = campaign.campaign.id?.toString?.() || String(campaign.campaign.id || '')
 
       // 根据竞价策略类型获取CPC
       // - Manual CPC: 从 ad_group.cpc_bid_micros 推断当前配置（取第一个非0值）
@@ -397,8 +450,8 @@ export async function GET(
         : 0
 
       const targetCpaMicros = Number(
-        campaign.campaign.target_cpa?.target_cpa_micros ||
-        campaign.campaign.maximize_conversions?.target_cpa_micros ||
+        gaCampaign?.target_cpa?.target_cpa_micros ||
+        gaCampaign?.maximize_conversions?.target_cpa_micros ||
         0
       )
 
@@ -425,14 +478,16 @@ export async function GET(
 
       return {
         id: googleCampaignId,
-        name: campaign.campaign.name,
-        status: parseCampaignStatus(campaign.campaign.status),
+        name: gaCampaign?.name || localCampaignNameByGoogleCampaignId.get(googleCampaignId) || googleCampaignId,
+        status: gaCampaign?.status !== undefined
+          ? parseCampaignStatus(gaCampaign.status)
+          : parseCampaignStatus(localStatusByGoogleCampaignId.get(googleCampaignId) || 'UNKNOWN'),
         currentCpc: currentCpc,
         currency: currency,
         biddingStrategy: derivedBiddingStrategy,
-        googleAdsAccountId: campaign.__googleAdsAccountId ?? null,
-        adsCustomerId: campaign.__adsCustomerId ?? null,
-        adsAccountName: campaign.__adsAccountName ?? null,
+        googleAdsAccountId: ga?.__googleAdsAccountId ?? row.google_ads_account_id ?? null,
+        adsCustomerId: ga?.__adsCustomerId ?? row.customer_id ?? null,
+        adsAccountName: ga?.__adsAccountName ?? row.account_name ?? null,
       }
     })
 

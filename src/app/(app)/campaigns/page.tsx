@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
-import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ArrowUpDown, ArrowUp, ArrowDown, Package } from 'lucide-react'
+import { Search, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ArrowUpDown, ArrowUp, ArrowDown, Package } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
 import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
@@ -97,7 +97,6 @@ export default function CampaignsPage() {
   const [filteredCampaigns, setFilteredCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [syncingData, setSyncingData] = useState(false)
   const [summary, setSummary] = useState<PerformanceSummary | null>(null)
 
   // Filter states
@@ -299,43 +298,6 @@ export default function CampaignsPage() {
       setTrendsError(err.message || '加载趋势数据失败')
     } finally {
       setTrendsLoading(false)
-    }
-  }
-
-  const handleSyncData = async () => {
-    setSyncingData(true)
-    try {
-      const response = await fetch('/api/sync/trigger', {
-        method: 'POST',
-        credentials: 'include',
-      })
-
-      // 处理401未授权 - 跳转到登录页
-      if (response.status === 401) {
-        handleUnauthorized()
-        return
-      }
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || '数据同步失败')
-      }
-
-      // 🔧 修复(2025-12-28): API已改为异步队列，无法立即返回recordCount
-      // 改为显示任务已加入队列的提示，并提示用户可在/admin/queue查看进度
-      showSuccess(
-        '数据同步任务已加入队列',
-        `任务ID: ${data.taskId}。可在任务队列页面查看执行状态。`
-      )
-      // Wait a moment then refresh campaigns
-      setTimeout(() => {
-        fetchCampaigns()
-      }, 1000)
-    } catch (err: any) {
-      showError('同步失败', err.message)
-    } finally {
-      setSyncingData(false)
     }
   }
 
@@ -555,15 +517,6 @@ export default function CampaignsPage() {
                   删除 ({selectedCampaignIds.size})
                 </Button>
               )}
-              <Button
-                variant="outline"
-                onClick={handleSyncData}
-                disabled={syncingData}
-                className="flex items-center gap-2"
-              >
-                <RefreshCw className={`w-4 h-4 ${syncingData ? 'animate-spin' : ''}`} />
-                {syncingData ? '同步中...' : '同步数据'}
-              </Button>
               <Button onClick={() => router.push('/offers')}>
                 创建广告系列
               </Button>
