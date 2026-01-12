@@ -27,6 +27,7 @@ import {
   type CampaignConfigData
 } from '@/lib/launch-scores'
 import { generateNamingScheme } from '@/lib/naming-convention'
+import { buildEffectiveCreative } from '@/lib/campaign-publish/effective-creative'
 
 function isOAuthTokenExpiredOrRevoked(err: any): boolean {
   const message = String(err?.message || '')
@@ -417,15 +418,33 @@ export async function POST(request: NextRequest) {
     console.log(`\n🎯 开始Launch Score评估...`)
     const primaryCreative = creatives[0]
 
-    // 解析创意数据（从JSON字符串）
-    const creativeData = {
-      headlines: JSON.parse(primaryCreative.headlines || '[]'),
-      descriptions: JSON.parse(primaryCreative.descriptions || '[]'),
-      keywords: JSON.parse(primaryCreative.keywords || '[]'),
-      negativeKeywords: JSON.parse(primaryCreative.negative_keywords || '[]'),  // 🔥 修复：添加否定关键词解析
-      callouts: JSON.parse(primaryCreative.callouts || '[]'),
-      sitelinks: JSON.parse(primaryCreative.sitelinks || '[]')
-    }
+    // Step 3 用户可编辑：Headlines/Descriptions/Callouts/Sitelinks 等内容
+    // 必须以 campaignConfig 为准（单创意模式），并保持Launch Score与实际发布内容一致
+    const campaignConfigForCreativeContent = _enableSmartOptimization
+      ? {
+          ..._campaignConfig,
+          headlines: undefined,
+          descriptions: undefined,
+          callouts: undefined,
+          sitelinks: undefined,
+          finalUrls: undefined,
+        }
+      : _campaignConfig
+
+    const creativeData = buildEffectiveCreative({
+      dbCreative: {
+        headlines: primaryCreative.headlines,
+        descriptions: primaryCreative.descriptions,
+        keywords: primaryCreative.keywords,
+        negativeKeywords: primaryCreative.negative_keywords,
+        callouts: primaryCreative.callouts,
+        sitelinks: primaryCreative.sitelinks,
+        finalUrl: primaryCreative.final_url,
+        finalUrlSuffix: primaryCreative.final_url_suffix
+      },
+      campaignConfig: campaignConfigForCreativeContent,
+      offerUrlFallback: offer.url
+    })
 
     // 🔥 新增：调试日志 - 追踪creativeData中的否定关键词
     console.log(`[Publish] 创意ID: ${primaryCreative.id}`)
@@ -438,7 +457,7 @@ export async function POST(request: NextRequest) {
       descriptions: creativeData.descriptions,
       keywords: creativeData.keywords,
       negativeKeywords: creativeData.negativeKeywords,
-      finalUrl: primaryCreative.final_url || ''
+      finalUrl: creativeData.finalUrl || ''
     }
     const campaignConfigHashData: CampaignConfigData = {
       targetCountry: _campaignConfig.targetCountry || '',
@@ -512,8 +531,8 @@ export async function POST(request: NextRequest) {
                 [])),
           callouts: creativeData.callouts,
           sitelinks: creativeData.sitelinks,
-          final_url: primaryCreative.final_url,
-          final_url_suffix: primaryCreative.final_url_suffix,
+          final_url: creativeData.finalUrl,
+          final_url_suffix: creativeData.finalUrlSuffix,
           path_1: primaryCreative.path_1,
           path_2: primaryCreative.path_2,
           score: primaryCreative.score || 0,
@@ -581,7 +600,7 @@ export async function POST(request: NextRequest) {
             budgetAmount: _campaignConfig.budgetAmount,
             maxCpcBid: _campaignConfig.maxCpcBid,
             budgetType: _campaignConfig.budgetType,
-            finalUrl: creativeForLaunchScore.final_url,  // 🔧 使用创意中的Final URL
+            finalUrl: creativeForLaunchScore.final_url,  // 🔧 使用（可能被Step 3覆盖的）Final URL
             targetCountry: _campaignConfig.targetCountry,
             targetLanguage: _campaignConfig.targetLanguage
           }
@@ -827,6 +846,30 @@ export async function POST(request: NextRequest) {
         try {
           console.log(`🚀 队列化Campaign发布任务 ${campaignId} (Variant ${variantName || 'Single'})...`)
 
+          const effectiveCreativeForTask = buildEffectiveCreative({
+            dbCreative: {
+              headlines: creative.headlines,
+              descriptions: creative.descriptions,
+              keywords: creative.keywords,
+              negativeKeywords: creative.negative_keywords,
+              callouts: creative.callouts,
+              sitelinks: creative.sitelinks,
+              finalUrl: creative.final_url,
+              finalUrlSuffix: creative.final_url_suffix
+            },
+            campaignConfig: (typeof _enableSmartOptimization === 'boolean' && _enableSmartOptimization)
+              ? {
+                  ..._campaignConfig,
+                  headlines: undefined,
+                  descriptions: undefined,
+                  callouts: undefined,
+                  sitelinks: undefined,
+                  finalUrls: undefined,
+                }
+              : _campaignConfig,
+            offerUrlFallback: offer.url
+          })
+
           // 🆕 使用队列系统处理Campaign发布（避免504超时）
           const taskData: any = {
             campaignId: campaignId,
@@ -847,14 +890,14 @@ export async function POST(request: NextRequest) {
             },
             creative: {
               id: creative.id,
-              headlines: JSON.parse(creative.headlines || '[]'),
-              descriptions: JSON.parse(creative.descriptions || '[]'),
-              finalUrl: creative.final_url,
-              finalUrlSuffix: creative.final_url_suffix,
+              headlines: effectiveCreativeForTask.headlines,
+              descriptions: effectiveCreativeForTask.descriptions,
+              finalUrl: effectiveCreativeForTask.finalUrl,
+              finalUrlSuffix: effectiveCreativeForTask.finalUrlSuffix,
               path1: creative.path_1,
               path2: creative.path_2,
-              callouts: JSON.parse(creative.callouts || '[]'),
-              sitelinks: JSON.parse(creative.sitelinks || '[]'),
+              callouts: effectiveCreativeForTask.callouts,
+              sitelinks: effectiveCreativeForTask.sitelinks,
               keywordsWithVolume: creative.keywords_with_volume
                 ? JSON.parse(creative.keywords_with_volume)
                 : undefined

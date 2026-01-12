@@ -68,6 +68,62 @@ export default function Step4PublishSummary({
   const accountCurrency = selectedAccount?.currencyCode || 'USD'
   const currencySymbol = CURRENCY_SYMBOLS[accountCurrency] || '$'
 
+  const toNonEmptyStringArray = (value: any): string[] => {
+    if (!Array.isArray(value)) return []
+    return value
+      .map((v: any) => (typeof v === 'string' ? v : String(v ?? '')).trim())
+      .filter((v: string) => v.length > 0)
+  }
+
+  const toKeywordTextArray = (value: any): string[] => {
+    if (!Array.isArray(value)) return []
+    return value
+      .map((kw: any) => {
+        if (typeof kw === 'string') return kw
+        if (kw && typeof kw === 'object') return kw.text || kw.keyword || ''
+        return ''
+      })
+      .map((v: any) => String(v ?? '').trim())
+      .filter((v: string) => v.length > 0)
+  }
+
+  const getSitelinkText = (sitelink: any): string => {
+    if (typeof sitelink === 'string') return sitelink
+    if (sitelink && typeof sitelink === 'object' && typeof sitelink.text === 'string') return sitelink.text
+    return ''
+  }
+
+  const getSitelinkUrl = (sitelink: any): string => {
+    if (sitelink && typeof sitelink === 'object' && typeof sitelink.url === 'string') return sitelink.url
+    return ''
+  }
+
+  const getSitelinkDescription = (sitelink: any): string => {
+    if (sitelink && typeof sitelink === 'object' && typeof sitelink.description === 'string') return sitelink.description
+    return ''
+  }
+
+  // Step 3 配置优先：Step 4 预览应展示“实际将要发布”的内容，而不是Step 1原始创意
+  const effectiveHeadlines = toNonEmptyStringArray(campaignConfig?.headlines).length > 0
+    ? toNonEmptyStringArray(campaignConfig?.headlines)
+    : toNonEmptyStringArray(selectedCreative?.headlines)
+
+  const effectiveDescriptions = toNonEmptyStringArray(campaignConfig?.descriptions).length > 0
+    ? toNonEmptyStringArray(campaignConfig?.descriptions)
+    : toNonEmptyStringArray(selectedCreative?.descriptions)
+
+  const effectiveKeywords = toKeywordTextArray(campaignConfig?.keywords).length > 0
+    ? toKeywordTextArray(campaignConfig?.keywords)
+    : toKeywordTextArray(selectedCreative?.keywords)
+
+  const effectiveCallouts = toNonEmptyStringArray(campaignConfig?.callouts).length > 0
+    ? toNonEmptyStringArray(campaignConfig?.callouts)
+    : toNonEmptyStringArray(selectedCreative?.callouts)
+
+  const effectiveSitelinks = Array.isArray(campaignConfig?.sitelinks) && campaignConfig.sitelinks.length > 0
+    ? campaignConfig.sitelinks
+    : (Array.isArray(selectedCreative?.sitelinks) ? selectedCreative.sitelinks : [])
+
   const parseApiError = (data: any): { message: string; needsReauth: boolean; isRateLimited: boolean; retryAfter?: number } => {
     const needsReauthFlag =
       data?.needsReauth === true ||
@@ -1745,15 +1801,15 @@ export default function Step4PublishSummary({
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <div className="text-sm font-medium text-gray-700 mb-2">
-                标题 ({selectedCreative.headlines.length})
+                标题 ({effectiveHeadlines.length})
               </div>
               <div className="space-y-1 text-sm text-gray-600">
-                {selectedCreative.headlines.slice(0, 5).map((h: string, i: number) => (
+                {effectiveHeadlines.slice(0, 5).map((h: string, i: number) => (
                   <div key={i}>• {h}</div>
                 ))}
-                {selectedCreative.headlines.length > 5 && (
+                {effectiveHeadlines.length > 5 && (
                   <div className="text-gray-400">
-                    +{selectedCreative.headlines.length - 5} 更多...
+                    +{effectiveHeadlines.length - 5} 更多...
                   </div>
                 )}
               </div>
@@ -1761,10 +1817,10 @@ export default function Step4PublishSummary({
 
             <div>
               <div className="text-sm font-medium text-gray-700 mb-2">
-                描述 ({selectedCreative.descriptions.length})
+                描述 ({effectiveDescriptions.length})
               </div>
               <div className="space-y-1 text-sm text-gray-600">
-                {selectedCreative.descriptions.map((d: string, i: number) => (
+                {effectiveDescriptions.map((d: string, i: number) => (
                   <div key={i}>• {d}</div>
                 ))}
               </div>
@@ -1773,19 +1829,59 @@ export default function Step4PublishSummary({
 
           <div>
             <div className="text-sm font-medium text-gray-700 mb-2">
-              关键词 ({selectedCreative.keywords.length})
+              关键词 ({effectiveKeywords.length})
             </div>
             <div className="flex flex-wrap gap-1">
-              {selectedCreative.keywords.slice(0, 10).map((k: string, i: number) => (
+              {effectiveKeywords.slice(0, 10).map((k: string, i: number) => (
                 <Badge key={i} variant="outline" className="text-xs">
                   {k}
                 </Badge>
               ))}
-              {selectedCreative.keywords.length > 10 && (
+              {effectiveKeywords.length > 10 && (
                 <Badge variant="outline" className="text-xs">
-                  +{selectedCreative.keywords.length - 10}
+                  +{effectiveKeywords.length - 10}
                 </Badge>
               )}
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm font-medium text-gray-700 mb-2">
+                Callouts ({effectiveCallouts.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {effectiveCallouts.slice(0, 8).map((c: string, i: number) => (
+                  <Badge key={i} variant="outline" className="text-xs">
+                    {c}
+                  </Badge>
+                ))}
+                {effectiveCallouts.length > 8 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{effectiveCallouts.length - 8}
+                  </Badge>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-medium text-gray-700 mb-2">
+                Sitelinks ({effectiveSitelinks.length})
+              </div>
+              <div className="space-y-1 text-sm text-gray-600">
+                {effectiveSitelinks.slice(0, 4).map((sl: any, i: number) => (
+                  <div key={i}>
+                    • {getSitelinkText(sl) || '-'}
+                    {getSitelinkUrl(sl) ? <span className="text-gray-400"> ({getSitelinkUrl(sl)})</span> : null}
+                    {getSitelinkDescription(sl) ? <span className="text-gray-400"> - {getSitelinkDescription(sl)}</span> : null}
+                  </div>
+                ))}
+                {effectiveSitelinks.length > 4 && (
+                  <div className="text-gray-400">
+                    +{effectiveSitelinks.length - 4} 更多...
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </CardContent>
