@@ -6,8 +6,8 @@
 
 import axios, { AxiosInstance } from 'axios'
 import { HttpsProxyAgent } from 'https-proxy-agent'
+import type { Readable } from 'stream'
 import { getProxyIp } from './proxy/fetch-proxy-ip'
-import type { ProxyCredentials } from './proxy/types'
 
 export interface HttpResolvedUrl {
   finalUrl: string
@@ -15,6 +15,87 @@ export interface HttpResolvedUrl {
   redirectChain: string[]
   redirectCount: number
   statusCode: number
+}
+
+function safeDestroyStream(stream: unknown): void {
+  try {
+    const s = stream as any
+    if (s && typeof s.destroy === 'function') s.destroy()
+  } catch {
+    // ignore
+  }
+}
+
+async function readStreamSnippet(stream: Readable, maxBytes: number, timeoutMs: number): Promise<string> {
+  return await new Promise((resolve) => {
+    const chunks: Buffer[] = []
+    let totalBytes = 0
+    let done = false
+
+    const cleanup = () => {
+      stream.off('data', onData)
+      stream.off('end', onEnd)
+      stream.off('error', onError)
+    }
+
+    const finish = (value: string) => {
+      if (done) return
+      done = true
+      cleanup()
+      safeDestroyStream(stream)
+      resolve(value)
+    }
+
+    const timer = setTimeout(() => {
+      finish(chunks.length ? Buffer.concat(chunks).toString('utf8') : '')
+    }, timeoutMs)
+    timer.unref?.()
+
+    const onData = (chunk: Buffer) => {
+      if (done) return
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as any)
+      const remaining = maxBytes - totalBytes
+      if (remaining <= 0) {
+        clearTimeout(timer)
+        finish(Buffer.concat(chunks).toString('utf8'))
+        return
+      }
+
+      if (buf.length > remaining) {
+        chunks.push(buf.subarray(0, remaining))
+        totalBytes += remaining
+        clearTimeout(timer)
+        finish(Buffer.concat(chunks).toString('utf8'))
+        return
+      }
+
+      chunks.push(buf)
+      totalBytes += buf.length
+      if (totalBytes >= maxBytes) {
+        clearTimeout(timer)
+        finish(Buffer.concat(chunks).toString('utf8'))
+      }
+    }
+
+    const onEnd = () => {
+      clearTimeout(timer)
+      finish(Buffer.concat(chunks).toString('utf8'))
+    }
+
+    const onError = () => {
+      clearTimeout(timer)
+      finish(Buffer.concat(chunks).toString('utf8'))
+    }
+
+    stream.on('data', onData)
+    stream.on('end', onEnd)
+    stream.on('error', onError)
+    try {
+      stream.resume()
+    } catch {
+      // ignore
+    }
+  })
 }
 
 
@@ -42,16 +123,11 @@ export async function resolveAffiliateLinkWithHttp(
       maxRedirects: 0, // 手动处理重定向
       validateStatus: (status: number) => status >= 200 && status < 400, // 接受2xx和3xx
       timeout: 15000, // 15秒超时
-      responseType: 'text',
-      maxContentLength: 1024 * 1024, // 1MB
-      maxBodyLength: 1024 * 1024, // 1MB
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        // URL解析阶段主要依赖 Location / 最终URL，使用“低摩擦”UA更稳定（部分站点对浏览器UA会卡死/触发挑战）
+        'User-Agent': 'curl/8.5.0',
+        'Accept': '*/*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
       },
     }
 
@@ -116,16 +192,86 @@ export async function resolveAffiliateLinkWithHttp(
       return null
     }
 
+    const shouldProbeHtmlRedirect = (url: string): boolean => {
+      // 仅对tracking特征明显的URL做GET探测（读取少量HTML），避免慢/大落地页导致整体超时
+      return /\/track|\/click|\/redirect|\/go|\/out|\/visit|\/link|[?&](?:url|redirect|target|destination|goto|link)=/i.test(url)
+    }
+
     // 手动跟踪重定向
     while (redirectCount < maxRedirects) {
       console.log(`HTTP请求: ${currentUrl} (重定向 ${redirectCount}/${maxRedirects})`)
 
-      const response = await client.get(currentUrl, {
+      const response = await client.request({
+        method: 'HEAD',
+        url: currentUrl,
         maxRedirects: 0,
         validateStatus: (status) => status >= 200 && status < 600, // 接受所有状态码
       })
 
       finalStatusCode = response.status
+
+      // HEAD被禁止时降级到GET（但只读取少量HTML，避免超时）
+      if (response.status === 405 || response.status === 501) {
+        const getResponse = await client.get(currentUrl, {
+          timeout: 8000,
+          maxRedirects: 0,
+          validateStatus: (status) => status >= 200 && status < 600,
+          responseType: 'stream',
+        })
+        finalStatusCode = getResponse.status
+
+        if (getResponse.status >= 300 && getResponse.status < 400) {
+          const location = getResponse.headers.location || getResponse.headers.Location
+          if (!location) {
+            console.warn('重定向响应缺少Location头')
+            safeDestroyStream(getResponse.data)
+            break
+          }
+
+          // 解析重定向URL（可能是相对路径）
+          let nextUrl: string
+          if (location.startsWith('http')) {
+            nextUrl = location
+          } else if (location.startsWith('/')) {
+            const urlObj = new URL(currentUrl)
+            nextUrl = `${urlObj.origin}${location}`
+          } else {
+            const urlObj = new URL(currentUrl)
+            const basePath = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1)
+            nextUrl = `${urlObj.origin}${basePath}${location}`
+          }
+
+          redirectChain.push(nextUrl)
+          currentUrl = nextUrl
+          redirectCount++
+          safeDestroyStream(getResponse.data)
+          await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+          continue
+        }
+
+        if (getResponse.status >= 400 && getResponse.status < 500) {
+          console.warn(`⚠️ HTTP到达最终URL但返回状态码 ${getResponse.status}，停止继续重定向追踪`)
+          safeDestroyStream(getResponse.data)
+          break
+        }
+
+        if (getResponse.status >= 500) {
+          safeDestroyStream(getResponse.data)
+          throw new Error(`HTTP请求失败: 状态码 ${getResponse.status}`)
+        }
+
+        const snippet = await readStreamSnippet(getResponse.data as Readable, 64 * 1024, 3000)
+        const htmlRedirect = extractRedirectFromHtml(snippet, currentUrl)
+        if (htmlRedirect && htmlRedirect !== currentUrl) {
+          redirectChain.push(htmlRedirect)
+          currentUrl = htmlRedirect
+          redirectCount++
+          await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+          continue
+        }
+
+        break
+      }
 
       // 检查是否是重定向状态码
       if (response.status >= 300 && response.status < 400) {
@@ -156,16 +302,6 @@ export async function resolveAffiliateLinkWithHttp(
         // 添加随机延迟模拟人类行为
         await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
       } else if (response.status === 200) {
-        // 🔥 某些tracking中间页会在HTML中通过meta refresh / JS跳转到真实落地页
-        const htmlRedirect = extractRedirectFromHtml(response.data, currentUrl)
-        if (htmlRedirect && htmlRedirect !== currentUrl) {
-          redirectChain.push(htmlRedirect)
-          currentUrl = htmlRedirect
-          redirectCount++
-          await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
-          continue
-        }
-
         // 检查是否有meta refresh头（如yeahpromos.com）
         const refreshHeader = response.headers.refresh || response.headers.Refresh
 
@@ -189,6 +325,55 @@ export async function resolveAffiliateLinkWithHttp(
               await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
               continue
             }
+          }
+        }
+
+        // tracking中间页可能在HTML中通过meta refresh / JS跳转到真实落地页（仅对tracking特征明显的URL探测）
+        if (shouldProbeHtmlRedirect(currentUrl)) {
+          try {
+            const getResponse = await client.get(currentUrl, {
+              timeout: 8000,
+              maxRedirects: 0,
+              validateStatus: (status) => status >= 200 && status < 600,
+              responseType: 'stream',
+            })
+
+            finalStatusCode = getResponse.status
+
+            if (getResponse.status >= 300 && getResponse.status < 400) {
+              const location = getResponse.headers.location || getResponse.headers.Location
+              if (location) {
+                let nextUrl: string
+                if (location.startsWith('http')) {
+                  nextUrl = location
+                } else if (location.startsWith('/')) {
+                  const urlObj = new URL(currentUrl)
+                  nextUrl = `${urlObj.origin}${location}`
+                } else {
+                  const urlObj = new URL(currentUrl)
+                  const basePath = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1)
+                  nextUrl = `${urlObj.origin}${basePath}${location}`
+                }
+                redirectChain.push(nextUrl)
+                currentUrl = nextUrl
+                redirectCount++
+                safeDestroyStream(getResponse.data)
+                await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+                continue
+              }
+            }
+
+            const snippet = await readStreamSnippet(getResponse.data as Readable, 64 * 1024, 3000)
+            const htmlRedirect = extractRedirectFromHtml(snippet, currentUrl)
+            if (htmlRedirect && htmlRedirect !== currentUrl) {
+              redirectChain.push(htmlRedirect)
+              currentUrl = htmlRedirect
+              redirectCount++
+              await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+              continue
+            }
+          } catch {
+            // ignore probe failure
           }
         }
 
@@ -233,10 +418,14 @@ export async function resolveAffiliateLinkWithHttp(
 
     // 如果是超时或网络错误，抛出可重试的错误
     if (
+      error.code === 'ECONNABORTED' ||
       error.code === 'ETIMEDOUT' ||
       error.code === 'ECONNRESET' ||
       error.code === 'ECONNREFUSED' ||
-      error.message.includes('timeout')
+      error.message.includes('timeout') ||
+      error.message.includes('EPROTO') ||
+      error.message.includes('wrong version number') ||
+      error.message.includes('ssl3_get_record')
     ) {
       throw new Error(`HTTP请求超时或网络错误: ${error.message}`)
     }

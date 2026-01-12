@@ -668,7 +668,7 @@ export async function resolveAffiliateLink(
   const { targetCountry, skipCache = true, retryConfig: customRetryConfig } = options // 默认禁用缓存
 
   // 🔥 P0优化：检测短链接服务，使用更激进的重试策略
-  const isShortLink = /bit\.ly|tinyurl|ow\.ly|rebrand\.ly|pboost\.me|short\.link|is\.gd|buff\.ly|t\.co|goo\.gl|clk\.|fbuy\.me|amzn\.to|flip\.it|linktr\.ee|soo\.gd/i.test(affiliateLink)
+  const isShortLink = /bit\.ly|tinyurl|ow\.ly|rebrand\.ly|pboost\.me|short\.link|is\.gd|buff\.ly|t\.co|goo\.gl|clk\.|fbuy\.me|amzn\.to|flip\.it|linktr\.ee|soo\.gd|click-ecom\.com/i.test(affiliateLink)
 
   const retryConfig = {
     ...DEFAULT_RETRY_CONFIG,
