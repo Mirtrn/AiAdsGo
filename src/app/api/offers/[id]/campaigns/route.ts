@@ -5,6 +5,36 @@ import { getDatabase } from '@/lib/db'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython } from '@/lib/python-ads-client'
 
+// Google Ads CampaignStatus 枚举值映射
+// https://developers.google.com/google-ads/api/reference/rpc/latest/CampaignStatusEnum.CampaignStatus
+const CampaignStatusMap: Record<number | string, string> = {
+  0: 'UNSPECIFIED',
+  1: 'UNKNOWN',
+  2: 'ENABLED',
+  3: 'PAUSED',
+  4: 'REMOVED',
+  'UNSPECIFIED': 'UNSPECIFIED',
+  'UNKNOWN': 'UNKNOWN',
+  'ENABLED': 'ENABLED',
+  'PAUSED': 'PAUSED',
+  'REMOVED': 'REMOVED',
+}
+
+function parseCampaignStatus(status: unknown): string {
+  if (status === undefined || status === null) return 'UNKNOWN'
+
+  if (typeof status === 'object') {
+    const candidate: any = status
+    if ('value' in candidate) return parseCampaignStatus(candidate.value)
+    if ('name' in candidate) return parseCampaignStatus(candidate.name)
+  }
+
+  const mapped = CampaignStatusMap[status as any]
+  if (mapped) return mapped
+
+  return String(status).toUpperCase()
+}
+
 /**
  * GET /api/offers/:id/campaigns
  * 获取Offer关联的所有Google Ads广告系列
@@ -206,7 +236,7 @@ export async function GET(
       return {
         id: campaign.campaign.id.toString(),
         name: campaign.campaign.name,
-        status: campaign.campaign.status,
+        status: parseCampaignStatus(campaign.campaign.status),
         currentCpc: currentCpc,
         currency: currency,
         biddingStrategy: campaign.campaign.bidding_strategy_type,

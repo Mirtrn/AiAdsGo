@@ -198,8 +198,8 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
           </button>
         </div>
 
-        {/* Content */}
-        <div className="mt-4">
+	        {/* Content */}
+	        <div className="mt-4">
           {error && (
             <div className="mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
               {error}
@@ -217,7 +217,7 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
               <span className="ml-3 text-gray-600">加载广告系列...</span>
             </div>
-          ) : campaigns.length === 0 ? (
+	          ) : campaigns.length === 0 ? (
             <div className="text-center py-12">
               <svg
                 className="mx-auto h-12 w-12 text-gray-400"
@@ -237,8 +237,8 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                 该Offer还没有创建任何广告系列，请先使用"一键上广告"创建广告
               </p>
             </div>
-          ) : (
-            <>
+	          ) : (
+	            <>
               {/* Campaigns Table */}
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
@@ -264,9 +264,9 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {campaigns.map((campaign) => (
-                      <tr key={campaign.id}>
+	                  <tbody className="bg-white divide-y divide-gray-200">
+	                    {campaigns.map((campaign) => (
+	                      <tr key={campaign.id}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{campaign.name}</div>
                           <div className="text-xs text-gray-500">ID: {campaign.id}</div>
@@ -277,19 +277,27 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                             {campaign.adsCustomerId ? `CID: ${campaign.adsCustomerId}` : 'CID: (未知)'}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span
-                            className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              campaign.status === 'ENABLED'
-                                ? 'bg-green-100 text-green-800'
-                                : campaign.status === 'PAUSED'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-red-100 text-red-800'
-                            }`}
-                          >
-                            {campaign.status === 'ENABLED' ? '启用' : campaign.status === 'PAUSED' ? '暂停' : '已删除'}
-                          </span>
-                        </td>
+	                        <td className="px-6 py-4 whitespace-nowrap">
+	                          <span
+	                            className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+	                              campaign.status === 'ENABLED'
+	                                ? 'bg-green-100 text-green-800'
+	                                : campaign.status === 'PAUSED'
+	                                  ? 'bg-yellow-100 text-yellow-800'
+	                                  : campaign.status === 'REMOVED'
+	                                    ? 'bg-red-100 text-red-800'
+	                                    : 'bg-gray-100 text-gray-800'
+	                            }`}
+	                          >
+	                            {campaign.status === 'ENABLED'
+	                              ? '启用'
+	                              : campaign.status === 'PAUSED'
+	                                ? '暂停'
+	                                : campaign.status === 'REMOVED'
+	                                  ? '已删除'
+	                                  : `未知(${campaign.status || 'UNKNOWN'})`}
+	                          </span>
+	                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {campaign.currency} {campaign.currentCpc.toFixed(2)}
                         </td>
