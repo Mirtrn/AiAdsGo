@@ -822,7 +822,7 @@ export async function executeCampaignPublish(
     try {
       await db.exec(
         `UPDATE campaigns
-         SET creation_status = 'failed', creation_error = ?, updated_at = CURRENT_TIMESTAMP
+         SET status = 'PAUSED', creation_status = 'failed', creation_error = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [apiErrorMessage, campaignId]
       )

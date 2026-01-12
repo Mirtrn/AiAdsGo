@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const acquire = vi.fn(async () => ({
+const acquire = vi.fn(async (_proxyUrl: string) => ({
   context: {
     newPage: vi.fn(async () => ({
       goto: vi.fn(async () => {}),

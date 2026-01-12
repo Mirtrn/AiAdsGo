@@ -802,7 +802,7 @@ export async function POST(request: NextRequest) {
           traffic_allocation,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'ENABLED', 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, 'PAUSED', 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         userId,
         _offerId,

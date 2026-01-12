@@ -1522,6 +1522,9 @@ export async function GET(request: NextRequest) {
           AND c.user_id = ?
           AND o.is_deleted = IS_DELETED_FALSE
           AND c.status != 'REMOVED'
+          -- 仅把“已成功发布到Google Ads”的campaign计为绑定，避免 failed/pending 造成误绑定展示
+          AND c.google_campaign_id IS NOT NULL
+          AND c.google_campaign_id != ''
         GROUP BY o.id, o.offer_name, o.brand, o.target_country, o.is_deleted
       `, [dbAccountId, userId])
 
