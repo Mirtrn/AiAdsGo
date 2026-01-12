@@ -522,7 +522,7 @@ export async function updateCampaignStatusPython(params: {
   serviceAccountId?: string
   customerId: string
   campaignResourceName: string
-  status: 'ENABLED' | 'PAUSED'
+  status: 'ENABLED' | 'PAUSED' | 'REMOVED'
   requestId?: string
 }): Promise<void> {
   return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/update-status', params.requestId, async () => {

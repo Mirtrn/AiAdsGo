@@ -947,7 +947,7 @@ export async function updateGoogleAdsCampaignStatus(params: {
       serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
       campaignResourceName: resourceName,
-      status: params.status as 'ENABLED' | 'PAUSED',
+      status: params.status as 'ENABLED' | 'PAUSED' | 'REMOVED',
     })
   } else {
     const customer = await getCustomerWithCredentials({
