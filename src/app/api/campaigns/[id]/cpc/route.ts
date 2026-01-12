@@ -101,7 +101,6 @@ export async function GET(
         campaign.id,
         campaign.status,
         campaign.bidding_strategy_type,
-        campaign.maximize_clicks.cpc_bid_ceiling_micros,
         campaign.target_cpa.target_cpa_micros,
         campaign.maximize_conversions.target_cpa_micros
       FROM campaign
@@ -141,44 +140,37 @@ export async function GET(
 
     let currentCpc: number | null = null
     if (biddingStrategyType === 'MAXIMIZE_CLICKS' || biddingStrategyType === 'TARGET_SPEND') {
-      const primaryMicros = Number(campaign.maximize_clicks?.cpc_bid_ceiling_micros || 0)
+      const targetSpendQuery = `
+        SELECT
+          campaign.id,
+          campaign.target_spend.cpc_bid_ceiling_micros
+        FROM campaign
+        WHERE campaign.id = ${campaignIdNum}
+          AND campaign.status != 'REMOVED'
+      `
 
-      let targetSpendMicros = 0
-      if (!(primaryMicros > 0)) {
-        const targetSpendQuery = `
-          SELECT
-            campaign.id,
-            campaign.target_spend.cpc_bid_ceiling_micros
-          FROM campaign
-          WHERE campaign.id = ${campaignIdNum}
-            AND campaign.status != 'REMOVED'
-        `
+      try {
+        const rows = useServiceAccount
+          ? extractSearchResults(await executeGAQLQueryPython({
+            userId: numericUserId,
+            serviceAccountId,
+            customerId: linked.customer_id,
+            query: targetSpendQuery,
+            requestId,
+          }))
+          : await (await getCustomerWithCredentials({
+            customerId: linked.customer_id,
+            refreshToken: oauthRefreshToken || undefined,
+            loginCustomerId: linked.parent_mcc_id || credentials.login_customer_id,
+            accountId: undefined,
+            userId: numericUserId,
+          })).query(targetSpendQuery)
 
-        try {
-          const rows = useServiceAccount
-            ? extractSearchResults(await executeGAQLQueryPython({
-              userId: numericUserId,
-              serviceAccountId,
-              customerId: linked.customer_id,
-              query: targetSpendQuery,
-              requestId,
-            }))
-            : await (await getCustomerWithCredentials({
-              customerId: linked.customer_id,
-              refreshToken: oauthRefreshToken || undefined,
-              loginCustomerId: linked.parent_mcc_id || credentials.login_customer_id,
-              accountId: undefined,
-              userId: numericUserId,
-            })).query(targetSpendQuery)
-
-          targetSpendMicros = Number(rows?.[0]?.campaign?.target_spend?.cpc_bid_ceiling_micros || 0)
-        } catch {
-          // ignore
-        }
+        const micros = Number(rows?.[0]?.campaign?.target_spend?.cpc_bid_ceiling_micros || 0)
+        currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
+      } catch {
+        currentCpc = 0
       }
-
-      const micros = primaryMicros > 0 ? primaryMicros : targetSpendMicros
-      currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
     } else if (biddingStrategyType === 'TARGET_CPA') {
       const micros = Number(
         campaign.target_cpa?.target_cpa_micros ||

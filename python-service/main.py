@@ -1089,11 +1089,10 @@ async def update_campaign(request: UpdateCampaignRequest):
             campaign.target_spend.cpc_bid_ceiling_micros = request.cpc_bid_micros
             operation.update_mask.paths.append("target_spend.cpc_bid_ceiling_micros")
 
-        # Maximize Clicks 最大 CPC 限制更新
+        # Maximize Clicks 最大 CPC 限制更新（我们系统发布时使用 TARGET_SPEND）
         if request.max_cpc_bid_micros:
-            # Google Ads API v21+: use cpc_bid_ceiling_micros
-            campaign.maximize_clicks.cpc_bid_ceiling_micros = request.max_cpc_bid_micros
-            operation.update_mask.paths.append("maximize_clicks.cpc_bid_ceiling_micros")
+            campaign.target_spend.cpc_bid_ceiling_micros = request.max_cpc_bid_micros
+            operation.update_mask.paths.append("target_spend.cpc_bid_ceiling_micros")
 
         # CPA 出价更新
         if request.target_cpa_micros:

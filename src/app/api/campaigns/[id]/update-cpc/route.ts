@@ -45,7 +45,6 @@ async function mutateResources(
       const resourceName = op.update.resource_name
 
       if (mutateType === 'campaign') {
-        const maxCpcBidMicros = op.update?.maximize_clicks?.cpc_bid_ceiling_micros ?? op.update?.maximize_clicks?.max_cpc_bid_micros
         const targetCpaMicros = op.update?.target_cpa?.target_cpa_micros
         const cpcBidMicros = op.update?.cpc_bid_micros
 
@@ -55,7 +54,6 @@ async function mutateResources(
           customerId,
           campaignResourceName: resourceName,
           cpcBidMicros,
-          maxCpcBidMicros,
           targetCpaMicros,
           requestId,
         })
@@ -346,30 +344,31 @@ export async function PUT(
         newCpc: newCpc,
       })
     } else if (biddingStrategyType === 'MAXIMIZE_CLICKS') {
-      // Maximize Clicks: 更新最大CPC限制
+      // MAXIMIZE_CLICKS: 这里统一按 TARGET_SPEND 处理（发布时即使用 TARGET_SPEND + target_spend ceiling）
       const cpcMicros = Math.round(newCpc * 1000000)
 
-      const campaignOperation = {
-        update: {
-          resource_name: `customers/${adsAccountRow.customer_id}/campaigns/${campaignId}`,
-          maximize_clicks: {
-            cpc_bid_ceiling_micros: cpcMicros,
+      if (useServiceAccount) {
+        await updateCampaignPython({
+          userId: numericUserId,
+          serviceAccountId,
+          customerId: adsAccountRow.customer_id,
+          campaignResourceName: `customers/${adsAccountRow.customer_id}/campaigns/${campaignId}`,
+          cpcBidMicros: cpcMicros,
+          requestId,
+        })
+      } else {
+        const campaignOperation = {
+          update: {
+            resource_name: `customers/${adsAccountRow.customer_id}/campaigns/${campaignId}`,
+            target_spend: {
+              cpc_bid_ceiling_micros: cpcMicros,
+            },
           },
-        },
-        update_mask: 'maximize_clicks.cpc_bid_ceiling_micros',
-      }
+          update_mask: 'target_spend.cpc_bid_ceiling_micros',
+        }
 
-      // 更新广告系列
-      await mutateResources(
-        customer,
-        useServiceAccount,
-        'campaign',
-        [campaignOperation],
-        numericUserId,
-        serviceAccountId,
-        adsAccountRow.customer_id,
-        requestId
-      )
+        await customer.campaigns.update([campaignOperation])
+      }
 
       return NextResponse.json({
         success: true,
