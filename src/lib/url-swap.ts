@@ -704,6 +704,27 @@ export async function getAllUrlSwapTasks(
 /**
  * 解析数据库记录为任务对象
  */
+function calculateUrlSwapProgress(row: any): number {
+  const status = String(row?.status || '')
+  if (status === 'completed') return 100
+
+  const durationDaysRaw = row?.duration_days
+  const durationDays = typeof durationDaysRaw === 'number' ? durationDaysRaw : parseInt(String(durationDaysRaw ?? ''), 10)
+  if (!Number.isFinite(durationDays) || durationDays <= 0) return 0
+  if (durationDays === -1) return 0
+
+  const startedAtRaw = row?.started_at
+  if (!startedAtRaw) return 0
+  const startedAtMs = new Date(startedAtRaw).getTime()
+  if (!Number.isFinite(startedAtMs)) return 0
+
+  const elapsedMs = Date.now() - startedAtMs
+  const elapsedDays = Math.floor(elapsedMs / (1000 * 60 * 60 * 24))
+  if (elapsedDays <= 0) return 0
+
+  return Math.min(100, Math.round((elapsedDays / durationDays) * 100))
+}
+
 function parseUrlSwapTask(row: any): UrlSwapTask {
   return {
     id: row.id,
@@ -716,7 +737,7 @@ function parseUrlSwapTask(row: any): UrlSwapTask {
     google_campaign_id: row.google_campaign_id,
     current_final_url: row.current_final_url,
     current_final_url_suffix: row.current_final_url_suffix,
-    progress: row.progress || 0,
+    progress: calculateUrlSwapProgress(row),
     total_swaps: row.total_swaps || 0,
     success_swaps: row.success_swaps || 0,
     failed_swaps: row.failed_swaps || 0,
