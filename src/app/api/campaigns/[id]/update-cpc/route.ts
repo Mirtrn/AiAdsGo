@@ -5,6 +5,16 @@ import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython, updateCampaignPython, updateAdGroupPython } from '@/lib/python-ads-client'
 
+function toBiddingStrategyType(value: unknown): string {
+  if (value === undefined || value === null) return 'UNKNOWN'
+  if (typeof value === 'object') {
+    const candidate: any = value
+    if ('value' in candidate) return toBiddingStrategyType(candidate.value)
+    if ('name' in candidate) return toBiddingStrategyType(candidate.name)
+  }
+  return String(value).toUpperCase()
+}
+
 /**
  * 统一的 Mutate 操作（支持 OAuth 和服务账号两种认证模式）
  * 🔧 修复(2025-12-26): 服务账号模式使用 Python 服务更新
@@ -239,7 +249,9 @@ export async function PUT(
     const biddingStrategy = campaign.bidding_strategy_type
 
     // 根据竞价策略类型更新CPC
-    if (biddingStrategy === 'MANUAL_CPC') {
+    const biddingStrategyType = toBiddingStrategyType(biddingStrategy)
+
+    if (biddingStrategyType === 'MANUAL_CPC') {
       // Manual CPC: 更新该广告系列下所有Ad Group的CPC
       const adGroupQuery = `
         SELECT
@@ -292,7 +304,48 @@ export async function PUT(
         updatedAdGroups: adGroups.length,
         newCpc: newCpc,
       })
-    } else if ((biddingStrategy as string) === 'MAXIMIZE_CLICKS') {
+    } else if (biddingStrategyType === 'TARGET_SPEND') {
+      // TARGET_SPEND: 历史上的 Maximize Clicks（设置 target_spend.cpc_bid_ceiling_micros）
+      const cpcMicros = Math.round(newCpc * 1000000)
+
+      if (useServiceAccount) {
+        await updateCampaignPython({
+          userId: numericUserId,
+          serviceAccountId,
+          customerId: adsAccountRow.customer_id,
+          campaignResourceName: `customers/${adsAccountRow.customer_id}/campaigns/${campaignId}`,
+          cpcBidMicros: cpcMicros,
+          requestId,
+        })
+      } else {
+        const campaignOperation = {
+          update: {
+            resource_name: `customers/${adsAccountRow.customer_id}/campaigns/${campaignId}`,
+            target_spend: {
+              cpc_bid_ceiling_micros: cpcMicros,
+            },
+          },
+          update_mask: 'target_spend.cpc_bid_ceiling_micros',
+        }
+
+        await mutateResources(
+          customer,
+          useServiceAccount,
+          'campaign',
+          [campaignOperation],
+          numericUserId,
+          serviceAccountId,
+          adsAccountRow.customer_id,
+          requestId
+        )
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `成功更新广告系列的最大CPC限制为 ${newCpc}`,
+        newCpc: newCpc,
+      })
+    } else if (biddingStrategyType === 'MAXIMIZE_CLICKS') {
       // Maximize Clicks: 更新最大CPC限制
       const cpcMicros = Math.round(newCpc * 1000000)
 
@@ -323,7 +376,7 @@ export async function PUT(
         message: `成功更新广告系列的最大CPC限制为 ${newCpc}`,
         newCpc: newCpc,
       })
-    } else if (biddingStrategy === 'TARGET_CPA') {
+    } else if (biddingStrategyType === 'TARGET_CPA') {
       // Target CPA: 更新目标CPA
       const cpaMicros = Math.round(newCpc * 1000000)
 
@@ -357,8 +410,8 @@ export async function PUT(
     } else {
       return NextResponse.json(
         {
-          error: `不支持的竞价策略类型: ${biddingStrategy}`,
-          supportedStrategies: ['MANUAL_CPC', 'MAXIMIZE_CLICKS', 'TARGET_CPA'],
+          error: `不支持的竞价策略类型: ${biddingStrategyType}`,
+          supportedStrategies: ['MANUAL_CPC', 'TARGET_SPEND', 'MAXIMIZE_CLICKS', 'TARGET_CPA'],
         },
         { status: 400 }
       )

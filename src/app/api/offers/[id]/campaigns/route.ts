@@ -51,6 +51,12 @@ function toBiddingStrategyType(value: unknown): string {
   return String(value).toUpperCase()
 }
 
+function normalizeBiddingStrategyType(raw: string): string {
+  // Maximize Clicks historical alias in some stacks/APIs
+  if (raw === 'TARGET_SPEND') return 'MAXIMIZE_CLICKS'
+  return raw
+}
+
 /**
  * GET /api/offers/:id/campaigns
  * 获取Offer关联的所有Google Ads广告系列
@@ -179,6 +185,7 @@ export async function GET(
 
     const results: any[] = []
     const adGroupCpcMicrosByCampaignId = new Map<number, number>()
+    const targetSpendCeilingMicrosByCampaignId = new Map<number, number>()
     for (const [googleAdsAccountId, account] of campaignsByAccountId.entries()) {
       const uniqueIds = Array.from(new Set(account.campaignIds))
       if (uniqueIds.length === 0) continue
@@ -212,6 +219,15 @@ export async function GET(
         ORDER BY campaign.name
       `
 
+      const targetSpendQuery = (campaignIds: number[]) => `
+        SELECT
+          campaign.id,
+          campaign.target_spend.cpc_bid_ceiling_micros
+        FROM campaign
+        WHERE campaign.id IN (${campaignIds.join(', ')})
+          AND campaign.status != 'REMOVED'
+      `
+
       if (useServiceAccount) {
         // AdGroup CPC best-effort
         try {
@@ -243,6 +259,35 @@ export async function GET(
           requestId
         })
         const rows = extractSearchResults(fetched)
+
+        // TARGET_SPEND ceiling best-effort（如果存在这类策略）
+        try {
+          const targetSpendCampaignIds = rows
+            .filter((r: any) => toBiddingStrategyType(r?.campaign?.bidding_strategy_type) === 'TARGET_SPEND')
+            .map((r: any) => Number(r?.campaign?.id))
+            .filter((cid: number) => Number.isFinite(cid))
+          const uniqueTargetSpendIds = Array.from(new Set(targetSpendCampaignIds))
+          if (uniqueTargetSpendIds.length > 0) {
+            const fetchedTargetSpend = await executeGAQLQueryPython({
+              userId: numericUserId,
+              serviceAccountId,
+              customerId: account.customerId,
+              query: targetSpendQuery(uniqueTargetSpendIds),
+              requestId
+            })
+            const tsRows = extractSearchResults(fetchedTargetSpend)
+            for (const row of tsRows) {
+              const cid = Number(row?.campaign?.id)
+              if (!Number.isFinite(cid) || targetSpendCeilingMicrosByCampaignId.has(cid)) continue
+              const micros = Number(row?.campaign?.target_spend?.cpc_bid_ceiling_micros)
+              if (!Number.isFinite(micros) || micros <= 0) continue
+              targetSpendCeilingMicrosByCampaignId.set(cid, micros)
+            }
+          }
+        } catch {
+          // ignore
+        }
+
         results.push(...rows.map((r: any) => ({
           ...r,
           __currency: account.currency,
@@ -278,6 +323,29 @@ export async function GET(
 
         const fetched = await customer.query(query)
         const rows = extractSearchResults(fetched)
+
+        // TARGET_SPEND ceiling best-effort（如果存在这类策略）
+        try {
+          const targetSpendCampaignIds = rows
+            .filter((r: any) => toBiddingStrategyType(r?.campaign?.bidding_strategy_type) === 'TARGET_SPEND')
+            .map((r: any) => Number(r?.campaign?.id))
+            .filter((cid: number) => Number.isFinite(cid))
+          const uniqueTargetSpendIds = Array.from(new Set(targetSpendCampaignIds))
+          if (uniqueTargetSpendIds.length > 0) {
+            const fetchedTargetSpend = await customer.query(targetSpendQuery(uniqueTargetSpendIds))
+            const tsRows = extractSearchResults(fetchedTargetSpend)
+            for (const row of tsRows) {
+              const cid = Number(row?.campaign?.id)
+              if (!Number.isFinite(cid) || targetSpendCeilingMicrosByCampaignId.has(cid)) continue
+              const micros = Number(row?.campaign?.target_spend?.cpc_bid_ceiling_micros)
+              if (!Number.isFinite(micros) || micros <= 0) continue
+              targetSpendCeilingMicrosByCampaignId.set(cid, micros)
+            }
+          }
+        } catch {
+          // ignore
+        }
+
         results.push(...rows.map((r: any) => ({
           ...r,
           __currency: account.currency,
@@ -293,7 +361,8 @@ export async function GET(
       // 默认CPC值（如果没有设置则为0）
       let currentCpc = 0
       let currency = campaign.__currency || 'USD'
-      const biddingStrategyType = toBiddingStrategyType(campaign.campaign.bidding_strategy_type)
+      const rawBiddingStrategyType = toBiddingStrategyType(campaign.campaign.bidding_strategy_type)
+      const biddingStrategyType = normalizeBiddingStrategyType(rawBiddingStrategyType)
 
       // 根据竞价策略类型获取CPC
       // - Manual CPC: 从 ad_group.cpc_bid_micros 推断当前配置（取第一个非0值）
@@ -306,7 +375,12 @@ export async function GET(
           : 0
         currentCpc = micros > 0 ? micros / 1000000 : 0
       } else if (biddingStrategyType === 'MAXIMIZE_CLICKS') {
-        const micros = Number(campaign.campaign?.maximize_clicks?.cpc_bid_ceiling_micros || 0)
+        const campaignIdNum = Number(campaign.campaign?.id)
+        const primaryMicros = Number(campaign.campaign?.maximize_clicks?.cpc_bid_ceiling_micros || 0)
+        const fallbackMicros = Number.isFinite(campaignIdNum)
+          ? (targetSpendCeilingMicrosByCampaignId.get(campaignIdNum) || 0)
+          : 0
+        const micros = primaryMicros > 0 ? primaryMicros : fallbackMicros
         currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
       } else if (biddingStrategyType === 'TARGET_CPA') {
         const targetCpaMicros =
