@@ -525,6 +525,16 @@ export async function updateCampaignStatusPython(params: {
   status: 'ENABLED' | 'PAUSED' | 'REMOVED'
   requestId?: string
 }): Promise<void> {
+  if (params.status === 'REMOVED') {
+    return removeCampaignPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      campaignResourceName: params.campaignResourceName,
+      requestId: params.requestId,
+    })
+  }
+
   return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/update-status', params.requestId, async () => {
     const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
     await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/update-status`, {
@@ -532,6 +542,28 @@ export async function updateCampaignStatusPython(params: {
       customer_id: params.customerId,
       campaign_resource_name: params.campaignResourceName,
       status: params.status,
+    }, {
+      headers: getPythonRequestHeaders(params.userId, params.requestId),
+    })
+  })
+}
+
+/**
+ * 删除广告系列（服务账号模式）
+ */
+export async function removeCampaignPython(params: {
+  userId: number
+  serviceAccountId?: string
+  customerId: string
+  campaignResourceName: string
+  requestId?: string
+}): Promise<void> {
+  return withTracking(params.userId, params.customerId, ApiOperationType.MUTATE, '/api/google-ads/campaign/remove', params.requestId, async () => {
+    const serviceAccount = await getServiceAccountAuth(params.userId, params.serviceAccountId)
+    await axios.post(`${PYTHON_SERVICE_URL}/api/google-ads/campaign/remove`, {
+      service_account: withUserIdInServiceAccount(serviceAccount, params.userId),
+      customer_id: params.customerId,
+      campaign_resource_name: params.campaignResourceName,
     }, {
       headers: getPythonRequestHeaders(params.userId, params.requestId),
     })

@@ -1062,6 +1062,34 @@ async def update_campaign_status(request: UpdateCampaignStatusRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RemoveCampaignRequest(BaseModel):
+    service_account: ServiceAccountConfig
+    customer_id: str
+    campaign_resource_name: str
+
+
+@app.post("/api/google-ads/campaign/remove")
+async def remove_campaign(request: RemoveCampaignRequest):
+    """删除广告系列（使用 remove 操作，而不是把 status 更新为 REMOVED）"""
+    user_id = request.service_account.user_id
+    try:
+        client = create_google_ads_client(request.service_account)
+        campaign_service = client.get_service("CampaignService")
+
+        operation = client.get_type("CampaignOperation")
+        operation.remove = request.campaign_resource_name
+
+        campaign_service.mutate_campaigns(
+            customer_id=request.customer_id, operations=[operation]
+        )
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"Remove campaign error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class UpdateCampaignRequest(BaseModel):
     service_account: ServiceAccountConfig
     customer_id: str

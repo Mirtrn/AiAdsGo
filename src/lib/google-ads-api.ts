@@ -958,23 +958,40 @@ export async function updateGoogleAdsCampaignStatus(params: {
 
     const resourceName = `customers/${params.customerId}/campaigns/${params.campaignId}`
 
-    await trackOAuthApiCall(
-      params.userId,
-      params.customerId,
-      ApiOperationType.MUTATE,
-      '/api/google-ads/campaign/update',
-      () => withRetry(
-        () => customer.campaigns.update([{
-          resource_name: resourceName,
-          status: enums.CampaignStatus[params.status],
-        }]),
-        {
-          maxRetries: 3,
-          initialDelay: 1000,
-          operationName: `Update Campaign Status: ${params.campaignId} -> ${params.status}`
-        }
+    if (params.status === 'REMOVED') {
+      await trackOAuthApiCall(
+        params.userId,
+        params.customerId,
+        ApiOperationType.MUTATE,
+        '/api/google-ads/campaign/remove',
+        () => withRetry(
+          () => customer.campaigns.remove([resourceName]),
+          {
+            maxRetries: 3,
+            initialDelay: 1000,
+            operationName: `Remove Campaign: ${params.campaignId}`
+          }
+        )
       )
-    )
+    } else {
+      await trackOAuthApiCall(
+        params.userId,
+        params.customerId,
+        ApiOperationType.MUTATE,
+        '/api/google-ads/campaign/update',
+        () => withRetry(
+          () => customer.campaigns.update([{
+            resource_name: resourceName,
+            status: enums.CampaignStatus[params.status],
+          }]),
+          {
+            maxRetries: 3,
+            initialDelay: 1000,
+            operationName: `Update Campaign Status: ${params.campaignId} -> ${params.status}`
+          }
+        )
+      )
+    }
   }
 
   // 清除相关缓存（更新状态后）

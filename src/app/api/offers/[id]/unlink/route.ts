@@ -36,7 +36,7 @@ export async function POST(
     const googleAdsAccountId = parseInt(accountId, 10)
     const db = await getDatabase()
 
-    // 先尝试在 Google Ads 中移除/停止该 Offer 在该账号下“已同步”的所有 Campaign（best-effort）
+    // 先读取该 Offer 在该账号下“已同步”的所有 Campaign（用于后续 best-effort 的 Google Ads 远端移除/暂停）
     const campaignsToUnlink = await db.query(`
       SELECT id, google_campaign_id, campaign_name, status
       FROM campaigns
@@ -66,87 +66,99 @@ export async function POST(
       is_deleted: any
     } | null
 
-    const googleAdsRemoval = {
-      attempted: 0,
-      removed: 0,
-      pausedFallback: 0,
-      failed: 0,
-      failures: [] as Array<{ campaignId: string; reason: string }>
-    }
-
     // 若账号不可用/缺少customer_id，则只能做本地解除关联
     const accountIsActive = adsAccount ? (adsAccount.is_active === true || adsAccount.is_active === 1) : false
     const accountIsDeleted = adsAccount ? (adsAccount.is_deleted === true || adsAccount.is_deleted === 1) : false
 
-    if (adsAccount?.customer_id && accountIsActive && !accountIsDeleted && campaignsToUnlink.length > 0) {
-      const auth = await getUserAuthType(userId)
-      const credentials = await getGoogleAdsCredentials(userId)
-      const refreshToken = credentials?.refresh_token || ''
+    // 先执行本地解除关联（核心业务动作），避免等待外部 Google Ads API 导致前端超时/取消请求（499）
+    const result = await unlinkOfferFromAccount(offerId, googleAdsAccountId, userId)
 
-      let loginCustomerId: string | undefined = adsAccount.parent_mcc_id ? String(adsAccount.parent_mcc_id) : undefined
-      if (!loginCustomerId) {
-        try {
-          const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
-          const config = await getGoogleAdsConfig(userId)
-          if (config?.loginCustomerId) {
-            loginCustomerId = String(config.loginCustomerId)
-            // 缓存到账号表，减少后续重复读取
-            await db.exec(`UPDATE google_ads_accounts SET parent_mcc_id = ? WHERE id = ?`, [loginCustomerId, adsAccount.id])
-          }
-        } catch {
-          // 忽略：没有loginCustomerId时会让调用方走降级策略或报权限错误
-        }
-      }
-
-      for (const campaign of campaignsToUnlink) {
-        const googleCampaignId = String(campaign.google_campaign_id)
-
-        googleAdsRemoval.attempted++
-        try {
-          await updateGoogleAdsCampaignStatus({
-            customerId: adsAccount.customer_id,
-            refreshToken,
-            campaignId: googleCampaignId,
-            status: 'REMOVED',
-            accountId: adsAccount.id,
-            userId,
-            loginCustomerId,
-            authType: auth.authType,
-            serviceAccountId: auth.serviceAccountId
-          })
-          googleAdsRemoval.removed++
-        } catch (err: any) {
-          // 降级：至少暂停，确保投放停止
-          try {
-            await updateGoogleAdsCampaignStatus({
-              customerId: adsAccount.customer_id,
-              refreshToken,
-              campaignId: googleCampaignId,
-              status: 'PAUSED',
-              accountId: adsAccount.id,
-              userId,
-              loginCustomerId,
-              authType: auth.authType,
-              serviceAccountId: auth.serviceAccountId
-            })
-            googleAdsRemoval.pausedFallback++
-          } catch (err2: any) {
-            googleAdsRemoval.failed++
-            googleAdsRemoval.failures.push({
-              campaignId: googleCampaignId,
-              reason: String(err2?.message || err?.message || 'UNKNOWN_ERROR')
-            })
-          }
-        }
-      }
-    }
-
-    // 执行解除关联
-    const result = await unlinkOfferFromAccount(
-      offerId,
-      googleAdsAccountId,
-      userId
+    const shouldAttemptGoogleAds = Boolean(
+      adsAccount?.customer_id &&
+      accountIsActive &&
+      !accountIsDeleted &&
+      campaignsToUnlink.length > 0
     )
+
+    if (shouldAttemptGoogleAds) {
+      // 异步 best-effort：尽量在 Google Ads 端移除/暂停已同步的 Campaign
+      // 不阻塞当前 API 响应，避免 499（client closed request）
+      void (async () => {
+        const googleAdsRemoval = {
+          attempted: 0,
+          removed: 0,
+          pausedFallback: 0,
+          failed: 0,
+          failures: [] as Array<{ campaignId: string; reason: string }>
+        }
+
+        try {
+          const auth = await getUserAuthType(userId)
+          const credentials = await getGoogleAdsCredentials(userId)
+          const refreshToken = credentials?.refresh_token || ''
+
+          let loginCustomerId: string | undefined = adsAccount!.parent_mcc_id ? String(adsAccount!.parent_mcc_id) : undefined
+          if (!loginCustomerId) {
+            try {
+              const { getGoogleAdsConfig } = await import('@/lib/keyword-planner')
+              const config = await getGoogleAdsConfig(userId)
+              if (config?.loginCustomerId) {
+                loginCustomerId = String(config.loginCustomerId)
+                // 缓存到账号表，减少后续重复读取
+                await db.exec(`UPDATE google_ads_accounts SET parent_mcc_id = ? WHERE id = ?`, [loginCustomerId, adsAccount!.id])
+              }
+            } catch {
+              // 忽略：没有loginCustomerId时会让调用方走降级策略或报权限错误
+            }
+          }
+
+          for (const campaign of campaignsToUnlink) {
+            const googleCampaignId = String(campaign.google_campaign_id)
+            googleAdsRemoval.attempted++
+            try {
+              await updateGoogleAdsCampaignStatus({
+                customerId: adsAccount!.customer_id!,
+                refreshToken,
+                campaignId: googleCampaignId,
+                status: 'REMOVED',
+                accountId: adsAccount!.id,
+                userId,
+                loginCustomerId,
+                authType: auth.authType,
+                serviceAccountId: auth.serviceAccountId
+              })
+              googleAdsRemoval.removed++
+            } catch (err: any) {
+              // 降级：至少暂停，确保投放停止
+              try {
+                await updateGoogleAdsCampaignStatus({
+                  customerId: adsAccount!.customer_id!,
+                  refreshToken,
+                  campaignId: googleCampaignId,
+                  status: 'PAUSED',
+                  accountId: adsAccount!.id,
+                  userId,
+                  loginCustomerId,
+                  authType: auth.authType,
+                  serviceAccountId: auth.serviceAccountId
+                })
+                googleAdsRemoval.pausedFallback++
+              } catch (err2: any) {
+                googleAdsRemoval.failed++
+                googleAdsRemoval.failures.push({
+                  campaignId: googleCampaignId,
+                  reason: String(err2?.message || err?.message || 'UNKNOWN_ERROR')
+                })
+              }
+            }
+          }
+        } catch (err: any) {
+          console.error('[unlink] Google Ads best-effort removal failed:', err?.message || err)
+        } finally {
+          console.log('[unlink] Google Ads best-effort removal summary:', googleAdsRemoval)
+        }
+      })()
+    }
 
     return NextResponse.json({
       success: true,
@@ -155,7 +167,10 @@ export async function POST(
         offerId,
         accountId: googleAdsAccountId,
         unlinkedCampaigns: result.unlinkedCount,
-        googleAds: googleAdsRemoval
+        googleAds: {
+          queued: shouldAttemptGoogleAds,
+          planned: campaignsToUnlink.length
+        }
       },
     })
   } catch (error: any) {
