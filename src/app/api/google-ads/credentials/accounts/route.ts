@@ -8,6 +8,19 @@ import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
 import { toNumber } from '@/lib/utils'
 
+// 该接口返回用户私有数据（账号列表/关联Offer），必须禁用任何层面的静态缓存
+export const dynamic = 'force-dynamic'
+
+function jsonNoStore(body: any, init?: { status?: number }) {
+  return NextResponse.json(body, {
+    status: init?.status,
+    headers: {
+      'Cache-Control': 'no-store, max-age=0',
+      'Pragma': 'no-cache',
+    },
+  })
+}
+
 // 🔧 修复(2025-01-01): PostgreSQL布尔类型兼容性
 // 注意：这些常量会在 db.ts 的 convertSqliteSyntax 中转换为实际的 SQL 条件
 // PostgreSQL 使用 TRUE/FALSE 布尔值，SQLite 使用 0/1 整数
@@ -1268,7 +1281,7 @@ export async function GET(request: NextRequest) {
   try {
     const authResult = await verifyAuth(request)
     if (!authResult.authenticated || !authResult.user) {
-      return NextResponse.json({ error: '未授权访问' }, { status: 401 })
+      return jsonNoStore({ error: '未授权访问' }, { status: 401 })
     }
 
     const userId = authResult.user.userId
@@ -1289,7 +1302,7 @@ export async function GET(request: NextRequest) {
     if (authType === 'service_account') {
       // 服务账号认证模式
       if (!serviceAccountId) {
-        return NextResponse.json({
+        return jsonNoStore({
           error: '缺少服务账号ID',
           message: '使用服务账号认证时必须指定 service_account_id 参数'
         }, { status: 400 })
@@ -1297,7 +1310,7 @@ export async function GET(request: NextRequest) {
 
       serviceAccountConfig = await getServiceAccountConfig(userId, serviceAccountId)
       if (!serviceAccountConfig) {
-        return NextResponse.json({
+        return jsonNoStore({
           error: '服务账号配置不存在或已禁用',
           message: '请先在设置页面配置服务账号'
         }, { status: 404 })
@@ -1329,7 +1342,7 @@ export async function GET(request: NextRequest) {
       credentials = await getGoogleAdsCredentials(userId)
 
       if (!credentials) {
-        return NextResponse.json({
+        return jsonNoStore({
           error: '未配置 Google Ads 凭证',
           message: '请在设置页面完成 Google Ads API 配置并完成 OAuth 授权',
           code: 'CREDENTIALS_NOT_CONFIGURED'
@@ -1337,7 +1350,7 @@ export async function GET(request: NextRequest) {
       }
 
       if (!credentials.refresh_token) {
-        return NextResponse.json({ error: '未找到Refresh Token，请先完成OAuth授权' }, { status: 401 })
+        return jsonNoStore({ error: '未找到Refresh Token，请先完成OAuth授权' }, { status: 401 })
       }
 
       loginCustomerId = credentials.login_customer_id
@@ -1345,7 +1358,7 @@ export async function GET(request: NextRequest) {
 
     // 校验: login_customer_id 必须存在（MCC账户ID是调用Google Ads API的必填项）
     if (!loginCustomerId) {
-      return NextResponse.json({
+      return jsonNoStore({
         error: '缺少 Login Customer ID (MCC账户ID)',
         message: '请先在设置页面配置 Login Customer ID，这是使用 Google Ads API 的必填项'
       }, { status: 400 })
@@ -1587,7 +1600,7 @@ export async function GET(request: NextRequest) {
 
     // 🔧 修复(2025-12-12): 简化响应，移除共享配置相关信息
     const finalSyncState = syncStore.get(syncKey)
-    return NextResponse.json({
+    return jsonNoStore({
       success: true,
       data: {
         total: accountsWithOffers.length,
@@ -1618,7 +1631,7 @@ export async function GET(request: NextRequest) {
       statusCode = 403
       errorCode = 'SERVICE_ACCOUNT_PERMISSION_DENIED'
 
-      return NextResponse.json({
+      return jsonNoStore({
         error: '服务账号权限不足',
         code: errorCode,
         message: error.message,
@@ -1650,7 +1663,7 @@ export async function GET(request: NextRequest) {
       statusCode = 401
       errorCode = 'OAUTH_TOKEN_EXPIRED'
 
-      return NextResponse.json({
+      return jsonNoStore({
         error: 'OAuth 授权已过期',
         code: errorCode,
         message: 'Google OAuth refresh token 已过期或失效，请重新授权',
@@ -1663,7 +1676,7 @@ export async function GET(request: NextRequest) {
       statusCode = 401
       errorCode = 'INVALID_CLIENT'
 
-      return NextResponse.json({
+      return jsonNoStore({
         error: 'Google OAuth 客户端配置无效',
         code: errorCode,
         message: oauthError.errorDescription || 'Google OAuth client_id/client_secret 配置错误或已失效，请在设置页面重新配置后再授权',
@@ -1701,7 +1714,7 @@ export async function GET(request: NextRequest) {
     ) {
       statusCode = 403
       errorCode = 'DEVELOPER_TOKEN_NOT_APPROVED'
-      return NextResponse.json({
+      return jsonNoStore({
         error: 'Google Ads Developer Token 权限不足',
         code: errorCode,
         message:
@@ -1724,7 +1737,7 @@ export async function GET(request: NextRequest) {
     ) {
       statusCode = 400
       errorCode = 'DEVELOPER_TOKEN_INVALID'
-      return NextResponse.json({
+      return jsonNoStore({
         error: 'Google Ads Developer Token 无效',
         code: errorCode,
         message:
@@ -1741,7 +1754,7 @@ export async function GET(request: NextRequest) {
       }, { status: statusCode })
     }
 
-    return NextResponse.json(
+    return jsonNoStore(
       {
         error: '获取Google Ads账户失败',
         message: oauthError.errorDescription || extractedMessage || '未知错误',

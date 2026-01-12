@@ -210,6 +210,7 @@ export default function GoogleAdsPage() {
         : `/api/google-ads/credentials/accounts?auth_type=service_account&service_account_id=${serviceAccountId}`
       const response = await fetch(url, {
         credentials: 'include',
+        cache: 'no-store',
       })
 
       if (!response.ok) {
@@ -284,6 +285,7 @@ export default function GoogleAdsPage() {
         : '/api/google-ads/credentials/accounts'
       const response = await fetch(url, {
         credentials: 'include',
+        cache: 'no-store',
       })
 
       if (!response.ok) {
