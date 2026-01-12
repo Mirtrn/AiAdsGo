@@ -45,12 +45,18 @@ export function isProxyConnectionError(error: Error): boolean {
     if (msg.includes('amazon.')) {
       return true  // Amazon超时 = 代理被封
     }
-    // 🔥 新增：短链接服务（pboost.me, bit.ly, tinyurl等）也需要快速换代理
-    // 短链接服务通常有严格的反爬虫机制，代理被封后会超时
-    const shortLinkPatterns = ['pboost.me', 'bit.ly', 'tinyurl', 'ow.ly', 'rebrand.ly',
-                                'short.link', 'is.gd', 'buff.ly', 't.co', 'goo.gl', 'clk.']
-    if (shortLinkPatterns.some(pattern => msg.includes(pattern))) {
-      return true  // 短链接超时 = 代理被封
+    // 🔥 新增：短链接/联盟tracking域名也需要快速换代理
+    // 这类中转域名通常反爬强，一旦代理IP被标记会“卡住”导致page.goto永远无法完成
+    const timeoutSensitivePatterns = [
+      // 短链接
+      'pboost.me', 'bit.ly', 'tinyurl', 'ow.ly', 'rebrand.ly',
+      'short.link', 'is.gd', 'buff.ly', 't.co', 'goo.gl', 'clk.',
+      // 联盟/Tracking（CJ/以及常见跳转中间页）
+      'jdoqocy.com', 'emjcd.com', 'dotomi.com', 'cj.com', 'onelink.me',
+      'qksrv.net', 'anrdoezrs.net', 'dpbolvw.net',
+    ]
+    if (timeoutSensitivePatterns.some(pattern => msg.includes(pattern))) {
+      return true
     }
   }
 

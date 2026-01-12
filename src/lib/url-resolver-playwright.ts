@@ -212,23 +212,27 @@ export async function resolveAffiliateLinkWithPlaywright(
     const statusCode = response.status()
     console.log(`   - 响应状态码: ${statusCode}`)
 
-    // 检查是否是错误状态码
+    // 🔥 关键：URL解析阶段不应把4xx当作“无法解析”
+    // 例如最终站点对代理/爬虫返回403，但finalUrl仍然是有效落地页URL，后续抓取阶段可用更强手段处理
     if (statusCode >= 400) {
-      console.error(`❌ Playwright导航失败: HTTP ${statusCode}`)
-      throw new Error(`Playwright导航失败: HTTP ${statusCode}，推广链接可能失效`)
+      console.warn(`⚠️ Playwright导航返回HTTP ${statusCode}，将继续返回解析结果（不作为解析失败）`)
     }
 
-    // 使用智能等待策略等待页面真正加载完成
-    const smartWait = await smartWaitForLoad(page, affiliateLink, {
-      maxWaitTime: waitTime > 0 ? waitTime : complexity.recommendedWaitTime,
-    })
+    // 只有在非4xx情况下才做额外“页面稳定”等待，避免403/404等错误页浪费等待时间
+    const smartWait = statusCode < 400
+      ? await smartWaitForLoad(page, affiliateLink, {
+        maxWaitTime: waitTime > 0 ? waitTime : complexity.recommendedWaitTime,
+      })
+      : { waited: 0, signals: ['http_error_skip_wait'] }
 
-    // Simulate human behavior: scrolling and reading
-    await randomDelay(800, 1500)
-    await page.evaluate(() => {
-      window.scrollBy(0, Math.random() * 500)
-    }).catch(() => {})
-    await randomDelay(500, 1000)
+    if (statusCode < 400) {
+      // Simulate human behavior: scrolling and reading
+      await randomDelay(800, 1500)
+      await page.evaluate(() => {
+        window.scrollBy(0, Math.random() * 500)
+      }).catch(() => {})
+      await randomDelay(500, 1000)
+    }
 
     const totalWaitTime = Date.now() - gotoStartTime
 

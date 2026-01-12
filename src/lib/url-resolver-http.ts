@@ -194,6 +194,11 @@ export async function resolveAffiliateLinkWithHttp(
 
         // 没有meta refresh，成功到达最终页面
         break
+      } else if (response.status >= 400 && response.status < 500) {
+        // 🔥 关键：URL解析阶段不应把4xx当作“无法解析”
+        // 例如最终站点对代理/爬虫返回403，但finalUrl仍然是有效落地页URL，后续抓取阶段可用更强手段处理
+        console.warn(`⚠️ HTTP到达最终URL但返回状态码 ${response.status}，停止继续重定向追踪`)
+        break
       } else {
         throw new Error(`HTTP请求失败: 状态码 ${response.status}`)
       }

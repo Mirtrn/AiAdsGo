@@ -10,6 +10,7 @@
  */
 
 import { chromium, Browser, BrowserContext, Page } from 'playwright'
+import { maskProxyUrl } from './proxy/validate-url'
 
 /**
  * 连接池配置
@@ -25,6 +26,11 @@ const POOL_CONFIG = {
   launchTimeout: 30000,         // 启动超时30秒
   acquireTimeout: 180000,       // 获取实例超时（短链/慢代理可能占用更久）
   warmupCount: 1,               // 🔥 内存优化：从2减到1
+}
+
+function formatProxyKeyForLog(proxyKey: string): string {
+  if (!proxyKey) return proxyKey
+  return proxyKey.includes('://') ? maskProxyUrl(proxyKey) : proxyKey
 }
 
 /**
@@ -470,7 +476,7 @@ class PlaywrightPool {
           existing.context = newContext
           existing.inUse = true
           existing.lastUsedAt = Date.now()
-          console.log(`🔄 复用Playwright实例: ${existing.id} (${proxyKey})`)
+          console.log(`🔄 复用Playwright实例: ${existing.id} (${formatProxyKeyForLog(proxyKey)})`)
           return { browser: existing.browser, context: newContext, instanceId: existing.id }
         } else {
           // 实例已断开，清理
@@ -509,7 +515,7 @@ class PlaywrightPool {
     }
 
     // 4. 加入等待队列
-    console.log(`⏳ 实例池已满，加入等待队列: ${proxyKey}`)
+    console.log(`⏳ 实例池已满，加入等待队列: ${formatProxyKeyForLog(proxyKey)}`)
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         const index = this.waitingQueue.findIndex(w => w.resolve === resolve)
@@ -538,7 +544,7 @@ class PlaywrightPool {
       : (proxyUrl || 'no-proxy')
     const instanceId = this.generateInstanceId()
 
-    console.log(`🚀 创建新Playwright实例: ${instanceId} (${proxyKey})`)
+    console.log(`🚀 创建新Playwright实例: ${instanceId} (${formatProxyKeyForLog(proxyKey)})`)
     const { browser, context, contextOptions } = await this.createInstance(proxyUrl, proxyCredentials, targetCountry)
 
     const instance: BrowserInstance = {

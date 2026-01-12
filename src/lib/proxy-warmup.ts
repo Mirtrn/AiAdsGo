@@ -19,11 +19,17 @@ interface ProxyCredentials {
   fullAddress: string;
 }
 
+function redactProxyIpForLog(proxyIP: string): string {
+  const parts = proxyIP.split(':')
+  if (parts.length >= 2) return `${parts[0]}:${parts[1]}:[REDACTED]`
+  return '[REDACTED]'
+}
+
 function parseProxyIP(proxyIP: string): ProxyCredentials | null {
   try {
     const parts = proxyIP.split(':');
     if (parts.length !== 4) {
-      console.error(`❌ 代理IP格式错误，应为 host:port:username:password，实际: ${proxyIP}`);
+      console.error(`❌ 代理IP格式错误，应为 host:port:username:password，实际: ${redactProxyIpForLog(proxyIP)}`);
       return null;
     }
 
@@ -36,7 +42,7 @@ function parseProxyIP(proxyIP: string): ProxyCredentials | null {
       fullAddress: `${host}:${port}`,
     };
   } catch (error) {
-    console.error(`❌ 解析代理IP失败: ${proxyIP}`, error);
+    console.error(`❌ 解析代理IP失败: ${redactProxyIpForLog(proxyIP)}`, error);
     return null;
   }
 }
@@ -57,7 +63,7 @@ export async function fetch12ProxyIPs(proxyUrl: string): Promise<string[]> {
     try {
       provider = ProxyProviderRegistry.getProvider(proxyUrl)
     } catch (error) {
-      console.warn(`⚠️ 不支持的代理格式: ${proxyUrl}`)
+      console.warn(`⚠️ 不支持的代理格式: ${maskProxyUrl(proxyUrl)}`)
       return []
     }
 
@@ -81,7 +87,7 @@ export async function fetch12ProxyIPs(proxyUrl: string): Promise<string[]> {
       const separator = modifiedUrl.includes('?') ? '&' : '?'
       modifiedUrl = `${modifiedUrl}${separator}ips=12`
 
-      console.log(`🌐 获取12个代理IP: ${modifiedUrl}`)
+      console.log(`🌐 获取12个代理IP: ${maskProxyUrl(modifiedUrl)}`)
 
       // 🔥 使用增强版Stealth配置绕过CloudFlare
       const { chromium } = await import('playwright')
@@ -276,13 +282,13 @@ export async function triggerProxyVisits(
   console.log(`🔥 开始触发 ${proxyIPs.length} 次推广链接访问（通过代理IP）...`);
 
   // 为每个代理IP创建一个访问Promise（不等待结果）
-  const visitPromises = proxyIPs.map(async (proxyIP, index) => {
+  const visitPromises = proxyIPs.map(async (proxyIP, index): Promise<boolean> => {
     try {
       // 解析代理IP
       const proxy = parseProxyIP(proxyIP);
       if (!proxy) {
         console.log(`✗ 访问 #${index + 1} 失败: 代理IP格式错误`);
-        return;
+        return false;
       }
 
       // 创建 HttpsProxyAgent
@@ -310,18 +316,20 @@ export async function triggerProxyVisits(
       await client.get(affiliateLink);
 
       console.log(`✓ 访问 #${index + 1} 已触发（代理: ${proxy.fullAddress}）`);
+      return true
     } catch (error) {
       // 忽略错误，只记录日志
       // 即使访问失败，也不影响主流程
       console.log(`✗ 访问 #${index + 1} 失败:`, error instanceof Error ? error.message : String(error));
+      return false
     }
   });
 
   // 不等待所有Promise完成，立即返回（fire-and-forget）
   // 让这些请求在后台执行
   Promise.allSettled(visitPromises).then((results) => {
-    const successCount = results.filter((r) => r.status === 'fulfilled').length;
-    const failureCount = results.filter((r) => r.status === 'rejected').length;
+    const successCount = results.filter((r) => r.status === 'fulfilled' && r.value === true).length;
+    const failureCount = results.length - successCount;
     console.log(`✅ 所有访问请求已完成: 成功 ${successCount}/${proxyIPs.length}, 失败 ${failureCount}/${proxyIPs.length}`);
   });
 
@@ -444,7 +452,7 @@ export async function warmupAffiliateLink(
     try {
       provider = ProxyProviderRegistry.getProvider(proxyUrl)
     } catch (error) {
-      console.warn(`⚠️ 不支持的代理格式: ${proxyUrl}`)
+      console.warn(`⚠️ 不支持的代理格式: ${maskProxyUrl(proxyUrl)}`)
       return false
     }
 
