@@ -1093,18 +1093,18 @@ export default function CampaignsPage() {
 	                          {/* Adjust CPC */}
 	                          <Button
 	                            size="sm"
-	                            variant="outline"
+	                            variant="ghost"
 	                            onClick={() => {
 	                              if (!googleCampaignId) return
 	                              setAdjustCpcTarget({ googleCampaignId, campaignName: campaign.campaignName })
 	                              setAdjustCpcOpen(true)
 	                            }}
 	                            disabled={!googleCampaignId || isDeleted || offerDeleted}
-	                            className="h-8 px-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
+	                            className="text-indigo-600 hover:text-indigo-800"
 	                            title={!googleCampaignId ? '该广告系列尚未同步到Google Ads，无法调整CPC' : '调整CPC出价'}
+	                            aria-label={!googleCampaignId ? '该广告系列尚未同步到Google Ads，无法调整CPC' : '调整CPC出价'}
 	                          >
-	                            <DollarSign className="w-4 h-4 mr-1" />
-	                            调整CPC
+	                            <DollarSign className="w-4 h-4" />
 	                          </Button>
 
                           {/* Delete Button */}
