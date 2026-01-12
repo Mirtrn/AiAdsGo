@@ -7,6 +7,7 @@
 
 import { fetchProxyIp } from './fetch-proxy-ip'
 import type { ProxyCredentials } from './types'
+import { maskProxyUrl } from './validate-url'
 
 interface WarmProxy {
   credentials: ProxyCredentials
@@ -88,7 +89,7 @@ async function refreshPoolBackground(proxyUrl: string): Promise<void> {
   }
 
   pool.isRefreshing = true
-  console.log(`🔄 开始后台预热代理池: ${proxyUrl.substring(0, 50)}...`)
+  console.log(`🔄 开始后台预热代理池: ${maskProxyUrl(proxyUrl)}`)
 
   try {
     const batchSize = Math.min(

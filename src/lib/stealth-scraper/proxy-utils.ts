@@ -19,6 +19,11 @@ export function isProxyConnectionError(error: Error): boolean {
     return true
   }
 
+  // 🔥 HTTP2协议错误：在代理链路/中间跳转域名上高频出现，通常换代理即可恢复
+  if (msg.includes('ERR_HTTP2_PROTOCOL_ERROR') || msg.includes('net::ERR_HTTP2_PROTOCOL_ERROR')) {
+    return true
+  }
+
   // TCP连接错误（但需要包含proxy关键词才算代理问题）
   if ((msg.includes('ECONNRESET') || msg.includes('ECONNREFUSED')) &&
       msg.toLowerCase().includes('proxy')) {

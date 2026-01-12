@@ -6,6 +6,7 @@
 
 import { chromium, Page } from 'playwright'
 import { getProxyIp } from '../proxy/fetch-proxy-ip'
+import { maskProxyUrl } from '../proxy/validate-url'
 import { getProxyPoolManager } from '../proxy/proxy-pool'
 import { getPlaywrightPool } from '../playwright-pool'
 import { assessPageComplexity } from '../smart-wait-strategy'
@@ -65,7 +66,7 @@ export async function createStealthBrowser(proxyUrl?: string, targetCountry?: st
   }
 
   // 🔥 P0增强: 明确记录targetCountry配置状态
-  console.log(`🌍 createStealthBrowser: targetCountry=${targetCountry || '(未指定，使用默认en-US)'}, proxyUrl=${effectiveProxyUrl.substring(0, 50)}...`)
+  console.log(`🌍 createStealthBrowser: targetCountry=${targetCountry || '(未指定，使用默认en-US)'}, proxyUrl=${maskProxyUrl(effectiveProxyUrl)}`)
 
   // 🔥 P0优化: 使用连接池获取实例（传入targetCountry支持动态语言配置）
   if (USE_POOL) {

@@ -10,6 +10,7 @@ import type { PlaywrightResolvedUrl } from './url-resolver-playwright'
 import { resolveAffiliateLinkWithHttp } from './url-resolver-http'
 import { getOptimalResolver, extractDomain } from './resolver-domains'
 import { REDIS_PREFIX_CONFIG } from './config'
+import { maskProxyUrl } from './proxy/validate-url'
 
 // ==================== 类型定义 ====================
 
@@ -65,7 +66,7 @@ export class ProxyPoolManager {
    */
   async loadProxies(settingsProxies: Array<{ url: string; country: string; is_default: boolean }>): Promise<void> {
     console.log(`🔍 [loadProxies] 开始加载代理，输入代理数量: ${settingsProxies.length}`)
-    console.log(`🔍 [loadProxies] 输入代理详情:`, settingsProxies.map(p => ({ country: p.country, url: p.url.substring(0, 50) + '...' })))
+    console.log(`🔍 [loadProxies] 输入代理详情:`, settingsProxies.map(p => ({ country: p.country, url: maskProxyUrl(p.url) })))
 
     this.proxies.clear()
 
@@ -183,7 +184,7 @@ export class ProxyPoolManager {
     proxy.avgResponseTime = (proxy.avgResponseTime + responseTime) / 2
     proxy.isHealthy = true
 
-    console.log(`✅ 代理成功: ${proxyUrl} (${responseTime}ms)`)
+    console.log(`✅ 代理成功: ${maskProxyUrl(proxyUrl)} (${responseTime}ms)`)
   }
 
   /**
@@ -199,7 +200,9 @@ export class ProxyPoolManager {
       'ENETUNREACH',
       'ERR_EMPTY_RESPONSE',
       'ERR_CONNECTION_CLOSED',
+      'ERR_HTTP2_PROTOCOL_ERROR',
       'net::ERR_EMPTY_RESPONSE',
+      'net::ERR_HTTP2_PROTOCOL_ERROR',
       'waiting until',
     ]
     return temporaryErrorPatterns.some(pattern => error.includes(pattern))
@@ -228,9 +231,9 @@ export class ProxyPoolManager {
       // 仅在临时失败次数过多时才标记为不健康
       if (proxy.temporaryFailureCount >= this.TEMPORARY_FAILURE_THRESHOLD) {
         proxy.isHealthy = false
-        console.warn(`⚠️ 代理标记为不健康（临时失败过多）: ${proxyUrl} (${proxy.temporaryFailureCount}次临时失败)`)
+        console.warn(`⚠️ 代理标记为不健康（临时失败过多）: ${maskProxyUrl(proxyUrl)} (${proxy.temporaryFailureCount}次临时失败)`)
       } else {
-        console.warn(`⚠️ 代理临时失败: ${proxyUrl} (${proxy.temporaryFailureCount}/${this.TEMPORARY_FAILURE_THRESHOLD})`)
+        console.warn(`⚠️ 代理临时失败: ${maskProxyUrl(proxyUrl)} (${proxy.temporaryFailureCount}/${this.TEMPORARY_FAILURE_THRESHOLD})`)
       }
     } else {
       // 🔥 永久失败：严格处理
@@ -240,13 +243,13 @@ export class ProxyPoolManager {
       // 永久失败次数达到阈值立即标记为不健康
       if (proxy.permanentFailureCount >= this.MAX_FAILURES_THRESHOLD) {
         proxy.isHealthy = false
-        console.warn(`⚠️ 代理标记为不健康（永久失败）: ${proxyUrl} (${proxy.permanentFailureCount}次永久失败)`)
+        console.warn(`⚠️ 代理标记为不健康（永久失败）: ${maskProxyUrl(proxyUrl)} (${proxy.permanentFailureCount}次永久失败)`)
       } else {
-        console.warn(`⚠️ 代理永久失败: ${proxyUrl} (${proxy.permanentFailureCount}/${this.MAX_FAILURES_THRESHOLD})`)
+        console.warn(`⚠️ 代理永久失败: ${maskProxyUrl(proxyUrl)} (${proxy.permanentFailureCount}/${this.MAX_FAILURES_THRESHOLD})`)
       }
     }
 
-    console.error(`❌ 代理失败: ${proxyUrl}, 错误: ${error}`)
+    console.error(`❌ 代理失败: ${maskProxyUrl(proxyUrl)}, 错误: ${error}`)
   }
 
   /**
@@ -343,10 +346,10 @@ export class ProxyPoolManager {
       })
       const responseTime = Date.now() - startTime
 
-      console.log(`✅ 代理健康检测通过: ${proxyUrl} (${responseTime}ms)`)
+      console.log(`✅ 代理健康检测通过: ${maskProxyUrl(proxyUrl)} (${responseTime}ms)`)
       return true
     } catch (error: any) {
-      console.error(`❌ 代理健康检测失败: ${proxyUrl}, 错误: ${error.message}`)
+      console.error(`❌ 代理健康检测失败: ${maskProxyUrl(proxyUrl)}, 错误: ${error.message}`)
       return false
     }
   }
@@ -391,7 +394,7 @@ export class ProxyPoolManager {
 
         if (proxy.failureCount >= this.MAX_FAILURES_THRESHOLD) {
           proxy.isHealthy = false
-          console.warn(`⚠️ 代理标记为不健康: ${url} (健康检测失败)`)
+          console.warn(`⚠️ 代理标记为不健康: ${maskProxyUrl(url)} (健康检测失败)`)
         }
       }
     })
@@ -522,8 +525,10 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
     'ERR_NAME_NOT_RESOLVED',
     'ERR_EMPTY_RESPONSE',     // 服务器无响应（可能是代理IP被封）
     'ERR_CONNECTION_CLOSED',  // 连接被关闭
+    'ERR_HTTP2_PROTOCOL_ERROR', // HTTP2协议错误（代理/中间链路常见）
     'ERR_PROXY_CONNECTION_FAILED', // 代理连接失败
     'net::ERR_EMPTY_RESPONSE', // Playwright格式的空响应错误
+    'net::ERR_HTTP2_PROTOCOL_ERROR', // Playwright格式的HTTP2协议错误
     'TimeoutError',  // 🔥 P0修复：Playwright TimeoutError应该可以重试
     'waiting until',  // 🔥 P0修复：Playwright waiting until错误应该可以重试
   ],
@@ -660,15 +665,18 @@ export async function resolveAffiliateLink(
 
   let lastError: Error | null = null
   let attempt = 0
+  let usedProxyForAttempt: ProxyConfig | null = null
 
   // ========== 步骤3: 智能重试循环 ==========
   while (attempt <= retryConfig.maxRetries) {
+    usedProxyForAttempt = null
     try {
       // 获取最佳代理
       const proxy = proxyPool.getBestProxyForCountry(targetCountry)
       if (!proxy) {
         throw new Error('没有可用的代理')
       }
+      usedProxyForAttempt = proxy
 
       console.log(`🔄 尝试解析 (${attempt + 1}/${retryConfig.maxRetries + 1}): ${affiliateLink}`)
       console.log(`   使用代理: ${proxy.country}`)
@@ -773,9 +781,8 @@ export async function resolveAffiliateLink(
       console.error(`❌ 解析失败 (尝试 ${attempt + 1}):`, error.message)
 
       // 获取当前使用的代理并记录失败
-      const currentProxy = proxyPool.getBestProxyForCountry(targetCountry)
-      if (currentProxy) {
-        proxyPool.recordFailure(currentProxy.url, error.message)
+      if (usedProxyForAttempt) {
+        proxyPool.recordFailure(usedProxyForAttempt.url, error.message)
       }
 
       // 判断是否可重试
