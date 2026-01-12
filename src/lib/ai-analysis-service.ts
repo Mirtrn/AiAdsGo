@@ -802,7 +802,15 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             const { scrapeAmazonReviews } = await import('@/lib/review-analyzer')
             const pool = getPlaywrightPool()
 
-            const { context, instanceId } = await pool.acquire(undefined, undefined, targetCountry)
+            let deepScrapeProxyUrl: string | undefined
+            try {
+              deepScrapeProxyUrl = await getProxyUrlForCountry(targetCountry, userId) || undefined
+            } catch {
+              deepScrapeProxyUrl = undefined
+            }
+            console.log(`🔧 [DEEP SCRAPE] 评论抓取代理: ${deepScrapeProxyUrl ? '已配置' : '未配置'}`)
+
+            const { context, instanceId } = await pool.acquire(deepScrapeProxyUrl, undefined, targetCountry)
             const page = await context.newPage()
 
             try {
@@ -1167,7 +1175,15 @@ export async function executeAIAnalysis(input: AIAnalysisInput): Promise<AIAnaly
             const { scrapeAmazonCompetitors } = await import('@/lib/competitor-analyzer')
             const pool = getPlaywrightPool()
 
-            const { context, instanceId } = await pool.acquire(undefined, undefined, targetCountry)
+            let deepScrapeProxyUrl: string | undefined
+            try {
+              deepScrapeProxyUrl = await getProxyUrlForCountry(targetCountry, userId) || undefined
+            } catch {
+              deepScrapeProxyUrl = undefined
+            }
+            console.log(`🔧 [DEEP SCRAPE] 竞品抓取代理: ${deepScrapeProxyUrl ? '已配置' : '未配置'}`)
+
+            const { context, instanceId } = await pool.acquire(deepScrapeProxyUrl, undefined, targetCountry)
             const page = await context.newPage()
 
             try {
