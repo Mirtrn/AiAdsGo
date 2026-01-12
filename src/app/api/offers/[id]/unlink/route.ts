@@ -36,7 +36,7 @@ export async function POST(
     const googleAdsAccountId = parseInt(accountId, 10)
     const db = await getDatabase()
 
-    // 先尝试在 Google Ads 中移除/停止该 Offer 在该账号下的所有 Campaign（best-effort）
+    // 先尝试在 Google Ads 中移除/停止该 Offer 在该账号下“已同步”的所有 Campaign（best-effort）
     const campaignsToUnlink = await db.query(`
       SELECT id, google_campaign_id, campaign_name, status
       FROM campaigns
@@ -44,6 +44,8 @@ export async function POST(
         AND google_ads_account_id = ?
         AND user_id = ?
         AND status != 'REMOVED'
+        AND google_campaign_id IS NOT NULL
+        AND google_campaign_id != ''
     `, [offerId, googleAdsAccountId, userId]) as Array<{
       id: number
       google_campaign_id: string | null
@@ -97,8 +99,7 @@ export async function POST(
       }
 
       for (const campaign of campaignsToUnlink) {
-        const googleCampaignId = campaign.google_campaign_id ? String(campaign.google_campaign_id) : ''
-        if (!googleCampaignId) continue
+        const googleCampaignId = String(campaign.google_campaign_id)
 
         googleAdsRemoval.attempted++
         try {
