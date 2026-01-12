@@ -35,6 +35,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ResponsivePagination } from '@/components/ui/responsive-pagination'
 import { Search, RefreshCw, Trash2, ExternalLink, AlertCircle, CheckCircle2, PlayCircle, PauseCircle, XCircle, TrendingUp, DollarSign, ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, Package } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
+import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
   getCampaignStatusLabel,
   getCreationStatusLabel,
@@ -46,6 +47,7 @@ interface Campaign {
   id: number
   offerId: number
   googleAdsAccountId: number
+  googleCampaignId?: string | null
   campaignId: string | null
   campaignName: string
   budgetAmount: number
@@ -127,6 +129,10 @@ export default function CampaignsPage() {
   const [isBatchDeleteDialogOpen, setIsBatchDeleteDialogOpen] = useState(false)
   const [batchDeleting, setBatchDeleting] = useState(false)
   const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null)
+
+  // Adjust CPC dialog states
+  const [adjustCpcOpen, setAdjustCpcOpen] = useState(false)
+  const [adjustCpcTarget, setAdjustCpcTarget] = useState<{ googleCampaignId: string; campaignName: string } | null>(null)
 
   /**
    * 处理401未授权错误 - 跳转到登录页
@@ -959,13 +965,14 @@ export default function CampaignsPage() {
                     </TableRow>
                   </TableHeader>
                 <TableBody>
-                  {paginatedCampaigns.map((campaign) => {
-                    // 🔧 检查是否已删除 (兼容PostgreSQL的boolean和SQLite的number)
-                    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
-                    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
+	                  {paginatedCampaigns.map((campaign) => {
+	                    // 🔧 检查是否已删除 (兼容PostgreSQL的boolean和SQLite的number)
+	                    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
+	                    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
+	                    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
 
-                    return (
-                    <TableRow
+	                    return (
+	                    <TableRow
                       key={campaign.id}
                       className={`hover:bg-gray-50/50 ${isDeleted || offerDeleted ? 'opacity-60 bg-gray-50' : ''}`}
                     >
@@ -1052,8 +1059,8 @@ export default function CampaignsPage() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
+	                      <TableCell>
+	                        <div className="flex items-center gap-1">
                           {/* Sync/Retry Button */}
                           {(campaign.creationStatus === 'draft' || campaign.creationStatus === 'failed') && (
                             <Button
@@ -1072,16 +1079,33 @@ export default function CampaignsPage() {
                             </Button>
                           )}
 
-                          {/* View Offer Detail */}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => router.push(`/offers/${campaign.offerId}`)}
-                            className="text-green-600 hover:text-green-800"
-                            title="查看关联的Offer详情页"
-                          >
-                            <Package className="w-4 h-4" />
-                          </Button>
+	                          {/* View Offer Detail */}
+	                          <Button
+	                            size="sm"
+	                            variant="ghost"
+	                            onClick={() => router.push(`/offers/${campaign.offerId}`)}
+	                            className="text-green-600 hover:text-green-800"
+	                            title="查看关联的Offer详情页"
+	                          >
+	                            <Package className="w-4 h-4" />
+	                          </Button>
+
+	                          {/* Adjust CPC */}
+	                          <Button
+	                            size="sm"
+	                            variant="outline"
+	                            onClick={() => {
+	                              if (!googleCampaignId) return
+	                              setAdjustCpcTarget({ googleCampaignId, campaignName: campaign.campaignName })
+	                              setAdjustCpcOpen(true)
+	                            }}
+	                            disabled={!googleCampaignId || isDeleted || offerDeleted}
+	                            className="h-8 px-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
+	                            title={!googleCampaignId ? '该广告系列尚未同步到Google Ads，无法调整CPC' : '调整CPC出价'}
+	                          >
+	                            <DollarSign className="w-4 h-4 mr-1" />
+	                            调整CPC
+	                          </Button>
 
                           {/* Delete Button */}
                           {campaign.creationStatus === 'draft' && (
@@ -1119,12 +1143,25 @@ export default function CampaignsPage() {
             </CardContent>
           </Card>
         )}
-      </main>
+	      </main>
 
-      {/* Batch Delete Confirmation Dialog */}
-      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {
-        setIsBatchDeleteDialogOpen(open)
-        if (!open) setBatchDeleteError(null)
+	      {/* Adjust CPC Dialog */}
+	      {adjustCpcTarget && (
+	        <AdjustCampaignCpcDialog
+	          open={adjustCpcOpen}
+	          onOpenChange={(nextOpen: boolean) => {
+	            setAdjustCpcOpen(nextOpen)
+	            if (!nextOpen) setAdjustCpcTarget(null)
+	          }}
+	          googleCampaignId={adjustCpcTarget.googleCampaignId}
+	          campaignName={adjustCpcTarget.campaignName}
+	        />
+	      )}
+
+	      {/* Batch Delete Confirmation Dialog */}
+	      <AlertDialog open={isBatchDeleteDialogOpen} onOpenChange={(open) => {
+	        setIsBatchDeleteDialogOpen(open)
+	        if (!open) setBatchDeleteError(null)
       }}>
         <AlertDialogContent>
           <AlertDialogHeader>

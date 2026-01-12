@@ -76,6 +76,17 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
     }))
   }
 
+  const applyPercentToCpc = (campaignId: string, percent: number) => {
+    const campaign = campaigns.find(c => c.id === campaignId)
+    const base = campaign?.currentCpc ?? 0
+    if (!(base > 0)) return
+    const next = base * (1 + percent)
+    setCpcValues(prev => ({
+      ...prev,
+      [campaignId]: next.toFixed(2)
+    }))
+  }
+
   const handleUpdateCpc = async (campaignId: string) => {
     try {
       setUpdating(true)
@@ -313,6 +324,32 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                               className="w-24 px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                               placeholder="0.00"
                             />
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              onClick={() => applyPercentToCpc(campaign.id, 0.2)}
+                              disabled={updating || !(campaign.currentCpc > 0)}
+                              className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              +20%
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => applyPercentToCpc(campaign.id, 0.5)}
+                              disabled={updating || !(campaign.currentCpc > 0)}
+                              className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              +50%
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => applyPercentToCpc(campaign.id, 1)}
+                              disabled={updating || !(campaign.currentCpc > 0)}
+                              className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              +100%
+                            </button>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

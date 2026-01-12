@@ -35,6 +35,22 @@ function parseCampaignStatus(status: unknown): string {
   return String(status).toUpperCase()
 }
 
+function extractSearchResults(result: any): any[] {
+  if (Array.isArray(result)) return result
+  if (Array.isArray(result?.results)) return result.results
+  return []
+}
+
+function toBiddingStrategyType(value: unknown): string {
+  if (value === undefined || value === null) return 'UNKNOWN'
+  if (typeof value === 'object') {
+    const candidate: any = value
+    if ('value' in candidate) return toBiddingStrategyType(candidate.value)
+    if ('name' in candidate) return toBiddingStrategyType(candidate.name)
+  }
+  return String(value).toUpperCase()
+}
+
 /**
  * GET /api/offers/:id/campaigns
  * 获取Offer关联的所有Google Ads广告系列
@@ -162,8 +178,22 @@ export async function GET(
     }
 
     const results: any[] = []
+    const adGroupCpcMicrosByCampaignId = new Map<number, number>()
     for (const [googleAdsAccountId, account] of campaignsByAccountId.entries()) {
       const uniqueIds = Array.from(new Set(account.campaignIds))
+      if (uniqueIds.length === 0) continue
+
+      const adGroupCpcQuery = `
+        SELECT
+          campaign.id,
+          ad_group.id,
+          ad_group.cpc_bid_micros
+        FROM ad_group
+        WHERE campaign.id IN (${uniqueIds.join(', ')})
+          AND ad_group.status != 'REMOVED'
+          AND ad_group.cpc_bid_micros > 0
+        ORDER BY campaign.id, ad_group.id
+      `
       const query = `
         SELECT
           campaign.id,
@@ -171,6 +201,7 @@ export async function GET(
           campaign.status,
           campaign_budget.amount_micros,
           campaign.bidding_strategy_type,
+          campaign.maximize_clicks.max_cpc_bid_micros,
           campaign.target_cpa.target_cpa_micros,
           campaign.target_roas.target_roas,
           campaign.manual_cpc.enhanced_cpc_enabled,
@@ -182,6 +213,28 @@ export async function GET(
       `
 
       if (useServiceAccount) {
+        // AdGroup CPC best-effort
+        try {
+          const fetchedAdGroups = await executeGAQLQueryPython({
+            userId: numericUserId,
+            serviceAccountId,
+            customerId: account.customerId,
+            query: adGroupCpcQuery,
+            requestId
+          })
+          const adGroupRows = extractSearchResults(fetchedAdGroups)
+          for (const row of adGroupRows) {
+            const campaignId = Number(row?.campaign?.id)
+            if (!Number.isFinite(campaignId)) continue
+            if (adGroupCpcMicrosByCampaignId.has(campaignId)) continue
+            const micros = Number(row?.ad_group?.cpc_bid_micros)
+            if (!Number.isFinite(micros) || micros <= 0) continue
+            adGroupCpcMicrosByCampaignId.set(campaignId, micros)
+          }
+        } catch {
+          // ignore
+        }
+
         const fetched = await executeGAQLQueryPython({
           userId: numericUserId,
           serviceAccountId,
@@ -189,7 +242,8 @@ export async function GET(
           query,
           requestId
         })
-        results.push(...fetched.map((r: any) => ({
+        const rows = extractSearchResults(fetched)
+        results.push(...rows.map((r: any) => ({
           ...r,
           __currency: account.currency,
           __googleAdsAccountId: googleAdsAccountId,
@@ -205,8 +259,26 @@ export async function GET(
           accountId: undefined,
           userId: numericUserId,
         })
+
+        // AdGroup CPC best-effort
+        try {
+          const fetchedAdGroups = await customer.query(adGroupCpcQuery)
+          const adGroupRows = extractSearchResults(fetchedAdGroups)
+          for (const row of adGroupRows) {
+            const campaignId = Number(row?.campaign?.id)
+            if (!Number.isFinite(campaignId)) continue
+            if (adGroupCpcMicrosByCampaignId.has(campaignId)) continue
+            const micros = Number(row?.ad_group?.cpc_bid_micros)
+            if (!Number.isFinite(micros) || micros <= 0) continue
+            adGroupCpcMicrosByCampaignId.set(campaignId, micros)
+          }
+        } catch {
+          // ignore
+        }
+
         const fetched = await customer.query(query)
-        results.push(...fetched.map((r: any) => ({
+        const rows = extractSearchResults(fetched)
+        results.push(...rows.map((r: any) => ({
           ...r,
           __currency: account.currency,
           __googleAdsAccountId: googleAdsAccountId,
@@ -221,11 +293,22 @@ export async function GET(
       // 默认CPC值（如果没有设置则为0）
       let currentCpc = 0
       let currency = campaign.__currency || 'USD'
+      const biddingStrategyType = toBiddingStrategyType(campaign.campaign.bidding_strategy_type)
 
       // 根据竞价策略类型获取CPC
-      // 对于Manual CPC策略，CPC在ad group层级设置，这里我们返回0，让用户在ad group层级调整
-      // 对于Target CPA，我们显示目标CPA作为参考
-      if (campaign.campaign.bidding_strategy_type === 'TARGET_CPA') {
+      // - Manual CPC: 从 ad_group.cpc_bid_micros 推断当前配置（取第一个非0值）
+      // - Maximize Clicks: maximize_clicks.max_cpc_bid_micros
+      // - Target CPA: target_cpa_micros（或 maximize_conversions.target_cpa_micros）
+      if (biddingStrategyType === 'MANUAL_CPC') {
+        const campaignIdNum = Number(campaign.campaign?.id)
+        const micros = Number.isFinite(campaignIdNum)
+          ? (adGroupCpcMicrosByCampaignId.get(campaignIdNum) || 0)
+          : 0
+        currentCpc = micros > 0 ? micros / 1000000 : 0
+      } else if (biddingStrategyType === 'MAXIMIZE_CLICKS') {
+        const micros = Number(campaign.campaign?.maximize_clicks?.max_cpc_bid_micros || 0)
+        currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
+      } else if (biddingStrategyType === 'TARGET_CPA') {
         const targetCpaMicros =
           campaign.campaign.target_cpa?.target_cpa_micros ||
           campaign.campaign.maximize_conversions?.target_cpa_micros ||
@@ -239,7 +322,7 @@ export async function GET(
         status: parseCampaignStatus(campaign.campaign.status),
         currentCpc: currentCpc,
         currency: currency,
-        biddingStrategy: campaign.campaign.bidding_strategy_type,
+        biddingStrategy: biddingStrategyType,
         googleAdsAccountId: campaign.__googleAdsAccountId ?? null,
         adsCustomerId: campaign.__adsCustomerId ?? null,
         adsAccountName: campaign.__adsAccountName ?? null,
