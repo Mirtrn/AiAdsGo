@@ -1268,6 +1268,7 @@ export default function OffersPage() {
                     <p className="font-medium mb-1">⚠️ 重要提示：</p>
                     <ul className="list-disc list-inside space-y-1 ml-2">
                       <li>已删除的Offer历史数据会保留在系统中</li>
+                      <li>系统会自动暂停该Offer关联的已启用广告系列（Google Ads），避免继续花费</li>
                       <li>关联的Google Ads账号会自动解除关联</li>
                       <li>此操作不可撤销</li>
                     </ul>
@@ -1332,6 +1333,7 @@ export default function OffersPage() {
                     <p className="font-medium mb-1">⚠️ 重要提示：</p>
                     <ul className="list-disc list-inside space-y-1 ml-2">
                       <li>已删除的Offer历史数据会保留在系统中</li>
+                      <li>系统会自动暂停各Offer关联的已启用广告系列（Google Ads），避免继续花费</li>
                       <li>关联的Google Ads账号会自动解除关联</li>
                       <li>此操作不可撤销</li>
                     </ul>

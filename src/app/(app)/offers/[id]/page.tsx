@@ -1374,6 +1374,7 @@ export default function OfferDetailPage() {
                     <p className="text-sm text-amber-800 font-medium mb-2">⚠️ 警告</p>
                     <ul className="text-sm text-amber-700 space-y-1 list-disc list-inside">
                       <li>此操作不可撤销</li>
+                      <li>系统会自动暂停该Offer关联的已启用广告系列（Google Ads），避免继续花费</li>
                       <li>所有相关数据将被永久删除</li>
                     </ul>
                   </div>

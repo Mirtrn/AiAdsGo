@@ -94,7 +94,7 @@ export default function DeleteOfferConfirmDialog({
           <AlertDescription className="text-orange-900">
             删除此Offer需要先解除所有关联的广告系列。您可以选择：
             <ul className="list-disc list-inside mt-2 space-y-1">
-              <li><strong>解除关联并删除</strong>：自动将所有关联的广告系列标记为"已移除"，然后删除Offer</li>
+              <li><strong>解除关联并删除</strong>：自动暂停该Offer下已启用的广告系列（避免继续花费），再将所有关联的广告系列标记为"已移除"，然后删除Offer</li>
               <li><strong>取消</strong>：返回，手动在"关联Ads账号"列中逐个解除关联</li>
             </ul>
           </AlertDescription>
