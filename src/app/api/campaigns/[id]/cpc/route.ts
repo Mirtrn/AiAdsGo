@@ -19,7 +19,20 @@ function toBiddingStrategyType(value: unknown): string {
     if ('value' in candidate) return toBiddingStrategyType(candidate.value)
     if ('name' in candidate) return toBiddingStrategyType(candidate.name)
   }
-  return String(value).toUpperCase()
+  const raw = String(value).trim()
+  // Google Ads API 枚举在不同 SDK/序列化路径下可能会变成数字（例如 "9"）
+  // 这里做最小映射，避免前端看到数字枚举
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw)
+    if (n === 9) return 'TARGET_SPEND' // 历史 Maximize Clicks
+  }
+  return raw.toUpperCase()
+}
+
+function normalizeBiddingStrategyType(raw: string): string {
+  // Maximize Clicks historical alias in some stacks/APIs
+  if (raw === 'TARGET_SPEND') return 'MAXIMIZE_CLICKS'
+  return raw
 }
 
 export async function GET(
@@ -44,6 +57,8 @@ export async function GET(
     const linked = await db.queryOne(`
       SELECT
         c.google_ads_account_id,
+        c.max_cpc,
+        c.campaign_config,
         gaa.customer_id,
         gaa.currency,
         gaa.parent_mcc_id,
@@ -60,6 +75,8 @@ export async function GET(
       LIMIT 1
     `, [numericUserId, String(campaignIdNum)]) as {
       google_ads_account_id: number
+      max_cpc: number | null
+      campaign_config: string | null
       customer_id: string | null
       currency: string | null
       parent_mcc_id: string | null
@@ -136,7 +153,8 @@ export async function GET(
       return NextResponse.json({ error: '未找到该Campaign（可能已删除）' }, { status: 404 })
     }
 
-    const biddingStrategyType = toBiddingStrategyType(campaign.bidding_strategy_type)
+    const rawBiddingStrategyType = toBiddingStrategyType(campaign.bidding_strategy_type)
+    const biddingStrategyType = normalizeBiddingStrategyType(rawBiddingStrategyType)
     const currency = linked.currency || 'USD'
 
     let currentCpc: number | null = null
@@ -144,14 +162,19 @@ export async function GET(
     if (Number.isFinite(targetSpendMicros) && targetSpendMicros > 0) {
       // 我们发布时使用 TARGET_SPEND（Maximize Clicks），因此优先使用 ceiling 作为“当前CPC”
       currentCpc = targetSpendMicros / 1000000
-    } else if (biddingStrategyType === 'TARGET_CPA') {
-      const micros = Number(
+    } else {
+      const targetCpaMicros = Number(
         campaign.target_cpa?.target_cpa_micros ||
         campaign.maximize_conversions?.target_cpa_micros ||
         0
       )
-      currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
-    } else if (biddingStrategyType === 'MANUAL_CPC') {
+      if (Number.isFinite(targetCpaMicros) && targetCpaMicros > 0) {
+        currentCpc = targetCpaMicros / 1000000
+      }
+    }
+
+    // Manual CPC best-effort（仅在还拿不到CPC时尝试）
+    if (currentCpc === null || !(currentCpc > 0)) {
       const adGroupQuery = `
         SELECT
           ad_group.cpc_bid_micros
@@ -186,13 +209,35 @@ export async function GET(
       }
 
       const micros = Number(adGroupRows?.[0]?.ad_group?.cpc_bid_micros || 0)
-      currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : 0
+      currentCpc = Number.isFinite(micros) && micros > 0 ? micros / 1000000 : currentCpc
     }
+
+    // DB 兜底：如果 GAQL 拿不到（或返回0），回退到发布时的配置 max_cpc / campaign_config.maxCpcBid
+    if (currentCpc === null || !(currentCpc > 0)) {
+      const directMaxCpc = Number(linked.max_cpc)
+      if (Number.isFinite(directMaxCpc) && directMaxCpc > 0) {
+        currentCpc = directMaxCpc
+      } else if (linked.campaign_config) {
+        try {
+          const cfg = JSON.parse(linked.campaign_config)
+          const cfgMax = Number(cfg?.maxCpcBid)
+          if (Number.isFinite(cfgMax) && cfgMax > 0) currentCpc = cfgMax
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const derivedBiddingStrategyType =
+      (Number.isFinite(targetSpendMicros) && targetSpendMicros > 0) ? 'MAXIMIZE_CLICKS'
+      : (currentCpc !== null && currentCpc > 0 && biddingStrategyType === 'MANUAL_CPC') ? 'MANUAL_CPC'
+        : (biddingStrategyType === 'TARGET_CPA') ? 'TARGET_CPA'
+          : biddingStrategyType
 
     return NextResponse.json({
       success: true,
       campaignId: String(campaignIdNum),
-      biddingStrategyType: (Number.isFinite(targetSpendMicros) && targetSpendMicros > 0) ? 'MAXIMIZE_CLICKS' : biddingStrategyType,
+      biddingStrategyType: derivedBiddingStrategyType,
       currency,
       currentCpc,
     })
