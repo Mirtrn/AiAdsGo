@@ -259,10 +259,13 @@ export async function GET(
         })
         const rows = extractSearchResults(fetched)
 
-        // TARGET_SPEND ceiling best-effort（如果存在这类策略）
+        // target_spend ceiling best-effort（Maximize Clicks / TARGET_SPEND 兼容）
         try {
           const targetSpendCampaignIds = rows
-            .filter((r: any) => toBiddingStrategyType(r?.campaign?.bidding_strategy_type) === 'TARGET_SPEND')
+            .filter((r: any) => {
+              const t = toBiddingStrategyType(r?.campaign?.bidding_strategy_type)
+              return t === 'TARGET_SPEND' || t === 'MAXIMIZE_CLICKS'
+            })
             .map((r: any) => Number(r?.campaign?.id))
             .filter((cid: number) => Number.isFinite(cid))
           const uniqueTargetSpendIds = Array.from(new Set(targetSpendCampaignIds))
@@ -323,10 +326,13 @@ export async function GET(
         const fetched = await customer.query(query)
         const rows = extractSearchResults(fetched)
 
-        // TARGET_SPEND ceiling best-effort（如果存在这类策略）
+        // target_spend ceiling best-effort（Maximize Clicks / TARGET_SPEND 兼容）
         try {
           const targetSpendCampaignIds = rows
-            .filter((r: any) => toBiddingStrategyType(r?.campaign?.bidding_strategy_type) === 'TARGET_SPEND')
+            .filter((r: any) => {
+              const t = toBiddingStrategyType(r?.campaign?.bidding_strategy_type)
+              return t === 'TARGET_SPEND' || t === 'MAXIMIZE_CLICKS'
+            })
             .map((r: any) => Number(r?.campaign?.id))
             .filter((cid: number) => Number.isFinite(cid))
           const uniqueTargetSpendIds = Array.from(new Set(targetSpendCampaignIds))
