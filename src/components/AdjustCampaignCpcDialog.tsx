@@ -25,7 +25,7 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
   const [newCpcValue, setNewCpcValue] = useState<string>('')
 
   const currentCpcDisplay = useMemo(() => {
-    if (currentCpc === null) return '(未知)'
+    if (currentCpc === null || !(currentCpc > 0)) return '(未知)'
     return `${currency} ${currentCpc.toFixed(2)}`
   }, [currency, currentCpc])
 
@@ -42,7 +42,7 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
 
       const nextCurrent = typeof data.currentCpc === 'number' ? data.currentCpc : null
       setCurrentCpc(nextCurrent)
-      setNewCpcValue(nextCurrent === null ? '' : nextCurrent.toFixed(2))
+      setNewCpcValue(nextCurrent !== null && nextCurrent > 0 ? nextCurrent.toFixed(2) : '')
     } catch (e: any) {
       showError('获取当前CPC失败', e?.message || String(e))
       setCurrentCpc(null)
@@ -144,4 +144,3 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
     </Dialog>
   )
 }
-
