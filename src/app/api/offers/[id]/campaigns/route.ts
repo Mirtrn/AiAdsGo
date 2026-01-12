@@ -48,7 +48,14 @@ function toBiddingStrategyType(value: unknown): string {
     if ('value' in candidate) return toBiddingStrategyType(candidate.value)
     if ('name' in candidate) return toBiddingStrategyType(candidate.name)
   }
-  return String(value).toUpperCase()
+  const raw = String(value).trim()
+  // Google Ads API 枚举在不同 SDK/序列化路径下可能会变成数字（例如 "9"）
+  // 这里做最小映射，避免前端看到 "9"
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw)
+    if (n === 9) return 'TARGET_SPEND' // 历史 Maximize Clicks
+  }
+  return raw.toUpperCase()
 }
 
 function normalizeBiddingStrategyType(raw: string): string {
@@ -85,6 +92,8 @@ export async function GET(
       SELECT
         c.google_campaign_id,
         c.google_ads_account_id,
+        c.max_cpc,
+        c.campaign_config,
         gaa.customer_id,
         gaa.account_name,
         gaa.currency,
@@ -105,6 +114,8 @@ export async function GET(
     `, [offerId, numericUserId]) as Array<{
       google_campaign_id: string
       google_ads_account_id: number
+      max_cpc: number | null
+      campaign_config: string | null
       customer_id: string | null
       account_name: string | null
       currency: string | null
@@ -153,6 +164,9 @@ export async function GET(
       serviceAccountId: string | null
       campaignIds: number[]
     }>()
+
+    const localMaxCpcByGoogleCampaignId = new Map<string, number>()
+    const localBiddingStrategyByGoogleCampaignId = new Map<string, string>()
     for (const row of localCampaigns) {
       if (!row.customer_id) continue
       const isActive = row.is_active === true || row.is_active === 1
@@ -161,6 +175,24 @@ export async function GET(
 
       const campaignIdNum = Number(row.google_campaign_id)
       if (!Number.isFinite(campaignIdNum)) continue
+
+      // 本地兜底：优先 max_cpc，其次从 campaign_config.maxCpcBid 解析
+      const directMaxCpc = Number(row.max_cpc)
+      if (Number.isFinite(directMaxCpc) && directMaxCpc > 0) {
+        localMaxCpcByGoogleCampaignId.set(row.google_campaign_id, directMaxCpc)
+      } else if (row.campaign_config) {
+        try {
+          const cfg = JSON.parse(row.campaign_config)
+          const cfgMax = Number(cfg?.maxCpcBid)
+          if (Number.isFinite(cfgMax) && cfgMax > 0) {
+            localMaxCpcByGoogleCampaignId.set(row.google_campaign_id, cfgMax)
+          }
+          const cfgStrategy = String(cfg?.biddingStrategy || '').trim()
+          if (cfgStrategy) localBiddingStrategyByGoogleCampaignId.set(row.google_campaign_id, cfgStrategy.toUpperCase())
+        } catch {
+          // ignore
+        }
+      }
 
       if (!campaignsByAccountId.has(row.google_ads_account_id)) {
         campaignsByAccountId.set(row.google_ads_account_id, {
@@ -351,6 +383,7 @@ export async function GET(
       const rawBiddingStrategyType = toBiddingStrategyType(campaign.campaign.bidding_strategy_type)
       const biddingStrategyType = normalizeBiddingStrategyType(rawBiddingStrategyType)
       const campaignIdNum = Number(campaign.campaign?.id)
+      const googleCampaignId = campaign.campaign.id?.toString?.() || String(campaign.campaign.id || '')
 
       // 根据竞价策略类型获取CPC
       // - Manual CPC: 从 ad_group.cpc_bid_micros 推断当前配置（取第一个非0值）
@@ -376,21 +409,27 @@ export async function GET(
         currentCpc = adGroupMicros / 1000000
       } else if (Number.isFinite(targetCpaMicros) && targetCpaMicros > 0) {
         currentCpc = targetCpaMicros / 1000000
+      } else {
+        // 本地兜底（OAuth/GAQL字段不可用时）：使用发布时配置的 maxCpcBid
+        const localMax = localMaxCpcByGoogleCampaignId.get(googleCampaignId) || 0
+        if (Number.isFinite(localMax) && localMax > 0) currentCpc = localMax
       }
 
+      const derivedBiddingStrategy =
+        (Number.isFinite(ceilingMicros) && ceilingMicros > 0) ? 'MAXIMIZE_CLICKS'
+        : (Number.isFinite(adGroupMicros) && adGroupMicros > 0) ? 'MANUAL_CPC'
+        : (Number.isFinite(targetCpaMicros) && targetCpaMicros > 0) ? 'TARGET_CPA'
+        : localBiddingStrategyByGoogleCampaignId.get(googleCampaignId)
+          ? normalizeBiddingStrategyType(localBiddingStrategyByGoogleCampaignId.get(googleCampaignId)!)
+          : biddingStrategyType
+
       return {
-        id: campaign.campaign.id.toString(),
+        id: googleCampaignId,
         name: campaign.campaign.name,
         status: parseCampaignStatus(campaign.campaign.status),
         currentCpc: currentCpc,
         currency: currency,
-        biddingStrategy: (Number.isFinite(ceilingMicros) && ceilingMicros > 0)
-          ? 'MAXIMIZE_CLICKS'
-          : (Number.isFinite(adGroupMicros) && adGroupMicros > 0)
-            ? 'MANUAL_CPC'
-            : (Number.isFinite(targetCpaMicros) && targetCpaMicros > 0)
-              ? 'TARGET_CPA'
-              : biddingStrategyType,
+        biddingStrategy: derivedBiddingStrategy,
         googleAdsAccountId: campaign.__googleAdsAccountId ?? null,
         adsCustomerId: campaign.__adsCustomerId ?? null,
         adsAccountName: campaign.__adsAccountName ?? null,
