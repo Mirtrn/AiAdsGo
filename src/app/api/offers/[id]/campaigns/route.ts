@@ -93,7 +93,14 @@ export async function GET(
     }
 
     // 按账号分组 campaign ids（一个Offer可能关联多个Ads账号）
-    const campaignsByAccountId = new Map<number, { customerId: string; currency: string; parentMccId: string | null; serviceAccountId: string | null; campaignIds: number[] }>()
+    const campaignsByAccountId = new Map<number, {
+      customerId: string
+      accountName: string | null
+      currency: string
+      parentMccId: string | null
+      serviceAccountId: string | null
+      campaignIds: number[]
+    }>()
     for (const row of localCampaigns) {
       if (!row.customer_id) continue
       const isActive = row.is_active === true || row.is_active === 1
@@ -106,6 +113,7 @@ export async function GET(
       if (!campaignsByAccountId.has(row.google_ads_account_id)) {
         campaignsByAccountId.set(row.google_ads_account_id, {
           customerId: row.customer_id,
+          accountName: row.account_name || null,
           currency: row.currency || 'USD',
           parentMccId: row.parent_mcc_id || null,
           serviceAccountId: row.service_account_id || null,
@@ -124,7 +132,7 @@ export async function GET(
     }
 
     const results: any[] = []
-    for (const account of campaignsByAccountId.values()) {
+    for (const [googleAdsAccountId, account] of campaignsByAccountId.entries()) {
       const uniqueIds = Array.from(new Set(account.campaignIds))
       const query = `
         SELECT
@@ -151,7 +159,13 @@ export async function GET(
           query,
           requestId
         })
-        results.push(...fetched.map((r: any) => ({ ...r, __currency: account.currency })))
+        results.push(...fetched.map((r: any) => ({
+          ...r,
+          __currency: account.currency,
+          __googleAdsAccountId: googleAdsAccountId,
+          __adsCustomerId: account.customerId,
+          __adsAccountName: account.accountName,
+        })))
       } else {
         const loginCustomerId = account.parentMccId || credentials.login_customer_id
         const customer = await getCustomerWithCredentials({
@@ -162,7 +176,13 @@ export async function GET(
           userId: numericUserId,
         })
         const fetched = await customer.query(query)
-        results.push(...fetched.map((r: any) => ({ ...r, __currency: account.currency })))
+        results.push(...fetched.map((r: any) => ({
+          ...r,
+          __currency: account.currency,
+          __googleAdsAccountId: googleAdsAccountId,
+          __adsCustomerId: account.customerId,
+          __adsAccountName: account.accountName,
+        })))
       }
     }
 
@@ -190,6 +210,9 @@ export async function GET(
         currentCpc: currentCpc,
         currency: currency,
         biddingStrategy: campaign.campaign.bidding_strategy_type,
+        googleAdsAccountId: campaign.__googleAdsAccountId ?? null,
+        adsCustomerId: campaign.__adsCustomerId ?? null,
+        adsAccountName: campaign.__adsAccountName ?? null,
       }
     })
 

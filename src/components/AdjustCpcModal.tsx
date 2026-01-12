@@ -9,6 +9,8 @@ interface Campaign {
   status: string
   currentCpc: number
   currency: string
+  adsCustomerId?: string | null
+  adsAccountName?: string | null
 }
 
 interface AdjustCpcModalProps {
@@ -246,6 +248,9 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                         广告系列名称
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Ads账户
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         状态
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -267,13 +272,19 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                           <div className="text-xs text-gray-500">ID: {campaign.id}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">{campaign.adsAccountName?.trim() || '未命名账号'}</div>
+                          <div className="text-xs text-gray-500">
+                            {campaign.adsCustomerId ? `CID: ${campaign.adsCustomerId}` : 'CID: (未知)'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <span
                             className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                               campaign.status === 'ENABLED'
                                 ? 'bg-green-100 text-green-800'
                                 : campaign.status === 'PAUSED'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-red-100 text-red-800'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-red-100 text-red-800'
                             }`}
                           >
                             {campaign.status === 'ENABLED' ? '启用' : campaign.status === 'PAUSED' ? '暂停' : '已删除'}
