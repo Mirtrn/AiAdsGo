@@ -7,6 +7,8 @@
 import { normalizeBrandName } from '../offer-utils'
 import { parsePrice } from '../pricing-utils'  // 🔥 新增：统一价格解析函数
 import { getPlaywrightPool } from '../playwright-pool'
+import { extractAmazonBrandFromByline } from '../amazon-brand-utils'
+import { isLikelyInvalidBrandName } from '../brand-name-utils'
 import { isProxyConnectionError } from './proxy-utils'
 import { createStealthBrowser, releaseBrowser, configureStealthPage, randomDelay } from './browser-stealth'
 import { scrapeUrlWithBrowser } from './core'
@@ -1282,7 +1284,7 @@ function extractBrandName(
   // ========== 渠道1: Product Overview表格 (置信度: 5) ==========
   $('#productOverview_feature_div tr, #poExpander tr').each((i: number, el: any) => {
     const label = $(el).find('td.a-span3, td:first-child').text().trim().toLowerCase()
-    if (label === 'brand' || label.includes('brand')) {
+    if (label === 'brand' || label.includes('brand') || label === 'marke' || label.includes('marke')) {
       const value = $(el).find('td.a-span9, td:last-child').text().trim()
       if (value && value.length > 1 && value.length < 50) {
         candidates.push({ value, source: 'product-overview', confidence: 5 })
@@ -1293,7 +1295,7 @@ function extractBrandName(
   // 直接查找包含Brand的表格行
   $('tr').each((i: number, el: any) => {
     const labelText = $(el).find('td:first-child, th').text().trim().toLowerCase()
-    if (labelText === 'brand') {
+    if (labelText === 'brand' || labelText === 'marke') {
       const value = $(el).find('td:last-child').text().trim()
       if (value && value.length > 1 && value.length < 50 && !isInRecommendationArea(el)) {
         candidates.push({ value, source: 'table-row', confidence: 5 })
@@ -1314,10 +1316,11 @@ function extractBrandName(
   for (const selector of brandSelectors) {
     const $el = $(selector)
     if ($el.length > 0 && !isInRecommendationArea($el[0])) {
-      let brand = $el.text().trim()
-      brand = cleanBrandText(brand)
-      if (brand && brand.length > 1 && brand.length < 50) {
-        candidates.push({ value: brand, source: 'bylineInfo', confidence: 4 })
+      const bylineText = $el.text().trim()
+      const bylineHref = $el.attr('href') || null
+      const extracted = extractAmazonBrandFromByline({ bylineText, bylineHref })
+      if (extracted && extracted.length > 1 && extracted.length < 50) {
+        candidates.push({ value: extracted, source: 'bylineInfo', confidence: 4 })
         break
       }
     }
@@ -1329,9 +1332,17 @@ function extractBrandName(
     candidates.push({ value: dataBrand, source: 'data-brand', confidence: 5 })
   }
 
-  // ========== 渠道4: technicalDetails.Brand (置信度: 5) ==========
-  if (technicalDetails.Brand) {
-    const techBrand = technicalDetails.Brand.toString().trim()
+  // ========== 渠道4: technicalDetails.Brand / Marke / etc. (置信度: 5) ==========
+  const technicalBrand =
+    technicalDetails.Brand ??
+    technicalDetails.Marke ??
+    technicalDetails.Marca ??
+    technicalDetails.Marque ??
+    technicalDetails.Merk ??
+    technicalDetails.Marka
+
+  if (technicalBrand) {
+    const techBrand = technicalBrand.toString().trim()
       .replace(/^‎/, '')
       .replace(/^Brand:\s*/i, '')
     if (techBrand && techBrand.length > 1 && techBrand.length < 50) {
@@ -1447,7 +1458,9 @@ function extractBrandName(
   })
 
   // ========== 交叉验证逻辑 ==========
-  if (candidates.length === 0) {
+  const validCandidates = candidates.filter((c) => !isLikelyInvalidBrandName(c.value))
+
+  if (validCandidates.length === 0) {
     console.warn('⚠️ 所有品牌提取渠道均无结果')
     return null
   }
@@ -1464,7 +1477,7 @@ function extractBrandName(
   // 计算每个规范化品牌的总分（置信度 × 出现次数）
   const brandScores = new Map<string, { originalValue: string, totalScore: number, sources: string[] }>()
 
-  for (const candidate of candidates) {
+  for (const candidate of validCandidates) {
     const normalized = normalizeBrand(candidate.value)
     const existing = brandScores.get(normalized)
 
@@ -1514,7 +1527,7 @@ function extractBrandName(
     // 去除"de"、"di"、"of"、"du"等介词开头的品牌名
     .replace(/^(de|di|of|du|da|von|van|of)\s+/i, '')
     // 去除"Visit"、"Visita"、"Visiter"等动词开头的残留
-    .replace(/^(Visit|Visita|Visiter|Besuchen|Besuche|Odwiedź|Bezoek|Visite)\s+/i, '')
+    .replace(/^(Visit|Visita|Visiter|Besuchen|Besuche|Odwiedź|Bezoek|Visite)(?:\s+|$)/i, '')
     // 去除"Brand"、"Official"等后缀
     .replace(/\s+(Brand|Official|Store|Shop)$/i, '')
     .trim()
@@ -1544,6 +1557,10 @@ function extractBrandName(
  * 🔥 2025-12-10优化：增强意大利站和欧洲站的品牌清洗
  */
 function cleanBrandText(brand: string): string {
+  brand = (brand || '').trim()
+  // Guard: avoid locale boilerplate fragments being treated as brands (e.g. "Besuchen").
+  if (isLikelyInvalidBrandName(brand)) return ''
+
   // English (US, CA, AU, GB, IN, SG): "Visit the Brand Store"
   brand = brand.replace(/^Visit\s+the\s+/i, '').replace(/\s+Store$/i, '')
 

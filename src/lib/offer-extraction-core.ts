@@ -523,6 +523,15 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
         console.log('📦 检测到Amazon单品页面，使用非Crawlee方案抓取...')
         amazonProductData = await scrapeAmazonProduct(fullTargetUrl, proxyApiUrl, targetCountry)
         brandName = amazonProductData.brandName
+        if (isLikelyInvalidBrandName(brandName) && amazonProductData.productName) {
+          const derived = deriveBrandFromProductTitle(amazonProductData.productName)
+          if (derived) {
+            brandName = derived
+          }
+        }
+        if (brandName && !isLikelyInvalidBrandName(brandName)) {
+          brandName = normalizeBrandName(brandName)
+        }
         productDescription = amazonProductData.productDescription
         scrapedData = {
           productName: amazonProductData.productName,
@@ -530,7 +539,7 @@ export async function extractOffer(options: ExtractOfferOptions): Promise<Extrac
           productPrice: amazonProductData.productPrice,
           productCategory: amazonProductData.category || null,
           productFeatures: amazonProductData.features || [],
-          brandName: amazonProductData.brandName,
+          brandName: brandName,
           imageUrls: amazonProductData.imageUrls || [],
           metaTitle: null,
           metaDescription: null,
