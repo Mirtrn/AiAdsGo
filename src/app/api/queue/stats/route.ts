@@ -58,14 +58,18 @@ export async function GET(request: NextRequest) {
     const db = await getDatabase()
 
     const userIds = Object.keys(stats.byUser).map(id => parseInt(id))
-    const userMap: Record<number, { username: string; email: string }> = {}
+    const userMap: Record<number, { username: string; email: string; packageType: string }> = {}
 
     if (userIds.length > 0) {
-      const users = await db.query<{ id: number; username: string; email: string }>(
-        `SELECT id, username, email FROM users WHERE id IN (${userIds.join(',')})`
+      const users = await db.query<{ id: number; username: string; email: string; package_type: string }>(
+        `SELECT id, username, email, package_type FROM users WHERE id IN (${userIds.join(',')})`
       )
       users.forEach(user => {
-        userMap[user.id] = { username: user.username, email: user.email }
+        userMap[user.id] = {
+          username: user.username,
+          email: user.email,
+          packageType: user.package_type || 'trial',
+        }
       })
     }
 
@@ -86,6 +90,7 @@ export async function GET(request: NextRequest) {
             userId: numericUid,
             username: userInfo?.username || `用户#${numericUid}`,
             email: userInfo?.email,
+            packageType: userInfo?.packageType || 'trial',
             running: userStats.running,
             queued: userStats.pending,
             completed: userStats.completed,

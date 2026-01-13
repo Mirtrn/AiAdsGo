@@ -21,6 +21,7 @@ interface QueueStats {
     userId: number
     username: string
     email?: string
+    packageType?: string
     running: number
     queued: number
     completed: number
@@ -73,6 +74,20 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   'campaign-publish': '广告系列发布',
   'click-farm': '补点击任务',  // 🆕 补点击任务
   'url-swap': '换链接任务',    // 🆕 换链接任务
+}
+
+const PACKAGE_TYPE_LABELS: Record<string, string> = {
+  trial: '试用版',
+  annual: '年卡',
+  lifetime: '终身买断',
+  enterprise: '私有化部署',
+}
+
+const PACKAGE_TYPE_SORT_ORDER: Record<string, number> = {
+  trial: 0,
+  annual: 1,
+  lifetime: 2,
+  enterprise: 3,
 }
 
 interface QueueConfig {
@@ -498,6 +513,10 @@ export default function QueueManagementPage() {
         case 'username':
           aValue = a.username.toLowerCase()
           bValue = b.username.toLowerCase()
+          break
+        case 'packageType':
+          aValue = PACKAGE_TYPE_SORT_ORDER[a.packageType || 'trial'] ?? 999
+          bValue = PACKAGE_TYPE_SORT_ORDER[b.packageType || 'trial'] ?? 999
           break
         case 'running':
         case 'queued':
@@ -960,6 +979,23 @@ export default function QueueManagementPage() {
                         </div>
                       </th>
                       <th
+                        className="text-left py-3 px-4 text-sm font-medium text-gray-600 cursor-pointer hover:text-gray-900 hover:bg-gray-50 transition-colors select-none"
+                        onClick={() => handleSort('packageType')}
+                      >
+                        <div className="flex items-center gap-1">
+                          套餐
+                          {sortConfig.key === 'packageType' ? (
+                            sortConfig.direction === 'asc' ? (
+                              <ArrowUp className="w-4 h-4" />
+                            ) : (
+                              <ArrowDown className="w-4 h-4" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-4 h-4 text-gray-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th
                         className="text-center py-3 px-4 text-sm font-medium text-gray-600 cursor-pointer hover:text-gray-900 hover:bg-gray-50 transition-colors select-none"
                         onClick={() => handleSort('running')}
                       >
@@ -1067,6 +1103,11 @@ export default function QueueManagementPage() {
                                   <span className="text-xs text-gray-500">{userStat.email}</span>
                                 )}
                               </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="text-sm text-gray-700">
+                                {PACKAGE_TYPE_LABELS[userStat.packageType || 'trial'] || userStat.packageType || '-'}
+                              </span>
                             </td>
                             <td className="text-center py-3 px-4">
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
