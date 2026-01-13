@@ -11,7 +11,7 @@ interface GoogleAdsAccount {
   manager: boolean
   testAccount: boolean
   status: string
-  accountBalance?: number | null  // 账户余额（单位：微货币，即实际金额×1,000,000）
+  accountBalance?: number | null  // 账户预算余额（单位：微货币，即实际金额×1,000,000）
   parentMcc?: string
   parentMccName?: string
   identityVerification?: {
@@ -705,7 +705,7 @@ export default function GoogleAdsPage() {
                             onClick={() => handleSort('balance')}
                           >
                             <div className="flex items-center">
-                              账户余额
+                              预算余额
                               <SortIndicator column="balance" />
                             </div>
                           </th>
@@ -789,7 +789,7 @@ export default function GoogleAdsPage() {
                                       maximumFractionDigits: 2
                                     })}
                                   </div>
-                                  <div className="text-xs text-gray-500">余额</div>
+                                  <div className="text-xs text-gray-500">预算余额</div>
                                 </div>
                               ) : (
                                 <span className="text-sm text-gray-400">-</span>
