@@ -1690,9 +1690,14 @@ export default function SettingsPage() {
                             </p>
                           )}
                           {googleAdsCredentialStatus.lastVerifiedAt && (
-                            <p className="text-sm text-green-700">
-                              验证: {new Date(googleAdsCredentialStatus.lastVerifiedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </p>
+                            <>
+                              <p className="text-sm text-green-700">
+                                验证时间: {new Date(googleAdsCredentialStatus.lastVerifiedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                              <p className="text-sm text-green-700">
+                                过期时间: {new Date(new Date(googleAdsCredentialStatus.lastVerifiedAt).getTime() + 7 * 24 * 60 * 60 * 1000).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </>
                           )}
                         </div>
                       ) : (
