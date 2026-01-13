@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { showError, showSuccess } from '@/lib/toast-utils'
 
 interface OfferCampaign {
@@ -223,10 +222,10 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="sm:max-w-6xl max-h-[85vh] flex flex-col overflow-hidden">
+      <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>调整CPC - {offer.offerName || offer.brand || `Offer #${offer.id}`}</DialogTitle>
-          <DialogDescription>按广告系列批量调整CPC，支持一键比例填充。</DialogDescription>
+          <DialogDescription>支持输入绝对值CPC或一键 +20%/+50%/+100% 填充更新后的CPC。</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
@@ -239,94 +238,74 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
           ) : campaigns.length === 0 ? (
             <div className="text-sm text-muted-foreground">未找到广告系列（请先发布广告）。</div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table className="min-w-[1040px] table-fixed">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[280px]">广告系列</TableHead>
-                    <TableHead className="w-[180px]">Ads账户</TableHead>
-                    <TableHead className="w-[80px]">状态</TableHead>
-                    <TableHead className="w-[120px]">竞价策略</TableHead>
-                    <TableHead className="w-[110px]">当前CPC</TableHead>
-                    <TableHead className="w-[260px]">更新后CPC</TableHead>
-                    <TableHead className="w-[80px] text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {campaigns.map((campaign) => {
-                    const disableRow = updating || campaign.status === 'REMOVED'
-                    return (
-                      <TableRow key={campaign.id} className={campaign.status === 'REMOVED' ? 'opacity-60' : ''}>
-                        <TableCell className="min-w-0">
-                          <div className="font-medium truncate" title={campaign.name}>{campaign.name}</div>
-                          <div className="text-xs text-muted-foreground font-mono truncate" title={campaign.id}>ID: {campaign.id}</div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm truncate" title={campaign.adsAccountName?.trim() || '未命名账号'}>
-                            {campaign.adsAccountName?.trim() || '未命名账号'}
-                          </div>
-                          <div className="text-xs text-muted-foreground truncate" title={campaign.adsCustomerId ? `CID: ${campaign.adsCustomerId}` : 'CID: (未知)'}>
-                            {campaign.adsCustomerId ? `CID: ${campaign.adsCustomerId}` : 'CID: (未知)'}
-                          </div>
-                        </TableCell>
-                        <TableCell>{getStatusBadge(campaign.status)}</TableCell>
-                        <TableCell>
-                          <span className="text-sm truncate block" title={campaign.biddingStrategy || 'UNKNOWN'}>
-                            {campaign.biddingStrategy || 'UNKNOWN'}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-sm">{getCurrentCpcDisplay(campaign)}</span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <div className="text-sm text-muted-foreground w-14 shrink-0">{campaign.currency}</div>
-                              <Input
-                                type="number"
-                                inputMode="decimal"
-                                min="0.01"
-                                step="0.01"
-                                value={cpcValues[campaign.id] || ''}
-                                onChange={(e) => handleCpcChange(campaign.id, e.target.value)}
-                                placeholder="0.00"
-                                disabled={disableRow}
-                              />
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 0.2)} disabled={disableRow || !(campaign.currentCpc > 0)}>
-                                +20%
-                              </Button>
-                              <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 0.5)} disabled={disableRow || !(campaign.currentCpc > 0)}>
-                                +50%
-                              </Button>
-                              <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 1)} disabled={disableRow || !(campaign.currentCpc > 0)}>
-                                +100%
-                              </Button>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right whitespace-nowrap">
-                          <Button
-                            size="sm"
-                            onClick={() => handleUpdateCpc(campaign.id)}
-                            disabled={disableRow}
-                          >
-                            {updating ? '更新中…' : '更新'}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
+            <div className="space-y-3">
+              {campaigns.map((campaign) => {
+                const disableRow = updating || campaign.status === 'REMOVED'
+                return (
+                  <div key={campaign.id} className={`border rounded-lg p-4 space-y-3 ${campaign.status === 'REMOVED' ? 'opacity-60' : ''}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate" title={campaign.name}>{campaign.name}</div>
+                        <div className="text-xs text-muted-foreground font-mono truncate" title={campaign.id}>ID: {campaign.id}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          Ads账户: <span className="text-foreground">{campaign.adsAccountName?.trim() || '未命名账号'}</span>
+                          <span className="mx-1 text-muted-foreground">·</span>
+                          <span className="font-mono">{campaign.adsCustomerId || '(未知CID)'}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          竞价策略: <span className="text-foreground">{campaign.biddingStrategy || 'UNKNOWN'}</span>
+                        </div>
+                      </div>
+                      <div className="shrink-0">{getStatusBadge(campaign.status)}</div>
+                    </div>
+
+                    <div className="text-sm text-muted-foreground">
+                      当前CPC: <span className="font-medium text-foreground">{getCurrentCpcDisplay(campaign)}</span>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-sm font-medium">更新后CPC</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm text-muted-foreground w-20">{campaign.currency}</div>
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          min="0.01"
+                          step="0.01"
+                          value={cpcValues[campaign.id] || ''}
+                          onChange={(e) => handleCpcChange(campaign.id, e.target.value)}
+                          placeholder="0.00"
+                          disabled={disableRow}
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 0.2)} disabled={disableRow || !(campaign.currentCpc > 0)}>
+                          +20%
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 0.5)} disabled={disableRow || !(campaign.currentCpc > 0)}>
+                          +50%
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 1)} disabled={disableRow || !(campaign.currentCpc > 0)}>
+                          +100%
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end">
+                      <Button size="sm" onClick={() => handleUpdateCpc(campaign.id)} disabled={disableRow}>
+                        {updating ? '更新中…' : '更新'}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0 border-t pt-3 flex-wrap">
           <Button type="button" variant="outline" onClick={onClose} disabled={updating}>
-            关闭
+            取消
           </Button>
           <Button type="button" onClick={handleUpdateAllCpc} disabled={updating || loading || !canBatchUpdate}>
             {updating ? '更新中…' : '批量更新已修改'}

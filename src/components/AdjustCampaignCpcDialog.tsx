@@ -92,13 +92,17 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>调整CPC - {campaignName}</DialogTitle>
-          <DialogDescription>竞价策略: {biddingStrategyType}</DialogDescription>
+          <DialogDescription>支持输入绝对值CPC或一键 +20%/+50%/+100% 填充更新后的CPC。</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
+          <div className="text-xs text-muted-foreground">
+            竞价策略: <span className="text-foreground">{biddingStrategyType}</span>
+          </div>
+
           <div className="text-sm text-muted-foreground">
             当前CPC: <span className="font-medium text-foreground">{loading ? '加载中…' : currentCpcDisplay}</span>
           </div>
@@ -132,7 +136,7 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:gap-0 border-t pt-3 flex-wrap">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             取消
           </Button>
