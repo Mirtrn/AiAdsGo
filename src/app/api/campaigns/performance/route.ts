@@ -76,6 +76,9 @@ export async function GET(request: NextRequest) {
         c.published_at,
         c.is_deleted,
         c.deleted_at,
+        gaa.id as ads_account_id,
+        gaa.is_active as ads_account_is_active,
+        gaa.is_deleted as ads_account_is_deleted,
         o.brand as offer_brand,
         o.url as offer_url,
         o.is_deleted as offer_is_deleted,
@@ -99,6 +102,7 @@ export async function GET(request: NextRequest) {
           ELSE 0
         END as conversion_rate
       FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       LEFT JOIN offers o ON c.offer_id = o.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         AND cp.date >= ?
@@ -109,12 +113,20 @@ export async function GET(request: NextRequest) {
         c.google_campaign_id, c.google_ads_account_id, c.budget_amount,
         c.budget_type, c.creation_status, c.creation_error, c.last_sync_at,
         c.created_at, c.published_at, c.is_deleted, c.deleted_at,
+        gaa.id, gaa.is_active, gaa.is_deleted,
         o.brand, o.url, o.is_deleted
       ORDER BY c.created_at DESC
     `, [userId, startDateStr, endDate, userId]) as any[]
 
     // 4. Format response
-    const formattedCampaigns = campaigns.map(c => ({
+    const formattedCampaigns = campaigns.map(c => {
+      const hasLinkedAdsAccountId = c.google_ads_account_id !== null && c.google_ads_account_id !== undefined
+      const hasAccountRow = c.ads_account_id !== null && c.ads_account_id !== undefined
+      const adsAccountIsActive = c.ads_account_is_active === true || c.ads_account_is_active === 1
+      const adsAccountIsDeleted = c.ads_account_is_deleted === true || c.ads_account_is_deleted === 1
+      const adsAccountAvailable = hasLinkedAdsAccountId && hasAccountRow && adsAccountIsActive && !adsAccountIsDeleted
+
+      return {
       id: c.id,
       campaignName: c.campaign_name,
       offerId: c.offer_id,
@@ -128,6 +140,7 @@ export async function GET(request: NextRequest) {
       creationError: c.creation_error ?? null,
       // 投放日期：以“成功发布到 Ads 账号”的时间为准（published_at）；旧数据兜底为 created_at
       servingStartDate: formatAsYmd(c.published_at ?? c.created_at),
+      adsAccountAvailable,
       // 🔧 修复(2025-12-29): 确保预算金额是数字类型
       budgetAmount: Number(c.budget_amount) || 0,
       budgetType: c.budget_type,
@@ -154,7 +167,7 @@ export async function GET(request: NextRequest) {
           days: daysBack
         }
       }
-    }))
+    }})
 
     // 5. Calculate current period totals（✅ 修复：确保数值类型安全，处理NULL值）
     const currentTotals = {

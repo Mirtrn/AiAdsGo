@@ -54,6 +54,7 @@ interface Campaign {
   creationError: string | null
   lastSyncAt: string | null
   servingStartDate?: string | null
+  adsAccountAvailable?: boolean
   createdAt: string
   // 🔧 新增: 软删除状态字段
   isDeleted?: boolean | number
@@ -429,7 +430,16 @@ export default function CampaignsPage() {
     setSelectedCampaignIds(newSelected)
   }
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, adsAccountAvailable?: boolean) => {
+    if (adsAccountAvailable === false) {
+      return (
+        <Badge variant="outline" className="flex items-center gap-1 w-fit border-orange-200 text-orange-800 bg-orange-50">
+          <AlertCircle className="w-3 h-3" />
+          账号已解绑
+        </Badge>
+      )
+    }
+
     const configs = {
       ENABLED: { label: getCampaignStatusLabel('ENABLED'), variant: 'default' as const, icon: PlayCircle, className: 'bg-green-600 hover:bg-green-700' },
       PAUSED: { label: getCampaignStatusLabel('PAUSED'), variant: 'secondary' as const, icon: PauseCircle, className: 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200' },
@@ -941,7 +951,7 @@ export default function CampaignsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {getStatusBadge(campaign.status)}
+                        {getStatusBadge(campaign.status, campaign.adsAccountAvailable)}
                       </TableCell>
                       <TableCell>
                         <span className="text-sm text-gray-900">
@@ -967,13 +977,22 @@ export default function CampaignsPage() {
 	                            variant="ghost"
 	                            onClick={() => {
 	                              if (!googleCampaignId) return
+	                              if (campaign.adsAccountAvailable === false) return
 	                              setAdjustCpcTarget({ googleCampaignId, campaignName: campaign.campaignName })
 	                              setAdjustCpcOpen(true)
 	                            }}
-	                            disabled={!googleCampaignId || isDeleted || offerDeleted}
+	                            disabled={!googleCampaignId || isDeleted || offerDeleted || campaign.adsAccountAvailable === false}
 	                            className="text-indigo-600 hover:text-indigo-800"
-	                            title={!googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC' : '调整CPC出价'}
-	                            aria-label={!googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC' : '调整CPC出价'}
+	                            title={
+	                              !googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC'
+	                              : (campaign.adsAccountAvailable === false) ? 'Ads账号已解绑，无法调整CPC'
+	                                : '调整CPC出价'
+	                            }
+	                            aria-label={
+	                              !googleCampaignId ? '该广告系列尚未发布到Google Ads，无法调整CPC'
+	                              : (campaign.adsAccountAvailable === false) ? 'Ads账号已解绑，无法调整CPC'
+	                                : '调整CPC出价'
+	                            }
 	                          >
 	                            <DollarSign className="w-4 h-4" />
 	                          </Button>
