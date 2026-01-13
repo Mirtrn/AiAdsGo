@@ -4,6 +4,7 @@ import { getDatabase } from '@/lib/db'
 import { getServiceAccountConfig } from '@/lib/google-ads-service-account'
 import { getGoogleAdsCredentials } from '@/lib/google-ads-oauth'
 import { executeGAQLQueryPython, updateCampaignPython, updateAdGroupPython } from '@/lib/python-ads-client'
+import { normalizeGoogleAdsApiUpdateOperations } from '@/lib/google-ads-mutate-helpers'
 
 function toBiddingStrategyType(value: unknown): string {
   if (value === undefined || value === null) return 'UNKNOWN'
@@ -73,12 +74,13 @@ async function mutateResources(
     }
   } else {
     // OAuth 模式：使用 google-ads-api 的 update 方法
+    const updateOperations = normalizeGoogleAdsApiUpdateOperations(operations)
     switch (mutateType) {
       case 'ad_group':
-        await customer.adGroups.update(operations)
+        await customer.adGroups.update(updateOperations)
         break
       case 'campaign':
-        await customer.campaigns.update(operations)
+        await customer.campaigns.update(updateOperations)
         break
       default:
         throw new Error(`不支持的 mutate 类型: ${mutateType}`)
@@ -383,7 +385,16 @@ export async function PUT(
           update_mask: 'target_spend.cpc_bid_ceiling_micros',
         }
 
-        await customer.campaigns.update([campaignOperation])
+        await mutateResources(
+          customer,
+          useServiceAccount,
+          'campaign',
+          [campaignOperation],
+          numericUserId,
+          serviceAccountId,
+          adsAccountRow.customer_id,
+          requestId
+        )
       }
 
       return NextResponse.json({
