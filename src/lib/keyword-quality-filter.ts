@@ -76,8 +76,63 @@ export function containsPureBrand(keyword: string, pureBrandKeywords: string[]):
     return false
   }
 
-  const kwLower = keyword.toLowerCase()
-  return pureBrandKeywords.some(brand => kwLower.includes(brand.toLowerCase()))
+  const normalizedKeyword = keyword.toLowerCase().normalize('NFKC')
+  const keywordTokens = normalizedKeyword
+    .split(/[^\p{L}\p{N}]+/u)
+    .map(t => t.trim())
+    .filter(Boolean)
+
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  const containsBrandWithBoundaries = (normalizedBrand: string): boolean => {
+    const brandWords = normalizedBrand
+      .trim()
+      .split(/\s+/)
+      .map(w => w.trim())
+      .filter(Boolean)
+
+    if (brandWords.length === 0) return false
+
+    // Allow separators between brand words: space / hyphen / punctuation.
+    const phrasePattern = brandWords.map(escapeRegExp).join('[^\\p{L}\\p{N}]+')
+    const re = new RegExp(`(?:^|[^\\p{L}\\p{N}])${phrasePattern}(?:$|[^\\p{L}\\p{N}])`, 'iu')
+    return re.test(normalizedKeyword)
+  }
+
+  // 1) Preferred: whole-word / whole-phrase matching to avoid "rove" matching "rover".
+  for (const brand of pureBrandKeywords) {
+    const normalizedBrand = (brand || '').toLowerCase().normalize('NFKC').trim()
+    if (!normalizedBrand) continue
+    if (containsBrandWithBoundaries(normalizedBrand)) return true
+  }
+
+  // 2) Fallback: allow some common concatenations (brand+model/brand+product word).
+  // This preserves cases like "eufycam" or "eurekaj15" while still rejecting "rover".
+  for (const brand of pureBrandKeywords) {
+    const normalizedBrand = (brand || '').toLowerCase().normalize('NFKC').trim()
+    if (!normalizedBrand) continue
+    if (normalizedBrand.includes(' ')) continue
+
+    for (const token of keywordTokens) {
+      if (!token.startsWith(normalizedBrand) || token.length <= normalizedBrand.length) continue
+
+      const suffix = token.slice(normalizedBrand.length)
+      if (!suffix) continue
+
+      // Brand + model number (e.g. "eurekaJ15", "eufy2")
+      if (/\d/.test(suffix)) return true
+
+      // Brand + common product word (e.g. "eufycam", "eufysecurity")
+      if (PRODUCT_WORD_PATTERNS.includes(suffix)) return true
+
+      // Brand + product word + digits (e.g. "eufycam2")
+      if (PRODUCT_WORD_PATTERNS.some(word => suffix.startsWith(word) && /\d/.test(suffix.slice(word.length)))) {
+        return true
+      }
+    }
+  }
+
+  return false
 }
 
 /**
@@ -449,8 +504,9 @@ export function extractValidBrandTerms(keyword: string, brandName: string): stri
   const brand = brandName.toLowerCase().trim()
   const terms: string[] = []
 
-  // 1. 检查是否包含品牌名
-  if (normalized.includes(brand)) {
+  // 1. 检查是否包含品牌名（避免子串误匹配，如 "rove" 命中 "rover"）
+  const pureBrandKeywords = getPureBrandKeywords(brandName)
+  if (pureBrandKeywords.length > 0 && containsPureBrand(normalized, pureBrandKeywords)) {
     terms.push(brand)
   }
 

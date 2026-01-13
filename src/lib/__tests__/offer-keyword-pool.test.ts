@@ -422,6 +422,23 @@ describe('OfferKeywordPool', () => {
       expect(containsPureBrand('eufy security camera', pureBrandKeywords)).toBe(true)
     })
 
+    it('should avoid substring false positives (rove vs rover)', () => {
+      const pureBrandKeywords = ['rove']
+      expect(containsPureBrand('rove', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('roves', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('rover', pureBrandKeywords)).toBe(false)
+      expect(containsPureBrand('range rover', pureBrandKeywords)).toBe(false)
+      expect(containsPureBrand('landrover defender', pureBrandKeywords)).toBe(false)
+      expect(containsPureBrand('rangerover', pureBrandKeywords)).toBe(false)
+    })
+
+    it('should allow common concatenations (brand + product/model)', () => {
+      const pureBrandKeywords = ['eufy']
+      expect(containsPureBrand('eufycam', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('eufycam2', pureBrandKeywords)).toBe(true)
+      expect(containsPureBrand('eufy2', pureBrandKeywords)).toBe(true)
+    })
+
     it('should return false for non-brand keywords', () => {
       const pureBrandKeywords = ['eufy']
       expect(containsPureBrand('security camera', pureBrandKeywords)).toBe(false)

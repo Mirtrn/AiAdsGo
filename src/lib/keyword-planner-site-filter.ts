@@ -19,7 +19,14 @@ export function getKeywordPlannerSiteFilterUrl(inputUrl: string | undefined | nu
   if (!inputUrl) return undefined
 
   try {
-    const url = new URL(inputUrl)
+    const trimmed = inputUrl.trim()
+    const candidate = /^https?:\/\//i.test(trimmed)
+      ? trimmed
+      : trimmed.startsWith('//')
+        ? `https:${trimmed}`
+        : `https://${trimmed}`
+
+    const url = new URL(candidate)
     const hostname = url.hostname.toLowerCase()
 
     if (MARKETPLACE_HOST_PATTERNS.some(re => re.test(hostname))) {
@@ -55,7 +62,10 @@ export function getKeywordPlannerSiteFilterUrlForOffer(offer: {
 
   const meta = safeParseJsonObject(offer?.extraction_metadata)
   const origin = typeof meta?.brandOfficialSite?.origin === 'string' ? meta.brandOfficialSite.origin.trim() : ''
-  if (origin) return getKeywordPlannerSiteFilterUrl(origin) || origin
+  if (origin) {
+    const parsed = getKeywordPlannerSiteFilterUrl(origin)
+    if (parsed) return parsed
+  }
 
   const officialUrl = typeof meta?.brandSearchSupplement?.officialSite?.url === 'string'
     ? meta.brandSearchSupplement.officialSite.url.trim()
