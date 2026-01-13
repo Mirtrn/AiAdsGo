@@ -436,6 +436,9 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState<string | null>(null)
   const [deletingAIConfig, setDeletingAIConfig] = useState(false)
+  const [aiDeleteConfirmTarget, setAiDeleteConfirmTarget] = useState<
+    'vertex' | 'gemini-official' | 'gemini-relay' | null
+  >(null)
 
   // 表单状态
   const [formData, setFormData] = useState<Record<string, Record<string, string>>>({})
@@ -1222,7 +1225,7 @@ export default function SettingsPage() {
     return Boolean(getBackendValue('gemini_api_key'))
   })()
 
-  const deleteCurrentAIConfig = async () => {
+  const requestDeleteCurrentAIConfig = () => {
     const target = getAIConfigDeleteTarget()
 
     if (!hasAIConfigToDelete) {
@@ -1230,6 +1233,10 @@ export default function SettingsPage() {
       return
     }
 
+    setAiDeleteConfirmTarget(target)
+  }
+
+  const deleteCurrentAIConfigNow = async (target: 'vertex' | 'gemini-official' | 'gemini-relay') => {
     const targetLabel = (() => {
       switch (target) {
         case 'vertex':
@@ -1240,9 +1247,6 @@ export default function SettingsPage() {
           return 'Gemini 官方'
       }
     })()
-
-    const confirmed = window.confirm(`确认删除「${targetLabel}」的配置吗？此操作会清空数据库中该模式对应的用户配置。`)
-    if (!confirmed) return
 
     setDeletingAIConfig(true)
     try {
@@ -1266,6 +1270,7 @@ export default function SettingsPage() {
       toast.success(`已删除「${targetLabel}」配置`)
       await fetchSettings()
       setEditingField(null)
+      setAiDeleteConfirmTarget(null)
     } catch (err: any) {
       toast.error(err.message || '删除失败')
     } finally {
@@ -1649,6 +1654,45 @@ export default function SettingsPage() {
                       deletingServiceAccountId === deleteConfirmState.serviceAccountId
                       ? '删除中...'
                       : '确认删除')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* AI 引擎删除配置：二次确认弹窗 */}
+        <AlertDialog
+          open={aiDeleteConfirmTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setAiDeleteConfirmTarget(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>确认删除 AI 配置？</AlertDialogTitle>
+              <AlertDialogDescription>
+                {aiDeleteConfirmTarget === 'vertex' && (
+                  <>将清空 Vertex AI 配置（GCP项目ID / 区域 / Service Account JSON）。删除后需要重新填写才能继续使用 Vertex AI。</>
+                )}
+                {aiDeleteConfirmTarget === 'gemini-official' && (
+                  <>将清空 Gemini 官方 API Key。删除后需要重新填写才能继续使用官方服务。</>
+                )}
+                {aiDeleteConfirmTarget === 'gemini-relay' && (
+                  <>将清空 Gemini 第三方中转 API Key。删除后需要重新填写才能继续使用中转服务。</>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deletingAIConfig}>取消</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deletingAIConfig || !aiDeleteConfirmTarget}
+                onClick={async (e) => {
+                  e.preventDefault()
+                  if (!aiDeleteConfirmTarget) return
+                  await deleteCurrentAIConfigNow(aiDeleteConfirmTarget)
+                }}
+              >
+                {deletingAIConfig ? '删除中...' : '确认删除'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -2643,7 +2687,7 @@ export default function SettingsPage() {
                       <Button
                         type="button"
                         variant="destructive"
-                        onClick={deleteCurrentAIConfig}
+                        onClick={requestDeleteCurrentAIConfig}
                         disabled={deletingAIConfig || !hasAIConfigToDelete}
                       >
                         {deletingAIConfig ? '删除中...' : '删除配置'}
