@@ -7,6 +7,7 @@ import { getInsertedId } from '@/lib/db-helpers'
 import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
 import { toNumber } from '@/lib/utils'
+import { extractCustomerIdFromResourceName } from '@/lib/google-ads-resource-name'
 
 // 该接口返回用户私有数据（账号列表/关联Offer），必须禁用任何层面的静态缓存
 export const dynamic = 'force-dynamic'
@@ -958,6 +959,7 @@ async function syncAccountsFromAPI(
         try {
           const budgetQuery = `
             SELECT
+              account_budget.resource_name,
               account_budget.amount_served_micros,
               account_budget.approved_spending_limit_micros,
               account_budget.proposed_spending_limit_micros
@@ -969,16 +971,24 @@ async function syncAccountsFromAPI(
           // 🔧 修复(2025-12-26): 服务账号模式使用 executeGAQLQueryPython，而不是错误的 customer.search()
           const { executeGAQLQueryPython } = await import('@/lib/python-ads-client')
           const budgetResult = isServiceAccount
-            ? await executeGAQLQueryPython({ userId, serviceAccountId: undefined, customerId, query: budgetQuery })
+            ? await executeGAQLQueryPython({ userId, serviceAccountId: serviceAccountConfig.id.toString(), customerId, query: budgetQuery })
             : await customer.query(budgetQuery)
           const budgetInfo = extractSearchResults(budgetResult)
           if (budgetInfo && budgetInfo.length > 0) {
             const budget = budgetInfo[0].account_budget
+            const budgetResourceName = budget?.resource_name || budget?.resourceName
+            const budgetOwnerCustomerId = extractCustomerIdFromResourceName(budgetResourceName)
+            if (budgetOwnerCustomerId && budgetOwnerCustomerId !== String(customerId)) {
+              // 在“Paying manager / consolidated billing”场景下，子账户可能会返回付款管理账号的预算。
+              // 这种预算不应被展示为“每个子账户的余额”，否则会出现多个账号显示同一个余额的误导。
+              console.log(`   ⚠️ ${customerId} 预算归属不匹配，已跳过余额计算 (budgetOwner=${budgetOwnerCustomerId})`)
+            } else {
             const amountServed = Number(budget?.amount_served_micros || 0)
             const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
             // 余额 = 预算 - 已使用
             accountBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
             console.log(`   💰 ${customerId} 余额: ${accountBalance ? parseFloat((accountBalance / 1000000).toFixed(2)) : 'N/A'}`)
+            }
           }
         } catch (budgetError) {
           console.log(`   ⚠️ ${customerId} 无法获取预算信息（可能账户无预算设置）`)
@@ -1120,6 +1130,7 @@ async function syncAccountsFromAPI(
                   try {
                     const childBudgetQuery = `
                       SELECT
+                        account_budget.resource_name,
                         account_budget.amount_served_micros,
                         account_budget.approved_spending_limit_micros,
                         account_budget.proposed_spending_limit_micros
@@ -1148,10 +1159,16 @@ async function syncAccountsFromAPI(
 
                     if (childBudgetInfo && childBudgetInfo.length > 0) {
                       const budget = childBudgetInfo[0].account_budget
-                      const amountServed = Number(budget?.amount_served_micros || 0)
-                      const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
-                      childBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
-                      console.log(`      💰 ${childId} 余额: ${childBalance ? parseFloat((childBalance / 1000000).toFixed(2)) : 'N/A'}`)
+                      const budgetResourceName = budget?.resource_name || budget?.resourceName
+                      const budgetOwnerCustomerId = extractCustomerIdFromResourceName(budgetResourceName)
+                      if (budgetOwnerCustomerId && budgetOwnerCustomerId !== String(childId)) {
+                        console.log(`      ⚠️ ${childId} 预算归属不匹配，已跳过余额计算 (budgetOwner=${budgetOwnerCustomerId})`)
+                      } else {
+                        const amountServed = Number(budget?.amount_served_micros || 0)
+                        const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
+                        childBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
+                        console.log(`      💰 ${childId} 余额: ${childBalance ? parseFloat((childBalance / 1000000).toFixed(2)) : 'N/A'}`)
+                      }
                     }
                   } catch (budgetError: any) {
                     // 🔧 修复(2025-12-26): 减少日志噪音，账户状态异常时不需要警告
