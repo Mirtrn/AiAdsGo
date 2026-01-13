@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
         gaa.id, gaa.is_active, gaa.is_deleted,
         o.brand, o.url, o.is_deleted
       ORDER BY c.created_at DESC
-    `, [userId, startDateStr, endDate, userId]) as any[]
+    `, [startDateStr, endDate, userId]) as any[]
 
     // 4. Format response
     const formattedCampaigns = campaigns.map(c => {
