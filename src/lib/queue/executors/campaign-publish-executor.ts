@@ -766,7 +766,7 @@ export async function executeCampaignPublish(
       `UPDATE campaigns
        SET google_campaign_id = ?, google_ad_group_id = ?, google_ad_id = ?,
            status = ?, creation_status = ?, creation_error = ?,
-           published_at = COALESCE(published_at, CURRENT_TIMESTAMP),
+           published_at = COALESCE(NULLIF(published_at, ''), CAST(CURRENT_TIMESTAMP AS TEXT)),
            last_sync_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [googleCampaignId, googleAdGroupId, googleAdId, finalCampaignStatus, finalCreationStatus, finalCreationError, campaignId]
