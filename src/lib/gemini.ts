@@ -81,19 +81,29 @@ async function isVertexAIConfigured(userId: number): Promise<boolean> {
     const { getSetting } = await import('./settings')
     const providerSetting = await getSetting('ai', 'gemini_provider', userId)
 
+    // Vertex AI 是否启用：优先使用 use_vertex_ai（设置页的AI模式开关），并兼容旧的 gemini_provider=vertex
+    const useVertexAISetting = await getUserOnlySetting('ai', 'use_vertex_ai', userId)
+    const useVertexAIValue = useVertexAISetting?.value
+    const isVertexAIModeEnabled = (
+      useVertexAIValue === 'true' ||
+      useVertexAIValue === '1' ||
+      providerSetting?.value === 'vertex'
+    )
+
     // 检查 GCP 配置
     const gcpProjectId = await getUserOnlySetting('ai', 'gcp_project_id', userId)
     const gcpServiceAccountJson = await getUserOnlySetting('ai', 'gcp_service_account_json', userId)
 
     // 调试日志
     console.log(`🔍 Vertex AI配置检查 (用户ID: ${userId}):`)
+    console.log(`   use_vertex_ai: ${useVertexAISetting?.value ?? '未配置'}`)
     console.log(`   gemini_provider: ${providerSetting?.value || 'official'}`)
     console.log(`   gcp_project_id: ${gcpProjectId?.value ? '已配置' : '未配置'}`)
     console.log(`   gcp_service_account_json: ${gcpServiceAccountJson?.value ? '已配置' : '未配置'}`)
 
-    // 必须是 vertex provider 且配置了项目ID和Service Account
+    // Vertex AI 模式启用 且 配置了项目ID和Service Account
     const isConfigured = (
-      providerSetting?.value === 'vertex' &&
+      isVertexAIModeEnabled &&
       !!gcpProjectId?.value &&
       !!gcpServiceAccountJson?.value
     )
