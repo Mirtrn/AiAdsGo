@@ -7,7 +7,7 @@ export interface BrandOfficialSite {
   origin: string
   query: string
   resolvedAt: string
-  source: 'google_serp' | 'cached'
+  source: 'google_serp' | 'cached' | 'heuristic'
 }
 
 function safeParseJsonObject(value: string | null | undefined): Record<string, any> | null {
@@ -105,17 +105,171 @@ function buildBrandOfficialSiteQuery(params: {
   const brand = params.brand.trim()
   const brandTokens = new Set(normalizeTokens(brand))
 
-  const hintSource = (params.category && params.category.trim())
-    ? params.category
-    : (params.productName && params.productName.trim())
-      ? params.productName
-      : ''
-
-  const hintTokens = normalizeTokens(hintSource).filter(t => !brandTokens.has(t))
+  // Combine category + productName (productName gets higher weight) to reduce ambiguity.
+  // Example: "Rove" + "On-Dash Cameras" + "Dash Cam" => query should include "dash cam".
+  const hintTokens = [
+    ...normalizeTokens(params.productName || ''),
+    ...normalizeTokens(params.category || ''),
+  ].filter(t => !brandTokens.has(t))
   const hint = hintTokens.slice(0, 4).join(' ')
 
   // Prefer "brand + category" to reduce ambiguity; fall back to brand-only if no usable hint.
   return hint ? `${brand} ${hint}` : brand
+}
+
+function normalizeDomainLabel(input: string): string {
+  return (input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .trim()
+}
+
+function buildOfficialSiteHeuristicCandidates(params: {
+  brand: string
+  category?: string | null
+  productName?: string | null
+}): Array<{ url: string; scoreHint: number; queryHint: string }> {
+  const brandLabel = normalizeDomainLabel(params.brand)
+  if (!brandLabel) return []
+
+  const tokens = [
+    ...normalizeTokens(params.productName || ''),
+    ...normalizeTokens(params.category || ''),
+  ]
+
+  const tokenSet = new Set(tokens)
+  const hints: string[] = []
+
+  // Special-case common compound terms.
+  if ((tokenSet.has('dash') && (tokenSet.has('cam') || tokenSet.has('camera'))) || tokenSet.has('dashcam')) {
+    hints.push('dashcam')
+  }
+
+  // Fall back to a small allowlist of high-signal product words.
+  const allow = [
+    'dashcam', 'camera', 'vacuum', 'robot', 'cleaner', 'security', 'doorbell',
+    'headlights', 'led', 'charger', 'tracker', 'sensor', 'monitor',
+  ]
+  for (const t of tokens) {
+    if (allow.includes(t)) hints.push(t)
+  }
+
+  const uniqHints = Array.from(new Set(hints)).slice(0, 4)
+  const out: Array<{ url: string; scoreHint: number; queryHint: string }> = []
+
+  for (const hint of uniqHints) {
+    const domain = `${brandLabel}${hint}.com`
+    out.push({
+      url: `https://www.${domain}/`,
+      scoreHint: 10,
+      queryHint: `${params.brand} ${hint}`,
+    })
+    out.push({
+      url: `https://${domain}/`,
+      scoreHint: 9,
+      queryHint: `${params.brand} ${hint}`,
+    })
+  }
+
+  // Also try the bare brand domain as a last resort.
+  const brandDomain = `${brandLabel}.com`
+  out.push({ url: `https://www.${brandDomain}/`, scoreHint: 3, queryHint: params.brand })
+  out.push({ url: `https://${brandDomain}/`, scoreHint: 2, queryHint: params.brand })
+
+  return out
+}
+
+async function readTextUpTo(response: Response, maxBytes: number): Promise<string> {
+  try {
+    const body = response.body
+    if (!body) return ''
+
+    const reader = body.getReader()
+    const chunks: Uint8Array[] = []
+    let received = 0
+
+    while (received < maxBytes) {
+      const { done, value } = await reader.read()
+      if (done || !value) break
+      chunks.push(value)
+      received += value.byteLength
+      if (received >= maxBytes) break
+    }
+
+    reader.releaseLock()
+    const all = Buffer.concat(chunks.map(u => Buffer.from(u)))
+    return all.toString('utf8')
+  } catch {
+    return ''
+  }
+}
+
+async function tryResolveOfficialSiteByHeuristic(params: {
+  brand: string
+  category?: string | null
+  productName?: string | null
+}): Promise<{ url: string; origin: string; queryHint: string } | null> {
+  const candidates = buildOfficialSiteHeuristicCandidates(params)
+  if (candidates.length === 0) return null
+
+  const brandKey = normalizeDomainLabel(params.brand)
+  const contextTokens = new Set([
+    ...normalizeTokens(params.productName || ''),
+    ...normalizeTokens(params.category || ''),
+  ])
+  contextTokens.delete(brandKey)
+
+  for (const candidate of candidates) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    try {
+      const res = await fetch(candidate.url, {
+        method: 'GET',
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: {
+          // Best-effort: hint server to return small HTML
+          'user-agent': 'Mozilla/5.0 (compatible; AutoAdsBot/1.0)',
+          'accept': 'text/html,application/xhtml+xml',
+          'range': 'bytes=0-65535',
+        },
+      })
+
+      if (!res.ok || res.status >= 400) continue
+
+      const finalUrl = res.url || candidate.url
+      let origin: string
+      try {
+        origin = new URL(finalUrl).origin
+      } catch {
+        continue
+      }
+
+      const contentType = (res.headers.get('content-type') || '').toLowerCase()
+      if (contentType && !contentType.includes('text/html')) {
+        continue
+      }
+
+      const html = (await readTextUpTo(res, 96 * 1024)).toLowerCase()
+      if (!html) continue
+
+      // Strict validation to reduce false positives:
+      // - Must mention the brand
+      // - Must mention at least one context token (e.g. "dash", "camera", "vacuum")
+      if (brandKey && !html.includes(brandKey)) continue
+
+      const hasContext = Array.from(contextTokens).some(t => t && html.includes(t))
+      if (!hasContext) continue
+
+      return { url: finalUrl, origin, queryHint: candidate.queryHint }
+    } catch {
+      // continue
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  return null
 }
 
 export async function ensureOfferBrandOfficialSite(params: {
@@ -144,7 +298,6 @@ export async function ensureOfferBrandOfficialSite(params: {
   if (!needForMarketplace) return null
 
   const proxyApiUrl = await getProxyUrlForCountry(params.targetCountry, params.userId)
-  if (!proxyApiUrl) return null
 
   const query = buildBrandOfficialSiteQuery({
     brand: params.brand,
@@ -152,23 +305,64 @@ export async function ensureOfferBrandOfficialSite(params: {
     productName: params.productName,
   })
 
-  const supplement = await fetchBrandSearchSupplement({
-    brandName: params.brand,
-    query,
-    targetCountry: params.targetCountry,
-    proxyApiUrl,
-    maxProxyRetries: 1,
-  })
+  let officialUrl: string | undefined
+  let origin: string | undefined
+  let resolvedQuery: string = query
+  let supplement: Awaited<ReturnType<typeof fetchBrandSearchSupplement>> | null = null
+  let source: BrandOfficialSite['source'] = 'google_serp'
 
-  const officialUrl = supplement?.officialSite?.url?.trim()
-  if (!officialUrl) return null
+  // Preferred path: Google SERP via proxy (best-effort).
+  if (proxyApiUrl) {
+    supplement = await fetchBrandSearchSupplement({
+      brandName: params.brand,
+      query,
+      targetCountry: params.targetCountry,
+      proxyApiUrl,
+      maxProxyRetries: 1,
+    })
 
-  let origin: string
-  try {
-    origin = new URL(officialUrl).origin
-  } catch {
-    return null
+    officialUrl = supplement?.officialSite?.url?.trim()
+    if (supplement?.query) resolvedQuery = supplement.query
+    if (officialUrl) {
+      try {
+        origin = new URL(officialUrl).origin
+      } catch {
+        officialUrl = undefined
+      }
+    }
+
+    if (!officialUrl || !origin) {
+      // Fall back to heuristic when SERP didn't yield an official site.
+      const guess = await tryResolveOfficialSiteByHeuristic({
+        brand: params.brand,
+        category: params.category,
+        productName: params.productName,
+      })
+      if (guess?.origin) {
+        officialUrl = guess.url
+        origin = guess.origin
+        resolvedQuery = guess.queryHint || resolvedQuery
+        source = 'heuristic'
+      }
+    }
+  } else {
+    // If proxy isn't configured, try heuristic resolution instead of giving up.
+    const guess = await tryResolveOfficialSiteByHeuristic({
+      brand: params.brand,
+      category: params.category,
+      productName: params.productName,
+    })
+    if (guess?.origin) {
+      officialUrl = guess.url
+      origin = guess.origin
+      resolvedQuery = guess.queryHint || resolvedQuery
+      source = 'heuristic'
+    } else {
+      return null
+    }
   }
+
+  if (!officialUrl || !origin) return null
 
   const existing = safeParseJsonObject(params.extractionMetadata) || {}
   const resolvedAt = new Date().toISOString()
@@ -176,22 +370,31 @@ export async function ensureOfferBrandOfficialSite(params: {
   const brandOfficialSite: BrandOfficialSite = {
     url: officialUrl,
     origin,
-    query: supplement?.query || query,
+    query: resolvedQuery,
     resolvedAt,
-    source: 'google_serp',
+    source,
   }
 
-  const minimizedSupplement = {
-    query: supplement?.query || query,
-    targetCountry: params.targetCountry,
-    searchedAt: supplement?.searchedAt || resolvedAt,
-    officialSite: supplement?.officialSite || { url: officialUrl },
-  }
+  const minimizedSupplement = supplement
+    ? {
+        query: supplement?.query || resolvedQuery,
+        targetCountry: params.targetCountry,
+        searchedAt: supplement?.searchedAt || resolvedAt,
+        officialSite: supplement?.officialSite || { url: officialUrl },
+      }
+    : null
 
   const merged = {
     ...existing,
     brandOfficialSite,
-    brandSearchSupplement: minimizedSupplement,
+    // Keep backward compatibility: store an "officialSite" entry even when resolved heuristically.
+    brandSearchSupplement: minimizedSupplement ||
+      existing.brandSearchSupplement || {
+        query: resolvedQuery,
+        targetCountry: params.targetCountry,
+        searchedAt: resolvedAt,
+        officialSite: { url: officialUrl },
+      },
   }
 
   const mergedString = JSON.stringify(merged)
@@ -199,4 +402,3 @@ export async function ensureOfferBrandOfficialSite(params: {
 
   return brandOfficialSite
 }
-

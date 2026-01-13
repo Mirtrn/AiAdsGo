@@ -2186,10 +2186,14 @@ export async function generateOfferKeywordPool(
   const qualityFiltered = filterKeywordQuality(filteredKeywords, {
     brandName: offer.brand,
     category: offer.category || undefined,
+    productName: offer.product_name || undefined,
     targetCountry: offer.target_country || undefined,
     targetLanguage: offer.target_language || undefined,
+    productUrl: offer.final_url || offer.url || undefined,
     minWordCount: 1,
     maxWordCount: 8,
+    // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
+    minContextTokenMatches: 1,
   })
 
   // 生成过滤报告

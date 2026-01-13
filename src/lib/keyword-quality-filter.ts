@@ -771,6 +771,7 @@ export function calculateSearchVolumeThreshold(
 export interface KeywordQualityFilterOptions {
   brandName: string
   category?: string
+  productName?: string
   targetCountry?: string
   targetLanguage?: string
   minWordCount?: number  // 最少单词数
@@ -781,6 +782,92 @@ export interface KeywordQualityFilterOptions {
    * @default true
    */
   mustContainBrand?: boolean
+  /**
+   * 与商品/品类相关性过滤（防歧义品牌误入无关主题）
+   * - 当品牌词有歧义（如 "Rove"）时，Keyword Planner 可能返回包含品牌但主题无关的关键词（如 rove beetle, rove concept）。
+   * - 启用后：除“纯品牌词”/“型号词”外，关键词必须命中至少 N 个来自 category/productName 的 token 才保留。
+   *
+   * @default 0 (关闭)
+   */
+  minContextTokenMatches?: number
+}
+
+function normalizeRelevanceTokens(input: string): string[] {
+  const normalized = (input || '').toLowerCase().normalize('NFKC')
+  const rawTokens = normalized
+    .split(/[^\p{L}\p{N}]+/u)
+    .map(t => t.trim())
+    .filter(Boolean)
+
+  const stop = new Set([
+    'the', 'a', 'an', 'and', 'or', 'for', 'with', 'to', 'of', 'in', 'on', 'by',
+    'official', 'store', 'shop', 'website', 'site', 'online',
+  ])
+
+  return Array.from(
+    new Set(
+      rawTokens
+        .filter(t => t.length >= 2) // keep short but meaningful tokens like "4k", "5g"
+        .filter(t => !stop.has(t))
+    )
+  )
+}
+
+function hasModelLikeToken(keywordTokens: string[]): boolean {
+  for (const token of keywordTokens) {
+    if (!token) continue
+
+    // Exclude pure years (e.g. 2024)
+    if (/^\d{4}$/.test(token)) {
+      const year = Number(token)
+      if (year >= 1990 && year <= 2100) continue
+    }
+
+    // alpha-numeric mix (e.g. r2, r2-4k -> r2 + 4k)
+    if (/[a-z]/i.test(token) && /\d/.test(token)) return true
+
+    // numeric + unit letters (e.g. 2160p, 4k, 5g)
+    if (/^\d{1,5}[a-z]{1,2}$/i.test(token)) return true
+  }
+  return false
+}
+
+function isRelevantToOfferContext(params: {
+  keyword: string
+  pureBrandKeywords: string[]
+  category?: string
+  productName?: string
+  minContextTokenMatches: number
+}): { ok: boolean; reason?: string } {
+  const { keyword, pureBrandKeywords, category, productName, minContextTokenMatches } = params
+
+  if (minContextTokenMatches <= 0) return { ok: true }
+
+  // Pure brand keywords are always allowed (used for brand campaigns / navigation intent).
+  if (isPureBrandKeyword(keyword, pureBrandKeywords)) return { ok: true }
+
+  const keywordTokens = normalizeRelevanceTokens(keyword)
+  if (hasModelLikeToken(keywordTokens)) return { ok: true }
+
+  const contextTokens = [
+    ...normalizeRelevanceTokens(category || ''),
+    ...normalizeRelevanceTokens(productName || ''),
+  ]
+
+  // Remove brand tokens from context to avoid tautology ("rove ..." always matches).
+  const brandTokens = new Set(
+    pureBrandKeywords.flatMap(b => normalizeRelevanceTokens(b))
+  )
+  const usableContext = Array.from(new Set(contextTokens)).filter(t => !brandTokens.has(t))
+
+  // If we don't have enough context to judge, don't filter to avoid false positives.
+  if (usableContext.length < 3) return { ok: true }
+
+  const contextSet = new Set(usableContext)
+  const matchCount = keywordTokens.reduce((acc, t) => acc + (contextSet.has(t) ? 1 : 0), 0)
+
+  if (matchCount >= minContextTokenMatches) return { ok: true }
+  return { ok: false, reason: `与商品无关: "${keyword}" (未命中品类/商品token)` }
 }
 
 /**
@@ -800,10 +887,12 @@ export function filterKeywordQuality(
   const {
     brandName,
     category,
+    productName,
     minWordCount = 1,
     maxWordCount = 8,
     mustContainBrand = true,
     productUrl,  // 🔥 新增：用于平台冲突检测
+    minContextTokenMatches = 0,
   } = options
 
   const pureBrandKeywords = getPureBrandKeywords(brandName)
@@ -856,6 +945,19 @@ export function filterKeywordQuality(
     // 6. 检查单词数
     else if (wordCount < minWordCount || wordCount > maxWordCount) {
       removeReason = `单词数不匹配: ${wordCount} (范围: ${minWordCount}-${maxWordCount})`
+    }
+    // 7. 与商品/品类相关性过滤（可选，避免歧义品牌误入无关主题）
+    else {
+      const relevance = isRelevantToOfferContext({
+        keyword,
+        pureBrandKeywords,
+        category,
+        productName,
+        minContextTokenMatches,
+      })
+      if (!relevance.ok) {
+        removeReason = relevance.reason || `与商品无关: "${keyword}"`
+      }
     }
 
     if (removeReason) {

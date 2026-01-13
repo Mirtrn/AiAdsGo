@@ -11,7 +11,7 @@ import type { PoolKeywordData } from './offer-keyword-pool'
 import { expandKeywordsWithSeeds } from './unified-keyword-service'
 import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
-import { getKeywordPlannerSiteFilterUrlForOffer } from './keyword-planner-site-filter'
+import { getKeywordPlannerUrlSeedForOffer } from './keyword-planner-site-filter'
 import {
   detectCountryInKeyword,
   filterLowIntentKeywords,
@@ -102,7 +102,7 @@ export async function expandAllKeywords(
       category,
       targetCountry,
       targetLanguage,
-      pageUrl: offer ? getKeywordPlannerSiteFilterUrlForOffer(offer) : undefined,
+      pageUrl: offer ? getKeywordPlannerUrlSeedForOffer(offer, { allowMarketplaceProductUrl: true }) : undefined,
       userId,
       customerId,
       refreshToken,

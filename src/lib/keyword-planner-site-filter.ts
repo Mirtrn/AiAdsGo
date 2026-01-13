@@ -15,21 +15,26 @@ const MARKETPLACE_HOST_PATTERNS: RegExp[] = [
   /(^|\.)etsy\./i,
 ]
 
+function isMarketplaceHostname(hostname: string): boolean {
+  const h = (hostname || '').toLowerCase()
+  return MARKETPLACE_HOST_PATTERNS.some(re => re.test(h))
+}
+
+function normalizeUrlCandidate(inputUrl: string): string {
+  const trimmed = inputUrl.trim()
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  if (trimmed.startsWith('//')) return `https:${trimmed}`
+  return `https://${trimmed}`
+}
+
 export function getKeywordPlannerSiteFilterUrl(inputUrl: string | undefined | null): string | undefined {
   if (!inputUrl) return undefined
 
   try {
-    const trimmed = inputUrl.trim()
-    const candidate = /^https?:\/\//i.test(trimmed)
-      ? trimmed
-      : trimmed.startsWith('//')
-        ? `https:${trimmed}`
-        : `https://${trimmed}`
-
-    const url = new URL(candidate)
+    const url = new URL(normalizeUrlCandidate(inputUrl))
     const hostname = url.hostname.toLowerCase()
 
-    if (MARKETPLACE_HOST_PATTERNS.some(re => re.test(hostname))) {
+    if (isMarketplaceHostname(hostname)) {
       return undefined
     }
 
@@ -73,4 +78,41 @@ export function getKeywordPlannerSiteFilterUrlForOffer(offer: {
   if (officialUrl) return getKeywordPlannerSiteFilterUrl(officialUrl)
 
   return undefined
+}
+
+/**
+ * Get a URL seed for Keyword Planner to filter unrelated keywords.
+ *
+ * Preferred:
+ * - Non-marketplace origin (scheme + host)
+ * - Brand official site origin (from extraction_metadata)
+ *
+ * Fallback (optional):
+ * - Marketplace product page URL (full URL) when no official site is available.
+ *
+ * This helps disambiguate short/ambiguous brands (e.g. "Rove") to reduce unrelated ideas.
+ */
+export function getKeywordPlannerUrlSeedForOffer(
+  offer: {
+    final_url?: string | null
+    url?: string | null
+    extraction_metadata?: string | null
+  },
+  options?: { allowMarketplaceProductUrl?: boolean }
+): string | undefined {
+  const site = getKeywordPlannerSiteFilterUrlForOffer(offer)
+  if (site) return site
+
+  if (!options?.allowMarketplaceProductUrl) return undefined
+
+  const raw = offer?.final_url || offer?.url
+  if (!raw) return undefined
+
+  try {
+    const url = new URL(normalizeUrlCandidate(raw))
+    if (!isMarketplaceHostname(url.hostname)) return undefined
+    return url.toString()
+  } catch {
+    return undefined
+  }
 }
