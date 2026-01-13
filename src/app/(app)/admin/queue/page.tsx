@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Activity, Users, Clock, CheckCircle, XCircle, RefreshCw, Settings, Save, AlertCircle, ChevronLeft, ChevronRight, ArrowUp, ArrowUpDown, ArrowDown, Cpu, HardDrive, Network } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -319,8 +318,13 @@ export default function QueueManagementPage() {
       storageType: 'redis'
     }
   })
+  const configRef = useRef(config)
+  useEffect(() => {
+    configRef.current = config
+  }, [config])
   const [savingConfig, setSavingConfig] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const statsInFlight = useRef(false)
 
   const [hostMetrics, setHostMetrics] = useState<HostMetricsSnapshot | null>(null)
   const [hostMetricsHistory, setHostMetricsHistory] = useState<HostMetricsHistoryPoint[]>([])
@@ -368,8 +372,18 @@ export default function QueueManagementPage() {
     }
   }
 
-  const fetchStats = async (showSuccessToast = false) => {
-    setRefreshing(true)
+  const fetchStats = useCallback(async (options?: {
+    showSuccessToast?: boolean
+    showRefreshing?: boolean
+    syncConfig?: boolean
+  }) => {
+    if (statsInFlight.current) return
+    statsInFlight.current = true
+    const showSuccessToast = options?.showSuccessToast ?? false
+    const showRefreshing = options?.showRefreshing ?? true
+    const syncConfig = options?.syncConfig ?? true
+
+    if (showRefreshing) setRefreshing(true)
     try {
       const result = await fetchWithRetry('/api/queue/stats', undefined, {
         maxRetries: 2,
@@ -406,8 +420,8 @@ export default function QueueManagementPage() {
           // config先使用API返回的值，如果没有则等待/config API
           config: {
             // 使用API返回的配置，如果没有则使用占位符（后续会被/config API更新）
-            globalConcurrency: data.data?.config?.globalConcurrency || data.stats?.config?.globalConcurrency || config.globalConcurrency,
-            perUserConcurrency: data.data?.config?.perUserConcurrency || data.stats?.config?.perUserConcurrency || config.perUserConcurrency,
+            globalConcurrency: data.data?.config?.globalConcurrency || data.stats?.config?.globalConcurrency || configRef.current.globalConcurrency,
+            perUserConcurrency: data.data?.config?.perUserConcurrency || data.stats?.config?.perUserConcurrency || configRef.current.perUserConcurrency,
             maxQueueSize: data.data?.config?.maxQueueSize || data.stats?.config?.maxQueueSize || 1000,
             taskTimeout: data.data?.config?.taskTimeout || data.stats?.config?.taskTimeout || 60000,
             enablePriority: data.data?.config?.enablePriority ?? data.stats?.config?.enablePriority ?? true,
@@ -434,30 +448,32 @@ export default function QueueManagementPage() {
           toast.success(`队列数据已更新：运行 ${adaptedStats.global.running}，排队 ${adaptedStats.global.queued}`)
         }
 
-        // 🔥 修复：从 /api/queue/config 获取配置，而不是用硬编码默认值
-        // stats API 不返回 perTypeConcurrency，需要单独获取
-        try {
-          const configResult = await fetchWithRetry('/api/queue/config')
-          if (configResult.success && configResult.data?.config) {
-            const dbConfig = configResult.data.config
-            setConfig(prev => ({
-              ...prev,
-              globalConcurrency: dbConfig.globalConcurrency ?? prev.globalConcurrency,
-              perUserConcurrency: dbConfig.perUserConcurrency ?? prev.perUserConcurrency,
-              perTypeConcurrency: {
-                ...prev.perTypeConcurrency,
-                ...(dbConfig.perTypeConcurrency || {}),
-              },
-              maxQueueSize: dbConfig.maxQueueSize ?? prev.maxQueueSize,
-              taskTimeout: dbConfig.taskTimeout ?? prev.taskTimeout,
-              enablePriority: dbConfig.enablePriority !== false,
-              defaultMaxRetries: dbConfig.defaultMaxRetries ?? prev.defaultMaxRetries,
-              retryDelay: dbConfig.retryDelay ?? prev.retryDelay,
-              storageType: dbConfig.storageType ?? prev.storageType,
-            }))
+        if (syncConfig) {
+          // 🔥 修复：从 /api/queue/config 获取配置，而不是用硬编码默认值
+          // stats API 不返回 perTypeConcurrency，需要单独获取
+          try {
+            const configResult = await fetchWithRetry('/api/queue/config')
+            if (configResult.success && configResult.data?.config) {
+              const dbConfig = configResult.data.config
+              setConfig(prev => ({
+                ...prev,
+                globalConcurrency: dbConfig.globalConcurrency ?? prev.globalConcurrency,
+                perUserConcurrency: dbConfig.perUserConcurrency ?? prev.perUserConcurrency,
+                perTypeConcurrency: {
+                  ...prev.perTypeConcurrency,
+                  ...(dbConfig.perTypeConcurrency || {}),
+                },
+                maxQueueSize: dbConfig.maxQueueSize ?? prev.maxQueueSize,
+                taskTimeout: dbConfig.taskTimeout ?? prev.taskTimeout,
+                enablePriority: dbConfig.enablePriority !== false,
+                defaultMaxRetries: dbConfig.defaultMaxRetries ?? prev.defaultMaxRetries,
+                retryDelay: dbConfig.retryDelay ?? prev.retryDelay,
+                storageType: dbConfig.storageType ?? prev.storageType,
+              }))
+            }
+          } catch (configError) {
+            console.warn('获取队列配置失败，使用默认值:', configError)
           }
-        } catch (configError) {
-          console.warn('获取队列配置失败，使用默认值:', configError)
         }
       } else {
         if (activeTab === 'monitor') {
@@ -470,10 +486,11 @@ export default function QueueManagementPage() {
         toast.error('获取队列统计时发生未知错误')
       }
     } finally {
+      statsInFlight.current = false
       setLoading(false)
-      setRefreshing(false)
+      if (showRefreshing) setRefreshing(false)
     }
-  }
+  }, [activeTab])
 
   // 排序处理函数
   const handleSort = (key: string) => {
@@ -575,8 +592,17 @@ export default function QueueManagementPage() {
   }
 
   useEffect(() => {
-    fetchStats()
-  }, [activeTab])
+    void fetchStats()
+  }, [fetchStats])
+
+  // 自动刷新队列监控数据：每30秒一次；离开页面/切换标签页自动清理定时器
+  useEffect(() => {
+    if (activeTab !== 'monitor') return
+    const interval = setInterval(() => {
+      void fetchStats({ showRefreshing: false, syncConfig: false })
+    }, 30_000)
+    return () => clearInterval(interval)
+  }, [activeTab, fetchStats])
 
   useEffect(() => {
     if (activeTab !== 'monitor') return
@@ -640,7 +666,7 @@ export default function QueueManagementPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                void fetchStats(true)
+                void fetchStats({ showSuccessToast: true })
                 void fetchHostMetrics(true)
               }}
               disabled={refreshing}
