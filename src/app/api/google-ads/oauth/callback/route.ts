@@ -90,6 +90,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const looksLikeOAuthClientSecret = (value: string) => /^GOCSPX[-_]?/i.test(value.trim())
+    if (developerToken.trim() === clientSecret.trim() || looksLikeOAuthClientSecret(developerToken)) {
+      return NextResponse.redirect(
+        createRedirectUrl('/settings?error=developer_token_invalid&category=google_ads')
+      )
+    }
+
     console.log(`🔐 OAuth回调: 用户 ${userId} 使用自己的OAuth配置`)
 
     const redirectUri = `${getBaseUrl()}/api/google-ads/oauth/callback`

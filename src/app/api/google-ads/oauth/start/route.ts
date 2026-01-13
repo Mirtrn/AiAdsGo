@@ -27,9 +27,27 @@ export async function GET(request: NextRequest) {
 
     console.log(`🔐 [OAuth Start] 用户ID: ${userId}`)
 
+    const looksLikeOAuthClientSecret = (value: string) => /^GOCSPX[-_]?/i.test(value.trim())
+    const summarizeSetting = (setting: any) => {
+      if (!setting) return null
+      const rawValue = typeof setting.value === 'string' ? setting.value : ''
+      const prefix = rawValue ? rawValue.slice(0, 6) : ''
+      return {
+        category: setting.category,
+        key: setting.key,
+        dataType: setting.dataType,
+        isSensitive: setting.isSensitive,
+        isRequired: setting.isRequired,
+        value:
+          setting.isSensitive
+            ? (rawValue ? `***redacted*** (len=${rawValue.length}, prefix=${prefix})` : '')
+            : rawValue,
+      }
+    }
+
     // 校验: login_customer_id 必须由用户自己配置（不使用 getSetting，避免回退到全局配置）
     const loginCustomerIdSetting = await getUserOnlySetting('google_ads', 'login_customer_id', userId)
-    console.log(`🔐 [OAuth Start] login_customer_id 查询结果:`, JSON.stringify(loginCustomerIdSetting))
+    console.log(`🔐 [OAuth Start] login_customer_id 查询结果:`, summarizeSetting(loginCustomerIdSetting))
 
     const userLoginCustomerId = loginCustomerIdSetting?.value || ''
     if (!userLoginCustomerId) {
@@ -45,9 +63,9 @@ export async function GET(request: NextRequest) {
     const userClientSecretSetting = await getUserOnlySetting('google_ads', 'client_secret', userId)
     const userDeveloperTokenSetting = await getUserOnlySetting('google_ads', 'developer_token', userId)
 
-    console.log(`🔐 [OAuth Start] client_id 查询结果:`, JSON.stringify(userClientIdSetting))
-    console.log(`🔐 [OAuth Start] client_secret 查询结果:`, JSON.stringify(userClientSecretSetting))
-    console.log(`🔐 [OAuth Start] developer_token 查询结果:`, JSON.stringify(userDeveloperTokenSetting))
+    console.log(`🔐 [OAuth Start] client_id 查询结果:`, summarizeSetting(userClientIdSetting))
+    console.log(`🔐 [OAuth Start] client_secret 查询结果:`, summarizeSetting(userClientSecretSetting))
+    console.log(`🔐 [OAuth Start] developer_token 查询结果:`, summarizeSetting(userDeveloperTokenSetting))
 
     const userClientId = userClientIdSetting?.value || ''
     const userClientSecret = userClientSecretSetting?.value || ''
@@ -57,6 +75,18 @@ export async function GET(request: NextRequest) {
     if (!userClientId || !userClientSecret || !userDeveloperToken) {
       return NextResponse.json(
         { error: '请先在设置页面完成 Google Ads API 配置（Client ID、Client Secret、Developer Token 都是必填项）' },
+        { status: 400 }
+      )
+    }
+
+    // 🧯 防误填：developer_token 被错误填写为 client_secret（常见前缀 GOCSPX-）
+    if (userDeveloperToken.trim() === userClientSecret.trim() || looksLikeOAuthClientSecret(userDeveloperToken)) {
+      return NextResponse.json(
+        {
+          error:
+            'Developer Token 配置看起来不正确（疑似误填为 OAuth Client Secret）。请在设置页面填写 Google Ads API Center 提供的 Developer Token 后重试。',
+          code: 'DEVELOPER_TOKEN_INVALID',
+        },
         { status: 400 }
       )
     }

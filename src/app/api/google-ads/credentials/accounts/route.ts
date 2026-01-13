@@ -8,6 +8,7 @@ import { trackApiUsage, ApiOperationType } from '@/lib/google-ads-api-tracker'
 import { decrypt } from '@/lib/crypto'
 import { toNumber } from '@/lib/utils'
 import { extractCustomerIdFromResourceName } from '@/lib/google-ads-resource-name'
+import { getUserOnlySetting } from '@/lib/settings'
 
 // 该接口返回用户私有数据（账号列表/关联Offer），必须禁用任何层面的静态缓存
 export const dynamic = 'force-dynamic'
@@ -44,6 +45,18 @@ const CustomerStatusMap: Record<number | string, string> = {
   'CANCELLED': 'CANCELED', // 兼容英式拼写
   'SUSPENDED': 'SUSPENDED',
   'CLOSED': 'CLOSED',
+}
+
+function looksLikeOAuthClientId(value: string): boolean {
+  return value.includes('.apps.googleusercontent.com')
+}
+
+function looksLikeOAuthClientSecret(value: string): boolean {
+  return /^GOCSPX[-_]?/i.test(value.trim())
+}
+
+function looksLikeOAuthAccessToken(value: string): boolean {
+  return /^ya29\./i.test(value.trim())
 }
 
 function parseStatus(status: any): string {
@@ -1394,6 +1407,67 @@ export async function GET(request: NextRequest) {
         error: '缺少 Login Customer ID (MCC账户ID)',
         message: '请先在设置页面配置 Login Customer ID，这是使用 Google Ads API 的必填项'
       }, { status: 400 })
+    }
+
+    // 🧯 快速失败：避免把明显误填的 developer_token 交给 gRPC（会产生误导性的 UNAUTHENTICATED）
+    const developerToken = String(credentials?.developer_token || '')
+    const clientSecret = String(credentials?.client_secret || '')
+    const developerTokenLooksWrong =
+      !developerToken ||
+      developerToken.trim() === clientSecret.trim() ||
+      looksLikeOAuthClientId(developerToken) ||
+      looksLikeOAuthClientSecret(developerToken) ||
+      looksLikeOAuthAccessToken(developerToken)
+
+    if (developerTokenLooksWrong) {
+      // 🆕 自愈：用户可能已经在设置里修正了 developer_token，但尚未重新授权（google_ads_credentials 仍是旧值）
+      if (authType === 'oauth') {
+        const settingDeveloperToken = (await getUserOnlySetting('google_ads', 'developer_token', userId))?.value || ''
+        const settingLooksOk =
+          !!settingDeveloperToken &&
+          settingDeveloperToken.trim() !== clientSecret.trim() &&
+          !looksLikeOAuthClientId(settingDeveloperToken) &&
+          !looksLikeOAuthClientSecret(settingDeveloperToken) &&
+          !looksLikeOAuthAccessToken(settingDeveloperToken) &&
+          settingDeveloperToken.length >= 20
+
+        if (settingLooksOk && settingDeveloperToken.trim() !== developerToken.trim()) {
+          console.warn(
+            '[Google Ads] 检测到凭证表 developer_token 可能误填，已自动使用设置中的 developer_token 并同步到凭证表（避免要求用户重新 OAuth 授权）'
+          )
+          credentials.developer_token = settingDeveloperToken
+
+          // Best-effort：同步到凭证表，避免下次仍读到旧值
+          const db = await getDatabase()
+          const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+          await db
+            .exec(
+              `UPDATE google_ads_credentials SET developer_token = ? WHERE user_id = ? AND ${isActiveCondition}`,
+              [settingDeveloperToken, userId]
+            )
+            .catch(() => {})
+        } else {
+          return jsonNoStore(
+            {
+              error: 'Google Ads Developer Token 配置无效',
+              code: 'DEVELOPER_TOKEN_INVALID',
+              message:
+                '当前 Developer Token 看起来不是有效的 Google Ads Developer Token（常见原因：误填为 OAuth Client Secret/Client ID/Access Token）。请在设置页面填写 Google Ads API Center 提供的 Developer Token 后重试。',
+            },
+            { status: 400 }
+          )
+        }
+      } else {
+        return jsonNoStore(
+          {
+            error: 'Google Ads Developer Token 配置无效',
+            code: 'DEVELOPER_TOKEN_INVALID',
+            message:
+              '当前 Developer Token 看起来不是有效的 Google Ads Developer Token（常见原因：误填为 OAuth Client Secret/Client ID/Access Token）。请在设置页面填写 Google Ads API Center 提供的 Developer Token 后重试。',
+          },
+          { status: 400 }
+        )
+      }
     }
 
     let allAccounts: any[]

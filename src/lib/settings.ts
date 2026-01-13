@@ -399,6 +399,10 @@ export async function validateGoogleAdsConfig(
   developerToken: string
 ): Promise<{ valid: boolean; message: string }> {
   try {
+    const looksLikeOAuthClientId = (value: string) => value.includes('.apps.googleusercontent.com')
+    const looksLikeOAuthClientSecret = (value: string) => /^GOCSPX[-_]?/i.test(value.trim())
+    const looksLikeOAuthAccessToken = (value: string) => /^ya29\./i.test(value.trim())
+
     // 清理过期缓存
     cleanExpiredCache()
 
@@ -423,7 +427,7 @@ export async function validateGoogleAdsConfig(
 
     // Step 2: 格式验证
     // Client ID格式: xxx.apps.googleusercontent.com
-    if (!clientId.includes('.apps.googleusercontent.com')) {
+    if (!looksLikeOAuthClientId(clientId)) {
       return {
         valid: false,
         message: 'Client ID格式不正确，应包含 .apps.googleusercontent.com',
@@ -435,6 +439,33 @@ export async function validateGoogleAdsConfig(
       return {
         valid: false,
         message: 'Client Secret格式不正确，长度过短',
+      }
+    }
+
+    // 🧯 防误填：developer_token 常被误填为 client_secret / client_id / access_token
+    // 典型误填：developer_token 以 GOCSPX- 开头（这通常是 OAuth Client Secret）
+    if (developerToken.trim() === clientSecret.trim()) {
+      return {
+        valid: false,
+        message: 'Developer Token 与 Client Secret 相同，疑似误填。Developer Token 需从 Google Ads API Center 获取。',
+      }
+    }
+    if (looksLikeOAuthClientId(developerToken)) {
+      return {
+        valid: false,
+        message: 'Developer Token 看起来像 Client ID（包含 .apps.googleusercontent.com），请填写 Google Ads Developer Token。',
+      }
+    }
+    if (looksLikeOAuthClientSecret(developerToken)) {
+      return {
+        valid: false,
+        message: 'Developer Token 看起来像 Client Secret（以 GOCSPX- 开头），请在 Google Ads API Center 获取正确的 Developer Token。',
+      }
+    }
+    if (looksLikeOAuthAccessToken(developerToken)) {
+      return {
+        valid: false,
+        message: 'Developer Token 看起来像 Access Token（以 ya29. 开头），请填写 Google Ads Developer Token。',
       }
     }
 
