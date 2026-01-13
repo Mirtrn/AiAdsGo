@@ -285,6 +285,41 @@ export async function updateSettings(
 }
 
 /**
+ * 清空用户级配置（不影响全局模板配置）
+ *
+ * 说明：
+ * - 仅删除 user_id 对应的配置行（user_id IS NULL 的模板行保留）
+ * - 用于“删除配置”场景，确保数据库中对应用户配置彻底清空
+ */
+export async function clearUserSettings(
+  category: string,
+  keys: string[],
+  userId: number
+): Promise<{ cleared: number }> {
+  if (!userId || userId <= 0) {
+    throw new Error('clearUserSettings requires a valid userId')
+  }
+  if (!category || !Array.isArray(keys) || keys.length === 0) {
+    return { cleared: 0 }
+  }
+
+  const db = await getDatabase()
+  let cleared = 0
+
+  await db.transaction(async () => {
+    for (const key of keys) {
+      const result = await db.exec(
+        'DELETE FROM system_settings WHERE user_id = ? AND category = ? AND key = ?',
+        [userId, category, key]
+      )
+      cleared += result.changes
+    }
+  })
+
+  return { cleared }
+}
+
+/**
  * 更新配置验证状态
  */
 export async function updateValidationStatus(

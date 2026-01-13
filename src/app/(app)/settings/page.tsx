@@ -435,6 +435,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState<string | null>(null)
+  const [deletingAIConfig, setDeletingAIConfig] = useState(false)
 
   // 表单状态
   const [formData, setFormData] = useState<Record<string, Record<string, string>>>({})
@@ -1196,6 +1197,79 @@ export default function SettingsPage() {
       toast.error(err.message || '验证失败')
     } finally {
       setValidating(null)
+    }
+  }
+
+  const getAIConfigDeleteTarget = (): 'vertex' | 'gemini-official' | 'gemini-relay' => {
+    const useVertexAI = formData.ai?.use_vertex_ai === 'true'
+    if (useVertexAI) return 'vertex'
+    const provider = formData.ai?.gemini_provider || 'official'
+    return provider === 'relay' ? 'gemini-relay' : 'gemini-official'
+  }
+
+  const hasAIConfigToDelete = (() => {
+    const aiSettings = settings.ai || []
+    const getBackendValue = (key: string): string | null | undefined =>
+      aiSettings.find(s => s.key === key)?.value
+
+    const target = getAIConfigDeleteTarget()
+    if (target === 'vertex') {
+      return Boolean(getBackendValue('gcp_project_id') || getBackendValue('gcp_service_account_json') || getBackendValue('gcp_location'))
+    }
+    if (target === 'gemini-relay') {
+      return Boolean(getBackendValue('gemini_relay_api_key'))
+    }
+    return Boolean(getBackendValue('gemini_api_key'))
+  })()
+
+  const deleteCurrentAIConfig = async () => {
+    const target = getAIConfigDeleteTarget()
+
+    if (!hasAIConfigToDelete) {
+      toast.error('当前模式未检测到可删除的配置')
+      return
+    }
+
+    const targetLabel = (() => {
+      switch (target) {
+        case 'vertex':
+          return 'Vertex AI'
+        case 'gemini-relay':
+          return 'Gemini 第三方中转'
+        case 'gemini-official':
+          return 'Gemini 官方'
+      }
+    })()
+
+    const confirmed = window.confirm(`确认删除「${targetLabel}」的配置吗？此操作会清空数据库中该模式对应的用户配置。`)
+    if (!confirmed) return
+
+    setDeletingAIConfig(true)
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: 'ai', target }),
+      })
+
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || data.message || '删除失败')
+      }
+
+      toast.success(`已删除「${targetLabel}」配置`)
+      await fetchSettings()
+      setEditingField(null)
+    } catch (err: any) {
+      toast.error(err.message || '删除失败')
+    } finally {
+      setDeletingAIConfig(false)
     }
   }
 
@@ -2557,7 +2631,27 @@ export default function SettingsPage() {
                     </Button>
                   )}
 
-                  {(category === 'ai' || category === 'proxy') && (
+                  {category === 'ai' && (
+                    <>
+                      <Button
+                        variant="outline"
+                        onClick={() => handleValidate(category)}
+                        disabled={validating === category}
+                      >
+                        {validating === category ? '验证中...' : '验证配置'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={deleteCurrentAIConfig}
+                        disabled={deletingAIConfig || !hasAIConfigToDelete}
+                      >
+                        {deletingAIConfig ? '删除中...' : '删除配置'}
+                      </Button>
+                    </>
+                  )}
+
+                  {category === 'proxy' && (
                     <Button
                       variant="outline"
                       onClick={() => handleValidate(category)}

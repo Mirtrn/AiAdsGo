@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAllSettings, getSettingsByCategory, updateSettings } from '@/lib/settings'
+import { clearUserSettings, getAllSettings, getSettingsByCategory, updateSettings } from '@/lib/settings'
 import { invalidateProxyPoolCache } from '@/lib/offer-utils'
 import { GEMINI_PROVIDERS, getGeminiEndpoint, getGeminiApiKeyUrl, type GeminiProvider } from '@/lib/gemini-config'
 import { z } from 'zod'
@@ -247,6 +247,67 @@ export async function PUT(request: NextRequest) {
       {
         error: error.message || '更新配置失败',
       },
+      { status: 500 }
+    )
+  }
+}
+
+const deleteAIConfigSchema = z.object({
+  category: z.literal('ai'),
+  target: z.enum(['vertex', 'gemini-official', 'gemini-relay']),
+})
+
+/**
+ * DELETE /api/settings
+ * 删除（清空）指定类型的用户级配置
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const userId = request.headers.get('x-user-id')
+    const userIdNum = userId ? parseInt(userId, 10) : undefined
+    if (!userIdNum) {
+      return NextResponse.json({ error: '删除配置需要登录' }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const parsed = deleteAIConfigSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.errors[0].message, details: parsed.error.errors },
+        { status: 400 }
+      )
+    }
+
+    const { target } = parsed.data
+
+    const keysToClear = (() => {
+      switch (target) {
+        case 'vertex':
+          return ['gcp_project_id', 'gcp_location', 'gcp_service_account_json']
+        case 'gemini-official':
+          return ['gemini_api_key']
+        case 'gemini-relay':
+          return ['gemini_relay_api_key']
+      }
+    })()
+
+    const result = await clearUserSettings('ai', keysToClear, userIdNum)
+
+    // 删除AI配置后，重置Vertex AI客户端（避免继续使用旧环境变量/缓存）
+    const { resetVertexAIClient } = await import('@/lib/gemini-vertex')
+    resetVertexAIClient()
+
+    return NextResponse.json({
+      success: true,
+      message: '配置已删除',
+      cleared: result.cleared,
+      target,
+      keys: keysToClear,
+    })
+  } catch (error: any) {
+    console.error('删除配置失败:', error)
+    return NextResponse.json(
+      { error: error.message || '删除配置失败' },
       { status: 500 }
     )
   }
