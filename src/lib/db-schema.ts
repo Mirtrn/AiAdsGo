@@ -244,6 +244,7 @@ export const TABLES: TableDef[] = [
       { name: 'creation_status', type: 'TEXT', notNull: true, default: 'draft' },
       { name: 'creation_error', type: 'TEXT' },
       { name: 'last_sync_at', type: 'TIMESTAMP' },
+      { name: 'published_at', type: 'TIMESTAMP' }, // 成功发布到Ads账号的时间（用于“投放日期”展示）
       { name: 'ad_creative_id', type: 'INTEGER', references: { table: 'ad_creatives', column: 'id', onDelete: 'SET NULL' } },
       { name: 'google_campaign_id', type: 'TEXT' },
       { name: 'google_ad_group_id', type: 'TEXT' },

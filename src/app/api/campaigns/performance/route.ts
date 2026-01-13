@@ -2,6 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 
+function formatAsYmd(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  const raw = String(value)
+  if (!raw.trim()) return null
+
+  // Fast path: ISO-like prefix
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (m) return m[1]
+
+  const t = Date.parse(raw)
+  if (!Number.isFinite(t)) return null
+  return new Date(t).toISOString().slice(0, 10)
+}
+
 /**
  * GET /api/campaigns/performance
  *
@@ -59,12 +73,12 @@ export async function GET(request: NextRequest) {
         c.creation_error,
         c.last_sync_at,
         c.created_at,
+        c.published_at,
         c.is_deleted,
         c.deleted_at,
         o.brand as offer_brand,
         o.url as offer_url,
         o.is_deleted as offer_is_deleted,
-        cp_start.serving_start_date as serving_start_date,
         COALESCE(SUM(cp.impressions), 0) as impressions,
         COALESCE(SUM(cp.clicks), 0) as clicks,
         COALESCE(SUM(cp.conversions), 0) as conversions,
@@ -86,20 +100,6 @@ export async function GET(request: NextRequest) {
         END as conversion_rate
       FROM campaigns c
       LEFT JOIN offers o ON c.offer_id = o.id
-      LEFT JOIN (
-        SELECT
-          campaign_id as campaign_table_id,
-          MIN(date) as serving_start_date
-        FROM campaign_performance
-        WHERE user_id = ?
-          AND (
-            COALESCE(impressions, 0) > 0
-            OR COALESCE(clicks, 0) > 0
-            OR COALESCE(cost, 0) > 0
-            OR COALESCE(conversions, 0) > 0
-          )
-        GROUP BY campaign_id
-      ) cp_start ON cp_start.campaign_table_id = c.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         AND cp.date >= ?
         AND cp.date <= ?
@@ -108,8 +108,8 @@ export async function GET(request: NextRequest) {
         c.id, c.campaign_id, c.campaign_name, c.offer_id, c.status,
         c.google_campaign_id, c.google_ads_account_id, c.budget_amount,
         c.budget_type, c.creation_status, c.creation_error, c.last_sync_at,
-        c.created_at, c.is_deleted, c.deleted_at,
-        o.brand, o.url, o.is_deleted, cp_start.serving_start_date
+        c.created_at, c.published_at, c.is_deleted, c.deleted_at,
+        o.brand, o.url, o.is_deleted
       ORDER BY c.created_at DESC
     `, [userId, startDateStr, endDate, userId]) as any[]
 
@@ -126,7 +126,8 @@ export async function GET(request: NextRequest) {
       campaignId: c.campaign_id,
       creationStatus: c.creation_status,
       creationError: c.creation_error ?? null,
-      servingStartDate: c.serving_start_date ?? null,
+      // 投放日期：以“成功发布到 Ads 账号”的时间为准（published_at）；旧数据兜底为 created_at
+      servingStartDate: formatAsYmd(c.published_at ?? c.created_at),
       // 🔧 修复(2025-12-29): 确保预算金额是数字类型
       budgetAmount: Number(c.budget_amount) || 0,
       budgetType: c.budget_type,
