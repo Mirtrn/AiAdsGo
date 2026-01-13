@@ -123,6 +123,7 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
         completed: 0,
         failed: 0,
         byType: {} as Record<TaskType, number>,
+        byTypeRunning: {} as Record<TaskType, number>,
         byUser: {}
       }
     }
@@ -133,6 +134,7 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     )
 
     const byType: Record<TaskType, number> = {} as Record<TaskType, number>
+    const byTypeRunning: Record<TaskType, number> = {} as Record<TaskType, number>
     const byUser: Record<number, any> = {}
 
     // 状态计数器
@@ -144,6 +146,9 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     allTasks.forEach((task) => {
       // 按类型统计
       byType[task.type] = (byType[task.type] || 0) + 1
+      if (task.status === 'running') {
+        byTypeRunning[task.type] = (byTypeRunning[task.type] || 0) + 1
+      }
 
       // 按用户统计
       if (!byUser[task.userId]) {
@@ -165,6 +170,7 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
       completed: totalCompleted,
       failed: totalFailed,
       byType,
+      byTypeRunning,
       byUser
     }
   }

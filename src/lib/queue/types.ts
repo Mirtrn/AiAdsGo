@@ -100,6 +100,8 @@ export interface QueueStats {
   completed: number
   failed: number
   byType: Record<TaskType, number>
+  // 🔥 运行中任务按类型统计（用于并发利用率展示）
+  byTypeRunning: Record<TaskType, number>
   byUser: Record<number, {
     pending: number
     running: number

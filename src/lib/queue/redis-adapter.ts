@@ -283,6 +283,7 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
         completed: 0,
         failed: 0,
         byType: {} as Record<TaskType, number>,
+        byTypeRunning: {} as Record<TaskType, number>,
         byUser: {}
       }
     }
@@ -290,6 +291,7 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     // 🔥 修复：统一从任务详情计算统计，确保全局和用户统计一致
     const allTaskIds = await this.client.hkeys(this.getKey('tasks'))
     const byType: Record<TaskType, number> = {} as Record<TaskType, number>
+    const byTypeRunning: Record<TaskType, number> = {} as Record<TaskType, number>
     const byUser: Record<number, any> = {}
 
     // 状态计数器
@@ -312,6 +314,9 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
 
       // 按类型统计
       byType[task.type] = (byType[task.type] || 0) + 1
+      if (task.status === 'running') {
+        byTypeRunning[task.type] = (byTypeRunning[task.type] || 0) + 1
+      }
 
       // 按用户统计
       if (!byUser[task.userId]) {
@@ -333,6 +338,7 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       completed: totalCompleted,
       failed: totalFailed,
       byType,
+      byTypeRunning,
       byUser
     }
   }

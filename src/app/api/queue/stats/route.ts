@@ -98,6 +98,7 @@ export async function GET(request: NextRequest) {
           }
         }),
         byType: stats.byType,
+        byTypeRunning: stats.byTypeRunning,
         proxy: {
           total: proxyStats.length,
           available: proxyStats.filter((p) => p.available).length,

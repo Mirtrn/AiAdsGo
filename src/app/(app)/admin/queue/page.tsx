@@ -36,6 +36,7 @@ interface QueueStats {
   }
   // 新增字段 (New Unified Queue Feature)
   byType?: Record<string, number>
+  byTypeRunning?: Record<string, number>
 }
 
 // 任务类型并发配置
@@ -650,6 +651,10 @@ export default function QueueManagementPage() {
     ? Math.round((stats.global.running / stats.config.globalConcurrency) * 100)
     : 0
 
+  const clickFarmRunning = stats.byTypeRunning?.['click-farm'] || 0
+  const urlSwapRunning = stats.byTypeRunning?.['url-swap'] || 0
+  const coreRunning = Math.max(0, stats.global.running - clickFarmRunning - urlSwapRunning)
+
   const totalTasks = stats.global.running + stats.global.queued + stats.global.completed + stats.global.failed
 
   return (
@@ -727,6 +732,11 @@ export default function QueueManagementPage() {
                 <p className="text-sm text-gray-500">
                   / {stats.config.globalConcurrency} 并发
                 </p>
+                {(clickFarmRunning > 0 || urlSwapRunning > 0) && (
+                  <p className="text-xs text-gray-500">
+                    核心任务 {coreRunning}｜补点击 {clickFarmRunning}｜换链接 {urlSwapRunning}
+                  </p>
+                )}
               </div>
               <div className="mt-4">
                 <div className="w-full bg-gray-200 rounded-full h-2">
@@ -735,7 +745,10 @@ export default function QueueManagementPage() {
                     style={{ width: `${Math.min(globalUtilization, 100)}%` }}
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">利用率: {globalUtilization}%</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  利用率: {globalUtilization}%
+                  {globalUtilization > 100 ? `（超出 ${stats.global.running - stats.config.globalConcurrency}）` : ''}
+                </p>
               </div>
             </div>
 
@@ -921,26 +934,28 @@ export default function QueueManagementPage() {
             </div>
           </div>
 
-          {/* Task Type Stats with Concurrency Limits (Enhanced) */}
+          {/* Task Type Stats with Concurrency Limits (Running only) */}
           {stats.byType && Object.keys(stats.byType).length > 0 && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                 <Settings className="w-5 h-5 mr-2" />
-                任务类型分布与并发限制
+                任务类型运行中与并发限制
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {Object.entries(stats.byType).map(([type, count]: [string, any]) => {
+                  const runningCount = stats.byTypeRunning?.[type] || 0
                   const limit = stats.config.perTypeConcurrency?.[type] || 2
-                  const utilization = limit > 0 ? Math.round((count / limit) * 100) : 0
+                  const utilization = limit > 0 ? Math.round((runningCount / limit) * 100) : 0
                   return (
                     <div key={type} className="bg-gray-50 rounded-lg p-4">
                       <p className="text-sm font-medium text-gray-600">
                         {TASK_TYPE_LABELS[type] || type}
                       </p>
                       <div className="flex items-baseline justify-between mt-1">
-                        <p className="text-2xl font-bold text-gray-900">{count}</p>
+                        <p className="text-2xl font-bold text-gray-900">{runningCount}</p>
                         <p className="text-sm text-gray-500">/ {limit}</p>
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">总任务: {count}</p>
                       <div className="mt-2">
                         <div className="w-full bg-gray-200 rounded-full h-1.5">
                           <div
