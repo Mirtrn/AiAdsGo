@@ -39,6 +39,10 @@ export class UnifiedQueueManager {
   private perUserRunningCount: Map<number, number> = new Map()
   private perTypeRunningCount: Map<TaskType, number> = new Map()
 
+  // 轻量级后台任务：不占用“核心任务配额”（global/perUser 并发），避免阻塞创意生成等重任务
+  private backgroundRunningCount: number = 0
+  private backgroundPerUserRunningCount: Map<number, number> = new Map()
+
   // 初始化状态跟踪
   private initialized: boolean = false
   private initializingPromise: Promise<void> | null = null
@@ -98,6 +102,14 @@ export class UnifiedQueueManager {
 
     // 初始化存储适配器（Redis优先 → 内存回退）
     this.adapter = this.createAdapter()
+  }
+
+  private isBackgroundTaskType(type: TaskType): boolean {
+    return type === 'click-farm' || type === 'url-swap'
+  }
+
+  private getCoreGlobalRunningCount(): number {
+    return Math.max(0, this.globalRunningCount - this.backgroundRunningCount)
   }
 
   /**
@@ -335,6 +347,9 @@ export class UnifiedQueueManager {
 
     const taskId = options.taskId || randomUUID()
     const parentRequestId = options.parentRequestId
+    const priority: TaskPriority =
+      options.priority ??
+      (this.isBackgroundTaskType(type) ? 'low' : 'normal')
 
     const task: Task<T> = {
       id: taskId,
@@ -342,7 +357,7 @@ export class UnifiedQueueManager {
       data,
       userId,
       parentRequestId,
-      priority: options.priority || 'normal',
+      priority,
       status: 'pending',
       requireProxy: options.requireProxy || false,
       proxyConfig: options.proxyConfig,
@@ -382,8 +397,8 @@ export class UnifiedQueueManager {
       this.consecutiveErrors = 0
     }
 
-    // 检查是否达到全局并发限制
-    if (this.globalRunningCount >= this.config.globalConcurrency) {
+    // 检查是否达到“核心任务配额”（轻量级后台任务不占用 globalConcurrency）
+    if (this.getCoreGlobalRunningCount() >= this.config.globalConcurrency) {
       return
     }
 
@@ -452,15 +467,19 @@ export class UnifiedQueueManager {
    * 检查是否可以执行任务（并发控制）
    */
   private canExecuteTask(task: Task): boolean {
-    // 1. 全局并发检查
-    if (this.globalRunningCount >= this.config.globalConcurrency) {
+    const isBackground = this.isBackgroundTaskType(task.type)
+
+    // 1. 全局并发检查（轻量级后台任务不占用 globalConcurrency）
+    if (!isBackground && this.getCoreGlobalRunningCount() >= this.config.globalConcurrency) {
       return false
     }
 
-    // 2. 用户并发检查
-    const userRunning = this.perUserRunningCount.get(task.userId) || 0
-    if (userRunning >= this.config.perUserConcurrency) {
-      return false
+    // 2. 用户并发检查（轻量级后台任务不占用 perUserConcurrency）
+    if (!isBackground) {
+      const userRunning = this.perUserRunningCount.get(task.userId) || 0
+      if (userRunning >= this.config.perUserConcurrency) {
+        return false
+      }
     }
 
     // 3. 类型并发检查
@@ -721,10 +740,18 @@ export class UnifiedQueueManager {
    */
   private incrementConcurrency(task: Task): void {
     this.globalRunningCount++
-    this.perUserRunningCount.set(
-      task.userId,
-      (this.perUserRunningCount.get(task.userId) || 0) + 1
-    )
+    if (this.isBackgroundTaskType(task.type)) {
+      this.backgroundRunningCount++
+      this.backgroundPerUserRunningCount.set(
+        task.userId,
+        (this.backgroundPerUserRunningCount.get(task.userId) || 0) + 1
+      )
+    } else {
+      this.perUserRunningCount.set(
+        task.userId,
+        (this.perUserRunningCount.get(task.userId) || 0) + 1
+      )
+    }
     this.perTypeRunningCount.set(
       task.type,
       (this.perTypeRunningCount.get(task.type) || 0) + 1
@@ -736,10 +763,18 @@ export class UnifiedQueueManager {
    */
   private decrementConcurrency(task: Task): void {
     this.globalRunningCount--
-    this.perUserRunningCount.set(
-      task.userId,
-      Math.max(0, (this.perUserRunningCount.get(task.userId) || 0) - 1)
-    )
+    if (this.isBackgroundTaskType(task.type)) {
+      this.backgroundRunningCount = Math.max(0, this.backgroundRunningCount - 1)
+      this.backgroundPerUserRunningCount.set(
+        task.userId,
+        Math.max(0, (this.backgroundPerUserRunningCount.get(task.userId) || 0) - 1)
+      )
+    } else {
+      this.perUserRunningCount.set(
+        task.userId,
+        Math.max(0, (this.perUserRunningCount.get(task.userId) || 0) - 1)
+      )
+    }
     this.perTypeRunningCount.set(
       task.type,
       Math.max(0, (this.perTypeRunningCount.get(task.type) || 0) - 1)

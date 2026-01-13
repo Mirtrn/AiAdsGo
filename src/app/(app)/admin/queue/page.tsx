@@ -725,16 +725,16 @@ export default function QueueManagementPage() {
                 <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                   <Activity className="w-6 h-6 text-blue-600" />
                 </div>
-                <span className="text-sm font-medium text-gray-500">运行中</span>
+                <span className="text-sm font-medium text-gray-500">核心运行中</span>
               </div>
               <div className="space-y-1">
-                <p className="text-3xl font-bold text-gray-900">{stats.global.running}</p>
+                <p className="text-3xl font-bold text-gray-900">{coreRunning}</p>
                 <p className="text-sm text-gray-500">
                   / {stats.config.globalConcurrency} 并发
                 </p>
                 {(clickFarmRunning > 0 || urlSwapRunning > 0) && (
                   <p className="text-xs text-gray-500">
-                    核心任务 {coreRunning}｜补点击 {clickFarmRunning}｜换链接 {urlSwapRunning}
+                    总运行中 {stats.global.running}（补点击 {clickFarmRunning}｜换链接 {urlSwapRunning}）
                   </p>
                 )}
               </div>
