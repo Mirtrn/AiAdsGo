@@ -30,10 +30,10 @@ const DEFAULT_QUEUE_CONFIG = {
     'ad-creative': 3,  // 创意生成任务（允许多用户同时生成）
     'campaign-publish': 2,  // 广告系列发布并发限制
     'click-farm': 999,  // 🔥 补点击任务并发限制（设置为999，最大化并发）
-    'url-swap': 10  // 换链接任务并发限制
+    'url-swap': 3  // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
   },
   maxQueueSize: 1000,
-  taskTimeout: 600000,
+  taskTimeout: 900000, // 15分钟（店铺深度抓取+竞品分析可能需要10-15分钟）
   defaultMaxRetries: 3,
   retryDelay: 5000,
 }
@@ -81,10 +81,24 @@ const queueConfigSchema = z.object({
   perUserConcurrency: z.number().min(1).max(1000).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
   perTypeConcurrency: z.record(z.number().min(1).max(1000)).optional(),  // 🔥 提升上限至1000（支持补点击999并发）
   maxQueueSize: z.number().min(10).max(10000).optional(),
-  taskTimeout: z.number().min(10000).max(600000).optional(), // 10秒 - 10分钟
+  taskTimeout: z.number().min(10000).max(900000).optional(), // 10秒 - 15分钟
   defaultMaxRetries: z.number().min(0).max(5).optional(),
   retryDelay: z.number().min(1000).max(60000).optional(),
 })
+
+function getRuntimeQueueConfig(): typeof DEFAULT_QUEUE_CONFIG {
+  const queueManager = getQueueManager()
+  const current = queueManager.getConfig()
+  return normalizeQueueConfig({
+    globalConcurrency: current.globalConcurrency,
+    perUserConcurrency: current.perUserConcurrency,
+    perTypeConcurrency: current.perTypeConcurrency,
+    maxQueueSize: current.maxQueueSize,
+    taskTimeout: current.taskTimeout,
+    defaultMaxRetries: current.defaultMaxRetries,
+    retryDelay: current.retryDelay,
+  })
+}
 
 /**
  * 从数据库读取队列配置
@@ -130,12 +144,11 @@ async function saveQueueConfigToDB(config: typeof DEFAULT_QUEUE_CONFIG): Promise
     `, [configJson])
   } else {
     // 插入新配置
-    // 🔥 修复：SQLite不支持布尔值，转换为整数0/1
     await db.exec(`
       INSERT INTO system_settings (
         user_id, category, key, value, data_type, is_sensitive, is_required, description
       ) VALUES (
-        NULL, 'queue', 'config', ?, 'json', 0, 0, '统一队列系统配置'
+        NULL, 'queue', 'config', ?, 'json', FALSE, FALSE, '统一队列系统配置'
       )
     `, [configJson])
   }
@@ -154,33 +167,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
     }
 
-    // 🔥 优先从数据库读取配置（确保多实例一致性）
+    // 🔥 优先从数据库读取配置（确保多实例一致性）；否则返回“当前运行时配置”（避免与初始化环境变量/默认值不一致）
     const dbConfig = await getQueueConfigFromDB()
-    const config = dbConfig || normalizeQueueConfig(DEFAULT_QUEUE_CONFIG)
+    const runtimeConfig = getRuntimeQueueConfig()
+    const effectiveConfig = dbConfig || runtimeConfig
 
-    // 同步更新内存中的队列管理器配置
+    // 同步更新内存中的队列管理器配置（确保返回值与当前生效配置一致）
     const queueManager = getQueueManager()
-    if (dbConfig) {
-      queueManager.updateConfig(dbConfig)
-    }
+    queueManager.updateConfig(effectiveConfig)
 
     // 返回配置
     return NextResponse.json({
       success: true,
       config: {
-        globalConcurrency: config.globalConcurrency,
-        perUserConcurrency: config.perUserConcurrency,
-        perTypeConcurrency: config.perTypeConcurrency,
-        maxQueueSize: config.maxQueueSize,
-        taskTimeout: config.taskTimeout,
-        defaultMaxRetries: config.defaultMaxRetries,
-        retryDelay: config.retryDelay,
+        globalConcurrency: effectiveConfig.globalConcurrency,
+        perUserConcurrency: effectiveConfig.perUserConcurrency,
+        perTypeConcurrency: effectiveConfig.perTypeConcurrency,
+        maxQueueSize: effectiveConfig.maxQueueSize,
+        taskTimeout: effectiveConfig.taskTimeout,
+        defaultMaxRetries: effectiveConfig.defaultMaxRetries,
+        retryDelay: effectiveConfig.retryDelay,
         enablePriority: true, // 统一队列始终启用优先级
         // 状态信息
         storageType: process.env.REDIS_URL ? 'redis' : 'memory',
         redisConnected: !!process.env.REDIS_URL,
         // 🔥 新增：标识配置来源
-        configSource: dbConfig ? 'database' : 'default',
+        configSource: dbConfig ? 'database' : 'runtime',
         knownTaskTypes: ALL_TASK_TYPES
       }
     })
@@ -232,7 +244,8 @@ export async function PUT(request: NextRequest) {
     const newConfig = validationResult.data
 
     // 🔥 先从数据库读取现有配置，合并后保存
-    const existingConfig = await getQueueConfigFromDB() || normalizeQueueConfig(DEFAULT_QUEUE_CONFIG)
+    const dbConfig = await getQueueConfigFromDB()
+    const existingConfig = dbConfig || getRuntimeQueueConfig()
     const mergedConfig = {
       ...existingConfig,
       ...newConfig,

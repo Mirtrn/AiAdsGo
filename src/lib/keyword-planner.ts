@@ -102,9 +102,32 @@ async function getUserCustomerId(db: any, userId: number): Promise<string> {
 
   if (account) {
     console.log(`[KeywordPlanner] Selected account ${account.customer_id} with balance ${account.account_balance / 1000000} (micros)`)
+    return account.customer_id
   }
 
-  return account?.customer_id || ''
+  // Fallback: some billing models don't have an account-specific balance (or it is intentionally omitted).
+  // Still select an enabled non-manager account to keep Keyword Planner working.
+  const fallbackOrder =
+    db.type === 'postgres'
+      ? 'last_sync_at DESC NULLS LAST, id ASC'
+      : "CASE WHEN last_sync_at IS NULL THEN 1 ELSE 0 END, last_sync_at DESC, id ASC"
+
+  const fallback = await db.queryOne(`
+    SELECT customer_id
+    FROM google_ads_accounts
+    WHERE user_id = ?
+      AND ${isActiveCondition}
+      AND status = 'ENABLED'
+      AND ${isNotManagerCondition}
+    ORDER BY ${fallbackOrder}
+    LIMIT 1
+  `, [userId]) as { customer_id: string } | undefined
+
+  if (fallback?.customer_id) {
+    console.log(`[KeywordPlanner] Selected account ${fallback.customer_id} (no balance available)`)
+  }
+
+  return fallback?.customer_id || ''
 }
 
 // 🔧 修复(2025-12-12): 独立账号模式 - 每个用户必须配置自己的完整 OAuth 凭证

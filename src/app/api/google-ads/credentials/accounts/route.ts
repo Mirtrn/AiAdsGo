@@ -960,6 +960,7 @@ async function syncAccountsFromAPI(
           const budgetQuery = `
             SELECT
               account_budget.resource_name,
+              account_budget.billing_setup,
               account_budget.amount_served_micros,
               account_budget.approved_spending_limit_micros,
               account_budget.proposed_spending_limit_micros
@@ -977,17 +978,25 @@ async function syncAccountsFromAPI(
           if (budgetInfo && budgetInfo.length > 0) {
             const budget = budgetInfo[0].account_budget
             const budgetResourceName = budget?.resource_name || budget?.resourceName
+            const billingSetupResourceName = budget?.billing_setup || budget?.billingSetup
             const budgetOwnerCustomerId = extractCustomerIdFromResourceName(budgetResourceName)
-            if (budgetOwnerCustomerId && budgetOwnerCustomerId !== String(customerId)) {
+            const billingOwnerCustomerId = extractCustomerIdFromResourceName(billingSetupResourceName)
+
+            // ✅ 更严格的“合并/代付账单”识别：
+            // - budget.resource_name 可能仍显示为子账户 customer（导致误判为“每个子账户都有相同余额”）
+            // - billing_setup 归属通常能反映真实付款主体（paying manager / consolidated billing）
+            if (billingOwnerCustomerId && billingOwnerCustomerId !== String(customerId)) {
+              console.log(`   ⚠️ ${customerId} billing_setup 归属不匹配，已跳过余额计算 (billingOwner=${billingOwnerCustomerId})`)
+            } else if (budgetOwnerCustomerId && budgetOwnerCustomerId !== String(customerId)) {
               // 在“Paying manager / consolidated billing”场景下，子账户可能会返回付款管理账号的预算。
               // 这种预算不应被展示为“每个子账户的余额”，否则会出现多个账号显示同一个余额的误导。
               console.log(`   ⚠️ ${customerId} 预算归属不匹配，已跳过余额计算 (budgetOwner=${budgetOwnerCustomerId})`)
             } else {
-            const amountServed = Number(budget?.amount_served_micros || 0)
-            const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
-            // 余额 = 预算 - 已使用
-            accountBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
-            console.log(`   💰 ${customerId} 余额: ${accountBalance ? parseFloat((accountBalance / 1000000).toFixed(2)) : 'N/A'}`)
+              const amountServed = Number(budget?.amount_served_micros || 0)
+              const spendingLimit = Number(budget?.approved_spending_limit_micros || budget?.proposed_spending_limit_micros || 0)
+              // 余额 = 预算 - 已使用
+              accountBalance = spendingLimit > 0 ? spendingLimit - amountServed : null
+              console.log(`   💰 ${customerId} 余额: ${accountBalance ? parseFloat((accountBalance / 1000000).toFixed(2)) : 'N/A'}`)
             }
           }
         } catch (budgetError) {
@@ -1131,6 +1140,7 @@ async function syncAccountsFromAPI(
                     const childBudgetQuery = `
                       SELECT
                         account_budget.resource_name,
+                        account_budget.billing_setup,
                         account_budget.amount_served_micros,
                         account_budget.approved_spending_limit_micros,
                         account_budget.proposed_spending_limit_micros
@@ -1160,8 +1170,13 @@ async function syncAccountsFromAPI(
                     if (childBudgetInfo && childBudgetInfo.length > 0) {
                       const budget = childBudgetInfo[0].account_budget
                       const budgetResourceName = budget?.resource_name || budget?.resourceName
+                      const billingSetupResourceName = budget?.billing_setup || budget?.billingSetup
                       const budgetOwnerCustomerId = extractCustomerIdFromResourceName(budgetResourceName)
-                      if (budgetOwnerCustomerId && budgetOwnerCustomerId !== String(childId)) {
+                      const billingOwnerCustomerId = extractCustomerIdFromResourceName(billingSetupResourceName)
+
+                      if (billingOwnerCustomerId && billingOwnerCustomerId !== String(childId)) {
+                        console.log(`      ⚠️ ${childId} billing_setup 归属不匹配，已跳过余额计算 (billingOwner=${billingOwnerCustomerId})`)
+                      } else if (budgetOwnerCustomerId && budgetOwnerCustomerId !== String(childId)) {
                         console.log(`      ⚠️ ${childId} 预算归属不匹配，已跳过余额计算 (budgetOwner=${budgetOwnerCustomerId})`)
                       } else {
                         const amountServed = Number(budget?.amount_served_micros || 0)

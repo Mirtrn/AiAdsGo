@@ -308,11 +308,11 @@ export default function QueueManagementPage() {
         'batch-offer-creation': 1,
         'ad-creative': 3,
         'campaign-publish': 2,  // 🆕 广告系列发布（Google Ads API限制）
-        'click-farm': 5,         // 🆕 补点击任务（高并发，代理IP池支持）
+        'click-farm': 999,       // 🆕 补点击任务（高并发，代理IP池支持）
         'url-swap': 3,           // 🆕 换链接任务（定时监测，中等并发）
       },
       maxQueueSize: 1000,
-      taskTimeout: 300000,
+      taskTimeout: 900000,
       enablePriority: true,
       defaultMaxRetries: 3,
       retryDelay: 5000,
@@ -440,37 +440,21 @@ export default function QueueManagementPage() {
           const configResult = await fetchWithRetry('/api/queue/config')
           if (configResult.success && configResult.data?.config) {
             const dbConfig = configResult.data.config
-            const defaultPerTypeConcurrency: PerTypeConcurrency = {
-              scrape: 3,
-              'ai-analysis': 2,
-              sync: 1,
-              backup: 1,
-              email: 3,
-              export: 2,
-              'link-check': 2,
-              cleanup: 1,
-              'offer-extraction': 2,
-              'batch-offer-creation': 1,
-              'ad-creative': 3,
-              'campaign-publish': 2,
-              'click-farm': 5,
-              'url-swap': 3,
-            }
-            const mergedPerTypeConcurrency: PerTypeConcurrency = {
-              ...defaultPerTypeConcurrency,
-              ...(dbConfig.perTypeConcurrency || {})
-            }
-            setConfig({
-              globalConcurrency: dbConfig.globalConcurrency || 5,
-              perUserConcurrency: dbConfig.perUserConcurrency || 2,
-              perTypeConcurrency: mergedPerTypeConcurrency,
-              maxQueueSize: dbConfig.maxQueueSize || 1000,
-              taskTimeout: dbConfig.taskTimeout || 60000,
+            setConfig(prev => ({
+              ...prev,
+              globalConcurrency: dbConfig.globalConcurrency ?? prev.globalConcurrency,
+              perUserConcurrency: dbConfig.perUserConcurrency ?? prev.perUserConcurrency,
+              perTypeConcurrency: {
+                ...prev.perTypeConcurrency,
+                ...(dbConfig.perTypeConcurrency || {}),
+              },
+              maxQueueSize: dbConfig.maxQueueSize ?? prev.maxQueueSize,
+              taskTimeout: dbConfig.taskTimeout ?? prev.taskTimeout,
               enablePriority: dbConfig.enablePriority !== false,
-              defaultMaxRetries: dbConfig.defaultMaxRetries || 3,
-              retryDelay: dbConfig.retryDelay || 5000,
-              storageType: dbConfig.storageType || 'redis'
-            })
+              defaultMaxRetries: dbConfig.defaultMaxRetries ?? prev.defaultMaxRetries,
+              retryDelay: dbConfig.retryDelay ?? prev.retryDelay,
+              storageType: dbConfig.storageType ?? prev.storageType,
+            }))
           }
         } catch (configError) {
           console.warn('获取队列配置失败，使用默认值:', configError)
@@ -1305,14 +1289,14 @@ export default function QueueManagementPage() {
                   id="taskTimeout"
                   type="number"
                   min="10000"
-                  max="600000"
+                  max="900000"
                   step="1000"
                   value={config.taskTimeout}
                   onChange={(e) => setConfig({ ...config, taskTimeout: parseInt(e.target.value) || 10000 })}
                   className="mt-1"
                 />
                 <p className="text-sm text-gray-500 mt-1">
-                  单个任务的最大执行时间，超时后自动终止（默认：300000ms = 5分钟）
+                  单个任务的最大执行时间，超时后自动终止（默认：900000ms = 15分钟）
                 </p>
               </div>
 

@@ -9,10 +9,36 @@
 
 import { NextResponse } from 'next/server'
 import { getQueueManager } from '@/lib/queue/unified-queue-manager'
+import { getDatabase } from '@/lib/db'
+import type { QueueConfig } from '@/lib/queue/types'
 
 // 全局标记：队列是否已初始化
 let queueInitialized = false
 let initializationPromise: Promise<void> | null = null
+
+function parseOptionalInt(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const n = parseInt(value, 10)
+  return Number.isFinite(n) ? n : undefined
+}
+
+async function loadQueueConfigFromDB(): Promise<Partial<QueueConfig> | null> {
+  try {
+    const db = await getDatabase()
+    const result = await db.queryOne<{ value: string }>(`
+      SELECT value FROM system_settings
+      WHERE category = 'queue' AND key = 'config' AND user_id IS NULL
+      LIMIT 1
+    `)
+
+    if (!result?.value) return null
+    const parsed = JSON.parse(result.value) as Partial<QueueConfig>
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch (error) {
+    console.warn('⚠️  队列初始化：读取数据库配置失败，将使用环境变量/默认值:', error)
+    return null
+  }
+}
 
 /**
  * 初始化队列系统（单例模式）
@@ -34,14 +60,20 @@ async function ensureQueueInitialized(): Promise<{ success: boolean; message: st
     try {
       console.log('🚀 开始初始化统一队列系统...')
 
+      const dbConfig = await loadQueueConfigFromDB()
+      const envConfig: Partial<QueueConfig> = {
+        globalConcurrency: parseOptionalInt(process.env.QUEUE_GLOBAL_CONCURRENCY),
+        perUserConcurrency: parseOptionalInt(process.env.QUEUE_PER_USER_CONCURRENCY),
+        maxQueueSize: parseOptionalInt(process.env.QUEUE_MAX_SIZE),
+        taskTimeout: parseOptionalInt(process.env.QUEUE_TASK_TIMEOUT),
+        defaultMaxRetries: parseOptionalInt(process.env.QUEUE_MAX_RETRIES),
+        retryDelay: parseOptionalInt(process.env.QUEUE_RETRY_DELAY),
+      }
+
       // 获取队列管理器实例
       const queue = getQueueManager({
-        globalConcurrency: parseInt(process.env.QUEUE_GLOBAL_CONCURRENCY || '5'),
-        perUserConcurrency: parseInt(process.env.QUEUE_PER_USER_CONCURRENCY || '2'),
-        maxQueueSize: parseInt(process.env.QUEUE_MAX_SIZE || '1000'),
-        taskTimeout: parseInt(process.env.QUEUE_TASK_TIMEOUT || '60000'),
-        defaultMaxRetries: parseInt(process.env.QUEUE_MAX_RETRIES || '3'),
-        retryDelay: parseInt(process.env.QUEUE_RETRY_DELAY || '5000'),
+        ...envConfig,
+        ...(dbConfig || {}),
         redisUrl: process.env.REDIS_URL,
         redisKeyPrefix:
           process.env.REDIS_KEY_PREFIX ||
@@ -51,6 +83,11 @@ async function ensureQueueInitialized(): Promise<{ success: boolean; message: st
 
       // 确保队列已启动（自动处理初始化）
       await queue.ensureStarted()
+
+      // 如果 DB 配置是在队列实例创建后才加载出来（或包含新增字段），确保更新到内存配置
+      if (dbConfig) {
+        queue.updateConfig(dbConfig)
+      }
 
       // 安全注册所有任务执行器（只注册一次）
       await queue.registerAllExecutorsSafe()
