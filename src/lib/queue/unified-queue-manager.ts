@@ -59,6 +59,10 @@ export class UnifiedQueueManager {
   private readonly ERROR_BACKOFF_MS = 5000  // 连续错误后暂停5秒
 
   constructor(config: Partial<QueueConfig> = {}) {
+    const defaultRedisKeyPrefix =
+      process.env.REDIS_KEY_PREFIX ||
+      `autoads:${process.env.NODE_ENV || 'development'}:queue:`
+
     // 合并默认配置
     this.config = {
       globalConcurrency: config.globalConcurrency || 999,    // 🔥 全局并发提升至999（补点击需求）
@@ -84,7 +88,7 @@ export class UnifiedQueueManager {
       defaultMaxRetries: config.defaultMaxRetries || 3,
       retryDelay: config.retryDelay || 5000,
       redisUrl: config.redisUrl || process.env.REDIS_URL,
-      redisKeyPrefix: config.redisKeyPrefix || 'autoads:queue:',
+      redisKeyPrefix: config.redisKeyPrefix || defaultRedisKeyPrefix,
       proxyPool: config.proxyPool || [],
       proxyRotation: config.proxyRotation !== false
     }
@@ -178,8 +182,26 @@ export class UnifiedQueueManager {
       this.running = true
       console.log('🚀 队列处理启动中...')
 
-      // 🔥 启动时清理僵尸任务（关键步骤）
-      await this.cleanupZombieTasks('startup')
+      // 🔥 启启动修复：重启后 running 任务会变成“僵尸”，应回到 pending 而不是直接清空
+      if (this.adapter.requeueAllRunningOnStartup) {
+        const result = await this.adapter.requeueAllRunningOnStartup()
+        if (result.requeuedCount > 0 || result.cleanedMissingCount > 0) {
+          console.log(
+            `🧹 队列启动修复: requeued=${result.requeuedCount}, cleanedMissing=${result.cleanedMissingCount}`
+          )
+        }
+      } else {
+        // 旧适配器兼容：不支持 requeue 时仍然保留原行为（仅清理 running 僵尸可能会丢任务）
+        await this.cleanupZombieTasks('startup')
+      }
+
+      // 🔥 修复 pending 索引：避免 tasks hash 中的 pending 任务因缺失 zset 索引而永远无法执行
+      if (this.adapter.repairPendingIndexes) {
+        const repair = await this.adapter.repairPendingIndexes()
+        if (repair.repairedCount > 0) {
+          console.log(`🧩 pending 索引修复: repaired=${repair.repairedCount}, scanned=${repair.scannedCount}`)
+        }
+      }
 
       // 🔥 启动时清理URL Swap队列任务（避免重复执行）
       await this.cleanupUrlSwapTasksOnStartup()
@@ -388,6 +410,16 @@ export class UnifiedQueueManager {
       if (!this.canExecuteTask(task)) {
         // 放回队列
         task.status = 'pending'
+        // 清理 startedAt（否则会被误判为长时间 running / 并影响调试）
+        delete (task as any).startedAt
+
+        // 🔥 关键修复：并发受限时不要立刻重新入队到队首，否则会反复 dequeue 同一个任务导致“饥饿”
+        // 为该任务设置短暂退避，让其他用户/类型的任务有机会被执行。
+        const deferCount = ((task as any).deferCount || 0) + 1
+        ;(task as any).deferCount = deferCount
+        const baseDelay = Math.min(200 * deferCount, 5000) // 200ms, 400ms, ... 上限5s
+        const jitter = Math.floor(Math.random() * 50)
+        ;(task as any).notBefore = Date.now() + baseDelay + jitter
         await this.adapter.enqueue(task)
         return
       }
@@ -816,6 +848,15 @@ export class UnifiedQueueManager {
     try {
       // 1. 获取队列统计
       const stats = await this.adapter.getStats()
+
+      // 1b. 🔥 若存在 pending 任务，修复 pending 索引（避免“孤儿 pending 任务”永远无法 dequeue）
+      if (stats.pending > 0 && this.adapter.repairPendingIndexes) {
+        const repair = await this.adapter.repairPendingIndexes()
+        if (repair.repairedCount > 0) {
+          issues.push(`发现 pending 索引缺失: repaired=${repair.repairedCount}`)
+          actions.push(`已修复 pending 索引: repaired=${repair.repairedCount}`)
+        }
+      }
 
       // 2. 检查内存计数与Redis是否一致
       if (this.globalRunningCount !== stats.running) {

@@ -3,6 +3,7 @@ import type {
   Task,
   TaskType,
   TaskStatus,
+  TaskPriority,
   QueueStats,
   QueueStorageAdapter
 } from './types'
@@ -154,7 +155,13 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       task.id
     )
 
-    await pipeline.exec()
+    const results = await pipeline.exec()
+    // ioredis pipeline.exec 不会自动 throw；这里仅记录错误，避免“静默孤儿任务”
+    const failed = results?.filter(([err]) => err)
+    if (failed && failed.length > 0) {
+      const firstErr = failed[0][0] as Error
+      console.error('[RedisQueueAdapter] enqueue pipeline partial failure:', firstErr?.message || firstErr)
+    }
   }
 
   async dequeue(type?: TaskType): Promise<Task | null> {
@@ -179,6 +186,9 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     // 更新任务状态为running
     task.status = 'running'
     task.startedAt = Date.now()
+    // 进入 running 后清理退避字段，避免后续统计/调试混淆
+    delete (task as any).notBefore
+    delete (task as any).deferCount
 
     const pipeline = this.client.pipeline()
 
@@ -191,10 +201,11 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     // 3. 从用户pending队列移除
     pipeline.zrem(this.getKey(`user:${task.userId}:pending`), task.id)
 
-    // 4. 从全局pending队列移除（如果是通过类型队列dequeue的）
-    if (type) {
-      pipeline.zrem(this.getKey('pending:all'), task.id)
-    }
+    // 4. 从类型pending队列移除（如果是通过全局队列dequeue的，避免类型队列泄漏）
+    pipeline.zrem(this.getKey(`pending:${task.type}`), task.id)
+
+    // 5. 从全局pending队列移除（如果是通过类型队列dequeue的）
+    if (type) pipeline.zrem(this.getKey('pending:all'), task.id)
 
     await pipeline.exec()
 
@@ -411,13 +422,10 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
   ): Promise<number> {
     if (!this.client) return 0
 
-    // 1. 获取指定状态的所有任务ID
-    let taskIds: string[]
-    if (status === 'pending') {
-      taskIds = await this.client.zrange(this.getKey('pending:all'), 0, -1)
-    } else {
-      taskIds = await this.client.smembers(this.getKey('running'))
-    }
+    // 1. 获取指定状态的所有任务ID（pending 优先从类型队列取，避免 pending:all 缺失/不一致导致漏删）
+    const taskIds = status === 'pending'
+      ? await this.client.zrange(this.getKey(`pending:${type}`), 0, -1)
+      : await this.client.smembers(this.getKey('running'))
 
     if (taskIds.length === 0) return 0
 
@@ -457,10 +465,15 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       // 从状态集合中删除
       if (status === 'pending') {
         pipeline.zrem(this.getKey('pending:all'), taskId)
-        pipeline.zrem(this.getKey(`pending:user:${task.userId}`), taskId)
+        pipeline.zrem(this.getKey(`pending:${type}`), taskId)
+        pipeline.zrem(this.getKey(`user:${task.userId}:pending`), taskId)
       } else {
         pipeline.srem(this.getKey('running'), taskId)
       }
+
+      // 防御性清理：防止任务散落在其它集合
+      pipeline.srem(this.getKey('completed'), taskId)
+      pipeline.srem(this.getKey('failed'), taskId)
     }
 
     await pipeline.exec()
@@ -512,18 +525,19 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     // 4. 删除所有类型的pending队列
     const taskTypes = [
       'scrape',
+      'ai-analysis',
       'offer-extraction',
       'batch-offer-creation',
-      'offer-creation',
-      'offer-scrape',
-      'offer-enhance',
       'sync',
-      'ai-analysis',
       'backup',
       'export',
       'email',
       'link-check',
-      'cleanup'
+      'cleanup',
+      'ad-creative',
+      'campaign-publish',
+      'click-farm',
+      'url-swap'
     ]
     for (const taskType of taskTypes) {
       pipeline.del(this.getKey(`pending:${taskType}`))
@@ -733,11 +747,147 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
 
   /**
    * 计算优先级分数
-   * high: 0-999, normal: 1000-1999, low: 2000-2999
-   * 同优先级按时间戳排序（越早越小）
+   *
+   * 设计目标：
+   * - 先按“可执行时间”排序（notBefore/createdAt），避免未来任务阻塞当前可执行任务
+   * - 同一秒内按 priority 排序（high > normal > low）
+   * - 同一秒内再按毫秒余数排序，尽量保持近似 FIFO
    */
   private getPriorityScore(task: Task): number {
-    const priorityBase = { high: 0, normal: 1000, low: 2000 }
-    return priorityBase[task.priority] + (task.createdAt % 1000)
+    const availableAt = (task as any).notBefore ?? task.createdAt ?? Date.now()
+    const seconds = Math.floor(availableAt / 1000) // ~1e9，安全
+    const msRemainder = availableAt % 1000
+    const priorityRank = this.getPriorityRank(task.priority)
+    // score 范围约为 seconds*10000（~1e13），安全小于 2^53
+    return seconds * 10000 + priorityRank * 1000 + msRemainder
+  }
+
+  private getPriorityRank(priority: TaskPriority): number {
+    // 数字越小优先级越高（ZPOPMIN 取最小）
+    return priority === 'high' ? 0 : priority === 'normal' ? 1 : 2
+  }
+
+  /**
+   * 🔥 启动时将 running 僵尸任务重新放回 pending 队列
+   */
+  async requeueAllRunningOnStartup(): Promise<{
+    requeuedCount: number
+    cleanedMissingCount: number
+    taskIds: string[]
+  }> {
+    if (!this.client) {
+      return { requeuedCount: 0, cleanedMissingCount: 0, taskIds: [] }
+    }
+
+    const runningIds = await this.client.smembers(this.getKey('running'))
+    if (runningIds.length === 0) {
+      return { requeuedCount: 0, cleanedMissingCount: 0, taskIds: [] }
+    }
+
+    const taskIds: string[] = []
+    let requeuedCount = 0
+    let cleanedMissingCount = 0
+
+    for (const taskId of runningIds) {
+      const taskJson = await this.client.hget(this.getKey('tasks'), taskId)
+      if (!taskJson) {
+        await this.client.srem(this.getKey('running'), taskId)
+        cleanedMissingCount++
+        continue
+      }
+
+      let task: Task
+      try {
+        task = JSON.parse(taskJson) as Task
+      } catch {
+        // 损坏任务：从 running 集合中移除，避免阻塞
+        await this.client.srem(this.getKey('running'), taskId)
+        cleanedMissingCount++
+        continue
+      }
+
+      // 已完成/失败的任务不应出现在 running
+      if (task.status === 'completed' || task.status === 'failed') {
+        await this.client.srem(this.getKey('running'), taskId)
+        continue
+      }
+
+      // 将任务重新置为 pending（重启后无法确认是否仍在执行，以“可重试”为原则）
+      task.status = 'pending'
+      delete (task as any).startedAt
+      const score = this.getPriorityScore(task)
+
+      const pipeline = this.client.pipeline()
+      pipeline.hset(this.getKey('tasks'), task.id, JSON.stringify(task))
+      pipeline.srem(this.getKey('running'), task.id)
+      pipeline.zadd(this.getKey('pending:all'), score, task.id)
+      pipeline.zadd(this.getKey(`pending:${task.type}`), score, task.id)
+      if (task.userId && task.userId > 0) {
+        pipeline.zadd(this.getKey(`user:${task.userId}:pending`), score, task.id)
+      }
+      await pipeline.exec()
+
+      taskIds.push(task.id)
+      requeuedCount++
+    }
+
+    return { requeuedCount, cleanedMissingCount, taskIds }
+  }
+
+  /**
+   * 🔥 修复 pending 索引：把 tasks hash 中的 pending 任务补齐到 pending zset
+   */
+  async repairPendingIndexes(): Promise<{ repairedCount: number; scannedCount: number }> {
+    if (!this.client) {
+      return { repairedCount: 0, scannedCount: 0 }
+    }
+
+    let cursor = '0'
+    let scannedCount = 0
+    let repairedCount = 0
+
+    do {
+      const [nextCursor, entries] = await this.client.hscan(
+        this.getKey('tasks'),
+        cursor,
+        'COUNT',
+        500
+      )
+      cursor = nextCursor
+
+      if (!entries || entries.length === 0) continue
+
+      // entries: [field, value, field, value...]
+      const pipeline = this.client.pipeline()
+      let pipelineOps = 0
+
+      for (let i = 0; i < entries.length; i += 2) {
+        const taskJson = entries[i + 1]
+        scannedCount++
+
+        let task: Task
+        try {
+          task = JSON.parse(taskJson) as Task
+        } catch {
+          continue
+        }
+
+        if (task.status !== 'pending') continue
+        if (!task.userId || task.userId <= 0) continue
+
+        const score = this.getPriorityScore(task)
+        pipeline.zadd(this.getKey('pending:all'), score, task.id)
+        pipeline.zadd(this.getKey(`pending:${task.type}`), score, task.id)
+        pipeline.zadd(this.getKey(`user:${task.userId}:pending`), score, task.id)
+        pipelineOps += 3
+        repairedCount++
+      }
+
+      if (pipelineOps > 0) {
+        await pipeline.exec()
+      }
+    } while (cursor !== '0')
+
+    return { repairedCount, scannedCount }
   }
 }

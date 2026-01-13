@@ -38,7 +38,9 @@ async function main() {
   const redis = new Redis(REDIS_URL)
 
   try {
-    const redisKeyPrefix = 'autoads:queue:'
+    const redisKeyPrefix =
+      process.env.QUEUE_PREFIX ||
+      `autoads:${process.env.NODE_ENV || 'production'}:queue:`
 
     console.log('\n🔍 扫描 Redis 队列任务...\n')
 
@@ -69,6 +71,30 @@ async function main() {
 
     const failedCount = await redis.scard(`${redisKeyPrefix}failed`)
     console.log(`  ❌ Failed 任务数: ${failedCount}`)
+
+    // 🔥 额外诊断：tasks hash 中的 pending 任务是否真的在 pending 索引中
+    const taskIds = await redis.hkeys(`${redisKeyPrefix}tasks`)
+    let orphanPending = 0
+    for (let i = 0; i < taskIds.length; i += 200) {
+      const chunk = taskIds.slice(i, i + 200)
+      const values = await redis.hmget(`${redisKeyPrefix}tasks`, ...chunk)
+      for (let j = 0; j < values.length; j++) {
+        const value = values[j]
+        if (!value) continue
+        try {
+          const task = JSON.parse(value)
+          if (task.status !== 'pending') continue
+          const inAll = await redis.zscore(`${redisKeyPrefix}pending:all`, task.id)
+          if (inAll === null) orphanPending++
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (orphanPending > 0) {
+      console.log(`  ⚠️  发现孤儿 pending 任务（不在 pending:all 中）: ${orphanPending}`)
+      console.log('     可运行: tsx scripts/repair-redis-pending-index.ts --apply')
+    }
 
   } catch (error) {
     console.error('❌ Redis 检查失败:', error)
@@ -111,4 +137,3 @@ async function main() {
 }
 
 main().catch(console.error)
-

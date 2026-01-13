@@ -67,6 +67,15 @@ export interface Task<T = any> {
   requireProxy?: boolean  // 是否需要代理IP
   proxyConfig?: ProxyConfig  // 指定代理配置
   createdAt: number
+  /**
+   * 任务最早可执行时间（用于并发受限时的退避/让路，避免同一个“不可执行任务”反复被 dequeue 造成饥饿）。
+   * 仅影响 pending 队列排序；进入 running 时会被清理。
+   */
+  notBefore?: number
+  /**
+   * 因并发限制被退避的次数（用于调试与退避延迟计算）。
+   */
+  deferCount?: number
   startedAt?: number
   completedAt?: number
   error?: string
@@ -159,6 +168,25 @@ export interface QueueStorageAdapter {
     runningCleared: number
     userQueuesCleared: number
     totalCleared: number
+  }>
+
+  /**
+   * 🔥 启动时恢复 running 僵尸任务（可选，Redis适配器实现）
+   * 将 running 集合中的任务重新放回 pending 队列（pending:all / pending:type / user pending），避免重启后卡死。
+   */
+  requeueAllRunningOnStartup?(): Promise<{
+    requeuedCount: number
+    cleanedMissingCount: number
+    taskIds: string[]
+  }>
+
+  /**
+   * 🔥 修复 pending 索引（可选，Redis适配器实现）
+   * 解决 tasks hash 中 status=pending 但未进入 pending zset 的“孤儿任务”，导致队列永远 dequeue 不到。
+   */
+  repairPendingIndexes?(): Promise<{
+    repairedCount: number
+    scannedCount: number
   }>
 
   // 🔥 超时任务清理（可选，Redis适配器实现）

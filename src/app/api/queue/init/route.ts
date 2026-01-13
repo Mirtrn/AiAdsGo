@@ -43,7 +43,9 @@ async function ensureQueueInitialized(): Promise<{ success: boolean; message: st
         defaultMaxRetries: parseInt(process.env.QUEUE_MAX_RETRIES || '3'),
         retryDelay: parseInt(process.env.QUEUE_RETRY_DELAY || '5000'),
         redisUrl: process.env.REDIS_URL,
-        redisKeyPrefix: process.env.REDIS_KEY_PREFIX || 'autoads:queue:',
+        redisKeyPrefix:
+          process.env.REDIS_KEY_PREFIX ||
+          `autoads:${process.env.NODE_ENV || 'development'}:queue:`,
         proxyPool: [] // 代理在任务执行时按需加载
       })
 

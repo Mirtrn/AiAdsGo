@@ -40,9 +40,15 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     this.tasks.set(task.id, task)
     this.pendingQueue.push(task)
 
-    // 按优先级排序: high > normal > low，同优先级按创建时间排序
+    // 排序规则与 Redis 一致：
+    // 1) 先按可执行时间（notBefore/createdAt）排序，避免未来任务阻塞当前可执行任务
+    // 2) 同一时间点内按优先级排序（high > normal > low）
+    // 3) 最后按 createdAt 兜底
     this.pendingQueue.sort((a, b) => {
       const priorityOrder = { high: 0, normal: 1, low: 2 }
+      const aAvailableAt = (a as any).notBefore ?? a.createdAt
+      const bAvailableAt = (b as any).notBefore ?? b.createdAt
+      if (aAvailableAt !== bAvailableAt) return aAvailableAt - bAvailableAt
       const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority]
       if (priorityDiff !== 0) return priorityDiff
       return a.createdAt - b.createdAt
@@ -54,16 +60,20 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
       return null
     }
 
-    // 查找匹配类型的任务（如果指定类型）
+    const now = Date.now()
+
+    // 查找第一个“已到可执行时间”的任务（如果指定类型，则同时匹配类型）
     const index = type
-      ? this.pendingQueue.findIndex((t) => t.type === type)
-      : 0
+      ? this.pendingQueue.findIndex((t) => t.type === type && (((t as any).notBefore ?? 0) <= now))
+      : this.pendingQueue.findIndex((t) => (((t as any).notBefore ?? 0) <= now))
 
     if (index === -1) return null
 
     const task = this.pendingQueue.splice(index, 1)[0]
     task.status = 'running'
     task.startedAt = Date.now()
+    delete (task as any).notBefore
+    delete (task as any).deferCount
     this.runningTasks.add(task.id)
     this.tasks.set(task.id, task)
 
