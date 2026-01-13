@@ -414,24 +414,69 @@ export function filterHighQualityKeywords(
 }
 
 /**
- * 按相关性排序关键词
- * 综合考虑搜索量、竞争度和CPC
+ * 计算关键词相关性得分
  */
-export function rankKeywordsByRelevance(keywords: KeywordIdea[]): KeywordIdea[] {
-  return keywords.sort((a, b) => {
-    // 计算相关性得分
-    // 公式: 搜索量权重40% + 低竞争权重30% + 低CPC权重30%
-    const scoreA = calculateRelevanceScore(a)
-    const scoreB = calculateRelevanceScore(b)
+function normalizeTokens(input: string): string[] {
+  const cleaned = input
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return []
 
-    return scoreB - scoreA // 降序排列
+  const stop = new Set([
+    'the', 'a', 'an', 'and', 'or', 'for', 'with', 'to', 'of', 'in', 'on', 'by',
+    'official', 'store', 'shop', 'website', 'site', 'online',
+  ])
+  return Array.from(
+    new Set(
+      cleaned
+        .split(' ')
+        .map(t => t.trim())
+        .filter(Boolean)
+        .filter(t => t.length >= 3)
+        .filter(t => !stop.has(t))
+    )
+  )
+}
+
+function buildRelevanceContext(context?: { brand?: string; category?: string | null; productName?: string | null }): {
+  brand: string
+  brandCore: string
+  tokens: string[]
+} | null {
+  const brand = (context?.brand || '').trim()
+  if (!brand) return null
+
+  const brandCore = brand.split(/\s+/)[0]?.toLowerCase() || brand.toLowerCase()
+  const brandTokens = new Set(normalizeTokens(brand))
+  const tokens = Array.from(
+    new Set([
+      ...normalizeTokens(context?.category || ''),
+      ...normalizeTokens(context?.productName || ''),
+    ])
+  ).filter(t => !brandTokens.has(t))
+
+  return { brand, brandCore, tokens }
+}
+
+export function rankKeywordsByRelevance(
+  keywords: KeywordIdea[],
+  context?: { brand?: string; category?: string | null; productName?: string | null }
+): KeywordIdea[] {
+  const ctx = buildRelevanceContext(context)
+  return keywords.sort((a, b) => {
+    const scoreA = calculateRelevanceScore(a, ctx)
+    const scoreB = calculateRelevanceScore(b, ctx)
+    return scoreB - scoreA
   })
 }
 
-/**
- * 计算关键词相关性得分
- */
-function calculateRelevanceScore(keyword: KeywordIdea): number {
+function calculateRelevanceScore(
+  keyword: KeywordIdea,
+  ctx: { brand: string; brandCore: string; tokens: string[] } | null = null
+): number {
   // 搜索量得分 (0-40分，归一化到10000月搜索为满分)
   const searchScore = Math.min((keyword.avgMonthlySearches / 10000) * 40, 40)
 
@@ -442,7 +487,18 @@ function calculateRelevanceScore(keyword: KeywordIdea): number {
   const avgCpcMicros = (keyword.lowTopOfPageBidMicros + keyword.highTopOfPageBidMicros) / 2
   const cpcScore = Math.max(30 - (avgCpcMicros / 5000000) * 30, 0)
 
-  return searchScore + competitionScore + cpcScore
+  let relevanceBonus = 0
+  if (ctx) {
+    const text = keyword.text.toLowerCase()
+    const hasBrand = text.includes(ctx.brandCore)
+    const hasToken = ctx.tokens.length === 0 ? true : ctx.tokens.some(t => text.includes(t))
+
+    if (hasBrand) relevanceBonus += 8
+    if (hasToken) relevanceBonus += 3
+    if (!hasBrand && ctx.tokens.length > 0 && !hasToken) relevanceBonus -= 6
+  }
+
+  return searchScore + competitionScore + cpcScore + relevanceBonus
 }
 
 /**

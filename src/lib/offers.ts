@@ -642,6 +642,28 @@ export async function updateOffer(id: number, userId: number, input: UpdateOffer
 }
 
 /**
+ * 更新 Offer 的 extraction_metadata（不触碰 scrape_status，避免副作用）
+ *
+ * 用途：在不重新跑抓取/AI分析的情况下，缓存“品牌官网”等补充元数据。
+ */
+export async function updateOfferExtractionMetadata(
+  id: number,
+  userId: number,
+  extractionMetadata: string
+): Promise<void> {
+  const db = await getDatabase()
+  const nowFunc = db.type === 'postgres' ? 'NOW()' : "datetime('now')"
+
+  const { invalidateOfferCache } = await import('./api-cache')
+  invalidateOfferCache(userId, id)
+
+  await db.exec(
+    `UPDATE offers SET extraction_metadata = ?, updated_at = ${nowFunc} WHERE id = ? AND user_id = ?`,
+    [extractionMetadata, id, userId]
+  )
+}
+
+/**
  * 删除Offer（软删除）
  * 需求25: 保留历史数据，解除Ads账号关联
  */

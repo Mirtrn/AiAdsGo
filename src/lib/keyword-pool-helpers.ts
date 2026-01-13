@@ -11,7 +11,7 @@ import type { PoolKeywordData } from './offer-keyword-pool'
 import { expandKeywordsWithSeeds } from './unified-keyword-service'
 import { getTrendsKeywords } from './google-trends'
 import { DEFAULTS } from './keyword-constants'
-import { getKeywordPlannerSiteFilterUrl } from './keyword-planner-site-filter'
+import { getKeywordPlannerSiteFilterUrlForOffer } from './keyword-planner-site-filter'
 import {
   detectCountryInKeyword,
   filterLowIntentKeywords,
@@ -102,7 +102,7 @@ export async function expandAllKeywords(
       category,
       targetCountry,
       targetLanguage,
-      pageUrl: getKeywordPlannerSiteFilterUrl(offer?.final_url || offer?.url),
+      pageUrl: offer ? getKeywordPlannerSiteFilterUrlForOffer(offer) : undefined,
       userId,
       customerId,
       refreshToken,
@@ -783,18 +783,60 @@ export function filterKeywords(
   keywords: PoolKeywordData[],
   brandName: string,
   category: string,
-  targetCountry?: string
+  targetCountry?: string,
+  productName?: string | null
 ): PoolKeywordData[] {
   // 获取纯品牌词列表
   // 示例：brandName="eufy security" → ["eufy", "eufy security"]
   const pureBrandKeywords = getPureBrandKeywords(brandName)
 
+  const normalizeTokens = (input: string): string[] => {
+    const cleaned = input
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .replace(/[-_]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!cleaned) return []
+
+    const stop = new Set([
+      'the', 'a', 'an', 'and', 'or', 'for', 'with', 'to', 'of', 'in', 'on', 'by',
+      'official', 'store', 'shop', 'website', 'site', 'online',
+    ])
+
+    return Array.from(
+      new Set(
+        cleaned
+          .split(' ')
+          .map(t => t.trim())
+          .filter(Boolean)
+          .filter(t => t.length >= 3)
+          .filter(t => !stop.has(t))
+      )
+    )
+  }
+
+  // 用“类目/产品名”构建相关性 token，用于过滤明显不相关的高流量泛词
+  // 目标：不误杀真实类目词（命中token则允许），但避免因品牌形似导致的完全无关泛词（如 betta fish）
+  const brandTokens = new Set(normalizeTokens(brandName))
+  const relevanceTokens = Array.from(
+    new Set([
+      ...normalizeTokens(category || ''),
+      ...normalizeTokens(productName || ''),
+    ])
+  ).filter(t => !brandTokens.has(t))
+
   let geoFilteredCount = 0
   let pureBrandKeptCount = 0      // 纯品牌词保留数
   let brandRelatedKeptCount = 0   // 品牌相关词保留数
   let highVolumeCategoryKeptCount = 0  // 头部品类词保留数
+  let genericCategoryCandidateCount = 0  // 高流量但无相关性信号的品类词候选
 
-  const filtered = keywords.filter(kw => {
+  const kept: PoolKeywordData[] = []
+  const genericCandidates: PoolKeywordData[] = []
+
+  for (const kw of keywords) {
     const kwLower = kw.keyword.toLowerCase()
     const isPureBrand = containsPureBrand(kw.keyword, pureBrandKeywords)
 
@@ -804,7 +846,8 @@ export function filterKeywords(
       pureBrandKeptCount++
       console.log(`   ✅ 保留纯品牌词: "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
       // 纯品牌词不参与后续过滤，直接通过
-      return true
+      kept.push(kw)
+      continue
     }
 
     // ✅ 品牌相关词：包含品牌名但不是纯品牌词（如 "eufy camera", "eureka j15"）
@@ -816,41 +859,78 @@ export function filterKeywords(
       // 理由：品牌词高购买意图（80-90%），高转化率（15-25%），低CPC（$1-3）
       const hasSearchVolumeData = kw.searchVolume !== undefined && kw.searchVolume !== null && kw.searchVolume > 0
       if (hasSearchVolumeData && kw.searchVolume < 10) {
-        return false  // 只过滤极低搜索量（拼写错误、超长尾）
+        continue  // 只过滤极低搜索量（拼写错误、超长尾）
       }
       brandRelatedKeptCount++
-    } else {
-      // ✅ 品类词：只保留头部词（≥10000）
-      // 理由：品类词低购买意图（20-40%），低转化率（2-8%），高CPC（$5-15）
-      //       只保留头部词用于品牌曝光，中低搜索量品类词ROI不确定
-      const isHighVolumeCategoryKeyword = kw.searchVolume >= 10000
+      kept.push(kw)
+      continue
+    }
 
-      if (!isHighVolumeCategoryKeyword) {
-        return false  // 过滤所有中低搜索量品类词（<10000）
-      }
+    // ✅ 品类词：只保留头部词（≥10000）
+    // 理由：品类词低购买意图（20-40%），低转化率（2-8%），高CPC（$5-15）
+    //       只保留头部词用于品牌曝光，中低搜索量品类词ROI不确定
+    const isHighVolumeCategoryKeyword = kw.searchVolume >= 10000
+    if (!isHighVolumeCategoryKeyword) {
+      continue
+    }
 
-      highVolumeCategoryKeptCount++
-      console.log(`   ✅ 保留头部品类词: "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
+    // 如果能提取到相关性token，则要求至少命中一个token；否则视为“高流量泛词候选”
+    const hasRelevanceSignal = relevanceTokens.length === 0
+      ? false
+      : relevanceTokens.some(t => kwLower.includes(t))
+
+    if (!hasRelevanceSignal) {
+      genericCategoryCandidateCount++
+      genericCandidates.push(kw)
+      continue
     }
 
     // ✅ 地理位置过滤（过滤非目标国家的关键词）
     if (targetCountry) {
       const detectedCountries = detectCountryInKeyword(kw.keyword)
-      // 如果检测到国家，且不包含目标国家，则过滤
       if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
         geoFilteredCount++
         console.log(`   ⊗ 地理过滤: "${kw.keyword}" (检测到: ${detectedCountries.join(',')}, 目标: ${targetCountry})`)
-        return false
+        continue
       }
     }
 
-    return true
-  })
+    highVolumeCategoryKeptCount++
+    console.log(`   ✅ 保留头部品类词(相关): "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
+    kept.push(kw)
+  }
+
+  // 对“高流量但无相关性信号”的泛品类词做配额控制（避免污染创意）
+  // 当我们已经有明确的类目/产品 token 时，默认不保留泛词（0配额）。
+  const MAX_GENERIC_CATEGORY = relevanceTokens.length > 0 ? 0 : 3
+  const selectedGeneric = genericCandidates
+    .sort((a, b) => (b.searchVolume || 0) - (a.searchVolume || 0))
+    .slice(0, MAX_GENERIC_CATEGORY)
+
+  for (const kw of selectedGeneric) {
+    if (targetCountry) {
+      const detectedCountries = detectCountryInKeyword(kw.keyword)
+      if (detectedCountries.length > 0 && !detectedCountries.includes(targetCountry)) {
+        geoFilteredCount++
+        continue
+      }
+    }
+
+    highVolumeCategoryKeptCount++
+    console.log(`   ✅ 保留头部品类词(泛词配额): "${kw.keyword}" (搜索量: ${kw.searchVolume})`)
+    kept.push(kw)
+  }
+
+  const filtered = kept
 
   console.log(`   过滤: ${keywords.length} → ${filtered.length}`)
   console.log(`      纯品牌词保留(100%豁免): ${pureBrandKeptCount}`)
   console.log(`      品牌相关词保留(≥10): ${brandRelatedKeptCount}`)
   console.log(`      头部品类词保留(≥10000): ${highVolumeCategoryKeptCount}`)
+  if (relevanceTokens.length > 0) {
+    console.log(`      品类相关性token: ${relevanceTokens.slice(0, 8).join(', ')}${relevanceTokens.length > 8 ? '...' : ''}`)
+    console.log(`      泛品类候选(无token命中): ${genericCategoryCandidateCount}，配额保留: ${selectedGeneric.length}/${MAX_GENERIC_CATEGORY}`)
+  }
   console.log(`      地理过滤: ${geoFilteredCount}`)
   console.log(`      策略: A-保守（纯品牌词豁免，品牌词为主）`)
 

@@ -1970,6 +1970,36 @@ export async function generateOfferKeywordPool(
     throw new Error(`Offer #${offerId} 不存在`)
   }
 
+  // 1.5 Marketplace场景：尽量补全“品牌官网”，用于Keyword Planner的站点过滤（best-effort）
+  try {
+    const { ensureOfferBrandOfficialSite } = await import('./offer-official-site')
+    const official = await ensureOfferBrandOfficialSite({
+      offerId: offer.id,
+      userId,
+      brand: offer.brand,
+      targetCountry: offer.target_country,
+      finalUrl: offer.final_url,
+      url: offer.url,
+      category: offer.category,
+      productName: offer.product_name,
+      extractionMetadata: offer.extraction_metadata,
+    })
+
+    if (official?.origin) {
+      const existing = (() => {
+        try {
+          return offer.extraction_metadata ? JSON.parse(offer.extraction_metadata) : {}
+        } catch {
+          return {}
+        }
+      })()
+      offer.extraction_metadata = JSON.stringify({ ...existing, brandOfficialSite: official })
+      console.log(`🌐 已补全品牌官网(origin): ${official.origin}`)
+    }
+  } catch (e: any) {
+    console.warn(`⚠️ 品牌官网补全失败（不影响关键词池生成）: ${e?.message || String(e)}`)
+  }
+
   // 2. 提取初始关键词（保留 searchVolume）
   let initialKeywords: PoolKeywordData[]
   if (allKeywords) {
@@ -2145,7 +2175,8 @@ export async function generateOfferKeywordPool(
     expandedKeywords,
     offer.brand,
     offer.category || '',
-    offer.target_country  // 🔧 修复(2025-12-17): 传递目标国家进行地理过滤
+    offer.target_country,  // 🔧 修复(2025-12-17): 传递目标国家进行地理过滤
+    offer.product_name
   )
 
   console.log(`📝 第一次过滤后关键词数: ${filteredKeywords.length}`)

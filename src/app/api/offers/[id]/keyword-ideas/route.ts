@@ -16,7 +16,8 @@ import {
   filterLowIntentKeywords,
   filterMismatchedGeoKeywords,
 } from '@/lib/google-suggestions'
-import { getKeywordPlannerSiteFilterUrl } from '@/lib/keyword-planner-site-filter'
+import { getKeywordPlannerSiteFilterUrlForOffer } from '@/lib/keyword-planner-site-filter'
+import { ensureOfferBrandOfficialSite } from '@/lib/offer-official-site'
 
 /**
  * POST /api/offers/:id/keyword-ideas
@@ -116,7 +117,26 @@ export async function POST(
     }
 
     // 需求11：并行获取Google搜索下拉词和Keyword Planner建议
-    const siteFilterUrl = useUrl ? getKeywordPlannerSiteFilterUrl(offer.final_url || offer.url) : undefined
+    let siteFilterUrl = useUrl ? getKeywordPlannerSiteFilterUrlForOffer(offer) : undefined
+    if (useUrl && !siteFilterUrl) {
+      const official = await ensureOfferBrandOfficialSite({
+        offerId: offer.id,
+        userId: parseInt(userId, 10),
+        brand: offer.brand,
+        targetCountry: offer.target_country,
+        finalUrl: offer.final_url,
+        url: offer.url,
+        category: offer.category,
+        productName: offer.product_name,
+        extractionMetadata: offer.extraction_metadata,
+      }).catch(() => null)
+
+      if (official?.origin) {
+        siteFilterUrl = official.origin
+      }
+    }
+
+    console.log(`Keyword Planner siteFilterUrl: ${siteFilterUrl || '(none)'}`)
     const [googleSuggestKeywords, keywordPlannerIdeas] = await Promise.all([
       // 1. 获取Google搜索下拉词（自动过滤低意图关键词）
       getHighIntentKeywords({
@@ -226,7 +246,11 @@ export async function POST(
     console.log(`✓ 过滤后剩余${filteredKeywords.length}个高质量关键词`)
 
     // 按相关性排序
-    const rankedKeywords = rankKeywordsByRelevance(filteredKeywords)
+    const rankedKeywords = rankKeywordsByRelevance(filteredKeywords, {
+      brand: offer.brand,
+      category: offer.category,
+      productName: offer.product_name,
+    })
 
     // 按主题分组
     const groupedKeywords = groupKeywordsByTheme(rankedKeywords)

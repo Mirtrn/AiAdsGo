@@ -17,7 +17,7 @@ import { getKeywordSearchVolumes } from './keyword-planner'
 import { getKeywordIdeas } from './google-ads-keyword-planner'
 import { getUserAuthType } from './google-ads-oauth'
 import { PLATFORMS, BRAND_PATTERNS, DEFAULTS, THRESHOLD_LEVELS, CATEGORY_SYNONYMS } from './keyword-constants'
-import { getKeywordPlannerSiteFilterUrl } from './keyword-planner-site-filter'
+import { getKeywordPlannerSiteFilterUrlForOffer } from './keyword-planner-site-filter'
 
 // ============================================
 // 类型定义
@@ -1072,7 +1072,11 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
         const keywordIdeas = await getKeywordIdeas({
           customerId,
           seedKeywords: roundSeeds,
-          pageUrl: getKeywordPlannerSiteFilterUrl(offer.final_url || offer.finalUrl || offer.url),
+          pageUrl: getKeywordPlannerSiteFilterUrlForOffer({
+            final_url: (offer as any).final_url || (offer as any).finalUrl || null,
+            url: offer.url,
+            extraction_metadata: (offer as any).extraction_metadata || null,
+          }),
           targetCountry: country,
           targetLanguage: language,
           accountId,

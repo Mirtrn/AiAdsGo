@@ -108,11 +108,17 @@ async function maybeAcceptGoogleConsent(page: Page): Promise<void> {
 
 export async function fetchBrandSearchSupplement(options: {
   brandName: string
+  /**
+   * Optional override query (e.g. "Brand + category").
+   * When omitted, defaults to `brandName`.
+   */
+  query?: string
   targetCountry: string
   proxyApiUrl: string
   maxProxyRetries?: number
 }): Promise<BrandSearchSupplement | null> {
-  const query = options.brandName.trim()
+  const brandName = options.brandName.trim()
+  const query = (options.query || brandName).trim()
   if (!query) return null
 
   const lang = getLanguageCodeForCountry(options.targetCountry) || 'en'
@@ -308,6 +314,7 @@ export async function fetchBrandSearchSupplement(options: {
         })
 
         return {
+          organic,
           officialSite: organic[0],
           ads,
         }
@@ -322,6 +329,72 @@ export async function fetchBrandSearchSupplement(options: {
         if (proxyAttempt < maxProxyRetries) continue
       }
 
+      const normalizeBrandKey = (input: string) =>
+        input.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+      const isDisallowedHost = (hostname: string): boolean => {
+        const h = (hostname || '').toLowerCase()
+        // Marketplace / platform pages (site filtering will be noisy)
+        if (/(^|\.)amazon\./i.test(h)) return true
+        if (/(^|\.)ebay\./i.test(h)) return true
+        if (/(^|\.)walmart\./i.test(h)) return true
+        if (/(^|\.)aliexpress\./i.test(h)) return true
+        if (/(^|\.)temu\./i.test(h)) return true
+        if (/(^|\.)etsy\./i.test(h)) return true
+        // Social / directory / wiki (high false-positive rates)
+        if (/(^|\.)facebook\.com$/i.test(h)) return true
+        if (/(^|\.)instagram\.com$/i.test(h)) return true
+        if (/(^|\.)youtube\.com$/i.test(h)) return true
+        if (/(^|\.)tiktok\.com$/i.test(h)) return true
+        if (/(^|\.)x\.com$/i.test(h)) return true
+        if (/(^|\.)twitter\.com$/i.test(h)) return true
+        if (/(^|\.)wikipedia\.org$/i.test(h)) return true
+        if (/(^|\.)linkedin\.com$/i.test(h)) return true
+        return false
+      }
+
+      const scoreOfficialCandidate = (candidate: { url: string; title?: string; snippet?: string }, brand: string): number => {
+        try {
+          const u = new URL(candidate.url)
+          const host = u.hostname.toLowerCase().replace(/^www\./i, '')
+          if (isDisallowedHost(host)) return -1000
+
+          const brandKey = normalizeBrandKey(brand)
+          const hostKey = normalizeBrandKey(host)
+          const titleKey = normalizeBrandKey(candidate.title || '')
+          const snippetKey = normalizeBrandKey(candidate.snippet || '')
+
+          let score = 0
+          if (brandKey && hostKey.includes(brandKey)) score += 8
+          if (brandKey && (titleKey.includes(brandKey) || snippetKey.includes(brandKey))) score += 3
+          if (u.pathname === '/' || u.pathname === '') score += 1
+          return score
+        } catch {
+          return -1000
+        }
+      }
+
+      const organicCandidates = Array.isArray((raw as any).organic) ? ((raw as any).organic as Array<{ url: string; title?: string; snippet?: string }>) : []
+      const adLandingCandidates = Array.isArray(raw.ads)
+        ? raw.ads
+            .map((a: any) => ({ url: a?.landingUrl, title: a?.displayUrl }))
+            .filter((c: any) => typeof c?.url === 'string' && /^https?:\/\//i.test(c.url))
+        : []
+
+      const allCandidates = [
+        ...organicCandidates,
+        ...adLandingCandidates,
+      ].filter(c => typeof c?.url === 'string')
+
+      // Prefer brand-relevant, non-marketplace domains; fall back to the previous behavior.
+      const bestCandidate = allCandidates
+        .map(c => ({ c, score: scoreOfficialCandidate(c as any, brandName) }))
+        .sort((a, b) => b.score - a.score)[0]?.c as any | undefined
+
+      const selectedOrganic = bestCandidate
+        ? organicCandidates.find(o => o.url === bestCandidate.url) || null
+        : null
+
       // 🔥 额外抓取官网页面信息（best-effort）：补充meta title/description + 真实callout/sitelink建议
       let officialMetaTitle: string | undefined
       let officialMetaDescription: string | undefined
@@ -329,6 +402,7 @@ export async function fetchBrandSearchSupplement(options: {
       let officialSitelinks: SerpSitelink[] = []
 
       const officialUrlCandidate =
+        bestCandidate?.url ||
         raw.officialSite?.url ||
         (Array.isArray(raw.ads) ? raw.ads.find((a: any) => typeof a?.landingUrl === 'string' && a.landingUrl.trim())?.landingUrl : undefined)
       const officialUrl = typeof officialUrlCandidate === 'string' ? officialUrlCandidate.trim() : undefined
@@ -391,8 +465,9 @@ export async function fetchBrandSearchSupplement(options: {
         query,
         targetCountry: options.targetCountry,
         searchedAt: new Date().toISOString(),
-        officialSite: raw.officialSite?.url ? {
-          ...raw.officialSite,
+        officialSite: officialUrl ? {
+          ...(selectedOrganic || raw.officialSite || {}),
+          url: officialUrl,
           metaTitle: officialMetaTitle,
           metaDescription: officialMetaDescription,
         } : undefined,
