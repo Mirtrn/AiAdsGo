@@ -41,7 +41,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ResponsivePagination } from '@/components/ui/responsive-pagination';
-import type { UrlSwapTask, UrlSwapGlobalStats } from '@/lib/url-swap-types';
+import type { UrlSwapTaskListItem, UrlSwapGlobalStats } from '@/lib/url-swap-types';
 import type { UrlSwapHealthStatus } from '@/lib/url-swap/monitoring';
 
 interface UrlSwapAdminStats extends UrlSwapGlobalStats {
@@ -57,8 +57,8 @@ export default function AdminUrlSwapPage() {
   const router = useRouter();
 
   // Data states
-  const [tasks, setTasks] = useState<UrlSwapTask[]>([]);
-  const [filteredTasks, setFilteredTasks] = useState<UrlSwapTask[]>([]);
+  const [tasks, setTasks] = useState<Array<UrlSwapTaskListItem & { username?: string }>>([]);
+  const [filteredTasks, setFilteredTasks] = useState<Array<UrlSwapTaskListItem & { username?: string }>>([]);
   const [stats, setStats] = useState<UrlSwapAdminStats | null>(null);
   const [health, setHealth] = useState<UrlSwapHealthStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -580,14 +580,17 @@ export default function AdminUrlSwapPage() {
                         </Button>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="p-0 h-auto text-blue-600"
-                          onClick={() => router.push(`/offers/${task.offer_id}`)}
-                        >
-                          #{task.offer_id}
-                        </Button>
+                        <div className="flex flex-col items-start gap-1">
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="p-0 h-auto text-blue-600 font-medium"
+                            onClick={() => router.push(`/offers/${task.offer_id}`)}
+                          >
+                            {task.offer_name || `#${task.offer_id}`}
+                          </Button>
+                          <span className="text-xs text-gray-400">ID: #{task.offer_id}</span>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">

@@ -41,7 +41,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ResponsivePagination } from '@/components/ui/responsive-pagination';
-import type { UrlSwapTask, UrlSwapGlobalStats } from '@/lib/url-swap-types';
+import type { UrlSwapTaskListItem, UrlSwapGlobalStats } from '@/lib/url-swap-types';
 import UrlSwapTaskModal from '@/components/UrlSwapTaskModal';
 import UrlSwapHistory from '@/components/UrlSwapHistory';
 
@@ -49,8 +49,8 @@ export default function UrlSwapPage() {
   const router = useRouter();
 
   // Data states
-  const [tasks, setTasks] = useState<UrlSwapTask[]>([]);
-  const [filteredTasks, setFilteredTasks] = useState<UrlSwapTask[]>([]);
+  const [tasks, setTasks] = useState<UrlSwapTaskListItem[]>([]);
+  const [filteredTasks, setFilteredTasks] = useState<UrlSwapTaskListItem[]>([]);
   const [stats, setStats] = useState<UrlSwapGlobalStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -451,8 +451,9 @@ export default function UrlSwapPage() {
                             className="p-0 h-auto text-blue-600 font-medium"
                             onClick={() => router.push(`/offers/${task.offer_id}`)}
                           >
-                            #{task.offer_id}
+                            {task.offer_name || `#${task.offer_id}`}
                           </Button>
+                          <span className="text-xs text-gray-400">ID: #{task.offer_id}</span>
                         </div>
                       </TableCell>
                       <TableCell>

@@ -16,7 +16,8 @@ import type {
   UpdateUrlSwapTaskRequest,
   SwapHistoryEntry,
   UrlSwapTaskStats,
-  UrlSwapGlobalStats
+  UrlSwapGlobalStats,
+  UrlSwapTaskListItem
 } from './url-swap-types'
 
 /**
@@ -173,24 +174,24 @@ export async function getUrlSwapTasks(
     page?: number
     limit?: number
   } = {}
-): Promise<{ tasks: UrlSwapTask[]; total: number }> {
+): Promise<{ tasks: UrlSwapTaskListItem[]; total: number }> {
   const db = await getDatabase()
   const page = options.page || 1
   const limit = options.limit || 20
   const offset = (page - 1) * limit
 
-  const isDeletedCondition = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
-  let whereClause = `user_id = ? AND ${isDeletedCondition}`
+  const isDeletedCondition = db.type === 'postgres' ? 'ust.is_deleted = FALSE' : 'ust.is_deleted = 0'
+  let whereClause = `ust.user_id = ? AND ${isDeletedCondition}`
   const params: any[] = [userId]
 
   if (options.status) {
-    whereClause += ' AND status = ?'
+    whereClause += ' AND ust.status = ?'
     params.push(options.status)
   }
 
   // 获取总数
   const countResult = await db.queryOne<{ count: number }>(`
-    SELECT COUNT(*) as count FROM url_swap_tasks
+    SELECT COUNT(*) as count FROM url_swap_tasks ust
     WHERE ${whereClause}
   `, params)
 
@@ -198,14 +199,20 @@ export async function getUrlSwapTasks(
 
   // 获取任务列表
   const tasks = await db.query<any>(`
-    SELECT * FROM url_swap_tasks
+    SELECT ust.*, o.offer_name
+    FROM url_swap_tasks ust
+    LEFT JOIN offers o ON ust.offer_id = o.id
     WHERE ${whereClause}
-    ORDER BY created_at DESC
+    ORDER BY ust.created_at DESC
     LIMIT ? OFFSET ?
   `, [...params, limit, offset])
 
   return {
-    tasks: tasks.map(parseUrlSwapTask),
+    tasks: tasks.map(row => {
+      const task = parseUrlSwapTask(row) as UrlSwapTaskListItem
+      if (row?.offer_name) task.offer_name = row.offer_name
+      return task
+    }),
     total
   }
 }
@@ -659,7 +666,7 @@ export async function getAllUrlSwapTasks(
     page?: number
     limit?: number
   } = {}
-): Promise<{ tasks: (UrlSwapTask & { username?: string })[]; total: number }> {
+): Promise<{ tasks: (UrlSwapTask & { username?: string; offer_name?: string })[]; total: number }> {
   const db = await getDatabase()
   const page = options.page || 1
   const limit = options.limit || 20
@@ -684,9 +691,10 @@ export async function getAllUrlSwapTasks(
 
   // 获取任务列表（关联用户表）
   const tasks = await db.query<any>(`
-    SELECT ust.*, u.username
+    SELECT ust.*, u.username, o.offer_name
     FROM url_swap_tasks ust
     LEFT JOIN users u ON ust.user_id = u.id
+    LEFT JOIN offers o ON ust.offer_id = o.id
     WHERE ${whereClause}
     ORDER BY ust.created_at DESC
     LIMIT ? OFFSET ?
@@ -695,7 +703,8 @@ export async function getAllUrlSwapTasks(
   return {
     tasks: tasks.map(t => ({
       ...parseUrlSwapTask(t),
-      username: t.username
+      username: t.username,
+      offer_name: t.offer_name
     })),
     total
   }

@@ -77,6 +77,13 @@ export interface UrlSwapTask {
 }
 
 /**
+ * 任务列表项 - 用于前端显示，包含Offer的产品标识信息
+ */
+export interface UrlSwapTaskListItem extends UrlSwapTask {
+  offer_name?: string; // 该任务对应的Offer的产品标识（如 "Eufy_GB_02"）
+}
+
+/**
  * 换链历史记录条目
  */
 export interface SwapHistoryEntry {
