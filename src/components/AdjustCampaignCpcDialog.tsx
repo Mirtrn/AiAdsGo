@@ -59,7 +59,7 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
 
   const applyPercent = (percent: number) => {
     if (currentCpc === null || !(currentCpc > 0)) return
-    const next = currentCpc * (1 + percent)
+    const next = Math.max(0.01, currentCpc * (1 + percent))
     setNewCpcValue(next.toFixed(2))
   }
 
@@ -123,14 +123,17 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
               />
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(-0.2)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
+                -20%
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(-0.1)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
+                -10%
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(0.1)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
+                +10%
+              </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(0.2)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
                 +20%
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(0.5)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
-                +50%
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(1)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
-                +100%
               </Button>
             </div>
           </div>

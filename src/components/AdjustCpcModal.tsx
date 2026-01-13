@@ -86,7 +86,7 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
     const campaign = campaigns.find(c => c.id === campaignId)
     const base = campaign?.currentCpc ?? 0
     if (!(base > 0)) return
-    const next = base * (1 + percent)
+    const next = Math.max(0.01, base * (1 + percent))
     setCpcValues(prev => ({
       ...prev,
       [campaignId]: next.toFixed(2)
@@ -279,14 +279,17 @@ export default function AdjustCpcModal({ isOpen, onClose, offer }: AdjustCpcModa
                         />
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, -0.2)} disabled={disableRow || !(campaign.currentCpc > 0)}>
+                          -20%
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, -0.1)} disabled={disableRow || !(campaign.currentCpc > 0)}>
+                          -10%
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 0.1)} disabled={disableRow || !(campaign.currentCpc > 0)}>
+                          +10%
+                        </Button>
                         <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 0.2)} disabled={disableRow || !(campaign.currentCpc > 0)}>
                           +20%
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 0.5)} disabled={disableRow || !(campaign.currentCpc > 0)}>
-                          +50%
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={() => applyPercentToCpc(campaign.id, 1)} disabled={disableRow || !(campaign.currentCpc > 0)}>
-                          +100%
                         </Button>
                       </div>
                     </div>
