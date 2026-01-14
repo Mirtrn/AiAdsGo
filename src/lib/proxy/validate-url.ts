@@ -37,10 +37,11 @@ export function validateProxyUrl(proxyUrl: string): ProxyUrlValidation {
       errors.push('缺少国家代码参数 (cc)，请确认URL包含 cc=US/UK/CA/IE/NZ/ROW 等')
     } else {
       const ccUpper = cc.toUpperCase()
-      // 支持更多国家代码：UK(英国)、IE(爱尔兰)、NZ(新西兰)、CA(加拿大)、US/ROW(美国) 等
-      const validCountryCodes = ['UK', 'IE', 'NZ', 'CA', 'US', 'ROW', 'DE', 'FR', 'AU', 'JP', 'ES', 'IT', 'NL', 'BR', 'MX', 'IN', 'SG']
-      if (!validCountryCodes.includes(ccUpper)) {
-        errors.push(`国家代码 "${cc}" 无效，支持: ${validCountryCodes.join(', ')}`)
+      // 允许任意 ISO 3166-1 alpha-2（两位字母）+ ROW（其他地区），避免与“推广国家列表”不一致导致误判。
+      // 注意：具体 cc 是否可用仍取决于代理服务商支持范围。
+      const isIso2 = /^[A-Z]{2}$/.test(ccUpper)
+      if (ccUpper !== 'ROW' && !isIso2) {
+        errors.push(`国家代码 "${cc}" 无效，期望为两位字母(如 US/GB/IE/NZ) 或 ROW`)
       } else {
         countryCode = ccUpper
       }

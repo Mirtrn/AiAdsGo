@@ -1232,6 +1232,15 @@ export function getGoogleAdsGeoTargetId(countryCode: string): string {
 }
 
 /**
+ * 判断国家是否有明确的 Google Ads 地理目标ID映射
+ * 用于一致性校验（避免意外走默认值）
+ */
+export function hasGoogleAdsGeoTargetId(countryCode: string): boolean {
+  const upperCode = countryCode.toUpperCase()
+  return upperCode in GOOGLE_ADS_GEO_TARGETS
+}
+
+/**
  * 获取语言代码的 Google Ads API 语言ID (字符串格式)
  * 用于 Keyword Planner API
  * @param languageCode ISO 639-1 语言代码 (如 'en', 'zh', 'ja')
