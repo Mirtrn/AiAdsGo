@@ -150,6 +150,12 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
 
     const pipeline = this.client.pipeline()
 
+    // 若任务从 running/finished 状态回到 pending（如并发受限退回、重试），需要清理旧索引
+    // 否则 /api/queue/stats 通过 running set 读取会把 pending 任务误算为 running（出现 10/4 这类显示）
+    pipeline.srem(this.getKey('running'), task.id)
+    pipeline.srem(this.getKey('completed'), task.id)
+    pipeline.srem(this.getKey('failed'), task.id)
+
     // 1. 存储任务详情
     pipeline.hset(
       this.getKey('tasks'),

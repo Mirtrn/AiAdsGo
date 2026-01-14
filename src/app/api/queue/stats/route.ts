@@ -61,6 +61,9 @@ export async function GET(request: NextRequest) {
     let globalBackgroundRunning = 0
 
     for (const task of runningTasks) {
+      // 防御：running 索引可能因并发退回/重试等原因暂时与 tasks 状态不一致
+      // 只统计真实 running 的任务，避免页面出现类似“10/4”的误导显示
+      if (task.status !== 'running') continue
       if (!task.userId || task.userId <= 0) continue
       if (!runningByUser[task.userId]) {
         runningByUser[task.userId] = { coreRunning: 0, backgroundRunning: 0, byType: {} }

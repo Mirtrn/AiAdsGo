@@ -55,6 +55,13 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
       throw new Error('MemoryQueueAdapter: not connected')
     }
 
+    // 任务可能从 running/finished 状态回到 pending（并发受限退回、重试等）
+    // 必须清理 running 索引，否则 getRunningTasks() 会把 pending 任务误算为 running
+    this.runningTasks.delete(task.id)
+
+    // 防御：避免同一 taskId 在 pendingQueue 中出现重复条目
+    this.pendingQueue = this.pendingQueue.filter((t) => t.id !== task.id)
+
     this.tasks.set(task.id, task)
     this.pendingQueue.push(task)
 

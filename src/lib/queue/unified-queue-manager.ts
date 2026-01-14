@@ -672,6 +672,8 @@ export class UnifiedQueueManager {
       if (shouldRetry) {
         task.retryCount = (task.retryCount || 0) + 1
         task.status = 'pending'
+        // 清理 startedAt，避免被误判为长时间 running
+        delete (task as any).startedAt
 
         // 🔧 修复：重试时清除代理配置，强制重新获取新代理
         // 这样可以避免使用失败的代理IP，提高重试成功率
@@ -694,9 +696,9 @@ export class UnifiedQueueManager {
           retryDelayMs: this.config.retryDelay,
         })
 
-        setTimeout(async () => {
-          await this.adapter.enqueue(task)
-        }, this.config.retryDelay)
+        // 使用 notBefore 将重试延迟持久化到队列，避免 setTimeout 导致进程重启后丢失/误判 running
+        ;(task as any).notBefore = Date.now() + this.config.retryDelay
+        await this.adapter.enqueue(task)
       } else {
         // 不可恢复的错误或超过重试次数，标记为失败
         if (!isRecoverable) {
