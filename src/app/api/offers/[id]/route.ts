@@ -62,6 +62,62 @@ function normalizeTextCandidate(input: unknown): string | null {
   return raw
 }
 
+function normalizeForCompare(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .trim()
+}
+
+function areNearDuplicate(a: string | null, b: string | null): boolean {
+  if (!a || !b) return false
+  const na = normalizeForCompare(a)
+  const nb = normalizeForCompare(b)
+  if (!na || !nb) return false
+  if (na === nb) return true
+  if (na.length < 80 || nb.length < 80) return false
+  return na.includes(nb) || nb.includes(na)
+}
+
+function cleanAmazonDescription(input: string): string {
+  let text = input.replace(/\s+/g, ' ').trim()
+  text = text.replace(/^about\s+this\s+item\s*/i, '')
+  text = text.replace(/›\s*see\s+more\s+product\s+details.*$/i, '')
+  return text.trim()
+}
+
+function dropLeadingFeatureHeading(text: string): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  const colonIndex = collapsed.indexOf(':')
+  if (colonIndex > 0 && colonIndex <= 60) {
+    const after = collapsed.slice(colonIndex + 1).trim()
+    if (after.length >= 40) return after
+  }
+  return collapsed
+}
+
+function featureHeading(line: string): string {
+  const cleaned = line.replace(/\s+/g, ' ').trim()
+  const colonIndex = cleaned.indexOf(':')
+  if (colonIndex > 0 && colonIndex <= 60) {
+    return cleaned.slice(0, colonIndex).trim()
+  }
+  const sentenceIndex = cleaned.search(/[.!?]\s/)
+  if (sentenceIndex > 0 && sentenceIndex <= 80) {
+    return cleaned.slice(0, sentenceIndex + 1).trim()
+  }
+  return cleaned.length > 80 ? `${cleaned.slice(0, 77).trim()}...` : cleaned
+}
+
+function featureDetail(line: string): string {
+  const cleaned = line.replace(/\s+/g, ' ').trim()
+  const colonIndex = cleaned.indexOf(':')
+  const detail = colonIndex > 0 && colonIndex <= 60 ? cleaned.slice(colonIndex + 1).trim() : cleaned
+  return detail.length > 160 ? `${detail.slice(0, 157).trim()}...` : detail
+}
+
 function buildStoreDescriptionFromScrapedData(scrapedData: any): {
   brandDescription: string | null
   uniqueSellingPoints: string | null
@@ -83,20 +139,24 @@ function buildStoreDescriptionFromScrapedData(scrapedData: any): {
     : []
 
   const productDescriptions = deepTopProducts
-    .map((t: any) => normalizeTextCandidate(pickNonEmptyString(t?.productData?.productDescription)))
+    .map((t: any) => {
+      const desc = normalizeTextCandidate(pickNonEmptyString(t?.productData?.productDescription))
+      return desc ? normalizeTextCandidate(cleanAmazonDescription(desc)) : null
+    })
     .filter((v: any): v is string => typeof v === 'string' && v.trim().length > 0)
 
   const features = deepTopProducts.flatMap((t: any) => Array.isArray(t?.productData?.features) ? t.productData.features : [])
-  const uniqueSellingPointsLines = pickTopLines(features, 4)
-  const productHighlightsLines = pickTopLines(features, 3)
+  const rawFeatureLines = pickTopLines(features, 20)
+  const uniqueSellingPointsLines = pickTopLines(rawFeatureLines.map(featureHeading), 4)
+  const productHighlightsLines = pickTopLines(rawFeatureLines.map(featureDetail), 3)
 
   const brandParts: string[] = []
-  if (storeDescription) brandParts.push(storeDescription)
-  for (const desc of productDescriptions) {
-    if (!brandParts.includes(desc)) brandParts.push(desc)
-    if (brandParts.length >= 3) break
+  if (storeDescription) {
+    brandParts.push(storeDescription)
+  } else if (productDescriptions.length > 0) {
+    brandParts.push(dropLeadingFeatureHeading(productDescriptions[0]))
   }
-  const brandDescription = brandParts.length > 0 ? brandParts.join('\n\n').slice(0, 1600).trim() : null
+  const brandDescription = brandParts.length > 0 ? brandParts.join('\n\n').slice(0, 1200).trim() : null
 
   let targetAudience: string | null = null
   const audienceHintText = [
@@ -179,6 +239,29 @@ export async function GET(
       return null
     })()
 
+    const pageTypeEffective = pageTypeFromScrapedData || offer.page_type || 'product'
+    const isStorePage = pageTypeEffective === 'store'
+
+    const storedUniqueSellingPoints = normalizeTextCandidate(offer.unique_selling_points)
+    const storedProductHighlights = normalizeTextCandidate(offer.product_highlights)
+    const storedBrandDescription = normalizeTextCandidate(offer.brand_description)
+    const preferDerivedDescriptions =
+      isStorePage &&
+      areNearDuplicate(storedUniqueSellingPoints, storedProductHighlights)
+
+    const uniqueSellingPoints = pickNonEmptyString(
+      preferDerivedDescriptions ? storeDerived.uniqueSellingPoints : storedUniqueSellingPoints,
+      storedUniqueSellingPoints,
+      storeDerived.uniqueSellingPoints
+    )
+
+    const productHighlights = pickNonEmptyString(
+      preferDerivedDescriptions ? storeDerived.productHighlights : storedProductHighlights,
+      storedProductHighlights,
+      storeDerived.productHighlights,
+      scrapedProductDescription
+    )
+
     return NextResponse.json({
       success: true,
       offer: {
@@ -193,12 +276,13 @@ export async function GET(
         targetLanguage: offer.target_language, // 🔧 修复(2025-12-11): 添加target_language字段
         affiliateLink: offer.affiliate_link,
         brandDescription: pickNonEmptyString(
-          normalizeTextCandidate(offer.brand_description),
+          preferDerivedDescriptions ? storeDerived.brandDescription : storedBrandDescription,
+          storedBrandDescription,
           storeDerived.brandDescription,
           scrapedStoreDescription
         ),
-        uniqueSellingPoints: offer.unique_selling_points || storeDerived.uniqueSellingPoints,
-        productHighlights: offer.product_highlights || storeDerived.productHighlights || scrapedProductDescription,
+        uniqueSellingPoints,
+        productHighlights,
         targetAudience: pickNonEmptyString(
           normalizeTextCandidate(offer.target_audience),
           storeDerived.targetAudience
@@ -220,7 +304,7 @@ export async function GET(
         reviewAnalysis: offer.review_analysis,
         competitorAnalysis: offer.competitor_analysis,
         // 链接类型（店铺/单品）
-        pageType: pageTypeFromScrapedData || offer.page_type || 'product',
+        pageType: pageTypeEffective,
       },
     })
   } catch (error: any) {
