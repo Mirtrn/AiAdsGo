@@ -47,7 +47,7 @@ export interface AdCreativeTaskData {
   offerId: number
   maxRetries?: number
   targetRating?: 'EXCELLENT' | 'GOOD' | 'AVERAGE' | 'POOR'
-  synthetic?: boolean  // 🆕 是否生成综合创意（第4个创意）
+  synthetic?: boolean  // 🔧 向后兼容：旧版“综合创意”标记（KISS-3类型方案中不再生成S桶）
 }
 
 /**
@@ -97,28 +97,24 @@ export async function executeAdCreativeGeneration(
 
       keywordPool = await getOrCreateKeywordPool(offerId, task.userId, false)
 
-      // 🆕 综合创意模式：使用S桶
+      // ✅ KISS-3类型：只生成 A / B(含C) / D(含S) 三种创意
+      // synthetic=true 为旧版前端兼容：映射为 D 类型（不再单独生成S桶）
       if (synthetic) {
-        selectedBucket = 'S'
-        bucketInfo = getBucketInfo(keywordPool, 'S')
-        console.log(`🌟 综合创意模式: 使用S桶，包含 ${bucketInfo.keywords.length} 个关键词`)
-      } else {
-        // 获取可用桶（未被占用的）
-        const availableBuckets = await getAvailableBuckets(offerId)
+        console.warn(`⚠️ 检测到旧版 synthetic=true，已映射为桶D（不再生成S桶）`)
+      }
 
-        if (availableBuckets.length > 0) {
-          // 选择第一个可用桶
-          selectedBucket = availableBuckets[0]
-          bucketInfo = getBucketInfo(keywordPool, selectedBucket)
-          console.log(`📦 使用关键词池桶 ${selectedBucket} (${bucketInfo.intent}): ${bucketInfo.keywords.length} 个关键词`)
-        } else {
-          // 所有桶都已使用，轮询使用（A -> B -> C -> A...）
-          const usedCount = 3 - availableBuckets.length
-          const bucketOrder: BucketType[] = ['A', 'B', 'C']
-          selectedBucket = bucketOrder[usedCount % 3]
-          bucketInfo = getBucketInfo(keywordPool, selectedBucket)
-          console.log(`📦 所有桶已使用，轮询选择桶 ${selectedBucket} (${bucketInfo.intent})`)
-        }
+      // 获取可用桶（未被占用的，已按KISS-3类型收敛）
+      const availableBuckets = await getAvailableBuckets(offerId)
+
+      if (availableBuckets.length > 0) {
+        // 旧synthetic请求优先生成D（转化/价值导向）
+        const preferred = synthetic && availableBuckets.includes('D') ? 'D' : availableBuckets[0]
+        selectedBucket = preferred
+        bucketInfo = getBucketInfo(keywordPool, selectedBucket)
+        console.log(`📦 使用关键词池桶 ${selectedBucket} (${bucketInfo.intent}): ${bucketInfo.keywords.length} 个关键词`)
+      } else {
+        // ✅ KISS-3类型：三类创意都已生成，拒绝继续生成（避免用户看到>3套创意）
+        throw new Error('该Offer已生成全部3种创意类型（A/B/D），无需继续生成。请删除某个类型后再生成。')
       }
     } catch (poolError: any) {
       // 🔥 统一架构(2025-12-16): 关键词池是必需的，失败直接抛错
@@ -145,10 +141,8 @@ export async function executeAdCreativeGeneration(
       const attemptBaseProgress = 10 + (attempts - 1) * 25
 
       // 更新进度：生成中
-      const bucketLabel = synthetic ? ' [综合创意]' : (selectedBucket ? ` [桶${selectedBucket}]` : '')
-      const progressMessage = synthetic
-        ? `第${attempts}次生成${bucketLabel}: AI正在创作包含所有品牌关键词的综合广告...`
-        : `第${attempts}次生成${bucketLabel}: AI正在创作广告文案...`
+      const bucketLabel = selectedBucket ? ` [桶${selectedBucket}]` : ''
+      const progressMessage = `第${attempts}次生成${bucketLabel}: AI正在创作广告文案...`
       await db.exec(`
         UPDATE creative_tasks
         SET stage = 'generating', progress = ?, message = ?, current_attempt = ?, updated_at = ${nowFunc}

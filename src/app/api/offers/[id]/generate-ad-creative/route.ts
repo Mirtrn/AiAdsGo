@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { findOfferById, markBucketGenerated } from '@/lib/offers'
+import { getDatabase } from '@/lib/db'
 import { generateAdCreative, generateAdCreativesBatch } from '@/lib/ad-creative-gen'
 import { createAdCreative, listAdCreativesByOffer } from '@/lib/ad-creative'
 import { createError, ErrorCode, AppError } from '@/lib/errors'
@@ -109,11 +110,25 @@ export async function POST(
     let bucket: BucketType
     let bucketIntent: string
 
-    if (explicitBucket && ['A', 'B', 'C', 'D', 'S'].includes(explicitBucket)) {
-      // 用户指定了bucket，用于补生成或重生成
-      bucket = explicitBucket as BucketType
+    // ✅ KISS-3类型：仅生成A / B(含C) / D(含S)
+    const normalizeBucket = (b: any): BucketType | null => {
+      const upper = String(b || '').toUpperCase()
+      if (upper === 'A') return 'A'
+      if (upper === 'B' || upper === 'C') return 'B'
+      if (upper === 'D' || upper === 'S') return 'D'
+      return null
+    }
+
+    if (explicitBucket) {
+      const normalized = normalizeBucket(explicitBucket)
+      if (!normalized) {
+        const error = createError.invalidParameter({ field: 'bucket', value: explicitBucket })
+        return NextResponse.json(error.toJSON(), { status: error.httpStatus })
+      }
+      // 用户指定了bucket（兼容旧桶：C->B，S->D）
+      bucket = normalized
       bucketIntent = getThemeByBucket(bucket, linkType as 'product' | 'store')
-      console.log(`   🆕 Bucket: ${bucket} (用户指定)`)
+      console.log(`   🆕 Bucket: ${bucket} (用户指定/已归一化)`)
     } else {
       // 自动选择下一个需要生成的bucket
       bucket = getNextCreativeType({
@@ -124,23 +139,44 @@ export async function POST(
       console.log(`   🆕 Bucket: ${bucket} (智能选择)`)
     }
 
-    // 检查是否已达到生成次数上限（最多3次）
-    const existingCreatives = await listAdCreativesByOffer(offerId, authResult.user.userId, {
-      generation_round
-    })
+    // ✅ KISS-3类型：同一Offer最多生成3个类型（A/B/D），且每个类型最多1条创意（避免用户看到太多）
+    const db = await getDatabase()
+    const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
+    const usedBuckets = await db.query<{ keyword_bucket: string }>(
+      `SELECT DISTINCT keyword_bucket FROM ad_creatives
+       WHERE offer_id = ? AND user_id = ? AND keyword_bucket IS NOT NULL AND ${isDeletedCheck}`,
+      [offerId, authResult.user.userId]
+    )
 
-    // 计算还能生成多少个
-    const remainingQuota = 3 - existingCreatives.length
-    const actualCount = batch ? Math.min(count, remainingQuota) : 1
+    const usedTypes = new Set(
+      usedBuckets
+        .map(r => normalizeBucket(r.keyword_bucket))
+        .filter((b: BucketType | null): b is BucketType => !!b)
+    )
 
-    if (remainingQuota <= 0) {
+    if (usedTypes.has(bucket)) {
       const error = createError.creativeQuotaExceeded({
         round: generation_round,
-        current: existingCreatives.length,
+        current: usedTypes.size,
+        limit: 3
+      })
+      return NextResponse.json({
+        ...error.toJSON(),
+        message: `该Offer已生成桶${bucket}类型创意。为保持仅3个类型创意，请先删除该类型后再生成。`
+      }, { status: error.httpStatus })
+    }
+
+    if (usedTypes.size >= 3) {
+      const error = createError.creativeQuotaExceeded({
+        round: generation_round,
+        current: usedTypes.size,
         limit: 3
       })
       return NextResponse.json(error.toJSON(), { status: error.httpStatus })
     }
+
+    const remainingQuota = 3 - usedTypes.size
+    const actualCount = batch ? Math.min(count, remainingQuota) : 1
 
     console.log(`🎨 开始为Offer #${offerId} 生成广告创意...`)
     console.log(`   品牌: ${offer.brand}`)
@@ -369,6 +405,13 @@ export async function GET(
         transformedCreatives
           .map(c => c.keywordBucket)
           .filter((b): b is string => !!b)
+          .map(b => {
+            const upper = String(b).toUpperCase()
+            if (upper === 'A') return 'A'
+            if (upper === 'B' || upper === 'C') return 'B'
+            if (upper === 'D' || upper === 'S') return 'D'
+            return upper
+          })
       )
     )
 
@@ -403,16 +446,28 @@ export async function GET(
  * 将新生成的bucket添加到列表中
  */
 function updateGeneratedBuckets(currentBuckets: string | null | undefined, newBucket: string): string[] {
+  const normalize = (b: string): string | null => {
+    const upper = String(b || '').toUpperCase()
+    if (upper === 'A') return 'A'
+    if (upper === 'B' || upper === 'C') return 'B'
+    if (upper === 'D' || upper === 'S') return 'D'
+    return null
+  }
+
   let buckets: string[] = []
   if (currentBuckets) {
     try {
-      buckets = JSON.parse(currentBuckets) as string[]
+      const raw = JSON.parse(currentBuckets) as string[]
+      buckets = raw.map(normalize).filter((b: string | null): b is string => !!b)
     } catch {
       buckets = []
     }
   }
-  if (!buckets.includes(newBucket)) {
-    buckets.push(newBucket)
+
+  const normalizedNew = normalize(newBucket)
+  if (normalizedNew && !buckets.includes(normalizedNew)) {
+    buckets.push(normalizedNew)
   }
+  buckets = Array.from(new Set(buckets)).filter(b => ['A', 'B', 'D'].includes(b))
   return buckets
 }

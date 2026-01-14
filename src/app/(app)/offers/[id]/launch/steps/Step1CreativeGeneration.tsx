@@ -94,7 +94,7 @@ interface Creative {
   // 🆕 关键词分桶字段 (v4.10)
   // 🔥 2025-12-22: 添加桶D(高购买意图)支持
   keywordBucket?: 'A' | 'B' | 'C' | 'D' | 'S'  // 关键词桶标识: A=品牌, B=场景, C=功能, D=高购买意图, S=综合
-  bucketIntent?: string            // 桶意图描述（品牌导向/场景导向/功能导向/高购买意图/综合推广）
+  bucketIntent?: string            // 创意类型说明（KISS-3：A=品牌/信任，B=场景+功能，D=转化/价值）
   isSynthetic?: boolean            // 是否为综合创意
 
   // AD_STRENGTH新增字段
@@ -637,25 +637,39 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
             const timeB = new Date(b.createdAt).getTime()
             return timeB - timeA
           })
-          // 🎯 只取前 3 个最佳创意（包括综合创意S桶）
+          // 🎯 只取前 3 个最佳创意
           .slice(0, 3)
 
         setCreatives(sortedCreatives)
 
-        // 🔧 修复(2025-12-24): generationCount 应该是当前offer下所有已生成创意的总数
-        // 而不是不同generation_round的个数或最大值
-        // formattedCreatives包含所有创意（包括未展示的），用其长度作为"已生成"数量
-        setGenerationCount(formattedCreatives.length)
+        // ✅ KISS-3类型：generationCount 表示“已生成的创意类型数”（最多3：A/B/D）
+        const normalizeBucket = (b: string | undefined): string | null => {
+          const upper = String(b || '').toUpperCase()
+          if (upper === 'A') return 'A'
+          if (upper === 'B' || upper === 'C') return 'B'
+          if (upper === 'D' || upper === 'S') return 'D'
+          return null
+        }
+
+        const usedTypesSet = new Set(
+          formattedCreatives
+            .map((c: Creative) => normalizeBucket(c.keywordBucket))
+            .filter((b: string | null): b is string => !!b)
+        )
+
+        const orderedTypes = ['A', 'B', 'D'].filter(t => usedTypesSet.has(t))
+        setGenerationCount(orderedTypes.length)
 
         // 🆕 v4.16: 从API响应获取已生成的bucket列表
         if (data.generatedBuckets && Array.isArray(data.generatedBuckets)) {
-          setGeneratedBuckets(data.generatedBuckets as string[])
+          const normalized = (data.generatedBuckets as string[])
+            .map(b => normalizeBucket(b))
+            .filter((b: string | null): b is string => !!b)
+          const ordered = ['A', 'B', 'D'].filter(t => normalized.includes(t))
+          setGeneratedBuckets(ordered)
         } else {
           // Fallback: 从现有创意中提取bucket
-          const buckets = formattedCreatives
-            .map((c: Creative) => c.keywordBucket)
-            .filter((b: string | undefined): b is string => !!b)
-          setGeneratedBuckets(Array.from(new Set(buckets)))
+          setGeneratedBuckets(orderedTypes)
         }
 
         // Auto-select if already selected
@@ -675,9 +689,6 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
   }
 
   const handleGenerate = async () => {
-    // 🆕 第5次生成时，调用综合创意API
-    const isSyntheticGeneration = generationCount >= 4
-
     try {
       setGenerating(true)
       setGenerationError(null)  // 🆕 清除之前的错误
@@ -685,18 +696,17 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       setGenerationProgress({
         step: 'init',
         progress: 0,
-        message: isSyntheticGeneration ? '正在生成综合创意...' : '正在初始化...'
+        message: '正在初始化...'
       })
 
-      // 🔥 Step 1: 入队获取taskId（第4次传递synthetic参数）
+      // 🔥 Step 1: 入队获取taskId（KISS-3类型：后端自动选择A/B/D）
       const enqueueResponse = await fetch(`/api/offers/${offer.id}/generate-creatives-queue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           maxRetries: 3,
-          targetRating: 'EXCELLENT',
-          synthetic: isSyntheticGeneration  // 🆕 综合创意标记
+          targetRating: 'EXCELLENT'
         })
       })
 
@@ -1017,45 +1027,40 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
         <div className="flex items-center gap-3">
           {creatives.length > 0 && (
             <Badge variant="secondary" className="px-3 py-1.5 text-sm font-medium bg-white border border-gray-200 shadow-sm">
-              已生成: {generationCount}次 | 展示最佳3个
+              已生成类型: {generationCount}/3 | 展示最佳3个
             </Badge>
           )}
 
           <Button
             onClick={handleGenerate}
-            disabled={generating || generationCount >= 5}
+            disabled={generating || generationCount >= 3}
             className={`shadow-md border-0 ${
               generationCount >= 3
                 ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-amber-500/20'
                 : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 shadow-purple-500/20'
             } text-white`}
             title={generating ? 'AI正在生成创意，最多可能需要2分钟，请耐心等待...' : (
-              offer.page_type === 'store'
-                ? (generationCount >= 4 ? '生成全面展示店铺的综合创意' : (generationCount === 3 ? '生成信任信号导向的高信任广告创意' : ''))
-                : (generationCount >= 4 ? '生成包含所有品牌关键词和高搜索量关键词的综合创意' : (generationCount === 3 ? '生成紧迫促销导向的高转化广告创意' : ''))
+              generationCount === 0
+                ? '生成品牌/信任导向创意'
+                : generationCount === 1
+                  ? '生成场景+功能导向创意'
+                  : generationCount === 2
+                    ? '生成转化/价值导向创意'
+                    : '已达生成上限'
             )}
           >
             {generating ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                {generationCount >= 4 ? (
-                  offer.page_type === 'store' ? '生成店铺全景中...' : '生成综合创意中...'
-                ) : generationCount === 3 ? (
-                  offer.page_type === 'store' ? '生成信任信号创意中...' : '生成紧迫促销创意中...'
-                ) : (
-                  'AI生成中...'
-                )}
+                AI生成中...
               </>
             ) : (
               <>
                 <RefreshCw className="w-4 h-4 mr-2" />
-                {generationCount === 0 ? '开始生成创意' :
-                 generationCount === 3 ? (
-                   offer.page_type === 'store' ? '生成信任信号' : '生成紧迫促销'
-                 ) : generationCount === 4 ? (
-                   offer.page_type === 'store' ? '生成店铺全景' : '生成综合创意'
-                 ) : generationCount >= 5 ? '已达生成上限' :
-                 '再次生成'}
+                {generationCount === 0 ? '开始生成创意'
+                  : generationCount === 1 ? '生成场景+功能'
+                    : generationCount === 2 ? '生成转化/价值'
+                      : '已达生成上限'}
               </>
             )}
           </Button>
@@ -1069,16 +1074,12 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
       />
 
       {/* 🆕 生成次数上限提示 */}
-      {generationCount >= 5 && (
+      {generationCount >= 3 && (
         <Alert className="border-amber-200 bg-amber-50">
           <AlertCircle className="h-4 w-4 text-amber-600" />
           <AlertDescription className="text-amber-700">
             <span className="font-medium">已达到生成上限：</span>
-            {offer.page_type === 'store' ? (
-              <>已生成5个店铺创意（品牌信任导向、场景解决导向、精选推荐导向、信任信号导向、店铺全景）。如需重新生成，请删除现有创意或创建新的Offer。</>
-            ) : (
-              <>已生成5个创意（产品型号导向、购买意图导向、功能特性导向、紧迫促销导向、综合推广）。如需重新生成，请删除现有创意或创建新的Offer。</>
-            )}
+            <>已生成3个创意类型（A:品牌/信任，B:场景+功能，D:转化/价值）。如需重新生成，请先删除对应类型创意。</>
           </AlertDescription>
         </Alert>
       )}
@@ -1366,7 +1367,7 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                 </p>
                 <Button
                   onClick={handleGenerate}
-                  disabled={generating || generationCount >= 5}
+                  disabled={generating || generationCount >= 3}
                   className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 border-0"
                 >
                   <Wand2 className="w-4 h-4 mr-2" />
@@ -1411,74 +1412,23 @@ export default function Step1CreativeGeneration({ offer, onCreativeSelected, sel
                       </CardTitle>
                       <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
                         <span>{(() => {
-                          // 🆕 v4.16: 根据链接类型选择不同的创意类型映射
-                          const linkType = offer.page_type || 'product'
-                          const isStore = linkType === 'store'
+                          // ✅ KISS-3类型：只展示3个用户可见类型（A / B(含C) / D(含S)）
+                          const bucketKey = (creative.keywordBucket || '').toUpperCase()
+                          const normalized = bucketKey === 'A'
+                            ? 'A'
+                            : (bucketKey === 'B' || bucketKey === 'C')
+                              ? 'B'
+                              : (bucketKey === 'D' || bucketKey === 'S')
+                                ? 'D'
+                                : null
 
-                          // 🔧 修复(2025-12-23): 优先使用bucket_intent字段（更准确）
-                          if (creative.bucketIntent) {
-                            const intent = creative.bucketIntent.trim()
-
-                            if (isStore) {
-                              // 🏪 店铺链接：使用5种店铺创意类型
-                              if (intent.includes('品牌信任') || intent.includes('Brand-Trust')) return '品牌信任导向'
-                              if (intent.includes('场景解决') || intent.includes('Scene-Solution')) return '场景解决导向'
-                              if (intent.includes('精选推荐') || intent.includes('Collection-Highlight')) return '精选推荐导向'
-                              if (intent.includes('信任信号') || intent.includes('Trust-Signals')) return '信任信号导向'
-                              if (intent.includes('店铺全景') || intent.includes('Store-Overview')) return '店铺全景导向'
-                              return intent
-                            } else {
-                              // 🏷️ 单品链接：使用4种产品创意类型 + 综合
-                              // v4.16 优化后的类型: 产品型号导向、购买意图导向、功能特性导向、紧迫促销导向、综合推广
-                              if (intent.includes('产品型号') || intent.includes('Product-Specific') || intent.includes('型号')) return '产品型号导向'
-                              if (intent.includes('购买意图') || intent.includes('Purchase-Intent') || intent.includes('购买')) return '购买意图导向'
-                              if (intent.includes('功能特性') || intent.includes('Feature-Focused') || intent.includes('功能')) return '功能特性导向'
-                              if (intent.includes('紧迫促销') || intent.includes('Urgency-Promo') || intent.includes('紧迫')) return '紧迫促销导向'
-                              if (intent.includes('综合') || intent.includes('Synthetic')) return '综合推广'
-                              return intent
-                            }
+                          const labelMap: Record<string, string> = {
+                            A: '品牌/信任导向',
+                            B: '场景+功能导向',
+                            D: '转化/价值导向'
                           }
 
-                          // Fallback: 从keywordBucket直接映射（当bucketIntent缺失时的主要回退）
-                          const bucketKey = creative.keywordBucket?.toUpperCase()
-                          // 🏷️ 根据链接类型选择不同的映射表
-                          const productBucketMap: Record<string, string> = {
-                            'A': '产品型号导向',
-                            'B': '购买意图导向',
-                            'C': '功能特性导向',
-                            'D': '紧迫促销导向',
-                            'S': '综合推广'
-                          }
-                          const storeBucketMap: Record<string, string> = {
-                            'A': '品牌信任导向',
-                            'B': '场景解决导向',
-                            'C': '精选推荐导向',
-                            'D': '信任信号导向',
-                            'S': '店铺全景导向'
-                          }
-                          const bucketKeyMap = isStore ? storeBucketMap : productBucketMap
-                          if (bucketKey && bucketKeyMap[bucketKey]) {
-                            return bucketKeyMap[bucketKey]
-                          }
-
-                          // Fallback: 综合创意标记
-                          if (creative.isSynthetic || creative.keywordBucket === 'S') {
-                            return isStore ? '店铺全景导向' : '综合推广'
-                          }
-
-                          // Fallback: 从theme映射（兼容旧数据）
-                          const themeValue = (creative.theme || '').toLowerCase().trim()
-                          // v4.16 优化后的单品类型: 产品型号导向、购买意图导向、功能特性导向、紧迫促销导向
-                          if (themeValue.includes('product') || themeValue.includes('型号')) return '产品型号导向'
-                          if (themeValue.includes('purchase') || themeValue.includes('intent') || themeValue.includes('购买')) return '购买意图导向'
-                          if (themeValue.includes('feature') || themeValue.includes('benefit') || themeValue.includes('功能')) return '功能特性导向'
-                          if (themeValue.includes('urgency') || themeValue.includes('promo') || themeValue.includes('紧迫')) return '紧迫促销导向'
-                          if (themeValue.includes('synthetic') || themeValue.includes('综合')) return '综合推广'
-                          // 兼容旧数据：品牌导向 → 产品型号导向，场景导向 → 购买意图导向
-                          if (themeValue.includes('brand') || themeValue.includes('品牌')) return '产品型号导向'
-                          if (themeValue.includes('scene') || themeValue.includes('lifestyle') || themeValue.includes('场景')) return '购买意图导向'
-
-                          return isStore ? '店铺全景导向' : '综合推广'
+                          return normalized ? labelMap[normalized] : '创意'
                         })()}</span>
                       </div>
                     </div>

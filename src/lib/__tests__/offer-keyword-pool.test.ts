@@ -157,21 +157,25 @@ describe('OfferKeywordPool', () => {
     it('should return correct info for bucket B', () => {
       const info = getBucketInfo(mockKeywordPool, 'B')
 
-      expect(info.intent).toBe('场景导向')
-      expect(info.intentEn).toBe('Scenario-Oriented')
+      // ✅ KISS-3类型：B桶 = 场景+功能（合并B+C）
+      expect(info.intent).toBe('场景+功能')
+      expect(info.intentEn).toBe('Scenario + Feature')
       expect(info.keywords).toContain('eufy')  // 品牌词
       expect(info.keywords).toContain('home security')  // 桶B关键词
-      expect(info.keywords).toHaveLength(6)  // 1 品牌词 + 5 桶B关键词
+      expect(info.keywords).toContain('wireless camera')  // 桶C关键词（合并进来）
+      expect(info.keywords).toHaveLength(11)  // 1 品牌词 + 5 桶B关键词 + 5 桶C关键词
     })
 
     it('should return correct info for bucket C', () => {
       const info = getBucketInfo(mockKeywordPool, 'C')
 
-      expect(info.intent).toBe('功能导向')
-      expect(info.intentEn).toBe('Feature-Oriented')
+      // 🔧 向后兼容：旧C桶在KISS-3类型方案中等价于B桶（场景+功能）
+      expect(info.intent).toBe('场景+功能')
+      expect(info.intentEn).toBe('Scenario + Feature')
       expect(info.keywords).toContain('eufy')  // 品牌词
       expect(info.keywords).toContain('wireless camera')  // 桶C关键词
-      expect(info.keywords).toHaveLength(6)  // 1 品牌词 + 5 桶C关键词
+      expect(info.keywords).toContain('home security')  // 桶B关键词（合并进来）
+      expect(info.keywords).toHaveLength(11)  // 1 品牌词 + 5 桶B关键词 + 5 桶C关键词
     })
 
     it('should include brand keywords in all buckets', () => {

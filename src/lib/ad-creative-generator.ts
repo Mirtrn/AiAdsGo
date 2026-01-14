@@ -46,6 +46,46 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function normalizeBrandFreeText(text: string, brandName: string): string {
+  if (!text) return ''
+  const brand = String(brandName || '').trim()
+  if (!brand) return String(text).trim()
+  const pattern = new RegExp(escapeRegex(brand), 'ig')
+  return String(text).replace(pattern, '').replace(/\s{2,}/g, ' ').trim()
+}
+
+function selectPrimaryKeywordForHeadline2(
+  keywords: Array<{ keyword: string; searchVolume?: number }> | null | undefined,
+  brandName: string,
+  fallbackTexts: string[]
+): string {
+  const brandLower = String(brandName || '').toLowerCase().trim()
+  const candidates = (keywords || [])
+    .map(k => ({ keyword: String(k.keyword || '').trim(), searchVolume: Number(k.searchVolume || 0) }))
+    .filter(k => k.keyword.length > 0)
+    .filter(k => brandLower ? !k.keyword.toLowerCase().includes(brandLower) : true)
+    .filter(k => k.keyword.length <= 60)
+
+  if (candidates.length > 0) {
+    const hasAnyVolume = candidates.some(c => c.searchVolume > 0)
+    candidates.sort((a, b) => {
+      const aIntent = calculateIntentScore(a.keyword, brandName)
+      const bIntent = calculateIntentScore(b.keyword, brandName)
+      if (bIntent !== aIntent) return bIntent - aIntent
+      if (hasAnyVolume && b.searchVolume !== a.searchVolume) return b.searchVolume - a.searchVolume
+      return a.keyword.length - b.keyword.length
+    })
+    return candidates[0].keyword
+  }
+
+  for (const fallback of fallbackTexts) {
+    const cleaned = normalizeBrandFreeText(String(fallback || ''), brandName)
+    if (cleaned) return cleaned
+  }
+
+  return ''
+}
+
 // Keyword with search volume data
 // 🎯 数据来源说明：统一使用Historical Metrics API的精确搜索量
 // 🎯 意图分类（3类）
@@ -359,7 +399,11 @@ async function buildAdCreativePrompt(
     unique_selling_points: offer.unique_selling_points || offer.product_highlights || 'Premium quality',
     target_audience: offer.target_audience || 'General',
     target_country: offer.target_country,
-    target_language: targetLanguage
+    target_language: targetLanguage,
+    // 🆕 KISS-3类型优化：Headline #2 主关键词（非品牌）
+    primary_keyword: '',
+    // 🆕 证据约束：仅允许使用此处可验证事实（避免“编造数字/承诺”）
+    verified_facts_section: ''
   }
 
   // Build conditional sections as complete strings
@@ -390,44 +434,27 @@ This is a STORE link - the creative should drive users to explore the entire sto
 - 场景词和品类词用于描述使用场景
 - 强调店铺信誉、官方授权、售后保障
 - 避免过于具体的购买意图词汇`
-    // 🆕 v4.16: 店铺创意特殊指令
+    // 🆕 v4.16: 店铺创意特殊指令（KISS-3：A/B/D）
     store_creative_instructions = `
-## 🏪 店铺链接创意特殊规则
+## 🏪 店铺链接创意特殊规则（KISS-3：A/B/D）
 
-### 创意类型A（品牌信任导向）- 桶A
-**目标**: 建立品牌权威和官方形象
-- 强调官方授权、正品保障
-- 使用品牌词比例: 80%
-- 关键CTA: "Visit Official Store", "Shop Brand Direct"
-- 信任信号: "Authorized Dealer", "Official Warranty"
+### A（品牌/信任）
+**目标**: 建立品牌权威与官方可信形象
+- 关键词侧重：品牌词/官方词/授权词
+- 表达重点：正品保障、官方授权、售后与支持（仅限可验证事实）
+- CTA：偏“进店/了解更多”（如 "Visit Official Store", "Shop Brand Direct"）
 
-### 创意类型B（场景解决导向）- 桶B
-**目标**: 展示产品如何解决用户问题
-- 突出使用场景和解决方案
-- 使用场景词比例: 60%
-- 关键CTA: "Find Your Solution", "Explore Options"
-- 场景示例: "Home Security", "Baby Monitor", "Pet Watching"
+### B（场景 + 功能）
+**目标**: 用场景痛点引入，再用核心功能给出解决方案
+- 关键词侧重：场景词 + 功能词（品牌词仅辅助）
+- 表达重点：用户担忧 → 解决方案 → 轻量CTA（如 "Explore Options"）
 
-### 创意类型C（精选推荐导向）- 桶C
-**目标**: 展示店铺热销和推荐产品
-- 强调热门、评分、推荐
-- 使用热销词比例: 40%
-- 关键CTA: "See Best Sellers", "Discover Top Rated"
-- 信号词: "Best Seller", "Top Rated", "Customer Favorite"
+### D（转化/价值）
+**目标**: 推动行动（有证据才写促销/数字/承诺）
+- 关键词侧重：高意图/价值词 + 信任信号
+- 表达重点：优惠/稀缺/紧迫（仅限已验证事实）+ 明确CTA（如 "Shop Now", "Get Offer"）
 
-### 创意类型D（信任信号导向）- 桶D
-**目标**: 建立用户信任和购买信心
-- 突出评价、售后、保障
-- 使用信任词比例: 40%
-- 关键CTA: "Read Reviews", "Learn More"
-- 信号词: "Warranty", "Guarantee", "Support"
-
-### 创意类型S（店铺全景导向）- 桶S
-**目标**: 全面展示店铺，吸引探索
-- 整合所有店铺亮点
-- 品牌词: 50%, 场景词: 30%, 品类词: 20%
-- 关键CTA: "Explore Store", "View All Products"
-- 覆盖各种用户搜索意图`
+⚠️ 兼容性说明：历史桶 \`C→B\`、\`S→D\`，不要在输出中使用/展示 \`C/S\`。`
   } else {
     link_type_section = `
 ## 🏷️ PRODUCT LINK MODE
@@ -448,6 +475,8 @@ This is a PRODUCT link - the creative should drive users to purchase a specific 
   // 🆕 v4.10: 添加关键词池桶指令
   if (extractedElements?.bucketInfo) {
     const { bucket, intent, intentEn, keywordCount } = extractedElements.bucketInfo
+    // 🆕 KISS-3: 归一化创意类型（兼容历史 C/S）
+    const kissBucket = bucket === 'C' ? 'B' : bucket === 'S' ? 'D' : bucket
 
     // 🆕 v4.16: 店铺链接特殊桶处理
     if (linkType === 'store') {
@@ -458,28 +487,18 @@ This is a PRODUCT link - the creative should drive users to purchase a specific 
 - 关键词策略: 80%品牌词 + 10%场景词 + 10%品类词
 - 创意重点: 强调品牌权威和正品保证`,
         'B': `
-**🏪 店铺桶B - 场景解决导向**
-- 核心主题: 解决用户问题
-- 关键词策略: 20%品牌词 + 60%场景词 + 20%品类词
-- 创意重点: 展示产品如何解决用户需求`,
-        'C': `
-**🏪 店铺桶C - 精选推荐导向**
-- 核心主题: 店铺热销推荐
-- 关键词策略: 40%品牌词 + 20%场景词 + 30%品类词 + 10%信任词
-- 创意重点: 强调热门产品和用户好评`,
+**🏪 店铺桶B - 场景+功能导向（KISS）**
+- 核心主题: 场景痛点 → 功能解法
+- 关键词策略: 场景词/功能词为主，品牌词为辅
+- 创意重点: 从用户问题切入，快速给出解决方案`,
         'D': `
-**🏪 店铺桶D - 信任信号导向**
-- 核心主题: 建立购买信心
-- 关键词策略: 30%品牌词 + 10%场景词 + 20%品类词 + 40%信任词
-- 创意重点: 突出评价、售后和保障`,
-        'S': `
-**🏪 店铺桶S - 店铺全景导向**
-- 核心主题: 全面展示店铺
-- 关键词策略: 50%品牌词 + 30%场景词 + 20%品类词
-- 创意重点: 整合所有店铺亮点，覆盖广泛用户群`
+**🏪 店铺桶D - 转化/价值导向（KISS）**
+- 核心主题: 推动行动（有证据才写价格/优惠/承诺）
+- 关键词策略: 高意图词 + 价值/促销词 + 信任信号
+- 创意重点: 明确CTA + 价值主张 + 可信背书（仅限可验证事实）`
       }
-      keyword_bucket_section = storeBucketInstructions[bucket] || `
-**📦 STORE KEYWORD POOL BUCKET ${bucket} - ${intent || intentEn}**
+      keyword_bucket_section = storeBucketInstructions[kissBucket] || `
+**📦 STORE KEYWORD POOL BUCKET ${kissBucket} - ${intent || intentEn}**
 This store creative focuses on "${intent || intentEn}" user intent.
 - ${keywordCount} pre-selected keywords for this intent
 - Keywords optimized for store-level marketing`
@@ -487,90 +506,45 @@ This store creative focuses on "${intent || intentEn}" user intent.
     // 🆕 2025-12-16: 综合创意（S桶）的特殊指令（产品链接）
     else if (bucket === 'S') {
       keyword_bucket_section = `
-**🔮 SYNTHETIC CREATIVE - MAXIMUM AD STRENGTH OPTIMIZATION**
-This is a SYNTHETIC creative that must achieve the HIGHEST possible Ad Strength rating ("Excellent").
-
-**CRITICAL REQUIREMENTS:**
-1. **Single Product Focus (MOST IMPORTANT)**: ALL creative elements MUST focus on ONE specific product
-   - Product Name: {{product_name}}
-   - Mention the specific product model/name in ALL headlines
-   - Describe THIS product's features, NOT generic product categories
-   - ❌ FORBIDDEN: "Shop All", "Browse Collection", "Full Lineup", "Cameras & Doorbells"
-2. **Brand Coverage**: Include ALL brand-related keywords naturally in headlines and descriptions
-3. **High-Volume Keywords**: Prioritize the top-performing non-brand keywords by search volume
-4. **Keyword-Copy Alignment**: Every headline and description MUST contain at least one keyword
-5. **Diversity**: Use ALL 15 headlines and ALL 4 descriptions - no shortcuts
-6. **Ad Strength Optimization**:
-   - Include brand name in at least 3 headlines
-   - Use power words (Buy, Shop, Save, Free, Official, etc.)
-   - Include numbers and statistics when possible
-   - Use Dynamic Keyword Insertion: {KeyWord:${offer.brand}} in first headline
-   - Each headline should be unique and address different user intents
-   - Descriptions should complement headlines, not repeat them
-
-**KEYWORD PRIORITY (from ${keywordCount} pre-selected keywords):**
-- Brand keywords: MUST be included (highest priority)
-- High-volume generic keywords: Include top performers
-- Long-tail variations: Use for diversity
-
-**AD STRENGTH CHECKLIST:**
-☑️ 15 unique headlines with varied messaging
-☑️ 4 compelling descriptions with clear CTAs
-☑️ Strong keyword density without keyword stuffing
-☑️ Mix of branded and generic appeal
-☑️ Clear value propositions
-☑️ Urgency elements (limited time, exclusive, etc.)
-☑️ Trust signals (official, authorized, warranty, etc.)`
+**🧭 LEGACY BUCKET S（已废弃）**
+历史综合桶 S 在 KISS-3 中统一映射为桶 D（转化/价值）。
+- 仅在已验证事实（促销/价格/承诺）存在时才可使用
+- 文案重点：价值主张 + 明确CTA + 可信背书
+`
     } else {
       // 🆕 v4.18: 为每个产品链接桶添加单品聚焦约束
       const productBucketInstructions: Record<string, string> = {
         'A': `
-**📦 产品桶A - 具体产品导向 (Product-Specific)**
-**🎯 核心主题**: 突出具体产品的型号和参数
+**📦 产品桶A - 品牌/信任导向 (Brand & Trust)**
+**🎯 核心主题**: 建立品牌可信度 + 强化“这是用户要买的这一款”
 **⚠️ 单品聚焦规则 (CRITICAL)**:
 - ✅ 必须提到具体产品名称/型号: {{product_name}}
-- ✅ 必须突出产品的具体规格/功能 (如 "1500W", "1070Wh", "2K resolution")
+- ✅ 强调官方/正品/保障/支持等信任信号（仅限可验证事实）
 - ✅ 所有创意元素必须聚焦于这一个产品
 - ❌ 禁止: "Shop All Products", "Browse Collection", "Cameras & Doorbells"
 - ❌ 禁止: 提及同品牌其他品类产品
-- 关键词策略: 30%品牌词 + 50%产品型号词 + 20%功能词
-- 创意重点: 让用户一眼识别这就是TA要找的产品`,
+- 创意重点: 先信任，再转化`,
         'B': `
-**📦 产品桶B - 购买意向导向 (Purchase-Intent)**
-**🎯 核心主题**: 促使用户立即购买
+**📦 产品桶B - 场景+功能导向 (Scenario + Feature)**
+**🎯 核心主题**: 场景痛点 → 功能解法 → 轻量CTA
 **⚠️ 单品聚焦规则 (CRITICAL)**:
-- ✅ 围绕这一个产品描述购买优势和CTA
-- ✅ 强调具体价格/折扣 (如 "41% Off", "$839")
-- ✅ 使用明确的购买CTA: "Shop Now", "Buy Today", "Order Now"
-- ❌ 禁止: "Explore Store", "View All Products" (这是店铺级文案)
-- ❌ 禁止: 暗示多产品选择
-- 关键词策略: 20%品牌词 + 30%产品型号词 + 10%功能词 + 40%价格词
-- 创意重点: 消除购买犹豫，推动立即行动`,
-        'C': `
-**📦 产品桶C - 功能特性导向 (Feature-Focused)**
-**🎯 核心主题**: 展示产品的独特功能和优势
-**⚠️ 单品聚焦规则 (CRITICAL)**:
-- ✅ 详细描述这一个产品的具体功能 (如 "AI Detection", "Solar Powered")
-- ✅ 使用产品的高价值特性作为卖点
-- ✅ 避免泛化的品类描述，聚焦单品细节
-- ❌ 禁止: "Smart Home Solutions" (太通用)
-- ❌ 禁止: 提及"完整产品线"或"多种选择"
-- 关键词策略: 20%品牌词 + 20%产品型号词 + 60%功能词
-- 创意重点: 用产品独特功能说服用户`,
+- ✅ 围绕这一个产品讲解决方案与核心功能（避免泛化到品类）
+- ✅ 先“刺痛/担心/厌倦”再“解决/安心”，语句短促
+- ❌ 禁止: 主要围绕价格/折扣（这属于桶D）
+- ❌ 禁止: 暗示多产品选择或店铺级文案
+- 创意重点: 强相关 + 具体卖点（不编造数字/承诺）`,
         'D': `
-**📦 产品桶D - 紧迫促销导向 (Urgency-Promo)**
-**🎯 核心主题**: 利用紧迫感和促销推动转化
+**📦 产品桶D - 转化/价值导向 (Value / Deal)**
+**🎯 核心主题**: 推动购买行动（有证据才写价格/优惠/承诺）
 **⚠️ 单品聚焦规则 (CRITICAL)**:
-- ✅ 为这一个产品创造紧迫感 (如 "Limited Time", "Today Only")
-- ✅ 强调该产品的专属优惠
-- ✅ 使用倒计时/限时语言
-- ❌ 禁止: "Shop the Full Collection" (店铺级文案)
-- ❌ 禁止: 暗示"多款促销"
-- 关键词策略: 20%品牌词 + 20%产品型号词 + 20%功能词 + 40%促销词
-- 创意重点: 让用户感觉"现在不买就错过这个产品"`
+- ✅ 明确CTA: "Buy Now", "Shop Now", "Order Today"
+- ✅ 仅在已验证事实中使用价格/折扣/限时等信息
+- ✅ 可用紧迫感/稀缺性语言（需符合事实）
+- ❌ 禁止: 变成泛泛的品类广告或店铺级文案
+- 创意重点: 价值清晰 + 行动强`
       }
-      keyword_bucket_section = productBucketInstructions[bucket] || `
-**📦 KEYWORD POOL BUCKET ${bucket} - ${intent || intentEn}**
+      keyword_bucket_section = productBucketInstructions[kissBucket] || `
+**📦 KEYWORD POOL BUCKET ${kissBucket} - ${intent || intentEn}**
 **⚠️ 单品聚焦规则 (CRITICAL)**:
 - This creative MUST focus on ONE specific product: {{product_name}}
 - ALL headlines and descriptions must reference this specific product
@@ -1399,6 +1373,30 @@ This creative focuses on "${intent || intentEn}" user intent.
   // Build extras_data section
   variables.extras_data = extras.length ? '\n' + extras.join(' | ') + '\n' : ''
 
+  // ✅ VERIFIED FACTS（仅允许使用这些可验证信息；为空则不要写数字/承诺）
+  // 只使用“产品数据”来源，避免把prompt中的示例数字误当作证据
+  const verifiedFacts: string[] = []
+  if (currentPrice) verifiedFacts.push(`- PRICE: ${currentPrice}`)
+  if (originalPrice) verifiedFacts.push(`- ORIGINAL PRICE: ${originalPrice}`)
+  if (discount) verifiedFacts.push(`- DISCOUNT: ${discount}`)
+  if (activePromotions.length > 0) {
+    const p = activePromotions[0]
+    verifiedFacts.push(`- PROMOTION: ${p.description}${p.code ? ` (Code: ${p.code})` : ''}${p.validUntil ? ` (Until: ${p.validUntil})` : ''}`)
+  }
+  if (salesRank) verifiedFacts.push(`- SALES RANK: ${salesRank}`)
+  if (badge) verifiedFacts.push(`- BADGE: ${badge}`)
+  if (availability) verifiedFacts.push(`- STOCK/AVAILABILITY: ${availability}`)
+  if (primeEligible) verifiedFacts.push(`- PRIME/FAST SHIPPING: Yes`)
+  if (totalReviews > 0) verifiedFacts.push(`- TOTAL REVIEWS: ${totalReviews}`)
+  if (averageRating > 0) verifiedFacts.push(`- AVERAGE RATING: ${averageRating}`)
+  if (quantitativeHighlights.length > 0) {
+    verifiedFacts.push(`- QUANTITATIVE HIGHLIGHTS: ${quantitativeHighlights.slice(0, 3).map(h => `${h.metric}=${h.value}`).join(', ')}`)
+  }
+
+  variables.verified_facts_section = verifiedFacts.length
+    ? `\n## ✅ VERIFIED FACTS (Only use these claims; do NOT invent)\n${verifiedFacts.join('\n')}\n`
+    : `\n## ✅ VERIFIED FACTS (Only use these claims; do NOT invent)\n- (No verified facts provided. Do NOT use numbers, discounts, or guarantees.)\n`
+
   // 🔥 Build promotion_section（v2.1新增）
   let promotion_section = ''
   if (activePromotions.length > 0) {
@@ -1516,6 +1514,18 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
     extracted_elements_section += `\n**INSTRUCTION**: Use above extracted elements as reference. You can refine, expand, or create variations, but prioritize extracted keywords (they have real search volume). Generate complete 15 headlines and 4 descriptions as required.\n`
   }
   variables.extracted_elements_section = extracted_elements_section
+
+  // ✅ Headline #2 主关键词（优先：高意图 + 高搜索量的非品牌关键词）
+  // 来源：合并后的关键词（包含桶关键词/增强关键词/提取关键词），并严格排除品牌词
+  variables.primary_keyword = selectPrimaryKeywordForHeadline2(
+    (extractedElements?.keywords || []) as Array<{ keyword: string; searchVolume?: number }>,
+    offer.brand,
+    [
+      offer.category,
+      offer.product_name || offer.product_title || offer.name || offer.title,
+      offer.product_title || offer.name || offer.title
+    ].filter(Boolean)
+  )
 
   // 🔧 P0修复（2025-12-08）：添加缺失的section变量赋值
   variables.enhanced_features_section = enhanced_features_section
@@ -1644,10 +1654,11 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   // 这些变量名需要与 prompt 模板中的占位符匹配
   if (extractedElements?.bucketInfo) {
     const { bucket, intent, intentEn, keywordCount } = extractedElements.bucketInfo
-    variables.bucket_type = bucket
+    const kissBucket = bucket === 'C' ? 'B' : bucket === 'S' ? 'D' : bucket
+    variables.bucket_type = kissBucket
     variables.bucket_intent = intent || intentEn || ''
     variables.bucket_info_section = `
-**📦 当前创意桶：${bucket} - ${intent || intentEn}**
+**📦 当前创意桶：${kissBucket} - ${intent || intentEn}**
 - 桶主题：${intent || intentEn}
 - 预选关键词数量：${keywordCount}
 - 文案风格要求：所有 Headlines 和 Descriptions 必须与"${intent || intentEn}"主题一致`
@@ -1666,42 +1677,42 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   if (linkType === 'store') {
     variables.link_type_section = `
 ## 📍 当前链接类型：店铺页面 (Store Page)
-**目标**：最大化进店，扩大品牌认知
+**目标**：最大化进店，扩大品牌认知（KISS-3：A/B/D）
 
-**桶类型与关键词分布**:
-| 桶 | 类型 | 品牌词 | 场景词 | 品类词 | 信任词 |
-|----|------|:-----:|:-----:|:-----:|:-----:|
-| A | Brand-Trust | **80%** | 10% | 10% | 0% |
-| B | Scene-Solution | 20% | **60%** | 20% | 0% |
-| C | Collection-Highlight | 40% | 20% | **30%** | 10% |
-| D | Trust-Signals | 30% | 10% | 20% | **40%** |
-| S | Store-Overview | **50%** | 30% | 20% | 0% |
+**类型与关键词侧重（用户可见）**:
+| 类型 | 主题 | 关键词侧重 | 文案重点 |
+|----|------|-----------|---------|
+| A | 品牌/信任 | 品牌词/官方词/授权词 | 正品保障、授权、售后（仅限可验证事实） |
+| B | 场景+功能 | 场景词 + 功能词 | 刺痛 → 解法 → 轻量CTA |
+| D | 转化/价值 | 高意图/价值词 + 信任信号 | 促销/稀缺/紧迫 + CTA（仅限已验证事实） |
+
+**兼容性**：历史桶 \`C→B\`、\`S→D\`（不要在输出中写 \`C/S\`）。
 
 **核心要求**:
 - 强调品牌官方地位和可信度
 - 突出店铺热销产品和高评价
 - 展示店铺的独特卖点和售后保障
-- 使用店铺层面的社会证明（评分、评价数、销量）
+- 有证据时使用店铺层面的社会证明（评分、评价数、销量）；禁止编造数字
 `
   } else {
     // 默认：单品链接策略
     variables.link_type_section = `
 ## 📍 当前链接类型：产品页面 (Product Page)
-**目标**：最大化转化，让用户购买这个具体产品
+**目标**：最大化转化，让用户购买这个具体产品（KISS-3：A/B/D）
 
-**桶类型与关键词分布**:
-| 桶 | 类型 | 品牌词 | 产品型号词 | 功能词 | 价格词 |
-|----|------|:-----:|:---------:|:-----:|:-----:|
-| A | Product-Specific | 30% | **50%** | 20% | 0% |
-| B | Purchase-Intent | 20% | 30% | 10% | **40%** |
-| C | Feature-Focused | 20% | 20% | **60%** | 0% |
-| D | Urgency-Promo | 20% | 20% | 20% | 20% |
-| S | Comprehensive | 40% | 30% | 30% | 0% |
+**类型与关键词侧重（用户可见）**:
+| 类型 | 主题 | 文案重点 |
+|----|------|---------|
+| A | 品牌/信任 | 官方/正品/保障（仅限可验证事实）+ 单品聚焦 |
+| B | 场景+功能 | 痛点场景 + 核心功能解法 + 单品聚焦 |
+| D | 转化/价值 | 价值主张 + CTA + 紧迫/优惠（仅限已验证事实） |
+
+**兼容性**：历史桶 \`C→B\`、\`S→D\`（不要在输出中写 \`C/S\`）。
 
 **核心要求**:
 - 标题必须与具体产品相关联
 - 至少 2 个标题包含具体产品型号或参数
-- 至少 2 个描述包含具体价格或折扣信息
+- 有证据时描述可包含价格/折扣/限时等细节；禁止编造
 `
   }
 
@@ -1747,7 +1758,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 /**
  * 🆕 v4.16: 获取下一个需要生成的创意类型
  * 根据已生成的创意类型，自动选择下一个未生成的类型
- * 顺序：A → B → C → D → S
+ * ✅ KISS优化：仅3个用户可见类型：A → B(含C) → D(含S)
  *
  * @param offer - Offer 对象，必须包含 page_type 和 generated_buckets 字段
  * @returns 下一个创意类型（BucketType）
@@ -1758,24 +1769,38 @@ export function getNextCreativeType(offer: {
   page_type: 'product' | 'store'
   generated_buckets?: string | null
 }): BucketType {
-  const typeOrder: BucketType[] = ['A', 'B', 'C', 'D', 'S']
+  const typeOrder: BucketType[] = ['A', 'B', 'D']
+
+  const normalize = (b: string): BucketType | null => {
+    const upper = String(b || '').toUpperCase()
+    if (upper === 'A') return 'A'
+    if (upper === 'B' || upper === 'C') return 'B'
+    if (upper === 'D' || upper === 'S') return 'D'
+    return null
+  }
 
   // 解析已生成的 bucket 列表
   let generatedBuckets: BucketType[] = []
   if (offer.generated_buckets) {
     try {
-      generatedBuckets = JSON.parse(offer.generated_buckets) as BucketType[]
+      const raw = JSON.parse(offer.generated_buckets) as string[]
+      generatedBuckets = raw
+        .map(normalize)
+        .filter((b: BucketType | null): b is BucketType => !!b)
     } catch {
       console.warn('[getNextCreativeType] 解析 generated_buckets 失败:', offer.generated_buckets)
       generatedBuckets = []
     }
   }
 
+  // 去重
+  generatedBuckets = Array.from(new Set(generatedBuckets))
+
   // 找到第一个未生成的类型
   const nextType = typeOrder.find(type => !generatedBuckets.includes(type))
 
-  // 如果所有类型都已生成，返回 S（综合创意）
-  return nextType || 'S'
+  // 如果所有类型都已生成，返回 D（转化/价值）作为保底（但上层通常会阻止继续生成）
+  return nextType || 'D'
 }
 
 /**
@@ -1789,19 +1814,19 @@ export function getThemeByBucket(bucket: BucketType, linkType: 'product' | 'stor
   if (linkType === 'store') {
     const themes: Record<BucketType, string> = {
       'A': '品牌信任导向 - 强调官方正品和品牌权威',
-      'B': '场景解决方案 - 突出使用场景和痛点解决',
-      'C': '精选推荐导向 - 展示热销产品和店铺特色',
-      'D': '信任信号导向 - 突出评价、退换货、售后',
-      'S': '店铺全景 - 全面展示店铺产品线'
+      'B': '场景+功能导向 - 覆盖使用场景与核心功能',
+      'C': '场景+功能导向 - 覆盖使用场景与核心功能', // 兼容旧桶
+      'D': '转化/价值导向 - 突出促销、价值与行动号召',
+      'S': '转化/价值导向 - 突出促销、价值与行动号召' // 兼容旧桶
     }
     return themes[bucket]
   } else {
     const themes: Record<BucketType, string> = {
-      'A': '产品型号导向 - 标题必须包含具体产品型号参数',
-      'B': '购买意图导向 - 描述必须包含价格和折扣信息',
-      'C': '功能特性导向 - 突出核心功能和技术参数',
-      'D': '紧迫促销导向 - 包含限时/限量/立即行动元素',
-      'S': '综合推广 - 平衡所有意图，Ad Strength 最大化'
+      'A': '品牌/信任导向 - 强调官方、正品与品牌权威',
+      'B': '场景+功能导向 - 用痛点场景引入，用功能给出解决方案',
+      'C': '场景+功能导向 - 用痛点场景引入，用功能给出解决方案', // 兼容旧桶
+      'D': '转化/价值导向 - 优先用可验证的优惠/价值点 + 强CTA',
+      'S': '转化/价值导向 - 优先用可验证的优惠/价值点 + 强CTA' // 兼容旧桶
     }
     return themes[bucket]
   }
@@ -1839,7 +1864,7 @@ export async function markBucketGenerated(
       'UPDATE offers SET generated_buckets = ? WHERE id = ?',
       [JSON.stringify(generatedBuckets), offerId]
     )
-    console.log(`[markBucketGenerated] Offer ${offerId}: 已记录 bucket ${bucket}, 总计: ${generatedBuckets.length}/5`)
+    console.log(`[markBucketGenerated] Offer ${offerId}: 已记录 bucket ${bucket}, 总计: ${generatedBuckets.length}/3`)
   }
 }
 
@@ -3206,8 +3231,73 @@ export async function generateAdCreative(
       // 说明：DKI token 本身不计入字符数，因此这里不使用 finalFirstHeadline.length 做判断
       console.log(`🔧 强制第一个headline: "${result.headlines[0]}" → "${finalFirstHeadline}"`)
       result.headlines[0] = finalFirstHeadline
+      if (result.headlinesWithMetadata && result.headlinesWithMetadata.length > 0) {
+        result.headlinesWithMetadata[0] = {
+          ...result.headlinesWithMetadata[0],
+          text: finalFirstHeadline,
+          length: finalFirstHeadline.length
+        }
+      }
     } else {
       console.log(`✅ 第一个headline已符合要求: "${finalFirstHeadline}"`)
+    }
+  }
+
+  // ✅ KISS-3类型优化：强制 Headline #2 使用“最高意图/最高量核心关键词”，且不包含品牌（避免和Headline #1重复）
+  const primaryKeywordForHeadline2 = selectPrimaryKeywordForHeadline2(
+    filteredKeywords,
+    brandName,
+    [
+      (offer as any).category,
+      (offer as any).product_name || (offer as any).product_title || (offer as any).name || (offer as any).title,
+      (offer as any).product_title || (offer as any).name || (offer as any).title
+    ].filter(Boolean)
+  )
+
+  if (primaryKeywordForHeadline2 && result.headlines.length >= 2) {
+    const brandLower = String(brandName || '').toLowerCase().trim()
+    const primaryLower = primaryKeywordForHeadline2.toLowerCase()
+    const containsBrand = (t: string) => (brandLower ? t.toLowerCase().includes(brandLower) : false)
+    const containsDki = (t: string) => /\{keyword:/i.test(t)
+    const containsPrimary = (t: string) => t.toLowerCase().includes(primaryLower)
+
+    // 寻找候选：包含primary且不含brand、且不是DKI
+    const candidates = result.headlines
+      .map((text, index) => ({ index, text }))
+      .filter(h => h.index !== 0)
+      .filter(h => !containsDki(h.text))
+      .filter(h => !containsBrand(h.text))
+      .filter(h => containsPrimary(h.text))
+      .sort((a, b) => a.text.length - b.text.length)
+
+    const swap = (i: number, j: number) => {
+      const tmp = result.headlines[i]
+      result.headlines[i] = result.headlines[j]
+      result.headlines[j] = tmp
+      if (result.headlinesWithMetadata && result.headlinesWithMetadata.length > Math.max(i, j)) {
+        const tmpM = result.headlinesWithMetadata[i]
+        result.headlinesWithMetadata[i] = result.headlinesWithMetadata[j]
+        result.headlinesWithMetadata[j] = tmpM
+      }
+    }
+
+    if (candidates.length > 0 && candidates[0].index !== 1) {
+      console.log(`🔧 调整Headline #2以匹配主关键词: "${primaryKeywordForHeadline2}"`)
+      swap(1, candidates[0].index)
+    }
+
+    // 如果Headline #2仍包含品牌，尽量替换为不含品牌的headline（不强制包含primary）
+    if (containsBrand(result.headlines[1])) {
+      const nonBrandAlt = result.headlines
+        .map((text, index) => ({ index, text }))
+        .filter(h => h.index !== 0 && h.index !== 1)
+        .filter(h => !containsDki(h.text))
+        .filter(h => !containsBrand(h.text))
+        .sort((a, b) => a.text.length - b.text.length)[0]
+      if (nonBrandAlt) {
+        console.log(`🔧 替换Headline #2以避免品牌重复: "${result.headlines[1]}" → "${nonBrandAlt.text}"`)
+        swap(1, nonBrandAlt.index)
+      }
     }
   }
 

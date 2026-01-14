@@ -34,7 +34,7 @@ export async function POST(
   const {
     maxRetries = 3,
     targetRating = 'EXCELLENT',
-    synthetic = false  // 🆕 是否生成综合创意
+    synthetic = false  // 🔧 向后兼容：旧版“综合创意”标记（KISS-3类型方案中不再生成S桶）
   } = body
 
   // 验证Offer存在
@@ -103,21 +103,51 @@ export async function POST(
   try {
     const db = getDatabase()
 
-    // 🆕 检查是否已达到5次生成上限（只计算未删除的创意）
-    // 🔧 修复(2025-01-01): PostgreSQL boolean类型处理（FALSE vs 0）
+    // ✅ KISS-3类型：最多3个创意类型（A / B(含C) / D(含S)）
+    // 只计算未删除的创意，并兼容历史bucket（C->B，S->D）
     const isDeletedCheck = db.type === 'postgres' ? 'is_deleted = FALSE' : 'is_deleted = 0'
-    const existingCreatives = await db.query<{ count: number }>(
-      `SELECT COUNT(*) as count FROM ad_creatives
-       WHERE offer_id = ? AND user_id = ? AND ${isDeletedCheck}`,
+    const existingBuckets = await db.query<{ keyword_bucket: string }>(
+      `SELECT DISTINCT keyword_bucket FROM ad_creatives
+       WHERE offer_id = ? AND user_id = ? AND keyword_bucket IS NOT NULL AND ${isDeletedCheck}`,
       [parseInt(id, 10), parseInt(userId, 10)]
     )
 
-    const currentCount = existingCreatives[0]?.count || 0
-    if (currentCount >= 5) {
+    const normalizeBucket = (b: any): 'A' | 'B' | 'D' | null => {
+      const upper = String(b || '').toUpperCase()
+      if (upper === 'A') return 'A'
+      if (upper === 'B' || upper === 'C') return 'B'
+      if (upper === 'D' || upper === 'S') return 'D'
+      return null
+    }
+
+    const usedTypes = new Set(
+      existingBuckets
+        .map(r => normalizeBucket(r.keyword_bucket))
+        .filter((b: 'A' | 'B' | 'D' | null): b is 'A' | 'B' | 'D' => !!b)
+    )
+
+    // 旧synthetic请求：映射为D类型（不再单独生成S）
+    const requestedType: 'A' | 'B' | 'D' | null = synthetic ? 'D' : null
+    if (requestedType && usedTypes.has(requestedType)) {
       const error = createError.creativeQuotaExceeded({
         round: 1,
-        current: currentCount,
-        limit: 5
+        current: usedTypes.size,
+        limit: 3
+      })
+      return new Response(JSON.stringify({
+        ...error.toJSON(),
+        message: `该Offer已生成桶${requestedType}类型创意。为保持仅3个类型创意，请先删除该类型后再生成。`
+      }), {
+        status: error.httpStatus,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+
+    if (usedTypes.size >= 3) {
+      const error = createError.creativeQuotaExceeded({
+        round: 1,
+        current: usedTypes.size,
+        limit: 3
       })
       return new Response(JSON.stringify(error.toJSON()), {
         status: error.httpStatus,
@@ -142,7 +172,7 @@ export async function POST(
       offerId: parseInt(id, 10),
       maxRetries,
       targetRating,
-      synthetic  // 🆕 综合创意标记
+      synthetic  // 🔧 向后兼容：旧版标记（执行器会映射为D）
     }
 
     await queue.enqueue('ad-creative', taskData, parseInt(userId, 10), {

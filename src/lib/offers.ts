@@ -1322,6 +1322,18 @@ export async function markBucketGenerated(
 ): Promise<void> {
   const db = await getDatabase()
 
+  // ✅ KISS优化：仅记录3个用户可见类型（A / B(含C) / D(含S)）
+  const normalize = (b: string): string | null => {
+    const upper = String(b || '').toUpperCase()
+    if (upper === 'A') return 'A'
+    if (upper === 'B' || upper === 'C') return 'B'
+    if (upper === 'D' || upper === 'S') return 'D'
+    return null
+  }
+
+  const normalizedBucket = normalize(bucket)
+  if (!normalizedBucket) return
+
   // 获取当前已生成的 bucket 列表
   const offer = await db.queryOne(
     'SELECT generated_buckets FROM offers WHERE id = ?',
@@ -1331,19 +1343,25 @@ export async function markBucketGenerated(
   let generatedBuckets: string[] = []
   if (offer?.generated_buckets) {
     try {
-      generatedBuckets = JSON.parse(offer.generated_buckets) as string[]
+      const raw = JSON.parse(offer.generated_buckets) as string[]
+      generatedBuckets = raw
+        .map(normalize)
+        .filter((b: string | null): b is string => !!b)
     } catch {
       generatedBuckets = []
     }
   }
 
+  // 去重并只保留A/B/D
+  generatedBuckets = Array.from(new Set(generatedBuckets)).filter(b => ['A', 'B', 'D'].includes(b))
+
   // 如果还没有这个 bucket，添加它
-  if (!generatedBuckets.includes(bucket)) {
-    generatedBuckets.push(bucket)
+  if (!generatedBuckets.includes(normalizedBucket)) {
+    generatedBuckets.push(normalizedBucket)
     await db.exec(
       'UPDATE offers SET generated_buckets = ? WHERE id = ?',
       [JSON.stringify(generatedBuckets), offerId]
     )
-    console.log(`[markBucketGenerated] Offer ${offerId}: 已记录 bucket ${bucket}, 总计: ${generatedBuckets.length}/5`)
+    console.log(`[markBucketGenerated] Offer ${offerId}: 已记录 bucket ${normalizedBucket}, 总计: ${generatedBuckets.length}/3`)
   }
 }

@@ -7,6 +7,7 @@ interface PromptCacheEntry {
   content: string
   timestamp: number
   version: string
+  lastVerifiedAt?: number
 }
 
 /**
@@ -14,6 +15,7 @@ interface PromptCacheEntry {
  */
 const promptCache = new Map<string, PromptCacheEntry>()
 const CACHE_TTL = 5 * 60 * 1000 // 5分钟
+const VERSION_CHECK_TTL = 30 * 1000 // 30秒（检测active版本变更）
 
 /**
  * 检查缓存是否过期
@@ -52,8 +54,30 @@ export async function loadPrompt(promptId: string): Promise<string> {
   // 1. 检查缓存
   const cached = promptCache.get(promptId)
   if (cached && !isExpired(cached)) {
-    console.log(`✅ Prompt cache hit: ${promptId} (v${cached.version})`)
-    return cached.content
+    const now = Date.now()
+
+    // 🔧 解决“切换active版本后仍使用旧缓存”的问题：周期性检查active版本
+    if (!cached.lastVerifiedAt || now - cached.lastVerifiedAt > VERSION_CHECK_TTL) {
+      const db = await getDatabase()
+      const isActiveCondition = db.type === 'postgres' ? 'is_active = true' : 'is_active = 1'
+
+      const active = await db.queryOne<{ version: string }>(
+        `SELECT version FROM prompt_versions WHERE prompt_id = ? AND ${isActiveCondition}`,
+        [promptId]
+      )
+
+      cached.lastVerifiedAt = now
+
+      if (active?.version && active.version !== cached.version) {
+        promptCache.delete(promptId)
+      } else {
+        console.log(`✅ Prompt cache hit: ${promptId} (${cached.version})`)
+        return cached.content
+      }
+    } else {
+      console.log(`✅ Prompt cache hit: ${promptId} (${cached.version})`)
+      return cached.content
+    }
   }
 
   // 2. 从数据库加载active版本
@@ -86,7 +110,8 @@ export async function loadPrompt(promptId: string): Promise<string> {
   promptCache.set(promptId, {
     content,
     timestamp: Date.now(),
-    version: prompt.version
+    version: prompt.version,
+    lastVerifiedAt: Date.now()
   })
 
   console.log(`📦 Loaded prompt from database: ${prompt.name} (${promptId} ${prompt.version})`)

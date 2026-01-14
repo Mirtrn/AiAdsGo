@@ -23,7 +23,7 @@ import {
 
 /**
  * POST /api/offers/:id/creatives/generate-differentiated
- * 生成 3 个差异化创意（基于关键词桶）
+ * 生成差异化创意（KISS：仅3个用户可见类型）
  *
  * Request Body:
  * - buckets?: BucketType[] - 指定要生成的桶（默认所有可用桶）
@@ -96,20 +96,36 @@ export async function POST(
     if (availableBuckets.length === 0) {
       return NextResponse.json({
         success: false,
-        error: '所有关键词桶已被占用，每个 Offer 最多支持 5 个差异化创意（A/B/C/D/S）',
+        error: '所有创意类型已被占用，每个 Offer 最多支持 3 个差异化创意（A/B/D）',
         data: {
           usedBuckets: await getUsedBuckets(offerId),
-          maxCreatives: 5,
+          maxCreatives: 3,
           suggestion: '请删除现有创意后再生成新的'
         }
       }, { status: 400 })
     }
 
+    // ✅ KISS-3类型映射：C->B，S->D（兼容旧参数）
+    const normalizeRequestedBucket = (b: string): BucketType | null => {
+      if (!b) return null
+      const upper = b.toUpperCase()
+      if (upper === 'C') return 'B'
+      if (upper === 'S') return 'D'
+      if (['A', 'B', 'D'].includes(upper)) return upper as BucketType
+      return null
+    }
+
     // 4. 确定要生成的桶
     let bucketsToGenerate: BucketType[]
     if (requestedBuckets && Array.isArray(requestedBuckets)) {
-      // 验证请求的桶是否可用
-      const invalidBuckets = requestedBuckets.filter((b: string) => !availableBuckets.includes(b as BucketType))
+      // 兼容旧桶：先映射到KISS-3类型，再去重
+      const normalized = requestedBuckets
+        .map((b: string) => normalizeRequestedBucket(b))
+        .filter((b: BucketType | null): b is BucketType => !!b)
+      const deduped = Array.from(new Set(normalized))
+
+      // 验证请求的桶是否可用（按KISS-3类型）
+      const invalidBuckets = deduped.filter((b: BucketType) => !availableBuckets.includes(b))
       if (invalidBuckets.length > 0) {
         return NextResponse.json({
           success: false,
@@ -117,7 +133,7 @@ export async function POST(
           data: { availableBuckets }
         }, { status: 400 })
       }
-      bucketsToGenerate = requestedBuckets as BucketType[]
+      bucketsToGenerate = deduped
     } else {
       // 根据策略决定生成多少个
       bucketsToGenerate = availableBuckets.slice(0, strategy.bucketCount)

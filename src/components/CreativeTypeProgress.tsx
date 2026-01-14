@@ -2,10 +2,10 @@
 
 /**
  * 🆕 v4.16: 创意类型进度指示器组件
- * 显示5个创意类型的生成状态：已生成、生成中、待生成
+ * ✅ KISS-3类型：显示3个创意类型的生成状态：已生成、待生成
  */
 
-import { CheckCircle2, Circle, Clock } from 'lucide-react'
+import { CheckCircle2, Circle } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 
 interface CreativeTypeProgressProps {
@@ -15,27 +15,23 @@ interface CreativeTypeProgressProps {
   }
 }
 
-// 单品链接的创意类型配置
+// KISS-3类型创意配置（单品/店铺使用同一套逻辑展示）
 const PRODUCT_BUCKETS = [
-  { key: 'A', label: '产品型号导向', description: '标题包含具体产品型号参数', color: 'bg-blue-500' },
-  { key: 'B', label: '购买意图导向', description: '描述包含价格和折扣信息', color: 'bg-green-500' },
-  { key: 'C', label: '功能特性导向', description: '突出核心功能和技术参数', color: 'bg-purple-500' },
-  { key: 'D', label: '紧迫促销导向', description: '包含限时/限量/立即行动元素', color: 'bg-amber-500' },
-  { key: 'S', label: '综合推广', description: '平衡所有意图，Ad Strength最大化', color: 'bg-rose-500' },
+  { key: 'A', label: '品牌/信任', description: '强调官方、正品与可信（证据内）', color: 'bg-blue-500' },
+  { key: 'B', label: '场景+功能', description: '用场景痛点引入，用功能给出解法', color: 'bg-green-500' },
+  { key: 'D', label: '转化/价值', description: '可验证优惠/价值点 + 强CTA', color: 'bg-amber-500' },
 ]
 
-// 店铺链接的创意类型配置
 const STORE_BUCKETS = [
-  { key: 'A', label: '品牌信任导向', description: '强调官方正品和品牌权威', color: 'bg-blue-500' },
-  { key: 'B', label: '场景解决方案', description: '突出使用场景和痛点解决', color: 'bg-green-500' },
-  { key: 'C', label: '精选推荐导向', description: '展示热销产品和店铺特色', color: 'bg-purple-500' },
-  { key: 'D', label: '信任信号导向', description: '突出评价、退换货、售后', color: 'bg-amber-500' },
-  { key: 'S', label: '店铺全景', description: '全面展示店铺产品线', color: 'bg-rose-500' },
+  { key: 'A', label: '品牌/信任', description: '强调官方、正品与可信（证据内）', color: 'bg-blue-500' },
+  { key: 'B', label: '场景+功能', description: '用场景痛点引入，用功能给出解法', color: 'bg-green-500' },
+  { key: 'D', label: '转化/价值', description: '可验证优惠/价值点 + 强CTA', color: 'bg-amber-500' },
 ]
 
 export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypeProgressProps) {
   const linkType = offer.page_type || 'product'
   const buckets = linkType === 'store' ? STORE_BUCKETS : PRODUCT_BUCKETS
+  const nextBucket = buckets.find(b => !generatedBuckets.includes(b.key))
 
   return (
     <TooltipProvider>
@@ -44,7 +40,7 @@ export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypePr
         <div className="flex items-center gap-2">
           {buckets.map((bucket) => {
             const isGenerated = generatedBuckets.includes(bucket.key)
-            const isCurrent = generatedBuckets.length === buckets.findIndex(b => b.key === bucket.key)
+            const isCurrent = !!nextBucket && nextBucket.key === bucket.key
 
             return (
               <Tooltip key={bucket.key}>
@@ -100,16 +96,16 @@ export function CreativeTypeProgress({ generatedBuckets, offer }: CreativeTypePr
         {/* 进度统计 */}
         <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
           <span className="text-gray-500">
-            已完成 <span className="font-medium text-gray-900">{generatedBuckets.length}</span> / 5 个创意类型
+            已完成 <span className="font-medium text-gray-900">{generatedBuckets.length}</span> / 3 个创意类型
           </span>
           <span className="text-gray-500">
-            {generatedBuckets.length === 5 ? (
+            {generatedBuckets.length === 3 ? (
               <span className="text-green-600 font-medium">全部完成</span>
             ) : generatedBuckets.length === 0 ? (
               <span className="text-gray-400">点击生成开始</span>
             ) : (
               <span className="text-purple-600">
-                下一个: {buckets[generatedBuckets.length]?.label}
+                下一个: {nextBucket?.label || '-'}
               </span>
             )}
           </span>

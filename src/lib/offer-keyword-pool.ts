@@ -194,7 +194,7 @@ export interface StoreKeywordBuckets {
  * B = 场景导向 (Scenario-Oriented) - 第2个创意
  * C = 功能导向 (Feature-Oriented) - 第3个创意
  * D = 高购买意图 (High Purchase Intent) - 第4个创意
- * S = 综合推广 (Synthetic) - 第5个创意，整合A+B+C+D所有桶的关键词
+ * S = 综合推广 (Synthetic) - 历史遗留：旧版第5个创意（已在KISS-3类型方案中弃用）
  */
 export type BucketType = 'A' | 'B' | 'C' | 'D' | 'S'
 
@@ -2524,41 +2524,55 @@ export function getBucketInfo(
       }
     case 'B':
       return {
-        keywords: [...pool.brandKeywords, ...pool.bucketBKeywords],
-        intent: pool.bucketBIntent,
-        intentEn: 'Scenario-Oriented'
+        // ✅ KISS优化：B桶 = 场景 + 功能（合并B+C为一个创意类型，减少用户可见创意数量）
+        keywords: [...pool.brandKeywords, ...pool.bucketBKeywords, ...pool.bucketCKeywords],
+        intent: '场景+功能',
+        intentEn: 'Scenario + Feature'
       }
     case 'C':
       return {
-        keywords: [...pool.brandKeywords, ...pool.bucketCKeywords],
-        intent: pool.bucketCIntent,
-        intentEn: 'Feature-Oriented'
+        // 🔧 向后兼容：旧版C桶在KISS-3类型方案中等价于B桶（场景+功能合并）
+        keywords: [...pool.brandKeywords, ...pool.bucketBKeywords, ...pool.bucketCKeywords],
+        intent: '场景+功能',
+        intentEn: 'Scenario + Feature'
       }
     case 'S':
-      // 🔥 2025-12-22: 综合桶（第5个创意）
-      // 整合A+B+C+D所有桶的关键词，覆盖最广泛的用户群
-      return {
-        keywords: [
-          ...pool.brandKeywords,
-          ...pool.bucketAKeywords,
-          ...pool.bucketBKeywords,
-          ...pool.bucketCKeywords,
-          ...pool.bucketDKeywords
-        ],
-        intent: '综合推广',
-        intentEn: 'Synthetic'
-      }
-    case 'D':
-      // 🔥 2025-12-22: 高购买意图桶（第4个创意）
-      // 使用专门生成的高购买意图关键词
+      // 🔧 向后兼容：旧版S桶在KISS-3类型方案中等价于D桶（转化/价值导向）
       return {
         keywords: [...pool.brandKeywords, ...pool.bucketDKeywords],
-        intent: pool.bucketDIntent,
-        intentEn: 'High Purchase Intent'
+        intent: pool.bucketDIntent || '转化/价值',
+        intentEn: 'Value / Deal'
+      }
+    case 'D':
+      // ✅ KISS优化：D桶 = 转化/价值导向
+      // 若D桶关键词不足，少量补充B/C高意图词，避免“D桶为空导致创意贫瘠”
+      {
+        const base = [...pool.brandKeywords, ...pool.bucketDKeywords]
+        const needsSupplement = pool.bucketDKeywords.length < 8
+        const supplement = needsSupplement
+          ? [...pool.bucketBKeywords, ...pool.bucketCKeywords].slice(0, 20)
+          : []
+        return {
+          keywords: [...base, ...supplement],
+          intent: pool.bucketDIntent || '转化/价值',
+          intentEn: 'Value / Deal'
+        }
       }
     default:
       throw new Error(`Invalid bucket type: ${bucket}`)
   }
+}
+
+/**
+ * KISS-3类型：将历史bucket映射到仅3个“用户可见创意类型”
+ * - A -> A
+ * - B/C -> B（场景+功能）
+ * - D/S -> D（转化/价值）
+ */
+function mapBucketToKissType(bucket: BucketType): 'A' | 'B' | 'D' {
+  if (bucket === 'A') return 'A'
+  if (bucket === 'B' || bucket === 'C') return 'B'
+  return 'D' // D 或 S
 }
 
 /**
@@ -2682,24 +2696,10 @@ export async function getSyntheticBucketKeywords(
  * @returns 是否可以生成综合创意
  */
 export async function canGenerateSyntheticCreative(offerId: number): Promise<boolean> {
-  const db = await getDatabase()
-
-  const result = await db.query<{ keyword_bucket: string }>(
-    `SELECT DISTINCT keyword_bucket FROM ad_creatives
-     WHERE offer_id = ? AND keyword_bucket IS NOT NULL`,
-    [offerId]
-  )
-
-  const usedBuckets = new Set(result.map(r => r.keyword_bucket))
-
-  // 检查A/B/C是否都已使用，且S未使用
-  const hasAllABC = usedBuckets.has('A') && usedBuckets.has('B') && usedBuckets.has('C')
-  const notHasS = !usedBuckets.has('S')
-
-  console.log(`🔍 综合创意检查: A=${usedBuckets.has('A')}, B=${usedBuckets.has('B')}, C=${usedBuckets.has('C')}, S=${usedBuckets.has('S')}`)
-  console.log(`   可以生成综合创意: ${hasAllABC && notHasS}`)
-
-  return hasAllABC && notHasS
+  // ✅ KISS-3类型方案中不再生成综合创意（S桶）
+  // 旧逻辑保留签名，避免历史引用导致运行时崩溃
+  void offerId
+  return false
 }
 
 /**
@@ -2718,11 +2718,16 @@ export async function getAvailableBuckets(offerId: number): Promise<BucketType[]
     [offerId]
   )
 
-  const used = new Set(usedBuckets.map(b => b.keyword_bucket))
-  // 🔥 2025-12-22: 添加桶D和桶S支持
-  const all: BucketType[] = ['A', 'B', 'C', 'D', 'S']
+  // ✅ KISS优化：仅暴露3个创意类型（A / B(含C) / D(含S)）
+  const usedTypes = new Set(
+    usedBuckets
+      .map(b => b.keyword_bucket as BucketType)
+      .filter(Boolean)
+      .map(mapBucketToKissType)
+  )
 
-  return all.filter(b => !used.has(b))
+  const allTypes: BucketType[] = ['A', 'B', 'D']
+  return allTypes.filter(t => !usedTypes.has(t as 'A' | 'B' | 'D'))
 }
 
 /**
@@ -2752,15 +2757,22 @@ export async function getUsedBuckets(offerId: number): Promise<BucketType[]> {
  */
 export async function isCreativeLimitReached(offerId: number): Promise<boolean> {
   const db = await getDatabase()
-
-  const result = await db.queryOne<{ count: number }>(
-    `SELECT COUNT(*) as count FROM ad_creatives
-     WHERE offer_id = ?`,
+  // ✅ KISS优化：最多3个创意类型（A / B(含C) / D(含S)）
+  // 兼容历史数据：即使数据库中存在>3条旧创意，也不应阻塞新流程的类型判断
+  const usedBuckets = await db.query<{ keyword_bucket: string }>(
+    `SELECT DISTINCT keyword_bucket FROM ad_creatives
+     WHERE offer_id = ? AND keyword_bucket IS NOT NULL AND deleted_at IS NULL`,
     [offerId]
   )
 
-  // 🆕 2025-12-22: 支持5个创意（A/B/C/D + 综合S）
-  return (result?.count || 0) >= 5
+  const usedTypes = new Set(
+    usedBuckets
+      .map(b => b.keyword_bucket as BucketType)
+      .filter(Boolean)
+      .map(mapBucketToKissType)
+  )
+
+  return usedTypes.size >= 3
 }
 
 /**
