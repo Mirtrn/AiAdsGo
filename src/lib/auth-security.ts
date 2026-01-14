@@ -9,6 +9,7 @@
 
 import { getDatabase } from './db'
 import { logAuditEvent, AuditEventType } from './audit-logger'
+import { boolParam } from './db-helpers'
 
 // 安全配置
 const MAX_FAILED_ATTEMPTS = 3 // 最大失败尝试次数（3次后禁用账户）
@@ -47,10 +48,10 @@ export async function recordFailedLogin(
     await db.exec(
       `
       UPDATE users
-      SET is_active = 0
+      SET is_active = ?
       WHERE id = ?
     `,
-      [userId]
+      [boolParam(false, db.type), userId]
     )
 
     console.warn(
@@ -154,7 +155,7 @@ export async function getRecentFailedAttempts(
     ORDER BY attempted_at DESC
     LIMIT ?
   `,
-    [0, limit]
+    [boolParam(false, db.type), limit]
   )) as any[]
 }
 
@@ -176,10 +177,10 @@ export async function getDisabledAccounts(): Promise<
     `
     SELECT id, username, email, failed_login_count, last_failed_login
     FROM users
-    WHERE is_active = 0
+    WHERE is_active = ?
     ORDER BY last_failed_login DESC
   `,
-    []
+    [boolParam(false, db.type)]
   )) as any[]
 }
 
@@ -193,12 +194,12 @@ export async function enableAccount(userId: number): Promise<void> {
   await db.exec(
     `
     UPDATE users
-    SET is_active = 1,
+    SET is_active = ?,
         failed_login_count = 0,
         last_failed_login = NULL
     WHERE id = ?
   `,
-    [userId]
+    [boolParam(true, db.type), userId]
   )
 
   console.log(`[Security] Account ${userId} manually enabled by admin`)
