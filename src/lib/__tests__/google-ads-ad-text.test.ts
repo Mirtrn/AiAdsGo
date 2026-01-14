@@ -12,9 +12,20 @@ describe('google-ads-ad-text', () => {
     expect(getGoogleAdsTextEffectiveLength(text)).toBe(text.length)
   })
 
+  it('counts CJK characters as double width (effective length)', () => {
+    const text = '한글ab' // 2 CJK + 2 Latin
+    expect(getGoogleAdsTextEffectiveLength(text)).toBe(2 * 2 + 2)
+  })
+
   it('sanitizes prohibited ± symbol without breaking length constraints', () => {
     const text = '±0,02 mm Maßtoleranz'
     expect(sanitizeGoogleAdsAdText(text, 30)).toBe('+/-0,02 mm Maßtoleranz')
+  })
+
+  it('truncates text that is still too long after sanitization', () => {
+    const text = '가'.repeat(100)
+    const sanitized = sanitizeGoogleAdsAdText(text, 90)
+    expect(getGoogleAdsTextEffectiveLength(sanitized)).toBeLessThanOrEqual(90)
   })
 
   it('does not reject DKI strings that are over maxLen in raw length but under in effective length', () => {
@@ -22,4 +33,3 @@ describe('google-ads-ad-text', () => {
     expect(() => sanitizeGoogleAdsAdText(text, 30)).not.toThrow()
   })
 })
-

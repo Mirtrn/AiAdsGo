@@ -47,15 +47,16 @@ async function trackOAuthApiCall<T>(
 
 /**
  * 清理关键词，移除Google Ads不支持的特殊字符
- * Google Ads关键词只支持: 字母(A-Z,a-z)、数字(0-9)、空格、下划线(_)、连字符(-)
+ * 允许多语言字符：字母/数字(Unicode)、空格、下划线(_)、连字符(-)及少量常见标点
  */
 export function sanitizeKeyword(keyword: string): string {
-  // 只保留字母、数字、空格、下划线、连字符
-  const cleaned = keyword.replace(/[^\w\s-]/g, '')
-  // 清理多余的空格
+  const input = String(keyword ?? '')
+  const cleaned = input
+    .replace(/[\p{C}]/gu, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}\s_.&'+-]/gu, '')
+
   const normalized = cleaned.replace(/\s+/g, ' ').trim()
-  // 清理开头和结尾的连字符
-  return normalized.replace(/^-+|-+$/g, '')
+  return normalized.replace(/^[-_]+|[-_]+$/g, '').trim()
 }
 
 /**
@@ -1353,13 +1354,31 @@ export async function createGoogleAdsKeywordsBatch(params: {
     const { createKeywordsPython } = await import('./python-ads-client')
 
     const adGroupResourceName = `customers/${params.customerId}/adGroups/${params.adGroupId}`
+    const keywordInputs = params.keywords
+      .map((kw, originalIndex) => {
+        const sanitizedText = sanitizeKeyword(kw.keywordText)
+        if (sanitizedText !== kw.keywordText) {
+          console.log(`[Keyword] Sanitized: "${kw.keywordText}" -> "${sanitizedText}"`)
+        }
+        if (!sanitizedText) {
+          console.warn(`[Keyword] Dropped empty keyword after sanitization: "${kw.keywordText}"`)
+          return null
+        }
+        return { kw, originalIndex, sanitizedText }
+      })
+      .filter((x): x is { kw: (typeof params.keywords)[number]; originalIndex: number; sanitizedText: string } => Boolean(x))
+
+    if (keywordInputs.length === 0) {
+      return []
+    }
+
     const resourceNames = await createKeywordsPython({
       userId: params.userId,
       serviceAccountId: params.serviceAccountId,
       customerId: params.customerId,
       adGroupResourceName,
-      keywords: params.keywords.map(kw => ({
-        text: kw.keywordText,
+      keywords: keywordInputs.map(({ kw, sanitizedText }) => ({
+        text: sanitizedText,
         matchType: kw.matchType,
         status: kw.status,
         finalUrl: kw.finalUrl,
@@ -1371,7 +1390,7 @@ export async function createGoogleAdsKeywordsBatch(params: {
     return resourceNames.map((resourceName, index) => ({
       keywordId: resourceName.split('/').pop() || '',
       resourceName,
-      keywordText: params.keywords[index].keywordText,
+      keywordText: params.keywords[keywordInputs[index].originalIndex].keywordText,
     }))
   }
 
@@ -1385,44 +1404,52 @@ export async function createGoogleAdsKeywordsBatch(params: {
   for (let i = 0; i < params.keywords.length; i += batchSize) {
     const batch = params.keywords.slice(i, i + batchSize)
 
-    const keywordOperations = batch.map(kw => {
-      // ← 关键修改：为负向词选择正确的匹配类型
-      const effectiveMatchType = kw.isNegative
-        ? (kw.negativeKeywordMatchType || 'EXACT')  // 负向词默认用 EXACT 匹配，防止误伤
-        : kw.matchType  // 正向词用提供的 matchType
+    const keywordOperationsWithMeta = batch
+      .map(kw => {
+        const effectiveMatchType = kw.isNegative
+          ? (kw.negativeKeywordMatchType || 'EXACT')
+          : kw.matchType
 
-      // 清理关键词，移除Google Ads不支持的特殊字符
-      const sanitizedText = sanitizeKeyword(kw.keywordText)
-      if (sanitizedText !== kw.keywordText) {
-        console.log(`[Keyword] Sanitized: "${kw.keywordText}" -> "${sanitizedText}"`)
-      }
-
-      const operation = {
-        ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
-        keyword: {
-          text: sanitizedText,
-          match_type: enums.KeywordMatchType[effectiveMatchType],
-        },
-      }
-
-      if (kw.isNegative) {
-        ;(operation as any).negative = true
-      } else {
-        ;(operation as any).status = enums.AdGroupCriterionStatus[kw.status]
-        if (kw.finalUrl) {
-          ;(operation as any).final_urls = [kw.finalUrl]
+        const sanitizedText = sanitizeKeyword(kw.keywordText)
+        if (sanitizedText !== kw.keywordText) {
+          console.log(`[Keyword] Sanitized: "${kw.keywordText}" -> "${sanitizedText}"`)
         }
-      }
+        if (!sanitizedText) {
+          console.warn(`[Keyword] Dropped empty keyword after sanitization: "${kw.keywordText}"`)
+          return null
+        }
 
-      return operation
-    })
+        const operation: any = {
+          ad_group: `customers/${params.customerId}/adGroups/${params.adGroupId}`,
+          keyword: {
+            text: sanitizedText,
+            match_type: enums.KeywordMatchType[effectiveMatchType],
+          },
+        }
+
+        if (kw.isNegative) {
+          operation.negative = true
+        } else {
+          operation.status = enums.AdGroupCriterionStatus[kw.status]
+          if (kw.finalUrl) {
+            operation.final_urls = [kw.finalUrl]
+          }
+        }
+
+        return { operation, keywordText: kw.keywordText }
+      })
+      .filter((x): x is { operation: any; keywordText: string } => Boolean(x))
+
+    if (keywordOperationsWithMeta.length === 0) {
+      continue
+    }
 
     const response = await trackOAuthApiCall(
       params.userId,
       params.customerId,
       ApiOperationType.MUTATE_BATCH,
       '/api/google-ads/keywords/create',
-      () => customer.adGroupCriteria.create(keywordOperations)
+      () => customer.adGroupCriteria.create(keywordOperationsWithMeta.map(x => x.operation))
     )
 
     if (response && response.results && response.results.length > 0) {
@@ -1431,7 +1458,7 @@ export async function createGoogleAdsKeywordsBatch(params: {
         results.push({
           keywordId,
           resourceName: result.resource_name || '',
-          keywordText: batch[index].keywordText,
+          keywordText: keywordOperationsWithMeta[index]?.keywordText || '',
         })
       })
     }
