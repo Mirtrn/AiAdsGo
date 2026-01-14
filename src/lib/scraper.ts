@@ -240,6 +240,15 @@ function extractLastFunnelSuccessUrlFromHtml(html: string): string | null {
   return last
 }
 
+function looksLike29NextFunnelHtml(html: string): boolean {
+  if (!html) return false
+  return (
+    /\bcampaign\.getSuccessUrl\b/i.test(html) ||
+    /\/js\/campaign\.js\b/i.test(html) ||
+    /campaigns\.apps\.29next\.com\/api\/v1/i.test(html)
+  )
+}
+
 function computeFunnelSuccessUrl(currentUrl: string, successUrl: string): string | null {
   try {
     const current = new URL(currentUrl)
@@ -401,7 +410,12 @@ export async function scrapeProductData(
       const baseData = extractGenericData($, url)
 
       // 🔥 presell/int/checkout漏斗页：价格/图片往往只出现在下一跳（int2/checkout）
-      if (isPresellStyleUrl(url) && (!baseData.productPrice || (baseData.imageUrls?.length || 0) === 0)) {
+      const shouldEnrich = isPresellStyleUrl(url) &&
+        (!baseData.productPrice || (baseData.imageUrls?.length || 0) === 0) &&
+        !!extractLastFunnelSuccessUrlFromHtml(html) &&
+        looksLike29NextFunnelHtml(html)
+
+      if (shouldEnrich) {
         return await enrichPresellFunnelData({
           initialUrl: url,
           initialHtml: html,
