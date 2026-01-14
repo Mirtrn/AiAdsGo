@@ -95,6 +95,7 @@ function isIgnoredPathSegment(segment: string): boolean {
   if (IGNORED_PATH_SEGMENTS.has(lower)) return true
   if (/^v\d+$/i.test(segment)) return true
   if (/^pre\d*$/i.test(segment)) return true
+  if (/^int\d*$/i.test(segment)) return true
   return false
 }
 
@@ -141,6 +142,31 @@ export function getFirstMeaningfulPathSegment(url: string): string | null {
       return segment
     }
     return null
+  } catch {
+    return null
+  }
+}
+
+function getLikelyProductSlugSegment(url: string, domainLabel: string | null): string | null {
+  try {
+    const segments = new URL(url).pathname.split('/').map(s => s.trim()).filter(Boolean)
+    const meaningful = segments.filter(segment => {
+      if (isIgnoredPathSegment(segment)) return false
+      if (/^\d+$/.test(segment)) return false
+      return true
+    })
+    if (meaningful.length === 0) return null
+
+    const domainNorm = domainLabel ? normalizeForCompare(domainLabel) : ''
+    const scored = meaningful.map(segment => {
+      let score = segment.length
+      const norm = normalizeForCompare(segment)
+      if (domainNorm && norm === domainNorm) score -= 40
+      if (/[a-z]/i.test(segment) && /\d/.test(segment)) score += 6
+      return { segment, score }
+    })
+    scored.sort((a, b) => b.score - a.score)
+    return scored[0]?.segment || null
   } catch {
     return null
   }
@@ -264,7 +290,7 @@ function shouldRejectProductPhrase(phrase: string): boolean {
 
 export function extractLandingProductName($: any, url: string): string | null {
   const domainLabel = getRegistrableDomainLabelFromUrl(url)
-  const slug = getFirstMeaningfulPathSegment(url)
+  const slug = getLikelyProductSlugSegment(url, domainLabel) || getFirstMeaningfulPathSegment(url)
   const slugTitle = slug ? slugToTitle(slug) : null
 
   const bodyText = cleanText($('body').text() || '')
@@ -317,7 +343,17 @@ export function extractLandingProductName($: any, url: string): string | null {
   // 4) Page meta/title fallbacks (often site name, so lower weight)
   addCandidate($('meta[property="og:title"]').attr('content'), 50)
   addCandidate($('meta[name="title"]').attr('content'), 45)
-  addCandidate($('title').text(), 40)
+  const titleText = cleanText($('title').text() || '')
+  if (titleText) {
+    const parts = titleText
+      .split(/[|–—-]/)
+      .map(p => stripWrappingPunctuation(cleanText(p)))
+      .filter(Boolean)
+    if (parts.length >= 2 && domainLabel && normalizeForCompare(parts[0]) === normalizeForCompare(domainLabel)) {
+      addCandidate(parts[1], 58)
+    }
+    addCandidate(titleText, 40)
+  }
   addCandidate($('h1').first().text(), 35)
 
   // 5) URL path slug fallback (lowest confidence)
@@ -368,8 +404,8 @@ export function refineBrandNameForLandingPage(options: {
   const fallbackCandidates = [
     brandFromProductAndDomain,
     brandFromProduct,
-    slugTitle,
     domainLabel ? normalizeBrandName(domainLabel) : null,
+    slugTitle,
   ].filter(Boolean) as string[]
 
   const chooseBestFallback = (): string | null => {
@@ -501,6 +537,10 @@ export function isPresellStyleUrl(url: string): boolean {
     if (pathname.includes('/presell')) return true
     if (pathname.includes('/pre')) return true
     if (/\/pre\d*(\/|$)/i.test(pathname)) return true
+    // 常见落地页：int/int1/int2...
+    if (/\/int\d*(\/|$)/i.test(pathname)) return true
+    // 常见漏斗：checkout页面通常包含价格/套餐信息
+    if (/\/checkout(\.html)?(\/|$)/i.test(pathname)) return true
     return false
   } catch {
     return false

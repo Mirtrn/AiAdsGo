@@ -229,6 +229,129 @@ function deriveBrandFromUrl(url: string): string | null {
   return normalized ? normalizeBrandName(normalized) : null
 }
 
+function extractLastFunnelSuccessUrlFromHtml(html: string): string | null {
+  if (!html) return null
+  const re = /successURL\s*=\s*['"]([^'"]+)['"]/gi
+  let match: RegExpExecArray | null
+  let last: string | null = null
+  while ((match = re.exec(html))) {
+    if (match[1]) last = match[1]
+  }
+  return last
+}
+
+function computeFunnelSuccessUrl(currentUrl: string, successUrl: string): string | null {
+  try {
+    const current = new URL(currentUrl)
+    const pathParts = current.pathname.split('/')
+    const campaignPath = pathParts.slice(0, Math.max(0, pathParts.length - 1)).join('/')
+    const combinedPath = `${campaignPath}${successUrl}`
+    return new URL(`${combinedPath}${current.search}`, current.origin).href
+  } catch {
+    return null
+  }
+}
+
+function extractMinCurrencyPriceFromText(text: string): string | null {
+  const cleaned = text.replace(/\s+/g, ' ').replace(/[\u00A0\u200B]/g, ' ').trim()
+  if (!cleaned) return null
+
+  const re = /([$€£])\s*(\d{1,4}(?:,\d{3})*(?:\.\d{2}))/g
+  let match: RegExpExecArray | null
+  let best: { raw: string; value: number } | null = null
+
+  while ((match = re.exec(cleaned))) {
+    const symbol = match[1]
+    const amountRaw = match[2]
+    const value = Number(amountRaw.replace(/,/g, ''))
+    if (!Number.isFinite(value) || value <= 0) continue
+    const candidate = { raw: `${symbol}${amountRaw}`, value }
+    if (!best || candidate.value < best.value) best = candidate
+  }
+
+  return best?.raw || null
+}
+
+function mergeTopImageUrls(base: string[], extras: string[], max: number = 5): string[] {
+  const seen = new Set<string>()
+  const merged: string[] = []
+  for (const url of [...base, ...extras]) {
+    const normalized = url?.trim()
+    if (!normalized) continue
+    if (seen.has(normalized)) continue
+    seen.add(normalized)
+    merged.push(normalized)
+    if (merged.length >= max) break
+  }
+  return merged
+}
+
+async function enrichPresellFunnelData(options: {
+  initialUrl: string
+  initialHtml: string
+  baseData: ScrapedProductData
+  proxyAgent?: HttpsProxyAgent<string>
+  acceptLanguage: string
+  timeoutMs: number
+}): Promise<ScrapedProductData> {
+  const { initialUrl, initialHtml, baseData, proxyAgent, acceptLanguage, timeoutMs } = options
+
+  let data = baseData
+  let currentUrl = initialUrl
+  let currentHtml = initialHtml
+  const visited = new Set<string>([initialUrl])
+
+  for (let hop = 0; hop < 3; hop++) {
+    const rawSuccessUrl = extractLastFunnelSuccessUrlFromHtml(currentHtml)
+    if (!rawSuccessUrl) break
+
+    const nextUrl = computeFunnelSuccessUrl(currentUrl, rawSuccessUrl)
+    if (!nextUrl) break
+    if (visited.has(nextUrl)) break
+    visited.add(nextUrl)
+
+    let nextHtml: string
+    try {
+      const response = await axios.get(nextUrl, {
+        timeout: timeoutMs,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': acceptLanguage,
+        },
+        ...(proxyAgent && { httpsAgent: proxyAgent, httpAgent: proxyAgent as any }),
+      })
+      nextHtml = response.data
+    } catch {
+      break
+    }
+
+    currentUrl = nextUrl
+    currentHtml = nextHtml
+
+    const $next = load(nextHtml)
+
+    if (!data.productName) {
+      const nextProductName = extractLandingProductName($next, nextUrl)
+      if (nextProductName) data = { ...data, productName: nextProductName }
+    }
+
+    if (!data.productPrice) {
+      const nextPrice = extractMinCurrencyPriceFromText($next('body').text() || '')
+      if (nextPrice) data = { ...data, productPrice: nextPrice }
+    }
+
+    if (!data.imageUrls?.length || data.imageUrls.length < 2) {
+      const nextImages = extractLandingImages($next, nextUrl, 5)
+      if (nextImages.length > 0) data = { ...data, imageUrls: mergeTopImageUrls(data.imageUrls || [], nextImages, 5) }
+    }
+
+    if (data.productPrice && data.imageUrls?.length >= 2) break
+  }
+
+  return data
+}
+
 /**
  * Extract structured product data from a landing page
  * Supports Amazon, Shopify, and generic e-commerce sites
@@ -275,7 +398,21 @@ export async function scrapeProductData(
     } else if (isShopify) {
       return extractShopifyData($, url)
     } else {
-      return extractGenericData($, url)
+      const baseData = extractGenericData($, url)
+
+      // 🔥 presell/int/checkout漏斗页：价格/图片往往只出现在下一跳（int2/checkout）
+      if (isPresellStyleUrl(url) && (!baseData.productPrice || (baseData.imageUrls?.length || 0) === 0)) {
+        return await enrichPresellFunnelData({
+          initialUrl: url,
+          initialHtml: html,
+          baseData,
+          proxyAgent,
+          acceptLanguage,
+          timeoutMs,
+        })
+      }
+
+      return baseData
     }
   } catch (error: any) {
     console.error('Product scraping error:', error)

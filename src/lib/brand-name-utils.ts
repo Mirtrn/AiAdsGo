@@ -30,6 +30,8 @@ const INVALID_SINGLE_TOKEN_BRANDS = new Set([
 const GENERIC_TITLE_FIRST_WORDS = new Set([
   'the', 'a', 'an',
   'new', 'best',
+  // Often an adjective on landing pages, not a brand.
+  'smart',
   // DE
   'der', 'die', 'das',
 ])
