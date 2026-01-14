@@ -144,7 +144,7 @@ async function delay(ms: number): Promise<void> {
  *   - gemini-2.5-pro (稳定版，推荐，区域：us-central1)
  *   - gemini-2.5-flash (快速版，区域：us-central1)
  *   - gemini-2.5-flash-lite (轻量版，区域：us-central1)
- *   - gemini-3-flash-preview (最新版，高效，区域：us-central1)
+ *   - ⚠️ gemini-3-flash-preview 可能在 Vertex AI 不可用（会自动降级到 2.5）
  * @param params.prompt - 提示词
  * @param params.temperature - 温度参数，默认 0.7
  * @param params.maxOutputTokens - 最大输出tokens，默认 8192
@@ -169,6 +169,19 @@ export async function generateContent(params: {
 
   const maxRetries = 3
   let lastError: Error | null = null
+  let fallbackModelForNotFound: string | null = null
+
+  const isModelNotFoundError = (error: any): boolean => {
+    const message = String(error?.message || '')
+    const statusCode = error?.statusCode ?? error?.status ?? error?.code
+    return (
+      statusCode === 404 ||
+      message.includes('404') ||
+      message.includes('NOT_FOUND') ||
+      message.includes('was not found') ||
+      message.includes('does not have access')
+    )
+  }
 
   // 尝试主模型
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -267,6 +280,12 @@ export async function generateContent(params: {
         stack: error.stack?.split('\n').slice(0, 3).join('\n')
       }, null, 2))
 
+      // 模型不存在/无权限：不需要重试，直接触发降级
+      if (model === 'gemini-3-flash-preview' && isModelNotFoundError(error)) {
+        fallbackModelForNotFound = 'gemini-2.5-flash'
+        break
+      }
+
       // 检查是否是可重试的错误
       const isRetryable =
         error.message?.includes('503') ||
@@ -290,6 +309,90 @@ export async function generateContent(params: {
     }
   }
 
+  // 特殊降级：模型不可用/无权限（常见于 preview 模型在 Vertex AI 不开放）
+  if (fallbackModelForNotFound) {
+    const fallbackModel = fallbackModelForNotFound
+    console.warn(`⚠️ ${model} 在 Vertex AI 不可用或无权限，降级到 ${fallbackModel}`)
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🤖 调用 Vertex AI (降级): ${fallbackModel} (尝试 ${attempt}/${maxRetries})`)
+
+        const generativeModel = getGenerativeModel(fallbackModel)
+
+        const generationConfig: any = {
+          temperature,
+          maxOutputTokens,
+        }
+        if (responseSchema) {
+          generationConfig.responseMimeType = responseMimeType || 'application/json'
+          generationConfig.responseSchema = responseSchema
+        }
+
+        const result = await generativeModel.generateContent({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig,
+        })
+
+        const response = result.response
+
+        if (!response.candidates || response.candidates.length === 0) {
+          throw new Error('Vertex AI (fallback) 返回了空响应')
+        }
+
+        const candidate = response.candidates[0]
+
+        if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+          throw new Error('Vertex AI (fallback) 响应中没有内容')
+        }
+
+        const text = candidate.content.parts
+          .map(part => part.text || '')
+          .join('')
+
+        if (!text) {
+          throw new Error('Vertex AI (fallback) 返回了空文本')
+        }
+
+        console.log(`✓ Vertex AI (fallback: ${fallbackModel}) 调用成功，返回 ${text.length} 字符`)
+
+        let usage: VertexAIGenerateResult['usage']
+        if (response.usageMetadata) {
+          usage = {
+            inputTokens: response.usageMetadata.promptTokenCount || 0,
+            outputTokens: response.usageMetadata.candidatesTokenCount || 0,
+            totalTokens: response.usageMetadata.totalTokenCount || 0
+          }
+        }
+
+        return {
+          text,
+          usage,
+          model: fallbackModel
+        }
+      } catch (fallbackError: any) {
+        console.warn(`⚠️ Vertex AI (fallback) 调用失败 (尝试 ${attempt}/${maxRetries}): ${fallbackError.message}`)
+
+        if (attempt < maxRetries) {
+          const waitTime = Math.pow(2, attempt) * 1000
+          console.log(`   等待 ${waitTime / 1000}s 后重试...`)
+          await delay(waitTime)
+          continue
+        }
+
+        throw new Error(
+          `Vertex AI 调用失败。主模型(${model})错误: ${lastError?.message}。` +
+          `降级模型(${fallbackModel})错误: ${fallbackError.message}`
+        )
+      }
+    }
+  }
+
   // 主模型失败，尝试降级到 flash 模型
   if (model.includes('pro')) {
     const fallbackModel = 'gemini-2.5-flash'
@@ -301,6 +404,15 @@ export async function generateContent(params: {
 
         const generativeModel = getGenerativeModel(fallbackModel)
 
+        const generationConfig: any = {
+          temperature,
+          maxOutputTokens,
+        }
+        if (responseSchema) {
+          generationConfig.responseMimeType = responseMimeType || 'application/json'
+          generationConfig.responseSchema = responseSchema
+        }
+
         const result = await generativeModel.generateContent({
           contents: [
             {
@@ -308,10 +420,7 @@ export async function generateContent(params: {
               parts: [{ text: prompt }],
             },
           ],
-          generationConfig: {
-            temperature,
-            maxOutputTokens,
-          },
+          generationConfig,
         })
 
         const response = result.response

@@ -222,7 +222,7 @@ const SETTING_METADATA: Record<string, {
   },
   'ai.gemini_model': {
     label: 'Gemini模型（Pro级别）',
-    description: '用于复杂任务的Pro模型。简单任务将自动使用Flash模型以节省成本',
+    description: '用于复杂任务的Pro模型。简单任务将自动使用Flash模型以节省成本（Vertex AI 模式下如选择 gemini-3-flash-preview 将自动降级到 gemini-2.5-pro/flash）',
     // 🔧 更新(2026-01-05): ThunderRelay 与官方均支持 Pro/Flash（业务会自动在 Pro/Flash 间切换）
     // - 官方API: gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview
     // - ThunderRelay中转: gemini-2.5-pro, gemini-2.5-flash, gemini-3-flash-preview

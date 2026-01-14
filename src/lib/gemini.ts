@@ -18,7 +18,7 @@
 
 import { getUserOnlySetting } from './settings'
 import { resetVertexAIClient } from './gemini-vertex'
-import { selectOptimalModel, type ModelType } from './model-selector'
+import { canUseFlash, selectOptimalModel, type ModelType } from './model-selector'
 import { GEMINI_PROVIDERS, type GeminiProvider } from './gemini-config'
 import { getDatabase } from './db'
 import * as fs from 'fs'
@@ -68,6 +68,20 @@ export interface GeminiGenerateResult {
   }
   model: string
   apiType: 'vertex-ai' | 'direct-api'
+}
+
+function mapModelForVertexAI(model: string, operationType?: string): { model: string; reason?: string } {
+  // Vertex AI 的可用模型版本与 Gemini 官方/中转可能不同。
+  // 目前生产环境出现：gemini-3-flash-preview 在 Vertex AI 返回 404 NOT_FOUND。
+  if (model === 'gemini-3-flash-preview') {
+    const fallbackModel = operationType && canUseFlash(operationType) ? 'gemini-2.5-flash' : 'gemini-2.5-pro'
+    return {
+      model: fallbackModel,
+      reason: `Vertex AI 暂不支持 ${model}，已自动降级为 ${fallbackModel}`,
+    }
+  }
+
+  return { model }
 }
 
 /**
@@ -296,8 +310,13 @@ export async function generateContent(
       // 使用Vertex AI
       const { generateContent: vertexGenerate } = await import('./gemini-vertex')
 
+      const vertexModelSelection = mapModelForVertexAI(finalModel, operationType)
+      if (vertexModelSelection.reason && vertexModelSelection.model !== finalModel) {
+        console.warn(`⚠️ ${vertexModelSelection.reason}`)
+      }
+
       const result = await vertexGenerate({
-        model: finalModel, // 使用智能选择的模型
+        model: vertexModelSelection.model,
         prompt,
         temperature,
         maxOutputTokens,
@@ -315,7 +334,7 @@ export async function generateContent(
       return {
         text: result.text,
         usage: result.usage,
-        model: result.model || finalModel,
+        model: result.model || vertexModelSelection.model,
         apiType: 'vertex-ai'
       }
     } catch (error: any) {

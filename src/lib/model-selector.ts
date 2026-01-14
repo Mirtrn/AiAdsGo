@@ -10,6 +10,7 @@
  * - 用户选"Gemini 3 Flash Preview" → Pro任务用3-flash-preview, Flash任务也用3-flash-preview
  *
  * 注意：用户选择的模型影响整个任务链的模型选择策略
+ * ⚠️ Provider差异：Vertex AI 可能不支持部分 preview 模型（如 gemini-3-flash-preview），实际调用会在统一入口做降级映射。
  */
 
 import { getUserOnlySetting } from './settings'

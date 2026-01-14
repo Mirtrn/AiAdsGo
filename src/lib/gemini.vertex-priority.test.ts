@@ -21,7 +21,7 @@ vi.mock('./settings', () => ({
   }),
 }))
 
-const vertexGenerateContent = vi.fn(async () => ({
+const vertexGenerateContent = vi.fn(async (_params: any) => ({
   text: 'ok-from-vertex',
   usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
   model: 'vertex-model',
@@ -88,5 +88,54 @@ describe('Gemini routing prefers Vertex AI', () => {
     expect(vertexGenerateContent).toHaveBeenCalledTimes(1)
     expect(result.apiType).toBe('vertex-ai')
   })
-})
 
+  it('maps gemini-3-flash-preview to stable Pro on Vertex AI for Pro operations', async () => {
+    const userId = 62
+
+    settingStore.set(getStoreKey('ai', 'use_vertex_ai', userId), 'true')
+    settingStore.set(getStoreKey('ai', 'gemini_provider', userId), 'relay')
+    settingStore.set(getStoreKey('ai', 'gcp_project_id', userId), 'proj-1')
+    settingStore.set(getStoreKey('ai', 'gcp_location', userId), 'us-central1')
+    settingStore.set(getStoreKey('ai', 'gcp_service_account_json', userId), '{"type":"service_account"}')
+    settingStore.set(getStoreKey('ai', 'gemini_relay_api_key', userId), 'relay-key')
+
+    const { generateContent } = await import('./gemini')
+    await generateContent(
+      {
+        prompt: 'hi',
+        enableAutoModelSelection: false,
+        model: 'gemini-3-flash-preview',
+        operationType: 'ad_creative_generation_main',
+      },
+      userId
+    )
+
+    expect(vertexGenerateContent).toHaveBeenCalledTimes(1)
+    expect(vertexGenerateContent.mock.calls[0]?.[0]?.model).toBe('gemini-2.5-pro')
+  })
+
+  it('maps gemini-3-flash-preview to stable Flash on Vertex AI for Flash operations', async () => {
+    const userId = 62
+
+    settingStore.set(getStoreKey('ai', 'use_vertex_ai', userId), 'true')
+    settingStore.set(getStoreKey('ai', 'gemini_provider', userId), 'relay')
+    settingStore.set(getStoreKey('ai', 'gcp_project_id', userId), 'proj-1')
+    settingStore.set(getStoreKey('ai', 'gcp_location', userId), 'us-central1')
+    settingStore.set(getStoreKey('ai', 'gcp_service_account_json', userId), '{"type":"service_account"}')
+    settingStore.set(getStoreKey('ai', 'gemini_relay_api_key', userId), 'relay-key')
+
+    const { generateContent } = await import('./gemini')
+    await generateContent(
+      {
+        prompt: 'hi',
+        enableAutoModelSelection: false,
+        model: 'gemini-3-flash-preview',
+        operationType: 'connection_test',
+      },
+      userId
+    )
+
+    expect(vertexGenerateContent).toHaveBeenCalledTimes(1)
+    expect(vertexGenerateContent.mock.calls[0]?.[0]?.model).toBe('gemini-2.5-flash')
+  })
+})
