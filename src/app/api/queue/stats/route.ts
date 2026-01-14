@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getQueueManager } from '@/lib/queue'
 
+const isBackgroundTaskType = (type: string) => type === 'click-farm' || type === 'url-swap'
+
 export async function GET(request: NextRequest) {
   try {
     // 验证身份
@@ -50,6 +52,30 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    const runningTasks = await queueManager.getRunningTasks()
+    const runningByUser: Record<
+      number,
+      { coreRunning: number; backgroundRunning: number; byType: Record<string, number> }
+    > = {}
+    let globalCoreRunning = 0
+    let globalBackgroundRunning = 0
+
+    for (const task of runningTasks) {
+      if (!task.userId || task.userId <= 0) continue
+      if (!runningByUser[task.userId]) {
+        runningByUser[task.userId] = { coreRunning: 0, backgroundRunning: 0, byType: {} }
+      }
+      runningByUser[task.userId].byType[task.type] = (runningByUser[task.userId].byType[task.type] || 0) + 1
+
+      if (isBackgroundTaskType(task.type)) {
+        runningByUser[task.userId].backgroundRunning++
+        globalBackgroundRunning++
+      } else {
+        runningByUser[task.userId].coreRunning++
+        globalCoreRunning++
+      }
+    }
+
     // 🔥 获取当前配置（从队列管理器内存中读取）
     const currentConfig = queueManager.getConfig()
 
@@ -79,6 +105,8 @@ export async function GET(request: NextRequest) {
       stats: {
         global: {
           running: stats.running,
+          coreRunning: globalCoreRunning,
+          backgroundRunning: globalBackgroundRunning,
           queued: stats.pending,
           completed: stats.completed,
           failed: stats.failed
@@ -86,12 +114,16 @@ export async function GET(request: NextRequest) {
         perUser: Object.entries(stats.byUser).map(([uid, userStats]) => {
           const numericUid = parseInt(uid)
           const userInfo = userMap[numericUid]
+          const runningBreakdown = runningByUser[numericUid]
           return {
             userId: numericUid,
             username: userInfo?.username || `用户#${numericUid}`,
             email: userInfo?.email,
             packageType: userInfo?.packageType || 'trial',
             running: userStats.running,
+            coreRunning: runningBreakdown?.coreRunning ?? 0,
+            backgroundRunning: runningBreakdown?.backgroundRunning ?? 0,
+            runningByType: runningBreakdown?.byType ?? {},
             queued: userStats.pending,
             completed: userStats.completed,
             failed: userStats.failed

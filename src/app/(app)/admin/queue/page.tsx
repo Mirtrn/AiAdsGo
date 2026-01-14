@@ -12,6 +12,8 @@ import { fetchWithRetry } from '@/lib/api-error-handler'
 interface QueueStats {
   global: {
     running: number
+    coreRunning?: number
+    backgroundRunning?: number
     queued: number
     completed: number
     failed: number
@@ -22,6 +24,9 @@ interface QueueStats {
     email?: string
     packageType?: string
     running: number
+    coreRunning?: number
+    backgroundRunning?: number
+    runningByType?: Record<string, number>
     queued: number
     completed: number
     failed: number
@@ -506,6 +511,7 @@ export default function QueueManagementPage() {
     if (!stats) return []
 
     const users = [...stats.perUser]
+    const coreRunningFor = (u: (typeof users)[number]) => (u.coreRunning ?? u.running)
 
     return users.sort((a, b) => {
       let aValue: number | string
@@ -521,6 +527,9 @@ export default function QueueManagementPage() {
           bValue = PACKAGE_TYPE_SORT_ORDER[b.packageType || 'trial'] ?? 999
           break
         case 'running':
+          aValue = coreRunningFor(a)
+          bValue = coreRunningFor(b)
+          break
         case 'queued':
         case 'completed':
         case 'failed':
@@ -530,15 +539,15 @@ export default function QueueManagementPage() {
         case 'utilization':
           // 计算利用率
           aValue = stats.config.perUserConcurrency > 0
-            ? (a.running / stats.config.perUserConcurrency)
+            ? (coreRunningFor(a) / stats.config.perUserConcurrency)
             : 0
           bValue = stats.config.perUserConcurrency > 0
-            ? (b.running / stats.config.perUserConcurrency)
+            ? (coreRunningFor(b) / stats.config.perUserConcurrency)
             : 0
           break
         default:
-          aValue = a.running
-          bValue = b.running
+          aValue = coreRunningFor(a)
+          bValue = coreRunningFor(b)
       }
 
       if (sortConfig.direction === 'asc') {
@@ -647,13 +656,14 @@ export default function QueueManagementPage() {
     )
   }
 
-  const globalUtilization = stats.config.globalConcurrency > 0
-    ? Math.round((stats.global.running / stats.config.globalConcurrency) * 100)
-    : 0
-
   const clickFarmRunning = stats.byTypeRunning?.['click-farm'] || 0
   const urlSwapRunning = stats.byTypeRunning?.['url-swap'] || 0
-  const coreRunning = Math.max(0, stats.global.running - clickFarmRunning - urlSwapRunning)
+  const coreRunning = stats.global.coreRunning ?? Math.max(0, stats.global.running - clickFarmRunning - urlSwapRunning)
+  const backgroundRunning = stats.global.backgroundRunning ?? (clickFarmRunning + urlSwapRunning)
+
+  const globalUtilization = stats.config.globalConcurrency > 0
+    ? Math.round((coreRunning / stats.config.globalConcurrency) * 100)
+    : 0
 
   const totalTasks = stats.global.running + stats.global.queued + stats.global.completed + stats.global.failed
 
@@ -732,9 +742,9 @@ export default function QueueManagementPage() {
                 <p className="text-sm text-gray-500">
                   / {stats.config.globalConcurrency} 并发
                 </p>
-                {(clickFarmRunning > 0 || urlSwapRunning > 0) && (
+                {backgroundRunning > 0 && (
                   <p className="text-xs text-gray-500">
-                    总运行中 {stats.global.running}（补点击 {clickFarmRunning}｜换链接 {urlSwapRunning}）
+                    总运行中 {stats.global.running}（后台 {backgroundRunning}）
                   </p>
                 )}
               </div>
@@ -1025,7 +1035,7 @@ export default function QueueManagementPage() {
                         onClick={() => handleSort('running')}
                       >
                         <div className="flex items-center justify-center gap-1">
-                          运行中
+                          核心运行中
                           {sortConfig.key === 'running' ? (
                             sortConfig.direction === 'asc' ? (
                               <ArrowUp className="w-4 h-4" />
@@ -1115,8 +1125,10 @@ export default function QueueManagementPage() {
                       const paginatedUsers = sortedUsers.slice(startIndex, endIndex)
 
                       return paginatedUsers.map((userStat) => {
+                        const coreRunningForUser = userStat.coreRunning ?? userStat.running
+                        const backgroundRunningForUser = userStat.backgroundRunning ?? 0
                         const userUtilization = stats.config.perUserConcurrency > 0
-                          ? Math.round((userStat.running / stats.config.perUserConcurrency) * 100)
+                          ? Math.round((coreRunningForUser / stats.config.perUserConcurrency) * 100)
                           : 0
 
                         return (
@@ -1135,9 +1147,16 @@ export default function QueueManagementPage() {
                               </span>
                             </td>
                             <td className="text-center py-3 px-4">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                {userStat.running} / {stats.config.perUserConcurrency}
-                              </span>
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                  {coreRunningForUser} / {stats.config.perUserConcurrency}
+                                </span>
+                                {backgroundRunningForUser > 0 && (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                    后台 {backgroundRunningForUser}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="text-center py-3 px-4">
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">

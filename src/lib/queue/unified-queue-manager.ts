@@ -788,6 +788,10 @@ export class UnifiedQueueManager {
     return this.adapter.getStats()
   }
 
+  async getRunningTasks(): Promise<Task[]> {
+    return this.adapter.getRunningTasks()
+  }
+
   /**
    * 获取代理统计
    */
