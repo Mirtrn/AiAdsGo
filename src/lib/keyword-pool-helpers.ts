@@ -178,6 +178,26 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
   const maxRounds = 3
   const topN = 20
 
+  const fallbackKeywords: PoolKeywordData[] = (() => {
+    if (initialKeywords.length > 0) return initialKeywords
+    if (pureBrandKeywords.length > 0) {
+      return pureBrandKeywords.map(keyword => ({
+        keyword,
+        searchVolume: 0,
+        source: 'PROVIDED',
+        matchType: 'BROAD',
+        isPureBrand: true,
+      }))
+    }
+    return []
+  })()
+
+  // 🔧 兜底：缺少 OAuth 必要信息时，不生成“空关键词池”
+  if (!customerId || !userId) {
+    console.warn(`   ⚠️ 缺少 customerId 或 userId，跳过Keyword Planner查询，回退到初始关键词(${fallbackKeywords.length}个)`)
+    return fallbackKeywords
+  }
+
   // 初始化种子词
   let seedKeywords = initialKeywords.map(kw => kw.keyword)
 
@@ -193,11 +213,6 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
     for (let round = 1; round <= maxRounds; round++) {
       console.log(`\n   📊 Round ${round}/${maxRounds}: Keyword Planner 查询`)
       console.log(`      种子词: ${seedKeywords.slice(0, 5).join(', ')}${seedKeywords.length > 5 ? '...' : ''}`)
-
-      if (!customerId || !userId) {
-        console.warn(`   ⚠️ 缺少 customerId 或 userId，跳过Keyword Planner查询`)
-        break
-      }
 
       const results = await expandKeywordsWithSeeds({
         expansionSeeds: seedKeywords,
@@ -265,6 +280,11 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
     console.log(`\n   📊 Keyword Planner 迭代完成: ${allKeywords.size} 个关键词`)
 
+    if (allKeywords.size === 0) {
+      console.warn(`   ⚠️ Keyword Planner 未返回可用关键词，回退到初始关键词(${fallbackKeywords.length}个)`)
+      return fallbackKeywords
+    }
+
     // 质量过滤
     console.log(`\n   📊 质量过滤`)
     const filtered = qualityFilterOAuth(
@@ -275,11 +295,11 @@ async function expandForOAuth(params: OAuthExpandParams): Promise<PoolKeywordDat
 
     console.log(`   过滤后: ${filtered.length} 个关键词`)
 
-    return filtered
+    return filtered.length > 0 ? filtered : fallbackKeywords
 
   } catch (error: any) {
     console.error(`   ⚠️ OAuth模式关键词扩展失败: ${error.message}`)
-    return initialKeywords
+    return fallbackKeywords
   }
 }
 
