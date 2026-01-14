@@ -6,6 +6,15 @@ import type { ProxyCredentials } from './proxy/types'
 import { normalizeBrandName } from './offer-utils'
 import { getAcceptLanguageHeader, getLanguageCodeForCountry } from './language-country-codes'
 import { deriveBrandFromProductTitle, isLikelyInvalidBrandName } from './brand-name-utils'
+import {
+  extractLandingDescription,
+  extractLandingImages,
+  extractLandingPrice,
+  extractLandingProductName,
+  isPresellStyleUrl,
+  getRegistrableDomainLabelFromUrl,
+  refineBrandNameForLandingPage,
+} from './landing-page-scrape-utils'
 
 const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true'
 const PROXY_URL = process.env.PROXY_URL || ''
@@ -214,14 +223,10 @@ function isPlausibleBrandCandidate(value: string | null): value is string {
 }
 
 function deriveBrandFromUrl(url: string): string | null {
-  try {
-    const hostname = new URL(url).hostname.replace(/^www\./i, '')
-    const firstLabel = hostname.split('.')[0] || ''
-    const normalized = firstLabel.replace(/[-_]+/g, ' ').trim()
-    return normalized ? normalizeBrandName(normalized) : null
-  } catch {
-    return null
-  }
+  const label = getRegistrableDomainLabelFromUrl(url)
+  if (!label) return null
+  const normalized = label.replace(/[-_]+/g, ' ').trim()
+  return normalized ? normalizeBrandName(normalized) : null
 }
 
 /**
@@ -783,15 +788,8 @@ function extractGenericData($: any, url: string): ScrapedProductData {
   })
 
   const images: string[] = []
-  const ogImage = $('meta[property="og:image"]').attr('content')
-  if (ogImage) images.push(ogImage)
-
-  $('img').each((i: number, el: any) => {
-    const src = $(el).attr('src')
-    if (src && !src.includes('data:image') && !images.includes(src)) {
-      images.push(src)
-    }
-  })
+  const landingImages = extractLandingImages($, url, 5)
+  images.push(...landingImages)
 
   // 🔥 增强品牌提取逻辑
   const ogBrand = $('meta[property="og:brand"]').attr('content')?.trim() || null
@@ -842,10 +840,45 @@ function extractGenericData($: any, url: string): ScrapedProductData {
       deriveBrandFromUrl(url)
   }
 
+  const baseProductName =
+    $('h1').text().trim() ||
+    $('[class*="product"][class*="title"]').text().trim() ||
+    null
+
+  const productName = isPresellStyleUrl(url)
+    ? (extractLandingProductName($, url) || baseProductName)
+    : baseProductName
+
+  // 🔥 2026-01-14：补齐“pre/presell advertorial”类型落地页的品牌识别
+  // 这类页面的<title>/og:title经常是发布方/频道名（例如 “Smart Home & Garden”），不是商品品牌
+  brandName = refineBrandNameForLandingPage({
+    url,
+    $,
+    productName,
+    currentBrandName: brandName,
+  })
+
+  const productDescriptionRaw =
+    $('[class*="description"]').text().trim() ||
+    $('meta[name="description"]').attr('content') ||
+    null
+
+  const landingDescription = extractLandingDescription({ $, productName })
+  const productDescription =
+    landingDescription ||
+    productDescriptionRaw ||
+    null
+
+  const productPrice =
+    $('[class*="price"]').text().trim() ||
+    $('[data-price]').attr('data-price') ||
+    extractLandingPrice($, url) ||
+    null
+
   return {
-    productName: $('h1').text().trim() || $('[class*="product"][class*="title"]').text().trim() || null,
-    productDescription: $('[class*="description"]').text().trim() || $('meta[name="description"]').attr('content') || null,
-    productPrice: $('[class*="price"]').text().trim() || $('[data-price]').attr('data-price') || null,
+    productName,
+    productDescription,
+    productPrice,
     productCategory: $('.breadcrumb').text().trim() || $('[class*="breadcrumb"]').text().trim() || null,
     productFeatures: features.slice(0, 10),
     brandName: brandName ? normalizeBrandName(brandName) : null,

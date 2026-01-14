@@ -24,6 +24,15 @@ import {
 import { isProxyConnectionError } from './proxy-utils'
 import type { IndependentStoreData, IndependentProductData } from './types'
 import { maskProxyUrl } from '../proxy/validate-url'
+import {
+  extractLandingDescription,
+  extractLandingImages,
+  extractLandingPrice,
+  extractLandingProductName,
+  isPresellStyleUrl,
+  getRegistrableDomainLabelFromUrl,
+  refineBrandNameForLandingPage,
+} from '../landing-page-scrape-utils'
 
 const PROXY_URL = process.env.PROXY_URL || ''
 
@@ -499,20 +508,27 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
   // Detect platform for platform-specific extraction
   const platform = detectPlatform($)
 
-  // Extract product name
-  const productName = $('meta[property="og:title"]').attr('content') ||
-                      $('h1').first().text().trim() ||
-                      $('[class*="product-title"], [class*="ProductTitle"]').first().text().trim() ||
-                      null
+  // 🔥 2026-01-14：支持“pre/presell advertorial”独立站落地页
+  // 这类页面的meta title/og:title经常是频道名，不是商品名；商品名更可能出现在CTA/强调文本中
+  const baseProductName =
+    $('meta[property="og:title"]').attr('content') ||
+    $('h1').first().text().trim() ||
+    $('[class*="product-title"], [class*="ProductTitle"]').first().text().trim() ||
+    null
 
-  // Extract product description
-  const productDescription = $('meta[property="og:description"]').attr('content') ||
-                             $('meta[name="description"]').attr('content') ||
-                             $('[class*="product-description"], [class*="ProductDescription"]').first().text().trim() ||
-                             null
+  const productName = isPresellStyleUrl(url)
+    ? (extractLandingProductName($, url) || baseProductName)
+    : baseProductName
+
+  const productDescription =
+    extractLandingDescription({ $, productName }) ||
+    $('meta[property="og:description"]').attr('content') ||
+    $('meta[name="description"]').attr('content') ||
+    $('[class*="product-description"], [class*="ProductDescription"]').first().text().trim() ||
+     null
 
   // Extract price
-  const productPrice = extractPrice($)
+  const productPrice = extractPrice($) || extractLandingPrice($, url)
 
   // Extract original price (for discount calculation)
   const originalPrice = $('[class*="compare-price"], [class*="was-price"], [class*="original-price"], del')
@@ -523,13 +539,22 @@ async function parseIndependentProductHtml(html: string, url: string): Promise<I
 
   // Extract brand name - 🔥 2025-12-24优化：增强品牌提取，防止捕获导航菜单
   // 优先级：结构化数据 > 页面meta标签 > 专用品牌字段（限定选择器） > 产品名第一词
-  const brandName = extractBrandFromIndependentProduct($, url, productName)
+  const brandName = refineBrandNameForLandingPage({
+    url,
+    $,
+    productName,
+    currentBrandName: extractBrandFromIndependentProduct($, url, productName),
+  })
 
   // Extract features
   const features = extractFeatures($)
 
   // Extract images
-  const imageUrls = extractImages($, url)
+  const imageUrls = (() => {
+    const urls = extractImages($, url)
+    if (urls.length > 0) return urls
+    return extractLandingImages($, url, 5)
+  })()
 
   // Extract rating and review count (platform-specific)
   const { rating, reviewCount } = extractRatingAndReviews($, platform)
@@ -987,23 +1012,10 @@ function extractBrandFromIndependentProduct(
   }
 
   // 渠道6: 从URL域名提取
-  try {
-    const urlObj = new URL(url)
-    const hostname = urlObj.hostname.toLowerCase()
-    // 提取顶级域名前的部分作为潜在品牌名
-    const parts = hostname.split('.')
-    if (parts.length > 1) {
-      const domainBrand = parts[0]
-        .replace(/^www$/, '')
-        .replace(/[^a-z0-9]/g, '')
-      // 验证长度和格式
-      if (domainBrand.length >= 2 && domainBrand.length <= 25) {
-        const normalized = domainBrand.charAt(0).toUpperCase() + domainBrand.slice(1).toLowerCase()
-        return normalized
-      }
-    }
-  } catch {
-    // URL解析失败，继续
+  const domainLabel = getRegistrableDomainLabelFromUrl(url)
+  if (domainLabel) {
+    const normalized = domainLabel.replace(/[-_]+/g, ' ').trim()
+    if (normalized.length >= 2 && normalized.length <= 40) return normalized
   }
 
   return null
