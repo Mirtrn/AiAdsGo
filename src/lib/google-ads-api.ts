@@ -514,6 +514,7 @@ function getGeoTargetConstantId(countryCode: string): number | null {
     'AU': 2036,   // Australia
     'DE': 2276,   // Germany
     'FR': 2250,   // France
+    'IE': 2372,   // Ireland
     'JP': 2392,   // Japan
     'CN': 2156,   // China
     'IN': 2356,   // India
@@ -526,6 +527,7 @@ function getGeoTargetConstantId(countryCode: string): number | null {
     'SG': 2702,   // Singapore
     'HK': 2344,   // Hong Kong
     'TW': 2158,   // Taiwan
+    'NZ': 2554,   // New Zealand
   }
 
   return geoTargetMap[countryCode.toUpperCase()] || null

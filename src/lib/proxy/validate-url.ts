@@ -3,7 +3,7 @@
  */
 export interface ProxyUrlValidation {
   isValid: boolean
-  countryCode: string | null  // UK | CA | ROW
+  countryCode: string | null  // ISO2 / ROW (e.g. US, UK, CA, IE, NZ, ROW)
   errors: string[]
 }
 
@@ -11,7 +11,7 @@ export interface ProxyUrlValidation {
  * 验证Proxy URL格式是否正确
  *
  * 必需参数:
- * - cc: 国家代码 (UK | CA | ROW)
+ * - cc: 国家代码 (如 US/UK/CA/IE/NZ/ROW 等，具体以代理商支持为准)
  * - ips: IP数量 (整数)
  * - proxyType: 代理类型 (必须是http)
  * - responseType: 响应格式 (必须是txt)
@@ -34,11 +34,11 @@ export function validateProxyUrl(proxyUrl: string): ProxyUrlValidation {
     // 1. 验证 cc 参数（国家代码）
     const cc = params.get('cc')
     if (!cc) {
-      errors.push('缺少国家代码参数 (cc)，请确认URL包含 cc=UK、cc=CA 或 cc=ROW')
+      errors.push('缺少国家代码参数 (cc)，请确认URL包含 cc=US/UK/CA/IE/NZ/ROW 等')
     } else {
       const ccUpper = cc.toUpperCase()
-      // 支持更多国家代码：UK(英国)、CA(加拿大)、US/ROW(美国)、DE(德国)、FR(法国)、AU(澳大利亚)、JP(日本)
-      const validCountryCodes = ['UK', 'CA', 'US', 'ROW', 'DE', 'FR', 'AU', 'JP', 'ES', 'IT', 'NL', 'BR', 'MX', 'IN', 'SG']
+      // 支持更多国家代码：UK(英国)、IE(爱尔兰)、NZ(新西兰)、CA(加拿大)、US/ROW(美国) 等
+      const validCountryCodes = ['UK', 'IE', 'NZ', 'CA', 'US', 'ROW', 'DE', 'FR', 'AU', 'JP', 'ES', 'IT', 'NL', 'BR', 'MX', 'IN', 'SG']
       if (!validCountryCodes.includes(ccUpper)) {
         errors.push(`国家代码 "${cc}" 无效，支持: ${validCountryCodes.join(', ')}`)
       } else {
@@ -109,12 +109,14 @@ export function validateProxyUrl(proxyUrl: string): ProxyUrlValidation {
 export function getCountryName(countryCode: string): string {
   const countryNames: Record<string, string> = {
     UK: '英国 (United Kingdom)',
+    IE: '爱尔兰 (Ireland)',
     CA: '加拿大 (Canada)',
     US: '美国 (United States)',
     ROW: '美国 (United States)',
     DE: '德国 (Germany)',
     FR: '法国 (France)',
     AU: '澳大利亚 (Australia)',
+    NZ: '新西兰 (New Zealand)',
     JP: '日本 (Japan)',
     ES: '西班牙 (Spain)',
     IT: '意大利 (Italy)',
