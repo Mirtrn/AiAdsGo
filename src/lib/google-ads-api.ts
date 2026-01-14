@@ -7,6 +7,7 @@ import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { getDatabase } from './db'
 import { boolCondition } from './db-helpers'
 import { getGoogleAdsTextEffectiveLength, sanitizeGoogleAdsAdText } from './google-ads-ad-text'
+import { getGoogleAdsGeoTargetId } from './language-country-codes'
 
 /**
  * 🔧 新增(2025-01-05): OAuth API 调用追踪包装器
@@ -507,30 +508,9 @@ export async function getCustomerWithCredentials(params: {
  * 参考: https://developers.google.com/google-ads/api/reference/data/geotargets
  */
 function getGeoTargetConstantId(countryCode: string): number | null {
-  const geoTargetMap: Record<string, number> = {
-    'US': 2840,   // United States
-    'GB': 2826,   // United Kingdom
-    'CA': 2124,   // Canada
-    'AU': 2036,   // Australia
-    'DE': 2276,   // Germany
-    'FR': 2250,   // France
-    'IE': 2372,   // Ireland
-    'JP': 2392,   // Japan
-    'CN': 2156,   // China
-    'IN': 2356,   // India
-    'BR': 2076,   // Brazil
-    'MX': 2484,   // Mexico
-    'ES': 2724,   // Spain
-    'IT': 2380,   // Italy
-    'KR': 2410,   // South Korea
-    'RU': 2643,   // Russia
-    'SG': 2702,   // Singapore
-    'HK': 2344,   // Hong Kong
-    'TW': 2158,   // Taiwan
-    'NZ': 2554,   // New Zealand
-  }
-
-  return geoTargetMap[countryCode.toUpperCase()] || null
+  const geoTargetIdString = getGoogleAdsGeoTargetId(countryCode)
+  const geoTargetId = parseInt(geoTargetIdString, 10)
+  return Number.isFinite(geoTargetId) ? geoTargetId : null
 }
 
 /**
