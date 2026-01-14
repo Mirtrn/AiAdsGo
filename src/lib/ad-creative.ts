@@ -321,6 +321,67 @@ export async function selectAdCreative(id: number, userId: number): Promise<void
   `, [id, userId])
 }
 
+function normalizeSitelinks(
+  raw: any,
+  fallbackUrl?: string
+): Array<{ text: string; url: string; description?: string }> | undefined {
+  if (!Array.isArray(raw)) return undefined
+
+  const normalized = raw
+    .map((link: any) => {
+      if (!link) return null
+
+      // 兼容：旧数据可能是 string 数组
+      if (typeof link === 'string') {
+        const text = link.trim().substring(0, 25)
+        if (!text) return null
+        const url = (fallbackUrl || '/').trim()
+        return { text, url }
+      }
+
+      if (typeof link !== 'object') return null
+
+      const textRaw =
+        (typeof link.text === 'string' && link.text) ||
+        (typeof link.title === 'string' && link.title) ||
+        (typeof link.name === 'string' && link.name) ||
+        ''
+      const text = String(textRaw).trim().substring(0, 25)
+      if (!text) return null
+
+      const urlRaw =
+        (typeof link.url === 'string' && link.url) ||
+        (typeof link.href === 'string' && link.href) ||
+        (typeof link.link === 'string' && link.link) ||
+        fallbackUrl ||
+        '/'
+      const url = String(urlRaw).trim()
+      if (!url) return null
+
+      const descriptionCandidates = [
+        link.description,
+        link.desc,
+        link.description1,
+        link.description_1,
+        link.description2,
+        link.description_2,
+        Array.isArray(link.descriptions) ? link.descriptions[0] : undefined,
+      ]
+      const description = descriptionCandidates.find(
+        (v: any) => typeof v === 'string' && v.trim().length > 0
+      ) as string | undefined
+
+      return {
+        text,
+        url,
+        description: description ? description.trim().substring(0, 35) : undefined,
+      }
+    })
+    .filter((v: any): v is { text: string; url: string; description?: string } => v !== null)
+
+  return normalized.length > 0 ? normalized : undefined
+}
+
 /**
  * 解析数据库行为AdCreative对象
  */
@@ -333,7 +394,8 @@ function parseAdCreativeRow(row: any): AdCreative {
     keywordsWithVolume: row.keywords_with_volume ? JSON.parse(row.keywords_with_volume) : undefined,
     negativeKeywords: row.negative_keywords ? JSON.parse(row.negative_keywords) : undefined,  // 🎯 新增：解析否定关键词
     callouts: row.callouts ? JSON.parse(row.callouts) : undefined,
-    sitelinks: row.sitelinks ? JSON.parse(row.sitelinks) : undefined,
+    // 兼容：历史/AI不稳定输出可能产生 description1/description_1 等字段
+    sitelinks: row.sitelinks ? normalizeSitelinks(JSON.parse(row.sitelinks), row.final_url) : undefined,
     score_breakdown: JSON.parse(row.score_breakdown),
     // 🔧 解析完整的 Ad Strength 评估数据（7维度）
     adStrength: row.ad_strength_data ? JSON.parse(row.ad_strength_data) : undefined,

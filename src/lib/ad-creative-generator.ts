@@ -2442,32 +2442,67 @@ export function parseAIResponse(text: string): GeneratedAdCreativeData {
     // 验证 Sitelinks 长度 (text≤25, desc≤35)
     // ============================================================================
     let sitelinksArray = Array.isArray(data.sitelinks) ? data.sitelinks : []
+
+    // 兼容：AI 有时会输出 description1/description2 或 description_1/description_2
+    // 统一归一为 { text, url, description? }，以匹配前端 & 数据库约定
+    const normalizeSitelink = (raw: any) => {
+      if (!raw) return null
+
+      // 兼容：旧数据可能是 string 数组
+      if (typeof raw === 'string') {
+        const text = removeProhibitedSymbols(raw).trim().substring(0, 25)
+        if (!text) return null
+        return { text, url: '/', description: undefined as string | undefined }
+      }
+
+      if (typeof raw !== 'object') return null
+
+      const textRaw =
+        (typeof raw.text === 'string' && raw.text) ||
+        (typeof (raw as any).title === 'string' && (raw as any).title) ||
+        ''
+      const text = removeProhibitedSymbols(textRaw).trim().substring(0, 25)
+      if (!text) return null
+
+      const urlRaw = typeof raw.url === 'string' ? raw.url : '/'
+      const url = String(urlRaw).trim() || '/'
+
+      const descriptionCandidates = [
+        raw.description,
+        (raw as any).desc,
+        (raw as any).description1,
+        (raw as any).description_1,
+        (raw as any).description2,
+        (raw as any).description_2,
+        Array.isArray((raw as any).descriptions) ? (raw as any).descriptions[0] : undefined,
+      ]
+      const descriptionValue = descriptionCandidates.find(
+        (v: any) => typeof v === 'string' && v.trim().length > 0
+      ) as string | undefined
+      const description = descriptionValue
+        ? removeProhibitedSymbols(descriptionValue).trim().substring(0, 35)
+        : undefined
+
+      return { text, url, description }
+    }
+
+    sitelinksArray = sitelinksArray
+      .map(normalizeSitelink)
+      .filter((v: any) => v !== null)
+
     const invalidSitelinks = sitelinksArray.filter((s: any) =>
       s && (s.text?.length > 25 || s.description?.length > 35)
     )
     if (invalidSitelinks.length > 0) {
-      console.warn(`警告: ${invalidSitelinks.length}个sitelink超过长度限制`)
-      invalidSitelinks.forEach((s: any) => {
-        if (s.text?.length > 25) {
-          console.warn(`  Sitelink文本超长: "${s.text}"(${s.text.length}字符 > 25)`)
-        }
-        if (s.description?.length > 35) {
-          console.warn(`  Sitelink描述超长: "${s.description}"(${s.description.length}字符 > 35)`)
-        }
-      })
-      // 截断过长的sitelinks
+      // 理论上已在 normalize 中截断，这里仅用于兜底日志
+      console.warn(`警告: ${invalidSitelinks.length}个sitelink超过长度限制（将自动截断）`)
       sitelinksArray = sitelinksArray.map((s: any) => {
         if (!s) return s
-        const truncated = { ...s }
-        if (s.text && s.text.length > 25) {
-          truncated.text = s.text.substring(0, 25)
-          console.warn(`  截断文本: "${s.text}" → "${truncated.text}"`)
+        return {
+          ...s,
+          text: typeof s.text === 'string' ? s.text.substring(0, 25) : s.text,
+          description: typeof s.description === 'string' ? s.description.substring(0, 35) : s.description
         }
-        if (s.description && s.description.length > 35) {
-          truncated.description = s.description.substring(0, 35)
-          console.warn(`  截断描述: "${s.description}" → "${truncated.description}"`)
-        }
-        return truncated
       })
     }
 

@@ -41,7 +41,19 @@ const normalizeSitelinks = (value: unknown): any[] => {
       if (!sl || typeof sl !== 'object') return null
       const text = typeof sl.text === 'string' ? sl.text.trim() : ''
       const url = typeof sl.url === 'string' ? sl.url.trim() : ''
-      const description = typeof sl.description === 'string' ? sl.description.trim() : undefined
+      const descriptionCandidates = [
+        sl.description,
+        sl.desc,
+        sl.description1,
+        sl.description_1,
+        sl.description2,
+        sl.description_2,
+        Array.isArray(sl.descriptions) ? sl.descriptions[0] : undefined
+      ]
+      const descriptionValue = descriptionCandidates.find(
+        (v: any) => typeof v === 'string' && v.trim().length > 0
+      ) as string | undefined
+      const description = descriptionValue ? descriptionValue.trim() : undefined
       if (!text && !url && !description) return null
       return { ...sl, text, url, description }
     })
@@ -117,4 +129,3 @@ export function buildEffectiveCreative(input: EffectiveCreativeInput): Effective
     finalUrlSuffix
   }
 }
-
