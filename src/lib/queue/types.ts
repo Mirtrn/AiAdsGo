@@ -111,6 +111,24 @@ export interface QueueStats {
 }
 
 /**
+ * pending 任务可执行性统计
+ *
+ * 用于区分：
+ * - eligiblePending: 当前时间已到，可立即被 dequeue 的 pending 任务
+ * - delayedPending: 因 notBefore/scheduledAt/重试延迟/退避而暂不可执行的 pending 任务
+ */
+export interface PendingEligibilityStats {
+  pendingTotal: number
+  eligiblePending: number
+  delayedPending: number
+  /**
+   * 最早的“下一次可执行时间”（毫秒时间戳）。
+   * 若 delayedPending=0 则为 undefined。
+   */
+  nextEligibleAt?: number
+}
+
+/**
  * 队列配置
  */
 export interface QueueConfig {
@@ -206,6 +224,12 @@ export interface QueueStorageAdapter {
   // 🔥 批量任务取消支持（可选）
   getAllPendingTasks?(): Promise<Task[]>
   removeTask?(taskId: string): Promise<void>
+
+  /**
+   * 🔥 pending 可执行性统计（可选）
+   * 用于管理台解释“队列中但不执行”的常见原因（scheduledAt/notBefore）。
+   */
+  getPendingEligibilityStats?(): Promise<PendingEligibilityStats>
 
   // 连接管理
   connect(): Promise<void>

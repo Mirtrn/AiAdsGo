@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     const queueManager = getQueueManager()
     const stats = await queueManager.getStats()
     const proxyStats = queueManager.getProxyStats()
+    const pendingEligibility = await queueManager.getPendingEligibilityStats()
 
     // 如果是普通用户，只返回该用户的数据
     if (!isAdmin) {
@@ -111,6 +112,9 @@ export async function GET(request: NextRequest) {
           coreRunning: globalCoreRunning,
           backgroundRunning: globalBackgroundRunning,
           queued: stats.pending,
+          queuedEligible: pendingEligibility?.eligiblePending,
+          queuedDelayed: pendingEligibility?.delayedPending,
+          nextQueuedAt: pendingEligibility?.nextEligibleAt,
           completed: stats.completed,
           failed: stats.failed
         },

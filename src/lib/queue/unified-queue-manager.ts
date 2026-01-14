@@ -8,6 +8,7 @@ import type {
   QueueConfig,
   QueueStats,
   QueueStorageAdapter,
+  PendingEligibilityStats,
   ProxyConfig
 } from './types'
 import { MemoryQueueAdapter } from './memory-adapter'
@@ -808,6 +809,14 @@ export class UnifiedQueueManager {
 
   async getRunningTasks(): Promise<Task[]> {
     return this.adapter.getRunningTasks()
+  }
+
+  async getPendingEligibilityStats(): Promise<PendingEligibilityStats | null> {
+    const adapter = this.adapter as QueueStorageAdapter & {
+      getPendingEligibilityStats?: () => Promise<PendingEligibilityStats>
+    }
+    if (typeof adapter.getPendingEligibilityStats !== 'function') return null
+    return adapter.getPendingEligibilityStats()
   }
 
   /**

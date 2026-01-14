@@ -15,6 +15,9 @@ interface QueueStats {
     coreRunning?: number
     backgroundRunning?: number
     queued: number
+    queuedEligible?: number
+    queuedDelayed?: number
+    nextQueuedAt?: number
     completed: number
     failed: number
   }
@@ -180,6 +183,11 @@ const formatBytes = (bytes: number | null | undefined) => {
 const formatBps = (bps: number | null | undefined) => {
   if (bps === null || bps === undefined || !Number.isFinite(bps)) return '-'
   return `${formatBytes(bps)}/s`
+}
+
+const formatDateTime = (tsMs: number | null | undefined) => {
+  if (tsMs === null || tsMs === undefined || !Number.isFinite(tsMs)) return '-'
+  return new Date(tsMs).toLocaleString('zh-CN')
 }
 
 function Sparkline({
@@ -785,6 +793,14 @@ export default function QueueManagementPage() {
                 <p className="text-xs text-gray-500 mt-1">
                   队列使用: {Math.round((stats.global.queued / stats.config.maxQueueSize) * 100)}%
                 </p>
+                {typeof stats.global.queuedEligible === 'number' && typeof stats.global.queuedDelayed === 'number' && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    可立即执行 {stats.global.queuedEligible}；等待时间 {stats.global.queuedDelayed}
+                    {stats.global.queuedEligible === 0 && stats.global.nextQueuedAt
+                      ? `（最早：${formatDateTime(stats.global.nextQueuedAt)}）`
+                      : ''}
+                  </p>
+                )}
               </div>
             </div>
 

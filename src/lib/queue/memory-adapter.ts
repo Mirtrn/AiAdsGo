@@ -3,7 +3,8 @@ import type {
   TaskType,
   TaskStatus,
   QueueStats,
-  QueueStorageAdapter
+  QueueStorageAdapter,
+  PendingEligibilityStats
 } from './types'
 
 /**
@@ -214,6 +215,37 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
       return this.pendingQueue.filter((t) => t.type === type)
     }
     return [...this.pendingQueue]
+  }
+
+  async getPendingEligibilityStats(): Promise<PendingEligibilityStats> {
+    if (!this.connected) {
+      return { pendingTotal: 0, eligiblePending: 0, delayedPending: 0 }
+    }
+
+    const now = Date.now()
+    let eligiblePending = 0
+    let delayedPending = 0
+    let nextEligibleAt: number | undefined
+
+    for (const task of this.pendingQueue) {
+      const notBefore = (task as any).notBefore as number | undefined
+      const availableAt = typeof notBefore === 'number' ? notBefore : 0
+      if (availableAt <= now) {
+        eligiblePending++
+      } else {
+        delayedPending++
+        if (nextEligibleAt === undefined || availableAt < nextEligibleAt) {
+          nextEligibleAt = availableAt
+        }
+      }
+    }
+
+    return {
+      pendingTotal: this.pendingQueue.length,
+      eligiblePending,
+      delayedPending,
+      nextEligibleAt
+    }
   }
 
   async clearCompleted(): Promise<number> {

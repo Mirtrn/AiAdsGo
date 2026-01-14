@@ -5,7 +5,8 @@ import type {
   TaskStatus,
   TaskPriority,
   QueueStats,
-  QueueStorageAdapter
+  QueueStorageAdapter,
+  PendingEligibilityStats
 } from './types'
 
 /**
@@ -143,6 +144,12 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
 
     const taskId = await this.client.eval(script, 1, queueKey, String(maxScore)) as unknown
     return typeof taskId === 'string' && taskId.length > 0 ? taskId : null
+  }
+
+  private decodeAvailableAtFromScore(score: number): number {
+    const seconds = Math.floor(score / 10000)
+    const msRemainder = score % 1000
+    return seconds * 1000 + msRemainder
   }
 
   async enqueue(task: Task): Promise<void> {
@@ -738,6 +745,44 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     }
 
     return tasks
+  }
+
+  async getPendingEligibilityStats(): Promise<PendingEligibilityStats> {
+    if (!this.client) {
+      return { pendingTotal: 0, eligiblePending: 0, delayedPending: 0 }
+    }
+
+    const queueKey = this.getKey('pending:all')
+    const pendingTotal = await this.client.zcard(queueKey)
+    if (pendingTotal === 0) {
+      return { pendingTotal: 0, eligiblePending: 0, delayedPending: 0 }
+    }
+
+    const maxScore = this.getMaxEligibleScore(Date.now())
+    const eligiblePending = await this.client.zcount(queueKey, '-inf', String(maxScore))
+    const delayedPending = Math.max(0, pendingTotal - eligiblePending)
+
+    let nextEligibleAt: number | undefined
+    if (delayedPending > 0) {
+      const delayed = await this.client.zrangebyscore(
+        queueKey,
+        `(${maxScore}`,
+        '+inf',
+        'WITHSCORES',
+        'LIMIT',
+        0,
+        1
+      )
+
+      if (Array.isArray(delayed) && delayed.length >= 2) {
+        const score = Number(delayed[1])
+        if (Number.isFinite(score)) {
+          nextEligibleAt = this.decodeAvailableAtFromScore(score)
+        }
+      }
+    }
+
+    return { pendingTotal, eligiblePending, delayedPending, nextEligibleAt }
   }
 
   /**
