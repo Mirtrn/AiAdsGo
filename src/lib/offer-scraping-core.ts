@@ -377,6 +377,9 @@ function isAffiliateUrl(url: string): boolean {
   const affiliateDomains = [
     'pboost.me',
     'yeahpromos.com',  // 🔥 添加YeahPromos推广平台
+    'bonusarrive.com', // 🔥 BonusArrive推广平台（部分Offer需要解析重定向以获得Final URL/Suffix）
+    'fatcoupon.com',   // BonusArrive常见中间页
+    'mftrking.com',    // BonusArrive/联盟常见跟踪域名
     'bit.ly',
     'geni.us',
     'amzn.to',
@@ -459,17 +462,28 @@ export async function performScrapeAndAnalysis(
     try {
       const urlObj = new URL(actualUrl)
       const finalUrl = `${urlObj.origin}${urlObj.pathname}` // 基础URL（不含查询参数）
+      const extractedSuffixFromUrl = urlObj.search.substring(1)
       // 🔥 优先使用解析器返回的suffix，否则尝试从当前URL提取
-      const finalUrlSuffix = resolvedFinalUrlSuffix || urlObj.search.substring(1)
+      const finalUrlSuffix = resolvedFinalUrlSuffix !== null ? resolvedFinalUrlSuffix : extractedSuffixFromUrl
 
-      // 只有当存在查询参数时才更新（避免覆盖已有的suffix）
-      if (finalUrlSuffix) {
+      // 仅当确定拿到了suffix（含空字符串的“已解析无参数”）时才写入，避免覆盖已有数据
+      const existingSuffix = offer?.final_url_suffix ?? null
+      const resolvedEmptyButUnknownBefore =
+        resolvedFinalUrlSuffix !== null &&
+        resolvedFinalUrlSuffix.length === 0 &&
+        (existingSuffix === null || existingSuffix.length === 0)
+      const shouldUpdateSuffix =
+        (resolvedFinalUrlSuffix !== null && resolvedFinalUrlSuffix.length > 0) ||
+        extractedSuffixFromUrl.length > 0 ||
+        resolvedEmptyButUnknownBefore
+
+      if (shouldUpdateSuffix) {
         console.log(`📋 提取Final URL: ${finalUrl}`)
         console.log(`📋 提取Final URL Suffix (${finalUrlSuffix.length}字符): ${finalUrlSuffix.substring(0, 100)}${finalUrlSuffix.length > 100 ? '...' : ''}`)
 
         // 更新Offer中的final_url和final_url_suffix字段
         if (offer) {
-          updateOffer(offerId, offer.user_id, {
+          await updateOffer(offerId, offer.user_id, {
             final_url: finalUrl,
             final_url_suffix: finalUrlSuffix,
             url: finalUrl  // 同时更新url为清理后的基础URL
@@ -480,7 +494,7 @@ export async function performScrapeAndAnalysis(
       } else {
         console.log(`ℹ️ URL不含查询参数，仅更新Final URL`)
         if (offer) {
-          updateOffer(offerId, offer.user_id, {
+          await updateOffer(offerId, offer.user_id, {
             final_url: finalUrl,
             url: finalUrl
           })

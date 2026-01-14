@@ -126,7 +126,7 @@ export default function GoogleAdsSetupGuidePage() {
 	                      <h4 className="font-medium">配置 OAuth 同意屏幕（目标对象：测试版 + OAuth 用户）</h4>
 	                      <div className="text-sm text-gray-600 mt-1 space-y-2">
 	                        <p>
-	                          进入 Cloud Console 的 <strong>OAuth 同意屏幕</strong>配置页，在“目标对象”中确认“发布状态”为<strong>测试版</strong>。
+	                          进入 Cloud Console 的 <strong>API和服务</strong>→<strong>OAuth权限请求</strong>页面，在“目标对象”中确认“发布状态”为<strong>测试版</strong>，“用户类型”为<strong>外部</strong>。
 	                        </p>
 	                        <p>
 	                          并将<strong>MCC 所属的 Gmail 邮箱</strong>加入到“OAuth 用户列表/测试用户”中，否则授权时可能无法通过。
