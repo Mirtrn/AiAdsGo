@@ -313,7 +313,7 @@ export default function QueueManagementPage() {
         'batch-offer-creation': 1,
         'ad-creative': 3,
         'campaign-publish': 2,  // 🆕 广告系列发布（Google Ads API限制）
-        'click-farm': 999,       // 🆕 补点击任务（高并发，代理IP池支持）
+        'click-farm': 50,        // 🆕 补点击任务（默认保守，避免小规格容器资源耗尽；可在管理台调整）
         'url-swap': 3,           // 🆕 换链接任务（定时监测，中等并发）
       },
       maxQueueSize: 1000,

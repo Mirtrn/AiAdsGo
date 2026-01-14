@@ -182,6 +182,7 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
       url: subTask.url,
       proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
       offerId: task.offer_id,
+      timezone: task.timezone,
       scheduledAt: subTask.scheduledAt.toISOString(),  // 🆕 传递计划执行时间，实现时间分散
       refererConfig  // 🆕 传递Referer配置
     };
@@ -189,7 +190,7 @@ export async function triggerTaskScheduling(taskId: string): Promise<TriggerResu
     try {
       await queueManager.enqueue('click-farm', taskData, task.user_id, {
         priority: 'normal',
-        maxRetries: 2
+        maxRetries: 0
       });
       queued++;
 
@@ -339,9 +340,10 @@ export async function triggerAllPendingTasks(): Promise<{
           url: subTask.url,
           proxyUrl: proxyConfig.url,  // 🔧 修复：使用新的代理配置格式
           offerId: task.offer_id,
+          timezone: task.timezone,
           scheduledAt: subTask.scheduledAt.toISOString(),  // 🆕 传递计划执行时间
           refererConfig  // 🆕 传递Referer配置
-        }, task.user_id, { priority: 'normal', maxRetries: 2 });
+        }, task.user_id, { priority: 'normal', maxRetries: 0 });
         queued++;
 
         // 🔧 修复(2025-12-31): 每 BATCH_SIZE 个任务后让出主线程

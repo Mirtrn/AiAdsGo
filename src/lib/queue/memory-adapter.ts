@@ -16,6 +16,24 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
   private pendingQueue: Task[] = []
   private runningTasks: Set<string> = new Set()
   private connected: boolean = false
+  private finishedOrder: string[] = []
+  private readonly maxFinishedTasks: number = (() => {
+    const n = parseInt(process.env.MEMORY_QUEUE_MAX_FINISHED_TASKS || '5000', 10)
+    return Number.isFinite(n) && n > 0 ? n : 5000
+  })()
+
+  private recordFinished(taskId: string) {
+    this.finishedOrder.push(taskId)
+    while (this.finishedOrder.length > this.maxFinishedTasks) {
+      const oldestId = this.finishedOrder.shift()
+      if (!oldestId) continue
+      const t = this.tasks.get(oldestId)
+      // 仅驱逐已完成/失败任务，避免误删仍在 pending/running 的任务
+      if (t && (t.status === 'completed' || t.status === 'failed')) {
+        this.tasks.delete(oldestId)
+      }
+    }
+  }
 
   async connect(): Promise<void> {
     this.connected = true
@@ -104,6 +122,7 @@ export class MemoryQueueAdapter implements QueueStorageAdapter {
     if (status === 'completed' || status === 'failed') {
       task.completedAt = Date.now()
       this.runningTasks.delete(taskId)
+      this.recordFinished(taskId)
     }
 
     this.tasks.set(taskId, task)

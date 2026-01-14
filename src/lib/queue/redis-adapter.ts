@@ -121,6 +121,30 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
     return `${this.keyPrefix}${suffix}`
   }
 
+  private getMaxEligibleScore(nowMs: number): number {
+    // 与 getPriorityScore 保持一致：availableAt=ms 以秒为主键 + priorityRank + msRemainder
+    const seconds = Math.floor(nowMs / 1000)
+    const msRemainder = nowMs % 1000
+    // low 是最大 priorityRank，确保覆盖所有优先级
+    const priorityRankMax = this.getPriorityRank('low')
+    return seconds * 10000 + priorityRankMax * 1000 + msRemainder
+  }
+
+  private async popEligible(queueKey: string): Promise<string | null> {
+    if (!this.client) return null
+
+    const maxScore = this.getMaxEligibleScore(Date.now())
+    const script = `
+      local items = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 1)
+      if #items == 0 then return nil end
+      redis.call('ZREM', KEYS[1], items[1])
+      return items[1]
+    `
+
+    const taskId = await this.client.eval(script, 1, queueKey, String(maxScore)) as unknown
+    return typeof taskId === 'string' && taskId.length > 0 ? taskId : null
+  }
+
   async enqueue(task: Task): Promise<void> {
     if (!this.client) throw new Error('Redis not connected')
 
@@ -171,11 +195,9 @@ export class RedisQueueAdapter implements QueueStorageAdapter {
       ? this.getKey(`pending:${type}`)
       : this.getKey('pending:all')
 
-    // 使用ZPOPMIN原子操作获取最高优先级任务
-    const result = await this.client.zpopmin(queueKey)
-    if (!result || result.length === 0) return null
-
-    const taskId = result[0]
+    // notBefore 支持：仅弹出“已到可执行时间”的任务，避免未来任务被提前 dequeue
+    const taskId = await this.popEligible(queueKey)
+    if (!taskId) return null
 
     // 获取任务详情
     const taskJson = await this.client.hget(this.getKey('tasks'), taskId)

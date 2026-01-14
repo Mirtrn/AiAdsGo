@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { getHeapStatistics } from 'v8'
 import type {
   Task,
   TaskType,
@@ -84,7 +85,7 @@ export class UnifiedQueueManager {
         'batch-offer-creation': 1,  // 批量任务协调器（串行执行，避免资源竞争）
         'ad-creative': 3,           // 创意生成任务并发限制（提高到3，允许多用户同时生成）
         'campaign-publish': 2,      // 🆕 广告系列发布并发限制（Google Ads API限制）
-        'click-farm': 999,          // 🆕 补点击任务并发限制（设置为999，最大化并发）
+        'click-farm': 50,           // 🆕 补点击任务并发限制（默认保守，避免小规格容器内存/FD被打爆；可在管理台调整）
         'url-swap': 3               // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
       },
       maxQueueSize: config.maxQueueSize || 1000,
@@ -351,6 +352,12 @@ export class UnifiedQueueManager {
       options.priority ??
       (this.isBackgroundTaskType(type) ? 'low' : 'normal')
 
+    // click-farm：明确不重试（用户可重新触发/由调度器下一轮重建）
+    const maxRetries =
+      type === 'click-farm'
+        ? (options.maxRetries ?? 0)
+        : (options.maxRetries ?? this.config.defaultMaxRetries)
+
     const task: Task<T> = {
       id: taskId,
       type,
@@ -363,7 +370,16 @@ export class UnifiedQueueManager {
       proxyConfig: options.proxyConfig,
       createdAt: Date.now(),
       retryCount: 0,
-      maxRetries: options.maxRetries ?? this.config.defaultMaxRetries
+      maxRetries
+    }
+
+    // 若任务携带 scheduledAt（ISO 字符串），将其映射为 notBefore，避免“提前 dequeue 后长时间 setTimeout”等待导致内存/并发失控
+    const scheduledAt = (data as any)?.scheduledAt
+    if (typeof scheduledAt === 'string') {
+      const notBefore = Date.parse(scheduledAt)
+      if (Number.isFinite(notBefore)) {
+        ;(task as any).notBefore = notBefore
+      }
     }
 
     await this.adapter.enqueue(task)
@@ -887,6 +903,20 @@ export class UnifiedQueueManager {
     try {
       // 1. 获取队列统计
       const stats = await this.adapter.getStats()
+
+      // 0. Node heap 使用率预警（避免无声逼近 --max-old-space-size 导致 OOM）
+      try {
+        const heap = process.memoryUsage().heapUsed
+        const limit = getHeapStatistics().heap_size_limit
+        if (limit > 0) {
+          const pct = (heap / limit) * 100
+          if (pct >= 85) {
+            issues.push(`Node heap 使用率高: ${pct.toFixed(1)}% (${Math.round(heap / 1024 / 1024)}MB / ${Math.round(limit / 1024 / 1024)}MB)`)
+          }
+        }
+      } catch {
+        // ignore
+      }
 
       // 1b. 🔥 若存在 pending 任务，修复 pending 索引（避免“孤儿 pending 任务”永远无法 dequeue）
       if (stats.pending > 0 && this.adapter.repairPendingIndexes) {

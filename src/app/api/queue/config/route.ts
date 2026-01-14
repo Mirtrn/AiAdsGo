@@ -29,7 +29,7 @@ const DEFAULT_QUEUE_CONFIG = {
     'batch-offer-creation': 1,
     'ad-creative': 3,  // 创意生成任务（允许多用户同时生成）
     'campaign-publish': 2,  // 广告系列发布并发限制
-    'click-farm': 999,  // 🔥 补点击任务并发限制（设置为999，最大化并发）
+    'click-farm': 50,  // 补点击任务并发限制（默认保守，避免小规格容器资源耗尽；可在管理台调整）
     'url-swap': 3  // 换链接任务并发限制（避免Playwright池争用导致获取实例超时）
   },
   maxQueueSize: 1000,

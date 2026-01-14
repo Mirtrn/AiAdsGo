@@ -1,10 +1,7 @@
 // 补点击任务执行器
 // src/lib/queue/executors/click-farm-executor.ts
 
-import { randomUUID } from 'crypto'
 import axios from 'axios';
-import https from 'https';
-import http from 'http';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { Task } from '../types';
 import { updateTaskStats } from '@/lib/click-farm';
@@ -20,6 +17,7 @@ export interface ClickFarmTaskData {
   url: string;           // 要访问的affiliate链接
   proxyUrl: string;      // 代理URL
   offerId: number;       // Offer ID（用于日志）
+  timezone?: string;     // 🆕 任务时区（用于按 scheduledAt 统计到正确小时，避免每次点击再查库）
   // 🆕 计划执行时间（用于将点击分散到1小时内不同时间点执行）
   scheduledAt?: string;  // ISO 8601 格式的时间戳字符串
   // 🆕 Referer配置
@@ -55,6 +53,66 @@ export function getRandomSocialReferer(): string {
   const randomIndex = Math.floor(Math.random() * SOCIAL_MEDIA_REFERRERS.length);
   return SOCIAL_MEDIA_REFERRERS[randomIndex].url;
 }
+
+const MAX_PROXY_AGENT_CACHE_SIZE = 50
+const proxyAgentCache = new Map<string, HttpsProxyAgent<string>>()
+
+function getProxyAgent(proxyAddress: string): HttpsProxyAgent<string> {
+  const cached = proxyAgentCache.get(proxyAddress)
+  if (cached) {
+    // 简单LRU：Map迭代顺序即插入顺序
+    proxyAgentCache.delete(proxyAddress)
+    proxyAgentCache.set(proxyAddress, cached)
+    return cached
+  }
+
+  const agent = new HttpsProxyAgent(proxyAddress, {
+    keepAlive: true,
+    maxSockets: 50,
+    rejectUnauthorized: false,
+  } as any)
+
+  proxyAgentCache.set(proxyAddress, agent)
+  if (proxyAgentCache.size > MAX_PROXY_AGENT_CACHE_SIZE) {
+    const oldestKey = proxyAgentCache.keys().next().value
+    if (oldestKey) proxyAgentCache.delete(oldestKey)
+  }
+  return agent
+}
+
+type ReleaseFn = () => void
+class SimpleSemaphore {
+  private inFlight = 0
+  private waiters: Array<(release: ReleaseFn) => void> = []
+
+  constructor(private readonly maxInFlight: number) {}
+
+  async acquire(): Promise<ReleaseFn> {
+    if (this.inFlight < this.maxInFlight) {
+      this.inFlight++
+      return () => this.release()
+    }
+
+    return await new Promise<ReleaseFn>((resolve) => {
+      this.waiters.push(resolve)
+    })
+  }
+
+  private release() {
+    this.inFlight = Math.max(0, this.inFlight - 1)
+    const next = this.waiters.shift()
+    if (next) {
+      this.inFlight++
+      next(() => this.release())
+    }
+  }
+}
+
+// click-farm 需要“快速发起请求即算成功”，但同时必须避免堆出海量并发请求。
+// 这里用一个轻量级信号量控制真实 in-flight 请求数；任务不等待响应结果，但会等待“拿到发起名额”。
+const clickFarmSemaphore = new SimpleSemaphore(
+  Math.max(1, parseInt(process.env.CLICK_FARM_MAX_INFLIGHT || '50', 10) || 50)
+)
 
 /**
  * 解析代理URL - 支持多种格式
@@ -194,7 +252,7 @@ function getRandomAcceptLanguage(): string {
 export async function executeClickFarmTask(
   task: Task<ClickFarmTaskData>
 ): Promise<{ success: boolean; traffic: number }> {
-  const { taskId, url, refererConfig, scheduledAt } = task.data;
+  const { taskId, url, refererConfig, scheduledAt, timezone } = task.data;
 
   // 🔧 修复：动态获取代理URL（重试时会清除旧代理，需要重新获取）
   let proxyUrl = task.data.proxyUrl
@@ -232,23 +290,6 @@ export async function executeClickFarmTask(
     return { success: false, traffic: 0 }
   }
 
-  // 🆕 检查是否需要延迟执行
-  if (scheduledAt) {
-    const scheduledTime = new Date(scheduledAt).getTime();
-    const now = Date.now();
-    const delay = scheduledTime - now;
-
-    if (delay > 0) {
-      // 延迟到计划时间执行
-      console.log(`[ClickFarm] 任务 ${taskId} 延迟执行，等待 ${Math.round(delay / 1000)} 秒 (计划: ${scheduledAt})`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    } else if (delay < -60000) {
-      // 如果计划时间已经过去超过1分钟，说明任务严重延迟，直接跳过
-      // 但仍然执行（不要丢失点击）
-      console.log(`[ClickFarm] 警告: 任务 ${taskId} 计划时间已过去 ${Math.round(-delay / 1000)} 秒，仍将执行`);
-    }
-  }
-
   try {
     // 🔧 修复：使用HttpsProxyAgent（与offer爬取一致）
     const proxyParsed = parseProxyUrl(proxyUrl);
@@ -258,14 +299,21 @@ export async function executeClickFarmTask(
       return { success: false, traffic: 0 };
     }
 
+    // 控制真实 in-flight 请求数，避免同时堆出大量 HTTP 请求
+    const release = await clickFarmSemaphore.acquire()
+    let released = false
+    const safeRelease = () => {
+      if (released) return
+      released = true
+      release()
+    }
+
     // 构建代理URL格式: http://user:pass@host:port
     const proxyAddress = proxyParsed.auth
       ? `http://${proxyParsed.auth.username}:${proxyParsed.auth.password}@${proxyParsed.host}:${proxyParsed.port}`
       : `http://${proxyParsed.host}:${proxyParsed.port}`;
 
-    // 使用HttpsProxyAgent（与offer爬取相同的方案）
-    const proxyAgent = new HttpsProxyAgent(proxyAddress);
-    const httpAgent = new http.Agent();
+    const proxyAgent = getProxyAgent(proxyAddress)
 
     // 🆕 确定Referer
     let referer: string | undefined;
@@ -284,138 +332,109 @@ export async function executeClickFarmTask(
       }
     }
 
-    // 🔥 Fire & Forget：发起HTTP请求但不等待响应
     const startTime = Date.now();
 
-    // 后台异步执行和追踪（不await）
-    (async () => {
-      try {
-        // 🆕 构建请求头（完整的浏览器指纹，绕过反爬虫）
-        const userAgent = getRandomUserAgent();
-        const headers: Record<string, string> = {
-          'User-Agent': userAgent,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-          'Accept-Language': getRandomAcceptLanguage(),
-          'Accept-Encoding': 'gzip, deflate, br, zstd',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'cross-site',
-          'Sec-Fetch-User': '?1',
-          'Cache-Control': 'max-age=0',
-          'DNT': '1',
-        };
+    // 🆕 构建请求头（完整的浏览器指纹，绕过反爬虫）
+    const userAgent = getRandomUserAgent();
+    const headers: Record<string, string> = {
+      'User-Agent': userAgent,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept-Language': getRandomAcceptLanguage(),
+      'Accept-Encoding': 'gzip, deflate, br, zstd',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'cross-site',
+      'Sec-Fetch-User': '?1',
+      'Cache-Control': 'max-age=0',
+      'DNT': '1',
+    };
 
-        // 🆕 添加Chrome特征头（Sec-CH-UA系列）
-        if (userAgent.includes('Chrome') && !userAgent.includes('Edg')) {
-          const chromeVersion = userAgent.match(/Chrome\/(\d+)/)?.[1] || '131';
-          headers['Sec-CH-UA'] = `"Not_A Brand";v="8", "Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}"`;
-          headers['Sec-CH-UA-Mobile'] = '?0';
-          headers['Sec-CH-UA-Platform'] = userAgent.includes('Windows') ? '"Windows"' : '"macOS"';
-        } else if (userAgent.includes('Edg')) {
-          const edgeVersion = userAgent.match(/Edg\/(\d+)/)?.[1] || '131';
-          headers['Sec-CH-UA'] = `"Not_A Brand";v="8", "Chromium";v="${edgeVersion}", "Microsoft Edge";v="${edgeVersion}"`;
-          headers['Sec-CH-UA-Mobile'] = '?0';
-          headers['Sec-CH-UA-Platform'] = '"Windows"';
-        }
+    // 🆕 添加Chrome特征头（Sec-CH-UA系列）
+    if (userAgent.includes('Chrome') && !userAgent.includes('Edg')) {
+      const chromeVersion = userAgent.match(/Chrome\/(\d+)/)?.[1] || '131';
+      headers['Sec-CH-UA'] = `"Not_A Brand";v="8", "Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}"`;
+      headers['Sec-CH-UA-Mobile'] = '?0';
+      headers['Sec-CH-UA-Platform'] = userAgent.includes('Windows') ? '"Windows"' : '"macOS"';
+    } else if (userAgent.includes('Edg')) {
+      const edgeVersion = userAgent.match(/Edg\/(\d+)/)?.[1] || '131';
+      headers['Sec-CH-UA'] = `"Not_A Brand";v="8", "Chromium";v="${edgeVersion}", "Microsoft Edge";v="${edgeVersion}"`;
+      headers['Sec-CH-UA-Mobile'] = '?0';
+      headers['Sec-CH-UA-Platform'] = '"Windows"';
+    }
 
-        // 🆕 添加Referer头（如果配置了）
-        if (referer) {
-          headers['Referer'] = referer;
-        }
+    // 🆕 添加Referer头（如果配置了）
+    if (referer) {
+      headers['Referer'] = referer;
+    }
 
-        // 🔧 使用HttpsProxyAgent（与offer爬取一致）
-        // 禁用SSL验证以处理代理SSL问题
-        const httpsAgent = new https.Agent({
-          rejectUnauthorized: false,
-          keepAlive: true,
-          maxSockets: 50,
-        });
+    // 🆕 P0修复：从 scheduledAt 提取计划执行的小时数，而不是使用实际执行时间
+    let scheduledHour: number | undefined;
+    if (scheduledAt) {
+      const tz = timezone || 'America/New_York'
+      scheduledHour = getHourInTimezone(new Date(scheduledAt), tz);
+    }
 
-        // 🔥 执行请求（使用HttpsProxyAgent）
+    // 需求：只要“成功发起请求”就算成功；不等待访问结果
+    // 这里将“发起成功”定义为：请求已被创建并进入发送流程（axios 调用不抛同步错误）。
+    // 真实网络是否返回/是否成功不影响成功统计，但会影响 in-flight 释放。
+    void updateTaskStats(taskId, true, scheduledHour).catch(() => {
+      // ignore
+    })
+
+    const requestPromise = axios.get(url, {
+      httpAgent: proxyAgent,
+      httpsAgent: proxyAgent,
+      proxy: false,
+      timeout: 2000,
+      validateStatus: () => true,
+      maxRedirects: 0,
+      headers,
+      responseType: 'stream',
+    })
+
+    // 🔥 释放名额：不等待结果返回给队列，但仍然跟踪请求结束以控制并发
+    const hardReleaseTimer = setTimeout(() => {
+      safeRelease()
+    }, 5000)
+
+    requestPromise
+      .then((response) => {
         try {
-          const response = await axios.get(url, {
-            httpAgent,                  // HTTP请求使用代理
-            httpsAgent,                 // HTTPS请求使用代理 + SSL验证禁用
-            timeout: 2000,              // 优化：减少超时到2秒
-            validateStatus: () => true, // 接受所有状态码
-            maxRedirects: 0,            // 禁用重定向
-            headers,
-          });
-
-          // 🔧 Fire & Forget模式 - 只要收到HTTP响应就算成功
-          const isSuccess = response.status > 0;
-
-          // 🆕 P0修复：从 scheduledAt 提取计划执行的小时数，而不是使用实际执行时间
-          let scheduledHour: number | undefined;
-          if (scheduledAt) {
-            try {
-              const db = await getDatabase();
-              const taskRow = await db.queryOne<any>(`
-                SELECT timezone FROM click_farm_tasks WHERE id = ?
-              `, [taskId]);
-              if (taskRow && taskRow.timezone) {
-                scheduledHour = getHourInTimezone(new Date(scheduledAt), taskRow.timezone);
-              } else {
-                // 时区查询失败，使用任务时区计算当前小时
-                scheduledHour = getHourInTimezone(new Date(), taskRow?.timezone || 'America/New_York');
-              }
-            } catch (e) {
-              console.warn(`[ClickFarm] 获取任务时区失败，使用当前时间:`, e);
-              // 使用默认时区计算当前小时
-              scheduledHour = getHourInTimezone(new Date(), 'America/New_York');
-            }
-          } else {
-            // scheduledAt 不存在时，使用任务时区计算当前小时
-            scheduledHour = getHourInTimezone(new Date(), 'America/New_York');
-          }
-          await updateTaskStats(taskId, isSuccess, scheduledHour);
-
-          console.log(`[ClickFarm] 点击执行完成: ${url.substring(0, 50)}... (${response.status}) [${Date.now() - startTime}ms] [HTTPS]` +
-            (referer ? ` [Referer: ${referer.substring(0, 30)}...]` : ''));
-        } catch (error: any) {
-          // 网络错误、超时等真正的失败
-          // 🆕 P0修复：从 scheduledAt 提取计划执行的小时数，而不是使用实际执行时间
-          let scheduledHour: number | undefined;
-          if (scheduledAt) {
-            try {
-              const db = await getDatabase();
-              const taskRow = await db.queryOne<any>(`
-                SELECT timezone FROM click_farm_tasks WHERE id = ?
-              `, [taskId]);
-              if (taskRow && taskRow.timezone) {
-                scheduledHour = getHourInTimezone(new Date(scheduledAt), taskRow.timezone);
-              } else {
-                // 时区查询失败，使用任务时区计算当前小时
-                scheduledHour = getHourInTimezone(new Date(), taskRow?.timezone || 'America/New_York');
-              }
-            } catch (e) {
-              console.warn(`[ClickFarm] 获取任务时区失败，使用当前时间:`, e);
-              // 使用默认时区计算当前小时
-              scheduledHour = getHourInTimezone(new Date(), 'America/New_York');
-            }
-          } else {
-            // scheduledAt 不存在时，使用任务时区计算当前小时
-            scheduledHour = getHourInTimezone(new Date(), 'America/New_York');
-          }
-          await updateTaskStats(taskId, false, scheduledHour);
-          console.log(`[ClickFarm] 点击执行失败: ${url.substring(0, 50)}... [${error.message}]`);
+          response.data?.destroy?.()
+        } catch {
+          // ignore
         }
-      } catch (error: any) {
-        // 外层错误处理
-        console.error(`[ClickFarm] 点击执行异常: ${url.substring(0, 50)}...`, error);
-      }
-    })().catch(err => {
-      // 捕获异步任务中的未处理错误
-      console.error(`[ClickFarm] 后台追踪失败:`, err);
-    });
+      })
+      .catch(() => {
+        // ignore：不影响“发起成功”判定
+      })
+      .finally(() => {
+        clearTimeout(hardReleaseTimer)
+        safeRelease()
+      })
 
-    // 立即返回（Fire & Forget）
+    console.log(
+      `[ClickFarm] 请求已发起: ${url.substring(0, 50)}... [${Date.now() - startTime}ms]` +
+        (referer ? ` [Referer: ${referer.substring(0, 30)}...]` : '')
+    );
+
     return { success: true, traffic: url.length + 500 };
 
   } catch (error: any) {
-    console.error(`[ClickFarm] 执行器错误:`, error);
+    console.error(`[ClickFarm] 执行器错误:`, error?.message || error);
+    // 同步阶段失败（例如代理URL解析失败之外的异常），记为失败
+    try {
+      let scheduledHour: number | undefined;
+      if (scheduledAt) {
+        const tz = timezone || 'America/New_York'
+        scheduledHour = getHourInTimezone(new Date(scheduledAt), tz);
+      }
+      await updateTaskStats(taskId, false, scheduledHour);
+    } catch {
+      // ignore
+    }
     return { success: false, traffic: 0 };
   }
 }
