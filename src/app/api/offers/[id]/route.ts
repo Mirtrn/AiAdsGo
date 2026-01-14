@@ -39,6 +39,29 @@ function pickTopLines(input: unknown, limit: number): string[] {
   return out
 }
 
+function normalizeTextCandidate(input: unknown): string | null {
+  if (typeof input !== 'string') return null
+  const raw = input.replace(/[\u200B-\u200D\uFEFF]/g, '').trim()
+  if (!raw) return null
+
+  // 过滤明显无意义的“页面占位”文本（生产环境常见：Amazon Store 标题/描述被解析为 Home Page）
+  const normalized = raw.toLowerCase().replace(/\s+/g, ' ').trim()
+  const generic = new Set([
+    'home page',
+    'homepage',
+    'home',
+    'index',
+    'index page',
+  ])
+  if (generic.has(normalized)) return null
+
+  // "Home Page | xxx" / "xxx | Home Page" 这类也视为无效
+  const collapsed = raw.replace(/\s+/g, ' ').trim()
+  if (/(^|\s|\|)home\s*page($|\s|\|)/i.test(collapsed) && collapsed.length <= 40) return null
+
+  return raw
+}
+
 function buildStoreDescriptionFromScrapedData(scrapedData: any): {
   brandDescription: string | null
   uniqueSellingPoints: string | null
@@ -50,9 +73,9 @@ function buildStoreDescriptionFromScrapedData(scrapedData: any): {
   }
 
   const storeDescription = pickNonEmptyString(
-    scrapedData.storeDescription,
-    scrapedData.productDescription,
-    scrapedData.metaDescription
+    normalizeTextCandidate(scrapedData.storeDescription),
+    normalizeTextCandidate(scrapedData.productDescription),
+    normalizeTextCandidate(scrapedData.metaDescription)
   )
 
   const deepTopProducts = Array.isArray(scrapedData?.deepScrapeResults?.topProducts)
@@ -60,7 +83,7 @@ function buildStoreDescriptionFromScrapedData(scrapedData: any): {
     : []
 
   const productDescriptions = deepTopProducts
-    .map((t: any) => pickNonEmptyString(t?.productData?.productDescription))
+    .map((t: any) => normalizeTextCandidate(pickNonEmptyString(t?.productData?.productDescription)))
     .filter((v: any): v is string => typeof v === 'string' && v.trim().length > 0)
 
   const features = deepTopProducts.flatMap((t: any) => Array.isArray(t?.productData?.features) ? t.productData.features : [])
@@ -76,19 +99,23 @@ function buildStoreDescriptionFromScrapedData(scrapedData: any): {
   const brandDescription = brandParts.length > 0 ? brandParts.join('\n\n').slice(0, 1600).trim() : null
 
   let targetAudience: string | null = null
-  if (storeDescription) {
-    const s = storeDescription.toLowerCase()
-    if (s.includes('hogar') && s.includes('empresa')) {
-      targetAudience = 'Usuarios domésticos y empresas que buscan protección de ciberseguridad.'
-    } else if (s.includes('hogar') || s.includes('familia')) {
-      targetAudience = 'Usuarios domésticos y familias que buscan protección de ciberseguridad.'
-    } else if (s.includes('empresa')) {
-      targetAudience = 'Empresas que buscan protección de ciberseguridad.'
-    }
+  const audienceHintText = [
+    storeDescription,
+    ...productDescriptions.slice(0, 2),
+    ...uniqueSellingPointsLines,
+    ...productHighlightsLines,
+  ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0).join(' ').toLowerCase()
+
+  if (audienceHintText) {
+    const hasHome = /\bhome\b/.test(audienceHintText) || audienceHintText.includes('at home') || audienceHintText.includes('kitchen')
+    const hasOffice = /\boffice\b/.test(audienceHintText)
+    if (hasHome && hasOffice) targetAudience = 'Home and office users.'
+    else if (hasHome) targetAudience = 'Home users.'
+    else if (hasOffice) targetAudience = 'Office users.'
   }
 
   return {
-    brandDescription,
+    brandDescription: normalizeTextCandidate(brandDescription),
     uniqueSellingPoints: uniqueSellingPointsLines.length > 0 ? uniqueSellingPointsLines.join('\n') : null,
     productHighlights: productHighlightsLines.length > 0 ? productHighlightsLines.join('\n') : null,
     targetAudience,
@@ -132,11 +159,11 @@ export async function GET(
     // 但 scraped_data 中已有 storeDescription / deepScrapeResults，可用于详情页展示兜底
     const scrapedData = safeParseJson<any>(offer.scraped_data)
     const scrapedProductDescription = pickNonEmptyString(
-      scrapedData?.productDescription,
-      scrapedData?.storeDescription,
-      scrapedData?.metaDescription
+      normalizeTextCandidate(scrapedData?.productDescription),
+      normalizeTextCandidate(scrapedData?.storeDescription),
+      normalizeTextCandidate(scrapedData?.metaDescription)
     )
-    const scrapedStoreDescription = pickNonEmptyString(scrapedData?.storeDescription)
+    const scrapedStoreDescription = pickNonEmptyString(normalizeTextCandidate(scrapedData?.storeDescription))
     const storeDerived = buildStoreDescriptionFromScrapedData(scrapedData)
 
     // 🔥 修复：历史数据可能错误写入 page_type=product（实际上是店铺）
@@ -165,10 +192,17 @@ export async function GET(
         targetCountry: offer.target_country,
         targetLanguage: offer.target_language, // 🔧 修复(2025-12-11): 添加target_language字段
         affiliateLink: offer.affiliate_link,
-        brandDescription: offer.brand_description || storeDerived.brandDescription || scrapedStoreDescription,
+        brandDescription: pickNonEmptyString(
+          normalizeTextCandidate(offer.brand_description),
+          storeDerived.brandDescription,
+          scrapedStoreDescription
+        ),
         uniqueSellingPoints: offer.unique_selling_points || storeDerived.uniqueSellingPoints,
         productHighlights: offer.product_highlights || storeDerived.productHighlights || scrapedProductDescription,
-        targetAudience: offer.target_audience || storeDerived.targetAudience,
+        targetAudience: pickNonEmptyString(
+          normalizeTextCandidate(offer.target_audience),
+          storeDerived.targetAudience
+        ),
         // Final URL字段（从推广链接解析后的最终落地页）
         finalUrl: offer.final_url,
         finalUrlSuffix: offer.final_url_suffix,
