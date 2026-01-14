@@ -30,6 +30,9 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
+      # Node.js 内存（容器 8G 的推荐默认值，可按压测调整）
+      NODE_MAX_OLD_SPACE_SIZE_WEB: 6144
+      NODE_MAX_OLD_SPACE_SIZE_SCHEDULER: 1024
     volumes:
       # 数据备份持久化
       - autoads_backups:/app/backups
