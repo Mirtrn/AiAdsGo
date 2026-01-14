@@ -595,6 +595,79 @@ function getLanguageConstantId(input: string): number | null {
 /**
  * 创建Google Ads广告系列
  */
+function isDuplicateCampaignNameError(error: any): boolean {
+  const errors = error?.errors
+  if (!Array.isArray(errors)) return false
+  return errors.some((e: any) => {
+    const code = e?.error_code?.campaign_error
+    return code === 'DUPLICATE_CAMPAIGN_NAME' || code === 12
+  })
+}
+
+function escapeGaqlStringLiteral(value: string): string {
+  return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
+async function findExistingCampaignByName(params: {
+  customerId: string
+  refreshToken: string
+  campaignName: string
+  userId: number
+  loginCustomerId?: string
+  authType?: 'oauth' | 'service_account'
+  serviceAccountId?: string
+  customer?: Customer
+}): Promise<{ campaignId: string; resourceName: string } | null> {
+  const nameLiteral = escapeGaqlStringLiteral(params.campaignName)
+  const query = `
+    SELECT
+      campaign.id,
+      campaign.resource_name,
+      campaign.name,
+      campaign.status
+    FROM campaign
+    WHERE campaign.name = '${nameLiteral}'
+      AND campaign.status != 'REMOVED'
+    LIMIT 1
+  `
+
+  const authType = params.authType || 'oauth'
+  let results: any[]
+
+  if (authType === 'service_account') {
+    const { executeGAQLQueryPython } = await import('./python-ads-client')
+    const response = await executeGAQLQueryPython({
+      userId: params.userId,
+      serviceAccountId: params.serviceAccountId,
+      customerId: params.customerId,
+      query,
+    })
+    results = response.results || []
+  } else {
+    const customer = params.customer || await getCustomerWithCredentials({
+      customerId: params.customerId,
+      refreshToken: params.refreshToken,
+      userId: params.userId,
+      loginCustomerId: params.loginCustomerId,
+      authType: params.authType,
+      serviceAccountId: params.serviceAccountId,
+    })
+    results = await trackOAuthApiCall(
+      params.userId,
+      params.customerId,
+      ApiOperationType.SEARCH,
+      '/api/google-ads/query',
+      () => customer.query(query)
+    )
+  }
+
+  const row = results[0]
+  const campaignId = row?.campaign?.id ? String(row.campaign.id) : ''
+  const resourceName = row?.campaign?.resource_name ? String(row.campaign.resource_name) : ''
+  if (!campaignId || !resourceName) return null
+  return { campaignId, resourceName }
+}
+
 export async function createGoogleAdsCampaign(params: {
   customerId: string
   refreshToken: string
@@ -619,6 +692,25 @@ export async function createGoogleAdsCampaign(params: {
 
   // 🔧 修复(2025-12-26): 服务账号模式使用Python服务
   if (authType === 'service_account') {
+    // ♻️ 幂等：如果同名Campaign已存在（常见于任务重试），直接复用避免报错/产生孤儿预算
+    try {
+      const existing = await findExistingCampaignByName({
+        customerId: params.customerId,
+        refreshToken: params.refreshToken,
+        campaignName: params.campaignName,
+        userId: params.userId,
+        loginCustomerId: params.loginCustomerId,
+        authType,
+        serviceAccountId: params.serviceAccountId,
+      })
+      if (existing) {
+        console.log(`♻️ 复用已存在的Campaign: ${params.campaignName} (ID=${existing.campaignId})`)
+        return existing
+      }
+    } catch (lookupError: any) {
+      console.warn(`⚠️ Campaign存在性检查失败，将继续尝试创建: ${lookupError?.message || lookupError}`)
+    }
+
     const {
       createCampaignBudgetPython,
       createCampaignPython,
@@ -635,21 +727,41 @@ export async function createGoogleAdsCampaign(params: {
     })
 
     // 2. 创建广告系列
-    const campaignResourceName = await createCampaignPython({
-      userId: params.userId,
-      serviceAccountId: params.serviceAccountId,
-      customerId: params.customerId,
-      name: params.campaignName,
-      budgetResourceName,
-      status: 'PAUSED',
-      biddingStrategyType: 'TARGET_SPEND',
-      cpcBidCeilingMicros: params.cpcBidCeilingMicros || 170000,
-      targetCountry: params.targetCountry,
-      targetLanguage: params.targetLanguage,
-      startDate: params.startDate,
-      endDate: params.endDate,
-      finalUrlSuffix: params.finalUrlSuffix,
-    })
+    let campaignResourceName: string
+    try {
+      campaignResourceName = await createCampaignPython({
+        userId: params.userId,
+        serviceAccountId: params.serviceAccountId,
+        customerId: params.customerId,
+        name: params.campaignName,
+        budgetResourceName,
+        status: 'PAUSED',
+        biddingStrategyType: 'TARGET_SPEND',
+        cpcBidCeilingMicros: params.cpcBidCeilingMicros || 170000,
+        targetCountry: params.targetCountry,
+        targetLanguage: params.targetLanguage,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        finalUrlSuffix: params.finalUrlSuffix,
+      })
+    } catch (error: any) {
+      if (isDuplicateCampaignNameError(error)) {
+        const existing = await findExistingCampaignByName({
+          customerId: params.customerId,
+          refreshToken: params.refreshToken,
+          campaignName: params.campaignName,
+          userId: params.userId,
+          loginCustomerId: params.loginCustomerId,
+          authType,
+          serviceAccountId: params.serviceAccountId,
+        })
+        if (existing) {
+          console.log(`♻️ Campaign名称重复，复用已存在的Campaign: ${params.campaignName} (ID=${existing.campaignId})`)
+          return existing
+        }
+      }
+      throw error
+    }
 
     const campaignId = campaignResourceName.split('/').pop() || ''
     return { campaignId, resourceName: campaignResourceName }
@@ -657,6 +769,26 @@ export async function createGoogleAdsCampaign(params: {
 
   // OAuth模式：使用原有逻辑
   const customer = await getCustomerWithCredentials(params)
+
+  // ♻️ 幂等：如果同名Campaign已存在（常见于任务重试），直接复用避免报错/产生孤儿预算
+  try {
+    const existing = await findExistingCampaignByName({
+      customerId: params.customerId,
+      refreshToken: params.refreshToken,
+      campaignName: params.campaignName,
+      userId: params.userId,
+      loginCustomerId: params.loginCustomerId,
+      authType,
+      serviceAccountId: params.serviceAccountId,
+      customer,
+    })
+    if (existing) {
+      console.log(`♻️ 复用已存在的Campaign: ${params.campaignName} (ID=${existing.campaignId})`)
+      return existing
+    }
+  } catch (lookupError: any) {
+    console.warn(`⚠️ Campaign存在性检查失败，将继续尝试创建: ${lookupError?.message || lookupError}`)
+  }
 
   // 1. 创建预算（添加时间戳避免重复名称）
   const budgetResourceName = await createCampaignBudget(customer, {
@@ -763,6 +895,23 @@ export async function createGoogleAdsCampaign(params: {
       )
     )
   } catch (error: any) {
+    if (isDuplicateCampaignNameError(error)) {
+      const existing = await findExistingCampaignByName({
+        customerId: params.customerId,
+        refreshToken: params.refreshToken,
+        campaignName: params.campaignName,
+        userId: params.userId,
+        loginCustomerId: params.loginCustomerId,
+        authType,
+        serviceAccountId: params.serviceAccountId,
+        customer,
+      })
+      if (existing) {
+        console.log(`♻️ Campaign名称重复，复用已存在的Campaign: ${params.campaignName} (ID=${existing.campaignId})`)
+        return existing
+      }
+    }
+
     // 打印详细的错误信息，特别是location字段
     console.error('🐛 Campaign创建失败 - 详细错误信息:')
     console.error('📋 错误对象:', JSON.stringify(error, null, 2))
