@@ -9,7 +9,9 @@ const DKI_PATTERN = /\{keyword:([^}]*)\}/gi
 export function getGoogleAdsTextEffectiveLength(text: string): number {
   const input = String(text ?? '')
 
-  const cjkPattern = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/
+  // Google Ads 的“字符长度”在部分双字节语言中会按更严格的规则计算；
+  // 这里将常见的东亚宽字符（含标点/全角形式）按 2 计数，避免 API 侧报 Too long。
+  const cjkPattern = /[\u3000-\u303F\u3040-\u30FF\u31F0-\u31FF\u3300-\u33FF\u4E00-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF]/
   const weightedLength = (value: string): number => {
     let total = 0
     for (const ch of Array.from(value)) {
@@ -40,7 +42,7 @@ function truncateByEffectiveLength(text: string, maxLen: number): string {
   const input = String(text ?? '')
   if (maxLen <= 0) return ''
 
-  const cjkPattern = /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/
+  const cjkPattern = /[\u3000-\u303F\u3040-\u30FF\u31F0-\u31FF\u3300-\u33FF\u4E00-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF]/
   const charWeight = (ch: string) => (cjkPattern.test(ch) ? 2 : 1)
 
   const takePlain = (value: string, budget: number): { text: string; used: number } => {

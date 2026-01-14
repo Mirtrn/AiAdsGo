@@ -665,7 +665,9 @@ async function findExistingCampaignByName(params: {
 
   const row = results[0]
   const campaignId = row?.campaign?.id ? String(row.campaign.id) : ''
-  const resourceName = row?.campaign?.resource_name ? String(row.campaign.resource_name) : ''
+  const resourceName = row?.campaign?.resourceName
+    ? String(row.campaign.resourceName)
+    : (row?.campaign?.resource_name ? String(row.campaign.resource_name) : '')
   if (!campaignId || !resourceName) return null
   return { campaignId, resourceName }
 }
