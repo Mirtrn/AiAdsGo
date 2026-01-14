@@ -75,6 +75,19 @@ export default function Step4PublishSummary({
       .filter((v: string) => v.length > 0)
   }
 
+  const getCalloutText = (callout: any): string => {
+    if (typeof callout === 'string') return callout
+    if (callout && typeof callout === 'object' && typeof callout.text === 'string') return callout.text
+    return ''
+  }
+
+  const toCalloutTextArray = (value: any): string[] => {
+    if (!Array.isArray(value)) return []
+    return value
+      .map((c: any) => getCalloutText(c).trim())
+      .filter((c: string) => c.length > 0)
+  }
+
   const toKeywordTextArray = (value: any): string[] => {
     if (!Array.isArray(value)) return []
     return value
@@ -116,9 +129,11 @@ export default function Step4PublishSummary({
     ? toKeywordTextArray(campaignConfig?.keywords)
     : toKeywordTextArray(selectedCreative?.keywords)
 
-  const effectiveCallouts = toNonEmptyStringArray(campaignConfig?.callouts).length > 0
-    ? toNonEmptyStringArray(campaignConfig?.callouts)
-    : toNonEmptyStringArray(selectedCreative?.callouts)
+  const campaignConfigCallouts = toCalloutTextArray(campaignConfig?.callouts)
+  const selectedCreativeCallouts = toCalloutTextArray(selectedCreative?.callouts)
+  const effectiveCallouts = campaignConfigCallouts.length > 0
+    ? campaignConfigCallouts
+    : selectedCreativeCallouts
 
   const effectiveSitelinks = Array.isArray(campaignConfig?.sitelinks) && campaignConfig.sitelinks.length > 0
     ? campaignConfig.sitelinks
