@@ -2503,19 +2503,25 @@ export default function SettingsPage() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-body-sm text-purple-700">
                           <div className="bg-white/50 p-3 rounded">
-                            <p className="font-medium text-purple-800 mb-2">Vertex AI（推荐）</p>
-                            <ul className="space-y-1">
-                              <li>• 企业级稳定性</li>
-                              <li>• 需要GCP账号</li>
-                              <li>• Service Account配置</li>
-                            </ul>
-                          </div>
-                          <div className="bg-white/50 p-3 rounded">
-                            <p className="font-medium text-purple-800 mb-2">Gemini API</p>
+                            <p className="font-medium text-purple-800 mb-2 flex items-center justify-between gap-2">
+                              <span>Gemini API</span>
+                              <span className="inline-flex items-center gap-1 text-amber-700">
+                                <Star className="w-4 h-4 text-amber-600" />
+                                <span className="text-xs font-semibold">强烈推荐</span>
+                              </span>
+                            </p>
                             <ul className="space-y-1">
                               <li>• 配置简单快速</li>
                               <li>• 直连访问</li>
                               <li>• 适合快速测试</li>
+                            </ul>
+                          </div>
+                          <div className="bg-white/50 p-3 rounded">
+                            <p className="font-medium text-purple-800 mb-2">Vertex AI</p>
+                            <ul className="space-y-1">
+                              <li>• 企业级稳定性</li>
+                              <li>• 需要GCP账号</li>
+                              <li>• Service Account配置</li>
                             </ul>
                           </div>
                         </div>
