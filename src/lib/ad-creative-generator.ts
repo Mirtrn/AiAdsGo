@@ -54,60 +54,116 @@ function normalizeBrandFreeText(text: string, brandName: string): string {
   return String(text).replace(pattern, '').replace(/\s{2,}/g, ' ').trim()
 }
 
-function selectPrimaryKeywordForHeadline2(
+function normalizeHeadline2KeywordCandidate(text: string): string {
+  return String(text || '')
+    .replace(/[{}]/g, '')
+    .replace(/[_/]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function tokenizeHeadline2Keyword(text: string): string[] {
+  const normalized = normalizeHeadline2KeywordCandidate(text)
+    .toLowerCase()
+    .normalize('NFKC')
+  // Unicode-aware tokenization (letters+numbers). Keep it permissive for non-English.
+  return normalized.split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+}
+
+function isLikelyModelCodeToken(token: string): boolean {
+  const t = String(token || '').toLowerCase()
+  // e.g. "f17", "vp40", "x100", "a7" (very short alnum code)
+  return /^[a-z]*\d+[a-z0-9]*$/i.test(t) && t.length <= 6
+}
+
+const HEADLINE2_INTENT_TOKENS = new Set([
+  'buy', 'purchase', 'order', 'shop', 'get', 'need',
+  'price', 'cost', 'deal', 'discount', 'coupon', 'promo',
+  'best', 'top', 'cheap', 'affordable', 'sale',
+])
+
+const HEADLINE2_BANNED_TOKENS = new Set([
+  // Navigational / irrelevant for a product-category keyword defaultText
+  'official', 'store', 'website', 'site', 'amazon', 'ebay',
+  // Local intent noise (commonly appears in brand query keywords)
+  'near', 'nearby', 'me',
+])
+
+const HEADLINE2_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'with', 'in', 'on', 'at', 'by', 'from',
+])
+
+export function selectPrimaryKeywordForHeadline2(
   keywords: Array<{ keyword: string; searchVolume?: number }> | null | undefined,
   brandName: string,
   fallbackTexts: string[]
 ): string {
   const brandLower = String(brandName || '').toLowerCase().trim()
   const rawCandidates = (keywords || [])
-    .map(k => ({ keyword: String((k as any).keyword || '').trim(), searchVolume: Number((k as any).searchVolume || 0) }))
+    .map(k => ({
+      keyword: normalizeHeadline2KeywordCandidate(String((k as any).keyword || '')),
+      searchVolume: Number((k as any).searchVolume || 0)
+    }))
     .filter(k => k.keyword.length > 0)
     .filter(k => k.keyword.length <= 60)
 
-  // 优先：严格非品牌候选
-  let candidates = rawCandidates
+  const fallbackTokenSet = new Set(
+    fallbackTexts
+      .map(t => normalizeBrandFreeText(t, brandName))
+      .flatMap(t => tokenizeHeadline2Keyword(t))
+      .filter(t => t.length > 1)
+      .filter(t => !HEADLINE2_STOPWORDS.has(t))
+  )
+
+  // Headline #2 必须不含品牌：所有候选统一做去品牌处理（非品牌关键词保持不变）
+  const cleanedCandidates = rawCandidates
+    .map(k => {
+      const cleaned = normalizeHeadline2KeywordCandidate(normalizeBrandFreeText(k.keyword, brandName))
+      return { keyword: cleaned, searchVolume: k.searchVolume }
+    })
+    .filter(k => k.keyword.length > 0)
+    .filter(k => k.keyword.length <= 60)
     .filter(k => brandLower ? !k.keyword.toLowerCase().includes(brandLower) : true)
 
-  if (candidates.length > 0) {
-    const hasAnyVolume = candidates.some(c => c.searchVolume > 0)
-    candidates.sort((a, b) => {
-      const aIntent = calculateIntentScore(a.keyword, brandName)
-      const bIntent = calculateIntentScore(b.keyword, brandName)
-      if (bIntent !== aIntent) return bIntent - aIntent
+  const scored = cleanedCandidates
+    .map(c => {
+      const tokens = tokenizeHeadline2Keyword(c.keyword)
+      const overlap = tokens.reduce((acc, t) => acc + (fallbackTokenSet.has(t) ? 1 : 0), 0)
+      return {
+        ...c,
+        tokens,
+        overlap,
+        intent: calculateIntentScore(c.keyword, brandName),
+      }
+    })
+    .filter(c => c.tokens.length > 0)
+    // Filter out generic/navigational candidates like "shop" / "official store" / "store near me"
+    .filter(c => !c.tokens.some(t => HEADLINE2_BANNED_TOKENS.has(t)))
+    // Avoid defaultText that is only intent words (e.g. "shop", "buy", "price")
+    .filter(c => c.tokens.some(t => !HEADLINE2_INTENT_TOKENS.has(t) && !HEADLINE2_STOPWORDS.has(t)))
+    // Avoid naked model codes unless they are actually relevant to the offer text
+    .filter(c => {
+      if (c.tokens.length !== 1) return true
+      const t = c.tokens[0]
+      if (!isLikelyModelCodeToken(t)) return true
+      return fallbackTokenSet.has(t)
+    })
+    // Require relevance when we have offer context; prevents selecting "shop" over category terms
+    .filter(c => fallbackTokenSet.size === 0 ? true : c.overlap > 0)
+
+  if (scored.length > 0) {
+    const hasAnyVolume = scored.some(c => c.searchVolume > 0)
+    scored.sort((a, b) => {
+      if (b.intent !== a.intent) return b.intent - a.intent
+      if (b.overlap !== a.overlap) return b.overlap - a.overlap
       if (hasAnyVolume && b.searchVolume !== a.searchVolume) return b.searchVolume - a.searchVolume
       return a.keyword.length - b.keyword.length
     })
-    return candidates[0].keyword
-  }
-
-  // 🔧 修复(2026-01-15): 当关键词池几乎全是品牌词时，允许“先去品牌再用”
-  // 例： "redtiger dash cam price" → "dash cam price"（仍满足Headline #2不含品牌）
-  if (brandLower && rawCandidates.length > 0) {
-    const cleanedCandidates = rawCandidates
-      .map(k => ({
-        keyword: normalizeBrandFreeText(k.keyword, brandName),
-        searchVolume: k.searchVolume,
-      }))
-      .filter(k => k.keyword.length > 0)
-      .filter(k => !k.keyword.toLowerCase().includes(brandLower))
-      .filter(k => k.keyword.length <= 60)
-
-    if (cleanedCandidates.length > 0) {
-      const hasAnyVolume = cleanedCandidates.some(c => c.searchVolume > 0)
-      cleanedCandidates.sort((a, b) => {
-        const aIntent = calculateIntentScore(a.keyword, brandName)
-        const bIntent = calculateIntentScore(b.keyword, brandName)
-        if (bIntent !== aIntent) return bIntent - aIntent
-        if (hasAnyVolume && b.searchVolume !== a.searchVolume) return b.searchVolume - a.searchVolume
-        return a.keyword.length - b.keyword.length
-      })
-      return cleanedCandidates[0].keyword
-    }
+    return scored[0].keyword
   }
 
   for (const fallback of fallbackTexts) {
-    const cleaned = normalizeBrandFreeText(String(fallback || ''), brandName)
+    const cleaned = normalizeHeadline2KeywordCandidate(normalizeBrandFreeText(String(fallback || ''), brandName))
     if (cleaned) return cleaned
   }
 
