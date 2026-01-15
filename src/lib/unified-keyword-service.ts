@@ -844,8 +844,21 @@ const RESEARCH_INTENT_PATTERNS = [
 export function applySmartFilters(
   keywords: UnifiedKeywordData[],
   minSearchVolume: number = DEFAULTS.minSearchVolume,
-  minKeywordsTarget: number = DEFAULTS.minKeywordsTarget
+  minKeywordsTarget: number = DEFAULTS.minKeywordsTarget,
+  options?: { disableSearchVolumeFilter?: boolean }
 ): UnifiedKeywordData[] {
+  const hasAnyVolume = keywords.some(kw => kw.searchVolume > 0)
+  const disableSearchVolumeFilter = options?.disableSearchVolumeFilter || !hasAnyVolume
+
+  if (disableSearchVolumeFilter) {
+    console.log('\n⚠️ 搜索量数据不可用，跳过搜索量阈值过滤（仅过滤研究意图词）')
+    return keywords.filter(kw => {
+      const keywordLower = kw.keyword.toLowerCase()
+      const hasResearchIntent = RESEARCH_INTENT_PATTERNS.some(pattern => keywordLower.includes(pattern))
+      return !hasResearchIntent
+    })
+  }
+
   let currentThreshold = minSearchVolume
   let filtered: UnifiedKeywordData[] = []
   let attempts = 0
@@ -1173,12 +1186,18 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
 
   // 8. 获取精确搜索量（对搜索量最高的前1000个关键词）
   console.log('\n📍 Step 8: 获取精确搜索量（前1000个）')
+  let disableSearchVolumeFilter = false
   try {
     const volumes = await getKeywordSearchVolumes(
       allKeywords.slice(0, 1000).map(kw => kw.keyword),
       country,
       language,
       userId
+    )
+
+    disableSearchVolumeFilter = volumes.some((vol: any) =>
+      vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+      vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
     )
 
     volumes.forEach(vol => {
@@ -1204,7 +1223,7 @@ export async function getMultiRoundIntentAwareKeywords(params: KeywordServicePar
 
   // 9. 智能过滤 + 匹配类型分配
   console.log('\n📍 Step 9: 智能过滤')
-  allKeywords = applySmartFilters(allKeywords, minSearchVolume, 30)
+  allKeywords = applySmartFilters(allKeywords, minSearchVolume, 30, { disableSearchVolumeFilter })
   allKeywords = assignMatchTypes(allKeywords, offer.brand)
 
   // 10. 再次按搜索量排序（确保最终排序正确）
@@ -1306,6 +1325,7 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
 
   const results: UnifiedKeywordData[] = []
   const keywordMap = new Map<string, UnifiedKeywordData>()
+  let disableSearchVolumeFilter = false
 
   // ==========================================
   // Step 1: 构建智能种子词池
@@ -1406,6 +1426,11 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
       userId
     )
 
+    disableSearchVolumeFilter = volumes.some((vol: any) =>
+      vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+      vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+    )
+
     // 更新搜索量（只更新前1000个）
     volumes.forEach(vol => {
       const canonical = vol.keyword.toLowerCase().trim()
@@ -1483,7 +1508,7 @@ export async function getUnifiedKeywordData(params: KeywordServiceParams): Promi
   // ==========================================
   console.log('\n📍 Step 5: 智能过滤')
 
-  allKeywords = applySmartFilters(allKeywords, minSearchVolume)
+  allKeywords = applySmartFilters(allKeywords, minSearchVolume, DEFAULTS.minKeywordsTarget, { disableSearchVolumeFilter })
 
   // ==========================================
   // Step 6: 智能匹配类型分配
@@ -1803,6 +1828,7 @@ export async function expandKeywordsWithSeeds(params: {
     const totalKeywords = results.length
     console.log(`   📊 准备查询 ${totalKeywords} 个关键词的精确搜索量`)
 
+    let disableSearchVolumeFilter = false
     if (totalKeywords > 0) {
       // 分批处理，每批最多1000个关键词
       for (let i = 0; i < results.length; i += BATCH_SIZE) {
@@ -1818,6 +1844,13 @@ export async function expandKeywordsWithSeeds(params: {
             language,
             userId
           )
+
+          if (volumes.some((vol: any) =>
+            vol?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+            vol?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+          )) {
+            disableSearchVolumeFilter = true
+          }
 
           volumes.forEach(vol => {
             const canonical = vol.keyword.toLowerCase().trim()
@@ -1853,12 +1886,16 @@ export async function expandKeywordsWithSeeds(params: {
     }
 
     // 搜索量过滤
-    // 🔧 修复(2025-12-26): 如果所有关键词搜索量都为0（服务账号模式），跳过搜索量过滤
-    const hasAnyVolume = results.some(kw => kw.searchVolume > 0)
-    if (hasAnyVolume) {
-      results = results.filter(kw => kw.searchVolume >= minSearchVolume)
+    // 🔧 修复(2025-12-26): 搜索量不可用（服务账号 / developer token 无 Basic access）时跳过过滤
+    if (disableSearchVolumeFilter) {
+      console.log('⚠️ 搜索量数据不可用（可能是服务账号或 developer token 无 Basic/Standard access），跳过搜索量过滤')
     } else {
-      console.log('⚠️ 所有关键词搜索量为0（可能是服务账号模式），跳过搜索量过滤')
+      const hasAnyVolume = results.some(kw => kw.searchVolume > 0)
+      if (hasAnyVolume) {
+        results = results.filter(kw => kw.searchVolume >= minSearchVolume)
+      } else {
+        console.log('⚠️ 所有关键词搜索量为0（可能是API未返回数据），跳过搜索量过滤')
+      }
     }
 
     // 智能匹配类型分配

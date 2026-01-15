@@ -726,10 +726,17 @@ export async function clusterKeywordsByIntent(
 
       // 过滤掉搜索量为0的关键词（API未返回数据）
       // 🔧 修复(2025-12-26): 服务账号模式下无法获取搜索量，保留所有关键词
+      const disableSearchVolumeFilter = metricsResults.some((kw: any) =>
+        kw?.volumeUnavailableReason === 'DEV_TOKEN_TEST_ONLY' ||
+        kw?.volumeUnavailableReason === 'SERVICE_ACCOUNT_UNSUPPORTED'
+      )
       const hasAnyVolume = metricsResults.some((kw: any) => kw.avgMonthlySearches > 0)
       let validKeywords: string[]
 
-      if (hasAnyVolume) {
+      if (disableSearchVolumeFilter) {
+        validKeywords = highIntentKeywords
+        console.log('⚠️ 搜索量数据不可用（可能是服务账号或 developer token 无 Basic/Standard access），保留所有关键词')
+      } else if (hasAnyVolume) {
         validKeywords = metricsResults
           .filter((kw: any) => kw.avgMonthlySearches > 0)
           .map((kw: any) => kw.keyword)

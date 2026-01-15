@@ -36,6 +36,8 @@ interface KeywordVolume {
   competitionIndex: number
   lowTopPageBid: number
   highTopPageBid: number
+  /** 搜索量数据是否可用（如 developer token 无 Basic/Standard access 时不可用） */
+  volumeUnavailableReason?: 'SERVICE_ACCOUNT_UNSUPPORTED' | 'DEV_TOKEN_TEST_ONLY'
   requestedCountry?: string
   effectiveCountry?: string
   usedProxyGeo?: boolean
@@ -80,6 +82,23 @@ function getInvalidPlannerFieldsFromGoogleAdsError(error: any): Set<InvalidPlann
   }
 
   return fields
+}
+
+function getGoogleAdsErrorMessage(error: any): string {
+  return (
+    error?.errors?.[0]?.message ||
+    error?.error?.message ||
+    error?.message ||
+    (typeof error === 'string' ? error : '')
+  )
+}
+
+function isDeveloperTokenTestOnlyAccessError(error: any): boolean {
+  const msg = getGoogleAdsErrorMessage(error).toLowerCase()
+  return (
+    msg.includes('developer token is only approved for use with test accounts') ||
+    (msg.includes('apply for basic') && msg.includes('standard access'))
+  )
 }
 
 // Helper: Read user configs from system_settings
@@ -391,6 +410,7 @@ export async function getKeywordSearchVolumes(
         let apiSuccess = false
         let apiErrorMessage: string | undefined
         let totalApiCalls = 0
+        let skipCachingDueToUnavailable = false
 
         try {
           if (config.authType === 'service_account') {
@@ -408,6 +428,7 @@ export async function getKeywordSearchVolumes(
                 competitionIndex: 0,
                 lowTopPageBid: 0,
                 highTopPageBid: 0,
+                volumeUnavailableReason: 'SERVICE_ACCOUNT_UNSUPPORTED',
                 requestedCountry,
                 effectiveCountry,
                 usedProxyGeo,
@@ -448,6 +469,7 @@ export async function getKeywordSearchVolumes(
             const languageId = getGoogleAdsLanguageIdString(effectiveLanguage)
 
             // Process each batch with exponential backoff retry
+            let stopProcessingBatches = false
             for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
               const batch = keywordBatches[batchIndex]
               console.log(`[KeywordPlanner] Processing batch ${batchIndex + 1}/${keywordBatches.length} (${batch.length} keywords)`)
@@ -561,6 +583,36 @@ export async function getKeywordSearchVolumes(
 
                   success = true
                 } catch (batchError: any) {
+                  if (isDeveloperTokenTestOnlyAccessError(batchError)) {
+                    const msg = getGoogleAdsErrorMessage(batchError)
+                    console.warn('[KeywordPlanner] Developer token 缺少 Basic/Standard access，Historical Metrics 不可用；本次返回默认搜索量=0（不写入缓存）')
+                    console.warn(`[KeywordPlanner] 原因: ${msg}`)
+
+                    for (const keyword of needApiKeywords) {
+                      apiVolumes.set(keyword.toLowerCase(), {
+                        keyword,
+                        avgMonthlySearches: 0,
+                        competition: 'UNKNOWN',
+                        competitionIndex: 0,
+                        lowTopPageBid: 0,
+                        highTopPageBid: 0,
+                        volumeUnavailableReason: 'DEV_TOKEN_TEST_ONLY',
+                        requestedCountry,
+                        effectiveCountry,
+                        usedProxyGeo,
+                        requestedLanguage,
+                        effectiveLanguage,
+                        usedFallbackLanguage,
+                      })
+                    }
+
+                    skipCachingDueToUnavailable = true
+                    apiErrorMessage = msg
+                    stopProcessingBatches = true
+                    success = true
+                    break
+                  }
+
                   const errorMsg = batchError.errors?.[0]?.message || batchError.message || ''
                   if (errorMsg.includes('Too many requests')) {
                     retries++
@@ -582,6 +634,7 @@ export async function getKeywordSearchVolumes(
               }
 
               if (shouldRetry) break
+              if (stopProcessingBatches) break
 
               // Delay between batches
               if (batchIndex < keywordBatches.length - 1) {
@@ -592,31 +645,35 @@ export async function getKeywordSearchVolumes(
             if (!shouldRetry) {
               console.log(`[KeywordPlanner] Completed ${totalApiCalls} API calls, retrieved ${apiVolumes.size} keyword volumes`)
 
-              // Save to database and cache
-              const toCache: Array<{ keyword: string; volume: number; competition?: string; competitionIndex?: number }> = []
-              for (const [kw, vol] of apiVolumes) {
-                toCache.push({
-                  keyword: kw,
-                  volume: vol.avgMonthlySearches,
-                  competition: vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
-                  competitionIndex: vol.competitionIndex
-                })
-                // 修复(2025-12-19): 同时保存competition_level和avg_cpc_micros
-                await saveToGlobalKeywords(
-                  kw,
-                  effectiveCountry,
-                  effectiveLanguage,
-                  vol.avgMonthlySearches,
-                  vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
-                  Math.round((vol.lowTopPageBid + vol.highTopPageBid) / 2 * 1_000_000) || undefined
-                )
-              }
+              if (!skipCachingDueToUnavailable) {
+                // Save to database and cache
+                const toCache: Array<{ keyword: string; volume: number; competition?: string; competitionIndex?: number }> = []
+                for (const [kw, vol] of apiVolumes) {
+                  toCache.push({
+                    keyword: kw,
+                    volume: vol.avgMonthlySearches,
+                    competition: vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
+                    competitionIndex: vol.competitionIndex
+                  })
+                  // 修复(2025-12-19): 同时保存competition_level和avg_cpc_micros
+                  await saveToGlobalKeywords(
+                    kw,
+                    effectiveCountry,
+                    effectiveLanguage,
+                    vol.avgMonthlySearches,
+                    vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
+                    Math.round((vol.lowTopPageBid + vol.highTopPageBid) / 2 * 1_000_000) || undefined
+                  )
+                }
 
-              if (toCache.length) {
-                await batchCacheVolumes(toCache, effectiveCountry, effectiveLanguage)
-              }
+                if (toCache.length) {
+                  await batchCacheVolumes(toCache, effectiveCountry, effectiveLanguage)
+                }
 
-              apiSuccess = true
+                apiSuccess = true
+              } else {
+                apiSuccess = false
+              }
             }
           }
         } catch (error: any) {
