@@ -95,7 +95,7 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
       <DialogContent className="sm:max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>调整CPC - {campaignName}</DialogTitle>
-          <DialogDescription>支持输入绝对值CPC或一键 +20%/+50%/+100% 填充更新后的CPC。</DialogDescription>
+          <DialogDescription>支持输入绝对值CPC，或一键按比例填充（-20%/-10%/+10%/+20%/+50%/+100%）。</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
@@ -134,6 +134,12 @@ export default function AdjustCampaignCpcDialog(props: AdjustCampaignCpcDialogPr
               </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(0.2)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
                 +20%
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(0.5)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
+                +50%
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => applyPercent(1)} disabled={loading || saving || !(currentCpc && currentCpc > 0)}>
+                +100%
               </Button>
             </div>
           </div>
