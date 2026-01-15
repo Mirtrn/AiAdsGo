@@ -13,7 +13,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { createOptimizationEngine, type CampaignMetrics } from '@/lib/optimization-rules'
-import { parsePrice } from '@/lib/pricing-utils'
+import { convertCurrency, parseCommission } from '@/lib/currency'
+import { parsePrice, parseProductPrice } from '@/lib/pricing-utils'
 
 interface CampaignPerformance {
   campaignId: number
@@ -65,6 +66,9 @@ interface CampaignComparison {
     avgCpc: number
     avgConversionRate: number
   }
+  currency?: string
+  currencies?: string[]
+  hasMixedCurrency?: boolean
 }
 
 /**
@@ -107,6 +111,8 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const offerIdStr = searchParams.get('offer_id')
     const daysStr = searchParams.get('days') || '7'
+    const requestedCurrencyRaw = searchParams.get('currency')
+    const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
 
     if (!offerIdStr) {
       return NextResponse.json(
@@ -129,7 +135,7 @@ export async function GET(request: NextRequest) {
 
     // 获取Offer信息
     const offer = await db.queryOne<any>(`
-      SELECT id, offer_name
+      SELECT id, offer_name, product_price, commission_payout
       FROM offers
       WHERE id = ? AND user_id = ?
     `, [offerId, auth.user!.userId])
@@ -149,12 +155,39 @@ export async function GET(request: NextRequest) {
     const startDateStr = startDate.toISOString().split('T')[0]
     const endDateStr = endDate.toISOString().split('T')[0]
 
+    // 获取该Offer的可用币种（按账号币种）
+    const currencyRows = await db.query<any>(`
+      SELECT DISTINCT COALESCE(gaa.currency, 'USD') as currency
+      FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+      WHERE c.offer_id = ? AND c.user_id = ?
+      ORDER BY currency ASC
+    `, [offerId, auth.user!.userId])
+
+    const currencies = Array.from(new Set(
+      (currencyRows || [])
+        .map((r: any) => String(r.currency || '').trim().toUpperCase())
+        .filter(Boolean)
+    ))
+
+    const defaultCurrency = currencies.length > 0 ? currencies[0] : 'USD'
+    const reportingCurrency = requestedCurrency && currencies.includes(requestedCurrency)
+      ? requestedCurrency
+      : defaultCurrency
+    const hasMixedCurrency = currencies.length > 1
+
     // 获取该Offer的所有Campaigns
     const campaigns = await db.query<any>(`
-      SELECT id, campaign_name, status
-      FROM campaigns
-      WHERE offer_id = ? AND user_id = ?
-    `, [offerId, auth.user!.userId])
+      SELECT
+        c.id,
+        c.campaign_name,
+        c.status,
+        COALESCE(gaa.currency, 'USD') as currency
+      FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+      WHERE c.offer_id = ? AND c.user_id = ?
+        AND COALESCE(gaa.currency, 'USD') = ?
+    `, [offerId, auth.user!.userId, reportingCurrency])
 
     if (campaigns.length === 0) {
       return NextResponse.json({
@@ -168,7 +201,10 @@ export async function GET(request: NextRequest) {
           avgCtr: 0.02, // 2% 行业均值
           avgCpc: 1.5,
           avgConversionRate: 0.03
-        }
+        },
+        currency: reportingCurrency,
+        currencies,
+        hasMixedCurrency
       })
     }
 
@@ -177,19 +213,30 @@ export async function GET(request: NextRequest) {
     // 优化后: 2次批量查询，使用Map分组 = 2次查询（与campaigns数量无关）
 
     // 计算真实转化价值（提前计算，避免在循环中重复解析）
-    let conversionValue = 50 // 默认值$50
+    let conversionValue = 50 // 默认值（USD）
+
+    // 默认值：以USD为基准换算到报表币种
+    try {
+      conversionValue = convertCurrency(conversionValue, 'USD', reportingCurrency)
+    } catch {
+      // ignore
+    }
+
     if (offer.product_price && offer.commission_payout) {
       try {
-        const price = parsePrice(offer.product_price) || 0
+        const parsed = parseProductPrice(offer.product_price)
+        const productCurrency = String(parsed?.currency || 'USD').trim().toUpperCase()
+        const price = parsePrice(parsed?.current || offer.product_price) || 0
+        const payoutRate = parseCommission(offer.commission_payout) || 0
 
-        const payoutMatch = offer.commission_payout.match(/[\d.]+/)
-        const payout = payoutMatch ? parseFloat(payoutMatch[0]) / 100 : 0
-
-        if (price > 0 && payout > 0) {
-          conversionValue = price * payout
+        if (price > 0 && payoutRate > 0) {
+          const commissionAmountInProductCurrency = price * payoutRate
+          conversionValue = productCurrency === reportingCurrency
+            ? commissionAmountInProductCurrency
+            : convertCurrency(commissionAmountInProductCurrency, productCurrency, reportingCurrency)
         }
       } catch (error) {
-        console.warn(`计算转化价值失败，使用默认值$50: ${error}`)
+        console.warn(`计算转化价值失败，使用默认值: ${error}`)
       }
     }
 
@@ -207,10 +254,11 @@ export async function GET(request: NextRequest) {
       FROM campaign_performance
       WHERE campaign_id IN (${placeholders})
         AND user_id = ?
+        AND currency = ?
         AND date >= ?
         AND date <= ?
       GROUP BY campaign_id
-    `, [...campaignIds, auth.user!.userId, startDateStr, endDateStr])
+    `, [...campaignIds, auth.user!.userId, reportingCurrency, startDateStr, endDateStr])
 
     // 建立Map: campaign_id → aggregate data
     const aggregateMap = new Map<number, any>()
@@ -229,11 +277,12 @@ export async function GET(request: NextRequest) {
       FROM campaign_performance
       WHERE campaign_id IN (${placeholders})
         AND user_id = ?
+        AND currency = ?
         AND date >= ?
         AND date <= ?
       GROUP BY campaign_id, date
       ORDER BY campaign_id, date ASC
-    `, [...campaignIds, auth.user!.userId, startDateStr, endDateStr])
+    `, [...campaignIds, auth.user!.userId, reportingCurrency, startDateStr, endDateStr])
 
     // 建立Map: campaign_id → daily trends array
     const dailyMap = new Map<number, any[]>()
@@ -353,6 +402,14 @@ export async function GET(request: NextRequest) {
     // 行业基准
     const industryAvgCtr = 0.02 // 2%
     const industryAvgConversionRate = 0.03 // 3%
+    let industryAvgCpc = 1.5 // USD基准
+    if (reportingCurrency !== 'USD') {
+      try {
+        industryAvgCpc = convertCurrency(industryAvgCpc, 'USD', reportingCurrency)
+      } catch {
+        // ignore
+      }
+    }
 
     const result: CampaignComparison = {
       offerId,
@@ -363,9 +420,12 @@ export async function GET(request: NextRequest) {
       recommendations,
       industryBenchmarks: {
         avgCtr: industryAvgCtr,
-        avgCpc: 1.5,
+        avgCpc: industryAvgCpc,
         avgConversionRate: industryAvgConversionRate
-      }
+      },
+      currency: reportingCurrency,
+      currencies,
+      hasMixedCurrency
     }
 
     return NextResponse.json(result)

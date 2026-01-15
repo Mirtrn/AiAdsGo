@@ -17,28 +17,73 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get('start_date')
     const endDate = searchParams.get('end_date')
-    const campaignId = searchParams.get('campaign_id')
+    const campaignIdRaw = searchParams.get('campaign_id')
+    const requestedCurrencyRaw = searchParams.get('currency')
+    const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
+
+    const campaignId = campaignIdRaw ? parseInt(campaignIdRaw, 10) : null
+    if (campaignIdRaw && (campaignId === null || isNaN(campaignId))) {
+      return NextResponse.json({ error: 'Invalid campaign_id' }, { status: 400 })
+    }
 
     const db = await getDatabase()
+    const userId = authResult.user.userId
 
     // 构建查询条件
-    let whereConditions = ['cp.user_id = ?']
-    const params: any[] = [authResult.user.userId]
+    const baseWhereConditions = ['cp.user_id = ?']
+    const baseParams: any[] = [userId]
 
     if (startDate) {
-      whereConditions.push('cp.date >= ?')
-      params.push(startDate)
+      baseWhereConditions.push('cp.date >= ?')
+      baseParams.push(startDate)
     }
 
     if (endDate) {
-      whereConditions.push('cp.date <= ?')
-      params.push(endDate)
+      baseWhereConditions.push('cp.date <= ?')
+      baseParams.push(endDate)
     }
 
     if (campaignId) {
-      whereConditions.push('cp.campaign_id = ?')
-      params.push(parseInt(campaignId))
+      baseWhereConditions.push('cp.campaign_id = ?')
+      baseParams.push(campaignId)
     }
+
+    // 获取可用币种（优先使用 performance 中出现的币种；无数据则回退到账号币种）
+    const currencyRows = await db.query<any>(`
+      SELECT DISTINCT cp.currency as currency
+      FROM campaign_performance cp
+      WHERE ${baseWhereConditions.join(' AND ')}
+      ORDER BY currency ASC
+    `, baseParams)
+
+    let currencies = Array.from(new Set(
+      (currencyRows || [])
+        .map((r: any) => String(r.currency || '').trim().toUpperCase())
+        .filter(Boolean)
+    ))
+
+    if (currencies.length === 0) {
+      const accountCurrencyRows = await db.query<any>(`
+        SELECT DISTINCT COALESCE(currency, 'USD') as currency
+        FROM google_ads_accounts
+        WHERE user_id = ?
+        ORDER BY currency ASC
+      `, [userId])
+      currencies = Array.from(new Set(
+        (accountCurrencyRows || [])
+          .map((r: any) => String(r.currency || '').trim().toUpperCase())
+          .filter(Boolean)
+      ))
+    }
+
+    const defaultCurrency = currencies.length > 0 ? currencies[0] : 'USD'
+    const reportingCurrency = requestedCurrency && currencies.includes(requestedCurrency)
+      ? requestedCurrency
+      : defaultCurrency
+    const hasMixedCurrency = currencies.length > 1
+
+    const whereConditions = [...baseWhereConditions, 'cp.currency = ?']
+    const params: any[] = [...baseParams, reportingCurrency]
 
     // 计算日期范围（天数）
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
@@ -52,10 +97,13 @@ export async function GET(request: NextRequest) {
         SUM(cp.cost) as total_spent,
         COUNT(DISTINCT c.id) as active_campaigns
       FROM campaigns c
+      INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
-        AND ${whereConditions.map(w => w.replace('cp.user_id', 'c.user_id')).join(' AND ')}
+        AND ${whereConditions.join(' AND ')}
       WHERE c.user_id = ? AND c.status = 'ENABLED'
-    `, [authResult.user.userId]) as any
+        AND COALESCE(gaa.currency, 'USD') = ?
+        ${campaignId ? 'AND c.id = ?' : ''}
+    `, [...params, userId, reportingCurrency, ...(campaignId ? [campaignId] : [])]) as any
 
     const totalBudget = toNumber(overallBudget.total_budget)
     const totalSpent = toNumber(overallBudget.total_spent)
@@ -77,13 +125,16 @@ export async function GET(request: NextRequest) {
         SUM(cp.conversions) as conversions,
         COUNT(DISTINCT cp.date) as active_days
       FROM campaigns c
+      INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         AND ${whereConditions.join(' AND ')}
       LEFT JOIN offers o ON c.offer_id = o.id
       WHERE c.user_id = ? AND c.status = 'ENABLED'
+        AND COALESCE(gaa.currency, 'USD') = ?
+        ${campaignId ? 'AND c.id = ?' : ''}
       GROUP BY c.id, c.campaign_name, c.budget_amount, c.budget_type, o.brand
       ORDER BY c.budget_amount DESC
-    `, [authResult.user.userId]) as any[]
+    `, [...params, userId, reportingCurrency, ...(campaignId ? [campaignId] : [])]) as any[]
 
     const campaignBudgetData = campaignBudgets.map((row) => {
       const budget = toNumber(row.budget_amount)
@@ -149,15 +200,18 @@ export async function GET(request: NextRequest) {
         COUNT(DISTINCT c.id) as campaign_count,
         SUM(cp.conversions) as conversions
       FROM campaigns c
+      INNER JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
         AND ${whereConditions.join(' AND ')}
       LEFT JOIN offers o ON c.offer_id = o.id
       WHERE c.user_id = ? AND o.id IS NOT NULL
+        AND COALESCE(gaa.currency, 'USD') = ?
+        ${campaignId ? 'AND c.id = ?' : ''}
       GROUP BY o.id, o.brand, o.product_name
       HAVING SUM(cp.cost) > 0
       ORDER BY spent DESC
       LIMIT 10
-    `, [authResult.user.userId]) as any[]
+    `, [...params, userId, reportingCurrency, ...(campaignId ? [campaignId] : [])]) as any[]
 
     const budgetByOfferData = budgetByOffer.map((row) => {
       const allocatedBudget = toNumber(row.allocated_budget)
@@ -258,6 +312,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      currency: reportingCurrency,
+      currencies,
+      hasMixedCurrency,
       data: {
         overall: {
           totalBudget: parseFloat(totalBudget.toFixed(2)),

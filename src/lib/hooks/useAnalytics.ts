@@ -19,11 +19,14 @@ const swrConfig = {
 /**
  * Hook for ROI analytics data
  */
-export function useROIAnalytics(startDate: string, endDate: string, options = {}) {
+export function useROIAnalytics(startDate: string, endDate: string, currency?: string | null, options = {}) {
   const params = new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
   })
+  if (currency) {
+    params.set('currency', currency)
+  }
 
   const { data, error, isLoading, mutate } = useSWR(
     `/api/analytics/roi?${params.toString()}`,
@@ -33,6 +36,9 @@ export function useROIAnalytics(startDate: string, endDate: string, options = {}
 
   return {
     data: data?.data,
+    currencyInfo: data?.currency && Array.isArray(data?.currencies)
+      ? { currency: data.currency, currencies: data.currencies, hasMixedCurrency: Boolean(data.hasMixedCurrency) }
+      : null,
     error,
     isLoading,
     refresh: mutate,
@@ -42,11 +48,14 @@ export function useROIAnalytics(startDate: string, endDate: string, options = {}
 /**
  * Hook for budget analytics data
  */
-export function useBudgetAnalytics(startDate: string, endDate: string, options = {}) {
+export function useBudgetAnalytics(startDate: string, endDate: string, currency?: string | null, options = {}) {
   const params = new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
   })
+  if (currency) {
+    params.set('currency', currency)
+  }
 
   const { data, error, isLoading, mutate } = useSWR(
     `/api/analytics/budget?${params.toString()}`,
@@ -56,6 +65,9 @@ export function useBudgetAnalytics(startDate: string, endDate: string, options =
 
   return {
     data: data?.data,
+    currencyInfo: data?.currency && Array.isArray(data?.currencies)
+      ? { currency: data.currency, currencies: data.currencies, hasMixedCurrency: Boolean(data.hasMixedCurrency) }
+      : null,
     error,
     isLoading,
     refresh: mutate,

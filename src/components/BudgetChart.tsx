@@ -16,16 +16,23 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts'
+import { CURRENCY_SYMBOLS, formatCurrency } from '@/lib/currency'
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#14b8a6', '#f97316']
 
-export const BudgetTrendChart = memo(function BudgetTrendChart({ data, height = 300 }: { data: any[]; height?: number }) {
+export const BudgetTrendChart = memo(function BudgetTrendChart({
+  data,
+  currency = 'CNY',
+  height = 300
+}: { data: any[]; currency?: string; height?: number }) {
   const chartData = useMemo(() => {
     return data.map((item) => ({
       ...item,
       date: new Date(item.date).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }),
     }))
   }, [data])
+
+  const currencySymbol = CURRENCY_SYMBOLS[currency] || currency
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -42,7 +49,7 @@ export const BudgetTrendChart = memo(function BudgetTrendChart({ data, height = 
         </defs>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="date" />
-        <YAxis label={{ value: '花费 (¥)', angle: -90, position: 'insideLeft' }} />
+        <YAxis label={{ value: `花费 (${currencySymbol})`, angle: -90, position: 'insideLeft' }} />
         <Tooltip
           content={({ active, payload }) => {
             if (active && payload && payload.length) {
@@ -51,7 +58,7 @@ export const BudgetTrendChart = memo(function BudgetTrendChart({ data, height = 
                   <p className="font-semibold mb-2">{payload[0].payload.date}</p>
                   {payload.map((entry, index) => (
                     <p key={index} className="text-sm" style={{ color: entry.color }}>
-                      {entry.name}: ¥{typeof entry.value === 'number' ? entry.value.toFixed(2) : entry.value}
+                      {entry.name}: {formatCurrency(Number(entry.value) || 0, currency)}
                     </p>
                   ))}
                 </div>
@@ -82,7 +89,11 @@ export const BudgetTrendChart = memo(function BudgetTrendChart({ data, height = 
   )
 })
 
-export const CampaignBudgetChart = memo(function CampaignBudgetChart({ data, height = 400 }: { data: any[]; height?: number }) {
+export const CampaignBudgetChart = memo(function CampaignBudgetChart({
+  data,
+  currency = 'CNY',
+  height = 400
+}: { data: any[]; currency?: string; height?: number }) {
   const sortedData = useMemo(() => {
     return [...data]
       .sort((a, b) => b.budget - a.budget)
@@ -100,7 +111,7 @@ export const CampaignBudgetChart = memo(function CampaignBudgetChart({ data, hei
       <BarChart data={sortedData} margin={{ top: 5, right: 30, left: 20, bottom: 80 }}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-        <YAxis label={{ value: '金额 (¥)', angle: -90, position: 'insideLeft' }} />
+        <YAxis label={{ value: `金额 (${CURRENCY_SYMBOLS[currency] || currency})`, angle: -90, position: 'insideLeft' }} />
         <Tooltip
           content={({ active, payload }) => {
             if (active && payload && payload.length) {
@@ -111,13 +122,13 @@ export const CampaignBudgetChart = memo(function CampaignBudgetChart({ data, hei
                   <p className="text-sm text-gray-600 mb-2">{data.offerBrand}</p>
                   <div className="space-y-1 text-sm">
                     <p>
-                      预算: <span className="font-semibold">¥{data.budget.toFixed(2)}</span>
+                      预算: <span className="font-semibold">{formatCurrency(Number(data.budget) || 0, currency)}</span>
                     </p>
                     <p>
-                      已花费: <span className="font-semibold">¥{data.spent.toFixed(2)}</span>
+                      已花费: <span className="font-semibold">{formatCurrency(Number(data.spent) || 0, currency)}</span>
                     </p>
                     <p>
-                      剩余: <span className="font-semibold">¥{data.remaining.toFixed(2)}</span>
+                      剩余: <span className="font-semibold">{formatCurrency(Number(data.remaining) || 0, currency)}</span>
                     </p>
                     <p>
                       使用率:{' '}
@@ -204,7 +215,11 @@ export const BudgetUtilizationChart = memo(function BudgetUtilizationChart({ dat
   )
 })
 
-export const OfferBudgetChart = memo(function OfferBudgetChart({ data, height = 350 }: { data: any[]; height?: number }) {
+export const OfferBudgetChart = memo(function OfferBudgetChart({
+  data,
+  currency = 'CNY',
+  height = 350
+}: { data: any[]; currency?: string; height?: number }) {
   const chartData = useMemo(() => {
     return [...data]
       .sort((a, b) => b.spent - a.spent)
@@ -220,7 +235,7 @@ export const OfferBudgetChart = memo(function OfferBudgetChart({ data, height = 
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={chartData} layout="horizontal" margin={{ top: 5, right: 30, left: 100, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis type="number" label={{ value: '花费 (¥)', position: 'insideBottom', offset: -5 }} />
+        <XAxis type="number" label={{ value: `花费 (${CURRENCY_SYMBOLS[currency] || currency})`, position: 'insideBottom', offset: -5 }} />
         <YAxis type="category" dataKey="name" width={90} />
         <Tooltip
           content={({ active, payload }) => {
@@ -232,10 +247,10 @@ export const OfferBudgetChart = memo(function OfferBudgetChart({ data, height = 
                   <p className="text-sm text-gray-600 mb-2">{data.offerName}</p>
                   <div className="space-y-1 text-sm">
                     <p>
-                      预算分配: <span className="font-semibold">¥{data.allocatedBudget.toFixed(2)}</span>
+                      预算分配: <span className="font-semibold">{formatCurrency(Number(data.allocatedBudget) || 0, currency)}</span>
                     </p>
                     <p>
-                      已花费: <span className="font-semibold">¥{data.spent.toFixed(2)}</span>
+                      已花费: <span className="font-semibold">{formatCurrency(Number(data.spent) || 0, currency)}</span>
                     </p>
                     <p>
                       使用率: <span className="font-semibold">{data.utilizationRate.toFixed(1)}%</span>

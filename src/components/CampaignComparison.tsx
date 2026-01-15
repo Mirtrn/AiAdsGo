@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { formatCurrency } from '@/lib/currency'
 
 interface CampaignPerformance {
   campaignId: number
@@ -69,6 +70,9 @@ interface ComparisonData {
     avgCpc: number
     avgConversionRate: number
   }
+  currency?: string
+  currencies?: string[]
+  hasMixedCurrency?: boolean
 }
 
 interface CampaignComparisonProps {
@@ -80,6 +84,13 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ComparisonData | null>(null)
   const [days, setDays] = useState<number>(7)
+  const [currencyInfo, setCurrencyInfo] = useState<{ currency: string; currencies: string[]; hasMixedCurrency: boolean } | null>(null)
+  const [reportCurrency, setReportCurrency] = useState<string | null>(null)
+
+  const selectedCurrency = reportCurrency || currencyInfo?.currency || 'USD'
+  const availableCurrencies = currencyInfo?.currencies ?? []
+  const formatMoney = (value: number, currencyCode: string = selectedCurrency) =>
+    formatCurrency(value, currencyCode)
 
   // ��载对比数据
   const loadComparison = async () => {
@@ -87,7 +98,8 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
     setError(null)
 
     try {
-      const response = await fetch(`/api/campaigns/compare?offer_id=${offerId}&days=${days}`, {
+      const currencyParam = reportCurrency ? `&currency=${encodeURIComponent(reportCurrency)}` : ''
+      const response = await fetch(`/api/campaigns/compare?offer_id=${offerId}&days=${days}${currencyParam}`, {
         credentials: 'include'
       })
 
@@ -97,6 +109,16 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
 
       const result = await response.json()
       setData(result)
+      if (result?.currency && Array.isArray(result?.currencies)) {
+        setCurrencyInfo({
+          currency: String(result.currency || 'USD'),
+          currencies: result.currencies,
+          hasMixedCurrency: Boolean(result.hasMixedCurrency),
+        })
+        if (!reportCurrency || !result.currencies.includes(reportCurrency)) {
+          setReportCurrency(String(result.currency || 'USD'))
+        }
+      }
     } catch (err) {
       console.error('Load comparison error:', err)
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -107,7 +129,7 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
 
   useEffect(() => {
     loadComparison()
-  }, [offerId, days])
+  }, [offerId, days, reportCurrency])
 
   // 优先级颜色配置
   const priorityConfig = {
@@ -155,16 +177,30 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
             {data.dateRange.start} 至 {data.dateRange.end}
           </p>
         </div>
-        <Select value={days.toString()} onValueChange={(v) => setDays(parseInt(v))}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">近7天</SelectItem>
-            <SelectItem value="30">近30天</SelectItem>
-            <SelectItem value="90">近90天</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          {availableCurrencies.length > 1 && (
+            <Select value={selectedCurrency} onValueChange={(v) => setReportCurrency(v)}>
+              <SelectTrigger className="w-[110px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableCurrencies.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={days.toString()} onValueChange={(v) => setDays(parseInt(v))}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">近7天</SelectItem>
+              <SelectItem value="30">近30天</SelectItem>
+              <SelectItem value="90">近90天</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Campaign对比卡片 */}
@@ -203,7 +239,7 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
                   />
                   <MetricRow
                     label="每次点击成本 (CPC)"
-                    value={`$${(Number(campaign.cpc) || 0).toFixed(2)}`}
+                    value={formatMoney(Number(campaign.cpc) || 0)}
                     benchmark={data.industryBenchmarks.avgCpc}
                     current={Number(campaign.cpc) || 0}
                     inverse
@@ -226,7 +262,7 @@ export default function CampaignComparison({ offerId }: CampaignComparisonProps)
                     </div>
                     <div>
                       <p className="text-gray-500">花费</p>
-                      <p className="font-semibold">${(Number(campaign.cost) || 0).toFixed(2)}</p>
+                      <p className="font-semibold">{formatMoney(Number(campaign.cost) || 0)}</p>
                     </div>
                     <div>
                       <p className="text-gray-500">转化</p>

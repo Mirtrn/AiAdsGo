@@ -1,12 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError } from '@/lib/toast-utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   LazyBudgetTrendChart,
   LazyCampaignBudgetChart,
@@ -24,6 +31,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { useBudgetAnalytics } from '@/lib/hooks/useAnalytics'
+import { formatCurrency } from '@/lib/currency'
 
 interface BudgetData {
   overall: {
@@ -96,9 +104,22 @@ export default function BudgetAnalyticsPage() {
     return date.toISOString().split('T')[0]
   })
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [reportCurrency, setReportCurrency] = useState<string | null>(null)
 
   // Use SWR for data fetching with automatic caching
-  const { data, error, isLoading: loading, refresh } = useBudgetAnalytics(startDate, endDate)
+  const { data, currencyInfo, error, isLoading: loading, refresh } = useBudgetAnalytics(startDate, endDate, reportCurrency)
+
+  const selectedCurrency = reportCurrency || currencyInfo?.currency || 'USD'
+  const availableCurrencies = currencyInfo?.currencies ?? []
+  const money = (amount: number) => formatCurrency(amount, selectedCurrency)
+  const moneyCsv = (amount: number) => `${selectedCurrency} ${Number(amount ?? 0).toFixed(2)}`
+
+  useEffect(() => {
+    if (!currencyInfo?.currency || !Array.isArray(currencyInfo.currencies)) return
+    if (!reportCurrency || !currencyInfo.currencies.includes(reportCurrency)) {
+      setReportCurrency(currencyInfo.currency)
+    }
+  }, [currencyInfo?.currency, currencyInfo?.currencies, reportCurrency])
 
   // Show error toast if fetch fails
   if (error) {
@@ -114,12 +135,12 @@ export default function BudgetAnalyticsPage() {
     // Overall section
     csvRows.push('预算整体分析')
     csvRows.push('指标,数值')
-    csvRows.push(`总预算,¥${data.overall.totalBudget}`)
-    csvRows.push(`已花费,¥${data.overall.totalSpent}`)
-    csvRows.push(`剩余,¥${data.overall.remaining}`)
+    csvRows.push(`总预算,${moneyCsv(data.overall.totalBudget)}`)
+    csvRows.push(`已花费,${moneyCsv(data.overall.totalSpent)}`)
+    csvRows.push(`剩余,${moneyCsv(data.overall.remaining)}`)
     csvRows.push(`使用率,${data.overall.utilizationRate}%`)
-    csvRows.push(`日均花费,¥${data.overall.dailyAvgSpend}`)
-    csvRows.push(`预计30天花费,¥${data.overall.projectedTotalSpend}`)
+    csvRows.push(`日均花费,${moneyCsv(data.overall.dailyAvgSpend)}`)
+    csvRows.push(`预计30天花费,${moneyCsv(data.overall.projectedTotalSpend)}`)
     csvRows.push('')
 
     // Campaign section
@@ -217,6 +238,18 @@ export default function BudgetAnalyticsPage() {
                   className="w-40"
                 />
               </div>
+              {availableCurrencies.length > 1 && (
+                <Select value={selectedCurrency} onValueChange={(v) => setReportCurrency(v)}>
+                  <SelectTrigger className="w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCurrencies.map((c: string) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Button variant="outline" onClick={() => refresh()} disabled={loading}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 刷新
@@ -249,8 +282,8 @@ export default function BudgetAnalyticsPage() {
                           {alert.campaigns.map((campaign, idx) => (
                             <li key={idx}>
                               • {campaign.name}
-                              {campaign.overBy && ` (超支 ¥${campaign.overBy})`}
-                              {campaign.remaining !== undefined && ` (剩余 ¥${campaign.remaining})`}
+                              {campaign.overBy && ` (超支 ${money(campaign.overBy)})`}
+                              {campaign.remaining !== undefined && ` (剩余 ${money(campaign.remaining)})`}
                               {campaign.daysRemaining && ` (预计剩余 ${campaign.daysRemaining.toFixed(0)} 天)`}
                             </li>
                           ))}
@@ -275,7 +308,7 @@ export default function BudgetAnalyticsPage() {
                   {(data.overall?.utilizationRate ?? 0).toFixed(1)}%
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  ¥{(data.overall?.totalSpent ?? 0).toLocaleString()} / ¥{(data.overall?.totalBudget ?? 0).toLocaleString()}
+                  {money(data.overall?.totalSpent ?? 0)} / {money(data.overall?.totalBudget ?? 0)}
                 </p>
               </CardContent>
             </Card>
@@ -287,7 +320,7 @@ export default function BudgetAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600">
-                  ¥{(data.overall?.remaining ?? 0).toLocaleString()}
+                  {money(data.overall?.remaining ?? 0)}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
                   可用预算
@@ -302,10 +335,10 @@ export default function BudgetAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-gray-900">
-                  ¥{(data.overall?.dailyAvgSpend ?? 0).toFixed(2)}
+                  {money(data.overall?.dailyAvgSpend ?? 0)}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  预计30天 ¥{(data.overall?.projectedTotalSpend ?? 0).toFixed(2)}
+                  预计30天 {money(data.overall?.projectedTotalSpend ?? 0)}
                 </p>
               </CardContent>
             </Card>
@@ -355,7 +388,7 @@ export default function BudgetAnalyticsPage() {
               <CardTitle>预算使用趋势</CardTitle>
             </CardHeader>
             <CardContent>
-              <LazyBudgetTrendChart data={data.trend} height={350} />
+              <LazyBudgetTrendChart data={data.trend} currency={selectedCurrency} height={350} />
             </CardContent>
           </Card>
 
@@ -375,7 +408,7 @@ export default function BudgetAnalyticsPage() {
                 <CardTitle>Offer预算分配</CardTitle>
               </CardHeader>
               <CardContent>
-                <LazyOfferBudgetChart data={data.byOffer} height={350} />
+                <LazyOfferBudgetChart data={data.byOffer} currency={selectedCurrency} height={350} />
               </CardContent>
             </Card>
           </div>
@@ -386,7 +419,7 @@ export default function BudgetAnalyticsPage() {
               <CardTitle>Campaign预算使用对比 (Top 10)</CardTitle>
             </CardHeader>
             <CardContent>
-              <LazyCampaignBudgetChart data={data.byCampaign} height={450} />
+              <LazyCampaignBudgetChart data={data.byCampaign} currency={selectedCurrency} height={450} />
             </CardContent>
           </Card>
 
@@ -435,13 +468,13 @@ export default function BudgetAnalyticsPage() {
                         <td className="px-4 py-3 text-sm text-gray-900">{campaign.campaignName}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{campaign.offerBrand}</td>
                         <td className="px-4 py-3 text-sm text-right text-gray-900">
-                          ¥{campaign.budget.toFixed(2)}
+                          {money(campaign.budget)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-900">
-                          ¥{campaign.spent.toFixed(2)}
+                          {money(campaign.spent)}
                         </td>
                         <td className={`px-4 py-3 text-sm text-right ${campaign.remaining >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          ¥{campaign.remaining.toFixed(2)}
+                          {money(campaign.remaining)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right">
                           <span
@@ -457,7 +490,7 @@ export default function BudgetAnalyticsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-600">
-                          ¥{campaign.dailyAvgSpend.toFixed(2)}
+                          {money(campaign.dailyAvgSpend)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-gray-600">
                           {campaign.daysRemaining > 0 && campaign.daysRemaining < 999

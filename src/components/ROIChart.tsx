@@ -14,6 +14,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts'
+import { CURRENCY_SYMBOLS, formatCurrency } from '@/lib/currency'
 
 interface ROIChartProps {
   data: any[]
@@ -22,7 +23,11 @@ interface ROIChartProps {
   height?: number
 }
 
-export const ROITrendChart = memo(function ROITrendChart({ data, height = 300 }: { data: any[]; height?: number }) {
+export const ROITrendChart = memo(function ROITrendChart({
+  data,
+  currency = 'CNY',
+  height = 300
+}: { data: any[]; currency?: string; height?: number }) {
   const chartData = useMemo(() => {
     return data.map((item) => ({
       ...item,
@@ -30,12 +35,14 @@ export const ROITrendChart = memo(function ROITrendChart({ data, height = 300 }:
     }))
   }, [data])
 
+  const currencySymbol = CURRENCY_SYMBOLS[currency] || currency
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="date" />
-        <YAxis yAxisId="left" label={{ value: '金额 (¥)', angle: -90, position: 'insideLeft' }} />
+        <YAxis yAxisId="left" label={{ value: `金额 (${currencySymbol})`, angle: -90, position: 'insideLeft' }} />
         <YAxis
           yAxisId="right"
           orientation="right"
@@ -49,8 +56,10 @@ export const ROITrendChart = memo(function ROITrendChart({ data, height = 300 }:
                   <p className="font-semibold mb-2">{payload[0].payload.date}</p>
                   {payload.map((entry, index) => (
                     <p key={index} className="text-sm" style={{ color: entry.color }}>
-                      {entry.name}: {typeof entry.value === 'number' ? entry.value.toFixed(2) : entry.value}
-                      {entry.name === 'ROI' ? '%' : ' ¥'}
+                      {entry.name}:{' '}
+                      {entry.name === 'ROI'
+                        ? `${(Number(entry.value) || 0).toFixed(2)}%`
+                        : formatCurrency(Number(entry.value) || 0, currency)}
                     </p>
                   ))}
                 </div>
@@ -101,7 +110,11 @@ export const ROITrendChart = memo(function ROITrendChart({ data, height = 300 }:
   )
 })
 
-export const CampaignROIChart = memo(function CampaignROIChart({ data, height = 400 }: { data: any[]; height?: number }) {
+export const CampaignROIChart = memo(function CampaignROIChart({
+  data,
+  currency = 'CNY',
+  height = 400
+}: { data: any[]; currency?: string; height?: number }) {
   const sortedData = useMemo(() => {
     return [...data]
       .sort((a, b) => b.roi - a.roi)
@@ -140,13 +153,13 @@ export const CampaignROIChart = memo(function CampaignROIChart({ data, height = 
                       ROI: <span className="font-semibold">{(Number(data.roi) || 0).toFixed(2)}%</span>
                     </p>
                     <p>
-                      收入: <span className="font-semibold">¥{(Number(data.revenue) || 0).toFixed(2)}</span>
+                      收入: <span className="font-semibold">{formatCurrency(Number(data.revenue) || 0, currency)}</span>
                     </p>
                     <p>
-                      花费: <span className="font-semibold">¥{(Number(data.cost) || 0).toFixed(2)}</span>
+                      花费: <span className="font-semibold">{formatCurrency(Number(data.cost) || 0, currency)}</span>
                     </p>
                     <p>
-                      利润: <span className="font-semibold">¥{(Number(data.profit) || 0).toFixed(2)}</span>
+                      利润: <span className="font-semibold">{formatCurrency(Number(data.profit) || 0, currency)}</span>
                     </p>
                     <p>
                       转化: <span className="font-semibold">{data.conversions}</span>
@@ -169,7 +182,11 @@ export const CampaignROIChart = memo(function CampaignROIChart({ data, height = 
   )
 })
 
-export const OfferROIChart = memo(function OfferROIChart({ data, height = 350 }: { data: any[]; height?: number }) {
+export const OfferROIChart = memo(function OfferROIChart({
+  data,
+  currency = 'CNY',
+  height = 350
+}: { data: any[]; currency?: string; height?: number }) {
   const chartData = useMemo(() => {
     return [...data]
       .sort((a, b) => b.revenue - a.revenue)
@@ -186,7 +203,7 @@ export const OfferROIChart = memo(function OfferROIChart({ data, height = 350 }:
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={chartData} layout="horizontal" margin={{ top: 5, right: 30, left: 100, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis type="number" label={{ value: '金额 (¥)', position: 'insideBottom', offset: -5 }} />
+        <XAxis type="number" label={{ value: `金额 (${CURRENCY_SYMBOLS[currency] || currency})`, position: 'insideBottom', offset: -5 }} />
         <YAxis type="category" dataKey="name" width={90} />
         <Tooltip
           content={({ active, payload }) => {
@@ -198,13 +215,13 @@ export const OfferROIChart = memo(function OfferROIChart({ data, height = 350 }:
                   <p className="text-sm text-gray-600 mb-2">{data.offerName}</p>
                   <div className="space-y-1 text-sm">
                     <p>
-                      收入: <span className="font-semibold">¥{(Number(data.revenue) || 0).toFixed(2)}</span>
+                      收入: <span className="font-semibold">{formatCurrency(Number(data.revenue) || 0, currency)}</span>
                     </p>
                     <p>
-                      花费: <span className="font-semibold">¥{(Number(data.cost) || 0).toFixed(2)}</span>
+                      花费: <span className="font-semibold">{formatCurrency(Number(data.cost) || 0, currency)}</span>
                     </p>
                     <p>
-                      利润: <span className="font-semibold">¥{(Number(data.profit) || 0).toFixed(2)}</span>
+                      利润: <span className="font-semibold">{formatCurrency(Number(data.profit) || 0, currency)}</span>
                     </p>
                     <p>
                       ROI: <span className="font-semibold">{(Number(data.roi) || 0).toFixed(2)}%</span>

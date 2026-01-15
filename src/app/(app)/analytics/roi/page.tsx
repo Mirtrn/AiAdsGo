@@ -1,14 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError } from '@/lib/toast-utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { LazyROITrendChart, LazyCampaignROIChart, LazyOfferROIChart } from '@/components/LazyChartLoader'
 import { Download, TrendingUp, TrendingDown, DollarSign, Target, Percent, RefreshCw } from 'lucide-react'
 import { useROIAnalytics } from '@/lib/hooks/useAnalytics'
+import { formatCurrency } from '@/lib/currency'
 
 interface ROIData {
   overall: {
@@ -69,9 +77,22 @@ export default function ROIAnalyticsPage() {
     return date.toISOString().split('T')[0]
   })
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [reportCurrency, setReportCurrency] = useState<string | null>(null)
 
   // Use SWR for data fetching with automatic caching
-  const { data, error, isLoading: loading, refresh } = useROIAnalytics(startDate, endDate)
+  const { data, currencyInfo, error, isLoading: loading, refresh } = useROIAnalytics(startDate, endDate, reportCurrency)
+
+  const selectedCurrency = reportCurrency || currencyInfo?.currency || 'USD'
+  const availableCurrencies = currencyInfo?.currencies ?? []
+  const money = (amount: number) => formatCurrency(amount, selectedCurrency)
+  const moneyCsv = (amount: number) => `${selectedCurrency} ${Number(amount ?? 0).toFixed(2)}`
+
+  useEffect(() => {
+    if (!currencyInfo?.currency || !Array.isArray(currencyInfo.currencies)) return
+    if (!reportCurrency || !currencyInfo.currencies.includes(reportCurrency)) {
+      setReportCurrency(currencyInfo.currency)
+    }
+  }, [currencyInfo?.currency, currencyInfo?.currencies, reportCurrency])
 
   // Show error toast if fetch fails
   if (error) {
@@ -87,9 +108,9 @@ export default function ROIAnalyticsPage() {
     // Overall section
     csvRows.push('ROI整体分析')
     csvRows.push('指标,数值')
-    csvRows.push(`总成本,¥${data.overall.totalCost}`)
-    csvRows.push(`总收入,¥${data.overall.totalRevenue}`)
-    csvRows.push(`总利润,¥${data.overall.totalProfit}`)
+    csvRows.push(`总成本,${moneyCsv(data.overall.totalCost)}`)
+    csvRows.push(`总收入,${moneyCsv(data.overall.totalRevenue)}`)
+    csvRows.push(`总利润,${moneyCsv(data.overall.totalProfit)}`)
     csvRows.push(`ROI,${data.overall.roi}%`)
     csvRows.push(`转化次数,${data.overall.conversions}`)
     csvRows.push('')
@@ -181,6 +202,18 @@ export default function ROIAnalyticsPage() {
                   className="w-40"
                 />
               </div>
+              {availableCurrencies.length > 1 && (
+                <Select value={selectedCurrency} onValueChange={(v) => setReportCurrency(v)}>
+                  <SelectTrigger className="w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCurrencies.map((c: string) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Button variant="outline" onClick={() => refresh()} disabled={loading}>
                 <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 刷新
@@ -224,10 +257,10 @@ export default function ROIAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className={`text-2xl font-bold ${(data.overall?.totalProfit ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  ¥{(data.overall?.totalProfit ?? 0).toLocaleString()}
+                  {money(data.overall?.totalProfit ?? 0)}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  收入 ¥{(data.overall?.totalRevenue ?? 0).toLocaleString()} - 成本 ¥{(data.overall?.totalCost ?? 0).toLocaleString()}
+                  收入 {money(data.overall?.totalRevenue ?? 0)} - 成本 {money(data.overall?.totalCost ?? 0)}
                 </p>
               </CardContent>
             </Card>
@@ -242,7 +275,7 @@ export default function ROIAnalyticsPage() {
                   {data.overall.conversions}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  总转化次数 · ¥{(Number(data.efficiency.costPerConversion) || 0).toFixed(2)}/次
+                  总转化次数 · {money(Number(data.efficiency.costPerConversion) || 0)}/次
                 </p>
               </CardContent>
             </Card>
@@ -269,10 +302,10 @@ export default function ROIAnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-gray-900">
-                  ¥{(Number(data.efficiency.revenuePerConversion) || 0).toFixed(2)}
+                  {money(Number(data.efficiency.revenuePerConversion) || 0)}
                 </div>
                 <p className="text-xs text-gray-600 mt-1">
-                  平均佣金 ¥{(Number(data.overall.avgCommission) || 0).toFixed(2)}
+                  平均佣金 {money(Number(data.overall.avgCommission) || 0)}
                 </p>
               </CardContent>
             </Card>
@@ -299,7 +332,7 @@ export default function ROIAnalyticsPage() {
               <CardTitle>ROI趋势分析</CardTitle>
             </CardHeader>
             <CardContent>
-              <LazyROITrendChart data={data.trend} height={350} />
+              <LazyROITrendChart data={data.trend} currency={selectedCurrency} height={350} />
             </CardContent>
           </Card>
 
@@ -309,7 +342,7 @@ export default function ROIAnalyticsPage() {
               <CardTitle>Campaign ROI排名 (Top 10)</CardTitle>
             </CardHeader>
             <CardContent>
-              <LazyCampaignROIChart data={data.byCampaign} height={450} />
+              <LazyCampaignROIChart data={data.byCampaign} currency={selectedCurrency} height={450} />
             </CardContent>
           </Card>
 
@@ -319,7 +352,7 @@ export default function ROIAnalyticsPage() {
               <CardTitle>Offer ROI分析</CardTitle>
             </CardHeader>
             <CardContent>
-              <LazyOfferROIChart data={data.byOffer} height={400} />
+              <LazyOfferROIChart data={data.byOffer} currency={selectedCurrency} height={400} />
             </CardContent>
           </Card>
 
@@ -368,13 +401,13 @@ export default function ROIAnalyticsPage() {
                         <td className="px-4 py-3 text-sm text-gray-900">{campaign.campaignName}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{campaign.offerBrand}</td>
                         <td className="px-4 py-3 text-sm text-right text-gray-900">
-                          ¥{(Number(campaign.cost) || 0).toFixed(2)}
+                          {money(Number(campaign.cost) || 0)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-green-600">
-                          ¥{(Number(campaign.revenue) || 0).toFixed(2)}
+                          {money(Number(campaign.revenue) || 0)}
                         </td>
                         <td className={`px-4 py-3 text-sm text-right font-semibold ${campaign.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          ¥{(Number(campaign.profit) || 0).toFixed(2)}
+                          {money(Number(campaign.profit) || 0)}
                         </td>
                         <td className={`px-4 py-3 text-sm text-right font-bold ${campaign.roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {campaign.roi >= 0 ? '+' : ''}{(Number(campaign.roi) || 0).toFixed(2)}%

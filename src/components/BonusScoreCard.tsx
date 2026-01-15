@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Info, TrendingUp, MousePointer, Target, DollarSign, ShoppingCart } from 'lucide-react'
+import { formatCurrency } from '@/lib/currency'
 
 interface BonusScoreBreakdown {
   clicks: { score: number; value: number; benchmark: number; comparison: string }
@@ -20,6 +21,7 @@ interface BonusScoreData {
   breakdown: BonusScoreBreakdown | null
   minClicksReached: boolean
   industryLabel: string
+  currency?: string
   performance?: {
     clicks: number
     ctr: number
@@ -39,6 +41,8 @@ interface BonusScoreCardProps {
 export function BonusScoreCard({ adCreativeId, baseScore, onConversionClick }: BonusScoreCardProps) {
   const [data, setData] = useState<BonusScoreData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const currency = data?.currency || 'USD'
 
   useEffect(() => {
     async function fetchBonusScore() {
@@ -129,8 +133,8 @@ export function BonusScoreCard({ adCreativeId, baseScore, onConversionClick }: B
               icon={<DollarSign className="h-3 w-3" />}
               label="CPC"
               score={data.breakdown.cpc?.score ?? 0}
-              value={`$${(data.breakdown.cpc?.value ?? 0).toFixed(2)}`}
-              benchmark={`$${(data.breakdown.cpc?.benchmark ?? 0).toFixed(2)}`}
+              value={formatCurrency(data.breakdown.cpc?.value ?? 0, currency)}
+              benchmark={formatCurrency(data.breakdown.cpc?.benchmark ?? 0, currency)}
               comparison={data.breakdown.cpc?.comparison ?? 'equal'}
               invertColors // CPC越低越好
             />
