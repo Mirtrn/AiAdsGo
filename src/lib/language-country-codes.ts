@@ -922,47 +922,49 @@ export function getCountryName(code: string): string {
 export function getGoogleAdsLanguageCode(language: string): number {
   const code = normalizeLanguageCode(language)
   const googleAdsLanguageCodes: Record<string, number> = {
+    // NOTE: These are Google Ads `language_constant` IDs (languageConstants/<id>),
+    // not locale IDs. Keep in sync with Google Ads reference data.
     'en': 1000,  // English
-    'zh': 1017,  // Chinese (Simplified)
-    'es': 1034,  // Spanish
-    'it': 1040,  // Italian
-    'fr': 1036,  // French
-    'de': 1031,  // German
-    'pt': 1046,  // Portuguese
-    'ja': 1041,  // Japanese
-    'ko': 1042,  // Korean
-    'ru': 1049,  // Russian
-    'ar': 1025,  // Arabic
-    'sv': 1053,  // Swedish
-    'nl': 1043,  // Dutch
-    'pl': 1045,  // Polish
-    'tr': 1055,  // Turkish
-    'th': 1054,  // Thai
-    'vi': 1066,  // Vietnamese
-    'id': 1057,  // Indonesian
-    'ms': 1086,  // Malay
-    'hi': 1081,  // Hindi
-    'el': 1032,  // Greek
-    'cs': 1029,  // Czech
-    'da': 1030,  // Danish
-    'fi': 1035,  // Finnish
-    'no': 1044,  // Norwegian
-    'hu': 1038,  // Hungarian
-    'ro': 1048,  // Romanian
-    'uk': 1058,  // Ukrainian
-    'he': 1037,  // Hebrew
-    'fa': 1065,  // Persian
-    'bn': 1093,  // Bengali
-    'tl': 1064,  // Tagalog
-    'sk': 1051,  // Slovak
-    'bg': 1026,  // Bulgarian
-    'hr': 1050,  // Croatian
-    'sr': 2074,  // Serbian
-    'sl': 1060,  // Slovenian
-    'et': 1061,  // Estonian
-    'lv': 1062,  // Latvian
-    'lt': 1063,  // Lithuanian
-    'de-ch': 1031,  // Swiss German (使用德语代码)
+    'de': 1001,  // German
+    'fr': 1002,  // French
+    'es': 1003,  // Spanish
+    'it': 1004,  // Italian
+    'ja': 1005,  // Japanese
+    'zh': 1008,  // Chinese
+    'da': 1009,  // Danish
+    'nl': 1010,  // Dutch
+    'fi': 1011,  // Finnish
+    'ko': 1012,  // Korean
+    'no': 1013,  // Norwegian
+    'pt': 1014,  // Portuguese
+    'sv': 1015,  // Swedish
+    'ar': 1019,  // Arabic
+    'bg': 1020,  // Bulgarian
+    'cs': 1021,  // Czech
+    'el': 1022,  // Greek
+    'hi': 1023,  // Hindi
+    'hu': 1024,  // Hungarian
+    'id': 1025,  // Indonesian
+    'he': 1027,  // Hebrew (Google Ads uses code 'iw')
+    'lv': 1028,  // Latvian
+    'lt': 1029,  // Lithuanian
+    'pl': 1030,  // Polish
+    'ru': 1031,  // Russian
+    'ro': 1032,  // Romanian
+    'sk': 1033,  // Slovak
+    'sl': 1034,  // Slovenian
+    'sr': 1035,  // Serbian
+    'uk': 1036,  // Ukrainian
+    'tr': 1037,  // Turkish
+    'hr': 1039,  // Croatian
+    'vi': 1040,  // Vietnamese
+    'tl': 1042,  // Filipino (Tagalog)
+    'et': 1043,  // Estonian
+    'th': 1044,  // Thai
+    'bn': 1056,  // Bengali
+    'fa': 1064,  // Persian
+    'ms': 1102,  // Malay
+    'de-ch': 1001,  // Swiss German (use German)
   }
   return googleAdsLanguageCodes[code] || 1000  // 默认英文
 }

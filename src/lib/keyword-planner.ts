@@ -9,7 +9,7 @@ import { getCachedKeywordVolume, cacheKeywordVolume, getBatchCachedVolumes, batc
 import { decrypt } from './crypto'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
 import { refreshAccessToken, getGoogleAdsCredentials } from './google-ads-oauth'
-import { getGoogleAdsLanguageIdString, getGoogleAdsGeoTargetId } from './language-country-codes'
+import { getGoogleAdsLanguageIdString, getGoogleAdsGeoTargetId, normalizeCountryCode, normalizeLanguageCode } from './language-country-codes'
 import { getGoogleAdsClient, getCustomerWithCredentials } from './google-ads-api'
 import { getServiceAccountConfig, AuthType } from './google-ads-service-account'
 
@@ -36,6 +36,9 @@ interface KeywordVolume {
   competitionIndex: number
   lowTopPageBid: number
   highTopPageBid: number
+  requestedCountry?: string
+  effectiveCountry?: string
+  usedProxyGeo?: boolean
 }
 
 interface KeywordPlannerConfig {
@@ -212,11 +215,25 @@ export async function getKeywordSearchVolumes(
 ): Promise<KeywordVolume[]> {
   if (!keywords.length) return []
 
+  // Normalize early to avoid cache fragmentation (e.g. 'English' vs 'en')
+  const requestedCountry = normalizeCountryCode(country)
+  const requestedLanguage = normalizeLanguageCode(language)
+
+  // Keyword Planner rejects some geo targets (e.g. Russia) even though the geo target exists.
+  // In that case, use a proxy geo for volume lookup to avoid hard-failing to all-zero volumes.
+  let effectiveCountry = requestedCountry
+  let usedProxyGeo = false
+  if (requestedCountry === 'RU') {
+    effectiveCountry = 'US'
+    usedProxyGeo = true
+    console.warn(`[KeywordPlanner] Keyword Planner does not support geo '${requestedCountry}'. Using proxy geo '${effectiveCountry}' for volume lookup.`)
+  }
+
   // 🔥 2025-12-16增强：添加详细日志显示缓存命中情况
   console.log(`[KeywordPlanner] 接收 ${keywords.length} 个关键词查询请求`)
 
   // 1. Check Redis cache first
-  const cachedVolumes = await getBatchCachedVolumes(keywords, country, language)
+  const cachedVolumes = await getBatchCachedVolumes(keywords, effectiveCountry, requestedLanguage)
   const uncachedKeywords = keywords.filter(kw => !cachedVolumes.has(kw.toLowerCase()))
 
   console.log(`[KeywordPlanner] Redis缓存命中: ${cachedVolumes.size}/${keywords.length} 个关键词`)
@@ -233,6 +250,9 @@ export async function getKeywordSearchVolumes(
         competitionIndex: cached?.competitionIndex || 0,
         lowTopPageBid: 0,
         highTopPageBid: 0,
+        requestedCountry,
+        effectiveCountry,
+        usedProxyGeo,
       }
     })
   }
@@ -249,17 +269,20 @@ export async function getKeywordSearchVolumes(
       WHERE keyword IN (${placeholders})
         AND country = ? AND language = ?
         AND created_at > NOW() - INTERVAL '7 days'
-    `, [...uncachedKeywords.map(k => k.toLowerCase()), country, language]) as Array<{ keyword: string; search_volume: number; competition_level?: string; avg_cpc_micros?: number }>
+    `, [...uncachedKeywords.map(k => k.toLowerCase()), effectiveCountry, requestedLanguage]) as Array<{ keyword: string; search_volume: number; competition_level?: string; avg_cpc_micros?: number }>
     rows.forEach(row => {
       // 修复(2025-12-19): 从数据库读取competition_level和avg_cpc_micros
       const avgCpc = (row.avg_cpc_micros || 0) / 1_000_000
-      dbVolumes.set(row.keyword, {
+      dbVolumes.set(row.keyword.toLowerCase(), {
         keyword: row.keyword,
         avgMonthlySearches: row.search_volume,
         competition: row.competition_level || 'UNKNOWN',
         competitionIndex: 0,
         lowTopPageBid: avgCpc,
         highTopPageBid: avgCpc,
+        requestedCountry,
+        effectiveCountry,
+        usedProxyGeo,
       })
     })
     console.log(`[KeywordPlanner] 数据库缓存命中: ${dbVolumes.size}/${uncachedKeywords.length} 个关键词`)
@@ -317,6 +340,9 @@ export async function getKeywordSearchVolumes(
               competitionIndex: 0,
               lowTopPageBid: 0,
               highTopPageBid: 0,
+              requestedCountry,
+              effectiveCountry,
+              usedProxyGeo,
             })
           }
 
@@ -347,8 +373,8 @@ export async function getKeywordSearchVolumes(
           refresh_token: config.refreshToken!,
         })
 
-        const geoTargetId = getGoogleAdsGeoTargetId(country)
-        const languageId = getGoogleAdsLanguageIdString(language)
+        const geoTargetId = getGoogleAdsGeoTargetId(effectiveCountry)
+        const languageId = getGoogleAdsLanguageIdString(requestedLanguage)
 
         // Process each batch with exponential backoff retry
         for (let batchIndex = 0; batchIndex < keywordBatches.length; batchIndex++) {
@@ -430,6 +456,9 @@ export async function getKeywordSearchVolumes(
                     competitionIndex: Number(compIndex) || 0,
                     lowTopPageBid: Number(lowBid) / 1_000_000 || 0,
                     highTopPageBid: Number(highBid) / 1_000_000 || 0,
+                    requestedCountry,
+                    effectiveCountry,
+                    usedProxyGeo,
                   })
                 } else if (text) {
                   // 🔧 修复(2025-12-24): 有关键词但metrics为null时,返回0搜索量而不是丢弃关键词
@@ -446,6 +475,9 @@ export async function getKeywordSearchVolumes(
                     competitionIndex: 0,
                     lowTopPageBid: 0,
                     highTopPageBid: 0,
+                    requestedCountry,
+                    effectiveCountry,
+                    usedProxyGeo,
                   })
                 }
               }
@@ -484,8 +516,8 @@ export async function getKeywordSearchVolumes(
             // 修复(2025-12-19): 同时保存competition_level和avg_cpc_micros
             await saveToGlobalKeywords(
               kw,
-              country,
-              language,
+              effectiveCountry,
+              requestedLanguage,
               vol.avgMonthlySearches,
               vol.competition !== 'UNKNOWN' ? vol.competition : undefined,
               Math.round((vol.lowTopPageBid + vol.highTopPageBid) / 2 * 1_000_000) || undefined
@@ -493,7 +525,7 @@ export async function getKeywordSearchVolumes(
           }
 
           if (toCache.length) {
-            await batchCacheVolumes(toCache, country, language)
+            await batchCacheVolumes(toCache, effectiveCountry, requestedLanguage)
           }
 
           apiSuccess = true
@@ -548,6 +580,9 @@ export async function getKeywordSearchVolumes(
         competitionIndex: cached?.competitionIndex || 0,
         lowTopPageBid: 0,
         highTopPageBid: 0,
+        requestedCountry,
+        effectiveCountry,
+        usedProxyGeo,
       }
     }
 
@@ -559,6 +594,9 @@ export async function getKeywordSearchVolumes(
       competitionIndex: 0,
       lowTopPageBid: 0,
       highTopPageBid: 0,
+      requestedCountry,
+      effectiveCountry,
+      usedProxyGeo,
     }
   })
 }
@@ -634,6 +672,17 @@ export async function getKeywordSuggestions(
   authType?: AuthType,
   serviceAccountId?: string
 ): Promise<KeywordVolume[]> {
+  const requestedCountry = normalizeCountryCode(country)
+  const requestedLanguage = normalizeLanguageCode(language)
+
+  let effectiveCountry = requestedCountry
+  let usedProxyGeo = false
+  if (requestedCountry === 'RU') {
+    effectiveCountry = 'US'
+    usedProxyGeo = true
+    console.warn(`[KeywordPlanner] Keyword Planner does not support geo '${requestedCountry}'. Using proxy geo '${effectiveCountry}' for suggestions.`)
+  }
+
   const config = await getGoogleAdsConfig(userId, authType, serviceAccountId)
 
   // 验证配置（根据认证类型验证不同字段）
@@ -655,8 +704,8 @@ export async function getKeywordSuggestions(
         userId: userId || 1,
         customerId: config.customerId,
         seedKeywords,
-        targetCountry: country,
-        targetLanguage: language,
+        targetCountry: effectiveCountry,
+        targetLanguage: requestedLanguage,
         authType: 'service_account',
         serviceAccountId: config.serviceAccountId,
       })
@@ -668,6 +717,9 @@ export async function getKeywordSuggestions(
         competitionIndex: idea.competitionIndex,
         lowTopPageBid: idea.lowTopOfPageBidMicros ? idea.lowTopOfPageBidMicros / 1000000 : 0,
         highTopPageBid: idea.highTopOfPageBidMicros ? idea.highTopOfPageBidMicros / 1000000 : 0,
+        requestedCountry,
+        effectiveCountry,
+        usedProxyGeo,
       }))
     }
 
@@ -684,8 +736,8 @@ export async function getKeywordSuggestions(
       refresh_token: config.refreshToken!,
     })
 
-    const geoTargetId = getGoogleAdsGeoTargetId(country)
-    const languageId = getGoogleAdsLanguageIdString(language)
+    const geoTargetId = getGoogleAdsGeoTargetId(effectiveCountry)
+    const languageId = getGoogleAdsLanguageIdString(requestedLanguage)
 
     // 🔧 修复(2025-12-24): 使用统一的服务访问方式
     const keywordPlanIdeas = getKeywordPlanIdeaService(customer, config.authType)
@@ -740,6 +792,9 @@ export async function getKeywordSuggestions(
           competitionIndex: Number(metrics.competition_index) || 0,
           lowTopPageBid: Number(metrics.low_top_of_page_bid_micros) / 1_000_000 || 0,
           highTopPageBid: Number(metrics.high_top_of_page_bid_micros) / 1_000_000 || 0,
+          requestedCountry,
+          effectiveCountry,
+          usedProxyGeo,
         })
       }
     }
@@ -747,11 +802,11 @@ export async function getKeywordSuggestions(
     // Cache results
     const toCache = results.map(r => ({ keyword: r.keyword, volume: r.avgMonthlySearches }))
     if (toCache.length) {
-      await batchCacheVolumes(toCache, country, language)
+      await batchCacheVolumes(toCache, effectiveCountry, requestedLanguage)
 
       // Also save to DB
       for (const r of results) {
-        await saveToGlobalKeywords(r.keyword, country, language, r.avgMonthlySearches)
+        await saveToGlobalKeywords(r.keyword, effectiveCountry, requestedLanguage, r.avgMonthlySearches)
       }
     }
 
