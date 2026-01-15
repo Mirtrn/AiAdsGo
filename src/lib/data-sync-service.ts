@@ -71,6 +71,8 @@ export interface CampaignPerformanceData {
   ctr: number
   cpc: number
   conversion_rate: number
+  currency_code?: string
+  time_zone?: string
 }
 
 /**
@@ -80,6 +82,11 @@ export interface CampaignPerformanceData {
 export class DataSyncService {
   private static instance: DataSyncService
   private syncStatus: Map<number, SyncStatus> = new Map()
+
+  private normalizeCurrency(value: unknown): string {
+    const normalized = String(value ?? '').trim().toUpperCase()
+    return normalized || 'USD'
+  }
 
   private constructor() {}
 
@@ -366,6 +373,32 @@ export class DataSyncService {
             serviceAccountId: auth.serviceAccountId,
           })
 
+          // 🔧 修复(2026-01-15): 从 Google Ads API 获取账户真实币种/时区并回写到google_ads_accounts
+          // 避免账号初次创建时默认USD导致全站显示"$"
+          const derivedCurrency = this.normalizeCurrency(performanceData[0]?.currency_code || account.currency)
+          const derivedTimeZone = String(performanceData[0]?.time_zone || '').trim() || null
+
+          try {
+            const currentCurrency = this.normalizeCurrency(account.currency)
+            const shouldUpdateCurrency = derivedCurrency && derivedCurrency !== currentCurrency
+            const shouldUpdateTimezone = Boolean(derivedTimeZone)
+
+            if (shouldUpdateCurrency || shouldUpdateTimezone) {
+              await db.exec(
+                `
+                UPDATE google_ads_accounts
+                SET currency = COALESCE(?, currency),
+                    timezone = COALESCE(?, timezone),
+                    updated_at = ${db.type === 'postgres' ? 'NOW()' : "datetime('now')"}
+                WHERE id = ?
+              `,
+                [shouldUpdateCurrency ? derivedCurrency : null, derivedTimeZone, account.id]
+              )
+            }
+          } catch (e) {
+            console.warn(`⚠️ 回写账号币种/时区失败（账号 ${account.customer_id}）:`, e)
+          }
+
           // 4. 批量写入数据库（使用upsert处理重复）
           // Note: 使用事务确保数据一致性
           let accountRecordCount = 0
@@ -385,7 +418,7 @@ export class DataSyncService {
 
               // 🔧 修复(2025-12-30): 支持多货币账户
               // Google Ads API返回的cost_micros是账户货币的微单位，需要保存原始货币信息
-              const accountCurrency = account.currency || 'USD'
+              const accountCurrency = derivedCurrency
 
               await db.exec(
                 `
@@ -613,6 +646,8 @@ export class DataSyncService {
       // GAQL查询语句
       const query = `
         SELECT
+          customer.currency_code,
+          customer.time_zone,
           campaign.id,
           campaign.name,
           segments.date,
@@ -658,6 +693,8 @@ export class DataSyncService {
             ctr,
             cpc,
             conversion_rate,
+            currency_code: row.customer?.currency_code || undefined,
+            time_zone: row.customer?.time_zone || undefined,
           }
         }
       )
