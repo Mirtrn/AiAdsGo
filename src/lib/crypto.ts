@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import bcrypt from 'bcrypt'
+import { compare as bcryptCompare, hash as bcryptHash } from './bcrypt'
 import { ENCRYPTION_KEY, ENCRYPTION_IV_LENGTH, BCRYPT_SALT_ROUNDS } from './config'
 
 const IV_LENGTH = ENCRYPTION_IV_LENGTH
@@ -54,14 +54,14 @@ export function decrypt(encryptedData: string): string | null {
  * 使用bcrypt哈希密码
  */
 export async function hashPassword(password: string): Promise<string> {
-  return await bcrypt.hash(password, BCRYPT_SALT_ROUNDS)
+  return await bcryptHash(password, BCRYPT_SALT_ROUNDS)
 }
 
 /**
  * 验证密码
  */
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  return await bcrypt.compare(password, hash)
+  return await bcryptCompare(password, hash)
 }
 
 /**

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
-import bcrypt from 'bcrypt'
+import { hash as bcryptHash } from '@/lib/bcrypt'
 import crypto from 'crypto'
 import { logPasswordReset, UserManagementContext } from '@/lib/audit-logger'
 
@@ -44,7 +44,7 @@ export async function POST(
     const newPassword = randomBytes.toString('base64').slice(0, 16)
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(newPassword, 10)
+    const hashedPassword = await bcryptHash(newPassword, 10)
 
     // Update user password and set must_change_password flag
     // 🔧 修复(2025-12-30): PostgreSQL兼容性
