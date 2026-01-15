@@ -22,6 +22,7 @@ import { recordTokenUsage, estimateTokenCost } from './ai-token-tracker'
 import { getUserAuthType } from './google-ads-oauth'
 import type { UnifiedKeywordData } from './unified-keyword-service'
 import { filterKeywordQuality, generateFilterReport } from './keyword-quality-filter'
+import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 
 // ============================================
 // 类型定义
@@ -2190,6 +2191,7 @@ export async function generateOfferKeywordPool(
 
   // 🆕 2025-12-27: 关键词质量过滤
   // 过滤品牌变体词（如 eurekaddl）和语义查询词（如 significato）
+  const pageTypeForContextFilter = (offer.page_type as 'product' | 'store') || 'product'
   const qualityFiltered = filterKeywordQuality(filteredKeywords, {
     brandName: offer.brand,
     category: offer.category || undefined,
@@ -2200,7 +2202,9 @@ export async function generateOfferKeywordPool(
     minWordCount: 1,
     maxWordCount: 8,
     // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
-    minContextTokenMatches: 1,
+    minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
+      pageType: pageTypeForContextFilter
+    }),
   })
 
   // 生成过滤报告

@@ -21,6 +21,7 @@ import {
   logDuplicateKeywords
 } from './google-ads-keyword-normalizer'  // 🔥 优化：Google Ads关键词标准化去重
 import { filterKeywordQuality, generateFilterReport, getPureBrandKeywords, shouldUseExactMatch } from './keyword-quality-filter'  // 🔥 2025-12-28: 导入关键词质量过滤函数 🔥 2026-01-02: 补充导入纯品牌词函数 🔥 2026-01-05: 改为 shouldUseExactMatch 策略函数
+import { getMinContextTokenMatchesForKeywordQualityFilter } from './keyword-context-filter'
 
 /**
  * 🔧 安全解析JSON字段
@@ -2949,19 +2950,21 @@ export async function generateAdCreative(
       // 🔥 2025-12-28: 关键词质量过滤
       // 从关键词池获取关键词后再次过滤，确保移除品牌变体词和语义查询词
       // 🔧 修复：确保 mustContainBrand: true，保留包含品牌名的关键词
-      const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
-        brandName: offer.brand,
-        category: offer.category || undefined,
-        productName: (offer as any).product_name || undefined,
-        targetCountry: offer.target_country || undefined,
-        targetLanguage: offer.target_language || undefined,
-        productUrl: offer.final_url || offer.url || undefined,
-        minWordCount: 1,
-        maxWordCount: 8,
-        mustContainBrand: true,
-        // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
-        minContextTokenMatches: 1,
-      })
+	      const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
+	        brandName: offer.brand,
+	        category: offer.category || undefined,
+	        productName: (offer as any).product_name || undefined,
+	        targetCountry: offer.target_country || undefined,
+	        targetLanguage: offer.target_language || undefined,
+	        productUrl: offer.final_url || offer.url || undefined,
+	        minWordCount: 1,
+	        maxWordCount: 8,
+	        mustContainBrand: true,
+	        // 过滤歧义品牌的无关主题（例如 rove beetle / rove concept）
+	        minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
+	          pageType: (offer as any).page_type || null
+	        }),
+	      })
 
       // 生成过滤报告
       const filterReport = generateFilterReport(extractedElements.keywords.length, keywordFilterResult.removed)
@@ -3004,18 +3007,20 @@ export async function generateAdCreative(
         // 只有当 keywords 存在且非空时才进行过滤
         // 🔧 修复：确保 mustContainBrand: true，保留包含品牌名的关键词
         if (extractedElements.keywords && extractedElements.keywords.length > 0) {
-          const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
-            brandName: offer.brand,
-            category: offer.category || undefined,
-            productName: (offer as any).product_name || undefined,
-            targetCountry: offer.target_country || undefined,
-            targetLanguage: offer.target_language || undefined,
-            productUrl: offer.final_url || offer.url || undefined,
-            minWordCount: 1,
-            maxWordCount: 8,
-            mustContainBrand: true,
-            minContextTokenMatches: 1,
-          })
+	          const keywordFilterResult = filterKeywordQuality(extractedElements.keywords, {
+	            brandName: offer.brand,
+	            category: offer.category || undefined,
+	            productName: (offer as any).product_name || undefined,
+	            targetCountry: offer.target_country || undefined,
+	            targetLanguage: offer.target_language || undefined,
+	            productUrl: offer.final_url || offer.url || undefined,
+	            minWordCount: 1,
+	            maxWordCount: 8,
+	            mustContainBrand: true,
+	            minContextTokenMatches: getMinContextTokenMatchesForKeywordQualityFilter({
+	              pageType: (offer as any).page_type || null
+	            }),
+	          })
           const filterReport = generateFilterReport(extractedElements.keywords.length, keywordFilterResult.removed)
           console.log(filterReport)
           // 将 PoolKeywordData[] 转换为标准关键词格式
