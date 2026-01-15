@@ -18,6 +18,7 @@ import { Alert } from '@/components/ui/alert';
 import { Loader2, AlertCircle, Link, Clock, Globe, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { UrlSwapTask } from '@/lib/url-swap-types';
+import { URL_SWAP_INTERVAL_OPTIONS, URL_SWAP_ALLOWED_INTERVALS_MINUTES } from '@/lib/url-swap-intervals';
 
 interface UrlSwapTaskModalProps {
   open: boolean;
@@ -39,18 +40,6 @@ interface Offer {
   googleCustomerId?: string;
   googleCampaignId?: string;
 }
-
-const SWAP_INTERVAL_OPTIONS = [
-  { value: 5, label: '5 分钟' },
-  { value: 10, label: '10 分钟' },
-  { value: 15, label: '15 分钟' },
-  { value: 30, label: '30 分钟' },
-  { value: 60, label: '1 小时' },
-  { value: 120, label: '2 小时' },
-  { value: 360, label: '6 小时' },
-  { value: 720, label: '12 小时' },
-  { value: 1440, label: '24 小时' },
-];
 
 const DURATION_OPTIONS = [
   { value: 7, label: '7 天' },
@@ -205,8 +194,9 @@ export default function UrlSwapTaskModal({
       return;
     }
 
-    if (swapIntervalMinutes < 5 || swapIntervalMinutes > 1440) {
-      toast.error('换链间隔必须在5-1440分钟之间');
+    const validIntervals = [...URL_SWAP_ALLOWED_INTERVALS_MINUTES];
+    if (!validIntervals.includes(swapIntervalMinutes)) {
+      toast.error(`换链间隔必须是以下值之一：${validIntervals.join(', ')} 分钟`);
       return;
     }
 
@@ -364,11 +354,11 @@ export default function UrlSwapTaskModal({
                 required
               >
                 <SelectContent>
-                  {SWAP_INTERVAL_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value.toString()}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
+                    {URL_SWAP_INTERVAL_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value.toString()}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

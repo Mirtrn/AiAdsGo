@@ -11,6 +11,7 @@ import { getDatabase } from './db'
 import { getProxyPool } from './url-resolver-enhanced'
 import { initializeProxyPool } from './offer-utils'
 import type { UrlSwapValidationResult } from './url-swap-types'
+import { URL_SWAP_ALLOWED_INTERVALS_MINUTES } from './url-swap-intervals'
 
 /**
  * 验证换链接任务是否可以执行
@@ -72,7 +73,7 @@ export function validateTaskConfig(
   durationDays: number
 ): UrlSwapValidationResult {
   // 验证间隔
-  const validIntervals = [5, 10, 30, 60, 120, 240, 480, 1440]
+  const validIntervals = [...URL_SWAP_ALLOWED_INTERVALS_MINUTES]
   if (!validIntervals.includes(intervalMinutes)) {
     return {
       valid: false,
