@@ -50,6 +50,8 @@ export async function GET(request: NextRequest) {
     const userId = authResult.user.userId
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '7')
+    const requestedCurrencyRaw = searchParams.get('currency')
+    const requestedCurrency = requestedCurrencyRaw ? normalizeCurrency(requestedCurrencyRaw) : null
 
     const db = await getDatabase()
 
@@ -66,6 +68,35 @@ export async function GET(request: NextRequest) {
     prevStartDate.setDate(prevStartDate.getDate() - daysBack + 1)
     const prevStartDateStr = prevStartDate.toISOString().split('T')[0]
     const prevEndDateStr = prevEndDate.toISOString().split('T')[0]
+
+    // 2.5 计算币种列表（按花费排序），默认选择花费最高的币种，避免多币种混算
+    const currencyRows = await db.query<any>(
+      `
+        SELECT
+          COALESCE(currency, 'USD') as currency,
+          COALESCE(SUM(cost), 0) as total_cost
+        FROM campaign_performance
+        WHERE user_id = ?
+          AND date >= ?
+          AND date <= ?
+        GROUP BY COALESCE(currency, 'USD')
+        ORDER BY total_cost DESC
+      `,
+      [userId, startDateStr, endDate]
+    )
+
+    const currencies = Array.from(
+      new Set(
+        (currencyRows || [])
+          .map((r: any) => normalizeCurrency(r.currency))
+          .filter(Boolean)
+      )
+    )
+    const hasMixedCurrency = currencies.length > 1
+    const reportingCurrency =
+      requestedCurrency && currencies.includes(requestedCurrency)
+        ? requestedCurrency
+        : (currencies[0] || 'USD')
 
     // 3. Query base campaigns (no performance aggregation)
     // 🔧 修复: 不过滤is_deleted，保留历史删除的campaigns用于展示
@@ -237,27 +268,46 @@ export async function GET(request: NextRequest) {
     }})
 
     // 5. Calculate current/previous period totals（按每条campaign选中的币种聚合，避免混币种相加）
-    const currentTotals = {
-      impressions: formattedCampaigns.reduce((sum, c) => sum + (Number(c.performance?.impressions) || 0), 0),
-      clicks: formattedCampaigns.reduce((sum, c) => sum + (Number(c.performance?.clicks) || 0), 0),
-      conversions: formattedCampaigns.reduce((sum, c) => sum + (Number(c.performance?.conversions) || 0), 0),
-      cost: formattedCampaigns.reduce((sum, c) => sum + (Number(c.performance?.costUsd) || 0), 0)
+    const queryTotals = async (params: {
+      start: string
+      end: string
+      currency: string
+    }): Promise<Agg> => {
+      const row = await db.queryOne<any>(
+        `
+          SELECT
+            COALESCE(SUM(impressions), 0) as impressions,
+            COALESCE(SUM(clicks), 0) as clicks,
+            COALESCE(SUM(conversions), 0) as conversions,
+            COALESCE(SUM(cost), 0) as cost
+          FROM campaign_performance
+          WHERE user_id = ?
+            AND date >= ?
+            AND date <= ?
+            AND COALESCE(currency, 'USD') = ?
+        `,
+        [userId, params.start, params.end, params.currency]
+      )
+
+      return {
+        impressions: Number(row?.impressions) || 0,
+        clicks: Number(row?.clicks) || 0,
+        conversions: Number(row?.conversions) || 0,
+        cost: Number(row?.cost) || 0,
+      }
     }
 
-    const prevTotals = formattedCampaigns.reduce(
-      (acc, campaign) => {
-        const campaignId = Number(campaign.id)
-        const currency = normalizeCurrency(campaign.adsAccountCurrency)
-        const prevAgg = prevAggByCampaign.get(campaignId)?.get(currency)
+    const currentTotals = await queryTotals({
+      start: startDateStr,
+      end: endDate,
+      currency: reportingCurrency,
+    })
 
-        acc.impressions += Number(prevAgg?.impressions) || 0
-        acc.clicks += Number(prevAgg?.clicks) || 0
-        acc.conversions += Number(prevAgg?.conversions) || 0
-        acc.cost += Number(prevAgg?.cost) || 0
-        return acc
-      },
-      { impressions: 0, clicks: 0, conversions: 0, cost: 0 }
-    )
+    const prevTotals = await queryTotals({
+      start: prevStartDateStr,
+      end: prevEndDateStr,
+      currency: reportingCurrency,
+    })
 
     // 7. Calculate percentage changes (环比增长)
     const calcChange = (current: number, previous: number): number | null => {
@@ -282,6 +332,9 @@ export async function GET(request: NextRequest) {
         totalClicks: currentTotals.clicks,
         totalConversions: currentTotals.conversions,
         totalCostUsd: currentTotals.cost,
+        currency: reportingCurrency,
+        currencies,
+        hasMixedCurrency,
         // 环比增长数据
         changes: {
           impressions: changes.impressions,

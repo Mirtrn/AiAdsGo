@@ -85,6 +85,9 @@ interface PerformanceSummary {
   totalClicks: number
   totalConversions: number
   totalCostUsd: number
+  currency?: string
+  currencies?: string[]
+  hasMixedCurrency?: boolean
   // 环比增长数据
   changes?: {
     impressions: number | null
@@ -139,7 +142,6 @@ export default function CampaignsPage() {
       .map((c) => c.adsAccountCurrency)
       .filter((c): c is string => Boolean(c))
   )
-  const hasMixedCurrency = currencySet.size > 1
   const defaultCurrency = currencySet.size >= 1 ? Array.from(currencySet)[0] : 'USD'
   const formatMoney = (value: number, currencyCode: string = defaultCurrency) =>
     formatCurrency(value, currencyCode)
@@ -261,10 +263,12 @@ export default function CampaignsPage() {
     setCurrentPage(1) // Reset to first page when filters change
   }, [campaigns, searchQuery, statusFilter, sortField, sortDirection])
 
-  const fetchCampaigns = async () => {
+  const fetchCampaigns = async (currencyOverride?: string) => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/campaigns/performance?daysBack=${timeRange}`, {
+      const currencyParam = currencyOverride || trendsCurrency
+      const currencyQuery = currencyParam ? `&currency=${encodeURIComponent(currencyParam)}` : ''
+      const response = await fetch(`/api/campaigns/performance?daysBack=${timeRange}${currencyQuery}`, {
         credentials: 'include',
       })
 
@@ -284,6 +288,12 @@ export default function CampaignsPage() {
       // 让 useEffect 自动应用排序、过滤等处理逻辑
       // setFilteredCampaigns(data.campaigns)
       setSummary(data.summary)
+      if (Array.isArray(data.summary?.currencies)) {
+        setTrendsCurrencies(data.summary.currencies)
+      }
+      if (!trendsCurrency && data.summary?.currency) {
+        setTrendsCurrency(String(data.summary.currency))
+      }
     } catch (err: any) {
       setError(err.message || '加载失败')
     } finally {
@@ -631,9 +641,10 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总花费</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {hasMixedCurrency
-                        ? (summary.totalCostUsd ?? 0).toFixed(2)
-                        : formatMoney(summary.totalCostUsd ?? 0)}
+                      {formatCurrency(
+                        Number(summary.totalCostUsd ?? 0),
+                        String(summary.currency || trendsCurrencyValue || defaultCurrency)
+                      )}
                     </p>
                     {summary.changes?.cost !== null && summary.changes?.cost !== undefined && (
                       <p className={`text-xs mt-1 ${summary.changes.cost <= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -663,6 +674,7 @@ export default function CampaignsPage() {
                     value={trendsCurrencyValue}
                     onValueChange={(v) => {
                       setTrendsCurrency(v)
+                      fetchCampaigns(v)
                       fetchTrends(v)
                     }}
                   >
@@ -759,20 +771,16 @@ export default function CampaignsPage() {
                       <span className="text-xs text-gray-500">平均CPC</span>
                       <span className="text-sm font-semibold text-gray-900">
                         {trendsData.length > 0
-                          ? (hasMixedCurrency
-                            ? (trendsData.reduce((sum, d) => sum + ((d.avgCpc as number) || 0), 0) / trendsData.length).toFixed(2)
-                            : formatMoney(trendsData.reduce((sum, d) => sum + ((d.avgCpc as number) || 0), 0) / trendsData.length))
-                          : (hasMixedCurrency ? '0.00' : formatMoney(0))}
+                          ? formatTrendsMoney(trendsData.reduce((sum, d) => sum + ((d.avgCpc as number) || 0), 0) / trendsData.length)
+                          : formatTrendsMoney(0)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-gray-500">平均CPA</span>
                       <span className="text-sm font-semibold text-gray-900">
                         {trendsData.length > 0
-                          ? (hasMixedCurrency
-                            ? (trendsData.reduce((sum, d) => sum + ((d.avgCpa as number) || 0), 0) / trendsData.length).toFixed(2)
-                            : formatMoney(trendsData.reduce((sum, d) => sum + ((d.avgCpa as number) || 0), 0) / trendsData.length))
-                          : (hasMixedCurrency ? '0.00' : formatMoney(0))}
+                          ? formatTrendsMoney(trendsData.reduce((sum, d) => sum + ((d.avgCpa as number) || 0), 0) / trendsData.length)
+                          : formatTrendsMoney(0)}
                       </span>
                     </div>
                   </div>
