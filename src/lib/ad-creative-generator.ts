@@ -1517,8 +1517,20 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
 
   // ✅ Headline #2 主关键词（优先：高意图 + 高搜索量的非品牌关键词）
   // 来源：合并后的关键词（包含桶关键词/增强关键词/提取关键词），并严格排除品牌词
+  // 🔧 修复(2026-01-15): 当关键词池几乎全是品牌词时，Headline #2 会退化为“泛词/不稳定输出”
+  // 这里加入 ai_keywords 作为非品牌候选，提升“主关键词”稳定性（不改变 DKI 规则：DKI 仅用于 Headline #1）
+  const aiKeywordsForHeadline2 = safeParseJson((offer as any).ai_keywords, [])
+  const headline2Candidates: Array<{ keyword: string; searchVolume?: number }> = [
+    ...((extractedElements?.keywords || []) as Array<{ keyword: string; searchVolume?: number }>),
+    ...(Array.isArray(aiKeywordsForHeadline2)
+      ? aiKeywordsForHeadline2
+          .filter((k: any) => typeof k === 'string' && k.trim().length > 0)
+          .map((k: string) => ({ keyword: k.trim(), searchVolume: 0 }))
+      : [])
+  ]
+
   variables.primary_keyword = selectPrimaryKeywordForHeadline2(
-    (extractedElements?.keywords || []) as Array<{ keyword: string; searchVolume?: number }>,
+    headline2Candidates,
     offer.brand,
     [
       offer.category,
