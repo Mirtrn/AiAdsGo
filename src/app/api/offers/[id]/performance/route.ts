@@ -4,7 +4,8 @@ import {
   getOfferPerformanceSummary,
   getOfferPerformanceTrend,
   getCampaignPerformanceComparison,
-  calculateOfferROI
+  calculateOfferROI,
+  getOfferCurrencyInfo
 } from '@/lib/offer-performance'
 
 /**
@@ -43,15 +44,24 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '30')
     const avgOrderValue = parseFloat(searchParams.get('avgOrderValue') || '0')
+    const requestedCurrencyRaw = searchParams.get('currency')
+    const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
 
-    // 2. 获取Offer性能汇总
-    const summary = await getOfferPerformanceSummary(offerId, userId, daysBack)
+    // 2. 获取币种信息（用于前端展示货币符号/单位）
+    const currencyInfo = await getOfferCurrencyInfo(offerId, userId, daysBack)
 
-    // 3. 获取趋势数据
-    const trend = await getOfferPerformanceTrend(offerId, userId, daysBack)
+    const reportingCurrency = requestedCurrency && currencyInfo.currencies.includes(requestedCurrency)
+      ? requestedCurrency
+      : currencyInfo.currency
 
-    // 4. 获取Campaign对比数据
-    const campaigns = await getCampaignPerformanceComparison(offerId, userId, daysBack)
+    // 3. 获取Offer性能汇总（按币种过滤，避免多币种相加）
+    const summary = await getOfferPerformanceSummary(offerId, userId, daysBack, reportingCurrency)
+
+    // 4. 获取趋势数据（按币种过滤）
+    const trend = await getOfferPerformanceTrend(offerId, userId, daysBack, reportingCurrency)
+
+    // 5. 获取Campaign对比数据（按币种过滤）
+    const campaigns = await getCampaignPerformanceComparison(offerId, userId, daysBack, reportingCurrency)
 
     // 5. 计算日期范围
     const endDate = new Date()
@@ -63,7 +73,7 @@ export async function GET(
     // 6. 计算ROI（如果提供了avgOrderValue）
     let roi = null
     if (avgOrderValue > 0) {
-      roi = await calculateOfferROI(offerId, userId, avgOrderValue, daysBack)
+      roi = await calculateOfferROI(offerId, userId, avgOrderValue, daysBack, reportingCurrency)
     }
 
     // 7. 格式化返回数据
@@ -84,6 +94,9 @@ export async function GET(
       success: true,
       offerId,
       daysBack,
+      currency: reportingCurrency,
+      currencies: currencyInfo.currencies,
+      hasMixedCurrency: currencyInfo.hasMixedCurrency,
       summary: safeSummary,
       trend: trend.map(t => ({
         date: t.date,
@@ -98,6 +111,7 @@ export async function GET(
         campaignId: c.campaign_id,
         campaignName: c.campaign_name,
         googleCampaignId: c.google_campaign_id,
+        adsAccountCurrency: c.currency || reportingCurrency,
         impressions: c.impressions || 0,
         clicks: c.clicks || 0,
         conversions: c.conversions || 0,

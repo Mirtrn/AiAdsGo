@@ -39,6 +39,7 @@ import AdjustCampaignCpcDialog from '@/components/AdjustCampaignCpcDialog'
 import {
   getCampaignStatusLabel,
 } from '@/lib/i18n-constants'
+import { formatCurrency } from '@/lib/currency'
 
 interface Campaign {
   id: number
@@ -55,6 +56,7 @@ interface Campaign {
   lastSyncAt: string | null
   servingStartDate?: string | null
   adsAccountAvailable?: boolean
+  adsAccountCurrency?: string | null
   createdAt: string
   // 🔧 新增: 软删除状态字段
   isDeleted?: boolean | number
@@ -129,6 +131,16 @@ export default function CampaignsPage() {
   // Adjust CPC dialog states
   const [adjustCpcOpen, setAdjustCpcOpen] = useState(false)
   const [adjustCpcTarget, setAdjustCpcTarget] = useState<{ googleCampaignId: string; campaignName: string } | null>(null)
+
+  const currencySet = new Set(
+    campaigns
+      .map((c) => c.adsAccountCurrency)
+      .filter((c): c is string => Boolean(c))
+  )
+  const hasMixedCurrency = currencySet.size > 1
+  const defaultCurrency = currencySet.size >= 1 ? Array.from(currencySet)[0] : 'USD'
+  const formatMoney = (value: number, currencyCode: string = defaultCurrency) =>
+    formatCurrency(value, currencyCode)
 
   /**
    * 处理401未授权错误 - 跳转到登录页
@@ -608,7 +620,9 @@ export default function CampaignsPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-600">总花费</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">
-                      ${(summary.totalCostUsd ?? 0).toFixed(2)}
+                      {hasMixedCurrency
+                        ? (summary.totalCostUsd ?? 0).toFixed(2)
+                        : formatMoney(summary.totalCostUsd ?? 0)}
                     </p>
                     {summary.changes?.cost !== null && summary.changes?.cost !== undefined && (
                       <p className={`text-xs mt-1 ${summary.changes.cost <= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -677,9 +691,9 @@ export default function CampaignsPage() {
               <TrendChart
                 data={trendsData}
                 metrics={[
-                  { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => `$${v.toFixed(2)}`, yAxisId: 'left' },
-                  { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => `$${v.toFixed(2)}`, yAxisId: 'right' },
-                  { key: 'avgCpa', label: 'CPA', color: 'hsl(0, 84%, 60%)', formatter: (v) => `$${v.toFixed(2)}`, yAxisId: 'right' },
+                  { key: 'cost', label: '花费', color: 'hsl(25, 95%, 53%)', formatter: (v) => hasMixedCurrency ? v.toFixed(2) : formatMoney(v), yAxisId: 'left' },
+                  { key: 'avgCpc', label: 'CPC', color: 'hsl(45, 93%, 47%)', formatter: (v) => hasMixedCurrency ? v.toFixed(2) : formatMoney(v), yAxisId: 'right' },
+                  { key: 'avgCpa', label: 'CPA', color: 'hsl(0, 84%, 60%)', formatter: (v) => hasMixedCurrency ? v.toFixed(2) : formatMoney(v), yAxisId: 'right' },
                 ]}
                 title="成本趋势"
                 description="花费(左轴) / CPC·CPA(右轴)"
@@ -711,16 +725,20 @@ export default function CampaignsPage() {
                       <span className="text-xs text-gray-500">平均CPC</span>
                       <span className="text-sm font-semibold text-gray-900">
                         {trendsData.length > 0
-                          ? `$${(trendsData.reduce((sum, d) => sum + ((d.avgCpc as number) || 0), 0) / trendsData.length).toFixed(2)}`
-                          : '$0.00'}
+                          ? (hasMixedCurrency
+                            ? (trendsData.reduce((sum, d) => sum + ((d.avgCpc as number) || 0), 0) / trendsData.length).toFixed(2)
+                            : formatMoney(trendsData.reduce((sum, d) => sum + ((d.avgCpc as number) || 0), 0) / trendsData.length))
+                          : (hasMixedCurrency ? '0.00' : formatMoney(0))}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-gray-500">平均CPA</span>
                       <span className="text-sm font-semibold text-gray-900">
                         {trendsData.length > 0
-                          ? `$${(trendsData.reduce((sum, d) => sum + ((d.avgCpa as number) || 0), 0) / trendsData.length).toFixed(2)}`
-                          : '$0.00'}
+                          ? (hasMixedCurrency
+                            ? (trendsData.reduce((sum, d) => sum + ((d.avgCpa as number) || 0), 0) / trendsData.length).toFixed(2)
+                            : formatMoney(trendsData.reduce((sum, d) => sum + ((d.avgCpa as number) || 0), 0) / trendsData.length))
+                          : (hasMixedCurrency ? '0.00' : formatMoney(0))}
                       </span>
                     </div>
                   </div>
@@ -874,6 +892,7 @@ export default function CampaignsPage() {
 	                    const isDeleted = campaign.isDeleted === true || campaign.isDeleted === 1
 	                    const offerDeleted = campaign.offerIsDeleted === true || campaign.offerIsDeleted === 1
 	                    const googleCampaignId = campaign.campaignId || campaign.googleCampaignId
+	                    const campaignCurrency = campaign.adsAccountCurrency || defaultCurrency
 
 	                    return (
 	                    <TableRow
@@ -916,7 +935,7 @@ export default function CampaignsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">
-                          ${(Number(campaign.budgetAmount) || 0).toFixed(2)}
+                          {formatMoney(Number(campaign.budgetAmount) || 0, campaignCurrency)}
                         </div>
                         <div className="text-xs text-gray-500">{campaign.budgetType}</div>
                       </TableCell>
@@ -937,7 +956,7 @@ export default function CampaignsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium text-gray-900">
-                          ${(Number(campaign.performance?.cpcUsd) || 0).toFixed(2)}
+                          {formatMoney(Number(campaign.performance?.cpcUsd) || 0, campaignCurrency)}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -947,7 +966,7 @@ export default function CampaignsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium text-gray-900">
-                          ${(Number(campaign.performance?.costUsd) || 0).toFixed(2)}
+                          {formatMoney(Number(campaign.performance?.costUsd) || 0, campaignCurrency)}
                         </div>
                       </TableCell>
                       <TableCell>

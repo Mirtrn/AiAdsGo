@@ -34,6 +34,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { TrendingUp, DollarSign, Target, Activity, RefreshCcw } from 'lucide-react'
 import { TrendChart, TrendChartData, TrendChartMetric } from '@/components/charts/TrendChart'
+import { formatCurrency } from '@/lib/currency'
 
 interface Offer {
   id: number
@@ -83,6 +84,7 @@ interface CampaignPerformance {
   campaignId: number
   campaignName: string
   googleCampaignId: string | null
+  adsAccountCurrency?: string | null
   impressions: number
   clicks: number
   conversions: number
@@ -160,6 +162,8 @@ export default function OfferDetailPage() {
   const [performanceSummary, setPerformanceSummary] = useState<PerformanceSummary | null>(null)
   const [campaigns, setCampaigns] = useState<CampaignPerformance[]>([])
   const [roi, setRoi] = useState<ROIData | null>(null)
+  const [currencyInfo, setCurrencyInfo] = useState<{ currency: string; currencies: string[]; hasMixedCurrency: boolean } | null>(null)
+  const [reportCurrency, setReportCurrency] = useState<string | null>(null)
   const [timeRange, setTimeRange] = useState<string>('30')
   const [avgOrderValue, setAvgOrderValue] = useState<string>('')
 
@@ -177,7 +181,7 @@ export default function OfferDetailPage() {
   useEffect(() => {
     fetchPerformance()
     fetchTrends()
-  }, [timeRange, avgOrderValue])
+  }, [timeRange, avgOrderValue, reportCurrency])
 
   const fetchOffer = async () => {
     try {
@@ -203,8 +207,9 @@ export default function OfferDetailPage() {
     try {
       setPerformanceLoading(true)
       const avgOrderValueNum = parseFloat(avgOrderValue) || 0
+      const currencyParam = reportCurrency ? `&currency=${encodeURIComponent(reportCurrency)}` : ''
       const response = await fetch(
-        `/api/offers/${offerId}/performance?daysBack=${timeRange}&avgOrderValue=${avgOrderValueNum}`,
+        `/api/offers/${offerId}/performance?daysBack=${timeRange}&avgOrderValue=${avgOrderValueNum}${currencyParam}`,
         {
           credentials: 'include',
         }
@@ -218,6 +223,16 @@ export default function OfferDetailPage() {
       setPerformanceSummary(data.summary)
       setCampaigns(data.campaigns)
       setRoi(data.roi)
+      if (data.currency && Array.isArray(data.currencies)) {
+        setCurrencyInfo({
+          currency: data.currency,
+          currencies: data.currencies,
+          hasMixedCurrency: Boolean(data.hasMixedCurrency),
+        })
+        if (!reportCurrency || !data.currencies.includes(reportCurrency)) {
+          setReportCurrency(data.currency)
+        }
+      }
     } catch (err: any) {
       console.error('Fetch performance error:', err)
       // 不阻塞页面加载，只是性能数据获取失败
@@ -229,8 +244,9 @@ export default function OfferDetailPage() {
   const fetchTrends = async () => {
     try {
       setTrendsLoading(true)
+      const currencyParam = reportCurrency ? `&currency=${encodeURIComponent(reportCurrency)}` : ''
       const response = await fetch(
-        `/api/offers/${offerId}/trends?daysBack=${timeRange}`,
+        `/api/offers/${offerId}/trends?daysBack=${timeRange}${currencyParam}`,
         {
           credentials: 'include',
         }
@@ -243,12 +259,27 @@ export default function OfferDetailPage() {
       const data = await response.json()
       setTrendsData(data.trends)
       setTrendsError(null)
+      if (!currencyInfo && data.currency && Array.isArray(data.currencies)) {
+        setCurrencyInfo({
+          currency: data.currency,
+          currencies: data.currencies,
+          hasMixedCurrency: Boolean(data.hasMixedCurrency),
+        })
+        if (!reportCurrency || !data.currencies.includes(reportCurrency)) {
+          setReportCurrency(data.currency)
+        }
+      }
     } catch (err: any) {
       setTrendsError(err.message || '加载趋势数据失败')
     } finally {
       setTrendsLoading(false)
     }
   }
+
+  const selectedCurrency = reportCurrency || currencyInfo?.currency || 'USD'
+  const availableCurrencies = currencyInfo?.currencies ?? []
+  const formatMoney = (value: number, currencyCode: string = selectedCurrency) =>
+    formatCurrency(value, currencyCode)
 
   const handleDelete = async () => {
     try {
@@ -537,6 +568,21 @@ export default function OfferDetailPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 whitespace-nowrap">
+                  {availableCurrencies.length > 1 && (
+                    <>
+                      <span className="text-sm text-gray-600 shrink-0">币种:</span>
+                      <Select value={selectedCurrency} onValueChange={(v) => setReportCurrency(v)}>
+                        <SelectTrigger className="w-[92px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableCurrencies.map((c) => (
+                            <SelectItem key={c} value={c}>{c}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
                   <span className="text-sm text-gray-600 shrink-0">AOV:</span>
                   <Input
                     type="number"
@@ -546,7 +592,9 @@ export default function OfferDetailPage() {
                     className="w-[90px] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     style={{ textAlign: 'right', width: '90px' }}
                   />
-                  <span className="text-sm text-gray-600">USD</span>
+                  <span className="text-sm text-gray-600">
+                    {selectedCurrency}
+                  </span>
                 </div>
               </div>
 
@@ -592,7 +640,8 @@ export default function OfferDetailPage() {
                           </div>
                         </div>
                         <p className="text-xs text-gray-500 mt-2">
-                          平均CPC: ${(Number(performanceSummary.avgCpcUsd) || 0).toFixed(2)}
+                          平均CPC:{' '}
+                          {formatMoney(Number(performanceSummary.avgCpcUsd) || 0)}
                         </p>
                       </CardContent>
                     </Card>
@@ -622,7 +671,7 @@ export default function OfferDetailPage() {
                           <div>
                             <p className="text-sm font-medium text-gray-600">总花费</p>
                             <p className="text-2xl font-bold text-gray-900 mt-1">
-                              ${(Number(performanceSummary.costUsd) || 0).toFixed(2)}
+                              {formatMoney(Number(performanceSummary.costUsd) || 0)}
                             </p>
                           </div>
                           <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
@@ -644,16 +693,20 @@ export default function OfferDetailPage() {
                         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                           <div>
                             <p className="text-sm text-gray-600">总花费</p>
-                            <p className="text-lg font-bold text-gray-900">${(Number(roi.totalCostUsd) || 0).toFixed(2)}</p>
+                            <p className="text-lg font-bold text-gray-900">
+                              {formatMoney(Number(roi.totalCostUsd) || 0)}
+                            </p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-600">总收入</p>
-                            <p className="text-lg font-bold text-gray-900">${(Number(roi.totalRevenueUsd) || 0).toFixed(2)}</p>
+                            <p className="text-lg font-bold text-gray-900">
+                              {formatMoney(Number(roi.totalRevenueUsd) || 0)}
+                            </p>
                           </div>
                           <div>
                             <p className="text-sm text-gray-600">利润</p>
                             <p className={`text-lg font-bold ${roi.profitUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              ${(Number(roi.profitUsd) || 0).toFixed(2)}
+                              {formatMoney(Number(roi.profitUsd) || 0)}
                             </p>
                           </div>
                           <div>
@@ -693,9 +746,9 @@ export default function OfferDetailPage() {
                         },
                         {
                           key: 'costUsd',
-                          label: '花费 (USD)',
+                          label: `花费 (${selectedCurrency})`,
                           color: '#f59e0b',  // amber-500
-                          formatter: (value) => `$${value.toFixed(2)}`,
+                          formatter: (value) => formatMoney(value),
                           yAxisId: 'right',  // 花费使用右侧Y轴（与展示/点击/转化的量级不同）
                         },
                       ]}
@@ -745,10 +798,14 @@ export default function OfferDetailPage() {
                                   <TableCell className="text-right">{(campaign.impressions ?? 0).toLocaleString()}</TableCell>
                                   <TableCell className="text-right">{(campaign.clicks ?? 0).toLocaleString()}</TableCell>
                                   <TableCell className="text-right">{(Number(campaign.ctr) || 0).toFixed(2)}%</TableCell>
-                                  <TableCell className="text-right">${(Number(campaign.cpcUsd) || 0).toFixed(2)}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatMoney(Number(campaign.cpcUsd) || 0, campaign.adsAccountCurrency || selectedCurrency)}
+                                  </TableCell>
                                   <TableCell className="text-right">{(Number(campaign.conversions) || 0).toFixed(1)}</TableCell>
                                   <TableCell className="text-right">{(Number(campaign.conversionRate) || 0).toFixed(2)}%</TableCell>
-                                  <TableCell className="text-right">${(Number(campaign.costUsd) || 0).toFixed(2)}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatMoney(Number(campaign.costUsd) || 0, campaign.adsAccountCurrency || selectedCurrency)}
+                                  </TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>

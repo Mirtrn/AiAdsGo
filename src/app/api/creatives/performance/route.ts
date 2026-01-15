@@ -29,6 +29,8 @@ export async function GET(request: NextRequest) {
     const daysBack = parseInt(searchParams.get('daysBack') || '30')
     const sortBy = searchParams.get('sortBy') || 'score'
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined
+    const requestedCurrencyRaw = searchParams.get('currency')
+    const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
 
     const db = await getDatabase()
 
@@ -77,6 +79,38 @@ export async function GET(request: NextRequest) {
     cutoffDate.setDate(cutoffDate.getDate() - daysBack)
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0]
 
+    // 获取可用币种（用于前端选择；多币种时禁止混加）
+    const currencyRows = await db.query<any>(`
+      SELECT DISTINCT
+        COALESCE(cp.currency, gaa.currency, 'USD') as currency
+      FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+      LEFT JOIN campaign_performance cp
+        ON c.id = cp.campaign_id
+        AND cp.date >= ?
+      WHERE c.user_id = ?
+    `, [cutoffDateStr, userId])
+
+    const availableCurrencies = Array.from(new Set(
+      (currencyRows || [])
+        .map((r: any) => String(r.currency || '').trim())
+        .filter((c: string) => Boolean(c))
+    ))
+
+    const defaultCurrencyRow = await db.queryOne<any>(`
+      SELECT COALESCE(gaa.currency, 'USD') as currency
+      FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+      WHERE c.user_id = ?
+      ORDER BY COALESCE(c.published_at, c.created_at) DESC
+      LIMIT 1
+    `, [userId])
+    const defaultCurrency = String(defaultCurrencyRow?.currency || 'USD')
+
+    const reportingCurrency = requestedCurrency && availableCurrencies.includes(requestedCurrency)
+      ? requestedCurrency
+      : (availableCurrencies.includes(defaultCurrency) ? defaultCurrency : (availableCurrencies[0] || 'USD'))
+
     const creativesWithPerformance = await Promise.all(creatives.map(async (creative) => {
       // 获取该Offer下所有Campaign的性能数据（从 campaign_performance）
       const performanceData = await db.queryOne(`
@@ -84,19 +118,26 @@ export async function GET(request: NextRequest) {
           SUM(cp.impressions) as impressions,
           SUM(cp.clicks) as clicks,
           SUM(cp.conversions) as conversions,
-          SUM(cp.cost) as cost
+          SUM(cp.cost) as cost,
+          COUNT(DISTINCT COALESCE(cp.currency, gaa.currency, 'USD')) as currency_count
         FROM campaigns c
-        LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
+        LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+        LEFT JOIN campaign_performance cp
+          ON c.id = cp.campaign_id
+          AND cp.date >= ?
+          AND COALESCE(cp.currency, gaa.currency, 'USD') = ?
         WHERE c.offer_id = ?
           AND c.user_id = ?
-          AND cp.date >= ?
-      `, [creative.offer_id, userId, cutoffDateStr]) as any
+      `, [cutoffDateStr, reportingCurrency, creative.offer_id, userId]) as any
 
       // 安全计算指标
       const impressions = toNumber(performanceData?.impressions)
       const clicks = toNumber(performanceData?.clicks)
       const conversions = toNumber(performanceData?.conversions)
       const cost = toNumber(performanceData?.cost)
+
+      const currencyCount = toNumber(performanceData?.currency_count)
+      const hasMixedCurrency = currencyCount > 1
 
       const ctr = impressions > 0 ? clicks * 100.0 / impressions : 0
       const avgCpc = clicks > 0 ? cost / clicks : 0
@@ -118,6 +159,8 @@ export async function GET(request: NextRequest) {
         theme: creative.theme,
         isSelected: creative.is_selected === 1,
         createdAt: creative.created_at,
+        adsAccountCurrency: reportingCurrency,
+        hasMixedCurrency,
         performance: {
           impressions: impressions,
           clicks: clicks,
@@ -205,6 +248,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       creatives: creativesWithPerformance,
+      currency: reportingCurrency,
+      currencies: availableCurrencies.length > 0 ? availableCurrencies : [reportingCurrency],
+      hasMixedCurrency: availableCurrencies.length > 1,
       summary: {
         totalCreatives,
         selectedCreatives,

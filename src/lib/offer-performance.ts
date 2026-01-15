@@ -41,6 +41,7 @@ export interface CampaignPerformanceComparison {
   clicks: number
   conversions: number
   cost: number  // USD
+  currency?: string
   ctr: number
   cpc: number  // USD
   conversion_rate: number
@@ -54,6 +55,73 @@ export interface OfferROI {
   conversions: number
 }
 
+export interface OfferCurrencyInfo {
+  currency: string
+  currencies: string[]
+  hasMixedCurrency: boolean
+}
+
+/**
+ * 获取 Offer 在时间范围内涉及的货币信息
+ * 注意：campaign_performance.cost 存储的是 Ads 账号原币的标准单位（非 micros）。
+ */
+export async function getOfferCurrencyInfo(
+  offerId: number,
+  userId: number,
+  daysBack: number = 30
+): Promise<OfferCurrencyInfo> {
+  const db = await getDatabase()
+
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - daysBack)
+
+  const startDateStr = startDate.toISOString().split('T')[0]
+  const endDateStr = endDate.toISOString().split('T')[0]
+
+  const rows = await db.query(`
+    SELECT DISTINCT
+      COALESCE(cp.currency, gaa.currency, 'USD') as currency
+    FROM campaigns c
+    LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+    LEFT JOIN campaign_performance cp
+      ON c.id = cp.campaign_id
+      AND cp.date >= ?
+      AND cp.date <= ?
+    WHERE c.offer_id = ?
+      AND c.user_id = ?
+  `, [startDateStr, endDateStr, offerId, userId]) as any[]
+
+  const currencies = rows
+    .map((r) => String(r.currency || '').trim())
+    .filter((c) => Boolean(c))
+
+  const unique = Array.from(new Set(currencies))
+  if (unique.length === 0) {
+    return { currency: 'USD', currencies: ['USD'], hasMixedCurrency: false }
+  }
+
+  const latestCurrencyRow = await db.queryOne(`
+    SELECT COALESCE(gaa.currency, 'USD') as currency
+    FROM campaigns c
+    LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
+    WHERE c.offer_id = ?
+      AND c.user_id = ?
+    ORDER BY COALESCE(c.published_at, c.created_at) DESC
+    LIMIT 1
+  `, [offerId, userId]) as any
+  const latestCurrency = String(latestCurrencyRow?.currency || '').trim()
+  const preferredCurrency = latestCurrency && unique.includes(latestCurrency)
+    ? latestCurrency
+    : unique[0]
+
+  return {
+    currency: preferredCurrency,
+    currencies: unique,
+    hasMixedCurrency: unique.length > 1,
+  }
+}
+
 /**
  * 获取Offer级别的性能汇总数据
  *
@@ -65,7 +133,8 @@ export interface OfferROI {
 export async function getOfferPerformanceSummary(
   offerId: number,
   userId: number,
-  daysBack: number = 30
+  daysBack: number = 30,
+  currency?: string
 ): Promise<OfferPerformanceSummary> {
   const db = await getDatabase()
 
@@ -78,6 +147,11 @@ export async function getOfferPerformanceSummary(
   const endDateStr = endDate.toISOString().split('T')[0]
 
   // Get aggregated performance data from campaign_performance (via campaigns)
+  const currencyCondition = currency ? `AND COALESCE(cp.currency, gaa.currency, 'USD') = ?` : ''
+  const params = currency
+    ? [offerId, userId, startDateStr, endDateStr, currency]
+    : [offerId, userId, startDateStr, endDateStr]
+
   const summary = await db.queryOne(`
     SELECT
       COUNT(DISTINCT cp.campaign_id) as campaign_count,
@@ -98,12 +172,14 @@ export async function getOfferPerformanceSummary(
         ELSE 0
       END as conversion_rate
     FROM campaigns c
+    LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
     WHERE c.offer_id = ?
       AND c.user_id = ?
       AND cp.date >= ?
       AND cp.date <= ?
-  `, [offerId, userId, startDateStr, endDateStr]) as any
+      ${currencyCondition}
+  `, params) as any
 
   return {
     offer_id: offerId,
@@ -133,7 +209,8 @@ export async function getOfferPerformanceSummary(
 export async function getOfferPerformanceTrend(
   offerId: number,
   userId: number,
-  daysBack: number = 30
+  daysBack: number = 30,
+  currency?: string
 ): Promise<OfferPerformanceTrend[]> {
   const db = await getDatabase()
 
@@ -146,6 +223,11 @@ export async function getOfferPerformanceTrend(
   const endDateStr = endDate.toISOString().split('T')[0]
 
   // Get daily trend data from campaign_performance (via campaigns)
+  const currencyCondition = currency ? `AND COALESCE(cp.currency, gaa.currency, 'USD') = ?` : ''
+  const params = currency
+    ? [offerId, userId, startDateStr, endDateStr, currency]
+    : [offerId, userId, startDateStr, endDateStr]
+
   const trends = await db.query(`
     SELECT
       cp.date as date,
@@ -162,14 +244,16 @@ export async function getOfferPerformanceTrend(
         ELSE 0
       END as conversion_rate
     FROM campaigns c
+    LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
     WHERE c.offer_id = ?
       AND c.user_id = ?
       AND cp.date >= ?
       AND cp.date <= ?
+      ${currencyCondition}
     GROUP BY cp.date
     ORDER BY cp.date ASC
-  `, [offerId, userId, startDateStr, endDateStr]) as any[]
+  `, params) as any[]
 
   return trends.map((row) => ({
     date: row.date,
@@ -193,7 +277,8 @@ export async function getOfferPerformanceTrend(
 export async function getCampaignPerformanceComparison(
   offerId: number,
   userId: number,
-  daysBack: number = 30
+  daysBack: number = 30,
+  currency?: string
 ): Promise<CampaignPerformanceComparison[]> {
   const db = await getDatabase()
 
@@ -206,6 +291,11 @@ export async function getCampaignPerformanceComparison(
   const endDateStr = endDate.toISOString().split('T')[0]
 
   // Get per-campaign aggregated data from campaign_performance
+  const currencyCondition = currency ? `AND COALESCE(cp.currency, gaa.currency, 'USD') = ?` : ''
+  const params = currency
+    ? [offerId, userId, startDateStr, endDateStr, currency]
+    : [offerId, userId, startDateStr, endDateStr]
+
   const campaigns = await db.query(`
     SELECT
       cp.campaign_id,
@@ -215,6 +305,7 @@ export async function getCampaignPerformanceComparison(
       SUM(cp.clicks) as clicks,
       SUM(cp.conversions) as conversions,
       SUM(cp.cost) as cost,
+      COALESCE(MAX(cp.currency), gaa.currency, 'USD') as currency,
       CASE
         WHEN SUM(cp.impressions) > 0 THEN SUM(cp.clicks) * 100.0 / SUM(cp.impressions)
         ELSE 0
@@ -228,14 +319,16 @@ export async function getCampaignPerformanceComparison(
         ELSE 0
       END as conversion_rate
     FROM campaigns c
+    LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
     WHERE c.offer_id = ?
       AND c.user_id = ?
       AND cp.date >= ?
       AND cp.date <= ?
-    GROUP BY cp.campaign_id, c.campaign_name, c.google_campaign_id
+      ${currencyCondition}
+    GROUP BY cp.campaign_id, c.campaign_name, c.google_campaign_id, gaa.currency
     ORDER BY SUM(cp.conversions) DESC, SUM(cp.clicks) DESC
-  `, [offerId, userId, startDateStr, endDateStr]) as any[]
+  `, params) as any[]
 
   return campaigns.map((row) => ({
     campaign_id: row.campaign_id,
@@ -245,6 +338,7 @@ export async function getCampaignPerformanceComparison(
     clicks: row.clicks || 0,
     conversions: row.conversions || 0,
     cost: row.cost || 0,
+    currency: row.currency || 'USD',
     ctr: row.ctr || 0,
     cpc: row.cpc || 0,
     conversion_rate: row.conversion_rate || 0,
@@ -264,7 +358,8 @@ export async function calculateOfferROI(
   offerId: number,
   userId: number,
   avgOrderValue: number,
-  daysBack: number = 30
+  daysBack: number = 30,
+  currency?: string
 ): Promise<OfferROI> {
   const db = await getDatabase()
 
@@ -277,17 +372,24 @@ export async function calculateOfferROI(
   const endDateStr = endDate.toISOString().split('T')[0]
 
   // Get total cost and conversions from campaign_performance (via campaigns)
+  const currencyCondition = currency ? `AND COALESCE(cp.currency, gaa.currency, 'USD') = ?` : ''
+  const params = currency
+    ? [offerId, userId, startDateStr, endDateStr, currency]
+    : [offerId, userId, startDateStr, endDateStr]
+
   const data = await db.queryOne(`
     SELECT
       SUM(cp.cost) as total_cost,
       SUM(cp.conversions) as total_conversions
     FROM campaigns c
+    LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
     LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
     WHERE c.offer_id = ?
       AND c.user_id = ?
       AND cp.date >= ?
       AND cp.date <= ?
-  `, [offerId, userId, startDateStr, endDateStr]) as any
+      ${currencyCondition}
+  `, params) as any
 
   const totalCostUsd = data?.total_cost || 0
   const totalConversions = data?.total_conversions || 0

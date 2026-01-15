@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Award, TrendingUp, Target, Clock, Eye, MousePointer, CheckCircle2, DollarSign } from 'lucide-react'
+import { formatCurrency } from '@/lib/currency'
 
 interface Creative {
   id: number
@@ -45,6 +46,8 @@ interface Creative {
   theme: string
   isSelected: boolean
   createdAt: string
+  adsAccountCurrency?: string
+  hasMixedCurrency?: boolean
   performance: {
     impressions: number
     clicks: number
@@ -88,16 +91,24 @@ export default function CreativesDashboardPage() {
   const [timeRange, setTimeRange] = useState<string>('30')
   const [sortBy, setSortBy] = useState<string>('score')
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [currencyInfo, setCurrencyInfo] = useState<{ currency: string; currencies: string[]; hasMixedCurrency: boolean } | null>(null)
+  const [reportCurrency, setReportCurrency] = useState<string | null>(null)
+
+  const selectedCurrency = reportCurrency || currencyInfo?.currency || 'USD'
+  const availableCurrencies = currencyInfo?.currencies ?? []
+  const formatMoney = (value: number, currencyCode: string = selectedCurrency) =>
+    formatCurrency(value, currencyCode)
 
   useEffect(() => {
     fetchCreatives()
-  }, [timeRange, sortBy])
+  }, [timeRange, sortBy, reportCurrency])
 
   const fetchCreatives = async () => {
     try {
       setLoading(true)
+      const currencyParam = reportCurrency ? `&currency=${encodeURIComponent(reportCurrency)}` : ''
       const response = await fetch(
-        `/api/creatives/performance?daysBack=${timeRange}&sortBy=${sortBy}`,
+        `/api/creatives/performance?daysBack=${timeRange}&sortBy=${sortBy}${currencyParam}`,
         {
           credentials: 'include',
         }
@@ -111,6 +122,16 @@ export default function CreativesDashboardPage() {
       setCreatives(data.creatives)
       setSummary(data.summary)
       setRecommendations(data.recommendations)
+      if (data.currency && Array.isArray(data.currencies)) {
+        setCurrencyInfo({
+          currency: data.currency,
+          currencies: data.currencies,
+          hasMixedCurrency: Boolean(data.hasMixedCurrency),
+        })
+        if (!reportCurrency || !data.currencies.includes(reportCurrency)) {
+          setReportCurrency(data.currency)
+        }
+      }
     } catch (err: any) {
       console.error('Fetch creatives error:', err)
       showError('加载失败', err.message)
@@ -180,6 +201,18 @@ export default function CreativesDashboardPage() {
               )}
             </div>
             <div className="flex items-center gap-3">
+              {availableCurrencies.length > 1 && (
+                <Select value={selectedCurrency} onValueChange={(v) => setReportCurrency(v)}>
+                  <SelectTrigger className="w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableCurrencies.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={timeRange} onValueChange={setTimeRange}>
                 <SelectTrigger className="w-32">
                   <SelectValue />
@@ -254,7 +287,7 @@ export default function CreativesDashboardPage() {
                   <div>
                     <p className="text-sm text-gray-600">总花费</p>
                     <p className="text-2xl font-bold text-gray-900">
-                      ${(Number(summary.totalPerformance.cost) || 0).toFixed(2)}
+                      {formatMoney(Number(summary.totalPerformance.cost) || 0)}
                     </p>
                   </div>
                   <DollarSign className="w-8 h-8 text-orange-500" />
@@ -383,7 +416,7 @@ export default function CreativesDashboardPage() {
                             {formatNumber(creative.performance.conversions)}
                           </TableCell>
                           <TableCell className="text-right">
-                            ${(Number(creative.performance.costUsd) || 0).toFixed(2)}
+                            {formatMoney(Number(creative.performance.costUsd) || 0, creative.adsAccountCurrency || selectedCurrency)}
                           </TableCell>
                           <TableCell>
                             {creative.isSelected ? (
@@ -496,7 +529,7 @@ export default function CreativesDashboardPage() {
                                     <div className="bg-white p-3 rounded-lg border border-gray-200">
                                       <p className="text-xs text-gray-600">平均CPC</p>
                                       <p className="text-lg font-bold text-gray-900">
-                                        ${(Number(creative.performance.avgCpcUsd) || 0).toFixed(2)}
+                                        {formatMoney(Number(creative.performance.avgCpcUsd) || 0, creative.adsAccountCurrency || selectedCurrency)}
                                       </p>
                                     </div>
                                     <div className="bg-white p-3 rounded-lg border border-gray-200">

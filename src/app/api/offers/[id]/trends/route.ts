@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuth } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { findOfferById } from '@/lib/offers'
+import { getOfferCurrencyInfo } from '@/lib/offer-performance'
 
 /**
  * GET /api/offers/:id/trends
@@ -37,6 +38,8 @@ export async function GET(
     // 3. 获取查询参数
     const { searchParams } = new URL(request.url)
     const daysBack = parseInt(searchParams.get('daysBack') || '30')
+    const requestedCurrencyRaw = searchParams.get('currency')
+    const requestedCurrency = requestedCurrencyRaw ? requestedCurrencyRaw.trim().toUpperCase() : null
 
     const db = await getDatabase()
 
@@ -47,6 +50,11 @@ export async function GET(
 
     const startDateStr = startDate.toISOString().split('T')[0]
     const endDateStr = endDate.toISOString().split('T')[0]
+
+    const currencyInfo = await getOfferCurrencyInfo(offerId, userId, daysBack)
+    const reportingCurrency = requestedCurrency && currencyInfo.currencies.includes(requestedCurrency)
+      ? requestedCurrency
+      : currencyInfo.currency
 
     // 5. 查询每日趋势数据（使用 campaign_performance via campaigns）
     const trends = await db.query(
@@ -66,15 +74,17 @@ export async function GET(
           ELSE 0
         END as conversionRate
       FROM campaigns c
+      LEFT JOIN google_ads_accounts gaa ON c.google_ads_account_id = gaa.id
       LEFT JOIN campaign_performance cp ON c.id = cp.campaign_id
       WHERE c.offer_id = ?
         AND c.user_id = ?
         AND cp.date >= ?
         AND cp.date <= ?
+        AND COALESCE(cp.currency, gaa.currency, 'USD') = ?
       GROUP BY cp.date
       ORDER BY cp.date ASC
     `,
-      [offerId, userId, startDateStr, endDateStr]
+      [offerId, userId, startDateStr, endDateStr, reportingCurrency]
     ) as any[]
 
     // 6. 格式化数据
@@ -99,6 +109,9 @@ export async function GET(
     return NextResponse.json({
       success: true,
       trends: formattedTrends,
+      currency: reportingCurrency,
+      currencies: currencyInfo.currencies,
+      hasMixedCurrency: currencyInfo.hasMixedCurrency,
       offer: {
         id: offer.id,
         brand: offer.brand,
