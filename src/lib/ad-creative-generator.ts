@@ -60,11 +60,14 @@ function selectPrimaryKeywordForHeadline2(
   fallbackTexts: string[]
 ): string {
   const brandLower = String(brandName || '').toLowerCase().trim()
-  const candidates = (keywords || [])
-    .map(k => ({ keyword: String(k.keyword || '').trim(), searchVolume: Number(k.searchVolume || 0) }))
+  const rawCandidates = (keywords || [])
+    .map(k => ({ keyword: String((k as any).keyword || '').trim(), searchVolume: Number((k as any).searchVolume || 0) }))
     .filter(k => k.keyword.length > 0)
-    .filter(k => brandLower ? !k.keyword.toLowerCase().includes(brandLower) : true)
     .filter(k => k.keyword.length <= 60)
+
+  // 优先：严格非品牌候选
+  let candidates = rawCandidates
+    .filter(k => brandLower ? !k.keyword.toLowerCase().includes(brandLower) : true)
 
   if (candidates.length > 0) {
     const hasAnyVolume = candidates.some(c => c.searchVolume > 0)
@@ -76,6 +79,31 @@ function selectPrimaryKeywordForHeadline2(
       return a.keyword.length - b.keyword.length
     })
     return candidates[0].keyword
+  }
+
+  // 🔧 修复(2026-01-15): 当关键词池几乎全是品牌词时，允许“先去品牌再用”
+  // 例： "redtiger dash cam price" → "dash cam price"（仍满足Headline #2不含品牌）
+  if (brandLower && rawCandidates.length > 0) {
+    const cleanedCandidates = rawCandidates
+      .map(k => ({
+        keyword: normalizeBrandFreeText(k.keyword, brandName),
+        searchVolume: k.searchVolume,
+      }))
+      .filter(k => k.keyword.length > 0)
+      .filter(k => !k.keyword.toLowerCase().includes(brandLower))
+      .filter(k => k.keyword.length <= 60)
+
+    if (cleanedCandidates.length > 0) {
+      const hasAnyVolume = cleanedCandidates.some(c => c.searchVolume > 0)
+      cleanedCandidates.sort((a, b) => {
+        const aIntent = calculateIntentScore(a.keyword, brandName)
+        const bIntent = calculateIntentScore(b.keyword, brandName)
+        if (bIntent !== aIntent) return bIntent - aIntent
+        if (hasAnyVolume && b.searchVolume !== a.searchVolume) return b.searchVolume - a.searchVolume
+        return a.keyword.length - b.keyword.length
+      })
+      return cleanedCandidates[0].keyword
+    }
   }
 
   for (const fallback of fallbackTexts) {
@@ -118,6 +146,21 @@ export function buildDkiFirstHeadline(brandName: string, maxLength = 30): string
   }
 
   return `{KeyWord:${normalizedBrand.substring(0, maxLength)}}`
+}
+
+export function buildDkiKeywordHeadline(defaultText: string, maxLength = 30): string {
+  const normalized = String(defaultText || '')
+    .replace(/[{}]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+
+  if (!normalized) return `{KeyWord:Keyword}`
+
+  if (normalized.length <= maxLength) {
+    return `{KeyWord:${normalized}}`
+  }
+
+  return `{KeyWord:${normalized.substring(0, maxLength)}}`
 }
 
 /**
@@ -1518,7 +1561,7 @@ ${mainPromo.conditions ? `**CONDITIONS**: ${mainPromo.conditions}` : ''}
   // ✅ Headline #2 主关键词（优先：高意图 + 高搜索量的非品牌关键词）
   // 来源：合并后的关键词（包含桶关键词/增强关键词/提取关键词），并严格排除品牌词
   // 🔧 修复(2026-01-15): 当关键词池几乎全是品牌词时，Headline #2 会退化为“泛词/不稳定输出”
-  // 这里加入 ai_keywords 作为非品牌候选，提升“主关键词”稳定性（不改变 DKI 规则：DKI 仅用于 Headline #1）
+  // 这里加入 ai_keywords 作为非品牌候选，提升“主关键词”稳定性（Headline #2 会在后处理强制用主关键词的DKI格式）
   const aiKeywordsForHeadline2 = safeParseJson((offer as any).ai_keywords, [])
   const headline2Candidates: Array<{ keyword: string; searchVolume?: number }> = [
     ...((extractedElements?.keywords || []) as Array<{ keyword: string; searchVolume?: number }>),
@@ -3255,7 +3298,7 @@ export async function generateAdCreative(
     }
   }
 
-  // ✅ KISS-3类型优化：强制 Headline #2 使用“最高意图/最高量核心关键词”，且不包含品牌（避免和Headline #1重复）
+  // ✅ KISS-3类型优化：强制 Headline #2 使用“高购买意图主关键词”的 DKI 格式
   const primaryKeywordForHeadline2 = selectPrimaryKeywordForHeadline2(
     filteredKeywords,
     brandName,
@@ -3267,48 +3310,18 @@ export async function generateAdCreative(
   )
 
   if (primaryKeywordForHeadline2 && result.headlines.length >= 2) {
-    const brandLower = String(brandName || '').toLowerCase().trim()
-    const primaryLower = primaryKeywordForHeadline2.toLowerCase()
-    const containsBrand = (t: string) => (brandLower ? t.toLowerCase().includes(brandLower) : false)
-    const containsDki = (t: string) => /\{keyword:/i.test(t)
-    const containsPrimary = (t: string) => t.toLowerCase().includes(primaryLower)
+    const headline2Keyword = normalizeBrandFreeText(primaryKeywordForHeadline2, brandName)
+    const finalSecondHeadline = buildDkiKeywordHeadline(headline2Keyword || primaryKeywordForHeadline2, HEADLINE_MAX_LENGTH)
 
-    // 寻找候选：包含primary且不含brand、且不是DKI
-    const candidates = result.headlines
-      .map((text, index) => ({ index, text }))
-      .filter(h => h.index !== 0)
-      .filter(h => !containsDki(h.text))
-      .filter(h => !containsBrand(h.text))
-      .filter(h => containsPrimary(h.text))
-      .sort((a, b) => a.text.length - b.text.length)
-
-    const swap = (i: number, j: number) => {
-      const tmp = result.headlines[i]
-      result.headlines[i] = result.headlines[j]
-      result.headlines[j] = tmp
-      if (result.headlinesWithMetadata && result.headlinesWithMetadata.length > Math.max(i, j)) {
-        const tmpM = result.headlinesWithMetadata[i]
-        result.headlinesWithMetadata[i] = result.headlinesWithMetadata[j]
-        result.headlinesWithMetadata[j] = tmpM
-      }
-    }
-
-    if (candidates.length > 0 && candidates[0].index !== 1) {
-      console.log(`🔧 调整Headline #2以匹配主关键词: "${primaryKeywordForHeadline2}"`)
-      swap(1, candidates[0].index)
-    }
-
-    // 如果Headline #2仍包含品牌，尽量替换为不含品牌的headline（不强制包含primary）
-    if (containsBrand(result.headlines[1])) {
-      const nonBrandAlt = result.headlines
-        .map((text, index) => ({ index, text }))
-        .filter(h => h.index !== 0 && h.index !== 1)
-        .filter(h => !containsDki(h.text))
-        .filter(h => !containsBrand(h.text))
-        .sort((a, b) => a.text.length - b.text.length)[0]
-      if (nonBrandAlt) {
-        console.log(`🔧 替换Headline #2以避免品牌重复: "${result.headlines[1]}" → "${nonBrandAlt.text}"`)
-        swap(1, nonBrandAlt.index)
+    if (result.headlines[1] !== finalSecondHeadline) {
+      console.log(`🔧 强制Headline #2为主关键词DKI: "${result.headlines[1]}" → "${finalSecondHeadline}"`)
+      result.headlines[1] = finalSecondHeadline
+      if (result.headlinesWithMetadata && result.headlinesWithMetadata.length > 1) {
+        result.headlinesWithMetadata[1] = {
+          ...result.headlinesWithMetadata[1],
+          text: finalSecondHeadline,
+          length: finalSecondHeadline.length
+        }
       }
     }
   }
