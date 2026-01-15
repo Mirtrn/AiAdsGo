@@ -8,6 +8,7 @@
  */
 
 import { getDatabase } from '@/lib/db'
+import { dateMinusDays } from '@/lib/db-helpers'
 import { createOptimizationEngine, type CampaignMetrics, type OptimizationRecommendation } from './optimization-rules'
 import { parsePrice } from '@/lib/pricing-utils'
 
@@ -38,6 +39,7 @@ export interface OptimizationTaskWithCampaign extends OptimizationTask {
  */
 export async function generateOptimizationTasksForUser(userId: number): Promise<number> {
   const db = await getDatabase()
+  const recentCutoffExpr = dateMinusDays(7, db.type)
   const engine = createOptimizationEngine()
 
   // 获取用户的所有活跃Campaigns（JOIN offers获取转化价值）
@@ -153,7 +155,7 @@ export async function generateOptimizationTasksForUser(userId: number): Promise<
     FROM optimization_tasks
     WHERE user_id = ?
       AND status = 'pending'
-      AND created_at >= date('now', '-7 days')
+      AND created_at >= ${recentCutoffExpr}
   `,
     [userId]
   ) as any[]
@@ -388,6 +390,7 @@ export async function getTaskStatistics(userId: number): Promise<{
   }
 }> {
   const db = await getDatabase()
+  const recentCutoffExpr = dateMinusDays(30, db.type)
 
   const stats = await db.queryOne(
     `
@@ -402,7 +405,7 @@ export async function getTaskStatistics(userId: number): Promise<{
       SUM(CASE WHEN priority = 'low' AND status = 'pending' THEN 1 ELSE 0 END) as lowPriority
     FROM optimization_tasks
     WHERE user_id = ?
-      AND created_at >= date('now', '-30 days')
+      AND created_at >= ${recentCutoffExpr}
   `,
     [userId]
   ) as any
@@ -426,14 +429,15 @@ export async function getTaskStatistics(userId: number): Promise<{
  */
 export async function cleanupOldTasks(): Promise<number> {
   const db = await getDatabase()
+  const recentCutoffExpr = dateMinusDays(30, db.type)
 
   const result = await db.exec(
     `
     DELETE FROM optimization_tasks
     WHERE status IN ('completed', 'dismissed')
       AND (
-        completed_at < date('now', '-30 days')
-        OR dismissed_at < date('now', '-30 days')
+        completed_at < ${recentCutoffExpr}
+        OR dismissed_at < ${recentCutoffExpr}
       )
   `,
     []

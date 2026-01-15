@@ -8,7 +8,7 @@
  */
 
 import { getDatabase } from '@/lib/db'
-import { nowFunc } from '@/lib/db-helpers'
+import { nowFunc, dateMinusDays } from '@/lib/db-helpers'
 import { proxyHead } from './proxy-axios'
 
 export interface RiskAlert {
@@ -188,6 +188,7 @@ export async function createRiskAlert(
   }
 ): Promise<number> {
   const db = await getDatabase()
+  const recentCutoffExpr = dateMinusDays(1, db.type)
 
   // 检查是否已存在相同的活跃提示（避免重复）
   const resourceId = options?.resourceId ?? null
@@ -196,7 +197,7 @@ export async function createRiskAlert(
     WHERE user_id = ?
       AND alert_type = ?
       AND status = 'active'
-      AND created_at >= date('now', '-1 day')
+      AND created_at >= ${recentCutoffExpr}
   `
 
   const existingParams: any[] = [userId, alertType]
@@ -720,6 +721,7 @@ export async function getRiskStatistics(userId: number): Promise<{
   byType: Record<string, number>
 }> {
   const db = await getDatabase()
+  const recentCutoffExpr = dateMinusDays(30, db.type)
 
   const rows = await db.query(
     `
@@ -733,7 +735,7 @@ export async function getRiskStatistics(userId: number): Promise<{
       COUNT(*) as type_count
     FROM risk_alerts
     WHERE user_id = ?
-      AND created_at >= date('now', '-30 days')
+      AND created_at >= ${recentCutoffExpr}
     GROUP BY alert_type
   `,
     [userId]

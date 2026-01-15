@@ -4,7 +4,7 @@
  */
 import { GoogleAdsApi, enums } from './google-ads-api'
 import { getDatabase } from './db'
-import { boolCondition } from './db-helpers'
+import { boolCondition, dateMinusDays } from './db-helpers'
 import { getCachedKeywordVolume, cacheKeywordVolume, getBatchCachedVolumes, batchCacheVolumes } from './redis'
 import { decrypt } from './crypto'
 import { trackApiUsage, ApiOperationType } from './google-ads-api-tracker'
@@ -319,6 +319,7 @@ export async function getKeywordSearchVolumes(
       const languageCandidates = Array.from(new Set([effectiveLanguage, language].filter(Boolean)))
       const placeholders = uncachedKeywords.map(() => '?').join(',')
       const langPlaceholders = languageCandidates.map(() => '?').join(',')
+      const recentCutoffExpr = dateMinusDays(7, db.type)
 
       const rows = await db.query(`
         SELECT keyword, search_volume, competition_level, avg_cpc_micros
@@ -326,7 +327,7 @@ export async function getKeywordSearchVolumes(
         WHERE keyword IN (${placeholders})
           AND country = ?
           AND language IN (${langPlaceholders})
-          AND created_at > date('now', '-7 days')
+          AND created_at > ${recentCutoffExpr}
       `, [
         ...uncachedKeywords.map(k => k.toLowerCase()),
         effectiveCountry,
